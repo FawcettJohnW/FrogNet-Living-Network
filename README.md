@@ -29,6 +29,8 @@ It runs today across nodes in Seattle, New York and Amsterdam.
 | `tools/make_figures.py` | the script that draws them |
 | `figures.js`, `shell_head.html` | build support for the two editions |
 | `README_BUILD.md` | generator internals, for anyone editing it |
+| `ORACLES.md` | the standing challenge, and what a report should contain |
+| `CONTRIBUTING.md` | four ways in; only one needs a licence |
 
 **Edit the generator, never the output.** Both editions are produced by one `node build_magnum.js` run, and a hand-edit to a `.docx` or `.html` is gone the next time anybody builds.
 
@@ -111,6 +113,8 @@ ORACLE 3  credential manufacture
 ---
 
 ## Contributing
+
+Full detail in [CONTRIBUTING.md](CONTRIBUTING.md); the standing challenge and how to report a run are in [ORACLES.md](ORACLES.md).
 
 **To the book** — issues and pull requests here. A passage that is wrong, unclear, or missing the case you actually have is worth raising; the correction lands in the next build for everybody rather than in one reply to one person.
 
