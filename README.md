@@ -1,4 +1,3 @@
-# FrogNet-Living-Network
 # FrogNet — The Living Network
 
 **Magnum Croakus** — the build manual, the architecture, the reasoning, and the limits.
@@ -23,11 +22,13 @@ It runs today across nodes in Seattle, New York and Amsterdam.
 
 | | |
 |---|---|
-| `Magnum Croakus.docx` | the book, 87,000 words, 59 chapters, 13 appendices |
+| `Magnum_Croakus.docx` | the book, 87,000 words, 59 chapters, 13 appendices |
 | `Magnum Croakus.html` | the same book, web edition |
 | `build_magnum.js` | the generator both editions come out of |
 | `magnum-figures/` | 23 diagrams, drawn from code |
 | `tools/make_figures.py` | the script that draws them |
+| `figures.js`, `shell_head.html` | build support for the two editions |
+| `README_BUILD.md` | generator internals, for anyone editing it |
 
 **Edit the generator, never the output.** Both editions are produced by one `node build_magnum.js` run, and a hand-edit to a `.docx` or `.html` is gone the next time anybody builds.
 
