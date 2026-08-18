@@ -605,7 +605,7 @@ const gld = (children) => (
 const GUILD_URL = "fawcettinnovations.com/license";
 // The public repository holding this book, and its Discussions. One place to
 // change it. Set before the book ships.
-const DISCUSS_URL = "github.com/fawcett-innovations/magnum-croakus/discussions";
+const DISCUSS_URL = "github.com/FawcettJohnW/FrogNet-Living-Network/discussions";
 
 // Recorded material. One place to add a URL as videos go up; a missing entry
 // renders the title with no link rather than a dead one.
