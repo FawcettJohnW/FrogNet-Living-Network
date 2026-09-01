@@ -1,0 +1,1621 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fawcett Innovations, LLC – FrogNet & BullFrog Long Distance Communication™</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Fawcett Innovations, LLC builds FrogNet and BullFrog Long Distance Communication™: sovereign, offline-first intranets, AI hosts, and long-distance radio links for homes, communities, and critical operations when the cloud can’t be trusted or isn’t there." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Fawcett Innovations, LLC – Home of the FrogNet Portable Network" />
+  <meta property="og:description" content="Local-first AI, sovereign intranets, and long-distance radio connectivity for homes, communities, and emergency operations." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://fawcettinnovations.com" />
+
+  <!-- Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #050816;
+      --bg-alt: #070b1a;
+      --bg-soft: #0e1426;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56,189,248,0.15);
+      --accent-strong: #0ea5e9;
+      --text-main: #e5e7eb;
+      --text-soft: #9ca3af;
+      --border-subtle: rgba(148,163,184,0.3);
+      --card-bg: rgba(15,23,42,0.9);
+      --shadow-soft: 0 24px 60px rgba(15,23,42,0.9);
+      --radius-lg: 1.5rem;
+      --radius-md: 1rem;
+      --radius-pill: 999px;
+      --nav-height: 72px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #1d2438 0%, #020617 55%, #020617 100%);
+      color: var(--text-main);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    /* Layout helpers */
+    .container {
+      width: 100%;
+      max-width: 1160px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .section {
+      padding: 4rem 0;
+    }
+
+    .section--tight {
+      padding: 3rem 0;
+    }
+
+    .section__header {
+      margin-bottom: 2.5rem;
+      max-width: 780px;
+    }
+
+    .section__eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      border-radius: var(--radius-pill);
+      background: rgba(15,23,42,0.85);
+      border: 1px solid rgba(148,163,184,0.5);
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+    }
+
+    .section__title {
+      font-size: clamp(2rem, 2.6vw, 2.8rem);
+      margin: 1rem 0 0.75rem;
+    }
+
+    .section__subtitle {
+      color: var(--text-soft);
+      font-size: 0.95rem;
+    }
+
+    /* Top nav */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(18px);
+      background: linear-gradient(to bottom, rgba(2,6,23,0.95), rgba(2,6,23,0.85), transparent);
+      border-bottom: 1px solid rgba(15,23,42,0.95);
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: var(--nav-height);
+    }
+
+    .nav__left {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .nav__logo-mark {
+      width: 36px;
+      height: 36px;
+      border-radius: 40% 60% 55% 45%;
+      background: radial-gradient(circle at 30% 20%, #38bdf8, #0f172a);
+      box-shadow: 0 0 30px rgba(56,189,248,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .nav__brand {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+    }
+
+    .nav__brand-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    .nav__brand-sub {
+      font-size: 0.75rem;
+      color: var(--text-soft);
+    }
+
+    .nav__links {
+      display: flex;
+      align-items: center;
+      gap: 1.75rem;
+      font-size: 0.85rem;
+    }
+
+    .nav__link {
+      color: var(--text-soft);
+      position: relative;
+      padding-bottom: 0.2rem;
+    }
+
+    .nav__link:hover {
+      color: var(--text-main);
+    }
+
+    .nav__link::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      width: 0;
+      height: 2px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--accent), var(--accent-strong));
+      transition: width 0.2s ease-out;
+    }
+
+    .nav__link--cta::after,
+    .nav__link:hover::after {
+      width: 14px;
+    }
+
+    .nav__cta {
+      padding: 0.55rem 1.2rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.4);
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.25), rgba(15,23,42,0.9));
+      box-shadow: 0 10px 30px rgba(15,23,42,0.9);
+    }
+
+    .nav__cta span {
+      font-size: 1rem;
+      transform: translateY(1px);
+    }
+
+    .nav__toggle {
+      display: none;
+      border: 1px solid rgba(148,163,184,0.4);
+      background: rgba(15,23,42,0.9);
+      border-radius: 999px;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .nav__toggle span {
+      font-size: 1.2rem;
+      display: inline-block;
+      transform: translateY(1px);
+    }
+
+    .nav__links--mobile {
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 0 1.5rem 1.25rem;
+      background: rgba(2,6,23,0.98);
+      border-bottom: 1px solid rgba(15,23,42,0.9);
+      font-size: 0.85rem;
+    }
+
+    .nav__links--mobile .nav__cta {
+      justify-content: center;
+      width: 100%;
+    }
+
+    /* Hero */
+    .hero {
+      padding: 2.5rem 0 4.5rem;
+    }
+
+    .hero__grid {
+      display: grid;
+      grid-template-columns: minmax(0, 3.2fr) minmax(0, 2.8fr);
+      gap: 3rem;
+      align-items: center;
+    }
+
+    .hero__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.85rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.5);
+      background: rgba(15,23,42,0.9);
+      font-size: 0.75rem;
+      color: var(--text-soft);
+    }
+
+    .hero__badge-pill {
+      padding: 0.15rem 0.65rem;
+      border-radius: 999px;
+      background: radial-gradient(circle at 30% 20%, rgba(56,189,248,0.9), rgba(15,23,42,0.95));
+      color: #0f172a;
+      font-weight: 600;
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .hero__title {
+      font-size: clamp(2.5rem, 4vw, 3.3rem);
+      line-height: 1.05;
+      margin: 1.75rem 0 1rem;
+    }
+
+    .hero__title span {
+      background: linear-gradient(to right, #22c55e, #38bdf8);
+      -webkit-background-clip: text;
+      color: transparent;
+    }
+
+    .hero__subtitle {
+      color: var(--text-soft);
+      font-size: 0.98rem;
+      max-width: 560px;
+    }
+
+    .hero__cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.9rem;
+      margin-top: 1.8rem;
+      align-items: center;
+    }
+
+    .btn {
+      border-radius: var(--radius-pill);
+      padding: 0.75rem 1.5rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      cursor: pointer;
+      background: transparent;
+      color: inherit;
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, background 0.12s ease-out, border-color 0.12s ease-out;
+    }
+
+    .btn--primary {
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.7), rgba(56,189,248,0.1));
+      border-color: rgba(56,189,248,0.7);
+      box-shadow: 0 18px 40px rgba(15,23,42,0.95);
+    }
+
+    .btn--primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 22px 55px rgba(15,23,42,1);
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.85), rgba(56,189,248,0.18));
+    }
+
+    .btn--ghost {
+      border-color: rgba(148,163,184,0.4);
+      background: rgba(15,23,42,0.8);
+    }
+
+    .btn--ghost:hover {
+      transform: translateY(-1px);
+      border-color: rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.95);
+    }
+
+    .hero__meta {
+      margin-top: 1.75rem;
+      display: flex;
+      flex-wrap: zoom;
+      gap: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--text-soft);
+    }
+
+    .hero__meta-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      min-width: 140px;
+    }
+
+    .hero__meta-label {
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 0.7rem;
+      color: #64748b;
+    }
+
+    .hero__meta-value {
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    /* Hero visual */
+    .hero__card {
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.35), rgba(15,23,42,1));
+      border-radius: calc(var(--radius-lg) * 1.1);
+      padding: 1.4rem;
+      border: 1px solid rgba(148,163,184,0.35);
+      box-shadow: var(--shadow-soft);
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+    }
+
+    .hero__halo {
+      position: absolute;
+      inset: -40%;
+      opacity: 0.22;
+      background: radial-gradient(circle at 20% 0%, #22c55e, transparent 55%),
+                  radial-gradient(circle at 80% 100%, #0ea5e9, transparent 55%);
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    .hero__chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .hero__chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0.8rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(15,23,42,0.85);
+      background: rgba(15,23,42,0.9);
+      font-size: 0.7rem;
+      color: var(--text-soft);
+    }
+
+    .hero__chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: radial-gradient(circle, #4ade80, #16a34a);
+      box-shadow: 0 0 10px rgba(74,222,128,0.9);
+    }
+
+    .hero__network {
+      margin-top: 1rem;
+      padding: 1.2rem;
+      border-radius: var(--radius-md);
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(148,163,184,0.4);
+    }
+
+    .hero__network-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.8rem;
+      font-size: 0.78rem;
+      color: var(--text-soft);
+    }
+
+    .hero__pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .hero__pill {
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(148,163,184,0.4);
+      font-size: 0.7rem;
+      color: var(--text-soft);
+    }
+
+    .hero__map {
+      margin-top: 1rem;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.75rem;
+    }
+
+    .hero__node {
+      background: radial-gradient(circle at top, rgba(56,189,248,0.28), rgba(15,23,42,0.96));
+      border-radius: 1rem;
+      border: 1px solid rgba(56,189,248,0.7);
+      padding: 0.6rem 0.7rem;
+      font-size: 0.75rem;
+    }
+
+    .hero__node-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.15rem;
+    }
+
+    .hero__node-label {
+      font-weight: 500;
+      font-size: 0.76rem;
+    }
+
+    .hero__node-tag {
+      font-size: 0.65rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid rgba(15,23,42,0.9);
+      background: rgba(15,23,42,0.95);
+      color: #bae3ff;
+    }
+
+    .hero__node-meta {
+      font-size: 0.7rem;
+      color: #cbd5f5;
+    }
+
+    .hero__footer {
+      margin-top: 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.76rem;
+      color: var(--text-soft);
+      flex-wrap: wrap;
+    }
+
+    .hero__footer-pill {
+      padding: 0.25rem 0.6rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.6);
+      background: rgba(15,23,42,0.9);
+    }
+
+    /* Value strip */
+    .logo-strip {
+      border-top: 1px solid rgba(15,23,42,0.95);
+      border-bottom: 1px solid rgba(15,23,42,0.95);
+      background: rgba(15,23,42,0.98);
+    }
+
+    .logo-strip__inner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.4rem;
+      align-items: center;
+      justify-content: center;
+      padding: 0.9rem 0;
+      font-size: 0.75rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .logo-strip__dot {
+      width: 3px;
+      height: 3px;
+      border-radius: 999px;
+      background: #475569;
+    }
+
+    /* Generic grids & cards */
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.5rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+      padding: 1.5rem 1.4rem;
+      box-shadow: 0 18px 40px rgba(15,23,42,0.9);
+    }
+
+    .card__eyebrow {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #64748b;
+      margin-bottom: 0.3rem;
+    }
+
+    .card__title {
+      font-size: 1.05rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .card__body {
+      font-size: 0.88rem;
+      color: var(--text-soft);
+    }
+
+    .card__tags {
+      margin-top: 0.9rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .tag {
+      padding: 0.15rem 0.6rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.4);
+      font-size: 0.7rem;
+      color: #cbd5f5;
+      background: rgba(15,23,42,0.9);
+    }
+
+    /* Two-column splits */
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 2.5fr) minmax(0, 2.5fr);
+      gap: 2rem;
+      align-items: start;
+    }
+
+    .list {
+      list-style: none;
+      padding: 0;
+      margin: 0.75rem 0 0;
+      display: grid;
+      gap: 0.4rem;
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .list li::before {
+      content: "•";
+      color: var(--accent);
+      display: inline-block;
+      width: 1rem;
+      margin-left: -1rem;
+    }
+
+    .badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(56,189,248,0.6);
+      background: rgba(15,23,42,0.9);
+      font-size: 0.72rem;
+      color: #bae3ff;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .badge-pill span {
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 999px;
+      background: #22c55e;
+      box-shadow: 0 0 10px rgba(34,197,94,0.9);
+    }
+
+    /* Timeline */
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .timeline__step {
+      position: relative;
+      padding: 1.1rem 1rem;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(148,163,184,0.45);
+      background: rgba(15,23,42,0.95);
+      font-size: 0.85rem;
+    }
+
+    .timeline__step-num {
+      font-size: 0.75rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 0.2rem;
+    }
+
+    .timeline__step-title {
+      font-size: 0.9rem;
+      margin-bottom: 0.25rem;
+      color: #e2e8f0;
+    }
+
+    /* Video section */
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1.4rem;
+    }
+
+    .video-card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-subtle);
+      padding: 1rem;
+      box-shadow: 0 18px 40px rgba(15,23,42,0.9);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .video-card__frame {
+      position: relative;
+      padding-top: 56.25%;
+      border-radius: 1rem;
+      overflow: hidden;
+      background: #020617;
+    }
+
+    .video-card__frame iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+    }
+
+    .video-card__title {
+      font-size: 0.95rem;
+      font-weight: 500;
+    }
+
+    .video-card__body {
+      font-size: 0.85rem;
+      color: var(--text-soft);
+    }
+
+    /* BullFrog section */
+    .bf-callout {
+      border-radius: var(--radius-lg);
+      padding: 1.5rem 1.5rem;
+      background: radial-gradient(circle at top left, rgba(34,197,94,0.35), rgba(15,23,42,0.95));
+      border: 1px solid rgba(34,197,94,0.6);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .bf-metric-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      margin-top: 1.2rem;
+    }
+
+    .bf-metric {
+      flex: 1 1 140px;
+      padding: 0.9rem 1rem;
+      border-radius: 1rem;
+      border: 1px solid rgba(148,163,184,0.5);
+      background: rgba(15,23,42,0.92);
+      font-size: 0.85rem;
+      color: var(--text-soft);
+    }
+
+    .bf-metric strong {
+      display: block;
+      font-size: 1.1rem;
+      margin-bottom: 0.3rem;
+      color: var(--text-main);
+    }
+
+    /* Founder & Contact */
+    .founder {
+      display: grid;
+      grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.9fr);
+      gap: 1.8rem;
+      align-items: center;
+    }
+
+    .founder__bio {
+      font-size: 0.9rem;
+      color: var(--text-soft);
+    }
+
+    .founder__highlight {
+      padding: 1.1rem 1rem;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(148,163,184,0.45);
+      background: rgba(15,23,42,0.95);
+      font-size: 0.84rem;
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    .founder__highlight span {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .founder__highlight span::before {
+      content: "◆";
+      font-size: 0.55rem;
+      color: var(--accent);
+    }
+
+    .contact {
+      display: grid;
+      grid-template-columns: minmax(0, 2.3fr) minmax(0, 2.7fr);
+      gap: 2rem;
+      align-items: start;
+    }
+
+    .contact__card {
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(148,163,184,0.5);
+      padding: 1.6rem 1.5rem;
+      background: radial-gradient(circle at top left, rgba(56,189,248,0.25), rgba(15,23,42,0.96));
+      box-shadow: 0 18px 40px rgba(15,23,42,0.9);
+      font-size: 0.88rem;
+      color: var(--text-soft);
+    }
+
+    .contact__meta {
+      margin-top: 0.7rem;
+    }
+
+    .contact__meta a {
+      color: var(--accent);
+    }
+
+    .contact__split {
+      display: grid;
+      gap: 1rem;
+      margin-top: 1.2rem;
+    }
+
+    .contact__subcard {
+      border-radius: 1rem;
+      border: 1px solid rgba(148,163,184,0.45);
+      padding: 0.9rem 0.9rem;
+      background: rgba(15,23,42,0.9);
+      font-size: 0.82rem;
+      color: var(--text-soft);
+    }
+
+    form {
+      display: grid;
+      gap: 0.8rem;
+      font-size: 0.85rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      margin-bottom: 0.2rem;
+      color: #9ca3af;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      padding: 0.6rem 0.7rem;
+      border-radius: 0.75rem;
+      border: 1px solid rgba(51,65,85,0.9);
+      background: rgba(15,23,42,0.92);
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 0.84rem;
+      resize: vertical;
+      min-height: 0;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(56,189,248,0.5);
+    }
+
+    textarea {
+      min-height: 110px;
+    }
+
+    .contact__note {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 0.5rem;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid rgba(15,23,42,0.95);
+      background: rgba(2,6,23,0.98);
+      padding: 1.2rem 0;
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+
+    .footer__inner {
+      display: fine;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .footer__links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .footer__links a {
+      color: #9ca3af;
+    }
+
+    .footer__links a:hover {
+      color: var(--accent);
+    }
+
+    /* Responsive */
+    @media (max-width: 960px) {
+      .hero__grid,
+      .split,
+      .contact,
+      .founder {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .timeline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .video-grid,
+      .grid-3 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .hero {
+        padding-top: 2rem;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .nav__links {
+        display: none;
+      }
+
+      .nav__toggle {
+        display: inline-flex;
+      }
+
+      .video-grid,
+      .grid-3,
+      .timeline {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .section {
+        padding: 3rem 0;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .hero__title {
+        font-size: 2.1rem;
+      }
+
+      .hero__cta-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .hero__badge {
+        flex-wrap: wrap;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- NAV -->
+  <header>
+    <div class="container">
+      <div class="nav">
+        <div class="nav__left">
+          <div class="nav__logo-mark">Fi</div>
+          <div class="nav__brand">
+            <div class="nav__brand-title">Fawcett Innovations, LLC</div>
+            <div class="nav__brand-sub">Home of the FrogNet Portable Network</div>
+          </div>
+        </div>
+        <nav class="nav__links" aria-label="Primary">
+          <a href="#why" class="nav__link">Why Local-First</a>
+          <a href="#frognet" class="nav__link">FrogNet</a>
+          <a href="#bullfrog" class="nav__link">BullFrog LDC</a>
+          <a href="#videos" class="nav__link">Videos</a>
+          <a href="#tech" class="nav__link">Technology</a>
+          <a href="#founder" class="nav__link">Founder</a>
+          <a href="#contact" class="nav__link nav__link--cta">
+            <div class="nav__cta">
+              Talk to us
+              <span>↗</span>
+            </div>
+          </a>
+        </nav>
+        <button class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navMobile">
+          Menu <span>☰</span>
+        </button>
+      </div>
+    </div>
+    <nav class="nav__links--mobile" id="navMobile" aria-label="Mobile">
+      <a href="#why" class="nav__link">Why Local-First</a>
+      <a href="#frognet" class="nav__link">FrogNet</a>
+      <a href="#bullfrog" class="nav__link">BullFrog LDC</a>
+      <a href="#videos" class="nav__link">Videos</a>
+      <a href="#tech" class="nav__link">Technology</a>
+      <a href="#founder" class="nav__link">Founder</a>
+      <button class="nav__cta" type="button" onclick="document.getElementById('contact').scrollIntoView({behavior:'smooth'})">
+        Talk to us
+        <span>↗</span>
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="container hero__grid">
+        <div>
+          <div class="hero__badge">
+            <div class="hero__badge-pill">Sovereign by design</div>
+            Local-first networking, AI &amp; long-distance radio
+          </div>
+          <h1 class="hero__title">
+            Your network.<br />
+            Your data.<br />
+            <span>Even when the Internet is gone.</span>
+          </h1>
+          <p class="hero__subtitle">
+            Fawcett Innovations, LLC builds <strong>FrogNet</strong> and <strong>BullFrog Long Distance Communication™</strong> – 
+            portable, self-forming networks with embedded AI and ultra-efficient radio transport.
+            Keep homes, farms, campuses, and emergency operations online and informed when cloud and carrier systems fail.
+          </p>
+          <div class="hero__cta-row">
+            <button class="btn btn--primary" type="button" onclick="document.getElementById('frognet').scrollIntoView({behavior:'smooth'})">
+              Explore FrogNet
+              <span>➜</span>
+            </button>
+            <button class="btn--ghost btn" type="button" onclick="document.getElementById('bullfrog').scrollIntoView({behavior:'smooth'})">
+              Meet BullFrog LDC
+            </button>
+          </div>
+          <div class="hero__meta" style="margin-top:2rem;">
+            <div class="hero__meta-group">
+              <div class="hero__meta-label">Built for</div>
+              <div class="hero__meta-value">
+                Smart homes, off-grid cabins, farms, campuses, and emergency response.
+              </div>
+            </div>
+            <div class="hero__meta-group">
+              <div class="hero__meta-label">Keeps working</div>
+              <div class="hero__meta-value">
+                Power from a battery. Backhaul from SAT, LTE, LoRa, ham, or nothing at all.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hero__card" aria-label="FrogNet & BullFrog status overview">
+          <div class="hero__halo"></div>
+          <div class="hero__chip-row">
+            <div class="hero__chip">
+              <span class="hero__chip-dot"></span>
+              Home: smart devices sandboxed from finances &amp; workstations
+            </div>
+            <div class="hero__chip">
+              <span class="hero__chip-dot"></span>
+              Field: self-forming FrogNet nodes over radio &amp; Wi-Fi
+            </div>
+          </div>
+          <div class="hero__network">
+            <div class="hero__network-header">
+              <span>Live FrogNet cluster · 4 nodes · 1000+ device capacity</span>
+              <span>Local uptime 99.99%</span>
+            </div>
+            <div class="hero__pill-row">
+              <div class="hero__pill">Offline AI Host</div>
+              <div class="hero__pill">BullFrog LDC</div>
+              <div class="hero__pill">Multi-radio backhaul</div>
+              <div class="hero__pill">Auto discovery &amp; routing</div>
+            </div>
+            <div class="hero__map" style="margin-top:1rem;">
+              <div class="hero__node">
+                <div class="hero__node-title">
+                  <span class="hero__node-label">Home-01</span>
+                  <span class="hero__node-tag">Core</span>
+                </div>
+                <div class="hero__node-meta">Router + Linux host · 10.42.0.0/24</div>
+              </div>
+              <div class="hero__node">
+                <div class="hero__node-title">
+                  <span class="hero__node-label">Field-Unit-A</span>
+                  <span class="hero__node-tag">Radio</span>
+                </div>
+                <div class="hero__node-meta">BullFrog LDC over UHF link</div>
+              </div>
+              <div class="hero__node">
+                <div class="hero__node-title">
+                  <span class="hero__node-label">Backhaul-Edge</span>
+                  <span class="hero__node-tag">SAT/LTE</span>
+                </div>
+                <div class="hero__node-meta">Bursting semantic traffic via <code>ip route</code></div>
+              </div>
+            </div>
+            <div class="hero__footer">
+              <span class="hero__footer-pill">
+                2–10 KB JSON → ~20–80 B BullFrog messages
+              </span>
+              <span>50–100× smaller, lower latency, rides on any Linux-visible link.</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- VALUE STRIP -->
+    <section class="logo-strip" aria-label="Key audiences">
+      <div class="container logo-strip__inner">
+        <span>SMART HOMES &amp; PRIVACY</span>
+        <span class="logo-strip__dot"></span>
+        <span>EMERGENCY MANAGEMENT</span>
+        <span class="logo-strip__dot"></span>
+        <span>AGRICULTURE &amp; INDUSTRIAL</span>
+        <span class="logo-strip__dot"></span>
+        <span>OFF-GRID &amp; SOVEREIGN NETWORKS</span>
+      </div>
+    </section>
+
+    <!-- WHY LOCAL-FIRST -->
+    <section id="why" class="section">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">Why Local-First Everything</div>
+          <h2 class="section__title">The cloud is just someone else’s computers on someone else’s power.</h2>
+          <p class="section__subtitle">
+            “The cloud” is not magic. It’s a cluster of power-hungry data centers, run by people you don’t control, reachable over
+            networks you don’t own. When the Internet fails or a provider changes terms, your “smart” world can go dark.
+            Fawcett Innovations, LLC starts from a different assumption: critical networks and AI must run <strong>under your control,
+            on hardware you own</strong>, with the cloud as a useful extra – not a dependency.
+          </p>
+        </div>
+
+        <div class="grid-3">
+          <article class="card">
+            <div class="card__eyebrow">For homes &amp; small offices</div>
+            <h3 class="card__title">Separate risky gadgets from what matters</h3>
+            <p class="card__body">
+              Smart cameras, doorbells, and other IoT devices are notoriously insecure. With FrogNet from Fawcett Innovations, LLC you can
+              put those devices on their own network, completely isolated from your laptops and bank accounts, while still letting
+              them do their jobs.
+            </p>
+            <div class="card__tags">
+              <span class="tag">Air-gapped IoT VLANs</span>
+              <span class="tag">Self-hosted media &amp; apps</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card__eyebrow">For communities &amp; responders</div>
+            <h3 class="card__title">A working intranet in hours, not days</h3>
+            <p class="card__body">
+              After storms, fires, or fiber cuts, traditional connectivity disappears. FrogNet kits from Fawcett Innovations, LLC bring up
+              Wi-Fi, local apps, and AI triage in hours – not days – using commodity gear, batteries, and whatever radio or backhaul
+              you have.
+            </p>
+            <div class="card__tags">
+              <span class="tag">Shelter &amp; EOC Wi-Fi</span>
+              <span class="tag">Local status boards</span>
+              <span class="tag">Offline forms &amp; chat</span>
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card__eyebrow">For operators &amp; industry</div>
+            <h3 class="card__title">Edge AI on realistic links</h3>
+            <p class="card__body">
+              The FrogNet AI Host Platform runs compact, domain-specific models on small Linux hosts – fusing sensor data and serving
+              operators even when you only have a narrow radio, microwave, or leased-line path back to HQ.
+            </p>
+            <div class="card__tags">
+              <span class="tag">Bounded-domain LLMs</span>
+              <span class="tag">SCADA-lite</span>
+              <span class="tag">Low-bandwidth ops</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- FROGNET PLATFORM -->
+    <section id="frognet" class="section section--tight">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">FrogNet Platform</div>
+          <h2 class="section__title">A portable, self-forming intranet you actually own.</h2>
+          <p class="section__subtitle">
+            FrogNet from Fawcett Innovations, LLC is a stand-alone TCP/IP Class C network you can spin up anywhere. It gives you
+            local DNS, DHCP, routing, dashboards, media and data services – all on a small Linux host and a router, no upstream
+            connection required.
+          </p>
+        </div>
+
+        <div class="split">
+          <div>
+            <span class="badge-pill"><span></span> Core capabilities</span>
+            <ul class="list">
+              <li><strong>Sovereign intranets:</strong> Each FrogNet runs its own DHCP, DNS, and routing, so local devices keep working even when the ISP is down.</li>
+              <li><strong>Network of networks:</strong> Join 2, 4, or 20 FrogNets into a single “internet-of-FrogNets” where every site has its own subnet and hostname space.</li>
+              <li><strong>Smart segmentation:</strong> Keep smart home gadgets on one network and sensitive devices on another – with a true air gap between them.</li>
+              <li><strong>Commodity hardware:</strong> Raspberry Pi, Intel NUCs, retired laptops, off-the-shelf routers – all orchestrated by the FrogNet host stack.</li>
+              <li><strong>Self-hosted services:</strong> Run media servers, file shares, Home Assistant, Ghost, Jami, Firefly III, PhotoPrism, and more entirely on your network.</li>
+            </ul>
+
+            <div style="margin-top:1.4rem;" class="grid-2">
+              <article class="card">
+                <h3 class="card__title">Keep calm when the ISP isn’t</h3>
+                <p class="card__body">
+                  When the Internet drops, your FrogNet keeps right on working. Cameras, dashboards, files, and local chat stay online.
+                  If you later connect an upstream link, all your FrogNets can share it automatically.
+                </p>
+              </article>
+              <article class="card">
+                <h3 class="card__title">Built by network engineers</h3>
+                <p class="card__body">
+                  Under the hood, FrogNet is mostly Bash and well-understood Linux tools like <code>dnsmasq</code>, <code>NetworkManager</code>,
+                  and <code>ip</code>. It automates what an expert would do by hand – without turning your network into a black box.
+                </p>
+              </article>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card__eyebrow">Real-world topology</div>
+            <h3 class="card__title">From single-node to roaming mesh</h3>
+            <p class="card__body">
+              FrogNets don’t care if your links are fiber, Wi-Fi, or a pair of USB–Ethernet adapters across a field. If Linux can see
+              it as an interface and you can point an <code>ip route</code> at it, FrogNet can incorporate it.
+            </p>
+            <ul class="list">
+              <li>Spin up a single FrogNet for your home or cabin – a full intranet in a shoebox.</li>
+              <li>Drop additional FrogNets into outbuildings, remote cameras, or vehicles; they auto-discover and sync.</li>
+              <li>Build “snake” and “hub-and-spoke” topologies to stitch together neighborhoods, farms, or incident scenes.</li>
+              <li>Switch or add backhauls in minutes – plug in a SAT modem, LTE hotspot, microwave link, or radio TNC and update <code>ip</code> routes.</li>
+            </ul>
+            <!-- Optional hero/diagram from your existing media -->
+            <div style="margin-top:1.25rem; border-radius:1rem; overflow:hidden; background:rgba(15,23,42,0.8); border:1px solid var(--border-subtle);">
+              <img src="PATH-TO-YOUR-FROGNET-TOPOLOGY-IMAGE.jpg" alt="Illustration of multiple FrogNet nodes linked over Wi-Fi and radio backhauls" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- BULLFROG LONG DISTANCE COMMUNICATION -->
+    <section id="bullfrog" class="section">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">BullFrog Long Distance Communication™</div>
+          <h2 class="section__title">A breakthrough in ultra-low-bandwidth, low-latency radio networking.</h2>
+          <p class="section__subtitle">
+            When you only have a crackly VHF link, a shared SAT hotspot, or a borrowed microwave hop, traditional IP and HTTP are
+            painfully inefficient. BullFrog Long Distance Communication™ (BullFrog LDC) is Fawcett Innovations, LLC’s semantic
+            transport layer that turns choppy, low-bitrate links into something you can actually work over.
+          </p>
+        </div>
+
+        <div class="bf-callout">
+          <h3 style="margin-top:0; margin-bottom:0.75rem; font-size:1.1rem;">
+            From kilobytes to bytes: semantic compression that changes what’s possible.
+          </h3>
+          <p style="margin-top:0; font-size:0.95rem; color:var(--text-soft);">
+            Typical web and API payloads are chatty – JSON, HTML, images, JavaScript. BullFrog LDC replaces all of that with a compact
+            stream of <strong>template IDs, opcodes, and parameters</strong>. A 2–10 KB status report can shrink to roughly <strong>20–80 bytes</strong>,
+            cutting bandwidth requirements by tens of times and dramatically reducing on-air time.
+          </p>
+
+          <div class="bf-metric-row">
+            <div class="bf-metric">
+              <strong>50–100× smaller</strong>
+              Typical JSON or form posts become tiny semantic messages, enabling meaningful communication on links that were previously unusable.
+            </div>
+            <div class="bf-metric">
+              <strong>Faster intent delivery</strong>
+              Less data on the wire means shorter airtime per message, lower latency, and more chances to get through noisy or intermittent channels.
+            </div>
+            <div class="bf-metric">
+              <strong>Bring your own link</strong>
+              If your modem or radio shows up as a Linux network interface and accepts <code>ip</code> routes, BullFrog LDC can ride on top of it.
+            </div>
+          </div>
+
+          <div class="bf-metric-row" style="margin-top:1.4rem;">
+            <div class="bf-metric" style="flex-basis:100%;">
+              <strong>Radio-native by design</strong>
+              BullFrog LDC treats <em>any</em> path – HF/VHF/UHF data radios, ham links, SAT terminals, point-to-point microwave, even
+              serial-over-IP and ancient copper – as just another route in Linux. You focus on where messages should go; BullFrog LDC
+              handles how to pack, prioritize, and ship them.
+            </div>
+          </div>
+        </div>
+
+        <div class="split" style="margin-top:2.5rem;">
+          <div class="card">
+            <div class="card__eyebrow">For emergency &amp; field operations</div>
+            <h3 class="card__title">Stay connected on a shoestring link</h3>
+            <p class="card__body">
+              When a region is cut off, you may be operating on a single shared SAT terminal, an HF data link, or a small UHF radio
+              path. BullFrog LDC lets your FrogNet move:
+            </p>
+            <ul class="list">
+              <li>High-priority SOS and status messages that fit into a few dozen bytes.</li>
+              <li>Structured forms (damage, medical, logistics) sent as compressed semantic packets.</li>
+              <li>Command-and-control updates that don’t require full Internet or VPN tunnels.</li>
+              <li>Store-and-forward messaging when links are intermittent or scheduled.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <div class="card__eyebrow">For pioneers &amp; builders</div>
+            <h3 class="card__title">A radio overlay you can understand</h3>
+            <p class="card__body">
+              BullFrog LDC is implemented with transparent, inspectable tooling. At its core:
+            </p>
+            <ul class="list">
+              <li>Runs on Linux – no proprietary black boxes required.</li>
+              <li>Uses standard <code>ip</code> routing: if you can add an <code>ip route</code> to an interface, you can plug it into BullFrog LDC.</li>
+              <li>Plays well with existing radios and modems instead of replacing them.</li>
+              <li>Extensible: add new templates, message types, and integrations without rewriting the transport.</li>
+            </ul>
+            <p class="card__body" style="margin-top:0.7rem;">
+              The result: a long-distance digital nerve system that’s simple to reason about, simple to debug, and shockingly frugal
+              with bandwidth.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIDEO SECTION -->
+    <section id="videos" class="section">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">See it working</div>
+          <h2 class="section__title">FrogNet &amp; BullFrog LDC on video.</h2>
+          <p class="section__subtitle">
+            Short, focused demos from the Fawcett Innovations, LLC video channel show the FrogNet platform, the AI Host, and the
+            dashboard in action.
+          </p>
+        </div>
+
+        <div class="video-grid">
+          <article class="video-card">
+            <div class="video-card__frame">
+              <!-- Introducing the FrogNet (YouTube) -->
+              <iframe
+                src="https://www.youtube.com/embed/_mJ_dcP4U60"
+                title="Introducing the FrogNet – Fawcett Innovations, LLC"
+                allowfullscreen
+                loading="lazy"
+              ></iframe>
+            </div>
+            <div class="video-card__title">Introducing the FrogNet</div>
+            <p class="video-card__body">
+              A concise overview of what a FrogNet is, how it differs from ordinary home routers and mesh systems, and why local-first
+              networking matters for privacy and resilience.
+            </p>
+          </article>
+
+          <article class="video-card">
+            <div class="video-card__frame">
+              <!-- FrogNet AI Host Platform Demo (YouTube) -->
+              <iframe
+                src="https://www.youtube.com/embed/kfBa05PvN7U"
+                title="FrogNet AI Host Platform Demo – Fawcett Innovations, LLC"
+                allowfullscreen
+                loading="lazy"
+              ></iframe>
+            </div>
+            <div class="video-card__title">FrogNet AI Host Platform Demo</div>
+            <p class="video-card__body">
+              Walk through the FrogNet AI Host Platform: how it ingests data, builds embeddings, exposes a network-addressable database,
+              and serves bounded-domain AI models locally.
+            </p>
+          </article>
+
+          <article class="video-card">
+            <div class="video-card__frame">
+              <!-- FrogNet AI Host Dashboard Demo (YouTube) -->
+              <iframe
+                src="https://www.youtube.com/embed/-oZX5yOYr_Q"
+                title="FrogNet AI Host Dashboard Demo – Fawcett Innovations, LLC"
+                allowfullscreen
+                loading="lazy"
+              ></iframe>
+            </div>
+            <div class="video-card__title">FrogNet AI Host Dashboard Demo</div>
+            <p class="video-card__body">
+              See a domain-focused expert system answering hard, field-specific questions using local data and models on a FrogNet AI Host.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- TECHNOLOGY / ARCHITECTURE -->
+    <section id="tech" class="section section--tight">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">Under the hood</div>
+          <h2 class="section__title">A composable, transparent architecture.</h2>
+          <p class="section__subtitle">
+            FrogNet from Fawcett Innovations, LLC is built from simple, well-understood components – Linux, dnsmasq, NetworkManager,
+            Apache, and the custom FrogNet and BullFrog LDC layers – wrapped in an automation system that does what a seasoned
+            network engineer would do by hand.
+          </p>
+        </div>
+
+        <div class="split">
+          <div>
+            <span class="badge-pill"><span></span> Building blocks</span>
+            <ul class="list">
+              <li><strong>FrogNet Host:</strong> A Linux computer (Pi, NUC, or repurposed laptop) that becomes the brain of your network.</li>
+              <li><strong>LillyPad-style routers:</strong> Small routers in AP mode; the host claims the <code>.1</code> address and runs DHCP, DNS, and routing.</li>
+              <li><strong>AI Host Platform:</strong> Local language models, retrieval, and Knowledge Packs for specific domains (agriculture, emergency response, industrial, home).</li>
+              <li><strong>BullFrog LDC:</strong> The long-distance semantic transport layer that rides over any Linux-routable link.</li>
+              <li><strong>Self-healing directory:</strong> Each FrogNet announces its presence and routes; the network converges as nodes join, move, or reconnect.</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="card__eyebrow">From upstream dependency to autonomy</div>
+            <h3 class="card__title">Cloud when you have it, independence when you don’t</h3>
+            <p class="card__body">
+              In a traditional network, your router depends on an upstream ISP for DNS, DHCP, and path decisions; when that link dies,
+              everything goes dark. In a FrogNet from Fawcett Innovations, LLC, the upstream is just another route – useful, but not required.
+            </p>
+            <ul class="list">
+              <li>Local name resolution and routing across all joined FrogNets.</li>
+              <li>Automatic detection of upstream links via <code>ip</code> and <code>NetworkManager</code> events.</li>
+              <li>Traffic steering: choose what uses the Internet, what stays local, and what rides BullFrog LDC.</li>
+              <li>Designed for clarity: configuration is scriptable and inspectable, not hidden behind wizards.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOUNDER -->
+    <section id="founder" class="section">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">Who’s building this</div>
+          <h2 class="section__title">Fawcett Innovations, LLC is a builder’s company.</h2>
+          <p class="section__subtitle">
+            Behind FrogNet and BullFrog Long Distance Communication™ is a founder with decades of experience building
+            the invisible infrastructure that modern life runs on.
+          </p>
+        </div>
+
+        <div class="founder">
+          <div>
+            <h3 style="margin:0 0 0.4rem;font-size:1rem;">John W. Fawcett · Founder &amp; Principal Engineer, Fawcett Innovations, LLC</h3>
+            <p class="founder__bio">
+              John W. Fawcett is a seasoned software and systems engineer whose work has touched millions of people – from early
+              online gaming and flight simulations to enterprise software, environmental systems, and contributions to major
+              operating systems and tools.
+            </p>
+            <p class="founder__bio">
+              At Fawcett Innovations, LLC, John is focused on a single, stubborn problem: how to give ordinary people and
+              frontline teams the kind of resilient, intelligent networking that used to be reserved for well-funded data centers
+              and national labs.
+            </p>
+          </div>
+          <div class="founder__highlight">
+            <span>End-to-end builder: from shell scripts and RF links to architecture, UX, and deployment.</span>
+            <span>Deep experience in large-scale automation, networking, and systems that must not fail quietly.</span>
+            <span>Committed to local-first, privacy-respecting, cloud-optional solutions that communities can actually own.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTACT -->
+    <section id="contact" class="section section--tight">
+      <div class="container">
+        <div class="section__header">
+          <div class="section__eyebrow">Let’s talk</div>
+          <h2 class="section__title">Pilots, partnerships, and “could this work here?”</h2>
+          <p class="section__subtitle">
+            Whether you’re securing a smart home, hardening a campus, planning a resilience project, or exploring long-distance radio
+            connectivity with BullFrog Long Distance Communication™, Fawcett Innovations, LLC is ready to collaborate.
+          </p>
+        </div>
+
+        <div class="contact">
+          <div class="contact__card">
+            <h3 style="margin-top:0;margin-bottom:0.4rem;font-size:1rem;">Contact Fawcett Innovations, LLC</h3>
+            <p class="contact__meta">
+              Email:
+              <a href="mailto:john@fawcettinnovations.com">john@fawcettinnovations.com</a><br />
+              Phone: (206) 335-9639
+            </p>
+            <div class="contact__split">
+              <div class="contact__subcard">
+                <strong>Mailing address</strong><br />
+                Fawcett Innovations, LLC<br />
+                16725 Ambaum Blvd. S.<br />
+                Burien, WA 98148<br />
+                United States
+              </div>
+              <div class="contact__subcard">
+                <strong>How we can help</strong>
+                <ul class="list" style="margin-top:0.4rem;">
+                  <li>FrogNet for home / small office privacy and self-hosting.</li>
+                  <li>BullFrog Long Distance Communication™ pilots over existing radios.</li>
+                  <li>Community and emergency preparedness networks.</li>
+                  <li>Agriculture, SCADA-lite, and remote operations with edge AI.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Front-end only form. Wire this to your email provider or backend. -->
+          <form onsubmit="handleFormSubmit(event)">
+            <div>
+              <label for="name">Name</label>
+              <input id="name" name="name" type="text" placeholder="Your name" required />
+            </div>
+            <div>
+              <label for="org">Organization</label>
+              <input id="org" name="org" type="text" placeholder="City / agency / company / project" />
+            </div>
+            <div>
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" placeholder="you@example.org" required />
+            </div>
+            <div>
+              <label for="interest">What are you interested in?</label>
+              <select id="interest" name="interest" required>
+                <option value="">Select one…</option>
+                <option value="home">FrogNet for home / small office</option>
+                <option value="resilience">Resilience / emergency networking</option>
+                <option value="industrial">Agriculture / SCADA-lite / industrial</option>
+                <option value="offgrid">Off-grid / sovereignty deployments</option>
+                <option value="bullfrog">BullFrog Long Distance Communication™</option>
+                <option value="other">Something else</option>
+              </select>
+            </div>
+            <div>
+              <label for="message">Tell us a bit about your environment</label>
+              <textarea id="message" name="message" placeholder="What problem are you trying to solve? What links do you have (fiber, LTE, SAT, LoRa, ham, others)? What’s your biggest constraint?" required></textarea>
+            </div>
+            <div>
+              <button class="btn btn--primary" type="submit">
+                Send message
+                <span>➜</span>
+              </button>
+              <div class="contact__note" id="formNote">
+                This form is a front-end placeholder. Connect it to your preferred email, ticketing, or CRM system.
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container footer__inner">
+      <div>© <span id="year"></span> Fawcett Innovations, LLC. All rights reserved.</div>
+      <div class="footer__links">
+        <a href="#why">Why Local-First</a>
+        <a href="#frognet">FrogNet</a>
+        <a href="#bullfrog">BullFrog LDC</a>
+        <a href="#videos">Videos</a>
+        <a href="#tech">Technology</a>
+        <a href="#contact">Contact</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Mobile nav toggle
+    const navToggle = document.getElementById("navToggle");
+    const navMobile = document.getElementById("navMobile");
+
+    if (navToggle && navMobile) {
+      navToggle.addEventListener("click", () => {
+        const isOpen = navMobile.style.display === "flex";
+        navMobile.style.display = isOpen ? "none" : "flex";
+        navToggle.setAttribute("aria-expanded", String(!isOpen));
+      });
+
+      navMobile.querySelectorAll("a").forEach(link => {
+        link.addEventListener("click", () => {
+          navMobile.style.display = "none";
+          navToggle.setAttribute("aria-expanded", "false");
+        });
+      });
+    }
+
+    // Set current year
+    const yearEl = document.getElementById("year");
+    if (yearEl) {
+      yearEl.textContent = new Date().getFullYear();
+    }
+
+    // Dummy form handler so users get feedback
+    function handleFormSubmit(event) {
+      event.preventDefault();
+      const note = document.getElementById("formNote");
+      if (note) {
+        note.textContent = "Thanks for reaching out! In production, this form would send your details to the Fawcett Innovations, LLC team.";
+      }
+    }
+  </script>
+</body>
+</html>

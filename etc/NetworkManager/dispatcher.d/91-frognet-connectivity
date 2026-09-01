@@ -1,0 +1,34 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /etc/NetworkManager/dispatcher.d/91-frognet-connectivity
+# $1 = interface (empty for connectivity-change), $2 = event
+# [[ "${2:-}" == "connectivity-change" ]] || exit 0
+
+# BOOTSTRAP=/usr/local/bin/frognet-pond-bootstrap.sh
+# [[ -x "$BOOTSTRAP" ]] || exit 0
+# [[ -f /etc/frognet/pond_bootstrap_done ]] && exit 0
+# grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null || exit 0
+# 
+# logger -t frognet-connectivity "connectivity-change - pending enrolment, registering then merging"
+# 
+# # Register first, merge second, in one unit so the ordering is real: pond-bootstrap
+# # restarts frognet-tunnel-daemon-v3 (line 108) and confirms it live (line 110), so
+# # runMerge's autoswitch reads settled wireguard state instead of a mid-restart zero.
+# systemd-run --no-block --collect --unit="fnconn-$$" \
+    # /bin/bash -c "$BOOTSTRAP; exec /usr/local/bin/runMerge.bash"

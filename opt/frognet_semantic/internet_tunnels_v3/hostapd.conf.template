@@ -1,0 +1,42 @@
+# /etc/hostapd/hostapd.conf.template
+#
+# Substituted by frognet-netstart's configure_hostapd() at run time:
+#   __IFACE__    AP interface — wlan0, wlan1, ...  (set from /etc/frognet/ssid_projection.conf:AP_IFACE)
+#   __SSID__     Node name (FrogNet hostname)
+#   __COUNTRY__  ISO 3166-1 alpha-2 country code (US, GB, DE, ...)
+#                set from /etc/frognet/ssid_projection.conf:WIFI_COUNTRY
+#   __PSK__      WPA2 passphrase — shared across pond
+#                read from /etc/frognet/wifi.env:FROGNET_WIFI_PSK
+#
+# This template is generic.  If your hardware needs different channel/
+# hw_mode/ht_capab tuning, edit this file directly — frognet-netstart
+# substitutes the four placeholders but otherwise passes the file
+# through.
+
+interface=__IFACE__
+driver=nl80211
+ssid=__SSID__
+
+# Regulatory + radio
+country_code=__COUNTRY__
+ieee80211d=1
+hw_mode=g
+channel=6
+
+# 802.11n on (most Pi/Intel/Atheros chips support this — disable if your
+# chipset complains)
+ieee80211n=1
+wmm_enabled=1
+
+# Open SSID broadcast.  Hidden SSIDs cause more pain than they're worth
+# on roaming clients.
+ignore_broadcast_ssid=0
+
+# WPA2-PSK, AES only.  No TKIP, no WPA1 — both deprecated and weaken
+# WPA2 if mixed.
+auth_algs=1
+wpa=2
+wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
+rsn_pairwise=CCMP
+wpa_passphrase=__PSK__

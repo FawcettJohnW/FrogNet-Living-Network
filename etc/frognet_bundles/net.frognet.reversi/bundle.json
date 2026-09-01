@@ -1,0 +1,26 @@
+{
+  "id": "net.frognet.reversi",
+  "module": "family-reversi",
+  "name": "reversi",
+  "title": "Reversi",
+  "hub": "games",
+  "function": [
+    "games"
+  ],
+  "provides": [
+    "turn-based-game",
+    "multiplayer"
+  ],
+  "app": "app/play.py",
+  "version": "1.0",
+  "players": {
+    "min": 2,
+    "max": 2
+  },
+  "summary": "Flank the opponent's discs to flip them; the most discs wins. Play, watch, or replay.",
+  "freshness": {
+    "move": "lossless-eventual",
+    "position": "latest-only",
+    "scaffold": "resident-once"
+  }
+}

@@ -1,0 +1,228 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+##############################################################
+# /usr/local/bin/selectNewDatabaseHost
+#
+# [CONTROL_IS_THE_HIGHEST_ONE_V1] This script owns databasehost_CONTROL.frognet.
+# It does NOT elect databasehost.frognet. It used to, and that was the dartboard.
+#
+# Two mechanisms were writing the same name by different rules on different
+# schedules:
+#
+#   frognet_dbhost_elector.py   the real election. Reads every node's capability
+#                               from databasehost_control.frognet, scores it via
+#                               handler.evaluate(). Runs on the CONTROL node
+#                               only, inside the post-merge window, ~15 min.
+#
+#   this script                 "highest 10.x.x.1 in my own /etc/hosts". Runs in
+#                               EVERY node's merge (mergeHostsAndResolv.bash),
+#                               every 5 minutes, staggered per node.
+#
+# Both deterministic. Neither authoritative. Measured 2026-08-08 across one
+# hour: Seattle2 and Seattle6 resolved databasehost to 10.160.160.1, NY1 and
+# Seattle3 to 10.250.250.1, Seattle5 and BABox to 10.102.60.1 -- three answers
+# at once, and at 15:16 Seattle5 and NY1 swapped, each electing the other.
+# Every merge overwrote the elected answer with whatever the local hosts file
+# happened to sort highest, and each node's file was different.
+#
+# It was worse than a stomp on /etc/hosts: this script also wrote
+# /etc/dnsmasq.d/frognet_databasehost.conf with an `address=` override, and that
+# BEATS /etc/hosts. So even a correct elected line could be overruled by a file
+# the elector does not know exists.
+#
+# The highest-.1 rule is not wrong -- it is exactly the definition of CONTROL,
+# the deterministic bootstrap host every node must agree on without an election
+# to reach the capabilities in the first place. And NOTHING was writing that
+# name: frognet_dbhost_elector.py only reads it. So the computation stays and
+# the name it writes is corrected.
+#
+# databasehost.frognet is now the elector's alone, decided from the capability
+# rows the database already holds for every machine in the pond.
+#
+# Idempotent selection of databasehost_control.frognet
+#   - Select highest 10.x.x.1 IP from TARGET_FILE
+#     (.2 admin aliases are EXCLUDED — they're probe phantoms,
+#      not gateway hosts that can serve a DB)
+#   - If already set to that IP, do NOTHING
+#   - Otherwise, remove existing databasehost_control.frognet lines and append one
+#
+# Previous bug: "highest 10.x IP wins" picked .2 admin aliases over
+# their corresponding .1 gateways because .2 > .1 numerically.
+# This caused the FrogNet daemon's MySQL clients to dial the admin
+# phantom IP, which doesn't run mariadb, and stall the connection
+# pool until aborted.
+#
+# NO strict mode. Must not crash merge.
+# FULL PATHS for external commands.
+##############################################################
+
+# set -x
+TARGET_FILE="/etc/hosts"
+TEST="/usr/bin/test"
+AWK="/usr/bin/awk"
+GREP="/usr/bin/grep"
+SED="/usr/bin/sed"
+CP="/bin/cp"
+MV="/bin/mv"
+RM="/usr/bin/rm"
+MKTEMP="/usr/bin/mktemp"
+
+if ! $TEST -f "$TARGET_FILE"; then
+  exit 0
+fi
+
+# Convert IPv4 to integer for max compare
+ip_to_int() {
+  local ip="$1"
+  local a b c d
+  IFS=. read -r a b c d <<<"$ip"
+  echo $(( (a<<24) + (b<<16) + (c<<8) + d ))
+}
+
+# Find current dbhost IP (if any)
+# [CONTROL_IS_THE_HIGHEST_ONE_V1] Read the CONTROL line. Reading
+# databasehost.frognet here would compare our control answer against the
+# ELECTED data host and rewrite on every merge whenever the two differ --
+# which is the normal, correct state.
+current_db_ip="$($AWK '
+  $0 ~ /(^|[[:space:]])databasehost_control\.frognet([[:space:]]|$)/ { print $1; exit }
+' "$TARGET_FILE" || true)"
+
+best_ip=""
+best_int=0
+
+# Pick highest 10.x.x.1 IP from file. .2 admin aliases are excluded
+# explicitly: they are probe phantoms, not gateway hosts.
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  case "$line" in \#*) continue ;; esac
+  set -- $line
+  ip="$1"
+  # Only consider IPv4 10.x.x.1 addresses (last octet == 1)
+  if ! $GREP -qE '^10\.[0-9]+\.[0-9]+\.1$' <<<"$ip"; then
+    continue
+  fi
+    # [DBHOST_EXCLUDE_RESERVED_V1] Never elect an address in a RESERVED range.
+    # 10.253.x is the transit /30 pool, 10.254.x the chorus pool; discovery.py
+    # excludes both everywhere -- a node's real identity is its own /24 (e.g.
+    # 10.160.160.1), never a pool address. Without this a corrupted identity that
+    # landed in 10.254.x WINS purely because it is the numerically highest 10.x
+    # range: exactly how Seattle6 (entered as 10.160.160.1) got elected as
+    # 10.254.1.1. Apply the same reserved gate discovery uses.
+    case "$ip" in
+      10.253.*|10.254.*) continue ;;
+    esac
+  v="$(ip_to_int "$ip")"
+  if [ "$v" -gt "$best_int" ]; then
+    best_int="$v"
+    best_ip="$ip"
+  fi
+done < "$TARGET_FILE"
+
+# If no 10.x.x.1 candidates, do nothing
+if [ -z "$best_ip" ]; then
+  exit 0
+fi
+
+# ---------------------------------------------------------------
+# Idempotence — TWO independent files to keep in sync, each gated
+# separately so we only reload dnsmasq when something actually
+# changed on disk.  Previous version always rewrote
+# /etc/dnsmasq.d/frognet_databasehost.conf and always reloaded,
+# producing a dnsmasq reload on every merge pass even in steady
+# state.
+# ---------------------------------------------------------------
+
+hosts_changed=0
+if [ -z "$current_db_ip" ] || [ "$current_db_ip" != "$best_ip" ]; then
+  hosts_changed=1
+fi
+
+# Build the desired dnsmasq override line and check whether the
+# file already matches.  address= overrides /etc/hosts resolution,
+# so we keep it in sync with whatever we just put in /etc/hosts.
+# [CONTROL_IS_THE_HIGHEST_ONE_V1] The override is for CONTROL, and control only.
+# The old file pinned databasehost.frognet in DNS, outranking the /etc/hosts line
+# the elector writes. It is removed below if present -- leaving it would let a
+# stale override keep beating the election forever.
+DNSMASQ_FILE="/etc/dnsmasq.d/frognet_databasehost_control.conf"
+DESIRED_DNSMASQ="address=/databasehost_control.frognet/${best_ip}"
+LEGACY_DNSMASQ_FILE="/etc/dnsmasq.d/frognet_databasehost.conf"
+
+dnsmasq_changed=0
+if [ ! -f "$DNSMASQ_FILE" ]; then
+  dnsmasq_changed=1
+else
+  # Compare against the file's content, ignoring trailing newline
+  # differences.  printf without \n vs file-with-\n is a real cmp
+  # mismatch, so we normalize by reading the file's first non-blank
+  # line.
+  current_dnsmasq="$($AWK 'NF { print; exit }' "$DNSMASQ_FILE" 2>/dev/null || true)"
+  if [ "$current_dnsmasq" != "$DESIRED_DNSMASQ" ]; then
+    dnsmasq_changed=1
+  fi
+fi
+
+# If neither file needs updating, exit without touching anything.
+# [CONTROL_IS_THE_HIGHEST_ONE_V1] Do NOT exit early while the legacy override
+# still exists: nothing else removes it, and until it is gone the election
+# cannot take effect.
+if [ "$hosts_changed" = "0" ] && [ "$dnsmasq_changed" = "0" ] \
+   && [ ! -f "$LEGACY_DNSMASQ_FILE" ]; then
+  exit 0
+fi
+
+# Rewrite /etc/hosts only if it actually changed
+if [ "$hosts_changed" = "1" ]; then
+  tmp="$($MKTEMP)"
+  $CP -a "$TARGET_FILE" "$tmp"  || true
+
+  # Remove any existing databasehost_control line(s). NOT databasehost.frognet:
+  # that line belongs to the elector and this script must never touch it.
+  $SED -i '/[[:space:]]databasehost_control\.frognet[[:space:]]*/Id; /^[[:space:]]*databasehost_control\.frognet[[:space:]]*/Id' "$tmp"
+
+  # Append exactly one control line
+  echo "$best_ip databasehost_control.frognet" >> "$tmp"
+
+  # Install atomically
+  $MV -f "$tmp" "$TARGET_FILE"  || true
+  $RM -f "$tmp" || true
+fi
+
+# Rewrite the dnsmasq override only if it actually changed, and
+# only reload dnsmasq in that case.
+# [CONTROL_IS_THE_HIGHEST_ONE_V1] Retire the legacy override. It pinned
+# databasehost.frognet in DNS and OUTRANKS /etc/hosts, so while it exists the
+# elector's answer cannot win no matter how correct it is. Removing it is part
+# of the fix, not housekeeping -- and it forces the reload below.
+legacy_removed=0
+if [ -f "$LEGACY_DNSMASQ_FILE" ]; then
+  $RM -f "$LEGACY_DNSMASQ_FILE" && legacy_removed=1
+  echo "[selectNewDatabaseHost] removed $LEGACY_DNSMASQ_FILE -- it pinned" \
+       "databasehost.frognet in DNS above /etc/hosts and overruled the" \
+       "capability election" >&2
+fi
+
+if [ "$dnsmasq_changed" = "1" ] || [ "$legacy_removed" = "1" ]; then
+  echo "$DESIRED_DNSMASQ" > "$DNSMASQ_FILE"
+  /usr/bin/systemctl reload dnsmasq || true
+fi
+
+exit 0
+

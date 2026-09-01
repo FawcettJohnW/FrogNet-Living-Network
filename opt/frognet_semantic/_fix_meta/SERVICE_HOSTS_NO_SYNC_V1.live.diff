@@ -1,0 +1,84 @@
+--- live_orig.py	2026-06-23 21:29:41.712407904 +0000
++++ live.py	2026-06-23 21:33:01.780244352 +0000
+@@ -567,9 +567,14 @@
+         # construction. No floor, no per-node reachability cull. self_ip = this node's .1,
+         # used only for local-by-definition when a callback names no winner. This is a
+         # read; it does NOT set runAgain (only route changes re-run the merge).
++        # [LAN_IS_ATTACHED_V1] LAN service roles (mediahost) must elect only over
++        # this node's directly-attached segments — not over boxes reached via a relay.
++        # disc.local_subnets is the attached-/24 prefix set; render as '10.x.y.0/24'.
++        _lan = {p + ".0/24" for p in getattr(disc, "local_subnets", set())}
+         out["etc_hosts"] = apply_to_etc_hosts(out.get("etc_hosts", []),
+                                               dbhost=_ctl, logger=logger,
+-                                              self_ip=(self_identity or eth0_ip))
++                                              self_ip=(self_identity or eth0_ip),
++                                              lan_subnets=_lan)
+         logger(f"SERVICE_HOSTS lines now: "
+                f"{[l for l in out['etc_hosts'] if l.endswith('.frognet')]}")
+     except Exception as _e:
+@@ -645,11 +650,31 @@
+         logger(f"ELECTOR_ARM skipped err={e}")
+ 
+ 
++def _topology_changed(old_content: str, new_content: str) -> bool:
++    """[SERVICE_HOSTS_NO_SYNC_V1] True only if the host files differ in a TOPOLOGY
++    line. Service-role lines end in `.frognet` (databasehost/databasehost_control/
++    mediahost/boardgame/aihost ...); they are a DERIVED election result every node
++    computes identically from databasehost_control, so a change confined to them is
++    NOT a topology change and must NEVER trigger re-sync/propagation (that is the
++    merge-storm: each node re-derives a role line, the byte differs, it propagates,
++    the neighbor re-derives, forever). Strip `.frognet` lines from both sides and
++    compare what remains — node-identity / route-bearing lines only."""
++    strip = lambda s: [l for l in s.splitlines() if not l.endswith(".frognet")]
++    return strip(old_content) != strip(new_content)
++
++
+ def _commit_hosts(out, logger=print):
+     """Persist the merge's host output — the step bash mergeHostsAndResolv did
+     and live.main was missing. frognet_hosts -> /etc/sentinels/frognet_hosts;
+     the assembled /etc/hosts (header+127+sorted block) -> /etc/hosts."""
+     import os
++    def _read(p):
++        try:
++            return open(p).read()
++        except OSError:
++            return ""
++    fh_old = _read("/etc/sentinels/frognet_hosts")
++    eh_old = _read("/etc/hosts")
+     changed = False
+     fh = "\n".join(out.get("frognet_hosts", []))
+     if fh:
+@@ -670,20 +695,27 @@
+     # (winner install, verify-backout, fallback, sweep of a real route) means
+     # neighbors must re-sync — even when the host table is byte-identical, which is
+     # the common case (hosts come from the broker and persist while routes churn).
+-    # Host-table change still counts as a secondary trigger. Probe /32s (metric 6)
+-    # are excluded at the rtmut source so per-walk scratch churn doesn't fire it.
+-    # Clear first so a stale sentinel from an already-converged cycle can't re-fire.
++    # [SERVICE_HOSTS_NO_SYNC_V1] A TOPOLOGY host-table change (a node-identity /
++    # route-bearing line) still counts as a secondary trigger — but a change confined
++    # to `<role>.frognet` SERVICE lines does NOT: those are a derived election result,
++    # identical on every node, and firing sync on them is the merge-storm loop. So the
++    # host-table trigger is `_topology_changed`, which ignores `.frognet` lines.
++    # Probe /32s (metric 6) are excluded at the rtmut source so per-walk scratch churn
++    # doesn't fire routes_changed. Clear first so a stale sentinel from an
++    # already-converged cycle can't re-fire.
+     routes_changed = bool(out.get("route_table_mutated"))
++    topo_changed = (_topology_changed(fh_old, fh + "\n") if fh else False) \
++                   or (_topology_changed(eh_old, eh + "\n") if eh else False)
+     sr = "/etc/sentinels/sync_required"
+     try:
+         os.remove(sr)
+     except OSError:
+         pass
+-    if changed or routes_changed:
++    if routes_changed or topo_changed:
+         os.makedirs("/etc/sentinels", exist_ok=True)
+         open(sr, "w").close()
+-        reason = ("routes_changed" if routes_changed and not changed
+-                  else "hosts_changed" if changed and not routes_changed
++        reason = ("routes_changed" if routes_changed and not topo_changed
++                  else "hosts_changed" if topo_changed and not routes_changed
+                   else "routes+hosts_changed")
+         logger(f"SYNC_REQUIRED set reason={reason}")
+ 

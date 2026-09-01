@@ -1,0 +1,232 @@
+DOCTRINE -- FrogNet Communicator, audio path, 2026-08-16
+========================================================
+
+MERGE BASIS
+
+Built on frognet-communicator-20260814. That tarball was compared file by file
+against the 2026-08-15 source snapshot: ZERO shared source files differ. It is
+the same baseline with extra assets and prebuilt Windows/Linux archives. There
+was therefore nothing to reconcile -- the two changed files below are that
+baseline plus the changes listed here, and every asset and archive from the
+08-14 tarball is carried through untouched.
+
+CHANGED
+  etc/frognet_bundles/communicator/fnav.py
+  etc/frognet_bundles/communicator/fnphone_pa.py
+
+ADDED (tools; none is imported by the running code)
+  compare_taps.py           lay one run's tap logs side by side
+  audit_audio_path.py       a wav through every real stage, offline
+  relay_loopback_audit.py   a real fnav.Relay, two sockets, byte comparison
+  test_kf_backoff.py        oracle for the keyframe retry backoff
+  test_cell_oracle.py       cell format oracle + latency harness
+  interleave.py             cell format (segmented video, audio interleaved)
+  opt/frognet_semantic/docs/magnum_croakus/build_magnum.js
+
+VERIFY BEFORE TRUSTING ANY OF THIS
+
+  cd /etc/frognet_bundles/communicator
+  python3 test_vseg_oracle.py              # 27 ok,  exit 0
+  python3 test_kf_backoff.py               # 12 ok,  exit 0
+  python3 test_cell_oracle.py              # 16 ok,  exit 0
+  python3 relay_loopback_audit.py a.wav    #  5 ok,  exit 0   (needs av)
+  python3 audit_audio_path.py a.wav        #  7 ok,  1 FAIL   (expected)
+
+relay_loopback_audit's first four checks -- packet count, payload hash, order,
+decoded equality -- are deterministic and must pass. Its fifth, "no arrival gap
+over 60 ms", measures WALL CLOCK on the host running it and is therefore only
+as good as that host's scheduler. Measured here across three consecutive runs
+of the same file: worst gap 55.7 ms, 61.0 ms, 36.0 ms -- one run tripped the
+threshold on scheduling jitter alone, with relay transit steady at 0.10 ms
+median every time. Treat a lone timing FAIL on a loaded or virtualised box as
+noise; treat a payload or ordering FAIL as real. They are listed separately for
+exactly this reason.
+
+The oracles import fnav, which imports its siblings. Run them FROM the bundle
+directory, not from a folder on their own.
+
+The one FAIL is deliberate. Opus pre-skip: packet 0 decodes to 608 bytes, not
+640 -- 19 ms instead of 20, once, at stream start. It is a real 32-byte
+discontinuity at the head of every stream, it is NOT the 2-3 Hz artifact, and a
+test tuned to pass would bury it. Fix the pre-skip or keep reading the FAIL.
+
+CHANGES IN fnav.py
+
+  [VIDEO_IS_SEGMENTED_V1]  KIND_VSEG / put_segmented / recv reassembly
+    A video frame now goes out as a run of mss-sized units (VSEG_BYTES=1368,
+    the mss ss reports on every tunnel leg) instead of one indivisible write.
+    Each unit passes through _put() individually, which means each one hits the
+    existing [AUDIO_FIRST_V1] yield: video waits for declared-waiting audio
+    BEFORE EACH PIECE, not once per frame. That is the interleave.
+
+    The point is not TCP ordering -- the planes hold separate sockets. It is the
+    SHARED UPLINK: when the link is the bottleneck both sockets drain into one
+    pipe, and a 32 KB keyframe handed to it whole owns that pipe until it
+    drains. Segmenting gives the interface somewhere to breathe between pieces.
+
+    Header is 5 bytes (frame id, index, flags), measured at 0.38% of a 33 KB
+    keyframe. A unit the wire refuses ABORTS THE WHOLE FRAME: an abort unit
+    goes so the receiver lets go, and the remaining segments are dropped.
+    Receiver keeps one open frame per source; a new frame id supersedes an
+    incomplete one, an out-of-order index drops the picture whole rather than
+    decoding a fragment, and a receiver joining mid-frame waits.
+
+  [AUDIO_INTENT_IS_SHARED_V1]
+    [AUDIO_FIRST_V1]'s yield reads _audio_waiting on the plane about to write.
+    Audio lives on self.sendq, video on self.vsendq -- two SotFDataPlane
+    objects -- so the video plane's counter was structurally always zero and
+    the yield could never fire. The comment above it in the source says exactly
+    that, and the first cut of [VIDEO_IS_SEGMENTED_V1] was designed against it
+    anyway: every segment "yielded to waiting audio" and there was never any
+    audio to yield to. Intent now lives in a dict both planes hold;
+    vsendq.attach_audio_gate(sendq) wires it up. An unattached plane keeps its
+    own gate and behaves exactly as before.
+
+  [A_FRAME_IS_ONE_SHED_V1]
+    The ladder reads self.sheds as "this size does not fit". Segmenting gave
+    one frame ~25 chances to be shed instead of one, so the shed rate rose with
+    the unit count and the ladder walked itself to the floor chasing a signal
+    that no longer meant what it used to. Measured 2026-08-16: keyframes
+    "refused" at 320x240 and 160x120 -- sizes that cannot fail to fit a 128 KiB
+    buffer -- with the rung walking 1920x1080 -> 160x120 and a refusal logged
+    at every step, after which the backoff pinned it at the bottom on evidence
+    segmentation had manufactured. Unit sheds are now absorbed and exactly ONE
+    shed is charged for an abandoned frame, which is what the old whole-frame
+    write cost and what the ladder was calibrated against.
+
+  [SEGMENT_ONLY_WHAT_WOULD_NOT_FIT_V1] + [THE_CEILING_IS_A_TIME_NOT_A_SIZE_V1]
+    Segmenting is exposure: every extra unit is another chance for the wire to
+    refuse. So a frame small enough not to matter goes WHOLE -- but "small
+    enough" is a DEADLINE, not a byte count.
+
+    The first cut used a flat 8192, which is ~55 ms at 150 KB/s: nearly THREE
+    audio blocks. Frames under it skipped segmentation and stalled audio
+    anyway, most visibly while the ladder walked resolutions and cut a fresh
+    keyframe at every rung. Reported 2026-08-16: "still getting audio stalls as
+    it moves through resolutions."
+
+    whole_frame_max() now returns what this socket can drain in ONE audio block
+    (WHOLE_FRAME_MS=20) at the rate it is achieving, floored at one segment and
+    capped by the buffer. 3000 B at 150 KB/s; 1368 B at 30 KB/s; the full
+    65536 B on a fast LAN, where small frames stop being segmented for no
+    reason.
+
+    Honest limit: the estimator measures ACHIEVED rate, which equals capacity
+    only while the link is saturated. Offering less than the wire can carry
+    reads low and segments frames that did not need it. That bias is
+    deliberate and, since [A_FRAME_IS_ONE_SHED_V1], cheap -- 5 bytes of header
+    and a syscall, not a false congestion signal. The opposite bias is the one
+    that stalls audio.
+
+  [NO_DISPLAY_IS_NOT_NO_DECODER_V1]
+    The first cut of the above fed the decoder only when `not self.no_display`.
+    communicator_live.py runs fnav WITH --no-display because Tk paints the
+    tiles itself out of vdec.tiles() -- so that gate blacked out the Tk client
+    while every counter reported video arriving normally. no_display means "do
+    not open a cv2 window"; it does not mean "discard pictures". Fixed, and
+    test_vseg_oracle.py now asserts on the source so it cannot come back.
+
+  [NO_NDARRAY_IN_THE_HOT_PATH_V1]  OpusCodec.encode / decode
+    Both used PyAV's ndarray conversions, which do a function-local numpy
+    import. Measured on NY-1: ONE importlib._find_and_load per call, so 50
+    filesystem stat()s a second under the global import lock, on the audio
+    path, competing with the video encoder for the GIL. py-spy put ~10% of the
+    process in import machinery. Now encode writes s16 straight into the
+    frame's plane, and decode reads the plane back, sliced to samples*2 --
+    PyAV pads planes to an alignment boundary, so an unsliced read feeds the
+    mixer trailing garbage on every packet. A short plane RAISES.
+
+  [CAPTURE_DOES_NOT_NEED_A_SPEAKER_V1]  _audio
+    Input and output streams were opened in one `with`. A box with a mic and
+    no output device lost CAPTURE too: the output raised, the with never
+    entered, on_in never fired, and the node sent nothing while [AUD-CAP]
+    still read 47/s. The far end read 0 audio with no clue why. Now they open
+    separately. Playout failing is a printed condition; capture failing is
+    still fatal and says so.
+
+  [A_SIZE_THAT_FAILED_STAYS_FAILED_V1]  keyframe retry backoff
+    A keyframe refused at a geometry was re-derived and retried every ~8s for
+    the entire call -- encoding a full 1080p keyframe each time and shedding
+    it, hundreds of times, never once succeeding. Nothing recorded the
+    failure. Now: 1st free, 2nd -> 60s, 3rd -> 150s, 4th -> 300s and stays. A
+    probe that fails ADVANCES the backoff rather than re-arming the short
+    interval. Smaller sizes are never blocked: a refusal is evidence about the
+    size that failed, not about smaller ones. ~37 attempts per 5 min -> 4.
+
+  [MIXER_DAMAGE_IS_COUNTED_V1] hook
+    Prints Mixer.damage_report() on the existing 5s [AUD-CAP] window, and only
+    when a counter moves. A quiet call stays quiet in the log.
+
+  [TAP_THE_THING_THAT_PLAYS_V1]
+    Records exactly the bytes handed to PortAudio, plus one line in
+    OpusCodec.decode for the B tap. Off unless the taps are armed.
+
+CHANGES IN fnphone_pa.py
+
+  [MIXER_DAMAGE_IS_COUNTED_V1]
+    The mixer has exactly two ways to damage audio -- feed()'s trim splice and
+    pull_block()'s zero-pad -- and NEITHER was visible. The [SPK] underrun
+    counter in fnav CANNOT fire: pull_block always returns a full block because
+    mix_s16le pads, so the accumulator always fills and _ur never increments,
+    and the fade-to-silence concealment beneath it is unreachable code. The gap
+    was manufactured one layer up and reported nowhere. Now pads, pad_bytes,
+    trims, dry, and damage_report().
+
+    Which one actually fires matters: a decoded Opus packet is exactly one
+    20 ms block, so a draining buffer hits zero EXACTLY and seldom leaves a
+    remainder. `dry` is the starvation counter to watch, not `pads`.
+
+  [LIVE_TAP_V1]
+    Every audio stage of ONE run against ONE clock. OFF by default; arm with
+    FROGNET_TAP_DIR=/tmp (or a Windows path) -- no code edit. Each tap writes
+    .raw plus a .log of wall_ms / bytes / cum_audio_ms / DRIFT. Drift is the
+    number: cumulative audio minus wall time. Flat = keeping up. Falling = the
+    fall IS the missing audio. This is the instrument that found a Windows
+    client capturing from the wrong microphone.
+
+  [SINC_BEST_IS_WORTH_IT_V1]
+    StreamResampler default sinc_fastest -> sinc_best. Listening test: the far
+    end's voices became materially more intelligible on the same call. Playout
+    is 16000->44100, ratio 2.756, the hard case for a cheap converter; capture
+    at 32000->16000 is an exact 2:1 and never showed it, which is why only one
+    end was affected. Costs CPU per block, still well inside the callback
+    budget. Revert if you disagree -- it is one keyword.
+
+WHAT IS PROVEN, WITH NUMBERS
+
+  relay        1499 packets in, 1499 byte-identical out, transit median
+               0.06 ms, worst arrival gap 24.1 ms against 20.0 nominal
+  codec+wire   a 30 s wav through the real classes: no loss, no reordering
+  resampler    110-byte deficit at 1 s AND at 10 s -- fixed filter delay, not
+               a leak. A 440 Hz sine through it is a pure tone.
+  mixer        pad 0, trim 0, dry 0 during calls where the artifact was
+               audible
+
+WHAT IS NOT PROVEN
+
+  The 2-3 Hz cyclic artifact is UNEXPLAINED. Every instrumented stage reads
+  clean while it is audible. It survived both resamplers, every Opus option
+  tried, and the keyframe backoff. Nothing in this bundle fixes it and nothing
+  here should be read as claiming otherwise.
+
+KNOWN, UNFIXED
+
+  _send_room lies. On Windows _unacked_bytes has no TIOCOUTQ and returns -1 --
+  "socket room=unknown", the fit check runs blind, so the ladder commits to a
+  1080p keyframe it cannot send, every time. On Linux it has been seen
+  reporting the full 262144 free at the instant send() raised EWOULDBLOCK. The
+  ladder steers on this number.
+
+  self._opus is ONE OpusCodec for the whole client: one decoder and one
+  resampler shared across every remote source, while mixer.feed() is
+  per-source. Fine for two parties; wrong the moment there are two remote
+  senders. relay_loopback_audit.py demonstrated the failure mode by accident --
+  a per-packet decoder turned 1499 identical packets into 911392 bytes instead
+  of 959328. Three seconds of thirty, lost to discarded inter-packet state.
+
+  Opus pre-skip at stream start (see the expected FAIL above).
+
+  On Windows, PortAudio's MME host API reports its own default input, which on
+  a multi-mic box is not the system default. A client silently captured from a
+  webcam mic across the room instead of the studio mic. Pass --in explicitly,
+  or prefer the WASAPI device index.

@@ -1,0 +1,48 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /usr/local/bin/getWlan1IP
+#
+# [UPSTREAM_DEVIPS_V1] Returns the IP address of the SECOND FrogNet
+# upstream interface (alphabetical dev order). Same definition of
+# "upstream IP" as getWlan0IP — see comment there.
+#
+# Returns "0.0.0.0" when fewer than two upstreams are present (which
+# is the common case — most nodes have at most one upstream).
+#
+# Previous behavior: returned getInterfaceIP "${wlan1Name:-eth1}",
+# which on NY-1 surfaced eth1's WAN IP (192.168.1.245) rather than any
+# FrogNet upstream. Replaced 2026-05-20 alongside getWlan0IP.
+
+. /usr/local/bin/mapInterfaces 2>/dev/null || true
+
+# Skip first whitespace-delimited entry, take second.
+rest="${FROGNET_UPSTREAM_DEVIPS#* }"
+if [[ "$rest" == "$FROGNET_UPSTREAM_DEVIPS" ]]; then
+    # Only one or zero entries — no second upstream.
+    echo "0.0.0.0"
+    exit 0
+fi
+second="${rest%% *}"
+ip4="${second#*=}"
+
+if [[ -n "$ip4" && "$ip4" != "$second" ]]; then
+    echo "$ip4"
+else
+    echo "0.0.0.0"
+fi

@@ -1,0 +1,24 @@
+{
+  "expect": {
+    "no_phantom_to": "C",
+    "partition": {
+      "groups": [
+        [
+          "A",
+          "B"
+        ],
+        [
+          "D",
+          "E"
+        ]
+      ]
+    }
+  },
+  "fault": {
+    "args": [
+      "C"
+    ],
+    "op": "kill_node"
+  },
+  "topology": "topo_chain_5"
+}

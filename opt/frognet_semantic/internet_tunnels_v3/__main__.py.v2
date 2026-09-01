@@ -1,0 +1,61 @@
+"""
+frognet-tunnel-daemon entry point.
+"""
+
+import sys
+sys.dont_write_bytecode = True
+
+import os
+import sys
+import threading
+import time
+
+from . import config
+from .config import load_config
+from .peer import registry
+from .threads import advertise_thread, metrics_thread, merge_coordinator_thread
+from .wg import startup_reconcile
+
+
+def main():
+    if os.geteuid() != 0:
+        config.log.error("Must run as root")
+        sys.exit(1)
+
+    for cmd in ("wg", "wg-quick", "ip"):
+        if not any(os.access(os.path.join(p, cmd), os.X_OK)
+                   for p in os.environ.get("PATH", "/usr/bin:/usr/sbin").split(":")):
+            config.log.error("Required command '%s' not found", cmd)
+            sys.exit(1)
+
+    load_config()
+    config.ACTIVE_DIR.mkdir(parents=True, exist_ok=True)
+    config.PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config.PID_FILE.write_text(str(os.getpid()))
+    startup_reconcile()
+
+    config.log.info("Starting frognet-tunnel-daemon v%s (poll_interval=%ds)",
+                    config.VERSION, config.POLL_INTERVAL_SEC)
+
+    for target, name in (
+        (advertise_thread,          "advertise"),
+        (merge_coordinator_thread,  "merge-coord"),
+        (metrics_thread,            "metrics"),
+    ):
+        threading.Thread(target=target, daemon=True, name=name).start()
+
+    try:
+        while config.running:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+
+    config.log.info("Shutting down...")
+    # registry.shutdown_all()  # v4.9: let startup_reconcile handle it
+    time.sleep(2)
+    config.PID_FILE.unlink(missing_ok=True)
+    config.log.info("Goodbye.")
+
+
+if __name__ == "__main__":
+    main()

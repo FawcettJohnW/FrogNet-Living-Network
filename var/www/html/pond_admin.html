@@ -1,0 +1,878 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FrogNet Pond Admin</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --line:#30363d;
+    --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff;
+    --green:#3fb950; --red:#f85149; --yellow:#d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI",
+      Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--line);
+    padding: 12px 20px; display: flex; align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+  header h1 small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  header button { font-size: 12px; }
+
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+
+  nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line);
+             margin-bottom: 20px; }
+  nav.tabs button {
+    background: none; color: var(--muted); border: none;
+    border-bottom: 2px solid transparent; padding: 10px 16px;
+    cursor: pointer; font: inherit;
+  }
+  nav.tabs button.active {
+    color: var(--text); border-bottom-color: var(--accent);
+  }
+
+  section { display: none; }
+  section.active { display: block; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 6px; padding: 16px; margin-bottom: 16px;
+  }
+  .panel h2 { margin: 0 0 12px 0; font-size: 16px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 12px;
+       text-transform: uppercase; letter-spacing: .04em; }
+  tr:hover td { background: rgba(88,166,255,0.04); }
+
+  label { display: block; margin: 8px 0 4px; color: var(--muted);
+          font-size: 12px; }
+  input[type=text], input[type=password], input[type=number], select {
+    width: 100%; padding: 8px 10px; background: var(--bg);
+    border: 1px solid var(--line); color: var(--text);
+    border-radius: 4px; font: inherit;
+  }
+  input[type=checkbox] { transform: translateY(2px); margin-right: 6px; }
+  button {
+    background: var(--accent); color: #0d1117; border: none;
+    padding: 8px 14px; border-radius: 4px; cursor: pointer;
+    font: inherit; font-weight: 600;
+  }
+  button.secondary {
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--line);
+  }
+  button.danger { background: var(--red); color: #fff; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr));
+         gap: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  .pubkey { font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 11px; color: var(--muted); }
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+  }
+  .badge.green  { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .badge.red    { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  #toast {
+    position: fixed; bottom: 20px; right: 20px; max-width: 360px;
+    padding: 12px 16px; border-radius: 6px;
+    background: var(--panel); border: 1px solid var(--line);
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    transform: translateX(420px); transition: transform .2s ease;
+  }
+  #toast.show { transform: translateX(0); }
+  #toast.error  { border-color: var(--red); }
+  #toast.ok     { border-color: var(--green); }
+
+  /* Login overlay */
+  #login {
+    position: fixed; inset: 0; background: var(--bg);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  #login .panel { width: 320px; }
+  #login h2 { margin-top: 0; }
+
+  .empty { color: var(--muted); padding: 16px; text-align: center; }
+
+  details > summary { cursor: pointer; padding: 6px 0; user-select: none; }
+  details[open] > summary { margin-bottom: 8px; }
+
+  /* Merge modal */
+  #merge-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 90;
+  }
+  #merge-modal.show { display: flex; }
+  #merge-modal .panel {
+    width: 520px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px); overflow: auto;
+  }
+  #merge-modal h2 { margin-top: 0; }
+  #merge-preview {
+    margin: 12px 0; padding: 10px; border-radius: 4px;
+    background: var(--bg); border: 1px solid var(--line);
+    font-size: 13px;
+  }
+  #merge-preview .row-line { padding: 2px 0; }
+  #merge-preview .ok   { color: var(--green); }
+  #merge-preview .warn { color: var(--yellow); }
+  #merge-preview .err  { color: var(--red); }
+  .radio-row label { display: inline-block; margin-right: 16px; color: var(--text); }
+  .radio-row input { width: auto; margin-right: 4px; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="panel">
+    <h2>FrogNet Pond Admin</h2>
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password">
+    <div class="actions">
+      <button onclick="doLogin()">Sign in</button>
+    </div>
+    <p id="loginErr" style="color:var(--red); margin-top:10px; display:none;"></p>
+  </div>
+</div>
+
+<header>
+  <h1>FrogNet Pond Admin <small>broker v4</small></h1>
+  <button class="secondary" onclick="doLogout()">Sign out</button>
+</header>
+
+<main>
+  <nav class="tabs">
+    <button class="active" data-tab="ponds">Ponds</button>
+    <button data-tab="choruses">Choruses</button>
+    <button data-tab="nodes">Nodes</button>
+    <button data-tab="blocklist">Blocklist</button>
+  </nav>
+
+  <!-- ============================== PONDS ============================ -->
+  <section id="tab-ponds" class="active">
+    <div class="panel">
+      <h2>Create pond</h2>
+      <div class="row">
+        <div>
+          <label>Name</label>
+          <input id="np-name" type="text" placeholder="smiths">
+        </div>
+        <div>
+          <label>Max users</label>
+          <input id="np-max" type="number" value="50" min="1">
+        </div>
+        <div>
+          <label>Node base IP</label>
+          <input id="np-base" type="text" value="10.101.100.1">
+        </div>
+        <div>
+          <label>Node increment</label>
+          <input id="np-inc" type="number" value="10" min="1">
+        </div>
+        <div>
+          <label>Pond password (optional)</label>
+          <input id="np-pw" type="text" placeholder="leave blank for none">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <label><input id="np-auc" type="checkbox">
+            Allow user-created choruses</label>
+        </div>
+      </div>
+      <div class="actions">
+        <button onclick="createPond()">Create pond</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Ponds</h2>
+      <div id="ponds-list" class="empty">Loading…</div>
+    </div>
+  </section>
+
+  <!-- ============================ CHORUSES =========================== -->
+  <section id="tab-choruses">
+    <div class="panel">
+      <h2>Create chorus</h2>
+      <div class="row">
+        <div>
+          <label>Pond</label>
+          <select id="cc-pond"></select>
+        </div>
+        <div>
+          <label>Chorus name</label>
+          <input id="cc-name" type="text" placeholder="kitchen">
+        </div>
+        <div>
+          <label>Password (optional)</label>
+          <input id="cc-pw" type="text" placeholder="">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <label><input id="cc-vis" type="checkbox" checked>
+            Visible to all members</label>
+        </div>
+      </div>
+      <div class="actions">
+        <button onclick="createChorus()">Create chorus</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Choruses by pond</h2>
+      <div id="choruses-list" class="empty">Pick a pond from the dropdown
+        above and choruses will appear here.</div>
+    </div>
+  </section>
+
+  <!-- ============================== NODES ============================ -->
+  <section id="tab-nodes">
+    <div class="panel">
+      <h2>Registered nodes</h2>
+      <div class="row">
+        <div>
+          <label>Filter by pond</label>
+          <select id="nf-pond">
+            <option value="">(all ponds)</option>
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="secondary" onclick="loadNodes()">Refresh</button>
+        </div>
+      </div>
+      <div id="nodes-list" style="margin-top:12px;" class="empty">Loading…</div>
+    </div>
+  </section>
+
+  <!-- ============================ BLOCKLIST ========================== -->
+  <section id="tab-blocklist">
+    <div class="panel">
+      <h2>Blocked nodes</h2>
+      <div id="blocklist-list" class="empty">Loading…</div>
+    </div>
+  </section>
+</main>
+
+<!-- ============================== MERGE MODAL ========================= -->
+<div id="merge-modal">
+  <div class="panel">
+    <h2>Merge ponds</h2>
+    <p>
+      Move all nodes, IP allocations, and choruses from
+      <strong id="mm-source-label">—</strong> into a target pond.
+      The source pond will be deactivated.  Nodes don't need to
+      reconfigure: their next channel poll lands in the target pond's
+      namespace and tunnels rebuild automatically.
+    </p>
+
+    <label>Source pond</label>
+    <input id="mm-source" type="text" disabled>
+
+    <label>Target pond</label>
+    <select id="mm-target" onchange="runMergePreview()"></select>
+
+    <label>If a chorus name exists in both ponds:</label>
+    <div class="radio-row">
+      <label>
+        <input type="radio" name="mm-policy" value="union" checked
+               onchange="runMergePreview()">
+        Union (combine members into target's chorus)
+      </label>
+      <label>
+        <input type="radio" name="mm-policy" value="suffix"
+               onchange="runMergePreview()">
+        Suffix (keep both, rename source's to <code>name-&lt;source&gt;</code>)
+      </label>
+    </div>
+
+    <div id="merge-preview" class="empty">Pick a target pond to preview.</div>
+
+    <div class="actions">
+      <button id="mm-go" class="danger" onclick="executeMerge()" disabled>
+        Merge into target
+      </button>
+      <button class="secondary" onclick="closeMergeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = 'frognet_broker_admin_v4.php';
+
+// -------- Generic fetch wrapper -------------------------------------------
+
+async function call(action, opts = {}) {
+  const url = API + '?action=' + encodeURIComponent(action) +
+              (opts.query ? '&' + opts.query : '');
+  const init = {
+    method: opts.method || 'GET',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+  };
+  if (opts.body) init.body = JSON.stringify(opts.body);
+
+  let resp, data, text;
+  try {
+    resp = await fetch(url, init);
+    text = await resp.text();
+    try { data = JSON.parse(text); } catch { data = {raw: text}; }
+  } catch (e) {
+    throw new Error('Network error: ' + e.message);
+  }
+  if (!resp.ok) {
+    throw new Error(data.error || data.detail || ('HTTP ' + resp.status));
+  }
+  return data;
+}
+
+function toast(msg, kind = 'ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'show ' + kind;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.className = '', 3500);
+}
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[<>&"']/g, c =>
+    ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// -------- Auth -----------------------------------------------------------
+
+async function doLogin() {
+  const pw = document.getElementById('pw').value;
+  const err = document.getElementById('loginErr');
+  err.style.display = 'none';
+  try {
+    await call('login', {method: 'POST', body: {password: pw}});
+    document.getElementById('login').style.display = 'none';
+    init();
+  } catch (e) {
+    err.textContent = e.message;
+    err.style.display = 'block';
+  }
+}
+
+async function doLogout() {
+  try { await call('logout', {method: 'POST'}); } catch {}
+  location.reload();
+}
+
+document.getElementById('pw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+
+// -------- Tabs -----------------------------------------------------------
+
+document.querySelectorAll('nav.tabs button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('nav.tabs button').forEach(x =>
+      x.classList.toggle('active', x === b));
+    document.querySelectorAll('main > section').forEach(s =>
+      s.classList.toggle('active', s.id === 'tab-' + b.dataset.tab));
+    if (b.dataset.tab === 'nodes')     loadNodes();
+    if (b.dataset.tab === 'blocklist') loadBlocklist();
+    if (b.dataset.tab === 'choruses')  loadPondsForChoruses();
+  });
+});
+
+// -------- Init -----------------------------------------------------------
+
+async function init() {
+  // Verify session — if cookie still valid, skip login overlay.
+  try {
+    const s = await call('session');
+    if (s.authenticated) {
+      document.getElementById('login').style.display = 'none';
+      await loadPonds();
+    }
+  } catch {}
+}
+
+// -------- Ponds ----------------------------------------------------------
+
+let _ponds_cache = [];
+
+async function loadPonds() {
+  try {
+    const d = await call('ponds');
+    _ponds_cache = d.ponds || [];
+    renderPonds();
+    populatePondSelectors();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function renderPonds() {
+  const root = document.getElementById('ponds-list');
+  if (!_ponds_cache.length) {
+    root.className = 'empty';
+    root.textContent = 'No ponds yet. Use the form above to create one.';
+    return;
+  }
+  root.className = '';
+  root.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Name</th><th>Users</th><th>Node base</th><th>Choruses</th>
+        <th>User choruses</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${_ponds_cache.map(renderPondRow).join('')}
+      </tbody>
+    </table>`;
+}
+
+function renderPondRow(p) {
+  // /api/v1/ponds doesn't currently return allow_user_choruses; fetch via
+  // pond-status in a follow-up render if we need exact value.  For now
+  // we mark UNKNOWN and let admin click the toggle button to flip it.
+  const auc = (p.allow_user_choruses === undefined)
+    ? '<span class="badge yellow">unknown</span>'
+    : (p.allow_user_choruses
+        ? '<span class="badge green">on</span>'
+        : '<span class="badge red">off</span>');
+  return `
+    <tr>
+      <td><strong>${escHtml(p.name)}</strong></td>
+      <td>${p.node_count ?? 0} / ${p.max_users}</td>
+      <td>${escHtml(p.node_base)} +${p.node_increment}</td>
+      <td>${(p.choruses || []).map(escHtml).join(', ') || '—'}</td>
+      <td>${auc}</td>
+      <td>
+        <button class="secondary"
+          onclick="toggleAUC('${escHtml(p.name)}')">
+          Toggle user choruses
+        </button>
+        <button class="secondary"
+          onclick="showPondStatus('${escHtml(p.name)}')">
+          Status
+        </button>
+        <button class="secondary"
+          onclick="openMergeModal('${escHtml(p.name)}')">
+          Merge…
+        </button>
+      </td>
+    </tr>`;
+}
+
+async function createPond() {
+  const body = {
+    name:                document.getElementById('np-name').value.trim(),
+    max_users:           parseInt(document.getElementById('np-max').value, 10),
+    node_base:           document.getElementById('np-base').value.trim(),
+    node_increment:      parseInt(document.getElementById('np-inc').value, 10),
+    password:            document.getElementById('np-pw').value,
+    allow_user_choruses: document.getElementById('np-auc').checked,
+  };
+  if (!body.name) return toast('Name is required', 'error');
+  try {
+    await call('create-pond', {method: 'POST', body});
+    toast('Pond created');
+    document.getElementById('np-name').value = '';
+    document.getElementById('np-pw').value = '';
+    document.getElementById('np-auc').checked = false;
+    await loadPonds();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function toggleAUC(name) {
+  // Read current state via pond-status (not available cheaply via /ponds).
+  // Then patch to the inverse.
+  try {
+    // We don't know current truth — fetch the patch result by toggling
+    // through both states is wasteful, so fetch a status proxy: call
+    // the patch endpoint with a no-op via "max_users=current" is also
+    // not great.  Simpler: ask admin which way.
+    const target = confirm(`Allow user-created choruses in '${name}'?\n` +
+      `OK = allow, Cancel = forbid.`);
+    await call('patch-pond', {method: 'POST',
+      body: {name, allow_user_choruses: target}});
+    toast(`Pond '${name}' user choruses: ${target ? 'on' : 'off'}`);
+    await loadPonds();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function showPondStatus(name) {
+  try {
+    const d = await call('pond-status', {query: 'pond=' + encodeURIComponent(name)});
+    alert(JSON.stringify(d, null, 2));
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// -------- Merge ----------------------------------------------------------
+
+let _mm_source = null;
+let _mm_lastReport = null;
+
+function openMergeModal(sourceName) {
+  _mm_source = sourceName;
+  _mm_lastReport = null;
+  document.getElementById('mm-source').value = sourceName;
+  document.getElementById('mm-source-label').textContent = sourceName;
+
+  // Target dropdown: every active pond except the source
+  const targets = _ponds_cache.filter(p => p.name !== sourceName);
+  const sel = document.getElementById('mm-target');
+  if (!targets.length) {
+    sel.innerHTML = '<option value="">(no other ponds)</option>';
+  } else {
+    sel.innerHTML = '<option value="">— pick a target —</option>' +
+      targets.map(p =>
+        `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`
+      ).join('');
+  }
+
+  document.querySelector('input[name="mm-policy"][value="union"]').checked = true;
+  document.getElementById('merge-preview').className = 'empty';
+  document.getElementById('merge-preview').textContent =
+    'Pick a target pond to preview.';
+  document.getElementById('mm-go').disabled = true;
+
+  document.getElementById('merge-modal').classList.add('show');
+}
+
+function closeMergeModal() {
+  document.getElementById('merge-modal').classList.remove('show');
+  _mm_source = null;
+  _mm_lastReport = null;
+}
+
+async function runMergePreview() {
+  const target = document.getElementById('mm-target').value;
+  const preview = document.getElementById('merge-preview');
+  const goBtn = document.getElementById('mm-go');
+
+  if (!target) {
+    preview.className = 'empty';
+    preview.textContent = 'Pick a target pond to preview.';
+    goBtn.disabled = true;
+    return;
+  }
+
+  preview.className = '';
+  preview.textContent = 'Checking…';
+
+  try {
+    const r = await call('merge-preview',
+      {query: 'target=' + encodeURIComponent(target) +
+              '&source=' + encodeURIComponent(_mm_source)});
+    _mm_lastReport = r;
+
+    const policy = document.querySelector(
+      'input[name="mm-policy"]:checked').value;
+
+    const lines = [];
+    lines.push(`<div class="row-line">Will move <strong>${r.node_count}` +
+               `</strong> node(s), <strong>${r.chorus_count}</strong> chorus(es), ` +
+               `drop <strong>${r.tunnel_count}</strong> active tunnel(s).</div>`);
+
+    if (r.ip_collisions && r.ip_collisions.length) {
+      lines.push(`<div class="row-line err">` +
+        `<strong>Subnet collision</strong> — these IPs exist in both ponds: ` +
+        r.ip_collisions.map(escHtml).join(', ') +
+        `.  Renumber one side before merging.</div>`);
+    } else {
+      lines.push(`<div class="row-line ok">` +
+        `No subnet collisions.</div>`);
+    }
+
+    if (r.chorus_collisions && r.chorus_collisions.length) {
+      const names = r.chorus_collisions.map(escHtml).join(', ');
+      if (policy === 'union') {
+        lines.push(`<div class="row-line warn">` +
+          `Chorus name(s) exist in both ponds (${names}).  ` +
+          `Members will be unioned into target's chorus.</div>`);
+      } else {
+        const renamed = r.chorus_collisions.map(n =>
+          `${escHtml(n)} → ${escHtml(n)}-${escHtml(_mm_source)}`).join(', ');
+        lines.push(`<div class="row-line warn">` +
+          `Chorus name(s) collide; will be renamed: ${renamed}.</div>`);
+      }
+    } else {
+      lines.push(`<div class="row-line ok">` +
+        `No chorus name collisions.</div>`);
+    }
+
+    preview.innerHTML = lines.join('');
+    goBtn.disabled = !r.safe_to_merge;
+  } catch (e) {
+    preview.className = '';
+    preview.innerHTML = `<div class="row-line err">Preview failed: ` +
+      escHtml(e.message) + `</div>`;
+    goBtn.disabled = true;
+  }
+}
+
+async function executeMerge() {
+  if (!_mm_lastReport || !_mm_lastReport.safe_to_merge) return;
+  const target = document.getElementById('mm-target').value;
+  const policy = document.querySelector(
+    'input[name="mm-policy"]:checked').value;
+
+  if (!confirm(
+      `Merge '${_mm_source}' into '${target}' using '${policy}' chorus policy?\n\n` +
+      `This deactivates '${_mm_source}' and tears down its namespace. ` +
+      `Cannot be undone.`)) return;
+
+  const goBtn = document.getElementById('mm-go');
+  goBtn.disabled = true;
+  goBtn.textContent = 'Merging…';
+
+  try {
+    const r = await call('merge-ponds', {method: 'POST',
+      body: {target, source: _mm_source, chorus_policy: policy}});
+    toast(`Merged: ${r.moved} nodes moved, ${r.tunnels_dropped} tunnels dropped.`,
+          'ok');
+    closeMergeModal();
+    await loadPonds();
+  } catch (e) {
+    toast(e.message, 'error');
+    goBtn.disabled = false;
+  } finally {
+    goBtn.textContent = 'Merge into target';
+  }
+}
+
+// -------- Choruses -------------------------------------------------------
+
+function populatePondSelectors() {
+  const opts = _ponds_cache.map(p =>
+    `<option value="${escHtml(p.name)}">${escHtml(p.name)}</option>`).join('');
+  const sel1 = document.getElementById('cc-pond');
+  const sel2 = document.getElementById('nf-pond');
+  if (sel1) sel1.innerHTML = opts || '<option value="">(no ponds)</option>';
+  if (sel2) sel2.innerHTML = '<option value="">(all ponds)</option>' + opts;
+}
+
+async function loadPondsForChoruses() {
+  if (!_ponds_cache.length) await loadPonds();
+  renderChorusesAll();
+}
+
+function renderChorusesAll() {
+  const root = document.getElementById('choruses-list');
+  if (!_ponds_cache.length) {
+    root.className = 'empty';
+    root.textContent = 'No ponds.';
+    return;
+  }
+  root.className = '';
+  root.innerHTML = _ponds_cache.map(p => `
+    <details>
+      <summary><strong>${escHtml(p.name)}</strong>
+        — ${(p.choruses || []).length} chorus(es)</summary>
+      <ul>
+        ${(p.choruses || []).map(c => `<li>${escHtml(c)}</li>`).join('')
+          || '<li><em>none</em></li>'}
+      </ul>
+    </details>
+  `).join('');
+}
+
+async function createChorus() {
+  const pond = document.getElementById('cc-pond').value;
+  const name = document.getElementById('cc-name').value.trim();
+  if (!pond || !name) return toast('Pond and name are required', 'error');
+  const body = {
+    pond, name,
+    visible:  document.getElementById('cc-vis').checked,
+    password: document.getElementById('cc-pw').value,
+  };
+  try {
+    await call('create-chorus', {method: 'POST', body});
+    toast(`Chorus '${name}' created in '${pond}'`);
+    document.getElementById('cc-name').value = '';
+    document.getElementById('cc-pw').value = '';
+    await loadPonds();
+    renderChorusesAll();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// -------- Nodes ----------------------------------------------------------
+
+async function loadNodes() {
+  if (!_ponds_cache.length) await loadPonds();
+  const pond = document.getElementById('nf-pond').value;
+  try {
+    const d = await call('nodes',
+      {query: pond ? 'pond=' + encodeURIComponent(pond) : ''});
+    renderNodes(d.nodes || []);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+function renderNodes(nodes) {
+  const root = document.getElementById('nodes-list');
+  if (!nodes.length) {
+    root.className = 'empty';
+    root.textContent = 'No registered nodes.';
+    return;
+  }
+  root.className = '';
+  root.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Pond</th><th>Name</th><th>Subnet</th><th>Pubkey</th>
+        <th>Status</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${nodes.map(n => `
+          <tr>
+            <td>${escHtml(n.pond)}</td>
+            <td>${escHtml(n.name)} <small style="color:var(--muted);">${escHtml(n.label || '')}</small></td>
+            <td>${escHtml(n.subnet)}</td>
+            <td><span class="pubkey">${escHtml((n.pubkey || '').slice(0, 24))}…</span></td>
+            <td>${
+              n.blocked ? '<span class="badge red">blocked</span>' :
+              (n.active  ? '<span class="badge green">active</span>'
+                         : '<span class="badge yellow">inactive</span>')
+            }</td>
+            <td>
+              ${n.blocked
+                ? `<button class="secondary"
+                       onclick="unblock('${escHtml(n.pubkey)}')">Unblock</button>`
+                : `<button class="danger"
+                       onclick="blockNode('${escHtml(n.pubkey)}','${escHtml(n.name)}','${escHtml(n.pond)}')">
+                       Block</button>`}
+              <button class="secondary"
+                onclick="forceDereg('${escHtml(n.pubkey)}','${escHtml(n.name)}')">
+                Deregister
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+async function blockNode(pubkey, node_name, pond_name) {
+  const reason = prompt(`Block node '${node_name}'?\n\nReason (optional):`);
+  if (reason === null) return; // cancelled
+  try {
+    await call('block-node', {method: 'POST',
+      body: {pubkey, node_name, pond_name, reason}});
+    toast(`Blocked ${node_name}`);
+    await loadNodes();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function unblock(pubkey) {
+  if (!confirm('Unblock this node?')) return;
+  try {
+    await call('unblock-node', {method: 'POST', body: {pubkey}});
+    toast('Unblocked');
+    await loadNodes();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function forceDereg(pubkey, name) {
+  if (!confirm(`Force-deregister '${name}'?\nThis tears down its tunnels and ` +
+               `removes chorus memberships. Pubkey is NOT blocked — ` +
+               `the node can re-register.`)) return;
+  try {
+    const r = await call('force-deregister', {method: 'POST', body: {pubkey}});
+    toast(`Deregistered ${name}: ${r.tunnels_destroyed} tunnel(s) torn down`);
+    await loadNodes();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+document.getElementById('nf-pond').addEventListener('change', loadNodes);
+
+// -------- Blocklist ------------------------------------------------------
+
+async function loadBlocklist() {
+  try {
+    const d = await call('blocklist');
+    renderBlocklist(d.blocklist || []);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function renderBlocklist(rows) {
+  const root = document.getElementById('blocklist-list');
+  if (!rows.length) {
+    root.className = 'empty';
+    root.textContent = 'Blocklist is empty.';
+    return;
+  }
+  root.className = '';
+  root.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Node</th><th>Pond</th><th>Pubkey</th><th>Reason</th>
+        <th>Added</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `
+          <tr>
+            <td>${escHtml(r.node_name) || '<em>unknown</em>'}</td>
+            <td>${escHtml(r.pond_name) || '—'}</td>
+            <td><span class="pubkey">${escHtml((r.pubkey || '').slice(0, 24))}…</span></td>
+            <td>${escHtml(r.reason) || '—'}</td>
+            <td><small>${new Date((r.added_at || 0) * 1000).toLocaleString()}</small></td>
+            <td>
+              <button class="secondary"
+                onclick="unblock('${escHtml(r.pubkey)}'); loadBlocklist();">
+                Unblock
+              </button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+// -------- Boot -----------------------------------------------------------
+
+init();
+</script>
+</body>
+</html>

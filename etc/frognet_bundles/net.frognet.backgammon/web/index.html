@@ -1,0 +1,337 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backgammon</title>
+<style>
+  :root{
+    --felt:#1f4a3f; --felt-dark:#173a31;
+    --frame:#3a2417; --frame-light:#5a3a24; --frame-edge:#23150c;
+    --pt-light:#e8d8b8; --pt-dark:#9c3b2e;        /* inlaid ivory & oxblood */
+    --bone:#f3ead6; --bone-edge:#cdbf9e;
+    --ebony:#23211f; --ebony-edge:#000;
+    --brass:#caa24a; --brass-d:#8a6d22;
+    --ink:#efe7d6; --muted:#b8a98c;
+    --glow:#ffd66e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(circle at 50% -10%,#2a2018,#120d08 70%);
+    color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    min-height:100vh;display:flex;flex-direction:column;align-items:center}
+  header{width:100%;max-width:920px;display:flex;align-items:baseline;gap:14px;
+    padding:18px 20px 6px}
+  h1{margin:0;font-size:26px;letter-spacing:.06em;font-weight:600}
+  h1 .em{color:var(--brass)}
+  #presence{margin-left:auto;font-size:13px;color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif}
+  #status{font-size:13px;color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif}
+  .wrap{width:100%;max-width:920px;padding:8px 16px 28px}
+  svg{width:100%;height:auto;display:block;border-radius:10px;
+    box-shadow:0 24px 60px rgba(0,0,0,.55),0 2px 0 rgba(255,255,255,.04) inset}
+  .controls{display:flex;gap:10px;align-items:center;justify-content:center;
+    margin-top:16px;font-family:ui-sans-serif,system-ui,sans-serif}
+  button{font:inherit;font-family:ui-sans-serif,system-ui,sans-serif;font-weight:600;
+    font-size:15px;color:#1c130a;background:linear-gradient(#e6c879,#c79f43);
+    border:1px solid var(--brass-d);border-radius:999px;padding:11px 26px;cursor:pointer;
+    box-shadow:0 2px 0 var(--brass-d),0 6px 14px rgba(0,0,0,.35)}
+  button:active{transform:translateY(1px)}
+  button.ghost{background:transparent;color:var(--ink);border-color:#6b5836;box-shadow:none}
+  button:disabled{opacity:.35;cursor:default;box-shadow:none}
+  .turnpill{font-family:ui-sans-serif,system-ui,sans-serif;font-size:13px;color:var(--muted);
+    display:flex;align-items:center;gap:8px}
+  .dot{width:13px;height:13px;border-radius:50%;display:inline-block}
+  .dot.w{background:linear-gradient(135deg,#fff,var(--bone-edge))}
+  .dot.b{background:linear-gradient(135deg,#444,#000)}
+  .banner{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(8,6,3,.78);z-index:5}
+  .banner.show{display:flex}
+  .card{background:linear-gradient(#2a2018,#1a130c);border:1px solid var(--brass-d);
+    border-radius:16px;padding:32px 44px;text-align:center;box-shadow:0 20px 60px #000}
+  .card h2{margin:.1em 0 .3em;font-size:30px}
+  .card p{color:var(--muted);font-family:ui-sans-serif,system-ui,sans-serif;margin:.2em 0 1em}
+  .point.movable{cursor:pointer}
+  @media (prefers-reduced-motion:no-preference){
+    .die-anim{animation:tumble .5s ease-out}
+    @keyframes tumble{0%{transform:rotate(-25deg) scale(.6);opacity:.2}
+      60%{transform:rotate(12deg) scale(1.08)}100%{transform:none;opacity:1}}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Back<span class="em">gammon</span></h1>
+  <span id="status">…</span>
+  <span id="presence"></span>
+</header>
+<div class="wrap">
+  <svg id="board" viewBox="0 0 1000 640" role="img" aria-label="Backgammon board"></svg>
+  <div class="controls" id="controls"></div>
+</div>
+<div class="banner" id="banner"><div class="card">
+  <h2 id="bannerTitle"></h2><p id="bannerText"></p>
+  <button onclick="newGame()">New game</button>
+</div></div>
+
+<script>
+// ---- UnREST client: plain HTTP to a well-known name; fabric does the codec ----
+const SUFFIX = "/unrest/family-backgammon";   // same-origin on the box
+const GID = new URLSearchParams(location.search).get("g") || "table-1";
+const WHO = "this-device";
+const POLL_MS = 1500;
+let watermark = -1, connected = true, state = null, sel = null;
+
+const $ = s => document.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs={}, kids=[]){ const e=document.createElementNS(SVGNS,tag);
+  for(const k in attrs) e.setAttribute(k,attrs[k]); for(const c of kids) e.appendChild(c); return e; }
+
+async function call(verb, body){
+  const r = await fetch(SUFFIX+"/"+verb+"?g="+encodeURIComponent(GID),
+    body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.json();
+}
+
+// ---- board geometry --------------------------------------------------------
+const W=1000,H=640, M=26, BAR=64, TRAY=70;
+const fieldX=M, fieldW=W-2*M-TRAY, half=(fieldW-BAR)/2, colW=half/6, PT=250, R=20;
+// point index -> {x (center), top:boolean}
+function pointGeom(i){
+  // top row L→R: 13..18 | bar | 19..24 ; bottom L→R: 12..7 | bar | 6..1
+  let top, slot, leftBlock;
+  if(i>=13){ top=true; if(i<=18){leftBlock=true; slot=i-13;} else {leftBlock=false; slot=i-19;} }
+  else { top=false; if(i>=7){leftBlock=true; slot=12-i;} else {leftBlock=false; slot=6-i;} }
+  const blockX = fieldX + (leftBlock?0:half+BAR);
+  const x = blockX + colW*slot + colW/2;
+  return {x, top};
+}
+function checkerY(i,k,top){ // k-th checker (0-based) on point i
+  const base = top ? M+8+R : H-M-8-R;
+  return top ? base + k*(R*1.7) : base - k*(R*1.7);
+}
+
+// ---- render ----------------------------------------------------------------
+function render(){
+  const s=state; const svg=$("#board"); svg.innerHTML="";
+  // frame
+  svg.appendChild(el("rect",{x:0,y:0,width:W,height:H,rx:14,fill:"var(--frame)"}));
+  svg.appendChild(el("rect",{x:6,y:6,width:W-12,height:H-12,rx:10,fill:"var(--frame-light)",opacity:.25}));
+  // felt field
+  svg.appendChild(el("rect",{x:fieldX,y:M,width:fieldW,height:H-2*M,fill:"var(--felt)"}));
+  svg.appendChild(el("rect",{x:fieldX,y:M,width:fieldW,height:H-2*M,fill:"url(#feltsh)"}));
+  // bar
+  const barX=fieldX+half;
+  svg.appendChild(el("rect",{x:barX,y:M,width:BAR,height:H-2*M,fill:"var(--frame)"}));
+  svg.appendChild(el("rect",{x:barX+3,y:M,width:BAR-6,height:H-2*M,fill:"var(--frame-light)",opacity:.3}));
+  // tray
+  svg.appendChild(el("rect",{x:W-M-TRAY,y:M,width:TRAY,height:H-2*M,fill:"var(--frame)"}));
+  // defs (gradients)
+  svg.appendChild(defs());
+
+  // points (triangles)
+  const legalFroms = new Set((s.legal||[]).map(m=>m.from));
+  const selDests = sel===null?new Set():new Set((s.legal||[]).filter(m=>m.from===sel).map(m=>m.to));
+  for(let i=1;i<=24;i++){
+    const g=pointGeom(i); const light=((i%2)===0);
+    const tipY = g.top ? M+PT : H-M-PT;
+    const baseY = g.top ? M : H-M;
+    const tri = el("polygon",{
+      points:`${g.x-colW/2+4},${baseY} ${g.x+colW/2-4},${baseY} ${g.x},${tipY}`,
+      fill: light?"var(--pt-light)":"var(--pt-dark)", opacity:.92,
+      stroke:"rgba(0,0,0,.25)","stroke-width":1});
+    svg.appendChild(tri);
+    // tappable hot-zone
+    const hot=el("rect",{x:g.x-colW/2,y:g.top?M:H-M-PT,width:colW,height:PT,
+      fill:"transparent", class:"point"+(legalFroms.has(i)?" movable":"")});
+    if(legalFroms.has(i)) hot.addEventListener("click",()=>pick(i));
+    svg.appendChild(hot);
+    // highlight selectable source / destinations
+    if(legalFroms.has(i)) svg.appendChild(el("polygon",{
+      points:tri.getAttribute("points"),fill:"none",stroke:"var(--glow)","stroke-width":3,opacity:.7}));
+    if(selDests.has(i)){
+      svg.appendChild(el("circle",{cx:g.x,cy:g.top?M+PT-26:H-M-PT+26,r:11,
+        fill:"var(--glow)",opacity:.9, class:"point movable"}));
+    }
+  }
+  // checkers on points
+  for(let i=1;i<=24;i++){
+    const v=s.points[i]; if(!v) continue;
+    const g=pointGeom(i); const color=v>0?"w":"b"; const n=Math.abs(v);
+    for(let k=0;k<Math.min(n,5);k++) svg.appendChild(checker(g.x,checkerY(i,k,g.top),color));
+    if(n>5){ const ty=checkerY(i,4,g.top);
+      svg.appendChild(el("text",{x:g.x,y:ty+5,"text-anchor":"middle",
+        "font-size":18,"font-weight":700,fill:color==="w"?"#3a2c10":"#f3ead6",
+        "font-family":"ui-sans-serif,system-ui"}, [txt("×"+n)])); }
+  }
+  // bar checkers (hit)
+  [["w",s.bar.w,H/2-30],["b",s.bar.b,H/2+30]].forEach(([c,n,y])=>{
+    for(let k=0;k<n;k++) svg.appendChild(checker(barX+BAR/2, y+(c==="w"?-1:1)*k*8, c)); });
+  if(sel===0) svg.appendChild(el("circle",{cx:barX+BAR/2,cy:H/2,r:34,fill:"none",
+    stroke:"var(--glow)","stroke-width":3,opacity:.8}));
+  // borne off in tray
+  const trayX=W-M-TRAY/2;
+  for(let k=0;k<s.off.w;k++) svg.appendChild(el("rect",{x:trayX-22,y:H-M-12-k*9,width:44,height:7,rx:2,fill:"var(--bone)"}));
+  for(let k=0;k<s.off.b;k++) svg.appendChild(el("rect",{x:trayX-22,y:M+6+k*9,width:44,height:7,rx:2,fill:"var(--ebony)"}));
+
+  // dice
+  if(s.dice && s.dice.length){
+    const dx = s.turn==="w"? barX-150 : barX+BAR+86;
+    s.dice.forEach((d,idx)=> svg.appendChild(die(dx+idx*64, H/2-26, d, s.turn)));
+  }
+  // doubling cube
+  svg.appendChild(cube(trayX, H/2, s.cube.value, s.cube.owner));
+  // bear-off target: if the selected source can bear off, glow the tray and make it tappable
+  if(sel!==null){
+    const bear=(s.legal||[]).find(m=>m.from===sel && m.bear);
+    if(bear){
+      const ty = s.turn==="w" ? H-M-40 : M+40;
+      const halo=el("rect",{x:trayX-30,y:ty-18,width:60,height:36,rx:8,fill:"var(--glow)",
+        opacity:.85, class:"point movable", "data-bear":"1"});
+      halo.addEventListener("click",()=>chooseBear());
+      svg.appendChild(halo);
+      svg.appendChild(el("text",{x:trayX,y:ty+5,"text-anchor":"middle","font-size":13,
+        "font-weight":700,fill:"#3a2c10","font-family":"ui-sans-serif,system-ui",
+        "pointer-events":"none"},[txt("bear off")]));
+    }
+  }
+  renderControls();
+}
+
+function defs(){
+  const d=el("defs");
+  const sh=el("linearGradient",{id:"feltsh",x1:0,y1:0,x2:0,y2:1});
+  sh.appendChild(el("stop",{offset:0,"stop-color":"#fff","stop-opacity":.05}));
+  sh.appendChild(el("stop",{offset:1,"stop-color":"#000","stop-opacity":.18}));
+  d.appendChild(sh);
+  [["bone","#fff","var(--bone)","var(--bone-edge)"],["ebony","#555","var(--ebony)","#000"]]
+   .forEach(([id,hi,mid,edge])=>{
+    const rg=el("radialGradient",{id:id,cx:.35,cy:.3,r:.8});
+    rg.appendChild(el("stop",{offset:0,"stop-color":hi}));
+    rg.appendChild(el("stop",{offset:.55,"stop-color":mid}));
+    rg.appendChild(el("stop",{offset:1,"stop-color":edge}));
+    d.appendChild(rg);
+  });
+  return d;
+}
+function checker(cx,cy,color){
+  const g=el("g");
+  g.appendChild(el("circle",{cx,cy:cy+2,r:R,fill:"#000",opacity:.28}));
+  g.appendChild(el("circle",{cx,cy,r:R,fill:`url(#${color==="w"?"bone":"ebony"})`,
+    stroke:color==="w"?"var(--bone-edge)":"#000","stroke-width":1.5}));
+  g.appendChild(el("circle",{cx,cy,r:R-6,fill:"none",
+    stroke:color==="w"?"#d8c9a4":"#3a3a3a","stroke-width":1,opacity:.7}));
+  return g;
+}
+function die(x,y,val,turn){
+  const g=el("g",{class:"die-anim"});
+  const dark=turn==="b";
+  g.appendChild(el("rect",{x,y,width:52,height:52,rx:11,
+    fill:dark?"#1c1a18":"#f3ead6",stroke:dark?"#000":"#cdbf9e","stroke-width":1.5}));
+  const pip=(px,py)=>g.appendChild(el("circle",{cx:x+px,cy:y+py,r:5,fill:dark?"#e8e2d4":"#26211a"}));
+  const c=26,a=13,b=39, P={1:[[c,c]],2:[[a,a],[b,b]],3:[[a,a],[c,c],[b,b]],
+    4:[[a,a],[b,a],[a,b],[b,b]],5:[[a,a],[b,a],[c,c],[a,b],[b,b]],
+    6:[[a,a],[b,a],[a,c],[b,c],[a,b],[b,b]]};
+  (P[val]||[]).forEach(([px,py])=>pip(px,py));
+  return g;
+}
+function cube(cx,cy,val,owner){
+  const g=el("g"); const sz=46;
+  g.appendChild(el("rect",{x:cx-sz/2,y:cy-sz/2,width:sz,height:sz,rx:8,
+    fill:"#e9d29a",stroke:"var(--brass-d)","stroke-width":2}));
+  g.appendChild(el("text",{x:cx,y:cy+8,"text-anchor":"middle","font-size":24,"font-weight":800,
+    fill:"#4a3a14","font-family":"ui-sans-serif,system-ui"},[txt(String(val===1?64:val))]));
+  return g;
+}
+function txt(s){ return document.createTextNode(s); }
+
+// ---- controls --------------------------------------------------------------
+function renderControls(){
+  const c=$("#controls"); c.innerHTML=""; const s=state;
+  const pill=document.createElement("span"); pill.className="turnpill";
+  pill.innerHTML=`<span class="dot ${s.turn}"></span>${s.players[s.turn]} to ${s.phase==="roll"?"roll":"play"}`;
+  if(s.phase==="move") pill.innerHTML+=` &nbsp;·&nbsp; dice: ${s.dice_remaining.join(" ")}`;
+  c.appendChild(pill);
+  const btn=(label,fn,ghost)=>{const b=document.createElement("button");b.textContent=label;
+    if(ghost)b.className="ghost";b.onclick=fn;return b;};
+  if(s.phase==="roll"){
+    c.appendChild(btn("Roll",()=>act("roll")));
+    c.appendChild(btn("Double",()=>act("offer_double"),true));
+  } else if(s.phase==="double-offered"){
+    c.appendChild(btn("Accept double",()=>act("accept_double")));
+    c.appendChild(btn("Decline",()=>act("decline_double"),true));
+  } else if(s.phase==="move"){
+    c.appendChild(btn("Undo selection",()=>{sel=null;render();},true));
+  }
+}
+
+// ---- interaction -----------------------------------------------------------
+function pick(from){ sel = (sel===from? null : from); render(); }
+async function chooseDest(to){
+  const mv=(state.legal||[]).find(m=>m.from===sel && m.to===to);
+  if(!mv) return;
+  sel=null;
+  try{ await call("move",{from:mv.from,die:mv.die}); await refresh(); }
+  catch(e){ fail(); }
+}
+async function chooseBear(){
+  const mv=(state.legal||[]).find(m=>m.from===sel && m.bear);
+  if(!mv) return;
+  sel=null;
+  try{ await call("move",{from:mv.from,die:mv.die}); await refresh(); }
+  catch(e){ fail(); }
+}
+// destination circles call chooseDest via delegated click
+$("#board").addEventListener("click",ev=>{
+  const t=ev.target;
+  if(t.tagName==="circle" && t.classList.contains("movable") && sel!==null){
+    // find nearest point to the click target center
+    const cx=+t.getAttribute("cx"), cy=+t.getAttribute("cy");
+    for(let i=1;i<=24;i++){const g=pointGeom(i);
+      if(Math.abs(g.x-cx)<2){ chooseDest(i); return; }}
+  }
+});
+
+async function act(verb){ try{ await call(verb,{}); sel=null; await refresh(); }catch(e){ fail(); } }
+async function newGame(){ try{ await call("new_game",{}); $("#banner").classList.remove("show");
+  sel=null; await refresh(); }catch(e){ fail(); } }
+
+function fail(){ connected=false; $("#status").textContent="can't reach the table — contact admin"; }
+
+async function refresh(){
+  try{
+    const s=await call("get");
+    const ts=Number(s.ts);
+    if(watermark>=0 && ts<watermark){ connected=false;
+      $("#status").textContent="disconnected (split detected) — contact admin"; return; }
+    watermark=ts; connected=true; state=s;
+    $("#status").textContent = s.phase==="gameover" ? "game over" : "live";
+    render();
+    if(s.phase==="gameover"){ $("#bannerTitle").textContent=(s.players[s.winner])+" wins";
+      $("#bannerText").textContent="The table is yours."; $("#banner").classList.add("show"); }
+    const here=await call("presence",{who:WHO});
+    $("#presence").textContent=(here.who_is_here||[]).length?"watching: "+here.who_is_here.join(", "):"";
+  }catch(e){ fail(); }
+}
+
+(async()=>{ try{ await call("get"); }catch(e){ try{ await call("new_game",{}); }catch(_){} }
+  await refresh(); setInterval(()=>{ if(connected) refresh(); }, POLL_MS); })();
+</script>
+</body>
+</html>

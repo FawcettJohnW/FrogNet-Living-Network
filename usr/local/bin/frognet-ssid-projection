@@ -1,0 +1,131 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+###############################################################################
+# frognet-ssid-projection — get or set the SSID-projection switch
+#
+# When ON (default): if eth0 has no carrier and the device has wlan0,
+# frognet-netstart starts hostapd to project the node SSID.  When OFF,
+# wlan0 stays under NetworkManager regardless of eth0 carrier and hostapd
+# is masked.
+#
+# Usage:
+#   frognet-ssid-projection                # print current state
+#   frognet-ssid-projection get            # same, scriptable: prints "on" or "off"
+#   frognet-ssid-projection on             # enable + apply now
+#   frognet-ssid-projection off            # disable + apply now
+#   frognet-ssid-projection --json         # JSON output (for the web UI)
+#
+# Apply policy:
+#   - "on"  → unmask hostapd; re-run frognet-netstart so the new state
+#             takes effect immediately on the current eth0 carrier state.
+#   - "off" → run frognet-netstart first to drop AP cleanly, then mask
+#             hostapd.
+###############################################################################
+set -eu
+
+CONF=/etc/frognet/ssid_projection.conf
+NETSTART=/usr/local/bin/frognet-netstart
+
+_read_state() {
+    local s=1
+    if [[ -f "$CONF" ]]; then
+        s="$(grep -E '^SSID_PROJECTION=' "$CONF" | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+        [[ -z "$s" ]] && s=1
+    fi
+    [[ "$s" == "0" ]] && echo off || echo on
+}
+
+_write_state() {
+    local target="$1"  # "on" or "off"
+    local val
+    val=$([[ "$target" == "on" ]] && echo 1 || echo 0)
+    mkdir -p /etc/frognet
+    cat > "$CONF" <<EOF
+# /etc/frognet/ssid_projection.conf
+# Managed by frognet-ssid-projection.
+# 1 = project node SSID via hostapd when eth0 has no carrier.
+# 0 = never start hostapd; wlan0 stays under NetworkManager.
+SSID_PROJECTION=${val}
+EOF
+    chmod 644 "$CONF"
+}
+
+_apply() {
+    local target="$1"
+    if [[ "$target" == "on" ]]; then
+        systemctl unmask hostapd 2>/dev/null || true
+        # Re-run netstart — it will start hostapd if eth0 has no carrier,
+        # or leave it stopped if eth0 is up.  Either way, the new switch
+        # value is honored.
+        if [[ -x "$NETSTART" ]]; then
+            "$NETSTART" || true
+        fi
+    else
+        # Drop AP cleanly first, THEN mask.  Order matters: masking
+        # before stopping leaves a confused state if hostapd is up.
+        if [[ -x "$NETSTART" ]]; then
+            "$NETSTART" || true
+        fi
+        systemctl stop hostapd 2>/dev/null || true
+        systemctl mask hostapd 2>/dev/null || true
+    fi
+}
+
+_emit() {
+    local state="$1"
+    if [[ "${JSON:-0}" == "1" ]]; then
+        local val
+        val=$([[ "$state" == "on" ]] && echo true || echo false)
+        printf '{"ok":true,"enabled":%s,"state":"%s"}\n' "$val" "$state"
+    else
+        echo "$state"
+    fi
+}
+
+# --- arg parse ---
+JSON=0
+ACTION=""
+for arg in "$@"; do
+    case "$arg" in
+        --json)        JSON=1 ;;
+        on|enable)     ACTION="on" ;;
+        off|disable)   ACTION="off" ;;
+        get|status|"") ACTION="get" ;;
+        -h|--help)
+            sed -n '2,18p' "$0"; exit 0 ;;
+        *) echo "unknown arg: $arg" >&2; exit 2 ;;
+    esac
+done
+[[ -z "$ACTION" ]] && ACTION=get
+
+# --- dispatch ---
+case "$ACTION" in
+    get)
+        _emit "$(_read_state)"
+        ;;
+    on|off)
+        if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+            echo "ERROR: must be root to change state" >&2; exit 1
+        fi
+        _write_state "$ACTION"
+        _apply "$ACTION"
+        _emit "$(_read_state)"
+        ;;
+esac
+

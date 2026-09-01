@@ -1,0 +1,163 @@
+/***************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ **************************************************************/
+/* FrogNet Dashboard — Light Information-Forward Theme */
+:root{
+  /* Brand & status */
+  --fi-green:#2e7d32;  /* accessible green */
+  --fi-gold:#b45309;   /* amber 700 */
+  --fn-teal:#1fb6ad;   /* balanced teal for hero */
+  --danger:#b91c1c;    /* red 700 */
+  --accent:#2563eb;    /* blue 600 for tabs/buttons */
+
+  /* Surfaces & typography */
+  --bg1:#e5e7eb;       /* page bg top */
+  --bg2:#d1d5db;       /* page bg bottom */
+  --panel:#ffffff;     /* cards/panels */
+  --panel-2:#f8fafc;   /* soft section bg */
+  --text:#0f172a;      /* slate 900 */
+  --muted:#475569;     /* slate 600 */
+  --border:#e5e7eb;    /* neutral border */
+  --br:14px;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:linear-gradient(180deg,var(--bg1) 0%, var(--bg2) 100%);
+  color:var(--text); font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+}
+
+/* Header (fixed 150px height) */
+header{
+  position:sticky; top:0; z-index:10; backdrop-filter:saturate(1.2) blur(6px);
+  background:#000; border-bottom:1px solid rgba(255,255,255,.12);
+  height:150px; padding:20px 24px; display:flex; gap:28px; align-items:center; justify-content:space-between;
+}
+.brand{
+  position:absolute; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:18px; text-align:center;
+}
+.brand .stack{ display:flex; flex-direction:column; gap:4px; }
+.brand h1{ margin:0; font-size: 38.4px; letter-spacing:.3px; color:var(--fi-green); font-weight:800; }
+.brand h2{ margin:0; font-size:24px; letter-spacing:.2px; color:var(--muted); font-weight:600; }
+.logo-fi-header{ height: 120px; width:auto; display:block; }
+.logo-fn-header{ height:120px; width:auto; display:block; }
+
+/* API box */
+.api-box{display:flex; gap:12px; align-items:center; margin-left:auto;}
+.api-box input{
+  width:420px; max-width:55vw; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
+  background:var(--panel); color:var(--text); outline:none;
+}
+.api-box button{
+  height:40px; padding:0 14px; border:1px solid var(--border); border-radius:12px;
+  background:var(--panel-2); color:var(--text); cursor:pointer;
+}
+
+/* Hero: teal background, centered, text larger */
+.hero{
+  display:flex; align-items:center; justify-content:center; padding:24px;
+  background:var(--fn-teal); border-bottom:1px solid rgba(0,0,0,.06);
+  text-align:center;
+}
+.hero .title{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+.hero .title .big{ font-size:36px; color:#063e3b; font-weight:900; letter-spacing:.3px; text-transform:uppercase; }
+.hero .title .sub{ font-size:24px; color:#0b4a46; font-weight:600; }
+
+/* Layout */
+main{padding:18px; display:grid; gap:18px;}
+.tabs{display:flex; gap:8px; flex-wrap:wrap;}
+.tab{
+  padding:8px 12px; border-radius:999px; background:var(--panel-2); border:1px solid var(--border);
+  color:var(--muted); cursor:pointer; user-select:none;
+}
+.tab.active{color:#fff; background:var(--accent); border-color:transparent;}
+.sections{margin-top:12px;}
+.section{display:none}
+.section.active{display:block}
+.panel{
+  background:var(--panel); border:1px solid var(--border); border-radius:var(--br); padding:12px;
+  box-shadow: 0 4px 14px rgba(15,23,42,.05);
+}
+.list{display:flex; flex-direction:column; gap:8px;}
+details{
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:12px; padding:10px 12px;
+}
+summary{
+  list-style:none; cursor:pointer; display:flex; align-items:center; gap:10px; color:var(--text);
+}
+summary::-webkit-details-marker{display:none}
+.pill{
+  font-size:12px; color:#1f2937; background:#eef2ff; border:1px solid #e5e7eb;
+  padding:2px 8px; border-radius:999px;
+}
+.muted{color:var(--muted)}
+.grid{display:grid; gap:10px}
+.grid.cols-2{grid-template-columns: repeat(2,minmax(0,1fr))}
+pre.json{
+  margin:8px 0 0; padding:10px; background:#f3f4f6; border:1px solid var(--border);
+  border-radius:10px; color:#0f172a; overflow:auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+.btn{
+  font-size:12px; padding:6px 10px; border-radius:8px; border:1px solid var(--border);
+  background:#eef2ff; color:#1f2937; cursor:pointer;
+}
+.search{display:flex; gap:8px; margin-bottom:10px}
+.search input{
+  flex:1; padding:8px 10px; border-radius:10px; border:1px solid var(--border);
+  background:var(--panel-2); color:var(--text);
+}
+.empty{padding:10px; color:var(--muted)}
+.error{color:var(--danger)}
+.spinner{display:inline-block; width:16px; height:16px; border:2px solid rgba(31,41,55,.25); border-top-color:var(--accent); border-radius:50%; animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.small{font-size:12px}
+
+/* Status coloring for KnownFrogNets rows */
+summary.status-ok    { color: var(--fi-green);   font-size: 1.5em; }
+summary.status-warn  { color: var(--fi-gold);    font-size: 1.5em; }
+summary.status-danger{ color: var(--danger);     font-size: 1.5em; }
+summary.status-ok .pill{
+  color: var(--fi-green);
+  border-color: rgba(46,125,50,.35);
+  background: rgba(46,125,50,.08);
+}
+summary.status-warn .pill{
+  color: var(--fi-gold);
+  border-color: rgba(180,83,9,.35);
+  background: rgba(180,83,9,.10);
+}
+summary.status-danger .pill{
+  color: var(--danger);
+  border-color: rgba(185,28,28,.35);
+  background: rgba(185,28,28,.10);
+}
+
+/* Footer */
+footer{
+  margin:12px 18px 24px; padding:12px; border-radius:12px;
+  border:1px solid var(--border); background:var(--panel);
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  box-shadow: 0 4px 14px rgba(15,23,42,.05);
+}
+.foot-left{display:flex; align-items:center; gap:10px;}
+.logo-fi{height:28px; width:auto; display:block;}
+.dc-wrap{display:flex; align-items:center; gap:10px}
+.logo-dc{height:24px; width:auto; display:block; filter:drop-shadow(0 0 4px rgba(37,99,235,.2));}

@@ -1,0 +1,141 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /usr/local/bin/runMerge.bash
+#
+# Single authoritative merge controller.  ONE invocation = ONE merge
+# pass.  If the pass made changes (sync_required) or a concurrent
+# attempt was deflected onto our lock (runAgain), we fork a fresh
+# runMerge in the background and exit.  The chain terminates when a
+# pass finishes clean — no further fork.
+#
+# Ownership:
+#   mergePending  — lifecycle marker.  Set at start, cleared on exit.
+#   runAgain      — external-pressure flag.  Set by a runMerge that
+#                   lost the flock race.  Consumed at the start of
+#                   the next runMerge that acquires the lock.
+#   sync_required — change-detected flag.  Touched by any pipeline
+#                   step that modifies state (mergeHostsAndResolv,
+#                   sync_interfaces, fixDefaultRoute,
+#                   selectNewDatabaseHost).  Cleared at start of
+#                   mergeHostsAndResolv.
+#
+# Chain depth is bounded by $MAX_MERGE_DEPTH (default 10) via the
+# $FROGNET_MERGE_DEPTH env var, propagated through the fork.  Cap is
+# a safety backstop for pathological flapping; a convergent network
+# terminates naturally in 1–3 invocations.
+
+set -x
+
+log(){ echo "runMerge: $*"; }
+
+FROGNET_MERGE_DEPTH="${FROGNET_MERGE_DEPTH:-0}"
+MAX_MERGE_DEPTH="${MAX_MERGE_DEPTH:-10}"
+
+log "ENTER pid=$$ depth=$FROGNET_MERGE_DEPTH argv=$*"
+
+# ------------------------------------------------------------
+# Locking (hard re-entrancy guard)
+# ------------------------------------------------------------
+LOCKFILE="/var/run/runMerge.lock"
+exec 9>"$LOCKFILE" || exit 1
+
+if ! flock -n 9; then
+    log "BAIL reason=lock_held depth=$FROGNET_MERGE_DEPTH"
+    echo "runMerge: another instance already running"
+    mkdir -p /etc/sentinels
+    # : > /etc/sentinels/runAgain
+    log "BAIL touched runAgain for running instance"
+    exit 0
+fi
+
+log "lock_acquired lockfile=$LOCKFILE"
+
+# setup_iptables — runs at boot and NM dispatcher, not needed per-merge
+/etc/setup_iptables
+
+# ------------------------------------------------------------
+# Sentinel setup (DEFINE FIRST)
+# ------------------------------------------------------------
+SENT_DIR="/etc/sentinels"
+MERGE_PENDING="$SENT_DIR/mergePending"
+RUN_AGAIN="$SENT_DIR/runAgain"
+SYNC_REQUIRED="$SENT_DIR/sync_required"
+FATAL_SENT="$SENT_DIR/merge_invariant_fatal"
+
+mkdir -p "$SENT_DIR"
+
+# ------------------------------------------------------------
+# Consume the summoning signal.  A racing runMerge that arrives
+# DURING our run will touch runAgain again, and the fork-decision
+# below will observe the fresh touch.
+# ------------------------------------------------------------
+rm -f "$RUN_AGAIN"
+
+# ------------------------------------------------------------
+# Mark merge in progress (authoritative)
+# ------------------------------------------------------------
+: > "$MERGE_PENDING"
+log "merge_pending_set file=$MERGE_PENDING"
+
+# Cleanup trap clears ONLY mergePending.  sync_required / runAgain
+# are handled explicitly in the post-merge decision block so they
+# can survive through to the forked child when we're chaining.
+cleanup() {
+    rc=$?
+    log "cleanup pid=$$ rm mergePending"
+    rm -f "$MERGE_PENDING"
+    log "EXIT pid=$$ rc=$rc"
+}
+trap cleanup EXIT INT TERM
+
+# ------------------------------------------------------------
+# Execute merge
+# ------------------------------------------------------------
+# Flush stale failure entries so discovery starts fresh each run
+/usr/local/bin/frognet_discovery_cache.sh flush 2>/dev/null || true
+
+log "CALL mergeHostsAndResolv.bash"
+/usr/local/bin/mergeHostsAndResolv.bash
+merge_rc=$?
+log "RETURN mergeHostsAndResolv.bash rc=$merge_rc"
+
+# ------------------------------------------------------------
+# Converge via fork-and-exit.
+#
+# If this pass changed state (sync_required) or external pressure
+# arrived (runAgain), fork a fresh runMerge in the background and
+# exit.  Each fork is a complete new merge pass; the chain stops
+# when a pass finishes clean.
+#
+# Depth is capped so pathological flapping can't fork forever.
+# Hitting the cap logs a WARN, clears the signals, and stops.  The
+# next external trigger (cron, NM dispatcher, propogateNotification
+# from a peer, tunnel event) starts a new chain at depth 0.
+# ------------------------------------------------------------
+if [[ -f "$SYNC_REQUIRED" ]] || [[ -f "$RUN_AGAIN"     ]]; then
+    rm -f "$SYNC_REQUIRED" "$RUN_AGAIN"
+    /usr/local/bin/runMerge.bash
+else
+    rm -f "$SYNC_REQUIRED" "$RUN_AGAIN"
+fi
+
+echo "runMerge: completed"
+log "completed"
+
+exit 0

@@ -1,0 +1,59 @@
+The FrogNet Living Network
+Copyright (C) 2016-2026 Fawcett Innovations LLC
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation; version 2 of the License, and no other version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+more details.
+
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,
+51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+SPDX-License-Identifier: GPL-2.0-only
+
+
+--- Version, and why it is fixed ---------------------------------------------
+
+This is GPL version 2 ONLY. It is not "version 2 or later", and it is not
+version 3. The distinction is deliberate and load-bearing:
+
+  * A "v2 or later" grant would let a recipient move the work to v3 or to any
+    future version at their option. That choice is not delegated.
+  * GPLv2-only code cannot be combined with GPLv3 code. That is a known and
+    accepted consequence.
+  * Relicensing later requires the agreement of every copyright holder. Today
+    that is one party.
+
+Any file, notice, or published statement describing this work as GPLv3, or as
+"or later", is incorrect and superseded by this file.
+
+
+--- Third-party components ---------------------------------------------------
+
+This distribution includes software that is not ours and is not GPL:
+
+  usr/local/lib/python3.11/dist-packages/xlsxwriter/     BSD-2-Clause
+      Copyright the XlsxWriter authors. See the files' own headers.
+
+Their licences are unaffected by the licence above.
+
+
+--- Provenance of the LICENSE file --------------------------------------------
+
+LICENSE is the canonical GNU GPL version 2 text, 340 lines, 18,092 bytes.
+
+  sha256  8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643
+
+It was not transcribed or generated. It was fetched from two independent
+repositories whose terms sections are byte-identical to each other, then
+compared word-for-word against the SPDX GPL-2.0-only text; the only differences
+between those formats are one comma position and a repeated heading.
+
+To re-verify from the authoritative source at any time:
+
+  curl -fsSL https://www.gnu.org/licenses/gpl-2.0.txt | sha256sum

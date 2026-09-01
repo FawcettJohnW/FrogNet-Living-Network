@@ -1,0 +1,433 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FrogNet Communicator</title>
+<style>
+  :root{
+    --water:#0a1417; --water-2:#0f1e22; --silt:#16292e;
+    --reed:#3fae6e; --reed-dim:#2b6f49; --lily:#7fd1a0;
+    --amber:#f4b942; --bone:#e8efe9; --mute:#6f8a82; --line:#22383d;
+    --bad:#d9645a;
+    --mono:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 800px at 70% -10%, #112a2f 0%, var(--water) 60%);
+    color:var(--bone); font-family:var(--sans); font-size:15px; line-height:1.5;
+    display:grid; grid-template-rows:auto 1fr; min-height:100%; overflow:hidden;
+  }
+  header{display:flex; align-items:center; gap:14px; padding:14px 22px; border-bottom:1px solid var(--line)}
+  header .mark{font-family:var(--mono); font-weight:600; letter-spacing:.04em; font-size:18px; color:var(--lily)}
+  header .mark b{color:var(--reed)}
+  header .who{font-family:var(--mono); font-size:12.5px; color:var(--mute); margin-left:auto}
+  header .who b{color:var(--bone)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--reed);
+    margin-right:6px;box-shadow:0 0 0 0 rgba(63,174,110,.5);animation:pulse 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(63,174,110,.45)}70%{box-shadow:0 0 0 7px rgba(63,174,110,0)}100%{box-shadow:0 0 0 0 rgba(63,174,110,0)}}
+
+  .toptab{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--bone);
+    background:transparent;border:1px solid var(--line);border-radius:7px;padding:7px 12px;cursor:pointer}
+  .toptab:hover{background:#0c1c20;color:var(--lily)}
+  .toptab.on{background:var(--reed);color:var(--water);border-color:var(--reed)}
+  .toptab .badge{color:var(--amber);font-weight:600;margin-left:5px}
+
+  main{display:grid; grid-template-columns:260px 1fr; gap:1px; background:var(--line); min-height:0; position:relative}
+  section{background:var(--water-2); min-height:0; display:flex; flex-direction:column}
+  .pane-h{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--mute); padding:14px 16px 8px}
+
+  #flock{overflow:auto; padding:0 8px 12px}
+  .frog{display:flex; align-items:center; gap:10px; padding:9px 8px; border-radius:8px; cursor:default}
+  .frog:hover{background:#0c1c20}
+  .frog .lp{width:26px;height:26px;border-radius:50%;flex:none;
+    background:radial-gradient(circle at 35% 30%, var(--reed), var(--reed-dim));
+    display:grid;place-items:center;font-size:13px}
+  .frog.off .lp{background:#26343a;filter:grayscale(1)}
+  .frog .nm{font-weight:550}
+  .frog .st{font-family:var(--mono);font-size:10.5px;color:var(--mute);margin-left:auto}
+  .frog.off .nm{color:var(--mute)}
+  .frog .cap{font-family:var(--mono);font-size:10px;color:var(--reed-dim)}
+
+  .stage{display:flex;flex-direction:column}
+  .stage .frame{flex:1;display:grid;place-items:center;background:#06100f;min-height:0;
+    border-bottom:1px solid var(--line);position:relative}
+  .vnote{position:absolute;bottom:10px;left:0;right:0;text-align:center;
+    font-family:var(--mono);font-size:11.5px;color:var(--amber);pointer-events:none;text-shadow:0 1px 3px #000}
+  .stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:auto}
+  .controls{display:flex;gap:10px;align-items:center;padding:12px 16px;flex-wrap:wrap}
+  .controls .sp{flex:1}
+  button{font-family:var(--sans);font-size:13.5px;font-weight:550;color:var(--water);
+    background:var(--reed);border:0;border-radius:7px;padding:8px 14px;cursor:pointer}
+  button:hover{background:var(--lily)}
+  button.ghost{background:transparent;color:var(--bone);border:1px solid var(--line)}
+  button.ghost:hover{background:#0c1c20;color:var(--lily)}
+  button.warn{background:var(--bad);color:#fff}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .pill{font-family:var(--mono);font-size:11px;color:var(--mute);
+    border:1px solid var(--line);border-radius:999px;padding:4px 10px}
+  .pill b{color:var(--amber)}
+  .ctlgrp{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--mute)}
+  select{font-family:var(--mono);font-size:12px;background:#0a1a1d;color:var(--bone);
+    border:1px solid var(--line);border-radius:6px;padding:6px 8px;cursor:pointer}
+
+  .stats{display:flex;flex-wrap:wrap;gap:8px 18px;padding:10px 16px;border-top:1px solid var(--line);
+    font-family:var(--mono);font-size:11px;color:var(--mute);background:#0b1a1e}
+  .stats .k{color:#557}
+  .stats b{color:var(--lily);font-weight:600}
+  .stats .amber{color:var(--amber)}
+  .stats.idle{color:#3c5650}
+
+  input[type=text]{font-family:var(--sans);font-size:14px;background:#0a1a1d;color:var(--bone);
+    border:1px solid var(--line);border-radius:7px;padding:8px 11px;width:100%}
+  input::placeholder{color:#48605a}
+
+  .win{position:absolute;width:320px;max-width:calc(100vw - 24px);background:var(--water-2);
+    border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 50px rgba(0,0,0,.55);
+    display:flex;flex-direction:column;overflow:hidden;z-index:30}
+  .win.hidden{display:none}
+  .win-head{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:grab;
+    border-bottom:1px solid var(--line);background:#0c1d21;user-select:none}
+  .win-head:active{cursor:grabbing}
+  .win-head .ttl{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--lily)}
+  .win-head .sp{flex:1}
+  .win-head .x{font-family:var(--mono);font-size:13px;color:var(--mute);background:none;border:0;padding:2px 6px;cursor:pointer}
+  .win-head .x:hover{color:var(--bone)}
+  .win-body{overflow:auto;min-height:0}
+
+  #chatWin{height:340px;right:18px;bottom:18px}
+  #chatWin.collapsed{height:auto}
+  #chatWin.collapsed .win-body,#chatWin.collapsed .chatbar{display:none}
+  #log{flex:1;overflow:auto;padding:8px 14px;display:flex;flex-direction:column;gap:8px;min-height:0}
+  .msg{font-size:13.5px}
+  .msg .frm{font-family:var(--mono);font-size:10.5px;color:var(--reed);margin-right:6px}
+  .chatbar{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line)}
+  .empty{color:var(--mute);font-size:13px;padding:14px 16px;font-style:italic}
+
+  #pondWin{width:360px;height:420px;left:300px;top:96px}
+  #pondWin .win-body{flex:1;display:flex;flex-direction:column}
+  .pond-h{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--mute);padding:12px 14px 6px}
+  .row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid #14272b}
+  .row .ic{width:24px;height:24px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:13px;background:#13262b}
+  .row .meta{min-width:0;flex:1}
+  .row .nm{font-weight:550;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row .sub{font-family:var(--mono);font-size:10.5px;color:var(--mute)}
+  .row button{padding:5px 11px;font-size:12px}
+  .row.live .ic{background:var(--reed-dim)}
+
+  @media (max-width:760px){
+    main{grid-template-columns:1fr}
+    #pondWin{left:12px;top:90px;width:calc(100vw - 24px)}
+    #chatWin{right:12px;left:12px;width:auto}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <span class="mark"><b>frog</b>net · communicator</span>
+    <button class="toptab" id="tabPond">🐸 on the pond<span class="badge" id="pondBadge"></span></button>
+    <button class="toptab on" id="tabChat">chat</button>
+    <span class="pill" id="dbWarn" style="display:none;border-color:var(--amber);color:var(--amber)">database unreachable</span>
+    <span class="who"><span class="dot"></span>you are <b id="me">…</b></span>
+  </header>
+
+  <main>
+    <section>
+      <div class="pane-h">the flock</div>
+      <div id="flock"></div>
+    </section>
+
+    <section class="stage">
+      <div class="frame"><img id="video" alt="video"><div id="vnote" class="vnote"></div></div>
+      <div class="controls">
+        <button id="btnCall">Start call</button>
+        <button id="btnHang" class="warn" disabled>Hang up</button>
+        <span class="pill" id="sessPill" style="display:none">session <b id="sess"></b></span>
+        <span class="sp"></span>
+        <span class="ctlgrp">codec
+          <select id="codecSel" title="video codec (applies live)">
+            <option value="vp8">VP8</option>
+            <option value="h264">H.264</option>
+            <option value="h264hw">H.264 HW</option>
+          </select>
+        </span>
+        <span class="ctlgrp">quality
+          <select id="qualSel" title="cap the video send level (applies live)">
+            <option value="8">Auto</option>
+            <option value="6">480p</option>
+            <option value="5">360p</option>
+          </select>
+        </span>
+        <button class="ghost" id="btnJoinOpen" title="join by session id">Join id…</button>
+      </div>
+      <div class="stats idle" id="stats"><span>not in a call — stats appear once you're live</span></div>
+    </section>
+  </main>
+
+  <div class="win" id="chatWin">
+    <div class="win-head" id="chatHead">
+      <span class="ttl">call chat</span>
+      <span class="sp"></span>
+      <button class="x" id="chatMin" title="collapse">&#9662;</button>
+      <button class="x" id="chatClose" title="hide">&#10005;</button>
+    </div>
+    <div class="win-body" id="log"><div class="empty">Chat appears once you're in a call.</div></div>
+    <div class="chatbar">
+      <input type="text" id="chatIn" placeholder="message the call…" disabled>
+      <button id="btnSend" disabled>Send</button>
+    </div>
+  </div>
+
+  <div class="win hidden" id="pondWin">
+    <div class="win-head" id="pondHead">
+      <span class="ttl">on the pond</span>
+      <span class="sp"></span>
+      <button class="x" id="pondClose" title="hide">&#10005;</button>
+    </div>
+    <div class="win-body">
+      <div class="pond-h">open streams</div>
+      <div id="streamList"><div class="empty">No open calls right now.</div></div>
+      <div class="pond-h">games</div>
+      <div id="gameList"><div class="empty">No games in progress.</div></div>
+    </div>
+  </div>
+
+  <div class="win hidden" id="joinWin" style="width:300px;left:340px;top:140px">
+    <div class="win-head" id="joinHead">
+      <span class="ttl">join a session</span><span class="sp"></span>
+      <button class="x" id="joinClose" title="hide">&#10005;</button>
+    </div>
+    <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
+      <input type="text" id="joinId" placeholder="paste a session id…">
+      <button id="btnJoin">Join</button>
+    </div>
+  </div>
+
+<script>
+const $ = s => document.querySelector(s);
+let state = {};
+let pondOpen = false;
+
+async function api(path, body){
+  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+function tickVideo(){ $("#video").src = "/api/video.jpg?t=" + Date.now(); }
+setInterval(tickVideo, 120);
+
+function escapeHtml(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+function renderFlock(roster, meId){
+  const el = $("#flock"); el.innerHTML = "";
+  if(!roster.length){ el.innerHTML = '<div class="empty">No one else on the pond yet.</div>'; return; }
+  for(const p of roster){
+    const off = p.status !== "online";
+    const cap = p.caps && p.caps.cam ? "video" : "audio";
+    const div = document.createElement("div");
+    div.className = "frog" + (off ? " off" : "");
+    div.innerHTML =
+      `<span class="lp">🐸</span>
+       <span class="nm">${escapeHtml(p.name)}${p.id===meId?" <span class='cap'>(you)</span>":""}</span>
+       <span class="st">${off?"offline":cap}</span>`;
+    el.appendChild(div);
+  }
+}
+
+function renderChat(chat){
+  const log = $("#log");
+  if(!state.in_call){ log.innerHTML = '<div class="empty">Chat appears once you\'re in a call.</div>'; return; }
+  if(!chat.length){ log.innerHTML = '<div class="empty">No messages yet — say hello.</div>'; return; }
+  log.innerHTML = "";
+  for(const m of chat){
+    const d = document.createElement("div"); d.className="msg";
+    d.innerHTML = `<span class="frm">${escapeHtml(m.from)}</span>${escapeHtml(m.text)}`;
+    log.appendChild(d);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderStats(){
+  const el = $("#stats");
+  const s = state.stats||{};
+  if(!state.in_call){ el.className="stats idle"; el.innerHTML = "<span>not in a call — stats appear once you're live</span>"; return; }
+  el.className="stats";
+  const parts = [];
+  if(s.v_fps_sent!=null) parts.push(`<span class="k">video</span> <b>${s.v_fps_sent}</b><span class="k">/${s.ref_fps||30} fps</span>`);
+  if(s.v_fps_recv!=null) parts.push(`<span class="k">recv</span> <b>${s.v_fps_recv}</b><span class="k"> fps</span>`);
+  if(s.v_kbps!=null)     parts.push(`<span class="k">video</span> <b>${s.v_kbps}</b><span class="k"> KB/s</span>`);
+  if(s.a_kbps!=null)     parts.push(`<span class="k">audio</span> <b>${s.a_kbps}</b><span class="k"> KB/s</span>`);
+  if(s.delta_kb!=null)   parts.push(`<span class="k">&Delta;frame</span> <b>${s.delta_kb}</b><span class="k"> KB</span>`);
+  if(s.key_kb!=null)     parts.push(`<span class="k">key</span> <b>${s.key_kb}</b><span class="k"> KB</span>`);
+  if(s.v_drop_fps!=null){
+    const drop = s.v_drop_fps>0 ? `<span class="amber">${s.v_drop_fps}</span>` : `<b>0</b>`;
+    parts.push(`<span class="k">drop</span> ${drop}<span class="k">/s</span>`);
+  }
+  const d = state.diag||{};
+  parts.push(`<span class="k">peers</span> <b>${d.peer_tiles||0}</b>`);
+  parts.push(`<span class="k">codec</span> <b>${escapeHtml(state.codec||"vp8")}</b>`);
+  el.innerHTML = parts.join(" ");
+}
+
+function rowStream(c){
+  const mine = state.session && c.session===state.session;
+  const n = (c.members||[]).length;
+  const div = document.createElement("div");
+  div.className = "row live";
+  div.innerHTML =
+    `<span class="ic">📹</span>
+     <span class="meta">
+       <div class="nm">${escapeHtml(c.session)}</div>
+       <div class="sub">${n} on call · ${escapeHtml(c.host||"")}:${escapeHtml(c.port||"")}</div>
+     </span>`;
+  const b = document.createElement("button");
+  b.className = mine ? "ghost" : "";
+  b.textContent = mine ? "in call" : "Join";
+  b.disabled = mine;
+  if(!mine) b.onclick = async ()=>{ await api("/api/join",{session:c.session}); refresh(); };
+  div.appendChild(b);
+  return div;
+}
+
+function rowGame(g){
+  const div = document.createElement("div");
+  div.className = "row";
+  const name = g.name || g.game || g.service || g.session || "table";
+  const seats = (g.seats||[]).length;
+  const ply = g.players!=null ? g.players : (g.presence||[]).length;
+  div.innerHTML =
+    `<span class="ic">🎲</span>
+     <span class="meta">
+       <div class="nm">${escapeHtml(name)}</div>
+       <div class="sub">${ply} playing${seats?` · ${seats} seats`:""}${g.open_seats!=null?` · ${g.open_seats} open`:""}</div>
+     </span>`;
+  return div;
+}
+
+async function refreshPond(){
+  if(!pondOpen) return;
+  let calls=[], games=[];
+  try{ calls = (await api("/api/calls")).calls||[]; }catch(e){}
+  try{ games = (await api("/api/games")).games||[]; }catch(e){}
+  const sl = $("#streamList"); sl.innerHTML="";
+  if(!calls.length){ sl.innerHTML = '<div class="empty">No open calls right now.</div>'; }
+  else for(const c of calls) sl.appendChild(rowStream(c));
+  const gl = $("#gameList"); gl.innerHTML="";
+  if(!games.length){ gl.innerHTML = '<div class="empty">No games in progress.</div>'; }
+  else for(const g of games) gl.appendChild(rowGame(g));
+  const tot = calls.length + games.length;
+  $("#pondBadge").textContent = tot ? tot : "";
+}
+
+async function refresh(){
+  try{ state = await api("/api/state"); }catch(e){ return; }
+  $("#me").textContent = state.me ? state.me.name : "…";
+  renderFlock(state.roster||[], state.me && state.me.id);
+  renderChat(state.chat||[]);
+  renderStats();
+
+  const inCall = state.in_call;
+  $("#btnCall").disabled = inCall;
+  $("#btnHang").disabled = !inCall;
+  $("#chatIn").disabled = !inCall;
+  $("#btnSend").disabled = !inCall;
+  $("#codecSel").disabled = !inCall;
+  $("#qualSel").disabled = !inCall;
+  $("#sessPill").style.display = state.session ? "" : "none";
+  if(state.session) $("#sess").textContent = state.session;
+  if(document.activeElement!==$("#codecSel")) $("#codecSel").value = state.codec||"vp8";
+
+  const d = state.diag||{};
+  $("#dbWarn").style.display = (d.db_ok===false) ? "" : "none";
+  let note = "";
+  if(inCall){
+    if(d.have_cam===false) note = "no local camera opened on this host";
+    else if(!d.connected) note = "not connected to media relay";
+    else if(!d.self_frame && d.peer_tiles===0) note = "connected — waiting for frames…";
+    else if(d.peer_tiles===0) note = "you're up; no peers sending video yet";
+  }
+  $("#vnote").textContent = note;
+}
+setInterval(refresh, 1000);
+setInterval(refreshPond, 2000);
+refresh();
+
+$("#btnCall").onclick  = async ()=>{ await api("/api/call",{}); refresh(); };
+$("#btnHang").onclick  = async ()=>{ await api("/api/hangup",{}); refresh(); };
+$("#codecSel").onchange = async e=>{ await api("/api/codec",{codec:e.target.value}); refresh(); };
+$("#qualSel").onchange  = async e=>{ await api("/api/quality",{cap:parseInt(e.target.value,10)}); };
+$("#btnSend").onclick = sendChat;
+$("#chatIn").addEventListener("keydown", e=>{ if(e.key==="Enter") sendChat(); });
+async function sendChat(){
+  const t = $("#chatIn").value.trim(); if(!t) return;
+  $("#chatIn").value="";
+  await api("/api/chat",{text:t}); refresh();
+}
+
+$("#btnJoinOpen").onclick = ()=>{ $("#joinWin").classList.remove("hidden"); $("#joinId").focus(); };
+$("#joinClose").onclick   = ()=>{ $("#joinWin").classList.add("hidden"); };
+$("#btnJoin").onclick = async ()=>{
+  const id = $("#joinId").value.trim(); if(!id) return;
+  const r = await api("/api/join",{session:id});
+  if(r && r.error){ $("#joinId").value=""; $("#joinId").placeholder = "no call with that id — try again"; }
+  else { $("#joinWin").classList.add("hidden"); }
+  refresh();
+};
+
+function setChat(open){ $("#chatWin").classList.toggle("hidden",!open); $("#tabChat").classList.toggle("on",open); }
+$("#tabChat").onclick  = ()=> setChat($("#chatWin").classList.contains("hidden"));
+$("#chatClose").onclick= ()=> setChat(false);
+$("#chatMin").onclick  = ()=>{
+  const w=$("#chatWin"); const c=w.classList.toggle("collapsed");
+  $("#chatMin").innerHTML = c ? "&#9652;" : "&#9662;";
+};
+function setPond(open){ pondOpen=open; $("#pondWin").classList.toggle("hidden",!open); $("#tabPond").classList.toggle("on",open); if(open) refreshPond(); }
+$("#tabPond").onclick  = ()=> setPond($("#pondWin").classList.contains("hidden"));
+$("#pondClose").onclick= ()=> setPond(false);
+
+function makeDraggable(win, handle){
+  let sx,sy,ox,oy,drag=false;
+  handle.addEventListener("pointerdown", e=>{
+    if(e.target.closest("button")) return;
+    drag=true; handle.setPointerCapture(e.pointerId);
+    const r=win.getBoundingClientRect();
+    sx=e.clientX; sy=e.clientY; ox=r.left; oy=r.top;
+    win.style.right="auto"; win.style.bottom="auto";
+    win.style.left=ox+"px"; win.style.top=oy+"px";
+  });
+  handle.addEventListener("pointermove", e=>{
+    if(!drag) return;
+    const nx=Math.max(4,Math.min(window.innerWidth -60, ox+(e.clientX-sx)));
+    const ny=Math.max(4,Math.min(window.innerHeight-40, oy+(e.clientY-sy)));
+    win.style.left=nx+"px"; win.style.top=ny+"px";
+  });
+  handle.addEventListener("pointerup", e=>{ drag=false; try{handle.releasePointerCapture(e.pointerId);}catch(_){} });
+}
+makeDraggable($("#chatWin"), $("#chatHead"));
+makeDraggable($("#pondWin"), $("#pondHead"));
+makeDraggable($("#joinWin"), $("#joinHead"));
+</script>
+</body>
+</html>

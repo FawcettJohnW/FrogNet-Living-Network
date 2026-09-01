@@ -1,0 +1,59 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+##############################################################
+#                                                            #
+#  Copyright (c) 2025, Fawcett Innovations, LLC              #
+#         All Rights Reserved                                #
+#                                                            #
+##############################################################
+#
+# Returns the canonical FrogNet identity for this node: the .1
+# of our local /24.  Ignores any other addresses on the interface
+# (secondary aliases like .2, transit /30s like 10.253.253.x, etc.)
+# so adding aliases to eth0 cannot change the reported identity.
+#
+. /usr/local/bin/mapInterfaces
+
+# Find the FrogNet /24 on eth0: any 10.x.y.z that is NOT on the
+# transit range 10.253.253.*
+prefix=$(ip -4 addr show scope global ${eth0Name:-eth0} \
+    | awk '$1 == "inet" {print $2}' \
+    | sed 's/\/.*$//' \
+    | grep '^10\.' \
+    | grep -v '^10\.253\.253\.' \
+    | head -1 \
+    | awk -F. '{print $1"."$2"."$3}')
+
+if [ -n "$prefix" ]; then
+    echo "${prefix}.1"
+    exit 0
+fi
+
+# Fallback: infer from dnsmasq dhcp-range (subnet we serve)
+assignedIP=$(grep -m 1 "^dhcp-range" /etc/dnsmasq.d/opts_only.conf 2>/dev/null \
+             | cut -d '=' -f 2 \
+             | cut -d ',' -f 1)
+if [ -n "$assignedIP" ]; then
+    prefix=$(echo "$assignedIP" | awk -F. '{print $1"."$2"."$3}')
+    echo "${prefix}.1"
+    exit 0
+fi
+
+# No answer — emit empty so callers that do `|| echo ""` still work
+echo ""

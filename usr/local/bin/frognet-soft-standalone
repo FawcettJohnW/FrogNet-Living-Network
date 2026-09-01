@@ -1,0 +1,70 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# frognet-soft-standalone — enable/disable SOFT STAND-ALONE mode.
+#
+# Soft mode lets a node run without a real identity interface: runMerge's identity
+# preflight (discovery.identity_preflight) creates a synthetic (dummy) interface to
+# host the presented identity .1/.2. Nobody can connect inbound — that's OK; routing
+# and the merge still function. This is the explicit EXCEPTION to the front-of-merge
+# rule that a down identity interface fails the merge loudly.
+#
+#   frognet-soft-standalone enable [IDENTITY_IP]   # e.g. enable 10.250.250.1
+#   frognet-soft-standalone disable
+#   frognet-soft-standalone status
+#
+# State lives in a single config the preflight reads:
+CONF=/etc/frognet/soft_standalone.conf
+
+usage() { echo "usage: $0 {enable [IDENTITY_IP] | disable | status}" >&2; exit 2; }
+
+case "${1:-}" in
+  enable)
+    ip="${2:-}"
+    if [[ -n "$ip" && ! "$ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+      echo "error: '$ip' is not an IPv4 address" >&2; exit 2
+    fi
+    mkdir -p /etc/frognet
+    {
+      echo "# written by frognet-soft-standalone on $(date -Is)"
+      echo "FROGNET_SOFT_STANDALONE=1"
+      [[ -n "$ip" ]] && echo "FROGNET_SOFT_IDENTITY=$ip"
+    } > "$CONF"
+    echo "soft stand-alone ENABLED${ip:+ (identity $ip)} -> $CONF"
+    ;;
+  disable)
+    mkdir -p /etc/frognet
+    if [[ -f "$CONF" ]] && grep -q '^FROGNET_SOFT_IDENTITY=' "$CONF"; then
+      # keep the presented IP for a later re-enable; just clear the flag.
+      sed -i 's/^FROGNET_SOFT_STANDALONE=.*/FROGNET_SOFT_STANDALONE=0/' "$CONF"
+      grep -q '^FROGNET_SOFT_STANDALONE=' "$CONF" || echo "FROGNET_SOFT_STANDALONE=0" >> "$CONF"
+    else
+      echo "FROGNET_SOFT_STANDALONE=0" > "$CONF"
+    fi
+    echo "soft stand-alone DISABLED -> $CONF"
+    ;;
+  status)
+    if [[ -f "$CONF" ]] && grep -q '^FROGNET_SOFT_STANDALONE=1' "$CONF"; then
+      echo "soft stand-alone: ENABLED"
+      grep '^FROGNET_SOFT_IDENTITY=' "$CONF" 2>/dev/null || echo "(identity will default to the dnsmasq subnet .1)"
+    else
+      echo "soft stand-alone: disabled"
+    fi
+    ;;
+  *) usage ;;
+esac

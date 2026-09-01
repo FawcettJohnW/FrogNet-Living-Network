@@ -1,0 +1,44 @@
+{
+  "id": "net.frognet.boardgame",
+  "module": "family-boardgame",
+  "name": "boardgame",
+  "title": "Board Games",
+  "version": "1.4",
+  "summary": "Board games over FrogNet shared memory: resumable tables, watchers free.",
+  "hub": "games",
+  "ui": {
+    "tab": "Games",
+    "group": "Board Games",
+    "module": "ui/boardgame_panel.py",
+    "entry": "make_panel",
+    "list_fn": "list_games",
+    "spawn_fn": "spawn",
+    "assets": "assets",
+    "games": [
+      {
+        "key": "backgammon",
+        "title": "Backgammon",
+        "min_players": 2,
+        "max_players": 2
+      }
+    ]
+  },
+  "network": {
+    "role_class": "boardgame",
+    "handler": "core/game_role.py",
+    "installer": "/usr/local/bin/install_boardgamehost.sh",
+    "units": [
+      "frognet-boardgame@.service",
+      "frognet-boardgame-advertise@.service",
+      "frognet-boardgame-advertise@.timer"
+    ],
+    "engine": "app/bg_engine.py",
+    "client": "app/bg_play.py",
+    "service_name": "user-supplied",
+    "freshness": {
+      "move": "lossless-eventual",
+      "position": "latest-only"
+    }
+  },
+  "app": "app/bg_play.py"
+}

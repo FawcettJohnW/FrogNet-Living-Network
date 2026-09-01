@@ -1,0 +1,26 @@
+{
+  "id": "net.frognet.liarsdice",
+  "module": "family-liarsdice",
+  "name": "liarsdice",
+  "title": "Liar's Dice",
+  "hub": "games",
+  "function": [
+    "games"
+  ],
+  "provides": [
+    "turn-based-game",
+    "multiplayer"
+  ],
+  "app": "app/play.py",
+  "version": "1.0",
+  "players": {
+    "min": 2,
+    "max": 6
+  },
+  "summary": "Two to six players bid and bluff on hidden dice; call the liar and someone loses a die.",
+  "freshness": {
+    "move": "lossless-eventual",
+    "position": "latest-only",
+    "scaffold": "resident-once"
+  }
+}

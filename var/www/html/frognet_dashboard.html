@@ -1,0 +1,392 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FrogNet Telemetry Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #111;
+        color: #ddd;
+        margin: 0;
+        padding: 0;
+    }
+
+    h1, h2 {
+        color: #6cf;
+        margin-left: 20px;
+    }
+
+    .panel {
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 8px;
+        margin: 20px;
+        padding: 15px;
+    }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+        gap: 20px;
+        margin: 20px;
+    }
+
+    canvas {
+        background: #fff;
+        border-radius: 6px;
+        max-width: 100%;
+        max-height: 320px;
+    }
+
+    .status {
+        font-size: 18px;
+        margin-left: 20px;
+    }
+
+    .good { color: #6f6; }
+    .bad  { color: #f66; }
+
+    #errorPanel {
+        margin: 0 20px 10px 20px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        background: #331111;
+        color: #f88;
+        font-family: monospace;
+        font-size: 13px;
+        display: none;
+        white-space: pre-wrap;
+    }
+</style>
+
+<!-- === Load Chart.js from local file (no CDN, MUST EXIST at this path) === -->
+<script src="/js/chart.umd.min.js"></script>
+<!-- ==================================================================== -->
+</head>
+
+<body>
+<h1>FrogNet Telemetry Dashboard</h1>
+
+<div class="status" id="clusterStatus">Status: <span class="bad">Disconnected</span></div>
+<div id="errorPanel"></div>
+
+<!-- ================== CLUSTER ECHO PANEL ================== -->
+<div class="panel">
+    <h2>FrogNet Echo (Cluster Identity)</h2>
+    <pre id="echoPanel">{ waiting for telemetry... }</pre>
+</div>
+
+<!-- ================== CHART GRID ================== -->
+<div class="grid">
+
+    <!-- Throughput -->
+    <div class="panel">
+        <h2>Throughput: Semantic vs Raw (bytes/cycle)</h2>
+        <canvas id="chartThroughput"></canvas>
+    </div>
+
+    <!-- Latency -->
+    <div class="panel">
+        <h2>Latency: Semantic vs Raw (ms)</h2>
+        <canvas id="chartLatency"></canvas>
+    </div>
+
+    <!-- Per-opcode savings -->
+    <div class="panel">
+        <h2>Per-Opcode Compression Savings (%)</h2>
+        <canvas id="chartSavings"></canvas>
+    </div>
+
+    <!-- System Load -->
+    <div class="panel">
+        <h2>System Stats (CPU%, RAM%)</h2>
+        <canvas id="chartSystem"></canvas>
+    </div>
+
+    <!-- RTT / Link Health -->
+    <div class="panel">
+        <h2>Link Health (RTT ms)</h2>
+        <canvas id="chartRTT"></canvas>
+    </div>
+
+</div>
+
+<script>
+/**********************************************************************
+ *  EXPECTED TELEMETRY FORMAT (one packet per cycle)
+ *
+ * {
+ *    "echo": { "hostname": "...", "ip": "...", "gw0": "...", "gw1": "..." },
+ *
+ *    "semantic": {
+ *        "bytes_out": <int>,     // outbound bytes (semantic wire)
+ *        "bytes_in": <int>,      // inbound bytes (semantic wire)
+ *        "latency_ms": <float>,  // avg per-message latency
+ *        "opcodes": {
+ *            "<opcode>": {
+ *                "count": <int>,
+ *                "raw_bytes": <int>,
+ *                "packed_bytes": <int>,
+ *                "saved_pct": <float>
+ *            }
+ *        }
+ *    },
+ *
+ *    "raw": {
+ *        "bytes_out": <int>,     // outbound bytes (raw HTTP)
+ *        "bytes_in": <int>,      // inbound bytes (raw HTTP)
+ *        "latency_ms": <float>   // avg per-message latency
+ *    },
+ *
+ *    "system": { "cpu": <pct>, "ram": <pct> },
+ *
+ *    "rtt": { "<host>": <ms>, ... }
+ * }
+ **********************************************************************/
+
+const errorPanel = document.getElementById("errorPanel");
+
+function showError(msg) {
+    errorPanel.style.display = "block";
+    errorPanel.textContent = msg;
+    console.error(msg);
+}
+
+async function fetchTelemetry() {
+    try {
+        const r = await fetch("/telemetry/all", { cache: "no-cache" });
+        if (!r.ok) throw new Error("HTTP " + r.status + " from /telemetry/all");
+        const data = await r.json();
+        return data;
+    } catch (e) {
+        document.getElementById("clusterStatus").innerHTML =
+            `Status: <span class="bad">Disconnected</span>`;
+        showError("Error fetching telemetry: " + e.message);
+        return null;
+    }
+}
+
+/*************** CHART INITIALIZATION ***************/
+let throughputChart, latencyChart, savingsChart, systemChart, rttChart;
+
+function makeCharts() {
+    if (typeof Chart === "undefined") {
+        showError("Chart.js is not loaded. Make sure /js/chart.umd.min.js exists and is served.");
+        return;
+    }
+
+    throughputChart = new Chart(document.getElementById("chartThroughput"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Semantic bytes_out", data: [], borderColor: "#6cf", tension: 0.1 },
+                { label: "Raw bytes_out",      data: [], borderColor: "#f66", tension: 0.1 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { ticks: { color: "#ccc" } },
+                y: { ticks: { color: "#ccc" } }
+            },
+            plugins: {
+                legend: { labels: { color: "#eee" } }
+            }
+        }
+    });
+
+    latencyChart = new Chart(document.getElementById("chartLatency"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Semantic latency_ms", data: [], borderColor: "#6cf", tension: 0.1 },
+                { label: "Raw latency_ms",      data: [], borderColor: "#f66", tension: 0.1 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { ticks: { color: "#ccc" } },
+                y: { ticks: { color: "#ccc" } }
+            },
+            plugins: {
+                legend: { labels: { color: "#eee" } }
+            }
+        }
+    });
+
+    savingsChart = new Chart(document.getElementById("chartSavings"), {
+        type: "bar",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "% Savings", data: [], backgroundColor: "#6f6" }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { ticks: { color: "#ccc" } },
+                y: { ticks: { color: "#ccc" } }
+            },
+            plugins: {
+                legend: { labels: { color: "#eee" } }
+            }
+        }
+    });
+
+    systemChart = new Chart(document.getElementById("chartSystem"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "CPU%", data: [], borderColor: "#6cf", tension: 0.1 },
+                { label: "RAM%", data: [], borderColor: "#fc6", tension: 0.1 }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { ticks: { color: "#ccc" } },
+                y: { ticks: { color: "#ccc" } }
+            },
+            plugins: {
+                legend: { labels: { color: "#eee" } }
+            }
+        }
+    });
+
+    rttChart = new Chart(document.getElementById("chartRTT"), {
+        type: "bar",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "RTT (ms)", data: [], backgroundColor: "#4af" }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            scales: {
+                x: { ticks: { color: "#ccc" } },
+                y: { ticks: { color: "#ccc" } }
+            },
+            plugins: {
+                legend: { labels: { color: "#eee" } }
+            }
+        }
+    });
+}
+
+makeCharts();
+
+/*************** UPDATE LOOP ***************/
+async function update() {
+    if (!throughputChart || !latencyChart) {
+        // Chart.js not loaded or charts not created
+        return;
+    }
+
+    const t = await fetchTelemetry();
+    if (!t) return;
+
+    document.getElementById("clusterStatus").innerHTML =
+        `Status: <span class="good">Connected</span>`;
+
+    // Validate shape a bit to avoid undefined property explosions
+    const sem = t.semantic || {};
+    const raw = t.raw || {};
+    const echo = t.echo || {};
+    const sys  = t.system || {};
+    const rtt  = t.rtt || {};
+    const opcodes = (sem.opcodes && typeof sem.opcodes === "object") ? sem.opcodes : {};
+
+    /** ECHO PANEL **/
+    document.getElementById("echoPanel").textContent =
+        JSON.stringify(echo, null, 2);
+
+    const now = new Date().toLocaleTimeString();
+
+    /** THROUGHPUT (bytes_out per cycle, semantic vs raw) **/
+    throughputChart.data.labels.push(now);
+    throughputChart.data.datasets[0].data.push(sem.bytes_out || 0);
+    throughputChart.data.datasets[1].data.push(raw.bytes_out || 0);
+    if (throughputChart.data.labels.length > 60) {
+        throughputChart.data.labels.shift();
+        throughputChart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    throughputChart.update();
+
+    /** LATENCY (avg latency per cycle) **/
+    latencyChart.data.labels.push(now);
+    latencyChart.data.datasets[0].data.push(sem.latency_ms || 0);
+    latencyChart.data.datasets[1].data.push(raw.latency_ms || 0);
+    if (latencyChart.data.labels.length > 60) {
+        latencyChart.data.labels.shift();
+        latencyChart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    latencyChart.update();
+
+    /** OPCODE SAVINGS **/
+    const opcodeKeys = Object.keys(opcodes);
+    savingsChart.data.labels = opcodeKeys;
+    savingsChart.data.datasets[0].data = opcodeKeys.map(k => (opcodes[k].saved_pct || 0));
+    savingsChart.update();
+
+    /** SYSTEM LOAD **/
+    systemChart.data.labels.push(now);
+    systemChart.data.datasets[0].data.push(sys.cpu ?? 0);
+    systemChart.data.datasets[1].data.push(sys.ram ?? 0);
+    if (systemChart.data.labels.length > 60) {
+        systemChart.data.labels.shift();
+        systemChart.data.datasets.forEach(ds => ds.data.shift());
+    }
+    systemChart.update();
+
+    /** RTT **/
+    const rttHosts = Object.keys(rtt);
+    rttChart.data.labels = rttHosts;
+    rttChart.data.datasets[0].data = rttHosts.map(h => rtt[h] || 0);
+    rttChart.update();
+}
+
+/* Poll every 2 seconds */
+setInterval(update, 2000);
+update();
+
+</script>
+
+</body>
+</html>
+

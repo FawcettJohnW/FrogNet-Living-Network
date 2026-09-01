@@ -1,0 +1,1059 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dan's Lamp</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /*───────────────────────── TOKENS ─────────────────────────*/
+  :root {
+    --bg:        #0f0a06;
+    --bg2:       #1a110a;
+    --amber:     #e8a842;
+    --amber-dim: #7a5420;
+    --cream:     #f0e6cc;
+    --brick:     #8b2a1a;
+    --ochre:     #c4852a;
+    --text:      #d4c4a0;
+    --text-dim:  #7a6a50;
+    --border:    #3a2a18;
+    --glow-hot:  rgba(232, 168, 66, 0.55);
+    --glow-off:  rgba(0,0,0,0);
+    --font-display: 'Playfair Display', Georgia, serif;
+    --font-mono:    'Courier Prime', 'Courier New', monospace;
+  }
+
+  /*───────────────────────── RESET ───────────────────────────*/
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: var(--bg); }
+
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 0%, rgba(232,168,66,0.07) 0%, transparent 70%),
+      radial-gradient(ellipse 80% 40% at 80% 100%, rgba(139,42,26,0.08) 0%, transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 4rem;
+    overflow-x: hidden;
+  }
+
+  /*───────────────────────── HEADER ──────────────────────────*/
+  header {
+    text-align: center;
+    margin-bottom: 2.5rem;
+    animation: fadeDown 0.8s ease both;
+  }
+  header .overtitle {
+    font-size: 0.65rem;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 0.5rem;
+  }
+  header h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.8rem, 5vw, 3rem);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--cream);
+  }
+  header h1 em {
+    font-style: italic;
+    color: var(--amber);
+  }
+  header .subtitle {
+    font-size: 0.72rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 0.4rem;
+  }
+
+  /*───────────────────────── SCENE ───────────────────────────*/
+  .scene {
+    position: relative;
+    width: min(680px, 98vw);
+    height: 440px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    margin-bottom: 2rem;
+    animation: fadeUp 1s ease 0.2s both;
+  }
+
+  /*───────────────────────── CATS ────────────────────────────*/
+  .cat {
+    position: absolute;
+    bottom: 0;
+    z-index: 3;
+  }
+  /* Eyes off = dark slits */
+  .cat-eye         { fill: #1a1008; transition: fill 1s ease, filter 1s ease; }
+  /* Eyes on = eerie amber-green glow */
+  .lamp-on .cat-eye {
+    fill: #b8d840;
+    filter: drop-shadow(0 0 4px #a0c820) drop-shadow(0 0 8px rgba(160,200,32,0.6));
+  }
+  /* Tail sway */
+  @keyframes tailSway {
+    0%,100% { transform-origin: top center; transform: rotate(0deg); }
+    40%     { transform-origin: top center; transform: rotate(8deg); }
+    70%     { transform-origin: top center; transform: rotate(-5deg); }
+  }
+  @keyframes tailSway2 {
+    0%,100% { transform-origin: top center; transform: rotate(0deg); }
+    35%     { transform-origin: top center; transform: rotate(-10deg); }
+    65%     { transform-origin: top center; transform: rotate(6deg); }
+  }
+  .tail-sway  { animation: tailSway  4s ease-in-out infinite; }
+  .tail-sway2 { animation: tailSway2 5.5s ease-in-out 0.8s infinite; }
+  /* Sleeping breath */
+  @keyframes breathe {
+    0%,100% { transform: scaleY(1); }
+    50%     { transform: scaleY(1.04); }
+  }
+  .cat-sleeping { animation: breathe 3.5s ease-in-out infinite; transform-origin: center bottom; }
+  /* Stop breathing when disturbed */
+  .lamp-on .cat-sleeping { animation: none; }
+  /* Body state toggle */
+  .cat-body-asleep  { transition: opacity 0.6s ease; }
+  .cat-body-awake   { opacity: 0; transition: opacity 0.6s ease 0.3s; }
+  .lamp-on .cat-body-awake  { opacity: 1; }
+  .lamp-on .cat-body-asleep { opacity: 0; }
+  /* Apply breathing only to asleep body -->
+  #cat1 .cat-body-asleep { animation: breathe 3.5s ease-in-out infinite; transform-origin: center bottom; }
+  .lamp-on #cat1 .cat-body-asleep { animation: none; }
+  /* Face state toggle — asleep vs annoyed */
+  .cat-face-asleep  { transition: opacity 0.5s ease; }
+  .cat-face-annoyed { opacity: 0; transition: opacity 0.5s ease 0.4s; }
+  .lamp-on .cat-face-annoyed { opacity: 1; }
+  .lamp-on .cat-face-asleep  { opacity: 0; }
+  /* Right ear pins back when disturbed */
+  .cat-ear-rt { transition: transform 0.6s ease 0.3s; transform-origin: 28px 12px; }
+  .lamp-on .cat-ear-rt { transform: rotate(30deg); }
+
+  /* Room-floor shadow */
+  .scene::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 200px; height: 18px;
+    background: radial-gradient(ellipse, rgba(0,0,0,0.7) 0%, transparent 70%);
+    transition: opacity 0.8s;
+  }
+
+  /* Ambient glow behind the whole lamp */
+  .lamp-glow {
+    position: absolute;
+    top: 30px; left: 50%; transform: translateX(-50%);
+    width: 280px; height: 280px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse, var(--glow-hot) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 1.2s ease;
+    pointer-events: none;
+  }
+  .lamp-on .lamp-glow { opacity: 1; }
+
+  svg.lamp {
+    width: 220px;
+    height: 420px;
+    position: relative;
+    z-index: 2;
+    overflow: visible;
+    filter: drop-shadow(0 8px 24px rgba(0,0,0,0.6));
+  }
+
+  /* SVG element transitions */
+  .shade-inner   { transition: fill 1s ease; }
+  .shade-glow    { transition: opacity 1s ease; }
+  .bulb-filament { transition: opacity 0.6s ease; }
+  .cone-light    { transition: opacity 1s ease; }
+
+  /*───────────────────────── BUTTON ──────────────────────────*/
+  .controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 2.5rem;
+    animation: fadeUp 1s ease 0.4s both;
+  }
+
+  button#toggle {
+    position: relative;
+    background: none;
+    border: 2px solid var(--amber-dim);
+    color: var(--amber);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 0.9rem 3rem;
+    cursor: pointer;
+    transition:
+      border-color 0.3s,
+      color 0.3s,
+      box-shadow 0.3s,
+      background 0.3s;
+    outline: none;
+  }
+  button#toggle::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border: 1px solid var(--border);
+    pointer-events: none;
+    transition: border-color 0.3s;
+  }
+  button#toggle:hover {
+    border-color: var(--amber);
+    box-shadow: 0 0 18px rgba(232,168,66,0.3), inset 0 0 12px rgba(232,168,66,0.05);
+    background: rgba(232,168,66,0.04);
+  }
+  button#toggle:active {
+    transform: scale(0.97);
+  }
+  .lamp-on button#toggle {
+    border-color: var(--amber);
+    color: var(--cream);
+    box-shadow: 0 0 24px rgba(232,168,66,0.4), inset 0 0 18px rgba(232,168,66,0.08);
+    background: rgba(232,168,66,0.06);
+  }
+
+  .status-pill {
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.8rem;
+    border-radius: 0;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    transition: color 0.5s, border-color 0.5s;
+  }
+  .lamp-on .status-pill {
+    color: var(--amber);
+    border-color: var(--amber-dim);
+  }
+
+  /*───────────────────────── TABLE ───────────────────────────*/
+  .data-section {
+    width: 100%;
+    max-width: 600px;
+    animation: fadeUp 1s ease 0.6s both;
+  }
+
+  .data-section h2 {
+    font-family: var(--font-display);
+    font-size: 0.8rem;
+    font-weight: 400;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .data-section h2 span#poll-indicator {
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+  }
+  .poll-ok  { color: #5a9a5a; }
+  .poll-err { color: var(--brick); }
+  .poll-wait { color: var(--text-dim); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+  thead tr {
+    border-bottom: 1px solid var(--border);
+  }
+  thead th {
+    text-align: left;
+    padding: 0.4rem 0.8rem;
+    letter-spacing: 0.15em;
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    font-weight: 700;
+  }
+  tbody tr {
+    border-bottom: 1px solid rgba(58,42,24,0.4);
+    transition: background 0.2s;
+  }
+  tbody tr:hover { background: rgba(232,168,66,0.04); }
+  td {
+    padding: 0.55rem 0.8rem;
+    color: var(--text);
+  }
+  td.label { color: var(--text-dim); font-size: 0.75rem; letter-spacing: 0.1em; }
+  td.value {
+    font-family: var(--font-mono);
+    color: var(--amber);
+    font-weight: 700;
+  }
+  td.value.off { color: var(--text-dim); }
+  td.timestamp { color: var(--text-dim); font-size: 0.72rem; }
+  td.unit { color: var(--text-dim); font-size: 0.72rem; text-align: right; }
+
+  .no-data { color: var(--text-dim); font-style: italic; text-align: center; padding: 1.5rem; }
+
+  /*───────────────────────── HOOK TEXT ───────────────────────*/
+  .hook {
+    text-align: center;
+    max-width: 480px;
+    margin-bottom: 1.8rem;
+    animation: fadeDown 0.9s ease 0.1s both;
+    min-height: 3.5rem;
+  }
+  .hook-pre {
+    font-family: var(--font-display);
+    font-size: clamp(1.1rem, 3vw, 1.5rem);
+    font-style: italic;
+    color: var(--cream);
+    line-height: 1.5;
+    transition: opacity 0.4s ease;
+  }
+  .hook-post {
+    font-family: var(--font-display);
+    font-size: clamp(1rem, 2.5vw, 1.3rem);
+    color: var(--amber);
+    line-height: 1.6;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  .hook-post em {
+    font-style: italic;
+    color: var(--cream);
+  }
+  .hook.pressed .hook-pre  { opacity: 0; pointer-events: none; position: absolute; }
+  .hook.pressed .hook-post { opacity: 1; }
+
+  /*───────────────────────── DESCRIPTION ─────────────────────*/
+  p.description {
+    width: 100%;
+    max-width: 600px;
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    line-height: 1.85;
+    color: var(--text);
+    margin-top: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+
+  /*───────────────────────── ORNAMENT ────────────────────────*/
+  .ornament {
+    margin: 3rem 0 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    color: var(--border);
+    font-size: 0.7rem;
+    letter-spacing: 0.3em;
+    width: 100%;
+    max-width: 600px;
+  }
+  .ornament::before, .ornament::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /*───────────────────────── KEYFRAMES ───────────────────────*/
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.85; }
+    75%       { opacity: 0.95; }
+  }
+  .lamp-on .bulb-filament {
+    animation: flicker 3s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="overtitle">The FrogNet Living Network</div>
+  <h1>Dan's Lamp</h1>
+  <div class="subtitle">Real-time Remote Control Demonstration</div>
+</header>
+
+<div class="hook" id="hook">
+  <div class="hook-pre" id="hook-pre">Touch the switch and turn Dan's lamp on from wherever you are.</div>
+  <div class="hook-post" id="hook-post"></div>
+</div>
+
+<!-- ─────────────────────── LAMP SCENE ─────────────────────── -->
+<div class="scene" id="scene">
+  <div class="lamp-glow"></div>
+
+  <svg class="lamp" viewBox="0 0 220 420" xmlns="http://www.w3.org/2000/svg" aria-label="Floor lamp">
+    <defs>
+      <!-- Shade gradient OFF -->
+      <linearGradient id="shadeOff" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%"   stop-color="#2a1a0e"/>
+        <stop offset="40%"  stop-color="#3d2510"/>
+        <stop offset="100%" stop-color="#1e1008"/>
+      </linearGradient>
+      <!-- Shade gradient ON -->
+      <linearGradient id="shadeOn" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%"   stop-color="#7a4010"/>
+        <stop offset="40%"  stop-color="#c87030"/>
+        <stop offset="100%" stop-color="#6a3510"/>
+      </linearGradient>
+      <!-- Shade trim -->
+      <linearGradient id="shadeTrim" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%"   stop-color="#8b6030"/>
+        <stop offset="50%"  stop-color="#e8a842"/>
+        <stop offset="100%" stop-color="#8b6030"/>
+      </linearGradient>
+      <!-- Pole gradient -->
+      <linearGradient id="pole" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%"   stop-color="#2a1a0e"/>
+        <stop offset="35%"  stop-color="#6a4820"/>
+        <stop offset="65%"  stop-color="#8a6030"/>
+        <stop offset="100%" stop-color="#1e1008"/>
+      </linearGradient>
+      <!-- Base gradient -->
+      <radialGradient id="base" cx="50%" cy="40%" r="55%">
+        <stop offset="0%"   stop-color="#8a6030"/>
+        <stop offset="100%" stop-color="#1e1008"/>
+      </radialGradient>
+      <!-- Cone of light -->
+      <radialGradient id="coneLight" cx="50%" cy="0%" r="100%">
+        <stop offset="0%"   stop-color="rgba(232,168,66,0.18)"/>
+        <stop offset="100%" stop-color="rgba(232,168,66,0)"/>
+      </radialGradient>
+      <!-- Inner shade lit -->
+      <radialGradient id="innerLit" cx="50%" cy="40%" r="60%">
+        <stop offset="0%"   stop-color="rgba(255,200,80,0.9)"/>
+        <stop offset="100%" stop-color="rgba(180,90,20,0.3)"/>
+      </radialGradient>
+    </defs>
+
+    <!-- Downward cone of light (only when on) -->
+    <polygon class="cone-light" points="68,142 152,142 200,380 20,380"
+      fill="url(#coneLight)" opacity="0"/>
+
+    <!-- SHADE – outer shell -->
+    <polygon class="shade-outer" points="55,60 165,60 150,145 70,145"
+      fill="url(#shadeOff)" stroke="#2a1a0e" stroke-width="1"/>
+
+    <!-- SHADE – inner glow surface -->
+    <polygon class="shade-inner" points="58,63 162,63 148,143 72,143"
+      fill="url(#shadeOff)" opacity="0.9"/>
+
+    <!-- SHADE – lit inner (radial warm glow) -->
+    <ellipse class="shade-glow" cx="110" cy="110" rx="46" ry="35"
+      fill="url(#innerLit)" opacity="0"/>
+
+    <!-- Shade decorative banding - folk motif lines -->
+    <line x1="58" y1="78"  x2="162" y2="78"  stroke="#4a2e14" stroke-width="1" opacity="0.6"/>
+    <line x1="60" y1="82"  x2="160" y2="82"  stroke="#6a4020" stroke-width="0.5" opacity="0.4"/>
+    <line x1="62" y1="130" x2="158" y2="130" stroke="#4a2e14" stroke-width="1" opacity="0.6"/>
+    <line x1="63" y1="134" x2="157" y2="134" stroke="#6a4020" stroke-width="0.5" opacity="0.4"/>
+
+    <!-- Shade top rim -->
+    <rect x="55" y="57" width="110" height="5" rx="1"
+      fill="url(#shadeTrim)" opacity="0.8"/>
+
+    <!-- Shade bottom rim -->
+    <rect x="68" y="141" width="84" height="5" rx="1"
+      fill="url(#shadeTrim)" opacity="0.7"/>
+
+    <!-- Folk diamond ornament on shade -->
+    <polygon points="110,90  118,100  110,110  102,100"
+      fill="none" stroke="#6a4020" stroke-width="1.2" opacity="0.5"/>
+    <polygon class="shade-glow" points="110,90  118,100  110,110  102,100"
+      fill="rgba(232,168,66,0.15)" opacity="0"/>
+
+    <!-- BULB socket knob -->
+    <rect x="104" y="143" width="12" height="10" rx="2"
+      fill="#4a3010"/>
+
+    <!-- BULB filament glow -->
+    <ellipse class="bulb-filament" cx="110" cy="148" rx="8" ry="5"
+      fill="rgba(255,220,100,0.9)" opacity="0"/>
+
+    <!-- POLE – main vertical stem -->
+    <rect x="106" y="150" width="8" height="210" rx="2"
+      fill="url(#pole)"/>
+
+    <!-- POLE – decorative collar rings (Romanian folk detail) -->
+    <rect x="103" y="185" width="14" height="5" rx="1" fill="url(#shadeTrim)" opacity="0.7"/>
+    <rect x="104" y="186" width="12" height="3" rx="0.5" fill="#3a2010"/>
+    <rect x="103" y="230" width="14" height="5" rx="1" fill="url(#shadeTrim)" opacity="0.6"/>
+    <rect x="104" y="231" width="12" height="3" rx="0.5" fill="#3a2010"/>
+    <rect x="103" y="305" width="14" height="5" rx="1" fill="url(#shadeTrim)" opacity="0.5"/>
+
+    <!-- CORD -->
+    <path d="M 110 153 Q 120 200 113 250 Q 106 300 110 355"
+      fill="none" stroke="#1a0e06" stroke-width="2" opacity="0.8"/>
+
+    <!-- BASE – foot platform -->
+    <ellipse cx="110" cy="370" rx="52" ry="9" fill="#1a0e06" opacity="0.6"/>
+
+    <!-- BASE – body -->
+    <ellipse cx="110" cy="365" rx="45" ry="8" fill="url(#base)"/>
+    <rect x="65" y="354" width="90" height="14" rx="3" fill="url(#base)"/>
+
+    <!-- BASE – step details -->
+    <ellipse cx="110" cy="354" rx="36" ry="5" fill="#4a3010"/>
+    <ellipse cx="110" cy="352" rx="28" ry="3.5" fill="url(#shadeTrim)" opacity="0.5"/>
+
+    <!-- Folk ornament on base -->
+    <text x="110" y="361" text-anchor="middle"
+      font-family="Georgia,serif" font-size="9"
+      fill="#6a4828" opacity="0.6">✦ ✦ ✦</text>
+  </svg>
+
+  <!-- ── CAT 1: SLEEPING / STRETCHING, far left ── -->
+  <svg class="cat" id="cat1" style="left:2%; bottom:0"
+       viewBox="0 0 100 100" width="95" height="95" aria-label="sleeping cat">
+
+    <!-- BODY: asleep — curled up tight on the floor -->
+    <g class="cat-body-asleep">
+      <!-- shadow -->
+      <ellipse cx="48" cy="96" rx="38" ry="4" fill="#000" opacity="0.35"/>
+      <!-- body curl -->
+      <ellipse cx="52" cy="78" rx="36" ry="18" fill="#7a6858"/>
+      <ellipse cx="52" cy="78" rx="28" ry="13" fill="#6a5848"/>
+      <!-- tail curled around -->
+      <path d="M 82 72 Q 94 60 88 50" fill="none" stroke="#7a6858" stroke-width="7" stroke-linecap="round"/>
+      <path d="M 82 72 Q 94 60 88 50" fill="none" stroke="#6a5848" stroke-width="4" stroke-linecap="round"/>
+      <!-- head tucked down -->
+      <circle cx="24" cy="72" r="18" fill="#7a6858"/>
+      <!-- ear left -->
+      <polygon points="12,58 8,46 22,56" fill="#7a6858"/>
+      <polygon points="13,58 10,49 20,57" fill="#5a2828" opacity="0.6"/>
+      <!-- ear right (pins back when annoyed) -->
+      <g class="cat-ear-rt">
+        <polygon points="28,56 33,44 38,55" fill="#7a6858"/>
+        <polygon points="29,56 33,47 37,55" fill="#5a2828" opacity="0.6"/>
+      </g>
+      <!-- stripe markings on body -->
+      <path d="M 30 68 Q 55 63 78 68" fill="none" stroke="#5a4838" stroke-width="1.5" opacity="0.5"/>
+      <path d="M 28 76 Q 55 71 80 76" fill="none" stroke="#5a4838" stroke-width="1.5" opacity="0.4"/>
+      <path d="M 30 84 Q 55 79 78 84" fill="none" stroke="#5a4838" stroke-width="1.5" opacity="0.3"/>
+      <!-- FACE: sleeping -->
+      <g class="cat-face-asleep">
+        <path d="M 16 72 Q 19 69 23 72" fill="none" stroke="#3a2818" stroke-width="1.8" stroke-linecap="round"/>
+        <path d="M 25 71 Q 28 68 32 71" fill="none" stroke="#3a2818" stroke-width="1.8" stroke-linecap="round"/>
+        <ellipse cx="22" cy="77" rx="2.5" ry="1.5" fill="#c87880"/>
+      </g>
+      <!-- FACE: annoyed -->
+      <g class="cat-face-annoyed">
+        <ellipse cx="20" cy="71" rx="5" ry="2.2" fill="#1a1008"/>
+        <ellipse class="cat-eye" cx="20" cy="71" rx="4" ry="1.6" fill="#1a1008"/>
+        <ellipse cx="30" cy="70" rx="5" ry="2.2" fill="#1a1008"/>
+        <ellipse class="cat-eye" cx="30" cy="70" rx="4" ry="1.6" fill="#1a1008"/>
+        <ellipse cx="20" cy="71" rx="1" ry="1.5" fill="#0a0806"/>
+        <ellipse cx="30" cy="70" rx="1" ry="1.5" fill="#0a0806"/>
+        <path d="M 14 68 Q 20 66 25 68" fill="none" stroke="#3a2818" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M 24 67 Q 30 65 35 68" fill="none" stroke="#3a2818" stroke-width="1.2" stroke-linecap="round"/>
+        <ellipse cx="22" cy="77" rx="2.5" ry="1.5" fill="#c87880"/>
+        <path d="M 19 80 L 25 80" fill="none" stroke="#8a5858" stroke-width="1.2" stroke-linecap="round"/>
+      </g>
+    </g>
+
+    <!-- BODY: awake — standing and stretching, front paws forward, rear up -->
+    <g class="cat-body-awake">
+      <!-- shadow -->
+      <ellipse cx="48" cy="96" rx="42" ry="4" fill="#000" opacity="0.35"/>
+      <!-- tail up -->
+      <path d="M 72 75 Q 82 55 76 30 Q 73 18 68 20" fill="none" stroke="#7a6858" stroke-width="7" stroke-linecap="round"/>
+      <path d="M 72 75 Q 82 55 76 30 Q 73 18 68 20" fill="none" stroke="#6a5848" stroke-width="4" stroke-linecap="round"/>
+      <!-- body — arched stretch, rear high, front low -->
+      <path d="M 15 80 Q 30 55 55 58 Q 72 60 78 75" fill="#7a6858" stroke="none"/>
+      <ellipse cx="46" cy="62" rx="28" ry="16" fill="#7a6858"/>
+      <!-- belly lighter -->
+      <ellipse cx="44" cy="68" rx="16" ry="10" fill="#8a7868"/>
+      <!-- back legs -->
+      <rect x="62" y="74" width="10" height="22" rx="4" fill="#7a6858"/>
+      <ellipse cx="67" cy="96" rx="8" ry="4" fill="#6a5848"/>
+      <!-- front legs stretched forward low -->
+      <rect x="10" y="76" width="9" height="18" rx="4" fill="#7a6858"/>
+      <rect x="24" y="78" width="9" height="16" rx="4" fill="#7a6858"/>
+      <ellipse cx="14" cy="94" rx="8" ry="4" fill="#6a5848"/>
+      <ellipse cx="28" cy="94" rx="8" ry="4" fill="#6a5848"/>
+      <!-- neck -->
+      <ellipse cx="22" cy="64" rx="11" ry="8" fill="#7a6858"/>
+      <!-- head — down, nose toward ground, mid-yawn/stretch -->
+      <ellipse cx="16" cy="52" rx="16" ry="14" fill="#7a6858"/>
+      <!-- ears perked -->
+      <polygon points="5,42 2,30 14,40" fill="#7a6858"/>
+      <polygon points="6,42 4,33 13,41" fill="#5a2828" opacity="0.6"/>
+      <polygon points="22,40 26,28 30,39" fill="#7a6858"/>
+      <polygon points="23,40 26,31 29,39" fill="#5a2828" opacity="0.6"/>
+      <!-- open yawning mouth -->
+      <ellipse cx="14" cy="56" rx="7" ry="5" fill="#3a1a1a"/>
+      <path d="M 8 54 Q 14 50 20 54" fill="none" stroke="#5a3030" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- squinting annoyed eyes -->
+      <ellipse class="cat-eye" cx="10" cy="47" rx="4" ry="2" fill="#1a1008"/>
+      <ellipse class="cat-eye" cx="21" cy="46" rx="4" ry="2" fill="#1a1008"/>
+      <path d="M 6 45 Q 10 43 14 45" fill="none" stroke="#3a2818" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M 17 44 Q 21 42 25 44" fill="none" stroke="#3a2818" stroke-width="1.2" stroke-linecap="round"/>
+      <!-- nose -->
+      <ellipse cx="13" cy="53" rx="2.5" ry="1.5" fill="#c87880"/>
+      <!-- whiskers -->
+      <line x1="0"  y1="54" x2="10" y2="55" stroke="#e8d0a8" stroke-width="0.8" opacity="0.6"/>
+      <line x1="0"  y1="57" x2="10" y2="57" stroke="#e8d0a8" stroke-width="0.8" opacity="0.5"/>
+      <!-- stripe markings -->
+      <path d="M 25 58 Q 46 53 68 58" fill="none" stroke="#5a4838" stroke-width="1.5" opacity="0.5"/>
+      <path d="M 24 66 Q 46 61 70 66" fill="none" stroke="#5a4838" stroke-width="1.5" opacity="0.4"/>
+    </g>
+
+  </svg>
+
+  <!-- ── CAT 2: LOAF POSE, left of lamp ── -->
+  <svg class="cat" style="left:18%; bottom:0"
+       viewBox="0 0 80 80" width="75" height="75" aria-label="loaf cat">
+    <!-- shadow -->
+    <ellipse cx="40" cy="77" rx="32" ry="4" fill="#000" opacity="0.35"/>
+    <!-- loaf body — rounded rectangle, tucked paws invisible -->
+    <rect x="10" y="50" width="60" height="22" rx="14" fill="#c07830"/>
+    <ellipse cx="40" cy="50" rx="30" ry="10" fill="#c07830"/>
+    <!-- body stripe markings -->
+    <path d="M 16 55 Q 40 51 64 55" fill="none" stroke="#8a5018" stroke-width="2" opacity="0.35"/>
+    <path d="M 15 62 Q 40 58 65 62" fill="none" stroke="#8a5018" stroke-width="2" opacity="0.25"/>
+    <!-- neck — short and wide -->
+    <ellipse cx="40" cy="43" rx="12" ry="7" fill="#c07830"/>
+    <!-- head — slightly wider than tall, cat-shaped not alien-round -->
+    <ellipse cx="40" cy="30" rx="17" ry="15" fill="#c07830"/>
+    <!-- ears — short triangles, well within the head width -->
+    <polygon points="26,22 23,12 33,20" fill="#c07830"/>
+    <polygon points="27,22 25,14 32,21" fill="#7a3818" opacity="0.55"/>
+    <polygon points="54,22 57,12 47,20" fill="#c07830"/>
+    <polygon points="53,22 55,14 48,21" fill="#7a3818" opacity="0.55"/>
+    <!-- forehead tabby M -->
+    <path d="M 30 18 Q 36 15 40 18 Q 44 15 50 18" fill="none" stroke="#8a5018" stroke-width="1.2" opacity="0.5"/>
+    <!-- eyes — half lidded, round, normal cat proportions -->
+    <ellipse cx="32" cy="30" rx="5" ry="4.5" fill="#2a1808"/>
+    <ellipse class="cat-eye" cx="32" cy="30" rx="4" ry="3.5" fill="#2a1808"/>
+    <ellipse cx="48" cy="30" rx="5" ry="4.5" fill="#2a1808"/>
+    <ellipse class="cat-eye" cx="48" cy="30" rx="4" ry="3.5" fill="#2a1808"/>
+    <!-- heavy lids — half closed -->
+    <path d="M 28 28 Q 32 26 36 28" fill="#c07830" stroke="none"/>
+    <path d="M 44 28 Q 48 26 52 28" fill="#c07830" stroke="none"/>
+    <!-- pupils -->
+    <ellipse cx="32" cy="31" rx="1.5" ry="3" fill="#0a0806"/>
+    <ellipse cx="48" cy="31" rx="1.5" ry="3" fill="#0a0806"/>
+    <!-- nose — small triangle -->
+    <polygon points="40,36 37,39 43,39" fill="#d06878"/>
+    <!-- mouth -->
+    <path d="M 37 39 Q 40 42 43 39" fill="none" stroke="#a04858" stroke-width="1" stroke-linecap="round"/>
+    <!-- whiskers -->
+    <line x1="16" y1="37" x2="33" y2="38" stroke="#f0d8b0" stroke-width="0.9" opacity="0.55"/>
+    <line x1="16" y1="40" x2="33" y2="40" stroke="#f0d8b0" stroke-width="0.9" opacity="0.45"/>
+    <line x1="64" y1="37" x2="47" y2="38" stroke="#f0d8b0" stroke-width="0.9" opacity="0.55"/>
+    <line x1="64" y1="40" x2="47" y2="40" stroke="#f0d8b0" stroke-width="0.9" opacity="0.45"/>
+  </svg>
+
+  <!-- ── CAT 3: SITTING UPRIGHT, right of lamp, looking UP at the light ── -->
+  <svg class="cat" style="right:18%; bottom:0"
+       viewBox="0 0 70 110" width="65" height="105" aria-label="sitting cat">
+    <!-- shadow -->
+    <ellipse cx="35" cy="107" rx="26" ry="4" fill="#000" opacity="0.35"/>
+    <!-- tail (behind body) -->
+    <g class="tail-sway">
+      <path d="M 45 95 Q 70 80 65 55 Q 62 40 55 42" fill="none" stroke="#404050" stroke-width="8" stroke-linecap="round"/>
+      <path d="M 45 95 Q 70 80 65 55 Q 62 40 55 42" fill="none" stroke="#505060" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <!-- body -->
+    <ellipse cx="35" cy="82" rx="22" ry="24" fill="#404050"/>
+    <!-- chest lighter -->
+    <ellipse cx="32" cy="88" rx="12" ry="14" fill="#585868"/>
+    <!-- front paws -->
+    <ellipse cx="25" cy="102" rx="10" ry="5" fill="#404050"/>
+    <ellipse cx="44" cy="102" rx="10" ry="5" fill="#404050"/>
+    <!-- neck -->
+    <ellipse cx="35" cy="57" rx="13" ry="9" fill="#404050"/>
+    <!-- head - tilted back slightly to look UP -->
+    <ellipse cx="35" cy="38" rx="20" ry="18" fill="#404050"/>
+    <!-- ears pointing up alert -->
+    <polygon points="20,26 15,10 28,22" fill="#404050"/>
+    <polygon points="21,26 17,13 27,23" fill="#3a1a2a" opacity="0.6"/>
+    <polygon points="50,26 55,10 42,22" fill="#404050"/>
+    <polygon points="49,26 53,13 43,23" fill="#3a1a2a" opacity="0.6"/>
+    <!-- eyes looking UP - ovals shifted upward in head -->
+    <ellipse cx="27" cy="33" rx="6" ry="5" fill="#1a1008"/>
+    <ellipse class="cat-eye" cx="27" cy="33" rx="5" ry="4" fill="#1a1008"/>
+    <ellipse cx="43" cy="33" rx="6" ry="5" fill="#1a1008"/>
+    <ellipse class="cat-eye" cx="43" cy="33" rx="5" ry="4" fill="#1a1008"/>
+    <!-- slit pupils -->
+    <ellipse cx="27" cy="33" rx="1.5" ry="3.5" fill="#0a0806"/>
+    <ellipse cx="43" cy="33" rx="1.5" ry="3.5" fill="#0a0806"/>
+    <!-- nose -->
+    <polygon points="35,42 32,46 38,46" fill="#d06878"/>
+    <!-- mouth -->
+    <path d="M 32 46 Q 35 49 38 46" fill="none" stroke="#a04858" stroke-width="1" stroke-linecap="round"/>
+    <!-- whiskers -->
+    <line x1="12" y1="43" x2="29" y2="44" stroke="#e8d0a8" stroke-width="0.8" opacity="0.6"/>
+    <line x1="12" y1="46" x2="29" y2="46" stroke="#e8d0a8" stroke-width="0.8" opacity="0.5"/>
+    <line x1="58" y1="43" x2="41" y2="44" stroke="#e8d0a8" stroke-width="0.8" opacity="0.6"/>
+    <line x1="58" y1="46" x2="41" y2="46" stroke="#e8d0a8" stroke-width="0.8" opacity="0.5"/>
+    <!-- stripe hints on dark coat -->
+    <path d="M 20 70 Q 35 66 50 70" fill="none" stroke="#303040" stroke-width="2" opacity="0.5"/>
+    <path d="M 18 80 Q 35 76 52 80" fill="none" stroke="#303040" stroke-width="2" opacity="0.4"/>
+  </svg>
+
+  <!-- ── CAT 4: STANDING, TAIL UP, far right, nosy ── -->
+  <svg class="cat" style="right:3%; bottom:0"
+       viewBox="0 0 60 105" width="55" height="100" aria-label="standing cat">
+    <!-- shadow -->
+    <ellipse cx="30" cy="102" rx="22" ry="4" fill="#000" opacity="0.35"/>
+    <!-- tail upright -->
+    <g class="tail-sway2">
+      <path d="M 42 78 Q 55 55 48 30 Q 45 18 40 20" fill="none" stroke="#9a8870" stroke-width="8" stroke-linecap="round"/>
+      <path d="M 42 78 Q 55 55 48 30 Q 45 18 40 20" fill="none" stroke="#b0a080" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <!-- back legs -->
+    <rect x="34" y="80" width="10" height="22" rx="4" fill="#9a8870"/>
+    <!-- body -->
+    <ellipse cx="30" cy="68" rx="18" ry="22" fill="#b0a080"/>
+    <!-- belly lighter -->
+    <ellipse cx="28" cy="72" rx="10" ry="14" fill="#c8b898"/>
+    <!-- front legs -->
+    <rect x="14" y="78" width="10" height="22" rx="4" fill="#9a8870"/>
+    <rect x="30" y="78" width="10" height="20" rx="4" fill="#9a8870"/>
+    <!-- paws -->
+    <ellipse cx="19" cy="100" rx="7" ry="4" fill="#9a8870"/>
+    <ellipse cx="35" cy="98" rx="7" ry="4" fill="#9a8870"/>
+    <ellipse cx="39" cy="101" rx="7" ry="4" fill="#9a8870"/>
+    <!-- neck -->
+    <ellipse cx="27" cy="48" rx="11" ry="8" fill="#b0a080"/>
+    <!-- head -->
+    <circle cx="27" cy="33" r="17" fill="#b0a080"/>
+    <!-- ears -->
+    <polygon points="14,21 10,8 22,19" fill="#b0a080"/>
+    <polygon points="15,21 12,10 21,20" fill="#6a3838" opacity="0.5"/>
+    <polygon points="36,20 40,7 30,18" fill="#b0a080"/>
+    <polygon points="35,20 39,9 31,19" fill="#6a3838" opacity="0.5"/>
+    <!-- tabby forehead M marking -->
+    <path d="M 18 22 L 22 18 L 27 22 L 32 18 L 36 22" fill="none" stroke="#8a7050" stroke-width="1.2" opacity="0.6"/>
+    <!-- eyes -->
+    <ellipse cx="21" cy="32" rx="5.5" ry="5" fill="#1a1008"/>
+    <ellipse class="cat-eye" cx="21" cy="32" rx="4.5" ry="4" fill="#1a1008"/>
+    <ellipse cx="33" cy="32" rx="5.5" ry="5" fill="#1a1008"/>
+    <ellipse class="cat-eye" cx="33" cy="32" rx="4.5" ry="4" fill="#1a1008"/>
+    <!-- pupils -->
+    <ellipse cx="21" cy="32" rx="1.5" ry="3.5" fill="#0a0806"/>
+    <ellipse cx="33" cy="32" rx="1.5" ry="3.5" fill="#0a0806"/>
+    <!-- nose -->
+    <polygon points="27,39 24,43 30,43" fill="#d06878"/>
+    <!-- whiskers -->
+    <line x1="6"  y1="40" x2="22" y2="41" stroke="#e8d0a8" stroke-width="0.8" opacity="0.6"/>
+    <line x1="6"  y1="43" x2="22" y2="43" stroke="#e8d0a8" stroke-width="0.8" opacity="0.5"/>
+    <line x1="48" y1="40" x2="32" y2="41" stroke="#e8d0a8" stroke-width="0.8" opacity="0.6"/>
+    <line x1="48" y1="43" x2="32" y2="43" stroke="#e8d0a8" stroke-width="0.8" opacity="0.5"/>
+    <!-- tabby body stripes -->
+    <path d="M 14 58 Q 30 54 46 58" fill="none" stroke="#8a7050" stroke-width="1.5" opacity="0.5"/>
+    <path d="M 13 66 Q 30 62 47 66" fill="none" stroke="#8a7050" stroke-width="1.5" opacity="0.4"/>
+    <path d="M 14 74 Q 30 70 46 74" fill="none" stroke="#8a7050" stroke-width="1.5" opacity="0.3"/>
+  </svg>
+
+</div>
+
+<!-- ─────────────────────── BUTTON ─────────────────────── -->
+<div class="controls">
+  <button id="toggle" onclick="toggleLamp()">Toggle Lamp</button>
+  <div class="status-pill" id="status-pill">— UNKNOWN —</div>
+</div>
+
+<!-- ─────────────────────── DATA TABLE ─────────────────────── -->
+<div class="data-section">
+  <h2>
+    Sensor Readings
+    <span id="poll-indicator" class="poll-wait">● WAITING</span>
+  </h2>
+  <table id="data-table">
+    <thead>
+      <tr>
+        <th>Channel</th>
+        <th>Value</th>
+        <th>Unit</th>
+        <th>Last Updated</th>
+      </tr>
+    </thead>
+    <tbody id="table-body">
+      <tr><td colspan="4" class="no-data">Waiting for first poll…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="ornament">✦</div>
+
+<p class="description" id="main-para">
+  You turned on the light in New York City — and woke up Dan's cats. The lamp noticed the change and reported back — that's the live reading in the table above. A real bulb. A real switch. FrogNet is a private network that lets you put small, inexpensive sensors anywhere and check on them from anywhere else. No monthly bill. No tech company with access to your family's data. It just works, quietly, on its own — and keeps working even when parts of the network fail. Most "smart" devices depend on a company's cloud to function — when that company changes its pricing, gets hacked, or just decides to move on, your device stops working and your data was never really yours. FrogNet works with any device you can connect to it, from monitoring conditions in places too dangerous for people to enter, to making sure Grandma turned off the stove.
+</p>
+
+<script>
+"use strict";
+
+// ═══════════════════════════════════════════════════════════════
+//  CONFIGURATION
+//  Change these when the sensor structure is known.
+// ═══════════════════════════════════════════════════════════════
+const CONFIG = {
+  pollIntervalMs: 5000,
+  apiBase: "http://databasehost.frognet/api.php",  // same as dashboard
+  // TODO: fill in actual SensorName / SensorID values once registered in DB
+  actuatorSensorName: "DansLamp.Actuator.Switch",
+  lumSensorName:      "DansLamp.Sensor.Lumens",
+};
+
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+let lampOn = false;
+let pollTimer = null;
+let hasPressed = false;
+
+function updateHook(on) {
+  const hook    = document.getElementById("hook");
+  const hookPre = document.getElementById("hook-pre");
+  const hookPost = document.getElementById("hook-post");
+
+  if (!hasPressed) {
+    hookPre.textContent = on
+      ? "Touch the switch and turn Dan's lamp off from wherever you are."
+      : "Touch the switch and turn Dan's lamp on from wherever you are.";
+    hook.classList.remove("pressed");
+  } else {
+    hookPost.innerHTML = on
+      ? "You just turned on Dan's lamp! <em>Check out the sensor readings below — and you woke up the cats.</em>"
+      : "You just turned off Dan's lamp. <em>The cats are going back to sleep.</em>";
+    hook.classList.add("pressed");
+  }
+}
+
+const PARA_TAIL = "FrogNet is a private network that lets you put small, inexpensive sensors anywhere and check on them from anywhere else. No monthly bill. No tech company with access to your family's data. It just works, quietly, on its own — and keeps working even when parts of the network fail. Most \"smart\" devices depend on a company's cloud to function — when that company changes its pricing, gets hacked, or just decides to move on, your device stops working and your data was never really yours. FrogNet works with any device you can connect to it, from monitoring conditions in places too dangerous for people to enter, to making sure Grandma turned off the stove.";
+
+function updatePara(on) {
+  const para = document.getElementById("main-para");
+  if (!para) return;
+  const opener = on
+    ? "You turned on the light in New York City — and woke up Dan's cats."
+    : "You turned off the light in New York City. The cats can go back to sleep.";
+  para.textContent = opener + " The lamp noticed the change and reported back — that's the live reading in the table above. A real bulb. A real switch. " + PARA_TAIL;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TODO: REPLACE THESE STUBS WITH REAL FROGNET API CALLS
+//
+//  When the sensor records exist in the transient DB, replace
+//  fetchSensorData() and sendActuatorCommand() below.
+//  The rest of the page wires up from what those return.
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * TODO: Replace stub with real API call.
+ * Should return:
+ * {
+ *   actuator: { value: 0|1, timestamp: "2026-04-08T12:00:00Z" },
+ *   lumens:   { value: 847, timestamp: "2026-04-08T12:00:00Z" }
+ * }
+ * or throw on error.
+ */
+async function fetchSensorData() {
+  // ── STUB ──────────────────────────────────────────────────────
+  // Simulates reading two records from the transient database.
+  // Replace with:
+  //   const r = await fetch(`${CONFIG.apiBase}?entity=sensor_data&action=list&...`);
+  //   const j = await r.json();
+  //   parse j into the shape above
+  // ─────────────────────────────────────────────────────────────
+  await new Promise(r => setTimeout(r, 60)); // simulate latency
+  const now = new Date().toISOString();
+  return {
+    actuator: { value: lampOn ? 1 : 0, timestamp: now },
+    lumens:   { value: lampOn ? (420 + Math.floor(Math.random() * 80)) : (2 + Math.floor(Math.random() * 5)), timestamp: now },
+  };
+}
+
+/**
+ * TODO: Replace stub with real FrogNet actuator write.
+ * @param {boolean} on
+ * Should POST/PUT the actuator state into the transient DB.
+ * e.g. fetch(`${CONFIG.apiBase}?entity=sensor_data&action=update&...`, { method:'POST', body:... })
+ */
+async function sendActuatorCommand(on) {
+  // ── STUB ──────────────────────────────────────────────────────
+  await new Promise(r => setTimeout(r, 80)); // simulate latency
+  console.log(`[STUB] Actuator command: ${on ? "ON" : "OFF"}`);
+  // ─────────────────────────────────────────────────────────────
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  LAMP VISUAL
+// ═══════════════════════════════════════════════════════════════
+function applyLampVisual(on) {
+  const scene   = document.getElementById("scene");
+  const shadeIn = document.querySelector(".shade-inner");
+  const shadeGl = document.querySelectorAll(".shade-glow");
+  const filament = document.querySelector(".bulb-filament");
+  const cone    = document.querySelector(".cone-light");
+  const pill    = document.getElementById("status-pill");
+
+  if (on) {
+    scene.classList.add("lamp-on");
+    shadeIn.setAttribute("fill", "url(#shadeOn)");
+    shadeGl.forEach(el => el.style.opacity = "1");
+    filament.style.opacity = "1";
+    cone.style.opacity = "1";
+    pill.textContent = "● ILLUMINATED";
+  } else {
+    scene.classList.remove("lamp-on");
+    shadeIn.setAttribute("fill", "url(#shadeOff)");
+    shadeGl.forEach(el => el.style.opacity = "0");
+    filament.style.opacity = "0";
+    cone.style.opacity = "0";
+    pill.textContent = "○ EXTINGUISHED";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TABLE RENDER
+// ═══════════════════════════════════════════════════════════════
+function fmtTime(isoString) {
+  try {
+    return new Date(isoString).toLocaleTimeString([], { hour12: false });
+  } catch { return isoString; }
+}
+
+function renderTable(data) {
+  const tbody = document.getElementById("table-body");
+  const rows = [
+    {
+      label:     "Actuator",
+      value:     data.actuator.value === 1 ? "ON" : "OFF",
+      isOff:     data.actuator.value !== 1,
+      unit:      "state",
+      timestamp: data.actuator.timestamp,
+    },
+    {
+      label:     "Light Sensor",
+      value:     String(data.lumens.value),
+      isOff:     false,
+      unit:      "lux",
+      timestamp: data.lumens.timestamp,
+    },
+  ];
+
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="label">${r.label}</td>
+      <td class="value${r.isOff ? " off" : ""}">${r.value}</td>
+      <td class="unit">${r.unit}</td>
+      <td class="timestamp">${fmtTime(r.timestamp)}</td>
+    </tr>
+  `).join("");
+}
+
+function setPollIndicator(state) {
+  const el = document.getElementById("poll-indicator");
+  el.className = "poll-" + state;
+  const labels = { ok: "● LIVE", err: "✕ ERROR", wait: "● WAITING" };
+  el.textContent = labels[state] || state;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  POLL LOOP
+// ═══════════════════════════════════════════════════════════════
+async function poll() {
+  try {
+    const data = await fetchSensorData();
+    // Sync lamp state to what the DB says the actuator actually is
+    const dbOn = data.actuator.value === 1;
+    if (dbOn !== lampOn) {
+      lampOn = dbOn;
+      applyLampVisual(lampOn);
+    }
+    renderTable(data);
+    setPollIndicator("ok");
+  } catch (err) {
+    console.error("Poll error:", err);
+    setPollIndicator("err");
+  }
+}
+
+function startPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  poll(); // immediate first hit
+  pollTimer = setInterval(poll, CONFIG.pollIntervalMs);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TOGGLE
+// ═══════════════════════════════════════════════════════════════
+async function toggleLamp() {
+  const btn = document.getElementById("toggle");
+  btn.disabled = true;
+  btn.textContent = "…";
+
+  const next = !lampOn;
+  try {
+    await sendActuatorCommand(next);
+    lampOn = next;
+    hasPressed = true;
+    applyLampVisual(lampOn);
+    updateHook(lampOn);
+    updatePara(lampOn);
+    await poll(); // immediate refresh to confirm DB state
+  } catch (err) {
+    console.error("Toggle error:", err);
+    setPollIndicator("err");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Toggle Lamp";
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  BOOT
+// ═══════════════════════════════════════════════════════════════
+applyLampVisual(false);
+updateHook(false);
+startPolling();
+</script>
+</body>
+</html>

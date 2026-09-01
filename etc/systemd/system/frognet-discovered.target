@@ -1,0 +1,46 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+[Unit]
+# [BOOT_GATE_V1] The stable name consumers attach to so they never start against
+# an unresolved network.
+#
+# The chain: discovery/live.py:868 calls _mark_discovered() at every merge
+# completion, writing /etc/sentinels/discovered. frognet-discovered.service is a
+# oneshot with RemainAfterExit=yes and TimeoutStartSec=0 that blocks until that
+# sentinel appears, then latches for the rest of the boot. This target requires
+# and orders after that service, so reaching the target means "discovery has
+# converged at least once and service names resolve."
+#
+# Consumers (frognet-gps.service; frognet-dashboard.service was removed
+# 2026-08-29 [DEAD_UNITS_REMOVED_V1]) declare
+# After=/Wants= THIS TARGET rather than the service, so the gate's implementation
+# can change without editing every consumer.
+#
+# The producer -- frognet-merge-watcher.service -- must NEVER reference this
+# target. The watcher is what causes the sentinel to be written, so a dependency
+# here would deadlock: target waits on service, service waits on sentinel,
+# sentinel waits on watcher, watcher waits on target. That is asserted by
+# discovery/sim/boot_gate_check.py, which fails the discovery oracle gate if
+# anyone wires the loop.
+Description=FrogNet discovery converged (service hosts resolvable)
+Documentation=man:systemd.target(5)
+Requires=frognet-discovered.service
+After=frognet-discovered.service
+
+[Install]
+WantedBy=multi-user.target

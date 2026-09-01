@@ -1,0 +1,25 @@
+{
+  "committed_routes": {
+    "Farm": [
+      "10.45.1.0/24 dev wlan0 metric 100"
+    ],
+    "Sensor-A": [
+      "10.45.1.0/24 dev wlan0 metric 100"
+    ],
+    "Sensor-B": [
+      "10.45.1.0/24 dev wlan0 metric 100"
+    ]
+  },
+  "convergence_cycles": 1,
+  "key": "topo_solo_wlan0_ap",
+  "reachability": {
+    "pairs_ok": 8,
+    "pairs_total": 8,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:25",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "isolated wlan0 AP: served on wlan0, 2 DHCP clients, no internet"
+}

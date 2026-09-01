@@ -1,0 +1,51 @@
+<?php
+/**
+ * /var/www/html/frognet_echo.php
+ * 
+ * FrogNet echo endpoint with hash-based caching.
+ * Returns: hostname,host_ip,gateway1,gateway2
+ */
+
+require_once('/var/www/html/frognet_cache.php');
+$cache = new FrogNetCache();
+
+// Check if client already has current response
+if ($cache->checkClientHash()) {
+    exit; // 304 sent
+}
+
+// Build response
+$hostname = trim(shell_exec('hostname -f 2>/dev/null') ?: shell_exec('hostname'));
+$host_ip = getenv('FROGNET_HOST_IP') ?: trim(shell_exec('/usr/local/bin/getEth0Address 2>/dev/null')) ?: '0.0.0.0';
+
+// Get gateway IPs (from routing table or config)
+$gw1 = '0.0.0.0';
+$gw2 = '0.0.0.0';
+
+// Try to get from config
+$config_file = '/etc/frognet/gateways.conf';
+if (file_exists($config_file)) {
+    $lines = file($config_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        if (strpos($line, '#') === 0) continue;
+        $parts = explode('=', $line, 2);
+        if (count($parts) == 2) {
+            $key = trim($parts[0]);
+            $val = trim($parts[1]);
+            if ($key === 'GW1') $gw1 = $val;
+            if ($key === 'GW2') $gw2 = $val;
+        }
+    }
+}
+
+// Fallback: get from default route
+if ($gw1 === '0.0.0.0') {
+    $route = shell_exec("ip route show default 2>/dev/null | head -1 | awk '{print \$3}'");
+    if ($route) $gw1 = trim($route);
+}
+
+// Build echo line
+$response = implode(',', [$hostname, $host_ip, $gw1, $gw2]);
+
+// Send with caching
+$cache->sendResponse($response, 'text/plain', 200);

@@ -1,0 +1,92 @@
+--- probe_orig.sh	2026-06-23 19:26:16.836871290 +0000
++++ frognet_capability_probe.sh	2026-06-23 19:29:53.023371398 +0000
+@@ -11,7 +11,7 @@
+ set -u
+ SAMPLE_SEC="${SAMPLE_SEC:-0}"
+ python3 - <<'PY'
+-import os, platform, glob, subprocess, re, json, time
++import os, platform, glob, subprocess, re, json, time, sys
+ import os,platform,glob,subprocess,re,json,time
+ def _run(cmd, timeout=4):
+   import subprocess
+@@ -25,6 +25,40 @@
+     a,b,c,*_ = f.read().split()
+   return {"1": float(a), "5": float(b), "15": float(c)}
+ 
++# [AVCAP_CACHE_SCHEMA_V1] The election reads these as numbers. The static block is
++# cached to /run and returned verbatim on every call, so a cache written by an
++# OLDER probe (e.g. one that stored memory as a nested object) would be republished
++# forever — emitting a dict where a scalar is expected and crashing the merge
++# (pre-guard). Keep in sync with database_handler.score and discovery/hosts._num.
++#   REQ: always produced by a healthy recompute -> must be present AND scalar.
++#   OPT: only present on DB-capable nodes -> if present, must be scalar (absent is
++#        fine; the consumer defaults it to 0).
++_AVCAP_NUMERIC_REQ = ("cores","cpu_mhz","cpu_bench_total","mem_total_kb",
++                      "mem_available_kb","disk_write_mbps","disk_fsync_ms",
++                      "disk_free_gb","av_port")
++_AVCAP_NUMERIC_OPT = ("mysql_innodb_pool_bytes",)
++
++def _is_scalar_num(v):
++  return (not isinstance(v, bool)) and isinstance(v, (int, float))
++
++def _avcap_cache_valid(c):
++  """True only if the blob matches the CURRENT schema: every REQ numeric present
++  and a real scalar, every OPT numeric (if present) a scalar, and lan_ip a
++  non-empty string. A stale/wrong-shape cache is rejected so it gets recomputed
++  rather than republished."""
++  if not isinstance(c, dict):
++    return False
++  for k in _AVCAP_NUMERIC_REQ:
++    if not _is_scalar_num(c.get(k, None)):
++      return False
++  for k in _AVCAP_NUMERIC_OPT:
++    if k in c and not _is_scalar_num(c[k]):
++      return False
++  lan = c.get("lan_ip", "")
++  if not isinstance(lan, str) or not lan:
++    return False
++  return True
++
+ def temps():
+   out=[]
+   for p in glob.glob("/sys/class/thermal/thermal_zone*/temp"):
+@@ -39,10 +73,20 @@
+   """STATIC capability + tool configs. Cheap, but it never changes between boots,
+   so compute once and cache to /run; subsequent loops read the cache (truly free)."""
+   import os, json as _j, re, glob as _g
+-  cache="/run/frognet_avcap.json"
++  cache=os.environ.get("FROGNET_AVCAP_CACHE","/run/frognet_avcap.json")
++  # [AVCAP_CACHE_SCHEMA_V1] Trust the cache ONLY if it matches the current schema.
++  # Otherwise drop it and recompute, so a cache written by an older probe can never
++  # poison the publish with a dict-where-a-scalar-belongs.
+   try:
+-    with open(cache) as f: return _j.load(f)
+-  except Exception: pass
++    with open(cache) as f: _cached=_j.load(f)
++    if _avcap_cache_valid(_cached):
++      return _cached
++    sys.stderr.write("frognet_capability_probe: stale/invalid avcap cache "
++                     "(schema mismatch) — recomputing\n")
++    try: os.remove(cache)
++    except Exception: pass
++  except Exception:
++    pass
+ 
+   cap={}
+   # cores / clock / arch
+@@ -250,5 +294,15 @@
+ t = temps()
+ if t: out["temps_c"] = t
+ out["ts"] = int(time.time())
++# [AVCAP_CACHE_SCHEMA_V1] Last line of defense: never publish a blob whose numeric
++# fields aren't scalars. If we somehow built one (probe bug, not a stale cache),
++# say so loudly on stderr — the consumer's _num guard will still degrade just that
++# candidate rather than crash, but this must never pass silently.
++if not _avcap_cache_valid(out):
++  bad = {k: out.get(k) for k in (_AVCAP_NUMERIC_REQ + _AVCAP_NUMERIC_OPT)
++         if (k in out and not _is_scalar_num(out[k]))
++         or (k in _AVCAP_NUMERIC_REQ and k not in out)}
++  sys.stderr.write("frognet_capability_probe: REFUSING-SILENT malformed numeric "
++                   "fields in emitted blob: %s\n" % json.dumps(bad))
+ print(json.dumps(out, separators=(',',':')))
+ PY

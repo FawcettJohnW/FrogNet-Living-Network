@@ -1,0 +1,26 @@
+{
+  "id": "net.frognet.hearts",
+  "module": "family-hearts",
+  "name": "hearts",
+  "title": "Hearts",
+  "hub": "games",
+  "function": [
+    "games"
+  ],
+  "provides": [
+    "turn-based-game",
+    "multiplayer"
+  ],
+  "app": "app/play.py",
+  "version": "1.0",
+  "players": {
+    "min": 4,
+    "max": 4
+  },
+  "summary": "Four-player trick-taking; dodge the hearts and the Queen of Spades, or shoot the moon.",
+  "freshness": {
+    "move": "lossless-eventual",
+    "position": "latest-only",
+    "scaffold": "resident-once"
+  }
+}

@@ -1,0 +1,262 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /usr/local/bin/mapInterfaces
+# FrogNet Interface Enumeration (v2 - omnidirectional routing)
+
+IP="/usr/sbin/ip"
+AWK="/usr/bin/awk"
+CUT="/usr/bin/cut"
+HEAD="/usr/bin/head"
+SORT="/usr/bin/sort"
+GREP="/usr/bin/grep"
+XARGS="/usr/bin/xargs"
+
+LEASES="/var/lib/misc/dnsmasq.leases"
+SIM_UNDERLAY_FILE="/etc/frognet/simulator_underlay"
+
+debugTag() {
+  if [[ -x /usr/local/bin/debugTag ]]; then
+    /usr/local/bin/debugTag "$*"
+  else
+    : # silent
+  fi
+}
+
+_list_physical_interfaces() {
+  $IP -o link show | $AWK -F': ' '{print $2}' | $CUT -d'@' -f1 | while read -r dev; do
+    [[ "$dev" == "lo" ]] && continue
+    [[ "$dev" == veth* ]] && continue
+    [[ "$dev" == docker* ]] && continue
+    [[ "$dev" == br-* ]] && continue
+    [[ "$dev" == virbr* ]] && continue
+    echo "$dev"
+  done | $SORT -u
+}
+
+_list_up_interfaces() {
+  for dev in $(_list_physical_interfaces); do
+    local state
+    state="$(cat /sys/class/net/$dev/operstate 2>/dev/null)"
+    if [[ "$state" == "up" || "$state" == "unknown" ]]; then
+      echo "$dev"
+    fi
+  done
+}
+
+_dev_ip4() {
+  local dev="$1"
+  $IP -4 addr show dev "$dev" 2>/dev/null | $AWK '/inet /{print $2}' | $HEAD -n1 | $CUT -d/ -f1
+}
+
+_dev_has_transit30() {
+  local dev="$1"
+  $IP -4 -o addr show dev "$dev" 2>/dev/null | $GREP -q '10\.253\.253\..*/30'
+}
+
+_dev_has_frognet_24() {
+  local dev="$1"
+  $IP -4 -o addr show dev "$dev" 2>/dev/null | $GREP -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24' | $GREP -qv '10\.253\.253\.'
+}
+
+_dev_serves_dhcp() {
+  local dev="$1"
+  [[ -f "$LEASES" && -s "$LEASES" ]] || return 1
+  local ip4
+  ip4="$(_dev_ip4 "$dev")"
+  [[ "$ip4" == *.1 ]] && return 0
+  return 1
+}
+
+# [UPSTREAM_DEVIPS_V1] does this dev hold ANY .1 address in 10.x (i.e.
+# we own a served /24 on it). Stricter than _dev_serves_dhcp because it
+# doesn't require dnsmasq.leases to be non-empty — a newly-booted AP
+# with no clients yet is still serving and still downstream.
+_dev_owns_served24() {
+  local dev="$1"
+  $IP -4 -o addr show dev "$dev" 2>/dev/null \
+    | $AWK '/inet /{print $4}' \
+    | $CUT -d/ -f1 \
+    | $GREP -E '^10\.[0-9]+\.[0-9]+\.1$' \
+    | $GREP -qv '^10\.253\.253\.' && return 0
+  return 1
+}
+
+# [UPSTREAM_DEVIPS_V1] emit each 10.x address on a dev that qualifies
+# as a FrogNet upstream IP: 10.x, not transit (10.253.253.*), not in
+# sim underlay, not a .1 (which would be one we serve). Excludes our
+# own served-LAN address even if it shares a dev with the upstream.
+_dev_upstream_ips() {
+  local dev="$1"
+  $IP -4 -o addr show dev "$dev" 2>/dev/null \
+    | $AWK '/inet /{print $4}' \
+    | $CUT -d/ -f1 \
+    | while read -r ip; do
+        [[ -z "$ip" ]] && continue
+        # Exclude addresses that aren't real upstream identities:
+        #   10.253.0.0/16 (entire broker-reserved transit range —
+        #   wg /30s live here, e.g. 10.253.201.x, 10.253.202.x, not
+        #   just 10.253.253.x); 10.254.0.0/16 (pond addresses,
+        #   frognet0 intra-FrogNet); .1 we serve (downstream); sim
+        #   underlay; link-local; loopback; multicast/reserved;
+        #   broadcast; 0.0.0.0. Anything else — including non-10.x
+        #   RFC1918 and public IPs — counts as an upstream
+        #   connection per the omnidirectional-routing spec.
+        [[ "$ip" == 10.253.* ]] && continue
+        [[ "$ip" == 10.254.* ]] && continue
+        [[ "$ip" == *.1 ]] && continue
+        [[ "$ip" == 169.254.* ]] && continue
+        [[ "$ip" == 127.* ]] && continue
+        [[ "$ip" == 0.* ]] && continue
+        [[ "$ip" == 255.255.255.255 ]] && continue
+        # 224.0.0.0/4 (multicast) + 240.0.0.0/4 (reserved): first octet
+        # 224-255. Anything 224+ first octet is not a unicast address.
+        first="${ip%%.*}"
+        if [[ "$first" -ge 224 ]] 2>/dev/null; then continue; fi
+        _ip_in_sim_underlay "$ip" && continue
+        echo "$ip"
+      done
+}
+
+_ip_in_sim_underlay() {
+  local ip="$1"
+  [[ -f "$SIM_UNDERLAY_FILE" ]] || return 1
+  local net
+  net="$(/usr/local/bin/convertToSubnetRange "$ip" 2>/dev/null)"
+  [[ -n "$net" ]] || return 1
+  $GREP -q "^$net\$" "$SIM_UNDERLAY_FILE"
+}
+
+_seed_from_ip4() {
+  local ip="$1"
+  [[ "$ip" == 10.* ]] || return 1
+  [[ "$ip" == 10.253.253.* ]] && return 1
+  _ip_in_sim_underlay "$ip" && return 1
+  echo "$ip" | $AWK -F. '{print $1"."$2"."$3".1"}'
+}
+
+FROGNET_INTERFACES=""
+FROGNET_TRANSIT_DEVS=""
+FROGNET_FROGNET_DEVS=""
+FROGNET_DHCP_DEVS=""
+FROGNET_UPSTREAM_SEEDS=""
+# [UPSTREAM_DEVIPS_V1] space-separated list of "dev=ip" pairs for every
+# interface holding an upstream IP. An upstream is anything on a dev
+# that is NOT eth0 (always downstream per design), NOT a dev we own a
+# served-LAN .1 on, NOT transit /30, and the IP itself is a real
+# unicast address (not link-local, loopback, multicast, broadcast,
+# all-zeros, or sim underlay). Includes non-10.x — a public or
+# RFC1918-other IP on, say, eth1 counts as an upstream connection
+# even though no FrogNet node assigned it.
+# Consumers (getWlan0IP, getWlan1IP) take the first two entries in
+# discovery order (alphabetical by dev, multiple IPs per dev in the
+# order `ip` emits them). Extras beyond the first two are dropped.
+FROGNET_UPSTREAM_DEVIPS=""
+
+for dev in $(_list_up_interfaces); do
+  FROGNET_INTERFACES="$FROGNET_INTERFACES $dev"
+  
+  if _dev_has_transit30 "$dev"; then
+    FROGNET_TRANSIT_DEVS="$FROGNET_TRANSIT_DEVS $dev"
+    debugTag "interface dev=$dev type=transit"
+  fi
+  
+  if _dev_has_frognet_24 "$dev"; then
+    FROGNET_FROGNET_DEVS="$FROGNET_FROGNET_DEVS $dev"
+    debugTag "interface dev=$dev type=frognet_subnet"
+  fi
+  
+  if _dev_serves_dhcp "$dev"; then
+    FROGNET_DHCP_DEVS="$FROGNET_DHCP_DEVS $dev"
+    debugTag "interface dev=$dev type=dhcp_server"
+  fi
+  
+  ip4="$(_dev_ip4 "$dev")"
+  if [[ -n "$ip4" ]]; then
+    seed="$(_seed_from_ip4 "$ip4")"
+    if [[ -n "$seed" ]]; then
+      FROGNET_UPSTREAM_SEEDS="$FROGNET_UPSTREAM_SEEDS $seed"
+      debugTag "seed dev=$dev ip=$ip4 seed=$seed"
+    fi
+  fi
+
+  # [UPSTREAM_DEVIPS_V1] upstream-IP enumeration. Per spec:
+  #   - eth0 (or whatever eth0Name maps to) is always downstream.
+  #   - any dev that owns a served-LAN .1 is downstream.
+  #   - transit-only devs (10.253.253.*/30) are not upstream either.
+  # The remaining candidates are devs holding a 10.x address that some
+  # other FrogNet node DHCP-assigned to us. Multiple IPs per dev are
+  # emitted as separate "dev=ip" pairs.
+  if [[ "$dev" != "${eth0Name:-eth0}" ]] \
+     && ! _dev_owns_served24 "$dev" \
+     && ! _dev_has_transit30 "$dev"; then
+    while read -r up_ip; do
+      [[ -n "$up_ip" ]] || continue
+      FROGNET_UPSTREAM_DEVIPS="$FROGNET_UPSTREAM_DEVIPS $dev=$up_ip"
+      debugTag "upstream dev=$dev ip=$up_ip"
+    done < <(_dev_upstream_ips "$dev")
+  fi
+done
+
+TRANSIT_SEEDS_FILE="/etc/sentinels/transit_upstream_seeds"
+if [[ -f "$TRANSIT_SEEDS_FILE" ]]; then
+  while read -r s; do
+    [[ -n "$s" ]] || continue
+    [[ "$s" == 10.* ]] || continue
+    [[ "$s" == 10.253.253.* ]] && continue
+    FROGNET_UPSTREAM_SEEDS="$FROGNET_UPSTREAM_SEEDS $s"
+    debugTag "seed_from_transit_file seed=$s"
+  done < "$TRANSIT_SEEDS_FILE"
+fi
+
+export FROGNET_INTERFACES="$(echo $FROGNET_INTERFACES | $XARGS)"
+export FROGNET_TRANSIT_DEVS="$(echo $FROGNET_TRANSIT_DEVS | $XARGS)"
+export FROGNET_FROGNET_DEVS="$(echo $FROGNET_FROGNET_DEVS | $XARGS)"
+export FROGNET_DHCP_DEVS="$(echo $FROGNET_DHCP_DEVS | $XARGS)"
+export FROGNET_UPSTREAM_SEEDS="$(echo $FROGNET_UPSTREAM_SEEDS | $XARGS)"
+export FROGNET_UPSTREAM_DEVIPS="$(echo $FROGNET_UPSTREAM_DEVIPS | $XARGS)"
+
+debugTag "FROGNET_INTERFACES='$FROGNET_INTERFACES'"
+debugTag "FROGNET_TRANSIT_DEVS='$FROGNET_TRANSIT_DEVS'"
+debugTag "FROGNET_UPSTREAM_SEEDS='$FROGNET_UPSTREAM_SEEDS'"
+debugTag "FROGNET_UPSTREAM_DEVIPS='$FROGNET_UPSTREAM_DEVIPS'"
+
+# LEGACY EXPORTS
+export eth0Name="eth0"
+export wlan0Name="wlan0"
+export wlan1Name="wlan1"
+
+OVR="/etc/frognet/interfaces_override.conf"
+if [[ -f "$OVR" ]]; then
+  . "$OVR"
+  [[ -n "${eth0Name:-}" ]] && export eth0Name
+  [[ -n "${wlan0Name:-}" ]] && export wlan0Name
+  [[ -n "${wlan1Name:-}" ]] && export wlan1Name
+fi
+
+ACTIVE="/etc/frognet/active_interface"
+if [[ -f "$ACTIVE" ]]; then
+  . "$ACTIVE"
+  [[ -n "${eth0Name:-}" ]] && export eth0Name
+  [[ -n "${wlan0Name:-}" ]] && export wlan0Name
+  [[ -n "${wlan1Name:-}" ]] && export wlan1Name
+fi
+
+debugTag "LEGACY eth0Name=$eth0Name wlan0Name=$wlan0Name wlan1Name=$wlan1Name"
+:
+

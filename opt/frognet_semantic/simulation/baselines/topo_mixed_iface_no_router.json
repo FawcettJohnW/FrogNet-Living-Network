@@ -1,0 +1,51 @@
+{
+  "committed_routes": {
+    "Barn": [
+      "10.47.1.0/24 dev eth0 metric 100",
+      "10.47.2.0/24 via 10.47.1.5 dev eth0 metric 100",
+      "10.47.2.0/24 via 10.47.2.1 dev wlan1 metric 22",
+      "10.47.3.0/24 via 10.47.1.5 dev eth0 metric 100",
+      "10.47.3.0/24 via 10.47.50.2 dev wlan1 metric 22",
+      "10.47.50.0/30 dev wlan1 metric 100"
+    ],
+    "Barn-sensor": [
+      "10.47.1.0/24 dev eth0 metric 100",
+      "10.47.2.0/24 via 10.47.1.1 dev eth0 metric 22",
+      "10.47.3.0/24 via 10.47.1.1 dev eth0 metric 22"
+    ],
+    "Forest": [
+      "10.47.1.0/24 via 10.47.1.1 dev wlan1 metric 22",
+      "10.47.1.0/24 via 10.47.2.5 dev wlan0 metric 100",
+      "10.47.1.0/24 via 10.47.51.2 dev ham0 metric 101",
+      "10.47.2.0/24 dev wlan0 metric 100",
+      "10.47.3.0/24 via 10.47.2.5 dev wlan0 metric 100",
+      "10.47.3.0/24 via 10.47.3.1 dev ham0 metric 22",
+      "10.47.3.0/24 via 10.47.50.1 dev wlan1 metric 101",
+      "10.47.50.0/30 dev wlan1 metric 100",
+      "10.47.51.0/30 dev ham0 metric 100"
+    ],
+    "Forest-ranger": [
+      "10.47.1.0/24 via 10.47.2.1 dev wlan0 metric 22",
+      "10.47.2.0/24 dev wlan0 metric 100",
+      "10.47.3.0/24 via 10.47.2.1 dev wlan0 metric 22"
+    ],
+    "Tower": [
+      "10.47.1.0/24 via 10.47.51.1 dev ham0 metric 22",
+      "10.47.2.0/24 via 10.47.2.1 dev ham0 metric 22",
+      "10.47.3.0/24 dev wlan0 metric 100",
+      "10.47.51.0/30 dev ham0 metric 100"
+    ]
+  },
+  "convergence_cycles": 4,
+  "key": "topo_mixed_iface_no_router",
+  "reachability": {
+    "pairs_ok": 32,
+    "pairs_total": 32,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:28",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker"
+}

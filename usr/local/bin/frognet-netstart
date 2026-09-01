@@ -1,0 +1,315 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+#===============================================================================
+# frognet-netstart — Configure FrogNet networking based on hardware state
+#
+# If eth0 has link:
+#   - eth0 gets the identity address (<SUBNET_PREFIX>.1/24) and the
+#     admin alias (<SUBNET_PREFIX>.2/24)
+#   - wlan0 is released for station/upstream use
+#   - hostapd is stopped
+#
+# If eth0 has no link:
+#   - wlan0 gets the identity address (<SUBNET_PREFIX>.1/24) and the
+#     admin alias (<SUBNET_PREFIX>.2/24)
+#   - hostapd starts in AP mode
+#   - dnsmasq serves DHCP on wlan0
+#
+# Node identity comes from dnsmasq config (dhcp-range in opts_only.conf)
+#===============================================================================
+
+LOG_TAG="frognet-netstart"
+
+log() {
+    logger -t "$LOG_TAG" -- "$1"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $1"
+}
+die() {
+    log "FATAL: $1"
+    exit 1
+}
+
+#-------------------------------------------------------------------------------
+# Extract node subnet from dnsmasq config
+# Parses dhcp-range=10.X.Y.2,10.X.Y.254,24h → SUBNET_PREFIX=10.X.Y
+#-------------------------------------------------------------------------------
+get_subnet_from_dnsmasq() {
+    local range_line
+    range_line=$(grep -h '^dhcp-range=' /etc/dnsmasq.d/*.conf 2>/dev/null | head -1)
+    if [[ -z "$range_line" ]]; then
+        die "No dhcp-range found in /etc/dnsmasq.d/*.conf — cannot determine node subnet"
+    fi
+    local first_ip
+    first_ip=$(echo "$range_line" | sed 's/dhcp-range=//' | cut -d',' -f1)
+    SUBNET_PREFIX=$(echo "$first_ip" | sed 's/\.[0-9]*$//')
+    NODE_IP="${SUBNET_PREFIX}.1"
+    ADMIN_IP="${SUBNET_PREFIX}.2"
+    if [[ ! "$SUBNET_PREFIX" =~ ^10\.[0-9]+\.[0-9]+$ ]]; then
+        die "Unexpected subnet prefix from dnsmasq: $SUBNET_PREFIX"
+    fi
+    log "Node subnet: ${SUBNET_PREFIX}.0/24, identity: $NODE_IP, admin: $ADMIN_IP"
+}
+
+#-------------------------------------------------------------------------------
+# Get node name from dnsmasq config (domain= directive)
+#-------------------------------------------------------------------------------
+get_node_name() {
+    local domain_line
+    domain_line=$(grep -h '^domain=' /etc/dnsmasq.d/*.conf 2>/dev/null | head -1)
+    if [[ -z "$domain_line" ]]; then
+        die "No domain= found in /etc/dnsmasq.d/*.conf — cannot determine node name"
+    fi
+    NODE_NAME="${domain_line#domain=}"
+    NODE_NAME=$(echo "$NODE_NAME" | tr -d '[:space:]')
+    if [[ -z "$NODE_NAME" ]]; then
+        die "domain= in dnsmasq config is empty"
+    fi
+    log "Node name: $NODE_NAME"
+}
+
+#-------------------------------------------------------------------------------
+# Configure hostapd with node-specific SSID, the chosen AP interface,
+# regulatory country, and the pond-shared WPA2 passphrase.
+#-------------------------------------------------------------------------------
+configure_hostapd() {
+    local iface="$1"
+    local template="/etc/hostapd/hostapd.conf.template"
+    local conf="/etc/hostapd/hostapd.conf"
+    if [[ ! -f "$template" ]]; then
+        die "hostapd template not found at $template"
+    fi
+
+    # Country.  Default US if the conf is silent.
+    local country="US"
+    if [[ -f /etc/frognet/ssid_projection.conf ]]; then
+        local c
+        c="$(grep -E '^WIFI_COUNTRY=' /etc/frognet/ssid_projection.conf | tail -1 | cut -d= -f2- | tr -d '[:space:]')"
+        [[ -n "$c" ]] && country="$c"
+    fi
+
+    # PSK from wifi.env — required.
+    local psk=""
+    if [[ -f /etc/frognet/wifi.env ]]; then
+        psk="$(grep -E '^FROGNET_WIFI_PSK=' /etc/frognet/wifi.env | tail -1 | cut -d= -f2-)"
+    fi
+    if [[ -z "$psk" || "$psk" == "CHANGEME" ]]; then
+        die "FROGNET_WIFI_PSK not set in /etc/frognet/wifi.env — cannot build WPA2 hostapd.conf"
+    fi
+
+    # Escape sed delimiters in the PSK (psk may contain / | & etc).
+    local psk_esc="${psk//&/\\&}"
+    psk_esc="${psk_esc//|/\\|}"
+
+    sed \
+        -e "s|__IFACE__|${iface}|g" \
+        -e "s|__SSID__|${NODE_NAME}|g" \
+        -e "s|__COUNTRY__|${country}|g" \
+        -e "s|__PSK__|${psk_esc}|g" \
+        "$template" > "$conf"
+    chmod 600 "$conf"
+    log "hostapd.conf written: iface=$iface ssid=$NODE_NAME country=$country"
+}
+
+#-------------------------------------------------------------------------------
+# Remove FrogNet identity addresses from an interface.
+#
+# Removes any address in this node's /24 (both .1 and .2 if present), and
+# additionally sweeps any other 10.X.Y.{1,2} addresses that look like a
+# stale FrogNet identity from a previous boot/mode-change.  Non-FrogNet
+# addresses on the interface are left alone.
+#-------------------------------------------------------------------------------
+flush_frognet_ip() {
+    local iface="$1"
+    local addrs addr
+    addrs=$(ip -4 -o addr show dev "$iface" 2>/dev/null \
+            | awk '{print $4}' \
+            | grep -E '^10\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' || true)
+    [[ -z "$addrs" ]] && return 0
+    for addr in $addrs; do
+        local ip_only prefix last
+        ip_only="${addr%/*}"
+        prefix=$(echo "$ip_only" | sed 's/\.[0-9]*$//')
+        last="${ip_only##*.}"
+        if [[ "$prefix" == "$SUBNET_PREFIX" ]] || \
+           [[ "$last" == "1" || "$last" == "2" ]]; then
+            ip addr del "$addr" dev "$iface" 2>/dev/null || true
+            log "Removed $addr from $iface"
+        fi
+    done
+}
+
+#-------------------------------------------------------------------------------
+# Assign both identity (.1) and admin (.2) to interface, /24 each.
+#-------------------------------------------------------------------------------
+assign_identity() {
+    local iface="$1"
+    if ip addr show dev "$iface" 2>/dev/null | grep -q "${NODE_IP}/24"; then
+        log "Identity $NODE_IP already on $iface"
+    else
+        ip addr add "${NODE_IP}/24" dev "$iface" || \
+            die "ip addr add ${NODE_IP}/24 on $iface failed"
+        log "Assigned ${NODE_IP}/24 to $iface"
+    fi
+    if ip addr show dev "$iface" 2>/dev/null | grep -q "${ADMIN_IP}/24"; then
+        log "Admin $ADMIN_IP already on $iface"
+    else
+        # Secondary /24 address on the same interface.  Linux accepts
+        # this without complaint; arping/neighbor discovery resolves
+        # both to the same MAC.
+        ip addr add "${ADMIN_IP}/24" dev "$iface" || \
+            die "ip addr add ${ADMIN_IP}/24 on $iface failed"
+        log "Assigned ${ADMIN_IP}/24 to $iface"
+    fi
+    ip link set "$iface" up
+}
+
+#-------------------------------------------------------------------------------
+# Write the current interface name for mapInterfaces to source
+#-------------------------------------------------------------------------------
+write_interface_config() {
+    local iface="$1"
+    echo "export eth0Name=\"${iface}\"" > /etc/frognet/active_interface
+    log "eth0Name set to $iface"
+}
+
+#===============================================================================
+# Main
+#===============================================================================
+log "=== FrogNet network mode detection ==="
+
+get_subnet_from_dnsmasq
+get_node_name
+
+# Resolve the "eth0" role to its actual kernel device name.  "eth0" is a
+# role.  On boxes with predictable interface names (ens9, enp0s3, enx...)
+# the literal "eth0" device may not exist; interfaces_override.conf maps
+# the role to the real name.  mapInterfaces and every other FrogNet
+# script reads this the same way.
+eth0Name="eth0"
+wlan0Name="wlan0"
+wlan1Name="wlan1"
+if [[ -f /etc/frognet/interfaces_override.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/frognet/interfaces_override.conf 2>/dev/null || true
+fi
+
+# Honor user preference for SSID projection.  When disabled, force "wired"
+# mode regardless of carrier — the wireless device stays under
+# NetworkManager for upstream/station use and hostapd never runs.
+SSID_PROJECTION=1
+AP_IFACE=""
+WIFI_COUNTRY="US"
+if [[ -f /etc/frognet/ssid_projection.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/frognet/ssid_projection.conf 2>/dev/null || true
+fi
+# Fall back to wlan0Name if conf didn't set AP_IFACE; then sanity-check
+# the device exists.
+[[ -z "$AP_IFACE" ]] && AP_IFACE="$wlan0Name"
+if [[ ! -d "/sys/class/net/${AP_IFACE}" ]]; then
+    if [[ -d "/sys/class/net/${wlan0Name}" ]]; then
+        log "AP_IFACE=$AP_IFACE not present — falling back to $wlan0Name"
+        AP_IFACE="$wlan0Name"
+    fi
+fi
+log "Roles: eth0Name=$eth0Name  AP_IFACE=$AP_IFACE  country=$WIFI_COUNTRY"
+
+MODE=$(/usr/local/bin/frognet-netmode)
+log "Detected mode: $MODE  (SSID_PROJECTION=$SSID_PROJECTION)"
+
+if [[ "$MODE" == "wireless" && "$SSID_PROJECTION" != "1" ]]; then
+    log "SSID projection disabled — forcing wired mode (identity on $eth0Name, $AP_IFACE stays managed)"
+    MODE="wired"
+fi
+
+# Detect if we're running during early boot or at runtime (udev/manual)
+if systemctl is-system-running 2>/dev/null | grep -qE '^running|^degraded'; then
+    RUNTIME=true
+else
+    RUNTIME=false
+fi
+log "Runtime mode: $RUNTIME"
+
+case "$MODE" in
+    wired)
+        log "Wired mode: eth0 carries identity"
+        if [[ ! -d "/sys/class/net/${eth0Name}" ]]; then
+            die "eth0Name=${eth0Name} but /sys/class/net/${eth0Name} does not exist — set eth0Name in /etc/frognet/interfaces_override.conf to the actual wired NIC name"
+        fi
+        if $RUNTIME; then
+            systemctl stop hostapd || true
+        fi
+        flush_frognet_ip "$AP_IFACE"
+        assign_identity "$eth0Name"
+        if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
+            log "Returning $AP_IFACE to NetworkManager"
+            nmcli device set "$AP_IFACE" managed yes 2>&1 | sed 's/^/nmcli: /' || true
+        fi
+        write_interface_config "$eth0Name"
+        ;;
+    wireless)
+        log "Wireless mode: $AP_IFACE is AP with identity"
+        flush_frognet_ip "$eth0Name"
+        if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
+            for c in $(nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v d="$AP_IFACE" '$2==d{print $1}'); do
+                log "Bringing down NM connection $c on $AP_IFACE"
+                nmcli connection down "$c" 2>&1 | sed 's/^/nmcli: /' || true
+            done
+        fi
+        if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
+            log "Unmanaging $AP_IFACE from NetworkManager"
+            nmcli device set "$AP_IFACE" managed no 2>&1 | sed 's/^/nmcli: /' || true
+            sleep 1
+        fi
+        pkill -f "wpa_supplicant.*${AP_IFACE}" 2>/dev/null || true
+        dhclient -r "$AP_IFACE" 2>/dev/null || true
+        # Unblock rfkill in case it got soft-blocked (Pi default state on
+        # some images).
+        rfkill unblock wifi 2>/dev/null || true
+        sleep 1
+        configure_hostapd "$AP_IFACE"
+        assign_identity "$AP_IFACE"
+        if $RUNTIME; then
+            systemctl restart hostapd
+        fi
+        write_interface_config "$AP_IFACE"
+        log "hostapd started on $AP_IFACE with SSID=$NODE_NAME"
+        ;;
+    *)
+        die "Unknown mode: $MODE"
+        ;;
+esac
+
+if $RUNTIME; then
+    systemctl restart dnsmasq
+    log "dnsmasq restarted"
+    # [A_MISSING_THING_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] This guarded on
+    # /usr/local/bin/runMerge. The merge controller is runMerge.BASH -- there has
+    # never been a file at the guarded name -- so the test was permanently false
+    # and the discovery trigger silently did nothing on every network-mode change,
+    # while the log above it said the configuration completed. A guard on a name
+    # that does not exist is not a safety check, it is a switched-off branch.
+    _MERGE=/usr/local/bin/runMerge.bash
+    [[ -x "$_MERGE" ]] || die "merge controller $_MERGE is missing or not executable - network mode changed but discovery cannot be triggered"
+    log "Triggering discovery..."
+    "$_MERGE" &
+fi
+
+log "=== FrogNet network mode configuration complete ==="
+

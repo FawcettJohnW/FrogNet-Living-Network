@@ -1,0 +1,100 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# frognet_release_wlan0.sh — Force wlan0 back to normal wifi client mode
+
+log() { echo "[release_wlan0][$(date '+%F %T')] $*"; }
+
+[[ "${EUID:-$(id -u)}" -ne 0 ]] && { echo "Must run as root" >&2; exit 1; }
+
+log "=== Releasing wlan0 back to normal wifi ==="
+
+# Stop anything holding wlan0 in AP/mesh mode
+log "Stopping hostapd, dnsmasq"
+systemctl stop hostapd 2>/dev/null || true
+systemctl disable hostapd 2>/dev/null || true
+killall hostapd 2>/dev/null || true
+systemctl stop dnsmasq 2>/dev/null || true
+
+# Flush all IP addresses from wlan0
+log "Flushing wlan0 addresses"
+ip addr flush dev wlan0 2>/dev/null || true
+
+# Bring it down, set mode back to managed (normal client)
+log "Setting wlan0 to managed mode"
+ip link set wlan0 down 2>/dev/null || true
+iw dev wlan0 set type managed 2>/dev/null || true
+ip link set wlan0 up 2>/dev/null || true
+
+# Remove any static IP config in dhcpcd.conf
+if [[ -f /etc/dhcpcd.conf ]]; then
+    log "Removing static wlan0 config from dhcpcd.conf"
+    cp /etc/dhcpcd.conf /etc/dhcpcd.conf.bak.$(date +%s)
+    sed -i '/^interface wlan0/,/^interface \|^$/{ /^interface wlan0/d; /^[[:space:]]*static/d; /^[[:space:]]*nohook/d; /^[[:space:]]*denyinterfaces/d; }' /etc/dhcpcd.conf
+fi
+
+# Remove wlan0 from denyinterfaces if present
+if [[ -f /etc/dhcpcd.conf ]] && grep -q 'denyinterfaces.*wlan0' /etc/dhcpcd.conf; then
+    log "Removing wlan0 from denyinterfaces"
+    sed -i 's/\bdenyinterfaces\b.*wlan0//' /etc/dhcpcd.conf
+fi
+
+# Remove any static config from /etc/network/interfaces
+if [[ -f /etc/network/interfaces ]] && grep -q 'wlan0' /etc/network/interfaces; then
+    log "Cleaning wlan0 from /etc/network/interfaces"
+    cp /etc/network/interfaces /etc/network/interfaces.bak.$(date +%s)
+    sed -i '/wlan0/d' /etc/network/interfaces
+fi
+
+# Tell NetworkManager to manage wlan0 again
+if command -v nmcli >/dev/null 2>&1; then
+    log "Telling NetworkManager to manage wlan0"
+    nmcli dev set wlan0 managed yes 2>/dev/null || true
+    # Remove any NM unmanage rules we wrote
+    rm -f /etc/NetworkManager/conf.d/frognet*.conf 2>/dev/null || true
+    nmcli general reload 2>/dev/null || true
+    sleep 2
+fi
+
+# Restart wifi supplicant
+log "Restarting wpa_supplicant"
+systemctl restart wpa_supplicant 2>/dev/null || true
+
+# Restart NetworkManager if present
+if command -v nmcli >/dev/null 2>&1; then
+    log "Restarting NetworkManager"
+    systemctl restart NetworkManager 2>/dev/null || true
+    sleep 3
+fi
+
+# Restart dhcpcd if that's what this Pi uses
+if systemctl is-active dhcpcd >/dev/null 2>&1 || systemctl is-enabled dhcpcd >/dev/null 2>&1; then
+    log "Restarting dhcpcd"
+    systemctl restart dhcpcd 2>/dev/null || true
+    sleep 3
+fi
+
+log "=== DONE ==="
+log ""
+log "wlan0 state:"
+iw dev wlan0 info 2>&1
+log ""
+ip -4 addr show wlan0 2>&1
+log ""
+log "Available networks:"
+nmcli dev wifi list 2>/dev/null || iwlist wlan0 scan 2>/dev/null | grep ESSID || true

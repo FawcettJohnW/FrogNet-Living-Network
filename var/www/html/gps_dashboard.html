@@ -1,0 +1,894 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>FrogNet • Operations Dashboard</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root{
+    --bg:#111827;           /* dark page background */
+    --panel:#1f2937;        /* section panels */
+    --panel2:#0f172a;
+    --text:#e5e7eb;         /* body text */
+    --muted:#9ca3af;        /* muted text */
+    --accent:#14b8a6;       /* teal accent */
+    --border:#374151;
+    --br:14px;
+    --row-green:#083b26;
+    --row-yellow:#5a4a0a;
+    --row-red:#521414;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+  }
+
+  /* ----- Header ----- */
+  header{
+    height:150px; background:#000; color:#fff; border-bottom:1px solid #111;
+    display:grid; grid-template-columns: 160px 1fr 160px; align-items:center; padding:0 16px; gap:12px;
+  }
+  .logo{display:flex; align-items:center; justify-content:center}
+  .logo img{max-height:120px; width:auto; object-fit:contain}
+  .brand{text-align:center;}
+  .brand h1{margin:0; font-weight:800; letter-spacing:.5px; font-size:32px;}
+  .brand .tag{margin-top:6px; color:#cbd5e1; font-size:14px; letter-spacing:.3px;}
+
+  /* ----- Hero (40% smaller) ----- */
+  .hero{
+    background:linear-gradient(135deg, #0f766e, #14b8a6);
+    text-align:center; padding:17px 12px; border-bottom:1px solid rgba(255,255,255,.08);
+  }
+  .hero h2{margin:0; font-size:18px; font-weight:800; letter-spacing:.4px;}
+  .hero p{margin:.4rem 0 0; font-size:12px; opacity:.95;}
+
+  /* ----- Tabs ----- */
+  .tabs{display:flex; gap:8px; flex-wrap:wrap; margin:14px 0}
+  .tab{
+    padding:8px 12px; border-radius:999px; background:var(--panel2);
+    border:1px solid var(--border); color:var(--muted); cursor:pointer; user-select:none;
+  }
+  .tab.active{color:#000; background:var(--accent); border-color:transparent;}
+
+  .sections{margin-top:8px;}
+  .section{display:none}
+  .section.active{display:block}
+
+  /* ----- Panels & common ----- */
+  main{padding:16px;}
+  .panel{background:var(--panel); border:1px solid var(--border); border-radius:var(--br); padding:14px;}
+  .row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px}
+  .muted{color:var(--muted)}
+  .right{margin-left:auto}
+  .pill{
+    display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--border);
+    font-size:12px; background:var(--panel2); color:#d1d5db
+  }
+
+  table{width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden}
+  thead th{background:#0b1220; border-bottom:1px solid var(--border); text-align:left; padding:10px; font-size:12px; color:#cbd5e1}
+  tbody td{border-bottom:1px solid var(--border); padding:10px; vertical-align:top}
+  tbody tr:last-child td{border-bottom:none}
+  .pin{height:24px; vertical-align:middle}
+  .search{display:flex; gap:8px; margin-bottom:10px}
+  .search input{
+    flex:1; padding:8px 10px; border-radius:10px; border:1px solid var(--border);
+    background:var(--panel2); color:var(--text);
+  }
+  .btn{
+    padding:6px 10px; border-radius:10px; border:1px solid var(--border);
+    background:#0f172a; color:#e5e7eb; cursor:pointer; font-size:12px
+  }
+  .btn:hover{filter:brightness(1.12)}
+  .empty{color:var(--muted); padding:8px 0}
+
+  /* Row aging colors (Networks tab) */
+  tr.age-green{ background: linear-gradient(90deg, var(--row-green) 0, transparent 100%); color:#c7f9e5; }
+  tr.age-yellow{ background: linear-gradient(90deg, var(--row-yellow) 0, transparent 100%); color:#fff3b0; }
+  tr.age-red{ background: linear-gradient(90deg, var(--row-red) 0, transparent 100%); color:#fecaca; }
+  tr.age-green td, tr.age-yellow td, tr.age-red td{ border-bottom-color: rgba(255,255,255,.08); }
+
+  /* Expandable affordance */
+  details.host{border:1px dashed var(--border); border-radius:8px; padding:6px; background:#0b1220}
+  details.host > summary{cursor:pointer; list-style:none; display:flex; align-items:center; gap:8px}
+  details.host > summary::before{content:"▶"; font-size:12px; color:#9ca3af}
+  details.host[open] > summary::before{content:"▼";}
+  details.host > summary .exp-hint{color:#9ca3af; font-size:12px}
+  details.host > summary::-webkit-details-marker{display:none}
+
+  .map-wrap{margin-top:14px}
+  #map{height:70vh; width:100%; border:1px solid var(--border); border-radius:12px; overflow:hidden}
+
+  .popup-scroll{
+    max-height:50vh; overflow:auto; border:1px solid var(--border);
+    background:#0b1324; color:#e5e7eb; padding:8px; border-radius:8px
+  }
+  .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:12px}
+  .kv ul{margin:0 0 0 14px; padding:0; list-style:disc}
+  .kv li{margin:2px 0}
+  .addr{font-weight:700}
+
+  .sensline{display:flex; align-items:center; gap:8px; margin:3px 0}
+  .sensbtn{
+    padding:3px 8px; border-radius:8px; border:1px solid var(--border);
+    background:#0f172a; color:#e5e7eb; cursor:pointer; font-size:12px
+  }
+  .sensbtn:hover{filter:brightness(1.15)}
+
+  /* Users / Teams small panels */
+  .grid{display:grid; gap:10px}
+  .grid.cols-2{grid-template-columns: repeat(2,minmax(0,1fr))}
+  .list{display:flex; flex-direction:column; gap:8px}
+
+  /* ----- Footer ----- */
+  footer{
+    margin-top:18px; background:#000; color:#cbd5e1; border-top:1px solid #111;
+  }
+  .foot-wrap{
+    max-width:1200px; margin:0 auto; padding:14px 16px; display:flex; align-items:center; gap:12px;
+  }
+  .foot-left{display:flex; align-items:center; gap:10px}
+  .foot-left img{height:28px; width:auto}
+  .foot-right{margin-left:auto; display:flex; align-items:center; gap:12px}
+  .foot-right img{height:24px; width:auto; opacity:.85}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo left">
+    <img src="FN_Logo.png" alt="FrogNet Logo" />
+  </div>
+  <div class="brand">
+    <h1>Fawcett Innovations, LLC</h1>
+    <div class="tag">Networking Without Limits</div>
+  </div>
+  <div class="logo right">
+    <img src="FI_Logo.png" alt="Fawcett Innovations Logo" />
+  </div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <h2>FrogNet Operations Dashboard</h2>
+  <p>Live visibility into networks, users, teams, sensors, sites, and data</p>
+</section>
+
+<main>
+  <div class="panel">
+    <!-- Tabs -->
+    <div class="tabs">
+      <div class="tab active" data-tab="networks">Networks</div>
+      <div class="tab" data-tab="users">Users</div>
+      <div class="tab" data-tab="teams">Teams</div>
+      <div class="tab" data-tab="sites">WellKnownSites</div>
+      <span id="status" class="right muted">Ready.</span>
+    </div>
+
+    <div class="sections">
+      <!-- Networks -->
+      <section id="networks" class="section active">
+        <div class="row">
+          <span class="pill" id="countHosts">— FrogNet hosts</span>
+          <span class="pill" id="countPlottedHosts">— plotted networks</span>
+          <span class="pill" id="countSensors">— sensors</span>
+          <span class="pill" id="ts">—</span>
+        </div>
+
+        <div style="overflow:auto">
+          <table id="tblFrogs">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Marker</th>
+                <th>NetworkName <span class="muted">(Show Attached Sensors)</span></th>
+                <th>IPAddress</th>
+                <th>FrogID</th>
+                <th>LastHeartbeat</th>
+                <th>#Sensors</th>
+              </tr>
+            </thead>
+            <tbody id="bodyFrogs">
+              <tr><td colspan="7" class="muted">Loading FrogNets…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="map-wrap"><div id="map"></div></div>
+      </section>
+
+      <!-- Users -->
+      <section id="users" class="section">
+        <div class="search">
+          <input id="userFilter" placeholder="Filter by CallSign / RealName…" />
+          <button class="btn" id="reloadUsers">Reload</button>
+        </div>
+        <div id="userList"></div>
+      </section>
+
+      <!-- Teams -->
+      <section id="teams" class="section">
+        <div class="search">
+          <input id="teamFilter" placeholder="Filter by TeamName / Owner…" />
+          <button class="btn" id="reloadTeams">Reload</button>
+        </div>
+        <div id="teamList"></div>
+      </section>
+
+      <!-- WellKnownSites -->
+      <section id="sites" class="section">
+        <div class="search">
+          <input id="siteFilter" placeholder="Filter by SiteName / URL / FrogID…" />
+          <div class="right" style="display:flex; gap:8px">
+            <button class="btn" id="addSite">Add Site</button>
+            <button class="btn" id="reloadSites">Reload</button>
+          </div>
+        </div>
+        <div id="siteList"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<!-- Footer -->
+<footer>
+  <div class="foot-wrap">
+    <div class="foot-left">
+      <img src="FI_Logo.png" alt="Fawcett Innovations Logo">
+      <div>© 2025 Fawcett Innovations, LLC. All rights reserved.</div>
+    </div>
+    <div class="foot-right">
+      <img src="FN_Logo.png" alt="FrogNet Logo">
+      <img src="DC_Logo.png" alt="DisasterComm Logo">
+    </div>
+  </div>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(function(){
+  const $=s=>document.querySelector(s);
+  const DEFAULT_API='http://databasehost.frognet/api.php';
+  const BASE=(new URLSearchParams(location.search)).get('api')||localStorage.getItem('frognet_api')||DEFAULT_API;
+
+  const statusEl=$('#status'), tsEl=$('#ts');
+  const countHostsEl=$('#countHosts'), countPlottedHostsEl=$('#countPlottedHosts'), countSensorsEl=$('#countSensors');
+  const bodyFrogs=$('#bodyFrogs');
+
+  const userListEl = $('#userList');
+  const teamListEl = $('#teamList');
+  const siteListEl = $('#siteList');
+
+  let activeTab='networks';
+
+  // --- Utils
+  const qs=(o={})=>Object.entries(o).filter(([,v])=>v!==undefined&&v!==null&&v!=='')
+    .map(([k,v])=>encodeURIComponent(k)+'='+encodeURIComponent(v)).join('&');
+
+  async function apiList(entity, params={}){
+    const url=`${BASE}?entity=${encodeURIComponent(entity)}&action=list${Object.keys(params).length?'&'+qs(params):''}`;
+    const r=await fetch(url);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'API error');
+    return j.rows||[];
+  }
+  async function apiPost(entity, action, json){
+    const r = await fetch(`${BASE}?entity=${encodeURIComponent(entity)}&action=${encodeURIComponent(action)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(json||{})
+    });
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'API error');
+    return j;
+  }
+
+  function fmtDate(s){ if(!s) return ''; const d=new Date(String(s).replace(' ','T')); return isNaN(d)?s:d.toLocaleString(); }
+  function minutesAgo(s){
+    if(!s) return Infinity;
+    const d = new Date(String(s).replace(' ','T'));
+    if (isNaN(d)) return Infinity;
+    const now = Date.now();
+    return Math.floor((now - d.getTime()) / 60000);
+  }
+  function n(v){ const x=Number(v); return Number.isFinite(x)?x:null; }
+  function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  function looksURL(s){ return /^https?:\/\//i.test(s); }
+  function normalizeURL(s){ if(!s) return ''; return looksURL(s)?s:`http://${s}`; }
+
+  function extractPosition(raw){
+    let d=raw;
+    if(typeof d==='string'){ try{ d=JSON.parse(d);}catch{return {}} }
+    if(typeof d==='string'){ try{ d=JSON.parse(d);}catch{} }
+    const lat=d.lat ?? d.latitude ?? (d.position&&d.position.lat);
+    const lon=d.lon ?? d.longitude ?? (d.position&&d.position.lon);
+    const alt=d.alt_m ?? d.alt ?? d.altitude;
+    const spd=d.speed_kmh ?? d.speed;
+    const crs=d.course_deg ?? d.course;
+    const ts=d.timestamp ? new Date(d.timestamp*1000).toISOString().slice(0,19).replace('T',' ')
+                         : (d.time||d.timestamp_iso||d.ts||'');
+    return {lat:n(lat), lon:n(lon), alt_m:n(alt), speed_kmh:n(spd), course_deg:n(crs), timestamp:ts, raw:d};
+  }
+  function renderKV(obj){
+    function rec(v){
+      if(v===null||v===undefined) return `<em class="muted">null</em>`;
+      if(Array.isArray(v)) return `<ul>${v.map(x=>`<li>${rec(x)}</li>`).join('')}</ul>`;
+      if(typeof v==='object'){ return `<ul>${Object.keys(v).map(k=>`<li><strong>${esc(k)}</strong>: ${rec(v[k])}</li>`).join('')}</ul>`; }
+      return `<span>${esc(v)}</span>`;
+    }
+    return `<div class="kv">${rec(obj)}</div>`;
+  }
+
+  // --- Leaflet pins (NO GREY for groups)
+  const ICON_BASE='https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/';
+  const SHADOW_URL='https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
+  const COLORS=['blue','green','violet','orange','black']; // per-network (avoid red/yellow for groups)
+  function makeIcon(color){
+    return new L.Icon({
+      iconUrl: ICON_BASE+`marker-icon-${color}.png`,
+      iconRetinaUrl: ICON_BASE+`marker-icon-2x-${color}.png`,
+      shadowUrl: SHADOW_URL,
+      iconSize:[25,41], iconAnchor:[12,41], popupAnchor:[1,-34], shadowSize:[41,41]
+    });
+  }
+  const IconCache=new Map();
+  function icon(color){ if(!IconCache.has(color)) IconCache.set(color, makeIcon(color)); return IconCache.get(color); }
+  function colorForNetwork(net){
+    if(!net) return 'blue'; // default (not grey)
+    let h=0; for(let i=0;i<net.length;i++) h=(h*31+net.charCodeAt(i))>>>0;
+    return COLORS[h%COLORS.length];
+  }
+
+  // --- Map
+  let map, layerMarkers, isFirstLoad=true;
+  function ensureMap(){
+    if(map) return;
+    map=L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    layerMarkers=L.layerGroup().addTo(map);
+  }
+  function fitTo(latlngs){ if(!latlngs.length){ map.setView([20,0],2); return; } map.fitBounds(L.latLngBounds(latlngs).pad(0.2)); }
+
+  // --- Caches for Networks tab
+  const cache={
+    validHosts:[],
+    hostByIP:new Map(),
+    hostByFrogID:new Map(),
+    sensors:[],
+    sensorsByNet:new Map(),
+    sensorsByAddr:new Map(),
+    dataBySensorId:new Map()
+  };
+  async function sensorData(sensorId){
+    if(cache.dataBySensorId.has(sensorId)) return cache.dataBySensorId.get(sensorId);
+    const rows=await apiList('sensor_data',{SensorID:sensorId,limit:1});
+    let v=rows[0]?.jsonData;
+    try{ if(typeof v==='string') v=JSON.parse(v);}catch{}
+    cache.dataBySensorId.set(sensorId, v||{});
+    return cache.dataBySensorId.get(sensorId);
+  }
+
+  // =========================
+  // Networks Tab
+  // =========================
+  async function loadNetworks(){
+    statusEl.textContent='Loading…';
+    ensureMap(); layerMarkers.clearLayers();
+    bodyFrogs.innerHTML='<tr><td colspan="7" class="muted">Loading FrogNets…</td></tr>';
+
+    try{
+      // Hosts (filter out blank & "FrogNetHost.Unassigned")
+      const frogsRaw=await apiList('known_frognets',{order:'NetworkName',limit:20000});
+      cache.validHosts=frogsRaw.filter(f=>{
+        const name=(String(f.NetworkName||'').trim());
+        if(!name) return false;
+        return name.toLowerCase()!=='frognethost.unassigned';
+      });
+      cache.hostByIP.clear();
+      cache.hostByFrogID.clear();
+      cache.validHosts.forEach(f=>{
+        const ip=String(f.IPAddress||'').trim();
+        const fid=String(f.FrogID||'').trim();
+        cache.hostByIP.set(ip, f);
+        if(fid) cache.hostByFrogID.set(fid, f);
+      });
+
+      // Sensors
+      cache.sensors=await apiList('sensors',{order:'SensorName',limit:20000});
+
+      // Group sensors
+      cache.sensorsByNet.clear();
+      cache.sensorsByAddr.clear();
+      for(const s of cache.sensors){
+        const net=String(s.SensorNetwork||'').trim();
+        const addr=String(s.SensorAddress||'').trim();
+        if(addr){
+          if(!cache.sensorsByAddr.has(addr)) cache.sensorsByAddr.set(addr,[]);
+          cache.sensorsByAddr.get(addr).push(s);
+        }
+        if(net){
+          if(!cache.sensorsByNet.has(net)) cache.sensorsByNet.set(net,[]);
+          cache.sensorsByNet.get(net).push(s);
+        }
+      }
+
+      // Table rows with expandable details + heartbeat coloring + status suffixes
+      let idx=0, plottedNetworks=0, totalSensors=cache.sensors.length;
+      const rows=[];
+      for(const f of cache.validHosts){
+        const ip=String(f.IPAddress||'').trim();
+        const list=cache.sensorsByNet.get(ip)||[];
+        const hasSensors=list.length>0;
+
+        const mAgo=minutesAgo(f.LastHeartbeat);
+        const ageClass = mAgo>30 ? 'age-red' : (mAgo>15 ? 'age-yellow' : 'age-green');
+        const statusSuffix = mAgo>30 ? ' (offline)' : (mAgo>15 ? ' (Unresponsive)' : '');
+        const displayName = esc((f.NetworkName||'')) + esc(statusSuffix);
+
+        /* Marker in LIST reflects status: red>30m, yellow 15–30m, otherwise per-network (or blue if none) */
+        let iconColor;
+        if (mAgo > 30) iconColor = 'red';
+        else if (mAgo > 15) iconColor = 'yellow';
+        else iconColor = hasSensors ? colorForNetwork(ip) : 'blue';
+
+        const iconUrl=`https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${iconColor}.png`;
+        idx++;
+
+        const detailsId = `exp_${ip.replace(/[^\w]/g,'_')}`;
+        const cellName = `
+          <details class="host" id="${detailsId}">
+            <summary>
+              <strong>${displayName}</strong>
+              <span class="exp-hint">Show Attached Sensors</span>
+            </summary>
+            <div class="small" id="sens_${detailsId}">
+              <em class="muted">Loading sensors…</em>
+            </div>
+          </details>`;
+
+        rows.push(`
+          <tr class="${ageClass}">
+            <td>${idx}</td>
+            <td><img class="pin" src="${iconUrl}" alt="${iconColor} pin"></td>
+            <td>${cellName}</td>
+            <td>${esc(ip)}</td>
+            <td>${esc(f.FrogID||'')}</td>
+            <td>${fmtDate(f.LastHeartbeat)}</td>
+            <td>${list.length}</td>
+          </tr>
+        `);
+
+        if(hasSensors) plottedNetworks++;
+        setTimeout(()=>bindExpand(detailsId, ip, list), 0);
+      }
+      bodyFrogs.innerHTML=rows.join('') || '<tr><td colspan="7" class="muted">No FrogNet hosts after filtering.</td></tr>';
+      countHostsEl.textContent=`${cache.validHosts.length} FrogNet hosts`;
+      countPlottedHostsEl.textContent=`${plottedNetworks} plotted networks`;
+      countSensorsEl.textContent=`${totalSensors} sensors`;
+      tsEl.textContent='Updated: ' + new Date().toLocaleTimeString();
+
+      // Plot markers per SensorAddress within each network (color by network; not red/yellow)
+      const latlngs=[];
+      for(const f of cache.validHosts){
+        const ip=String(f.IPAddress||'').trim();
+        const sensorsInNet=cache.sensorsByNet.get(ip)||[];
+        if(!sensorsInNet.length) continue;
+
+        const addresses=new Map();
+        for(const s of sensorsInNet){
+          const addr=String(s.SensorAddress||'').trim();
+          if(!addr) continue;
+          if(!addresses.has(addr)) addresses.set(addr,[]);
+          addresses.get(addr).push(s);
+        }
+        const colorName=colorForNetwork(ip);
+
+        for(const [addr, list] of addresses.entries()){
+          let bestPos=null, bestTs=0;
+          for(const s of list){
+            const data=await sensorData(s.SensorID);
+            const pos=extractPosition(data||{});
+            if(pos.lat!=null && pos.lon!=null){
+              const t=pos.timestamp ? Date.parse(pos.timestamp.replace(' ','T')) : 0;
+              if(t>=bestTs){ bestTs=t; bestPos=pos; }
+            }
+          }
+          if(!bestPos) continue;
+
+          const m=L.marker([bestPos.lat, bestPos.lon], {icon: icon(colorName)}).addTo(layerMarkers);
+          latlngs.push([bestPos.lat, bestPos.lon]);
+
+          const popupId=`types_${addr.replace(/[^\w]/g,'_')}`;
+          const header=`
+            <div><strong class="addr">${esc(addr)} (${esc(f.NetworkName||'FrogNet')})</strong></div>
+            <div class="muted small">Select a sensor type on this IP:</div>
+            <div id="${popupId}"><em class="muted small">Loading…</em></div>
+          `;
+          m.bindPopup(header, {maxWidth: 520});
+          m.on('popupopen', ()=>{
+            const tgt=document.getElementById(popupId);
+            if(!tgt) return;
+            const byType=new Map();
+            for(const s of list){
+              const t=String(s.SensorType||'').trim()||'(Unknown)';
+              if(!byType.has(t)) byType.set(t,[]);
+              byType.get(t).push(s);
+            }
+            const html=Array.from(byType.entries()).map(([type,arr])=>`
+              <div class="sensline">
+                <div><strong>${esc(type)}</strong> <span class="muted small">(${arr.length})</span></div>
+                <button class="sensbtn" onclick="viewTypeOnIP('${addr.replace(/'/g,"\\'")}', '${type.replace(/'/g,"\\'")}', ${bestPos.lat}, ${bestPos.lon})">▶ View</button>
+              </div>
+            `).join('');
+            tgt.innerHTML=html || '<div class="muted small">No sensors found.</div>';
+          });
+        }
+      }
+
+      if (isFirstLoad) { fitTo(latlngs); isFirstLoad=false; }
+      statusEl.textContent='OK';
+    }catch(e){
+      console.error(e);
+      statusEl.textContent='Failed: '+e.message;
+    }
+  }
+
+  function bindExpand(detailsId, hostIP, sensorsList){
+    const det=document.getElementById(detailsId);
+    if(!det) return;
+    const content=$('#sens_'+detailsId);
+    if(!content) return;
+    let loaded=false;
+    det.addEventListener('toggle', async ()=>{
+      if(!det.open || loaded) return;
+      loaded=true;
+      try{
+        const byAddr=new Map();
+        for(const s of sensorsList){
+          const addr=String(s.SensorAddress||'').trim()||'(no address)';
+          if(!byAddr.has(addr)) byAddr.set(addr, []);
+          byAddr.get(addr).push(s);
+        }
+        const chunks=[];
+        for(const [addr, arr] of byAddr.entries()){
+          const rows=arr
+            .sort((a,b)=>String(a.SensorName||'').localeCompare(String(b.SensorName||'')))
+            .map(s=>`
+              <div class="sensline">
+                <span><strong>${esc(s.SensorName||'')}</strong> <span class="muted small">(${esc(s.SensorType||'')})</span></span>
+                <button class="sensbtn" onclick="showSensorData(${Number(s.SensorID)}, '${addr.replace(/'/g,"\\'")}', '${String(s.SensorType||'').replace(/'/g,"\\'")}', null, null)">View data</button>
+              </div>
+            `).join('');
+          chunks.push(`
+            <div style="margin:6px 0">
+              <div class="addr">${esc(addr)}</div>
+              <div>${rows}</div>
+            </div>
+          `);
+        }
+        content.innerHTML = chunks.join('') || '<div class="muted small">No sensors.</div>';
+      }catch(err){
+        content.innerHTML = `<div class="muted small">Failed to load sensors: ${esc(err.message)}</div>`;
+      }
+    }, {once:false});
+  }
+
+  // Popup #1: type selection
+  window.viewTypeOnIP=async function(sensorAddr, sensorType, lat, lon){
+    try{
+      const onIP=await apiList('sensors',{SensorAddress:sensorAddr,limit:10000});
+      const matches=onIP.filter(s=>String(s.SensorType||'').trim()===sensorType);
+
+      let picker='';
+      if(matches.length>1){
+        const selId=`pick_${sensorAddr.replace(/[^\w]/g,'_')}_${sensorType.replace(/[^\w]/g,'_')}`;
+        picker=`
+          <div style="margin:6px 0">
+            <label class="muted small">Choose sensor:</label>
+            <select id="${selId}">
+              ${matches.map(s=>`<option value="${s.SensorID}">#${s.SensorID} — ${esc(s.SensorName||'')}</option>`).join('')}
+            </select>
+            <button class="sensbtn" onclick="showSensorData(document.getElementById('${selId}').value, '${sensorAddr.replace(/'/g,"\\'")}', '${sensorType.replace(/'/g,"\\'")}', ${lat}, ${lon})">Load</button>
+          </div>`;
+      }else if(matches.length===1){
+        picker=`
+          <div style="margin:6px 0">
+            <strong>${esc(matches[0].SensorName||'')}</strong>
+            <span class="muted small">#${matches[0].SensorID}</span>
+            <button class="sensbtn" onclick="showSensorData(${matches[0].SensorID}, '${sensorAddr.replace(/'/g,"\\'")}', '${sensorType.replace(/'/g,"\\'")}', ${lat}, ${lon})">Load</button>
+          </div>`;
+      }else{
+        picker=`<div class="muted small">No sensors of type ${esc(sensorType)} at ${esc(sensorAddr)}.</div>`;
+      }
+
+      const html=`
+        <div><strong class="addr">${esc(sensorAddr)}</strong></div>
+        <div class="muted small">Type: <strong>${esc(sensorType)}</strong></div>
+        ${picker}
+        <div class="popup-scroll"><em class="muted small">Waiting…</em></div>
+      `;
+      L.popup({maxWidth:520}).setLatLng([lat,lon]).setContent(html).openOn(map);
+    }catch(e){
+      console.error(e);
+      alert('Failed to load sensors: '+e.message);
+    }
+  };
+
+  // Popup #2
+  window.showSensorData=async function(sensorId, sensorAddr, sensorType, lat, lon){
+    try{
+      const srows = await apiList('sensors', { SensorID: sensorId, limit: 1 });
+      const s = srows[0] || {};
+      const host = cache.hostByIP.get(String(s.SensorNetwork||'').trim());
+      const networkName = host ? host.NetworkName : '';
+
+      const rows=await apiList('sensor_data',{SensorID:sensorId,limit:1});
+      let v=rows[0]?.jsonData; try{ if(typeof v==='string') v=JSON.parse(v);}catch{}
+      const pos=extractPosition(v||{});
+      let P = null;
+      if(pos.lat!=null && pos.lon!=null) P=[pos.lat, pos.lon];
+      else if (lat!=null && lon!=null) P=[lat, lon];
+      else P = map.getCenter();
+
+      const title = `${esc(s.SensorName || 'Sensor')} (${esc(sensorAddr)} ${esc(networkName)})`;
+      const html=`
+        <div><strong>${title}</strong></div>
+        <div class="muted small">Sensor #${sensorId}${sensorType?(' • '+esc(sensorType)):''}</div>
+        <div class="popup-scroll">${renderKV(v||{})}</div>
+      `;
+      L.popup({maxWidth:520}).setLatLng(P).setContent(html).openOn(map);
+    }catch(e){
+      console.error(e);
+      alert('Failed to load sensor data: '+e.message);
+    }
+  };
+
+  // =========================
+  // Users Tab
+  // =========================
+  async function loadUsers(){
+    userListEl.innerHTML = '<div class="muted">Loading users…</div>';
+    try{
+      const filter = ($('#userFilter')?.value||'').trim().toLowerCase();
+      const users = await apiList('users', { order: 'CallSign', limit: 2000 });
+      const filtered = filter ? users.filter(u => (`${u.CallSign||''} ${u.RealName||''}`).toLowerCase().includes(filter)) : users;
+
+      if(!filtered.length){ userListEl.innerHTML = '<div class="empty">No users found.</div>'; return; }
+
+      const wrap = document.createElement('div'); wrap.className='list';
+      for(const u of filtered){
+        const det = document.createElement('details'); det.className='host'; det.style.margin='8px 0';
+        const sum = document.createElement('summary');
+        sum.innerHTML = `👤 <strong>${esc(u.CallSign)}</strong> ${u.RealName ? `<span class="pill">${esc(u.RealName)}</span>`:''}`;
+        det.appendChild(sum);
+
+        const content = document.createElement('div'); content.style.marginTop='8px';
+        content.innerHTML = `
+          <div class="grid cols-2">
+            <div class="panel"><strong>Inbox</strong><div class="list" id="in_${esc(u.CallSign)}"><em class="muted">Loading…</em></div></div>
+            <div class="panel"><strong>Outbox</strong><div class="list" id="out_${esc(u.CallSign)}"><em class="muted">Loading…</em></div></div>
+          </div>`;
+        det.appendChild(content);
+
+        det.addEventListener('toggle', async ()=>{
+          if(!det.open) return;
+          try{
+            const [inbox, outbox] = await Promise.all([
+              apiList('messages', { ToUser: u.CallSign, order: 'sentDate DESC', limit: 200 }),
+              apiList('messages', { FromUser: u.CallSign, order: 'sentDate DESC', limit: 200 })
+            ]);
+            const inEl = content.querySelector('#in_'+CSS.escape(u.CallSign));
+            const outEl = content.querySelector('#out_'+CSS.escape(u.CallSign));
+
+            const renderMsg = m => {
+              const d = document.createElement('details'); d.style.margin='4px 0';
+              const s = document.createElement('summary');
+              s.innerHTML = `✉️ <strong>#${m.messageID}</strong> <span class="pill">From: ${esc(m.FromUser)}</span> <span class="pill">To: ${esc(m.ToUser)}</span> ${m.sentDate?`<span class="pill">${fmtDate(m.sentDate)}</span>`:''}`;
+              d.appendChild(s);
+              const body = document.createElement('div'); body.className='panel'; body.style.marginTop='6px'; body.textContent = m.Message || '';
+              d.appendChild(body);
+              return d;
+            };
+
+            inEl.innerHTML = inbox.length ? '' : '<div class="empty">No messages.</div>';
+            inbox.forEach(m => inEl.appendChild(renderMsg(m)));
+            outEl.innerHTML = outbox.length ? '' : '<div class="empty">No messages.</div>';
+            outbox.forEach(m => outEl.appendChild(renderMsg(m)));
+          }catch(err){
+            content.innerHTML = `<div class="muted">Failed to load messages: ${esc(err.message)}</div>`;
+          }
+        }, {once:true});
+
+        wrap.appendChild(det);
+      }
+      userListEl.innerHTML=''; userListEl.appendChild(wrap);
+    }catch(e){
+      userListEl.innerHTML = `<div class="muted">Error: ${esc(e.message)}</div>`;
+    }
+  }
+
+  // =========================
+  // Teams Tab
+  // =========================
+  async function loadTeams(){
+    teamListEl.innerHTML = '<div class="muted">Loading teams…</div>';
+    try{
+      const filter = ($('#teamFilter')?.value||'').trim().toLowerCase();
+      const teams = await apiList('teams', { order: 'TeamName', limit: 2000 });
+      const filtered = filter ? teams.filter(t => (`${t.TeamName||''} ${t.TeamOwner||''}`).toLowerCase().includes(filter)) : teams;
+
+      if(!filtered.length){ teamListEl.innerHTML = '<div class="empty">No teams found.</div>'; return; }
+
+      const wrap = document.createElement('div'); wrap.className='list';
+      for(const t of filtered){
+        const det = document.createElement('details'); det.className='host'; det.style.margin='8px 0';
+        const sum = document.createElement('summary');
+        sum.innerHTML = `🧩 <strong>${esc(t.TeamName)}</strong> <span class="pill">Owner: ${esc(t.TeamOwner)}</span> ${t.CreatedDate?`<span class="pill">${fmtDate(t.CreatedDate)}</span>`:''}`;
+        det.appendChild(sum);
+
+        const content = document.createElement('div'); content.style.marginTop='8px';
+        content.innerHTML = `<div class="panel"><strong>Teammates</strong><div class="list" id="mem_${esc(t.TeamName)}"><em class="muted">Loading…</em></div></div>`;
+        det.appendChild(content);
+
+        det.addEventListener('toggle', async ()=>{
+          if(!det.open) return;
+          try{
+            const members = await apiList('team_members', { TeamName: t.TeamName, order: 'TeamUser', limit: 2000 });
+            const memEl = content.querySelector('#mem_'+CSS.escape(t.TeamName));
+            if(!members.length){ memEl.innerHTML='<div class="empty">No teammates in this team.</div>'; return; }
+            const ul = document.createElement('ul'); ul.style.margin='0'; ul.style.paddingLeft='16px';
+            members.forEach(m => { const li = document.createElement('li'); li.innerHTML = `<strong>${esc(m.TeamUser)}</strong>`; ul.appendChild(li); });
+            memEl.innerHTML=''; memEl.appendChild(ul);
+          }catch(err){
+            content.innerHTML = `<div class="muted">Failed to load teammates: ${esc(err.message)}</div>`;
+          }
+        }, {once:true});
+
+        wrap.appendChild(det);
+      }
+      teamListEl.innerHTML=''; teamListEl.appendChild(wrap);
+    }catch(e){
+      teamListEl.innerHTML = `<div class="muted">Error: ${esc(e.message)}</div>`;
+    }
+  }
+
+  // =========================
+  // WellKnownSites Tab
+  // =========================
+  async function loadSites(){
+    siteListEl.innerHTML = '<div class="muted">Loading sites…</div>';
+    try{
+      // For labeling, fetch hosts (map FrogID -> NetworkName)
+      const hosts = await apiList('known_frognets', { order:'NetworkName', limit: 20000 });
+      const byFrogID = new Map();
+      hosts.forEach(h => { if(h.FrogID) byFrogID.set(String(h.FrogID), h); });
+
+      const filter = ($('#siteFilter')?.value||'').trim().toLowerCase();
+      const sites = await apiList('well_known_sites', { order: 'SiteName', limit: 5000 });
+      const filtered = filter ? sites.filter(s => {
+        const pack = `${s.SiteName||''} ${s.SiteAddress||''} ${s.FrogID||''}`.toLowerCase();
+        return pack.includes(filter);
+      }) : sites;
+
+      if(!filtered.length){ siteListEl.innerHTML = '<div class="empty">No sites found.</div>'; return; }
+
+      const tbl = document.createElement('table');
+      tbl.innerHTML = `
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>SiteName</th>
+            <th>URL</th>
+            <th>FrogID</th>
+            <th>Network</th>
+            <th>Tags</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      `;
+      const tb = tbl.querySelector('tbody');
+
+      filtered.forEach((s, i)=>{
+        const h = byFrogID.get(String(s.FrogID||'')) || {};
+        const url = normalizeURL(String(s.SiteAddress||''));
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${i+1}</td>
+          <td><strong>${esc(s.SiteName||'')}</strong></td>
+          <td>${s.SiteAddress ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(s.SiteAddress)}</a>` : ''}</td>
+          <td>${esc(s.FrogID||'')}</td>
+          <td>${esc(h.NetworkName||'')}</td>
+          <td>${esc(s.Tags||'')}</td>
+        `;
+        tb.appendChild(tr);
+      });
+
+      siteListEl.innerHTML = '';
+      siteListEl.appendChild(tbl);
+    }catch(e){
+      siteListEl.innerHTML = `<div class="muted">Error: ${esc(e.message)}</div>`;
+    }
+  }
+
+  // Add Site button
+  $('#addSite').onclick = async ()=>{
+    try{
+      const SiteName = prompt('Site Name:'); if(SiteName===null) return;
+      const SiteAddress = prompt('Site URL (http(s)://… or host):'); if(SiteAddress===null) return;
+      const FrogID = prompt('FrogID (optional, leave blank if unknown):')||'';
+      const Tags = prompt('Tags (comma-separated, optional):')||'';
+      if(!SiteName || !SiteAddress){ alert('SiteName and SiteAddress are required.'); return; }
+      const payload = { SiteName, SiteAddress, FrogID, Tags };
+      await apiPost('well_known_sites', 'create', payload);
+      await loadSites();
+      alert('Site created.');
+    }catch(e){
+      alert('Failed to create site: ' + e.message);
+    }
+  };
+
+  // --- Tab switching
+  document.querySelectorAll('.tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const id=tab.dataset.tab;
+      activeTab=id;
+      document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      // Lazy-load per tab
+      if(id==='networks') loadNetworks();
+      else if(id==='users') loadUsers();
+      else if(id==='teams') loadTeams();
+      else if(id==='sites') loadSites();
+    });
+  });
+
+  // --- Search/reload hooks
+  $('#reloadUsers').onclick = ()=>loadUsers();
+  $('#reloadTeams').onclick = ()=>loadTeams();
+  $('#reloadSites').onclick = ()=>loadSites();
+  $('#userFilter').addEventListener('input', debounce(loadUsers, 250));
+  $('#teamFilter').addEventListener('input', debounce(loadTeams, 250));
+  $('#siteFilter').addEventListener('input', debounce(loadSites, 250));
+  function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+  // --- Auto-refresh active tab every 1 minute
+  setInterval(()=>{
+    if(activeTab==='networks') loadNetworks();
+    else if(activeTab==='users') loadUsers();
+    else if(activeTab==='teams') loadTeams();
+    else if(activeTab==='sites') loadSites();
+  }, 30*1000);
+
+  // Initial
+  loadNetworks();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /usr/local/bin/getWlan0IP
+#
+# [UPSTREAM_DEVIPS_V1] Returns the IP address of the first FrogNet
+# upstream interface, in alphabetical dev order. An "upstream IP" is a
+# 10.x address that another FrogNet node DHCP-assigned to us — i.e.
+# we are downstream of them on that interface. Excludes:
+#   - eth0 (always downstream by design)
+#   - any dev that owns a .1 in a 10.x/24 (we serve, we're upstream-of)
+#   - transit /30 (10.253.253.x)
+#   - sim underlay IPs (per /etc/frognet/simulator_underlay)
+#
+# Returns "0.0.0.0" when no upstream is found — matches the contract
+# of the prior implementation and what getInterfaceIP returns for
+# missing/down interfaces.
+#
+# Previous behavior: returned getInterfaceIP "${wlan0Name:-wlan0}",
+# which exposed whatever raw IP happened to be on wlan0 — typically
+# unrelated to FrogNet topology. Replaced 2026-05-20 so that NY-1,
+# NY-2, and any node with an upstream-via-FrogNet uplink reports it in
+# this CSV slot instead of zeros.
+
+. /usr/local/bin/mapInterfaces 2>/dev/null || true
+
+# FROGNET_UPSTREAM_DEVIPS is "dev=ip dev=ip ...". Take first entry,
+# strip "dev=" prefix.
+first="${FROGNET_UPSTREAM_DEVIPS%% *}"
+ip4="${first#*=}"
+
+if [[ -n "$ip4" && "$ip4" != "$first" ]]; then
+    echo "$ip4"
+else
+    echo "0.0.0.0"
+fi

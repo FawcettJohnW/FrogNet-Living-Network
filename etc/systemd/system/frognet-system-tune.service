@@ -1,0 +1,38 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+[Unit]
+Description=FrogNet system auto-tuning (re-tune hardware sizing on every boot)
+Documentation=man:frognet-system-tune.sh
+# Filesystems mounted before we read /proc/meminfo and write configs.
+After=local-fs.target
+# Run BEFORE anything we tune, so they start with current config and the
+# daemon picks up the freshly-written pool env on its first start. Ordering
+# only — a tuning failure logs and is skipped, it never blocks these.
+Before=mariadb.service apache2.service frognet-daemon.service frognet-proxy.service frognet-tunnel-daemon.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/frognet-system-tune.sh
+# A tuning hiccup must not wedge boot; the script logs everything it does.
+SuccessExitStatus=0 1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

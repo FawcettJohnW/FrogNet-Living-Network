@@ -1,0 +1,13 @@
+{
+  "expect": {
+    "no_phantom_to": "NewYork",
+    "survivors_all_reach": true
+  },
+  "fault": {
+    "args": [
+      "NewYork"
+    ],
+    "op": "kill_node"
+  },
+  "topology": "topo_pond_full_mesh"
+}

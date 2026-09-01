@@ -1,0 +1,37 @@
+{
+  "committed_routes": {
+    "A": [
+      "10.1.1.0/24 dev eth0 metric 100",
+      "10.2.2.0/24 via 10.2.2.1 dev wg0 metric 22",
+      "10.200.1.0/30 dev wg0 metric 100",
+      "10.3.3.0/24 via 10.3.3.1 dev wg0 metric 22"
+    ],
+    "B": [
+      "10.1.1.0/24 via 10.1.1.1 dev wg0 metric 22",
+      "10.1.1.0/24 via 10.1.1.1 dev wg1 metric 100",
+      "10.2.2.0/24 dev eth0 metric 100",
+      "10.200.1.0/30 dev wg0 metric 100",
+      "10.200.2.0/30 dev wg1 metric 100",
+      "10.3.3.0/24 via 10.3.3.1 dev wg0 metric 100",
+      "10.3.3.0/24 via 10.3.3.1 dev wg1 metric 22"
+    ],
+    "C": [
+      "10.1.1.0/24 via 10.1.1.1 dev wg0 metric 22",
+      "10.2.2.0/24 via 10.2.2.1 dev wg0 metric 22",
+      "10.200.2.0/30 dev wg0 metric 100",
+      "10.3.3.0/24 dev eth0 metric 100"
+    ]
+  },
+  "convergence_cycles": 3,
+  "key": "topo_chain_3",
+  "reachability": {
+    "pairs_ok": 12,
+    "pairs_total": 12,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:06:59",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "3-node chain via dedicated link /24s"
+}

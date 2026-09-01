@@ -1,0 +1,383 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /usr/local/bin/runPingEverything
+# FrogNet Network Health Monitor - SAME/DIFF aware
+#
+# v3: No ICMP ping for FrogNet hosts.
+#     Primary probe: FNW1 health check (:9009, ~61 bytes round-trip)
+#     Fallback: frognet_echo.php (:80/:8080)
+#     Internet check: curl to target (no fping)
+#
+# Tests per FrogNet host:
+#   1. FNW1 daemon probe (aliveness + RTT in one call)
+#   2. Semantic proxy (frognet_echo.php via port 80)
+#   3. Cache stats from local proxy (momentary + cumulative)
+#
+# Dynamically discovers hosts from /etc/hosts or getHosts.php
+
+
+# Colors
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+CYAN='\033[36m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# Timeouts
+DAEMON_TIMEOUT=30
+HTTP_TIMEOUT=30
+
+# Column widths
+COL_HOST=20
+COL_STATUS=24
+COL_RTT=12
+COL_METHOD=10
+
+# Get local identity
+LOCAL_DOMAIN=$(grep '^domain=' /etc/dnsmasq.d/opts_only.conf 2>/dev/null | cut -d= -f2)
+[[ -z "$LOCAL_DOMAIN" ]] && LOCAL_DOMAIN=$(cat /etc/frognet_domain 2>/dev/null || hostname -s)
+LOCAL_IP=$(ip -4 route get 10.101.0.1 2>/dev/null | awk '/src/{print $7}' | head -1)
+[[ -z "$LOCAL_IP" ]] && LOCAL_IP=$(hostname -I | awk '{print $1}')
+
+ALIVE="/usr/local/bin/frognet_alive.bash"
+
+# Cumulative stats file (persists across script restarts)
+CUMULATIVE_FILE="/tmp/frognet_cache_cumulative_${LOCAL_DOMAIN}.json"
+
+init_cumulative() {
+    if [[ ! -f "$CUMULATIVE_FILE" ]]; then
+        echo '{"same":0,"diff":0,"miss":0,"raw":0,"raw_same":0,"raw_diff":0,"bytes_saved":0,"total_requests":0,"started":"'"$(date -Iseconds)"'"}' > "$CUMULATIVE_FILE"
+    fi
+}
+
+update_cumulative() {
+    local window_json="$1"
+    [[ -z "$window_json" || "$window_json" == "null" ]] && return
+    local cum_json
+    cum_json=$(cat "$CUMULATIVE_FILE" 2>/dev/null || echo '{}')
+    local w_same w_diff w_miss w_raw w_raw_same w_raw_diff w_bytes_saved w_total
+    w_same=$(echo "$window_json" | jq -r '.same // 0')
+    w_diff=$(echo "$window_json" | jq -r '.diff // 0')
+    w_miss=$(echo "$window_json" | jq -r '.miss // 0')
+    w_raw=$(echo "$window_json" | jq -r '.raw // 0')
+    w_raw_same=$(echo "$window_json" | jq -r '.raw_same // 0')
+    w_raw_diff=$(echo "$window_json" | jq -r '.raw_diff // 0')
+    w_bytes_saved=$(echo "$window_json" | jq -r '.bytes_saved // 0')
+    w_total=$(echo "$window_json" | jq -r '.total_requests // 0')
+    local c_same c_diff c_miss c_raw c_raw_same c_raw_diff c_bytes_saved c_total c_started
+    c_same=$(echo "$cum_json" | jq -r '.same // 0')
+    c_diff=$(echo "$cum_json" | jq -r '.diff // 0')
+    c_miss=$(echo "$cum_json" | jq -r '.miss // 0')
+    c_raw=$(echo "$cum_json" | jq -r '.raw // 0')
+    c_raw_same=$(echo "$cum_json" | jq -r '.raw_same // 0')
+    c_raw_diff=$(echo "$cum_json" | jq -r '.raw_diff // 0')
+    c_bytes_saved=$(echo "$cum_json" | jq -r '.bytes_saved // 0')
+    c_total=$(echo "$cum_json" | jq -r '.total_requests // 0')
+    c_started=$(echo "$cum_json" | jq -r '.started // ""')
+    cat > "$CUMULATIVE_FILE" <<EOF
+{"same":$((c_same+w_same)),"diff":$((c_diff+w_diff)),"miss":$((c_miss+w_miss)),"raw":$((c_raw+w_raw)),"raw_same":$((c_raw_same+w_raw_same)),"raw_diff":$((c_raw_diff+w_raw_diff)),"bytes_saved":$((c_bytes_saved+w_bytes_saved)),"total_requests":$((c_total+w_total)),"started":"${c_started}"}
+EOF
+}
+
+get_cumulative() {
+    cat "$CUMULATIVE_FILE" 2>/dev/null || echo '{}'
+}
+
+LAST_WINDOW_TS=""
+
+discover_hosts() {
+    local hosts=()
+    local json
+    json=$(curl -fsS --max-time 30 -H "Host: 127.0.0.1" "http://127.0.0.1/getHosts.php" 2>/dev/null)
+    if [[ -n "$json" ]] && echo "$json" | jq -e '.' >/dev/null 2>&1; then
+        while IFS= read -r line; do
+            local ip name
+            ip=$(echo "$line" | jq -r '.ip // empty')
+            name=$(echo "$line" | jq -r '.name // .hostname // empty')
+            [[ -n "$ip" && -n "$name" ]] && hosts+=("$ip|$name|frognet")
+        done < <(echo "$json" | jq -c '.[]' 2>/dev/null)
+    fi
+    if [[ ${#hosts[@]} -eq 0 ]]; then
+        while IFS= read -r line; do
+            local ip name
+            ip=$(echo "$line" | awk '{print $1}')
+            name=$(echo "$line" | awk '{print $2}')
+            [[ "$ip" =~ ^10\.101\. ]] && hosts+=("$ip|$name|frognet")
+        done < <(grep -E '^10\.101\.' /etc/hosts 2>/dev/null | grep -v '^#')
+    fi
+    hosts+=("google.com|Google (Internet)|internet")
+    printf '%s\n' "${hosts[@]}" | sort -t'|' -k2 | uniq
+}
+
+test_frognet_alive() {
+    local ip="$1"
+    local result
+    result=$("$ALIVE" "$ip" "$DAEMON_TIMEOUT" 2>/dev/null)
+    if [[ $? -eq 0 && -n "$result" ]]; then
+        local ms="${result%%|*}"
+        local method="${result#*|}"
+        echo "ok|${ms}|${method}"
+        return 0
+    fi
+    echo "fail||"
+    return 1
+}
+
+test_internet() {
+    local target="$1"
+    local start_ns end_ns elapsed_ms
+    start_ns=$(date +%s%N)
+    if curl -fsS --connect-timeout 3 --max-time 30 "http://$target" >/dev/null 2>&1; then
+        end_ns=$(date +%s%N)
+        elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
+        echo "ok|${elapsed_ms}|http"
+        return 0
+    fi
+    echo "fail||"
+    return 1
+}
+
+test_proxy() {
+    local ip="$1"
+    local result
+    result=$(curl -fsS --connect-timeout "$HTTP_TIMEOUT" --max-time "$HTTP_TIMEOUT" \
+        -H "Host: $ip" "http://$ip/frognet_echo.php" 2>/dev/null)
+    [[ -n "$result" && "$result" =~ ^[A-Za-z]+, ]]
+    return $?
+}
+
+get_cache_stats() {
+    local json
+    json=$(curl -fsS --max-time 30 \
+        "http://127.0.0.1/api.php?entity=sensors&action=values&SensorName=${LOCAL_DOMAIN}.SemanticCache.Summary&parse=1" 2>/dev/null)
+    if [[ -n "$json" ]]; then
+        local totals
+        totals=$(echo "$json" | jq -r '.rows[0].data.totals // empty' 2>/dev/null)
+        if [[ -n "$totals" && "$totals" != "null" && "$totals" != "{}" ]]; then
+            local window_ts
+            window_ts=$(echo "$json" | jq -r '.rows[0].data.timestamp // 0' 2>/dev/null)
+            if [[ "$window_ts" != "$LAST_WINDOW_TS" && "$window_ts" != "0" ]]; then
+                update_cumulative "$totals"
+                LAST_WINDOW_TS="$window_ts"
+            fi
+            echo "$totals"
+            return 0
+        fi
+    fi
+    echo ""
+    return 1
+}
+
+format_stats() {
+    local json="$1"
+    [[ -z "$json" || "$json" == "{}" ]] && { echo "No data"; return; }
+    local same diff miss raw_same total_req bytes_saved hit_rate
+    same=$(echo "$json" | jq -r '.same // 0')
+    diff=$(echo "$json" | jq -r '.diff // 0')
+    miss=$(echo "$json" | jq -r '.miss // 0')
+    raw_same=$(echo "$json" | jq -r '.raw_same // 0')
+    total_req=$(echo "$json" | jq -r '.total_requests // 0')
+    bytes_saved=$(echo "$json" | jq -r '.bytes_saved // 0')
+    if [[ "$total_req" -gt 0 ]]; then
+        local hits=$((same + raw_same))
+        hit_rate=$((hits * 100 / total_req))
+    else
+        hit_rate=0
+    fi
+    local saved_str
+    if [[ "$bytes_saved" -ge 1048576 ]]; then
+        saved_str="$((bytes_saved / 1048576))MB"
+    elif [[ "$bytes_saved" -ge 1024 ]]; then
+        saved_str="$((bytes_saved / 1024))KB"
+    else
+        saved_str="${bytes_saved}B"
+    fi
+    echo "SAME: $same | DIFF: $diff | MISS: $miss | Hit: ${hit_rate}% | Saved: $saved_str"
+}
+
+format_latency_val() {
+    local ms="$1"
+    if [[ -z "$ms" || "$ms" == "?" ]]; then
+        echo "-"
+    else
+        local int_part="${ms%.*}"
+        if [[ "${int_part:-0}" -ge 10 ]]; then
+            printf "%.0f" "$ms"
+        else
+            printf "%.1f" "$ms"
+        fi
+    fi
+}
+
+print_frognet_status() {
+    local name="$1" alive_ok="$2" proxy_ok="$3" rtt_ms="$4" method="$5" is_local="$6"
+    local status="" color="$RED" rtt_display="-" method_display="-"
+    if [[ "$alive_ok" == "1" && -n "$rtt_ms" ]]; then
+        rtt_display="$(format_latency_val "$rtt_ms")ms"
+    fi
+    [[ -n "$method" ]] && method_display="$method"
+    if [[ "$alive_ok" == "1" ]]; then
+        if [[ "$proxy_ok" == "1" ]]; then
+            color="$GREEN"; status="ONLINE"
+        else
+            color="$YELLOW"; status="DAEMON ONLY"
+        fi
+    else
+        status="OFFLINE"
+    fi
+    local marker=""
+    [[ "$is_local" == "1" ]] && marker=" ${CYAN}*${RESET}"
+    printf "${color}%-${COL_HOST}s %-${COL_STATUS}s %${COL_RTT}s %${COL_METHOD}s${RESET}%s\n" \
+        "$name" "$status" "$rtt_display" "$method_display" "$marker"
+}
+
+print_internet_status() {
+    local name="$1" alive_ok="$2" rtt_ms="$3"
+    local status="" color="$RED" rtt_display="-"
+    if [[ "$alive_ok" == "1" ]]; then
+        color="$GREEN"; status="REACHABLE"
+        rtt_display="$(format_latency_val "$rtt_ms")ms"
+    else
+        status="UNREACHABLE"
+    fi
+    printf "${color}%-${COL_HOST}s %-${COL_STATUS}s %${COL_RTT}s %${COL_METHOD}s${RESET}\n" \
+        "$name" "$status" "$rtt_display" "-"
+}
+
+main() {
+    init_cumulative
+    local _probe_dir
+    _probe_dir="$(mktemp -d /tmp/rpe_probe.XXXXXX)"
+    trap 'rm -rf "$_probe_dir"' EXIT
+
+    while true; do
+        # Discover hosts
+        mapfile -t _host_entries < <(discover_hosts)
+
+        # -----------------------------------------------------------
+        # Phase 1: Launch ALL probes in parallel
+        # -----------------------------------------------------------
+        local _pids=()
+        for _entry in "${_host_entries[@]}"; do
+            IFS='|' read -r _ip _name _htype <<<"$_entry"
+            [[ -n "$_ip" && -n "$_name" ]] || continue
+            local _sip="${_ip//\./_}"
+            _sip="${_sip//[^a-zA-Z0-9_]/x}"
+            (
+                if [[ "$_htype" == "internet" ]]; then
+                    test_internet "$_ip" > "$_probe_dir/probe_${_sip}" 2>/dev/null
+                else
+                    local _alive_result _alive_ok="0" _proxy_ok="0" _rtt="" _method=""
+                    _alive_result=$(test_frognet_alive "$_ip" 2>/dev/null) || _alive_result="fail||"
+                    if [[ "$_alive_result" == ok* ]]; then
+                        _alive_ok="1"
+                        _rtt="$(echo "$_alive_result" | cut -d'|' -f2)"
+                        _method="$(echo "$_alive_result" | cut -d'|' -f3)"
+                        if [[ "$_method" == http80 || "$_method" == http8080 ]]; then
+                            _proxy_ok="1"
+                        elif test_proxy "$_ip" 2>/dev/null; then
+                            _proxy_ok="1"
+                        fi
+                    fi
+                    echo "${_alive_ok}|${_proxy_ok}|${_rtt}|${_method}" > "$_probe_dir/probe_${_sip}"
+                fi
+            ) &
+            _pids+=($!)
+        done
+
+        # Wait for ALL probes to complete
+        for _pid in "${_pids[@]}"; do
+            wait "$_pid" 2>/dev/null || true
+        done
+
+        # -----------------------------------------------------------
+        # Phase 2: Render display from collected results
+        # -----------------------------------------------------------
+        clear
+        echo -e "${BOLD}FrogNet Living Network - Health Monitor${RESET}"
+        echo -e "${DIM}Local: ${LOCAL_DOMAIN} (${LOCAL_IP})${RESET}"
+        echo -e "${DIM}$(date '+%Y-%m-%d %H:%M:%S')${RESET}"
+        echo ""
+        printf "${DIM}%-${COL_HOST}s %-${COL_STATUS}s %${COL_RTT}s %${COL_METHOD}s${RESET}\n" \
+            "HOST" "STATUS" "RTT" "METHOD"
+        echo -e "${DIM}────────────────────────────────────────────────────────────────${RESET}"
+
+        for _entry in "${_host_entries[@]}"; do
+            IFS='|' read -r _ip _name _htype <<<"$_entry"
+            [[ -n "$_ip" && -n "$_name" ]] || continue
+            local _sip="${_ip//\./_}"
+            _sip="${_sip//[^a-zA-Z0-9_]/x}"
+            local _result_file="$_probe_dir/probe_${_sip}"
+            local is_local="0"
+            [[ "$_ip" == "$LOCAL_IP" ]] && is_local="1"
+
+            if [[ "$_htype" == "internet" ]]; then
+                local inet_result inet_ok="0" inet_ms=""
+                inet_result="$(cat "$_result_file" 2>/dev/null)" || inet_result="fail||"
+                if [[ "$inet_result" == ok* ]]; then
+                    inet_ok="1"
+                    inet_ms="$(echo "$inet_result" | cut -d'|' -f2)"
+                fi
+                print_internet_status "$_name" "$inet_ok" "$inet_ms"
+            else
+                local alive_ok="0" proxy_ok="0" rtt_ms="" method=""
+                local _probe_data
+                _probe_data="$(cat "$_result_file" 2>/dev/null)" || _probe_data="0|0||"
+                IFS='|' read -r alive_ok proxy_ok rtt_ms method <<<"$_probe_data"
+                print_frognet_status "$_name" "$alive_ok" "$proxy_ok" "$rtt_ms" "$method" "$is_local"
+            fi
+        done
+
+        echo ""
+        echo -e "${BOLD}Cache Performance (Local Proxy)${RESET}"
+        echo -e "${DIM}────────────────────────────────────────────────────${RESET}"
+        local window_stats
+        window_stats=$(get_cache_stats)
+        printf "${DIM}%-12s${RESET}" "Window:"
+        if [[ -n "$window_stats" ]]; then
+            echo -e "${GREEN}$(format_stats "$window_stats")${RESET}"
+        else
+            echo -e "${DIM}No data${RESET}"
+        fi
+        local cum_stats cum_started
+        cum_stats=$(get_cumulative)
+        cum_started=$(echo "$cum_stats" | jq -r '.started // ""' 2>/dev/null)
+        printf "${DIM}%-12s${RESET}" "Cumulative:"
+        if [[ -n "$cum_stats" && "$cum_stats" != "{}" ]]; then
+            echo -e "${CYAN}$(format_stats "$cum_stats")${RESET}"
+            [[ -n "$cum_started" ]] && echo -e "${DIM}             Since: ${cum_started}${RESET}"
+        else
+            echo -e "${DIM}No data${RESET}"
+        fi
+        echo ""
+        echo -e "${DIM}$(uptime)${RESET}"
+        echo ""
+        echo -e "${DIM}Legend: ${GREEN}■${RESET}${DIM} Full connectivity ${YELLOW}■${RESET}${DIM} Partial ${RED}■${RESET}${DIM} Offline ${CYAN}*${RESET}${DIM} Local host${RESET}"
+        echo -e "${DIM}        Window=last 30s | Cumulative=since script start${RESET}"
+        echo -e "${DIM}        RTT=round-trip via FNW1 daemon or HTTP echo | METHOD=fnw1/http80/http8080${RESET}"
+
+        # Clean probe files for next cycle
+        rm -f "$_probe_dir"/probe_*
+        sleep 2
+    done
+}
+
+main "$@"

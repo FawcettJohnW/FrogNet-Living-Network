@@ -1,0 +1,2184 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>FrogNet Living Network</title>
+  <style>
+    :root{
+      --bg:#060a10;
+      --panel:#0c1118;
+      --panel2:#0a0f16;
+      --card:#0e1520;
+      --line:#1a2538;
+      --line2:#15202e;
+      --txt:#dce4ed;
+      --muted:#6b7d94;
+      --dim:#3d4f64;
+
+      --semantic:#f0c038;
+      --fast:#28cc6e;
+      --unknown:#546478;
+
+      --good:#28cc6e;
+      --ok:#f0c038;
+      --bad:#f0483e;
+
+      --accent:#3b9eff;
+      --accent-dim:rgba(59,158,255,0.12);
+
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+      --display: var(--sans);
+
+      --dbglow: rgba(40,204,110,0.55);
+      --dbglow2: rgba(40,204,110,0.25);
+
+      --radius: 10px;
+      --radius-lg: 14px;
+    }
+
+    *{ box-sizing:border-box; margin:0; padding:0; }
+    html,body{ height:100%; }
+    body{
+      background:var(--bg);
+      color:var(--txt);
+      font-family:var(--sans);
+      overflow:hidden;
+      -webkit-font-smoothing:antialiased;
+    }
+
+    header{
+      height:56px;
+      padding:0 16px;
+      background:var(--panel);
+      border-bottom:1px solid var(--line);
+      display:flex;
+      align-items:center;
+      gap:16px;
+    }
+    .logo{
+      width:28px; height:28px;
+      border-radius:7px;
+      background:linear-gradient(135deg,#28cc6e 0%,#1a9e55 100%);
+      display:flex; align-items:center; justify-content:center;
+      font-size:15px;
+      flex:0 0 auto;
+      box-shadow:0 0 16px rgba(40,204,110,0.25);
+    }
+    .hdr-title{ display:flex; flex-direction:column; gap:1px; }
+    .hdr-title h1{ font-size:15px; font-weight:700; letter-spacing:-0.3px; line-height:1.1; color:var(--txt); }
+    .hdr-title h1 span{ color:var(--good); font-weight:400; }
+    .hdr-sub{ font-size:10.5px; color:var(--muted); letter-spacing:0.2px; }
+
+    .controls{ margin-left:auto; display:flex; align-items:center; gap:8px; }
+    .ctl{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+    .ctl select{
+      background:var(--card); border:1px solid var(--line); color:var(--txt);
+      border-radius:6px; padding:5px 7px; font-size:11px; outline:none;
+      font-family:var(--mono); cursor:pointer;
+    }
+    .ctl select:hover{ border-color:var(--dim); }
+    .btn{
+      background:var(--card); border:1px solid var(--line); color:var(--muted);
+      border-radius:6px; padding:5px 10px; cursor:pointer; font-size:11px;
+      font-family:var(--sans); font-weight:500; transition:all 0.15s;
+    }
+    .btn:hover{ color:var(--txt); border-color:var(--dim); background:var(--panel); }
+    .btn:active{ transform:translateY(1px); }
+
+    .status-pill{
+      display:inline-flex; align-items:center; gap:6px; padding:5px 10px;
+      border:1px solid var(--line); border-radius:999px; background:var(--card);
+      font-size:10.5px; font-family:var(--mono); color:var(--muted);
+      max-width:480px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    }
+    .status-pill::before{
+      content:''; width:6px; height:6px; border-radius:50%;
+      background:var(--good); flex:0 0 auto; box-shadow:0 0 6px var(--good);
+    }
+
+    .layout{ height:calc(100% - 56px); display:flex; min-height:0; }
+
+    aside{
+      width:440px; min-width:440px; background:var(--panel);
+      border-right:1px solid var(--line); overflow-y:auto; overflow-x:hidden;
+      scrollbar-width:thin; scrollbar-color:var(--line2) transparent;
+    }
+    aside::-webkit-scrollbar{ width:5px; }
+    aside::-webkit-scrollbar-track{ background:transparent; }
+    aside::-webkit-scrollbar-thumb{ background:var(--line2); border-radius:3px; }
+
+    .section{ padding:14px; border-bottom:1px solid var(--line); }
+    .section:last-child{ border-bottom:none; }
+    .section-hdr{ display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+    .section-hdr h2{ font-size:10.5px; color:var(--muted); font-weight:700; letter-spacing:1px; text-transform:uppercase; }
+    .section-hdr .count{ font-size:10px; color:var(--dim); font-family:var(--mono); }
+
+    .tile{
+      border:1px solid var(--line); background:var(--card); border-radius:var(--radius);
+      padding:10px 12px; margin-bottom:8px; transition:border-color 0.2s;
+    }
+    .tile:hover{ border-color:var(--dim); }
+    .tile:last-child{ margin-bottom:0; }
+    .tile .row{ display:flex; align-items:center; gap:10px; }
+    .dot{ width:8px; height:8px; border-radius:50%; background:var(--unknown); flex:0 0 auto; }
+    .tile .name{ font-weight:600; font-size:12.5px; color:var(--txt); flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .tile .ip{ font-family:var(--mono); font-size:11px; color:var(--muted); flex:0 0 auto; }
+
+    .mini{ display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+    .tag{
+      font-family:var(--mono); font-size:10px; padding:3px 7px; border-radius:5px;
+      border:1px solid var(--line); background:var(--panel2); color:var(--muted);
+      cursor:pointer; user-select:none; transition:all 0.15s; letter-spacing:0.2px;
+    }
+    .tag:hover{ border-color:var(--dim); color:var(--txt); }
+    .tag strong{ color:var(--txt); font-weight:600; }
+
+    .linkmeta{ font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.4; margin-top:6px; }
+    .linkmeta b{ color:var(--txt); font-weight:600; }
+
+    .engine-hero{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px; }
+    .engine-stat{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:12px 10px; text-align:center; }
+    .engine-stat .value{ font-size:22px; font-weight:700; color:var(--good); font-family:var(--mono); letter-spacing:-0.5px; }
+    .engine-stat .value.warn{ color:var(--ok); }
+    .engine-stat .value.bad{ color:var(--bad); }
+    .engine-stat .value.accent{ color:var(--accent); }
+    .engine-stat .label{ font-size:9.5px; color:var(--muted); margin-top:4px; text-transform:uppercase; letter-spacing:0.6px; font-weight:500; }
+
+    .cache-bar-wrap{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:10px; margin-bottom:10px; }
+    .cache-bar-label{ font-size:10px; color:var(--muted); margin-bottom:6px; display:flex; justify-content:space-between; font-weight:500; text-transform:uppercase; letter-spacing:0.5px; }
+    .cache-bar-label span:last-child{ font-family:var(--mono); text-transform:none; letter-spacing:0; }
+    .cache-bar{ height:14px; background:rgba(255,255,255,0.03); border-radius:4px; overflow:hidden; display:flex; }
+    .cache-bar .same{ background:var(--good); height:100%; transition:width 0.4s ease; }
+    .cache-bar .diff{ background:var(--ok); height:100%; transition:width 0.4s ease; }
+    .cache-bar .miss{ background:var(--bad); height:100%; transition:width 0.4s ease; }
+    .cache-bar .raw{ background:var(--unknown); height:100%; transition:width 0.4s ease; }
+    .cache-legend{ display:flex; gap:12px; margin-top:6px; font-size:9.5px; color:var(--muted); font-family:var(--mono); }
+    .cache-legend span{ display:flex; align-items:center; gap:4px; }
+    .cache-legend .ldot{ width:7px; height:7px; border-radius:2px; flex:0 0 auto; }
+
+    .sub-label{ font-size:9.5px; color:var(--dim); margin:10px 0 6px; text-transform:uppercase; letter-spacing:0.8px; font-weight:600; }
+
+    .peer-tile{ border:1px solid var(--line); background:var(--card); border-radius:8px; padding:8px 10px; margin-bottom:6px; }
+    .peer-tile:last-child{ margin-bottom:0; }
+    .peer-hdr{ display:flex; align-items:center; gap:7px; margin-bottom:6px; }
+    .peer-name{ font-weight:600; font-size:11.5px; flex:1; }
+    .peer-stats{ display:flex; gap:10px; font-family:var(--mono); font-size:10px; color:var(--muted); }
+    .peer-stats b{ color:var(--txt); font-weight:600; }
+    .mini-bar{ height:4px; background:rgba(255,255,255,0.04); border-radius:2px; overflow:hidden; display:flex; }
+
+    .endpoint-row{ display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--line2); font-size:10.5px; }
+    .endpoint-row:last-child{ border-bottom:none; }
+    .endpoint-row .path{ flex:1; font-family:var(--mono); color:var(--txt); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:10px; }
+    .endpoint-row .saved{ font-family:var(--mono); color:var(--good); font-weight:600; font-size:10px; }
+    .endpoint-row .hits{ color:var(--muted); font-family:var(--mono); font-size:10px; }
+
+    .daemon-row{ display:flex; align-items:center; gap:8px; padding:4px 0; font-size:10.5px; font-family:var(--mono); }
+    .daemon-row .dlabel{ color:var(--muted); flex:0 0 60px; }
+    .daemon-row .dbar{ flex:1; height:6px; background:rgba(255,255,255,0.04); border-radius:3px; overflow:hidden; position:relative; }
+    .daemon-row .dbar-fill{ height:100%; border-radius:3px; transition:width 0.4s ease; }
+    .daemon-row .dval{ flex:0 0 60px; text-align:right; color:var(--txt); font-weight:600; }
+
+    main{
+      flex:1 1 auto; position:relative; min-width:0; min-height:0;
+      background:
+        radial-gradient(ellipse at 30% 50%, rgba(40,204,110,0.02) 0%, transparent 60%),
+        radial-gradient(ellipse at 70% 30%, rgba(59,158,255,0.02) 0%, transparent 60%),
+        var(--bg);
+    }
+    canvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+    .hud{ position:absolute; left:12px; bottom:12px; pointer-events:none; }
+    .hud .status-pill{ pointer-events:none; }
+
+    /* Map title — two lines, top-center of the canvas region.
+       Overlays the canvas (pointer-events:none so it never eats clicks).
+       Translucent pill matches the legend/HUD styling. */
+    .map-title{
+      position:absolute; top:14px; left:50%; transform:translateX(-50%);
+      pointer-events:none; text-align:center;
+      padding:14px 32px; border-radius:12px;
+      background:rgba(10,15,22,0.82);
+      border:1px solid var(--line);
+      backdrop-filter:blur(2px);
+      z-index:5;
+    }
+    .map-title-l1{
+      font-size:30px; font-weight:700; letter-spacing:-0.4px;
+      color:var(--txt); line-height:1.15;
+    }
+    .map-title-l2{
+      font-size:23px; font-weight:500; letter-spacing:0.3px;
+      color:var(--good); margin-top:5px;
+    }
+
+    .modal-backdrop{
+      position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);
+      display:none; align-items:center; justify-content:center; padding:20px; z-index:100;
+    }
+    .modal{
+      width:min(960px, 94vw); max-height:88vh; background:var(--panel);
+      border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden;
+      display:flex; flex-direction:column; box-shadow:0 24px 80px rgba(0,0,0,0.5);
+    }
+    .modal .modal-hdr{
+      height:auto; padding:12px 14px; border-bottom:1px solid var(--line);
+      display:flex; align-items:center; gap:10px; background:var(--panel);
+    }
+    .modal .m-title{ font-size:12.5px; font-weight:600; color:var(--txt); flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    pre{
+      margin:0; padding:14px; background:var(--bg); color:var(--txt); overflow:auto;
+      font-family:var(--mono); font-size:11px; line-height:1.4; white-space:pre-wrap;
+      word-break:break-word; flex:1 1 auto;
+    }
+    #modalList{
+      display:none; flex:1 1 auto; overflow-y:auto; padding:6px 0;
+      background:var(--bg); scrollbar-width:thin; scrollbar-color:var(--line2) transparent;
+    }
+    #modalList::-webkit-scrollbar{ width:6px; }
+    #modalList::-webkit-scrollbar-track{ background:transparent; }
+    #modalList::-webkit-scrollbar-thumb{ background:var(--line2); border-radius:3px; }
+    .sensor-row{
+      display:flex; align-items:center; gap:10px; padding:9px 14px; cursor:pointer;
+      border-bottom:1px solid var(--line2); transition:background 0.1s;
+    }
+    .sensor-row:hover{ background:var(--card); }
+    .sensor-row .stype{
+      font-family:var(--mono); font-size:11px; color:var(--accent);
+      min-width:170px; flex:0 0 auto;
+    }
+    .sensor-row .sname{
+      font-family:var(--mono); font-size:11.5px; color:var(--txt); flex:1;
+      overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    }
+    .sensor-row .sid{
+      font-family:var(--mono); font-size:10.5px; color:var(--muted); flex:0 0 auto;
+    }
+    .sensor-empty{ padding:20px; color:var(--muted); font-size:12px; text-align:center; }
+  </style>
+</head>
+
+<body>
+<header>
+  <div class="logo">🐸</div>
+  <div class="hdr-title">
+    <h1>FrogNet <span>Living Network</span></h1>
+    <div class="hdr-sub">Logical map · every node to every other node · dotted = route via an intermediate host · glow = link health</div>
+  </div>
+  <div class="controls">
+    <div class="ctl">
+      <span>Poll</span>
+      <select id="pollSec">
+        <option value="1">1 s</option>
+        <option value="2" selected>2 s</option>
+        <option value="5">5 s</option>
+        <option value="10">10 s</option>
+      </select>
+    </div>
+    <button class="btn" id="btnFit">Fit</button>
+    <button class="btn" id="btnRefresh">Refresh</button>
+    <button class="btn" id="btnView" title="Cycle: logical map → Internet (physical) map → egress tree">Internet map</button>
+    <div class="status-pill" id="status">initializing…</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="section" id="engineSection">
+      <div class="section-hdr"><h2>Semantic Engine</h2></div>
+      <div id="engineTiles"><div class="linkmeta">Loading engine metrics…</div></div>
+    </div>
+    <div class="section">
+      <div class="section-hdr">
+        <h2>Network Links</h2>
+        <span class="count" id="linkCount"></span>
+      </div>
+      <div id="linkTiles"></div>
+    </div>
+    <div class="section">
+      <div class="section-hdr">
+        <h2>Hosts</h2>
+        <span class="count" id="hostCount"></span>
+      </div>
+      <div id="hostTiles"></div>
+    </div>
+  </aside>
+
+  <main>
+    <canvas id="net"></canvas>
+    <div class="map-title">
+      <div class="map-title-l1">The FrogNet Living Network</div>
+      <div class="map-title-l2">Routing and Topology Map (Live)</div>
+    </div>
+    <div class="hud">
+      <div class="status-pill" id="hud">—</div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal">
+    <div class="modal-hdr">
+      <button class="btn" id="modalBack" style="display:none;">&larr; Back</button>
+      <div class="m-title" id="modalTitle">&mdash;</div>
+      <button class="btn" id="modalClose">Close</button>
+    </div>
+    <div id="modalList"></div>
+    <pre id="modalBody"></pre>
+  </div>
+</div>
+
+<script>
+/**********************************************************************
+ * Helpers
+ **********************************************************************/
+function isV4(s){ return typeof s==="string" && /^\d+\.\d+\.\d+\.\d+$/.test(s); }
+function isFrogNetIp(ip){ return typeof ip==="string" && ip.startsWith("10."); }
+function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+
+async function jget(url){
+  const r=await fetch(url,{cache:"no-store"});
+  if(!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+  return await r.json();
+}
+async function jgetTry(urls){
+  let lastErr=null;
+  for(const u of urls){ try{return await jget(u);}catch(e){lastErr=e;} }
+  throw lastErr||new Error("all fetch variants failed");
+}
+
+function parseEcho(echoStr){
+  if(typeof echoStr!=="string") return {fqdn:"",hostPath:"",gw0:"",gw1:""};
+  const parts=echoStr.trim().split(",");
+  return {fqdn:(parts[0]||"").trim(),hostPath:(parts[1]||"").trim(),gw0:(parts[2]||"").trim(),gw1:(parts[3]||"").trim()};
+}
+
+function canonicalKey(a,b){ return [a,b].sort().join("|"); }
+function subnetThird(ip){ if(!isV4(ip)) return null; const p=ip.split("."); return p[2]?Number(p[2]):null; }
+
+function safeJsonParse(v){
+  if(v===null||v===undefined) return null;
+  if(typeof v==="object") return v;
+  if(typeof v!=="string") return null;
+  try{return JSON.parse(v);}catch{return null;}
+}
+
+/**********************************************************************
+ * Resolve the owning host IP from the SensorName prefix.
+ * SensorName is like "BlackBox.Topology.Links" — the part before the
+ * first dot is the hostname.  Look it up in the hosts map to get IP.
+ * Falls back to SensorAddress if the hostname isn't found.
+ **********************************************************************/
+function resolveHostIp(sensor, hosts){
+  const name=String(sensor.SensorName||"");
+  const label=name.split(".")[0];
+  if(label){
+    for(const [ip,h] of hosts.entries()){
+      if(h.hostname===label) return ip;
+    }
+  }
+  return String(sensor.SensorAddress||"").trim();
+}
+
+function formatBytes(bytes){
+  if(bytes<1024) return bytes+" B";
+  if(bytes<1024*1024) return (bytes/1024).toFixed(1)+" KB";
+  if(bytes<1024*1024*1024) return (bytes/(1024*1024)).toFixed(1)+" MB";
+  return (bytes/(1024*1024*1024)).toFixed(2)+" GB";
+}
+function formatPct(ratio){ return (ratio*100).toFixed(1)+"%"; }
+function formatMs(ms){ return ms>=1000?(ms/1000).toFixed(2)+"s":ms.toFixed(1)+"ms"; }
+
+/**********************************************************************
+ * LinkState normalization
+ **********************************************************************/
+function normalizeEdgesFromLinkStateJson(obj){
+  if(!obj||typeof obj!=="object") return [];
+  if(Array.isArray(obj.edges)) return obj.edges;
+  if(obj.peer_host_ip) return [obj];
+  return [];
+}
+
+/**********************************************************************
+ * RTT-based edge colors
+ **********************************************************************/
+function rttColor(rtt_ms){
+  if(!rtt_ms||rtt_ms<=0) return"#546478";
+  if(rtt_ms<1000) return"#3b9eff";
+  if(rtt_ms<2000) return"#f0c038";
+  return"#f0483e";
+}
+function edgeStrokeColor(e){
+  if(!e) return"#546478";
+  if(e.kind==="EXTERNAL") return "#9aafc8";   /* brighter than unknown-RTT gray so uplinks actually show up */
+  const rtt=e.meta&&e.meta.rtt_avg_ms?Number(e.meta.rtt_avg_ms):0;
+  return rttColor(rtt);
+}
+
+/**********************************************************************
+ * Edge dash patterns — each maps to a route class.  Style identifies
+ * the kind of route; color identifies the internet pathway (or RTT
+ * for non-tunnel routes).  Keep in sync with drawLegend() and draw().
+ *   []        solid    — direct/LAN route (dev != wg*, not EXTERNAL)
+ *   [10,10]   dashed   — WireGuard tunnel route (dev wg*); drawn twice
+ *                        in two pathway colors when both endpoints
+ *                        have distinct internet gateways
+ *   [8,4,2,4] dot-dash — Internet uplink (EXTERNAL); drawn in source
+ *                        host's pathway color
+ **********************************************************************/
+const DASH_DIRECT   = [];
+const DASH_TUNNEL   = [10,10];   /* slightly tighter than v23's [14,8] — interleaves cleanly with phase offset */
+const DASH_UPLINK   = [8,4,2,4];
+/* [LOGICAL_IS_NOT_PHYSICAL_V1] A route THROUGH another host is not a wire and
+ * must not be drawn as one — in the logical view it is the majority of the
+ * lines on screen. */
+const DASH_TRANSIT  = [2,5];
+/* [INFERRED_IS_NOT_OBSERVED_V1] filterEgressTree BFS-synthesizes hops when a
+ * host's echo data is missing. v31 marked them synthetic:true and then drew
+ * them identically to observed hops — the flag was set and never read. A map
+ * that invents a link it cannot see is worse than one that shows a gap. */
+const DASH_INFERRED = [1,4];
+
+function edgeDash(e){
+  if(!e) return DASH_DIRECT;
+  if(e.meta && e.meta.synthetic) return DASH_INFERRED;
+  if(e.kind==="EXTERNAL") return DASH_UPLINK;
+  if(e.meta && e.meta.transit) return DASH_TRANSIT;
+  const dev=(e.meta&&typeof e.meta.dev==="string")?e.meta.dev.toLowerCase():"";
+  if(dev.startsWith("wg")) return DASH_TUNNEL;
+  return DASH_DIRECT;
+}
+
+/**********************************************************************
+ * Deterministic per-node color
+ **********************************************************************/
+let NODE_COLOR_MAP=new Map();
+function hashStr(s){ let h=2166136261; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);} return(h>>>0); }
+function hueDist(a,b){ const d=Math.abs(a-b)%360; return Math.min(d,360-d); }
+
+function computeUniqueNodeColors(nodeIds){
+  const out=new Map();
+  const ids=Array.from(nodeIds).map(id=>String(id??"").trim()).filter(id=>id&&!id.startsWith("external:")).sort();
+  const MIN_GAP=20, chosenHues=[];
+  for(const id of ids){
+    const base=hashStr(id)%360; let h=base,picked=null;
+    for(let tries=0;tries<360;tries++){
+      let ok=true;
+      for(const hh of chosenHues){if(hueDist(h,hh)<MIN_GAP){ok=false;break;}}
+      if(ok){picked=h;break;} h=(h+37)%360;
+    }
+    if(picked===null) picked=base;
+    chosenHues.push(picked);
+    out.set(id,`hsl(${picked} 65% 52%)`);
+  }
+  for(const raw of nodeIds){
+    const id=String(raw??"").trim();
+    if(id.startsWith("external:")) out.set(id,"hsl(0 0% 88%)");
+  }
+  return out;
+}
+
+function assignColorIfMissing(id){
+  const k=String(id??"").trim();
+  if(!k) return "hsl(0 0% 55%)";
+  if(k.startsWith("external:")){ NODE_COLOR_MAP.set(k,"hsl(0 0% 88%)"); return NODE_COLOR_MAP.get(k); }
+  if(NODE_COLOR_MAP.has(k)) return NODE_COLOR_MAP.get(k);
+  const used=new Set(NODE_COLOR_MAP.values());
+  const base=hashStr(k)%360;
+  const L_LANES=[52,44,60,38,66];
+  let h=base;
+  for(let lane=0;lane<L_LANES.length;lane++){
+    const l=L_LANES[lane];
+    for(let tries=0;tries<360;tries++){
+      const cand=`hsl(${h} 65% ${l}%)`;
+      if(!used.has(cand)){NODE_COLOR_MAP.set(k,cand);return cand;}
+      h=(h+37)%360;
+    }
+  }
+  const cand=`hsl(${base} 65% 52%)`;
+  NODE_COLOR_MAP.set(k,cand);
+  return cand;
+}
+
+function idNorm(id){ return String(id??"").trim(); }
+function nodeColorForId(id){ return assignColorIfMissing(id); }
+
+function parseHsl(css){
+  const m=String(css||"").match(/hsl\(\s*([0-9.]+)\s+([0-9.]+)%\s+([0-9.]+)%\s*\)/i);
+  if(!m) return null;
+  return {h:Number(m[1]),s:Number(m[2]),l:Number(m[3])};
+}
+function hslToRgb(h,s,l){
+  h=((h%360)+360)%360; s/=100; l/=100;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs(((h/60)%2)-1));
+  const m=l-c/2;
+  let r=0,g=0,b=0;
+  if(0<=h&&h<60){r=c;g=x;b=0;}
+  else if(60<=h&&h<120){r=x;g=c;b=0;}
+  else if(120<=h&&h<180){r=0;g=c;b=x;}
+  else if(180<=h&&h<240){r=0;g=x;b=c;}
+  else if(240<=h&&h<300){r=x;g=0;b=c;}
+  else{r=c;g=0;b=x;}
+  return {r:Math.round((r+m)*255),g:Math.round((g+m)*255),b:Math.round((b+m)*255)};
+}
+function relLuma(rgb){
+  function lin(u){u/=255;return(u<=0.04045)?(u/12.92):Math.pow((u+0.055)/1.055,2.4);}
+  return 0.2126*lin(rgb.r)+0.7152*lin(rgb.g)+0.0722*lin(rgb.b);
+}
+function bestTextColorForFill(fillCss){
+  const hsl=parseHsl(fillCss);
+  if(!hsl) return "#0b0f14";
+  const rgb=hslToRgb(hsl.h,hsl.s,hsl.l);
+  return(relLuma(rgb)>0.38)?"#0b0f14":"#e8edf3";
+}
+
+/**********************************************************************
+ * Modal
+ **********************************************************************/
+let modalBackdrop=null, modalTitle=null, modalBody=null, modalList=null, modalBack=null;
+let _modalReturnFn=null;
+function initModal(){
+  if(modalBackdrop) return;
+  modalBackdrop=document.getElementById("modalBackdrop");
+  modalTitle=document.getElementById("modalTitle");
+  modalBody=document.getElementById("modalBody");
+  modalList=document.getElementById("modalList");
+  modalBack=document.getElementById("modalBack");
+  const closeBtn=document.getElementById("modalClose");
+  if(closeBtn) closeBtn.onclick=()=>{modalBackdrop.style.display="none"; _modalReturnFn=null;};
+  if(modalBack) modalBack.onclick=()=>{if(_modalReturnFn){const f=_modalReturnFn;_modalReturnFn=null;f();}};
+  if(modalBackdrop) modalBackdrop.addEventListener("click",(e)=>{if(e.target===modalBackdrop){modalBackdrop.style.display="none"; _modalReturnFn=null;}});
+}
+document.addEventListener("DOMContentLoaded",initModal);
+function showModal(title,obj){
+  initModal();
+  if(!modalBackdrop) return;
+  modalTitle.textContent=title;
+  modalBody.textContent=(typeof obj==="string")?obj:JSON.stringify(obj,null,2);
+  modalBody.style.display="block";
+  if(modalList) modalList.style.display="none";
+  if(modalBack) modalBack.style.display=_modalReturnFn?"inline-block":"none";
+  modalBackdrop.style.display="flex";
+}
+
+/* Click a host tile → list of that host's sensors, each row clickable
+ * to drop into the JSON view (with a Back button to return here). */
+function showHostSensorsModal(hostIp){
+  initModal();
+  if(!modalBackdrop) return;
+  const h=HOSTS.get(hostIp);
+  const hostname=h?h.hostname:hostIp;
+  modalTitle.textContent=`${hostname} (${hostIp}) — Sensors`;
+  modalBody.style.display="none";
+  modalList.style.display="block";
+  modalList.innerHTML="";
+  _modalReturnFn=null;
+  if(modalBack) modalBack.style.display="none";
+
+  const sensors=(SENSOR_BY_HOSTIP.get(hostIp)||[]).slice()
+    .sort((a,b)=>{
+      const ta=String(a.SensorType||""), tb=String(b.SensorType||"");
+      if(ta!==tb) return ta.localeCompare(tb);
+      return String(a.SensorName||"").localeCompare(String(b.SensorName||""));
+    });
+
+  if(!sensors.length){
+    const empty=document.createElement("div"); empty.className="sensor-empty";
+    empty.textContent="No sensors found for this host.";
+    modalList.appendChild(empty);
+  } else {
+    for(const s of sensors){
+      const row=document.createElement("div"); row.className="sensor-row";
+      const stype=document.createElement("div"); stype.className="stype"; stype.textContent=String(s.SensorType||"(no type)");
+      const sname=document.createElement("div"); sname.className="sname"; sname.textContent=String(s.SensorName||"");
+      const sid=document.createElement("div"); sid.className="sid"; sid.textContent=`ID=${s.SensorID}`;
+      row.append(stype,sname,sid);
+      row.onclick=async()=>{
+        const obj=await fetchSensorData(s.SensorID);
+        _modalReturnFn=()=>showHostSensorsModal(hostIp);
+        showModal(`${hostname} — ${s.SensorName} (ID=${s.SensorID})`,obj||"No data");
+      };
+      modalList.appendChild(row);
+    }
+  }
+  modalBackdrop.style.display="flex";
+}
+
+/**********************************************************************
+ * Canvas HiDPI
+ **********************************************************************/
+const canvas=document.getElementById("net");
+const ctx=canvas.getContext("2d");
+
+function resizeCanvas(){
+  const rect=canvas.getBoundingClientRect();
+  const dpr=Math.max(1,window.devicePixelRatio||1);
+  canvas.width=Math.floor(rect.width*dpr);
+  canvas.height=Math.floor(rect.height*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+new ResizeObserver(resizeCanvas).observe(canvas);
+window.addEventListener("resize",resizeCanvas);
+resizeCanvas();
+
+/**********************************************************************
+ * View transform
+ **********************************************************************/
+let view={x:0,y:0,k:1.0};
+function worldToScreen(p){return{x:p.x*view.k+view.x,y:p.y*view.k+view.y};}
+function screenToWorld(p){return{x:(p.x-view.x)/view.k,y:(p.y-view.y)/view.k};}
+
+function fitToScreen(nodes){
+  const rect=canvas.getBoundingClientRect();
+  const sw=rect.width,sh=rect.height;
+  const arr=Array.from(nodes.values());
+  if(!arr.length) return;
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  for(const n of arr){minx=Math.min(minx,n.x);miny=Math.min(miny,n.y);maxx=Math.max(maxx,n.x);maxy=Math.max(maxy,n.y);}
+  const pad=160; minx-=pad;miny-=pad;maxx+=pad;maxy+=pad;
+  const w=Math.max(1,maxx-minx),h=Math.max(1,maxy-miny);
+  const k=Math.min(sw/w,sh/h,1.6);
+  view.k=Math.max(0.25,k);
+  view.x=sw/2-((minx+maxx)/2)*view.k;
+  view.y=sh/2-((miny+maxy)/2)*view.k;
+}
+
+/**********************************************************************
+ * Persistent positions
+ **********************************************************************/
+const POS_KEY="frognet_livingnet_positions_v8";
+function loadPositions(){ try{return JSON.parse(localStorage.getItem(POS_KEY)||"{}")||{};}catch{return {};} }
+function savePositions(pos){ try{localStorage.setItem(POS_KEY,JSON.stringify(pos));}catch{} }
+function seeded01(s){ return(hashStr(s)%1000000)/1000000; }
+
+/**********************************************************************
+ * State
+ **********************************************************************/
+const EDGE_W=2.5;
+let HOSTS=new Map(),SENSORS=[],SENSOR_BY_HOSTIP=new Map(),SENSOR_DATA_CACHE=new Map();
+let NODES=new Map(),EDGES=new Map(),PHYS_LINKS=new Map(),LINK_QUALITY=new Map(),SUBNET_EDGES=new Map();
+let DBHOST_IP="";
+
+let ENGINE_BY_HOST=new Map();
+let ENDPOINTS_BY_HOST=new Map();
+let PEER_SENSORS=[];
+let DAEMON_BY_HOST=new Map();
+
+/**********************************************************************
+ * Internet pathway colors
+ *
+ * Each host that's an internet egress point is assigned a distinct
+ * "pathway color" from a fixed palette.  Two detection rules are
+ * unioned — a host is a gateway if EITHER rule matches:
+ *
+ *   Rule 1 (echo):  echo carries a non-FrogNet gw0 or gw1.  This is
+ *                   the canonical case for hosts whose echo data is
+ *                   complete and accurate.
+ *   Rule 2 (wg*):   host owns a Topology/LinkState edge with dev=wg*.
+ *                   Only a host with a local wg interface can have
+ *                   dev=wg* in its routing table, and only a host
+ *                   with internet egress can run WG tunnels.  Catches
+ *                   gateways with echo data gaps, NAT'd-public-IP
+ *                   setups, etc.
+ *
+ * Assignment is deterministic on sorted host IP so palette is stable
+ * across polls and reloads.
+ *
+ * Usage at draw time:
+ *   - EXTERNAL edge (host → Internet): drawn in the host's pathway
+ *     color, dot-dash style.
+ *   - WG tunnel edge (dev wg*): if both endpoints have pathway colors,
+ *     drawn TWICE with phase-offset dashes so the two colors alternate
+ *     along the line — each gateway's identity shows in every other
+ *     dash.
+ *   - Direct/LAN edge: unrelated to internet pathways; solid RTT
+ *     color as before.
+ *
+ * Why this encodes topology: every tunnel emanating from gateway G
+ * carries G's color on alternating dashes.  Scan for G's color and
+ * you see G's tunnel cloud — which nodes egress through G.
+ **********************************************************************/
+const PATHWAY_PALETTE = [
+  "#f0c038",   // amber
+  "#3b9eff",   // blue
+  "#28cc6e",   // green
+  "#f0483e",   // red
+  "#c878ff",   // purple
+  "#ff8c42",   // orange
+  "#42d4d4",   // cyan
+  "#ff6bcb",   // pink
+];
+let PATHWAY_COLOR_BY_HOST = new Map();
+
+function computePathwayColors(hostMap, edges){
+  PATHWAY_COLOR_BY_HOST = new Map();
+  const gatewayHosts = new Set();
+
+  // Rule 1: non-FrogNet gw in echo
+  for (const [ip,h] of hostMap.entries()){
+    const gws = [h.echo?.gw0, h.echo?.gw1].filter(x => x && x !== "0.0.0.0");
+    if (gws.some(g => !isFrogNetIp(g))) gatewayHosts.add(ip);
+  }
+
+  // Rule 2: host owns a wg* route.  Edges are keyed `from→to` where
+  // `from` is the reporting host — only that host can locally own
+  // the dev (wg* exists on its kernel).  So `from` is the gateway
+  // when dev starts with wg.
+  if (edges){
+    for (const e of edges.values()){
+      if (e.kind === "EXTERNAL") continue;
+      const dev = (e.meta && typeof e.meta.dev === "string") ? e.meta.dev.toLowerCase() : "";
+      if (dev.startsWith("wg")) gatewayHosts.add(e.from);
+    }
+  }
+
+  const sorted = Array.from(gatewayHosts).sort();
+  sorted.forEach((ip,i) => {
+    PATHWAY_COLOR_BY_HOST.set(ip, PATHWAY_PALETTE[i % PATHWAY_PALETTE.length]);
+  });
+}
+
+function pathwayColorForHost(ip){ return PATHWAY_COLOR_BY_HOST.get(ip) || null; }
+
+/**********************************************************************
+ * parentGatewayIp(ip) — the FrogNet gateway this host actually routes
+ * through, read from its OWN echo data (gw0/gw1).  Used by
+ * familyColor() so children inherit their parent gateway's color.
+ **********************************************************************/
+function parentGatewayIp(childIp){
+  const h = HOSTS.get(childIp);
+  if(!h || !h.echo) return null;
+  for(const gw of [h.echo.gw0, h.echo.gw1]){
+    if(!gw || gw === "0.0.0.0" || !isFrogNetIp(gw)) continue;
+    if(HOSTS.has(gw) && isGateway(gw)) return gw;
+  }
+  return null;
+}
+
+/**********************************************************************
+ * familyColor(ip, edges) — the route-map "family color" of a host:
+ * the pathway color of the internet gateway it ultimately egresses
+ * through.  A host that IS a gateway gets its own pathway color.
+ * Otherwise consult echo-derived parent; last resort = a one-hop
+ * neighbor gateway, if any.
+ **********************************************************************/
+function familyColor(ip, edges){
+  const own = pathwayColorForHost(ip);
+  if(own) return own;
+  const parent = parentGatewayIp(ip);
+  if(parent) return pathwayColorForHost(parent);
+  return egressGatewayColorForHost(ip, edges);
+}
+
+function egressGatewayColorForHost(ip, edges){
+  let bestIp = null, bestCol = null;
+  for(const e of edges.values()){
+    if(e.kind === "EXTERNAL") continue;
+    let other = null;
+    if(e.from === ip) other = e.to;
+    else if(e.to === ip) other = e.from;
+    if(!other) continue;
+    const pc = pathwayColorForHost(other);
+    if(pc && (bestIp === null || other < bestIp)){ bestIp = other; bestCol = pc; }
+  }
+  return bestCol;
+}
+
+function isGateway(ip){ return PATHWAY_COLOR_BY_HOST.has(String(ip||"")); }
+
+function ipToInt(ip){
+  const p = String(ip||"").split(".").map(Number);
+  if(p.length !== 4 || p.some(n => !Number.isFinite(n))) return 0;
+  return p[0]*16777216 + p[1]*65536 + p[2]*256 + p[3];
+}
+
+/**********************************************************************
+ * Link STATUS  →  health GLOW
+ *
+ * Speed/health rides on a colored GLOW halo, not the line color:
+ *   degraded (1–2s)   → yellow
+ *   slow     (>2s)    → red
+ *   down/unknown      → black
+ *   online (<1s)      → no glow
+ * Thresholds match the old RTT buckets.  A link with no RTT sample is
+ * treated as online to avoid false halos.
+ **********************************************************************/
+const RTT_DEGRADED_MS = 1000;
+const RTT_SLOW_MS     = 2000;
+
+function linkStatus(e){
+  if(!e) return "down";
+  if(e.kind === "UNKNOWN") return "down";
+  const rtt = (e.meta && Number(e.meta.rtt_avg_ms)) || 0;
+  if(rtt <= 0) return "online";
+  if(rtt < RTT_DEGRADED_MS) return "online";
+  if(rtt < RTT_SLOW_MS)     return "degraded";
+  return "slow";
+}
+function statusGlowColor(status){
+  switch(status){
+    case "degraded": return "#f0c038";
+    case "slow":     return "#f0483e";
+    case "down":     return "#000000";
+    default:         return null;
+  }
+}
+
+/**********************************************************************
+ * View mode: "route" (full mesh) or "internet" (egress chain only).
+ *
+ * The egress chain is built primarily from echo gws as EXTERNAL edges
+ * (child→parent for FrogNet gws, head→Internet for non-FrogNet gws).
+ * When a host's echo data is missing or stale, that host orphans —
+ * its descendants would dead-end at it.  filterEgressTree heals this
+ * by BFS-ing from the Internet node through ALL edges (EXTERNAL +
+ * non-EXTERNAL Topology, treated undirected) and synthesizing the
+ * missing hops.  RTT is copied from the underlying Topology edge so
+ * glow halos still reflect link health.  Synthetic edges only exist
+ * in the Internet view; route view is unaffected.
+ **********************************************************************/
+/* [THREE_VIEWS_V1] There are three distinct maps and v31 had a binary toggle
+ * over two of them — neither of which was the logical one.
+ *
+ *   "logical"  every node to every other node, including routes that
+ *              traverse an intermediate host. THE DEFAULT.
+ *   "physical" direct hops only — Seattle2 to Seattle3 to Seattle6.
+ *              This is what v31 called "route" and shipped as the default.
+ *   "egress"   the chain to the Internet node. What v31 called "internet".
+ *
+ * physical is a strict subset of logical, which is what it is.
+ */
+let VIEW_MODE = "logical";   // "logical" | "physical" | "egress"
+
+const VIEW_ORDER = ["logical","physical","egress"];
+const VIEW_LABEL = { logical:"Logical map", physical:"Internet map", egress:"Egress tree" };
+const VIEW_SUB = {
+  logical : "Logical map · every node to every other node · dotted = route via an intermediate host · glow = link health",
+  physical: "Internet map · direct hops only, as the packets actually travel · glow = link health",
+  egress  : "Egress tree · the chain each node takes to the Internet · hatched = inferred, not observed"
+};
+
+/* Drop transit edges: the physical map is what is left. */
+function filterDirectOnly(edges){
+  const out=new Map();
+  for(const [k,e] of edges.entries()){
+    if(e && e.meta && e.meta.transit) continue;
+    out.set(k,e);
+  }
+  return out;
+}
+
+function filterEgressTree(edges){
+  const internetId = "external:internet";
+  const out = new Map();
+
+  // 1. Start with the explicit EXTERNAL edges (echo-derived chain).
+  for(const [k, e] of edges.entries()){
+    if(e.kind === "EXTERNAL") out.set(k, e);
+  }
+
+  // 2. Build undirected adjacency over ALL edges.
+  const adj = new Map();
+  const addAdj=(a,b)=>{ if(!adj.has(a)) adj.set(a,new Set()); adj.get(a).add(b); };
+  for(const e of edges.values()){
+    addAdj(e.from, e.to);
+    addAdj(e.to,   e.from);
+  }
+
+  // 3. BFS from Internet → predecessor map (each node's next hop
+  //    toward Internet, by shortest path through the graph).
+  const pred    = new Map();
+  const visited = new Set([internetId]);
+  const queue   = [internetId];
+  while(queue.length){
+    const cur = queue.shift();
+    for(const nb of (adj.get(cur) || [])){
+      if(visited.has(nb)) continue;
+      visited.add(nb);
+      pred.set(nb, cur);
+      queue.push(nb);
+    }
+  }
+
+  // 4. Hosts that already have an outgoing EXTERNAL edge are anchored
+  //    to the chain.  Walking pred from each orphan toward Internet
+  //    synthesizes the missing hops, stopping the moment we reach an
+  //    anchored host (or the Internet node itself).
+  const anchored = new Set();
+  for(const e of out.values()) anchored.add(e.from);
+
+  for(const ip of HOSTS.keys()){
+    let cur = ip;
+    while(cur && cur !== internetId){
+      if(anchored.has(cur)) break;
+      const next = pred.get(cur);
+      if(!next || next === internetId) break;   // safety; heads handle this themselves
+      // Copy RTT from whichever Topology edge sits between cur↔next
+      // so the glow still encodes health for synthetic hops.
+      const direct = edges.get(`${cur}→${next}`) || edges.get(`${next}→${cur}`);
+      const rtt = (direct && direct.meta && Number(direct.meta.rtt_avg_ms)) || 0;
+      const key = `synth:${cur}→${next}`;
+      out.set(key, {
+        from: cur, to: next, kind: "EXTERNAL",
+        meta: {dev:"uplink", synthetic:true, rtt_avg_ms: rtt}
+      });
+      anchored.add(cur);
+      cur = next;
+    }
+  }
+
+  return out;
+}
+
+/**********************************************************************
+ * Node box sizing
+ **********************************************************************/
+function computeNodeBox(label,ip){
+  const padX=22,padY=16;
+  ctx.save();
+  ctx.font=`600 18px ${getCss("--sans")}`;
+  const w1=ctx.measureText(label||"").width;
+  ctx.font=`15px ${getCss("--mono")}`;
+  const w2=ctx.measureText(ip||"").width;
+  ctx.restore();
+  return {w:Math.max(180,Math.ceil(Math.max(w1,w2)+padX*2)),h:78+padY};
+}
+
+function ensureNode(id,label,ipForSort){
+  id=idNorm(id); ipForSort=idNorm(ipForSort);
+  if(!NODES.has(id)){
+    const posStore=loadPositions();
+    const rect=canvas.getBoundingClientRect();
+    const wv=rect.width,hv=rect.height;
+    let x,y;
+    if(posStore[id]&&typeof posStore[id].x==="number"&&typeof posStore[id].y==="number"){
+      x=posStore[id].x; y=posStore[id].y;
+    } else {
+      let col=0.50;
+      if(ipForSort&&ipForSort.startsWith("10.")){
+        const third=Number(ipForSort.split(".")[2]||0);
+        col=(third===10)?0.22:(third===20?0.36:(third===30?0.50:(third===50?0.68:0.82)));
+      }
+      if(id.startsWith("external:")) col=0.92;
+      x=wv*col+(seeded01(id)-0.5)*90;
+      y=hv*(0.22+0.60*seeded01("y:"+id));
+      posStore[id]={x,y}; savePositions(posStore);
+    }
+    const box=computeNodeBox(label||id,ipForSort||"");
+    NODES.set(id,{id,label:label||id,ip:ipForSort||"",x,y,w:box.w,h:box.h});
+  } else {
+    const n=NODES.get(id);
+    if(label&&n.label!==label) n.label=label;
+    if(ipForSort&&!n.ip) n.ip=ipForSort;
+    const box=computeNodeBox(n.label,n.ip); n.w=box.w; n.h=box.h;
+  }
+  return NODES.get(id);
+}
+
+function rectOf(n,pad=18){
+  return {x0:n.x-n.w/2-pad,y0:n.y-n.h/2-pad,x1:n.x+n.w/2+pad,y1:n.y+n.h/2+pad};
+}
+function rectsOverlap(a,b){
+  return !(a.x1<b.x0||a.x0>b.x1||a.y1<b.y0||a.y0>b.y1);
+}
+function resolveOverlaps(iter=70){
+  const nodes=Array.from(NODES.values());
+  if(nodes.length<2) return;
+  for(let k=0;k<iter;k++){
+    let moved=false;
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        const A=nodes[i],B=nodes[j];
+        const ra=rectOf(A,18),rb=rectOf(B,18);
+        if(!rectsOverlap(ra,rb)) continue;
+        const dx=(A.x-B.x)||((seeded01("dx:"+A.id+"|"+B.id)-0.5)*0.01);
+        const dy=(A.y-B.y)||((seeded01("dy:"+A.id+"|"+B.id)-0.5)*0.01);
+        const overlapX=Math.min(ra.x1,rb.x1)-Math.max(ra.x0,rb.x0);
+        const overlapY=Math.min(ra.y1,rb.y1)-Math.max(ra.y0,rb.y0);
+        if(overlapX<overlapY){ const push=(overlapX/2+3)*Math.sign(dx); A.x+=push; B.x-=push; }
+        else { const push=(overlapY/2+3)*Math.sign(dy); A.y+=push; B.y-=push; }
+        moved=true;
+      }
+    }
+    if(!moved) break;
+  }
+}
+
+function intersectRectBoundary(fromNode,toNode){
+  const fx=fromNode.x,fy=fromNode.y,tx=toNode.x,ty=toNode.y;
+  const dx=tx-fx,dy=ty-fy;
+  if(dx===0&&dy===0) return {x:fx,y:fy};
+  const sx=(dx!==0)?(fromNode.w/2/Math.abs(dx)):Infinity;
+  const sy=(dy!==0)?(fromNode.h/2/Math.abs(dy)):Infinity;
+  const t=Math.min(sx,sy);
+  return {x:fx+dx*t,y:fy+dy*t};
+}
+
+function segmentIntersectsRect(p0,p1,r){
+  const minx=Math.min(p0.x,p1.x),maxx=Math.max(p0.x,p1.x);
+  const miny=Math.min(p0.y,p1.y),maxy=Math.max(p0.y,p1.y);
+  if(maxx<r.x0||minx>r.x1||maxy<r.y0||miny>r.y1) return false;
+  for(let i=0;i<=18;i++){
+    const t=i/18;
+    const x=p0.x+(p1.x-p0.x)*t,y=p0.y+(p1.y-p0.y)*t;
+    if(x>=r.x0&&x<=r.x1&&y>=r.y0&&y<=r.y1) return true;
+  }
+  return false;
+}
+
+/* Edge routing: with deduplicated edges, there's at most ONE line per
+ * host pair, so a single deterministic bend side is fine.  (The old
+ * code alternated sides per direction to separate A→B from B→A; no
+ * longer needed since A↔B is one edge now.) */
+function edgeCurvePoints(a,b){
+  const pA=intersectRectBoundary(a,b), pB=intersectRectBoundary(b,a);
+  const mx=(pA.x+pB.x)/2,my=(pA.y+pB.y)/2;
+  const dx=pB.x-pA.x,dy=pB.y-pA.y;
+  const len=Math.max(1,Math.hypot(dx,dy));
+  const nx=-dy/len,ny=dx/len;
+  const side=(hashStr(canonicalKey(a.id,b.id))&1)?1:-1;
+  let bend=26;
+  for(let tries=0;tries<10;tries++){
+    const c={x:mx+nx*bend*side,y:my+ny*bend*side};
+    let blocked=false;
+    for(const n of NODES.values()){
+      if(n.id===a.id||n.id===b.id) continue;
+      const r=rectOf(n,10);
+      if(segmentIntersectsRect(pA,c,r)||segmentIntersectsRect(c,pB,r)||segmentIntersectsRect(pA,pB,r)){blocked=true;break;}
+    }
+    if(!blocked) return {pA,pB,c};
+    bend+=22;
+  }
+  return {pA,pB,c:{x:mx+nx*160*side,y:my+ny*160*side}};
+}
+
+/**********************************************************************
+ * Legend — three columns: route STYLE × RTT SPEED × per-gateway PATHWAY
+ * color swatches.  Style and speed are fixed 3-row; pathway count is
+ * dynamic (one row per internet-egress host).  Box height grows to fit.
+ **********************************************************************/
+function drawLegend(){
+  const rect=canvas.getBoundingClientRect();
+
+  // STATUS glow swatches.  Online has no glow, so it isn't listed —
+  // absence of halo IS the online signal.
+  const statusLevels=[
+    {color:"#f0c038", label:"Degraded"},
+    {color:"#f0483e", label:"Slow"},
+    {color:"#000000", label:"Down"},
+  ];
+
+  // Pathway swatches: one row per gateway host.
+  const pathwayRows=[];
+  const gwSorted=Array.from(PATHWAY_COLOR_BY_HOST.keys()).sort();
+  for(const ip of gwSorted){
+    const h=HOSTS.get(ip);
+    const label=h?h.hostname:ip;
+    pathwayRows.push({color:PATHWAY_COLOR_BY_HOST.get(ip), label});
+  }
+
+  const padX=12, padY=10;
+  const hdrH=14, rowH=18;
+  const dotR=5, statusLabelW=58;
+  const pwSwatchW=14, pwLabelW=110;
+  const colGap=16;
+
+  const col1W = 2*dotR + 6 + statusLabelW;
+  const col2W = pwSwatchW + 6 + pwLabelW;
+  const haveCol2 = pathwayRows.length>0;
+
+  const boxW  = padX*2 + col1W + (haveCol2?(colGap+col2W):0);
+  const rows  = Math.max(statusLevels.length, pathwayRows.length);
+  const boxH  = padY*2 + hdrH + rows*rowH;
+
+  const bx = rect.width - boxW - 12;
+  const by = rect.height - boxH - 12;
+
+  ctx.save();
+  drawRoundedRect(bx,by,boxW,boxH,8);
+  ctx.fillStyle="rgba(10,15,22,0.88)";
+  ctx.fill();
+  ctx.strokeStyle="#1a2538";
+  ctx.lineWidth=1;
+  ctx.stroke();
+  ctx.restore();
+
+  const hdr1X = bx + padX;
+  const hdr2X = bx + padX + col1W + colGap;
+  ctx.save();
+  ctx.fillStyle="#6b7d94";
+  ctx.font=`700 9.5px ${getCss("--sans")}`;
+  ctx.textBaseline="top";
+  ctx.textAlign="left";
+  ctx.fillText("STATUS", hdr1X, by+padY);
+  if(haveCol2) ctx.fillText("PATHWAYS", hdr2X, by+padY);
+  ctx.restore();
+
+  const rowsY0 = by + padY + hdrH;
+
+  // status column — glowing dots; Down (black) gets a thin outline so
+  // it's visible against the dark panel.
+  for(let i=0;i<statusLevels.length;i++){
+    const s  = statusLevels[i];
+    const lx = hdr1X;
+    const ly = rowsY0 + i*rowH + rowH/2;
+    ctx.save();
+    ctx.shadowColor=s.color;
+    ctx.shadowBlur=8;
+    ctx.fillStyle=s.color;
+    ctx.beginPath();
+    ctx.arc(lx+dotR, ly, dotR, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+    if(s.color==="#000000"){
+      ctx.save();
+      ctx.strokeStyle="#3d4f64";
+      ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.arc(lx+dotR, ly, dotR, 0, Math.PI*2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.fillStyle="#a4b3c5";
+    ctx.font=`11px ${getCss("--sans")}`;
+    ctx.textBaseline="middle";
+    ctx.textAlign="left";
+    ctx.fillText(s.label, lx+2*dotR+6, ly);
+    ctx.restore();
+  }
+
+  // pathway column — small rounded swatch + host label
+  if(haveCol2){
+    for(let i=0;i<pathwayRows.length;i++){
+      const p  = pathwayRows[i];
+      const lx = hdr2X;
+      const ly = rowsY0 + i*rowH + rowH/2;
+      ctx.save();
+      drawRoundedRect(lx, ly-5, pwSwatchW, 10, 2);
+      ctx.fillStyle=p.color;
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.fillStyle="#a4b3c5";
+      ctx.font=`11px ${getCss("--sans")}`;
+      ctx.textBaseline="middle";
+      ctx.textAlign="left";
+      let lbl=p.label||"";
+      if(lbl.length>16) lbl=lbl.slice(0,15)+"…";
+      ctx.fillText(lbl, lx+pwSwatchW+6, ly);
+      ctx.restore();
+    }
+  }
+}
+
+/**********************************************************************
+ * Draw
+ **********************************************************************/
+function drawRoundedRect(x,y,w,h,r){
+  const rr=Math.min(r,w/2,h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+rr,y);
+  ctx.arcTo(x+w,y,x+w,y+h,rr);
+  ctx.arcTo(x+w,y+h,x,y+h,rr);
+  ctx.arcTo(x,y+h,x,y,rr);
+  ctx.arcTo(x,y,x+w,y,rr);
+  ctx.closePath();
+}
+
+/**********************************************************************
+ * Collapse bidirectional host↔host edges into a single logical edge.
+ * Every host publishes its own Topology sensor, so for every connected
+ * pair we get A→B (reported by A) and B→A (reported by B).  They
+ * describe the same transport: if one direction is healthy, the other
+ * is too.  Merge so the graph shows one line per physical link.
+ *
+ * EXTERNAL (Broker uplink) edges are NOT merged — they're inherently
+ * one-directional (host → Broker) and should stay that way.
+ *
+ * Merge rules:
+ *   kind:         SEMANTIC wins over FAST — if either side has BLDC-1
+ *                 compression active, the link is SEMANTIC
+ *   rtt_avg_ms:   worst (max) wins — a bad leg makes the whole link bad
+ *   dev/via/reason: take whichever side actually has a value
+ **********************************************************************/
+function unifyEdgesForDisplay(edges, mode){
+  /* [DIRECTION_IS_NOT_SYMMETRIC_V1] Merging A→B with B→A rests on "if one
+   * direction is healthy the other is too." True of a physical link. NOT true
+   * of a logical route: the two directions can take different paths and have
+   * different health. Measured 2026-08-13 — Seattle5→Seattle2 ran 557/560
+   * while the eastern nodes' path to the same host failed in windows. One
+   * merged line reports max RTT of the two and calls it the link, which hides
+   * exactly the asymmetry worth seeing.
+   *
+   * Merge in the physical and egress views. Keep direction in logical. */
+  const out=new Map();
+  const keepDirection = (mode === "logical");
+  for(const e of edges.values()){
+    if(keepDirection && e.kind!=="EXTERNAL"){
+      out.set(`${e.from}→${e.to}|${e.meta&&e.meta.transit?"t":"d"}`,
+              {...e, meta:{...(e.meta||{}), directed:true}});
+      continue;
+    }
+    if(e.kind==="EXTERNAL"){
+      out.set(`ext:${e.from}|${e.to}`, e);
+      continue;
+    }
+    const key=canonicalKey(e.from,e.to)+(e.meta&&e.meta.transit?"|t":"|d");
+    const prev=out.get(key);
+    if(!prev){
+      out.set(key,{...e, meta:{...(e.meta||{})}});
+      continue;
+    }
+    if(e.kind==="SEMANTIC" && prev.kind!=="SEMANTIC") prev.kind="SEMANTIC";
+    const rttE=Number(e.meta&&e.meta.rtt_avg_ms||0);
+    const rttP=Number(prev.meta&&prev.meta.rtt_avg_ms||0);
+    if(rttE>rttP) prev.meta.rtt_avg_ms=rttE;
+    for(const f of ["dev","via","reason"]){
+      if(!prev.meta[f] && e.meta && e.meta[f]) prev.meta[f]=e.meta[f];
+    }
+  }
+  return out;
+}
+
+function draw(){
+  const rect=canvas.getBoundingClientRect();
+  ctx.clearRect(0,0,rect.width,rect.height);
+
+  const displayEdges = unifyEdgesForDisplay(EDGES, VIEW_MODE);
+  // [THREE_VIEWS_V1] logical = everything; physical = direct hops only;
+  // egress = the EXTERNAL chain to the Internet node.
+  const renderEdges =
+        (VIEW_MODE === "egress")   ? filterEgressTree(filterDirectOnly(displayEdges)) :
+        (VIEW_MODE === "physical") ? filterDirectOnly(displayEdges) :
+                                     displayEdges;
+
+  // Each non-EXTERNAL edge in route mode is drawn as TWO parallel
+  // cables, offset ±2.5px perpendicular to the line.  Each cable
+  // takes its destination's family color.  Same-family edges look
+  // like a single thicker line; cross-family edges show two colors
+  // side-by-side.  Glow halos encode health.
+  const CABLE_OFFSET = 2.5;
+
+  for(const e of renderEdges.values()){
+    const a=NODES.get(e.from),b=NODES.get(e.to);
+    if(!a||!b) continue;
+    const {pA,pB,c}=edgeCurvePoints(a,b);
+    const A=worldToScreen(pA),B=worldToScreen(pB),C=worldToScreen(c);
+
+    const isExternal = (e.kind==="EXTERNAL");
+    const status = linkStatus(e);
+    const glow   = statusGlowColor(status);
+
+    const strokeCurveAt=(Ap,Cp,Bp)=>{
+      ctx.beginPath();
+      ctx.moveTo(Ap.x,Ap.y);
+      ctx.quadraticCurveTo(Cp.x,Cp.y,Bp.x,Bp.y);
+      ctx.stroke();
+    };
+    const strokeCurve=()=>strokeCurveAt(A,C,B);
+
+    const dx_ab = B.x - A.x, dy_ab = B.y - A.y;
+    const ab_len = Math.hypot(dx_ab, dy_ab) || 1;
+    const px = -dy_ab/ab_len, py = dx_ab/ab_len;
+    const cablePlus =(p)=>({x:p.x+px*CABLE_OFFSET, y:p.y+py*CABLE_OFFSET});
+    const cableMinus=(p)=>({x:p.x-px*CABLE_OFFSET, y:p.y-py*CABLE_OFFSET});
+
+    // GLOW pass — solid halo, drawn UNDER the wire.  Online → skip.
+    if(glow){
+      ctx.save();
+      ctx.setLineDash([]);
+      ctx.lineCap="round";
+      ctx.strokeStyle=glow;
+      ctx.shadowColor=glow;
+      ctx.shadowBlur=16;
+      ctx.lineWidth=EDGE_W + (VIEW_MODE==="egress" ? 2.5 : 5.5);
+      ctx.globalAlpha=(status==="down")?0.7:0.55;
+      strokeCurve();
+      ctx.shadowBlur=9;
+      strokeCurve();
+      ctx.restore();
+    }
+
+    ctx.save();
+    ctx.lineWidth=EDGE_W;
+    ctx.setLineDash([]);
+    ctx.globalAlpha=(status==="down")?0.4:((e.kind==="UNKNOWN")?0.35:0.85);
+
+    if(isExternal){
+      // Uplink chain (child→parent and head→Internet): single solid
+      // curve in the source's family color.  Source family resolves
+      // to the parent gateway's pathway color either way, so the
+      // whole chain renders in one consistent color.
+      ctx.strokeStyle = familyColor(e.from, renderEdges) ||
+                        pathwayColorForHost(e.from) ||
+                        "#9aafc8";
+      strokeCurve();
+    } else if(VIEW_MODE === "egress"){
+      // No non-EXTERNAL edges survive the filter, but be defensive.
+      ctx.strokeStyle = familyColor(e.from, renderEdges) ||
+                        familyColor(e.to,   renderEdges) ||
+                        nodeColorForId(e.from);
+      strokeCurve();
+    } else {
+      // Route map: TWO offset cables, each colored by its
+      // destination's family.  Side near each node carries that
+      // node's family.
+      const famFromSide = familyColor(e.from, renderEdges) || nodeColorForId(e.from);
+      const famToSide   = familyColor(e.to,   renderEdges) || nodeColorForId(e.to);
+
+      ctx.strokeStyle = famToSide;
+      strokeCurveAt(cablePlus(A), cablePlus(C), cablePlus(B));
+      ctx.strokeStyle = famFromSide;
+      strokeCurveAt(cableMinus(A), cableMinus(C), cableMinus(B));
+    }
+
+    ctx.restore();
+  }
+
+  drawLegend();
+
+  for(const n of NODES.values()){
+    const P=worldToScreen(n);
+    const w=n.w*view.k,h=n.h*view.k;
+    const x=P.x-w/2,y=P.y-h/2;
+    const isExternal=n.id.startsWith("external:");
+    const isDb=(!isExternal&&DBHOST_IP&&n.id===DBHOST_IP);
+    const fill=isExternal?"rgba(220,228,237,0.94)":nodeColorForId(n.id);
+    const txtCol=isExternal?"#0b0f14":bestTextColorForFill(fill);
+
+    ctx.save();
+    if(isDb){
+      const gw=w*1.25, gh=h*1.25;
+      const gx=P.x-gw/2, gy=P.y-gh/2;
+      ctx.save();
+      ctx.shadowColor="rgba(40,204,110,0.8)";
+      ctx.shadowBlur=28*view.k;
+      drawRoundedRect(gx,gy,gw,gh,16*view.k);
+      ctx.fillStyle="rgba(40,204,110,0.18)";
+      ctx.fill();
+      ctx.strokeStyle="rgba(40,204,110,0.7)";
+      ctx.lineWidth=2.5;
+      ctx.globalAlpha=0.9;
+      ctx.stroke();
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha=0.95;
+      ctx.fillStyle="#28cc6e";
+      ctx.font=`600 ${Math.round(11*view.k)}px ${getCss("--sans")}`;
+      ctx.textAlign="center";
+      ctx.textBaseline="bottom";
+      ctx.fillText("Databasehost", P.x, P.y-gh/2-4*view.k);
+      ctx.restore();
+    }
+
+    drawRoundedRect(x,y,w,h,12*view.k);
+    ctx.fillStyle=fill; ctx.globalAlpha=1.0; ctx.fill();
+    ctx.strokeStyle="rgba(6,10,16,0.6)"; ctx.lineWidth=2; ctx.globalAlpha=0.9; ctx.stroke();
+
+    ctx.globalAlpha=1.0; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillStyle=txtCol;
+    ctx.font=`600 18px ${getCss("--sans")}`;
+    ctx.fillText(n.label||n.id,P.x,P.y-12);
+    ctx.globalAlpha=0.88;
+    ctx.font=`15px ${getCss("--mono")}`;
+    ctx.fillText(isExternal?"Internet":(n.ip||""),P.x,P.y+16);
+    ctx.restore();
+  }
+}
+
+/**********************************************************************
+ * Interaction
+ **********************************************************************/
+let dragging={mode:"none",id:"",start:{x:0,y:0},view0:{x:0,y:0,k:1},downAt:{x:0,y:0}};
+const CLICK_THRESH_PX=4;
+
+function hitTestNode(worldPt){
+  for(const n of NODES.values()){
+    if(worldPt.x>=(n.x-n.w/2)&&worldPt.x<=(n.x+n.w/2)&&worldPt.y>=(n.y-n.h/2)&&worldPt.y<=(n.y+n.h/2)) return n;
+  }
+  return null;
+}
+
+canvas.addEventListener("mousedown",(ev)=>{
+  const rect=canvas.getBoundingClientRect();
+  const p={x:ev.clientX-rect.left,y:ev.clientY-rect.top};
+  dragging.downAt=p;
+  const w=screenToWorld(p), hit=hitTestNode(w);
+  if(hit){dragging.mode="node";dragging.id=hit.id;dragging.start=p;}
+  else{dragging.mode="pan";dragging.view0={x:view.x,y:view.y,k:view.k};dragging.start=p;}
+});
+
+window.addEventListener("mouseup",(ev)=>{
+  /* Click vs drag: if pointer barely moved, treat as click and open the
+   * host's sensor list.  Internet/external nodes are not clickable —
+   * they're not in HOSTS. */
+  let upAt=null;
+  if(ev && typeof ev.clientX==="number"){
+    const rect=canvas.getBoundingClientRect();
+    upAt={x:ev.clientX-rect.left,y:ev.clientY-rect.top};
+  }
+  const moved=upAt?Math.hypot(upAt.x-dragging.downAt.x, upAt.y-dragging.downAt.y):0;
+  const wasNodeDrag=(dragging.mode==="node");
+  const clickedId=dragging.id;
+
+  if(wasNodeDrag){
+    const n=NODES.get(clickedId);
+    if(n){const posStore=loadPositions();posStore[n.id]={x:n.x,y:n.y};savePositions(posStore);}
+  }
+  dragging.mode="none"; dragging.id="";
+
+  if(wasNodeDrag && upAt && moved<CLICK_THRESH_PX){
+    if(clickedId && !clickedId.startsWith("external:") && HOSTS.has(clickedId)){
+      showHostSensorsModal(clickedId);
+    }
+  }
+});
+
+window.addEventListener("mousemove",(ev)=>{
+  if(dragging.mode==="none") return;
+  const rect=canvas.getBoundingClientRect();
+  const p={x:ev.clientX-rect.left,y:ev.clientY-rect.top};
+  if(dragging.mode==="pan"){
+    view.x=dragging.view0.x+(p.x-dragging.start.x);
+    view.y=dragging.view0.y+(p.y-dragging.start.y);
+    draw(); return;
+  }
+  if(dragging.mode==="node"){
+    const n=NODES.get(dragging.id);
+    if(!n) return;
+    const w=screenToWorld(p); n.x=w.x; n.y=w.y; draw();
+  }
+});
+
+canvas.addEventListener("wheel",(ev)=>{
+  ev.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  const p={x:ev.clientX-rect.left,y:ev.clientY-rect.top};
+  const before=screenToWorld(p);
+  view.k=Math.max(0.25,Math.min(2.5,view.k*(Math.sign(ev.deltaY)>0?0.90:1.11)));
+  const after=screenToWorld(p);
+  view.x+=(after.x-before.x)*view.k;
+  view.y+=(after.y-before.y)*view.k;
+  draw();
+},{passive:false});
+
+/**********************************************************************
+ * Data acquisition
+ *
+ * RELATIVE URL: /api.php ... same-origin as the page, so the browser's
+ * CORS check passes regardless of whether the user loaded the dashboard
+ * via IP (http://10.101.210.1/...) or hostname (http://blackbox.frognet/...).
+ * Per-node Apache and the FrogNet proxy both serve /api.php — the same
+ * way they already serve /getHosts.php and /getDbHost.php, which have
+ * been working from any host for a while.
+ **********************************************************************/
+async function fetchSensorsAndData(dataCache){
+  const url=`/api.php?entity=sensors&action=values&limit=5000`;
+  const j=await jget(url);
+  if(!j||!Array.isArray(j.rows)) throw new Error("sensors/values API returned unexpected shape");
+  for(const row of j.rows){
+    const sid=row.SensorID;
+    const obj=safeJsonParse(row.jsonData);
+    if(sid!=null&&obj!=null) dataCache.set(String(sid),obj);
+  }
+  return j.rows;
+}
+
+async function fetchSensorData(sensorId){
+  const key=String(sensorId);
+  if(SENSOR_DATA_CACHE.has(key)) return SENSOR_DATA_CACHE.get(key);
+  return null;
+}
+
+/**********************************************************************
+ * Engine Performance rendering (v5 sensor model)
+ **********************************************************************/
+function renderEngineTiles(){
+  const el=document.getElementById("engineTiles");
+  if(!el) return;
+
+  let hasEngine=false;
+  let agg={
+    compression_ratio:0, amplification:0, same_rate:0,
+    template_coverage:0, error_rate:0, lru_hit_rate:0,
+    coalesce_hits:0,
+    total_requests:0, bytes_would:0, bytes_actual:0, bytes_saved:0,
+    same_count:0, miss_count:0, error_count:0,
+    local_requests:0,
+    rtt:{}, links:{},
+    _count:0
+  };
+
+  for(const [hostIp,data] of ENGINE_BY_HOST.entries()){
+    if(!data) continue;
+    hasEngine=true;
+    agg._count++;
+    agg.total_requests+=Number(data.total_requests||0);
+    agg.bytes_would+=Number(data.bytes_would||0);
+    agg.bytes_actual+=Number(data.bytes_actual||0);
+    agg.bytes_saved+=Number(data.bytes_saved||0);
+    agg.same_count+=Number(data.same_count||0);
+    agg.miss_count+=Number(data.miss_count||0);
+    agg.error_count+=Number(data.error_count||0);
+    agg.local_requests+=Number(data.local_requests||0);
+    agg.coalesce_hits+=Number(data.coalesce_hits||0);
+
+    if(data.links&&typeof data.links==="object"){
+      for(const [peer,ldata] of Object.entries(data.links)){
+        if(!agg.links[peer]) agg.links[peer]={wire_out:0,wire_in:0,requests:0,source:hostIp};
+        agg.links[peer].wire_out+=Number(ldata.wire_out||0);
+        agg.links[peer].wire_in+=Number(ldata.wire_in||0);
+        agg.links[peer].requests+=Number(ldata.requests||0);
+      }
+    }
+  }
+
+  if(agg.bytes_would>0){
+    agg.compression_ratio=agg.bytes_saved/agg.bytes_would;
+    agg.amplification=agg.bytes_actual>0?(agg.bytes_would/agg.bytes_actual):0;
+  }
+  if(agg.total_requests>0){
+    agg.same_rate=agg.same_count/agg.total_requests;
+    agg.error_rate=(agg.miss_count+agg.error_count)/agg.total_requests;
+  }
+
+  let tplSum=0,lruSum=0,tplN=0,lruN=0;
+  for(const [,data] of ENGINE_BY_HOST.entries()){
+    if(!data) continue;
+    if(data.template_coverage!=null){tplSum+=Number(data.template_coverage);tplN++;}
+    if(data.lru_hit_rate!=null){lruSum+=Number(data.lru_hit_rate);lruN++;}
+  }
+  agg.template_coverage=tplN>0?tplSum/tplN:0;
+  agg.lru_hit_rate=lruN>0?lruSum/lruN:0;
+
+  if(!hasEngine){
+    el.innerHTML=`<div class="linkmeta">No engine metrics found.</div>`;
+    return;
+  }
+
+  let html='';
+
+  const compPct=(agg.compression_ratio*100).toFixed(1);
+  const ampX=agg.amplification.toFixed(1);
+  const samePct=(agg.same_rate*100).toFixed(1);
+  const tplPct=(agg.template_coverage*100).toFixed(1);
+  const errPct=(agg.error_rate*100).toFixed(1);
+  const lruPct=(agg.lru_hit_rate*100).toFixed(1);
+
+  html+=`<div class="engine-hero">
+    <div class="engine-stat"><div class="value ${compPct>50?'':compPct>20?'warn':'bad'}">${compPct}%</div><div class="label">BW Saved</div></div>
+    <div class="engine-stat"><div class="value accent">${ampX}×</div><div class="label">Amplification</div></div>
+    <div class="engine-stat"><div class="value ${samePct>70?'':samePct>40?'warn':'bad'}">${samePct}%</div><div class="label">SAME Rate</div></div>
+  </div>`;
+  html+=`<div class="engine-hero">
+    <div class="engine-stat"><div class="value ${tplPct>80?'':tplPct>50?'warn':'bad'}">${tplPct}%</div><div class="label">Template Cov</div></div>
+    <div class="engine-stat"><div class="value ${errPct<5?'':errPct<15?'warn':'bad'}">${errPct}%</div><div class="label">Error Rate</div></div>
+    <div class="engine-stat"><div class="value ${lruPct>60?'':lruPct>30?'warn':'bad'}">${lruPct}%</div><div class="label">LRU Hit Rate</div></div>
+  </div>`;
+
+  html+=`<div class="cache-bar-wrap">
+    <div class="cache-bar-label"><span>Wire Volume</span><span>${formatBytes(agg.bytes_actual)} actual / ${formatBytes(agg.bytes_would)} would-be</span></div>
+    <div class="cache-bar">
+      <div class="same" style="width:${agg.bytes_would>0?(agg.bytes_saved/agg.bytes_would*100):0}%" title="Saved: ${formatBytes(agg.bytes_saved)}"></div>
+      <div class="diff" style="width:${agg.bytes_would>0?(agg.bytes_actual/agg.bytes_would*100):0}%" title="Actual: ${formatBytes(agg.bytes_actual)}"></div>
+    </div>
+    <div class="cache-legend">
+      <span><div class="ldot" style="background:var(--good)"></div>Saved ${formatBytes(agg.bytes_saved)}</span>
+      <span><div class="ldot" style="background:var(--ok)"></div>Wire ${formatBytes(agg.bytes_actual)}</span>
+      <span style="margin-left:auto">Reqs ${agg.total_requests.toLocaleString()} (${agg.local_requests.toLocaleString()} local)</span>
+    </div>
+  </div>`;
+
+  if(agg.coalesce_hits>0){
+    html+=`<div class="cache-bar-wrap" style="padding:8px 10px;">
+      <div class="cache-bar-label"><span>Coalescing</span><span>${agg.coalesce_hits.toLocaleString()} duplicate requests eliminated</span></div>
+    </div>`;
+  }
+
+  if(PEER_SENSORS.length>0){
+    html+=`<div class="sub-label">By Peer</div>`;
+    const peerMap=new Map();
+    for(const ps of PEER_SENSORS){
+      const obj=safeJsonParse(ps.jsonData);
+      if(!obj) continue;
+      const peerIp=String(obj.peer_ip||ps.SensorName||"").trim();
+      const nameMatch=String(ps.SensorName||"").match(/\.Peer\.(\d+\.\d+\.\d+\.\d+)$/);
+      const resolvedIp=peerIp.match(/^\d/)?peerIp:(nameMatch?nameMatch[1]:"unknown");
+      if(!peerMap.has(resolvedIp)){
+        peerMap.set(resolvedIp,{
+          ip:resolvedIp,
+          bytes_saved:Number(obj.bytes_saved||0),
+          bytes_would:Number(obj.bytes_would||0),
+          compression_ratio:Number(obj.compression_ratio||0),
+          total_requests:Number(obj.total_requests||0),
+          cache_hit_rate:Number(obj.cache_hit_rate||0),
+          rtt_avg:obj.rtt?Number(obj.rtt.avg_ms||0):0,
+          request_types:obj.request_types||{},
+          response_types:obj.response_types||{},
+        });
+      } else {
+        const p=peerMap.get(resolvedIp);
+        p.bytes_saved+=Number(obj.bytes_saved||0);
+        p.bytes_would+=Number(obj.bytes_would||0);
+        p.total_requests+=Number(obj.total_requests||0);
+      }
+    }
+
+    const peers=Array.from(peerMap.values()).sort((a,b)=>(b.bytes_saved||0)-(a.bytes_saved||0));
+    for(const p of peers.slice(0,8)){
+      const peerName=HOSTS.has(p.ip)?HOSTS.get(p.ip).hostname:p.ip;
+      const rt=p.response_types||{};
+      const pSame=Number(rt.RESP_SAME||0),pDiff=Number(rt.RESP_DIFF||0),pMiss=Number(rt.REQ_MISS||rt.RESP_RAW||0);
+      const pTotal=pSame+pDiff+pMiss;
+      const pSamePct=pTotal>0?(pSame/pTotal*100):0;
+      const pDiffPct=pTotal>0?(pDiff/pTotal*100):0;
+      const pMissPct=pTotal>0?(pMiss/pTotal*100):0;
+
+      html+=`<div class="peer-tile">
+        <div class="peer-hdr"><div class="dot" style="background:${nodeColorForId(p.ip)}"></div>
+          <div class="peer-name">${peerName}</div>
+          <div class="peer-stats"><span><b>${formatBytes(p.bytes_saved)}</b> saved</span><span>RTT <b>${(p.rtt_avg||0).toFixed(1)}ms</b></span></div>
+        </div>
+        <div class="mini-bar"><div class="same" style="width:${pSamePct}%"></div><div class="diff" style="width:${pDiffPct}%"></div><div class="miss" style="width:${pMissPct}%"></div></div>
+      </div>`;
+    }
+  }
+
+  const linkEntries=Object.entries(agg.links).sort((a,b)=>(b[1].wire_out+b[1].wire_in)-(a[1].wire_out+a[1].wire_in));
+  if(linkEntries.length>0){
+    html+=`<div class="sub-label">Link Wire Utilization</div>`;
+    for(const [peer,ldata] of linkEntries.slice(0,6)){
+      const peerName=HOSTS.has(peer)?HOSTS.get(peer).hostname:peer;
+      html+=`<div class="endpoint-row">
+        <div class="dot" style="background:${nodeColorForId(peer)};width:6px;height:6px;flex:0 0 6px"></div>
+        <div class="path">${peerName}</div>
+        <div class="hits">${ldata.requests.toLocaleString()} reqs</div>
+        <div class="saved">↑${formatBytes(ldata.wire_out)} ↓${formatBytes(ldata.wire_in)}</div>
+      </div>`;
+    }
+  }
+
+  let hasDaemon=false;
+  for(const [hostIp,data] of DAEMON_BY_HOST.entries()){
+    if(!data) continue;
+    hasDaemon=true;
+    const execAvg=Number(data.exec_avg_ms||0);
+    const execP95=Number(data.exec_p95_ms||0);
+    const maxMs=Math.max(execP95,execAvg,1);
+    const hostName2=HOSTS.has(hostIp)?HOSTS.get(hostIp).hostname:hostIp;
+
+    html+=`<div class="sub-label">Daemon · ${hostName2}</div>`;
+    html+=`<div class="tile" style="padding:8px 10px;">`;
+    html+=`<div class="daemon-row">
+      <div class="dlabel">avg</div>
+      <div class="dbar"><div class="dbar-fill" style="width:${(execAvg/maxMs*100).toFixed(1)}%;background:var(--good)"></div></div>
+      <div class="dval">${formatMs(execAvg)}</div>
+    </div>`;
+    html+=`<div class="daemon-row">
+      <div class="dlabel">p95</div>
+      <div class="dbar"><div class="dbar-fill" style="width:${(execP95/maxMs*100).toFixed(1)}%;background:var(--ok)"></div></div>
+      <div class="dval">${formatMs(execP95)}</div>
+    </div>`;
+
+    const dCoal=Number(data.coalesce_hits||0);
+    if(dCoal>0){
+      html+=`<div class="daemon-row"><div class="dlabel">coalesce</div><div class="dbar"></div><div class="dval">${dCoal.toLocaleString()}</div></div>`;
+    }
+    html+=`</div>`;
+  }
+
+  let allEndpoints=[];
+  for(const [,data] of ENDPOINTS_BY_HOST.entries()){
+    if(!data||!Array.isArray(data.top_endpoints)) continue;
+    allEndpoints.push(...data.top_endpoints);
+  }
+  const epMap=new Map();
+  for(const ep of allEndpoints){
+    const key=ep.path;
+    if(!epMap.has(key)) epMap.set(key,{path:ep.path,bytes_saved:Number(ep.bytes_saved||0),total_requests:Number(ep.total_requests||0),compression_ratio:Number(ep.compression_ratio||0)});
+    else { const e=epMap.get(key); e.bytes_saved+=Number(ep.bytes_saved||0); e.total_requests+=Number(ep.total_requests||0); }
+  }
+  const topEps=Array.from(epMap.values()).sort((a,b)=>(b.bytes_saved||0)-(a.bytes_saved||0)).slice(0,10);
+
+  if(topEps.length>0){
+    html+=`<div class="sub-label">Top Endpoints</div><div class="tile" style="padding:6px 10px;">`;
+    for(const ep of topEps){
+      const epComp=ep.total_requests>0?((ep.compression_ratio*100).toFixed(0)+"%"):"—";
+      html+=`<div class="endpoint-row"><div class="path" title="${ep.path}">${ep.path}</div><div class="hits">${epComp}</div><div class="saved">${formatBytes(ep.bytes_saved)}</div></div>`;
+    }
+    html+=`</div>`;
+  }
+
+  html+=`<div class="mini" style="margin-top:10px;">`;
+  html+=`<div class="tag" onclick="showModal('Engine (aggregated)',${JSON.stringify(JSON.stringify(agg))})"><strong>Engine Raw</strong></div>`;
+  for(const [hostIp,data] of DAEMON_BY_HOST.entries()){
+    if(!data) continue;
+    const hn=HOSTS.has(hostIp)?HOSTS.get(hostIp).hostname:hostIp;
+    html+=`<div class="tag" onclick="showModal('Daemon ${hn}',${JSON.stringify(JSON.stringify(data))})"><strong>Daemon ${hn}</strong></div>`;
+  }
+  html+=`</div>`;
+
+  el.innerHTML=html;
+}
+
+/**********************************************************************
+ * Build model
+ **********************************************************************/
+function hostName(ip){ return HOSTS.has(ip)?HOSTS.get(ip).hostname:ip; }
+
+async function buildFromSources(){
+  const statusEl=document.getElementById("status");
+  const hudEl=document.getElementById("hud");
+  const t0=performance.now();
+
+  const prev={HOSTS,SENSORS,SENSOR_BY_HOSTIP,SENSOR_DATA_CACHE,NODES,EDGES,PHYS_LINKS,LINK_QUALITY,SUBNET_EDGES,DBHOST_IP,ENGINE_BY_HOST,ENDPOINTS_BY_HOST,PEER_SENSORS,DAEMON_BY_HOST};
+
+  let _HOSTS=new Map(),_SENSORS=[],_SENSOR_BY_HOSTIP=new Map(),_SENSOR_DATA_CACHE=new Map();
+  let _NODES=new Map(),_EDGES=new Map(),_PHYS_LINKS=new Map(),_LINK_QUALITY=new Map(),_SUBNET_EDGES=new Map();
+  let _DBHOST_IP="";
+  let _ENGINE_BY_HOST=new Map(),_ENDPOINTS_BY_HOST=new Map(),_PEER_SENSORS=[],_DAEMON_BY_HOST=new Map();
+
+  try {
+    try {
+      const r=await jget("/getDbHost.php");
+      _DBHOST_IP=String(r.ip||"").trim();
+    } catch(e){ console.warn("getDbHost.php:",e.message); }
+
+    const hostsArr=await jget("/getHosts.php");
+    if(!Array.isArray(hostsArr)) throw new Error("getHosts returned non-array");
+    for(const h of hostsArr){
+      const ip=String(h.ip||"").trim();
+      const hostname=String(h.hostname||h.name||ip).trim();
+      const echo=parseEcho(String(h.echo||""));
+      _HOSTS.set(ip,{ip,hostname,echo});
+    }
+
+    const saveNodes=NODES, saveCache=SENSOR_DATA_CACHE;
+    NODES=_NODES; SENSOR_DATA_CACHE=_SENSOR_DATA_CACHE;
+
+    for(const [ip,h] of _HOSTS.entries()){
+      ensureNode(ip,h.hostname,ip);
+    }
+
+    const internetId="external:internet";
+    ensureNode(internetId,"Internet","");
+
+    /* fetchSensorsAndData uses a RELATIVE url now — page's origin, no CORS */
+    _SENSORS=await fetchSensorsAndData(_SENSOR_DATA_CACHE);
+    for(const s of _SENSORS){
+      /* Resolve host IP from SensorName prefix, not SensorAddress */
+      const hostIp=resolveHostIp(s, _HOSTS);
+      if(!hostIp) continue;
+      if(!_SENSOR_BY_HOSTIP.has(hostIp)) _SENSOR_BY_HOSTIP.set(hostIp,[]);
+      _SENSOR_BY_HOSTIP.get(hostIp).push(s);
+    }
+
+    // Uplink edges (kind=EXTERNAL, rendered dot-dash in source color):
+    //   - Child host (echo gw is a 10.x FrogNet peer): edge to that
+    //     parent host.  The parent's own uplink edge then continues
+    //     the chain — child → parent → … → head → Internet.
+    //   - Head host (echo gw is non-FrogNet, i.e. a real LAN/public
+    //     router): edge to the Internet node.
+    // Rule: FrogNet IPs start with 10.  If gw starts with 10, it's a
+    // FrogNet peer; the host echoing it is a child of that peer.
+    for(const [ip,h] of _HOSTS.entries()){
+      const gws=[h.echo?.gw0,h.echo?.gw1].filter(x=>x&&x!=="0.0.0.0");
+      for(const gw of gws){
+        if(isFrogNetIp(gw)){
+          // Child → parent (parent must be a known host).
+          if(_HOSTS.has(gw) && gw!==ip){
+            const k=`${ip}→${gw}`;
+            _EDGES.set(k,{from:ip,to:gw,kind:"EXTERNAL",meta:{gw,dev:"uplink"}});
+          }
+        } else {
+          // Head → Internet.
+          const k=`${ip}→${internetId}`;
+          _EDGES.set(k,{from:ip,to:internetId,kind:"EXTERNAL",meta:{gw,dev:"internet"}});
+        }
+      }
+    }
+
+    function upsertDirectedEdge(from,to,kind,meta={}){
+      if(!_HOSTS.has(from)||!_HOSTS.has(to)||from===to) return;
+      // [LOGICAL_IS_NOT_PHYSICAL_V1] A host can hold BOTH a direct route and a
+      // transit route to the same peer. Keying on from→to alone let the second
+      // overwrite the first, or merge into it and yield an edge describing
+      // neither path. The transit flag is part of the identity.
+      const key=`${from}→${to}|${meta && meta.transit ? "t" : "d"}`;
+      const prevE=_EDGES.get(key);
+      if(!prevE){_EDGES.set(key,{from,to,kind,meta:{...meta}});return;}
+      const next={...prevE,meta:{...(prevE.meta||{})}};
+      if(String(next.kind||"FAST")!=="SEMANTIC"&&String(kind||"FAST")==="SEMANTIC") next.kind="SEMANTIC";
+      for(const f of["dev","via","reason"]){
+        const cur=String(next.meta[f]??""),inc=String(meta[f]??"");
+        if((!cur||!cur.trim())&&inc&&inc.trim()) next.meta[f]=inc;
+      }
+      if((!next.meta.rtt_avg_ms||next.meta.rtt_avg_ms===0)&&meta.rtt_avg_ms&&meta.rtt_avg_ms>0)
+        next.meta.rtt_avg_ms=meta.rtt_avg_ms;
+      _EDGES.set(key,next);
+    }
+
+    function upsertPhysLink(a,b,kind,meta={}){
+      if(!_HOSTS.has(a)||!_HOSTS.has(b)||a===b) return;
+      // [LOGICAL_IS_NOT_PHYSICAL_V1] _PHYS_LINKS is the PHYSICAL adjacency and
+      // feeds the subnet panel. A transit entry is an end-to-end path, not a
+      // hop, and must never enter it — that is what "physical" means here.
+      if(meta && meta.transit) return;
+      const key=canonicalKey(a,b);
+      const prevL=_PHYS_LINKS.get(key);
+      if(!prevL){_PHYS_LINKS.set(key,{a,b,kind,...meta});return;}
+      const next={...prevL};
+      if(String(next.kind||"FAST")!=="SEMANTIC"&&String(kind||"FAST")==="SEMANTIC") next.kind="SEMANTIC";
+      for(const f of["dev","via","reason"]){
+        const cur=String(next[f]??""),inc=String(meta[f]??"");
+        if((!cur||!cur.trim())&&inc&&inc.trim()) next[f]=inc;
+      }
+      if((!next.rtt_avg_ms||next.rtt_avg_ms===0)&&meta.rtt_avg_ms&&meta.rtt_avg_ms>0)
+        next.rtt_avg_ms=meta.rtt_avg_ms;
+      _PHYS_LINKS.set(key,next);
+    }
+
+    // LinkState sensors (legacy/optional source — kept for any node
+    // still emitting them; Topology is the primary source).  Same
+    // transit-route filter as Topology: if `via` is another known
+    // FrogNet host, drop the entry — it's a path, not a hop.
+    const linkStateSensors=_SENSORS.filter(s=>{const t=String(s.SensorType||"");return(t==="LinkState"||t==="LinkState.Edge");});
+    for(const s of linkStateSensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=await fetchSensorData(s.SensorID);
+      const edges=normalizeEdgesFromLinkStateJson(obj);
+      for(const e of edges){
+        const peer=String(e.peer_host_ip||"").trim();
+        const kind=String(e.kind||"FAST");
+        const via=String(e.via||"").trim();
+        // [LOGICAL_IS_NOT_PHYSICAL_V1] An entry whose `via` is another known
+        // FrogNet host IS the logical connection: "I reach that peer, by way
+        // of this hop." v31 dropped it here, so the logical mesh was never
+        // built and the toggle had nothing to switch to. Tag it; the RENDERER
+        // decides which view wants it.
+        const isTransit = !!(via && isFrogNetIp(via) && _HOSTS.has(via) && via!==peer);
+        const meta={reason:e.reason,dev:e.dev,via:e.via,rtt_avg_ms:Number(e.rtt_avg_ms||0),transit:isTransit};
+        upsertPhysLink(hostIp,peer,kind,meta);
+        upsertDirectedEdge(hostIp,peer,(kind.toUpperCase()==="SEMANTIC")?"SEMANTIC":"FAST",meta);
+      }
+    }
+
+    // Topology sensors.
+    //
+    // Each link entry describes the route THIS host uses to reach
+    // peer_ip — the route's exit interface is in `dev`, the next-hop
+    // gateway (if any) is in `via`.  We classify by kind:
+    //   LOCAL    — self-alias for service names like "databasehost.
+    //              frognet"; used below for db detection, not drawn
+    //   FAST     — reachable, BLDC-1 compression not active
+    //   SEMANTIC — reachable, BLDC-1 compression active
+    //
+    // Transit-route filter: if `via` resolves to another KNOWN
+    // FrogNet host, this entry describes a multi-hop path through
+    // that host (e.g. NY-2 reaching SeattleSix via NY-1).  The
+    // dashboard draws physical hops, not virtual end-to-end paths,
+    // so we skip such entries — the two real hops will appear from
+    // this host's route to `via`, and from `via`'s own Topology data
+    // for its route to `peer`.  Result: NY-2 only draws an edge to
+    // NY-1, not to every node NY-1 fronts for it.
+    //
+    // The route's interface (`dev`) determines line style at draw
+    // time: wg* → tunnel route, anything else → direct route.
+    const topologySensors=_SENSORS.filter(s=>String(s.SensorType||"")==="Topology");
+    // [PARALLEL_SENSOR_READ_V1] v31 awaited each payload inside the loop, so a
+    // refresh cost one serial round-trip per sensor per type. Resolve them
+    // together; the loop below then reads from the resolved map.
+    const _topoPayloads=new Map();
+    await Promise.all(topologySensors.map(async s=>{
+      try{ _topoPayloads.set(s.SensorID, await fetchSensorData(s.SensorID)); }
+      catch(err){ console.warn("Topology payload", s.SensorID, err && err.message); }
+    }));
+    for(const s of topologySensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=_topoPayloads.get(s.SensorID);
+      if(!obj||!Array.isArray(obj.links)) continue;
+      for(const link of obj.links){
+        const peer=String(link.peer_ip||"").trim();
+        const kind=String(link.kind||"FAST").toUpperCase();
+        if(kind==="LOCAL") continue;
+        if (!isFrogNetIp(peer)) continue;
+        if(peer===hostIp) continue;
+        if(!_HOSTS.has(peer)) continue;
+        const via=String(link.via||"").trim();
+        // [LOGICAL_IS_NOT_PHYSICAL_V1] See the LinkState site above: tag, do
+        // not drop. Physical view filters these out at render time; logical
+        // view is the whole set.
+        const isTransit = !!(via && isFrogNetIp(via) && _HOSTS.has(via) && via!==peer);
+        const meta={dev:link.dev,via:link.via,reason:link.reason,rtt_avg_ms:Number(link.rtt_avg_ms||0),transit:isTransit};
+        const edgeKind=(kind==="SEMANTIC")?"SEMANTIC":"FAST";
+        upsertPhysLink(hostIp,peer,edgeKind,meta);
+        upsertDirectedEdge(hostIp,peer,edgeKind,meta);
+      }
+      /* Detect databasehost from LOCAL self-alias links */
+      for(const lk of obj.links){
+        if(!_DBHOST_IP &&
+           String(lk.peer_name||"").toLowerCase().includes("databasehost")&&
+           String(lk.kind||"").toUpperCase()==="LOCAL"){
+          _DBHOST_IP=hostIp;
+        }
+      }
+    }
+
+    // Pathway colors — computed after Topology+LinkState populate
+    // _EDGES, so Rule 2 (host owns wg* route) has data to scan.
+    computePathwayColors(_HOSTS, _EDGES);
+
+    // ---- v5 sensor model: Engine, Endpoints, Peer, Daemon ----
+    const engineSensors=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticProxy.Engine");
+    for(const s of engineSensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=await fetchSensorData(s.SensorID);
+      if(obj) _ENGINE_BY_HOST.set(hostIp,obj);
+    }
+
+    const endpointSensors=_SENSORS.filter(s=>{const t=String(s.SensorType||"");return(t==="SemanticCache.Endpoints"||t==="SemanticCache");});
+    for(const s of endpointSensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=await fetchSensorData(s.SensorID);
+      if(obj) _ENDPOINTS_BY_HOST.set(hostIp,obj);
+    }
+
+    _PEER_SENSORS=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticCache.Peer");
+
+    const daemonSensors=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticDaemon.Cache");
+    for(const s of daemonSensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=await fetchSensorData(s.SensorID);
+      /* Daemon data has totals.exec_avg_ms — flatten for the renderer */
+      if(obj){
+        const flat=obj.totals?{...obj, exec_avg_ms:obj.totals.exec_avg_ms, exec_p95_ms:obj.totals.exec_p95_ms, coalesce_hits:obj.totals.coalesce_hits}:obj;
+        _DAEMON_BY_HOST.set(hostIp,flat);
+      }
+    }
+
+    // ---- BACKWARD COMPAT: legacy SemanticCache.Summary ----
+    const legacySummarySensors=_SENSORS.filter(s=>{
+      const t=String(s.SensorType||"");
+      const n=String(s.SensorName||"");
+      return t==="SemanticCache" && n.includes("Summary");
+    });
+    for(const s of legacySummarySensors){
+      const hostIp=resolveHostIp(s, _HOSTS);
+      const obj=await fetchSensorData(s.SensorID);
+      if(!obj) continue;
+      if(!_ENGINE_BY_HOST.has(hostIp)&&obj.totals){
+        const t=obj.totals;
+        const rt=t.response_types||{};
+        _ENGINE_BY_HOST.set(hostIp,{
+          compression_ratio:Number(t.compression_ratio||0),
+          amplification:t.bytes_actual>0?Number(t.bytes_would||0)/Number(t.bytes_actual):0,
+          same_rate:t.total_requests>0?(Number(rt.RESP_SAME||0)/Number(t.total_requests)):0,
+          template_coverage:0, error_rate:0, lru_hit_rate:0,
+          total_requests:Number(t.total_requests||0),
+          bytes_would:Number(t.bytes_would||0),
+          bytes_actual:Number(t.bytes_actual||0),
+          bytes_saved:Number(t.bytes_saved||0),
+          same_count:Number(rt.RESP_SAME||0),
+          miss_count:Number(rt.REQ_MISS||0),
+          error_count:0, local_requests:0, coalesce_hits:0,
+          links:{}, rtt:{},
+          _legacy:true
+        });
+      }
+      if(!_ENDPOINTS_BY_HOST.has(hostIp)&&obj.top_endpoints){
+        _ENDPOINTS_BY_HOST.set(hostIp,{top_endpoints:obj.top_endpoints});
+      }
+    }
+
+    // Subnet edges
+    for(const L of _PHYS_LINKS.values()){
+      const ta=subnetThird(L.a),tb=subnetThird(L.b);
+      if(ta===null||tb===null||ta===tb) continue;
+      const sk=[ta,tb].sort((x,y)=>x-y).join("|");
+      const knd=(String(L.kind||"FAST")==="SEMANTIC")?"SEMANTIC":"FAST";
+      const prevSE=_SUBNET_EDGES.get(sk);
+      if(!prevSE) _SUBNET_EDGES.set(sk,{a_sub:Math.min(ta,tb),b_sub:Math.max(ta,tb),hostsKey:canonicalKey(L.a,L.b),kind:knd});
+      else if(prevSE.kind!=="SEMANTIC"&&knd==="SEMANTIC") prevSE.kind="SEMANTIC";
+    }
+
+    const hasInternet=Array.from(_EDGES.values()).some(e=>e.kind==="EXTERNAL");
+    if(!hasInternet) _NODES.delete(internetId);
+    else {
+      const posStore2=loadPositions();
+      if(!posStore2[internetId]){
+        const rect2=canvas.getBoundingClientRect();
+        posStore2[internetId]={x:rect2.width*0.92,y:rect2.height*0.50}; savePositions(posStore2);
+      }
+    }
+
+    NODES=saveNodes; SENSOR_DATA_CACHE=saveCache;
+    const hadHosts=prev.HOSTS&&prev.HOSTS.size>0;
+    const hadEdges=(prev.EDGES&&prev.EDGES.size>0)||(prev.SUBNET_EDGES&&prev.SUBNET_EDGES.size>0);
+    if(hadHosts&&_HOSTS.size===0) throw new Error("Transient empty hosts snapshot");
+    if(hadEdges&&_EDGES.size===0) throw new Error("Transient empty edges snapshot");
+
+    HOSTS=_HOSTS; SENSORS=_SENSORS; SENSOR_BY_HOSTIP=_SENSOR_BY_HOSTIP; SENSOR_DATA_CACHE=_SENSOR_DATA_CACHE;
+    NODES=_NODES; EDGES=_EDGES; PHYS_LINKS=_PHYS_LINKS; LINK_QUALITY=_LINK_QUALITY; SUBNET_EDGES=_SUBNET_EDGES;
+    DBHOST_IP=_DBHOST_IP;
+    ENGINE_BY_HOST=_ENGINE_BY_HOST; ENDPOINTS_BY_HOST=_ENDPOINTS_BY_HOST;
+    PEER_SENSORS=_PEER_SENSORS; DAEMON_BY_HOST=_DAEMON_BY_HOST;
+
+    NODE_COLOR_MAP=computeUniqueNodeColors(Array.from(NODES.keys()).map(idNorm));
+    for(const id of NODES.keys()) assignColorIfMissing(id);
+    for(const ip of HOSTS.keys()) assignColorIfMissing(ip);
+
+    renderEngineTiles(); renderLinkTiles(); renderHostTiles();
+    resolveOverlaps(80); fitToScreen(NODES); draw();
+
+    const dt=Math.round(performance.now()-t0);
+    const engineCount=ENGINE_BY_HOST.size;
+    const daemonCount=DAEMON_BY_HOST.size;
+    const extCount=Array.from(EDGES.values()).filter(e=>e.kind==="EXTERNAL").length;
+    statusEl.textContent=`${HOSTS.size} hosts · ${PHYS_LINKS.size} links · ${extCount} uplinks · ${engineCount} engine · ${daemonCount} daemon · ${dt}ms`;
+    document.getElementById("linkCount").textContent=`${SUBNET_EDGES.size}`;
+    document.getElementById("hostCount").textContent=`${HOSTS.size}`;
+    hudEl.textContent=`family-colored · glow=health · databasehost=${_DBHOST_IP||"databasehost.frognet"} · via ${window.location.host}`;
+
+  } catch(e){
+    HOSTS=prev.HOSTS; SENSORS=prev.SENSORS; SENSOR_BY_HOSTIP=prev.SENSOR_BY_HOSTIP;
+    SENSOR_DATA_CACHE=prev.SENSOR_DATA_CACHE; NODES=prev.NODES; EDGES=prev.EDGES;
+    PHYS_LINKS=prev.PHYS_LINKS; LINK_QUALITY=prev.LINK_QUALITY; SUBNET_EDGES=prev.SUBNET_EDGES;
+    DBHOST_IP=prev.DBHOST_IP;
+    ENGINE_BY_HOST=prev.ENGINE_BY_HOST; ENDPOINTS_BY_HOST=prev.ENDPOINTS_BY_HOST;
+    PEER_SENSORS=prev.PEER_SENSORS; DAEMON_BY_HOST=prev.DAEMON_BY_HOST;
+    throw e;
+  }
+}
+
+/**********************************************************************
+ * Sidebar — Hosts
+ **********************************************************************/
+function renderHostTiles(){
+  const el=document.getElementById("hostTiles"); if(!el) return; el.innerHTML="";
+  const hosts=Array.from(HOSTS.values()).sort((a,b)=>(a.ip||"").localeCompare(b.ip||""));
+  const KEY_TYPES=new Set(["LinkState","LinkState.Edge","LinkQuality","LinkQuality.Score",
+    "SemanticCache","SemanticCache.Endpoints","SemanticCache.Peer","SemanticProxy.Engine",
+    "SemanticDaemon.Cache","SemanticDaemon","SemanticProxy","Topology","System","GPS"]);
+
+  for(const h of hosts){
+    const hostIp=h.ip;
+    const t=document.createElement("div"); t.className="tile";
+    const row=document.createElement("div"); row.className="row";
+    const dot=document.createElement("div"); dot.className="dot"; dot.style.background=nodeColorForId(hostIp);
+    const name=document.createElement("div"); name.className="name";
+    name.textContent=h.hostname+((DBHOST_IP&&hostIp===DBHOST_IP)?" (db)":"");
+    const ip=document.createElement("div"); ip.className="ip"; ip.textContent=h.ip;
+    row.append(dot,name,ip);
+
+    const mini=document.createElement("div"); mini.className="mini";
+    const sensors=(SENSOR_BY_HOSTIP.get(hostIp)||[]).slice().sort((a,b)=>String(a.SensorType||"").localeCompare(String(b.SensorType||"")));
+    const keySensors=sensors.filter(s=>KEY_TYPES.has(String(s.SensorType||""))).slice(0,10);
+
+    for(const s of keySensors){
+      const btn=document.createElement("div"); btn.className="tag";
+      btn.innerHTML=`<strong>${String(s.SensorType||"")}</strong>`;
+      btn.title=String(s.SensorName||"");
+      btn.onclick=async()=>{const obj=await fetchSensorData(s.SensorID); showModal(`${h.hostname} — ${s.SensorName} (ID=${s.SensorID})`,obj||"No data");};
+      mini.appendChild(btn);
+    }
+    const allBtn=document.createElement("div"); allBtn.className="tag";
+    allBtn.innerHTML=`<strong>All</strong>`;
+    allBtn.onclick=()=>{
+      const list=sensors.map(s=>`${s.SensorType}: ${s.SensorName} (ID=${s.SensorID})`).join("\n");
+      showModal(`${h.hostname} — All Sensors`,list||"No sensors");
+    };
+    mini.appendChild(allBtn);
+    t.append(row,mini); el.appendChild(t);
+  }
+}
+
+/**********************************************************************
+ * Sidebar — Links
+ **********************************************************************/
+function renderLinkTiles(){
+  const el=document.getElementById("linkTiles"); if(!el) return; el.innerHTML="";
+  const edges=Array.from(SUBNET_EDGES.values()).sort((x,y)=>x.a_sub!==y.a_sub?x.a_sub-y.a_sub:x.b_sub-y.b_sub);
+  if(!edges.length){ el.innerHTML=`<div class="tile"><div class="linkmeta">No subnet links found.</div></div>`; return; }
+
+  for(const E of edges){
+    const L=PHYS_LINKS.get(E.hostsKey);
+    const kind=(L&&String(L.kind||"FAST")==="SEMANTIC")?"SEMANTIC":"FAST";
+    const rtt=L&&L.rtt_avg_ms?Number(L.rtt_avg_ms):0;
+    const rttLabel=rtt>0?` · ${rtt.toFixed(0)}ms`:"";
+    const t=document.createElement("div"); t.className="tile";
+    const row=document.createElement("div"); row.className="row";
+    const dot=document.createElement("div"); dot.className="dot";
+    dot.style.background=rttColor(rtt);
+    const name=document.createElement("div"); name.className="name"; name.textContent=`${E.a_sub} ↔ ${E.b_sub}`;
+    const ip=document.createElement("div"); ip.className="ip"; ip.textContent=kind+rttLabel;
+    row.append(dot,name,ip);
+
+    const meta=document.createElement("div"); meta.className="linkmeta";
+    if(!L) meta.innerHTML=`<b>${E.a_sub}↔${E.b_sub}</b> no host-edge record`;
+    else meta.innerHTML=`<b>${hostName(L.a)}</b> ↔ <b>${hostName(L.b)}</b> · dev=${String(L.dev||"")}${L.via?` via=${String(L.via)}`:""}`;
+
+    const mini=document.createElement("div"); mini.className="mini";
+    const btn=document.createElement("div"); btn.className="tag"; btn.innerHTML=`<strong>Details</strong>`;
+    btn.onclick=()=>showModal(`Link ${E.a_sub}↔${E.b_sub}`,{link:L||null});
+    mini.appendChild(btn);
+    t.append(row,meta,mini); el.appendChild(t);
+  }
+}
+
+/**********************************************************************
+ * Polling
+ **********************************************************************/
+let REFRESH_INFLIGHT=false;
+async function tick(){
+  if(REFRESH_INFLIGHT) return;
+  REFRESH_INFLIGHT=true;
+  try{await buildFromSources();}
+  catch(err){console.error(err); document.getElementById("status").textContent=`Error: ${err.message||String(err)}`;}
+  finally{REFRESH_INFLIGHT=false;}
+}
+
+let timer=null;
+function startPolling(){
+  if(timer) clearInterval(timer);
+  timer=setInterval(tick,Math.max(1,Number(document.getElementById("pollSec").value||2))*1000);
+}
+
+document.addEventListener("DOMContentLoaded",()=>{
+  document.getElementById("btnFit").onclick=()=>{fitToScreen(NODES);draw();};
+  document.getElementById("btnRefresh").onclick=()=>tick();
+  document.getElementById("btnView").onclick=()=>{
+    VIEW_MODE = VIEW_ORDER[(VIEW_ORDER.indexOf(VIEW_MODE)+1) % VIEW_ORDER.length];
+    // The button names the view you are ABOUT to get, which is the next one
+    // in the cycle — the header says which one you are looking at now.
+    const _next = VIEW_ORDER[(VIEW_ORDER.indexOf(VIEW_MODE)+1) % VIEW_ORDER.length];
+    document.getElementById("btnView").textContent = VIEW_LABEL[_next];
+    const _sub = document.querySelector(".hdr-sub");
+    if(_sub) _sub.textContent = VIEW_SUB[VIEW_MODE];
+    draw();
+  };
+  document.getElementById("pollSec").onchange=()=>startPolling();
+  startPolling(); tick();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+#===============================================================================
+# frognet-netmode — Detect whether FrogNet identity runs on eth0 or wlan0
+#
+# Returns: "wired" if the box's wired NIC has physical link, "wireless"
+#          otherwise.
+#
+# "eth0" is a ROLE, not a kernel device name.  The actual device that
+# plays the eth0 role is whatever /etc/frognet/interfaces_override.conf
+# sets eth0Name to (e.g. eth0, ens9, enp0s3, enx0050b6246629).  The
+# installer sets this at install time; mapInterfaces and every consumer
+# script honors the override.
+#
+# Decision logic:
+#   - If $eth0Name has carrier (cable plugged in with active link),
+#     identity goes on $eth0Name and the wireless device is available
+#     for upstream/station use.
+#   - Otherwise, the wireless device becomes the AP and carries the
+#     identity (subject to SSID_PROJECTION).
+#===============================================================================
+
+eth0Name="eth0"
+
+# interfaces_override.conf wins over the literal default.  Without this,
+# boxes whose wired NIC isn't named "eth0" (modern predictable naming —
+# ens9, enp0s3, enx...) are misclassified as wireless even with a cable.
+if [[ -f /etc/frognet/interfaces_override.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/frognet/interfaces_override.conf 2>/dev/null || true
+fi
+
+if [[ -d "/sys/class/net/${eth0Name}" ]]; then
+    CARRIER=$(cat "/sys/class/net/${eth0Name}/carrier" 2>&1) || CARRIER="0"
+    OPERSTATE=$(cat "/sys/class/net/${eth0Name}/operstate" 2>&1) || OPERSTATE="down"
+
+    if [[ "$CARRIER" == "1" && "$OPERSTATE" == "up" ]]; then
+        echo "wired"
+        exit 0
+    fi
+fi
+
+echo "wireless"
+exit 0

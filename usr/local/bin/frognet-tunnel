@@ -1,0 +1,945 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# frognet — FrogNet tunnel client
+#
+# Commands:
+#   frognet host <password> <channel_name>
+#       Advertise this node as a tunnel host on <channel_name>.
+#       Runs in the foreground (use systemd or screen for persistence).
+#
+#   frognet join <password> <channel_name>
+#       Join an advertised channel. Brings up the WireGuard tunnel.
+#
+#   frognet list <password>
+#       List available channels (nodes currently advertising).
+#
+#   frognet disconnect <channel_name>
+#       Tear down the tunnel for <channel_name>.
+#
+# Configuration:
+#   /etc/frognet/frognet.conf — set BROKER_URL here
+#   /var/lib/frognet-tunnel/  — state, keys
+#
+# NEVER masks errors.
+# =============================================================================
+
+trap 'log_err "Fatal error on line $LINENO"; exit 1' ERR
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+CONF_FILE="/etc/frognet/frognet.conf"
+STATE_DIR="/var/lib/frognet-tunnel"
+WG_CONF_DIR="/etc/wireguard"
+TOKEN_CACHE_DIR="${STATE_DIR}/tokens"
+LABEL="${FROGNET_LABEL:-$(hostname -s)}"
+
+# Default broker URL — override in /etc/frognet/frognet.conf
+BROKER_URL="${FROGNET_BROKER_URL:-https://streamingfrog.com/frognet-broker}"
+
+# Load config if present
+if [ -f "$CONF_FILE" ]; then
+    # shellcheck source=/dev/null
+    source "$CONF_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+log()     { echo "$(date -u +%H:%M:%S) $*" >&2; }
+log_err() { echo "$(date -u +%H:%M:%S) ERROR: $*" >&2; }
+die()     { log_err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Prerequisites check
+# ---------------------------------------------------------------------------
+
+check_prereqs() {
+    for cmd in wg wg-quick curl jq ip; do
+        command -v "$cmd" >/dev/null || die "'${cmd}' not found. Install wireguard-tools, curl, jq."
+    done
+    [ "$(id -u)" -eq 0 ] || die "Must run as root (sudo frognet ...)"
+}
+
+# ---------------------------------------------------------------------------
+# Setup — generate keypair if needed, ensure dirs
+# ---------------------------------------------------------------------------
+
+setup_node() {
+    mkdir -p "${STATE_DIR}/active" "${TOKEN_CACHE_DIR}" "${WG_CONF_DIR}"
+    chmod 700 "${STATE_DIR}" "${TOKEN_CACHE_DIR}"
+
+    if [ ! -f "${STATE_DIR}/node_private.key" ]; then
+        log "Generating WireGuard keypair..."
+        wg genkey | tee "${STATE_DIR}/node_private.key" | \
+            wg pubkey > "${STATE_DIR}/node_public.key"
+        chmod 600 "${STATE_DIR}/node_private.key"
+        log "Keypair generated"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Get or cache group token for a password
+# ---------------------------------------------------------------------------
+
+get_group_token() {
+    local password="$1"
+    local cache_file="${TOKEN_CACHE_DIR}/$(echo "$password" | sha256sum | cut -c1-16).token"
+
+    # Use cached token if present
+    if [ -f "$cache_file" ]; then
+        cat "$cache_file"
+        return 0
+    fi
+
+    log "Redeeming passcode..."
+    local resp http_code
+    resp=$(curl -s -k -w "\n%{http_code}" -X POST "${BROKER_URL}/api/v1/redeem" \
+        -H "Content-Type: application/json" \
+        -d "{\"passcode\": \"${password}\"}" 2>&1) || \
+        die "Could not reach broker at ${BROKER_URL}. Check network and BROKER_URL in ${CONF_FILE}."
+    http_code=$(echo "$resp" | tail -1)
+    resp=$(echo "$resp" | sed '$d')
+    [ "$http_code" != "000" ] || die "Could not reach broker at ${BROKER_URL}"
+
+    local token
+    token=$(echo "$resp" | jq -r '.group_token // empty')
+    [ -n "$token" ] || die "Invalid password or broker error: $(echo "$resp" | jq -r '.detail // .')"
+
+    echo "$token" > "$cache_file"
+    chmod 600 "$cache_file"
+    echo "$token"
+}
+
+# ---------------------------------------------------------------------------
+# Get this node's FrogNet subnet
+# Looks for the 10.101.x.0/24 address on any interface
+# ---------------------------------------------------------------------------
+
+get_local_subnet() {
+    local subnet
+    subnet=$(ip -4 addr show | awk '/inet 10\.101\./ {print $2}' | head -1)
+    if [ -z "$subnet" ]; then
+        die "No 10.101.x.x address found on any interface. Is this node part of a FrogNet mesh?"
+    fi
+    # Convert address/prefix to network/24
+    local ip
+    ip=$(echo "$subnet" | cut -d/ -f1)
+    echo "${ip%.*}.0/24"
+}
+
+# ---------------------------------------------------------------------------
+# Broker API helpers
+# ---------------------------------------------------------------------------
+
+broker_get() {
+    local path="$1"
+    local token="$2"
+    local out
+    out=$(curl -s -k -w "\n%{http_code}" "${BROKER_URL}${path}?group_token=${token}" 2>&1) || \
+        die "Broker request failed: GET ${path}"
+    local code body
+    code=$(echo "$out" | tail -1)
+    body=$(echo "$out" | sed '$d')
+    [ "$code" != "000" ] || die "Broker unreachable: GET ${path}"
+    echo "$body"
+}
+
+broker_post() {
+    local path="$1"
+    local body="$2"
+    local out
+    out=$(curl -s -k -w "\n%{http_code}" -X POST "${BROKER_URL}${path}" \
+        -H "Content-Type: application/json" \
+        -d "$body" 2>&1) || \
+        die "Broker request failed: POST ${path}"
+    local code resp
+    code=$(echo "$out" | tail -1)
+    resp=$(echo "$out" | sed '$d')
+    [ "$code" != "000" ] || die "Broker unreachable: POST ${path}"
+    echo "$resp"
+}
+
+# ---------------------------------------------------------------------------
+# Find next free wgN interface
+# ---------------------------------------------------------------------------
+
+find_next_wg_iface() {
+    local n=0
+    while ip link show "wg${n}" >/dev/null 2>&1; do
+        n=$((n + 1))
+        [ "$n" -le 16 ] || die "Too many WireGuard interfaces"
+    done
+    echo "wg${n}"
+}
+
+# ---------------------------------------------------------------------------
+# Cleanup: tear down existing tunnels that serve the same remote subnets
+#
+# Before creating a new tunnel, we must remove any existing wg interface
+# that already routes to the same remote subnet. Otherwise we get:
+#   - Duplicate kernel routes (10.101.x.0/24 on wg2 AND wg5)
+#   - Stale interfaces consuming handshake slots
+#   - Discovery confusion from multiple paths
+#
+# Args: $@ = list of remote subnets (e.g., "10.101.10.0/24" "10.101.20.0/24")
+# ---------------------------------------------------------------------------
+
+cleanup_stale_tunnels_for_subnets() {
+    local -a target_subnets=("$@")
+    [[ ${#target_subnets[@]} -gt 0 ]] || return 0
+
+    log "CLEANUP: checking for existing tunnels to subnets: ${target_subnets[*]}"
+
+    # --- Pass 1: State-file-based cleanup ---
+    # Any state file whose remote_subnets overlap with our target list
+    local f
+    for f in "${STATE_DIR}/active/"*.json; do
+        [[ -f "$f" ]] || continue
+        # Skip garbage files (empty name, zero-length, etc.)
+        [[ -s "$f" ]] || { log "CLEANUP: removing garbage state file: $f"; rm -f "$f"; continue; }
+
+        local file_iface file_tname file_subnets_raw
+        file_iface=$(jq -r '.interface // empty' "$f" 2>/dev/null || true)
+        file_tname=$(jq -r '.tunnel_name // empty' "$f" 2>/dev/null || true)
+        file_subnets_raw=$(jq -r '.remote_subnets[]? // empty' "$f" 2>/dev/null || true)
+
+        # Check if any of this state file's subnets overlap with our targets
+        local overlap=""
+        local fsn tsn
+        while IFS= read -r fsn; do
+            [[ -n "$fsn" ]] || continue
+            for tsn in "${target_subnets[@]}"; do
+                if [[ "$fsn" == "$tsn" ]]; then
+                    overlap="$fsn"
+                    break 2
+                fi
+            done
+        done <<< "$file_subnets_raw"
+
+        [[ -n "$overlap" ]] || continue
+
+        log "CLEANUP: state file $f (tunnel=$file_tname iface=$file_iface) overlaps on $overlap"
+
+        # Tear down the interface
+        if [[ -n "$file_iface" ]] && ip link show "$file_iface" >/dev/null 2>&1; then
+            log "CLEANUP: tearing down $file_iface ($file_tname)"
+            if [[ -f "${WG_CONF_DIR}/${file_iface}.conf" ]]; then
+                wg-quick down "$file_iface" || true
+            else
+                ip link set "$file_iface" down 2>&1 || true
+                ip link delete "$file_iface" 2>&1 || true
+            fi
+            rm -f "${WG_CONF_DIR}/${file_iface}.conf"
+        fi
+
+        # Remove the state file
+        rm -f "$f"
+        log "CLEANUP: removed $f"
+    done
+
+    # --- Pass 2: Route-based cleanup ---
+    # Find any wg interfaces with scope-link routes to our target subnets
+    # that weren't caught by state files (orphan interfaces)
+    local tsn
+    for tsn in "${target_subnets[@]}"; do
+        # Find all wg interfaces with scope-link routes to this subnet
+        local route_line iface
+        while IFS= read -r route_line; do
+            [[ -n "$route_line" ]] || continue
+            # Extract device name: "10.101.x.0/24 dev wgN scope link ..."
+            iface=$(echo "$route_line" | grep -oP 'dev \Kwg\d+')
+            [[ -n "$iface" ]] || continue
+
+            log "CLEANUP: orphan route '$tsn dev $iface scope link' — removing"
+            ip route del "$tsn" dev "$iface" scope link 2>/dev/null || true
+
+            # If this interface has no other FrogNet routes, tear it down entirely
+            local other_routes
+            other_routes=$(ip route show dev "$iface" 2>/dev/null | grep -c '10\.101\.' || true)
+            if [[ "$other_routes" -eq 0 ]]; then
+                # Check if the interface has any via routes pointing through it
+                local via_routes
+                via_routes=$(ip route show 2>/dev/null | grep -c "dev ${iface}.*via" || true)
+                if [[ "$via_routes" -eq 0 ]]; then
+                    log "CLEANUP: $iface has no remaining FrogNet routes — tearing down"
+                    if [[ -f "${WG_CONF_DIR}/${iface}.conf" ]]; then
+                        wg-quick down "$iface" || true
+                    else
+                        ip link set "$iface" down 2>&1 || true
+                        ip link delete "$iface" 2>&1 || true
+                    fi
+                    rm -f "${WG_CONF_DIR}/${iface}.conf"
+                fi
+            fi
+        done < <(ip route show "$tsn" 2>/dev/null | grep 'scope link' | grep 'dev wg' || true)
+
+        # Also clean up any stale via routes to this subnet on dead wg interfaces
+        while IFS= read -r route_line; do
+            [[ -n "$route_line" ]] || continue
+            iface=$(echo "$route_line" | grep -oP 'dev \Kwg\d+')
+            [[ -n "$iface" ]] || continue
+            # If the interface doesn't exist, the route is garbage
+            if ! ip link show "$iface" >/dev/null 2>&1; then
+                log "CLEANUP: via route to $tsn through dead $iface — removing"
+                ip route del $route_line 2>/dev/null || true
+            fi
+        done < <(ip route show "$tsn" 2>/dev/null | grep 'via.*dev wg' || true)
+    done
+
+    # --- Pass 3: Clean garbage state files ---
+    for f in "${STATE_DIR}/active/"*.json; do
+        [[ -f "$f" ]] || continue
+        local bname
+        bname=$(basename "$f")
+        # Remove files with empty/garbage names
+        if [[ "$bname" == ".json" || -z "$(jq -r '.tunnel_name // empty' "$f" 2>/dev/null)" ]]; then
+            log "CLEANUP: removing garbage state file: $f"
+            rm -f "$f"
+        fi
+    done
+
+    log "CLEANUP: done"
+}
+
+# ---------------------------------------------------------------------------
+# Tear down existing tunnel for a channel (by channel name)
+# ---------------------------------------------------------------------------
+
+teardown_channel() {
+    local channel="$1"
+    local f iface tname
+
+    for f in "${STATE_DIR}/active/"*.json; do
+        [ -f "$f" ] || continue
+        local ch
+        ch=$(jq -r '.channel_name // empty' "$f" 2>/dev/null || true)
+        [ "$ch" = "$channel" ] || continue
+
+        iface=$(jq -r '.interface // empty' "$f" 2>/dev/null || true)
+        tname=$(jq -r '.tunnel_name // empty' "$f" 2>/dev/null || true)
+
+        if [ -n "$iface" ] && ip link show "$iface" >/dev/null 2>&1; then
+            log "Tearing down ${tname} on ${iface}"
+            wg-quick down "$iface" || true
+        fi
+        rm -f "$f"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# CMD: host
+# ---------------------------------------------------------------------------
+
+cmd_host() {
+    local password="$1"
+    local channel="$2"
+
+    local token subnet pubkey
+    token=$(get_group_token "$password")
+    subnet=$(get_local_subnet)
+    pubkey=$(cat "${STATE_DIR}/node_public.key")
+
+    log "Advertising channel '${channel}' (subnet ${subnet})..."
+
+    # Connect via websocket using curl's --no-buffer with a Python helper
+    # We need a persistent websocket — use Python since bash can't do WS natively
+python3 - <<PYEOF
+import json, sys, time, socket, ssl, threading
+from urllib.parse import urlparse
+
+parsed = urlparse("${BROKER_URL}")
+host = parsed.hostname
+port = parsed.port or (443 if parsed.scheme == "https" else 80)
+url_prefix = parsed.path.rstrip("/")
+use_tls = parsed.scheme == "https"
+
+def dbg(msg):
+    print(f"[DBG {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr, flush=True)
+
+dbg(f"Starting: host={host} port={port} tls={use_tls} url_prefix={url_prefix}")
+
+msg = json.dumps({
+    "group_token": "${token}",
+    "channel_name": "${channel}",
+    "pubkey": "${pubkey}",
+    "frognet_subnets": ["${subnet}"],
+    "label": "${LABEL}"
+})
+
+def make_socket():
+    dbg("make_socket: creating TCP socket")
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(5)
+    dbg(f"make_socket: connecting to {host}:{port}")
+    s.connect((host, port))
+    dbg("make_socket: TCP connected")
+    if use_tls:
+        dbg("make_socket: wrapping TLS")
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        s = ctx.wrap_socket(s, server_hostname=host)
+        dbg(f"make_socket: TLS ok, type={type(s).__name__}")
+    return s
+
+def ws_handshake(s):
+    import base64, os
+    key = base64.b64encode(os.urandom(16)).decode()
+    req = (
+        f"GET {url_prefix}/api/v1/advertise HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        f"Upgrade: websocket\r\n"
+        f"Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\n"
+        f"Sec-WebSocket-Version: 13\r\n\r\n"
+    )
+    dbg("ws_handshake: sending upgrade request")
+    s.sendall(req.encode())
+    resp = b""
+    while b"\r\n\r\n" not in resp:
+        resp += s.recv(1024)
+    dbg(f"ws_handshake: got response: {resp[:100]}")
+    if b"101" not in resp:
+        print(f"Handshake failed: {resp[:200]}", file=sys.stderr)
+        sys.exit(1)
+    dbg("ws_handshake: success")
+
+def ws_send(s, text):
+    import struct, os
+    dbg(f"ws_send: sending: {text[:80]}")
+    data = text.encode()
+    mask = os.urandom(4)
+    masked = bytes(data[i] ^ mask[i % 4] for i in range(len(data)))
+    length = len(data)
+    if length < 126:
+        header = bytes([0x81, 0x80 | length]) + mask
+    elif length < 65536:
+        header = bytes([0x81, 0xFE]) + struct.pack(">H", length) + mask
+    else:
+        header = bytes([0x81, 0xFF]) + struct.pack(">Q", length) + mask
+    s.sendall(header + masked)
+    dbg("ws_send: done")
+
+def ws_recv(s):
+    import struct
+    dbg("ws_recv: waiting for frame header")
+    while True:
+        try:
+            hdr = s.recv(2)
+        except socket.timeout:
+            dbg("ws_recv: socket.timeout on recv(2) — propagating")
+            raise
+        except ssl.SSLWantReadError:
+            dbg("ws_recv: SSLWantReadError on recv(2) — propagating")
+            raise
+        except Exception as e:
+            dbg(f"ws_recv: exception on recv(2): type={type(e).__name__} val={e}")
+            raise
+        if len(hdr) < 2:
+            dbg(f"ws_recv: short header len={len(hdr)} — BrokenPipe")
+            raise BrokenPipeError("connection closed")
+        b1, b2 = hdr
+        opcode = b1 & 0x0F
+        length = b2 & 0x7F
+        dbg(f"ws_recv: opcode=0x{opcode:X} raw_length={length}")
+        if length == 126:
+            length = struct.unpack(">H", s.recv(2))[0]
+            dbg(f"ws_recv: extended length(16)={length}")
+        elif length == 127:
+            length = struct.unpack(">Q", s.recv(8))[0]
+            dbg(f"ws_recv: extended length(64)={length}")
+        masked = (b2 & 0x80) != 0
+        if masked:
+            mask = s.recv(4)
+        data = b""
+        while len(data) < length:
+            chunk = s.recv(length - len(data))
+            if not chunk:
+                break
+            data += chunk
+        if masked:
+            data = bytes(data[i] ^ mask[i % 4] for i in range(len(data)))
+        if opcode == 0x8:
+            dbg("ws_recv: opcode=CLOSE — raising BrokenPipe")
+            raise BrokenPipeError("connection closed by server")
+        if opcode == 0xA:
+            dbg("ws_recv: opcode=PONG — skipping")
+            continue
+        if opcode == 0x9:  # ping — send WebSocket pong frame
+            import struct, os
+            mask = os.urandom(4)
+            masked_payload = bytes(data[i] ^ mask[i % 4] for i in range(len(data)))
+            pong_header = bytes([0x8A, 0x80 | len(data)]) + mask
+            s.sendall(pong_header + masked_payload)
+            dbg(f"ws_recv: sent WS pong frame for opcode 0x9")
+            continue
+        dbg(f"ws_recv: returning text frame len={len(data)}: {data[:80]}")
+        return data.decode("utf-8", errors="replace")
+
+reconnect_delay = 2
+while True:
+    try:
+        dbg("outer loop: connecting")
+        s = make_socket()
+        ws_handshake(s)
+        ws_send(s, msg)
+
+        resp_text = ws_recv(s)
+        resp = json.loads(resp_text)
+        if "error" in resp:
+            print(f"Broker error: {resp['error']}", file=sys.stderr)
+            sys.exit(1)
+
+        print(json.dumps({"status": "advertised", "channel": "${channel}", "subnet": "${subnet}"}), flush=True)
+        reconnect_delay = 2
+
+        dbg("inner loop: setting socket timeout to 30s")
+        s.settimeout(30)
+        while True:
+            try:
+                raw = ws_recv(s)
+                if not raw.strip(): continue
+                parsed = json.loads(raw)
+
+                if parsed.get("type") == "ping":
+                    dbg("inner loop: got JSON ping — sending pong")
+                    ws_send(s, json.dumps({"type": "pong"}))
+
+                elif parsed.get("event") == "tunnel_created":
+                    cfg = parsed.get("wg_config", {})
+                    tname = parsed.get("tunnel_name", "")
+                    joiner = parsed.get("joiner_label", "")
+                    dbg(f"inner loop: tunnel_created tname={tname} joiner={joiner}")
+                    print(json.dumps({"event": "tunnel_up", "tunnel": tname, "joiner": joiner}), flush=True)
+
+                    # -----------------------------------------------------------
+                    # CLEANUP: Before creating a new interface, tear down any
+                    # existing tunnels that route to the same remote subnets.
+                    # This prevents duplicate wg interfaces and stale routes.
+                    # -----------------------------------------------------------
+                    remote_subnets = cfg.get("remote_subnets", [])
+                    if remote_subnets:
+                        import subprocess
+                        dbg(f"inner loop: cleanup — checking for existing tunnels to {remote_subnets}")
+
+                        # Pass 1: State-file cleanup
+                        import glob, os
+                        for sf_path in glob.glob("${STATE_DIR}/active/*.json"):
+                            try:
+                                with open(sf_path) as _sf:
+                                    sf_data = json.load(_sf)
+                                sf_subnets = sf_data.get("remote_subnets", [])
+                                sf_iface = sf_data.get("interface", "")
+                                sf_tname = sf_data.get("tunnel_name", "")
+                                overlap = set(sf_subnets) & set(remote_subnets)
+                                if not overlap:
+                                    continue
+                                dbg(f"inner loop: cleanup — {sf_path} ({sf_tname} on {sf_iface}) overlaps {overlap}")
+                                # Tear down the old interface
+                                if sf_iface:
+                                    try:
+                                        subprocess.run(["ip","link","show",sf_iface],
+                                            capture_output=True, check=True)
+                                        # Interface exists — bring it down
+                                        conf_path = f"/etc/wireguard/{sf_iface}.conf"
+                                        if os.path.exists(conf_path):
+                                            subprocess.run(["wg-quick","down",sf_iface], check=False)
+                                        else:
+                                            subprocess.run(["ip","link","set",sf_iface,"down"], check=False)
+                                            subprocess.run(["ip","link","delete",sf_iface], check=False)
+                                        try: os.unlink(conf_path)
+                                        except FileNotFoundError: pass
+                                        dbg(f"inner loop: cleanup — torn down {sf_iface}")
+                                    except subprocess.CalledProcessError:
+                                        dbg(f"inner loop: cleanup — {sf_iface} already gone")
+                                os.unlink(sf_path)
+                                dbg(f"inner loop: cleanup — removed {sf_path}")
+                            except (json.JSONDecodeError, KeyError, OSError) as e:
+                                dbg(f"inner loop: cleanup — bad state file {sf_path}: {e}")
+                                try: os.unlink(sf_path)
+                                except: pass
+
+                        # Pass 2: Route-based cleanup for orphan interfaces
+                        for sn in remote_subnets:
+                            try:
+                                result = subprocess.run(
+                                    ["ip","route","show",sn],
+                                    capture_output=True, text=True, check=False)
+                                for line in result.stdout.splitlines():
+                                    if "scope link" not in line or "dev wg" not in line:
+                                        continue
+                                    import re
+                                    m = re.search(r'dev (wg\d+)', line)
+                                    if not m:
+                                        continue
+                                    old_iface = m.group(1)
+                                    dbg(f"inner loop: cleanup — orphan route {sn} on {old_iface}")
+                                    subprocess.run(
+                                        ["ip","route","del",sn,"dev",old_iface,"scope","link"],
+                                        check=False)
+                            except Exception as e:
+                                dbg(f"inner loop: cleanup — route check error: {e}")
+
+                    # -----------------------------------------------------------
+                    # Now find the next free interface (after cleanup freed slots)
+                    # -----------------------------------------------------------
+                    iface_num = 0
+                    import subprocess
+                    while True:
+                        try:
+                            subprocess.run(["ip","link","show",f"wg{iface_num}"],
+                                capture_output=True, check=True)
+                            iface_num += 1
+                        except subprocess.CalledProcessError:
+                            break
+                    iface = f"wg{iface_num}"
+                    dbg(f"inner loop: using iface={iface}")
+
+                    privkey = open("${STATE_DIR}/node_private.key").read().strip()
+                    wg_conf = f"""[Interface]
+Address = {cfg['edge_ip']}/{cfg['edge_mask']}
+PrivateKey = {privkey}
+Table = off
+
+[Peer]
+PublicKey = {cfg['droplet_pubkey']}
+Endpoint = {cfg['droplet_endpoint']}
+AllowedIPs = {cfg['allowed_ips']}
+PersistentKeepalive = 25
+"""
+                    conf_path = f"/etc/wireguard/{iface}.conf"
+                    with open(conf_path, "w") as fh:
+                        fh.write(wg_conf)
+                    import os; os.chmod(conf_path, 0o600)
+                    dbg(f"inner loop: running wg-quick up {iface}")
+                    subprocess.run(["wg-quick","up",iface], check=True)
+                    dbg(f"inner loop: wg-quick up done")
+
+                    local_gw = "${subnet}".rsplit(".",1)[0] + ".1"
+                    for sn in cfg.get("remote_subnets", []):
+                        dbg(f"inner loop: adding route {sn} dev {iface}")
+                        subprocess.run(["ip","route","replace",sn,"dev",iface,"src",local_gw],
+                            check=False)
+
+                    # Flush discovery cache for affected subnets and trigger merge
+                    for sn in cfg.get("remote_subnets", []):
+                        gw = sn.rsplit(".", 1)[0].rsplit(".", 1)[0] + ".1"  # 10.101.x.0/24 → 10.101.x.1
+                        try:
+                            subprocess.run(["/usr/local/bin/discovery_cache","reset",gw], check=False)
+                            dbg(f"inner loop: cache reset {gw}")
+                        except: pass
+                    subprocess.Popen(["/usr/local/bin/runMerge.bash"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                    # Write state file for sync_interfaces
+                    import json as _json
+                    state = {
+                        "interface": iface,
+                        "tunnel_name": tname,
+                        "channel_name": "${channel}",
+                        "remote_subnets": cfg.get("remote_subnets", []),
+                        "edge_ip": cfg["edge_ip"],
+                        "droplet_endpoint": cfg["droplet_endpoint"],
+                        "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                    }
+                    state_path = "${STATE_DIR}/active/" + tname + ".json"
+                    with open(state_path, "w") as sf:
+                        sf.write(_json.dumps(state, indent=4))
+                    dbg(f"inner loop: wrote state to {state_path}")
+
+                elif parsed.get("event") == "tunnel_destroyed":
+                    tname = parsed.get("tunnel_name","")
+                    dbg(f"inner loop: tunnel_destroyed tname={tname}")
+                    print(json.dumps({"event": "tunnel_down", "tunnel": tname}), flush=True)
+
+            except (socket.timeout, ssl.SSLWantReadError) as e:
+                dbg(f"inner loop: keepalive timeout ({type(e).__name__}) — sending ping")
+                try:
+                    ws_send(s, json.dumps({"type": "ping"}))
+                    dbg("inner loop: ping sent ok")
+                except Exception as ex:
+                    dbg(f"inner loop: ping send failed: {type(ex).__name__}: {ex}")
+                    raise OSError(str(ex))
+
+    except (ConnectionRefusedError, OSError, BrokenPipeError) as e:
+        dbg(f"outer loop: connection error type={type(e).__name__} val={e} — reconnecting in {reconnect_delay}s")
+        print(json.dumps({"status": "reconnecting", "reason": str(e)}), flush=True)
+        time.sleep(reconnect_delay)
+        reconnect_delay = min(reconnect_delay * 2, 60)
+    except KeyboardInterrupt:
+        print(json.dumps({"status": "stopped"}), flush=True)
+        sys.exit(0)
+PYEOF
+}
+
+# ---------------------------------------------------------------------------
+# CMD: join
+# ---------------------------------------------------------------------------
+
+cmd_join() {
+    local password="$1"
+    local channel="$2"
+
+    local token subnet pubkey
+    token=$(get_group_token "$password")
+    subnet=$(get_local_subnet)
+    pubkey=$(cat "${STATE_DIR}/node_public.key")
+    local local_gw="${subnet%.*}.1"
+
+    # Tear down any existing tunnel to this channel
+    teardown_channel "$channel"
+
+    log "Joining channel '${channel}'..."
+
+    local resp
+    resp=$(broker_post "/api/v1/join" "{
+        \"group_token\": \"${token}\",
+        \"channel_name\": \"${channel}\",
+        \"pubkey\": \"${pubkey}\",
+        \"frognet_subnets\": [\"${subnet}\"],
+        \"label\": \"${LABEL}\"
+    }")
+
+    local err
+    err=$(echo "$resp" | jq -r '.detail // empty' 2>/dev/null || true)
+    [ -z "$err" ] || die "Join failed: ${err}"
+
+    local tunnel_name edge_ip edge_mask droplet_ip droplet_pubkey droplet_endpoint allowed_ips
+    tunnel_name=$(echo "$resp" | jq -r '.tunnel_name')
+    edge_ip=$(echo "$resp"     | jq -r '.wg_config.edge_ip')
+    edge_mask=$(echo "$resp"   | jq -r '.wg_config.edge_mask')
+    droplet_ip=$(echo "$resp"  | jq -r '.wg_config.droplet_ip')
+    droplet_pubkey=$(echo "$resp"   | jq -r '.wg_config.droplet_pubkey')
+    droplet_endpoint=$(echo "$resp" | jq -r '.wg_config.droplet_endpoint')
+    allowed_ips=$(echo "$resp" | jq -r '.wg_config.allowed_ips')
+    local host_subnets
+    host_subnets=$(echo "$resp" | jq -r '.host_subnets[]' 2>/dev/null || true)
+
+    # -----------------------------------------------------------
+    # CLEANUP: Before creating a new tunnel, tear down any existing
+    # tunnels that route to the same remote subnets.
+    # -----------------------------------------------------------
+    if [ -n "$host_subnets" ]; then
+        local -a subnet_array=()
+        while IFS= read -r sn; do
+            [ -n "$sn" ] && subnet_array+=("$sn")
+        done <<< "$host_subnets"
+        if [ ${#subnet_array[@]} -gt 0 ]; then
+            cleanup_stale_tunnels_for_subnets "${subnet_array[@]}"
+        fi
+    fi
+
+    local privkey
+    privkey=$(cat "${STATE_DIR}/node_private.key")
+
+    local wg_iface
+    wg_iface=$(find_next_wg_iface)
+    local wg_conf="${WG_CONF_DIR}/${wg_iface}.conf"
+
+    cat > "$wg_conf" <<WGEOF
+# FrogNet — ${tunnel_name}
+[Interface]
+Address = ${edge_ip}/${edge_mask}
+PrivateKey = ${privkey}
+Table = off
+
+[Peer]
+PublicKey = ${droplet_pubkey}
+Endpoint = ${droplet_endpoint}
+AllowedIPs = ${allowed_ips}
+PersistentKeepalive = 25
+WGEOF
+    chmod 600 "$wg_conf"
+
+    log "Bringing up ${wg_iface}..."
+    wg-quick up "${wg_iface}"
+
+    # Install routes to host subnets
+    if [ -n "$host_subnets" ]; then
+        echo "$host_subnets" | while IFS= read -r sn; do
+            [ -n "$sn" ] || continue
+            ip route replace "${sn}" dev "${wg_iface}" src "${local_gw}"
+            log "Route: ${sn} dev ${wg_iface}"
+        done
+    fi
+
+    local remote_subnets_json
+    remote_subnets_json=$(echo "$host_subnets" | jq -R . | jq -sc . 2>/dev/null || echo "[]")
+    # Save state
+    cat > "${STATE_DIR}/active/${tunnel_name}.json" <<STEOF
+{
+    "interface": "${wg_iface}",
+    "tunnel_name": "${tunnel_name}",
+    "channel_name": "${channel}",
+    "edge_ip": "${edge_ip}",
+    "droplet_ip": "${droplet_ip}",
+    "droplet_endpoint": "${droplet_endpoint}",
+    "local_gateway": "${local_gw}",
+    "remote_subnets": ${remote_subnets_json},
+    "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+STEOF
+
+    # Verify
+    local ping_ok="false"
+    if ping -c 1 -W 3 "$droplet_ip" >/dev/null 2>&1; then
+        ping_ok="true"
+    fi
+
+    echo "{\"status\":\"joined\",\"tunnel\":\"${tunnel_name}\",\"interface\":\"${wg_iface}\",\"channel\":\"${channel}\",\"ping_ok\":${ping_ok}}"
+
+    # Flush discovery cache for new subnets
+    if [ -n "$host_subnets" ]; then
+        echo "$host_subnets" | while IFS= read -r sn; do
+            [ -n "$sn" ] || continue
+            local gw="${sn%%.0/24}.1"
+            /usr/local/bin/discovery_cache reset "$gw" 2>/dev/null || true
+        done
+    fi
+
+    /usr/local/bin/runMerge.bash &
+}
+
+# ---------------------------------------------------------------------------
+# CMD: list
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+    local password="$1"
+    local token
+    token=$(get_group_token "$password")
+
+    local resp
+    resp=$(broker_get "/api/v1/channels" "$token")
+
+    local err
+    err=$(echo "$resp" | jq -r '.detail // empty' 2>/dev/null || true)
+    [ -z "$err" ] || die "List failed: ${err}"
+
+    echo ""
+    echo "Available channels:"
+    echo "-------------------"
+    echo "$resp" | jq -r '.channels[] | "\(.name)\t\(if .connected then "ONLINE" else "offline" end)\t\(.subnets | join(", "))"' \
+        | column -t -s $'\t'
+    echo ""
+
+    echo "Active tunnels on this node:"
+    echo "----------------------------"
+    local found=0
+    for f in "${STATE_DIR}/active/"*.json; do
+        [ -f "$f" ] || continue
+        local tname iface ch
+        tname=$(jq -r '.tunnel_name' "$f")
+        iface=$(jq -r '.interface' "$f")
+        ch=$(jq -r '.channel_name' "$f")
+        echo "  ${tname}  (interface: ${iface}, channel: ${ch})"
+        found=1
+    done
+    [ "$found" -eq 1 ] || echo "  (none)"
+    echo ""
+}
+
+# ---------------------------------------------------------------------------
+# CMD: disconnect
+# ---------------------------------------------------------------------------
+
+cmd_disconnect() {
+    local channel="$1"
+
+    local found=0
+    for f in "${STATE_DIR}/active/"*.json; do
+        [ -f "$f" ] || continue
+        local ch
+        ch=$(jq -r '.channel_name // empty' "$f" 2>/dev/null || true)
+        [ "$ch" = "$channel" ] || continue
+
+        local iface tname token_file group_token tunnel_name
+        iface=$(jq -r '.interface' "$f")
+        tname=$(jq -r '.tunnel_name' "$f")
+
+        if ip link show "$iface" >/dev/null 2>&1; then
+            log "Bringing down ${iface}..."
+            wg-quick down "$iface" || true
+        fi
+
+        # Tell broker to tear down its side
+        # Find the cached token (any will do — they're all for the same group)
+        for tf in "${TOKEN_CACHE_DIR}/"*.token; do
+            [ -f "$tf" ] || continue
+            group_token=$(cat "$tf")
+            broker_post "/api/v1/leave" \
+                "{\"group_token\":\"${group_token}\",\"tunnel_name\":\"${tname}\"}" \
+                >/dev/null 2>&1 || true
+            break
+        done
+
+        rm -f "$f"
+        log "Disconnected ${tname}"
+        found=1
+    done
+
+    [ "$found" -eq 1 ] || log "No active tunnel found for channel '${channel}'"
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+check_prereqs
+setup_node
+
+CMD="${1:-}"
+case "$CMD" in
+    host)
+        [ "$#" -ge 3 ] || die "Usage: frognet host <password> <channel_name>"
+        cmd_host "$2" "$3"
+        ;;
+    join)
+        [ "$#" -ge 3 ] || die "Usage: frognet join <password> <channel_name>"
+        cmd_join "$2" "$3"
+        ;;
+    list)
+        [ "$#" -ge 2 ] || die "Usage: frognet list <password>"
+        cmd_list "$2"
+        ;;
+    disconnect)
+        [ "$#" -ge 2 ] || die "Usage: frognet disconnect <channel_name>"
+        cmd_disconnect "$2"
+        ;;
+    "")
+        echo "Usage: frognet <command> [args]"
+        echo ""
+        echo "Commands:"
+        echo "  frognet host <password> <channel_name>   Advertise this node as a host"
+        echo "  frognet join <password> <channel_name>   Join a hosted channel"
+        echo "  frognet list <password>                  List available channels"
+        echo "  frognet disconnect <channel_name>        Tear down a tunnel"
+        echo ""
+        echo "Configuration:"
+        echo "  Set BROKER_URL in ${CONF_FILE}"
+        exit 0
+        ;;
+    *)
+        die "Unknown command '${CMD}'. Run 'frognet' for usage."
+        ;;
+esac

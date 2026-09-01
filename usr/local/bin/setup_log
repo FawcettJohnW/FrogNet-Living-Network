@@ -1,0 +1,1433 @@
++ rm /etc/hosts /etc/resolv.conf /etc/sentinels/discovery_pending.tsv /etc/sentinels/exit_host.tsv /etc/sentinels/expected_routes /etc/sentinels/forwrded /etc/sentinels/frognet_hosts /etc/sentinels/frognet_hosts_out /etc/sentinels/frognet_resolv /etc/sentinels/frog_resolv.conf /etc/sentinels/new_resolv.conf /etc/sentinels/old_host_json /etc/sentinels/old_hosts_meta /etc/sentinels/routes_snapshot.json /etc/sentinels/sync_required
++ . /usr/local/bin/mapInterfaces
+++ IP=/usr/sbin/ip
+++ AWK=/usr/bin/awk
+++ CUT=/usr/bin/cut
+++ HEAD=/usr/bin/head
+++ SORT=/usr/bin/sort
+++ GREP=/usr/bin/grep
+++ XARGS=/usr/bin/xargs
+++ LEASES=/var/lib/misc/dnsmasq.leases
+++ SIM_UNDERLAY_FILE=/etc/frognet/simulator_underlay
+++ FROGNET_INTERFACES=
+++ FROGNET_TRANSIT_DEVS=
+++ FROGNET_FROGNET_DEVS=
+++ FROGNET_DHCP_DEVS=
+++ FROGNET_UPSTREAM_SEEDS=
++++ _list_up_interfaces
+++++ _list_physical_interfaces
+++++ /usr/sbin/ip -o link show
+++++ /usr/bin/awk '-F: ' '{print $2}'
+++++ /usr/bin/cut -d@ -f1
+++++ /usr/bin/sort -u
+++++ read -r dev
+++++ [[ lo == \l\o ]]
+++++ continue
+++++ read -r dev
+++++ [[ eth0 == \l\o ]]
+++++ [[ eth0 == veth* ]]
+++++ [[ eth0 == docker* ]]
+++++ [[ eth0 == br-* ]]
+++++ [[ eth0 == virbr* ]]
+++++ echo eth0
+++++ read -r dev
+++++ [[ eth1 == \l\o ]]
+++++ [[ eth1 == veth* ]]
+++++ [[ eth1 == docker* ]]
+++++ [[ eth1 == br-* ]]
+++++ [[ eth1 == virbr* ]]
+++++ echo eth1
+++++ read -r dev
+++++ [[ wlan0 == \l\o ]]
+++++ [[ wlan0 == veth* ]]
+++++ [[ wlan0 == docker* ]]
+++++ [[ wlan0 == br-* ]]
+++++ [[ wlan0 == virbr* ]]
+++++ echo wlan0
+++++ read -r dev
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth0
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth1/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth1
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/wlan0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo wlan0
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0'
+++ _dev_has_transit30 eth0
+++ local dev=eth0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ FROGNET_TRANSIT_DEVS=' eth0'
+++ debugTag 'interface dev=eth0 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth0 type=transit'
+++ _dev_has_frognet_24 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth0
+++ local dev=eth0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=10.253.253.121
+++ [[ 10.253.253.121 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=10.253.253.121
+++ [[ -n 10.253.253.121 ]]
++++ _seed_from_ip4 10.253.253.121
++++ local ip=10.253.253.121
++++ [[ 10.253.253.121 == 10.* ]]
++++ [[ 10.253.253.121 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1'
+++ _dev_has_transit30 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0 eth1'
+++ debugTag 'interface dev=eth1 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth1 type=transit'
+++ _dev_has_frognet_24 eth1
+++ local dev=eth1
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ _dev_serves_dhcp eth1
+++ local dev=eth1
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/awk '/inet /{print $2}'
+++ ip4=10.253.253.142
+++ [[ 10.253.253.142 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/head -n1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ -n 10.253.253.142 ]]
++++ _seed_from_ip4 10.253.253.142
++++ local ip=10.253.253.142
++++ [[ 10.253.253.142 == 10.* ]]
++++ [[ 10.253.253.142 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1 wlan0'
+++ _dev_has_transit30 wlan0
+++ local dev=wlan0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ _dev_has_frognet_24 wlan0
+++ local dev=wlan0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ _dev_serves_dhcp wlan0
+++ local dev=wlan0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
++++ /usr/sbin/ip -4 addr show dev wlan0
+++ ip4=192.168.0.30
+++ [[ 192.168.0.30 == *.1 ]]
+++ return 1
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ -n 192.168.0.30 ]]
++++ _seed_from_ip4 192.168.0.30
++++ local ip=192.168.0.30
++++ [[ 192.168.0.30 == 10.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ TRANSIT_SEEDS_FILE=/etc/sentinels/transit_upstream_seeds
+++ [[ -f /etc/sentinels/transit_upstream_seeds ]]
++++ echo eth0 eth1 wlan0
++++ /usr/bin/xargs
+++ export 'FROGNET_INTERFACES=eth0 eth1 wlan0'
+++ FROGNET_INTERFACES='eth0 eth1 wlan0'
++++ echo eth0 eth1
++++ /usr/bin/xargs
+++ export 'FROGNET_TRANSIT_DEVS=eth0 eth1'
+++ FROGNET_TRANSIT_DEVS='eth0 eth1'
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_FROGNET_DEVS=
+++ FROGNET_FROGNET_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_DHCP_DEVS=
+++ FROGNET_DHCP_DEVS=
++++ /usr/bin/xargs
++++ echo
+++ export FROGNET_UPSTREAM_SEEDS=
+++ FROGNET_UPSTREAM_SEEDS=
+++ debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ export eth0Name=eth0
+++ eth0Name=eth0
+++ export wlan0Name=wlan0
+++ wlan0Name=wlan0
+++ export wlan1Name=eth1
+++ wlan1Name=eth1
+++ OVR=/etc/frognet/interfaces_override.conf
+++ [[ -f /etc/frognet/interfaces_override.conf ]]
+++ debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ :
++ ourIP=0.0.0.0
+++ grep ,UP,
+++ ip link show wlan0
++ wlan0up='4: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DORMANT group default qlen 1000'
++ '[' '!' -z '4: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DORMANT group default qlen 1000' ']'
+++ ip -4 addr show scope global wlan0
+++ grep inet
+++ tr -s ' '
+++ cut -d ' ' -f 3
+++ sed -e 's/\/.*//'
++ ourIP=192.168.0.30
+++ ip link show eth1
+++ grep ,UP,
++ wlan1up='3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000'
++ '[' '!' -z '3: eth1: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP mode DEFAULT group default qlen 1000' ']'
+++ grep inet
+++ ip -4 addr show scope global eth1
+++ tr -s ' '
+++ cut -d ' ' -f 3
+++ sed -e 's/\/.*//'
++ ourIP=10.253.253.142
+++ sed -e s/domain=//
+++ grep domain= /etc/dnsmasq.d/opts_only.conf
++ ourDomain=HardBox
++ echo ''
+++ ip -4 addr show scope global eth0
+++ awk '$1 == "inet" {print $2}'
+++ sed -e 's/\/.*//'
++ eth0IP=10.253.253.121
+++ grep domain= /etc/dnsmasq.d/opts_only.conf
+++ sed -e s/domain=//
++ ourDomain=HardBox
+++ nmcli -t -f NAME,DEVICE c show
+++ grep eth0
+++ cut -d : -f 1
++ profileName=
++ '[' '!' -z '' ']'
++ profileName=HardBox
++ nmcli conn add con-name HardBox ifname eth0 type ethernet ip4 10.101.100.1/24 gw4 10.101.100.1
+Warning: There are 2 other connections with the name 'HardBox'. Reference the connection by its uuid 'c6925c72-39ac-4e55-923a-de195eef9b4e'
+Connection 'HardBox' (c6925c72-39ac-4e55-923a-de195eef9b4e) successfully added.
++ nmcli conn mod HardBox ipv4.dns 10.101.100.1
+Warning: There are 2 other connections with the name 'HardBox'. Reference the connection by its uuid '23cb54e1-d7a7-45ab-a47f-643e75bf0944'
++ sed -e s/DomainHere/HardBox/g /etc/dnsmasq_conf_template
+++ echo 10.101.100.1
+++ sed -e 's/.1$//'
++ ipBase=10.101.100
++ sed -e s/dhcp-range=RangeHere/dhcp-range=10.101.100.2,10.101.100.254,24h/
++ echo ''
++ echo ''
++ echo ''
++ echo ''
++ hostname FrogNetHost.HardBox
++ echo FrogNetHost.HardBox
+++ grep domain= /etc/dnsmasq.d/opts_only.conf
+++ sed -e s/domain=//
++ ourDomain=HardBox
++ echo 'AddHost checkpoint 4 FrogNetHost.HardBox 10.101.100.1 HardBox '
+AddHost checkpoint 4 FrogNetHost.HardBox 10.101.100.1 HardBox 
++ /usr/local/bin/addHost FrogNetHost.HardBox 10.101.100.1 HardBox eth0 No
++ . /usr/local/bin/mapInterfaces
+++ IP=/usr/sbin/ip
+++ AWK=/usr/bin/awk
+++ CUT=/usr/bin/cut
+++ HEAD=/usr/bin/head
+++ SORT=/usr/bin/sort
+++ GREP=/usr/bin/grep
+++ XARGS=/usr/bin/xargs
+++ LEASES=/var/lib/misc/dnsmasq.leases
+++ SIM_UNDERLAY_FILE=/etc/frognet/simulator_underlay
+++ FROGNET_INTERFACES=
+++ FROGNET_TRANSIT_DEVS=
+++ FROGNET_FROGNET_DEVS=
+++ FROGNET_DHCP_DEVS=
+++ FROGNET_UPSTREAM_SEEDS=
++++ _list_up_interfaces
+++++ _list_physical_interfaces
+++++ /usr/sbin/ip -o link show
+++++ /usr/bin/awk '-F: ' '{print $2}'
+++++ read -r dev
+++++ /usr/bin/cut -d@ -f1
+++++ /usr/bin/sort -u
+++++ [[ lo == \l\o ]]
+++++ continue
+++++ read -r dev
+++++ [[ eth0 == \l\o ]]
+++++ [[ eth0 == veth* ]]
+++++ [[ eth0 == docker* ]]
+++++ [[ eth0 == br-* ]]
+++++ [[ eth0 == virbr* ]]
+++++ echo eth0
+++++ read -r dev
+++++ [[ eth1 == \l\o ]]
+++++ [[ eth1 == veth* ]]
+++++ [[ eth1 == docker* ]]
+++++ [[ eth1 == br-* ]]
+++++ [[ eth1 == virbr* ]]
+++++ echo eth1
+++++ read -r dev
+++++ [[ wlan0 == \l\o ]]
+++++ [[ wlan0 == veth* ]]
+++++ [[ wlan0 == docker* ]]
+++++ [[ wlan0 == br-* ]]
+++++ [[ wlan0 == virbr* ]]
+++++ echo wlan0
+++++ read -r dev
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth0
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth1/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth1
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/wlan0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo wlan0
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0'
+++ _dev_has_transit30 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0'
+++ debugTag 'interface dev=eth0 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth0 type=transit'
+++ _dev_has_frognet_24 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ _dev_serves_dhcp eth0
+++ local dev=eth0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
++++ /usr/sbin/ip -4 addr show dev eth0
+++ ip4=10.253.253.121
+++ [[ 10.253.253.121 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ -n 10.253.253.121 ]]
++++ _seed_from_ip4 10.253.253.121
++++ local ip=10.253.253.121
++++ [[ 10.253.253.121 == 10.* ]]
++++ [[ 10.253.253.121 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1'
+++ _dev_has_transit30 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0 eth1'
+++ debugTag 'interface dev=eth1 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth1 type=transit'
+++ _dev_has_frognet_24 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ _dev_serves_dhcp eth1
+++ local dev=eth1
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ 10.253.253.142 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ -n 10.253.253.142 ]]
++++ _seed_from_ip4 10.253.253.142
++++ local ip=10.253.253.142
++++ [[ 10.253.253.142 == 10.* ]]
++++ [[ 10.253.253.142 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1 wlan0'
+++ _dev_has_transit30 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ _dev_has_frognet_24 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ _dev_serves_dhcp wlan0
+++ local dev=wlan0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ 192.168.0.30 == *.1 ]]
+++ return 1
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
++++ /usr/bin/awk '/inet /{print $2}'
+++ ip4=192.168.0.30
+++ [[ -n 192.168.0.30 ]]
++++ _seed_from_ip4 192.168.0.30
++++ local ip=192.168.0.30
++++ [[ 192.168.0.30 == 10.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ TRANSIT_SEEDS_FILE=/etc/sentinels/transit_upstream_seeds
+++ [[ -f /etc/sentinels/transit_upstream_seeds ]]
++++ echo eth0 eth1 wlan0
++++ /usr/bin/xargs
+++ export 'FROGNET_INTERFACES=eth0 eth1 wlan0'
+++ FROGNET_INTERFACES='eth0 eth1 wlan0'
++++ /usr/bin/xargs
++++ echo eth0 eth1
+++ export 'FROGNET_TRANSIT_DEVS=eth0 eth1'
+++ FROGNET_TRANSIT_DEVS='eth0 eth1'
++++ /usr/bin/xargs
++++ echo
+++ export FROGNET_FROGNET_DEVS=
+++ FROGNET_FROGNET_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_DHCP_DEVS=
+++ FROGNET_DHCP_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_UPSTREAM_SEEDS=
+++ FROGNET_UPSTREAM_SEEDS=
+++ debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ export eth0Name=eth0
+++ eth0Name=eth0
+++ export wlan0Name=wlan0
+++ wlan0Name=wlan0
+++ export wlan1Name=eth1
+++ wlan1Name=eth1
+++ OVR=/etc/frognet/interfaces_override.conf
+++ [[ -f /etc/frognet/interfaces_override.conf ]]
+++ debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ :
++ HOSTNAME=FrogNetHost.HardBox
++ DEVICE_IP=10.101.100.1
++ APPEND_DOMAIN=HardBox
++ PING_HOST=eth0
++ NS_DEV=No
++ FROGNET_HOSTS=/etc/sentinels/frognet_hosts
++ FROGNET_RESOLV=/etc/sentinels/frognet_resolv
++ /usr/bin/mkdir -p /etc/sentinels
++ /usr/bin/touch /etc/sentinels/frognet_hosts
++ /usr/bin/touch /etc/sentinels/frognet_resolv
++ debug 'hostname=FrogNetHost.HardBox deviceIP=10.101.100.1 pingHost=eth0 nsDev=No'
++ /usr/local/bin/debugTag 'addHost: hostname=FrogNetHost.HardBox deviceIP=10.101.100.1 pingHost=eth0 nsDev=No'
++ NAME_PART=FrogNetHost
++ DOMAIN_PART=HardBox
++ [[ HardBox == \F\r\o\g\N\e\t\H\o\s\t ]]
++ DOMAIN=HardBox
+++ /usr/local/bin/getEth0Address
++ ourIP=10.253.253.121
++ [[ -n 10.253.253.121 ]]
++ [[ 10.253.253.121 == \1\0\.\1\0\1\.\1\0\0\.\1 ]]
++ HOSTNAME=FrogNetHost.HardBox
++ debug 'Canonical HOSTNAME=FrogNetHost.HardBox DOMAIN=HardBox'
++ /usr/local/bin/debugTag 'addHost: Canonical HOSTNAME=FrogNetHost.HardBox DOMAIN=HardBox'
++ /usr/bin/sed -i '\| FrogNetHost\.HardBox\b|d' /etc/sentinels/frognet_hosts
++ /usr/bin/sed -i '\| FrogNetAdmin\.HardBox\b|d' /etc/sentinels/frognet_hosts
++ /usr/bin/sed -i '\|^10.101.100.1[[:space:]]\b|d' /etc/sentinels/frognet_hosts
+++ /usr/local/bin/convertToSubnetRange 10.101.100.1
++ SUBNET=10.101.100.0/24
++ [[ -n 10.101.100.0/24 ]]
++ [[ -n eth0 ]]
++ [[ eth0 != \0\.\0\.\0\.\0 ]]
++ cidr_kernel_owned_on_dev 10.101.100.0/24 No
++ local cidr=10.101.100.0/24 dev=No
++ [[ -z 10.101.100.0/24 ]]
++ [[ -z No ]]
++ ip route show 10.101.100.0/24
++ /usr/bin/grep -q 'proto kernel.* dev No\b'
++ has_non_kernel_route 10.101.100.0/24
++ local cidr=10.101.100.0/24
++ [[ -z 10.101.100.0/24 ]]
++ ip route show 10.101.100.0/24
++ /usr/bin/grep -vq 'proto kernel'
++ is_ip eth0
++ [[ eth0 =~ ^([0-9]+\.){3}[0-9]+$ ]]
++ debug 'Refusing route 10.101.100.0/24: pingHost not an IP (eth0)'
++ /usr/local/bin/debugTag 'addHost: Refusing route 10.101.100.0/24: pingHost not an IP (eth0)'
++ ENTRY='10.101.100.1 HardBox FrogNetHost.HardBox FrogNetAdmin.HardBox'
++ /usr/bin/grep -Fq '10.101.100.1 HardBox FrogNetHost.HardBox FrogNetAdmin.HardBox' /etc/sentinels/frognet_hosts
++ echo '10.101.100.1 HardBox FrogNetHost.HardBox FrogNetAdmin.HardBox'
++ debug 'Added frognet_hosts entry: 10.101.100.1 HardBox FrogNetHost.HardBox FrogNetAdmin.HardBox'
++ /usr/local/bin/debugTag 'addHost: Added frognet_hosts entry: 10.101.100.1 HardBox FrogNetHost.HardBox FrogNetAdmin.HardBox'
++ echo 'nameserver 10.101.100.1'
++ debug 'Completed for FrogNetHost.HardBox / 10.101.100.1'
++ /usr/local/bin/debugTag 'addHost: Completed for FrogNetHost.HardBox / 10.101.100.1'
++ exit 0
++ /usr/local/bin/PropogateHost FrogNetHost.HardBox 10.101.100.1 10.101.100.1 eth0 yes
++ . /usr/local/bin/mapInterfaces
+++ IP=/usr/sbin/ip
+++ AWK=/usr/bin/awk
+++ CUT=/usr/bin/cut
+++ HEAD=/usr/bin/head
+++ SORT=/usr/bin/sort
+++ GREP=/usr/bin/grep
+++ XARGS=/usr/bin/xargs
+++ LEASES=/var/lib/misc/dnsmasq.leases
+++ SIM_UNDERLAY_FILE=/etc/frognet/simulator_underlay
+++ FROGNET_INTERFACES=
+++ FROGNET_TRANSIT_DEVS=
+++ FROGNET_FROGNET_DEVS=
+++ FROGNET_DHCP_DEVS=
+++ FROGNET_UPSTREAM_SEEDS=
++++ _list_up_interfaces
+++++ _list_physical_interfaces
+++++ /usr/sbin/ip -o link show
+++++ /usr/bin/awk '-F: ' '{print $2}'
+++++ /usr/bin/cut -d@ -f1
+++++ /usr/bin/sort -u
+++++ read -r dev
+++++ [[ lo == \l\o ]]
+++++ continue
+++++ read -r dev
+++++ [[ eth0 == \l\o ]]
+++++ [[ eth0 == veth* ]]
+++++ [[ eth0 == docker* ]]
+++++ [[ eth0 == br-* ]]
+++++ [[ eth0 == virbr* ]]
+++++ echo eth0
+++++ read -r dev
+++++ [[ eth1 == \l\o ]]
+++++ [[ eth1 == veth* ]]
+++++ [[ eth1 == docker* ]]
+++++ [[ eth1 == br-* ]]
+++++ [[ eth1 == virbr* ]]
+++++ echo eth1
+++++ read -r dev
+++++ [[ wlan0 == \l\o ]]
+++++ [[ wlan0 == veth* ]]
+++++ [[ wlan0 == docker* ]]
+++++ [[ wlan0 == br-* ]]
+++++ [[ wlan0 == virbr* ]]
+++++ echo wlan0
+++++ read -r dev
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth0
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth1/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth1
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/wlan0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo wlan0
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0'
+++ _dev_has_transit30 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0'
+++ debugTag 'interface dev=eth0 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth0 type=transit'
+++ _dev_has_frognet_24 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth0
+++ local dev=eth0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ 10.253.253.121 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ -n 10.253.253.121 ]]
++++ _seed_from_ip4 10.253.253.121
++++ local ip=10.253.253.121
++++ [[ 10.253.253.121 == 10.* ]]
++++ [[ 10.253.253.121 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1'
+++ _dev_has_transit30 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0 eth1'
+++ debugTag 'interface dev=eth1 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth1 type=transit'
+++ _dev_has_frognet_24 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth1
+++ local dev=eth1
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ 10.253.253.142 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ -n 10.253.253.142 ]]
++++ _seed_from_ip4 10.253.253.142
++++ local ip=10.253.253.142
++++ [[ 10.253.253.142 == 10.* ]]
++++ [[ 10.253.253.142 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1 wlan0'
+++ _dev_has_transit30 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ _dev_has_frognet_24 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp wlan0
+++ local dev=wlan0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ 192.168.0.30 == *.1 ]]
+++ return 1
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ -n 192.168.0.30 ]]
++++ _seed_from_ip4 192.168.0.30
++++ local ip=192.168.0.30
++++ [[ 192.168.0.30 == 10.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ TRANSIT_SEEDS_FILE=/etc/sentinels/transit_upstream_seeds
+++ [[ -f /etc/sentinels/transit_upstream_seeds ]]
++++ echo eth0 eth1 wlan0
++++ /usr/bin/xargs
+++ export 'FROGNET_INTERFACES=eth0 eth1 wlan0'
+++ FROGNET_INTERFACES='eth0 eth1 wlan0'
++++ /usr/bin/xargs
++++ echo eth0 eth1
+++ export 'FROGNET_TRANSIT_DEVS=eth0 eth1'
+++ FROGNET_TRANSIT_DEVS='eth0 eth1'
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_FROGNET_DEVS=
+++ FROGNET_FROGNET_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_DHCP_DEVS=
+++ FROGNET_DHCP_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_UPSTREAM_SEEDS=
+++ FROGNET_UPSTREAM_SEEDS=
+++ debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ export eth0Name=eth0
+++ eth0Name=eth0
+++ export wlan0Name=wlan0
+++ wlan0Name=wlan0
+++ export wlan1Name=eth1
+++ wlan1Name=eth1
+++ OVR=/etc/frognet/interfaces_override.conf
+++ [[ -f /etc/frognet/interfaces_override.conf ]]
+++ debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ :
++ hostName=FrogNetHost.HardBox
++ hostedNetworkIP=10.101.100.1
++ pingHost=10.101.100.1
++ nsDev=eth0
++ propogateUp=yes
++ [[ -z FrogNetHost.HardBox ]]
++ [[ -z 10.101.100.1 ]]
++ [[ -z eth0 ]]
++ /usr/local/bin/debugTag @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
++ /usr/local/bin/debugTag 'PropogateHost hostName=FrogNetHost.HardBox hostedNetworkIP=10.101.100.1 pingHost=10.101.100.1 nsDev=eth0 propogateUp=yes'
++ [[ 10.101.100.1 == 10.* ]]
++ /usr/local/bin/discovery_pending.sh is_pending 10.101.100.1
++ CURL=/usr/bin/curl
++ [[ -x /usr/bin/curl.real ]]
++ LEASES=/var/lib/misc/dnsmasq.leases
++ [[ -f /var/lib/misc/dnsmasq.leases ]]
++ awk '{print $3}' /var/lib/misc/dnsmasq.leases
++ read -r dst_ip
++ [[ -z '' ]]
++ continue
++ read -r dst_ip
++ /usr/local/bin/debugTag '@@@@@@@@@@@@@@@@@@@@@     Normal Exit    @@@@@@@@@@@@@@@@@@@@'
++ exit 0
++ echo 'AddHost checkpoint 4A databasehost.frognet 10.101.100.1 ourDomain' No
+AddHost checkpoint 4A databasehost.frognet 10.101.100.1 ourDomain No
++ /usr/local/bin/addHost databasehost.frognet 10.101.100.1 HardBox No
++ . /usr/local/bin/mapInterfaces
+++ IP=/usr/sbin/ip
+++ AWK=/usr/bin/awk
+++ CUT=/usr/bin/cut
+++ HEAD=/usr/bin/head
+++ SORT=/usr/bin/sort
+++ GREP=/usr/bin/grep
+++ XARGS=/usr/bin/xargs
+++ LEASES=/var/lib/misc/dnsmasq.leases
+++ SIM_UNDERLAY_FILE=/etc/frognet/simulator_underlay
+++ FROGNET_INTERFACES=
+++ FROGNET_TRANSIT_DEVS=
+++ FROGNET_FROGNET_DEVS=
+++ FROGNET_DHCP_DEVS=
+++ FROGNET_UPSTREAM_SEEDS=
++++ _list_up_interfaces
+++++ _list_physical_interfaces
+++++ /usr/sbin/ip -o link show
+++++ /usr/bin/awk '-F: ' '{print $2}'
+++++ /usr/bin/cut -d@ -f1
+++++ /usr/bin/sort -u
+++++ read -r dev
+++++ [[ lo == \l\o ]]
+++++ continue
+++++ read -r dev
+++++ [[ eth0 == \l\o ]]
+++++ [[ eth0 == veth* ]]
+++++ [[ eth0 == docker* ]]
+++++ [[ eth0 == br-* ]]
+++++ [[ eth0 == virbr* ]]
+++++ echo eth0
+++++ read -r dev
+++++ [[ eth1 == \l\o ]]
+++++ [[ eth1 == veth* ]]
+++++ [[ eth1 == docker* ]]
+++++ [[ eth1 == br-* ]]
+++++ [[ eth1 == virbr* ]]
+++++ echo eth1
+++++ read -r dev
+++++ [[ wlan0 == \l\o ]]
+++++ [[ wlan0 == veth* ]]
+++++ [[ wlan0 == docker* ]]
+++++ [[ wlan0 == br-* ]]
+++++ [[ wlan0 == virbr* ]]
+++++ echo wlan0
+++++ read -r dev
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth0
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth1/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth1
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/wlan0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo wlan0
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0'
+++ _dev_has_transit30 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0'
+++ debugTag 'interface dev=eth0 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth0 type=transit'
+++ _dev_has_frognet_24 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth0
+++ local dev=eth0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ 10.253.253.121 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ -n 10.253.253.121 ]]
++++ _seed_from_ip4 10.253.253.121
++++ local ip=10.253.253.121
++++ [[ 10.253.253.121 == 10.* ]]
++++ [[ 10.253.253.121 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1'
+++ _dev_has_transit30 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0 eth1'
+++ debugTag 'interface dev=eth1 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth1 type=transit'
+++ _dev_has_frognet_24 eth1
+++ local dev=eth1
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth1
+++ local dev=eth1
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ 10.253.253.142 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.142
+++ [[ -n 10.253.253.142 ]]
++++ _seed_from_ip4 10.253.253.142
++++ local ip=10.253.253.142
++++ [[ 10.253.253.142 == 10.* ]]
++++ [[ 10.253.253.142 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1 wlan0'
+++ _dev_has_transit30 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ _dev_has_frognet_24 wlan0
+++ local dev=wlan0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp wlan0
+++ local dev=wlan0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ 192.168.0.30 == *.1 ]]
+++ return 1
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=192.168.0.30
+++ [[ -n 192.168.0.30 ]]
++++ _seed_from_ip4 192.168.0.30
++++ local ip=192.168.0.30
++++ [[ 192.168.0.30 == 10.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ TRANSIT_SEEDS_FILE=/etc/sentinels/transit_upstream_seeds
+++ [[ -f /etc/sentinels/transit_upstream_seeds ]]
++++ echo eth0 eth1 wlan0
++++ /usr/bin/xargs
+++ export 'FROGNET_INTERFACES=eth0 eth1 wlan0'
+++ FROGNET_INTERFACES='eth0 eth1 wlan0'
++++ echo eth0 eth1
++++ /usr/bin/xargs
+++ export 'FROGNET_TRANSIT_DEVS=eth0 eth1'
+++ FROGNET_TRANSIT_DEVS='eth0 eth1'
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_FROGNET_DEVS=
+++ FROGNET_FROGNET_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_DHCP_DEVS=
+++ FROGNET_DHCP_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_UPSTREAM_SEEDS=
+++ FROGNET_UPSTREAM_SEEDS=
+++ debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ export eth0Name=eth0
+++ eth0Name=eth0
+++ export wlan0Name=wlan0
+++ wlan0Name=wlan0
+++ export wlan1Name=eth1
+++ wlan1Name=eth1
+++ OVR=/etc/frognet/interfaces_override.conf
+++ [[ -f /etc/frognet/interfaces_override.conf ]]
+++ debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ :
++ HOSTNAME=databasehost.frognet
++ DEVICE_IP=10.101.100.1
++ APPEND_DOMAIN=HardBox
++ PING_HOST=No
++ NS_DEV=
++ FROGNET_HOSTS=/etc/sentinels/frognet_hosts
++ FROGNET_RESOLV=/etc/sentinels/frognet_resolv
++ /usr/bin/mkdir -p /etc/sentinels
++ /usr/bin/touch /etc/sentinels/frognet_hosts
++ /usr/bin/touch /etc/sentinels/frognet_resolv
++ debug 'hostname=databasehost.frognet deviceIP=10.101.100.1 pingHost=No nsDev='
++ /usr/local/bin/debugTag 'addHost: hostname=databasehost.frognet deviceIP=10.101.100.1 pingHost=No nsDev='
++ NAME_PART=databasehost
++ DOMAIN_PART=frognet
++ [[ frognet == \d\a\t\a\b\a\s\e\h\o\s\t ]]
++ DOMAIN=frognet
+++ /usr/local/bin/getEth0Address
++ ourIP=10.253.253.121
++ [[ -n 10.253.253.121 ]]
++ [[ 10.253.253.121 == \1\0\.\1\0\1\.\1\0\0\.\1 ]]
++ HOSTNAME=databasehost.frognet
++ debug 'Canonical HOSTNAME=databasehost.frognet DOMAIN=frognet'
++ /usr/local/bin/debugTag 'addHost: Canonical HOSTNAME=databasehost.frognet DOMAIN=frognet'
++ /usr/bin/sed -i '\| FrogNetHost\.frognet\b|d' /etc/sentinels/frognet_hosts
++ /usr/bin/sed -i '\| FrogNetAdmin\.frognet\b|d' /etc/sentinels/frognet_hosts
++ /usr/bin/sed -i '\|^10.101.100.1[[:space:]]\b|d' /etc/sentinels/frognet_hosts
+++ /usr/local/bin/convertToSubnetRange 10.101.100.1
++ SUBNET=10.101.100.0/24
++ [[ -n 10.101.100.0/24 ]]
++ [[ -n No ]]
++ [[ No != \0\.\0\.\0\.\0 ]]
++ cidr_kernel_owned_on_dev 10.101.100.0/24 ''
++ local cidr=10.101.100.0/24 dev=
++ [[ -z 10.101.100.0/24 ]]
++ [[ -z '' ]]
++ return 1
++ has_non_kernel_route 10.101.100.0/24
++ local cidr=10.101.100.0/24
++ [[ -z 10.101.100.0/24 ]]
++ ip route show 10.101.100.0/24
++ /usr/bin/grep -vq 'proto kernel'
++ is_ip No
++ [[ No =~ ^([0-9]+\.){3}[0-9]+$ ]]
++ debug 'Refusing route 10.101.100.0/24: pingHost not an IP (No)'
++ /usr/local/bin/debugTag 'addHost: Refusing route 10.101.100.0/24: pingHost not an IP (No)'
++ ENTRY='10.101.100.1 frognet FrogNetHost.frognet FrogNetAdmin.frognet'
++ /usr/bin/grep -Fq '10.101.100.1 frognet FrogNetHost.frognet FrogNetAdmin.frognet' /etc/sentinels/frognet_hosts
++ echo '10.101.100.1 frognet FrogNetHost.frognet FrogNetAdmin.frognet'
++ debug 'Added frognet_hosts entry: 10.101.100.1 frognet FrogNetHost.frognet FrogNetAdmin.frognet'
++ /usr/local/bin/debugTag 'addHost: Added frognet_hosts entry: 10.101.100.1 frognet FrogNetHost.frognet FrogNetAdmin.frognet'
++ echo 'nameserver 10.101.100.1'
++ debug 'Completed for databasehost.frognet / 10.101.100.1'
++ /usr/local/bin/debugTag 'addHost: Completed for databasehost.frognet / 10.101.100.1'
++ exit 0
++ echo 'AddHost checkpoint 4B databasehost.frognet 10.101.100.1 ourDomain'
+AddHost checkpoint 4B databasehost.frognet 10.101.100.1 ourDomain
++ /usr/local/bin/PropogateHost databasehost.frognet 10.101.100.1 10.253.253.142 yes
++ . /usr/local/bin/mapInterfaces
+++ IP=/usr/sbin/ip
+++ AWK=/usr/bin/awk
+++ CUT=/usr/bin/cut
+++ HEAD=/usr/bin/head
+++ SORT=/usr/bin/sort
+++ GREP=/usr/bin/grep
+++ XARGS=/usr/bin/xargs
+++ LEASES=/var/lib/misc/dnsmasq.leases
+++ SIM_UNDERLAY_FILE=/etc/frognet/simulator_underlay
+++ FROGNET_INTERFACES=
+++ FROGNET_TRANSIT_DEVS=
+++ FROGNET_FROGNET_DEVS=
+++ FROGNET_DHCP_DEVS=
+++ FROGNET_UPSTREAM_SEEDS=
++++ _list_up_interfaces
+++++ _list_physical_interfaces
+++++ /usr/sbin/ip -o link show
+++++ /usr/bin/awk '-F: ' '{print $2}'
+++++ /usr/bin/sort -u
+++++ read -r dev
+++++ /usr/bin/cut -d@ -f1
+++++ [[ lo == \l\o ]]
+++++ continue
+++++ read -r dev
+++++ [[ eth0 == \l\o ]]
+++++ [[ eth0 == veth* ]]
+++++ [[ eth0 == docker* ]]
+++++ [[ eth0 == br-* ]]
+++++ [[ eth0 == virbr* ]]
+++++ echo eth0
+++++ read -r dev
+++++ [[ eth1 == \l\o ]]
+++++ [[ eth1 == veth* ]]
+++++ [[ eth1 == docker* ]]
+++++ [[ eth1 == br-* ]]
+++++ [[ eth1 == virbr* ]]
+++++ echo eth1
+++++ read -r dev
+++++ [[ wlan0 == \l\o ]]
+++++ [[ wlan0 == veth* ]]
+++++ [[ wlan0 == docker* ]]
+++++ [[ wlan0 == br-* ]]
+++++ [[ wlan0 == virbr* ]]
+++++ echo wlan0
+++++ read -r dev
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth0
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/eth1/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo eth1
++++ for dev in $(_list_physical_interfaces)
++++ local state
+++++ cat /sys/class/net/wlan0/operstate
++++ state=up
++++ [[ up == \u\p ]]
++++ echo wlan0
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0'
+++ _dev_has_transit30 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ FROGNET_TRANSIT_DEVS=' eth0'
+++ debugTag 'interface dev=eth0 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth0 type=transit'
+++ _dev_has_frognet_24 eth0
+++ local dev=eth0
+++ /usr/sbin/ip -4 -o addr show dev eth0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth0
+++ local dev=eth0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/head -n1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
+++ ip4=10.253.253.121
+++ [[ 10.253.253.121 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth0
++++ local dev=eth0
++++ /usr/sbin/ip -4 addr show dev eth0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=10.253.253.121
+++ [[ -n 10.253.253.121 ]]
++++ _seed_from_ip4 10.253.253.121
++++ local ip=10.253.253.121
++++ [[ 10.253.253.121 == 10.* ]]
++++ [[ 10.253.253.121 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1'
+++ _dev_has_transit30 eth1
+++ local dev=eth1
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ FROGNET_TRANSIT_DEVS=' eth0 eth1'
+++ debugTag 'interface dev=eth1 type=transit'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'interface dev=eth1 type=transit'
+++ _dev_has_frognet_24 eth1
+++ local dev=eth1
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/sbin/ip -4 -o addr show dev eth1
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp eth1
+++ local dev=eth1
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=10.253.253.142
+++ [[ 10.253.253.142 == *.1 ]]
+++ return 1
++++ _dev_ip4 eth1
++++ local dev=eth1
++++ /usr/sbin/ip -4 addr show dev eth1
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/cut -d/ -f1
++++ /usr/bin/head -n1
+++ ip4=10.253.253.142
+++ [[ -n 10.253.253.142 ]]
++++ _seed_from_ip4 10.253.253.142
++++ local ip=10.253.253.142
++++ [[ 10.253.253.142 == 10.* ]]
++++ [[ 10.253.253.142 == 10.253.253.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ for dev in $(_list_up_interfaces)
+++ FROGNET_INTERFACES=' eth0 eth1 wlan0'
+++ _dev_has_transit30 wlan0
+++ local dev=wlan0
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -q '10\.253\.253\..*/30'
+++ _dev_has_frognet_24 wlan0
+++ local dev=wlan0
+++ /usr/bin/grep -E '10\.[0-9]+\.[0-9]+\.[0-9]+/24'
+++ /usr/sbin/ip -4 -o addr show dev wlan0
+++ /usr/bin/grep -qv '10\.253\.253\.'
+++ _dev_serves_dhcp wlan0
+++ local dev=wlan0
+++ [[ -f /var/lib/misc/dnsmasq.leases ]]
+++ [[ -s /var/lib/misc/dnsmasq.leases ]]
+++ local ip4
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ 192.168.0.30 == *.1 ]]
+++ return 1
++++ _dev_ip4 wlan0
++++ local dev=wlan0
++++ /usr/sbin/ip -4 addr show dev wlan0
++++ /usr/bin/awk '/inet /{print $2}'
++++ /usr/bin/head -n1
++++ /usr/bin/cut -d/ -f1
+++ ip4=192.168.0.30
+++ [[ -n 192.168.0.30 ]]
++++ _seed_from_ip4 192.168.0.30
++++ local ip=192.168.0.30
++++ [[ 192.168.0.30 == 10.* ]]
++++ return 1
+++ seed=
+++ [[ -n '' ]]
+++ TRANSIT_SEEDS_FILE=/etc/sentinels/transit_upstream_seeds
+++ [[ -f /etc/sentinels/transit_upstream_seeds ]]
++++ echo eth0 eth1 wlan0
++++ /usr/bin/xargs
+++ export 'FROGNET_INTERFACES=eth0 eth1 wlan0'
+++ FROGNET_INTERFACES='eth0 eth1 wlan0'
++++ echo eth0 eth1
++++ /usr/bin/xargs
+++ export 'FROGNET_TRANSIT_DEVS=eth0 eth1'
+++ FROGNET_TRANSIT_DEVS='eth0 eth1'
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_FROGNET_DEVS=
+++ FROGNET_FROGNET_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_DHCP_DEVS=
+++ FROGNET_DHCP_DEVS=
++++ echo
++++ /usr/bin/xargs
+++ export FROGNET_UPSTREAM_SEEDS=
+++ FROGNET_UPSTREAM_SEEDS=
+++ debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_INTERFACES='\''eth0 eth1 wlan0'\'''
+++ debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_TRANSIT_DEVS='\''eth0 eth1'\'''
+++ debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'FROGNET_UPSTREAM_SEEDS='\'''\'''
+++ export eth0Name=eth0
+++ eth0Name=eth0
+++ export wlan0Name=wlan0
+++ wlan0Name=wlan0
+++ export wlan1Name=eth1
+++ wlan1Name=eth1
+++ OVR=/etc/frognet/interfaces_override.conf
+++ [[ -f /etc/frognet/interfaces_override.conf ]]
+++ debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ [[ -x /usr/local/bin/debugTag ]]
+++ /usr/local/bin/debugTag 'LEGACY eth0Name=eth0 wlan0Name=wlan0 wlan1Name=eth1'
+++ :
++ hostName=databasehost.frognet
++ hostedNetworkIP=10.101.100.1
++ pingHost=10.253.253.142
++ nsDev=yes
++ propogateUp=
++ [[ -z databasehost.frognet ]]
++ [[ -z 10.101.100.1 ]]
++ [[ -z yes ]]
++ /usr/local/bin/debugTag @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
++ /usr/local/bin/debugTag 'PropogateHost hostName=databasehost.frognet hostedNetworkIP=10.101.100.1 pingHost=10.253.253.142 nsDev=yes propogateUp='
++ [[ 10.101.100.1 == 10.* ]]
++ /usr/local/bin/discovery_pending.sh is_pending 10.101.100.1
++ CURL=/usr/bin/curl
++ [[ -x /usr/bin/curl.real ]]
++ LEASES=/var/lib/misc/dnsmasq.leases
++ [[ -f /var/lib/misc/dnsmasq.leases ]]
++ awk '{print $3}' /var/lib/misc/dnsmasq.leases
++ read -r dst_ip
++ [[ -z '' ]]
++ continue
++ read -r dst_ip
++ /usr/local/bin/debugTag '@@@@@@@@@@@@@@@@@@@@@     Normal Exit    @@@@@@@@@@@@@@@@@@@@'
++ exit 0
++ nmcli conn up HardBox
+Error: Connection activation failed: No suitable device found for this connection (device lo not available because profile is not compatible with device (connection type is not "loopback")).
++ service NetworkManager restart
++ service networking restart
++ echo NS-11
+NS-11
++ echo 'nameserver 10.101.100.1'
++ echo 10.101.100.1
++ cat /etc/sentinels/frog_resolv.conf
++ sort
++ uniq
++ mv /etc/sentinels/sorted_frogs /etc/sentinels/frog_resolv.conf
++ echo ''
++ /usr/local/bin/runMerge.bash
++ log 'ENTER pid=154874 argv='
++ echo 'runMerge: ENTER pid=154874 argv='
+runMerge: ENTER pid=154874 argv=
++ trap 'rc=$?; log "EXIT pid=$$ rc=$rc"; exit $rc' EXIT
++ SENT_DIR=/etc/sentinels
++ MERGE_PENDING=/etc/sentinels/mergePending
++ RUN_AGAIN=/etc/sentinels/runAgain
++ FATAL_SENT=/etc/sentinels/merge_invariant_fatal
++ rm -rf /etc/sentinels/expected_routes /etc/sentinels/forwrded /etc/sentinels/frognet_hosts /etc/sentinels/frognet_resolv /etc/sentinels/frog_resolv.conf /etc/sentinels/mergePending /etc/sentinels/new_resolv.conf
++ mkdir -p /etc/sentinels
++ LOCKFILE=/var/run/runMerge.lock
++ exec
++ flock -n 9
++ log 'BAIL reason=lock_held'
++ echo 'runMerge: BAIL reason=lock_held'
+runMerge: BAIL reason=lock_held
++ echo 'runMerge: another instance already running'
+runMerge: another instance already running
++ exit 0
++ rc=0
++ log 'EXIT pid=154874 rc=0'
++ echo 'runMerge: EXIT pid=154874 rc=0'
+runMerge: EXIT pid=154874 rc=0
++ exit 0
++ ip r r 10.101.100.0/24 dev eth0
++ echo ''

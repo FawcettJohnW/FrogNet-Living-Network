@@ -1,0 +1,184 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+##############################################################
+#  FrogNet addHost (domain-correct, route-safe)              #
+#                                                            #
+#  Resulting host entries (two lines per peer):              #
+#      <DEVICE_IP> <DOMAIN> FrogNetHost.<DOMAIN>             #
+#      <ADMIN_IP>  FrogNetAdmin.<DOMAIN>                     #
+#  where ADMIN_IP = subnet_prefix(DEVICE_IP) + ".2".         #
+#                                                            #
+#  ROUTE POLICY (CRITICAL):                                  #
+#    - addHost may install a route ONLY if:                  #
+#        * subnet is NOT kernel-owned on the target dev      #
+#        * there is NO existing non-kernel route             #
+#        * gateway is L2-reachable ON THAT dev (on-link)     #
+#    - Must NOT override validated routes (metric ~20).      #
+##############################################################
+# set -x
+
+. /usr/local/bin/mapInterfaces
+
+HOSTNAME="$1"
+DEVICE_IP="$2"
+APPEND_DOMAIN="$3"
+PING_HOST="$4"
+NS_DEV="$5"
+
+FROGNET_HOSTS="/etc/sentinels/frognet_hosts"
+FROGNET_RESOLV="/etc/sentinels/frognet_resolv"
+
+/usr/bin/mkdir -p /etc/sentinels
+/usr/bin/touch "$FROGNET_HOSTS"
+/usr/bin/touch "$FROGNET_RESOLV"
+
+debug() { /usr/local/bin/debugTag "addHost: $*"; }
+
+debug "hostname=$HOSTNAME deviceIP=$DEVICE_IP pingHost=$PING_HOST nsDev=$NS_DEV"
+
+is_ip() { [[ "${1:-}" =~ ^([0-9]+\.){3}[0-9]+$ ]]; }
+is_10x() { [[ "${1:-}" == 10.* ]]; }
+
+cidr_kernel_owned_on_dev() {
+  local cidr="$1" dev="$2"
+  [[ -z "$cidr" || -z "$dev" ]] && return 1
+  ip route show "$cidr"  | /usr/bin/grep -q "proto kernel.* dev ${dev}\b"
+}
+
+has_non_kernel_route() {
+  local cidr="$1"
+  [[ -z "$cidr" ]] && return 1
+  ip route show "$cidr"  | /usr/bin/grep -vq "proto kernel"
+}
+
+# L2/on-link predicate:
+# True iff kernel says "dev <dev>" AND does NOT contain " via "
+# L2/on-link predicate (FIXED):
+# True iff kernel says dev <dev> AND either:
+#   - no "via" appears, OR
+#   - "via <nh>" (self-via form) appears
+nh_onlink_on_dev() {
+  local dev="$1" nh="$2"
+  [[ -z "$dev" || -z "$nh" ]] && return 1
+
+  local raw via
+  raw="$(ip route get "$nh"  | /usr/bin/head -n1 || true)"
+  [[ -z "$raw" ]] && return 1
+
+  # Must be on the intended dev
+  echo "$raw" | /usr/bin/grep -q " dev ${dev} " || return 1
+
+  # If there is no via, it is on-link
+  if ! echo "$raw" | /usr/bin/grep -q " via "; then
+    return 0
+  fi
+
+  # If there IS a via, accept ONLY if via == nh (self-via form)
+  via="$(echo "$raw" | awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}')"
+  [[ -n "$via" && "$via" == "$nh" ]] && return 0
+
+  return 1
+}
+
+
+# Normalize hostname + derive canonical domain
+NAME_PART="${HOSTNAME%%.*}"
+DOMAIN_PART="${HOSTNAME#*.}"
+
+if [[ "$DOMAIN_PART" == "$NAME_PART" ]]; then
+  if [[ -n "$APPEND_DOMAIN" ]]; then
+    DOMAIN="$APPEND_DOMAIN"
+  else
+    DOMAIN="$NAME_PART"
+  fi
+else
+  DOMAIN="$DOMAIN_PART"
+fi
+
+ourIP="$(/usr/local/bin/getEth0Address  || echo "")"
+if [[ -n "$ourIP" && "$ourIP" == "$DEVICE_IP" ]]; then
+  debug "Bypassing route/host install for ourselves ($DEVICE_IP)"
+  exit 0
+fi
+
+HOSTNAME="$NAME_PART.$DOMAIN"
+debug "Canonical HOSTNAME=$HOSTNAME DOMAIN=$DOMAIN"
+
+# Cleanup prior entries so we can rewrite them fresh.  Purge the legacy
+# FrogNetAdmin alias name if any older build left it behind.
+ADMIN_IP="${DEVICE_IP%.*}.2"
+/usr/bin/sed -i "\| FrogNetHost\.${DOMAIN}\b|d" "$FROGNET_HOSTS" || true
+/usr/bin/sed -i "\| FrogNetAdmin\.${DOMAIN}\b|d" "$FROGNET_HOSTS" || true
+/usr/bin/sed -i "\|^${DEVICE_IP}[[:space:]]\b|d" "$FROGNET_HOSTS" || true
+/usr/bin/sed -i "\|^${ADMIN_IP}[[:space:]]\b|d" "$FROGNET_HOSTS" || true
+
+# ------------------------------------------------------------
+# Route install policy (fixed)
+# ------------------------------------------------------------
+SUBNET="$(/usr/local/bin/convertToSubnetRange "$DEVICE_IP"  || echo "")"
+
+if [[ -n "$SUBNET" && -n "${PING_HOST:-}" && "$PING_HOST" != "0.0.0.0" ]]; then
+  if cidr_kernel_owned_on_dev "$SUBNET" "$NS_DEV"; then
+    debug "Subnet $SUBNET is kernel-direct on $NS_DEV; not installing via route"
+  else
+    if has_non_kernel_route "$SUBNET"; then
+      debug "Subnet $SUBNET already has non-kernel route(s); not overriding"
+    else
+      if ! is_ip "$PING_HOST"; then
+        debug "Refusing route $SUBNET: pingHost not an IP ($PING_HOST)"
+      else
+        # Reject self-via loops and non-onlink gateways
+        if [[ "$PING_HOST" == "$DEVICE_IP" ]]; then
+          debug "Refusing route $SUBNET via $PING_HOST (gateway equals device ip)"
+        elif [[ "$NS_DEV" == "$eth0Name" ]]; then
+          debug "Installing eth0-only route $SUBNET via $PING_HOST dev $NS_DEV metric 50"
+          ip route replace "$SUBNET" via "$PING_HOST" dev "$NS_DEV" metric 50
+        else
+          debug "Refusing route $SUBNET via $PING_HOST on $NS_DEV (non-eth0 .1 forbidden)"
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Canonical frognet_hosts entries.  Write TWO lines for this peer:
+#
+#   <.1> <domain> FrogNetHost.<domain>          — production gateway
+#   <.2> FrogNetAdmin.<domain>                  — probe/admin alias
+#
+# The .2 entry is what lets resolve_frognet_host() map "10.x.y.2" back to
+# the peer when curl-through-proxy probes the alias.  It also lets RTT
+# measurements carry a useful Host header without polluting the peer's
+# production .1 sockets.
+HOST_ENTRY="$DEVICE_IP $DOMAIN FrogNetHost.$DOMAIN"
+if ! /usr/bin/grep -Fq "$HOST_ENTRY" "$FROGNET_HOSTS"; then
+  echo "$HOST_ENTRY" >> "$FROGNET_HOSTS"
+  debug "Added frognet_hosts entry: $HOST_ENTRY"
+fi
+ADMIN_ENTRY="$ADMIN_IP FrogNetAdmin.$DOMAIN"
+if ! /usr/bin/grep -Fq "$ADMIN_ENTRY" "$FROGNET_HOSTS"; then
+  echo "$ADMIN_ENTRY" >> "$FROGNET_HOSTS"
+  debug "Added frognet_hosts entry: $ADMIN_ENTRY"
+fi
+
+# Diagnostic resolv list (not authoritative upstream DNS)
+echo "nameserver $DEVICE_IP" >> "$FROGNET_RESOLV" || true
+
+debug "Completed for $HOSTNAME / $DEVICE_IP"
+exit 0

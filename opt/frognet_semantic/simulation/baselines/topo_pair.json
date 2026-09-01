@@ -1,0 +1,26 @@
+{
+  "committed_routes": {
+    "BlackBox": [
+      "10.101.10.0/24 dev eth0 metric 100",
+      "10.101.20.0/24 via 10.101.20.1 dev eth1 metric 22",
+      "10.101.99.0/24 dev eth1 metric 100"
+    ],
+    "IronBox": [
+      "10.101.10.0/24 via 10.101.10.1 dev eth1 metric 22",
+      "10.101.20.0/24 dev eth0 metric 100",
+      "10.101.99.0/24 dev eth1 metric 100"
+    ]
+  },
+  "convergence_cycles": 2,
+  "key": "topo_pair",
+  "reachability": {
+    "pairs_ok": 4,
+    "pairs_total": 4,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:06:58",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "two-node LAN (each serves own /24, peering LAN between)"
+}

@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+"""
+frognet-guid — manage a node's install-time GUID, the SOLE FrogNet identity.
+
+[GUID_IDENTITY_V1] The broker keys identity on (pond, guid) with NO fallback:
+no MAC, no name/pubkey heuristic. A node's GUID is written once at install and
+must survive reboots/reinstalls so the broker can REVIVE the node's row on every
+return instead of minting a new identity. Losing or rotating the GUID is a
+deliberate act (`regenerate`), which retires the old identity on the broker
+first, then writes a fresh one.
+
+Subcommands:
+  generate     Write NODE_GUID=<uuid4> into tunnel.conf IF ABSENT. Idempotent:
+               an existing GUID is never overwritten (that is what makes
+               identity durable). Install calls this.
+  regenerate   Deliberate identity rotation: POST /api/v4/retire-guid for the
+               CURRENT guid (so the broker retires exactly that row), THEN write
+               a fresh NODE_GUID. Use when a node's identity is broken/cloned.
+  show         Print the current NODE_GUID (empty line if none).
+
+The GUID lives as a `NODE_GUID=` line in the same /etc/frognet/tunnel.conf that
+config.py already parses, so no new file or parser is introduced.
+"""
+import json
+import os
+import sys
+import urllib.request
+import uuid
+
+CONF = os.environ.get("FROGNET_TUNNEL_CONF", "/etc/frognet/tunnel.conf")
+
+
+def _read_conf(path):
+    conf = {}
+    if not os.path.exists(path):
+        return conf
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            conf[k.strip()] = v.strip()
+    return conf
+
+
+def _set_conf_key(path, key, value):
+    """Set key=value in the conf file, replacing an existing line or appending.
+    Preserves all other lines/comments verbatim."""
+    lines = []
+    found = False
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped \
+                        and stripped.split("=", 1)[0].strip() == key:
+                    lines.append(f"{key}={value}\n")
+                    found = True
+                else:
+                    lines.append(line)
+    if not found:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(f"{key}={value}\n")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.writelines(lines)
+    os.replace(tmp, path)
+
+
+def _broker_retire(broker_url, group_token, pond, guid):
+    """POST /api/v4/retire-guid. Returns (ok, detail). Never raises."""
+    if not broker_url or not pond or not guid:
+        return False, "missing broker_url/pond/guid"
+    url = broker_url.rstrip("/") + "/api/v4/retire-guid"
+    body = json.dumps({"pond": pond, "guid": guid}).encode()
+    req = urllib.request.Request(url, data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    if group_token:
+        req.add_header("Authorization", f"Bearer {group_token}")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return True, resp.read().decode()
+    except Exception as e:
+        return False, str(e)
+
+
+def cmd_generate(conf):
+    existing = conf.get("NODE_GUID", "")
+    if existing:
+        print(f"NODE_GUID already set ({existing}); leaving it untouched.")
+        return 0
+    new = str(uuid.uuid4())
+    _set_conf_key(CONF, "NODE_GUID", new)
+    print(f"NODE_GUID={new} written to {CONF}")
+    return 0
+
+
+def cmd_regenerate(conf):
+    old = conf.get("NODE_GUID", "")
+    broker_url = conf.get("BROKER_URL", "")
+    group_token = conf.get("GROUP_TOKEN", "")
+    pond = conf.get("CHANNEL_NAME", "").rsplit("-", 1)[0] if conf.get("CHANNEL_NAME") \
+        else conf.get("POND", "")
+    pond = conf.get("POND", pond)
+    if old and broker_url:
+        ok, detail = _broker_retire(broker_url, group_token, pond, old)
+        if ok:
+            print(f"retired old GUID {old} on broker: {detail}")
+        else:
+            # Do not block rotation on broker reachability; the migration/known
+            # ghost handling tolerates an un-retired old row, and the node will
+            # register fresh regardless. Report, continue.
+            print(f"WARNING: could not retire old GUID on broker ({detail}); "
+                  f"rotating locally anyway.")
+    new = str(uuid.uuid4())
+    _set_conf_key(CONF, "NODE_GUID", new)
+    print(f"NODE_GUID rotated {old or '<none>'} -> {new} in {CONF}")
+    return 0
+
+
+def cmd_show(conf):
+    print(conf.get("NODE_GUID", ""))
+    return 0
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] not in ("generate", "regenerate", "show"):
+        print("usage: frognet-guid {generate|regenerate|show}", file=sys.stderr)
+        return 2
+    conf = _read_conf(CONF)
+    return {"generate": cmd_generate,
+            "regenerate": cmd_regenerate,
+            "show": cmd_show}[argv[1]](conf)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    FrogNet monitor - C# reader for the shared memory.
+
+    Deliberately dependency-free: HttpClient and System.Text.Json ship with the
+    runtime, so this builds with nothing but `dotnet build`. There is no FrogNet
+    package to restore, no generated client, no stub to regenerate when a node is
+    upgraded. That is the demonstration - the shared memory has no SDK, and a
+    client is whatever can make an HTTP request and read JSON.
+
+    Builds and runs on Windows, Linux and macOS. On a Windows box that is not
+    itself a node, point the proxy option at any node's address and it reads the
+    pond. (XML comments cannot contain a double hyphen, so the option is named
+    in prose here rather than written out.)
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>FrogNet.Monitor</RootNamespace>
+    <AssemblyName>frognet-monitor</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <!-- The shared parser vectors are the same file the Python and C++ oracles
+       read. Copied next to the binary so `frognet-monitor selftest` works from
+       any working directory. -->
+  <ItemGroup>
+    <None Include="../frognet_monitor_shared/parser_vectors.json"
+          Link="parser_vectors.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

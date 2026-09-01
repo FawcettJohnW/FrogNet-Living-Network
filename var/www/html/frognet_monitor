@@ -1,0 +1,846 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+"""
+/usr/local/bin/frognet_monitor  v5.1
+
+FrogNet Network Info Center — curses UI, SAME/DIFF aware.
+
+Diagnostic log: /tmp/frognet_monitor.log
+"""
+
+import curses
+import json
+import logging
+import os
+import re
+import socket
+import subprocess
+import sys
+import threading
+import time
+import traceback
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List, Optional, Tuple
+
+# -----------------------------------------------------------------------
+# Logging — write to /tmp so we can actually debug
+# -----------------------------------------------------------------------
+LOG_PATH = "/tmp/frognet_monitor.log"
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.DEBUG,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("frognet_monitor")
+
+# -----------------------------------------------------------------------
+# Config
+# -----------------------------------------------------------------------
+ALIVE_SCRIPT  = "/usr/local/bin/frognet_alive.bash"
+ALIVE_TIMEOUT = 10
+INET_TIMEOUT  = 5
+REFRESH_SEC   = 5
+UI_TICK_MS    = 50
+
+MODE_DASHBOARD = 0
+MODE_SENSORS   = 1
+MODE_JSON      = 2
+
+CP_GREEN  = 1
+CP_RED    = 2
+CP_YELLOW = 3
+CP_CYAN   = 4
+CP_DIM    = 5
+CP_HEADER = 6
+CP_TITLE  = 7
+CP_SELECT = 8
+CP_OVERLAY = 9
+
+# -----------------------------------------------------------------------
+# Identity
+# -----------------------------------------------------------------------
+
+def _get_local_domain() -> str:
+    for path in ["/etc/dnsmasq.d/opts_only.conf"]:
+        try:
+            with open(path) as f:
+                for line in f:
+                    if line.startswith("domain="):
+                        val = line.strip().split("=", 1)[1]
+                        log.info("local_domain from %s: %s", path, val)
+                        return val
+        except OSError:
+            pass
+    try:
+        with open("/etc/frognet_domain") as f:
+            val = f.read().strip()
+            log.info("local_domain from /etc/frognet_domain: %s", val)
+            return val
+    except OSError:
+        pass
+    val = socket.gethostname().split(".")[0]
+    log.info("local_domain from hostname: %s", val)
+    return val
+
+
+def _get_local_ip() -> str:
+    try:
+        out = subprocess.check_output(
+            ["ip", "-4", "-o", "addr", "show"], timeout=2, stderr=subprocess.DEVNULL
+        ).decode()
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) >= 4:
+                addr = parts[3].split("/")[0]
+                if addr.startswith("10.101."):
+                    log.info("local_ip: %s", addr)
+                    return addr
+    except Exception as e:
+        log.warning("_get_local_ip failed: %s", e)
+    return "127.0.0.1"
+
+
+LOCAL_DOMAIN = _get_local_domain()
+LOCAL_IP     = _get_local_ip()
+LOCAL_LOWER  = LOCAL_DOMAIN.lower()
+log.info("=== frognet_monitor starting: %s (%s) ===", LOCAL_DOMAIN, LOCAL_IP)
+
+# -----------------------------------------------------------------------
+# API helpers
+# -----------------------------------------------------------------------
+
+def _local_api(url: str, timeout: float = 5) -> Any:
+    req = urllib.request.Request(url, headers={
+        "Host": "127.0.0.1",
+        "X-FrogNet-Origin-Local": "1",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        raw = resp.read()
+        return json.loads(raw)
+
+
+def _sensors_values(parse: bool = True, **filters) -> List[Dict]:
+    params = {"entity": "sensors", "action": "values"}
+    if parse:
+        params["parse"] = "1"
+    params.update(filters)
+    qs = urllib.parse.urlencode(params)
+    url = f"http://127.0.0.1/api.php?{qs}"
+    try:
+        data = _local_api(url, timeout=5)
+        if isinstance(data, dict) and data.get("ok"):
+            rows = data.get("rows", [])
+            return rows if isinstance(rows, list) else []
+        log.warning("_sensors_values bad response for %s: %s", url, str(data)[:200])
+    except Exception as e:
+        log.warning("_sensors_values error for %s: %s", url, e)
+    return []
+
+# -----------------------------------------------------------------------
+# Discovery — /etc/hosts primary, getHosts.php optional upgrade
+# -----------------------------------------------------------------------
+
+def _parse_etc_hosts() -> List[Tuple[str, str]]:
+    """Parse /etc/hosts for 10.101.x.y lines.  Returns [(ip, name), ...].
+    Name is field 2; if it starts with FrogNetHost. we strip that prefix."""
+    hosts = []
+    seen = set()
+    try:
+        with open("/etc/hosts") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                ip = parts[0]
+                if not re.match(r'^10\.101\.', ip):
+                    continue
+                # Skip transit addresses
+                if re.match(r'^10\.253\.', ip):
+                    continue
+                if ip in seen:
+                    continue
+                seen.add(ip)
+                name = parts[1]
+                # Strip FrogNetHost. prefix if present
+                if name.startswith("FrogNetHost."):
+                    name = name[len("FrogNetHost."):]
+                # Also strip .frognet suffix if present
+                if name.endswith(".frognet"):
+                    name = name[:-len(".frognet")]
+                hosts.append((ip, name))
+    except OSError as e:
+        log.error("Cannot read /etc/hosts: %s", e)
+    log.info("_parse_etc_hosts: found %d hosts: %s", len(hosts),
+             [(ip, n) for ip, n in hosts])
+    return hosts
+
+
+def _try_get_hosts_php() -> List[Tuple[str, str]]:
+    """Try getHosts.php — returns [] on any failure."""
+    try:
+        data = _local_api("http://127.0.0.1/getHosts.php", timeout=5)
+        if isinstance(data, list) and len(data) > 0:
+            hosts = [(h["ip"], h.get("name", h["ip"]))
+                     for h in data if isinstance(h, dict) and "ip" in h]
+            log.info("getHosts.php returned %d hosts", len(hosts))
+            return hosts
+        log.info("getHosts.php returned empty or non-list: %s", type(data))
+    except Exception as e:
+        log.warning("getHosts.php failed: %s", e)
+    return []
+
+
+def discover_hosts() -> List[Tuple[str, str]]:
+    """Primary: /etc/hosts (always works, no HTTP).
+    If getHosts.php returns results, use those instead (richer data)."""
+    etc_hosts = _parse_etc_hosts()
+    api_hosts = _try_get_hosts_php()
+    if api_hosts:
+        log.info("discover_hosts: using getHosts.php (%d hosts)", len(api_hosts))
+        return api_hosts
+    log.info("discover_hosts: using /etc/hosts (%d hosts)", len(etc_hosts))
+    return etc_hosts
+
+# -----------------------------------------------------------------------
+# Probes
+# -----------------------------------------------------------------------
+
+def probe_alive(ip: str) -> Tuple[str, int, str]:
+    try:
+        out = subprocess.check_output(
+            [ALIVE_SCRIPT, ip, str(ALIVE_TIMEOUT)],
+            timeout=ALIVE_TIMEOUT + 2,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        if "|" in out:
+            ms_str, method = out.split("|", 1)
+            return ("OK", int(ms_str), method)
+    except Exception as e:
+        log.debug("probe_alive %s failed: %s", ip, e)
+    return ("FAIL", 0, "")
+
+
+def probe_internet() -> Tuple[str, int]:
+    try:
+        t0 = time.monotonic()
+        req = urllib.request.Request("http://www.google.com/")
+        with urllib.request.urlopen(req, timeout=INET_TIMEOUT) as resp:
+            _ = resp.read(1024)
+            ms = int((time.monotonic() - t0) * 1000)
+        return ("OK", ms)
+    except Exception:
+        return ("FAIL", 0)
+
+# -----------------------------------------------------------------------
+# Telemetry
+# -----------------------------------------------------------------------
+
+def fetch_all_cache_sensors() -> Dict[str, Dict]:
+    rows = _sensors_values(parse=True, SensorType="SemanticCache")
+    by_host = {}
+    for r in rows:
+        sname = r.get("SensorName", "")
+        dot = sname.find(".")
+        if dot > 0:
+            by_host[sname[:dot].lower()] = r.get("data", {})
+    log.debug("fetch_all_cache_sensors: %d hosts", len(by_host))
+    return by_host
+
+
+def fetch_sensors_for_host(host_name: str) -> List[Dict]:
+    rows = _sensors_values(parse=True, **{"SensorName__like": f"{host_name}.%"})
+    log.info("fetch_sensors_for_host(%s): %d sensors", host_name, len(rows))
+    return rows
+
+# -----------------------------------------------------------------------
+# Background probe thread
+# -----------------------------------------------------------------------
+
+class ProbeThread(threading.Thread):
+    def __init__(self):
+        super().__init__(daemon=True)
+        self._lock = threading.Lock()
+        self._hosts: List[Tuple[str, str]] = []
+        self._results: Dict[str, Dict] = {}
+        self._cache: Dict[str, Dict] = {}
+        self._inet: Tuple[str, int] = ("FAIL", 0)
+        self._error: str = ""
+        self._stop = threading.Event()
+
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                hosts = discover_hosts()
+
+                results = {}
+                alive_threads = []
+                for ip, name in hosts:
+                    if name.lower() == LOCAL_LOWER or ip == LOCAL_IP:
+                        continue
+                    def _do(ip=ip):
+                        s, ms, m = probe_alive(ip)
+                        results[ip] = {"status": s, "rtt_ms": ms, "method": m}
+                    t = threading.Thread(target=_do, daemon=True)
+                    alive_threads.append(t)
+                    t.start()
+
+                inet_result = [("FAIL", 0)]
+                def _inet():
+                    inet_result[0] = probe_internet()
+                ti = threading.Thread(target=_inet, daemon=True)
+                ti.start()
+
+                cache = fetch_all_cache_sensors()
+
+                for t in alive_threads:
+                    t.join(timeout=ALIVE_TIMEOUT + 2)
+                ti.join(timeout=INET_TIMEOUT + 2)
+
+                with self._lock:
+                    self._hosts = hosts
+                    self._results = results
+                    self._cache = cache
+                    self._inet = inet_result[0]
+                    self._error = ""
+
+                log.info("probe cycle done: %d hosts, %d alive results, %d cache entries",
+                         len(hosts), len(results), len(cache))
+
+            except Exception as e:
+                tb = traceback.format_exc()
+                log.error("probe cycle CRASHED: %s\n%s", e, tb)
+                with self._lock:
+                    self._error = str(e)
+
+            self._stop.wait(timeout=REFRESH_SEC)
+
+    def stop(self):
+        self._stop.set()
+
+    def snapshot(self):
+        with self._lock:
+            return (
+                list(self._hosts),
+                dict(self._results),
+                dict(self._cache),
+                self._inet,
+                self._error,
+            )
+
+# -----------------------------------------------------------------------
+# Formatting
+# -----------------------------------------------------------------------
+
+def fmt_bytes(b) -> str:
+    try:
+        b = int(b)
+    except (TypeError, ValueError):
+        return "—"
+    if b >= 1_048_576:
+        return f"{b / 1_048_576:.1f}MB"
+    if b >= 1024:
+        return f"{b / 1024:.1f}KB"
+    return f"{b}B"
+
+
+def fmt_pct(r) -> str:
+    try:
+        v = float(r)
+        if v <= 1.0:
+            v *= 100
+        return f"{v:.0f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def safe_get(d, *keys, default="—"):
+    cur = d
+    for k in keys:
+        if isinstance(cur, dict):
+            cur = cur.get(k, default)
+        else:
+            return default
+    return cur if cur not in (None, "") else default
+
+
+def pretty_json(obj, indent=2) -> str:
+    if isinstance(obj, dict) and "jsonData" in obj:
+        jd = obj["jsonData"]
+        if isinstance(jd, str):
+            try:
+                jd = json.loads(jd)
+            except json.JSONDecodeError:
+                pass
+        obj = {**obj, "jsonData": jd}
+    return json.dumps(obj, indent=indent, default=str, ensure_ascii=False)
+
+# -----------------------------------------------------------------------
+# Curses
+# -----------------------------------------------------------------------
+
+def init_colors():
+    curses.start_color()
+    curses.use_default_colors()
+    curses.init_pair(CP_GREEN, curses.COLOR_GREEN, -1)
+    curses.init_pair(CP_RED, curses.COLOR_RED, -1)
+    curses.init_pair(CP_YELLOW, curses.COLOR_YELLOW, -1)
+    curses.init_pair(CP_CYAN, curses.COLOR_CYAN, -1)
+    curses.init_pair(CP_DIM, curses.COLOR_WHITE, -1)
+    curses.init_pair(CP_HEADER, curses.COLOR_CYAN, -1)
+    curses.init_pair(CP_TITLE, curses.COLOR_CYAN, -1)
+    curses.init_pair(CP_SELECT, curses.COLOR_BLACK, curses.COLOR_CYAN)
+    curses.init_pair(CP_OVERLAY, curses.COLOR_WHITE, curses.COLOR_BLUE)
+
+
+def safe_addstr(win, y, x, text, attr=0):
+    max_y, max_x = win.getmaxyx()
+    if y < 0 or y >= max_y or x >= max_x:
+        return
+    avail = max_x - x - 1
+    if avail <= 0:
+        return
+    win.addnstr(y, x, text, avail, attr)
+
+# -----------------------------------------------------------------------
+# Drawing
+# -----------------------------------------------------------------------
+
+def draw_title(win, row):
+    ts = time.strftime("%H:%M:%S")
+    bar = "═" * 78
+    safe_addstr(win, row, 1, bar, curses.color_pair(CP_TITLE) | curses.A_BOLD)
+    row += 1
+    safe_addstr(win, row, 1,
+        f"  FrogNet v5.1   {LOCAL_DOMAIN} ({LOCAL_IP})   {ts}",
+        curses.color_pair(CP_TITLE) | curses.A_BOLD)
+    row += 1
+    safe_addstr(win, row, 1, bar, curses.color_pair(CP_TITLE) | curses.A_BOLD)
+    return row + 2
+
+
+def draw_peer_header(win, row):
+    safe_addstr(win, row, 2,
+        f"{'PEER':<14} {'STATUS':<10} {'RTT':<8} {'HIT':<7} {'SAVED':<9} {'COMPRESS':<8}",
+        curses.color_pair(CP_HEADER) | curses.A_BOLD)
+    row += 1
+    safe_addstr(win, row, 2, "─" * 62, curses.color_pair(CP_DIM))
+    return row + 1
+
+
+def _cache_cols(cache_data):
+    if cache_data and isinstance(cache_data, dict) and "totals" in cache_data:
+        t = cache_data["totals"]
+        return (
+            fmt_pct(safe_get(t, "cache_hit_rate", default=0)),
+            fmt_bytes(safe_get(t, "bytes_saved", default=0)),
+            fmt_pct(safe_get(t, "compression_ratio", default=0)),
+            CP_GREEN,
+        )
+    return ("—", "—", "—", CP_DIM)
+
+
+def draw_peer_row(win, row, name, probe, cache_data, selected):
+    status = probe.get("status", "FAIL")
+    rtt_ms = probe.get("rtt_ms", 0)
+
+    if status == "OK":
+        s_text, s_cp = "ONLINE", CP_GREEN
+        rtt_text = f"{rtt_ms}ms"
+        rtt_cp = CP_GREEN if rtt_ms < 100 else (CP_YELLOW if rtt_ms < 1000 else CP_RED)
+    else:
+        s_text, s_cp = "DOWN", CP_RED
+        rtt_text, rtt_cp = "—", CP_DIM
+
+    hit_t, saved_t, comp_t, c_cp = _cache_cols(cache_data)
+
+    if selected:
+        max_y, max_x = win.getmaxyx()
+        safe_addstr(win, row, 1, " " * min(66, max_x - 2), curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 2,  f"▸ {name:<12}", curses.color_pair(CP_SELECT) | curses.A_BOLD)
+        safe_addstr(win, row, 17, f"{s_text:<10}",  curses.color_pair(CP_SELECT) | curses.A_BOLD)
+        safe_addstr(win, row, 28, f"{rtt_text:<8}",  curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 37, f"{hit_t:<7}",    curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 45, f"{saved_t:<9}",  curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 55, f"{comp_t:<8}",   curses.color_pair(CP_SELECT))
+    else:
+        safe_addstr(win, row, 2,  f"  {name:<12}", curses.A_NORMAL)
+        safe_addstr(win, row, 17, f"{s_text:<10}",  curses.color_pair(s_cp) | curses.A_BOLD)
+        safe_addstr(win, row, 28, f"{rtt_text:<8}",  curses.color_pair(rtt_cp))
+        safe_addstr(win, row, 37, f"{hit_t:<7}",    curses.color_pair(c_cp))
+        safe_addstr(win, row, 45, f"{saved_t:<9}",  curses.color_pair(c_cp))
+        safe_addstr(win, row, 55, f"{comp_t:<8}",   curses.color_pair(c_cp))
+    return row + 1
+
+
+def draw_local_row(win, row, name, cache_data, selected):
+    hit_t, saved_t, comp_t, c_cp = _cache_cols(cache_data)
+
+    if selected:
+        max_y, max_x = win.getmaxyx()
+        safe_addstr(win, row, 1, " " * min(66, max_x - 2), curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 2,  f"▸ {name:<12}", curses.color_pair(CP_SELECT) | curses.A_BOLD)
+        safe_addstr(win, row, 17, f"{'(local)':<10}", curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 28, f"{'—':<8}",       curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 37, f"{hit_t:<7}",    curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 45, f"{saved_t:<9}",  curses.color_pair(CP_SELECT))
+        safe_addstr(win, row, 55, f"{comp_t:<8}",   curses.color_pair(CP_SELECT))
+    else:
+        safe_addstr(win, row, 2,  f"  {name:<12}", curses.color_pair(CP_CYAN))
+        safe_addstr(win, row, 17, f"{'(local)':<10}", curses.color_pair(CP_DIM))
+        safe_addstr(win, row, 28, f"{'—':<8}",       curses.color_pair(CP_DIM))
+        safe_addstr(win, row, 37, f"{hit_t:<7}",    curses.color_pair(c_cp))
+        safe_addstr(win, row, 45, f"{saved_t:<9}",  curses.color_pair(c_cp))
+        safe_addstr(win, row, 55, f"{comp_t:<8}",   curses.color_pair(c_cp))
+    return row + 1
+
+
+def draw_internet(win, row, result):
+    s, ms = result
+    safe_addstr(win, row, 2, f"  {'Internet':<12}", curses.A_NORMAL)
+    if s == "OK":
+        safe_addstr(win, row, 17, "OK", curses.color_pair(CP_GREEN) | curses.A_BOLD)
+        safe_addstr(win, row, 28, f"{ms}ms", curses.color_pair(CP_GREEN))
+    else:
+        safe_addstr(win, row, 17, "FAIL", curses.color_pair(CP_RED) | curses.A_BOLD)
+    return row + 1
+
+
+def draw_footer(win, row, mode, error=""):
+    row += 1
+    try:
+        with open("/proc/uptime") as f:
+            up_secs = int(float(f.read().split()[0]))
+        d, rem = divmod(up_secs, 86400)
+        h, rem = divmod(rem, 3600)
+        m = rem // 60
+        up_str = f"up {d}d {h}h {m}m" if d else f"up {h}h {m}m"
+    except Exception:
+        up_str = ""
+    try:
+        with open("/proc/loadavg") as f:
+            load_str = "load " + " ".join(f.read().split()[:3])
+    except Exception:
+        load_str = ""
+
+    safe_addstr(win, row, 2, f"{up_str}  {load_str}", curses.color_pair(CP_DIM))
+    row += 1
+
+    if error:
+        safe_addstr(win, row, 2, f"ERROR: {error}", curses.color_pair(CP_RED))
+        row += 1
+
+    safe_addstr(win, row, 2, f"Log: {LOG_PATH}", curses.color_pair(CP_DIM))
+    row += 1
+
+    if mode == MODE_DASHBOARD:
+        h = "↑↓=select  Enter=sensors  q=quit"
+    elif mode == MODE_SENSORS:
+        h = "↑↓=select  Enter=JSON  r=refresh  Esc/←=back"
+    else:
+        h = "↑↓=scroll  PgUp/PgDn  Esc/←=back"
+    safe_addstr(win, row, 2, h, curses.color_pair(CP_DIM))
+    return row + 1
+
+# -----------------------------------------------------------------------
+# Overlay
+# -----------------------------------------------------------------------
+
+def draw_overlay(stdscr, title, lines, scroll, sel_idx=-1, selectable=False):
+    max_y, max_x = stdscr.getmaxyx()
+    box_h = min(max_y - 4, max(12, max_y * 3 // 4))
+    box_w = min(max_x - 4, max(60, max_x * 4 // 5))
+    top  = max(1, (max_y - box_h) // 2)
+    left = max(1, (max_x - box_w) // 2)
+
+    try:
+        ov = curses.newwin(box_h, box_w, top, left)
+    except curses.error:
+        return (0, len(lines))
+
+    ov.erase()
+    ov.bkgd(' ', curses.color_pair(CP_OVERLAY))
+    try:
+        ov.border()
+    except curses.error:
+        pass
+
+    t = f" {title} "
+    try:
+        ov.addnstr(0, max(1, (box_w - len(t)) // 2), t, box_w - 2,
+                    curses.color_pair(CP_OVERLAY) | curses.A_BOLD)
+    except curses.error:
+        pass
+
+    ch = box_h - 2
+    cw = box_w - 4
+    total = len(lines)
+    scroll = max(0, min(scroll, max(0, total - ch)))
+
+    for i in range(ch):
+        li = scroll + i
+        if li >= total:
+            break
+        text = lines[li][:cw]
+        if selectable and li == sel_idx:
+            try:
+                ov.addnstr(1 + i, 2, text.ljust(cw), cw,
+                           curses.color_pair(CP_SELECT) | curses.A_BOLD)
+            except curses.error:
+                pass
+        else:
+            try:
+                ov.addnstr(1 + i, 2, text, cw, curses.color_pair(CP_OVERLAY))
+            except curses.error:
+                pass
+
+    if total > ch:
+        pct = int((scroll / max(1, total - ch)) * 100)
+        ind = f" {scroll+1}-{min(scroll+ch, total)}/{total} ({pct}%) "
+        try:
+            ov.addnstr(box_h - 1, max(1, box_w - len(ind) - 2), ind, box_w - 2,
+                        curses.color_pair(CP_OVERLAY) | curses.A_DIM)
+        except curses.error:
+            pass
+
+    ov.noutrefresh()
+    return (ch, total)
+
+# -----------------------------------------------------------------------
+# State
+# -----------------------------------------------------------------------
+
+class AppState:
+    def __init__(self):
+        self.mode = MODE_DASHBOARD
+        self.hosts: List[Tuple[str, str]] = []
+        self.results: Dict[str, Dict] = {}
+        self.cache_by_host: Dict[str, Dict] = {}
+        self.inet: Tuple[str, int] = ("FAIL", 0)
+        self.error: str = ""
+        self.peer_cursor = 0
+
+        self.sensor_host_name = ""
+        self.sensor_host_ip = ""
+        self.sensors: List[Dict] = []
+        self.sensor_cursor = 0
+        self.sensor_scroll = 0
+        self.sensor_loading = False
+
+        self.json_title = ""
+        self.json_lines: List[str] = []
+        self.json_scroll = 0
+
+    @property
+    def peer_count(self):
+        return len(self.hosts)
+
+    def clamp_peer(self):
+        if self.peer_count > 0:
+            self.peer_cursor = max(0, min(self.peer_cursor, self.peer_count - 1))
+        else:
+            self.peer_cursor = 0
+
+    def clamp_sensor(self):
+        n = len(self.sensors)
+        if n > 0:
+            self.sensor_cursor = max(0, min(self.sensor_cursor, n - 1))
+        else:
+            self.sensor_cursor = 0
+
+    def selected_host(self):
+        if 0 <= self.peer_cursor < len(self.hosts):
+            return self.hosts[self.peer_cursor]
+        return None
+
+    def selected_sensor(self):
+        if 0 <= self.sensor_cursor < len(self.sensors):
+            return self.sensors[self.sensor_cursor]
+        return None
+
+# -----------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------
+
+def main(stdscr):
+    init_colors()
+    curses.curs_set(0)
+    stdscr.timeout(UI_TICK_MS)
+
+    st = AppState()
+    prober = ProbeThread()
+    prober.start()
+
+    try:
+        _run(stdscr, st, prober)
+    finally:
+        prober.stop()
+
+
+def _run(stdscr, st, prober):
+    while True:
+        # Non-blocking snapshot from background thread
+        st.hosts, st.results, st.cache_by_host, st.inet, st.error = prober.snapshot()
+        st.clamp_peer()
+
+        # --- draw dashboard ---
+        stdscr.erase()
+        row = draw_title(stdscr, 0)
+        row = draw_peer_header(stdscr, row)
+
+        if not st.hosts:
+            safe_addstr(stdscr, row, 2, "Discovering hosts...",
+                        curses.color_pair(CP_YELLOW))
+            row += 1
+        else:
+            for idx, (ip, name) in enumerate(st.hosts):
+                is_self  = (name.lower() == LOCAL_LOWER or ip == LOCAL_IP)
+                selected = (st.mode == MODE_DASHBOARD and idx == st.peer_cursor)
+                hcache   = st.cache_by_host.get(name.lower())
+                if is_self:
+                    row = draw_local_row(stdscr, row, name, hcache, selected)
+                else:
+                    probe = st.results.get(ip, {"status": "?", "rtt_ms": 0, "method": ""})
+                    row = draw_peer_row(stdscr, row, name, probe, hcache, selected)
+
+        row += 1
+        row = draw_internet(stdscr, row, st.inet)
+        draw_footer(stdscr, row, st.mode, st.error)
+
+        # Refresh stdscr FIRST so overlays draw on top
+        stdscr.noutrefresh()
+
+        # --- overlays (after stdscr refresh, so they're on top) ---
+        if st.mode == MODE_SENSORS:
+            if st.sensor_loading:
+                lines = ["Loading sensors..."]
+                sel = -1
+            elif not st.sensors:
+                lines = ["No sensors found.", "", "Press 'r' to retry."]
+                sel = -1
+            else:
+                lines = []
+                prefix = st.sensor_host_name + "."
+                for s in st.sensors:
+                    sn = s.get("SensorName", "?")
+                    st_type = s.get("SensorType", "")
+                    short = sn[len(prefix):] if sn.startswith(prefix) else sn
+                    ln = f"  {short}"
+                    if st_type:
+                        ln += f"  ({st_type})"
+                    lines.append(ln)
+                sel = st.sensor_cursor
+
+            title = f"Sensors: {st.sensor_host_name} ({st.sensor_host_ip})"
+            draw_overlay(stdscr, title, lines,
+                         st.sensor_scroll, sel_idx=sel,
+                         selectable=(len(st.sensors) > 0))
+
+        elif st.mode == MODE_JSON:
+            draw_overlay(stdscr, st.json_title, st.json_lines,
+                         st.json_scroll)
+
+        curses.doupdate()
+
+        # --- input ---
+        try:
+            ch = stdscr.getch()
+        except curses.error:
+            continue
+        if ch == -1:
+            continue
+
+        if st.mode == MODE_DASHBOARD:
+            if ch in (ord('q'), ord('Q')):
+                return
+            elif ch in (curses.KEY_UP, ord('k')):
+                st.peer_cursor = max(0, st.peer_cursor - 1)
+            elif ch in (curses.KEY_DOWN, ord('j')):
+                st.peer_cursor = min(st.peer_count - 1, st.peer_cursor + 1)
+            elif ch in (curses.KEY_ENTER, 10, 13, curses.KEY_RIGHT, ord('l')):
+                host = st.selected_host()
+                if host:
+                    ip, name = host
+                    st.sensor_host_ip = ip
+                    st.sensor_host_name = name
+                    st.sensor_cursor = 0
+                    st.sensor_scroll = 0
+                    st.sensor_loading = True
+                    st.mode = MODE_SENSORS
+                    def _load(h=name):
+                        st.sensors = fetch_sensors_for_host(h)
+                        st.sensor_loading = False
+                        st.clamp_sensor()
+                    threading.Thread(target=_load, daemon=True).start()
+
+        elif st.mode == MODE_SENSORS:
+            if ch in (27, curses.KEY_LEFT, ord('h')):
+                st.mode = MODE_DASHBOARD
+                st.sensors = []
+            elif ch in (ord('q'), ord('Q')):
+                st.mode = MODE_DASHBOARD
+                st.sensors = []
+            elif ch in (curses.KEY_UP, ord('k')):
+                if st.sensors:
+                    st.sensor_cursor = max(0, st.sensor_cursor - 1)
+            elif ch in (curses.KEY_DOWN, ord('j')):
+                if st.sensors:
+                    st.sensor_cursor = min(len(st.sensors) - 1, st.sensor_cursor + 1)
+            elif ch in (curses.KEY_ENTER, 10, 13, curses.KEY_RIGHT, ord('l')):
+                sensor = st.selected_sensor()
+                if sensor:
+                    st.json_title = sensor.get("SensorName", "?")
+                    st.json_lines = pretty_json(sensor).splitlines()
+                    st.json_scroll = 0
+                    st.mode = MODE_JSON
+            elif ch == ord('r'):
+                st.sensor_loading = True
+                def _reload(h=st.sensor_host_name):
+                    st.sensors = fetch_sensors_for_host(h)
+                    st.sensor_loading = False
+                    st.clamp_sensor()
+                threading.Thread(target=_reload, daemon=True).start()
+
+        elif st.mode == MODE_JSON:
+            if ch in (27, curses.KEY_LEFT, ord('h'), ord('q')):
+                st.mode = MODE_SENSORS
+                st.json_lines = []
+            elif ch in (curses.KEY_UP, ord('k')):
+                st.json_scroll = max(0, st.json_scroll - 1)
+            elif ch in (curses.KEY_DOWN, ord('j')):
+                st.json_scroll += 1
+            elif ch == curses.KEY_PPAGE:
+                st.json_scroll = max(0, st.json_scroll - 20)
+            elif ch == curses.KEY_NPAGE:
+                st.json_scroll += 20
+            elif ch in (curses.KEY_HOME, ord('g')):
+                st.json_scroll = 0
+            elif ch in (curses.KEY_END, ord('G')):
+                st.json_scroll = max(0, len(st.json_lines) - 10)
+
+
+if __name__ == "__main__":
+    try:
+        curses.wrapper(main)
+    except KeyboardInterrupt:
+        pass

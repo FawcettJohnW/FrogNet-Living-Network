@@ -1,0 +1,962 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# ============================================================
+# fixDefaultRoute — FrogNet default route selection (authoritative)
+#
+# Policy (this revision):
+#   0) FORCED override: if /etc/frognet/forced_default_route exists
+#      and contains a usable gateway, install it unconditionally at
+#      DEFAULT_ROUTE_METRIC.  Delete every other default.  This is
+#      the one sanctioned bypass and is explicitly for operator use
+#      (10.x is allowed here, unlike anywhere else).
+#
+#   1) Always first: delete defaults that are demonstrably not
+#      carrying traffic — dev is DOWN or gateway doesn't ping.
+#      These are dead on their face; deletion disturbs nothing.
+#      Also delete self-gateway defaults (via == one of our own
+#      IPs) — packets via those loop to ourselves, so they carry
+#      nothing by definition.
+#
+#   2) Discover local off-LAN Internet gateways (non-10.x only).
+#      Two sources:
+#        a. existing default routes whose via is non-10.x
+#        b. non-10.x addresses on interfaces → infer .1, test
+#      Ping each via its own iface (ping -I $dev).
+#
+#   3) If candidates found: install primary + fallbacks at metrics
+#      strictly lower than every surviving pre-existing default.
+#      We NEVER modify or delete a pre-existing default that is
+#      carrying traffic — it keeps its metric, it keeps its
+#      connections, it simply loses the race for new route
+#      lookups because ours is lower.  Fallbacks are spaced so
+#      no two routes collide on (via, dev, metric).
+#
+#   4) If no off-LAN candidates were found, actively probe known
+#      FrogNet peers via getDefaultRoute.php through the local
+#      proxy (so hop selection — FAST vs SEM — is honored).  Pick
+#      the best exit-capable peer (FAST > SEM; lowest IP as stable
+#      tiebreaker) and install:
+#         default via <mesh_hop> dev <dev> metric DEFAULT_ROUTE_METRIC
+#      No /32 anchors, no advertising the real external gateway.
+#      The peer is the next hop AND the nameserver for .frognet —
+#      every byte (DNS included) traverses it.  This matches the
+#      "next hop is all you need to know" architectural contract.
+#
+#   5) If neither Mode A nor Mode B finds anything: install nothing.
+#      Existing defaults (if any survived purge) remain untouched.
+# ============================================================
+
+# [INSTRUMENTATION_V2_APPLIED_BASH]
+# shellcheck source=/dev/null
+[[ -f /usr/local/lib/frognet_trace.sh ]] && . /usr/local/lib/frognet_trace.sh
+. /usr/local/bin/mapInterfaces
+. /usr/local/lib/frognet_log.sh
+flog_init "fixDefaultRoute"
+trap 'rc=$?; flog_info "EXIT" rc=$rc; exit $rc' EXIT
+
+SENT_DIR="/etc/sentinels"
+EXIT_SENT="${SENT_DIR}/exit_host.tsv"
+/usr/bin/mkdir -p "$SENT_DIR"
+
+DEFAULT_ROUTE_METRIC="${DEFAULT_ROUTE_METRIC:-601}"
+PING_WAIT="${PING_WAIT:-2}"       # per-probe wait (seconds) — keep short
+PING_COUNT="${PING_COUNT:-1}"     # one packet is enough to decide liveness
+FALLBACK_STRIDE=1                 # metric spacing between primary and fallbacks
+# [EXIT_BACKUP_LADDER_V1] Max mesh-exit defaults to install in Mode B:
+# primary + up to (this-1) backups, laddered at DEFAULT_ROUTE_METRIC,
+# +STRIDE, +2*STRIDE …  Bounds churn; best-effort — we install as many as
+# there are distinct exit-capable peers, never fabricating one.
+EXIT_MAX_DEFAULTS="${EXIT_MAX_DEFAULTS:-3}"
+
+# Mode B (exit-host synthesis) tunables.
+EXIT_HOST_QUERY_TIMEOUT="${EXIT_HOST_QUERY_TIMEOUT:-15}"
+EXIT_HOST_TTL_CAP="${EXIT_HOST_TTL_CAP:-180}"
+SEMANTIC_HOSTS_FILE="${SEMANTIC_HOSTS_FILE:-/etc/frognet/semantic_hosts}"
+
+FORCED_ROUTE_FILE="/etc/frognet/forced_default_route"
+
+flog_info "ENTER" "default_metric=$DEFAULT_ROUTE_METRIC" "ping_wait=$PING_WAIT"
+flog_dump_cmd "fdr_pre_routes" ip -4 route show
+flog_dump_cmd "fdr_pre_ifaces" ip -4 addr show
+
+# ---- Helpers --------------------------------------------------------------
+
+is_ip()  { [[ "${1:-}" =~ ^([0-9]+\.){3}[0-9]+$ ]]; }
+is_10x() { [[ "${1:-}" == 10.* ]]; }
+
+# [LAN_GW_DOT1_V1] Internally, a default route's gateway is a FrogNet .1.
+# Every /24 is served by its own .1, which is that subnet's gateway and its
+# nameserver.  A 10.x default via anything else is invalid by construction.
+# External (non-10.x) gateways are outside this rule and are not touched.
+is_lan_dot1() { [[ "${1:-}" =~ ^10\.[0-9]+\.[0-9]+\.1$ ]]; }
+
+# Dev-bound ping.  Binding to the interface bypasses the default-route
+# lookup so we can test a gateway's reachability without being poisoned
+# by some other (possibly dead) default route winning.
+ping_via_dev() {
+    _trace_enter ping_via_dev "$@"
+  local ip="${1:-}" dev="${2:-}"
+  [[ -n "$ip" && -n "$dev" ]] || return 1
+  /bin/ping -I "$dev" -c"${PING_COUNT}" -W"${PING_WAIT}" "$ip" &>/dev/null
+}
+
+# Is a dev in kernel UP state?  Covers NO-CARRIER too — NO-CARRIER
+# interfaces show "state DOWN" on modern kernels.
+dev_is_up() {
+    _trace_enter dev_is_up "$@"
+  local dev="${1:-}"
+  [[ -n "$dev" ]] || return 1
+  /usr/sbin/ip -o link show dev "$dev" 2>/dev/null \
+    | /usr/bin/grep -qE 'state (UP|UNKNOWN)'
+}
+
+mapfile -t LOCAL_IPS < <(/usr/sbin/ip -4 -o addr show | /usr/bin/awk '{print $4}' | /usr/bin/cut -d/ -f1 | /usr/bin/awk NF | /usr/bin/sort -u)
+is_local_ip() {
+    _trace_enter is_local_ip "$@"
+  local ip="$1"
+  for l in "${LOCAL_IPS[@]}"; do
+    [[ "$ip" == "$l" ]] && return 0
+  done
+  return 1
+}
+
+# Emit one line per existing default route:  <metric>\t<via>\t<dev>\t<rawline>
+collect_defaults() {
+    _trace_enter collect_defaults "$@"
+  /usr/sbin/ip route show default | /usr/bin/awk 'NF' | while read -r line; do
+    via="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"$line")"
+    dev="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$line")"
+    met="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="metric"){print $(i+1); exit}}' <<<"$line")"
+    [[ -z "$met" ]] && met=0   # kernel default when metric is unspecified
+    [[ -n "$via" && -n "$dev" ]] || continue
+    printf '%s\t%s\t%s\t%s\n' "$met" "$via" "$dev" "$line"
+  done
+}
+
+delete_default_line() {
+    _trace_enter delete_default_line "$@"
+  local via="$1" dev="$2" metric="$3"
+  if [[ -n "$metric" && "$metric" != "0" ]]; then
+    /usr/sbin/ip route del default via "$via" dev "$dev" metric "$metric" 2>/dev/null || true
+  else
+    /usr/sbin/ip route del default via "$via" dev "$dev" 2>/dev/null || true
+  fi
+}
+
+# Is next-hop in a connected subnet for this dev?  If not, we need onlink.
+_nh_is_on_connected_subnet() {
+    _trace_enter _nh_is_on_connected_subnet "$@"
+  local nh="$1" dev="$2"
+  local nh_prefix
+  nh_prefix="$(echo "$nh" | /usr/bin/awk -F. '{print $1"."$2"."$3}')"
+  local addr
+  while read -r addr; do
+    [[ -n "$addr" ]] || continue
+    local addr_prefix
+    addr_prefix="$(echo "$addr" | /usr/bin/awk -F. '{print $1"."$2"."$3}')"
+    [[ "$nh_prefix" == "$addr_prefix" ]] && return 0
+  done < <(/usr/sbin/ip -4 -o addr show dev "$dev" | /usr/bin/awk '{print $4}' | /usr/bin/cut -d/ -f1)
+  return 1
+}
+
+# [NO_NOOP_REPLACE_V1] Return 0 if a default route exactly matching
+# (via, dev, metric, onlink-flag) is already installed; return 1
+# otherwise.  This is the guard that prevents `ip route replace`
+# from being called when it would be a no-op replace — which is NOT
+# free: under the hood the kernel deletes-then-adds, and in that
+# microwindow any packet routed through the default goes nowhere.
+# Repeated no-op replaces are the cause of intermittent Internet
+# flips: every merge cycle's call to install_exit_default /
+# force_default re-installs an identical route, dropping a packet
+# or two each time.
+#
+# Comparison rules:
+#   * via, dev, metric: exact string match
+#   * onlink: presence in the live route line must match `want_onlink`
+#     (the caller passes "onlink" or "" — same as the variable it
+#     would feed to `ip route replace`).
+_default_already_installed() {
+    _trace_enter _default_already_installed "$@"
+  local want_via="$1" want_dev="$2" want_metric="$3" want_onlink="$4"
+  local line via dev met has_onlink
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    via="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"$line")"
+    dev="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$line")"
+    met="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="metric"){print $(i+1); exit}}' <<<"$line")"
+    [[ -z "$met" ]] && met=0
+    [[ "$via" == "$want_via" && "$dev" == "$want_dev" && "$met" == "$want_metric" ]] || continue
+    # via / dev / metric match — now check onlink flag presence.
+    if [[ "$line" == *' onlink'* ]]; then
+      has_onlink="onlink"
+    else
+      has_onlink=""
+    fi
+    [[ "$has_onlink" == "$want_onlink" ]] && return 0
+  done < <(/usr/sbin/ip route show default 2>/dev/null)
+  return 1
+}
+
+# ---- Phase 1: purge defaults not carrying traffic -------------------------
+#
+# "Not carrying traffic" here means one of:
+#   - via is one of our own IPs (packets would loop to ourselves — broken)
+#   - dev is DOWN (kernel drops anything routed through it)
+#   - gateway doesn't answer ping bound to its own dev
+#
+# Deleting any of these disrupts nothing because nothing real was using
+# them.  Any default that passes this check is assumed to be carrying
+# traffic and is left strictly alone.
+#
+# Parallelism: self-gateway and dev-up checks are trivial (no I/O).
+# Ping is the expensive step — we fire all pings concurrently and
+# collect results via per-candidate sentinel files, then delete in a
+# second pass.  Order of deletion doesn't matter; there are no
+# inter-default dependencies.
+
+purge_dead_defaults() {
+    _trace_enter purge_dead_defaults "$@"
+  local rows
+  mapfile -t rows < <(collect_defaults)
+  flog_info "purge_scan" "existing_defaults=${#rows[@]}"
+  (( ${#rows[@]} > 0 )) || { flog_info "purge_scan" "status=no_defaults_to_consider"; return 0; }
+
+  local tmpdir
+  tmpdir="$(/usr/bin/mktemp -d /tmp/fdr_purge.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "/bin/rm -rf '$tmpdir'" RETURN
+
+  local -a ping_rows
+  local -a ping_pids
+  local idx=0 structural=0 row met via dev raw
+  for row in "${rows[@]}"; do
+    met="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$row")"
+    via="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$row")"
+    dev="$(/usr/bin/awk -F'\t' '{print $3}' <<<"$row")"
+    raw="$(/usr/bin/awk -F'\t' '{print $4}' <<<"$row")"
+
+    if is_local_ip "$via"; then
+      flog_info "PURGE" "decision=delete" "reason=self_gateway" "via=$via" "dev=$dev" "metric=$met"
+      delete_default_line "$via" "$dev" "$met"
+      structural=$(( structural + 1 ))
+      continue
+    fi
+
+    # [LAN_GW_DOT1_V1] Scope: this governs defaults we did NOT write -- a
+    # DHCP-supplied router option, a leftover.  It is the only rule applied
+    # to them, and it applies to 10.x gateways only.
+    #
+    # Deliberately BEFORE dev_is_up, BEFORE the ping, and before this row
+    # joins ping_rows.  Liveness is the wrong test: a non-FrogNet device
+    # sitting on a FrogNet segment answers ICMP perfectly well, so a
+    # ping-based decision votes KEEP and the bad default survives every
+    # sweep.  Observed: a consumer router at 10.250.250.85, holding a lease
+    # on the segment, taken as the default gateway on three separate nodes.
+    # Being reachable is not being a gateway.
+    if is_10x "$via" && ! is_lan_dot1 "$via"; then
+      flog_info "PURGE" "decision=delete" "reason=lan_gw_not_dot1" "via=$via" "dev=$dev" "metric=$met"
+      delete_default_line "$via" "$dev" "$met"
+      structural=$(( structural + 1 ))
+      continue
+    fi
+
+    if ! dev_is_up "$dev"; then
+      flog_info "PURGE" "decision=delete" "reason=dev_down" "via=$via" "dev=$dev" "metric=$met"
+      delete_default_line "$via" "$dev" "$met"
+      structural=$(( structural + 1 ))
+      continue
+    fi
+
+    flog_info "purge_ping_fire" "via=$via" "dev=$dev" "metric=$met"
+    ping_rows+=("$row")
+    (
+      if ping_via_dev "$via" "$dev"; then
+        echo ok > "${tmpdir}/ping_${idx}"
+      else
+        echo fail > "${tmpdir}/ping_${idx}"
+      fi
+    ) &
+    ping_pids+=($!)
+    idx=$(( idx + 1 ))
+  done
+
+  local pid
+  for pid in "${ping_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+
+  local i=0 result kept=0 purged=0
+  for row in "${ping_rows[@]}"; do
+    result="$(/bin/cat "${tmpdir}/ping_${i}" 2>/dev/null || echo fail)"
+    i=$(( i + 1 ))
+    met="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$row")"
+    via="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$row")"
+    dev="$(/usr/bin/awk -F'\t' '{print $3}' <<<"$row")"
+    if [[ "$result" == "ok" ]]; then
+      flog_info "PURGE" "decision=keep" "reason=ping_ok" "via=$via" "dev=$dev" "metric=$met"
+      kept=$((kept + 1))
+      continue
+    fi
+    flog_info "PURGE" "decision=delete" "reason=ping_fail" "via=$via" "dev=$dev" "metric=$met"
+    delete_default_line "$via" "$dev" "$met"
+    purged=$((purged + 1))
+  done
+
+  flog_info "purge_summary" "total=${#rows[@]}" "kept=$kept" "purged=$purged"
+}
+
+# ---- Phase 2: discover local off-LAN candidates ---------------------------
+# Output:  <via>\t<dev>  (one line per viable candidate, deduplicated)
+
+discover_offlan_gateways() {
+    _trace_enter discover_offlan_gateways "$@"
+  local -A seen
+
+  # Source A: existing defaults with non-10.x via (post-purge, these are
+  # already known alive because purge_dead_defaults just validated them).
+  # No pings needed here — they've passed the liveness test in Phase 1.
+  while IFS=$'\t' read -r _met via dev _raw; do
+    [[ -n "$via" && -n "$dev" ]] || continue
+    is_ip "$via" || continue
+    is_10x "$via" && continue
+    local key="${via}|${dev}"
+    [[ -n "${seen[$key]:-}" ]] && continue
+    seen[$key]=1
+    printf '%s\t%s\n' "$via" "$dev"
+  done < <(collect_defaults | /usr/bin/sort -n -k1,1)
+
+  # Source B: infer .1 on every non-10.x addr of every FrogNet interface.
+  # Ping each in parallel — build candidate list first, fire all pings,
+  # then emit survivors.
+  local tmpdir
+  tmpdir="$(/usr/bin/mktemp -d /tmp/fdr_disc.XXXXXX)"
+  # shellcheck disable=SC2064
+  trap "/bin/rm -rf '$tmpdir'" RETURN
+
+  local -a cands
+  local dev ip4 gw
+  for dev in $FROGNET_INTERFACES; do
+    dev_is_up "$dev" || continue
+    ip4="$(_dev_ip4 "$dev" 2>/dev/null || true)"
+    [[ -n "$ip4" ]] || continue
+    is_ip "$ip4" || continue
+    is_10x "$ip4" && continue
+    gw="$(echo "$ip4" | /usr/bin/awk -F. '{print $1"."$2"."$3".1"}')"
+    is_ip "$gw" || continue
+    is_local_ip "$gw" && continue
+    local key="${gw}|${dev}"
+    [[ -n "${seen[$key]:-}" ]] && continue
+    seen[$key]=1
+    cands+=("$gw"$'\t'"$dev")
+  done
+
+  # Fire pings concurrently
+  local -a ping_pids
+  local idx=0 entry
+  for entry in "${cands[@]}"; do
+    gw="${entry%%$'\t'*}"
+    dev="${entry##*$'\t'}"
+    (
+      if ping_via_dev "$gw" "$dev"; then
+        echo ok > "${tmpdir}/ping_${idx}"
+      else
+        echo fail > "${tmpdir}/ping_${idx}"
+      fi
+    ) &
+    ping_pids+=($!)
+    idx=$(( idx + 1 ))
+  done
+
+  local pid
+  for pid in "${ping_pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+
+  # Emit survivors
+  local i=0 result
+  for entry in "${cands[@]}"; do
+    result="$(/bin/cat "${tmpdir}/ping_${i}" 2>/dev/null || echo fail)"
+    i=$(( i + 1 ))
+    [[ "$result" == "ok" ]] && echo "$entry"
+  done
+}
+
+# ---- Phase 3: install with metrics below every survivor -------------------
+#
+# We install at metrics strictly below any surviving pre-existing default
+# so that every NEW route lookup prefers our install — without touching
+# any pre-existing default that might be carrying in-flight traffic.
+#
+# Metric selection:
+#   surviving_min = min metric among pre-existing defaults (empty → no
+#     survivors).
+#   desired primary metric = DEFAULT_ROUTE_METRIC (default 601).
+#   if surviving_min is set and desired primary >= surviving_min:
+#     shift our block down so primary < surviving_min by at least
+#     (N fallback slots + 1), to leave room for all fallbacks without
+#     crossing any survivor's metric.
+#
+# Result: primary < fallback_1 < fallback_2 < … < surviving_min.
+
+compute_install_metrics() {
+    _trace_enter compute_install_metrics "$@"
+  # args: number-of-candidates  [excl_pair ...]
+  #   excl_pair = "via|dev" of a gateway WE manage (one of our offlan
+  #   candidates).  Defaults matching an excl_pair are NOT foreign
+  #   survivors to undercut — excluding them keeps the primary metric
+  #   STABLE across runs.  Without this, survivor_min picked up our own
+  #   previous install and we dropped one metric lower every run
+  #   (599→598→597…), re-installing and sweeping the gateway route each
+  #   cycle for no reason and breaking continuity.
+  # prints: space-separated list of metrics to use, one per candidate
+  local n="$1"; shift
+  [[ "$n" =~ ^[0-9]+$ && "$n" -gt 0 ]] || { echo ""; return; }
+
+  local -A excl=()
+  local p
+  for p in "$@"; do excl["$p"]=1; done
+
+  # [STABLE_OFFLAN_METRIC_V1] survivor_min = lowest metric among FOREIGN
+  # defaults only (those whose (via,dev) is not one of ours).
+  local survivor_min="" met via dev _raw
+  while IFS=$'\t' read -r met via dev _raw; do
+    [[ -n "$met" ]] || continue
+    [[ -n "${excl["${via}|${dev}"]:-}" ]] && continue
+    if [[ -z "$survivor_min" ]] || (( met < survivor_min )); then
+      survivor_min="$met"
+    fi
+  done < <(collect_defaults)
+
+  local desired="$DEFAULT_ROUTE_METRIC"
+  local stride="$FALLBACK_STRIDE"
+  local top_needed=$(( desired + (n - 1) * stride ))   # highest metric we'd use at default anchoring
+
+  if [[ -n "$survivor_min" ]] && (( top_needed >= survivor_min )); then
+    # Shift so top_needed is 1 below survivor_min
+    local shift=$(( top_needed - survivor_min + 1 ))
+    desired=$(( desired - shift ))
+  fi
+
+  if (( desired < 1 )); then
+    # Survivor already at very low metric.  Fall back to 1,2,3,…
+    # We still end up at-or-below a route carrying traffic but strictly
+    # positive and distinct from each other.  If a survivor is at
+    # metric 0 (kernel unspecified), we'll collide; the replace-with-
+    # onlink semantics below would clobber it.  Refuse to install in
+    # that case and log.
+    if [[ -n "$survivor_min" ]] && (( survivor_min <= n )); then
+      echo ""
+      return
+    fi
+    desired=1
+  fi
+
+  local out=""
+  local i m=$desired
+  for (( i=0; i<n; i++ )); do
+    out="${out}${out:+ }$m"
+    m=$(( m + stride ))
+  done
+  echo "$out"
+}
+
+install_offlan_defaults() {
+    _trace_enter install_offlan_defaults "$@"
+  local -a candidates=("$@")
+  (( ${#candidates[@]} > 0 )) || return 0
+
+  # [STABLE_OFFLAN_METRIC_V1] Pass our candidate (via|dev) pairs so
+  # compute_install_metrics excludes our own prior installs from the
+  # survivor calc — otherwise the primary metric ratchets down every run.
+  local metrics_str
+  local -a _cand_pairs=()
+  local _c _cv _cd
+  for _c in "${candidates[@]}"; do
+    _cv="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$_c")"
+    _cd="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$_c")"
+    [[ -n "$_cv" && -n "$_cd" ]] && _cand_pairs+=("${_cv}|${_cd}")
+  done
+  metrics_str="$(compute_install_metrics "${#candidates[@]}" "${_cand_pairs[@]}")"
+  flog_info "compute_install_metrics" "n=${#candidates[@]}" "result=$metrics_str"
+  if [[ -z "$metrics_str" ]]; then
+    flog_warn "INSTALL" "decision=skip_all" "reason=metric_collision_with_survivor"
+    return 0
+  fi
+
+  local -a metrics
+  read -ra metrics <<<"$metrics_str"
+
+  local i=0 cand via dev metric onlink_flag rc
+  local -a inst_exact=()   # "via|dev|metric" we installed or confirmed present
+  local -a inst_pair=()    # "via|dev" of installed entries (duplicate-sweep key)
+  for cand in "${candidates[@]}"; do
+    via="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$cand")"
+    dev="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$cand")"
+    metric="${metrics[$i]}"
+    i=$(( i + 1 ))
+    if [[ -z "$via" || -z "$dev" || -z "$metric" ]]; then
+      flog_warn "INSTALL" "decision=skip" "reason=malformed_candidate" "via=$via" "dev=$dev" "metric=$metric"
+      continue
+    fi
+
+    onlink_flag=""
+    if ! _nh_is_on_connected_subnet "$via" "$dev"; then
+      onlink_flag="onlink"
+    fi
+
+    local role="fallback"
+    (( i == 1 )) && role="primary"
+
+    flog_info "INSTALL" "role=$role" "via=$via" "dev=$dev" "metric=$metric" "onlink=${onlink_flag:-no}"
+    # [OFFLAN_METRIC_AWARE_SKIP_V1] Skip only when the EXACT (via, dev,
+    # metric, onlink) default already exists.  The prior guard matched
+    # via+dev alone, ignoring metric: a pre-existing dhcp default for the
+    # same gateway at a worse metric (e.g. 192.168.0.1@601) blocked us from
+    # installing that same gateway at the better primary metric (599) —
+    # leaving a slower 10.x default winning.  Metric-aware skip lets the
+    # better-metric install proceed; the duplicate is removed by the sweep
+    # below.
+    if _default_already_installed "$via" "$dev" "$metric" "$onlink_flag"; then
+      flog_info "INSTALL_skip" "via=$via" "dev=$dev" "metric=$metric" "reason=already_exact"
+      inst_exact+=("${via}|${dev}|${metric}")
+      inst_pair+=("${via}|${dev}")
+      continue
+    fi
+    /usr/sbin/ip route add default via "$via" dev "$dev" metric "$metric" ${onlink_flag} 2>/dev/null
+    rc=$?
+    flog_info "INSTALL_rc" "via=$via" "dev=$dev" "metric=$metric" "rc=$rc"
+    if (( rc == 0 )); then
+      inst_exact+=("${via}|${dev}|${metric}")
+      inst_pair+=("${via}|${dev}")
+    fi
+  done
+
+  # [OFFLAN_DEDUP_SWEEP_V1] Remove any default that DUPLICATES an installed
+  # entry's (via, dev) at a different metric — typically a leftover dhcp
+  # default for the same gateway we just installed as primary (our
+  # 192.168.0.1@599 leaves the dhcp 192.168.0.1@601 behind).  Such a route
+  # is NOT a fallback: it shares both next-hop and interface with our
+  # primary, dies with it, and only pads the ladder (and would be miscounted
+  # as a standby by the failover guard).  Distinct-gateway survivors — a
+  # genuine second uplink like 10.160.160.1@600 — have a (via, dev) not in
+  # inst_pair and are left untouched as real backups.  (A dhcp client may
+  # re-add the duplicate on lease renewal; the next merge's fixDefaultRoute
+  # sweeps it again, so steady state stays clean.)
+  (( ${#inst_pair[@]} > 0 )) || return 0
+  local rows row r_met r_via r_dev r_raw exact pair k is_ours dup
+  mapfile -t rows < <(collect_defaults)
+  for row in "${rows[@]}"; do
+    r_met="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$row")"
+    r_via="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$row")"
+    r_dev="$(/usr/bin/awk -F'\t' '{print $3}' <<<"$row")"
+    r_raw="$(/usr/bin/awk -F'\t' '{print $4}' <<<"$row")"
+    exact="${r_via}|${r_dev}|${r_met}"
+    pair="${r_via}|${r_dev}"
+    is_ours=0
+    for k in "${inst_exact[@]}"; do [[ "$k" == "$exact" ]] && { is_ours=1; break; }; done
+    (( is_ours )) && continue          # our own installed entry — keep
+    dup=0
+    for k in "${inst_pair[@]}"; do [[ "$k" == "$pair" ]] && { dup=1; break; }; done
+    (( dup )) || continue              # distinct gateway — real backup, keep
+    flog_info "OFFLAN_DEDUP_SWEEP" "via=$r_via" "dev=$r_dev" "metric=$r_met" "reason=duplicate_of_installed" "raw=$r_raw"
+    delete_default_line "$r_via" "$r_dev" "$r_met"
+  done
+}
+
+# ---- Forced override ------------------------------------------------------
+
+read_forced_default_route() {
+    _trace_enter read_forced_default_route "$@"
+  [[ -f "$FORCED_ROUTE_FILE" ]] || return 1
+  local line gw dev
+  line="$(/usr/bin/head -n1 "$FORCED_ROUTE_FILE" | /usr/bin/sed 's/#.*//' | /usr/bin/xargs)"
+  [[ -n "$line" ]] || return 1
+  gw="$(echo "$line" | /usr/bin/awk '{print $1}')"
+  is_ip "$gw" || return 1
+  dev="$(echo "$line" | /usr/bin/awk '{print $2}')"
+  printf '%s\t%s\n' "$gw" "$dev"
+  return 0
+}
+
+install_forced_default() {
+    _trace_enter install_forced_default "$@"
+  local gw="$1" dev="$2"
+  /usr/local/bin/debugTag "fixDefaultRoute: FORCED default route gw=${gw} dev=${dev:-auto}"
+
+  # Resolve device if not specified
+  if [[ -z "$dev" ]]; then
+    local raw
+    raw="$(/usr/sbin/ip route get "$gw" 2>/dev/null | /usr/bin/head -n1 || true)"
+    if [[ -n "$raw" ]]; then
+      dev="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$raw")"
+    fi
+  fi
+  if [[ -z "$dev" ]]; then
+    /usr/local/bin/debugTag "fixDefaultRoute: FORCED route: cannot resolve device for gw=${gw}"
+    return 1
+  fi
+
+  # Forced route is an operator-explicit act: replace atomically, then
+  # delete every other default.  This is the sanctioned exception to
+  # the "don't disturb in-flight traffic" rule.
+  local onlink=""
+  if ! _nh_is_on_connected_subnet "$gw" "$dev"; then
+    onlink="onlink"
+  fi
+  # [NO_NOOP_REPLACE_V1] Skip the replace if our route is already
+  # installed verbatim.  Re-replacing is delete-then-add at the kernel
+  # level; the microwindow drops in-flight Internet packets.
+  if _default_already_installed "$gw" "$dev" "$DEFAULT_ROUTE_METRIC" "$onlink"; then
+    flog_info "FORCED_INSTALL" "action=skip_noop_replace" "via=$gw" "dev=$dev" "metric=$DEFAULT_ROUTE_METRIC" "onlink=${onlink:-no}"
+  else
+    /usr/sbin/ip route replace default via "$gw" dev "$dev" metric "$DEFAULT_ROUTE_METRIC" ${onlink} 2>/dev/null || true
+  fi
+
+  # Remove any other default
+  local rows row r_met r_via r_dev r_raw
+  mapfile -t rows < <(collect_defaults)
+  for row in "${rows[@]}"; do
+    r_met="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$row")"
+    r_via="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$row")"
+    r_dev="$(/usr/bin/awk -F'\t' '{print $3}' <<<"$row")"
+    r_raw="$(/usr/bin/awk -F'\t' '{print $4}' <<<"$row")"
+    [[ "$r_via" == "$gw" && "$r_dev" == "$dev" && "$r_met" == "$DEFAULT_ROUTE_METRIC" ]] && continue
+    /usr/local/bin/debugTag "fixDefaultRoute: FORCED — removing other default: $r_raw"
+    delete_default_line "$r_via" "$r_dev" "$r_met"
+  done
+
+  printf '\t%s\t%s\t\t\n' "$gw" "$dev" > "$EXIT_SENT" || true
+  return 0
+}
+
+# ---- Mode B: exit-host synthesis via getDefaultRoute.php -----------------
+#
+# When this node has no direct off-LAN gateway, actively probe known
+# FrogNet peers via the local proxy (so hop-kind classification — FAST
+# vs SEM — is respected; the proxy picks how to actually reach each
+# peer).  Each peer's /getDefaultRoute.php returns whether THAT peer
+# has a real external default route.  We only use this as a yes/no
+# filter — its exit_gateway and nameservers fields are intentionally
+# ignored.
+#
+# Selection rule when multiple candidates:
+#   1) FAST link to peer beats SEM link
+#   2) Stable tiebreaker: lowest peer IP wins
+#
+# Install pattern (mesh-hop-only, "next hop is the FrogNet peer"):
+#   default via <nh> dev <dev> metric DEFAULT_ROUTE_METRIC
+#
+#   where <nh> is the kernel's resolved next-hop to the chosen peer
+#   (this is the peer's IP on our shared LAN segment, e.g. 10.102.60.1).
+#
+# Why mesh-hop-only and NOT "advertise the real external gateway":
+#   1) The real external gw (e.g. 192.168.1.1) is not on a connected
+#      subnet here.  Installing `default via 192.168.1.1` requires the
+#      `onlink` flag, and `onlink` tells the kernel to ARP that gw
+#      directly on our LAN — skipping any /32 anchor we might add to
+#      route it through the peer.  Result: ARP fails, "Destination
+#      Host Unreachable" from our own kernel.
+#   2) The FrogNet peer is also the nameserver for the .frognet zone
+#      (databasehost.frognet etc.) and the recursive forwarder for
+#      external DNS.  DNS traffic must traverse the peer, not bypass
+#      it via /32 anchors to upstream nameservers.
+#   3) Hop-by-hop is the design contract: this node only needs to know
+#      its next hop.  The peer handles everything past it.
+
+# Map an IP to its containing /24, used for FAST/SEM classification.
+ip_to_24() {
+    _trace_enter ip_to_24 "$@"
+  local ip="$1"
+  /usr/bin/awk -F. -v ip="$ip" 'BEGIN { split(ip, p, "."); printf "%s.%s.%s.0/24", p[1], p[2], p[3] }'
+}
+
+# Is a /24 listed in $SEMANTIC_HOSTS_FILE?
+is_semantic_cidr() {
+    _trace_enter is_semantic_cidr "$@"
+  local cidr="$1"
+  [[ -f "$SEMANTIC_HOSTS_FILE" ]] || return 1
+  /usr/bin/awk -v want="$cidr" '
+    { sub(/#.*/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
+    NF == 0 { next }
+    { if ($1 == want) { found = 1; exit } }
+    END { exit (found ? 0 : 1) }
+  ' "$SEMANTIC_HOSTS_FILE"
+}
+
+# Classify a next-hop IP as FAST or SEM (Bullfrog LD-1) by its /24.
+link_kind_for_next_hop_ip() {
+    _trace_enter link_kind_for_next_hop_ip "$@"
+  local nh_ip="$1"
+  local cidr
+  cidr="$(ip_to_24 "$nh_ip")"
+  if is_semantic_cidr "$cidr"; then
+    echo "SEM"
+  else
+    echo "FAST"
+  fi
+}
+
+# Returns "<dev>\t<nh>" — the kernel's route-get answer for a host IP.
+# nh is the route's `via` if present, else the host_ip itself (on-link).
+route_nh_to_host() {
+    _trace_enter route_nh_to_host "$@"
+  local host_ip="$1"
+  local raw dev via nh
+  raw="$(/usr/sbin/ip route get "$host_ip" 2>/dev/null | /usr/bin/head -n1)"
+  [[ -n "$raw" ]] || return 1
+  dev="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"$raw")"
+  via="$(/usr/bin/awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"$raw")"
+  [[ -n "$dev" ]] || return 1
+  if [[ -n "$via" ]]; then nh="$via"; else nh="$host_ip"; fi
+  is_ip "$nh" || return 1
+  printf '%s\t%s\n' "$dev" "$nh"
+}
+
+# Fetch getDefaultRoute.php for a peer via the LOCAL proxy on 127.0.0.1:80.
+# Host header carries the peer identity so the proxy routes to that peer's
+# Apache; this guarantees hop-kind classification is honored end-to-end.
+fetch_default_route_json() {
+    _trace_enter fetch_default_route_json "$@"
+  local host_ip="$1"
+  is_ip "$host_ip" || return 1
+  /usr/bin/curl -fsS --max-time "$EXIT_HOST_QUERY_TIMEOUT" \
+    -H "Host: ${host_ip}" \
+    "http://127.0.0.1/getDefaultRoute.php" 2>/dev/null
+}
+
+# Validate JSON freshness and that the peer reports an exit.
+exit_json_is_usable() {
+    _trace_enter exit_json_is_usable "$@"
+  local j="$1"
+  [[ -n "$j" ]] || return 1
+  local ok present ts ttl now
+  ok="$(/usr/bin/jq -r '.ok // false'           <<<"$j" 2>/dev/null)"
+  present="$(/usr/bin/jq -r '.exit_present // false' <<<"$j" 2>/dev/null)"
+  ts="$(/usr/bin/jq -r '.ts // 0'               <<<"$j" 2>/dev/null)"
+  ttl="$(/usr/bin/jq -r '.ttl_sec // 0'         <<<"$j" 2>/dev/null)"
+  now="$(/usr/bin/date +%s)"
+
+  [[ "$ok" == "true" ]] || return 1
+  [[ "$present" == "true" ]] || return 1
+  [[ "$ts"  =~ ^[0-9]+$ ]] || return 1
+  [[ "$ttl" =~ ^[0-9]+$ ]] || return 1
+  (( ttl > 0 ))                         || return 1
+  (( ttl <= EXIT_HOST_TTL_CAP ))        || return 1
+  (( now <= ts + ttl ))                 || return 1
+  return 0
+}
+
+# Known FrogNet peers — prefer the sentinels-curated list if present,
+# else fall back to /etc/hosts.  Self IP is filtered out by callers.
+list_known_frognet_hosts() {
+    _trace_enter list_known_frognet_hosts "$@"
+  if [[ -s /etc/sentinels/frognet_hosts ]]; then
+    /usr/bin/awk '$1 ~ /^10\./ {print $1}' /etc/sentinels/frognet_hosts | /usr/bin/sort -u
+    return 0
+  fi
+  /usr/bin/awk '$1 ~ /^10\./ {print $1}' /etc/hosts | /usr/bin/sort -u
+}
+
+# Pick best exit-capable FrogNet peer.
+# Output: "<peer>\t<dev>\t<nh>\t<kind>" or non-zero exit.
+# getDefaultRoute.php's exit_gateway and nameservers are deliberately
+# ignored — we install default via the FrogNet peer, not via an upstream
+# IP, so we only need the peer's yes/no claim that it has an exit.
+choose_exit_host() {
+    _trace_enter choose_exit_host "$@"
+  # [EXIT_BACKUP_LADDER_V1] Emit up to EXIT_MAX_DEFAULTS exit-capable peers,
+  # ranked FAST>SEM then lowest host IP (lexical — preserving the prior
+  # single-best tie-break), one per line:  host<TAB>dev<TAB>nh<TAB>kind.
+  # The caller installs them as a laddered primary+backups.
+  local h nh_line dev nh j kind krank
+  local -a cands=()
+
+  while read -r h; do
+    is_ip "$h"  || continue
+    is_10x "$h" || continue
+    is_local_ip "$h" && continue
+
+    nh_line="$(route_nh_to_host "$h" || true)"
+    [[ -n "$nh_line" ]] || continue
+    dev="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$nh_line")"
+    nh="$(/usr/bin/awk -F'\t'  '{print $2}' <<<"$nh_line")"
+
+    ping_via_dev "$nh" "$dev" || continue
+
+    j="$(fetch_default_route_json "$h" || true)"
+    exit_json_is_usable "$j" || continue
+
+    kind="$(link_kind_for_next_hop_ip "$nh")"
+    krank=1; [[ "$kind" == "FAST" ]] && krank=0
+    # Leading krank column makes the sort express FAST>SEM directly.
+    cands+=("$(printf '%s\t%s\t%s\t%s\t%s' "$krank" "$h" "$dev" "$nh" "$kind")")
+  done < <(list_known_frognet_hosts)
+
+  (( ${#cands[@]} > 0 )) || return 1
+
+  # Rank: krank asc (FAST first), then host asc (lexical, as before).
+  # Strip the krank column on output.
+  printf '%s\n' "${cands[@]}" \
+    | /usr/bin/sort -t$'\t' -k1,1n -k2,2 \
+    | /usr/bin/head -n "$EXIT_MAX_DEFAULTS" \
+    | /usr/bin/awk -F'\t' '{print $2"\t"$3"\t"$4"\t"$5}'
+}
+
+# [EXIT_BACKUP_LADDER_V1] Install primary + up to EXIT_MAX_DEFAULTS-1 backup
+# default routes via the chosen FrogNet exit peers, laddered at
+# DEFAULT_ROUTE_METRIC, +STRIDE, +2*STRIDE …  Each peer is the next hop AND
+# the .frognet nameserver for traffic that uses it.  The kernel uses the
+# lowest-metric live entry and falls to the next when its iface drops — or
+# when failover.evict_failed_default removes a dead winner on a peer-DOWN.
+# If the faster original returns, the next merge re-elects it (lowest metric
+# wins), exactly like the /24 ladder.
+#
+# Args: candidate lines on stdin, each "host<TAB>dev<TAB>nh<TAB>kind"
+# (as emitted by choose_exit_host).  Sweeps any other default not in the
+# kept set so the installed ladder is authoritative.
+install_exit_defaults() {
+    _trace_enter install_exit_defaults "$@"
+  local -a kept_keys=()                 # "via|dev|metric" we keep
+  local first_host="" first_nh="" first_dev=""
+  local i=0 host dev nh kind metric role
+
+  while IFS=$'\t' read -r host dev nh kind; do
+    [[ -n "$dev" && -n "$nh" ]] || continue
+    is_ip "$nh" || continue
+    metric=$(( DEFAULT_ROUTE_METRIC + i * FALLBACK_STRIDE ))
+    role="backup"; (( i == 0 )) && role="primary"
+
+    flog_info "EXIT_INSTALL" "role=$role" "default" "via=$nh" "dev=$dev" \
+              "metric=$metric" "exit_host=$host" "kind=$kind"
+    # [NO_NOOP_REPLACE_V1] Skip an identical replace — it's delete-then-add
+    # and drops in-flight packets in the microwindow.
+    if _default_already_installed "$nh" "$dev" "$metric" ""; then
+      flog_info "EXIT_INSTALL" "action=skip_noop_replace" "via=$nh" "dev=$dev" "metric=$metric"
+    else
+      if ! /usr/sbin/ip route replace default via "$nh" dev "$dev" metric "$metric" 2>/dev/null; then
+        flog_warn "EXIT_INSTALL" "action=failed" "via=$nh" "metric=$metric"
+        continue
+      fi
+    fi
+    kept_keys+=("${nh}|${dev}|${metric}")
+    if (( i == 0 )); then first_host="$host"; first_nh="$nh"; first_dev="$dev"; fi
+    i=$(( i + 1 ))
+  done
+
+  (( i > 0 )) || return 1
+
+  # Sweep any default NOT in the kept ladder — the installed set is
+  # authoritative.  (A proto-dhcp physical uplink would have routed this
+  # node through Mode A, not here, so surviving defaults at this point are
+  # competing mesh defaults.)
+  local rows row r_met r_via r_dev r_raw key keep k
+  mapfile -t rows < <(collect_defaults)
+  for row in "${rows[@]}"; do
+    r_met="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$row")"
+    r_via="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$row")"
+    r_dev="$(/usr/bin/awk -F'\t' '{print $3}' <<<"$row")"
+    r_raw="$(/usr/bin/awk -F'\t' '{print $4}' <<<"$row")"
+    key="${r_via}|${r_dev}|${r_met}"
+    keep=0
+    for k in "${kept_keys[@]}"; do
+      [[ "$k" == "$key" ]] && { keep=1; break; }
+    done
+    (( keep )) && continue
+    flog_info "EXIT_SWEEP_STALE" "via=$r_via" "dev=$r_dev" "metric=$r_met" "raw=$r_raw"
+    delete_default_line "$r_via" "$r_dev" "$r_met"
+  done
+
+  # Sentinel records the PRIMARY exit (back-compat with single-exit readers).
+  [[ -n "$first_host" ]] && printf '%s\t%s\t%s\n' "$first_host" "$first_nh" "$first_dev" > "$EXIT_SENT" || true
+  return 0
+}
+
+# ---- Main ----------------------------------------------------------------
+
+main() {
+    _trace_enter main "$@"
+  # 0) Forced override wins and short-circuits everything.
+  flog_stage forced_override_check
+  local forced_line f_gw f_dev
+  forced_line="$(read_forced_default_route || true)"
+  if [[ -n "$forced_line" ]]; then
+    f_gw="$(/usr/bin/awk -F'\t' '{print $1}' <<<"$forced_line")"
+    f_dev="$(/usr/bin/awk -F'\t' '{print $2}' <<<"$forced_line")"
+    flog_info "FORCED_ROUTE" "gw=$f_gw" "dev=$f_dev" "action=install"
+    if install_forced_default "$f_gw" "$f_dev"; then
+      flog_stage_end forced_override_check "decision=forced_installed"
+      flog_dump_cmd "fdr_post_forced_routes" ip -4 route show
+      exit 0
+    fi
+    flog_warn "FORCED_ROUTE" "action=install_failed" "fallback=normal_discovery"
+  else
+    flog_info "forced_override" "status=none"
+  fi
+  flog_stage_end forced_override_check
+
+  # 1) Purge defaults that aren't carrying traffic.
+  flog_stage purge_dead_defaults
+  purge_dead_defaults
+  flog_stage_end purge_dead_defaults
+  flog_dump_cmd "fdr_post_purge_routes" ip -4 route show
+
+  # 2) Discover viable local off-LAN gateways (non-10.x, ping-alive).
+  flog_stage discover_offlan
+  local -a offlan_candidates
+  mapfile -t offlan_candidates < <(discover_offlan_gateways)
+  flog_info "offlan_candidates" "count=${#offlan_candidates[@]}" "list=$(printf '%s,' "${offlan_candidates[@]}")"
+  flog_stage_end discover_offlan "count=${#offlan_candidates[@]}"
+
+  # 3) Install at metrics below every survivor.
+  if (( ${#offlan_candidates[@]} > 0 )); then
+    flog_stage install_offlan
+    install_offlan_defaults "${offlan_candidates[@]}"
+    flog_stage_end install_offlan
+    flog_dump_cmd "fdr_post_install_routes" ip -4 route show
+    printf '\t\t\t\t\n' > "$EXIT_SENT" || true
+    flog_info "DECISION" "action=installed_primary_plus_fallbacks" "candidates=${#offlan_candidates[@]}"
+    exit 0
+  fi
+
+  # 4) No off-LAN candidates.  Actively probe FrogNet peers via
+  #    getDefaultRoute.php and install a laddered default via the best
+  #    exit-capable peers (FAST > SEM; lowest peer IP wins ties) — primary
+  #    plus up to EXIT_MAX_DEFAULTS-1 backups so a peer-DOWN (or iface drop)
+  #    falls through to a standby exit instead of black-holing Internet.
+  flog_stage exit_host_synth
+  local exit_lines n_exits
+  exit_lines="$(choose_exit_host || true)"
+  if [[ -n "$exit_lines" ]]; then
+    n_exits="$(printf '%s\n' "$exit_lines" | /usr/bin/grep -c .)"
+    flog_info "EXIT_HOST_CANDIDATES" "count=$n_exits"
+    if printf '%s\n' "$exit_lines" | install_exit_defaults; then
+      flog_stage_end exit_host_synth "decision=installed"
+      flog_dump_cmd "fdr_post_exit_synth_routes" ip -4 route show
+      flog_info "DECISION" "action=installed_exit_synth_ladder" "exits=$n_exits"
+      exit 0
+    fi
+    flog_warn "EXIT_HOST_SYNTH" "action=install_failed"
+  else
+    flog_info "exit_host_synth" "status=no_usable_peer"
+  fi
+  flog_stage_end exit_host_synth
+
+  # 5) Neither Mode A nor Mode B found anything.  Install nothing.
+  flog_warn "DECISION" "action=no_install" "reason=no_offlan_and_no_exit_host"
+  exit 0
+}
+
+main "$@"
+

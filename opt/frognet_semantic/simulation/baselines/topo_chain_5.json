@@ -1,0 +1,71 @@
+{
+  "committed_routes": {
+    "A": [
+      "10.11.1.0/24 dev eth0 metric 100",
+      "10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22",
+      "10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22",
+      "10.11.4.0/24 via 10.11.4.1 dev wg0 metric 22",
+      "10.11.5.0/24 via 10.11.5.1 dev wg0 metric 22",
+      "10.220.1.0/30 dev wg0 metric 100"
+    ],
+    "B": [
+      "10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22",
+      "10.11.1.0/24 via 10.11.1.1 dev wg1 metric 100",
+      "10.11.2.0/24 dev eth0 metric 100",
+      "10.11.3.0/24 via 10.11.3.1 dev wg0 metric 100",
+      "10.11.3.0/24 via 10.11.3.1 dev wg1 metric 22",
+      "10.11.4.0/24 via 10.11.4.1 dev wg0 metric 100",
+      "10.11.4.0/24 via 10.11.4.1 dev wg1 metric 22",
+      "10.11.5.0/24 via 10.11.5.1 dev wg0 metric 100",
+      "10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22",
+      "10.220.1.0/30 dev wg0 metric 100",
+      "10.220.2.0/30 dev wg1 metric 100"
+    ],
+    "C": [
+      "10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22",
+      "10.11.1.0/24 via 10.11.1.1 dev wg1 metric 100",
+      "10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22",
+      "10.11.2.0/24 via 10.11.2.1 dev wg1 metric 100",
+      "10.11.3.0/24 dev eth0 metric 100",
+      "10.11.4.0/24 via 10.11.4.1 dev wg0 metric 100",
+      "10.11.4.0/24 via 10.11.4.1 dev wg1 metric 22",
+      "10.11.5.0/24 via 10.11.5.1 dev wg0 metric 100",
+      "10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22",
+      "10.220.2.0/30 dev wg0 metric 100",
+      "10.220.3.0/30 dev wg1 metric 100"
+    ],
+    "D": [
+      "10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22",
+      "10.11.1.0/24 via 10.11.1.1 dev wg1 metric 100",
+      "10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22",
+      "10.11.2.0/24 via 10.11.2.1 dev wg1 metric 100",
+      "10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22",
+      "10.11.3.0/24 via 10.11.3.1 dev wg1 metric 100",
+      "10.11.4.0/24 dev eth0 metric 100",
+      "10.11.5.0/24 via 10.11.5.1 dev wg0 metric 100",
+      "10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22",
+      "10.220.3.0/30 dev wg0 metric 100",
+      "10.220.4.0/30 dev wg1 metric 100"
+    ],
+    "E": [
+      "10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22",
+      "10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22",
+      "10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22",
+      "10.11.4.0/24 via 10.11.4.1 dev wg0 metric 22",
+      "10.11.5.0/24 dev eth0 metric 100",
+      "10.220.4.0/30 dev wg0 metric 100"
+    ]
+  },
+  "convergence_cycles": 5,
+  "key": "topo_chain_5",
+  "reachability": {
+    "pairs_ok": 40,
+    "pairs_total": 40,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:00",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "5-node chain"
+}

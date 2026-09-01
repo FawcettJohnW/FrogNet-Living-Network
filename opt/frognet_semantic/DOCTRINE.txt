@@ -1,0 +1,98 @@
+[SAME_IS_BACK_V1] + [SAME_COMPARES_THE_BODY_V1]
+================================================
+RESP_SAME restored, and the comparison it depends on fixed.
+
+WHY IT WAS GONE
+---------------
+Not a decision. On 2026-08-02 I was chasing a real bug -- data_cache.py answered
+sensors/values from a RAM snapshot loaded once at daemon start, with fresh_s
+treated as a filter COLUMN rather than a timestamp predicate, so it matched
+nothing and returned authoritative empty arrays. A staleness bug in one file.
+
+My fix was [NO_CACHES_V1]: remove every cache in the system. That took out
+data_cache, local_read_cache, both semcache_db callers, the SAME body LRU, the
+req-hash memo, REQ_REPEAT, and the RESP_SAME emit sites. I then wrote the
+proxy's 502 -- "peer is running pre-[NO_CACHES_V1] code" -- which blamed every
+node still doing the right thing.
+
+data_cache was later rebuilt properly as [DATA_CACHE_GEN_V2] with a MySQL
+generation counter. The reason for the purge went away; the purge did not.
+
+The instruction had been to remove the memory caches that were never cleared.
+The template cache was to be kept -- and core/store.py turns out to be
+BYTE-IDENTICAL to the pre-purge tree, so it was never removed. My summary of
+that session said it was. The summary was wrong.
+
+THE COMPARISON WAS WRONG BEFORE THE REMOVAL
+-------------------------------------------
+    session.py:818   new_raw_hash = hashlib.sha256(sem_resp).digest()
+
+sem_resp is the SEMANTIC REPLY -- execute()'s docstring calls it
+semantic_reply_bytes. It is diff-encoded against the reply reference, so the
+SAME response body produces DIFFERENT bytes whenever the reference moves: after
+a reference update, a REQ_MISS, a reconnect, or on another peer. The hash
+differed although the response had not changed, so RESP_SAME was missed and a
+full DIFF went out instead.
+
+That is why SAME survived at a low steady rate and vanished under a burst -- a
+burst churns the reference, so the encoding moved on nearly every request.
+
+The RAW path in the same file always did it correctly:
+
+    session.py:915   new_raw_hash = hashlib.sha256(resp_body_bytes).digest()
+
+Both wrote the same `raw_hash` column and compared against the same
+old_raw_hash, so the two paths disagreed about what that column meant.
+
+THE FIX
+-------
+response_body_hash(dyn_vals, status) -- dyn_vals is the engine's extracted field
+values, the response itself, before any encoding. Canonical:
+  * SORTED by field name. field_order belongs to the template and shifts when a
+    template is re-learned; order sensitivity would reintroduce the same false
+    difference in a new place.
+  * value via repr, so 1, "1" and 1.0 do not collide.
+  * status folded in, so a 200 and a 500 carrying the same text are not "the
+    same response".
+
+Applied at ALL FOUR sites -- both REQ_FULL writers and both REQ_REPEAT
+comparisons. Writers and comparison must hash the same thing or SAME can never
+match; the old code had a comment at one writer reading "Hash the FULL-encoded
+response for SAME/DIFF comparison", which is the bug stated as intent.
+
+RESTORED, PORTED NOT REVERTED
+-----------------------------
+transport_semantic.py has GROWN 2435 -> 2682 lines since the purge and carries
+months of later fixes, so the deleted pieces were ported into the current file:
+  * _SAME_LRU_MAX / _same_lru / _same_lru_get / _same_lru_put  (bounded, 256 by
+    default, oldest-first eviction -- it was never one of the unbounded ones)
+  * _serve_from_same, LRU then MySQL, with [SAME_MISS_AUTORETRY_V1] falling
+    through to the raw path on a miss instead of 503ing
+  * both OP_RESP_SAME branches, which had been 502s
+  * the REQ_REPEAT decision (semcache_db.is_req_seen) -- REQ_REPEAT is what
+    makes RESP_SAME reachable at all
+session.py: _reexecute_semantic and _reexecute_raw restored, with the hash fixed.
+
+Both semcache_db modules survived the purge intact (764 and 651 lines) -- only
+their callers were removed -- so the storage layer needed no work and the API
+(ensure_table, close_thread_conn, lookup_for_repeat, upsert, upsert_raw,
+is_req_seen, get_raw_by_sameid) is unchanged.
+
+GATE
+----
+test_resp_same_oracle.py -- 12 assertions.
+  Current deployed tree: 0/12.  This rev: 12/12.
+  FROGNET_OLD_TREE=<pre-purge tree> also asserts the before-state.
+The no-site-hashes-the-encoding check is AST-based: response_body_hash's own
+docstring quotes the bad line as the thing it replaces, and a text search cannot
+tell an explanation from an instruction.
+
+DEPLOY BOTH SIDES TOGETHER
+--------------------------
+A daemon emitting RESP_SAME to a proxy that still 502s it breaks every repeated
+request. session.py and transport_semantic.py go out together, every node.
+
+Nodes still on the purge build answer RESP_DIFF and keep working; nodes on this
+build answer RESP_SAME to each other. A mixed pond degrades to DIFF rather than
+failing -- but only if the OLD proxies never receive a SAME, which means the
+daemon side must not go out ahead of the proxy side.

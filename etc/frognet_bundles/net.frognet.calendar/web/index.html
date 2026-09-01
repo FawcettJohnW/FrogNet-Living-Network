@@ -1,0 +1,149 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Calendar</title>
+<style>
+  :root{ --bg:#0f1419; --card:#1a2129; --ink:#e8edf2; --muted:#8a96a3;
+         --accent:#3fb68b; --line:#26303a; --warn:#e0a83f; --bad:#d96b6b; }
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;
+    align-items:center;gap:12px}
+  h1{font-size:17px;margin:0;font-weight:600}
+  #presence{margin-left:auto;font-size:13px;color:var(--muted)}
+  #status{font-size:12px;padding:2px 8px;border-radius:10px;background:var(--card)}
+  .ok{color:var(--accent)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+  main{max-width:680px;margin:0 auto;padding:16px}
+  .ev{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:12px 14px;margin:8px 0;display:flex;gap:12px;align-items:flex-start}
+  .ev .when{color:var(--accent);font-variant-numeric:tabular-nums;min-width:120px;font-size:13px}
+  .ev .body{flex:1} .ev .sum{font-weight:600} .ev .meta{color:var(--muted);font-size:13px}
+  .ev button{background:none;border:1px solid var(--line);color:var(--muted);
+    border-radius:6px;cursor:pointer;padding:2px 8px}
+  form{background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:14px;margin:14px 0;display:grid;gap:8px;grid-template-columns:1fr 1fr}
+  form input,form textarea{background:var(--bg);border:1px solid var(--line);
+    color:var(--ink);border-radius:6px;padding:8px}
+  form .full{grid-column:1/3} form button{grid-column:1/3;background:var(--accent);
+    color:#06231a;border:none;border-radius:8px;padding:10px;font-weight:600;cursor:pointer}
+  .empty{color:var(--muted);text-align:center;padding:30px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Family Calendar</h1>
+  <span id="presence"></span>
+  <span id="status" class="status">…</span>
+</header>
+<main>
+  <form id="new">
+    <input class="full" id="summary" placeholder="What?" required>
+    <input id="start" type="datetime-local" required>
+    <input id="end" type="datetime-local" required>
+    <input class="full" id="location" placeholder="Where? (optional)">
+    <textarea class="full" id="notes" placeholder="Notes (optional)" rows="2"></textarea>
+    <button type="submit">Add to the family calendar</button>
+  </form>
+  <div id="list"></div>
+</main>
+<script>
+// ---- UnREST client: an ordinary HTTP client pointed at a well-known name ----
+// The local FrogNet node provides resolution + proxy + codec. We speak plain
+// HTTP to the codex suffix. No browser storage (per spec); state is in memory.
+const SUFFIX = "/unrest/family-calendar";           // codex endpoint, served locally
+const WHO = "this-device";                          // VERIFY: per-device identity on box
+const POLL_MS = 4000;                               // latency knob, not a cost knob
+let watermark = -1;                                 // for split self-detection
+let connected = true;
+
+const $ = s => document.querySelector(s);
+function setStatus(text, cls){ const e=$("#status"); e.textContent=text; e.className="status "+(cls||""); }
+
+async function call(verb, body){
+  const url = SUFFIX + "/" + verb;
+  const opt = body ? {method:"POST",headers:{"Content-Type":"application/json"},
+                      body:JSON.stringify(body)} : {};
+  const r = await fetch(url, opt);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return r.json();
+}
+
+function fmt(s){ try{ const d=new Date(s);
+  return d.toLocaleString([], {weekday:"short",month:"short",day:"numeric",
+    hour:"numeric",minute:"2-digit"}); }catch(e){ return s; } }
+
+function render(el){
+  const list = $("#list");
+  const events = (el && el.events) || [];
+  if(!events.length){ list.innerHTML='<div class="empty">No events yet.</div>'; return; }
+  list.innerHTML = "";
+  for(const ev of events){
+    const d = document.createElement("div"); d.className="ev";
+    d.innerHTML = `<div class="when">${ev.all_day?"All day":fmt(ev.start)}</div>
+      <div class="body"><div class="sum"></div><div class="meta"></div></div>
+      <button>✕</button>`;
+    d.querySelector(".sum").textContent = ev.summary;
+    d.querySelector(".meta").textContent =
+      [ev.location, ev.notes].filter(Boolean).join(" · ");
+    d.querySelector("button").onclick = async ()=>{
+      try{ await call("delete", {uid:ev.uid}); await refresh(); }
+      catch(e){ setStatus("can't reach calendar — contact admin","bad"); }
+    };
+    list.appendChild(d);
+  }
+}
+
+async function refresh(){
+  try{
+    const el = await call("list");                  // {version, ts, events}
+    const ts = Number(el.ts);
+    // §6.2 split self-detection: a backwards-in-time read => we've split. Stop.
+    if(watermark >= 0 && ts < watermark){
+      connected=false; setStatus("disconnected (split detected) — contact admin","bad");
+      return;
+    }
+    watermark = ts; connected=true;
+    setStatus("live","ok");
+    render(el);
+    const here = await call("presence", {who:WHO});  // touch + read viewers
+    $("#presence").textContent = (here.who_is_here||[]).length
+      ? "👀 " + here.who_is_here.join(", ") : "";
+  }catch(e){
+    connected=false; setStatus("can't reach calendar — contact admin","bad");
+  }
+}
+
+$("#new").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const ev = { summary:$("#summary").value.trim(), start:$("#start").value,
+    end:$("#end").value, location:$("#location").value.trim(),
+    notes:$("#notes").value.trim() };
+  if(!ev.summary || !ev.start || !ev.end) return;
+  try{ await call("create", ev); e.target.reset(); await refresh(); }
+  catch(err){ setStatus("can't reach calendar — contact admin","bad"); }
+});
+
+refresh();
+setInterval(()=>{ if(connected) refresh(); }, POLL_MS);
+</script>
+</body>
+</html>

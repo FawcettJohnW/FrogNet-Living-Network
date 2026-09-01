@@ -1,0 +1,113 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# frognet_nuke_tunnels — bring down every WireGuard tunnel interface. Nothing else.
+#
+# SCOPE (deliberate, do not widen): this removes TUNNELS. It does not remove
+# configuration, credentials, identity, seeds, cache, routes, addresses, or
+# processes. A node with its tunnels down is a working LAN-only FrogNet node and
+# must stay one: everything needed to bring the tunnels back must survive.
+#
+# Deleting a wgN link removes that link's addresses and routes with it, so there
+# is nothing left to clean up by hand. Anything a wgN interface did not own was
+# not a tunnel and is not this script's business.
+#
+# NOT removed here, and why:
+#   /etc/wireguard/wg*.conf        peer credentials — bring-up needs them
+#   /var/lib/frognet-tunnel/       node_private.key / node_public.key. Deleting
+#                                  this makes tunnel-setup mint a NEW keypair,
+#                                  which registers as a NEW node and collides
+#                                  with the node's own broker row on
+#                                  (pond_id, name). This is what wedged the mesh.
+#   /etc/sentinels/transit_upstream_seeds   LAN transit, not tunnels
+#   10.253.253.x addrs and routes  LAN transit /30s. These are the LAN mesh path
+#                                  and are exactly what must keep working when
+#                                  the tunnels are down.
+#   discovery cache                runMerge flushes it on its own schedule
+#   any process                    the tunnel daemon is not tunnel state
+#
+# Usage:  frognet_nuke_tunnels [--keep-config]
+#   --keep-config   accepted and ignored; no config is removed under any flag.
+#                   Retained so existing callers (runMerge autoswitch) keep
+#                   working unchanged.
+
+log() { echo "[nuke_tunnels][$(date '+%F %T')] $*"; }
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    echo "Must run as root" >&2
+    exit 1
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --keep-config)
+            log "note: --keep-config is a no-op; this script never removes config"
+            shift ;;
+        -h|--help)
+            echo "Usage: frognet_nuke_tunnels [--keep-config]"
+            echo "  Brings down all wgN interfaces. Removes nothing else."
+            echo "  --keep-config   accepted and ignored (nothing is removed)"
+            exit 0 ;;
+        *) echo "unknown option: $1 (try --help)" >&2; exit 2 ;;
+    esac
+done
+
+log "=== BEGIN tunnel teardown (interfaces only) ==="
+
+# Graceful: wg-quick down runs each conf's PostDown and removes its own routes.
+for conf in /etc/wireguard/wg*.conf; do
+    [[ -f "$conf" ]] || continue
+    iface="$(basename "$conf" .conf)"
+    if ip link show "$iface" >/dev/null 2>&1; then
+        log "wg-quick down $iface"
+        wg-quick down "$iface" 2>&1 || log "WARNING: wg-quick down $iface failed; will force"
+    else
+        log "$iface not present (already down)"
+    fi
+done
+
+# Force any survivor, including a wgN with no conf on disk.
+for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep '^wg[0-9]'); do
+    log "ip link del $iface (force)"
+    ip link del "$iface" 2>&1 || log "WARNING: ip link del $iface failed"
+done
+
+remaining="$(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep '^wg[0-9]' || true)"
+if [[ -n "$remaining" ]]; then
+    log "ERROR: these WireGuard interfaces survived teardown: $remaining"
+    log "=== DONE (incomplete) ==="
+    exit 1
+fi
+
+log "All WireGuard interfaces removed"
+
+# Prove the things bring-up depends on are still here. Loud, because a silent
+# absence here is what produced a duplicate node registration.
+for f in /var/lib/frognet-tunnel/node_private.key \
+         /var/lib/frognet-tunnel/node_public.key \
+         /etc/frognet/tunnel.conf \
+         /etc/fnid; do
+    if [[ -e "$f" ]]; then
+        log "intact: $f"
+    else
+        log "WARNING: $f is ABSENT — not removed by this script, but bring-up needs it"
+    fi
+done
+
+log "=== DONE ==="
+

@@ -1,0 +1,40 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+[Unit]
+Description=FrogNet fnav A/V relay (FNWP byte-fan media host on :9000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/frognet_bundles/communicator
+Environment=PYTHONPATH=/opt/frognet_semantic:/etc/frognet_bundles/communicator
+Environment=FROGNET_LOG_LEVEL=INFO
+# The fnav relay: a type-agnostic FNWP frame fan — accepts caller connections and forwards
+# each peer's audio/video frames to all OTHER peers. This is the media host fnav clients
+# (fnav.Call / comms.py) actually speak. It is NOT frognet_mediahost_server.py, which speaks
+# the older SotF create-stream/conn_info tuple protocol that fnav does not use.
+# Headless: binds a socket only — no camera, mic, or display — so it runs on any node.
+ExecStart=/usr/bin/env python3 /etc/frognet_bundles/communicator/fnav.py --serve 0.0.0.0:9000
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

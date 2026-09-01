@@ -1,0 +1,25 @@
+// Family Calendar Android client — minimal build config.
+// Builds in Android Studio / Gradle. No third-party deps; org.json ships with Android.
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+android {
+    namespace 'net.frognet.calendar'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'net.frognet.calendar'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+dependencies {
+    implementation 'androidx.core:core-ktx:1.13.1'
+}

@@ -1,0 +1,89 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# /etc/setup_iptables — FrogNet gateway baseline + HTTP interception (ALL 10/8:80)
+# IDEMPOTENT: -C before -A/-I; never flushes, never duplicates.
+set +x
+. /usr/local/bin/mapInterfaces
+IPT="/usr/sbin/iptables"
+ensure() {
+  local tbl="$1"; shift
+  local action="$1"; shift
+  if [[ "$action" == "-I" ]]; then
+    $IPT $tbl -C "$@" 2>/dev/null || $IPT $tbl -I "$@"
+  else
+    $IPT $tbl -C "$@" 2>/dev/null || $IPT $tbl -A "$@"
+  fi
+}
+if [[ "$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null)" != "1" ]]; then
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+fi
+echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter 2>/dev/null || true
+echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter 2>/dev/null || true
+for _rpf_dev in /proc/sys/net/ipv4/conf/wg*/rp_filter; do
+  [[ -f "$_rpf_dev" ]] && echo 0 > "$_rpf_dev" 2>/dev/null || true
+done
+LAN_IFACE="$eth0Name"
+UPLINK_IFACES=""
+for dev in $FROGNET_INTERFACES; do
+  [[ "$dev" == "$LAN_IFACE" ]] && continue
+  UPLINK_IFACES="$UPLINK_IFACES $dev"
+done
+UPLINK_IFACES="$(echo $UPLINK_IFACES | xargs)"
+/usr/local/bin/debugTag "setup_iptables: LAN_IFACE=$LAN_IFACE UPLINK_IFACES=[$UPLINK_IFACES] FROGNET_INTERFACES=[$FROGNET_INTERFACES]"
+$IPT -P INPUT ACCEPT
+$IPT -P OUTPUT ACCEPT
+$IPT -P FORWARD ACCEPT
+ensure "" -A INPUT -i lo -j ACCEPT
+ensure "" -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+for dev in $FROGNET_INTERFACES; do
+  ensure "" -A INPUT -i "$dev" -j ACCEPT
+done
+ensure "" -A INPUT -i ham0 -p tcp --dport 9009 -j ACCEPT
+ensure "" -A INPUT -i ham0 -p udp --dport 17777 -j ACCEPT
+ensure "" -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+for uplink in $UPLINK_IFACES; do
+  ensure "" -A FORWARD -i "$LAN_IFACE" -o "$uplink" -j ACCEPT
+  ensure "" -A FORWARD -i "$uplink" -o "$LAN_IFACE" -j ACCEPT
+done
+ensure "" -A FORWARD -i ham0 -j ACCEPT
+ensure "" -A FORWARD -o ham0 -j ACCEPT
+for dev in $FROGNET_INTERFACES; do
+  [[ "$dev" == wg* ]] || continue
+  ensure "" -A FORWARD -i "$dev" -j ACCEPT
+  ensure "" -A FORWARD -o "$dev" -j ACCEPT
+done
+# FrogNet (10/8) destinations bypass MASQUERADE on every interface (pos 1).
+ensure "-t nat" -I POSTROUTING -d 10.0.0.0/8 -j RETURN
+for uplink in $UPLINK_IFACES; do
+  ensure "-t nat" -A POSTROUTING -o "$uplink" -j MASQUERADE
+done
+# HTTP interception -> local FrogNet proxy (:80)
+ensure "-t nat" -A OUTPUT -m mark --mark 1 -p tcp --dport 80 -j RETURN
+ensure "-t nat" -A OUTPUT -p tcp -d 127.0.0.1/32 --dport 80 -j ACCEPT
+ensure "-t nat" -A OUTPUT -p tcp -d 10.0.0.0/8 --dport 80 -j REDIRECT --to-ports 80
+ensure "-t nat" -A PREROUTING -i "$LAN_IFACE" -p tcp -d 10.0.0.0/8 --dport 80 -j REDIRECT --to-ports 80
+# REFLECT VHOST (loop/dup detector) — trap on ALL ingress (hop-to-hop forwards
+# arrive over wg/uplink and must be DNAT'd to the local reflect listener BEFORE
+# ip_forward sends them onward).
+REFLECT_PORT="${FROGNET_REFLECT_PORT:-18432}"
+ensure "-t nat" -A OUTPUT     -m mark --mark 1 -p tcp --dport "$REFLECT_PORT" -j RETURN
+ensure "-t nat" -A OUTPUT     -p tcp -d 10.0.0.0/8 --dport "$REFLECT_PORT" -j REDIRECT --to-ports "$REFLECT_PORT"
+ensure "-t nat" -A PREROUTING -p tcp -d 10.0.0.0/8 --dport "$REFLECT_PORT" -j REDIRECT --to-ports "$REFLECT_PORT"
+# No ICMP interception. Raw ICMP handled by the kernel.
+exit 0

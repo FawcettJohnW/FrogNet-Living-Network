@@ -1,0 +1,46 @@
+<?php
+// sysperf_json.php — on-demand sysperf with staleness cache.
+// If cached data is fresh (< MAX_AGE seconds), serve it.
+// Otherwise, run the outputter, cache the result, serve it.
+
+header('Content-Type: application/json');
+header('Cache-Control: no-cache, no-store, must-revalidate');
+
+$CACHE_FILE = '/tmp/sysperf_latest.json';
+$MAX_AGE    = 5;  // seconds — don't re-sample more often than this
+
+// Serve from cache if fresh
+if (file_exists($CACHE_FILE)) {
+    $age = time() - filemtime($CACHE_FILE);
+    if ($age < $MAX_AGE) {
+        readfile($CACHE_FILE);
+        exit;
+    }
+}
+
+// Stale or missing — run the outputter
+$output = [];
+$rc = 0;
+exec('/usr/local/bin/sysperf_outputter.bash 2>&1', $output, $rc);
+
+// Extract the JSON line (last line starting with {)
+$json = null;
+for ($i = count($output) - 1; $i >= 0; $i--) {
+    $line = trim($output[$i]);
+    if ($line !== '' && $line[0] === '{') {
+        $json = $line;
+        break;
+    }
+}
+
+if ($json === null) {
+    http_response_code(500);
+    echo json_encode(['error' => 'sysperf_outputter produced no JSON', 'rc' => $rc]);
+    exit;
+}
+
+// Atomic write to cache
+file_put_contents($CACHE_FILE . '.tmp', $json);
+rename($CACHE_FILE . '.tmp', $CACHE_FILE);
+
+echo $json;

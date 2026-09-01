@@ -1,0 +1,22 @@
+REVERT of onlink_tunnel_patch — restores semantic-to-tunnel.
+
+File: proxy/decision.py   (reverts [ONLINK_TUNNEL_TO_SEMANTIC_V1])
+Deploy this OVER onlink_tunnel_patch.tgz. Delete proxy/test_onlink_tunnel_oracle.py.
+Discovery gate 67/0/0.
+
+WHAT WENT WRONG: onlink_tunnel_patch excluded wg from the on-link/HAM branch so wg-tunnel
+peers would take the semantic path (for coalescing). That was wrong. The on-link -> HAM
+branch is REQUIRED for wg tunnel peers too: routing an on-link target through the daemon
+makes the daemon connect to <target>:80, which the local :80 REDIRECT catches and bounces
+back to the proxy -> proxy<->daemon loop -> 60s cap -> semantic connections to any machine
+across a tunnel break. The code comment warned about exactly this; I overrode it. Reverted.
+
+WHY the throughput diagnosis was ALSO wrong: HAM (direct) is fine for a direct-tunnel peer
+and CAN sustain high concurrency (256 workers, ~0.2s round-trips). Historic 75-100 req/s was
+reached ON the HAM path. The real regression is worker STARVATION and looped routes, not the
+path choice:
+  - down-peer connect churn (fixed by connect_retire_v2_patch — retire down .1 nodes)
+  - a Seattle5<->BAMacBook ROUTING LOOP for the Seattle2/Seattle3 subnets (reflect logs
+    show reason=reflection / maxhops c=32): probes to those nodes ping-pong and die, and the
+    workers spent on them are stolen from real traffic.
+Those two are the throughput levers; this on-link change was neither, and it broke tunnels.

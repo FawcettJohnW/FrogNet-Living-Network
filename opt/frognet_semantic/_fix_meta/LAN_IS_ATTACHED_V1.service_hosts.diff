@@ -1,0 +1,40 @@
+--- frognet_service_hosts_orig.py	2026-06-23 21:29:41.708944982 +0000
++++ frognet_service_hosts.py	2026-06-23 21:32:20.122676307 +0000
+@@ -73,7 +73,7 @@
+ 
+ 
+ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None,
+-                       reachable_subnets=None, self_ip=None) -> List[str]:
++                       reachable_subnets=None, self_ip=None, lan_subnets=None) -> List[str]:
+     """POST-merge role determination. For every live service role, return the
+     `<role>.frognet <ip>` line for the committed /etc/hosts block. Each role's host is
+     its UnREST callback's pick over the capability tuples (the LAN/WAN split is read
+@@ -114,7 +114,7 @@
+     for role in _live_roles(handlers, dbhost):
+         h = handlers[role]
+         try:
+-            hosts_list, lan_list = gather_candidates(h, dbhost=dbhost)
++            hosts_list, lan_list = gather_candidates(h, dbhost=dbhost, lan_subnets=lan_subnets)
+         except Exception as e:
+             log(f"SERVICE_ELECT role={role} reason=gather_failed err={e}")
+             continue
+@@ -166,7 +166,8 @@
+ 
+ def apply_to_etc_hosts(etc_hosts: List[str],
+                        dbhost: str = "databasehost_control.frognet",
+-                       logger=None, reachable_subnets=None, self_ip=None) -> List[str]:
++                       logger=None, reachable_subnets=None, self_ip=None,
++                       lan_subnets=None) -> List[str]:
+     """Given the assembled etc_hosts block, drop any existing <role>.frognet lines and
+     append freshly-determined ones — for EVERY live service role uniformly,
+     databasehost included. Each role's host is its UnREST callback's pure pick over the
+@@ -177,7 +178,8 @@
+     compatibility. Idempotent; safe every converged merge. This is a post-merge read
+     and never triggers a re-run."""
+     role_lines = service_host_lines(dbhost=dbhost, logger=logger,
+-                                    reachable_subnets=reachable_subnets, self_ip=self_ip)
++                                    reachable_subnets=reachable_subnets, self_ip=self_ip,
++                                    lan_subnets=lan_subnets)
+     if not role_lines:
+         return etc_hosts
+     role_names = {ln.split()[1] for ln in role_lines}

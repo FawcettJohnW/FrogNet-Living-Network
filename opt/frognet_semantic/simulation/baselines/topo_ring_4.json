@@ -1,0 +1,60 @@
+{
+  "committed_routes": {
+    "A": [
+      "10.222.1.0/30 dev wg0 metric 100",
+      "10.222.4.0/30 dev wg1 metric 100",
+      "10.30.1.0/24 dev eth0 metric 100",
+      "10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22",
+      "10.30.2.0/24 via 10.30.2.1 dev wg1 metric 100",
+      "10.30.3.0/24 via 10.30.3.1 dev wg0 metric 22",
+      "10.30.3.0/24 via 10.30.3.1 dev wg1 metric 100",
+      "10.30.4.0/24 via 10.30.4.1 dev wg0 metric 100",
+      "10.30.4.0/24 via 10.30.4.1 dev wg1 metric 22"
+    ],
+    "B": [
+      "10.222.1.0/30 dev wg0 metric 100",
+      "10.222.2.0/30 dev wg1 metric 100",
+      "10.30.1.0/24 via 10.30.1.1 dev wg0 metric 22",
+      "10.30.1.0/24 via 10.30.1.1 dev wg1 metric 100",
+      "10.30.2.0/24 dev eth0 metric 100",
+      "10.30.3.0/24 via 10.30.3.1 dev wg0 metric 100",
+      "10.30.3.0/24 via 10.30.3.1 dev wg1 metric 22",
+      "10.30.4.0/24 via 10.30.4.1 dev wg0 metric 22",
+      "10.30.4.0/24 via 10.30.4.1 dev wg1 metric 100"
+    ],
+    "C": [
+      "10.222.2.0/30 dev wg0 metric 100",
+      "10.222.3.0/30 dev wg1 metric 100",
+      "10.30.1.0/24 via 10.30.1.1 dev wg0 metric 22",
+      "10.30.1.0/24 via 10.30.1.1 dev wg1 metric 100",
+      "10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22",
+      "10.30.2.0/24 via 10.30.2.1 dev wg1 metric 100",
+      "10.30.3.0/24 dev eth0 metric 100",
+      "10.30.4.0/24 via 10.30.4.1 dev wg0 metric 100",
+      "10.30.4.0/24 via 10.30.4.1 dev wg1 metric 22"
+    ],
+    "D": [
+      "10.222.3.0/30 dev wg0 metric 100",
+      "10.222.4.0/30 dev wg1 metric 100",
+      "10.30.1.0/24 via 10.30.1.1 dev wg0 metric 100",
+      "10.30.1.0/24 via 10.30.1.1 dev wg1 metric 22",
+      "10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22",
+      "10.30.2.0/24 via 10.30.2.1 dev wg1 metric 100",
+      "10.30.3.0/24 via 10.30.3.1 dev wg0 metric 22",
+      "10.30.3.0/24 via 10.30.3.1 dev wg1 metric 100",
+      "10.30.4.0/24 dev eth0 metric 100"
+    ]
+  },
+  "convergence_cycles": 3,
+  "key": "topo_ring_4",
+  "reachability": {
+    "pairs_ok": 24,
+    "pairs_total": 24,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:01",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "4-node ring"
+}

@@ -1,0 +1,5 @@
+{ "id": "net.frognet.backgammon", "module": "family-backgammon", "name": "backgammon",
+  "title": "Backgammon", "hub": "games", "function": ["games"],
+  "provides": ["turn-based-game"], "app": "app/bg_app.py", "version": "1.0",
+  "summary": "Turn-based board game; resumable table; play local or on the mesh.",
+  "freshness": { "move": "lossless-eventual", "position": "latest-only", "scaffold": "resident-once" } }

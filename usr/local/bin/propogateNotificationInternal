@@ -1,0 +1,165 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+##############################################################
+# propogateNotificationInternal
+#
+# Epidemic notification propagation + local merge trigger.
+#
+# Flow:
+#   1. Dedup by EVENT_ID (don't process the same event twice)
+#   2. Fork runMerge locally IF no merge is already in progress
+#   3. Re-propagate to all known peers in parallel (epidemic)
+#
+# Called either locally (by propogateNotification after local state
+# change) or on the receiving side (via propogateNotification.php →
+# systemd → here).  Same logic either way — dedup, trigger local
+# merge if appropriate, forward to peers.
+##############################################################
+
+# [INSTRUMENTATION_V2_APPLIED_BASH]
+# shellcheck source=/dev/null
+[[ -f /usr/local/lib/frognet_trace.sh ]] && . /usr/local/lib/frognet_trace.sh
+. /usr/local/bin/mapInterfaces
+. /usr/local/lib/frognet_log.sh
+flog_init "propogateNotificationInternal"
+trap 'rc=$?; flog_info "EXIT" rc=$rc; exit $rc' EXIT
+
+EVENT_ID="${1:-}"
+if [[ -z "$EVENT_ID" ]]; then
+    flog_error "ENTER" "status=bad_args" "reason=missing_event_id"
+    exit 2
+fi
+flog_info "ENTER" "event_id=$EVENT_ID"
+
+SEEN_DIR="/run/frognet/seen_notifications"
+SEEN_FILE="${SEEN_DIR}/${EVENT_ID}"
+mkdir -p "$SEEN_DIR"
+
+if [[ -f "$SEEN_FILE" ]]; then
+    flog_info "DEDUP" "decision=skip" "reason=already_seen" "event_id=$EVENT_ID" "seen_at=$(cat "$SEEN_FILE" 2>/dev/null)"
+    exit 0
+fi
+date > "$SEEN_FILE"
+flog_info "DEDUP" "decision=first_time" "seen_file=$SEEN_FILE"
+
+OUR_ETH0="$(/usr/local/bin/getEth0Address || echo "")"
+HOSTS_FILE="/etc/hosts"
+CURL="/usr/bin/curl"
+[[ -x /usr/bin/curl.real ]] && CURL="/usr/bin/curl.real"
+
+# [SELF-LOOP-V1] Enumerate ALL 10.x addresses bound to local interfaces.
+# /etc/hosts often lists this host under multiple names (WG /30 ends,
+# secondary /24 aliases, tunnel transit IPs); skipping only OUR_ETH0
+# leaves every other local IP eligible for self-propagation, and each
+# self-curl fires another systemd unit instance whose only job is
+# DEDUP-skip — pure overhead and a real source of fleet-wide echo.
+declare -A LOCAL_IPS
+LOCAL_IPS["127.0.0.1"]=1
+[[ -n "$OUR_ETH0" ]] && LOCAL_IPS["$OUR_ETH0"]=1
+while read -r ip; do
+    [[ -z "$ip" ]] && continue
+    LOCAL_IPS["$ip"]=1
+done < <(/usr/sbin/ip -4 -o addr show 2>/dev/null \
+         | awk '{print $4}' \
+         | sed 's|/.*||' \
+         | grep '^10\.' || true)
+flog_info "config" "our_eth0=$OUR_ETH0" "curl=$CURL" \
+           "local_ip_count=${#LOCAL_IPS[@]}" \
+           "local_ips=$(printf '%s,' "${!LOCAL_IPS[@]}")"
+
+# [NEIGHBOR_SCOPE_V1] Notify only directly-attached neighbors — LAN route
+# next-hops on physical devs + WG tunnel peers — instead of every .1 in
+# /etc/hosts.  Epidemic re-propagation from each receiver still reaches the
+# whole mesh; this drops per-node fan-out from O(fleet) to O(neighbors).
+# The pure derivation lives in discovery.neighbors (oracle-tested). Fall back
+# to the legacy /etc/hosts .1 scan only if the helper fails to run.
+_neigh_out="$(PYTHONPATH=/opt/frognet_semantic /usr/bin/python3 -m discovery.neighbors 2>/dev/null)"
+_helper_rc=$?
+if [[ $_helper_rc -eq 0 ]]; then
+    mapfile -t PEER_IPS <<< "$_neigh_out"
+    # command-substitution of empty output yields a single empty element
+    [[ ${#PEER_IPS[@]} -eq 1 && -z "${PEER_IPS[0]}" ]] && PEER_IPS=()
+    flog_info "peer_scan" "source=direct_neighbors" "direct_targets_found=${#PEER_IPS[@]}"
+else
+    flog_info "peer_scan" "source=etc_hosts_fallback" "helper_rc=$_helper_rc"
+    mapfile -t PEER_IPS < <(
+      awk '
+        {
+          line=$0
+          sub(/#.*/, "", line)
+          gsub(/^[ \t]+|[ \t]+$/, "", line)
+          if(line=="") next
+          split(line,a,/[ \t]+/)
+          ip=a[1]
+          # Match 10.A.B.1 only; skip transit /30 (10.253.253.*).
+          if (ip ~ /^10\.[0-9]+\.[0-9]+\.1$/ && ip !~ /^10\.253\.253\./) {
+              print ip
+          }
+        }
+      ' "$HOSTS_FILE" | sort -u
+    )
+    flog_info "peer_scan" "admin_targets_found=${#PEER_IPS[@]}"
+fi
+flog_info "peer_list" "ips=$(printf '%s,' "${PEER_IPS[@]}")"
+
+# [NOTIFY_FANOUT_ONLY_V1] This handler is now pure neighbor fan-out, invoked by
+# runMerge on a converged, chain-dirty pass (via propogateNotification). It does
+# NOT trigger a local merge: a receiver schedules its own merge by poking the
+# accumulator from propogateNotification.php (GUID-deduped, 30s resettable
+# debounce). The top-of-file seen-set record above also guards the ORIGINATOR —
+# if this wave's GUID echoes back around the mesh, the .php drops it.
+
+# Launch ALL peer notifications in parallel — fire-and-forget
+flog_stage peer_propagate
+_pids=()
+_skipped=0
+_launched=0
+for ip in "${PEER_IPS[@]}"; do
+    if [[ -z "$ip" ]]; then
+        _skipped=$((_skipped + 1))
+        continue
+    fi
+    if [[ "${LOCAL_IPS[$ip]:-}" == "1" ]]; then
+        flog_info "peer_skip" "ip=$ip" "reason=local_address"
+        _skipped=$((_skipped + 1))
+        continue
+    fi
+    flog_info "peer_fork" "ip=$ip"
+    (
+        _t0=$(date +%s%N)
+        "$CURL" -fsS --connect-timeout 10 --max-time 10 \
+            "http://${ip}/propogateNotification.php?event=${EVENT_ID}" \
+            >/dev/null 2>&1
+        _rc=$?
+        _t1=$(date +%s%N)
+        flog_info "peer_result" "ip=$ip" "rc=$_rc" "dur_ms=$(( (_t1 - _t0) / 1000000 ))"
+    ) &
+    _pids+=($!)
+    _launched=$((_launched + 1))
+done
+
+flog_info "peer_launched" "count=$_launched" "skipped=$_skipped"
+
+for _pid in "${_pids[@]}"; do
+    wait "$_pid" 2>/dev/null || true
+done
+flog_stage_end peer_propagate "launched=$_launched" "skipped=$_skipped"
+
+echo "OK"
+exit 0

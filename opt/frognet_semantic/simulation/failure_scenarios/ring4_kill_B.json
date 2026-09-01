@@ -1,0 +1,13 @@
+{
+  "expect": {
+    "no_phantom_to": "B",
+    "survivors_all_reach": true
+  },
+  "fault": {
+    "args": [
+      "B"
+    ],
+    "op": "kill_node"
+  },
+  "topology": "topo_ring_4"
+}

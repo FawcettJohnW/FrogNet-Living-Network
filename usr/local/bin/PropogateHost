@@ -1,0 +1,73 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+##############################################################
+# PropogateHost — FIXED, MINIMAL, NON-HALLUCINATED VERSION
+#
+# Contract:
+#   PropogateHost <hostName> <hostedNetworkIP> <pingHost> <nsDev> <propogateUp>
+##############################################################
+# set -x
+
+. /usr/local/bin/mapInterfaces
+
+hostName="${1:-}"
+hostedNetworkIP="${2:-}"
+pingHost="${3:-}"
+nsDev="${4:-}"
+propogateUp="${5:-}"
+
+[[ -z "$hostName" || -z "$hostedNetworkIP" || -z "$nsDev" ]] && exit 2
+
+/usr/local/bin/debugTag "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
+/usr/local/bin/debugTag "PropogateHost hostName=$hostName hostedNetworkIP=$hostedNetworkIP pingHost=$pingHost nsDev=$nsDev propogateUp=$propogateUp"
+
+# Only propagate FrogNet networks
+[[ "$hostedNetworkIP" == 10.* ]] || exit 0
+
+# NEW: do not propagate if this IP is still pending (<=4s)
+if /usr/local/bin/discovery_pending.sh is_pending "$hostedNetworkIP" ; then
+  /usr/local/bin/debugTag "PropogateHost: pending($hostedNetworkIP) -> suppress propagation"
+  exit 0
+fi
+
+CURL="/usr/bin/curl"
+[[ -x /usr/bin/curl.real ]] && CURL="/usr/bin/curl.real"
+
+curl_qs() {
+  local dst_ip="$1"
+  local tag="$2"
+  "$CURL" -fsS --connect-timeout 10 --max-time 15 \
+    "http://${dst_ip}/registerHost.php?hostname=${hostName}&deviceIP=${hostedNetworkIP}&pingHost=${pingHost}&nsDev=${nsDev}&appendDomain=&propogateUp=${propogateUp}&tag=${tag}" \
+    >/dev/null 2>&1 || true
+}
+
+LEASES="/var/lib/misc/dnsmasq.leases"
+[[ -f "$LEASES" ]] || exit 0
+
+awk '{print $3}' "$LEASES" | while read -r dst_ip; do
+  [[ -z "$dst_ip" ]] && continue
+  [[ "$dst_ip" == 10.* ]] || continue
+  [[ "$dst_ip" == "$hostedNetworkIP" ]] && continue
+
+  /usr/local/bin/debugTag "PropogateHost: propagating to $dst_ip"
+  curl_qs "$dst_ip" "LEASEPROP" || true
+done
+
+/usr/local/bin/debugTag "@@@@@@@@@@@@@@@@@@@@@     Normal Exit    @@@@@@@@@@@@@@@@@@@@"
+exit 0

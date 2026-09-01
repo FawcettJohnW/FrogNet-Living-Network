@@ -1,0 +1,1 @@
+/var/log/frognet/*.log { daily missingok rotate 7 compress delaycompress notifempty copytruncate su root root }

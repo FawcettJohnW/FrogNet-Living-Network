@@ -1,0 +1,271 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# frognet-wg-cleanup — Generic WireGuard tunnel cleanup for any FrogNet node
+#
+# Auto-detects live vs dead tunnels by handshake age.
+# Removes: dead interfaces, stale state files, scope-link route duplicates,
+#          via routes through dead interfaces, garbage state files.
+# Keeps:   live tunnels (recent handshake), their via routes.
+#
+# Usage:
+#   frognet-wg-cleanup              # dry-run (show what would happen)
+#   frognet-wg-cleanup --apply      # actually do it
+#
+# NEVER masks errors.
+# =============================================================================
+
+APPLY=0
+[[ "${1:-}" == "--apply" ]] && APPLY=1
+
+STATE_DIR="/var/lib/frognet-tunnel/active"
+WG_CONF_DIR="/etc/wireguard"
+MAX_HANDSHAKE_AGE=300  # 5 minutes — older = dead
+
+log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
+warn() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: $*"; }
+
+do_or_dry() {
+    if (( APPLY )); then
+        log "  EXEC: $*"
+        "$@" 2>&1 || true
+    else
+        log "  DRY-RUN: $*"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Phase 1: Classify all wg interfaces as LIVE or DEAD
+# ---------------------------------------------------------------------------
+
+declare -A LIVE_IFACES=()   # iface → "port:age"
+declare -A DEAD_IFACES=()   # iface → "port:age"
+
+log "=== FrogNet WireGuard Cleanup ($(hostname -s)) ==="
+log "Mode: $(( APPLY )) (0=dry-run, 1=apply)"
+log ""
+log "--- Phase 1: Classify interfaces ---"
+
+now=$(date +%s)
+
+for iface in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep '^wg' | sort); do
+    hs=$(wg show "$iface" latest-handshakes 2>/dev/null | awk '{print $2}' | head -1)
+    endpoint=$(wg show "$iface" endpoints 2>/dev/null | awk '{print $2}' | head -1)
+
+    if [[ -z "$hs" || "$hs" == "0" ]]; then
+        age_str="never"
+        age=999999
+    else
+        age=$(( now - hs ))
+        age_str="${age}s ago"
+    fi
+
+    # A tunnel is only LIVE if:
+    #   1. Recent handshake (crypto layer works), AND
+    #   2. Has a 10.101.x.0/24 route — either a via route or scope-link
+    #      (without a FrogNet route, the tunnel serves no purpose)
+    has_frognet_route=0
+    if ip route show dev "$iface" 2>/dev/null | grep -qE '^10\.101\.[0-9]+\.0/24'; then
+        has_frognet_route=1
+    elif ip route show 2>/dev/null | grep -qE "10\.101\.[0-9]+\.0/24.*dev ${iface}.*via"; then
+        has_frognet_route=1
+    fi
+
+    if (( age <= MAX_HANDSHAKE_AGE )) && (( has_frognet_route )); then
+        LIVE_IFACES["$iface"]="${endpoint}:${age_str}"
+        log "  LIVE: $iface (endpoint=$endpoint handshake=$age_str route=yes)"
+    else
+        reason=""
+        (( age > MAX_HANDSHAKE_AGE )) && reason="stale handshake"
+        (( has_frognet_route == 0 )) && { [[ -n "$reason" ]] && reason+=", "; reason+="no 10.101.x route"; }
+        DEAD_IFACES["$iface"]="${endpoint}:${age_str}"
+        log "  DEAD: $iface (endpoint=$endpoint handshake=$age_str reason=$reason)"
+    fi
+done
+
+if [[ ${#LIVE_IFACES[@]} -eq 0 ]]; then
+    warn "No live tunnels found. Aborting to avoid nuking everything."
+    warn "If tunnels are genuinely all dead, tear them down manually."
+    exit 1
+fi
+
+log ""
+live_list="${!LIVE_IFACES[*]}"
+dead_list="${!DEAD_IFACES[*]}"
+log "Live: ${live_list:-none}"
+log "Dead: ${dead_list:-none}"
+
+# ---------------------------------------------------------------------------
+# Phase 2: Tear down dead interfaces
+# ---------------------------------------------------------------------------
+
+log ""
+log "--- Phase 2: Tear down dead interfaces ---"
+
+for iface in "${!DEAD_IFACES[@]}"; do
+    log "TEARDOWN: $iface (${DEAD_IFACES[$iface]})"
+    if [[ -f "${WG_CONF_DIR}/${iface}.conf" ]]; then
+        do_or_dry wg-quick down "$iface"
+        do_or_dry rm -f "${WG_CONF_DIR}/${iface}.conf"
+    else
+        do_or_dry ip link set "$iface" down
+        do_or_dry ip link delete "$iface"
+    fi
+done
+
+[[ ${#DEAD_IFACES[@]} -eq 0 ]] && log "  (none to tear down)"
+
+# ---------------------------------------------------------------------------
+# Phase 3: Clean state files
+# ---------------------------------------------------------------------------
+
+log ""
+log "--- Phase 3: Clean state files ---"
+
+if [[ -d "$STATE_DIR" ]]; then
+    for f in "${STATE_DIR}/"*.json; do
+        [[ -f "$f" ]] || continue
+        bname=$(basename "$f")
+
+        # Garbage files: empty name, zero-length, or unparseable
+        if [[ "$bname" == ".json" ]] || [[ ! -s "$f" ]]; then
+            log "REMOVE garbage: $bname"
+            do_or_dry rm -f "$f"
+            continue
+        fi
+
+        # Check if parseable
+        file_iface=$(jq -r '.interface // empty' "$f" 2>/dev/null || true)
+        file_tname=$(jq -r '.tunnel_name // empty' "$f" 2>/dev/null || true)
+
+        if [[ -z "$file_tname" ]]; then
+            log "REMOVE unparseable: $bname"
+            do_or_dry rm -f "$f"
+            continue
+        fi
+
+        # If the interface it claims is dead or gone, remove the state file
+        if [[ -n "$file_iface" ]]; then
+            if [[ -n "${DEAD_IFACES[$file_iface]+x}" ]]; then
+                log "REMOVE stale (dead iface $file_iface): $bname ($file_tname)"
+                do_or_dry rm -f "$f"
+                continue
+            fi
+            # Interface doesn't exist at all
+            if ! ip link show "$file_iface" >/dev/null 2>&1; then
+                log "REMOVE orphan (iface $file_iface gone): $bname ($file_tname)"
+                do_or_dry rm -f "$f"
+                continue
+            fi
+            # Interface is live but state file claims it — check for duplicates
+            # (multiple state files pointing at same live interface = keep newest)
+        fi
+
+        log "KEEP: $bname ($file_tname on ${file_iface:-?})"
+    done
+else
+    log "  (no state directory)"
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 4: Clean routes
+# ---------------------------------------------------------------------------
+
+log ""
+log "--- Phase 4: Clean routes ---"
+
+# 4a: Remove routes through dead/gone interfaces
+while IFS= read -r route_line; do
+    [[ -n "$route_line" ]] || continue
+    # Extract device
+    dev=$(echo "$route_line" | grep -oP 'dev \Kwg\d+' || true)
+    [[ -n "$dev" ]] || continue
+
+    # If the device is dead or no longer exists, nuke the route
+    if [[ -n "${DEAD_IFACES[$dev]+x}" ]] || ! ip link show "$dev" >/dev/null 2>&1; then
+        log "REMOVE route (dead dev $dev): $route_line"
+        do_or_dry ip route del $route_line
+    fi
+done < <(ip route show | grep 'dev wg' | grep '10\.101\.' || true)
+
+# 4b: Remove scope-link routes that duplicate existing via routes
+# A scope-link route like "10.101.x.0/24 dev wgN scope link" is wrong when
+# a via route like "10.101.x.0/24 via 10.101.x.1 dev wgN metric 22" exists.
+# The scope-link tells the kernel the subnet is directly attached (it's not —
+# it's behind a broker relay), and it shadows the correct via route.
+while IFS= read -r route_line; do
+    [[ -n "$route_line" ]] || continue
+    # Only look at scope-link routes
+    echo "$route_line" | grep -q "scope link" || continue
+    # Skip non-wg devices
+    dev=$(echo "$route_line" | grep -oP 'dev \Kwg\d+' || true)
+    [[ -n "$dev" ]] || continue
+    # Extract the subnet
+    subnet=$(echo "$route_line" | awk '{print $1}')
+    [[ "$subnet" == 10.101.*.0/24 ]] || continue
+
+    # Check if a via route also exists for this subnet
+    if ip route show "$subnet" 2>/dev/null | grep -q "via.*onlink"; then
+        log "REMOVE scope-link (via route exists): $route_line"
+        do_or_dry ip route del "$subnet" dev "$dev" scope link
+    else
+        # No via route — this scope-link is the only path. Keep it, but warn.
+        warn "scope-link is only route for $subnet on $dev — keeping (discovery will add via route)"
+    fi
+done < <(ip route show | grep 'dev wg' | grep '10\.101\.' | grep 'scope link' || true)
+
+# ---------------------------------------------------------------------------
+# Phase 5: Verify and re-seed
+# ---------------------------------------------------------------------------
+
+log ""
+log "--- Phase 5: Post-cleanup state ---"
+log ""
+log "Routes:"
+ip r | grep '10\.101\.' | while IFS= read -r l; do log "  $l"; done || log "  (none)"
+log ""
+log "Interfaces:"
+ip link show | grep -E '^[0-9]+: wg' | while IFS= read -r l; do log "  $l"; done || log "  (none)"
+log ""
+log "State files:"
+ls -1 "$STATE_DIR" 2>/dev/null | while IFS= read -r l; do log "  $l"; done || log "  (none)"
+
+if (( APPLY )); then
+    log ""
+    log "--- Re-seeding discovery ---"
+    DC="/usr/local/bin/frognet_discovery_cache.sh"
+    if [[ -x "$DC" ]]; then
+        # Reset cache for all 10.101.x.1 gateways we have routes to
+        while IFS= read -r route_line; do
+            subnet=$(echo "$route_line" | awk '{print $1}')
+            [[ "$subnet" == 10.101.*.0/24 ]] || continue
+            gw="${subnet%%.0/24}.1"
+            "$DC" reset "$gw" 2>/dev/null && log "  Cache reset: $gw" || true
+        done < <(ip route show | grep '10\.101\.' | grep 'dev wg' || true)
+    fi
+
+    if [[ -x /usr/local/bin/runMerge.bash ]]; then
+        /usr/local/bin/runMerge.bash &
+        log "  Merge launched (PID $!)"
+    fi
+fi
+
+log ""
+log "=== CLEANUP COMPLETE ==="
+(( APPLY )) || log "This was a DRY RUN. Re-run with --apply to execute."

@@ -1,0 +1,53 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# ConnectFamily — Connect this FrogNet to your family network
+#
+# Usage:
+#   ConnectFamily <passcode>
+#
+# This is the consumer-facing command. It calls the registration script
+# with the passcode, auto-detects the local subnet, and handles everything.
+# =============================================================================
+
+if [ "$#" -lt 1 ]; then
+    echo ""
+    echo "  ConnectFamily <passcode>"
+    echo ""
+    echo "  Connect this FrogNet to your family network using"
+    echo "  the passcode from your purchase."
+    echo ""
+    echo "  Example:  ConnectFamily smoking-stovepipe"
+    echo ""
+    exit 1
+fi
+
+PASSCODE="$1"
+REGISTER="/usr/local/bin/frognet-tunnel-register.sh"
+
+if [[ ! -x "$REGISTER" ]]; then
+    echo "ERROR: Registration script not found at ${REGISTER}" >&2
+    exit 1
+fi
+
+echo ""
+echo "Connecting your FrogNet to the family network..."
+echo ""
+
+exec "$REGISTER" "$PASSCODE"

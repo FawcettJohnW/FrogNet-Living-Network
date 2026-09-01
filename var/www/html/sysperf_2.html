@@ -1,0 +1,696 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FrogNet System Performance</title>
+<style>
+:root {
+  --bg: #060a10;
+  --panel: #0c1118;
+  --card: #0e1520;
+  --line: #1a2538;
+  --line2: #15202e;
+  --txt: #c8d2de;
+  --txt-dim: #546478;
+  --txt-bright: #e8edf3;
+  --accent: #28cc6e;
+  --accent-dim: rgba(40,204,110,0.12);
+  --warn: #f0a030;
+  --warn-dim: rgba(240,160,48,0.12);
+  --danger: #e5534b;
+  --danger-dim: rgba(229,83,75,0.12);
+  --blue: #4da6ff;
+  --blue-dim: rgba(77,166,255,0.10);
+  --grid: rgba(255,255,255,0.03);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--sans);
+  font-size: 14px;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Header ─── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.logo {
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, #28cc6e 0%, #1a9e55 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  box-shadow: 0 0 14px rgba(40,204,110,0.25);
+}
+.header h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--txt-bright);
+  letter-spacing: -0.3px;
+}
+.header h1 span { color: var(--accent); font-weight: 400; }
+.hostname {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--txt-dim);
+  background: rgba(255,255,255,0.03);
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.clock {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 300;
+  color: var(--txt-bright);
+  letter-spacing: 0.5px;
+}
+.clock-date {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--txt-dim);
+  text-align: right;
+  margin-top: 1px;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+/* ─── Grid ─── */
+.dashboard {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  margin: 1px;
+}
+
+.panel {
+  background: var(--panel);
+  padding: 18px;
+  min-height: 170px;
+  position: relative;
+  overflow: hidden;
+}
+.panel::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(40,204,110,0.08), transparent);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.panel:hover::after { opacity: 1; }
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--txt-dim);
+}
+.panel-badge {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.badge-ok { background: var(--accent-dim); color: var(--accent); }
+.badge-warn { background: var(--warn-dim); color: var(--warn); }
+.badge-danger { background: var(--danger-dim); color: var(--danger); }
+
+/* ─── Big number ─── */
+.big-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.big-number {
+  font-family: var(--mono);
+  font-size: 38px;
+  font-weight: 300;
+  color: var(--txt-bright);
+  line-height: 1;
+  letter-spacing: -1.5px;
+}
+.big-unit {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--txt-dim);
+}
+
+/* ─── Stat rows ─── */
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--grid);
+}
+.stat-row:last-child { border-bottom: none; }
+.stat-label { font-size: 11.5px; color: var(--txt-dim); }
+.stat-value { font-family: var(--mono); font-size: 11.5px; color: var(--txt); font-weight: 500; }
+
+/* ─── Bar gauge ─── */
+.bar-gauge {
+  width: 100%;
+  height: 5px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 6px 0;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s cubic-bezier(0.22,1,0.36,1);
+  background: var(--accent);
+}
+.bar-fill.warn { background: var(--warn); }
+.bar-fill.danger { background: var(--danger); }
+
+/* ─── Sparkline ─── */
+.sparkline-wrap {
+  width: 100%;
+  height: 44px;
+  margin-top: 6px;
+  position: relative;
+}
+.sparkline-wrap canvas { width: 100%; height: 100%; }
+
+/* ─── Network table ─── */
+.net-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 2px;
+}
+.net-table th {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--txt-dim);
+  text-align: right;
+  padding: 3px 6px 5px;
+  border-bottom: 1px solid var(--line);
+}
+.net-table th:first-child { text-align: left; }
+.net-table td {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 6px;
+  text-align: right;
+  color: var(--txt);
+  border-bottom: 1px solid var(--grid);
+}
+.net-table td:first-child { text-align: left; color: var(--txt-dim); font-weight: 500; }
+.net-table tr:last-child td { border-bottom: none; }
+.net-active { color: var(--accent) !important; }
+
+/* ─── Temperature ring ─── */
+.temp-display {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+.temp-ring {
+  width: 72px; height: 72px;
+  position: relative;
+}
+.temp-ring svg { transform: rotate(-90deg); width: 72px; height: 72px; }
+.temp-ring-bg { fill: none; stroke: rgba(255,255,255,0.04); stroke-width: 5; }
+.temp-ring-fill {
+  fill: none; stroke-width: 5; stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.22,1,0.36,1), stroke 0.3s;
+}
+.temp-val {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 16px; font-weight: 500; color: var(--txt-bright);
+}
+
+/* ─── Disk ─── */
+.disk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+.disk-name { font-family: var(--mono); font-size: 10.5px; color: var(--txt-dim); width: 80px; flex-shrink: 0; }
+.disk-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.04); border-radius: 2px; overflow: hidden; }
+.disk-bar-fill { height: 100%; border-radius: 2px; background: var(--blue); transition: width 0.6s cubic-bezier(0.22,1,0.36,1); }
+.disk-val { font-family: var(--mono); font-size: 10.5px; color: var(--txt); width: 65px; text-align: right; flex-shrink: 0; }
+
+/* ─── Layout variants ─── */
+.panel-wide { grid-column: span 2; }
+.panel-full { grid-column: span 3; }
+
+/* ─── Footer ─── */
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  font-size: 10.5px;
+  color: var(--txt-dim);
+}
+
+@media (max-width: 900px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .panel-wide, .panel-full { grid-column: span 1; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">🐸</div>
+    <div>
+      <h1>FrogNet <span>SysPerf Monitor</span></h1>
+    </div>
+    <div class="hostname" id="hostname">—</div>
+  </div>
+  <div class="header-right">
+    <div>
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="clock-date" id="clock-date">---</div>
+    </div>
+    <div class="status-dot" id="status-dot"></div>
+  </div>
+</div>
+
+<div class="dashboard">
+  <!-- CPU -->
+  <div class="panel" id="cpu-panel">
+    <div class="panel-header">
+      <span class="panel-title">CPU Usage</span>
+      <span class="panel-badge badge-ok" id="cpu-badge">OK</span>
+    </div>
+    <div class="big-stat">
+      <span class="big-number" id="cpu-total">—</span>
+      <span class="big-unit">%</span>
+    </div>
+    <div class="bar-gauge"><div class="bar-fill" id="cpu-bar" style="width:0%"></div></div>
+    <div class="sparkline-wrap"><canvas id="cpu-spark"></canvas></div>
+    <div class="stat-row"><span class="stat-label">user</span><span class="stat-value" id="cpu-user">—</span></div>
+    <div class="stat-row"><span class="stat-label">system</span><span class="stat-value" id="cpu-sys">—</span></div>
+    <div class="stat-row"><span class="stat-label">iowait</span><span class="stat-value" id="cpu-iow">—</span></div>
+    <div class="stat-row"><span class="stat-label">irq + softirq</span><span class="stat-value" id="cpu-irq">—</span></div>
+  </div>
+
+  <!-- Memory -->
+  <div class="panel" id="mem-panel">
+    <div class="panel-header">
+      <span class="panel-title">Memory</span>
+      <span class="panel-badge badge-ok" id="mem-badge">OK</span>
+    </div>
+    <div class="big-stat">
+      <span class="big-number" id="mem-pct">—</span>
+      <span class="big-unit">%</span>
+    </div>
+    <div class="bar-gauge"><div class="bar-fill" id="mem-bar" style="width:0%"></div></div>
+    <div class="sparkline-wrap"><canvas id="mem-spark"></canvas></div>
+    <div class="stat-row"><span class="stat-label">used</span><span class="stat-value" id="mem-used">—</span></div>
+    <div class="stat-row"><span class="stat-label">available</span><span class="stat-value" id="mem-avail">—</span></div>
+    <div class="stat-row"><span class="stat-label">buffers + cached</span><span class="stat-value" id="mem-cache">—</span></div>
+    <div class="stat-row"><span class="stat-label">swap</span><span class="stat-value" id="mem-swap">—</span></div>
+  </div>
+
+  <!-- Load & Temp -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Load Average</span>
+    </div>
+    <div class="big-stat">
+      <span class="big-number" id="load-1">—</span>
+    </div>
+    <div style="display:flex;gap:18px;margin:8px 0 14px">
+      <div><span class="stat-label">5m </span><span class="stat-value" id="load-5">—</span></div>
+      <div><span class="stat-label">15m </span><span class="stat-value" id="load-15">—</span></div>
+    </div>
+    <div class="sparkline-wrap"><canvas id="load-spark"></canvas></div>
+
+    <div class="panel-header" style="margin-top:18px">
+      <span class="panel-title">Temperature</span>
+      <span class="panel-badge badge-ok" id="temp-badge">OK</span>
+    </div>
+    <div class="temp-display">
+      <div class="temp-ring">
+        <svg viewBox="0 0 72 72">
+          <circle class="temp-ring-bg" cx="36" cy="36" r="30"/>
+          <circle class="temp-ring-fill" id="temp-ring" cx="36" cy="36" r="30"
+            stroke-dasharray="188.5" stroke-dashoffset="188.5"/>
+        </svg>
+        <div class="temp-val" id="temp-val">—</div>
+      </div>
+      <div>
+        <div class="stat-row"><span class="stat-label" id="temp-zone">thermal_zone0</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Network I/O -->
+  <div class="panel panel-wide">
+    <div class="panel-header">
+      <span class="panel-title">Network I/O</span>
+      <span class="panel-badge badge-ok" id="net-badge">
+        <span id="net-total-rx">—</span> ↓ &nbsp;
+        <span id="net-total-tx">—</span> ↑
+      </span>
+    </div>
+    <table class="net-table">
+      <thead>
+        <tr>
+          <th>Interface</th>
+          <th>RX/s</th>
+          <th>TX/s</th>
+          <th>RX pkt/s</th>
+          <th>TX pkt/s</th>
+          <th>Err</th>
+          <th>Drop</th>
+        </tr>
+      </thead>
+      <tbody id="net-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- Disk I/O -->
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Disk I/O</span>
+      <span class="panel-badge badge-ok" id="disk-badge">
+        <span id="disk-total-w">—</span> W/s
+      </span>
+    </div>
+    <div class="stat-row"><span class="stat-label">total read</span><span class="stat-value" id="disk-total-r">—</span></div>
+    <div class="stat-row"><span class="stat-label">total write</span><span class="stat-value" id="disk-total-wr">—</span></div>
+    <div style="margin-top:10px" id="disk-devices"></div>
+  </div>
+</div>
+
+<div class="footer">
+  <span>FrogNet Living Network — SysPerf Monitor</span>
+  <span style="font-family:var(--mono)">sample <span id="sample-sec">—</span>s · updated <span id="last-update">—</span></span>
+</div>
+
+<script>
+// ── Config ──
+const POLL_MS = 5000;
+const HISTORY_LEN = 60;
+
+// ── History buffers ──
+const cpuHistory = [];
+const memHistory = [];
+const loadHistory = [];
+
+// ── Clock ──
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  const s = String(now.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${h}:${m}:${s}`;
+  const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('clock-date').textContent =
+    `${days[now.getDay()]} ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Utilities ──
+function fmt(n, dec=1) { return n != null ? n.toFixed(dec) : '—'; }
+function fmtBytes(bps) {
+  if (bps == null) return '—';
+  if (bps > 1048576) return (bps/1048576).toFixed(1) + ' MB/s';
+  if (bps > 1024) return (bps/1024).toFixed(1) + ' KB/s';
+  return bps.toFixed(0) + ' B/s';
+}
+function fmtKB(kb) {
+  if (kb == null) return '—';
+  if (kb > 1048576) return (kb/1048576).toFixed(1) + ' GB';
+  if (kb > 1024) return (kb/1024).toFixed(0) + ' MB';
+  return kb + ' KB';
+}
+
+function setBadge(id, val, warnAt, dangerAt) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('badge-ok','badge-warn','badge-danger');
+  if (val >= dangerAt) { el.classList.add('badge-danger'); el.textContent = 'HIGH'; }
+  else if (val >= warnAt) { el.classList.add('badge-warn'); el.textContent = 'WARN'; }
+  else { el.classList.add('badge-ok'); el.textContent = 'OK'; }
+}
+
+function setBar(id, pct) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.width = Math.min(100, Math.max(0, pct)) + '%';
+  el.classList.remove('warn','danger');
+  if (pct >= 90) el.classList.add('danger');
+  else if (pct >= 70) el.classList.add('warn');
+}
+
+// ── Sparkline renderer ──
+function drawSparkline(canvasId, data, maxVal, color) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+
+  const max = maxVal || Math.max(...data, 1);
+  const step = w / (HISTORY_LEN - 1);
+
+  // Area fill
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  for (let i = 0; i < data.length; i++) {
+    const x = (HISTORY_LEN - data.length + i) * step;
+    const y = h - (data[i] / max) * (h - 3) - 1.5;
+    ctx.lineTo(x, y);
+  }
+  ctx.lineTo((HISTORY_LEN - 1) * step, h);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, color || 'rgba(40,204,110,0.18)');
+  grad.addColorStop(1, 'rgba(40,204,110,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  for (let i = 0; i < data.length; i++) {
+    const x = (HISTORY_LEN - data.length + i) * step;
+    const y = h - (data[i] / max) * (h - 3) - 1.5;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = color ? color.replace(/[\d.]+\)$/, '0.7)') : 'rgba(40,204,110,0.7)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+// ── Render ──
+function render(d) {
+  document.getElementById('hostname').textContent = d.host || '—';
+
+  // CPU
+  const cpuBusy = d.cpu_pct?.total_busy ?? 0;
+  document.getElementById('cpu-total').textContent = fmt(cpuBusy, 1);
+  document.getElementById('cpu-user').textContent = fmt(d.cpu_pct?.user) + '%';
+  document.getElementById('cpu-sys').textContent = fmt(d.cpu_pct?.system) + '%';
+  document.getElementById('cpu-iow').textContent = fmt(d.cpu_pct?.iowait) + '%';
+  document.getElementById('cpu-irq').textContent = fmt((d.cpu_pct?.irq||0) + (d.cpu_pct?.softirq||0)) + '%';
+  setBar('cpu-bar', cpuBusy);
+  setBadge('cpu-badge', cpuBusy, 60, 85);
+  cpuHistory.push(cpuBusy);
+  if (cpuHistory.length > HISTORY_LEN) cpuHistory.shift();
+  drawSparkline('cpu-spark', cpuHistory, 100, 'rgba(40,204,110,0.18)');
+
+  // Memory
+  const memPct = d.mem_kb?.pct_used ?? 0;
+  document.getElementById('mem-pct').textContent = fmt(memPct, 1);
+  document.getElementById('mem-used').textContent = fmtKB(d.mem_kb?.used);
+  document.getElementById('mem-avail').textContent = fmtKB(d.mem_kb?.available);
+  document.getElementById('mem-cache').textContent = fmtKB((d.mem_kb?.buffers||0) + (d.mem_kb?.cached||0));
+  const swapPct = d.swap_kb?.pct_used ?? 0;
+  document.getElementById('mem-swap').textContent =
+    fmtKB(d.swap_kb?.used) + ' / ' + fmtKB(d.swap_kb?.total) + ' (' + fmt(swapPct,0) + '%)';
+  setBar('mem-bar', memPct);
+  setBadge('mem-badge', memPct, 70, 90);
+  memHistory.push(memPct);
+  if (memHistory.length > HISTORY_LEN) memHistory.shift();
+  drawSparkline('mem-spark', memHistory, 100, 'rgba(77,166,255,0.18)');
+
+  // Load
+  const l1 = d.loadavg?.['1'] ?? 0;
+  document.getElementById('load-1').textContent = fmt(l1, 2);
+  document.getElementById('load-5').textContent = fmt(d.loadavg?.['5'], 2);
+  document.getElementById('load-15').textContent = fmt(d.loadavg?.['15'], 2);
+  loadHistory.push(l1);
+  if (loadHistory.length > HISTORY_LEN) loadHistory.shift();
+  drawSparkline('load-spark', loadHistory, null, 'rgba(240,160,48,0.18)');
+
+  // Temperature
+  const temps = d.temps_c || [];
+  if (temps.length > 0) {
+    const t = temps[0];
+    const tc = t.temp_c ?? 0;
+    document.getElementById('temp-val').textContent = fmt(tc, 1) + '°';
+    document.getElementById('temp-zone').textContent = t.name || 'thermal_zone0';
+    const circumference = 188.5;
+    const pct = Math.min(tc / 100, 1);
+    const ring = document.getElementById('temp-ring');
+    ring.style.strokeDashoffset = circumference * (1 - pct);
+    ring.style.stroke = tc >= 80 ? '#e5534b' : tc >= 65 ? '#f0a030' : '#28cc6e';
+    setBadge('temp-badge', tc, 65, 80);
+  }
+
+  // Network
+  const netIfaces = d.net_io?.interfaces || {};
+  const tbody = document.getElementById('net-tbody');
+  tbody.innerHTML = '';
+  const ifNames = Object.keys(netIfaces).sort((a,b) => {
+    const aActive = (netIfaces[a].rx_bytes_per_s + netIfaces[a].tx_bytes_per_s) > 0;
+    const bActive = (netIfaces[b].rx_bytes_per_s + netIfaces[b].tx_bytes_per_s) > 0;
+    if (aActive && !bActive) return -1;
+    if (!aActive && bActive) return 1;
+    return a.localeCompare(b);
+  });
+  for (const iface of ifNames) {
+    const n = netIfaces[iface];
+    const active = (n.rx_bytes_per_s + n.tx_bytes_per_s) > 0;
+    const cls = active ? ' class="net-active"' : '';
+    const errs = (n.rx_errs||0) + (n.tx_errs||0);
+    const drops = (n.rx_drop||0) + (n.tx_drop||0);
+    tbody.innerHTML += `<tr>
+      <td${cls}>${iface}</td>
+      <td${cls}>${fmtBytes(n.rx_bytes_per_s)}</td>
+      <td${cls}>${fmtBytes(n.tx_bytes_per_s)}</td>
+      <td>${fmt(n.rx_packets_per_s, 0)}</td>
+      <td>${fmt(n.tx_packets_per_s, 0)}</td>
+      <td${errs > 0 ? ' style="color:var(--danger)"' : ''}>${errs}</td>
+      <td${drops > 0 ? ' style="color:var(--warn)"' : ''}>${drops}</td>
+    </tr>`;
+  }
+  const netTotal = d.net_io?.total || {};
+  document.getElementById('net-total-rx').textContent = fmtBytes(netTotal.rx_bytes_per_s);
+  document.getElementById('net-total-tx').textContent = fmtBytes(netTotal.tx_bytes_per_s);
+
+  // Disk
+  const diskTotal = d.disk_io?.total || {};
+  document.getElementById('disk-total-r').textContent = fmtBytes(diskTotal.read_bytes_per_s);
+  document.getElementById('disk-total-wr').textContent = fmtBytes(diskTotal.write_bytes_per_s);
+  document.getElementById('disk-total-w').textContent = fmt(diskTotal.write_ios_per_s, 0);
+
+  const diskDevs = d.disk_io?.devices || {};
+  const diskEl = document.getElementById('disk-devices');
+  diskEl.innerHTML = '';
+  let maxWrite = 1;
+  for (const dev of Object.values(diskDevs)) {
+    if (dev.write_bytes_per_s > maxWrite) maxWrite = dev.write_bytes_per_s;
+  }
+  for (const [name, dev] of Object.entries(diskDevs)) {
+    const wPct = maxWrite > 0 ? (dev.write_bytes_per_s / maxWrite) * 100 : 0;
+    diskEl.innerHTML += `<div class="disk-row">
+      <span class="disk-name">${name}</span>
+      <div class="disk-bar"><div class="disk-bar-fill" style="width:${wPct}%"></div></div>
+      <span class="disk-val">${fmtBytes(dev.write_bytes_per_s)}</span>
+    </div>`;
+  }
+
+  // Footer
+  document.getElementById('sample-sec').textContent = fmt(d.sample_sec, 1);
+  const ts = d.timestamp ? new Date(d.timestamp * 1000) : new Date();
+  document.getElementById('last-update').textContent =
+    ts.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+// ── Data fetching ──
+async function fetchData() {
+  const url = '/sysperf_json.php?_t=' + Date.now();
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    render(data);
+    document.getElementById('status-dot').style.background = 'var(--accent)';
+    document.getElementById('status-dot').style.boxShadow = '0 0 8px var(--accent)';
+  } catch (e) {
+    console.warn('[sysperf] fetch failed:', e);
+    const dot = document.getElementById('status-dot');
+    if (dot) { dot.style.background = 'var(--danger)'; dot.style.boxShadow = '0 0 8px var(--danger)'; }
+  }
+  setTimeout(fetchData, POLL_MS);
+}
+fetchData();
+</script>
+</body>
+</html>

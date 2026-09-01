@@ -1,0 +1,4 @@
+{ "id": "net.frognet.hub", "module": "family-hub", "name": "hub",
+  "title": "FrogNet Family", "hub": "system", "function": ["utilities", "system"],
+  "provides": ["launcher"], "app": "app/family_hub.py", "version": "1.0",
+  "summary": "The launcher: discovers installed modules by query and opens them." }

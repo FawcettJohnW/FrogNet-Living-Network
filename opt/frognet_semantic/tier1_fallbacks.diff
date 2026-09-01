@@ -1,0 +1,1362 @@
+Binary files src/daemon/engine/__pycache__/server.cpython-312.pyc and work/daemon/engine/__pycache__/server.cpython-312.pyc differ
+Binary files src/daemon/engine/__pycache__/session.cpython-312.pyc and work/daemon/engine/__pycache__/session.cpython-312.pyc differ
+diff -u -r --unidirectional-new-file src/daemon/engine/server.py work/daemon/engine/server.py
+--- src/daemon/engine/server.py	2026-07-22 18:55:55.000000000 +0000
++++ work/daemon/engine/server.py	2026-08-08 14:08:51.305968086 +0000
+@@ -92,14 +92,34 @@
+         accept loop.
+         """
+         peer_ip = addr[0]
+-        try:
+-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+-            conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+-            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+-        except Exception:
+-            pass
++        # [NO_FALLBACK_V1] These five setsockopt calls were in one try with
++        # `except Exception: pass`, so any of them failing silently produced a
++        # connection with no keepalive. Without keepalive the kernel cannot
++        # detect a dead remote, the session survives in ESTABLISHED forever, and
++        # the far side's RPCs rot until something else trips - which is the
++        # exact condition [STUCK_SOCK_CEILING_V1] exists to paper over on the
++        # proxy side. Each option is now applied and checked individually so the
++        # log names which one the kernel refused, and the connection is closed
++        # rather than served without the protection.
++        for _lvl, _opt, _val, _name in (
++            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1, "TCP_NODELAY"),
++            (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1, "SO_KEEPALIVE"),
++            (socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10, "TCP_KEEPIDLE"),
++            (socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5, "TCP_KEEPINTVL"),
++            (socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3, "TCP_KEEPCNT"),
++        ):
++            try:
++                conn.setsockopt(_lvl, _opt, _val)
++            except OSError as e:
++                print(f"[DAEMON-SERVER] {_name}={_val} refused on connection "
++                      f"from {peer_ip}: {type(e).__name__} errno={e.errno} "
++                      f"({e.strerror}) - closing; a session without keepalive "
++                      f"cannot detect a dead remote", flush=True)
++                try:
++                    conn.close()
++                except OSError:
++                    pass
++                return
+         try:
+             conn.settimeout(5.0)
+             frame = _recv_frame(conn)
+@@ -162,14 +182,25 @@
+         if return_ip and return_ip in local_ips():
+             trace(f"[Daemon] HELLO return_ip={return_ip} is local -> candidate "
+                   f"route loops through us; emit RTT_LOOP")
++            # [NO_FALLBACK_V1] `except OSError: pass` on this send meant that
++            # when the LOOP frame failed to go out, the prober got exactly the
++            # silence-then-timeout that this whole block was written to replace
++            # - and it got it with no record on either side, so the looping
++            # candidate stayed eligible and was installed. If the verdict cannot
++            # be delivered, that is the event worth logging.
+             try:
+                 _send_frame(conn, wrap_rtt_loop())
+-            except OSError:
+-                pass
++            except OSError as e:
++                print(f"[DAEMON-SERVER] [LOOP_DETECT_9009_V1] could not deliver "
++                      f"RTT_LOOP to {peer_ip} (return_ip={return_ip}): "
++                      f"{type(e).__name__} errno={e.errno} ({e.strerror}) - "
++                      f"the prober will see silence and may install a looping "
++                      f"candidate", flush=True)
+             try:
+                 conn.close()
+-            except OSError:
+-                pass
++            except OSError as e:
++                print(f"[DAEMON-SERVER] close failed after RTT_LOOP to "
++                      f"{peer_ip}: {e!r}", flush=True)
+             return
+ 
+         # [LINK_POTENTIAL_PING_BUG_FIX_V1 2026-05-25] Construct and
+@@ -233,18 +264,26 @@
+         _MAX_PINGS = 200
+         _BUDGET_SEC = 90.0
+         _budget_deadline = time.monotonic() + _BUDGET_SEC
++        # [NO_FALLBACK_V1] The ping phase used to end four different ways
++        # (per-frame timeout, first app frame, budget, ping cap) and report
++        # none of them; the timeout branch's own comment named two opposite
++        # causes - "the proxy is done probing" and "the link silently broke" -
++        # and took the same silent `break` for both. The phase now names how it
++        # ended, so a link that died during bring-up is distinguishable from a
++        # peer that simply had nothing to send.
++        _phase_end = "unset"
+         try:
+             conn.settimeout(45.0)
+             while ping_count < _MAX_PINGS and time.monotonic() < _budget_deadline:
+                 try:
+                     frame = _recv_frame(conn)
+                 except socket.timeout:
+-                    # No frame within the per-frame timeout.  Either
+-                    # the proxy is done probing and waiting on app
+-                    # traffic that the user hasn't generated yet, or
+-                    # the link silently broke.  Either way, the
+-                    # session-side read loop will handle whatever
+-                    # comes next; we drop out and create the session.
++                    # No frame within the per-frame timeout. Either the proxy is
++                    # done probing and is waiting on app traffic that has not
++                    # been generated yet, or the link broke. We cannot tell them
++                    # apart from here - but we can record that we could not, and
++                    # the session read loop's next outcome resolves it.
++                    _phase_end = "per_frame_timeout_45s"
+                     break
+                 pmsg = try_parse(frame)
+                 if pmsg is None or pmsg.op != OP_RTT_PING:
+@@ -252,6 +291,7 @@
+                     # session frame.  Hand it to the session via
+                     # preread.
+                     preread_frame = frame
++                    _phase_end = "first_app_frame"
+                     break
+                 # Stamp t_recv and t_reply on the same monotonic clock
+                 # we'll use throughout the daemon's process.
+@@ -265,12 +305,26 @@
+                 )
+                 _send_frame(conn, pong)
+                 ping_count += 1
++            else:
++                _phase_end = ("ping_cap" if ping_count >= _MAX_PINGS
++                              else "budget_90s")
+             conn.settimeout(None)
+         except Exception as e:
++            _phase_end = f"exception:{type(e).__name__}"
+             trace(f"[Daemon] RTT_PING phase aborted for {peer_ip}: {e!r} "
+                   f"after {ping_count} ping(s) - proceeding to session")
+-            try: conn.settimeout(None)
+-            except Exception: pass
++            try:
++                conn.settimeout(None)
++            except OSError as se:
++                # The socket refusing settimeout after an abort is not noise:
++                # it means the fd is already gone and the session about to be
++                # built on it will fail on its first read.
++                print(f"[DAEMON-SERVER] settimeout(None) failed for {peer_ip} "
++                      f"after ping-phase abort: {se!r}", flush=True)
++
++        print(f"[DAEMON-SERVER] RTT_PING phase for {peer_ip} ended: "
++              f"reason={_phase_end} pings={ping_count} "
++              f"preread={'yes' if preread_frame else 'no'}", flush=True)
+ 
+         if ping_count > 0:
+             trace(f"[Daemon] RTT_PING phase complete for {peer_ip}: "
+diff -u -r --unidirectional-new-file src/daemon/engine/session.py work/daemon/engine/session.py
+--- src/daemon/engine/session.py	2026-08-05 07:19:02.000000000 +0000
++++ work/daemon/engine/session.py	2026-08-08 14:10:09.561307604 +0000
+@@ -60,6 +60,8 @@
+ 
+ _LOCAL_GW_LOCK = threading.Lock()
+ _LOCAL_GW_CACHED = ""   # empty until first successful resolution
++_LOCAL_GW_LAST_REPORT = 0.0
++_LOCAL_GW_REPORT_EVERY_SEC = 30.0
+ 
+ def _get_local_gw() -> str:
+     """Resolve this daemon's local FrogNet IP for HELLO frames.
+@@ -80,14 +82,32 @@
+         if val:
+             _LOCAL_GW_CACHED = val
+             return _LOCAL_GW_CACHED
++        # [NO_FALLBACK_V1] See the matching block in
++        # proxy/transport_semantic.py. This value is the HELLO body the daemon
++        # sends back on the RETURN channel (set_send_sock), so 0.0.0.0 here
++        # means the proxy is told the return path belongs to nobody. The
++        # sentinel stays for the genuine startup race - this function re-polls
++        # until a real address appears - but each of the three ways to reach it
++        # now names itself, rate-limited.
++        global _LOCAL_GW_LAST_REPORT
+         try:
+             r = subprocess.run(
+-                ["getEth0Address"], capture_output=True, text=True, check=False)
++                ["getEth0Address"], capture_output=True, text=True,
++                check=False, timeout=5.0)
+             if r.returncode == 0 and r.stdout.strip():
+                 _LOCAL_GW_CACHED = r.stdout.strip()
+                 return _LOCAL_GW_CACHED
+-        except Exception:
+-            pass
++            reason = (f"getEth0Address rc={r.returncode} "
++                      f"stdout={r.stdout.strip()[:80]!r} "
++                      f"stderr={r.stderr.strip()[:120]!r}")
++        except (OSError, subprocess.SubprocessError) as e:
++            reason = f"getEth0Address did not run: {type(e).__name__}: {e}"
++        now = time.time()
++        if (now - _LOCAL_GW_LAST_REPORT) >= _LOCAL_GW_REPORT_EVERY_SEC:
++            _LOCAL_GW_LAST_REPORT = now
++            print(f"[DAEMON-SESSION] LOCAL GW UNKNOWN: {reason} - emitting "
++                  f"0.0.0.0 in the RETURN HELLO; the proxy has no return "
++                  f"address for us until this resolves", flush=True)
+         return "0.0.0.0"
+ 
+ _MAX_FRAME = int(os.environ.get("FROGNET_SEM_MAX_FRAME", "4194304"))
+@@ -98,11 +118,28 @@
+ # Default = 4 x CPU cores. On a 4-core SD card box, 16 concurrent DB queries
+ # is the sweet spot -- more just thrashes the disk and starves echo.
+ def _default_db_pool():
++    """[NO_FALLBACK_V1] Sized to the hardware. If the hardware cannot be
++    measured, say so - do not invent 16.
++
++    `except Exception: return 16` meant a node that could not read its own CPU
++    count ran a DB executor sized for a 4-core box regardless of what it
++    actually was, and every capacity question asked about that node afterwards
++    got an answer derived from a number nobody measured. On an under-sized box
++    that is disk thrash; on an over-sized one it is idle capacity. Either way
++    the log said nothing.
++
++    FROGNET_DAEMON_DB_POOL_SIZE remains the operator override and is the
++    documented answer when the count genuinely cannot be taken.
++    """
+     try:
+         import multiprocessing
+-        return multiprocessing.cpu_count() * 4
+-    except Exception:
+-        return 16
++        n = multiprocessing.cpu_count()
++    except (ImportError, NotImplementedError, OSError) as e:
++        raise RuntimeError(
++            f"cannot determine CPU count ({type(e).__name__}: {e}); the DB "
++            f"executor cannot be sized. Set FROGNET_DAEMON_DB_POOL_SIZE "
++            f"explicitly.") from e
++    return n * 4
+ 
+ _DB_POOL_SIZE = int(os.environ.get("FROGNET_DAEMON_DB_POOL_SIZE", str(_default_db_pool())))
+ _COALESCE_WAIT_SEC = float(os.environ.get("FROGNET_DAEMON_COALESCE_WAIT", "0.0"))
+@@ -255,6 +292,10 @@
+                 _hash_opcode.pop(k, None)
+ 
+ 
++class FrameMalformed(RuntimeError):
++    """A frame parsed as FNWP but its fields do not hold together."""
++
++
+ def _is_fast_frame(frame: bytes) -> bool:
+     """Peek at a frame to decide: fast executor or db executor.
+     Returns True for echo/discovery (no database).
+@@ -266,13 +307,22 @@
+ 
+     # REQ_FULL / REQ_DIFF: opcode in payload
+     if msg.payload and len(msg.payload) >= 4:
+-        try:
++        # [NO_FALLBACK_V1] `except (struct.error, IndexError): pass` fell
++        # through to the REQ_REPEAT branch below and then to "unknown -> db
++        # executor". A malformed FNWP payload was therefore reclassified as an
++        # ordinary slow-path request and executed, instead of being reported as
++        # the framing fault it is. The length guard is the real check and it is
++        # wrong: the unpack reads payload[2:6], which needs 6 bytes, not 4.
++        # That off-by-two is what made the handler necessary in the first place.
++        if len(msg.payload) >= 6:
+             opcode = struct.unpack("<I", msg.payload[2:6])[0]
+             if msg.req_hash:
+                 _remember_opcode(msg.req_hash, opcode)
+             return opcode in _FAST_OPCODES
+-        except (struct.error, IndexError):
+-            pass
++        raise FrameMalformed(
++            f"payload is {len(msg.payload)}B, need >=6 to read the opcode at "
++            f"[2:6] (op={getattr(msg, 'op', '?')} "
++            f"req_hash={(msg.req_hash or b'').hex() or 'none'})")
+ 
+     # REQ_REPEAT: check cache
+     if msg.req_hash:
+@@ -299,12 +349,26 @@
+ 
+ 
+ def _deserialize_headers(data: bytes) -> Dict[str, str]:
++    """[NO_FALLBACK_V1] Mirror of the proxy-side function in
++    proxy/transport_semantic.py. Empty means no headers; a non-empty block that
++    will not decode is a framing or codec fault and raises.
++
++    Both used to return {}, on both ends of the wire, so the two sides silently
++    agreed that a corrupt header block meant the peer had sent nothing.
++    """
+     if not data:
+         return {}
+     try:
+-        return json.loads(data.decode("utf-8"))
+-    except (ValueError, UnicodeDecodeError):
+-        return {}
++        obj = json.loads(data.decode("utf-8"))
++    except (ValueError, UnicodeDecodeError) as e:
++        raise FrameMalformed(
++            f"{len(data)}B header block did not decode: {type(e).__name__}: {e} "
++            f"(first 64B: {data[:64]!r})") from e
++    if not isinstance(obj, dict):
++        raise FrameMalformed(
++            f"{len(data)}B header block decoded to {type(obj).__name__}, "
++            f"expected object")
++    return obj
+ 
+ 
+ def _diff_encode_response(
+@@ -425,10 +489,18 @@
+         # before the read timeout fired in the server.
+         self._preread_frame: Optional[bytes] = None
+ 
++        # [NO_FALLBACK_V1] Same class as the keepalive block in
++        # daemon/engine/server.py. A refused TCP_NODELAY means every reply on
++        # this session is subject to Nagle - measurable latency on small FNWP
++        # frames, attributed to the link rather than to a socket option nobody
++        # knows was refused.
+         try:
+             self._recv_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+-        except Exception:
+-            pass
++        except OSError as e:
++            print(f"[DAEMON-SESSION] TCP_NODELAY refused on recv sock for "
++                  f"{self.peer_ip}: {type(e).__name__} errno={e.errno} "
++                  f"({e.strerror}) - small frames on this session will be "
++                  f"delayed by Nagle", flush=True)
+ 
+     def set_preread_frame(self, frame: bytes) -> None:
+         """[LINK_POTENTIAL_PING_V1] Hand the session a frame that the
+@@ -454,8 +526,11 @@
+         """
+         try:
+             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+-        except Exception:
+-            pass
++        except OSError as e:
++            print(f"[DAEMON-SESSION] TCP_NODELAY refused on RETURN send sock "
++                  f"for {self._return_ip}: {type(e).__name__} errno={e.errno} "
++                  f"({e.strerror}) - every reply on this return channel will "
++                  f"be delayed by Nagle", flush=True)
+         self._send_sock = sock
+         # Send our HELLO so the proxy knows the return channel is live
+         hello = wrap_hello(_get_local_gw())
+@@ -521,6 +596,28 @@
+                 f"dt_ms={(time.time()-start)*1000.0:.1f}"
+             )
+ 
++    def _submit_frame(self, frame: bytes, seq: int, wire_in: int,
++                      fast_exec, db_exec) -> None:
++        """Classify and dispatch one frame.
++
++        [NO_FALLBACK_V1] _is_fast_frame() now raises FrameMalformed instead of
++        silently reclassifying a broken payload as an ordinary slow-path
++        request. A malformed frame is a fact about the peer, not about this
++        session, so it is named and dropped - the session keeps reading. It is
++        NOT executed on either pool: running a request whose opcode could not be
++        read is how a framing fault turns into a database query nobody asked
++        for.
++        """
++        try:
++            fast = _is_fast_frame(frame)
++        except FrameMalformed as e:
++            print(f"[DAEMON-SESSION] MALFORMED FRAME from {self.peer_ip} "
++                  f"seq={seq} {wire_in}B dropped: {e} "
++                  f"(first 32B: {frame[:32]!r})", flush=True)
++            return
++        (fast_exec if fast else db_exec).submit(
++            self._process_frame, frame, seq, wire_in)
++
+     def _read_loop(self) -> None:
+         """Reads request frames from _recv_sock, routes to executor.
+ 
+@@ -544,10 +641,7 @@
+                 wire_in = len(frame)
+                 seq = self._request_seq
+                 self._request_seq += 1
+-                if _is_fast_frame(frame):
+-                    fast_exec.submit(self._process_frame, frame, seq, wire_in)
+-                else:
+-                    db_exec.submit(self._process_frame, frame, seq, wire_in)
++                self._submit_frame(frame, seq, wire_in, fast_exec, db_exec)
+ 
+             while self._alive:
+                 try:
+@@ -560,13 +654,16 @@
+                 seq = self._request_seq
+                 self._request_seq += 1
+ 
+-                if _is_fast_frame(frame):
+-                    fast_exec.submit(self._process_frame, frame, seq, wire_in)
+-                else:
+-                    db_exec.submit(self._process_frame, frame, seq, wire_in)
++                self._submit_frame(frame, seq, wire_in, fast_exec, db_exec)
+ 
+         except Exception as e:
+-            _debug(f"read_loop error: {e!r}")
++            # [READER_EXIT_REASON_V1] This was `_debug(...)`, which is gated on
++            # FROGNET_DEBUG and therefore invisible on every production node.
++            # A read loop that dies takes the whole session's request path with
++            # it; that must never be a silent event.
++            print(f"[DAEMON-SESSION] read_loop for {self.peer_ip} exited on "
++                  f"exception: {type(e).__name__}: {e!r} "
++                  f"seq={self._request_seq} alive={self._alive}", flush=True)
+ 
+     def _write_loop(self) -> None:
+         """Drains _reply_q, sends tagged frames on _send_sock."""
+Binary files src/daemon/upstream/__pycache__/client.cpython-312.pyc and work/daemon/upstream/__pycache__/client.cpython-312.pyc differ
+diff -u -r --unidirectional-new-file src/daemon/upstream/client.py work/daemon/upstream/client.py
+--- src/daemon/upstream/client.py	2026-07-22 18:55:55.000000000 +0000
++++ work/daemon/upstream/client.py	2026-08-08 14:10:30.345852902 +0000
+@@ -34,13 +34,40 @@
+         print(f"[DAEMON HTTP DIAG] {msg}", flush=True)
+ 
+ 
++class UpstreamSocketUnmarked(OSError):
++    """SO_MARK could not be set, so this socket would be REDIRECTed."""
++
++
+ def _create_marked_tcp_socket(host: str, port: int, timeout: float) -> socket.socket:
++    """[NO_FALLBACK_V1] SO_MARK is not decoration - it is the whole reason this
++    class exists.
++
++    The mark is what makes our own iptables REDIRECT rule skip this connection.
++    With `except Exception: pass`, a refused setsockopt produced an unmarked
++    socket that connected to 127.0.0.1:80 and got REDIRECTed straight back into
++    the proxy. The proxy sees a destination that is not one of its local
++    interface IPs and forwards it to the daemon again: an infinite
++    proxy<->daemon loop that never replies and hangs every caller at the 60s
++    safety cap. That failure mode is documented in proxy/decision.py and it is
++    indistinguishable in the log from a slow peer.
++
++    Fail here, named, before the connect.
++    """
+     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+     s.settimeout(timeout)
+     try:
+         s.setsockopt(socket.SOL_SOCKET, _SO_MARK, _MARK_VALUE)
+-    except Exception:
+-        pass
++    except OSError as e:
++        try:
++            s.close()
++        except OSError as ce:
++            print(f"[DAEMON-HTTP] close failed while discarding unmarked "
++                  f"socket to {host}:{port}: {ce!r} - fd leaked", flush=True)
++        raise UpstreamSocketUnmarked(
++            e.errno,
++            f"SO_MARK={_MARK_VALUE} refused on socket to {host}:{port} "
++            f"({type(e).__name__}: {e.strerror}) - an unmarked socket is "
++            f"REDIRECTed back into the proxy and loops") from e
+     s.connect((host, port))
+     return s
+ 
+@@ -63,11 +90,18 @@
+ 
+     conn = store.get(port)
+     if conn is not None:
++        # [NO_FALLBACK_V1] `except Exception: pass` here silently discarded a
++        # usable connection on any error and fell through to building a new
++        # one, so a bug in this probe presented as connection churn rather than
++        # as a bug. AttributeError is the only thing http.client can raise for
++        # a missing .sock, and it means the object is not a connection at all.
+         try:
+             if conn.sock is not None:
+                 return conn
+-        except Exception:
+-            pass
++        except AttributeError as e:
++            print(f"[DAEMON-HTTP] cached object for port {port} is not an "
++                  f"HTTPConnection ({e!r}) - discarding", flush=True)
++            store.pop(port, None)
+ 
+     # Create new connection
+     if port == 80:
+@@ -86,10 +120,15 @@
+         return
+     conn = store.pop(port, None)
+     if conn is not None:
++        # [NO_FALLBACK_V1] A connection that will not close is a leaked fd on a
++        # per-thread pool, and a leaked fd is what makes every later request
++        # from this thread fail for an unrelated-looking reason.
+         try:
+             conn.close()
+-        except Exception:
+-            pass
++        except OSError as e:
++            print(f"[DAEMON-HTTP] close failed for 127.0.0.1:{port} on thread "
++                  f"{threading.current_thread().name}: {e!r} - fd leaked",
++                  flush=True)
+ 
+ 
+ class HttpClient:
+Binary files src/daemon/util/__pycache__/hosts.cpython-312.pyc and work/daemon/util/__pycache__/hosts.cpython-312.pyc differ
+diff -u -r --unidirectional-new-file src/daemon/util/hosts.py work/daemon/util/hosts.py
+--- src/daemon/util/hosts.py	2026-08-03 20:55:52.000000000 +0000
++++ work/daemon/util/hosts.py	2026-08-08 14:09:22.904490064 +0000
+@@ -20,7 +20,26 @@
+ _cached_at: float = 0.0
+ 
+ 
++class HostsMapUnreadable(RuntimeError):
++    """/etc/hosts could not be read, so no name can be resolved."""
++
++
+ def _read_hosts_map() -> Dict[str, str]:
++    """[NO_FALLBACK_V1] Raise if /etc/hosts cannot be read or has no entries.
++
++    `except Exception: pass` returned {} for a read failure, which
++    _get_hosts_map() then declined to cache (it caches only truthy maps), so
++    every resolve_host() call re-read the unreadable file and every caller got
++    None - the same value as "that name is not in the file". The daemon has no
++    DNS behind this by design, so an unreadable file is a total resolution
++    outage and needs to say so once, not present as a name-by-name miss.
++
++    Names are lowered on the way in. DNS names are case-insensitive (RFC 4343)
++    and /etc/hosts is written as `FrogNetHost.BABox`, so a lookup for
++    `frognethost.babox` missed. netutil.py lowers both sides; this copy lowered
++    neither. Both sides are lowered here - lowering only one breaks the other
++    case.
++    """
+     m: Dict[str, str] = {}
+     try:
+         with open(_HOSTS_PATH, "r", encoding="utf-8", errors="replace") as f:
+@@ -35,9 +54,15 @@
+                     continue
+                 ip = parts[0].strip()
+                 for name in parts[1:]:
+-                    m[name.strip()] = ip
+-    except Exception:
+-        pass
++                    m[name.strip().lower()] = ip
++    except OSError as e:
++        raise HostsMapUnreadable(
++            f"{_HOSTS_PATH}: {type(e).__name__} errno={e.errno} ({e.strerror}) "
++            f"- no name can be resolved") from e
++    if not m:
++        raise HostsMapUnreadable(
++            f"{_HOSTS_PATH}: read OK but contains no host entries "
++            f"- no name can be resolved")
+     return m
+ 
+ 
+@@ -55,10 +80,15 @@
+         return _cached_map
+ 
+ def _is_v4(s: str) -> bool:
++    """[NO_FALLBACK_V1] inet_aton raises OSError for a malformed address and
++    that is the answer. Narrowed from `except Exception`, which also reported a
++    caller passing a non-string as "that is a hostname" and sent it to the
++    hosts map, where it missed and came back as an unresolvable name.
++    """
+     try:
+         socket.inet_aton((s or "").strip())
+         return True
+-    except Exception:
++    except OSError:
+         return False
+ 
+ def resolve_host(name: str) -> Optional[str]:
+@@ -66,10 +96,13 @@
+     Resolve a FrogNet control-plane name to IPv4.
+     Rules:
+       - If literal IPv4, return as-is.
+-      - Always consult /etc/hosts first (cached with TTL).
+-      - databasehost.frognet: /etc/hosts ONLY (no DNS).
+-      - For other names, we *can* fall back to DNS if present in deployments,
+-        but for determinism we keep hosts-only here as well.
++      - /etc/hosts ONLY (cached with TTL). No DNS, for any name: a resolver
++        answer can differ from the file the kernel and every other component
++        route by.
++      - Lookup is lowered to match the map (RFC 4343).
++
++    Raises HostsMapUnreadable if the file itself cannot be read. None means the
++    name is genuinely absent from the file - the two are different facts.
+     """
+     n = (name or "").strip()
+     if not n:
+@@ -77,10 +110,4 @@
+     if _is_v4(n):
+         return n
+ 
+-    hosts = _get_hosts_map()
+-
+-    if n == "databasehost.frognet":
+-        return hosts.get(n)
+-
+-    # For determinism, keep hosts-only here too.
+-    return hosts.get(n)
++    return _get_hosts_map().get(n.lower())
+Binary files src/proxy/__pycache__/channel_sets.cpython-312.pyc and work/proxy/__pycache__/channel_sets.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/decision.cpython-312.pyc and work/proxy/__pycache__/decision.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/netutil.cpython-312.pyc and work/proxy/__pycache__/netutil.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/policy.cpython-312.pyc and work/proxy/__pycache__/policy.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/proxy_main.cpython-312.pyc and work/proxy/__pycache__/proxy_main.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/templates.cpython-312.pyc and work/proxy/__pycache__/templates.cpython-312.pyc differ
+Binary files src/proxy/__pycache__/transport_semantic.cpython-312.pyc and work/proxy/__pycache__/transport_semantic.cpython-312.pyc differ
+diff -u -r --unidirectional-new-file src/proxy/channel_sets.py work/proxy/channel_sets.py
+--- src/proxy/channel_sets.py	2026-08-04 02:30:06.000000000 +0000
++++ work/proxy/channel_sets.py	2026-08-08 14:04:55.610452296 +0000
+@@ -192,8 +192,17 @@
+     from proxy.transport_semantic import _WORKERS, _WORKERS_LOCK
+     with _WORKERS_LOCK:
+         w = _WORKERS.pop((host, port, set_id), None)
+-    if w is not None:
+-        try:
+-            w.stop()
+-        except Exception:
+-            pass
++    if w is None:
++        return
++    # [NO_FALLBACK_V1] `except Exception: pass` here meant a failed stop() left
++    # the set's writer and cleanup threads running against sockets nobody owns,
++    # with the worker already removed from _WORKERS - unreachable, unreapable,
++    # and unlogged. That is the leak this function was written to prevent.
++    # The worker is already de-registered, so re-raising would only lose the
++    # de-registration; name it loudly instead and let the caller continue.
++    try:
++        w.stop()
++    except Exception as e:
++        print(f"[CHANNEL-SETS] LEAK: stop() failed for {host}:{port} "
++              f"set={set_id}: {e!r} - worker de-registered but its writer and "
++              f"cleanup threads may still be running", flush=True)
+diff -u -r --unidirectional-new-file src/proxy/decision.py work/proxy/decision.py
+--- src/proxy/decision.py	2026-08-04 14:25:20.000000000 +0000
++++ work/proxy/decision.py	2026-08-08 14:03:40.829374724 +0000
+@@ -127,15 +127,37 @@
+     os.environ.get("FROGNET_SENTINEL_DIR", "/etc/sentinels"), "merge_generation")
+ 
+ _merge_gen_seen: float = -1.0
++_merge_gen_absent_reported: bool = False
+ 
+ 
+ def _clear_hops_if_merged() -> None:
+-    """Drop all hop state if a merge has run since the last look."""
+-    global _merge_gen_seen
++    """Drop all hop state if a merge has run since the last look.
++
++    [NO_FALLBACK_V1] The bare `except OSError: return` here meant that if
++    MERGE_GEN was missing, hop state was never cleared for the life of the
++    process - a latched FAST/SLOW mode and an EWMA measured against a routing
++    table that merges had since rewritten, applied forever, with nothing in the
++    log. That is the same shape as the retire()-set bug: the clearing mechanism
++    ran in a process that never saw the thing it was clearing.
++
++    Missing stamp is now reported once (not once per request - this is called on
++    the per-request path) and again if it disappears after having been present,
++    which is the case that actually breaks the invariant.
++    """
++    global _merge_gen_seen, _merge_gen_absent_reported
+     try:
+         mt = os.stat(MERGE_GEN).st_mtime
+-    except OSError:
+-        return                      # no stamp yet: nothing to compare against
++    except OSError as e:
++        if not _merge_gen_absent_reported:
++            _merge_gen_absent_reported = True
++            print(f"[DECISION] [HOPS_CLEAR_EVERY_MERGE_V1] {MERGE_GEN} "
++                  f"unreadable ({type(e).__name__} errno={e.errno}) - hop state "
++                  f"(RTT EWMA + latched FAST/SLOW mode) will NOT be cleared on "
++                  f"merge; path decisions will use measurements taken against a "
++                  f"routing table that merges have since rewritten "
++                  f"(seen={_merge_gen_seen}, hops={len(_HOPS)})", flush=True)
++        return
++    _merge_gen_absent_reported = False
+     if mt != _merge_gen_seen:
+         if _merge_gen_seen >= 0.0 and _HOPS:
+             print(f"[DECISION] [HOPS_CLEAR_EVERY_MERGE_V1] merge observed - "
+@@ -263,10 +285,16 @@
+     #     REDIRECT loop this branch exists to prevent. (Reverted an attempt to send wg
+     #     through semantic for coalescing: it broke semantic-to-tunnel entirely.)
+     if _is_frognet_target(target_ip):
+-        try:
+-            _dev, _via, _out = route_get(target_ip)
+-        except Exception:
+-            _dev, _via, _out = "", "", ""
++        # [NO_FALLBACK_V1] This was `except Exception: _dev, _via, _out = "", "", ""`.
++        # `ip route get` is the authority for this branch - it decides whether a
++        # peer is on-link and therefore whether the request goes DIRECT or back
++        # through the daemon. Substituting an empty route for a failed query
++        # answers "not on-link" with no evidence, which is precisely the
++        # proxy<->daemon REDIRECT loop this branch exists to prevent, and it is
++        # silent. RouteQueryFailed now propagates to the request boundary.
++        # A genuine "Network is unreachable" is NOT an exception: route_get
++        # returns ("", "", <reason>) for that, which falls through correctly.
++        _dev, _via, _out = route_get(target_ip)
+         if (_dev and not _via and not _dev.startswith("wl")
+                 and _dev not in ("lo",) and "default" not in (_out or "")):
+             debug(f"[HOP-DEC] on-link direct: dest={target_ip} dev={_dev} -> DIRECT/HAM")
+diff -u -r --unidirectional-new-file src/proxy/netutil.py work/proxy/netutil.py
+--- src/proxy/netutil.py	2026-08-07 19:42:37.000000000 +0000
++++ work/proxy/netutil.py	2026-08-08 14:03:15.366605048 +0000
+@@ -15,6 +15,7 @@
+ from __future__ import annotations
+ 
+ import os
++import re
+ import time
+ import socket
+ import subprocess
+@@ -23,6 +24,41 @@
+ 
+ from proxy.constants import debug
+ 
++
++# -------------------------------------------------------------------
++# FAILURE TYPES
++# -------------------------------------------------------------------
++# [NO_FALLBACK_V1] Every function in this file answers a question about the
++# machine: which interfaces exist, what /etc/hosts says, which addresses are
++# ours, where a packet would go. There is no such thing as a default answer to
++# any of those. Previously each one swallowed its failure and returned a guess
++# ("eth0"/"wlan0"), an empty map, {"127.0.0.1"}, or ("", "", "") - and every
++# caller downstream treated the guess as measurement. These types exist so a
++# failed read is reported as a failed read.
++#
++# Nothing in this module catches them. The proxy converts them to an explicit
++# 503 at the request boundary (proxy_main), which names the failing read.
++
++class NetutilFailure(RuntimeError):
++    """An environment read this module depends on could not be performed."""
++
++
++class InterfaceRolesUnavailable(NetutilFailure):
++    pass
++
++
++class HostsMapUnreadable(NetutilFailure):
++    pass
++
++
++class LocalAddressesUnavailable(NetutilFailure):
++    pass
++
++
++class RouteQueryFailed(NetutilFailure):
++    pass
++
++
+ _HOSTS_PATH = "/etc/hosts"
+ # [HOSTS_ONLY_V1] ALLOW_DNS_FALLBACK is gone. It was True, and a True DNS fallback is
+ # a different routing table from the one /etc/hosts describes. There is no switch
+@@ -33,26 +69,57 @@
+ # INTERFACE ROLE LOADING (mapInterfaces)
+ # -------------------------------------------------------------------
+ 
++MAP_INTERFACES_PATH = "/usr/local/bin/mapInterfaces"
++_ROLE_KEYS = ("eth0Name", "wlan0Name", "wlan1Name")
++
++
+ def _load_interface_roles() -> Dict[str, str]:
+-    path = "/usr/local/bin/mapInterfaces"
+-    roles = {"eth0Name": "eth0", "wlan0Name": "wlan0", "wlan1Name": "wlan1"}
++    """[NO_FALLBACK_V1] mapInterfaces is the only authority for which physical
++    device carries which role. It is not a hint with defaults behind it.
++
++    This previously seeded roles with {"eth0Name": "eth0", "wlan0Name": "wlan0",
++    "wlan1Name": "wlan1"}, swallowed any read error, and then re-defaulted a
++    second time through IF_ROLES.get(key, "eth0"). A node whose mapInterfaces
++    was missing, unreadable, or silently truncated ran the proxy against
++    invented device names and built DEFAULT_UPSTREAM_IFACES out of them. On a
++    box where wlan0 is a dead built-in radio and the real uplink is
++    wlx90de80b193db, that is not a degraded mode - it is a proxy making upstream
++    decisions about interfaces that do not carry traffic, with nothing in the
++    log to say so.
++
++    Raises at import. A node that cannot name its own interfaces has no business
++    serving; systemd reports it and the failure is visible in one place.
++    """
+     try:
+-        with open(path, "r", encoding="utf-8", errors="replace") as f:
++        with open(MAP_INTERFACES_PATH, "r", encoding="utf-8", errors="replace") as f:
+             txt = f.read()
+-
+-        import re
+-        for key in ("eth0Name", "wlan0Name", "wlan1Name"):
+-            m = re.search(rf'export\s+{key}\s*=\s*"?([^"\n]+)"?', txt)
+-            if m:
+-                roles[key] = m.group(1).strip()
+-    except Exception:
+-        pass
++    except OSError as e:
++        raise InterfaceRolesUnavailable(
++            f"{MAP_INTERFACES_PATH}: {type(e).__name__} errno={e.errno} "
++            f"({e.strerror}) - interface roles unknown and will not be guessed"
++        ) from e
++
++    roles: Dict[str, str] = {}
++    missing = []
++    for key in _ROLE_KEYS:
++        m = re.search(rf'export\s+{key}\s*=\s*"?([^"\n]+)"?', txt)
++        val = m.group(1).strip() if m else ""
++        if not val:
++            missing.append(key)
++        else:
++            roles[key] = val
++    if missing:
++        raise InterfaceRolesUnavailable(
++            f"{MAP_INTERFACES_PATH}: no value for {', '.join(missing)} "
++            f"(found {sorted(roles.items())}, file is {len(txt)}B) - "
++            f"interface roles incomplete and will not be guessed")
+     return roles
+ 
++
+ IF_ROLES = _load_interface_roles()
+-ETH0_NAME = IF_ROLES.get("eth0Name", "eth0")
+-WLAN0_NAME = IF_ROLES.get("wlan0Name", "wlan0")
+-WLAN1_NAME = IF_ROLES.get("wlan1Name", "wlan1")
++ETH0_NAME = IF_ROLES["eth0Name"]
++WLAN0_NAME = IF_ROLES["wlan0Name"]
++WLAN1_NAME = IF_ROLES["wlan1Name"]
+ 
+ # Default interfaces eligible for "upstream" decisions
+ DEFAULT_UPSTREAM_IFACES: Set[str] = {WLAN0_NAME, WLAN1_NAME}
+@@ -71,10 +138,24 @@
+         return False
+     try:
+         return all(0 <= int(p) <= 255 for p in parts)
+-    except Exception:
++    except ValueError:
++        # Not a fallback: a non-numeric octet IS the answer "not a v4 literal".
++        # Narrowed from `except Exception` so a genuine bug in this predicate
++        # surfaces instead of being reported as "that string is a hostname".
+         return False
+ 
+ def _read_hosts_map() -> Dict[str, str]:
++    """[NO_FALLBACK_V1] Raise if /etc/hosts cannot be read or carries no
++    entries.
++
++    This used to `except Exception: pass` and return whatever it had, which for
++    a read failure is {}. resolve_frognet_host() then returned None, and the
++    proxy answered "Missing/invalid Host header" - a message about the request
++    for a fault in the file. That misdirection is documented in the transition
++    primer as having cost real time. An empty map is treated the same way: a
++    node with no parseable hosts entries cannot resolve anything, so every
++    request would 400 with the same wrong reason.
++    """
+     m: Dict[str, str] = {}
+     try:
+         with open(_HOSTS_PATH, "r", encoding="utf-8", errors="replace") as f:
+@@ -89,9 +170,18 @@
+                     continue
+                 ip = parts[0].strip()
+                 for name in parts[1:]:
++                    # Both sides lowered - RFC 4343. The lookup in
++                    # resolve_frognet_host() lowers too; lowering only one side
++                    # breaks the other case.
+                     m[name.strip().lower()] = ip
+-    except Exception:
+-        pass
++    except OSError as e:
++        raise HostsMapUnreadable(
++            f"{_HOSTS_PATH}: {type(e).__name__} errno={e.errno} ({e.strerror}) "
++            f"- no name can be resolved") from e
++    if not m:
++        raise HostsMapUnreadable(
++            f"{_HOSTS_PATH}: read OK but contains no host entries "
++            f"- no name can be resolved")
+     return m
+ 
+ def resolve_frognet_host(host: str) -> Optional[str]:
+@@ -132,19 +222,39 @@
+ _LOCAL_IPS_TTL_SEC = 2.0
+ 
+ def _local_ipv4_set() -> Set[str]:
++    """[NO_FALLBACK_V1] Raise if the address list cannot be enumerated.
++
++    The old body swallowed the failure and returned {"127.0.0.1"}, so
++    is_local_ip() answered False for every real address this node owns. Two
++    consumers act on that answer: decision.py routes a local target out to the
++    network instead of to Apache, and the reflect handler stops recognising its
++    own probes coming back - i.e. loop detection goes blind at exactly the
++    moment the machine is sick enough that `ip addr` failed.
++    """
+     ips: Set[str] = {"127.0.0.1"}
++    cmd = ["ip", "-4", "-o", "addr", "show"]
+     try:
+-        out = subprocess.check_output(["ip", "-4", "-o", "addr", "show"], text=True, stderr=subprocess.DEVNULL)
+-        for line in out.splitlines():
+-            parts = line.split()
+-            if "inet" in parts:
+-                i = parts.index("inet")
+-                addr = parts[i + 1]
+-                ip = addr.split("/", 1)[0].strip()
+-                if ip:
+-                    ips.add(ip)
+-    except Exception:
+-        pass
++        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
++    except (OSError, subprocess.SubprocessError) as e:
++        raise LocalAddressesUnavailable(
++            f"{' '.join(cmd)}: {type(e).__name__}: {e} - "
++            f"this node's own addresses are unknown") from e
++    if r.returncode != 0:
++        raise LocalAddressesUnavailable(
++            f"{' '.join(cmd)}: rc={r.returncode} stderr={r.stderr.strip()[:200]!r} "
++            f"- this node's own addresses are unknown")
++    for line in r.stdout.splitlines():
++        parts = line.split()
++        if "inet" in parts:
++            i = parts.index("inet")
++            addr = parts[i + 1]
++            ip = addr.split("/", 1)[0].strip()
++            if ip:
++                ips.add(ip)
++    if len(ips) == 1:
++        raise LocalAddressesUnavailable(
++            f"{' '.join(cmd)}: rc=0 but no inet address on any interface "
++            f"- this node has no IPv4 identity")
+     return ips
+ 
+ def is_local_ip(ip: Optional[str]) -> bool:
+@@ -177,7 +287,26 @@
+ 
+ 
+ def _route_get_raw(dst_ip: str) -> Tuple[str, str, str]:
+-    out = subprocess.check_output(["ip", "route", "get", dst_ip], text=True, stderr=subprocess.DEVNULL).strip()
++    """Run `ip route get`.
++
++    Two outcomes, kept distinct:
++      - rc != 0 ("Network is unreachable", "No route to host") is an ANSWER.
++        Returned as ("", "", <stderr>) so the caller sees no device AND the
++        reason, instead of a blank third element it cannot interpret.
++      - the command not running at all is a FAILURE and raises.
++    stderr is no longer sent to DEVNULL: discarding the one line that says which
++    of those two happened is what made them indistinguishable.
++    """
++    cmd = ["ip", "route", "get", dst_ip]
++    try:
++        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
++    except (OSError, subprocess.SubprocessError) as e:
++        raise RouteQueryFailed(
++            f"{' '.join(cmd)}: {type(e).__name__}: {e} - "
++            f"kernel route for {dst_ip} unknown") from e
++    if r.returncode != 0:
++        return ("", "", r.stderr.strip())
++    out = r.stdout.strip()
+     parts = out.split()
+     dev = ""
+     via = ""
+@@ -209,21 +338,35 @@
+             ev = threading.Event()
+             _route_get_inflight[dst_ip] = ev
+     if not leader:
+-        # a concurrent caller is already running the subprocess - wait for it
++        # A concurrent caller is already running the subprocess - wait for it.
+         ev.wait(timeout=_ROUTE_GET_TTL_SEC)
+         with _route_get_lock:
+             ent = _ROUTE_GET_CACHE.get(dst_ip)
+         if ent is not None:
+             return ent[1]
+-        # leader failed/timed out - fall through and compute ourselves
++        # The leader raised. Raise the same way rather than silently running a
++        # second subprocess to reach the same failure.
++        raise RouteQueryFailed(
++            f"ip route get {dst_ip}: leader query failed or did not complete "
++            f"within {_ROUTE_GET_TTL_SEC:.0f}s")
++
++    # [NO_FALLBACK_V1] This was `except Exception: result = ("", "", "")`. An
++    # empty tuple is indistinguishable from a real answer of "no device", and
++    # decision.py reads exactly that field to decide ONLINK_DIRECT. A failed
++    # `ip route get` was therefore silently routed as "not on-link".
++    #
++    # The try/finally is not error handling: it releases the followers. Without
++    # it a raising leader left its Event unset and its _route_get_inflight entry
++    # in place, so every subsequent caller for this destination blocked the full
++    # TTL and then took the (now removed) fabricate-a-route path.
+     try:
+         result = _route_get_raw(dst_ip)
+-    except Exception:
+-        result = ("", "", "")
++    finally:
++        with _route_get_lock:
++            _route_get_inflight.pop(dst_ip, None)
++        ev.set()
+     with _route_get_lock:
+         _ROUTE_GET_CACHE[dst_ip] = (time.time(), result)
+-        _route_get_inflight.pop(dst_ip, None)
+-    ev.set()
+     return result
+ 
+ def routes_for_dest(dst_ip: str) -> list:
+@@ -232,50 +375,66 @@
+       via, dev, metric (all strings, may be empty)
+ 
+     Uses 'ip route show <dst_ip>' which returns one line per route when
+-    there are ECMP or policy routes.  Falls back to route_get for
+-    single-route destinations.
++    there are ECMP or policy routes.
+ 
+-    Returns [] on any error.
++    [NO_FALLBACK_V1] Returns [] only when the kernel genuinely has no route.
++    A query that could not be run raises: "[] because there is no route" and
++    "[] because we could not ask" are opposite facts and must not share a
++    return value.
+     """
+     results = []
++    cmd = ["ip", "route", "show", dst_ip]
+     try:
+-        out = subprocess.check_output(
+-            ["ip", "route", "show", dst_ip],
+-            text=True, stderr=subprocess.DEVNULL
+-        ).strip()
+-        for line in out.splitlines():
+-            parts = line.split()
+-            entry = {"via": "", "dev": "", "metric": ""}
+-            if "via" in parts:
+-                i = parts.index("via")
+-                if i + 1 < len(parts):
+-                    entry["via"] = parts[i + 1]
+-            if "dev" in parts:
+-                i = parts.index("dev")
+-                if i + 1 < len(parts):
+-                    entry["dev"] = parts[i + 1]
+-            if "metric" in parts:
+-                i = parts.index("metric")
+-                if i + 1 < len(parts):
+-                    entry["metric"] = parts[i + 1]
+-            if entry["dev"]:
+-                results.append(entry)
+-    except Exception:
+-        pass
++        r = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
++    except (OSError, subprocess.SubprocessError) as e:
++        raise RouteQueryFailed(
++            f"{' '.join(cmd)}: {type(e).__name__}: {e}") from e
++    if r.returncode != 0:
++        raise RouteQueryFailed(
++            f"{' '.join(cmd)}: rc={r.returncode} "
++            f"stderr={r.stderr.strip()[:200]!r}")
++    for line in r.stdout.strip().splitlines():
++        parts = line.split()
++        entry = {"via": "", "dev": "", "metric": ""}
++        if "via" in parts:
++            i = parts.index("via")
++            if i + 1 < len(parts):
++                entry["via"] = parts[i + 1]
++        if "dev" in parts:
++            i = parts.index("dev")
++            if i + 1 < len(parts):
++                entry["dev"] = parts[i + 1]
++        if "metric" in parts:
++            i = parts.index("metric")
++            if i + 1 < len(parts):
++                entry["metric"] = parts[i + 1]
++        if entry["dev"]:
++            results.append(entry)
+     return results
+ 
+ 
+ def tcp_connect_rtt_ms(ip: str, port: int, timeout_sec: float = 1.0) -> Optional[float]:
++    """Measured connect RTT, or None when the connect itself did not succeed.
++
++    None is the measurement, not a fallback: refused/timed-out/unreachable is
++    what this probe exists to detect. The catch is narrowed to OSError so a
++    programming error here (bad argument types, an exhausted fd table) is not
++    reported to the caller as "that peer is unreachable" - the two look
++    identical downstream and only one is about the peer.
++    """
+     t0 = time.time()
+     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+     try:
+         s.settimeout(timeout_sec)
+         s.connect((ip, port))
+         return (time.time() - t0) * 1000.0
+-    except Exception:
++    except OSError:
+         return None
+     finally:
+         try:
+             s.close()
+-        except Exception:
+-            pass
++        except OSError as e:
++            # Not swallowed: a probe socket that will not close is an fd leak,
++            # and an fd leak is the thing that makes every later probe fail.
++            print(f"[NETUTIL] probe socket close failed for {ip}:{port}: {e!r}",
++                  flush=True)
+diff -u -r --unidirectional-new-file src/proxy/policy.py work/proxy/policy.py
+--- src/proxy/policy.py	2026-08-04 02:29:58.000000000 +0000
++++ work/proxy/policy.py	2026-08-08 14:04:32.317909352 +0000
+@@ -40,10 +40,19 @@
+ 
+ 
+ def _is_v4(s: str) -> bool:
++    """[NO_FALLBACK_V1] inet_aton raises OSError for a malformed address, and
++    that is the answer this predicate exists to give.
++
++    It was `except Exception`, which also caught TypeError (a non-str reaching
++    here from a caller bug) and reported it as "that token is not an address".
++    The consequence is not an error anywhere: _parse_cidr_or_ip returns
++    (None, None) and the policy line is dropped from SEMANTIC_OVERRIDE_IPS
++    without a word, so a host silently stops being treated as semantic.
++    """
+     try:
+         socket.inet_aton(s)
+         return True
+-    except Exception:
++    except OSError:
+         return False
+ 
+ 
+diff -u -r --unidirectional-new-file src/proxy/proxy_main.py work/proxy/proxy_main.py
+--- src/proxy/proxy_main.py	2026-08-04 02:30:06.000000000 +0000
++++ work/proxy/proxy_main.py	2026-08-08 14:04:20.528795384 +0000
+@@ -46,6 +46,7 @@
+     DEFAULT_UPSTREAM_IFACES,
+     target_host_and_ip,
+     is_local_ip,
++    NetutilFailure,
+ )
+ 
+ from proxy.decision import decide_path_for_target
+@@ -530,7 +531,25 @@
+ 
+         client_ip = self.client_address[0]
+         host_header = self.headers.get("Host", "")
+-        target_host, target_ip = target_host_and_ip(host_header)
++
++        # [NO_FALLBACK_V1] netutil no longer answers "unresolved" when what
++        # actually happened is "/etc/hosts could not be read". The two used to
++        # be the same value (None), and the proxy reported the second as
++        # "Missing/invalid Host header" - a message about the request, for a
++        # fault in the file.
++        #
++        # This is not a recovery path. Nothing is substituted and nothing
++        # continues: the request fails with the real cause named, at the one
++        # place in the process that still has a client to tell.
++        try:
++            target_host, target_ip = target_host_and_ip(host_header)
++        except NetutilFailure as e:
++            return send_error_reply(
++                self, 503, f"Node environment unreadable: {e}",
++                ctx={"method": method, "raw_path": raw_path,
++                     "client_ip": client_ip, "target_host": host_header},
++                where="netutil_environment_read",
++                extras={"exc_type": type(e).__name__, "host_header": repr(host_header)})
+ 
+         semantic_path = canonical_semantic_key(method, raw_path, body)
+ 
+@@ -547,14 +566,23 @@
+             "origin_local": origin_local,
+         }
+ 
+-        return proxy_dispatch(
+-            self,
+-            ctx,
+-            upstream_host=self._up_host,
+-            upstream_port=self._up_port,
+-            daemon_port=self._daemon_port,
+-            eligible_ifaces=self._eligible_ifaces,
+-        )
++        # The dispatch path reaches is_local_ip() and route_get() as well.
++        # Same rule, same boundary: report the failing environment read, do not
++        # continue on a substituted answer.
++        try:
++            return proxy_dispatch(
++                self,
++                ctx,
++                upstream_host=self._up_host,
++                upstream_port=self._up_port,
++                daemon_port=self._daemon_port,
++                eligible_ifaces=self._eligible_ifaces,
++            )
++        except NetutilFailure as e:
++            return send_error_reply(
++                self, 503, f"Node environment unreadable: {e}",
++                ctx=ctx, where="netutil_environment_read",
++                extras={"exc_type": type(e).__name__})
+ 
+ 
+ class FrogNetReflectHandler(BaseHTTPRequestHandler):
+@@ -615,16 +643,28 @@
+         except ValueError:
+             return self._reply(400, "REFLECT_BAD_COUNTER")
+ 
+-        target_host, target_ip = target_host_and_ip(self.headers.get("Host", ""))
+-        if not target_ip:
+-            return self._reply(400, "REFLECT_MISSING_HOST")
+-
+-        # Destination: the probe reached its target without looping through us.
+-        if is_local_ip(target_ip):
+-            return self._reply(200, f"REFLECT_OK {target_ip}")
++        # [NO_FALLBACK_V1] is_local_ip() is what makes reflection detection
++        # work. When _local_ipv4_set() swallowed its failure it returned only
++        # loopback, so every is_local_ip() below answered False and loop
++        # detection went blind - silently, and exactly when the machine was
++        # already sick enough that `ip addr` failed. A 503 that names the read
++        # is the honest answer; 400 REFLECT_MISSING_HOST would blame the probe.
++        try:
++            target_host, target_ip = target_host_and_ip(self.headers.get("Host", ""))
++            if not target_ip:
++                return self._reply(400, "REFLECT_MISSING_HOST")
++
++            # Destination: the probe reached its target without looping through us.
++            if is_local_ip(target_ip):
++                return self._reply(200, f"REFLECT_OK {target_ip}")
++
++            reflected = bool(o) and is_local_ip(o)
++        except NetutilFailure as e:
++            print(f"[REFLECT] environment read failed: {e}", flush=True)
++            return self._reply(503, f"REFLECT_ENV_UNREADABLE {type(e).__name__}")
+ 
+         # Reflection: a probe we originated has come back through us.
+-        if o and is_local_ip(o) and c > 0:
++        if reflected and c > 0:
+             print(f"[REFLECT] reject reason=reflection o={o} c={c} dest={target_ip}",
+                   flush=True)
+             return self._reply(508, f"REFLECT_LOOP o={o} dest={target_ip} c={c}")
+diff -u -r --unidirectional-new-file src/proxy/templates.py work/proxy/templates.py
+--- src/proxy/templates.py	2026-08-05 07:19:03.000000000 +0000
++++ work/proxy/templates.py	2026-08-08 14:04:47.882091616 +0000
+@@ -27,11 +27,23 @@
+ 
+ 
+ def _parse_json_body(body: bytes) -> Optional[dict]:
++    """[NO_FALLBACK_V1] None means "no body". A body that is present but does
++    not parse is a different fact and is now reported.
++
++    Both used to return None, and the caller widens either one to the coarse
++    key /api.php?entity=sensor_data&action=upsert_by_name. So a client sending
++    corrupt JSON produced a working, plausible, permanently coarse template key
++    for that whole class of write, and nothing anywhere recorded that a body had
++    failed to parse. The widening still happens - it is the correct key for an
++    unkeyable write - but it no longer happens silently.
++    """
+     if not body:
+         return None
+     try:
+         return json.loads(body.decode("utf-8", "replace"))
+-    except Exception:
++    except (ValueError, UnicodeDecodeError) as e:
++        print(f"[TEMPLATES] body present ({len(body)}B) but not JSON: {e!r} "
++              f"- semantic key widened to the un-keyed form", flush=True)
+         return None
+ 
+ 
+diff -u -r --unidirectional-new-file src/proxy/transport_semantic.py work/proxy/transport_semantic.py
+--- src/proxy/transport_semantic.py	2026-08-08 01:19:45.000000000 +0000
++++ work/proxy/transport_semantic.py	2026-08-08 14:05:50.437089512 +0000
+@@ -183,6 +183,8 @@
+ import threading
+ _LOCAL_GW_LOCK = threading.Lock()
+ _LOCAL_GW_CACHED = ""
++_LOCAL_GW_LAST_REPORT = 0.0
++_LOCAL_GW_REPORT_EVERY_SEC = 30.0
+ 
+ def _get_local_gw() -> str:
+     """Get this node's FrogNet subnet IP for HELLO frames.
+@@ -202,15 +204,38 @@
+         if val:
+             _LOCAL_GW_CACHED = val
+             return _LOCAL_GW_CACHED
++        # [NO_FALLBACK_V1] The old body was `except Exception: pass` around a
++        # check=False subprocess, then `return "0.0.0.0"` - three ways to reach
++        # the sentinel (command missing, command failed, command silent) all
++        # collapsed into one indistinguishable value, emitted with no log line.
++        #
++        # This value is not cosmetic: it becomes the HELLO body on the RETURN
++        # channel (_open_return_channel), so a peer receiving 0.0.0.0 has no
++        # usable return address and the reply path is dead. The sentinel is
++        # retained ONLY for the legitimate startup case (address not up yet -
++        # this function re-polls until it is), but every path to it now names
++        # itself, and repeats are rate-limited so a boot race does not become a
++        # log flood.
++        global _LOCAL_GW_LAST_REPORT
+         try:
+             r = subprocess.run(
+-                ["getEth0Address"], capture_output=True, text=True, check=False
++                ["getEth0Address"], capture_output=True, text=True,
++                check=False, timeout=5.0
+             )
+             if r.returncode == 0 and r.stdout.strip():
+                 _LOCAL_GW_CACHED = r.stdout.strip()
+                 return _LOCAL_GW_CACHED
+-        except Exception:
+-            pass
++            reason = (f"getEth0Address rc={r.returncode} "
++                      f"stdout={r.stdout.strip()[:80]!r} "
++                      f"stderr={r.stderr.strip()[:120]!r}")
++        except (OSError, subprocess.SubprocessError) as e:
++            reason = f"getEth0Address did not run: {type(e).__name__}: {e}"
++        now = time.time()
++        if (now - _LOCAL_GW_LAST_REPORT) >= _LOCAL_GW_REPORT_EVERY_SEC:
++            _LOCAL_GW_LAST_REPORT = now
++            print(f"[SEM-TRANSPORT] LOCAL GW UNKNOWN: {reason} - emitting "
++                  f"0.0.0.0 in HELLO/RETURN frames; peers have no return "
++                  f"address for us until this resolves", flush=True)
+         return "0.0.0.0"
+ # ---- END ----
+ 
+@@ -1712,14 +1737,38 @@
+     return TCP_TEARDOWN_WG + total + (pkts * WG_PER_PKT) + (pkts * TCP_ACK_WG)
+ 
+ 
++class HeaderBlockCorrupt(RuntimeError):
++    """A header block was present on the wire and did not decode."""
++
++
+ def _deserialize_headers(data: bytes) -> Dict[str, str]:
++    """[NO_FALLBACK_V1] Empty input means no headers, and {} is the right
++    answer for that. A non-empty block that will not decode is a framing or
++    codec fault and now raises.
++
++    This was a BARE `except:` returning {} - so a truncated or corrupt header
++    block was silently indistinguishable from a peer that sent no headers, and
++    the reply was assembled and served without Content-Type, caching hints, or
++    anything else the origin actually set. A bare except additionally swallowed
++    KeyboardInterrupt and SystemExit, so this function could eat a shutdown.
++
++    Raising is correct here: the frame is already known to be damaged, and the
++    RPC's caller has an error path that reports which peer and which request.
++    """
+     trace_enter('transport_semantic._deserialize_headers', data=repr(data))
+     if not data:
+         return {}
+     try:
+-        return json.loads(data.decode("utf-8"))
+-    except:
+-        return {}
++        obj = json.loads(data.decode("utf-8"))
++    except (ValueError, UnicodeDecodeError) as e:
++        raise HeaderBlockCorrupt(
++            f"{len(data)}B header block did not decode: {type(e).__name__}: {e} "
++            f"(first 64B: {data[:64]!r})") from e
++    if not isinstance(obj, dict):
++        raise HeaderBlockCorrupt(
++            f"{len(data)}B header block decoded to {type(obj).__name__}, "
++            f"expected object")
++    return obj
+ 
+ 
+ # ====================================================================
+@@ -1777,10 +1826,19 @@
+         _nf_mark_if_definitive(target_ip, exc)
+         raise
+     finally:
++        # [NO_FALLBACK_V1] A BoundedSemaphore raises ValueError only on release
++        # past its initial value - i.e. this target's slot accounting is already
++        # wrong. Swallowing it guarantees _PER_TARGET_MAX drifts undetected,
++        # which ends as either a phantom "per-target limit exceeded" on a
++        # healthy peer or an unbounded slot count on a sick one. Neither is
++        # diagnosable after the fact if the first symptom is never logged.
+         try:
+             sem.release()
+-        except ValueError:
+-            pass
++        except ValueError as e:
++            print(f"[SEM-TRANSPORT] SLOT ACCOUNTING BROKEN for {target_ip}: "
++                  f"release past bound ({e}) - per-target concurrency cap "
++                  f"({_PER_TARGET_MAX}) is no longer enforced for this target",
++                  flush=True)
+ 
+ 
+ # ====================================================================
+@@ -2221,7 +2279,19 @@
+     if not same_id or len(same_id) != 16:
+         return send_error_reply(handler, 503, "Invalid same_id in RESP_RAW")
+ 
+-    resp_headers = _deserialize_headers(headers_bytes)
++    try:
++        resp_headers = _deserialize_headers(headers_bytes)
++    except HeaderBlockCorrupt as e:
++        # The frame is damaged. Previously this returned {} and the body was
++        # served anyway as application/octet-stream, so a codec/framing fault
++        # presented as a successful reply with the wrong content type.
++        return send_error_reply(
++            handler, 502, f"RESP_RAW header block corrupt from {target_ip}: {e}",
++            ctx=ctx, where="resp_raw_headers_corrupt",
++            extras={"target_ip": target_ip, "status": status,
++                    "headers_len": len(headers_bytes or b""),
++                    "body_len": len(body or b""), "path": path})
++
+     ctype = resp_headers.get("Content-Type", "application/octet-stream")
+ 
+     # [NO_CACHES_V1] The body is not stored and the request is not marked seen.

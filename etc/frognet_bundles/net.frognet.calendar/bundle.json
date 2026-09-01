@@ -1,0 +1,5 @@
+{ "id": "net.frognet.calendar", "module": "family-calendar", "name": "calendar",
+  "title": "Family Calendar", "hub": "family-management", "function": ["family", "utilities"],
+  "provides": ["calendar", "presence"], "app": "app/calendar_app.py", "version": "1.0",
+  "summary": "Shared family calendar; live, no two-copy drift; local or on the mesh.",
+  "freshness": { "event": "lossless-eventual", "scaffold": "resident-once" } }

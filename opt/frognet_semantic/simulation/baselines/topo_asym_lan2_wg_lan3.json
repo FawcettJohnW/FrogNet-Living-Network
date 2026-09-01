@@ -1,0 +1,72 @@
+{
+  "committed_routes": {
+    "A1": [
+      "10.80.1.0/24 dev eth0 metric 100",
+      "10.80.2.0/24 via 10.80.2.1 dev eth1 metric 22",
+      "10.80.99.0/24 dev eth1 metric 100",
+      "10.81.1.0/24 via 10.80.99.2 dev eth1 metric 22",
+      "10.81.2.0/24 via 10.80.99.2 dev eth1 metric 22",
+      "10.81.3.0/24 via 10.80.99.2 dev eth1 metric 22"
+    ],
+    "A2": [
+      "10.250.1.0/30 dev wg0 metric 100",
+      "10.80.1.0/24 via 10.80.1.1 dev eth1 metric 22",
+      "10.80.1.0/24 via 10.80.1.1 dev wg0 metric 100",
+      "10.80.2.0/24 dev eth0 metric 100",
+      "10.80.99.0/24 dev eth1 metric 100",
+      "10.81.1.0/24 via 10.80.99.1 dev eth1 metric 100",
+      "10.81.1.0/24 via 10.81.1.1 dev wg0 metric 22",
+      "10.81.2.0/24 via 10.80.99.1 dev eth1 metric 100",
+      "10.81.2.0/24 via 10.81.2.1 dev wg0 metric 22",
+      "10.81.3.0/24 via 10.80.99.1 dev eth1 metric 100",
+      "10.81.3.0/24 via 10.81.3.1 dev wg0 metric 22"
+    ],
+    "B1": [
+      "10.250.1.0/30 dev wg0 metric 100",
+      "10.80.1.0/24 via 10.80.1.1 dev wg0 metric 22",
+      "10.80.1.0/24 via 10.81.99.2 dev eth1 metric 100",
+      "10.80.1.0/24 via 10.81.99.3 dev eth1 metric 101",
+      "10.80.2.0/24 via 10.80.2.1 dev wg0 metric 22",
+      "10.80.2.0/24 via 10.81.99.2 dev eth1 metric 100",
+      "10.80.2.0/24 via 10.81.99.3 dev eth1 metric 101",
+      "10.81.1.0/24 dev eth0 metric 100",
+      "10.81.2.0/24 via 10.81.2.1 dev eth1 metric 22",
+      "10.81.2.0/24 via 10.81.2.1 dev wg0 metric 100",
+      "10.81.3.0/24 via 10.81.3.1 dev eth1 metric 22",
+      "10.81.3.0/24 via 10.81.3.1 dev wg0 metric 100",
+      "10.81.99.0/24 dev eth1 metric 100"
+    ],
+    "B2": [
+      "10.80.1.0/24 via 10.81.99.1 dev eth1 metric 22",
+      "10.80.1.0/24 via 10.81.99.3 dev eth1 metric 100",
+      "10.80.2.0/24 via 10.81.99.1 dev eth1 metric 22",
+      "10.80.2.0/24 via 10.81.99.3 dev eth1 metric 100",
+      "10.81.1.0/24 via 10.81.1.1 dev eth1 metric 22",
+      "10.81.2.0/24 dev eth0 metric 100",
+      "10.81.3.0/24 via 10.81.3.1 dev eth1 metric 22",
+      "10.81.99.0/24 dev eth1 metric 100"
+    ],
+    "B3": [
+      "10.80.1.0/24 via 10.81.99.1 dev eth1 metric 22",
+      "10.80.1.0/24 via 10.81.99.2 dev eth1 metric 100",
+      "10.80.2.0/24 via 10.81.99.1 dev eth1 metric 22",
+      "10.80.2.0/24 via 10.81.99.2 dev eth1 metric 100",
+      "10.81.1.0/24 via 10.81.1.1 dev eth1 metric 22",
+      "10.81.2.0/24 via 10.81.2.1 dev eth1 metric 22",
+      "10.81.3.0/24 dev eth0 metric 100",
+      "10.81.99.0/24 dev eth1 metric 100"
+    ]
+  },
+  "convergence_cycles": 4,
+  "key": "topo_asym_lan2_wg_lan3",
+  "reachability": {
+    "pairs_ok": 40,
+    "pairs_total": 40,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:09",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "asymmetric: A=2-host LAN \u2194 WG \u2194 B=3-host LAN"
+}

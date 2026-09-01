@@ -1,0 +1,43 @@
+{
+  "committed_routes": {
+    "Austin": [
+      "10.122.221.0/24 via 10.122.221.1 dev wg0 metric 100",
+      "10.122.221.0/24 via 10.122.221.1 dev wg1 metric 22",
+      "10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22",
+      "10.241.241.0/24 via 10.241.241.1 dev wg1 metric 100",
+      "10.252.2.0/30 dev wg0 metric 100",
+      "10.252.3.0/30 dev wg1 metric 100",
+      "10.44.44.0/24 dev eth0 metric 100"
+    ],
+    "NewYork": [
+      "10.122.221.0/24 dev eth0 metric 100",
+      "10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22",
+      "10.241.241.0/24 via 10.241.241.1 dev wg1 metric 100",
+      "10.252.1.0/30 dev wg0 metric 100",
+      "10.252.3.0/30 dev wg1 metric 100",
+      "10.44.44.0/24 via 10.44.44.1 dev wg0 metric 100",
+      "10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22"
+    ],
+    "Seattle": [
+      "10.122.221.0/24 via 10.122.221.1 dev wg0 metric 22",
+      "10.122.221.0/24 via 10.122.221.1 dev wg1 metric 100",
+      "10.241.241.0/24 dev eth0 metric 100",
+      "10.252.1.0/30 dev wg0 metric 100",
+      "10.252.2.0/30 dev wg1 metric 100",
+      "10.44.44.0/24 via 10.44.44.1 dev wg0 metric 100",
+      "10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22"
+    ]
+  },
+  "convergence_cycles": 3,
+  "key": "topo_pond_full_mesh",
+  "reachability": {
+    "pairs_ok": 12,
+    "pairs_total": 12,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:04",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "3-site pond (full WG mesh)"
+}

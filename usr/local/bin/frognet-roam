@@ -1,0 +1,501 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+#===============================================================================
+# frognet-roam — Monitor upstream WiFi signal and roam to better FrogNet nodes
+#
+# Runs every 15 minutes via cron. Logic:
+#
+#   1. Check signal strength on current upstream wlan0 connection
+#   2. If >= 40%: do nothing
+#   3. If < 40% and idle: scan for better FrogNet upstreams
+#   4. If < 10%: scan regardless of idle state
+#   5. Try known networks first, then probe unknowns with current PSK
+#   6. Validate candidates: 10.x.x.x DHCP + frognet_echo.php response
+#   7. If confirmed FrogNet and better signal, switch
+#   8. Auto-add newly discovered FrogNet networks to known list
+#
+# Cron entry (installed by install-roaming.sh):
+#   */15 * * * * /usr/local/bin/frognet-roam
+#
+# This script is STANDALONE and does not affect the eth0/wlan0 identity logic.
+# It only operates when wlan0 is in station mode (wired mode, eth0 has identity).
+#===============================================================================
+
+
+#-------------------------------------------------------------------------------
+# Configuration
+#-------------------------------------------------------------------------------
+KNOWN_NETWORKS="/etc/frognet/known_networks.conf"
+LOCKFILE="/tmp/frognet-roam.lock"
+LOG_TAG="frognet-roam"
+IDLE_THRESHOLD_BYTES=5000     # bytes/sec — below this = idle
+IDLE_SAMPLE_SECONDS=5         # how long to measure for idle detection
+SIGNAL_WARN=40                # percent — below this, search when idle
+SIGNAL_CRITICAL=10            # percent — below this, search always
+CONNECT_TIMEOUT=15            # seconds to wait for DHCP
+ECHO_TIMEOUT=5                # seconds to wait for frognet_echo response
+
+# Interface for upstream — only wlan0 in station mode
+UPSTREAM_IFACE="wlan0"
+
+#-------------------------------------------------------------------------------
+# Logging
+#-------------------------------------------------------------------------------
+log() {
+
+# [A_MISSING_THING_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] Both roam paths guarded on
+# /usr/local/bin/sync_interfaces before triggering discovery. No such file has ever
+# shipped, so the test was permanently false: the node roamed onto a new network
+# and never merged, while the log said "Roamed to <ssid>". Same defect as
+# frognet-netstart's guard on /usr/local/bin/runMerge. The merge controller is
+# runMerge.bash; its absence is fatal, not a branch to skip.
+_trigger_discovery() {
+    local _merge=/usr/local/bin/runMerge.bash
+    if [[ ! -x "$_merge" ]]; then
+        log "FATAL: merge controller $_merge missing - roamed but cannot trigger discovery"
+        return 1
+    fi
+    log "Triggering discovery..."
+    "$_merge" &
+}
+    logger -t "$LOG_TAG" -- "$1"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $1"
+}
+
+#-------------------------------------------------------------------------------
+# Lock — prevent overlapping runs
+#-------------------------------------------------------------------------------
+acquire_lock() {
+    exec 200>"$LOCKFILE"
+    if ! flock -n 200; then
+        log "Another instance is running, exiting"
+        exit 0
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Precondition check: only run when wlan0 is in station mode
+#-------------------------------------------------------------------------------
+check_preconditions() {
+    # If hostapd is running on wlan0, we're in AP mode — don't roam
+    if systemctl is-active --quiet hostapd; then
+        log "wlan0 is in AP mode (hostapd active), skipping roam check"
+        exit 0
+    fi
+
+    # If wlan0 doesn't exist, nothing to do
+    if [[ ! -d /sys/class/net/${UPSTREAM_IFACE} ]]; then
+        log "${UPSTREAM_IFACE} not found, skipping"
+        exit 0
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Get current signal strength as percentage (0-100)
+# Maps dBm: -30 = 100%, -90 = 0%
+#-------------------------------------------------------------------------------
+get_signal_percent() {
+    local dbm
+    dbm=$(iw dev "$UPSTREAM_IFACE" link 2>/dev/null \
+        | grep 'signal:' \
+        | awk '{print $2}')
+
+    if [[ -z "$dbm" ]]; then
+        echo "0"  # Not connected
+        return
+    fi
+
+    # Linear map: -30dBm=100%, -90dBm=0%
+    local pct=$(( (dbm + 90) * 100 / 60 ))
+    if (( pct > 100 )); then pct=100; fi
+    if (( pct < 0 )); then pct=0; fi
+    echo "$pct"
+}
+
+#-------------------------------------------------------------------------------
+# Get current SSID
+#-------------------------------------------------------------------------------
+get_current_ssid() {
+    iw dev "$UPSTREAM_IFACE" link 2>/dev/null \
+        | grep 'SSID:' \
+        | sed 's/.*SSID: //'
+}
+
+#-------------------------------------------------------------------------------
+# Check if the network is idle (low traffic on tunnel interfaces)
+#-------------------------------------------------------------------------------
+is_idle() {
+    # Sum rx+tx bytes across all tunnel/tun interfaces
+    local bytes_before=0
+    local bytes_after=0
+
+    for iface in /sys/class/net/tun* /sys/class/net/ham*; do
+        [[ -d "$iface" ]] || continue
+        local name=$(basename "$iface")
+        local rx=$(cat "/sys/class/net/${name}/statistics/rx_bytes" 2>/dev/null || echo 0)
+        local tx=$(cat "/sys/class/net/${name}/statistics/tx_bytes" 2>/dev/null || echo 0)
+        bytes_before=$(( bytes_before + rx + tx ))
+    done
+
+    sleep "$IDLE_SAMPLE_SECONDS"
+
+    for iface in /sys/class/net/tun* /sys/class/net/ham*; do
+        [[ -d "$iface" ]] || continue
+        local name=$(basename "$iface")
+        local rx=$(cat "/sys/class/net/${name}/statistics/rx_bytes" 2>/dev/null || echo 0)
+        local tx=$(cat "/sys/class/net/${name}/statistics/tx_bytes" 2>/dev/null || echo 0)
+        bytes_after=$(( bytes_after + rx + tx ))
+    done
+
+    local delta=$(( bytes_after - bytes_before ))
+    local rate=$(( delta / IDLE_SAMPLE_SECONDS ))
+
+    if (( rate < IDLE_THRESHOLD_BYTES )); then
+        log "Network idle (${rate} bytes/sec)"
+        return 0
+    else
+        log "Network busy (${rate} bytes/sec)"
+        return 1
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Scan for available networks, return sorted by signal strength (best first)
+# Output: SSID\tSIGNAL_DBM per line
+#-------------------------------------------------------------------------------
+scan_networks() {
+    # Scan — may take a few seconds
+    local scan_output
+    scan_output=$(iw dev "$UPSTREAM_IFACE" scan 2>/dev/null) || {
+        log "WiFi scan failed"
+        return 1
+    }
+
+    # Parse: extract SSID and signal pairs, sort by signal (best first)
+    echo "$scan_output" \
+        | awk '
+            /^BSS / { bss=$2 }
+            /signal:/ { signal=$2 }
+            /SSID:/ {
+                ssid=$0
+                sub(/.*SSID: /, "", ssid)
+                if (ssid != "" && signal != "") {
+                    print ssid "\t" signal
+                }
+                signal=""
+            }
+        ' \
+        | sort -t$'\t' -k2 -rn \
+        | awk -F'\t' '!seen[$1]++ { print }'  # deduplicate SSIDs, keep strongest
+}
+
+#-------------------------------------------------------------------------------
+# Read known networks file into arrays
+#-------------------------------------------------------------------------------
+load_known_networks() {
+    KNOWN_SSIDS=()
+    KNOWN_PSKS=()
+
+    if [[ ! -f "$KNOWN_NETWORKS" ]]; then
+        return
+    fi
+
+    while IFS= read -r line; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$line" ]] && continue
+
+        local ssid="${line%%:*}"
+        local psk="${line#*:}"
+
+        KNOWN_SSIDS+=("$ssid")
+        KNOWN_PSKS+=("$psk")
+    done < "$KNOWN_NETWORKS"
+}
+
+#-------------------------------------------------------------------------------
+# Get PSK for a known network, or empty string if unknown
+#-------------------------------------------------------------------------------
+get_known_psk() {
+    local target_ssid="$1"
+    for i in "${!KNOWN_SSIDS[@]}"; do
+        if [[ "${KNOWN_SSIDS[$i]}" == "$target_ssid" ]]; then
+            echo "${KNOWN_PSKS[$i]}"
+            return 0
+        fi
+    done
+    echo ""
+    return 1
+}
+
+#-------------------------------------------------------------------------------
+# Get the current node's FrogNet PSK (from wpa_supplicant config or hostapd template)
+#-------------------------------------------------------------------------------
+get_current_psk() {
+    # Try hostapd template first (has the AP passphrase)
+    if [[ -f /etc/hostapd/hostapd.conf.template ]]; then
+        grep '^wpa_passphrase=' /etc/hostapd/hostapd.conf.template \
+            | cut -d= -f2
+        return
+    fi
+
+    # Fallback: current wpa_supplicant connection
+    if [[ -f /etc/wpa_supplicant/wpa_supplicant.conf ]]; then
+        grep 'psk=' /etc/wpa_supplicant/wpa_supplicant.conf \
+            | head -1 \
+            | sed 's/.*psk="//' | sed 's/"//'
+        return
+    fi
+
+    echo ""
+}
+
+#-------------------------------------------------------------------------------
+# Try connecting to a network and validate it's a FrogNet node
+# Returns 0 if valid FrogNet, 1 otherwise
+# Sets VALIDATED_NODE_NAME on success
+#-------------------------------------------------------------------------------
+try_and_validate() {
+    local ssid="$1"
+    local psk="$2"
+
+    log "Trying SSID: $ssid"
+
+    # Save current connection state so we can restore on failure
+    local current_ssid
+    current_ssid=$(get_current_ssid)
+
+    # Build temporary wpa_supplicant config
+    local tmp_conf="/tmp/frognet-roam-wpa.conf"
+    wpa_passphrase "$ssid" "$psk" > "$tmp_conf" 2>/dev/null || {
+        log "Failed to generate wpa_supplicant config for $ssid"
+        rm -f "$tmp_conf"
+        return 1
+    }
+
+    # Disconnect current
+    wpa_cli -i "$UPSTREAM_IFACE" disconnect >/dev/null 2>&1 || true
+
+    # Connect to candidate
+    pkill -f "wpa_supplicant.*${UPSTREAM_IFACE}" 2>/dev/null || true
+    sleep 1
+    wpa_supplicant -B -i "$UPSTREAM_IFACE" -c "$tmp_conf"
+
+    # Wait for DHCP
+    dhclient -timeout "$CONNECT_TIMEOUT" "$UPSTREAM_IFACE" 2>/dev/null || {
+        log "DHCP failed on $ssid"
+        restore_connection "$current_ssid"
+        rm -f "$tmp_conf"
+        return 1
+    }
+
+    # Check 1: Did we get a 10.x.x.x address?
+    local assigned_ip
+    assigned_ip=$(ip -4 addr show dev "$UPSTREAM_IFACE" \
+        | grep -oP '10\.\d+\.\d+\.\d+' \
+        | head -1)
+
+    if [[ -z "$assigned_ip" ]]; then
+        log "$ssid: No 10.x.x.x address received, not FrogNet"
+        restore_connection "$current_ssid"
+        rm -f "$tmp_conf"
+        return 1
+    fi
+    log "$ssid: Got $assigned_ip — checking frognet_echo..."
+
+    # Check 2: Hit frognet_echo.php on the gateway
+    local gateway
+    gateway=$(ip route show dev "$UPSTREAM_IFACE" default \
+        | awk '{print $3}' \
+        | head -1)
+
+    if [[ -z "$gateway" ]]; then
+        # Try the .1 of whatever subnet we got
+        gateway=$(echo "$assigned_ip" | sed 's/\.[0-9]*$/.1/')
+    fi
+
+    local echo_response
+    echo_response=$(curl -s --connect-timeout "$ECHO_TIMEOUT" \
+        --max-time "$ECHO_TIMEOUT" \
+        "http://${gateway}/frognet_echo.php" 2>/dev/null) || {
+        log "$ssid: frognet_echo failed"
+        restore_connection "$current_ssid"
+        rm -f "$tmp_conf"
+        return 1
+    }
+
+    # Validate echo response format: NodeName,10.101.x.1,iface_ip,gw_ip
+    if [[ "$echo_response" =~ ^[A-Za-z0-9]+,10\.101\.[0-9]+\.1, ]]; then
+        VALIDATED_NODE_NAME=$(echo "$echo_response" | cut -d',' -f1)
+        log "$ssid: Confirmed FrogNet node '$VALIDATED_NODE_NAME'"
+        rm -f "$tmp_conf"
+        return 0
+    else
+        log "$ssid: frognet_echo response invalid: $echo_response"
+        restore_connection "$current_ssid"
+        rm -f "$tmp_conf"
+        return 1
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Restore previous connection
+#-------------------------------------------------------------------------------
+restore_connection() {
+    local prev_ssid="$1"
+    log "Restoring connection to: $prev_ssid"
+
+    pkill -f "wpa_supplicant.*${UPSTREAM_IFACE}" 2>/dev/null || true
+    sleep 1
+
+    if [[ -f /etc/wpa_supplicant/wpa_supplicant.conf ]]; then
+        wpa_supplicant -B -i "$UPSTREAM_IFACE" -c /etc/wpa_supplicant/wpa_supplicant.conf
+        dhclient "$UPSTREAM_IFACE" 2>/dev/null || true
+    fi
+}
+
+#-------------------------------------------------------------------------------
+# Add a newly discovered FrogNet network to the known list
+#-------------------------------------------------------------------------------
+add_to_known() {
+    local ssid="$1"
+    local psk="$2"
+
+    # Check if already known
+    if grep -q "^${ssid}:" "$KNOWN_NETWORKS" 2>/dev/null; then
+        return
+    fi
+
+    echo "${ssid}:${psk}" >> "$KNOWN_NETWORKS"
+    log "Added $ssid to known networks"
+}
+
+#-------------------------------------------------------------------------------
+# Make the active wpa_supplicant config permanent for the new network
+#-------------------------------------------------------------------------------
+commit_connection() {
+    local ssid="$1"
+    local psk="$2"
+
+    # Overwrite wpa_supplicant.conf with the new network
+    wpa_passphrase "$ssid" "$psk" > /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null
+
+    log "Committed $ssid as active upstream"
+}
+
+#===============================================================================
+# Main
+#===============================================================================
+
+acquire_lock
+check_preconditions
+
+CURRENT_SSID=$(get_current_ssid)
+SIGNAL=$(get_signal_percent)
+log "Current upstream: SSID=$CURRENT_SSID signal=${SIGNAL}%"
+
+# Happy path — signal is fine
+if (( SIGNAL >= SIGNAL_WARN )); then
+    log "Signal OK (${SIGNAL}%), no action needed"
+    exit 0
+fi
+
+# Signal degraded — determine if we should search
+SHOULD_SEARCH=false
+
+if (( SIGNAL < SIGNAL_CRITICAL )); then
+    log "Signal CRITICAL (${SIGNAL}%), searching regardless of traffic"
+    SHOULD_SEARCH=true
+elif is_idle; then
+    log "Signal degraded (${SIGNAL}%) and network idle, searching"
+    SHOULD_SEARCH=true
+else
+    log "Signal degraded (${SIGNAL}%) but network busy, deferring search"
+    exit 0
+fi
+
+if ! $SHOULD_SEARCH; then
+    exit 0
+fi
+
+# Scan available networks
+log "Scanning for available networks..."
+SCAN_RESULTS=$(scan_networks) || {
+    log "Scan failed, exiting"
+    exit 1
+}
+
+if [[ -z "$SCAN_RESULTS" ]]; then
+    log "No networks found"
+    exit 0
+fi
+
+log "Found networks:"
+echo "$SCAN_RESULTS" | while IFS=$'\t' read -r ssid sig; do
+    log "  $ssid (${sig} dBm)"
+done
+
+load_known_networks
+CURRENT_PSK=$(get_current_psk)
+
+# Phase 1: Try known networks (sorted by scan signal strength)
+log "--- Phase 1: Known networks ---"
+while IFS=$'\t' read -r ssid sig; do
+    [[ "$ssid" == "$CURRENT_SSID" ]] && continue  # skip current
+
+    psk=$(get_known_psk "$ssid") || continue       # skip unknown
+
+    log "Known network: $ssid at ${sig} dBm"
+
+    if try_and_validate "$ssid" "$psk"; then
+        commit_connection "$ssid" "$psk"
+        log "=== Roamed to $ssid (FrogNet node: $VALIDATED_NODE_NAME) ==="
+
+        # Trigger discovery on the new network
+        _trigger_discovery
+        exit 0
+    fi
+done <<< "$SCAN_RESULTS"
+
+# Phase 2: Try unknown networks with current FrogNet PSK
+if [[ -n "$CURRENT_PSK" ]]; then
+    log "--- Phase 2: Probing unknown networks with FrogNet PSK ---"
+    while IFS=$'\t' read -r ssid sig; do
+        [[ "$ssid" == "$CURRENT_SSID" ]] && continue
+
+        # Skip if already tried as known
+        if get_known_psk "$ssid" >/dev/null 2>&1; then
+            continue
+        fi
+
+        log "Probing unknown: $ssid at ${sig} dBm"
+
+        if try_and_validate "$ssid" "$CURRENT_PSK"; then
+            add_to_known "$ssid" "$CURRENT_PSK"
+            commit_connection "$ssid" "$CURRENT_PSK"
+            log "=== Roamed to $ssid (FrogNet node: $VALIDATED_NODE_NAME, auto-discovered) ==="
+
+            _trigger_discovery
+            exit 0
+        fi
+    done <<< "$SCAN_RESULTS"
+fi
+
+log "No better FrogNet upstream found, staying on $CURRENT_SSID"
+exit 0

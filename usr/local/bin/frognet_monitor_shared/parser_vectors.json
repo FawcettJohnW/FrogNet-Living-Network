@@ -1,0 +1,170 @@
+{
+  "_comment": [
+    "Shared parser vectors for every FrogNet monitor implementation.",
+    "",
+    "frognet_monitor_py, frognet_monitor_cs and frognet_monitor_cpp all read THIS",
+    "file. A port that agrees with the Python by inspection is a claim; a port that",
+    "passes these is a result. The three parsers below are where an implementation",
+    "silently diverges -- C#'s String.Split with RemoveEmptyEntries shifts every",
+    "later field left when one is empty, and C's strtok collapses adjacent",
+    "delimiters the same way. Both produce a plausible wrong answer.",
+    "",
+    "Add a case here first, then make the implementations pass it."
+  ],
+
+  "echo_line": {
+    "_comment": [
+      "getFrogNet.bash / frognet_echo.php return ONE CSV line:",
+      "    fqdn,eth0IP,wlan0IP,wlan1IP",
+      "[IDENTITY_FAILS_LOUD_V1] Four fields and exit 0, or nothing and non-zero.",
+      "There is no degraded answer and no fallback name -- if a node cannot state",
+      "its identity it says nothing, and a client treats that as failure.",
+      "An empty INTERFACE field is accurate data (Seattle2 has no carrier on eth0).",
+      "An empty NAME field is a failure."
+    ],
+    "cases": [
+      {
+        "name": "all four fields present",
+        "input": "Seattle6,10.160.160.1,10.160.160.1,10.250.250.221",
+        "ok": true,
+        "domain": "Seattle6",
+        "eth0": "10.160.160.1",
+        "wlan0": "10.160.160.1",
+        "wlan1": "10.250.250.221"
+      },
+      {
+        "name": "empty eth0 is DATA, not failure - no carrier is a real answer",
+        "input": "Seattle2,,10.120.120.1,10.160.160.47",
+        "ok": true,
+        "domain": "Seattle2",
+        "eth0": "",
+        "wlan0": "10.120.120.1",
+        "wlan1": "10.160.160.47"
+      },
+      {
+        "name": "trailing empty field must not shorten the line",
+        "input": "New-York-1,192.168.1.245,10.102.60.1,",
+        "ok": true,
+        "domain": "New-York-1",
+        "eth0": "192.168.1.245",
+        "wlan0": "10.102.60.1",
+        "wlan1": ""
+      },
+      {
+        "name": "two adjacent empties must not collapse",
+        "input": "BABox,,,10.155.155.1",
+        "ok": true,
+        "domain": "BABox",
+        "eth0": "",
+        "wlan0": "",
+        "wlan1": "10.155.155.1"
+      },
+      {
+        "name": "trailing newline tolerated",
+        "input": "Seattle3,10.130.130.1,10.130.130.1,10.250.250.191\n",
+        "ok": true,
+        "domain": "Seattle3",
+        "eth0": "10.130.130.1",
+        "wlan0": "10.130.130.1",
+        "wlan1": "10.250.250.191"
+      },
+      {
+        "name": "empty body means identity failed",
+        "input": "",
+        "ok": false
+      },
+      {
+        "name": "whitespace-only body means identity failed",
+        "input": "   \n",
+        "ok": false
+      },
+      {
+        "name": "empty name field is a failure even with fields present",
+        "input": ",10.120.120.1,10.120.120.1,10.160.160.47",
+        "ok": false
+      },
+      {
+        "name": "fewer than four fields is a failure",
+        "input": "Seattle5,10.250.250.1",
+        "ok": false
+      }
+    ]
+  },
+
+  "etc_hosts": {
+    "_comment": [
+      "Mirrors discovery.parse_etc_hosts_content: 10/8 only, excluding",
+      "10.253.0.0/16 (tunnel transit) and 10.254.0.0/16 (chorus virtual),",
+      "and requiring a FrogNetHost.<name> alias. The name is the part AFTER",
+      "'FrogNetHost.' -- every node's hostname is FrogNetHost, so the alias",
+      "suffix is the only thing that identifies which node a line describes."
+    ],
+    "cases": [
+      {
+        "name": "standard node lines",
+        "input": "127.0.0.1 localhost\n10.120.120.1 FrogNetHost.Seattle2\n10.160.160.1 FrogNetHost.Seattle6\n",
+        "expect": [["10.120.120.1", "Seattle2"], ["10.160.160.1", "Seattle6"]]
+      },
+      {
+        "name": "tunnel transit 10.253/16 excluded",
+        "input": "10.253.203.85 FrogNetHost.Whatever\n10.130.130.1 FrogNetHost.Seattle3\n",
+        "expect": [["10.130.130.1", "Seattle3"]]
+      },
+      {
+        "name": "chorus virtual 10.254/16 excluded",
+        "input": "10.254.1.9 FrogNetHost.Chorus\n10.102.60.1 FrogNetHost.New-York-1\n",
+        "expect": [["10.102.60.1", "New-York-1"]]
+      },
+      {
+        "name": "non-10/8 excluded",
+        "input": "192.168.1.245 FrogNetHost.Nope\n10.155.155.1 FrogNetHost.BABox\n",
+        "expect": [["10.155.155.1", "BABox"]]
+      },
+      {
+        "name": "line without the FrogNetHost alias is not a node",
+        "input": "10.120.120.63 brokerhost.seattle2\n10.250.250.1 FrogNetHost.Seattle5\n",
+        "expect": [["10.250.250.1", "Seattle5"]]
+      },
+      {
+        "name": "comments and blanks skipped",
+        "input": "# a comment\n\n   \n10.199.199.1 FrogNetHost.BAMacBook\n",
+        "expect": [["10.199.199.1", "BAMacBook"]]
+      },
+      {
+        "name": "role names are not nodes",
+        "input": "10.199.199.1 databasehost.frognet\n10.250.250.1 mediahost.frognet\n10.160.160.1 FrogNetHost.Seattle6\n",
+        "expect": [["10.160.160.1", "Seattle6"]]
+      },
+      {
+        "name": "extra aliases before the FrogNetHost one",
+        "input": "10.120.120.1 seattle2 alias2 FrogNetHost.Seattle2\n",
+        "expect": [["10.120.120.1", "Seattle2"]]
+      },
+      {
+        "name": "tabs and multiple spaces",
+        "input": "10.130.130.1\t\tFrogNetHost.Seattle3\n",
+        "expect": [["10.130.130.1", "Seattle3"]]
+      }
+    ]
+  },
+
+  "dot_one_of": {
+    "_comment": [
+      "A client derives the identity endpoint from its OWN address: replace the",
+      "last octet with 1 and echo that host. 10.253/16 and 10.254/16 are carried",
+      "by a node but are not the node, so an address in either is not a basis for",
+      "identity and must be rejected rather than mapped."
+    ],
+    "cases": [
+      { "name": "DHCP client on a pond",   "input": "10.120.120.63",  "ok": true,  "expect": "10.120.120.1" },
+      { "name": "a node's own .1",         "input": "10.160.160.1",   "ok": true,  "expect": "10.160.160.1" },
+      { "name": "a node's secondary .2",   "input": "10.130.130.2",   "ok": true,  "expect": "10.130.130.1" },
+      { "name": "high client octet",       "input": "10.250.250.221", "ok": true,  "expect": "10.250.250.1" },
+      { "name": "tunnel transit rejected", "input": "10.253.203.85",  "ok": false },
+      { "name": "chorus virtual rejected", "input": "10.254.1.9",     "ok": false },
+      { "name": "non-10/8 rejected",       "input": "192.168.1.245",  "ok": false },
+      { "name": "loopback rejected",       "input": "127.0.0.1",      "ok": false },
+      { "name": "malformed rejected",      "input": "10.120.120",     "ok": false }
+    ]
+  }
+}

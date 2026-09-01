@@ -1,0 +1,616 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# frognet-tunnel-host — Advertise a FrogNet tunnel channel
+#
+# Reads broker URL and group token from /etc/frognet/tunnel.conf.
+# Opens a websocket to the broker, advertises this node as a channel host.
+# When a joiner connects, the broker pushes WG config and this script
+# brings up the tunnel automatically.
+#
+# Usage:
+#   frognet-tunnel-host <channel_name> <subnet1> [subnet2...]
+#
+# Example:
+#   frognet-tunnel-host ironbox 10.101.20.0/24
+#
+# Runs as a foreground daemon. Use systemd or & to background.
+# Callable from PHP: exec('frognet-tunnel-host ironbox 10.101.20.0/24 &');
+#
+# Output is JSON on stdout for PHP consumption. Logs go to stderr.
+#
+# NEVER masks errors. All failures visible.
+# =============================================================================
+
+trap 'echo "{\"error\":\"Fatal error on line $LINENO\"}" >&2; cleanup; exit 1' ERR
+
+CONF_FILE="/etc/frognet/tunnel.conf"
+CONF_DIR="/etc/wireguard"
+STATE_DIR="/var/lib/frognet-tunnel"
+PID_DIR="/run/frognet"
+LABEL="${FROGNET_TUNNEL_LABEL:-$(hostname)}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >&2; }
+
+get_local_gateway() {
+    local network
+    network=$(echo "$1" | cut -d/ -f1)
+    echo "${network%.*}.1"
+}
+
+find_next_wg_iface() {
+    local n=0
+    while ip link show "wg${n}" >/dev/null 2>&1; do
+        n=$((n + 1))
+        if [ "$n" -gt 16 ]; then
+            echo "ERROR: Too many WireGuard interfaces" >&2
+            exit 1
+        fi
+    done
+    echo "wg${n}"
+}
+
+cleanup() {
+    log "Shutting down..."
+    # Tear down any tunnels we created
+    if [ -d "$STATE_DIR/active" ]; then
+        for f in "$STATE_DIR/active/"*.json; do
+            [ -f "$f" ] || continue
+            local iface
+            iface=$(jq -r '.interface' "$f" 2>/dev/null || true)
+            if [ -n "$iface" ] && [ "$iface" != "null" ]; then
+                wg-quick down "$iface" 2>/dev/null || true
+                log "Torn down $iface"
+            fi
+            rm -f "$f"
+        done
+    fi
+    # Remove PID file
+    rm -f "${PID_DIR}/${CHANNEL_NAME}.pid" 2>/dev/null || true
+}
+
+trap cleanup EXIT INT TERM
+
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+
+if [ "$#" -lt 2 ]; then
+    echo '{"error":"Usage: frognet-tunnel-host <channel_name> <subnet1> [subnet2...]"}'
+    exit 1
+fi
+
+CHANNEL_NAME="$1"
+shift
+SUBNETS=("$@")
+
+LOCAL_GW=$(get_local_gateway "${SUBNETS[0]}")
+
+# ---------------------------------------------------------------------------
+# Load config
+# ---------------------------------------------------------------------------
+
+if [ ! -f "$CONF_FILE" ]; then
+    echo '{"error":"Not configured. Run frognet-tunnel-setup first."}'
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$CONF_FILE"
+
+if [ -z "${GROUP_TOKEN:-}" ] || [ -z "${BROKER_URL:-}" ]; then
+    echo '{"error":"Invalid config. Run frognet-tunnel-setup again."}'
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Prerequisites
+# ---------------------------------------------------------------------------
+
+for cmd in wg curl jq ip python3; do
+    if ! command -v "$cmd" >/dev/null; then
+        echo "{\"error\":\"'$cmd' not found\"}"
+        exit 1
+    fi
+done
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo '{"error":"Must run as root"}'
+    exit 1
+fi
+
+mkdir -p "$CONF_DIR" "$STATE_DIR/active" "$PID_DIR"
+
+# Get WG pubkey
+PUBKEY=$(cat "${STATE_DIR}/node_public.key" 2>/dev/null || true)
+if [ -z "$PUBKEY" ]; then
+    echo '{"error":"No WireGuard keypair. Run frognet-tunnel-setup first."}'
+    exit 1
+fi
+
+PRIVKEY=$(cat "${STATE_DIR}/node_private.key")
+
+# Write PID file
+echo $$ > "${PID_DIR}/${CHANNEL_NAME}.pid"
+
+# Build subnets JSON
+SUBNETS_JSON="["
+for i in "${!SUBNETS[@]}"; do
+    if [ "$i" -gt 0 ]; then SUBNETS_JSON+=","; fi
+    SUBNETS_JSON+="\"${SUBNETS[$i]}\""
+done
+SUBNETS_JSON+="]"
+
+# ---------------------------------------------------------------------------
+# Convert broker URL to websocket URL
+# http(s)://host:port/path → ws(s)://host:port/path/api/v1/advertise
+# ---------------------------------------------------------------------------
+
+WS_URL="${BROKER_URL}"
+WS_URL="${WS_URL/https:\/\//wss://}"
+WS_URL="${WS_URL/http:\/\//ws://}"
+WS_URL="${WS_URL}/api/v1/advertise"
+
+log "Advertising channel '${CHANNEL_NAME}' on ${WS_URL}"
+log "Subnets: ${SUBNETS[*]}, Gateway: ${LOCAL_GW}"
+
+# Emit initial JSON status
+echo "{\"status\":\"starting\",\"channel\":\"${CHANNEL_NAME}\",\"subnets\":${SUBNETS_JSON}}"
+
+# ---------------------------------------------------------------------------
+# Websocket client — uses Python for websocket handling
+# Reads events from broker, brings up/down WG tunnels
+# ---------------------------------------------------------------------------
+
+exec python3 -u - "$WS_URL" "$GROUP_TOKEN" "$CHANNEL_NAME" "$PUBKEY" \
+    "$PRIVKEY" "$LOCAL_GW" "$SUBNETS_JSON" "$LABEL" \
+    "$CONF_DIR" "$STATE_DIR" <<'PYEOF'
+import sys
+import os
+import json
+import time
+import signal
+import socket
+import ssl
+import hashlib
+import struct
+import subprocess
+import threading
+import base64
+import logging
+from pathlib import Path
+from urllib.parse import urlparse
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    stream=sys.stderr,
+)
+log = logging.getLogger("frognet.host")
+
+# Arguments from bash
+WS_URL = sys.argv[1]
+GROUP_TOKEN = sys.argv[2]
+CHANNEL_NAME = sys.argv[3]
+PUBKEY = sys.argv[4]
+PRIVKEY = sys.argv[5]
+LOCAL_GW = sys.argv[6]
+SUBNETS_JSON = sys.argv[7]
+LABEL = sys.argv[8]
+CONF_DIR = Path(sys.argv[9])
+STATE_DIR = Path(sys.argv[10])
+
+active_tunnels = {}  # tunnel_name -> {"iface": "wgN"}
+running = True
+tunnel_metrics = {}  # tunnel_name -> {"rx_bytes_prev": N, "tx_bytes_prev": N, ...}
+METRICS_INTERVAL = 30  # seconds
+
+
+def get_wg_iface_stats(iface):
+    """Read RX/TX bytes from /sys/class/net/<iface>/statistics."""
+    base = f"/sys/class/net/{iface}/statistics"
+    stats = {}
+    for counter in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets",
+                    "rx_errors", "tx_errors", "rx_dropped", "tx_dropped"):
+        path = f"{base}/{counter}"
+        try:
+            with open(path) as f:
+                stats[counter] = int(f.read().strip())
+        except (OSError, ValueError):
+            stats[counter] = 0
+    return stats
+
+
+def get_wg_peer_stats(iface):
+    """Get WireGuard-level peer stats via 'wg show <iface>'."""
+    try:
+        r = subprocess.run(["wg", "show", iface, "transfer"],
+                           capture_output=True, text=True, timeout=5, check=False)
+        if r.returncode != 0 or not r.stdout.strip():
+            return {}
+        # Output: <pubkey>\t<rx_bytes>\t<tx_bytes>
+        parts = r.stdout.strip().split("\t")
+        if len(parts) >= 3:
+            return {"wg_rx_bytes": int(parts[1]), "wg_tx_bytes": int(parts[2])}
+    except Exception:
+        pass
+    return {}
+
+
+def report_tunnel_metrics():
+    """Periodic metrics reporter thread.  Upserts per-tunnel sensor data."""
+    while running:
+        time.sleep(METRICS_INTERVAL)
+        for tname, tinfo in list(active_tunnels.items()):
+            iface = tinfo.get("iface")
+            if not iface:
+                continue
+            try:
+                stats = get_wg_iface_stats(iface)
+                wg_stats = get_wg_peer_stats(iface)
+
+                # Compute deltas from previous reading
+                prev = tunnel_metrics.get(tname, {})
+                deltas = {}
+                for k in ("rx_bytes", "tx_bytes", "rx_packets", "tx_packets"):
+                    cur = stats.get(k, 0)
+                    prv = prev.get(k, cur)  # first reading: delta = 0
+                    deltas[f"{k}_delta"] = max(0, cur - prv)
+
+                # Store current as previous for next cycle
+                tunnel_metrics[tname] = dict(stats)
+
+                payload = {
+                    "tunnel_name": tname,
+                    "interface": iface,
+                    "channel": CHANNEL_NAME,
+                    "interval_sec": METRICS_INTERVAL,
+                    "counters": stats,
+                    "deltas": deltas,
+                    "wg": wg_stats,
+                    "ts": int(time.time()),
+                }
+
+                json_str = json.dumps(payload, separators=(",", ":"))
+                subprocess.run(
+                    ["/usr/local/bin/metric_upsert.sh",
+                     "TunnelChannel", tname, json_str],
+                    capture_output=True, timeout=15, check=False,
+                )
+            except Exception as e:
+                log.debug("Metrics report failed for %s: %s", tname, e)
+
+
+def find_next_wg_iface():
+    for n in range(17):
+        r = subprocess.run(["ip", "link", "show", f"wg{n}"],
+                           capture_output=True, check=False)
+        if r.returncode != 0:
+            return f"wg{n}"
+    raise RuntimeError("Too many WireGuard interfaces")
+
+
+def bring_up_tunnel(tunnel_name, wg_config, remote_subnets):
+    iface = find_next_wg_iface()
+    conf_path = CONF_DIR / f"{iface}.conf"
+
+    conf_path.write_text(f"""# FrogNet Tunnel — {tunnel_name}
+[Interface]
+Address = {wg_config['edge_ip']}/{wg_config['edge_mask']}
+PrivateKey = {PRIVKEY}
+
+[Peer]
+PublicKey = {wg_config['droplet_pubkey']}
+Endpoint = {wg_config['droplet_endpoint']}
+AllowedIPs = {wg_config['allowed_ips']}
+PersistentKeepalive = 25
+""")
+    conf_path.chmod(0o600)
+
+    r = subprocess.run(["wg-quick", "up", iface], capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        log.error("wg-quick up %s failed: %s", iface, r.stderr.strip())
+        raise RuntimeError(f"wg-quick up failed: {r.stderr.strip()}")
+
+    for subnet in remote_subnets:
+        subprocess.run(["ip", "route", "replace", subnet, "dev", iface, "src", LOCAL_GW],
+                       capture_output=True, check=False)
+
+    # Catchall
+    subprocess.run(["ip", "route", "replace", "10.0.0.0/8", "dev", iface,
+                     "src", LOCAL_GW, "metric", "100"],
+                    capture_output=True, check=False)
+
+    active_tunnels[tunnel_name] = {"iface": iface}
+
+    # Save state
+    state_file = STATE_DIR / "active" / f"{tunnel_name}.json"
+    state_file.write_text(json.dumps({"interface": iface, "tunnel_name": tunnel_name}))
+
+    log.info("Tunnel '%s' UP on %s", tunnel_name, iface)
+    print(json.dumps({"event": "tunnel_up", "tunnel_name": tunnel_name, "interface": iface}),
+          flush=True)
+
+    # Trigger discovery merge — tunnel routes bypass DHCP so dhcp_tracking
+    # won't fire.  Background it so the event loop isn't blocked.
+    def _run_merge():
+        try:
+            subprocess.run(
+                ["/usr/local/bin/runMerge.bash"],
+                capture_output=True, text=True, timeout=120, check=False,
+            )
+            log.info("Post-tunnel merge completed for '%s'", tunnel_name)
+        except Exception as e:
+            log.error("Post-tunnel merge failed for '%s': %s", tunnel_name, e)
+
+    threading.Thread(target=_run_merge, daemon=True).start()
+
+
+def tear_down_tunnel(tunnel_name):
+    info = active_tunnels.pop(tunnel_name, None)
+    if not info:
+        return
+    iface = info["iface"]
+    subprocess.run(["wg-quick", "down", iface], capture_output=True, check=False)
+    state_file = STATE_DIR / "active" / f"{tunnel_name}.json"
+    state_file.unlink(missing_ok=True)
+    log.info("Tunnel '%s' DOWN (%s)", tunnel_name, iface)
+    print(json.dumps({"event": "tunnel_down", "tunnel_name": tunnel_name}), flush=True)
+
+
+def tear_down_all():
+    for name in list(active_tunnels.keys()):
+        tear_down_tunnel(name)
+
+
+def shutdown(sig, frame):
+    global running
+    log.info("Shutting down (signal %d)", sig)
+    running = False
+    tear_down_all()
+    sys.exit(0)
+
+signal.signal(signal.SIGTERM, shutdown)
+signal.signal(signal.SIGINT, shutdown)
+
+
+# ---------------------------------------------------------------------------
+# Minimal websocket client — no external dependencies
+# Implements RFC 6455 just enough for our needs
+# ---------------------------------------------------------------------------
+
+class SimpleWebSocket:
+    """Minimal websocket client. No dependencies beyond stdlib."""
+
+    def __init__(self, url):
+        self.url = url
+        parsed = urlparse(url)
+        self.host = parsed.hostname
+        self.port = parsed.port or (443 if parsed.scheme == "wss" else 80)
+        self.path = parsed.path or "/"
+        self.use_ssl = parsed.scheme == "wss"
+        self.sock = None
+
+    def connect(self):
+        raw = socket.create_connection((self.host, self.port), timeout=15)
+        if self.use_ssl:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            raw = ctx.wrap_socket(raw, server_hostname=self.host)
+        self.sock = raw
+        self.sock.settimeout(90)
+
+        # Websocket handshake
+        key = base64.b64encode(os.urandom(16)).decode()
+        handshake = (
+            f"GET {self.path} HTTP/1.1\r\n"
+            f"Host: {self.host}:{self.port}\r\n"
+            f"Upgrade: websocket\r\n"
+            f"Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            f"Sec-WebSocket-Version: 13\r\n"
+            f"\r\n"
+        )
+        self.sock.sendall(handshake.encode())
+
+        # Read response headers
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("Connection closed during handshake")
+            response += chunk
+
+        if b"101" not in response.split(b"\r\n")[0]:
+            raise ConnectionError(f"Handshake failed: {response.decode(errors='replace')}")
+
+    def send(self, data):
+        if isinstance(data, str):
+            data = data.encode()
+        # Build masked frame
+        frame = bytearray()
+        frame.append(0x81)  # FIN + text opcode
+        mask_key = os.urandom(4)
+        length = len(data)
+        if length < 126:
+            frame.append(0x80 | length)
+        elif length < 65536:
+            frame.append(0x80 | 126)
+            frame.extend(struct.pack(">H", length))
+        else:
+            frame.append(0x80 | 127)
+            frame.extend(struct.pack(">Q", length))
+        frame.extend(mask_key)
+        masked = bytearray(b ^ mask_key[i % 4] for i, b in enumerate(data))
+        frame.extend(masked)
+        self.sock.sendall(frame)
+
+    def recv(self):
+        """Receive a complete websocket text frame. Returns string."""
+        def _read_exact(n):
+            buf = b""
+            while len(buf) < n:
+                chunk = self.sock.recv(n - len(buf))
+                if not chunk:
+                    raise ConnectionError("Connection closed")
+                buf += chunk
+            return buf
+
+        header = _read_exact(2)
+        opcode = header[0] & 0x0F
+        masked = bool(header[1] & 0x80)
+        length = header[1] & 0x7F
+
+        if length == 126:
+            length = struct.unpack(">H", _read_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack(">Q", _read_exact(8))[0]
+
+        mask_key = _read_exact(4) if masked else None
+        payload = _read_exact(length)
+
+        if masked:
+            payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+
+        # Handle control frames
+        if opcode == 0x8:  # Close
+            raise ConnectionError("Server sent close frame")
+        if opcode == 0x9:  # Ping
+            # Send pong
+            pong = bytearray([0x8A, 0x80 | len(payload)])
+            mk = os.urandom(4)
+            pong.extend(mk)
+            pong.extend(bytes(b ^ mk[i % 4] for i, b in enumerate(payload)))
+            self.sock.sendall(pong)
+            return self.recv()  # recurse to get actual data
+        if opcode == 0xA:  # Pong
+            return self.recv()
+
+        return payload.decode()
+
+    def close(self):
+        if self.sock:
+            try:
+                # Send close frame
+                self.sock.sendall(b"\x88\x80" + os.urandom(4))
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
+
+    def send_json(self, obj):
+        self.send(json.dumps(obj))
+
+    def recv_json(self):
+        return json.loads(self.recv())
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+
+RECONNECT_DELAY = 5
+
+# Start metrics reporter thread
+metrics_thread = threading.Thread(target=report_tunnel_metrics, daemon=True)
+metrics_thread.start()
+
+while running:
+    ws = None
+    try:
+        log.info("Connecting to %s", WS_URL)
+        ws = SimpleWebSocket(WS_URL)
+        ws.connect()
+        log.info("Connected — sending advertisement")
+
+        ws.send_json({
+            "group_token": GROUP_TOKEN,
+            "channel_name": CHANNEL_NAME,
+            "pubkey": PUBKEY,
+            "frognet_subnets": json.loads(SUBNETS_JSON),
+            "label": LABEL,
+        })
+
+        resp = ws.recv_json()
+        if "error" in resp:
+            log.error("Advertisement rejected: %s", resp["error"])
+            print(json.dumps({"error": resp["error"]}), flush=True)
+            time.sleep(RECONNECT_DELAY)
+            continue
+
+        log.info("Channel '%s' advertised", CHANNEL_NAME)
+        print(json.dumps({"status": "advertised", "channel": CHANNEL_NAME,
+                          "group": resp.get("group_name", "")}), flush=True)
+
+        # Event loop
+        while running:
+            try:
+                msg = ws.recv_json()
+            except socket.timeout:
+                # Send keepalive
+                try:
+                    ws.send_json({"type": "ping"})
+                except Exception:
+                    break
+                continue
+
+            event = msg.get("event") or msg.get("type", "")
+
+            if event == "tunnel_created":
+                tunnel_name = msg["tunnel_name"]
+                wg_config = msg["wg_config"]
+                remote_subnets = msg.get("joiner_subnets",
+                                         wg_config.get("remote_subnets", []))
+                try:
+                    bring_up_tunnel(tunnel_name, wg_config, remote_subnets)
+                except Exception as e:
+                    log.error("Failed to bring up '%s': %s", tunnel_name, e)
+
+            elif event == "tunnel_destroyed":
+                tear_down_tunnel(msg["tunnel_name"])
+
+            elif event == "ping" or msg.get("type") == "ping":
+                ws.send_json({"type": "pong"})
+
+            elif msg.get("type") == "pong":
+                pass
+
+            else:
+                log.debug("Unhandled: %s", msg)
+
+    except ConnectionError as e:
+        log.warning("Connection lost: %s", e)
+    except socket.timeout:
+        log.warning("Connection timed out")
+    except Exception as e:
+        log.exception("Error: %s", e)
+    finally:
+        if ws:
+            ws.close()
+        tear_down_all()
+
+    if running:
+        log.info("Reconnecting in %ds...", RECONNECT_DELAY)
+        time.sleep(RECONNECT_DELAY)
+PYEOF

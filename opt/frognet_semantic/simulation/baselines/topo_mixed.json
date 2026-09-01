@@ -1,0 +1,37 @@
+{
+  "committed_routes": {
+    "X": [
+      "10.70.1.0/24 dev eth0 metric 100",
+      "10.70.2.0/24 via 10.70.2.1 dev eth1 metric 22",
+      "10.70.3.0/24 via 10.70.99.2 dev eth1 metric 22",
+      "10.70.99.0/24 dev eth1 metric 100"
+    ],
+    "Y": [
+      "10.224.1.0/30 dev wg0 metric 100",
+      "10.70.1.0/24 via 10.70.1.1 dev eth1 metric 22",
+      "10.70.1.0/24 via 10.70.1.1 dev wg0 metric 100",
+      "10.70.2.0/24 dev eth0 metric 100",
+      "10.70.3.0/24 via 10.70.3.1 dev wg0 metric 22",
+      "10.70.3.0/24 via 10.70.99.1 dev eth1 metric 100",
+      "10.70.99.0/24 dev eth1 metric 100"
+    ],
+    "Z": [
+      "10.224.1.0/30 dev wg0 metric 100",
+      "10.70.1.0/24 via 10.70.1.1 dev wg0 metric 22",
+      "10.70.2.0/24 via 10.70.2.1 dev wg0 metric 22",
+      "10.70.3.0/24 dev eth0 metric 100"
+    ]
+  },
+  "convergence_cycles": 3,
+  "key": "topo_mixed",
+  "reachability": {
+    "pairs_ok": 12,
+    "pairs_total": 12,
+    "unreachable": []
+  },
+  "recorded_at": "2026-06-05T10:07:08",
+  "schema": 1,
+  "sim_build": "2026-06-05-v7",
+  "source": "hardware",
+  "topology": "mixed LAN+WG"
+}

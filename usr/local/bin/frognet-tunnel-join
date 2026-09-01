@@ -1,0 +1,315 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# frognet-tunnel-join — Join a FrogNet tunnel channel
+#
+# Reads broker URL and group token from /etc/frognet/tunnel.conf.
+# Calls the broker to join an advertised channel, receives WG config,
+# brings up the tunnel.
+#
+# Usage:
+#   frognet-tunnel-join <channel_name> <subnet1> [subnet2...]
+#
+# Example:
+#   frognet-tunnel-join ironbox 10.101.10.0/24
+#
+# Output is JSON on stdout for PHP consumption. Logs go to stderr.
+# Callable from PHP: exec('frognet-tunnel-join ironbox 10.101.10.0/24');
+#
+# NEVER masks errors. All failures visible.
+# =============================================================================
+
+trap 'echo "{\"error\":\"Fatal error on line $LINENO\"}" ; exit 1' ERR
+
+CONF_FILE="/etc/frognet/tunnel.conf"
+CONF_DIR="/etc/wireguard"
+STATE_DIR="/var/lib/frognet-tunnel"
+LABEL="${FROGNET_TUNNEL_LABEL:-$(hostname)}"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >&2; }
+
+get_local_gateway() {
+    local network
+    network=$(echo "$1" | cut -d/ -f1)
+    echo "${network%.*}.1"
+}
+
+find_next_wg_iface() {
+    local n=0
+    while ip link show "wg${n}" >/dev/null 2>&1; do
+        n=$((n + 1))
+        if [ "$n" -gt 16 ]; then
+            log "ERROR: Too many WireGuard interfaces"
+            exit 1
+        fi
+    done
+    echo "wg${n}"
+}
+
+teardown_existing_channel_tunnel() {
+    local channel="$1"
+    local f iface tname
+
+    for f in "${STATE_DIR}/active/"*.json; do
+        [ -f "$f" ] || continue
+        local existing_channel
+        existing_channel=$(jq -r '.channel_name // empty' "$f" 2>/dev/null || true)
+        [ "$existing_channel" = "$channel" ] || continue
+
+        iface=$(jq -r '.interface // empty' "$f" 2>/dev/null || true)
+        tname=$(jq -r '.tunnel_name // empty' "$f" 2>/dev/null || true)
+
+        if [ -n "$iface" ] && ip link show "$iface" >/dev/null 2>&1; then
+            log "Tearing down existing tunnel $tname on $iface for channel $channel"
+            wg-quick down "$iface" || true
+        fi
+        rm -f "$f"
+        log "Removed state file $f"
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+
+if [ "$#" -lt 2 ]; then
+    echo '{"error":"Usage: frognet-tunnel-join <channel_name> <subnet1> [subnet2...]"}'
+    exit 1
+fi
+
+CHANNEL_NAME="$1"
+shift
+SUBNETS=("$@")
+
+LOCAL_GW=$(get_local_gateway "${SUBNETS[0]}")
+
+# ---------------------------------------------------------------------------
+# Load config
+# ---------------------------------------------------------------------------
+
+if [ ! -f "$CONF_FILE" ]; then
+    echo '{"error":"Not configured. Run frognet-tunnel-setup first."}'
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$CONF_FILE"
+
+if [ -z "${GROUP_TOKEN:-}" ] || [ -z "${BROKER_URL:-}" ]; then
+    echo '{"error":"Invalid config. Run frognet-tunnel-setup again."}'
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Prerequisites
+# ---------------------------------------------------------------------------
+
+for cmd in wg curl jq ip; do
+    if ! command -v "$cmd" >/dev/null; then
+        echo "{\"error\":\"'$cmd' not found\"}"
+        exit 1
+    fi
+done
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo '{"error":"Must run as root"}'
+    exit 1
+fi
+
+mkdir -p "$CONF_DIR" "$STATE_DIR/active"
+
+# Get WG keypair
+PUBKEY=$(cat "${STATE_DIR}/node_public.key" 2>/dev/null || true)
+PRIVKEY=$(cat "${STATE_DIR}/node_private.key" 2>/dev/null || true)
+
+if [ -z "$PUBKEY" ] || [ -z "$PRIVKEY" ]; then
+    echo '{"error":"No WireGuard keypair. Run frognet-tunnel-setup first."}'
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Tear down any existing tunnel for this channel before joining
+# ---------------------------------------------------------------------------
+
+teardown_existing_channel_tunnel "$CHANNEL_NAME"
+
+# ---------------------------------------------------------------------------
+# Build request
+# ---------------------------------------------------------------------------
+
+SUBNETS_JSON="["
+for i in "${!SUBNETS[@]}"; do
+    if [ "$i" -gt 0 ]; then SUBNETS_JSON+=","; fi
+    SUBNETS_JSON+="\"${SUBNETS[$i]}\""
+done
+SUBNETS_JSON+="]"
+
+REQ_BODY=$(cat <<EOF
+{
+    "group_token": "${GROUP_TOKEN}",
+    "channel_name": "${CHANNEL_NAME}",
+    "pubkey": "${PUBKEY}",
+    "frognet_subnets": ${SUBNETS_JSON},
+    "label": "${LABEL}"
+}
+EOF
+)
+
+log "Joining channel '${CHANNEL_NAME}'"
+log "Subnets: ${SUBNETS[*]}, Gateway: ${LOCAL_GW}"
+
+# ---------------------------------------------------------------------------
+# Call /api/v1/join
+# ---------------------------------------------------------------------------
+
+RESPONSE=$(curl -sS -k -w "\n%{http_code}" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$REQ_BODY" \
+    "${BROKER_URL}/api/v1/join" 2>&1) || {
+    echo "{\"error\":\"Failed to reach broker at ${BROKER_URL}\"}"
+    exit 1
+}
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" != "201" ]; then
+    ERR_MSG=$(echo "$BODY" | jq -r '.detail // .error // empty' 2>/dev/null || echo "$BODY")
+    echo "{\"error\":\"Join failed (HTTP ${HTTP_CODE}): ${ERR_MSG}\"}"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Parse response
+# ---------------------------------------------------------------------------
+
+TUNNEL_NAME=$(echo "$BODY" | jq -r '.tunnel_name')
+EDGE_IP=$(echo "$BODY" | jq -r '.wg_config.edge_ip')
+EDGE_MASK=$(echo "$BODY" | jq -r '.wg_config.edge_mask')
+DROPLET_IP=$(echo "$BODY" | jq -r '.wg_config.droplet_ip')
+DROPLET_PUBKEY=$(echo "$BODY" | jq -r '.wg_config.droplet_pubkey')
+DROPLET_ENDPOINT=$(echo "$BODY" | jq -r '.wg_config.droplet_endpoint')
+ALLOWED_IPS=$(echo "$BODY" | jq -r '.wg_config.allowed_ips')
+REMOTE_SUBNETS=$(echo "$BODY" | jq -r '.wg_config.remote_subnets[]' 2>/dev/null || true)
+HOST_SUBNETS=$(echo "$BODY" | jq -r '.host_subnets[]' 2>/dev/null || true)
+
+log "Tunnel: ${TUNNEL_NAME}, Edge: ${EDGE_IP}/${EDGE_MASK}, Endpoint: ${DROPLET_ENDPOINT}"
+
+# ---------------------------------------------------------------------------
+# Configure WireGuard
+# ---------------------------------------------------------------------------
+
+WG_IFACE=$(find_next_wg_iface)
+WG_CONF="${CONF_DIR}/${WG_IFACE}.conf"
+
+cat > "$WG_CONF" <<WGEOF
+# FrogNet Tunnel — ${TUNNEL_NAME}
+[Interface]
+Address = ${EDGE_IP}/${EDGE_MASK}
+PrivateKey = ${PRIVKEY}
+Table = off
+
+[Peer]
+PublicKey = ${DROPLET_PUBKEY}
+Endpoint = ${DROPLET_ENDPOINT}
+AllowedIPs = ${ALLOWED_IPS}
+PersistentKeepalive = 25
+WGEOF
+
+chmod 600 "$WG_CONF"
+
+# ---------------------------------------------------------------------------
+# Bring up
+# ---------------------------------------------------------------------------
+
+log "Bringing up ${WG_IFACE}"
+wg-quick up "${WG_IFACE}" >&2
+
+# ---------------------------------------------------------------------------
+# Install routes — dev wgN src local_gw, no via
+# ---------------------------------------------------------------------------
+
+ALL_REMOTE="${HOST_SUBNETS}"
+if [ -n "$REMOTE_SUBNETS" ]; then
+    ALL_REMOTE="${ALL_REMOTE}
+${REMOTE_SUBNETS}"
+fi
+
+if [ -n "$ALL_REMOTE" ]; then
+    echo "$ALL_REMOTE" | sort -u | while IFS= read -r subnet; do
+        if [ -n "$subnet" ]; then
+            ip route replace "${subnet}" dev "${WG_IFACE}" src "${LOCAL_GW}"
+            log "Route: ${subnet} dev ${WG_IFACE} src ${LOCAL_GW}"
+        fi
+    done
+fi
+
+# Catchall
+if ! ip route show 10.0.0.0/8 dev "${WG_IFACE}" 2>/dev/null | grep -q .; then
+    ip route replace 10.0.0.0/8 dev "${WG_IFACE}" src "${LOCAL_GW}" metric 100
+    log "Route: 10.0.0.0/8 dev ${WG_IFACE} src ${LOCAL_GW} metric 100"
+fi
+
+# ---------------------------------------------------------------------------
+# Save state
+# ---------------------------------------------------------------------------
+
+STATE_FILE="${STATE_DIR}/active/${TUNNEL_NAME}.json"
+cat > "$STATE_FILE" <<STEOF
+{
+    "interface": "${WG_IFACE}",
+    "tunnel_name": "${TUNNEL_NAME}",
+    "channel_name": "${CHANNEL_NAME}",
+    "edge_ip": "${EDGE_IP}",
+    "droplet_ip": "${DROPLET_IP}",
+    "droplet_endpoint": "${DROPLET_ENDPOINT}",
+    "local_gateway": "${LOCAL_GW}",
+    "created": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+STEOF
+
+# ---------------------------------------------------------------------------
+# Verify
+# ---------------------------------------------------------------------------
+
+PING_OK="false"
+if ping -c 1 -W 3 "$DROPLET_IP" >/dev/null 2>&1; then
+    PING_OK="true"
+fi
+
+# ---------------------------------------------------------------------------
+# Trigger discovery merge — tunnel routes bypass DHCP so dhcp_tracking
+# won't fire.  We must merge explicitly so both sides discover each other.
+# ---------------------------------------------------------------------------
+
+log "Triggering discovery merge after successful join..."
+/usr/local/bin/runMerge.bash 2>&1 | logger -t frognet-tunnel-join-merge &
+MERGE_PID=$!
+log "Merge triggered in background (pid ${MERGE_PID})"
+
+# ---------------------------------------------------------------------------
+# JSON output for PHP / caller
+# ---------------------------------------------------------------------------
+
+echo "{\"status\":\"joined\",\"tunnel_name\":\"${TUNNEL_NAME}\",\"interface\":\"${WG_IFACE}\",\"edge_ip\":\"${EDGE_IP}\",\"droplet_ip\":\"${DROPLET_IP}\",\"channel\":\"${CHANNEL_NAME}\",\"ping_ok\":${PING_OK}}"

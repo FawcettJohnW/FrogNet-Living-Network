@@ -1,0 +1,36 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+IFACE="${1:-}"; STATE="${2:-}"
+case "$STATE" in up|down) ;; *) exit 0 ;; esac
+[[ "$IFACE" == "l0" ]] && exit 0
+# SENT_DIR="/etc/sentinels"; STATE_FILE="${SENT_DIR}/nm_upstream_state.json"; mkdir -p "$SENT_DIR"
+# . /usr/local/bin/mapInterfaces 2>/dev/null || true
+# iface_ipv4() { ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | head -n1 | cut -d/ -f1; }
+# ip_base3()   { local ip="$1"; [[ -n "$ip" ]] || { echo ""; return; }; IFS=. read -r a b c _ <<<"$ip" || true; [[ -n "${a:-}" && -n "${b:-}" && -n "${c:-}" ]] || { echo ""; return; }; echo "${a}.${b}.${c}"; }
+# default_route_line() { ip route show default 2>/dev/null | head -n1 || true; }
+# default_via() { awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"${1:-}"; }
+# default_dev() { awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"${1:-}"; }
+# W0_IP="$(iface_ipv4 "${wlan0Name:-wlan0}" || true)"
+# W1_IP="$(iface_ipv4 "${wlan1Name:-wlan1}" || true)"
+# W0_BASE="$( [[ -n "${W0_IP:-}" && "$W0_IP" == 10.* ]] && ip_base3 "$W0_IP" || echo "" )"
+# W1_BASE="$( [[ -n "${W1_IP:-}" && "$W1_IP" == 10.* ]] && ip_base3 "$W1_IP" || echo "" )"
+# DEF_LINE="$(default_route_line)"; DEF_VIA="$(default_via "$DEF_LINE")"; DEF_DEV="$(default_dev "$DEF_LINE")"
+# CUR_SIG="w0=${W0_IP:-}|w1=${W1_IP:-}|defvia=${DEF_VIA:-}|defdev=${DEF_DEV:-}|w0b=${W0_BASE:-}|w1b=${W1_BASE:-}"
+# tmp="${STATE_FILE}.tmp"; printf '%s\n' "$CUR_SIG" > "$tmp"; mv -f "$tmp" "$STATE_FILE"
+/usr/local/bin/runMerge.bash &

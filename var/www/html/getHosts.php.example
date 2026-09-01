@@ -1,0 +1,55 @@
+<?php
+/**
+ * /var/www/html/getHosts.php
+ * 
+ * Returns JSON array of known FrogNet hosts with hash-based caching.
+ */
+
+require_once('/var/www/html/frognet_cache.php');
+$cache = new FrogNetCache();
+
+// Check if client already has current response
+if ($cache->checkClientHash()) {
+    exit; // 304 sent
+}
+
+// Read hosts from /etc/sentinels/frognet_hosts
+$hosts_file = '/etc/sentinels/frognet_hosts';
+$hosts = [];
+
+if (file_exists($hosts_file)) {
+    $lines = file($hosts_file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if (empty($line) || $line[0] === '#') continue;
+        
+        // Parse: IP hostname [aliases...]
+        $parts = preg_split('/\s+/', $line);
+        if (count($parts) < 2) continue;
+        
+        $ip = $parts[0];
+        $hostname = $parts[1];
+        
+        // Skip non-FrogNet IPs
+        if (strpos($ip, '10.') !== 0) continue;
+        
+        // Get echo for this host (from cache if available)
+        $echo = '';
+        $echo_cache = "/etc/sentinels/echo_cache_" . str_replace('.', '_', $ip) . ".body";
+        if (file_exists($echo_cache)) {
+            $echo = trim(file_get_contents($echo_cache));
+        }
+        
+        $hosts[] = [
+            'ip' => $ip,
+            'hostname' => $hostname,
+            'echo' => $echo
+        ];
+    }
+}
+
+// Build response
+$response = json_encode($hosts, JSON_PRETTY_PRINT);
+
+// Send with caching
+$cache->sendResponse($response, 'application/json', 200);

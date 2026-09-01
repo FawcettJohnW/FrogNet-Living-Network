@@ -1,0 +1,55 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# set -x
+ip_to_decimal () {
+    local ip=$1
+
+    inDomain=`echo $ip | grep "^10\."`
+    if [ ! $ip = "0.0.0.0" ] && [ -z $inDomain ]; then
+        return 0
+    fi
+
+    local IFS=.
+    local octet1 octet2 octet3 octet4
+
+    read -r octet1 octet2 octet3 octet4 <<< "$ip"
+
+
+    if [[ -z "$octet1" || -z "$octet2" || -z "$octet3" || -z "$octet4" ]]; then
+        echo "Invalid IP address $ip"
+        return -1
+    fi
+
+    if ! [[ $octet1 =~ ^[0-9]+$ && $octet2 =~ ^[0-9]+$ && $octet3 =~ ^[0-9]+$ && $octet4 =~ ^[0-9]+$ ]]; then
+        echo "Invalid IP address $ip -- Octets must be numbers"
+        return -1
+    fi
+
+    if (( $octet1 > 255 && $octet2 > 255 && $octet3 > 255 && $octet4 > 255 )); then
+        echo "Invalid IP address $ip -- Octets must be less than 255"
+        return -1
+    fi
+
+    local decimal=$(( (octet1 * 256**3) + (octet2 * 256**2) + (octet3 * 256**1) +(octet4 * 256**0) ))
+ 
+    echo $decimal
+}
+
+decValue=$(ip_to_decimal "$1")
+echo $decValue

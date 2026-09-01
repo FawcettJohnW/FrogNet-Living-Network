@@ -1,0 +1,60 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# set -x
+
+. /usr/local/bin/mapInterfaces
+
+HOSTNAME="$1"
+DEVICE_IP="$2"
+APPEND_DOMAIN="$3"
+PING_HOST="$4"
+NS_DEV="$5"
+
+SENT_DIR="/etc/sentinels"
+FORWARDED="$SENT_DIR/forwrded"
+
+mkdir -p "$SENT_DIR"
+touch "$FORWARDED"
+
+ENTRY_KEY="$HOSTNAME $DEVICE_IP $NS_DEV"
+
+if grep -Fq "$ENTRY_KEY" "$FORWARDED"; then
+  exit 0
+fi
+
+/usr/local/bin/debugTag "addHostAndPropogate: Installing locally $HOSTNAME $DEVICE_IP $NS_DEV"
+
+# Perform local mutation (accumulator only)
+/usr/local/bin/addHost "$HOSTNAME" "$DEVICE_IP" "$APPEND_DOMAIN" "$PING_HOST" "$NS_DEV"
+
+# NEW: if IP is pending (<=4s), suppress propagation this run
+# if /usr/local/bin/discovery_pending.sh is_pending "$DEVICE_IP" ; then
+  # /usr/local/bin/debugTag "addHostAndPropogate: pending($DEVICE_IP) -> suppress propogateNotification"
+# else
+  # /usr/local/bin/propogateNotification     # runMerge.bash owns the converged-pass propagate; do NOT fire here
+# fi
+#
+# [FORWARDED_DEDUP_V1] Record the entry so the line-20 dedup actually fires.
+# This was commented out, so DEDUP never matched and addHost re-appended the
+# same peer every call. Restored as defense-in-depth (the route-gated merge is
+# now the authoritative writer of frognet_hosts).
+echo "$ENTRY_KEY" >> "$FORWARDED"
+
+/usr/local/bin/debugTag "addHostAndPropogate: Local install complete"
+exit 0

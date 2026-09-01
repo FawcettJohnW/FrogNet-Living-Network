@@ -1,0 +1,55 @@
+--- frognet_role_elect_orig.py	2026-06-23 21:29:41.706948820 +0000
++++ frognet_role_elect.py	2026-06-23 21:30:06.441623994 +0000
+@@ -74,23 +74,29 @@
+         return set()
+ 
+ 
+-def gather_candidates(handler, dbhost: str = "databasehost_control.frognet"):
++def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
++                      lan_subnets=None):
+     """Build BOTH candidate lists from capability memory in ONE pass:
+       hosts_list — every REAL 10/8 host (253 excluded), LAN and WAN alike: the
+                    pond-wide / federated set. databasehost elects over this.
+-      lan_list   — only the LOCAL hosts (whose /24 is NOT in this node's WAN plane).
+-                   mediahost elects over this — A/V must stay on-LAN, off the overlay.
+-    The LAN/WAN split is decided by the LOOPBACK DETECTOR, but it already ran in the
+-    walk: a WAN candidate trips loopback, its /24 lands in the reach_plane tuple's
+-    wan_subnets, and we just READ that here — no re-probe. Standalone island: no wg
+-    winners, so wan_subnets is empty and both lists equal the local set (DB and media
+-    both elect locally, correct). UNIFIED source: anyone who can serve this role — a
+-    .1 FrogNetHost OR a dropped-in specialist — writes its capability under
++      lan_list   — only the DIRECTLY-ATTACHED hosts. mediahost elects over this —
++                   A/V must stay on this node's own LAN, never on a relayed or
++                   overlay path.
++    [LAN_IS_ATTACHED_V1] LAN means a candidate whose /24 is one of THIS node's
++    directly-attached interface segments (`lan_subnets`, as '10.x.y.0/24'). The old
++    test was "/24 NOT in the wg-WAN plane", which wrongly bucketed a node reached
++    over a ROUTED RELAY (no wg winner, so absent from wan_subnets) as LAN — e.g. a
++    gateway with no tunnels reaches the whole pond via a neighbor and called all of
++    it LAN, so an off-LAN box could win the LAN mediahost. Membership in the attached
++    set is the only correct LAN test. When `lan_subnets` is None (older callers /
++    sims), fall back to the legacy wg-plane heuristic.
++    UNIFIED source: anyone who can serve this role writes its capability under
+     `<role>/capability` at its own address. We read every row once and attach '_perf'
+     from the blob's own fresh loadavg/temps (self-contained — no second read). The only
+     I/O is reading tuples; never probes a node. Returns (hosts_list, lan_list)."""
+     role = getattr(handler, "ROLE_NAME", None) or getattr(handler, "role", "")
+     wan = _wan_subnets(dbhost)
++    lan_set = set(lan_subnets) if lan_subnets is not None else None
+     hosts_list: List[Dict] = []
+     lan_list: List[Dict] = []
+     by_ip: Dict[str, tuple] = {}     # ip -> (ts, candidate)
+@@ -125,7 +131,12 @@
+         for ip in sorted(by_ip):
+             c = by_ip[ip][1]
+             hosts_list.append(c)            # entire/WAN-inclusive set -> databasehost
+-            if _slash24(ip) not in wan:     # not on the WAN plane -> mediahost (LAN)
++            # [LAN_IS_ATTACHED_V1] LAN = a directly-attached segment of THIS node.
++            if lan_set is not None:
++                is_lan = _slash24(ip) in lan_set
++            else:
++                is_lan = _slash24(ip) not in wan      # legacy fallback
++            if is_lan:
+                 lan_list.append(c)
+     except Exception as e:
+         # [GATHER_NOT_SILENT_V1] Never collapse a read failure into a silent empty set —
