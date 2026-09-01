@@ -81,11 +81,23 @@ Anywhere the network is the hard part rather than an assumption.
 
 | | |
 |---|---|
+<<<<<<< HEAD
 | **Links that come and go** | Vehicles, ships, field teams, anything moving between coverage. Nodes leave and rejoin without an application noticing, and a partition is not an error condition |
 | **Links that are narrow** | A live application over 4800 baud, or an HD call under 150 kbit/s, because what crosses is the difference and not the payload |
 | **No infrastructure to rely on** | Nothing to stand up first. Drop boxes at a command post, a field hospital and each vehicle, and they find each other |
 | **Separate organisations, one picture** | Each publishes what it knows under its own name. Nobody has to agree a schema with anybody or run the shared server |
 | **Anything currently held together by plumbing** | If a design's real weight is queues, retries, service discovery and reconnection logic, that weight is what this removes |
+=======
+| `Magnum_Croakus.docx` | the book, 87,000 words, 59 chapters, 13 appendices |
+| `Magnum Croakus.html` | the same book, web edition |
+| `build_magnum.js` | the generator both editions come out of |
+| `magnum-figures/` | 23 diagrams, drawn from code |
+| `tools/make_figures.py` | the script that draws them |
+| `figures.js`, `shell_head.html` | build support for the two editions |
+| `README_BUILD.md` | generator internals, for anyone editing it |
+| `ORACLES.md` | the standing challenge, and what a report should contain |
+| `CONTRIBUTING.md` | four ways in; only one needs a licence |
+>>>>>>> 33e9e75b00d2bac9dec2faff4688b279a5b0d07d
 
 It is a poor fit for a single-datacentre application with reliable links and a
 database that is already working. There is nothing here you need.
@@ -248,7 +260,13 @@ from that node, and walk it around a network you control.
 
 ## 6. Going deeper
 
+<<<<<<< HEAD
 Two books, free, generated from source so they track the implementation.
+=======
+Full detail in [CONTRIBUTING.md](CONTRIBUTING.md); the standing challenge and how to report a run are in [ORACLES.md](ORACLES.md).
+
+**To the book** — issues and pull requests here. A passage that is wrong, unclear, or missing the case you actually have is worth raising; the correction lands in the next build for everybody rather than in one reply to one person.
+>>>>>>> 33e9e75b00d2bac9dec2faff4688b279a5b0d07d
 
 | | |
 |---|---|
