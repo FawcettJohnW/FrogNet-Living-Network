@@ -18,12 +18,63 @@
  **************************************************************/
 require_once __DIR__ . '/config.php';
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+
+/**
+ * [API_ORIGIN_V1] This used to be `Access-Control-Allow-Origin: *` with no
+ * authentication behind it, which let any page on the internet read the User
+ * table (Password column included) out of a browser sitting on the FrogNet LAN.
+ * The LAN-trust doctrine covers hosts on the LAN; it does not cover a trusted
+ * browser executing an untrusted page.
+ *
+ * Cross-node dashboards are a real case though - gps_dashboard.html talks to
+ * http://databasehost.frognet/api.php from a page served elsewhere in the pond -
+ * so the origin is reflected when it names a FrogNet host or a private-range
+ * address, and refused otherwise.
+ */
+function frognet_origin_allowed(string $origin): bool {
+    $h = parse_url($origin, PHP_URL_HOST);
+    if (!is_string($h) || $h === '') return false;
+    $h = strtolower($h);
+    if ($h === 'localhost' || $h === '127.0.0.1' || $h === '::1') return true;
+    if (substr($h, -8) === '.frognet' || $h === 'frognet') return true;
+    if (filter_var($h, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+        return (bool)!filter_var(
+            $h, FILTER_VALIDATE_IP,
+            FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        );
+    }
+    return false;
+}
+
+$__origin  = $_SERVER['HTTP_ORIGIN'] ?? '';
+$__ok_orig = ($__origin === '') || frognet_origin_allowed($__origin);
+
+header('Vary: Origin');
+header('X-Content-Type-Options: nosniff');
+if ($__origin !== '' && $__ok_orig) {
+    header('Access-Control-Allow-Origin: ' . $__origin);
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(204);
+    http_response_code($__ok_orig ? 204 : 403);
+    exit;
+}
+
+/**
+ * [API_CSRF_V1] Reads are harmless to forge (the attacker cannot see the
+ * response without a CORS grant, which the check above withholds). Writes are
+ * not: `delete` takes its primary key from $_GET, so
+ * `POST /api.php?entity=users&action=delete&CallSign=x` needs no body and no
+ * JSON content-type, which makes it a *simple* request that any page can send
+ * with no preflight. Browsers always attach Origin to a cross-origin request,
+ * including that one, so refusing a foreign Origin on any state-changing method
+ * closes it without touching curl, the daemon, or any first-party client.
+ */
+if (!$__ok_orig && ($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    http_response_code(403);
+    echo json_encode(['error' => 'cross-origin write refused']);
     exit;
 }
 
@@ -181,9 +232,32 @@ function exec_stmt($sql, $types='', $params=[]) {
     }
     return $stmt;
 }
+/**
+ * [API_PASSWORD_REDACT_V1] Every read path in this file is SELECT *, so
+ * dropping Password from an entity's field list would not have stopped it being
+ * returned - the column has to be removed from the rows themselves. No caller
+ * in the tree reads User.Password over HTTP; the dashboards use CallSign only.
+ *
+ * NOTE: this hides the column, it does not protect the credential. The values
+ * in it are not hashed (there is no password_hash/password_verify anywhere in
+ * this docroot), so anything already stored should be rehashed and the column
+ * treated as compromised.
+ */
+const API_SECRET_COLUMNS = ['Password', 'PondPassword', 'GroupToken', 'Passcode'];
+
+function redact_secrets(array $rows): array {
+    foreach ($rows as $i => $row) {
+        if (!is_array($row)) continue;
+        foreach (API_SECRET_COLUMNS as $c) {
+            if (array_key_exists($c, $row)) unset($rows[$i][$c]);
+        }
+    }
+    return $rows;
+}
+
 function fetch_all($stmt) {
     $res = $stmt->get_result();
-    $out = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    $out = $res ? redact_secrets($res->fetch_all(MYSQLI_ASSOC)) : [];
     $stmt->close();
     return $out;
 }
@@ -887,7 +961,17 @@ if ($entity === 'history' && $action === 'write_all') {
     if ($method !== 'POST' && $method !== 'PUT') bad(405, 'Use POST/PUT for write_all');
     $rows = $body['rows'] ?? null;
     if (!is_array($rows)) bad(400, 'write_all requires a "rows" array');
-    $truncate = array_key_exists('truncate', $body) ? (bool)$body['truncate'] : true;
+    // [HISTORY_TRUNCATE_EXPLICIT_V1] This defaulted to true, so a request whose
+    // rows array was empty or malformed silently emptied the History table.
+    // Destroying data is now something the caller has to ask for by name.
+    if (!array_key_exists('truncate', $body)) {
+        bad(400, 'write_all requires an explicit "truncate": true or false');
+    }
+    $truncate = (bool)$body['truncate'];
+    if ($truncate && count($rows) === 0) {
+        bad(400, 'refusing to truncate History and write zero rows; '
+               . 'send truncate:false to append nothing, or use an explicit delete');
+    }
 
     $mysqli = db();
     $mysqli->begin_transaction();

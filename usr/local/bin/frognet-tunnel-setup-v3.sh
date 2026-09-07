@@ -57,6 +57,72 @@ done
 [[ "$(id -u)" -eq 0 ]] || { echo "[tunnel_setup] ERROR: Must run as root" >&2; exit 1; }
 
 # ---------------------------------------------------------------------------
+# [BROKER_PIN_V1] / [BROKER_AUTH_V1] Broker trust for the shell register path.
+#
+# This script registers over plain `curl -sk`, which encrypts to whoever
+# answers the broker's name without checking it is the broker, and puts the
+# pond password in the POST body. Both halves are fixed here to match the
+# daemon (broker_pin.py / broker_auth.py):
+#
+#   - Pin the broker certificate on first use, then require it to match.
+#   - Prove the pond password with an HMAC over a broker nonce instead of
+#     sending it as a field.
+#
+# No CA is involved - FrogNet has no authority to issue or validate certs.
+# ---------------------------------------------------------------------------
+PIN_DIR="${FROGNET_BROKER_PIN_DIR:-/etc/frognet/broker_pins}"
+
+# Fingerprint the cert the broker is currently presenting (no validation - we
+# are learning/comparing a fingerprint, not trusting a chain).
+_broker_fingerprint() {
+    local url="$1" hostport host port
+    hostport="${url#*://}"; hostport="${hostport%%/*}"
+    host="${hostport%%:*}"
+    port="${hostport##*:}"; [[ "$port" == "$host" ]] && port=443
+    echo | openssl s_client -connect "${host}:${port}" -servername "$host" 2>/dev/null \
+        | openssl x509 -noout -fingerprint -sha256 2>/dev/null \
+        | sed 's/^.*=//; s/://g' | tr 'A-Z' 'a-z'
+}
+
+# Enforce the pin. Learns on first use; fails on mismatch. Prints the CA-bundle
+# arguments curl should use (empty here - we rely on the pin, checked before
+# the request, plus curl's own connection to the same host).
+_broker_pin_check() {
+    local url="$1" host fp pinfile pinned
+    host="${url#*://}"; host="${host%%[:/]*}"
+    local port; port="${url#*://}"; port="${port%%/*}"
+    case "$port" in *:*) port="${port##*:}";; *) port=443;; esac
+    pinfile="${PIN_DIR}/${host}_${port}.sha256"
+    fp="$(_broker_fingerprint "$url")"
+    [[ -z "$fp" ]] && { log "ERROR: could not read broker certificate at $url"; return 1; }
+    if [[ -f "$pinfile" ]]; then
+        pinned="$(tr -d '[:space:]' < "$pinfile" | tr 'A-Z' 'a-z')"
+        if [[ "$fp" != "$pinned" ]]; then
+            log "FATAL: broker cert fingerprint $fp does not match pin $pinned"
+            log "       ($pinfile). Refusing to register. If the broker cert was"
+            log "       rotated on purpose, remove that file to re-pin."
+            return 1
+        fi
+    else
+        mkdir -p "$PIN_DIR"; chmod 700 "$PIN_DIR"
+        printf '%s\n' "$fp" > "$pinfile"; chmod 600 "$pinfile"
+        log "PINNED broker cert $fp for ${host}:${port} (first use)"
+    fi
+    return 0
+}
+
+# HMAC-SHA256(pond_password, "frognet-register-v1\nnonce\npond\npubkey\nguid").
+# Mirrors broker_auth.compute_auth so the daemon and this script prove the
+# password identically.
+_register_hmac() {
+    local pw="$1" nonce="$2" pond="$3" pubkey="$4" guid="$5"
+    printf '%s\n%s\n%s\n%s\n%s' \
+        "frognet-register-v1" "$nonce" "$pond" "$pubkey" "$guid" \
+        | openssl dgst -sha256 -hmac "$pw" -hex 2>/dev/null \
+        | sed 's/^.*= *//'
+}
+
+# ---------------------------------------------------------------------------
 # Direct-upstream gate
 #
 # Only a node with a DIRECT Internet upstream may register with the broker.
@@ -187,6 +253,9 @@ log "Pond: $POND_NAME"
 
 log "Registering with broker..."
 
+# [BROKER_PIN_V1] Enforce the cert pin before sending anything.
+_broker_pin_check "${BROKER_URL}" || exit 1
+
 # Canonical machine identity = install-time GUID, sent in the "mac" field
 # (decision A 2026-06-02: reuse the field as an opaque identity; the broker
 # reconciles by (pond_id, mac) with no broker-side change). The helper
@@ -198,17 +267,38 @@ NODE_GUID="$(/usr/local/bin/frognet-node-guid.sh --read)" || {
 }
 [[ -n "$NODE_GUID" ]] || { log "ERROR: could not obtain node GUID"; exit 1; }
 
+# [BROKER_AUTH_V1] Fetch a one-time nonce, then prove the pond password with an
+# HMAC over it instead of putting the password in the body. --cacert is not
+# used (no CA); the pin checked above is the endpoint authentication.
+NONCE=$(curl -sk --connect-timeout 5 --max-time 10 \
+    "${BROKER_URL%/}/api/v4/register-challenge?pond=${POND_NAME}" 2>/dev/null \
+    | jq -r '.nonce // empty' 2>/dev/null || true)
+
+AUTH=""
+if [[ -n "$NONCE" ]]; then
+    AUTH=$(_register_hmac "$POND_PASSWORD" "$NONCE" "$POND_NAME" "$PUBKEY" "$NODE_GUID")
+else
+    # [BROKER_AUTH_V1] Broker has no challenge route yet (not upgraded). Fall
+    # back to the legacy plaintext field so a new client still works against an
+    # old broker; this fallback goes away once brokers issue nonces. The pin
+    # above still protects this body from an interceptor.
+    log "NOTE: broker issued no nonce - using legacy password field (pin still enforced)"
+fi
+
+# Build the body with jq so a password containing quotes or backslashes cannot
+# break the JSON (the old hand-built heredoc could).
+REG_BODY=$(jq -nc \
+    --arg pond "$POND_NAME" --arg pubkey "$PUBKEY" --arg subnet "$LOCAL_SUBNET" \
+    --arg node_name "$NODE_NAME" --arg label "$NODE_NAME" --arg guid "$NODE_GUID" \
+    --arg auth "$AUTH" --arg nonce "$NONCE" --arg pw "$POND_PASSWORD" \
+    '{pond:$pond, pubkey:$pubkey, subnet:$subnet, node_name:$node_name,
+      label:$label, guid:$guid}
+     + (if $auth  != "" then {auth:$auth, auth_nonce:$nonce} else {} end)
+     + (if $nonce == "" then {pond_password:$pw} else {} end)')
+
 RESPONSE=$(curl -sk -X POST "${BROKER_URL%/}/api/v4/register" \
     -H "Content-Type: application/json" \
-    -d "{
-        \"pond\":          \"${POND_NAME}\",
-        \"pubkey\":        \"${PUBKEY}\",
-        \"subnet\":        \"${LOCAL_SUBNET}\",
-        \"node_name\":     \"${NODE_NAME}\",
-        \"label\":         \"${NODE_NAME}\",
-        \"guid\":          \"${NODE_GUID}\",
-        \"pond_password\": \"${POND_PASSWORD}\"
-    }" 2>&1) || true
+    -d "$REG_BODY" 2>&1) || true
 
 STATUS=$(echo "$RESPONSE" | jq -r '.status // empty' 2>/dev/null || true)
 

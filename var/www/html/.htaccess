@@ -1,1 +1,8 @@
-Header set Access-Control-Allow-Origin "*"
+# [API_ORIGIN_V1] The docroot-wide `Header set Access-Control-Allow-Origin "*"`
+# that lived here applied to EVERY file below it, including api.php and
+# frognet_setup_v4_api.php. It let any page on the internet read this API from a
+# browser on the FrogNet LAN. CORS is now decided per-endpoint, in PHP, against
+# an allowlist of FrogNet origins - see the header block in api.php.
+#
+# Do not reinstate a wildcard here. If a new endpoint needs cross-origin access,
+# give it the same origin check api.php uses.

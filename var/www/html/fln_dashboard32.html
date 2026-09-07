@@ -350,6 +350,19 @@
 /**********************************************************************
  * Helpers
  **********************************************************************/
+// [DASHBOARD_XSS_V1] Every value that reaches an innerHTML template on this
+// page can originate from api.php - SensorName, SensorType, Tags, hostnames,
+// link dev/via - and api.php stores whatever a writer sent, unauthenticated on
+// the LAN. So any of those fields can carry markup. esc() HTML-escapes a value
+// for safe interpolation into an innerHTML template; use it around EVERY
+// dynamic value in a template literal, or use textContent where there is no
+// markup. Numbers and page-constant strings do not need it, but escaping them
+// is harmless.
+function esc(v){
+  return String(v == null ? "" : v).replace(/[&<>"'`]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","`":"&#96;"}[c];
+  });
+}
 function isV4(s){ return typeof s==="string" && /^\d+\.\d+\.\d+\.\d+$/.test(s); }
 function isFrogNetIp(ip){ return typeof ip==="string" && ip.startsWith("10."); }
 function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
@@ -1724,21 +1737,40 @@ function renderEngineTiles(){
     html+=`<div class="sub-label">Top Endpoints</div><div class="tile" style="padding:6px 10px;">`;
     for(const ep of topEps){
       const epComp=ep.total_requests>0?((ep.compression_ratio*100).toFixed(0)+"%"):"—";
-      html+=`<div class="endpoint-row"><div class="path" title="${ep.path}">${ep.path}</div><div class="hits">${epComp}</div><div class="saved">${formatBytes(ep.bytes_saved)}</div></div>`;
+      html+=`<div class="endpoint-row"><div class="path" title="${esc(ep.path)}">${esc(ep.path)}</div><div class="hits">${esc(epComp)}</div><div class="saved">${esc(formatBytes(ep.bytes_saved))}</div></div>`;
     }
     html+=`</div>`;
   }
 
-  html+=`<div class="mini" style="margin-top:10px;">`;
-  html+=`<div class="tag" onclick="showModal('Engine (aggregated)',${JSON.stringify(JSON.stringify(agg))})"><strong>Engine Raw</strong></div>`;
+  // [DASHBOARD_XSS_V1] The mini row is built as DOM rather than an HTML string:
+  // its click handlers carry live data (agg, per-daemon payloads) and its
+  // labels include hostnames from api.php. Building the onclick as text would
+  // put a DB-derived hostname inside a JS string inside an HTML attribute,
+  // where HTML-escaping alone does not make a quote safe. textContent for the
+  // label and a real closure for the handler sidestep both contexts.
+  el.innerHTML=html;
+
+  const mini=document.createElement("div");
+  mini.className="mini"; mini.style.marginTop="10px";
+
+  const engBtn=document.createElement("div");
+  engBtn.className="tag";
+  const engStrong=document.createElement("strong"); engStrong.textContent="Engine Raw";
+  engBtn.appendChild(engStrong);
+  engBtn.addEventListener("click", ()=>showModal("Engine (aggregated)", agg));
+  mini.appendChild(engBtn);
+
   for(const [hostIp,data] of DAEMON_BY_HOST.entries()){
     if(!data) continue;
     const hn=HOSTS.has(hostIp)?HOSTS.get(hostIp).hostname:hostIp;
-    html+=`<div class="tag" onclick="showModal('Daemon ${hn}',${JSON.stringify(JSON.stringify(data))})"><strong>Daemon ${hn}</strong></div>`;
+    const b=document.createElement("div");
+    b.className="tag";
+    const strong=document.createElement("strong"); strong.textContent="Daemon "+hn;
+    b.appendChild(strong);
+    b.addEventListener("click", ()=>showModal("Daemon "+hn, data));
+    mini.appendChild(b);
   }
-  html+=`</div>`;
-
-  el.innerHTML=html;
+  el.appendChild(mini);
 }
 
 /**********************************************************************
@@ -2096,7 +2128,7 @@ function renderHostTiles(){
 
     for(const s of keySensors){
       const btn=document.createElement("div"); btn.className="tag";
-      btn.innerHTML=`<strong>${String(s.SensorType||"")}</strong>`;
+      btn.innerHTML=`<strong>${esc(s.SensorType)}</strong>`;
       btn.title=String(s.SensorName||"");
       btn.onclick=async()=>{const obj=await fetchSensorData(s.SensorID); showModal(`${h.hostname} — ${s.SensorName} (ID=${s.SensorID})`,obj||"No data");};
       mini.appendChild(btn);
@@ -2134,8 +2166,8 @@ function renderLinkTiles(){
     row.append(dot,name,ip);
 
     const meta=document.createElement("div"); meta.className="linkmeta";
-    if(!L) meta.innerHTML=`<b>${E.a_sub}↔${E.b_sub}</b> no host-edge record`;
-    else meta.innerHTML=`<b>${hostName(L.a)}</b> ↔ <b>${hostName(L.b)}</b> · dev=${String(L.dev||"")}${L.via?` via=${String(L.via)}`:""}`;
+    if(!L) meta.innerHTML=`<b>${esc(E.a_sub)}↔${esc(E.b_sub)}</b> no host-edge record`;
+    else meta.innerHTML=`<b>${esc(hostName(L.a))}</b> ↔ <b>${esc(hostName(L.b))}</b> · dev=${esc(L.dev)}${L.via?` via=${esc(L.via)}`:""}`;
 
     const mini=document.createElement("div"); mini.className="mini";
     const btn=document.createElement("div"); btn.className="tag"; btn.innerHTML=`<strong>Details</strong>`;

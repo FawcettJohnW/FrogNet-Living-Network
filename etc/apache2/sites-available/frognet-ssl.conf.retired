@@ -15,20 +15,25 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-<VirtualHost *:8080>
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html
-    # [APACHE_LAN_BIND_V1] The socket is already restricted to this node's
-    # FrogNet address by frognet-apache-bind.sh; this is the second layer, so a
-    # regenerated or hand-edited ports.conf cannot silently re-expose the
-    # unauthenticated endpoints in this docroot.
-    <Directory /var/www/html>
-        Options -Indexes +FollowSymLinks
-        AllowOverride All
-        Require ip 10.0.0.0/8 127.0.0.1
-    </Directory>
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
-    ProxyPass        /semantic/  http://127.0.0.1:9100/semantic/
-    ProxyPassReverse /semantic/  http://127.0.0.1:9100/semantic/
-</VirtualHost>
+<IfModule mod_ssl.c>
+    <VirtualHost *:8443>
+        ServerName frognethost.frognet
+        DocumentRoot /var/www/html
+        SSLEngine on
+        SSLCertificateFile      /etc/ssl/frognet-universal.crt
+        SSLCertificateKeyFile   /etc/ssl/frognet-universal.key
+        SSLOptions +StrictRequire
+        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    </VirtualHost>
+    <VirtualHost *:443>
+        ServerName databasehost.frognet
+        DocumentRoot /var/www/html
+        SSLEngine on
+        SSLCertificateFile      /etc/ssl/localCA/databasehost.frognet.crt
+        SSLCertificateKeyFile   /etc/ssl/localCA/databasehost.frognet.key
+        SSLOptions +StrictRequire
+        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    </VirtualHost>
+</IfModule>

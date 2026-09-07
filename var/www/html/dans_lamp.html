@@ -960,6 +960,13 @@ function fmtTime(isoString) {
   } catch { return isoString; }
 }
 
+// [DASHBOARD_XSS_V1] value and timestamp come from api.php
+// (http://databasehost.frognet/api.php), which stores whatever an
+// unauthenticated LAN writer sent, so they are escaped before innerHTML. label
+// and unit are page constants but are escaped too for uniformity.
+function esc(s){ return String(s ?? '').replace(/[&<>"'`]/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","`":"&#96;"}[c]; }); }
+
 function renderTable(data) {
   const tbody = document.getElementById("table-body");
   const rows = [
@@ -981,10 +988,10 @@ function renderTable(data) {
 
   tbody.innerHTML = rows.map(r => `
     <tr>
-      <td class="label">${r.label}</td>
-      <td class="value${r.isOff ? " off" : ""}">${r.value}</td>
-      <td class="unit">${r.unit}</td>
-      <td class="timestamp">${fmtTime(r.timestamp)}</td>
+      <td class="label">${esc(r.label)}</td>
+      <td class="value${r.isOff ? " off" : ""}">${esc(r.value)}</td>
+      <td class="unit">${esc(r.unit)}</td>
+      <td class="timestamp">${esc(fmtTime(r.timestamp))}</td>
     </tr>
   `).join("");
 }

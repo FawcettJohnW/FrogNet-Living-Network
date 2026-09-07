@@ -317,7 +317,13 @@
     return Math.floor((now - d.getTime()) / 60000);
   }
   function n(v){ const x=Number(v); return Number.isFinite(x)?x:null; }
-  function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  // [DASHBOARD_XSS_V1] Values here come from api.php (NetworkName, SensorName,
+  // CallSign, RealName, message text, team names) and api.php stores whatever
+  // an unauthenticated LAN writer sent. The old esc() replaced only & and <,
+  // so > \" and ' passed through - enough to break out of an attribute or
+  // close a tag. Escape the full set. Every call site inherits this.
+  function esc(s){ return String(s ?? '').replace(/[&<>"'`]/g, function(c){
+    return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","`":"&#96;"}[c]; }); }
   function looksURL(s){ return /^https?:\/\//i.test(s); }
   function normalizeURL(s){ if(!s) return ''; return looksURL(s)?s:`http://${s}`; }
 

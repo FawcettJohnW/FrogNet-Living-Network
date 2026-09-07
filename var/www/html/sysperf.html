@@ -590,6 +590,11 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // ── Utilities ───────────────────────────────────────────────────────
+// [DASHBOARD_XSS_V1] Interface and disk names come from /api.php, which stores
+// whatever an unauthenticated LAN writer sent, so they are escaped before going
+// into innerHTML. The numeric fields go through fmt()/fmtBytes() and are safe.
+function esc(s){ return String(s ?? '').replace(/[&<>"'`]/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;","`":"&#96;"}[c]; }); }
 function fmt(n, dec=1) { return n != null ? n.toFixed(dec) : '—'; }
 function fmtBytes(bps) {
   if (bps == null) return '—';
@@ -753,7 +758,7 @@ function render(d) {
     const errs = (n.rx_errs||0) + (n.tx_errs||0);
     const drops = (n.rx_drop||0) + (n.tx_drop||0);
     tbody.innerHTML += `<tr>
-      <td${cls}>${iface}</td>
+      <td${cls}>${esc(iface)}</td>
       <td${cls}>${fmtBytes(n.rx_bytes_per_s)}</td>
       <td${cls}>${fmtBytes(n.tx_bytes_per_s)}</td>
       <td>${fmt(n.rx_packets_per_s, 0)}</td>
@@ -786,7 +791,7 @@ function render(d) {
   for (const [name, dev] of Object.entries(diskDevs)) {
     const wPct = maxWrite > 0 ? (dev.write_bytes_per_s / maxWrite) * 100 : 0;
     diskEl.innerHTML += `<div class="disk-row">
-      <span class="disk-name">${name}</span>
+      <span class="disk-name">${esc(name)}</span>
       <div class="disk-bar"><div class="disk-bar-fill" style="width:${wPct}%"></div></div>
       <span class="disk-val">${fmtBytes(dev.write_bytes_per_s)}</span>
     </div>`;
