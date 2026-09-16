@@ -117,10 +117,55 @@ function db(): FrogNetDb
 {
     static $wrapper = null;
     if ($wrapper === null) {
-        $m = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        /*
+         * [MYSQLI_THROWS_SINCE_PHP81_V1 - 2026-09-12]
+         *
+         * The connect_errno check below is PHP 7 error handling and it stopped
+         * running years ago. Since PHP 8.1 the default mysqli error mode is
+         * MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT, so `new mysqli(...)` with
+         * a bad credential THROWS mysqli_sql_exception. Nothing here caught it,
+         * so the "DB connect failed" JSON was never emitted -- PHP died on an
+         * uncaught exception instead, and with display_errors off that is:
+         *
+         *     HTTP 500, Content-Type: application/json, Content-Length: 0
+         *
+         * api.php sets the JSON header at line 20, immediately after requiring
+         * this file, so the header is already out and the body is empty. That is
+         * the exact signature every store read on BAMacBook was getting, while
+         * MariaDB logged "Access denied for user 'FrogUser'@'localhost'" for each
+         * one. A credential failure was presenting as a blank server error and
+         * sent the whole investigation somewhere else.
+         *
+         * Report the mode explicitly rather than relying on a version default,
+         * and catch, so the failure says what it is.
+         */
+        mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+        try {
+            $m = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        } catch (\mysqli_sql_exception $e) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'error'  => 'DB connect failed',
+                'detail' => $e->getMessage(),
+                'user'   => DB_USER,
+                'host'   => DB_HOST,
+                'db'     => DB_NAME,
+                'hint'   => 'config.php DB_PASS must match the FrogUser password '
+                          . 'MySQL holds, and must agree with '
+                          . '/opt/frognet_semantic/DB_CONFIG.json',
+            ]);
+            error_log('FrogNet api: DB connect failed for ' . DB_USER . '@' . DB_HOST
+                      . ': ' . $e->getMessage());
+            exit;
+        }
+        /* Retained: harmless on 8.1+, and correct if mysqli_report is ever set
+         * back to MYSQLI_REPORT_OFF by a future php.ini. */
         if ($m->connect_errno) {
             http_response_code(500);
-            echo json_encode(['error' => 'DB connect failed', 'detail' => $m->connect_error]);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'DB connect failed',
+                              'detail' => $m->connect_error]);
             exit;
         }
         $m->set_charset('utf8mb4');

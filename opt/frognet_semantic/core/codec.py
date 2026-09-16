@@ -64,6 +64,15 @@ def _lz4_smart(payload: bytes) -> Tuple[bytes, bool]:
     return payload, False
 
 
+#: [WIRE_FIELD_IS_UINT16_V1] TYPE_STR and TYPE_RAW carry a 2-byte length
+#: prefix ("<H"), so the largest payload either can hold is 65535 bytes --
+#: NOT 65536, and not "64 KB", which is the number a person types when they
+#: mean this limit and is one byte too many. Named here so callers bound
+#: themselves against the codec instead of restating a literal that cannot be
+#: checked against anything. TYPE_JSON uses a 4-byte prefix and is unaffected.
+MAX_WIRE_FIELD_BYTES = 0xFFFF
+
+
 class SemanticCodec:
     TYPE_NULL  = 0
     TYPE_RAW   = 1
@@ -414,15 +423,17 @@ class SemanticCodec:
             if not isinstance(value, (bytes, bytearray)):
                 raise TypeError(f"TYPE_RAW requires bytes, got {type(value).__name__}: {value!r}")
             b = bytes(value)
-            if len(b) > 0xFFFF:
-                raise ValueError(f"TYPE_RAW over 65535-byte wire field: {len(b)} bytes")
+            if len(b) > MAX_WIRE_FIELD_BYTES:
+                raise ValueError(f"TYPE_RAW over {MAX_WIRE_FIELD_BYTES}-byte "
+                                 f"wire field: {len(b)} bytes")
             return struct.pack("<H", len(b)) + b
         if type_id == self.TYPE_STR:
             if not isinstance(value, str):
                 raise TypeError(f"TYPE_STR requires str, got {type(value).__name__}: {value!r}")
             b = value.encode("utf-8")  # strict: un-encodable raises, no silent 'replace'
-            if len(b) > 0xFFFF:
-                raise ValueError(f"TYPE_STR over 65535-byte wire field: {len(b)} bytes")
+            if len(b) > MAX_WIRE_FIELD_BYTES:
+                raise ValueError(f"TYPE_STR over {MAX_WIRE_FIELD_BYTES}-byte "
+                                 f"wire field: {len(b)} bytes")
             return struct.pack("<H", len(b)) + b
         if type_id == self.TYPE_INT:
             if not isinstance(value, int) or isinstance(value, bool):

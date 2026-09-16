@@ -74,7 +74,9 @@ _MANIFEST="/usr/local/lib/frognet_world_manifest.sh"
 # shellcheck source=/dev/null
 . "$_MANIFEST"
 
-frognet_check_manifest / || exit 1
+# [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1] Report what is absent and
+# build. An operator asking for a tarball gets a tarball.
+frognet_check_manifest /
 
 # ---------------------------------------------------------------------------
 # NOT SOURCE. Cut by path, so that what is cut is a decision rather than a

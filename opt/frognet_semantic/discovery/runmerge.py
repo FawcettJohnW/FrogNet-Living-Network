@@ -77,47 +77,38 @@ def run_merge(disc, kernel, seeds, upstream_seed, *, local, bringup_peers,
 
     sync_required = 1 if out["sync_required"] else 0
 
-    # [RUNAGAIN_ON_MUTATION_V1] A merge that changed any /24 WINNER has moved the
-    # mesh: this node's /24 changes are exactly what peers react to, and their
-    # reactions change what this node sees next pass. So re-run whenever a /24
-    # winner was added/replaced this pass (route_table_mutated, scoped to /24s in
-    # routes.rtmut - /32 probes/aliases and /30 transit excluded, and a reap of a
-    # non-winner excluded per REAP_NOT_CONVERGENCE_V1 - so a settled mesh leaves
-    # it False). Also re-run on the legacy concurrent-lock bail.
-    # [HOSTS_NAME_CHANGE_RUNAGAIN_V1] A peer's authoritative name superseding a
-    # deprecated /etc/hosts name is also a mesh move: re-run so the corrected
-    # name re-propagates. A run that changes no /24 winner and no name is clean.
+    # [RUNAGAIN_ON_REAL_DELTA_V1] These three are now OBSERVATIONS, not votes.
+    # They are recorded because they name what the pass did; they no longer
+    # decide whether it runs again. The only thing that re-runs a merge is a
+    # real before/after difference in the routing table, and that verdict is
+    # reached in live.main() -- AFTER the fixDefault/manageResolv tail, which
+    # writes routes of its own and therefore has to be inside the window.
+    #
+    # What this replaces: route_table_mutated is set when a write returns rc=0.
+    # `ip route replace` on an already-correct route returns 0. A /24 that reap
+    # removed and promote re-installed returns 0. Both latched runAgain on a
+    # node whose table was identical at both ends of the pass -- and because a
+    # dirty chain ends in propogateNotification, every one of those passes told
+    # the whole mesh to merge too.
+    #
+    # [HOSTS_NAME_CHANGE_RUNAGAIN_V1] is likewise demoted: a corrected
+    # /etc/hosts name is real, but it is not a routing change, so it no longer
+    # re-runs the pass. It still reaches peers through the normal hosts commit.
     routes_mutated = bool(getattr(disc.r, "route_table_mutated", False))
     name_changed = bool(out.get("host_name_changed"))
-    run_again = 1 if (concurrent_attempt or routes_mutated or name_changed) else 0
-    # [MUTATED_DEST_TRACE_V1] Name the exact /24(s) that moved, so a non-converging
+    # [MUTATED_DEST_TRACE_V1] Name the exact /24(s) written, so a non-converging
     # chain points straight at the churning dest instead of being inferred.
     mutated_dests = sorted(getattr(disc.r, "mutated_slash24", set()))
-    logger(f"converge_decision sync_required={sync_required} runAgain={run_again} "
+    logger(f"merge_observations sync_required={sync_required} "
            f"depth={depth} cap={MAX_MERGE_DEPTH} "
-           f"slash24_mutated={int(routes_mutated)} name_changed={int(name_changed)} "
+           f"slash24_written={int(routes_mutated)} name_changed={int(name_changed)} "
            f"concurrent={int(concurrent_attempt)} "
            f"slash24_dests={mutated_dests}")
-    # [RUNAGAIN_ON_MUTATION_V1] Surface the decision to the bash wrapper via the
-    # sentinel it already reads (/etc/sentinels/runAgain). The wrapper sets this
-    # only on a concurrent-lock bail; we additionally set it on a /24 mutation so
-    # the wrapper re-invokes for another convergence pass (bounded by
-    # MAX_MERGE_DEPTH on the bash side); clear it on a clean pass.
-    try:
-        import os as _os
-        _os.makedirs("/etc/sentinels", exist_ok=True)
-        if run_again:
-            open("/etc/sentinels/runAgain", "w").close()
-        else:
-            try:
-                _os.remove("/etc/sentinels/runAgain")
-            except FileNotFoundError:
-                pass
-    except OSError as _e:
-        logger(f"runAgain sentinel write failed: {_e}")
-    # recursion fork is commented out in current bash -> never forks
     logger("completed")
 
-    out["converge"] = dict(sync_required=sync_required, run_again=run_again,
-                           depth=depth, cap=MAX_MERGE_DEPTH, forked=False)
+    out["routes_mutated"] = routes_mutated
+    out["name_changed"] = name_changed
+    out["concurrent_attempt"] = bool(concurrent_attempt)
+    out["converge"] = dict(sync_required=sync_required, depth=depth,
+                           cap=MAX_MERGE_DEPTH, forked=False)
     return out

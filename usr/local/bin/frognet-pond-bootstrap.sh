@@ -112,24 +112,40 @@ if [[ ! -f "$TUNNEL_CONF" ]] || ! grep -q 'BROKER_URL' "$TUNNEL_CONF" 2>/dev/nul
 fi
 
 # Success — start the daemon and disable this timer
-# [DEFERRED_BROKER_SETUP_V1] The shipped unit is frognet-tunnel-daemon-v3.service;
-# only a .d drop-in dir exists for the bare name. Starting "frognet-tunnel-daemon"
-# therefore failed, is-active failed with it, and this script exited without ever
-# marking itself done -- so it retried forever even on a node where setup had in
-# fact succeeded. Prefer v3, fall back to the bare name.
+#
+# [BOOTSTRAP_NEVER_RESTARTS_A_LIVE_DAEMON_V1] This is enrolment, not a service
+# manager. It used to `systemctl restart` unconditionally, and because runMerge
+# calls this script on EVERY pass while the sentinel is missing -- plus
+# frognet-pond-bootstrap.timer every 120s -- a node that never reached the
+# sentinel bounced the tunnel daemon every couple of minutes, forever. Each
+# bounce tears down and rebuilds every wg iface, which deletes and re-adds every
+# channel /24, which is a real routing change, which propagates: the whole mesh
+# merges because one node could not finish enrolling. That is what drove
+# 10.120.120.0/24 and 10.130.130.0/24 in and out of every peer's table.
+#
+# So: start it if it is down, leave it entirely alone if it is up. There is no
+# state this script produces that a running daemon needs to be restarted to see
+# -- it reads tunnel.conf per poll.
 TUNNEL_UNIT="frognet-tunnel-daemon-v3"
-systemctl list-unit-files "${TUNNEL_UNIT}.service" >/dev/null 2>&1 \
-    || TUNNEL_UNIT="frognet-tunnel-daemon"
-log "CREDENTIALS_ESTABLISHED - starting $TUNNEL_UNIT"
+log "CREDENTIALS_ESTABLISHED - ensuring $TUNNEL_UNIT is running"
 systemctl enable "$TUNNEL_UNIT" 2>/dev/null || true
-systemctl restart "$TUNNEL_UNIT" 2>/dev/null || true
-
 if systemctl is-active --quiet "$TUNNEL_UNIT"; then
-    log "TUNNEL_DAEMON_RUNNING — bootstrap complete"
+    log "TUNNEL_DAEMON_ALREADY_RUNNING - not restarting"
 else
-    log "TUNNEL_DAEMON_FAILED_TO_START - check journalctl -u $TUNNEL_UNIT"
-    # Don't mark as done — let it retry
-    exit 0
+    log "TUNNEL_DAEMON_DOWN - starting"
+    systemctl start "$TUNNEL_UNIT" 2>/dev/null || true
+fi
+
+# [BOOTSTRAP_TERMINATES_V1] The sentinel is keyed on ENROLMENT, which is what
+# this script is responsible for and what it has just finished: credentials are
+# established and tunnel.conf is valid. It used to be keyed on the daemon being
+# active, so a daemon that failed to start -- for any reason, including one that
+# has nothing to do with enrolment -- meant the sentinel was never written and
+# the retry ran forever. Enrolment does not become un-done because a unit is
+# down; that is the service manager's problem and Restart= handles it.
+if ! systemctl is-active --quiet "$TUNNEL_UNIT"; then
+    log "TUNNEL_DAEMON_NOT_RUNNING - enrolment is still complete; marking done anyway."
+    log "  the unit is systemd's to restart: journalctl -u $TUNNEL_UNIT"
 fi
 
 # Mark done. runMerge tests for this sentinel and stops calling us.

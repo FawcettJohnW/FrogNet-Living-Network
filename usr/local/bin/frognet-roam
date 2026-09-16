@@ -340,8 +340,12 @@ try_and_validate() {
         return 1
     }
 
-    # Validate echo response format: NodeName,10.101.x.1,iface_ip,gw_ip
-    if [[ "$echo_response" =~ ^[A-Za-z0-9]+,10\.101\.[0-9]+\.1, ]]; then
+    # Validate echo response format: NodeName,10.x.y.1,iface_ip,gw_ip
+    # [FROGNET_PLANE_IS_TEN_V1] the node identity is .1 on any FrogNet /24
+    # (10/8 less 10.253/10.254), not the literal 10.101.* this used to require --
+    # which rejected every real node's echo as invalid.
+    if [[ "$echo_response" =~ ^[A-Za-z0-9]+,10\.[0-9]+\.[0-9]+\.1, \
+          && ! "$echo_response" =~ ^[A-Za-z0-9]+,10\.25[34]\. ]]; then
         VALIDATED_NODE_NAME=$(echo "$echo_response" | cut -d',' -f1)
         log "$ssid: Confirmed FrogNet node '$VALIDATED_NODE_NAME'"
         rm -f "$tmp_conf"

@@ -2313,7 +2313,14 @@ def _handle_semantic_request(
 
     next_hop = target_ip
     worker = _get_worker(next_hop, _DAEMON_PORT)
-    _MAX_ATTEMPTS = 2
+    # [RETRY_BUDGET_IS_ONE_SETTING_V1] This was a hard-coded local 2, shadowing
+    # the module's configurable _TRANSPORT_MAX_ATTEMPTS. The proxy banner
+    # reported "switch=on max_attempts=3" from the env while this loop silently
+    # used its own number, so FROGNET_TRANSPORT_RETRIES had no effect on the
+    # bootstrap path and the REQ_MISS recovery below could not run. Two
+    # different retry budgets in one process, one of them unreachable from
+    # configuration, is a setting that lies.
+    _MAX_ATTEMPTS = max(2, _TRANSPORT_MAX_ATTEMPTS)
     reference = _get_request_reference(target_ip, opcode)
 
     for attempt in range(_MAX_ATTEMPTS):
@@ -2565,11 +2572,23 @@ def _handle_raw_and_learn(
     #
     # REQ_REPEAT is what makes RESP_SAME reachable at all. Removing it and then
     # asking why SAME never appeared was the shape of this whole detour.
-    _MAX_ATTEMPTS = 1
+    # [RETRY_BUDGET_IS_ONE_SETTING_V1] Third retry budget in this module, and
+    # the one the bootstrap REQ_MISS recovery below depends on. Pinned at 1, it
+    # made `attempt < _MAX_ATTEMPTS - 1` false on the first pass, so the branch
+    # that clears the seen marker and re-sends as REQ_RAW was unreachable and
+    # every miss went straight to 503. The env switch reported 3 in the banner
+    # while this loop used 1.
+    _MAX_ATTEMPTS = max(2, _TRANSPORT_MAX_ATTEMPTS)
 
-    use_repeat = semcache_db.is_req_seen(target_ip, req_hash)
+    # [MISS_RETRY_MUST_REBUILD_THE_FRAME_V1] This was evaluated ONCE here,
+    # so a REQ_MISS retry rebuilt the identical REQ_REPEAT frame every pass:
+    # clearing the seen marker inside the loop could not change a decision
+    # already made outside it. Three attempts, three repeats of a hash the
+    # peer had never received, then 503. It is now re-read per attempt, which
+    # is what makes "retrying as REQ_RAW" true rather than merely logged.
 
     for attempt in range(_MAX_ATTEMPTS):
+        use_repeat = semcache_db.is_req_seen(target_ip, req_hash)
         if use_repeat:
             wire_req = wrap_req_repeat(req_hash)
             req_type = "REQ_REPEAT"
@@ -2619,7 +2638,20 @@ def _handle_raw_and_learn(
                 rtt_ms=rtt_ms,
             )
             if attempt < _MAX_ATTEMPTS - 1:
-                _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, retrying as REQ_RAW (attempt {attempt+1})")
+                # [BOOTSTRAP_MISS_MUST_CLEAR_SEEN_V1] The comment above says
+                # there is nothing to clear because this path always sends
+                # REQ_RAW. It does not: when is_req_seen() is set it sends
+                # REQ_REPEAT ("raw, seen before"), and `continue` re-enters the
+                # loop, re-checks the same flag, and sends REPEAT again. All
+                # three attempts were repeats of a hash the peer had never
+                # received, so the retry that claims to fall back to REQ_RAW
+                # never did, and the request 503'd. Clearing the marker is what
+                # makes the next attempt actually be a full send -- exactly what
+                # clear_req_seen is documented for ("Clear seen flag (on
+                # REQ_MISS)") and what the REQ_REPEAT path at the other miss
+                # branch already does.
+                semcache_db.clear_req_seen(target_ip, req_hash)
+                _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, cleared seen, retrying as REQ_RAW (attempt {attempt+1})")
                 continue
             else:
                 _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, no retries left")

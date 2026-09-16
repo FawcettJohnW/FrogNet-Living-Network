@@ -456,7 +456,39 @@ def main():
 
     print("\nTIER 5 - proxy semantic data plane (M4)")
     import proxy_dataplane
+    # [COLLECTIVE_TIER_V1 - John 2026-09-14] agent_workload/ had no coverage
+    # in this suite at all -- not the DDP comm hooks, not the psychedelic
+    # collectives, not the c10d store. Every defect in it was found by running
+    # a four-node benchmark across a continent and reading py-spy by hand.
+    from simulation import collective_tier
+    results.append(_run_tier("collectives + DDP hooks (agent_workload)",
+                             collective_tier.main))
+
     results.append(_run_tier("proxy decision/keying/origin", proxy_dataplane.main))
+    # [RETURN_ONLY_V1] The reply path for every semantic RPC, against a real
+    # socket playing a real daemon. It had no coverage at all, which is why
+    # four benchmark campaigns died in their second arm discovering that a
+    # daemon had not completed a two-connection handshake.
+    import return_channel_tier
+    results.append(_run_tier("proxy RETURN channel handshake",
+                             return_channel_tier.main))
+    # [THE_TREE_IS_NOT_WHAT_RUNS_V1] Every other tier here asserts over the
+    # source tree on THIS machine. The store is served by another one, and a
+    # green tier over the wrong copy of api.php is what let a campaign run all
+    # night with pub_n still arriving as a list. This asks the real store.
+    # SKIPs when there is no store to ask, which is the normal case in a
+    # netns or a container.
+    # [A_THREAD_THAT_DIES_MUST_TAKE_ITS_CONNECTION_WITH_IT_V1] One connection
+    # per thread, parked in a threading.local and never closed, took the
+    # databasehost to 298 of 300 and presented as three different transport
+    # faults. This watches the count against thread churn.
+    import db_conn_lifetime_tier
+    results.append(_run_tier("DB connection lifetime vs thread churn",
+                             db_conn_lifetime_tier.main))
+    import store_preflight
+    results.append(_run_tier(
+        "live store round-trip (skips if unreachable)",
+        lambda: store_preflight.main(["--strict"])))
     print("        (transport on :9009 + daemon + DB store are box-tier)")
     import transport_tier
     results.append(_run_tier("transport calibration-capture (loopback mechanism)", transport_tier.main))
@@ -471,6 +503,13 @@ def main():
                              ["simulation/transport_sim_tier.py"]))
     results.append(_run_proc("transport factory self-test (sim+loopback+netem, 12)",
                              ["simulation/transport_factories.py"]))
+    # [AICONNECT_RAMP_IS_GATED_V1] The AIConnect workload had no tier at all --
+    # simulation/ai_workload_tier.py was deprecated and nothing replaced it, so
+    # producer.py and the bulk receiver were the only code in the tree changed
+    # without a gate. This runs the ramp oracle in its own process, as the
+    # transport tiers do.
+    results.append(_run_proc("aiconnect ramp oracle (ceiling/extend/receiver)",
+                             ["simulation/test_aiconnect_ramp_oracle.py"]))
     results.append(_run_proc("channel_sets UNIT (alloc/registry/threads)",
                              ["proxy/test_channel_sets.py"]))
     results.append(_run_proc("channel_sets INTEGRATION (HOL isolation via sim)",

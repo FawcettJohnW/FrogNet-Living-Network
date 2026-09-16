@@ -1,20 +1,3 @@
-################################################################
-#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
-#                                                              #
-#  SPDX-License-Identifier: GPL-2.0-only                       #
-#                                                              #
-#  This program is free software; you can redistribute it      #
-#  and/or modify it under the terms of the GNU General Public  #
-#  License as published by the Free Software Foundation;       #
-#  version 2 of the License, and no other version.             #
-#                                                              #
-#  This program is distributed in the hope that it will be     #
-#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
-#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
-#  PURPOSE.  See the GNU General Public License for details.   #
-#                                                              #
-#  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """
 sim/boot_gate_check.py - proves the frognet-discovered boot gate's unit graph and its merge
 wiring from the ACTUAL files: the gate service blocks on the discovered sentinel; the target
@@ -44,6 +27,7 @@ def _u(name):
 def run():
     svc = _u("frognet-discovered.service")
     tgt = _u("frognet-discovered.target")
+    dash = _u("frognet-dashboard.service")
     gps = _u("frognet-gps.service")
     mw = _u("frognet-merge-watcher.service")
 
@@ -59,25 +43,11 @@ def run():
         probs.append("target must Require + order After the gate service")
     check("[GATE-TGT] discovered.target requires + orders after the gate service", probs)
 
-    # [DEAD_UNITS_REMOVED_V1] frognet-dashboard was the other consumer and was
-    # removed 2026-08-29 (disabled on a live node; its ExecStart named
-    # /opt/frognet/venv/bin/gunicorn, a path in no other file in the tree, for a
-    # WSGI app that is now var/www/html/api_semantic.php under Apache; its port
-    # 9100 has since been reallocated to AV_PORT_BASE).
-    #
-    # That leaves gps as the ONLY consumer pulling the target, and gps is an
-    # OPT_SERVICE. On a box installed without it, nothing references
-    # frognet-discovered.target, so the boot gate silently does not exist. Assert
-    # that at least one consumer remains, so removing the last one FAILS here
-    # rather than quietly deleting the gate.
     probs = []
-    consumers = [("gps", gps)]
-    if not consumers:
-        probs.append("no consumer pulls frognet-discovered.target - the gate is unreachable")
-    for nm, txt in consumers:
+    for nm, txt in (("dashboard", dash), ("gps", gps)):
         if "After=frognet-discovered.target" not in txt or "Wants=frognet-discovered.target" not in txt:
             probs.append(f"{nm} does not order after the discovered target")
-    check("[CONSUMERS] every remaining consumer starts only after discovery converges", probs)
+    check("[CONSUMERS] dashboard + gps start only after discovery converges", probs)
 
     probs = []
     if "frognet-discovered.target" in mw:

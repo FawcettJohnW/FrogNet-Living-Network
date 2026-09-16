@@ -193,15 +193,55 @@ def extract_dynamic_query_vals(raw_path: str, keys: List[str]) -> List[Tuple[str
     return result
 
 
+def _with_dynamic_shape(base: str, dynamic_keys: List[str]) -> str:
+    """Fold the dynamic key NAMES into the template key.
+
+    [DYNAMIC_KEY_SET_IS_PART_OF_THE_IDENTITY_V1]
+    normalize_path_for_semantics() builds the key from STATIC query keys only
+    and hands the dynamic keys back separately. canonical_semantic_key() then
+    dropped them, so two requests with different dynamic keys collided on one
+    template:
+
+        ?entity=sensors&action=values&SensorType=X
+            -> /api.php?entity=sensors&action=values   dyn=[SensorType]
+        ?entity=sensors&action=values&SensorType=X&parse=1
+            -> /api.php?entity=sensors&action=values   dyn=[SensorType, parse]
+
+    Same key, different WIRE LAYOUTS. The encoder packs url_vals and json_vals
+    contiguously, so a template learned with one dynamic key and used for a
+    request carrying two shifts every field boundary after the first. The
+    daemon cannot decode it, never replies, and the proxy reports
+    "no daemon callback" and returns 503 -- with the origin perfectly healthy
+    and the same URL returning 200 when fetched directly.
+
+    The dynamic key SET is therefore part of the wire contract and must be part
+    of the identity. Names only: the values stay dynamic, which is the entire
+    point of them being dynamic. Sorted, so key order in the URL cannot fork
+    the cache the way a leading `//` once did.
+
+    This is the keying error behind [URL_VALS_FIX] in transport_semantic.py.
+    That change made sure url_vals was populated when a template expected it --
+    the right fix for the symptom it saw ("Data too long for column
+    'actionUrl'", "Incorrect integer value") -- but two shapes could still
+    collide on one key, which is what let a template expect the wrong count in
+    the first place.
+    """
+    if not dynamic_keys:
+        return base
+    shape = ",".join(sorted(dynamic_keys))
+    sep = "&" if "?" in base else "?"
+    return f"{base}{sep}__dyn={shape}"
+
+
 def canonical_semantic_key(method: str, raw_path: str, body: bytes) -> str:
-    base, _ = normalize_path_for_semantics(raw_path)
+    base, dynamic_keys = normalize_path_for_semantics(raw_path)
 
     if method.upper() != "POST":
-        return base
+        return _with_dynamic_shape(base, dynamic_keys)
     if not base.startswith("/api.php"):
-        return base
+        return _with_dynamic_shape(base, dynamic_keys)
     if "entity=sensor_data" not in base or "action=upsert_by_name" not in base:
-        return base
+        return _with_dynamic_shape(base, dynamic_keys)
 
     j = _parse_json_body(body)
     if not isinstance(j, dict):

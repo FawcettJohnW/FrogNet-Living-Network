@@ -1,0 +1,18 @@
+[Unit]
+Description=FrogNet roster (registeredUsers / people) server on 0.0.0.0:8780
+After=network-online.target
+Wants=network-online.target
+# Companion to the A/V server: comes up with it, every node that serves media
+# also serves the people list the communicator reads first.
+After=frognet-mediahost.service
+PartOf=frognet-mediahost.service
+
+[Service]
+Type=simple
+WorkingDirectory=/etc/frognet_bundles
+ExecStart=/usr/bin/env python3 /etc/frognet_bundles/frognet_roster_server.py --port 8780
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

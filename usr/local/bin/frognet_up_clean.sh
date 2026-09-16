@@ -34,7 +34,6 @@
 #   - Starts frognet-daemon and frognet-proxy and verifies they are ACTIVE.
 #
 # Optional behavior:
-#   - If FROGNET_RESTART_NETWORK=1, restarts NetworkManager and dnsmasq (best-effort).
 #
 # Logs:
 #   /var/log/frognet_up_clean.log
@@ -157,21 +156,19 @@ main() {
   svc_stop frognet-daemon
   kill_foreground_helpers
 
-  # Optional: restart base network services
-  if [[ "${FROGNET_RESTART_NETWORK:-0}" == "1" ]]; then
-    log "Restarting NetworkManager + dnsmasq (best-effort)"
-    if have systemctl; then
-      systemctl restart NetworkManager || true
-      sleep 2
-      systemctl restart dnsmasq || true
-      sleep 1
-    else
-      have service && service NetworkManager restart || true
-      sleep 2
-      have service && service dnsmasq restart || true
-      sleep 1
-    fi
-  fi
+  # [NO_NETWORK_SERVICE_BOUNCE_V1] Removed. This block restarted NetworkManager
+  # and then dnsmasq whenever FROGNET_RESTART_NETWORK=1, and it is reached from
+  # frognet_transit_boot.sh -- ExecStart of frognet-transit-boot.service,
+  # WantedBy=multi-user.target -- so on any node with that variable set in
+  # /etc/frognet/transit.conf it ran at every boot.
+  #
+  # Bouncing NetworkManager takes every managed interface down and up. Only wg0
+  # is unmanaged, so every other wg iface generates a down and an up event, each
+  # one a dispatcher invocation. Bouncing dnsmasq drops the DHCP lease database
+  # and every downstream client's DNS. Neither is something a cleanup script
+  # should be doing to a live node, and neither fixes anything this script is
+  # for. If NetworkManager or dnsmasq genuinely need restarting, that is a
+  # deliberate operator action, not a side effect of an environment variable.
 
   log "Applying /etc/setup_iptables"
   if [[ ! -x /etc/setup_iptables ]]; then

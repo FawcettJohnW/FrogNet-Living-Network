@@ -23,7 +23,7 @@ After=local-fs.target
 # Run BEFORE anything we tune, so they start with current config and the
 # daemon picks up the freshly-written pool env on its first start. Ordering
 # only — a tuning failure logs and is skipped, it never blocks these.
-Before=mariadb.service apache2.service frognet-daemon.service frognet-proxy.service frognet-tunnel-daemon.service
+Before=mariadb.service apache2.service frognet-daemon.service frognet-proxy.service frognet-tunnel-daemon.service aiconnect.service
 
 [Service]
 Type=oneshot

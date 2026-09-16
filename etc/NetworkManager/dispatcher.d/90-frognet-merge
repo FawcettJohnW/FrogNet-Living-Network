@@ -16,21 +16,87 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
+# /etc/NetworkManager/dispatcher.d/90-frognet-merge
+# $1 = interface, $2 = event
+#
+# [NM_DISPATCH_ON_REAL_DELTA_V1] Fire a merge on an interface event ONLY when
+# that event actually changed the routing table. Same rule as runAgain: an
+# interface bouncing is not a reason to merge; an interface bouncing and taking
+# a /24 with it is.
+#
+# What was here before: a signature was computed from wlan0/wlan1 addresses and
+# the default route, written to a state file -- and never read back. There was
+# no comparison, so `runMerge.bash &` ran unconditionally on every up and every
+# down. Only wg0 is unmanaged (99-frognet-unmanaged.conf), so every wg1+ tunnel
+# transition dispatched its own merge, on top of the one frognet-tunnel-daemon
+# already fires from _post_tunnel, on top of anything the broker reconcile did.
+#
+# The signature is the thing the merge exists to maintain: the FrogNet /24
+# routes and the default route. Scratch /32s (the walk's metric-6 probes and
+# metric-5 aliases) and fallback metrics (>=100, a jittery secondary reshuffling
+# under RTT noise) are excluded, matching routes.py's table_fingerprint -- if
+# they gated here they would re-fire on churn the merge deliberately ignores.
+#
+# The plane is 10/8 less 10.253.* (transit /30s) and 10.254.* (chorus on-link),
+# per [FROGNET_PLANE_IS_TEN_V1].
+set -u
+
 IFACE="${1:-}"; STATE="${2:-}"
 case "$STATE" in up|down) ;; *) exit 0 ;; esac
-[[ "$IFACE" == "l0" ]] && exit 0
-# SENT_DIR="/etc/sentinels"; STATE_FILE="${SENT_DIR}/nm_upstream_state.json"; mkdir -p "$SENT_DIR"
-# . /usr/local/bin/mapInterfaces 2>/dev/null || true
-# iface_ipv4() { ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | head -n1 | cut -d/ -f1; }
-# ip_base3()   { local ip="$1"; [[ -n "$ip" ]] || { echo ""; return; }; IFS=. read -r a b c _ <<<"$ip" || true; [[ -n "${a:-}" && -n "${b:-}" && -n "${c:-}" ]] || { echo ""; return; }; echo "${a}.${b}.${c}"; }
-# default_route_line() { ip route show default 2>/dev/null | head -n1 || true; }
-# default_via() { awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"${1:-}"; }
-# default_dev() { awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"${1:-}"; }
-# W0_IP="$(iface_ipv4 "${wlan0Name:-wlan0}" || true)"
-# W1_IP="$(iface_ipv4 "${wlan1Name:-wlan1}" || true)"
-# W0_BASE="$( [[ -n "${W0_IP:-}" && "$W0_IP" == 10.* ]] && ip_base3 "$W0_IP" || echo "" )"
-# W1_BASE="$( [[ -n "${W1_IP:-}" && "$W1_IP" == 10.* ]] && ip_base3 "$W1_IP" || echo "" )"
-# DEF_LINE="$(default_route_line)"; DEF_VIA="$(default_via "$DEF_LINE")"; DEF_DEV="$(default_dev "$DEF_LINE")"
-# CUR_SIG="w0=${W0_IP:-}|w1=${W1_IP:-}|defvia=${DEF_VIA:-}|defdev=${DEF_DEV:-}|w0b=${W0_BASE:-}|w1b=${W1_BASE:-}"
-# tmp="${STATE_FILE}.tmp"; printf '%s\n' "$CUR_SIG" > "$tmp"; mv -f "$tmp" "$STATE_FILE"
+# lo, not l0. The old spelling matched nothing, so loopback events fell through
+# to the unconditional merge below with everything else.
+[[ "$IFACE" == "lo" ]] && exit 0
+
+SENT_DIR="/etc/sentinels"
+STATE_FILE="${SENT_DIR}/nm_dispatch_sig"
+REQ_DIR="/run/frognet/merge_requests"
+mkdir -p "$SENT_DIR" 2>/dev/null || true
+
+route_signature() {
+    # FrogNet /24s: dest, via and dev only -- the fields that decide where
+    # traffic goes. Sorted, so kernel ordering cannot fake a delta.
+    ip -4 route show 2>/dev/null \
+      | grep -E '^10\.[0-9]+\.[0-9]+\.0/24' \
+      | grep -vE '^10\.25[34]\.' \
+      | awk '{
+            dest=$1; via=""; dev=""; metric=""
+            for (i=2;i<=NF;i++) {
+                if ($i=="via")    via=$(i+1)
+                if ($i=="dev")    dev=$(i+1)
+                if ($i=="metric") metric=$(i+1)
+            }
+            if (metric != "" && metric+0 >= 100) next
+            print dest" via="via" dev="dev" metric="metric
+        }' \
+      | sort
+    # the default route(s), which fixDefaultRoute maintains and a roam moves
+    ip -4 route show default 2>/dev/null | sort
+}
+
+CUR="$(route_signature)"
+PREV="$(cat "$STATE_FILE" 2>/dev/null || true)"
+
+if [[ "$CUR" == "$PREV" ]]; then
+    logger -t frognet-merge-dispatch \
+        "iface=$IFACE state=$STATE no routing delta - not merging"
+    exit 0
+fi
+
+tmp="${STATE_FILE}.$$"
+if printf '%s\n' "$CUR" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$STATE_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+fi
+
+logger -t frognet-merge-dispatch "iface=$IFACE state=$STATE routing delta - merging"
+
+# Prefer the accumulator: a burst of interface events (a tunnel set coming up,
+# a roam) becomes ONE merge after its 30s window instead of one merge per event
+# racing for the lock. frognet-merge-watcher.sh owns REQ_DIR and decides against
+# the same lock runMerge uses. Fork runMerge directly only if that service is
+# not running, so a dead watcher cannot silently stop merges altogether.
+if [[ -d "$REQ_DIR" ]] && systemctl is-active --quiet frognet-merge-watcher 2>/dev/null \
+   && : > "${REQ_DIR}/nm-${IFACE}-${STATE}-$$" 2>/dev/null; then
+    exit 0
+fi
 /usr/local/bin/runMerge.bash &
+exit 0

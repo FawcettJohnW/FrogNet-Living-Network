@@ -82,21 +82,70 @@ def _decode_reply(b, compressed):
 
 _conn_local = threading.local()
 
+class _ConnHolder:
+    """[A_THREAD_THAT_DIES_MUST_TAKE_ITS_CONNECTION_WITH_IT_V1 - John 2026-09-15]
+
+    Owns one MySQL connection and closes it when nothing references it any
+    more -- which, for a connection parked in a threading.local(), is when the
+    thread that opened it terminates and CPython clears that thread's local
+    storage.
+
+    The connection used to sit directly on the threading.local. That is one
+    connection per thread, held for the life of the thread, and released by
+    close_thread_conn() -- a function defined in this file, documented "Call on
+    thread exit", and called from nowhere in the tree. The daemon spawns a
+    thread per served request, so every request that touched the cache left a
+    connection behind when its thread ended.
+
+    Measured on the databasehost, 2026-09-15: daemon_main.py holding about 270
+    of MariaDB's 300 connections with 253 live threads -- MORE CONNECTIONS THAN
+    THREADS, which is the leak stated as a number. api.php then could not get a
+    handle and returned
+
+        {"error":"DB connect failed","detail":"Too many connections"}
+
+    which reached the benchmark as HTTP 500, as HTTP 502 "http exec error:
+    TimeoutError" when the origin timed out instead, and as HTTP 503 from the
+    proxy. Campaigns died on all three messages before anyone looked at the
+    connection count. Restarting the daemon took it from 298 to 24.
+
+    Python has no thread-exit hook, so the fix cannot live at the thread
+    creation sites -- there are many and more get added. Tying the lifetime to
+    the thread-local storage needs nothing at any creation site and cannot be
+    forgotten by the next one.
+    """
+
+    __slots__ = ("conn",)
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __del__(self):
+        conn, self.conn = self.conn, None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
 # [SEMCACHE_LOCAL_MYSQL_V1] MySQL listens on loopback only; the semantic cache
 # uses the LOCAL MySQL. Shared/current-value data reaches the elected data host
 # via api.php (HTTP), NOT a direct remote MySQL connection - do NOT point this at
 # databasehost.frognet:3306 (closed off-box -> ECONNREFUSED, breaks the daemon).
-_DB_HOST = os.environ.get("FROGNET_DB_HOST", "127.0.0.1")
-_DB_PORT = int(os.environ.get("FROGNET_DB_PORT", "3306"))
-_DB_USER = os.environ.get("FROGNET_DB_USER", "FrogUser")
-# [SHIP_THE_CODE_TOKENIZE_THE_SECRET_V1] This is the installer's injection
-# SITE (SECRET_INJECT_FILES, phase C1b), so the literal is rewritten on every
-# install. It held a LIVE pond password, which meant the source shipped a
-# working credential and an uninjected node connected anyway instead of
-# failing. The placeholder is what C1b substitutes; if injection did not run,
-# auth fails loudly rather than silently succeeding.
-_DB_PASS = os.environ.get("FROGNET_DB_PASS", "__FROGNET_DB_PASS__")
-_DB_NAME = os.environ.get("FROGNET_DB_NAME", "FrogNet")
+# [ONE_CREDENTIAL_ONE_SOURCE_V1] The credential is read from
+# core/db_credentials, which reads DB_CONFIG.json. It used to be a module-level
+# literal here, rewritten by the installer's phase C1b -- and the shipped value
+# was a real, working pond password, under a comment saying it had been
+# removed for exactly that reason. Any node that did not get C1b run over THIS
+# file connected with it and produced, forever:
+#   [Warning] Access denied for user 'FrogUser'@'localhost' (using password: YES)
+# There is no default now. A missing or tokenized config raises with the path to
+# look at instead of failing against the MySQL auth log.
+from core import db_credentials as _cred
+
+_FATAL_TAG = 'PROXY-CACHE'
 _DB_SOCK_TIMEOUT = float(os.environ.get("FROGNET_DB_SOCK_TIMEOUT", "10"))
 
 
@@ -116,7 +165,8 @@ def _set_sock_timeout(conn):
 
 def _get_conn():
     """Get a per-thread MySQL connection. Reconnects if stale."""
-    conn = getattr(_conn_local, "conn", None)
+    _h = getattr(_conn_local, "holder", None)
+    conn = _h.conn if _h is not None else None
 
     if conn is not None:
         # Set timeout BEFORE is_connected() - is_connected() calls
@@ -127,11 +177,11 @@ def _get_conn():
 
     if conn is None or not conn.is_connected():
         conn = mysql.connector.connect(
-            host=_DB_HOST,
-            port=_DB_PORT,
-            user=_DB_USER,
-            password=_DB_PASS,
-            database=_DB_NAME,
+            host=_cred.host(),
+            port=_cred.port(),
+            user=_cred.user(),
+            password=_cred.password(),
+            database=_cred.database(),
             autocommit=True,
             use_pure=True,
             connection_timeout=int(_DB_SOCK_TIMEOUT),
@@ -142,19 +192,20 @@ def _get_conn():
             except Exception:
                 pass
             raise RuntimeError("cannot set socket timeout on fresh MySQL connection")
-        _conn_local.conn = conn
+        _conn_local.holder = _ConnHolder(conn)
     return conn
 
 
 def _kill_conn():
     """Destroy the thread-local connection unconditionally."""
-    conn = getattr(_conn_local, "conn", None)
+    _h = getattr(_conn_local, "holder", None)
+    conn = _h.conn if _h is not None else None
     if conn is not None:
         try:
             conn.close()
         except Exception:
             pass
-        _conn_local.conn = None
+        _conn_local.holder = None
 
 
 def close_thread_conn():
@@ -168,18 +219,35 @@ def close_thread_conn():
 
 
 def _with_retry(fn):
-    """Execute fn(conn) with one retry on any DB error.
+    """Execute fn(conn) with one retry on a TRANSIENT DB error.
 
-    First attempt uses the existing thread-local connection.
-    On ANY exception: destroy connection, get fresh one, retry once.
+    [CREDENTIAL_FAILURE_IS_FATAL_V1] This used to be `except Exception:` and
+    retry, unconditionally. A wrong password is not something a retry fixes: it
+    produced two Access-denied lines in the MySQL log per call, a printed
+    warning from the caller, and a service that carried on without a cache
+    forever. Transient failures -- a dropped socket, a restarting MySQL, a
+    refused connect -- still get their retry, which is what the retry is for.
+    A credential or schema error stops the process instead.
     """
     conn = _get_conn()
     try:
         return fn(conn)
-    except Exception:
+    except Exception as e:
+        if _cred.is_fatal(e):
+            _cred.fatal(e, _FATAL_TAG)
         _kill_conn()
-        conn = _get_conn()
-        return fn(conn)
+        try:
+            conn = _get_conn()
+        except Exception as e2:
+            if _cred.is_fatal(e2):
+                _cred.fatal(e2, _FATAL_TAG)
+            raise
+        try:
+            return fn(conn)
+        except Exception as e3:
+            if _cred.is_fatal(e3):
+                _cred.fatal(e3, _FATAL_TAG)
+            raise
 
 
 _TABLE_ENSURED = False

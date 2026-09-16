@@ -540,7 +540,14 @@ class Discovery:
                     self.r.probe_delete(pip)
                     return
                 if not isinstance(v, float):
-                    self.r.probe_delete(pip)
+                    # [PROBE_NO_DEL_BETWEEN_CANDIDATES_V1] No delete here. The
+                    # next candidate's probe_install is a `replace` of this same
+                    # /32, which overwrites it in one netlink op -- and is a NOOP
+                    # if the spec is identical (rtmut's compare-before-write). The
+                    # del+replace pair issued two RTM_ notifications per candidate
+                    # where one does the job, and the delete left a window with no
+                    # route to the target between candidates. The /32 is removed
+                    # once, below, if no candidate wins.
                     continue
                 el = cached["echo"] if cached is not None else self.echo.echo_probe(pip)
                 chosen_label = label
@@ -563,8 +570,13 @@ class Discovery:
                     rtt = (cached["rtt"] if cached is not None
                            else self.rtt.measure_rtt(dev, pip))
                     break                              # keep /32 up (.2 stays); proof + getHosts
-                self.r.probe_delete(pip)
+                # [PROBE_NO_DEL_BETWEEN_CANDIDATES_V1] see above - the next
+                # candidate replaces this /32; cleanup happens once, below.
         if not chosen_label:
+            # Every candidate failed, so the last probe /32 is still installed.
+            # This is the single cleanup that used to be issued once per failing
+            # candidate.
+            self.r.probe_delete(pip)
             self.log(f"WALK dev={dev} ip={ip} pip={pip} decision=FAIL_ECHO "
                      f"tried={[c[0] for c in cands]}")
             return

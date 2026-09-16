@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-################################################################
-#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
-#                                                              #
-#  SPDX-License-Identifier: GPL-2.0-only                       #
-#                                                              #
-#  This program is free software; you can redistribute it      #
-#  and/or modify it under the terms of the GNU General Public  #
-#  License as published by the Free Software Foundation;       #
-#  version 2 of the License, and no other version.             #
-#                                                              #
-#  This program is distributed in the hope that it will be     #
-#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
-#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
-#  PURPOSE.  See the GNU General Public License for details.   #
-#                                                              #
-#  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """[DBHOST_FLAT_ELIGIBILITY_V1] - replays the sea3/sea5 2026-06-21 databasehost split.
 
 Real logs, same minute, two nodes reading the SAME control DB (10.250.250.1):

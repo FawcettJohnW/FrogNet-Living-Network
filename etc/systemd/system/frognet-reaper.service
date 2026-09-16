@@ -1,0 +1,22 @@
+[Unit]
+Description=FrogNet tuple reaper (sweeps SD: service variables on the transient DB)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/etc/frognet_bundles/communicator
+Environment=PYTHONPATH=/etc/frognet_bundles/communicator
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Runs on EVERY node. Stateless and present-tense: re-resolves databasehost.frognet
+# each sweep and reaps whatever stale SD: tuples are there now. If the transient has
+# floated, next sweep resolves the new holder. Idempotent across nodes (deleting an
+# already-deleted SensorID is a no-op), so redundant sweeps are harmless.
+ExecStart=/usr/bin/python3 /etc/frognet_bundles/communicator/frognet_reaper.py --dbhost databasehost_control.frognet --age 1800 --interval 300
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -307,25 +307,107 @@ def run():
         probs.append(f"service_host_lines raised/skipped: {e}")
     check("[GENERAL] one all-role loop emits databasehost.frognet AND mediahost.frognet", probs)
 
-    # ---- 5. dnsmasq SIGHUP fires iff /etc/hosts changed ----
+    # ---- 5. dnsmasq RESTART fires iff dnsmasq's inputs CHANGED CONTENT ----
+    # [DNSMASQ_RESTART_ON_CONTENT_V1 - John 2026-09-14] The rule is the CONTENTS
+    # of /etc/hosts and the forwarders file, and the action is a restart: SIGHUP
+    # does not re-read the conf-dir (verified, dnsmasq 2.91), and a byte compare
+    # fires when a merge re-derives the same facts in a new order.
+    #
+    # [A_RECORD_OF_AN_ACTION_IS_NOT_THE_ACTION_V1 - John 2026-09-14] And the
+    # sentinel records what dnsmasq was MADE TO SERVE, not what the merge
+    # intended. The old order wrote the key first and discarded the restart's
+    # result, so one failed restart latched the node into DNSMASQ_KEEP forever.
     probs = []
+    import os as _os, tempfile as _tf
     from discovery import live
     calls = []
-    live._reload_dnsmasq = lambda logger=print: calls.append(1)
-    orig = live._write_if_changed
+    _real_restart = live._restart_dnsmasq
+    _real_inputs = live._DNSMASQ_INPUTS
+    _sent_env = _os.environ.get("FROGNET_SENTINEL_DIR")
+    _tmp = _tf.mkdtemp(prefix="dnsq_")
+    _hosts = _os.path.join(_tmp, "hosts")
+    _fwd = _os.path.join(_tmp, "frognet_forwarders_auto.conf")
+    _ok = [True]
     try:
-        live._write_if_changed = lambda path, content, logger=print: ("hosts" in path)  # changed
-        live._commit_hosts({"frognet_hosts": ["x"], "etc_hosts": ["y"], "route_table_mutated": False})
+        def _fake_restart(logger=print):
+            calls.append(1)
+            return _ok[0]
+        live._restart_dnsmasq = _fake_restart
+        live._DNSMASQ_INPUTS = (_hosts, _fwd)
+        _os.environ["FROGNET_SENTINEL_DIR"] = _os.path.join(_tmp, "sent")
+        _os.makedirs(_os.environ["FROGNET_SENTINEL_DIR"], exist_ok=True)
+
+        open(_hosts, "w").write("10.1.1.1 a.frognet\n10.2.2.2 b.frognet\n")
+        open(_fwd, "w").write("server=/A/10.1.1.1\nbind-interfaces\n")
+        # No sentinel: nothing is known about what dnsmasq holds, so act.
+        live._apply_dnsmasq(lambda *a: None)
         if not calls:
-            probs.append("HUP did NOT fire on a real /etc/hosts change")
+            probs.append("no sentinel did NOT restart -- recording a key for a "
+                         "dnsmasq nobody has spoken to assumes it is already "
+                         "serving the file")
         calls.clear()
-        live._write_if_changed = lambda path, content, logger=print: False               # unchanged
-        live._commit_hosts({"frognet_hosts": ["x"], "etc_hosts": ["y"], "route_table_mutated": False})
+
+        # same facts, re-derived in a different order and respaced
+        open(_hosts, "w").write("# regenerated\n10.2.2.2   b.frognet\n10.1.1.1\ta.frognet\n")
+        open(_fwd, "w").write("# regenerated\nbind-interfaces\nserver=/A/10.1.1.1\n")
+        live._apply_dnsmasq(lambda *a: None)
         if calls:
-            probs.append("HUP fired on a no-op merge (should be gated on change)")
+            probs.append("restart fired on a merge that only reordered the same facts")
+        calls.clear()
+
+        # a real change to /etc/hosts (a service float)
+        open(_hosts, "w").write("10.9.9.9 a.frognet\n10.2.2.2 b.frognet\n")
+        live._apply_dnsmasq(lambda *a: None)
+        if not calls:
+            probs.append("restart did NOT fire on a real /etc/hosts content change")
+        calls.clear()
+
+        # a real change to the forwarders file alone - SIGHUP could never do this
+        open(_fwd, "w").write("server=/A/10.1.1.1\nserver=/B/10.2.2.2\nbind-interfaces\n")
+        live._apply_dnsmasq(lambda *a: None)
+        if not calls:
+            probs.append("restart did NOT fire on a forwarders-only content change")
+        calls.clear()
+
+        live._apply_dnsmasq(lambda *a: None)
+        if calls:
+            probs.append("restart fired on a no-op pass (nothing touched)")
+        calls.clear()
+
+        # [A_RECORD_OF_AN_ACTION_IS_NOT_THE_ACTION_V1] The latch. A float whose
+        # restart FAILS must leave the node dirty, and the next merge -- which
+        # computes the identical key, because nothing about the files changed --
+        # must try again rather than report the content as already handled.
+        _ok[0] = False
+        open(_hosts, "w").write("10.7.7.7 a.frognet\n10.2.2.2 b.frognet\n")
+        live._apply_dnsmasq(lambda *a: None)
+        if len(calls) != 1:
+            probs.append(f"a failing restart was attempted {len(calls)} times, expected 1")
+        calls.clear()
+        _ok[0] = True
+        live._apply_dnsmasq(lambda *a: None)
+        if not calls:
+            probs.append("fail-on-old: a FAILED restart recorded the key anyway, so "
+                         "the next merge saw contents_unchanged and never retried -- "
+                         "the node serves stale .frognet records until something "
+                         "else edits /etc/hosts")
+        calls.clear()
+
+        # and once it has succeeded, the content IS recorded: no restart loop.
+        live._apply_dnsmasq(lambda *a: None)
+        if calls:
+            probs.append("restarted again after a SUCCESSFUL restart of the same "
+                         "content -- the key is not being recorded at all")
     finally:
-        live._write_if_changed = orig
-    check("[HUP] dnsmasq SIGHUP fires on hosts change, silent on no-op", probs)
+        live._restart_dnsmasq = _real_restart
+        live._DNSMASQ_INPUTS = _real_inputs
+        if _sent_env is None:
+            _os.environ.pop("FROGNET_SENTINEL_DIR", None)
+        else:
+            _os.environ["FROGNET_SENTINEL_DIR"] = _sent_env
+    check("[DNSMASQ] restart fires on real content change (hosts OR forwarders), "
+          "silent on reorder and no-op, and a FAILED restart is retried not recorded",
+          probs)
 
 def main():
     print("=== SERVICE-HOST SELECTION paradigm (control + data + media + off-mesh + HUP) ===")

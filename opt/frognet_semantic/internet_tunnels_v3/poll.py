@@ -540,10 +540,25 @@ def _sync_transit_subnets():
             config.log.warning("SYNC_TRANSIT: discover failed: %s", e)
             return
 
-    last = getattr(config, "last_transit_subnets", None)
-    if last == transit:
-        # Steady state - no diff, no call.
-        return
+    # [BROKER_STATE_IS_NOT_MY_MEMORY_V1 - John 2026-09-12] The early return
+    # here compared the sentinel against config.last_transit_subnets -- an
+    # in-process variable recording what THIS daemon last SENT -- and treated a
+    # match as proof the broker still holds it. It is not. The broker's row can
+    # change underneath us: a node row recreated after a pubkey/guid collision
+    # starts with transit_subnets=[] (the INSERT default), a restore or a manual
+    # edit clears it, a failed route install unwinds it. None of that touches
+    # this variable, so the daemon goes silent forever while the broker holds
+    # nothing.
+    #
+    # Measured on Seattle5 2026-09-12: /etc/sentinels/transit_subnets.tsv held
+    # 10.170.170.0/24, the broker row held [], and 200 lines of journal
+    # contained no SYNC_TRANSIT at all -- not a failure, a silence. Nothing
+    # downstream could reach Seattle7 and no log said why.
+    #
+    # So: always ask. The broker answers an unchanged set with a DB read and no
+    # route work ("status":"unchanged"), which is cheaper than being
+    # permanently wrong. Only the LOG is rate-limited, so a steady state is
+    # still quiet in the journal.
 
     try:
         resp = broker_post("/api/v4/update-subnets", {
@@ -561,9 +576,13 @@ def _sync_transit_subnets():
     added = resp.get("added", [])
     removed = resp.get("removed", [])
     tunnels = resp.get("tunnels_updated", 0)
-    config.log.info("SYNC_TRANSIT: %s transit=%s added=%s removed=%s "
-                    "tunnels_updated=%d",
-                    status, transit, added, removed, tunnels)
+    # Log every real change; log an unchanged re-assert only when the set
+    # differs from what we last logged, so steady state stays quiet without
+    # the silence ever meaning "I stopped checking".
+    if status != "unchanged" or getattr(config, "last_transit_subnets", None) != transit:
+        config.log.info("SYNC_TRANSIT: %s transit=%s added=%s removed=%s "
+                        "tunnels_updated=%d",
+                        status, transit, added, removed, tunnels)
     config.last_transit_subnets = transit
 
 

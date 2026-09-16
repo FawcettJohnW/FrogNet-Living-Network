@@ -519,11 +519,27 @@ def load_config():
                   "identity and the broker will reject its registration. Run "
                   "`frognet-node-guid.sh --ensure` and restart "
                   "frognet-tunnel-daemon-v3.")
-    if not GROUP_TOKEN and not BROKER_DISABLED:
-        log.error("CRITICAL: No GROUP_TOKEN in %s - broker auth WILL fail. "
-                  "Channel registration and transit-subnet updates will be "
-                  "rejected (401). Set GROUP_TOKEN=<value> in %s and restart "
-                  "frognet-tunnel-daemon-v3.", CONF_FILE, CONF_FILE)
+    # [NO_GROUP_TOKEN_CRITICAL_V1 - John 2026-09-12] Removed a CRITICAL that
+    # was not true.
+    #
+    # It read: "No GROUP_TOKEN ... broker auth WILL fail. Channel registration
+    # and transit-subnet updates will be rejected (401)." The broker
+    # (frognet_broker_v4.py) contains no group_token check and does not return
+    # 401 from any route -- grep both, zero hits. Registration is authenticated
+    # by the pond password and identified by the GUID; the token this warned
+    # about is not consulted by anything on the far end.
+    #
+    # So the line announced a certain failure that cannot occur, on every
+    # start, in the voice reserved for real faults. It cost real time: the
+    # 2026-07-26 NY1/Seattle2 transit asymmetry was chased as a 401 on
+    # update-subnets because this message said that is what happens, and the
+    # actual cause was elsewhere. A diagnostic that names a failure mode the
+    # code cannot produce is worse than silence -- silence does not send you
+    # somewhere else.
+    #
+    # GROUP_TOKEN is still read above and still forwarded by broker.py for a
+    # broker that may want it. If a broker ever does enforce it, the honest
+    # signal is that broker's own rejection, reported where it happens.
 
     HOSTNAME = subprocess.check_output(["hostname", "-s"], text=True).strip()
 

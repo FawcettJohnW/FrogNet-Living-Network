@@ -758,12 +758,36 @@ class SemanticSession:
                     bump_semantic(peer_ip=self.peer_ip, wire_in=wire_in, wire_out=len(reply))
                     print(f"[DAEMON-WRITER] SENT seq={seq} {len(reply)}B to {self.peer_ip}", flush=True)
                 except Exception as e:
-                    _debug(f"write_loop send error seq={seq}: {e!r}")
+                    # [NO_SILENT_SEND_FAILURE_V1]
+                    # This logged at _debug level and broke the loop. _debug is
+                    # off unless FROGNET_DEBUG=1, so at normal log level a reply
+                    # that could not be sent produced NOTHING -- the session
+                    # died, the writer exited, and the only trace was a
+                    # "[DAEMON-WRITER] exited" line indistinguishable from a
+                    # clean shutdown. The peer's proxy then waited for a
+                    # callback that would never arrive and reported a timeout,
+                    # so the visible symptom was 503 on the requester and
+                    # silence on the responder.
+                    #
+                    # A failure that kills a session is not debug information.
+                    # It prints unconditionally, with everything needed to act
+                    # on it: peer, seq, byte count, exception.
+                    print(f"[DAEMON-WRITER] SEND FAILED seq={seq} "
+                          f"{len(reply)}B to {self.peer_ip}: "
+                          f"{type(e).__name__}: {e!r} — session is dead, the "
+                          f"peer will get no reply for this request",
+                          flush=True)
                     self._alive = False
-                    break
+                    raise
         except Exception as e:
-            _debug(f"write_loop error: {e!r}")
-        print(f"[DAEMON-WRITER] exited for {self.peer_ip}", flush=True)
+            # Same rule for the outer guard: it swallowed queue and framing
+            # errors at debug level and let the thread end quietly.
+            print(f"[DAEMON-WRITER] ABORTED for {self.peer_ip}: "
+                  f"{type(e).__name__}: {e!r}", flush=True)
+            self._alive = False
+            raise
+        finally:
+            print(f"[DAEMON-WRITER] exited for {self.peer_ip}", flush=True)
 
     def _process_frame(self, frame: bytes, seq: int, wire_in: int) -> None:
         """Called in executor thread.  Posts result to _reply_q - never raises."""

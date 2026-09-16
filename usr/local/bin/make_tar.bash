@@ -27,6 +27,10 @@ tar -cvzf "/tmp/all_tar.tgz" \
     --exclude='usr/local/bin/frognet_radio_init.sh' \
     --exclude='usr/local/bin/setup_lillypad.bash' \
     --exclude='usr/local/bin/setup_lillypad_v3.bash' \
+    --exclude='opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash' \
+    --exclude='opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash' \
+    --exclude='usr/local/bin/frognet-tunnel-daemon.py' \
+    --exclude='usr/local/bin/ham_concentrator_up.sh' \
     --exclude='usr/local/bin/frognet-tunnel-setup.sh' \
     --exclude='opt/frognet_semantic/etc' \
     --exclude='opt/frognet_semantic/bin' \

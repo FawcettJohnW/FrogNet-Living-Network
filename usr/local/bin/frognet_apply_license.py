@@ -40,8 +40,40 @@ import sys
 SPDX = "SPDX-License-Identifier: GPL-2.0-only"
 MARK = "FrogNet Living Network"
 
-# Paths that are NOT ours to license. Empty by design - see the module docstring.
-THIRD_PARTY: list[str] = []
+# Paths that are NOT ours to license.
+#
+# [THIRD_PARTY_IS_NOT_OURS_V1 - John 2026-09-14] Read from the world manifest,
+# not hardcoded here. This was an empty list "by design", and the design was
+# that there was nowhere to declare a vendored tree -- so --apply stamped the
+# Fawcett Innovations GPL-2.0-only grant onto 167 files of vendored PHPMailer
+# and webrtc-web, which misstates their licence. license_check reads the same
+# array, so the applier and the checker cannot disagree about what is ours.
+def _manifest_third_party() -> "list[str]":
+    import re as _re
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(here, "..", "lib", "frognet_world_manifest.sh"),
+                 "/usr/local/lib/frognet_world_manifest.sh"):
+        cand = os.path.normpath(cand)
+        if not os.path.exists(cand):
+            continue
+        text = open(cand, encoding="utf-8", errors="replace").read()
+        m = _re.search(r"FROGNET_THIRD_PARTY=\((.*?)\n\)", text, _re.S)
+        if not m:
+            return []
+        out = []
+        for ln in m.group(1).splitlines():
+            ln = ln.split("#", 1)[0].strip().strip("'\"")
+            if ln:
+                out.append(ln)
+        return out
+    # [NO_FALLBACK_V1] No manifest means we cannot know what is vendored, and
+    # guessing "nothing is" is what stamped our grant onto someone else's work.
+    raise SystemExit("frognet_apply_license: no world manifest found; refusing "
+                     "to apply headers without knowing which trees are "
+                     "third-party")
+
+
+THIRD_PARTY: list[str] = _manifest_third_party()
 
 # Never carries a header: no comment syntax, or not source.
 SKIP_EXT = {

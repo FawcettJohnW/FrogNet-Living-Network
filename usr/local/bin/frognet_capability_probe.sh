@@ -55,6 +55,23 @@ _AVCAP_NUMERIC_REQ = ("cores","cpu_mhz","cpu_bench_total","mem_total_kb",
                       "disk_free_gb","av_port")
 _AVCAP_NUMERIC_OPT = ("mysql_innodb_pool_bytes",)
 
+# [NO_FALLBACK_V1 - John 2026-09-14] Measurement failures are recorded here and
+# the blob is NOT published. A probe that cannot measure a field must not invent
+# one: mem_total_kb=0, disk_free_gb=0.0 and mysql_running=False are not readings,
+# they are the ABSENCE of a reading wearing a reading's clothes -- and two of
+# them are hard gates in database_handler.score(), so a transient statvfs or
+# pgrep failure published a row that disqualified this node, it lost the
+# databasehost role, the next probe succeeded and it took the role back. That is
+# a flap manufactured out of swallowed exceptions.
+#
+# Capability rows do not age ([CAPABILITY_DOES_NOT_AGE_V1]), so publishing
+# nothing leaves the last GOOD row standing. That is the correct outcome: this
+# node's hardware did not change because a read failed.
+_PROBE_FAILED = []
+
+def _probe_fail(field, exc):
+  _PROBE_FAILED.append((field, f"{type(exc).__name__}: {exc}"))
+
 def _is_scalar_num(v):
   return (not isinstance(v, bool)) and isinstance(v, (int, float))
 
@@ -113,7 +130,7 @@ def capability():
   cap={}
   # cores / clock / arch
   try: cap["cores"]=os.cpu_count() or 1
-  except Exception: cap["cores"]=1
+  except Exception as e: _probe_fail("cores", e)
   mhz=0
   try:
     with open("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq") as f:
@@ -123,8 +140,12 @@ def capability():
       with open("/proc/cpuinfo") as f:
         for line in f:
           if "cpu MHz" in line: mhz=int(float(line.split(":")[1])); break
-    except Exception: pass
-  cap["cpu_mhz"]=mhz
+    except Exception as e:
+      _probe_fail("cpu_mhz", e)
+  if mhz:
+    cap["cpu_mhz"]=mhz
+  elif not any(f == "cpu_mhz" for f, _ in _PROBE_FAILED):
+    _probe_fail("cpu_mhz", ValueError("no clock in cpufreq or /proc/cpuinfo"))
   cap["arch"]=platform.machine()
   model=""
   try:
@@ -166,8 +187,8 @@ def capability():
     dt=max(1e-6,_t.monotonic()-t0)
     cap["cpu_bench_per_core"]=round(400000.0/dt/1000.0,1)   # k-iters/sec, 1 core
     cap["cpu_bench_total"]=round(cap["cpu_bench_per_core"]*int(cap.get("cores",1)),1)
-  except Exception:
-    cap["cpu_bench_per_core"]=0.0; cap["cpu_bench_total"]=0.0
+  except Exception as e:
+    _probe_fail("cpu_bench_total", e)
 
   # memory: total AND available (free headroom matters as much as total for innodb)
   try:
@@ -177,8 +198,8 @@ def capability():
       if k in ("MemTotal","MemAvailable"): mi[k]=int(v.strip().split()[0])
     cap["mem_total_kb"]=mi.get("MemTotal",0)
     cap["mem_available_kb"]=mi.get("MemAvailable",0)
-  except Exception:
-    cap.setdefault("mem_total_kb",0); cap["mem_available_kb"]=0
+  except Exception as e:
+    _probe_fail("mem_total_kb", e)
 
   # mysql/mariadb presence + config (DB-host capability)
   myc=_run(["bash","-lc","command -v mysqld || command -v mariadbd"]).strip()
@@ -194,7 +215,11 @@ def capability():
     if not cap["mysql_running"]:
       ss=_run(["bash","-lc","ss -ltn 2>/dev/null | grep -E ':3306 '"])
       cap["mysql_running"]=bool(ss.strip())
-  except Exception: pass
+  except Exception as e:
+    # mysql_running is a HARD GATE in database_handler.score(): False is -1.0 and
+    # this node leaves the election. "I could not check" is not "it is not
+    # running", so do not answer the question.
+    _probe_fail("mysql_running", e)
   if cap["mysql"]:
     cap["mysql_server"]=myc; cap["mysql_client"]=mcli
     cfg=""
@@ -252,8 +277,10 @@ def capability():
     sv=_os.statvfs(dpath)
     cap["disk_total_gb"]=round(sv.f_blocks*sv.f_frsize/(1024**3),1)
     cap["disk_free_gb"]=round(sv.f_bavail*sv.f_frsize/(1024**3),1)
-  except Exception:
-    cap["disk_total_gb"]=0.0; cap["disk_free_gb"]=0.0
+  except Exception as e:
+    # disk_free_gb is the other hard gate (DISK_FREE_FLOOR_GB). 0.0 reads as
+    # "out of space" and disqualifies the node outright.
+    _probe_fail("disk_free_gb", e)
   _dev=_backing_dev(dpath)
   cap["disk_dev"]=_dev
   cap["disk_class"]=_disk_class(_dev)
@@ -273,8 +300,8 @@ def capability():
     with open(tp,"ab") as fh: fh.write(b"\0"*4096); fh.flush(); os.fsync(fh.fileno())
     cap["disk_fsync_ms"]=round((_t.monotonic()-t1)*1000.0,2)
     os.unlink(tp)
-  except Exception:
-    cap["disk_write_mbps"]=0.0; cap["disk_fsync_ms"]=0.0
+  except Exception as e:
+    _probe_fail("disk_write_mbps", e)
 
   # LAN address this node bears — its OWN identity, from getFrogNet.bash (the
   # canonical source metric_upsert uses), so a node is ALWAYS a valid candidate for
@@ -317,11 +344,22 @@ out["ts"] = int(time.time())
 # fields aren't scalars. If we somehow built one (probe bug, not a stale cache),
 # say so loudly on stderr — the consumer's _num guard will still degrade just that
 # candidate rather than crash, but this must never pass silently.
-if not _avcap_cache_valid(out):
+# [NO_FALLBACK_V1 - John 2026-09-14] This said REFUSING and then published the
+# blob on the next line. A warning followed by the thing the warning is about is
+# not a refusal; it is a fallback with a receipt. It now exits non-zero and
+# prints NOTHING, so the caller's publish has no payload and the last good
+# capability row stands.
+if _PROBE_FAILED or not _avcap_cache_valid(out):
   bad = {k: out.get(k) for k in (_AVCAP_NUMERIC_REQ + _AVCAP_NUMERIC_OPT)
          if (k in out and not _is_scalar_num(out[k]))
          or (k in _AVCAP_NUMERIC_REQ and k not in out)}
-  sys.stderr.write("frognet_capability_probe: REFUSING-SILENT malformed numeric "
-                   "fields in emitted blob: %s\n" % json.dumps(bad))
+  for _f, _e in _PROBE_FAILED:
+    sys.stderr.write("frognet_capability_probe: MEASUREMENT FAILED field=%s %s\n"
+                     % (_f, _e))
+  sys.stderr.write("frognet_capability_probe: REFUSING TO PUBLISH -- "
+                   "unmeasured/malformed fields: %s. Nothing emitted; the last "
+                   "good capability row stands (rows do not age).\n"
+                   % json.dumps(bad))
+  sys.exit(1)
 print(json.dumps(out, separators=(',',':')))
 PY

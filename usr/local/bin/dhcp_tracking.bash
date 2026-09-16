@@ -49,8 +49,15 @@ if [[ "$cmd" != "add" && "$cmd" != "del" ]]; then
   exit 0
 fi
 
-# Only care about FrogNet IPs (10.10x.y.z)
-if [[ -z "$ip" || "$ip" != 10.10*.* ]]; then
+# [FROGNET_PLANE_IS_TEN_V1] The FrogNet plane is 10/8, minus the two reserved
+# planes: 10.253.* (transit /30s) and 10.254.* (chorus on-link). This used to
+# read `!= 10.10*.*`, a glob that requires the literal prefix "10.10" and so
+# ignored 10.250.250.*, 10.199.199.*, 10.170.170.*, 10.130.130.*, 10.123.123.*
+# and 10.155.155.* -- i.e. nearly every /24 in the mesh. Every lease on those
+# nodes was dropped here with "ignoring non-FrogNet ip=", so a peer joining or
+# leaving the LAN never triggered the merge that was supposed to notice it.
+# Matches the test sync_interfaces.sh and mapinterfaces.py already use.
+if [[ -z "$ip" || "$ip" != 10.* || "$ip" == 10.253.* || "$ip" == 10.254.* ]]; then
   /usr/local/bin/debugTag "dhcp_tracking: ignoring non-FrogNet ip=$ip"
   exit 0
 fi

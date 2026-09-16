@@ -1,0 +1,18 @@
+[Unit]
+Description=FrogNet NAT64/DNS64 (Jool)
+Wants=network-online.target
+After=network-online.target dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Optional environment overrides:
+# Environment=FROGNET_UPSTREAM_IF=wlan1
+# Environment=FROGNET_POOL4_CIDR=192.0.2.0/24
+# Environment=FROGNET_DNS64_PREFIX=64:ff9b::/96
+ExecStart=/usr/local/bin/start_nat64_dns64_jool.bash
+ExecReload=/usr/local/bin/start_nat64_dns64_jool.bash
+ExecStop=/usr/bin/jool -i nat64 instance remove || /usr/bin/jool instance remove --name nat64 || true
+
+[Install]
+WantedBy=multi-user.target

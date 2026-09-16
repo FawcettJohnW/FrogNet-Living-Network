@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-################################################################
-#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
-#                                                              #
-#  SPDX-License-Identifier: GPL-2.0-only                       #
-#                                                              #
-#  This program is free software; you can redistribute it      #
-#  and/or modify it under the terms of the GNU General Public  #
-#  License as published by the Free Software Foundation;       #
-#  version 2 of the License, and no other version.             #
-#                                                              #
-#  This program is distributed in the hope that it will be     #
-#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
-#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
-#  PURPOSE.  See the GNU General Public License for details.   #
-#                                                              #
-#  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """
 FrogNet Pipeline Workload - demonstrates semantic compression across three phases.
 
@@ -43,6 +26,12 @@ import threading
 import urllib.request
 import urllib.error
 import statistics
+# [A_SWALLOWED_NAMEERROR_LOOKS_LIKE_A_DEAD_SENSOR_V1] json was never imported,
+# so _read_endpoint_wire raised NameError on EVERY call and the bare `except
+# Exception` turned that into "metrics unavailable". The wire accounting had
+# never run on any invocation of this script, and the message pointed at the
+# engine rather than at these six lines. Found 2026-08-15.
+import json
 
 # [ASCII_SAFE_OUTPUT_V1] Force UTF-8 stdout/stderr. A fresh box boots in the C/POSIX
 # locale, where Python sets stdout encoding to ASCII and any non-ASCII byte printed
@@ -111,54 +100,101 @@ def fetch(url):
 # flushed ~every 30s - the same source frognet_monitor reads. So we snapshot that
 # sensor before and after the run and diff the endpoint we hit. Everything here is
 # best-effort: any failure returns None and the summary falls back to the old form.
-def _frognet_domain():
-    try:
-        with open("/etc/frognet_domain") as f:
-            d = f.read().strip()
-            return d or "frognet"
-    except Exception:
-        return "frognet"
-
-_METRICS_DBHOST = "databasehost.frognet"   # metrics are observed data, not SD: coordination
-_ENDPOINT_SENSOR = f"{_frognet_domain()}.SemanticCache.Endpoints"
-
 def _read_endpoint_wire(path):
-    """Return (bytes_would, bytes_actual) for endpoint `path` from the published
-    SemanticCache.Endpoints sensor, or None on any failure."""
+    """(bytes_would, bytes_actual) for `path`, from the local proxy, right now.
+
+    [COUNTERS_ARE_READABLE_WHEN_ASKED_V1] This used to ask the published sensor,
+    which the metrics thread writes about every thirty seconds. A run of a few
+    seconds sits inside one interval and has nothing to diff, so every phase
+    reported "no flush landed" and the poll waiting for one read as a hang.
+
+    The proxy now answers /_frognet/wire on loopback with the same counters the
+    flusher would publish, at the instant they are asked for. No flush interval,
+    no polling, and the numbers are THIS box's -- which is what was wanted: the
+    sensor aggregates a mesh, and the question was about this node.
+
+    It also removes the domain lookup entirely. That read /etc/frognet_domain to
+    build a sensor name, fell back to the literal string "frognet" when the file
+    was absent -- which it is on a correctly built node, since nothing writes it
+    -- and asked for a sensor nobody publishes. Loopback needs no name.
+    """
     try:
-        url = (f"http://{_METRICS_DBHOST}/api.php?entity=sensors&action=values"
-               f"&parse=1&SensorName={urllib.parse.quote(_ENDPOINT_SENSOR)}")
-        req = urllib.request.Request(url, headers={"X-FrogNet-Origin-Local": "1"})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            rows = json.loads(r.read().decode()).get("rows", [])
-        for row in rows:
-            data = row.get("data")
-            if isinstance(data, str):
-                data = json.loads(data)
-            if not isinstance(data, dict):
-                continue
-            for ep in data.get("top_endpoints", []):
-                if ep.get("path", "").split("?")[0] == path:
-                    return int(ep.get("bytes_would", 0)), int(ep.get("bytes_actual", 0))
-        return (0, 0)        # sensor present, endpoint not yet listed
-    except Exception:
+        url = "http://127.0.0.1/_frognet/wire?path=" + urllib.parse.quote(path)
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read().decode())
+        ep = (data.get("endpoints") or {}).get(path)
+        if ep is None:
+            # No traffic on this endpoint yet. Zero is the honest starting
+            # point, and distinct from a read that failed.
+            return (0, 0)
+        return int(ep.get("bytes_would", 0)), int(ep.get("bytes_actual", 0))
+    except Exception as e:
+        print(f"    [wire] cannot read local proxy counters: "
+              f"{type(e).__name__}: {e}")
+        print(f"    [wire] the proxy answers /_frognet/wire on loopback; "
+              f"an older proxy will not have it")
         return None
 
-def _wire_snapshot_after(path, before, flush_wait=40, poll=5):
-    """Poll the endpoint sensor until a post-run flush lands (would advances past
-    `before`), up to flush_wait seconds. Returns (would, actual) or None."""
-    if before is None:
-        return None
-    deadline = time.time() + flush_wait
-    last = None
-    while time.time() < deadline:
-        snap = _read_endpoint_wire(path)
-        if snap is not None:
-            last = snap
-            if snap[0] > before[0]:      # new bytes_would since 'before' => flush landed
-                return snap
-        time.sleep(poll)
-    return last
+
+# -- Wire accounting for the run ------------------------------------------------
+#
+# [ONE_BRACKET_PER_FLUSH_INTERVAL_V1] One measurement, around the whole run.
+#
+# This was briefly per-phase, which cannot work: the engine flushes its counters
+# about every thirty seconds, so bracketing four phases that each take a few
+# seconds splits one flush interval four ways and produces four "no flush
+# landed" reports instead of one number. Worse, each bracket waited up to forty
+# seconds for a flush that was never going to arrive inside it, which read as
+# the run hanging after the :8080 phase. Measured 2026-08-15.
+#
+# The granularity the counters can resolve is the run. That is what is reported.
+class WireRun:
+    """Bracket anything -- a phase or a whole run -- and report the difference.
+
+    Per-phase is viable again now that a read is instant. It was not when the
+    numbers came from a thirty-second flush: four short phases split one
+    interval four ways and reported nothing four times.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.before = _read_endpoint_wire(path)
+        self.would = self.actual = 0
+        self.measured = False
+
+    def close(self):
+        # No wait: the counters are read on demand now, so closing the bracket
+        # is a second read and a subtraction.
+        if self.before is None:
+            return self
+        after = _read_endpoint_wire(self.path)
+        if after is None:
+            return self
+        self.would = after[0] - self.before[0]
+        self.actual = after[1] - self.before[1]
+        self.measured = self.would > 0
+        return self
+
+    def report(self, indent="    "):
+        if self.before is None:
+            print(f"{indent}Wire: engine counters were not readable at the start "
+                  f"of the run")
+            return
+        if not self.measured:
+            print(f"{indent}Wire: the counters did not move during this run "
+                  f"(no traffic reached the engine on {self.path})")
+            return
+        saved = self.would - self.actual
+        pct = saved / self.would * 100
+        ratio = self.would / self.actual if self.actual > 0 else float("inf")
+        rs = f"{ratio:.1f}x" if self.actual > 0 else "inf"
+        print(f"{indent}Bytes sent:          {self.actual:>13,}   "
+              f"({self.actual/1024:>10.1f} KB)")
+        print(f"{indent}Bytes without engine:{self.would:>13,}   "
+              f"({self.would/1024:>10.1f} KB)")
+        print(f"{indent}Saved:               {saved:>13,}   "
+              f"({pct:>5.1f}%, {rs})")
+
 
 # -- Run N serial requests ------------------------------------------------------
 def run_serial(url, n, label, quiet=False):
@@ -270,10 +306,33 @@ def main():
     time.sleep(2)
 
     # -- Bootstrap: one request through FrogNet to learn the template -----------
-    wire_before = _read_endpoint_wire(PATH)        # wire accounting baseline
+    #
+    # [THE_BOOTSTRAP_IS_NOT_STEADY_STATE_V1] Measured, reported, and kept out of
+    # the steady-state total.
+    #
+    # The bootstrap is one full uncompressed body -- it is the request that
+    # TEACHES the template, so by definition nothing is cached yet. Counting it
+    # in the run total means the headline figure includes the one request that
+    # could not possibly be compressed, and the total then disagrees with the
+    # sum of its phases by exactly that request. Measured 2026-08-15 on a 1 MB
+    # payload: phases summed to 141,909 bytes and the total said 1,245,480 --
+    # the 1.1 MB difference being the bootstrap, sitting inside the run bracket
+    # and outside every phase bracket.
+    #
+    # It is real cost and it is not hidden: it is bracketed on its own and
+    # printed. What it is not is part of a steady-state average, because a
+    # template is learned once and used for the life of the call.
     print(f"\n  Bootstrapping FrogNet template (one request through :80)...")
+    boot_wire = WireRun(PATH)
     ms_boot, ok_boot, sz_boot, cache_boot = fetch(URL_FROGNET)
+    boot_wire.close()
+    wire = WireRun(PATH)
     print(f"  Bootstrap: {ms_boot:.0f}ms  body={sz_boot/1024:.0f}KB  cache={cache_boot}")
+    if boot_wire.measured:
+        print(f"    (bootstrap on the wire: {boot_wire.actual:,} bytes -- one full "
+              f"body, since this is the request that teaches the template.\n"
+              f"     Reported here and excluded from the totals below, which are "
+              f"steady state.)")
     time.sleep(1)
 
     # -- PHASE 2: FrogNet serial - template hot, SAME/DIFF firing --------------
@@ -285,8 +344,10 @@ def main():
     print(f"  one request in flight at a time, so wire savings don't increase")
     print(f"  throughput here. The gain shows up in Phase 3 (concurrent).")
     print(f"{'='*60}")
+    w2 = WireRun(PATH)
     times2, ok2, fail2, sizes2, cache2 = run_serial(URL_FROGNET, N // 4, "FROGNET HOT")
     print_serial_results("FROGNET HOT", times2, ok2, fail2, sizes2, cache2)
+    w2.close().report()
 
     time.sleep(2)
 
@@ -294,7 +355,10 @@ def main():
     print(f"\n{'='*60}")
     print(f"  PHASE 3: RAMP - concurrent scalability (FrogNet HOT)")
     print(f"{'='*60}")
+    w3 = WireRun(PATH)
     run_ramp(URL_FROGNET, "FrogNet HOT")
+    print(f"\n  RAMP wire:")
+    w3.close().report()
 
     # -- CONCURRENT burst -------------------------------------------------------
     print(f"\n{'='*60}")
@@ -303,10 +367,17 @@ def main():
     print(f"  the daemon - it executes once and serves all callers. The wire")
     print(f"  carries tiny diff frames regardless of how many clients are waiting.")
     print(f"{'='*60}")
+    w4 = WireRun(PATH)
     run_concurrent(URL_FROGNET, N, "FrogNet HOT")
+    w4.close().report()
 
-    # -- Wire accounting: wait for a post-run flush, then diff the endpoint ------
-    wire_after = _wire_snapshot_after(PATH, wire_before)
+    # -- Wire accounting -------------------------------------------------------
+    # The phases above each closed their own bracket, so the run total is their
+    # sum rather than a fresh snapshot. Two independent measurements of the same
+    # traffic would disagree at the edges -- a flush landing between the last
+    # phase and the summary belongs to neither -- and a total that does not
+    # equal its parts is the kind of discrepancy that costs an afternoon.
+    wire.close()
 
     # -- Summary ----------------------------------------------------------------
     print(f"\n{'='*60}")
@@ -335,22 +406,14 @@ def main():
                 print(f"    Cache hit rate:      {same_diff/total*100:.0f}% SAME/DIFF")
 
     # -- Wire savings, measured from the engine's own counters (not the client) --
-    if wire_before is not None and wire_after is not None:
-        would = wire_after[0] - wire_before[0]
-        actual = wire_after[1] - wire_before[1]
-        saved = would - actual
-        if would > 0:
-            pct = saved / would * 100
-            ratio = would / actual if actual > 0 else float("inf")
-            ratio_s = f"{ratio:.1f}x" if actual > 0 else "?"
-            print(f"    -- on the wire (this run, from SemanticCache.Endpoints) --")
-            print(f"    Would have crossed:  {would/1024:.1f} KB")
-            print(f"    Actually crossed:    {actual/1024:.1f} KB")
-            print(f"    Saved:               {saved/1024:.1f} KB  ({pct:.1f}%, {ratio_s})")
-        else:
-            print(f"    Wire savings: no flushed delta yet (run shorter than the ~30s metrics flush)")
-    elif wire_before is not None:
-        print(f"    Wire savings: metrics snapshot unavailable after the run (skipped)")
+    # One reporter, one bracket. WireRun.report() already distinguishes the
+    # three outcomes -- measured, no flush landed, counters unreadable -- so
+    # branching here to call it three ways only made it possible for them to
+    # drift apart.
+    if wire.measured:
+        print(f"    -- on the wire, everything through :80 "
+              f"(from SemanticCache.Endpoints) --")
+    wire.report()
     print(f"{'='*60}\n")
 
 if __name__ == "__main__":

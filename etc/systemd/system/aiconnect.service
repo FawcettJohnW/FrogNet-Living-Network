@@ -1,0 +1,15 @@
+[Unit]
+Description=FrogNet AIConnect service (publishes MachineReady, primes bulk receivers)
+After=network-online.target frognet-proxy.service frognet-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/frognet_semantic
+Environment=PYTHONPATH=/opt/frognet_semantic
+ExecStart=/usr/bin/python3 -m agent_workload.aiconnect.service --interval 1.0
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

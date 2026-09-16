@@ -295,7 +295,14 @@ froguser hard nofile $FD_LIMIT
 # SYSTEMD SERVICE OVERRIDES
 # ─────────────────────────────────────────────────────────────────
 
-for SVC in frognet-proxy frognet-daemon frognet-tunnel-daemon; do
+# [AICONNECT_IS_A_TUNED_SERVICE_V1]
+# aiconnect was not in this list, so while the proxy, daemon and tunnel daemon
+# each got LimitNOFILE=$FD_LIMIT, the AIConnect receiver ran at systemd's
+# DefaultLimitNOFILE -- 1024 soft on Debian-family systems. That is the side
+# holding one descriptor per concurrent sender, so the workload's descriptor
+# ceiling was an eighth of what /etc/security/limits.d gave the shell that
+# launched the producer. The constrained side was the one nobody tuned.
+for SVC in frognet-proxy frognet-daemon frognet-tunnel-daemon aiconnect; do
     OVERRIDE_DIR="/etc/systemd/system/${SVC}.service.d"
     OVERRIDE_FILE="${OVERRIDE_DIR}/99-frognet-tune.conf"
     # Only the daemon carries the worker-pool env; proxy/tunnel-daemon get

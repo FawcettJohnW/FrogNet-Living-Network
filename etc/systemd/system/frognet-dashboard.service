@@ -1,0 +1,29 @@
+[Unit]
+After=frognet-discovered.target
+Wants=frognet-discovered.target
+Description=FrogNet Dashboard (Gunicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/frognet/dashboard
+
+# Activate the FrogNet Python venv
+Environment="VIRTUAL_ENV=/opt/frognet/venv"
+Environment="PATH=/opt/frognet/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+# Start the dashboard backend
+ExecStart=/opt/frognet/venv/bin/gunicorn -b 0.0.0.0:9100 api_semantic:app
+
+# Auto-restart on failure
+Restart=on-failure
+RestartSec=3
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

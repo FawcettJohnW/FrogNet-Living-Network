@@ -139,8 +139,18 @@ FROGNET_WORLD_PATHS=(
     # frognet_tuples).
     etc/frognet_bundles
 
-    # Python source
+    # Python source. agent_workload/ -- ddpbench.py, the tuplespace collectives
+    # and the DDP hooks -- is inside this and ships with it; it is deliberately
+    # NOT listed separately, because a second entry under a parent already in
+    # this list puts every one of its files into the archive twice.
     opt/frognet_semantic
+
+    # [THE_HARNESS_IS_PART_OF_THE_WORLD_V1 - John 2026-09-15] The AI benchmark
+    # harness: gate.py, hookrun.sh, netbench1.py, store_admin.py. It has never
+    # been in this manifest, so no world tarball has ever carried it and it has
+    # had to be moved by hand. The campaign results are only reproducible with
+    # the code that produced them.
+    usr/local/frognet-ai
 
     # [LICENSE_TRAVELS_WITH_THE_WORK_V1] COPYING and LICENSE. The GPL requires the
     # license text accompany the work, and the work is what this list describes -
@@ -178,7 +188,40 @@ unset _l _rel
 # /etc/fnid is not a secret and still must never ship, because two nodes with the
 # same GUID is a broken pond.
 # -----------------------------------------------------------------------------
+# [THIRD_PARTY_IS_NOT_OURS_V1 - John 2026-09-14] Code we ship but did not
+# write. It must NOT carry the Fawcett Innovations GPL-2.0-only notice --
+# stamping our grant onto someone else's work misstates its licence, and the
+# applier would do exactly that if these were merely "missing a header".
+#
+# license_check excludes these from the missing-notice walk AND from the
+# Apache-2.0 check: Apache code inside a declared third-party tree is a
+# vendored dependency with its own terms, not our grant contradicting itself.
+# Its error message already told us to do this ("add it to THIRD_PARTY and
+# reopen the licensing question") -- the array simply never existed, so the
+# oracle failed on 341 files and stayed red long enough to be called known.
+#
+# Adding a path here is a licensing decision, not a way to quiet the check.
+# GPL-2.0-only is incompatible with Apache-2.0, so anything listed here that
+# is Apache-licensed still has to be resolved before distribution -- the two
+# PHPMailer doc bundles below are the live example.
+FROGNET_THIRD_PARTY=(
+    var/www/html/php/php/PHPMailer
+    var/www/html/webrtc-web
+    var/www/html/js
+    var/www/html/bundle
+)
+
 FROGNET_NEVER_SHIP=(
+    # [DO_NOT_SHIP_AN_INCOMPATIBLE_LICENCE_V1 - John 2026-09-14] PHPMailer's
+    # generated phpdoc bundle carries Apache-2.0 JavaScript (bootstrap.js,
+    # prettify/lang-clj.js). Apache-2.0 is incompatible with GPL-2.0-only, so
+    # distributing it inside this world is a licensing problem that
+    # FROGNET_THIRD_PARTY only makes the CHECKER stop reporting.
+    #
+    # It is documentation. Nothing at runtime reads it. Not shipping it
+    # resolves the incompatibility instead of annotating it -- the library
+    # itself stays, under its own licence, in THIRD_PARTY above.
+    var/www/html/php/php/PHPMailer/docs
     # WireGuard. The directory ships (the installer expects it); the configs and
     # keys do not. Every wg*.conf holds a live PrivateKey.
     'etc/wireguard/wg*.conf'
@@ -270,12 +313,21 @@ FROGNET_NEVER_SHIP=(
 # -----------------------------------------------------------------------------
 # frognet_check_manifest <root>
 #
-# [RELEASE_MANIFEST_FAILFAST_V1] The manifest IS the contract. A path listed here
-# but absent on the build host means the build host is broken or the manifest is
-# stale - either way the release must not ship with a silent hole, because a hole
-# is invisible in a tarball listing and fatal on the node that unpacks it.
+# [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1 - John 2026-09-15]
 #
-# Returns 0 if every path is present, 1 otherwise, naming each miss.
+# This REPORTS. It does not refuse, and it always returns 0.
+#
+# It used to return 1 and its callers exited on it, so three absent paths --
+# etc/apache2/sites-available/000-default.conf, default-ssl.conf,
+# etc/setup_iptables -- meant AI-Host could not tar itself up at all. A node
+# that is legitimately not an apache host is not a broken build host, and no
+# tool of ours gets to decide that the operator may not have a tarball.
+#
+# The original reasoning was that a hole is invisible in a tarball listing.
+# The answer to invisible is to PRINT IT, which is what this does, on stderr,
+# naming every absent path. The answer is not to withhold the artifact.
+#
+# Returns 0 always. A caller that wants the count can read FROGNET_MANIFEST_MISSING.
 # -----------------------------------------------------------------------------
 frognet_check_manifest() {
     local _root="${1:-/}"
@@ -284,12 +336,12 @@ frognet_check_manifest() {
     for _p in "${FROGNET_WORLD_PATHS[@]}"; do
         [ -e "${_root%/}/$_p" ] || _missing+=( "$_p" )
     done
+    FROGNET_MANIFEST_MISSING="${#_missing[@]}"
     if [ "${#_missing[@]}" -gt 0 ]; then
-        echo "ERROR: refusing to build an incomplete world - ${#_missing[@]} manifest path(s) absent under ${_root}:" >&2
+        echo "NOTE: ${#_missing[@]} manifest path(s) absent under ${_root} and will not be in the tarball:" >&2
         for _p in "${_missing[@]}"; do echo "         $_p" >&2; done
-        echo "       Either this build host is not a complete node, or the manifest is stale." >&2
-        echo "       Do NOT 'fix' this by removing the path from the manifest." >&2
-        return 1
+        echo "       This host is missing them - it may simply not serve that role." >&2
+        echo "       Building anyway. Unpacking this tarball will not create them." >&2
     fi
     return 0
 }

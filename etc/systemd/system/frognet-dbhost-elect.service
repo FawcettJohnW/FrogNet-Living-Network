@@ -1,0 +1,9 @@
+[Unit]
+Description=FrogNet databasehost elector (control-only, post-merge window)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/bin/frognet_dbhost_elector.py
+[Install]
+WantedBy=multi-user.target

@@ -48,7 +48,7 @@ from proxy.constants import HDR_CONTROL_PLANE, HDR_ORIGIN_LOCAL
 _SO_MARK = getattr(socket, "SO_MARK", 36)
 _MARK_VALUE = 1
 
-_LOCAL_TIMEOUT_SEC = float(os.environ.get("FROGNET_REAL_LOCAL_TIMEOUT", "10"))
+_LOCAL_TIMEOUT_SEC = float(os.environ.get("FROGNET_REAL_LOCAL_TIMEOUT", "45"))
 _REMOTE_TIMEOUT_SEC = float(os.environ.get("FROGNET_REAL_REMOTE_TIMEOUT", "45"))
 # [CONNECT_TIMEOUT_SPLIT_V1] The remote timeout (45s) is the budget for a SLOW
 # semantic/ham request+response, NOT for the TCP connect. A dead role-host (e.g. a

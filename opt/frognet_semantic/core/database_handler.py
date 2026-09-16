@@ -55,7 +55,6 @@ class DatabaseRoleHandler(UnRESTHandler):
             return 0
 
     # [DBHOST_STATIC_RANK_V1] Below this the candidate is ineligible, full stop.
-    DISK_FREE_FLOOR_GB = 1.0
 
     def score(self, cand):
         """Database-host fitness from STATIC signal. mysql present AND RUNNING is
@@ -63,13 +62,12 @@ class DatabaseRoleHandler(UnRESTHandler):
           - RAM       - INSTALLED memory (mem_total_kb), the dominant factor,
                        plus credit for a configured innodb pool
                        (mysql_innodb_pool_bytes). Never free/available RAM:
-                       that moves, and mem_available_kb is a fallback used
-                       only when mem_total_kb was omitted.
+                       mem_available_kb is not read at all. A candidate that
+                       published no mem_total_kb contributes no RAM term.
           - disk        - disk_class, a property of the media. NOT measured
                        throughput or fsync latency: both move with load, and
                        [DBHOST_STATIC_RANK_V1] forbids that. See the comment
                        at the disk term below for the feedback loop it caused.
-          - capacity - disk_free_gb; out-of-space is fatal.
           - CPU       - cores x cpu_mhz. NOT cpu_bench_total: that is re-run by
                        the advertiser and carries the same load objection as
                        fsync.
@@ -91,14 +89,25 @@ class DatabaseRoleHandler(UnRESTHandler):
 
         cores = max(1, int(cand.get("cores", 1)))
 
-        # RAM: prefer available; fall back to total. Credit configured innodb pool.
-        mem_avail_gb = int(cand.get("mem_available_kb", 0)) / (1024 * 1024)
-        mem_total_gb = int(cand.get("mem_total_kb", 0)) / (1024 * 1024)
+        # RAM: INSTALLED only.
+        #
         # [DBHOST_STATIC_RANK_V1] installed RAM, never free. The role is a durable
         # assignment, so a transient free-RAM reading must not move it - same reason
-        # load is excluded below. A node's tuple then ranks identically write-to-write
-        # and every box agrees. Fall back to available only if mem_total was omitted.
-        mem_gb = mem_total_gb if mem_total_gb > 0 else mem_avail_gb
+        # load is excluded below. A node's tuple then ranks identically
+        # write-to-write and every box agrees.
+        #
+        # [NO_MEM_AVAILABLE_V1 - John 2026-09-14] The mem_available_kb fallback is
+        # GONE. It sat one line under the rule forbidding it, and it was not
+        # unreachable: frognet_capability_probe.sh:181 publishes mem_total_kb=0 on
+        # its /proc/meminfo exception path, which is exactly when the fallback
+        # fired. A probe that failed to read meminfo therefore switched that
+        # candidate's dominant term to a load-varying input, silently, with the
+        # log line still reading like a normal publish.
+        #
+        # No mem_total_kb is an absence of static signal, not a licence to use a
+        # moving one. The candidate simply scores no RAM contribution; the innodb
+        # pool below, also static, still counts.
+        mem_gb = int(cand.get("mem_total_kb", 0)) / (1024 * 1024)
         innodb_gb = int(cand.get("mysql_innodb_pool_bytes", 0)) / (1024 ** 3)
         ram_score = mem_gb * 1.0 + innodb_gb * 0.5      # tuned pool is a real plus
 
@@ -127,23 +136,27 @@ class DatabaseRoleHandler(UnRESTHandler):
         klass = (cand.get("disk_class") or "unknown").lower()
         disk_perf = 8.0 * {"nvme": 1.6, "ssd": 1.3, "hdd": 1.0,
                            "sdcard": 0.4, "unknown": 0.9}.get(klass, 0.9)
-
-        # capacity: a GATE, not a multiplier.
+        # [NO_MOVING_INPUT_IN_A_STATIC_RANK_V1 - John 2026-09-14] The
+        # disk_free_gb floor is GONE.
         #
-        # [DBHOST_STATIC_RANK_V1] cap_factor was a step function -- 0.1 / 0.5 /
-        # 1.0 at 1 GB and 5 GB -- so a node sitting near either line had its
-        # ENTIRE score halved or doubled by a few megabytes of ordinary disk
-        # churn, and flipped back on the next advertise. A cliff in a continuous
-        # input is a coin toss dressed as arithmetic.
+        # It called itself "a gate, not a thumb on the scale", and that was the
+        # error: free space MOVES. A node hovering near DISK_FREE_FLOOR_GB
+        # crosses it in both directions as files are written and rotated, and
+        # each crossing takes that candidate from its real score to -1.0 and
+        # out of the election entirely. The role then floats between whoever is
+        # above the line at that instant -- forever, with no hysteresis and no
+        # event anyone can point at. Seattle3B filled its disk on 2026-09-13
+        # and this is exactly the shape that followed.
         #
-        # Out of space is genuinely fatal and stays fatal: below the floor the
-        # candidate is ineligible outright, which is a gate like mysql_running
-        # above and not a thumb on the scale. Above it, free space does not rank
-        # anyone -- a box with 40 GB free is not a better database host than one
-        # with 20.
-        disk_free = float(cand.get("disk_free_gb", 0.0))
-        if disk_free < self.DISK_FREE_FLOOR_GB:
-            return -1.0
+        # It is the same defect the cap_factor step function was removed for,
+        # in the same file: a cliff on a continuous input, "a coin toss dressed
+        # as arithmetic". Calling it eligibility rather than score did not make
+        # the input static.
+        #
+        # Out of space is a HEALTH fact, not a capacity one. It belongs to
+        # whatever decides to demote a sick host deliberately, with hysteresis
+        # and a log line -- not to a ranking function whose whole contract is
+        # that a node's tuple ranks identically write-to-write.
         cap_factor = 1.0
 
         # CPU: the silicon, not a benchmark taken under load.

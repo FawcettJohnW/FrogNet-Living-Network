@@ -20,6 +20,18 @@ Description=FrogNet Semantic Proxy
 After=network-online.target
 Wants=network-online.target
 
+# [CREDENTIAL_FAILURE_IS_FATAL_V1] Restart=always with no start limit turns a
+# deliberate crater into a one-second loop: the process exits because it cannot
+# reach its database, systemd restarts it, it exits again, forever -- which is
+# the same endless failure the exit was meant to replace, just louder.
+#
+# With a limit, a genuinely unfixable condition (a wrong DB credential exits 78)
+# stops the unit after a few attempts and leaves it `failed`, where systemctl
+# status says so. A transient condition still recovers: anything that comes back
+# within the window restarts normally and the counter resets.
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=root

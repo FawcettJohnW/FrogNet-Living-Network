@@ -132,14 +132,18 @@ get_group_token() {
 
 # ---------------------------------------------------------------------------
 # Get this node's FrogNet subnet
-# Looks for the 10.101.x.0/24 address on any interface
+# [FROGNET_PLANE_IS_TEN_V1] Looks for this node's FrogNet /24 address on any
+# interface. The plane is 10/8 minus the reserved 10.253.* (transit /30s) and
+# 10.254.* (chorus on-link) -- NOT the literal 10.101.*, which this mesh has not
+# used in a long time and which made get_local_subnet die on every current node.
 # ---------------------------------------------------------------------------
 
 get_local_subnet() {
     local subnet
-    subnet=$(ip -4 addr show | awk '/inet 10\.101\./ {print $2}' | head -1)
+    subnet=$(ip -4 addr show \
+        | awk '/inet 10\./ && $2 ~ /\/24$/ && $2 !~ /^10\.25[34]\./ {print $2; exit}')
     if [ -z "$subnet" ]; then
-        die "No 10.101.x.x address found on any interface. Is this node part of a FrogNet mesh?"
+        die "No FrogNet 10.x.x.x/24 address found on any interface. Is this node part of a FrogNet mesh?"
     fi
     # Convert address/prefix to network/24
     local ip
@@ -197,11 +201,11 @@ find_next_wg_iface() {
 #
 # Before creating a new tunnel, we must remove any existing wg interface
 # that already routes to the same remote subnet. Otherwise we get:
-#   - Duplicate kernel routes (10.101.x.0/24 on wg2 AND wg5)
+#   - Duplicate kernel routes (10.x.y.0/24 on wg2 AND wg5)
 #   - Stale interfaces consuming handshake slots
 #   - Discovery confusion from multiple paths
 #
-# Args: $@ = list of remote subnets (e.g., "10.101.10.0/24" "10.101.20.0/24")
+# Args: $@ = list of remote subnets (e.g., "10.130.130.0/24" "10.170.170.0/24")
 # ---------------------------------------------------------------------------
 
 cleanup_stale_tunnels_for_subnets() {
@@ -266,7 +270,7 @@ cleanup_stale_tunnels_for_subnets() {
         local route_line iface
         while IFS= read -r route_line; do
             [[ -n "$route_line" ]] || continue
-            # Extract device name: "10.101.x.0/24 dev wgN scope link ..."
+            # Extract device name: "10.x.y.0/24 dev wgN scope link ..."
             iface=$(echo "$route_line" | grep -oP 'dev \Kwg\d+')
             [[ -n "$iface" ]] || continue
 
@@ -275,7 +279,9 @@ cleanup_stale_tunnels_for_subnets() {
 
             # If this interface has no other FrogNet routes, tear it down entirely
             local other_routes
-            other_routes=$(ip route show dev "$iface" 2>/dev/null | grep -c '10\.101\.' || true)
+            # [FROGNET_PLANE_IS_TEN_V1] count FrogNet routes: 10/8 less 10.253/10.254
+            other_routes=$(ip route show dev "$iface" 2>/dev/null \
+                | grep -E '^10\.' | grep -vcE '^10\.25[34]\.' || true)
             if [[ "$other_routes" -eq 0 ]]; then
                 # Check if the interface has any via routes pointing through it
                 local via_routes
@@ -643,7 +649,7 @@ PersistentKeepalive = 25
 
                     # Flush discovery cache for affected subnets and trigger merge
                     for sn in cfg.get("remote_subnets", []):
-                        gw = sn.rsplit(".", 1)[0].rsplit(".", 1)[0] + ".1"  # 10.101.x.0/24 → 10.101.x.1
+                        gw = sn.rsplit(".", 1)[0].rsplit(".", 1)[0] + ".1"  # 10.x.y.0/24 -> 10.x.y.1
                         try:
                             subprocess.run(["/usr/local/bin/discovery_cache","reset",gw], check=False)
                             dbg(f"inner loop: cache reset {gw}")

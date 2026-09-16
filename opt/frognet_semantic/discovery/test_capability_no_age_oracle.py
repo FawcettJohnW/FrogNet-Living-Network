@@ -67,12 +67,20 @@ def row(ip, **perf):
     return {"data": data, "SensorName": f"SD:capability.host:{ip}:databasehost",
             "SensorAddress": ip, "SensorID": ip, "UpdatedAtEpoch": T_WRITE}
 
+# [NO_MEM_AVAILABLE_V1 - John 2026-09-14] These rows ranked candidates by
+# mem_available_kb, which score() no longer reads at all - free RAM moves with
+# load and has been out of the static rank for a while; the fixture had not
+# caught up, so with the fallback removed all three tied and the IP tiebreak
+# decided. The distinguishing signal is now mem_total_kb (installed RAM), which
+# is what the score actually ranks on. Same ordering, same intent: this oracle
+# is about reads never AGEING a tuple, and it only needs the candidates to be
+# distinguishable.
 PERSISTED = [
-    row("10.120.120.1", cores=4, mem_available_kb=8000000, cpu_bench_total=9000,
+    row("10.120.120.1", cores=4, mem_total_kb=8000000, cpu_bench_total=9000,
         disk_write_mbps=30.0, disk_fsync_ms=15.0, disk_free_gb=20.0),   # strongest
-    row("10.130.130.1", cores=4, mem_available_kb=2000000, cpu_bench_total=5000,
+    row("10.130.130.1", cores=4, mem_total_kb=2000000, cpu_bench_total=5000,
         disk_write_mbps=2.0, disk_fsync_ms=68.0, disk_free_gb=12.0),
-    row("10.250.250.1", cores=4, mem_available_kb=4000000, cpu_bench_total=7000,
+    row("10.250.250.1", cores=4, mem_total_kb=4000000, cpu_bench_total=7000,
         disk_write_mbps=20.0, disk_fsync_ms=15.0, disk_free_gb=4.0),
 ]
 

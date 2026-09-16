@@ -110,7 +110,8 @@ def _get_local_ip() -> str:
             parts = line.split()
             if len(parts) >= 4:
                 addr = parts[3].split("/")[0]
-                if addr.startswith("10.101."):
+                # [FROGNET_PLANE_IS_TEN_V1] 10/8 less the reserved planes
+                if addr.startswith("10.") and not addr.startswith(("10.253.", "10.254.")):
                     log.info("local_ip: %s", addr)
                     return addr
     except Exception as e:
@@ -159,7 +160,7 @@ def _sensors_values(parse: bool = True, **filters) -> List[Dict]:
 # -----------------------------------------------------------------------
 
 def _parse_etc_hosts() -> List[Tuple[str, str]]:
-    """Parse /etc/hosts for 10.101.x.y lines.  Returns [(ip, name), ...].
+    """Parse /etc/hosts for FrogNet 10.x.y.z lines.  Returns [(ip, name), ...].
     Name is field 2; if it starts with FrogNetHost. we strip that prefix."""
     hosts = []
     seen = set()
@@ -173,10 +174,11 @@ def _parse_etc_hosts() -> List[Tuple[str, str]]:
                 if len(parts) < 2:
                     continue
                 ip = parts[0]
-                if not re.match(r'^10\.101\.', ip):
+                # [FROGNET_PLANE_IS_TEN_V1] 10/8 less the reserved planes
+                if not re.match(r'^10\.', ip):
                     continue
-                # Skip transit addresses
-                if re.match(r'^10\.253\.', ip):
+                # Skip transit /30s and chorus on-link addresses
+                if re.match(r'^10\.25[34]\.', ip):
                     continue
                 if ip in seen:
                     continue

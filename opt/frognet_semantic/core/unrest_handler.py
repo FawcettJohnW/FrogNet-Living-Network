@@ -68,6 +68,25 @@ def _tuples():
             return None
 
 
+
+def _same_store(a: str, b: str) -> bool:
+    """True when two dbhost names land on the same machine.
+
+    [HOSTS_ONLY_V1] /etc/hosts, never the resolver: this has to agree with the
+    file the rest of the node routes by. A name that cannot be resolved is
+    treated as DISTINCT -- an unresolvable mirror target is a reason to attempt
+    the write and log the failure, not to silently skip it.
+    """
+    if a == b:
+        return True
+    try:
+        from core.hosts_only import try_resolve
+    except Exception:
+        return False
+    ra, rb = try_resolve(a), try_resolve(b)
+    return bool(ra and rb and ra == rb)
+
+
 class UnRESTHandler:
     """The single interface every semantic handler conforms to. Subclasses override only
     what they implement; the rest are the empty-return defaults here."""
@@ -138,7 +157,31 @@ class UnRESTHandler:
         except Exception as e:
             rep["consistency"] = f"scope_error:{e}"
             return rep
-        for dbhost in (control, data):                  # BOTH - control authoritative, data mirror
+        # [MIRROR_ONLY_WHEN_IT_IS_A_DIFFERENT_MACHINE_V1] control and data are two
+        # NAMES, not necessarily two hosts. Until databasehost floats away from
+        # databasehost_control they are the same box, and this loop wrote the same
+        # record to it twice -- three times when the caller also passes the freshly
+        # resolved control IP, since the merge does:
+        #
+        #   PUT dbhost=databasehost_control.frognet -> 10.250.250.1
+        #   PUT dbhost=10.250.250.1                 -> 10.250.250.1
+        #   PUT dbhost=databasehost.frognet         -> 10.250.250.1
+        #
+        # all carrying the identical SD:capability.host:<ip>:<role> row, each with
+        # its own prune_self_stale_capability sweep behind it. On a node where the
+        # store is slow that is three timeouts per role per merge for one write's
+        # worth of information.
+        #
+        # Resolve both through /etc/hosts ([HOSTS_ONLY_V1], same file the rest of
+        # the node routes by) and drop the mirror when it lands on the same address.
+        # When the data host HAS floated, both writes happen exactly as before.
+        _targets = [control]
+        if _same_store(control, data):
+            logger(f"ADVERTISE mirror_skipped role={self.ROLE_NAME} "
+                   f"reason=data_is_the_same_host_as_control data={data}")
+        else:
+            _targets.append(data)
+        for dbhost in _targets:                         # control authoritative, data mirror
             try:
                 ok = T.put(self.ROLE_NAME, "capability", scope, blob, dbhost=dbhost, own=False)
             except Exception as e:

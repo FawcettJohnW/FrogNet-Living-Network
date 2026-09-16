@@ -54,7 +54,11 @@ COL_METHOD=10
 # Get local identity
 LOCAL_DOMAIN=$(grep '^domain=' /etc/dnsmasq.d/opts_only.conf 2>/dev/null | cut -d= -f2)
 [[ -z "$LOCAL_DOMAIN" ]] && LOCAL_DOMAIN=$(cat /etc/frognet_domain 2>/dev/null || hostname -s)
-LOCAL_IP=$(ip -4 route get 10.101.0.1 2>/dev/null | awk '/src/{print $7}' | head -1)
+# [FROGNET_PLANE_IS_TEN_V1] Ask the kernel which source address it would use to
+# reach the FrogNet plane. 10.101.0.1 was an address off an old numbering scheme
+# and no longer routes anywhere, so `route get` failed and LOCAL_IP silently fell
+# through to hostname -I.
+LOCAL_IP=$(ip -4 route get 10.0.0.1 2>/dev/null | awk '/src/{print $7}' | head -1)
 [[ -z "$LOCAL_IP" ]] && LOCAL_IP=$(hostname -I | awk '{print $1}')
 
 ALIVE="/usr/local/bin/frognet_alive.bash"
@@ -120,8 +124,9 @@ discover_hosts() {
             local ip name
             ip=$(echo "$line" | awk '{print $1}')
             name=$(echo "$line" | awk '{print $2}')
-            [[ "$ip" =~ ^10\.101\. ]] && hosts+=("$ip|$name|frognet")
-        done < <(grep -E '^10\.101\.' /etc/hosts 2>/dev/null | grep -v '^#')
+            # [FROGNET_PLANE_IS_TEN_V1] 10/8 less the reserved 10.253/10.254 planes
+            [[ "$ip" =~ ^10\. && ! "$ip" =~ ^10\.25[34]\. ]] && hosts+=("$ip|$name|frognet")
+        done < <(grep -E '^10\.' /etc/hosts 2>/dev/null | grep -vE '^10\.25[34]\.' | grep -v '^#')
     fi
     hosts+=("google.com|Google (Internet)|internet")
     printf '%s\n' "${hosts[@]}" | sort -t'|' -k2 | uniq

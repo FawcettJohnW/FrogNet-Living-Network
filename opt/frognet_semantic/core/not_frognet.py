@@ -343,7 +343,36 @@ def mark(ip, reason=""):
 # nothing -- and a rule enforced in one place cannot drift out of step with
 # itself.
 STRIKES_TO_MARK = int(os.environ.get("FROGNET_NF_STRIKES", "3"))
-_strikes = {}          # ip -> consecutive definitive failures
+
+# [STRIKES_MUST_SPAN_TIME_V1]
+# Three strikes was written to protect "a real node two seconds into a
+# systemctl restart" -- the sentence is a few lines above this one. It does not,
+# and cannot, because it counts EVENTS and the thing it is protecting against is
+# a DURATION. The proxy dials a peer hundreds of times a second under load, so a
+# two-second restart delivers three consecutive refusals inside a few
+# milliseconds and the mark lands at once. The rule reads as a safeguard and
+# behaves like marking on the first failure.
+#
+# Measured 2026-09-05: `systemctl restart frognet-proxy frognet-daemon
+# frognet-tunnel-daemon-v3 frognet-mediahost`, and every request through :80 to
+# the elected databasehost then failed with "cached non-FrogNet this session;
+# no worker built" -- the producer could not read the tuple store at all. Same
+# failure as Seattle3 on 2026-08-08, which is the failure three-strikes was
+# added to end.
+#
+# So a mark now requires three consecutive definitive failures AND that the
+# streak has lasted at least NF_STRIKE_WINDOW_S. A restart cannot outlast the
+# window; a genuinely absent host trivially does, and is marked one window late
+# -- which costs a few wasted dials against a host that is not there.
+NF_STRIKE_WINDOW_S = float(os.environ.get("FROGNET_NF_STRIKE_WINDOW_S", "15"))
+
+_strikes = {}          # ip -> [count, first_ts, last_logged_ts]
+
+#: A busy proxy dials a dead peer hundreds of times a second, and one line per
+#: refusal buries the journal in the noise of a single fact. The first strike,
+#: the moment the count reaches the threshold, and the mark itself are always
+#: printed; the repeats in between are rate-limited to this interval.
+_STRIKE_LOG_EVERY_S = 5.0
 
 
 def clear_strikes(ip):
@@ -356,7 +385,7 @@ def clear_strikes(ip):
     if not ip:
         return
     with _lock:
-        if _strikes.pop(ip, None):
+        if _strikes.pop(ip, None) is not None:
             print("[not_frognet] %s: answered - strike count reset" % (ip,),
                   flush=True)
 
@@ -364,7 +393,16 @@ def clear_strikes(ip):
 def strike_count(ip):
     """Consecutive definitive failures recorded for ip."""
     with _lock:
-        return _strikes.get(ip, 0)
+        rec = _strikes.get(ip)
+        return rec[0] if rec else 0
+
+
+def strike_age(ip):
+    """Seconds since the FIRST strike of the current streak, or 0.0 if none.
+    [STRIKES_MUST_SPAN_TIME_V1] This is the quantity the mark rule turns on."""
+    with _lock:
+        rec = _strikes.get(ip)
+        return (time.time() - rec[1]) if rec else 0.0
 
 
 def mark_if_definitive(ip, exc):
@@ -411,15 +449,39 @@ def mark_if_definitive(ip, exc):
         # [FLUSH_HAS_A_CALLER_V1] in the module docstring for what happened when
         # it did not.
         # [THREE_STRIKES_V1] Count it. Mark only on the third.
+        _now = time.time()
         with _lock:
-            n = _strikes[ip] = _strikes.get(ip, 0) + 1
+            rec = _strikes.get(ip)
+            if rec is None:
+                rec = _strikes[ip] = [0, _now, 0.0]
+            rec[0] += 1
+            n, first_ts = rec[0], rec[1]
+            # Always speak at the two moments that mean something; otherwise at
+            # most once per _STRIKE_LOG_EVERY_S.
+            loud = (n == 1 or n == STRIKES_TO_MARK
+                    or (_now - rec[2]) >= _STRIKE_LOG_EVERY_S)
+            if loud:
+                rec[2] = _now
+        span = _now - first_ts
         _why = ("errno=%s" % err) if err is not None else "refused/no-route"
         if n < STRIKES_TO_MARK:
-            print("[not_frognet] %s: strike %d of %d (%s) - NOT marked yet"
-                  % (ip, n, STRIKES_TO_MARK, _why), flush=True)
+            if loud:
+                print("[not_frognet] %s: strike %d of %d (%s) - NOT marked yet"
+                      % (ip, n, STRIKES_TO_MARK, _why), flush=True)
+            return False
+        # [STRIKES_MUST_SPAN_TIME_V1] Count reached, duration not. A restart
+        # delivers its refusals in milliseconds; absence delivers them for as
+        # long as you keep asking.
+        if span < NF_STRIKE_WINDOW_S:
+            if loud:
+                print("[not_frognet] %s: %d strikes (%s) but streak is only "
+                      "%.1fs old - under the %.0fs window, NOT marked (a "
+                      "restart looks exactly like this)"
+                      % (ip, n, _why, span, NF_STRIKE_WINDOW_S), flush=True)
             return False
         _strikes.pop(ip, None)
-        return mark(ip, reason="%s after %d consecutive strikes" % (_why, n))
+        return mark(ip, reason="%s after %d consecutive strikes over %.1fs"
+                                % (_why, n, span))
     return False
 
 

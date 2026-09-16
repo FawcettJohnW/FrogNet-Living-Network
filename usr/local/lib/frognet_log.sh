@@ -96,7 +96,27 @@ _flog_emit() {
     local line
     line="[$(_flog_ts)] ${_FLOG_TAG} ${name} pid=$$ $*"
     printf '%s\n' "$line"
-    printf '%s\n' "$line" >> "${FROGNET_DEBUG_DIR}/trace.log"
+    # [TRACE_WRITE_CANNOT_SPEW_V1 - John 2026-09-12] This redirect was bare, so
+    # the moment $FROGNET_DEBUG_DIR stopped existing bash printed
+    #
+    #   frognet_log.sh: line NN: /run/frognet/debug/<id>/trace.log:
+    #                            No such file or directory
+    #
+    # for EVERY subsequent log line of the merge. The directory goes away
+    # routinely: runMerge's [WIPE_THEN_REOPEN_V1] `rm -rf /var/run/frognet/*`
+    # takes it out mid-run (/var/run is a symlink to /run), tmpfs is cleared on
+    # reboot, and a child that inherited FROGNET_MERGE_ID never ran flog_init's
+    # mkdir at all. runMerge carries a workaround that re-creates the directory
+    # by globbing its own pid -- one call site patched, and it does not cover
+    # children or anything else that wipes /run.
+    #
+    # Fix it where the write is: re-create on demand, and make failure silent
+    # and harmless. A trace file is a diagnostic aid; it must never be able to
+    # bury the log it is trying to help with.
+    if [[ -n "${FROGNET_DEBUG_DIR:-}" ]]; then
+        [[ -d "$FROGNET_DEBUG_DIR" ]] || mkdir -p "$FROGNET_DEBUG_DIR" 2>/dev/null
+        printf '%s\n' "$line" >> "${FROGNET_DEBUG_DIR}/trace.log" 2>/dev/null || true
+    fi
     return 0
 }
 

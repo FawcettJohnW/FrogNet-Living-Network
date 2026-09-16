@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>FrogNet Living Network · Semantic Performance Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- Charts: served locally, no online dependency -->
+    <script src="/chart.js"></script>
+
+    <style>
+      :root {
+        --bg: #050814;
+        --bg-elevated: #0b1020;
+        --accent: #3cff8f;
+        --accent-soft: rgba(60, 255, 143, 0.15);
+        --accent-warn: #ffb347;
+        --accent-bad: #ff5c5c;
+        --text-main: #f5f7ff;
+        --text-muted: #9aa4c6;
+        --border-subtle: #1b233d;
+        --card-radius: 18px;
+        --shadow-soft: 0 18px 40px rgba(0, 0, 0, 0.4);
+        --font-main: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: var(--font-main);
+        background: radial-gradient(circle at top, #121a33, #050814 55%);
+        color: var(--text-main);
+      }
+
+      .fn-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 32px;
+        border-bottom: 1px solid var(--border-subtle);
+        background: linear-gradient(
+          to right,
+          rgba(10, 18, 40, 0.9),
+          rgba(8, 22, 36, 0.9)
+        );
+        backdrop-filter: blur(10px);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+
+      .fn-logo {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .fn-logo-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .fn-logo-icon {
+        font-size: 1.6rem;
+      }
+
+      .fn-logo-text {
+        font-size: 1rem;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .fn-logo-sub {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      .fn-header-meta {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        text-align: right;
+      }
+
+      .fn-main {
+        padding: 20px 32px 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .fn-section {
+        display: grid;
+        gap: 20px;
+      }
+
+      .fn-section-top {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .fn-section-middle {
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+
+      .fn-section-bottom {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .fn-card {
+        background: radial-gradient(
+          circle at top left,
+          rgba(60, 255, 143, 0.05),
+          rgba(5, 8, 20, 0.96)
+        );
+        border-radius: var(--card-radius);
+        border: 1px solid var(--border-subtle);
+        box-shadow: var(--shadow-soft);
+        padding: 16px 18px 18px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .fn-card h2 {
+        margin: 0 0 10px;
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+      }
+
+      .big-number {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .big-value {
+        font-size: 1.9rem;
+        font-weight: 600;
+      }
+
+      .big-subvalue {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .node-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+
+      .node-card-host {
+        font-weight: 600;
+        font-size: 1rem;
+      }
+
+      .node-card-role {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      .db-host-badge {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        border: 1px solid var(--accent);
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+      }
+
+      .node-card-metrics {
+        display: grid;
+        grid-template-columns: 1.1fr 1.1fr;
+        gap: 6px 12px;
+        font-size: 0.8rem;
+      }
+
+      .node-metric-label {
+        color: var(--text-muted);
+      }
+
+      .node-metric-value {
+        text-align: right;
+      }
+
+      .node-card-gauge {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        font-size: 0.78rem;
+        color: var(--text-muted);
+      }
+
+      .node-card {
+        cursor: pointer;
+        transition: transform 0.15s ease-out, box-shadow 0.15s ease-out,
+          border-color 0.15s ease-out;
+      }
+
+      .node-card.selected {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 1px var(--accent-soft), var(--shadow-soft);
+        transform: translateY(-2px);
+      }
+
+      .chart-card {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .chart-card canvas {
+        width: 100%;
+        height: 260px;
+      }
+
+      .fn-footer {
+        padding: 10px 32px 18px;
+        border-top: 1px solid var(--border-subtle);
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .alert-ok {
+        color: var(--accent);
+      }
+
+      .alert-warn {
+        color: var(--accent-warn);
+      }
+
+      .alert-bad {
+        color: var(--accent-bad);
+      }
+
+      @media (max-width: 1100px) {
+        .fn-section-top {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .fn-section-bottom {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .fn-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+        }
+
+        .fn-main {
+          padding: 16px 14px 30px;
+        }
+
+        .fn-section-top {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="fn-header">
+      <div class="fn-logo">
+        <div class="fn-logo-main">
+          <span class="fn-logo-icon">🐸</span>
+          <span class="fn-logo-text">FrogNet Living Network</span>
+        </div>
+        <div class="fn-logo-sub">
+          Semantic performance · machines and messages that stay alive
+        </div>
+      </div>
+      <div class="fn-header-meta">
+        <span id="cluster-node-count">Nodes: 0</span>
+        <span id="cluster-last-update">Last update: —</span>
+      </div>
+    </header>
+
+    <main class="fn-main">
+      <!-- TOP: cluster + latency/compression summary -->
+      <section class="fn-section fn-section-top">
+        <div class="fn-card big-number">
+          <h2>Machines / Slow (RTT)</h2>
+          <div class="big-value" id="cluster-machines">0 / 0</div>
+          <div class="big-subvalue" id="cluster-dbhost-label">
+            DB host: —
+          </div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Avg RTT (Real / Semantic)</h2>
+          <div class="big-value" id="latency-real-sem">0.0 / 0.0 ms</div>
+          <div class="big-subvalue" id="latency-msg-count">
+            Messages: 0 (real) / 0 (semantic)
+          </div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Bytes / Msg (Uncompressed / Compressed)</h2>
+          <div class="big-value" id="bytes-per-msg">0 / 0</div>
+          <div class="big-subvalue" id="bytes-per-msg-mode">
+            Uncompressed = real HTTP, compressed = semantic
+          </div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Crossover Status</h2>
+          <div class="big-value" id="crossover-status">OK</div>
+          <div class="big-subvalue" id="crossover-detail">
+            Semantic path is currently winning
+          </div>
+        </div>
+      </section>
+
+      <!-- SECOND ROW: CPU/MEM/LOAD + Semantic Share -->
+      <section class="fn-section fn-section-top">
+        <div class="fn-card big-number">
+          <h2>Average CPU Busy</h2>
+          <div class="big-value" id="avg-cpu-busy">0.0%</div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Average RAM Used</h2>
+          <div class="big-value" id="avg-mem-used">0.0%</div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Average Load (1m)</h2>
+          <div class="big-value" id="avg-load1">0.00</div>
+        </div>
+        <div class="fn-card big-number">
+          <h2>Semantic Share</h2>
+          <div class="big-value" id="semantic-share">0.0%</div>
+        </div>
+      </section>
+
+      <!-- MIDDLE: per-node cards -->
+      <section class="fn-section fn-section-middle" id="node-cards">
+        <!-- Filled by JS -->
+      </section>
+
+      <!-- BOTTOM: charts -->
+      <section class="fn-section fn-section-bottom">
+        <div class="fn-card chart-card">
+          <h2>CPU Busy & RAM Over Time (selected node)</h2>
+          <canvas id="cpuChart"></canvas>
+        </div>
+        <div class="fn-card chart-card">
+          <h2>Semantic Compression Per Message</h2>
+          <canvas id="semChart"></canvas>
+        </div>
+      </section>
+    </main>
+
+    <footer class="fn-footer">
+      <span>FrogNet Living Network · Networking for Humanity</span>
+      <span id="current-node-label">Selected node: —</span>
+    </footer>
+
+    <script>
+      // -------------------------------------------------------------------
+      // CONFIG – REST endpoints (same origin, served via proxy on :80)
+      // -------------------------------------------------------------------
+      const API_BASE = "/api.php";
+      const SENSORS_URL = API_BASE + "?entity=sensors&action=list";
+      const DATA_SYS_URL =
+        API_BASE + "?entity=sensor_data&action=list&SensorType=System";
+      const DATA_SEM_PROXY_URL =
+        API_BASE + "?entity=sensor_data&action=list&SensorType=SemanticProxy";
+      const DATA_SEM_DAEMON_URL =
+        API_BASE + "?entity=sensor_data&action=list&SensorType=SemanticDaemon";
+
+      const POLL_INTERVAL_MS = 3000;
+      const DATABASE_HOSTNAME = "databasehost.frognet"; // adjust if needed
+      const RTT_SLOW_THRESHOLD_MS = 200;               // RTT threshold for "slow"
+
+      let cpuChart = null;
+      let semChart = null;
+      let selectedNodeId = null; // FrogID
+      const history = {};        // history[frogId] = [{ts, cpu_busy, mem_pct}]
+      const semHistory = [];     // [{ts, avgUncompressed, avgCompressed, avgSemLat, avgRealLat}]
+      let semSummary = null;
+      let semDaemonSummary = null;
+
+      // -------------------------------------------------------------------
+      // Helpers
+      // -------------------------------------------------------------------
+      function formatPct(v) {
+        return (Number(v) || 0).toFixed(1) + "%";
+      }
+
+      function formatC(v) {
+        return (Number(v) || 0).toFixed(1) + "°C";
+      }
+
+      function formatLoad(v) {
+        return (Number(v) || 0).toFixed(2);
+      }
+
+      function shortFrogId(fid) {
+        if (!fid) return "unknown";
+        return String(fid).slice(0, 8);
+      }
+
+      function parseJsonData(row) {
+        const raw = row.jsonData || row.json_data || "{}";
+        try {
+          return JSON.parse(raw);
+        } catch (e) {
+          console.warn("Invalid jsonData for SensorID", row.SensorID, e);
+          return null;
+        }
+      }
+
+      function deriveHostLabel(sensorMeta, payload) {
+        if (payload && payload.host) {
+          return payload.host;
+        }
+        const sn = sensorMeta.SensorName || sensorMeta.sensor_name || "";
+        if (sn) {
+          return String(sn).split(".")[0];
+        }
+        const addr = sensorMeta.SensorAddress || sensorMeta.sensor_address || "";
+        if (addr) return addr;
+        return null;
+      }
+
+      // RTT-first slow classification; fallback to CPU/mem/load if RTT missing
+      function isNodeSlow(node) {
+        const rtt = node.rttAvgMs;
+        if (rtt != null && !Number.isNaN(rtt)) {
+          return rtt > RTT_SLOW_THRESHOLD_MS;
+        }
+
+        const sp = node.sysperf || {};
+        const cpuBusy = (sp.cpu_pct && sp.cpu_pct.total_busy) || 0;
+        const memPct = (sp.mem_kb && sp.mem_kb.pct_used) || 0;
+        const load1 = (sp.loadavg && sp.loadavg["1"]) || 0;
+
+        return cpuBusy > 80 || memPct > 80 || load1 > 1.5;
+      }
+
+      function isDatabaseHostLabel(label) {
+        if (!label) return false;
+        const lower = String(label).toLowerCase();
+        if (lower === DATABASE_HOSTNAME) return true;
+        if (lower.includes("databasehost")) return true;
+        return false;
+      }
+
+      // -------------------------------------------------------------------
+      // Charts
+      // -------------------------------------------------------------------
+      function initCharts() {
+        const cpuCtx = document.getElementById("cpuChart").getContext("2d");
+        const semCtx = document.getElementById("semChart").getContext("2d");
+
+        cpuChart = new Chart(cpuCtx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "CPU Busy (%)",
+                data: [],
+                fill: false,
+                tension: 0.2,
+              },
+              {
+                label: "RAM Used (%)",
+                data: [],
+                fill: false,
+                tension: 0.2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true, max: 100 },
+            },
+            plugins: {
+              legend: { labels: { font: { size: 11 } } },
+            },
+          },
+        });
+
+        semChart = new Chart(semCtx, {
+          type: "line",
+          data: {
+            labels: [],
+            datasets: [
+              {
+                label: "Uncompressed bytes / message",
+                data: [],
+                fill: false,
+                tension: 0.2,
+              },
+              {
+                label: "Compressed bytes / semantic msg",
+                data: [],
+                fill: false,
+                tension: 0.2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: { beginAtZero: true },
+            },
+            plugins: {
+              legend: { labels: { font: { size: 11 } } },
+            },
+          },
+        });
+      }
+
+      function updateSemHistoryFromSummary() {
+        if (!semSummary) return;
+        const now = Date.now() / 1000;
+
+        const semMsgs = Number(semSummary.semantic || 0);
+        const plainMsgs = Number(semSummary.plain || 0);
+        const totalMsgs = semMsgs + plainMsgs;
+
+        const httpReq = Number(semSummary.http_req_bytes || 0);
+        const httpResp = Number(semSummary.http_resp_bytes || 0);
+        const semReq = Number(semSummary.sem_req_bytes || 0);
+        const semResp = Number(semSummary.sem_resp_bytes || 0);
+
+        const totalSemLatencyMs = Number(
+          semSummary.total_sem_latency_ms || 0
+        );
+        const totalRealLatencyMs = Number(
+          semSummary.total_real_latency_ms || 0
+        ); // may be 0 if not provided
+
+        const avgUncompressedPerMsg =
+          totalMsgs > 0 ? (httpReq + httpResp) / totalMsgs : 0;
+        const avgCompressedPerSemMsg =
+          semMsgs > 0 ? (semReq + semResp) / semMsgs : 0;
+
+        const avgSemLatency =
+          semMsgs > 0 ? totalSemLatencyMs / semMsgs : 0;
+        const avgRealLatency =
+          plainMsgs > 0 && totalRealLatencyMs > 0
+            ? totalRealLatencyMs / plainMsgs
+            : null;
+
+        semHistory.push({
+          ts: now,
+          avgUncompressed: avgUncompressedPerMsg,
+          avgCompressed: avgCompressedPerSemMsg,
+          avgSemLatency,
+          avgRealLatency,
+        });
+        if (semHistory.length > 200) semHistory.shift();
+      }
+
+      function updateSemChart() {
+        if (!semChart) return;
+        const labels = semHistory.map((h) =>
+          new Date(h.ts * 1000).toLocaleTimeString()
+        );
+        const uncompressed = semHistory.map((h) => h.avgUncompressed);
+        const compressed = semHistory.map((h) => h.avgCompressed);
+
+        semChart.data.labels = labels;
+        semChart.data.datasets[0].data = uncompressed;
+        semChart.data.datasets[1].data = compressed;
+        semChart.update();
+      }
+
+      // -------------------------------------------------------------------
+      // Fetch + aggregate Sensors + SensorData
+      // -------------------------------------------------------------------
+      async function fetchSensors() {
+        const [sensorsRes, dataSysRes, dataSemRes, dataSemDaemonRes] =
+          await Promise.all([
+            fetch(SENSORS_URL),
+            fetch(DATA_SYS_URL),
+            fetch(DATA_SEM_PROXY_URL),
+            fetch(DATA_SEM_DAEMON_URL),
+          ]);
+
+        const sensorsJson = sensorsRes.ok ? await sensorsRes.json() : { rows: [] };
+        const dataSysJson = dataSysRes.ok ? await dataSysRes.json() : { rows: [] };
+        const dataSemJson = dataSemRes.ok ? await dataSemRes.json() : { rows: [] };
+        const dataSemDaemonJson = dataSemDaemonRes.ok
+          ? await dataSemDaemonRes.json()
+          : { rows: [] };
+
+        const sensorRows = sensorsJson.rows || [];
+        const dataSysRows = dataSysJson.rows || [];
+        const dataSemRows = dataSemJson.rows || [];
+        const dataSemDaemonRows = dataSemDaemonJson.rows || [];
+
+        const sensorsById = {};
+        sensorRows.forEach((s) => {
+          const sid = s.SensorID || s.sensor_id;
+          if (sid == null) return;
+          sensorsById[sid] = s;
+        });
+
+        const nodesByFrogId = {};
+        semSummary = null;
+        semDaemonSummary = null;
+
+        function ensureNode(frogId, hostLabelGuess) {
+          if (!nodesByFrogId[frogId]) {
+            nodesByFrogId[frogId] = {
+              frogId,
+              hostLabel: hostLabelGuess || shortFrogId(frogId),
+              sensors: {},
+              sysperf: null,
+              rttAvgMs: null,
+              last_ts: 0,
+            };
+          }
+          const node = nodesByFrogId[frogId];
+          if (!node.hostLabel && hostLabelGuess) {
+            node.hostLabel = hostLabelGuess;
+          }
+          return node;
+        }
+
+        // ---------- System (sysperf) SensorData ----------
+        dataSysRows.forEach((row) => {
+          const sid = row.SensorID || row.sensor_id;
+          const meta = sensorsById[sid];
+          if (!meta) return;
+
+          const payload = parseJsonData(row);
+          if (!payload) return;
+
+          // Treat as "System-like" if it looks like sysperf data
+          const looksLikeSystem =
+            payload.cpu_pct && payload.mem_kb && payload.loadavg;
+          
+          if (!looksLikeSystem) return;
+
+          const payload = parseJsonData(row);
+          if (!payload) return;
+
+          const frogId = meta.FrogID || meta.Frogid || row.FrogID;
+          if (!frogId) return;
+
+          const hostLabel = deriveHostLabel(meta, payload);
+          const node = ensureNode(frogId, hostLabel);
+
+          node.sysperf = payload;
+          node.sensors[sid] = { meta, type: sType };
+
+          const ts =
+            Number(payload.timestamp) ||
+            Number(payload.time) ||
+            Date.now() / 1000;
+          node.last_ts = Math.max(node.last_ts, ts);
+        });
+
+        // ---------- SemanticProxy SensorData (cluster semantics) ----------
+        let semTotal = 0;
+        let semSemantic = 0;
+        let semPlain = 0;
+        let httpReqBytes = 0;
+        let httpRespBytes = 0;
+        let semReqBytes = 0;
+        let semRespBytes = 0;
+        let semLatencyTotal = 0;
+        let realLatencyTotal = 0;
+        let semSavedBytes = 0;
+
+        dataSemRows.forEach((row) => {
+          const sid = row.SensorID || row.sensor_id;
+          const meta = sensorsById[sid];
+          if (!meta) return;
+
+          const sType = meta.SensorType || meta.sensor_type || "";
+          if (sType !== "SemanticProxy") return;
+
+          const payload = parseJsonData(row);
+          if (!payload) return;
+          const c = payload.counters || {};
+
+          semTotal += Number(c.total || 0);
+          semSemantic += Number(c.semantic || 0);
+          semPlain += Number(c.plain || 0);
+          httpReqBytes += Number(c.http_req_bytes || 0);
+          httpRespBytes += Number(c.http_resp_bytes || 0);
+          semReqBytes += Number(c.sem_req_bytes || 0);
+          semRespBytes += Number(c.sem_resp_bytes || 0);
+          semLatencyTotal += Number(c.total_sem_latency_ms || 0);
+          realLatencyTotal += Number(c.total_real_latency_ms || 0); // optional
+          semSavedBytes += Number(c.saved_bytes || 0);
+
+          // OPTIONAL: per-node RTT could be added here if SemanticProxy reports it
+          // Example: if c.avg_rtt_ms_by_host[hostname]
+          // then map it into nodesByFrogId[...] as node.rttAvgMs
+        });
+
+        if (semTotal > 0 || semSemantic > 0 || semPlain > 0) {
+          semSummary = {
+            total: semTotal,
+            semantic: semSemantic,
+            plain: semPlain,
+            http_req_bytes: httpReqBytes,
+            http_resp_bytes: httpRespBytes,
+            sem_req_bytes: semReqBytes,
+            sem_resp_bytes: semRespBytes,
+            total_sem_latency_ms: semLatencyTotal,
+            total_real_latency_ms: realLatencyTotal,
+            saved_bytes: semSavedBytes,
+          };
+        } else {
+          semSummary = null;
+        }
+
+        // ---------- SemanticDaemon SensorData (codec-level stats) ----------
+        if (dataSemDaemonRows.length > 0) {
+          const latest = dataSemDaemonRows[dataSemDaemonRows.length - 1];
+          const payload = parseJsonData(latest);
+          if (payload && payload.counters) {
+            semDaemonSummary = payload;
+          }
+        }
+
+        const nodes = Object.values(nodesByFrogId).filter((n) => n.sysperf);
+
+        const now = Date.now() / 1000;
+        document.getElementById("cluster-last-update").textContent =
+          "Last update: " + new Date(now * 1000).toLocaleTimeString();
+        document.getElementById("cluster-node-count").textContent =
+          "Nodes: " + nodes.length;
+
+        updateClusterSummary(nodes);
+        renderNodeCards(nodes);
+        updateHistory(nodes);
+        updateChartsForSelected();
+        updateSemChart();
+      }
+
+      // -------------------------------------------------------------------
+      // Cluster summary: machines/slow, dbhost, RTT, compression
+      // -------------------------------------------------------------------
+      function updateClusterSummary(nodes) {
+        // Machines / slow + DB host
+        const machineCount = nodes.length;
+        const slowCount = nodes.filter((n) => isNodeSlow(n)).length;
+
+        let dbHostLabel = "—";
+        const dbNode = nodes.find((n) => isDatabaseHostLabel(n.hostLabel));
+        if (dbNode) {
+          dbHostLabel = dbNode.hostLabel;
+        }
+
+        document.getElementById("cluster-machines").textContent =
+          machineCount + " / " + slowCount;
+        document.getElementById(
+          "cluster-dbhost-label"
+        ).textContent = `DB host: ${dbHostLabel}`;
+
+        // CPU / MEM / LOAD
+        if (!nodes.length) {
+          document.getElementById("avg-cpu-busy").textContent = "0.0%";
+          document.getElementById("avg-mem-used").textContent = "0.0%";
+          document.getElementById("avg-load1").textContent = "0.00";
+          document.getElementById("semantic-share").textContent = "0.0%";
+        } else {
+          let sumCpu = 0;
+          let sumMem = 0;
+          let sumLoad1 = 0;
+
+          nodes.forEach((node) => {
+            const sp = node.sysperf || {};
+            const cpuBusy = (sp.cpu_pct && sp.cpu_pct.total_busy) || 0;
+            const memPct = (sp.mem_kb && sp.mem_kb.pct_used) || 0;
+            const load1 = (sp.loadavg && sp.loadavg["1"]) || 0;
+
+            sumCpu += cpuBusy;
+            sumMem += memPct;
+            sumLoad1 += load1;
+          });
+
+          const count = nodes.length;
+          const avgCpu = sumCpu / count;
+          const avgMem = sumMem / count;
+          const avgLoad1 = sumLoad1 / count;
+
+          document.getElementById("avg-cpu-busy").textContent =
+            formatPct(avgCpu);
+          document.getElementById("avg-mem-used").textContent =
+            formatPct(avgMem);
+          document.getElementById("avg-load1").textContent =
+            formatLoad(avgLoad1);
+        }
+
+        // Semantic metrics and crossover
+        let semMsgs = 0;
+        let semPlain = 0;
+        let avgSemLatency = 0;
+        let avgRealLatency = 0;
+        let avgUncompressedPerMsg = 0;
+        let avgCompressedPerSemMsg = 0;
+
+        if (semSummary) {
+          semMsgs = Number(semSummary.semantic || 0);
+          semPlain = Number(semSummary.plain || 0);
+          const totalMsgs = semMsgs + semPlain;
+
+          const httpReq = Number(semSummary.http_req_bytes || 0);
+          const httpResp = Number(semSummary.http_resp_bytes || 0);
+          const semReq = Number(semSummary.sem_req_bytes || 0);
+          const semResp = Number(semSummary.sem_resp_bytes || 0);
+          const totalSemLatencyMs = Number(
+            semSummary.total_sem_latency_ms || 0
+          );
+          const totalRealLatencyMs = Number(
+            semSummary.total_real_latency_ms || 0
+          );
+
+          avgUncompressedPerMsg =
+            totalMsgs > 0 ? (httpReq + httpResp) / totalMsgs : 0;
+          avgCompressedPerSemMsg =
+            semMsgs > 0 ? (semReq + semResp) / semMsgs : 0;
+
+          if (semMsgs > 0) {
+            avgSemLatency = totalSemLatencyMs / semMsgs;
+          }
+          if (semPlain > 0 && totalRealLatencyMs > 0) {
+            avgRealLatency = totalRealLatencyMs / semPlain;
+          }
+        }
+
+        // Semantic share (based on message counts)
+        const semDenom = semMsgs + semPlain;
+        const semSharePct = semDenom > 0 ? (semMsgs / semDenom) * 100.0 : 0.0;
+        document.getElementById("semantic-share").textContent =
+          semSharePct.toFixed(1) + "%";
+
+        // Latency (RTT) real/semantic
+        const latencyText = `${avgRealLatency.toFixed(1)} / ${avgSemLatency.toFixed(
+          1
+        )} ms`;
+        document.getElementById("latency-real-sem").textContent = latencyText;
+        document.getElementById(
+          "latency-msg-count"
+        ).textContent = `Messages: ${semPlain} (real) / ${semMsgs} (semantic)`;
+
+        // Bytes per message
+        document.getElementById(
+          "bytes-per-msg"
+        ).textContent = `${avgUncompressedPerMsg.toFixed(
+          1
+        )} / ${avgCompressedPerSemMsg.toFixed(1)}`;
+
+        // Crossover status
+        let crossoverEl = document.getElementById("crossover-status");
+        let crossoverDetailEl = document.getElementById("crossover-detail");
+        crossoverEl.classList.remove("alert-ok", "alert-warn", "alert-bad");
+
+        let crossoverStatus = "OK";
+        let crossoverDetail =
+          "Semantic is currently outperforming or matching real.";
+
+        const badCompression =
+          avgCompressedPerSemMsg > 0 &&
+          avgUncompressedPerMsg > 0 &&
+          avgCompressedPerSemMsg >= avgUncompressedPerMsg;
+        const badLatency =
+          avgRealLatency > 0 && avgSemLatency > avgRealLatency * 1.05;
+
+        if (badCompression && badLatency) {
+          crossoverStatus = "ALERT";
+          crossoverDetail =
+            "Semantic is both heavier and slower than real; consider crossover.";
+          crossoverEl.classList.add("alert-bad");
+        } else if (badCompression || badLatency) {
+          crossoverStatus = "WATCH";
+          crossoverDetail =
+            "Semantic is not clearly better on bytes or RTT; watch crossover.";
+          crossoverEl.classList.add("alert-warn");
+        } else {
+          crossoverStatus = "OK";
+          crossoverDetail =
+            "Semantic is cheaper and/or faster on RTT than real.";
+          crossoverEl.classList.add("alert-ok");
+        }
+
+        crossoverEl.textContent = crossoverStatus;
+        crossoverDetailEl.textContent = crossoverDetail;
+
+        // Update semantic history for chart
+        updateSemHistoryFromSummary();
+      }
+
+      // -------------------------------------------------------------------
+      // Per-node cards (with RTT)
+      // -------------------------------------------------------------------
+      function renderNodeCards(nodes) {
+        const container = document.getElementById("node-cards");
+        container.innerHTML = "";
+
+        nodes.forEach((node) => {
+          const id = node.frogId;
+          const label = node.hostLabel || shortFrogId(id);
+          const sp = node.sysperf || {};
+          const rtt = node.rttAvgMs;
+
+          const cpuBusy = (sp.cpu_pct && sp.cpu_pct.total_busy) || 0;
+          const memPct = (sp.mem_kb && sp.mem_kb.pct_used) || 0;
+          const load1 = (sp.loadavg && sp.loadavg["1"]) || 0;
+
+          const temps = sp.temps_c || [];
+          const tempStr =
+            temps.length > 0 ? formatC(temps[0].temp_c) : "n/a";
+
+          const slow = isNodeSlow(node);
+          const isDb = isDatabaseHostLabel(label);
+
+          const card = document.createElement("div");
+          card.className = "fn-card node-card";
+          if (id === selectedNodeId) {
+            card.classList.add("selected");
+          }
+
+          card.addEventListener("click", () => {
+            selectedNodeId = id;
+            document.getElementById(
+              "current-node-label"
+            ).textContent = `Selected node: ${label} (${shortFrogId(id)})`;
+            renderNodeCards(nodes);
+            updateChartsForSelected();
+          });
+
+          const dbBadge = isDb
+            ? '<span class="db-host-badge">DB HOST</span>'
+            : "";
+          const slowTag = slow ? " · Slow RTT" : "";
+
+          card.innerHTML = `
+            <div class="node-card-header">
+              <div>
+                <div class="node-card-host">${label}${dbBadge}</div>
+                <div class="node-card-role">FrogID: ${shortFrogId(id)}${slowTag}</div>
+              </div>
+            </div>
+            <div class="node-card-metrics">
+              <div>
+                <div class="node-metric-label">CPU Busy</div>
+                <div class="node-metric-value">${formatPct(cpuBusy)}</div>
+              </div>
+              <div>
+                <div class="node-metric-label">RAM Used</div>
+                <div class="node-metric-value">${formatPct(memPct)}</div>
+              </div>
+              <div>
+                <div class="node-metric-label">Load (1m)</div>
+                <div class="node-metric-value">${formatLoad(load1)}</div>
+              </div>
+              <div>
+                <div class="node-metric-label">RTT</div>
+                <div class="node-metric-value">${
+                  rtt != null && !Number.isNaN(rtt)
+                    ? rtt.toFixed(1) + " ms"
+                    : "n/a"
+                }</div>
+              </div>
+            </div>
+          `;
+
+          container.appendChild(card);
+        });
+      }
+
+      // -------------------------------------------------------------------
+      // History + CPU chart
+      // -------------------------------------------------------------------
+      function updateHistory(nodes) {
+        const now = Date.now() / 1000;
+        nodes.forEach((node) => {
+          const id = node.frogId;
+          const sp = node.sysperf || {};
+
+          const cpuBusy = (sp.cpu_pct && sp.cpu_pct.total_busy) || 0;
+          const memPct = (sp.mem_kb && sp.mem_kb.pct_used) || 0;
+
+          if (!history[id]) history[id] = [];
+          history[id].push({
+            ts: now,
+            cpu_busy: cpuBusy,
+            mem_pct: memPct,
+          });
+          if (history[id].length > 200) {
+            history[id].shift();
+          }
+        });
+      }
+
+      function updateChartsForSelected() {
+        if (!selectedNodeId || !cpuChart) return;
+        const hist = history[selectedNodeId] || [];
+        const labels = hist.map((h) =>
+          new Date(h.ts * 1000).toLocaleTimeString()
+        );
+        const cpuBusy = hist.map((h) => h.cpu_busy);
+        const memPct = hist.map((h) => h.mem_pct);
+
+        cpuChart.data.labels = labels;
+        cpuChart.data.datasets[0].data = cpuBusy;
+        cpuChart.data.datasets[1].data = memPct;
+        cpuChart.update();
+      }
+
+      // -------------------------------------------------------------------
+      // Main polling loop
+      // -------------------------------------------------------------------
+      async function pollLoop() {
+        try {
+          await fetchSensors();
+        } catch (e) {
+          console.error("fetchSensors error:", e);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        initCharts();
+        pollLoop();
+        setInterval(pollLoop, POLL_INTERVAL_MS);
+      });
+    </script>
+  </body>
+</html>

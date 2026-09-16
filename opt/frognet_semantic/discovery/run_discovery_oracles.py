@@ -1,20 +1,3 @@
-################################################################
-#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
-#                                                              #
-#  SPDX-License-Identifier: GPL-2.0-only                       #
-#                                                              #
-#  This program is free software; you can redistribute it      #
-#  and/or modify it under the terms of the GNU General Public  #
-#  License as published by the Free Software Foundation;       #
-#  version 2 of the License, and no other version.             #
-#                                                              #
-#  This program is distributed in the hope that it will be     #
-#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
-#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
-#  PURPOSE.  See the GNU General Public License for details.   #
-#                                                              #
-#  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """
 run_discovery_oracles.py - single gate over the discovery regression suite.
 
@@ -65,7 +48,6 @@ _FROGNET = os.path.dirname(_HERE)                              # .../frognet_sem
 # than from the box. Until then these are tracked here so they stay visible in
 # every run instead of being quietly deleted.
 KNOWN_FAIL = {
-
     "test_child_onlink_uplink_oracle":
         "IMMEDIATE candidate via read from the live box (192.168.0.1), not the "
         "fixture; cascades to rc=2 on every install. Harness, not shipped code.",

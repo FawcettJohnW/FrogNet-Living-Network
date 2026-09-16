@@ -84,7 +84,14 @@ class DaemonServer:
         srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         srv.bind((self.host, self.port))
-        srv.listen(256)
+        # [NEVER_LET_THE_ACCEPT_QUEUE_BUILD_V1] Same rule as the proxy: this
+        # loop's only job is to take the connection off the wire and hand it to
+        # a thread. 256 is generous compared with the stdlib default of 5, but
+        # it is still a number a burst can exceed, and when it does the kernel
+        # drops SYNs and the peer sees a dropped connection rather than an
+        # answer. The queue covers the gap between accept and dispatch; it is
+        # not where load should be bounded.
+        srv.listen(4096)
         trace(f"[Daemon] [RETURN_ONLY_V1] listening on {self.host}:{self.port}")
 
         while True:

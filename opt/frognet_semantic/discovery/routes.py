@@ -41,6 +41,7 @@ Constants from sync_interfaces.sh:
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Callable, Optional
 
@@ -51,6 +52,88 @@ WINNER_METRIC = 22
 ALIAS_METRIC = 5
 FALLBACK_BASE = 100
 SWEEP_METRIC = 5   # [SWEEP_METRIC_V2] changed from 6
+
+# [RUNAGAIN_ON_REAL_DELTA_V1] ------------------------------------------------
+# runAgain used to key on route_table_mutated, which is set the moment a write
+# RETURNS RC=0 -- not when the table ends up different. `ip route replace` on an
+# already-correct route returns 0, a reaped /24 that promote re-installs next
+# pass returns 0, and either one latched runAgain on a node whose table never
+# moved. The gate is now a before/after comparison of the real table: take a
+# fingerprint at the top of the pass, take another after the tail (fixDefault
+# and manageResolv included -- they write routes too), and re-run ONLY if the
+# two differ. Writes are still logged; they just no longer VOTE.
+#
+# Excluded from the fingerprint, and nothing else:
+#   - host routes at PROBE_METRIC (6): the walk's scratch routes, installed and
+#     deleted every pass by construction.
+#   - host routes at ALIAS_METRIC (5): the same, per the WINNER_HYSTERESIS note.
+#   - anything at metric >= FALLBACK_BASE (100): secondary paths traffic never
+#     rides. [FALLBACK_NOT_CONVERGENCE_V1 - John 2026-06-12] exempted these at
+#     the rtmut source because a jittery secondary tunnel reshuffles its dev
+#     under RTT noise every pass while the winner is already settled, and
+#     counting that latches the node forever. A before/after comparison sees the
+#     same reshuffle as a real delta -- MORE readily than a write counter did,
+#     because a fallback appearing at a new metric is a genuine table
+#     difference. Seattle5 2026-09-12 06:51:02 is the proof: `slash24_written=0`
+#     (the old gate correctly ignored it) alongside `table_changed=1` with
+#     `+ 10.123.123.0/24 dev wg2 metric 101` and `+ 10.155.155.0/24 dev wg2
+#     metric 101`. Excluding them here keeps the exemption John already made.
+# "Host route" means a bare address with no prefix length, which is how both
+# `ip route show` and normalize_dest render a /32 -- matching on the literal
+# "/32" suffix silently matches nothing.
+# Both are already excluded from route_table_mutated at the rtmut source, so
+# this keeps the same scope while changing the question from "did we write?" to
+# "is it different?".
+#
+# NOT excluded: the default route. Per the rule -- an actual change to the
+# routing table -- a default that moves is a change and re-runs the pass. If a
+# jittery upstream turns out to flip it every pass, exclude `default` HERE, in
+# one place, rather than reintroducing a write-counter.
+SCRATCH_HOST_METRICS = (PROBE_METRIC, ALIAS_METRIC)
+
+_EXPIRES = re.compile(r"\s+expires\s+\d+sec")
+
+
+def _canon_route_line(line: str) -> str:
+    """One `ip -o -4 route show` record, whitespace-collapsed and stripped of
+    fields that change on their own (lease countdowns). Returns "" for a record
+    that must not participate in the comparison."""
+    line = _EXPIRES.sub("", line)
+    fields = line.split()
+    if not fields:
+        return ""
+    dest = fields[0]
+    metric = None
+    if "metric" in fields:
+        try:
+            metric = int(fields[fields.index("metric") + 1])
+        except (ValueError, IndexError):
+            metric = None
+    is_host = dest.endswith("/32") or ("/" not in dest and dest != "default")
+    if is_host and metric in SCRATCH_HOST_METRICS:
+        return ""
+    if metric is not None and metric >= FALLBACK_BASE:
+        return ""
+    return " ".join(fields)
+
+
+def table_fingerprint(kernel) -> frozenset:
+    """Canonical set of the kernel's IPv4 routes, for before/after comparison.
+
+    A set, not a list: `ip route show` orders by prefix then metric, so two
+    identical tables always compare equal, and a reordering that the kernel
+    would never produce cannot fake a delta.
+    """
+    return frozenset(
+        c for c in (_canon_route_line(ln) for ln in kernel.table()) if c
+    )
+
+
+def fingerprint_delta(before: frozenset, after: frozenset):
+    """(added, removed) as sorted lists -- what to LOG when the pass re-runs, so
+    a non-converging chain names the routes that actually moved instead of
+    leaving it to be inferred."""
+    return sorted(after - before), sorted(before - after)
 
 
 class Routes:
@@ -80,12 +163,88 @@ class Routes:
         self.mutated_slash24: set[str] = set()
 
     # -- RTMUT (bash 49): run the mutation, read it back, log it ------------
+    # [WRITE_ONLY_REAL_CHANGES_V1] Every route write in the merge funnels
+    # through here, so the compare-before-write lives here and not in each
+    # caller. install_if_changed had its own check (route_matches -> KEEP), but
+    # probe_install, probe_delete, sweep_probe_routes, reap_unverified_winners,
+    # prune_dest_extras and healthcheck._probe all wrote unconditionally. The
+    # walk therefore re-issued `ip route replace` for every probe /32 on every
+    # candidate dev on every pass -- Seattle5 2026-09-12 06:52:16 shows the same
+    # five /32s replaced and deleted across wg0/wg1/wg2/eth0 in a four-second
+    # window, all of them rc=0, almost all of them writing what was already
+    # there.
+    #
+    # A write of an identical route is not free. `ip route replace` is one
+    # RTM_NEWROUTE with NLM_F_REPLACE and the FIB swap is atomic, so it does not
+    # open a window with no route -- but it still emits an RTM_NEWROUTE
+    # notification to every netlink subscriber on the box, and on this fleet
+    # NetworkManager is one of them, with 90-frognet-merge behind it. A no-op
+    # write is an event other components have to react to.
+    #
+    # So: an add/replace whose exact spec is already installed at that metric
+    # does not run, and a del whose target is already absent does not run. Both
+    # return rc=0, because the requested end state holds. Nothing else changes:
+    # a route that really is being added, deleted or changed is written exactly
+    # as before.
+    def _installed_entries(self, dest: str):
+        show = self.k.route_show(dest)
+        if not show:
+            return []
+        out = []
+        for line in [x for x in show.replace(";", "\n").splitlines() if x.strip()]:
+            _, e, _ = _parse_route_argv(["__x__", *line.split()])
+            if e is not None:
+                out.append(e)
+        return out
+
+    def _already_satisfied(self, args: tuple) -> bool:
+        """True when running this spec would not change the table."""
+        verb, want, raw_dest = _parse_route_argv(list(args[1:]) if args and args[0] == "route"
+                                                 else list(args))
+        if want is None or not raw_dest:
+            return False
+        have = self._installed_entries(raw_dest)
+        if verb == "del":
+            # `del DEST metric M` is metric-scoped; a bare `del DEST` is not.
+            if getattr(want, "_metric_explicit", False):
+                return not any(e.metric == want.metric for e in have)
+            return not have
+        if verb in ("add", "replace", "change"):
+            for e in have:
+                if e.metric != want.metric:
+                    continue
+                if (e.via == want.via and e.dev == want.dev
+                        and bool(e.onlink) == bool(want.onlink)
+                        and e.src == want.src):
+                    return True
+                # an entry exists at this metric but differs -> the write is real
+                return False
+            return False
+        return False
+
     def rtmut(self, *args: str, caller: str = "?",
               flag_mutation: bool = True) -> int:
         ts = self.clock()
         spec = " ".join(args)
         verb = args[1] if len(args) > 1 else ""
         dest = args[2] if len(args) > 2 else ""
+        # [WRITE_ONLY_REAL_CHANGES_V1] Nothing to do -> touch nothing. Logged as
+        # NOOP rather than silently skipped, so a pass that writes nothing is
+        # still visible in the trace and the reason is on the line.
+        if verb in ("add", "replace", "change", "del") and dest:
+            try:
+                if self._already_satisfied(args):
+                    present = self.k.route_show(dest) if dest else ""
+                    self.log(
+                        f"[DIAG-ROUTE] NOOP ts={ts} caller={caller} verb={verb} "
+                        f"dest={dest} reason="
+                        f"{'already_absent' if verb == 'del' else 'already_exact'} "
+                        f"spec=\"ip {spec}\" have=\"{present or 'ABSENT'}\""
+                    )
+                    return 0
+            except Exception as _e:   # a parse failure must never block a write
+                self.log(f"[DIAG-ROUTE] NOOP_CHECK_SKIPPED caller={caller} "
+                         f"dest={dest} err={_e!r}")
         rc = self.k.route(*args[1:]) if args and args[0] == "route" else self.k.route(*args)
         present = self.k.route_show(dest) if dest else ""
         # [RUNAGAIN_ON_MUTATION_V1] A run is "clean" (converged) iff the WINNER

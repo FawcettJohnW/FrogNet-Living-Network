@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>FrogNet Living Network · Demonstration Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="/chart.js"></script>
+<style>
+:root{--bg:#050814;--border:#1b233d;--shadow:0 18px 40px rgba(0,0,0,.4);
+--accent:#3cff8f;--warn:#ffb347;--bad:#ff5c5c;--text:#f5f7ff;--muted:#9aa4c6;--card:18px;
+--font:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font);background:radial-gradient(circle at top,#121a33,var(--bg) 55%);color:var(--text)}
+.header{position:sticky;top:0;z-index:100;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;
+padding:14px 22px;border-bottom:1px solid var(--border);
+background:linear-gradient(to right,rgba(10,18,40,.92),rgba(8,22,36,.92));backdrop-filter:blur(10px);}
+.brandRow{display:flex;align-items:center;gap:14px}
+.frog{font-size:3.2rem}
+.title{font-weight:750;letter-spacing:.06em;text-transform:uppercase;font-size:2.2rem;color:var(--accent)}
+.subtitle{color:var(--muted);font-size:1.05rem;margin-top:6px}
+.meta{display:flex;flex-direction:column;gap:6px;color:var(--muted);text-align:right;font-size:.9rem;min-width:260px}
+.pillRow{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pill{border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04);padding:4px 8px;border-radius:999px;font-size:.82rem;color:var(--muted)}
+.pill b{color:var(--text);font-weight:650}
+.main{padding:20px 22px 40px;display:flex;flex-direction:column;gap:18px}
+.grid{display:grid;gap:18px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1100px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g2{grid-template-columns:1fr}}
+@media(max-width:720px){.header{flex-direction:column;align-items:flex-start}.meta{text-align:left}}
+.card{background:radial-gradient(circle at top left,rgba(60,255,143,.05),rgba(5,8,20,.96));
+border:1px solid var(--border);border-radius:var(--card);box-shadow:var(--shadow);padding:14px 16px;overflow:hidden;}
+.card h2{margin:0 0 10px;font-size:.96rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.bigVal{font-size:2.05rem;font-weight:700}
+.bigSub{font-size:.88rem;color:var(--muted)}
+.hosts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.hostCard{cursor:pointer;transition:transform .12s ease,border-color .12s ease}
+.hostCard.selected{border-color:rgba(60,255,143,.7);transform:translateY(-2px)}
+.hostName{font-weight:800;font-size:1.06rem}
+.mini{font-size:.82rem;color:var(--muted)}
+.badge{display:inline-block;margin-left:8px;padding:2px 7px;border-radius:999px;border:1px solid rgba(60,255,143,.7);
+background:rgba(60,255,143,.12);font-size:.70rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.kv{display:grid;grid-template-columns:1.2fr 1fr;gap:6px;font-size:.85rem;margin-top:10px}
+.k{color:var(--muted)}
+.v{text-align:right}
+.chartWrap{height:260px}
+canvas{width:100%;height:100%}
+.mono{font-family:ui-monospace,Menlo,Monaco,Consolas,"Courier New",monospace;font-size:.80rem;background:rgba(255,255,255,.03);
+color:rgba(245,247,255,.9);border:1px solid rgba(255,255,255,.08);padding:10px;border-radius:14px;white-space:pre-wrap;
+word-break:break-word;max-height:360px;overflow:auto;}
+.footer{padding:10px 22px 18px;border-top:1px solid var(--border);color:var(--muted);font-size:.82rem;display:flex;justify-content:space-between;flex-wrap:wrap}
+.ok{color:var(--accent)} .warn{color:var(--warn)} .bad{color:var(--bad)}
+</style>
+</head>
+<body>
+<header class="header">
+  <div>
+    <div class="brandRow">
+      <div class="frog">🐸</div>
+      <div class="title">FrogNet Living Network</div>
+    </div>
+    <div class="subtitle">Sensors-first dashboard · System · GPS · Bytes telemetry (Proxy + Daemon)</div>
+  </div>
+  <div class="meta">
+    <div><b id="meta-now">—</b></div>
+    <div class="pillRow">
+      <div class="pill"><b id="meta-hosts">0</b> hosts</div>
+      <div class="pill"><b id="meta-sensors">0</b> sensors</div>
+      <div class="pill">Charts: <b id="meta-chartjs" class="warn">missing</b></div>
+    </div>
+  </div>
+</header>
+
+<main class="main">
+
+<section class="grid g4">
+  <div class="card">
+    <h2>Cluster</h2>
+    <div class="bigVal" id="kpi-cluster">0 hosts</div>
+    <div class="bigSub" id="kpi-networks">Networks: 0</div>
+  </div>
+  <div class="card">
+    <h2>DB Host</h2>
+    <div class="bigVal" id="kpi-dbhost">—</div>
+    <div class="bigSub" id="kpi-dbip">IP: —</div>
+  </div>
+  <div class="card">
+    <h2>System Avg</h2>
+    <div class="bigVal" id="kpi-sys">CPU 0% · RAM 0%</div>
+    <div class="bigSub" id="kpi-load">Load 0.00 · Temp n/a</div>
+  </div>
+  <div class="card">
+    <h2>GPS</h2>
+    <div class="bigVal" id="kpi-gps">No fix</div>
+    <div class="bigSub" id="kpi-gpsdetail">—</div>
+  </div>
+</section>
+
+<section class="grid g4">
+  <div class="card">
+    <h2>Semantic Share</h2>
+    <div class="bigVal" id="kpi-semshare">0%</div>
+    <div class="bigSub" id="kpi-semcounts">0 semantic · 0 real</div>
+  </div>
+  <div class="card">
+    <h2>Semantic Bytes</h2>
+    <div class="bigVal" id="kpi-bytes">0 / 0</div>
+    <div class="bigSub" id="kpi-bytes-src">Source: —</div>
+  </div>
+  <div class="card">
+    <h2>Compression</h2>
+    <div class="bigVal" id="kpi-comp">0.000 / 0.0%</div>
+    <div class="bigSub" id="kpi-comp-src">Source: —</div>
+  </div>
+  <div class="card">
+    <h2>Status</h2>
+    <div class="bigVal" id="kpi-status">OK</div>
+    <div class="bigSub" id="kpi-statusdetail">Polling…</div>
+  </div>
+</section>
+
+<section class="grid g2">
+  <div class="card">
+    <h2>Hosts (from Sensors)</h2>
+    <div id="host-cards" class="hosts"></div>
+  </div>
+  <div class="card">
+    <h2>Compression History</h2>
+    <div class="chartWrap"><canvas id="chartSem"></canvas></div>
+  </div>
+</section>
+
+<section class="grid g2">
+  <div class="card">
+    <h2>CPU & RAM (selected host)</h2>
+    <div class="chartWrap"><canvas id="chartCpu"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>GPS (selected host)</h2>
+    <div class="chartWrap"><canvas id="chartGps"></canvas></div>
+  </div>
+</section>
+
+<section class="grid g2">
+  <div class="card">
+    <h2>Host Snapshot</h2>
+    <div id="host-detail" class="mono">Select a host.</div>
+  </div>
+  <div class="card">
+    <h2>Live Status</h2>
+    <div id="live-status" class="mono">Starting…</div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <span>FrogNet Living Network — networking for humanity</span>
+  <span id="footer-selected">Selected host: —</span>
+</footer>
+
+<script>
+const POLL_MS = 3000;
+const HISTORY_MAX = 240;
+
+const API_BASE = "http://databasehost.frognet";   // or "http://10.101.50.1"
+const URLS = {
+  known:      `${API_BASE}/api.php?entity=known_frognets&action=list`,
+  sensors:    `${API_BASE}/api.php?entity=sensors&action=list`,
+  dataProxy:  `${API_BASE}/api.php?entity=sensor_data&action=list&SensorType=SemanticProxy`,
+  dataDaemon: `${API_BASE}/api.php?entity=sensor_data&action=list&SensorType=SemanticDaemon`,
+  dataSystem: `${API_BASE}/api.php?entity=sensor_data&action=list&SensorType=System`,
+  dataGPS:    `${API_BASE}/api.php?entity=sensor_data&action=list&SensorType=GPS`,
+};
+
+let selectedHostKey = null;
+let cpuChart=null, gpsChart=null, semChart=null;
+
+const history = { cpu:{}, gps:{}, sem:[] };
+const prevBytesByHost = {};
+
+function $(id){ return document.getElementById(id); }
+function nowStr(){ return new Date().toLocaleTimeString(); }
+function fmt(x,d=1){ const n=Number(x||0); return isFinite(n)?n.toFixed(d):"0.0"; }
+function asRows(obj){
+  if (!obj) return [];
+  if (Array.isArray(obj)) return obj;
+  if (Array.isArray(obj.rows)) return obj.rows;
+  if (Array.isArray(obj.hosts)) return obj.hosts;
+  return [];
+}
+function safeJsonParse(s){ try{ return JSON.parse(s); }catch(e){ return null; } }
+function parseRowJson(row){
+  const raw = row.jsonData || row.json_data || "{}";
+  if (typeof raw === "object") return raw;
+  return safeJsonParse(raw);
+}
+async function fetchJson(url){
+  const r = await fetch(url,{cache:"no-store"});
+  if (!r.ok) throw new Error(`HTTP ${r.status} for ${url}`);
+  return await r.json();
+}
+function isDbHost(name){
+  const s = String(name||"").toLowerCase();
+  return s.includes("databasehost");
+}
+function looksLikeSystem(p){ return p && p.cpu_pct && p.mem_kb && p.loadavg; }
+function looksLikeGPS(p){ return p && (p.class==="TPV" || p.lat!==undefined || p.lon!==undefined); }
+function isProxyBytesPayload(p){
+  return p && p.real && p.sem &&
+    (p.real.http_out_bytes !== undefined || p.real.http_in_bytes !== undefined) &&
+    (p.sem.packed_out_bytes !== undefined || p.sem.http_out_bytes !== undefined);
+}
+function isDaemonBytesPayload(p){
+  return p && p.sem &&
+    (p.sem.wire_in_bytes !== undefined || p.sem.wire_out_bytes !== undefined) &&
+    (p.http !== undefined || p.sem.raw_out_bytes !== undefined);
+}
+function pushHist(map,key,obj){
+  if (!map[key]) map[key]=[];
+  map[key].push(obj);
+  if (map[key].length>HISTORY_MAX) map[key].shift();
+}
+function pushSem(obj){
+  history.sem.push(obj);
+  if (history.sem.length>HISTORY_MAX) history.sem.shift();
+}
+function setStatus(msg){ $("live-status").textContent = msg; }
+
+function initCharts(){
+  if (typeof Chart==="undefined") throw new Error("Chart.js not loaded");
+  const common = {responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:11}}}}};
+
+  cpuChart = new Chart($("chartCpu").getContext("2d"),{
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"CPU Busy (%)",data:[],tension:0.2,fill:false},
+      {label:"RAM Used (%)",data:[],tension:0.2,fill:false}
+    ]},
+    options:{...common,scales:{y:{beginAtZero:true,max:100}}}
+  });
+
+  gpsChart = new Chart($("chartGps").getContext("2d"),{
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"Speed (m/s)",data:[],tension:0.2,fill:false},
+      {label:"Alt (m)",data:[],tension:0.2,fill:false}
+    ]},
+    options:{...common}
+  });
+
+  semChart = new Chart($("chartSem").getContext("2d"),{
+    type:"line",
+    data:{labels:[],datasets:[
+      {label:"HTTP-out bytes/msg (Δ)",data:[],tension:0.2,fill:false},
+      {label:"Packed bytes/sem msg (Δ)",data:[],tension:0.2,fill:false}
+    ]},
+    options:{...common}
+  });
+}
+
+function updateCpuChart(){
+  if (!cpuChart || !selectedHostKey) return;
+  const arr = history.cpu[selectedHostKey] || [];
+  cpuChart.data.labels = arr.map(h=>new Date(h.ts*1000).toLocaleTimeString());
+  cpuChart.data.datasets[0].data = arr.map(h=>h.cpu);
+  cpuChart.data.datasets[1].data = arr.map(h=>h.mem);
+  cpuChart.update();
+}
+function updateGpsChart(){
+  if (!gpsChart || !selectedHostKey) return;
+  const arr = history.gps[selectedHostKey] || [];
+  gpsChart.data.labels = arr.map(h=>new Date(h.ts*1000).toLocaleTimeString());
+  gpsChart.data.datasets[0].data = arr.map(h=>h.speed);
+  gpsChart.data.datasets[1].data = arr.map(h=>h.alt);
+  gpsChart.update();
+}
+function updateSemChart(){
+  if (!semChart) return;
+  const arr = history.sem;
+  semChart.data.labels = arr.map(h=>new Date(h.ts*1000).toLocaleTimeString());
+  semChart.data.datasets[0].data = arr.map(h=>h.uncomp);
+  semChart.data.datasets[1].data = arr.map(h=>h.comp);
+  semChart.update();
+}
+
+function renderHostDetail(h){
+  if (!h){ $("host-detail").textContent="Select a host."; return; }
+  const sys=h.sys||{}, gps=h.gps||{}, p=h.semProxy||{}, d=h.semDaemon||{};
+  const pr=p.real||{}, ps=p.sem||{};
+  const ds=d.sem||{}, dh=d.http||{};
+  $("host-detail").textContent =
+`Host: ${h.name}
+IP: ${h.ip}
+Network: ${h.net || "n/a"}
+DB host: ${h.isDb ? "yes":"no"}
+Sensors: ${h.sensorCount}
+
+System:
+  cpu_busy: ${sys.cpu_pct ? fmt(sys.cpu_pct.total_busy,1)+"%" : "n/a"}
+  mem_used: ${sys.mem_kb ? fmt(sys.mem_kb.pct_used,1)+"%" : "n/a"}
+  load1:    ${sys.loadavg ? fmt(sys.loadavg["1"],2) : "n/a"}
+  temp:     ${sys.temps_c && sys.temps_c.length ? fmt(sys.temps_c[0].temp_c,1)+"°C" : "n/a"}
+
+GPS:
+  mode:  ${gps.mode!==undefined ? gps.mode : "n/a"}
+  lat:   ${gps.lat!==undefined ? gps.lat : "n/a"}
+  lon:   ${gps.lon!==undefined ? gps.lon : "n/a"}
+  speed: ${gps.speed!==undefined ? gps.speed : "n/a"}
+  alt:   ${gps.altMSL!==undefined ? gps.altMSL : (gps.alt!==undefined ? gps.alt : "n/a")}
+
+Proxy Bytes (${h.semProxyName || "unknown"}):
+  real.count: ${pr.count ?? "n/a"}
+  real.http_out_bytes: ${pr.http_out_bytes ?? "n/a"}
+  sem.count: ${ps.count ?? "n/a"}
+  sem.http_out_bytes: ${ps.http_out_bytes ?? "n/a"}
+  sem.packed_out_bytes: ${ps.packed_out_bytes ?? "n/a"}
+
+Daemon Bytes (${h.semDaemonName || "unknown"}):
+  sem.count: ${ds.count ?? "n/a"}
+  sem.wire_in_bytes: ${ds.wire_in_bytes ?? "n/a"}
+  sem.wire_out_bytes: ${ds.wire_out_bytes ?? "n/a"}
+  sem.raw_out_bytes: ${ds.raw_out_bytes ?? "n/a"}
+  sem.packed_out_bytes: ${ds.packed_out_bytes ?? "n/a"}
+  http.up_out_bytes: ${dh.up_out_bytes ?? "n/a"}
+`;
+}
+
+function renderHosts(hosts){
+  const wrap = $("host-cards");
+  wrap.innerHTML = "";
+  for (const h of hosts){
+    const card=document.createElement("div");
+    card.className="card hostCard"+(h.key===selectedHostKey?" selected":"");
+    const badge = h.isDb ? `<span class="badge">DB HOST</span>` : "";
+    const pr=h.semProxy?.real, ps=h.semProxy?.sem;
+    const cpu = h.sys ? fmt(h.sys.cpu_pct.total_busy,1)+"%" : "n/a";
+    const mem = h.sys ? fmt(h.sys.mem_kb.pct_used,1)+"%" : "n/a";
+    const load= h.sys ? fmt(h.sys.loadavg["1"],2) : "n/a";
+    const gps = h.gps ? (h.gps.mode===3?"3D":h.gps.mode===2?"2D":"NO") : "n/a";
+    card.innerHTML = `
+      <div class="hostName">${h.name}${badge}</div>
+      <div class="mini">${h.ip} · ${h.net || "n/a"}</div>
+      <div class="mini">Sensors: ${h.sensorCount}</div>
+      <div class="kv">
+        <div class="k">CPU Busy</div><div class="v">${cpu}</div>
+        <div class="k">RAM Used</div><div class="v">${mem}</div>
+        <div class="k">Load (1m)</div><div class="v">${load}</div>
+        <div class="k">GPS</div><div class="v">${gps}</div>
+        <div class="k">Sem msgs (proxy)</div><div class="v">${ps ? (ps.count ?? "n/a") : "n/a"}</div>
+        <div class="k">Sem msgs (daemon)</div><div class="v">${h.semDaemon?.sem ? (h.semDaemon.sem.count ?? "n/a") : "n/a"}</div>
+      </div>
+    `;
+    card.addEventListener("click", ()=>{
+      selectedHostKey = h.key;
+      $("footer-selected").textContent = "Selected host: " + h.name;
+      renderHostDetail(h);
+      updateCpuChart();
+      updateGpsChart();
+      renderHosts(hosts);
+    });
+    wrap.appendChild(card);
+  }
+}
+
+function delta(prev, cur){
+  const p = Number(prev ?? 0), c = Number(cur ?? 0);
+  let d = c - p;
+  if (!isFinite(d) || d < 0) d = c;
+  return d;
+}
+
+async function pollOnce(){
+  $("meta-now").textContent = nowStr();
+
+  const chartLoaded = (typeof Chart !== "undefined");
+  $("meta-chartjs").textContent = chartLoaded ? "ok" : "missing";
+  $("meta-chartjs").className = chartLoaded ? "ok" : "warn";
+
+  const sensorsJson = await fetchJson(URLS.sensors);
+  const sensors = asRows(sensorsJson);
+  $("meta-sensors").textContent = String(sensors.length);
+
+  // map SensorID -> Sensor row so we can map SensorData back to SensorName
+  const sensorsById = {};
+  for (const s of sensors){
+    const sid = s.SensorID ?? s.sensor_id;
+    if (sid != null) sensorsById[String(sid)] = s;
+  }
+
+  const hostsMap = new Map();
+  function ensureHost(ip, net){
+    const key = `${ip}|${net||""}`;
+    if (!hostsMap.has(key)){
+      hostsMap.set(key, {key, ip, net, name: ip, isDb:false, sensorCount:0, sys:null, gps:null, semProxy:null, semDaemon:null,
+                         semProxyName:null, semDaemonName:null});
+    }
+    return hostsMap.get(key);
+  }
+  for (const s of sensors){
+    const sa = String(s.SensorAddress || "").trim();
+    const sn = String(s.SensorNetwork || "").trim();
+    if (!sa) continue;
+    const h = ensureHost(sa, sn);
+    h.sensorCount += 1;
+  }
+
+  let knownRows = [];
+  try{ knownRows = asRows(await fetchJson(URLS.known)); }catch(e){ knownRows=[]; }
+  const networks = new Set();
+  for (const k of knownRows){
+    const name = String(k.NetworkName || "").trim();
+    const ip   = String(k.IPAddress || "").trim();
+    if (name) networks.add(name);
+    if (!ip) continue;
+    for (const h of hostsMap.values()){
+      if (h.ip === ip){
+        h.name = name;
+        h.isDb = isDbHost(name);
+      }
+    }
+  }
+
+  const hosts = Array.from(hostsMap.values());
+  $("meta-hosts").textContent = String(hosts.length);
+  $("kpi-cluster").textContent = `${hosts.length} hosts`;
+  $("kpi-networks").textContent = `Networks: ${networks.size || new Set(hosts.map(h=>h.net||"")).size}`;
+
+  const db = hosts.find(h=>h.isDb) || null;
+  $("kpi-dbhost").textContent = db ? db.name : "—";
+  $("kpi-dbip").textContent = "IP: " + (db ? db.ip : "—");
+
+  function findHostForSensorRow(row){
+    const sid = row.SensorID ?? row.sensor_id;
+    const meta = sensorsById[String(sid)];
+    if (!meta) return null;
+    const sa = String(meta.SensorAddress || "").trim();
+    const sn = String(meta.SensorNetwork || "").trim();
+    if (!sa) return null;
+    const k1 = `${sa}|${sn||""}`;
+    if (hostsMap.has(k1)) return hostsMap.get(k1);
+    for (const h of hostsMap.values()){
+      if (h.ip === sa) return h;
+    }
+    return null;
+  }
+  function sensorNameForRow(row){
+    const sid = row.SensorID ?? row.sensor_id;
+    const meta = sensorsById[String(sid)];
+    return meta ? String(meta.SensorName || "") : "";
+  }
+
+  const [rowsSys, rowsGps, rowsProxy, rowsDaemon] = await Promise.all([
+    fetchJson(URLS.dataSystem).then(asRows).catch(()=>[]),
+    fetchJson(URLS.dataGPS).then(asRows).catch(()=>[]),
+    fetchJson(URLS.dataProxy).then(asRows).catch(()=>[]),
+    fetchJson(URLS.dataDaemon).then(asRows).catch(()=>[]),
+  ]);
+
+  for (const row of rowsSys){
+    const p = parseRowJson(row); if (!p) continue;
+    const h = findHostForSensorRow(row); if (!h) continue;
+    if (looksLikeSystem(p)){
+      h.sys = p;
+      const ts = Number(p.timestamp || (Date.now()/1000));
+      pushHist(history.cpu, h.key, {ts, cpu:Number(p.cpu_pct.total_busy||0), mem:Number(p.mem_kb.pct_used||0)});
+    }
+  }
+  for (const row of rowsGps){
+    const p = parseRowJson(row); if (!p) continue;
+    const h = findHostForSensorRow(row); if (!h) continue;
+    if (looksLikeGPS(p)){
+      h.gps = p;
+      let ts = Date.now()/1000;
+      if (p.time){ const d = Date.parse(p.time); if (!Number.isNaN(d)) ts = d/1000; }
+      pushHist(history.gps, h.key, {ts, speed:Number(p.speed||0), alt:Number(p.altMSL ?? p.alt ?? 0)});
+    }
+  }
+
+  for (const row of rowsProxy){
+    const p = parseRowJson(row); if (!p) continue;
+    const h = findHostForSensorRow(row); if (!h) continue;
+    if (isProxyBytesPayload(p)){
+      h.semProxy = p;
+      h.semProxyName = sensorNameForRow(row) || h.semProxyName;
+    }
+  }
+  for (const row of rowsDaemon){
+    const p = parseRowJson(row); if (!p) continue;
+    const h = findHostForSensorRow(row); if (!h) continue;
+    if (isDaemonBytesPayload(p)){
+      h.semDaemon = p;
+      h.semDaemonName = sensorNameForRow(row) || h.semDaemonName;
+    }
+  }
+
+  if (!selectedHostKey && hosts.length){
+    selectedHostKey = hosts[0].key;
+    $("footer-selected").textContent = "Selected host: " + hosts[0].name;
+  }
+
+  let sumCpu=0,sumMem=0,sumLoad=0,count=0,temp=null;
+  for (const h of hosts){
+    if (h.sys){
+      sumCpu += Number(h.sys.cpu_pct?.total_busy || 0);
+      sumMem += Number(h.sys.mem_kb?.pct_used || 0);
+      sumLoad += Number(h.sys.loadavg?.["1"] || 0);
+      count++;
+      if (temp==null && h.sys.temps_c && h.sys.temps_c.length) temp = Number(h.sys.temps_c[0].temp_c);
+    }
+  }
+  $("kpi-sys").textContent = `CPU ${fmt(sumCpu/(count||1),1)}% · RAM ${fmt(sumMem/(count||1),1)}%`;
+  $("kpi-load").textContent = `Load ${fmt(sumLoad/(count||1),2)} · Temp ${temp!=null?fmt(temp,1)+"°C":"n/a"}`;
+
+  const gpsHost = hosts.find(h=>h.gps);
+  if (gpsHost){
+    const g=gpsHost.gps;
+    const fix = g.mode===3?"3D":g.mode===2?"2D":"NO";
+    $("kpi-gps").textContent = `${fix} fix`;
+    $("kpi-gpsdetail").textContent = `${gpsHost.name} (${gpsHost.ip}) lat=${g.lat??"n/a"} lon=${g.lon??"n/a"} speed=${g.speed??"n/a"}`;
+  } else {
+    $("kpi-gps").textContent = "No fix";
+    $("kpi-gpsdetail").textContent = "—";
+  }
+
+  // ---- aggregate semantic bytes + set "source" labels ----
+  let totalRealCount=0, totalSemCountProxy=0, totalSemCountDaemon=0;
+
+  let dRealHttpOut=0, dSemHttpOut=0, dSemPacked=0;
+  let dRealCount=0, dSemCount=0;
+
+  // choose a representative sensor name for the tiles (highest delta)
+  let bestProxy = {name:"—", dPacked:0, dHttp:0};
+  let bestDaemon = {name:"—", dPacked:0, dWire:0};
+
+  for (const h of hosts){
+    const curP = h.semProxy || null;
+    const curD = h.semDaemon || null;
+
+    const curReal = curP?.real || {};
+    const curSemP = curP?.sem  || {};
+    totalRealCount += Number(curReal.count ?? 0);
+    totalSemCountProxy += Number(curSemP.count ?? 0);
+
+    const curSemD = curD?.sem || {};
+    totalSemCountDaemon += Number(curSemD.count ?? 0);
+
+    const prev = prevBytesByHost[h.key] || {proxy:{real:{},sem:{}}, daemon:{sem:{}}};
+    const prevReal = prev.proxy.real || {};
+    const prevSem  = prev.proxy.sem  || {};
+
+    const curRealCount = Number(curReal.count ?? 0);
+    const curSemCount  = Number(curSemP.count  ?? 0);
+
+    const dRcount = delta(prevReal.count, curRealCount);
+    const dScount = delta(prevSem.count,  curSemCount);
+    dRealCount += dRcount;
+    dSemCount  += dScount;
+
+    const dRhttp = delta(prevReal.http_out_bytes, Number(curReal.http_out_bytes ?? 0));
+    const dShttp = delta(prevSem.http_out_bytes,  Number(curSemP.http_out_bytes ?? 0));
+    const dSpack = delta(prevSem.packed_out_bytes, Number(curSemP.packed_out_bytes ?? 0));
+
+    dRealHttpOut += dRhttp;
+    dSemHttpOut  += dShttp;
+    dSemPacked   += dSpack;
+
+    // best proxy source
+    if (dSpack > bestProxy.dPacked){
+      bestProxy = {name: h.semProxyName || h.name || h.ip, dPacked:dSpack, dHttp:dShttp};
+    }
+
+    // best daemon source (optional, if you want later)
+    const dPrevD = prev.daemon.sem || {};
+    const dDpack = delta(dPrevD.packed_out_bytes, Number(curSemD.packed_out_bytes ?? 0));
+    const dDwire = delta(dPrevD.wire_out_bytes, Number(curSemD.wire_out_bytes ?? 0));
+    if (Math.max(dDpack, dDwire) > Math.max(bestDaemon.dPacked, bestDaemon.dWire)){
+      bestDaemon = {name: h.semDaemonName || h.name || h.ip, dPacked:dDpack, dWire:dDwire};
+    }
+
+    prevBytesByHost[h.key] = {
+      proxy:{ real:{count:curRealCount, http_out_bytes:Number(curReal.http_out_bytes ?? 0)},
+              sem:{count:curSemCount,  http_out_bytes:Number(curSemP.http_out_bytes ?? 0),
+                   packed_out_bytes:Number(curSemP.packed_out_bytes ?? 0)} },
+      daemon:{ sem:{count:Number(curSemD.count ?? 0),
+                    packed_out_bytes:Number(curSemD.packed_out_bytes ?? 0),
+                    wire_out_bytes:Number(curSemD.wire_out_bytes ?? 0)} }
+    };
+  }
+
+  const useDaemonForShare = (totalSemCountProxy === 0 && totalSemCountDaemon > 0);
+  const semCountForShare = useDaemonForShare ? totalSemCountDaemon : totalSemCountProxy;
+
+  const totalMsgs = totalRealCount + semCountForShare;
+  const share = totalMsgs ? (semCountForShare/totalMsgs)*100 : 0;
+
+  $("kpi-semshare").textContent = `${fmt(share,1)}%`;
+  $("kpi-semcounts").textContent = `${semCountForShare} semantic · ${totalRealCount} real` + (useDaemonForShare ? " (daemon)" : "");
+
+  $("kpi-bytes").textContent = `${fmt(dSemHttpOut,0)} / ${fmt(dSemPacked,0)}`;
+  $("kpi-bytes-src").textContent = `Source: ${bestProxy.name}`;
+
+  let ratio=0, savingsPct=0;
+  if (dSemHttpOut > 0){
+    ratio = dSemPacked / dSemHttpOut;
+    if (!isFinite(ratio) || ratio < 0) ratio = 0;
+    savingsPct = (1 - ratio) * 100;
+    if (!isFinite(savingsPct)) savingsPct = 0;
+  }
+  $("kpi-comp").textContent = `${fmt(ratio,3)} / ${fmt(savingsPct,1)}%`;
+  $("kpi-comp-src").textContent = `Source: ${bestProxy.name}`;
+
+  const httpOutPerMsg = (dRealCount + dSemCount) ? ((dRealHttpOut + dSemHttpOut)/(dRealCount + dSemCount)) : 0;
+  const packedPerSem  = dSemCount ? (dSemPacked/dSemCount) : 0;
+  pushSem({ts:Date.now()/1000, uncomp:httpOutPerMsg, comp:packedPerSem});
+  updateSemChart();
+
+  let status="OK", detail="Polling…";
+  if ((totalRealCount + totalSemCountProxy + totalSemCountDaemon) === 0){
+    status="WATCH"; detail="No Bytes sensors classified";
+  } else if (useDaemonForShare){
+    status="WATCH"; detail="Proxy sem=0; daemon has semantic activity";
+  }
+  $("kpi-status").textContent = status;
+  $("kpi-statusdetail").textContent = detail;
+
+  renderHosts(hosts);
+
+  const selected = hosts.find(h=>h.key===selectedHostKey) || hosts[0] || null;
+  if (selected){
+    renderHostDetail(selected);
+    updateCpuChart();
+    updateGpsChart();
+  }
+
+  setStatus(
+`OK ${nowStr()}
+hosts=${hosts.length} sensors=${sensors.length}
+rows(System)=${rowsSys.length} rows(GPS)=${rowsGps.length}
+rows(SemProxyEndpoint)=${rowsProxy.length} rows(SemDaemonEndpoint)=${rowsDaemon.length}
+classified proxyBytes=${hosts.filter(h=>h.semProxy).length} daemonBytes=${hosts.filter(h=>h.semDaemon).length}`
+  );
+}
+
+async function pollLoop(){
+  try{ await pollOnce(); }
+  catch(e){
+    console.error(e);
+    $("kpi-status").textContent="ALERT";
+    $("kpi-statusdetail").textContent="poll error";
+    setStatus("poll error:\n"+(e&&e.stack?e.stack:String(e)));
+  }
+}
+async function pollForever(){
+  while(true){
+    await pollLoop();
+    await new Promise(r=>setTimeout(r,POLL_MS));
+  }
+}
+
+document.addEventListener("DOMContentLoaded", ()=>{
+  try{ initCharts(); $("meta-chartjs").textContent="ok"; $("meta-chartjs").className="ok"; }
+  catch(e){ $("meta-chartjs").textContent="missing"; $("meta-chartjs").className="warn"; }
+  $("meta-now").textContent = nowStr();
+  pollForever();
+});
+</script>
+</body>
+</html>

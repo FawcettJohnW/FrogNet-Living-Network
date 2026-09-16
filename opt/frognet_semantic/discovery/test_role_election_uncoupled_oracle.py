@@ -145,8 +145,11 @@ ck("no election result means no role lines invented",
 ck("except the barrier pin, which is a pin and not a fabricated winner",
    host_of(none, "databasehost") == CTL)
 open_none = commit_service_lines(BLOCK, [], ALL, CTL)
-ck("with the barrier open and no result, nothing is written at all",
-   names(open_none) == set(), names(open_none))
+# [ABSENT_IS_A_DECIDABLE_STATE_V1] The databasehost floor is no longer a "barrier
+# pin" that appears only while shut -- there is no barrier. It is the floor, and it
+# applies whenever the election named no databasehost, which is this case.
+ck("with no result, only the deterministic databasehost floor is written",
+   names(open_none) == {"databasehost.frognet"}, names(open_none))
 
 # NO_FLOOR still governs: absence is absence. A role whose callback named no winner
 # simply has no line, and the Communicator will fail to resolve it -- loudly, at
@@ -173,18 +176,28 @@ ck("databasehost decides while mediahost is still waiting",
 # means the name never exists at all. A shut barrier defers a CHANGE only.
 ck("mediahost with no standing line is committed provisionally, not withheld",
    host_of(db, "mediahost") == "10.102.60.1", host_of(db, "mediahost"))
-ck("while a mediahost line that DOES stand is left alone by its shut barrier",
+# [ABSENT_IS_A_DECIDABLE_STATE_V1] Was: a standing line is left alone while that
+# role's barrier is shut. There is no barrier now. A capability that is not in the
+# store is absent, that host ranks at the floor, and the election decides on what it
+# can read -- so an elected winner REPLACES a standing line every time. Every node
+# reads the same store and the same converged block and reaches the same answer, so
+# a replacement is agreement, not flap.
+ck("an elected winner replaces a standing line, records complete or not",
    host_of(commit_service_lines(BLOCK + ["10.7.7.7 mediahost.frognet"],
                                 ELECTED, {"databasehost"}, CTL), "mediahost")
-   == "10.7.7.7")
+   == "10.102.60.1")
 
-# A role whose barrier is shut keeps the line it already had -- a media host agreed
-# last merge must not vanish (and take live calls with it) because a new machine is
-# mid-publish.
+# [ABSENT_IS_A_DECIDABLE_STATE_V1] The old rule here was that a role with an
+# incomplete record set keeps the line it already had, so a media host agreed last
+# merge could not be displaced by a machine mid-publish. The cost was a wait with no
+# upper bound: on a live pond four machines were 34,000-330,000s stale and the gate
+# never opened, and on Seattle7 the gate reported recorded=[] every merge because
+# the single control read was timing out. The election now decides on what the store
+# holds, every merge.
 had = BLOCK + ["10.102.60.9 mediahost.frognet"]
 keep = commit_service_lines(had, ELECTED, {"databasehost"}, CTL)
-ck("a shut barrier holds the previously committed line rather than dropping it",
-   host_of(keep, "mediahost") == "10.102.60.9", host_of(keep, "mediahost"))
+ck("the elected winner is committed over the previously standing line",
+   host_of(keep, "mediahost") == "10.102.60.1", host_of(keep, "mediahost"))
 ck("and does not duplicate it",
    sum(1 for l in keep if l.endswith(" mediahost.frognet")) == 1)
 
@@ -209,12 +222,13 @@ ck("no role is left without a line when the election named a winner",
    names(live_out) >= {"mediahost.frognet", "databasehost.frognet",
                        "boardgame.frognet"}, names(live_out))
 
-# But once a line stands, a shut barrier holds it -- that is the anti-flap the
-# barrier exists for, and it must survive this change.
+# [ABSENT_IS_A_DECIDABLE_STATE_V1] and with no ready roles at all, the elected
+# winner still lands: absence of records is an input to the election, not a reason
+# to withhold its result.
 stands = LIVE + ["10.9.9.9 mediahost.frognet"]
 held_out = commit_service_lines(stands, ELECTED, set(), CTL)
-ck("a standing line is NOT replaced while the barrier is shut",
-   host_of(held_out, "mediahost") == "10.9.9.9", host_of(held_out, "mediahost"))
+ck("a standing line IS replaced by the elected winner, no ready roles needed",
+   host_of(held_out, "mediahost") == "10.102.60.1", host_of(held_out, "mediahost"))
 ck("and is not duplicated",
    sum(1 for l in held_out if l.endswith(" mediahost.frognet")) == 1)
 

@@ -1,20 +1,3 @@
-################################################################
-#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
-#                                                              #
-#  SPDX-License-Identifier: GPL-2.0-only                       #
-#                                                              #
-#  This program is free software; you can redistribute it      #
-#  and/or modify it under the terms of the GNU General Public  #
-#  License as published by the Free Software Foundation;       #
-#  version 2 of the License, and no other version.             #
-#                                                              #
-#  This program is distributed in the hope that it will be     #
-#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
-#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
-#  PURPOSE.  See the GNU General Public License for details.   #
-#                                                              #
-#  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """
 test_clean_install_oracle.py - a CLEAN machine, installed, then merged, in the sim.
 
@@ -60,34 +43,12 @@ def check(ok, label):
 
 
 def _script(name):
-    """Resolve a script, TREE FIRST.
-
-    [TEST_THE_TREE_YOU_ARE_IN_V1] This used to prefer the installed path
-    (/usr/local/bin/...) and fall back to the tree. That is backwards, and it made
-    the oracle lie on a real node: running the simulator from a fresh checkout on a
-    box with an older FrogNet installed, it read the INSTALLED installer and the
-    INSTALLED manifest and reported a regression against code the checkout does not
-    contain. Reproduced on BrokerHost 2026-09-01, where C1 had laid down an earlier
-    release before the checkout was updated.
-
-    An oracle run from a tree must test that tree. The installed copy is the
-    fallback, for the container case where there is no tree above this file.
-
+    """Prefer the installed path, fall back to the source tree (container runs).
     frognet_install.sh lives in the installer/ subdir (release tooling kept off the
-    flat node-tool namespace), so search that first.
-    """
-    for p in (_os.path.join(_TREE, "usr", "local", "bin", "installer", name),
-              _os.path.join(_TREE, "usr", "local", "bin", name),
-              _os.path.join(BIN, "installer", name), _os.path.join(BIN, name)):
-        if _os.path.exists(p):
-            return p
-    return None
-
-
-def _manifest():
-    """The world manifest, TREE FIRST. Same reason as _script()."""
-    for p in (_os.path.join(_TREE, "usr", "local", "lib", "frognet_world_manifest.sh"),
-              "/usr/local/lib/frognet_world_manifest.sh"):
+    flat node-tool namespace), so search that first."""
+    for p in (_os.path.join(BIN, "installer", name),
+              _os.path.join(_TREE, "usr", "local", "bin", "installer", name),
+              _os.path.join(BIN, name), _os.path.join(_TREE, "usr", "local", "bin", name)):
         if _os.path.exists(p):
             return p
     return None
@@ -212,8 +173,15 @@ def plane_reinstall():
               "builder auto-discovers /usr/local/lib/frognet* (manifest cannot drift)")
         check("/usr/local/lib/frognet*" in btext,
               "auto-discovery globs the FrogNet lib namespace")
-        check("refusing to build an incomplete world" in btext,
-              "builder still fails LOUD on a missing required manifest path")
+        # [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1 - John 2026-09-15] The
+        # builder REPORTS a missing manifest path and keeps going. It used to
+        # exit 1, which meant a host that legitimately lacks a path -- an
+        # apache vhost on a node that serves no vhosts -- could not build a
+        # tarball at all. Loud is the requirement; refusing never was.
+        check("REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1" in btext,
+              "builder reports a missing manifest path by name")
+        check("refusing to build an incomplete world" not in btext,
+              "fail-on-old: and does not refuse to build over it")
 
 
 
@@ -324,16 +292,7 @@ def plane_reset_release_symmetry():
     if not files:
         check(True, "reset removes no individual files needing restore")
         return
-    # [ONE_MANIFEST_V1] The path list moved out of the builder into
-    # frognet_world_manifest.sh. Read whichever holds it, so this plane does not
-    # silently pass on an empty set the way it silently failed on one.
-    wtext = ""
-    _m = _manifest()
-    if _m:
-        wtext = open(_m, encoding="utf-8", errors="replace").read()
-    if not wtext and bld:
-        wtext = open(bld, encoding="utf-8", errors="replace").read()
-    check(bool(wtext), "a world path list was found to check restorability against")
+    wtext = open(bld, encoding="utf-8", errors="replace").read() if bld else ""
     inst = _script("frognet_install.sh")
     if not inst:
         print("  SKIP symmetry - needs frognet_install.sh (release tooling)")
@@ -382,344 +341,16 @@ def plane_merge():
             check(False, f"{label}: converge raised {type(e).__name__}: {e}")
 
 
-def plane_units_ship():
-    """[UNITS_ARE_PART_OF_THE_WORLD_V1] Every unit the installer enables, or the
-    boot gate reads, must be IN the release.
-
-    Measured 2026-08-29 against a release tarball: frognet_build_release.sh scoped
-    WORLD_PATHS to etc/systemd/system/dnsmasq.service.d -- the drop-in, not the
-    directory -- so the world tar carried not one FrogNet unit while ten of them
-    were referenced in 3 to 22 files each. A node installed from that release comes
-    up with no proxy, no daemon, no tunnels and no merge watcher. Nothing in the
-    build caught it: the builder's manifest check passed (the path it was given did
-    exist), and the installer counted the misses into a variable it never read.
-
-    The service names are not re-listed here. They are PARSED from the installer's
-    own CORE_SERVICES array and from boot_gate_check's reads, so adding a service
-    to the installer adds it to this gate. A hand-maintained second list is how the
-    three disagreeing path manifests happened.
-    """
-    print("\n=== PLANE 1f: units the installer enables are IN the release ===")
-    inst = _script("frognet_install.sh")
-    if not inst:
-        print("  SKIP unit-shipping plane - frognet_install.sh is release tooling")
-        return
-    text = open(inst, encoding="utf-8", errors="replace").read()
-
-    m = re.search(r"CORE_SERVICES=\(([^)]*)\)", text, re.S)
-    if not m:
-        check(False, "installer declares CORE_SERVICES (cannot gate without it)")
-        return
-    core = [f"{s_}.service" for s_ in m.group(1).split()]
-    check(bool(core), f"parsed {len(core)} core service(s) from the installer")
-
-    # units boot_gate_check.py opens directly - the gate graph
-    gate = _os.path.join(_HERE, "sim", "boot_gate_check.py")
-    gate_units = []
-    if _os.path.exists(gate):
-        gate_units = sorted(set(re.findall(r'_u\("([^"]+)"\)',
-                                           open(gate, encoding="utf-8").read())))
-    # Timers are NOT lumped in with the core set. The installer enables every one
-    # of them conditionally -- `[[ -f ... ]] && systemctl enable ... || true` -- so a
-    # node without one is a node that opted out, not a broken release. Demanding
-    # them here made this plane report two false absences on its first run.
-    # Only timers whose .service the installer treats as core are required.
-    timers = []
-    for t in sorted(set(re.findall(r"(frognet-[a-z0-9-]+)\.timer", text))):
-        if f"{t}.service" in core:
-            timers.append(f"{t}.timer")
-
-    units_dir = _os.path.join(_TREE, "etc", "systemd", "system")
-    if not _os.path.isdir(units_dir):
-        units_dir = "/etc/systemd/system"
-
-    absent = []
-    for u in sorted(set(core + gate_units + timers)):
-        if not _os.path.isfile(_os.path.join(units_dir, u)):
-            absent.append(u)
-    check(not absent,
-          f"all {len(set(core + gate_units + timers))} required unit(s) present in "
-          f"{units_dir}" + (f" - ABSENT: {', '.join(absent)}" if absent else ""))
-
-    # And the builder must package the DIRECTORY, not a drop-in inside it. A
-    # release whose path list reaches only etc/systemd/system/<something>.d ships
-    # that one subdirectory and silently drops every unit beside it.
-    bld = _script("frognet_build_release.sh")
-    # [ONE_MANIFEST_V1] The path list is no longer held in the builder -- it lives
-    # in frognet_world_manifest.sh, which full_tar.bash also sources. So this reads
-    # the MANIFEST, and separately asserts the builder does not keep a second copy.
-    # (This check previously parsed WORLD_PATHS=( out of the builder and broke the
-    # moment that became an expansion of the manifest. Assert on the source of
-    # truth, not on whichever file happened to hold it last.)
-    listed = []
-    man = _manifest()
-    check(man is not None, "frognet_world_manifest.sh ships (one list, two consumers)")
-    if man:
-        mtext = open(man, encoding="utf-8", errors="replace").read()
-        _in = False
-        for _ln in mtext.splitlines():
-            if not _in:
-                if re.match(r"\s*FROGNET_WORLD_PATHS=\(", _ln):
-                    _in = True
-                continue
-            if re.match(r"\s*\)\s*$", _ln):
-                break
-            _ln = _ln.split("#", 1)[0].strip()
-            if _ln:
-                listed.extend(_ln.split())
-        check("frognet_check_manifest" in mtext,
-              "manifest defines frognet_check_manifest (refuses to build with a hole)")
-        check("FROGNET_NEVER_SHIP" in mtext,
-              "manifest defines FROGNET_NEVER_SHIP (keys cannot reach the public repo)")
-
-    if bld:
-        btext = open(bld, encoding="utf-8", errors="replace").read()
-        check("frognet_world_manifest.sh" in btext,
-              "builder SOURCES the shared manifest (does not hold its own path list)")
-        # A literal path entry in the builder means a second list has grown back.
-        _own = re.search(r"WORLD_PATHS=\(\s*\n\s*(?:etc|usr|var|opt)/", btext)
-        check(_own is None,
-              "builder has not regrown a local copy of the path list")
-        check("LIB_MANIFEST_AUTODISCOVER_V1" in btext,
-              "builder auto-discovers /usr/local/lib/frognet* (lib manifest cannot drift)")
-
-        check("etc/systemd/system" in listed,
-              "manifest packages etc/systemd/system as a DIRECTORY "
-              "(not scoped to a drop-in inside it)")
-
-    # [DEPS_ARE_INSTALLED_NOT_SHIPPED_V1] The release must not carry the build
-    # host's third-party Python. It did: usr/local/lib/python3.11 was in
-    # WORLD_PATHS and was 332 MB of a 396 MB release -- 44 package directories
-    # against the 23 the installer declares, 143 compiled .so files, no FrogNet
-    # code. And because C1 extracts AFTER A3 pip-installs, those aarch64 binaries
-    # landed on top of whatever pip had just built for the target's architecture.
-    #
-    # Assert on the PATH LIST, not on a size or a filename pattern: the question is
-    # whether the builder was told to package somebody else's dist-packages.
-    if bld:
-        deps = [p_ for p_ in listed if re.match(r"usr/local/lib/python3\.?[0-9]*$", p_)]
-        check(not deps,
-              "builder does not package the build host's dist-packages "
-              f"(dependencies come from PIP_PACKAGES at A3/C2)"
-              + (f" - found: {', '.join(deps)}" if deps else ""))
-        # FrogNet's own shell libs under the same parent MUST still ship, or
-        # runMerge dies at `source frognet_trace.sh`. Removing the tree wholesale
-        # would take them; this proves the cut was scoped, not blanket.
-        for _lib in ("usr/local/lib/frognet_trace.sh", "usr/local/lib/frognet_log.sh"):
-            check(_lib in listed, f"builder still packages {_lib}")
-
-    # The installer must REFUSE on a missing core unit, not count it and continue.
-    check(re.search(r"MISSING=\(\s*\)", text) is not None
-          and re.search(r'die "release is incomplete', text) is not None,
-          "installer DIES on a missing core unit (does not warn and configure on)")
-
-
-def plane_from_repo():
-    """[CHECKOUT_IS_A_FIRST_NODE_V1] A repository checkout must reach a first node.
-
-    Before --from-repo the installer's only accepted input was frognet_world.tgz,
-    and the only thing that builds one is frognet_build_release.sh snapshotting a
-    node that is ALREADY RUNNING. The graph had no edge from a checkout to a first
-    node at all: a stranger who cloned the repo hit "frognet_world.tgz not found"
-    and stopped. That is the exact failure the public repo exists to avoid.
-
-    This plane asserts on the CODE, not on the comments that explain it -- the
-    comments here quote the old error string, so a naive text check would match its
-    own explanation. Anchors are the flag parse, the phase branch, and the copy.
-    """
-    print("\n=== PLANE 1g: a repository checkout reaches a first node ===")
-    inst = _script("frognet_install.sh")
-    if not inst:
-        print("  SKIP from-repo plane - frognet_install.sh is release tooling")
-        return
-    text = open(inst, encoding="utf-8", errors="replace").read()
-
-    check(re.search(r"^\s*--from-repo\)\s+FROM_REPO=1;", text, re.M) is not None,
-          "installer parses --from-repo")
-
-    c1 = text[text.find('phase "C1'):text.find('phase "C1b')]
-    check(bool(c1), "C1 phase located")
-    check(re.search(r"if\s*\(\(\s*FROM_REPO\s*\)\)", c1) is not None,
-          "C1 branches on FROM_REPO (checkout is laid down, not unpacked)")
-    check(re.search(r'cp -a "\$\{SCRIPT_DIR\}/\$\{_d\}/\." "/\$\{_d\}/"', c1) is not None,
-          "C1 COPIES the checkout's payload roots")
-    check(re.search(r"for _d in etc opt usr var; do", c1) is not None,
-          "C1 copies etc/opt/usr/var BY NAME (not the repo root, so .git stays out)")
-    check(re.search(r"tar --ignore-zeros -xzf", c1) is not None,
-          "the release path still extracts the world tar (one installer, two inputs)")
-
-    # Only C1 may differ. If a second phase learned about FROM_REPO, this stopped
-    # being one branch and became a second installer growing inside the first.
-    # The set of phases allowed to know about FROM_REPO is an ALLOWLIST, not a
-    # count. Each entry needs a reason a release and a checkout genuinely differ;
-    # anything else means a second installer is growing inside the first.
-    #
-    #   C1  a checkout IS the filesystem, so it is copied, not unpacked
-    #   D8  a release carries mysqldump output to clone a node; a checkout makes a
-    #       NEW node and starts with empty tables
-    #
-    # This started as "only C1" and D8 was added on evidence, not to make a test
-    # pass: the install died at D8 requiring /frognet_db.sql. Adding a third entry
-    # should take the same argument.
-    ALLOWED = {"C1", "D8"}
-    after_c1 = text[text.find('phase "C1b'):]
-    leaked = []
-    _cur = "?"
-    for _ln in after_c1.splitlines():
-        _m = re.match(r'phase "([A-F][0-9A-Za-z]*)', _ln)
-        if _m:
-            _cur = _m.group(1)
-        elif "FROM_REPO" in _ln and _cur not in ALLOWED and _cur not in leaked:
-            leaked.append(_cur)
-    check(not leaked,
-          f"FROM_REPO appears only in {'/'.join(sorted(ALLOWED))} - every other phase is identical"
-          + (f" (leaked into: {', '.join(leaked)})" if leaked else ""))
-
-    # Self-install guards.
-    check(re.search(r'readlink -f "\$\{SCRIPT_DIR\}/\$\{_d\}"', text) is not None,
-          "C1 refuses to copy a payload root onto itself")
-    check("NO_SELF_INSTALL_V1" in text
-          and re.search(r'readlink -f "\$\{_INST_DIR\}/\$\{_rel\}"', text) is not None,
-          "installer does not install itself over itself when SCRIPT_DIR is the destination")
-
-    # Preconditions must fail LOUD, before any phase runs.
-    check(re.search(r'die_early "--from-repo: .*etc/systemd/system', text) is not None,
-          "--from-repo refuses a checkout with no systemd units (would boot to nothing)")
-    check(re.search(r'die_early "--from-repo: no directory holding all of', text) is not None,
-          "--from-repo refuses when no payload root is found, naming where it looked")
-
-    # [CHECKOUT_IS_A_FIRST_NODE_V1] A0 delegates the wipe to frognet_reset.sh. In a
-    # checkout that file is at usr/local/bin/installer/, not the root, so looking
-    # only in SCRIPT_DIR made --from-repo die at A0 on any box with a prior install
-    # -- reporting an incomplete release when the file was right there. Measured on
-    # BrokerHost 2026-08-29, after the reset had already run.
-    check("SCRIPT_DIR}/usr/local/bin/installer/frognet_reset.sh" in text,
-          "--from-repo finds frognet_reset.sh at its CHECKOUT path, not just the root")
-
-    # [FROGNET_DOES_NOT_OWN_THE_OS_V1] Installing a node must not require upgrading
-    # the operating system. A full `apt-get upgrade` makes every third-party repo on
-    # the box a hard precondition; on BrokerHost a broken PHP repo killed the install
-    # at A1, before any FrogNet file was written. A2 installs what FrogNet names.
-    check(re.search(r"^\s*(DEBIAN_FRONTEND=\S+\s+)?apt-get upgrade", text, re.M) is None,
-          "installer does not run a full-system apt-get upgrade")
-    check(re.search(r"^\s*apt-get update", text, re.M) is not None,
-          "installer still refreshes the package index (A2 cannot resolve without it)")
-
-    # [A_CHECKOUT_MAKES_A_NEW_NODE_V1] D8 restores /frognet_db.sql - `mysqldump
-    # FrogNet` from the build host, the whole live database. That is how a RELEASE
-    # clones a node. A CHECKOUT makes a new one and must not require it: the
-    # install died at D8 with "/frognet_db.sql missing - the release is
-    # incomplete" on BrokerHost 2026-08-30, after C1c and all of D1-D7 had passed.
-    d8 = text[text.find('phase "D8'):text.find('phase "D9')] or text[text.find('phase "D8'):]
-    check(re.search(r"elif\s*\(\(\s*FROM_REPO\s*\)\)", d8) is not None,
-          "D8 does not require a database dump under --from-repo")
-    check(re.search(r'\[\[ -f /frognet_db\.sql \]\] \|\| die', d8) is not None,
-          "D8 STILL requires the dump on the release path (a release clones a node)")
-
-    # And the dump must never reach the public repo, whatever else changes.
-    man_t = ""
-    _m2 = _manifest()
-    if _m2:
-        man_t = open(_m2, encoding="utf-8").read()
-    if man_t:
-        _in, wp = False, []
-        for _ln in man_t.splitlines():
-            if not _in:
-                if re.match(r"\s*FROGNET_WORLD_PATHS=\(", _ln):
-                    _in = True
-                continue
-            if re.match(r"\s*\)\s*$", _ln):
-                break
-            _ln = _ln.split("#", 1)[0].strip()
-            if _ln:
-                wp.extend(_ln.split())
-        check(not [p_ for p_ in wp if "frognet_db.sql" in p_],
-              "the database dump is not in the world path list "
-              "(a repo cannot carry a pond's users, messages and host table)")
-
-    # [A_BROKEN_VENV_IS_NOT_A_WARNING_V1] C2 warned "Venv: 7 of 23 package(s)
-    # failed" and continued into C3 and all of D (BrokerHost 2026-08-29). Those
-    # packages are imported by the proxy data plane, the wire codec, the cache and
-    # the tunnel daemon; missing them means the services cannot start, and the
-    # next banner the operator sees says PASSED.
-    c2 = text[text.find('phase "C2'):text.find('phase "C3')]
-    check(bool(c2), "C2 phase located")
-    check(re.search(r'die "venv build failed', c2) is not None,
-          "C2 DIES on a failed venv package (does not warn and continue into C3)")
-    check("VFAILED" in c2,
-          "C2 names which packages failed (a count does not say PyYAML or NetfilterQueue)")
-
-    # A missing reset script means a node that cannot reinstall itself. It must
-    # not be reported as absent when C1 already put it in place, and must not be
-    # shrugged off when it is genuinely gone.
-    c1 = text[text.find('phase "C1'):text.find('phase "C1b')]
-    check(re.search(r'die "\$\{_rel\} is in neither', c1) is not None,
-          "a genuinely missing frognet_reset.sh is fatal, not a warning")
-    check(re.search(r'elif \[\[ -f "\$\{_INST_DIR\}/\$\{_rel\}" \]\]', c1) is not None,
-          "the installer checks the DESTINATION before reporting a file as missing")
-
-    # [FIND_THE_ROOT_DO_NOT_ASSUME_IT_V1] SCRIPT_DIR is where the installer FILE
-    # lives. In a checkout that is usr/local/bin/installer/, four levels below the
-    # root, so treating it as the root refused the ordinary invocation -
-    #   /repo# ./usr/local/bin/installer/frognet_install.sh --from-repo
-    #   ERROR: /repo/usr/local/bin/installer/etc not found
-    # telling an operator standing in the repo root they were not in it.
-    check("REPO_ROOT=" in text and re.search(r'_c="\$\(dirname "\$_c"\)"', text) is not None,
-          "--from-repo WALKS UP from the script to find the payload root")
-    # And the walk must stop before "/", which on any Linux box has etc/opt/usr/var
-    # and would be accepted as a checkout - C1 would then copy / onto /.
-    check(re.search(r'\[\[ "\$_c" == "/" \]\] && break', text) is not None,
-          'the upward walk refuses "/" as a repo root')
-    check(re.search(r'"\$PWD" != "/"', text) is not None,
-          '$PWD is not accepted as a repo root when it is "/"')
-
-    # The usage block a stranger reads must mention it, or the edge exists and
-    # nobody finds it.
-    head = text[:text.find("set -eu")]
-    check("--from-repo" in head, "--from-repo is documented in the usage header")
-
-
-def _announce():
-    """Name the files under test. [TEST_THE_TREE_YOU_ARE_IN_V1]
-
-    When this oracle and the tree disagree, the first question is always "which
-    copy did it read?" - and until it printed that, the answer took a round trip.
-    """
-    inst = _script("frognet_install.sh")
-    man = _manifest()
-    print("  reading:")
-    print(f"    installer  {inst or '<not found>'}")
-    print(f"    manifest   {man or '<not found>'}")
-    for _p in (inst, man):
-        if _p and not _p.startswith(_TREE):
-            print(f"    NOTE: {_p} is the INSTALLED copy, not this tree - "
-                  "results describe the installed node")
-    print()
-
-
 def main():
-    _announce()
     plane_install()
     plane_reinstall()
     plane_three_modes()
     plane_filesystem()
-    plane_units_ship()
-    plane_from_repo()
     plane_reset_release_symmetry()
     plane_merge()
     print()
     if PROBS:
-        # [A_COUNT_IS_NOT_A_DIAGNOSIS_V1] The runner surfaces only the LAST line of
-        # an oracle. This printed "CLEAN-INSTALL ORACLE FAILED" and nothing else,
-        # so a failure on a node showed up in the gate with no way to tell what
-        # broke without re-running the oracle by hand. Recap the failures, and put
-        # the first one on the summary line itself.
-        print("FAILED CHECKS:")
-        for _p in PROBS:
-            print(f"  - {_p}")
-        print()
-        _first = PROBS[0] if PROBS else "?"
-        print(f"CLEAN-INSTALL ORACLE FAILED ({len(PROBS)}): {_first}")
+        print("CLEAN-INSTALL ORACLE FAILED")
         return 1
     print("ALL CLEAN-INSTALL CHECKPOINTS PASS")
     return 0

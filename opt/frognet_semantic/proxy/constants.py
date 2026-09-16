@@ -78,8 +78,17 @@ TELEMETRY_ENABLED_DEFAULT = _TELEM_ENV in ("1", "true", "yes", "on")
 # database-change detection window.
 TELEMETRY_INTERVAL_DEFAULT = float(os.environ.get("FROGNET_TELEMETRY_INTERVAL", "30.0"))
 
-# Concurrency guard (prevents FD death spirals under request storms)
-MAX_ACTIVE_REQUESTS = int(os.environ.get("FROGNET_PROXY_MAX_ACTIVE", "256"))
+# Concurrency guard (prevents FD death spirals under request storms).
+#
+# [MAX_ACTIVE_IS_A_KNOB_V1] Every :80 request holds one of these slots for the
+# whole RPC, so this is the ceiling on concurrent semantic work through the
+# proxy -- not a safety margin, a throughput setting. It was 256 with the only
+# way to change it being an environment variable nobody sets on a systemd
+# service. Default raised to 512 and exposed on the command line as
+# --max-active so it can be tuned from the unit file without an Environment=
+# line, and read back in the startup banner so the running value is never a
+# guess. Env still wins over the built-in default; the flag wins over both.
+MAX_ACTIVE_REQUESTS = int(os.environ.get("FROGNET_PROXY_MAX_ACTIVE", "512"))
 
 # Semantic protocol
 SEM_PROTO_V2 = 2

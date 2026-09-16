@@ -219,6 +219,16 @@ import time
 _clock = time.time   # [ENVELOPE_TS_V1] injectable for oracles
 
 
+class CapabilityReadFailed(Exception):
+    """The control store did not answer. NOT the same as "it holds no rows".
+
+    [READ_FAILURE_IS_NOT_AN_EMPTY_POOL_V1] One read, from one place -- the
+    control databasehost. It either answers or it does not, and a caller that
+    cannot tell those apart reports a barrier as waiting on the fleet when it
+    is actually waiting on one unanswered query.
+    """
+
+
 def _capability_index(role_gate, role="databasehost", dbhost="databasehost_control.frognet"):
     """Read each candidate's capability from the role's own service tuple
     `<role>/capability` (memory, never probes). Returns {ip: capability_dict} for
@@ -238,7 +248,7 @@ def _capability_index(role_gate, role="databasehost", dbhost="databasehost_contr
     try:
         from core import frognet_tuples as T
     except Exception:
-        return out
+        raise CapabilityReadFailed("core.frognet_tuples unavailable")
     import time as _time
     # [DBHOST_BALLOT_FRESHNESS_V1] apply the SAME admissibility the service election
     # uses (frognet_role_elect.gather_candidates): a capability tuple with ts==0 or
@@ -268,8 +278,17 @@ def _capability_index(role_gate, role="databasehost", dbhost="databasehost_contr
                 cap = dict(cap)
                 cap["_perf"] = {"loadavg": blob.get("loadavg") or cap.get("loadavg") or {}}
                 out[ip] = cap
-    except Exception:
-        return {}
+    except Exception as e:
+        # [READ_FAILURE_IS_NOT_AN_EMPTY_POOL_V1] This returned {} on any error,
+        # so a control store that did not answer was indistinguishable from a
+        # control store holding no records. The caller then logged
+        # "recorded=[] -- this role waits for every live machine to publish ITS
+        # record", which names the wrong party: the machines may well have
+        # published, and it is the single read of the control that failed.
+        # Measured on Seattle7 with the store deadline at 4s: every role
+        # deferred every merge with recorded=[], while the PUTs that would have
+        # filled it were timing out in the same pass.
+        raise CapabilityReadFailed("%s: %s" % (type(e).__name__, e)) from e
     return out
 
 
@@ -307,17 +326,33 @@ def role_barrier_ready(etc_hosts, role="databasehost",
         if (len(p) >= 2 and p[0].endswith(".1")
                 and any(t.startswith("FrogNetHost.") for t in p[1:])):
             alive.add(p[0])
+    # [READ_FAILURE_IS_NOT_AN_EMPTY_POOL_V1] The records live in ONE place, the
+    # control databasehost, and this is ONE read of it. So there are two
+    # distinct reasons this barrier can stay shut, and they need different
+    # answers from whoever is looking at the log:
+    #
+    #   the read answered, some machines have not published  -> wait for them
+    #   the read did not answer at all                       -> fix the control
+    #
+    # The old code caught everything and set recorded=set(), which rendered the
+    # second as the first and sent every investigation after the wrong machines.
     try:
         recorded = set(_capability_index(lambda c: True, role=role,
                                          dbhost=dbhost).keys())
-    except Exception:
-        recorded = set()
+    except CapabilityReadFailed as e:
+        log(f"ROLE_DEFER role={role} reason=control_read_failed dbhost={dbhost} "
+            f"err={e} alive={sorted(alive)} "
+            f"-- the control store did not answer. This says NOTHING about "
+            f"whether the machines published; nothing was read.")
+        return False, alive, set()
     missing = alive - recorded
     ready = not missing
     if not ready:
-        log(f"ROLE_DEFER role={role} missing={sorted(missing)} "
+        log(f"ROLE_DEFER role={role} reason=records_missing "
+            f"missing={sorted(missing)} "
             f"recorded={sorted(recorded)} alive={sorted(alive)} "
-            f"-- this role waits for every live machine to publish ITS record")
+            f"-- the control answered; these machines have not published "
+            f"a fresh {role} record")
     return ready, alive, recorded
 
 
@@ -396,8 +431,21 @@ def select_database_host(etc_hosts: list[str], dbhost: str = "databasehost_contr
     if not dot_ones:
         return list(etc_hosts)
 
-    capable = _capability_index(
-        lambda c: bool(c.get("mysql_running", c.get("mysql"))), dbhost=dbhost)
+    # [READ_FAILURE_IS_NOT_AN_EMPTY_POOL_V1] The floor election degrades to the
+    # deterministic highest-.1 baseline when there is no capability data, and an
+    # unanswered control read is one way to have none -- so the degrade is still
+    # correct here. What was NOT correct was doing it silently: the log said
+    # "no_specialist_capability_every_frognethost_is_a_candidate", which reads as
+    # a statement about the fleet when it can equally mean the control did not
+    # answer. Say which.
+    try:
+        capable = _capability_index(
+            lambda c: bool(c.get("mysql_running", c.get("mysql"))), dbhost=dbhost)
+    except CapabilityReadFailed as _e:
+        _log(f"DBHOST_FLOOR control_read_failed dbhost={dbhost} err={_e} "
+            f"-- falling back to the highest-.1 baseline with NO capability data; "
+            f"this is not evidence that no host is capable")
+        capable = {}
     # intersect: only .1 hosts in THIS block that are mysql-capable AND serving
     eligible = {ip: capable[ip] for ip in dot_ones if ip in capable}
 

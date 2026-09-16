@@ -1,0 +1,11 @@
+async function pollForever(){
+  while(true){
+    try{
+      const m = Number(await (await fetch("/somethingChanged.php",{cache:"no-store"})).text());
+      if(m & 2) await updateEcho();
+      if(m & 4) await updateHostsAndSensors();
+      if(m & 8) await updateDBHost();
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,2000));
+  }
+}

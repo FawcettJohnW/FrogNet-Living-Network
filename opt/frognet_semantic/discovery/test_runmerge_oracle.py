@@ -28,7 +28,12 @@ from discovery.runmerge import run_merge
 from discovery.test_kernel_oracle import ORACLE_FINAL_IPR_REAPED, _diff
 from discovery.test_hosts_oracle import ORACLE_ETC_HOSTS, BRINGUP_PEERS
 
-ORACLE_CONVERGE = "converge_decision sync_required=1 runAgain=1 depth=0 cap=10"
+# [RUNAGAIN_ON_REAL_DELTA_V1] run_merge no longer decides runAgain, so it no
+# longer emits converge_decision -- that verdict moved to live.main(), which is
+# the only place that can see the fixDefault/manageResolv tail. What run_merge
+# emits now is the observation line. sync_required is unchanged; the dropped
+# `runAgain=1` is the point of the change, not a regression.
+ORACLE_CONVERGE = "merge_observations sync_required=1 depth=0 cap=10"
 
 
 def main():
@@ -41,7 +46,7 @@ def main():
                     depth=0, concurrent_attempt=True,   # oracle had runAgain=1
                     logger=logs.append)
 
-    conv = [l for l in logs if l.startswith("converge_decision")]
+    conv = [l for l in logs if l.startswith("merge_observations")]
     # [RUNAGAIN_ON_MUTATION_V1] the line now carries extra diagnostic fields
     # (routes_mutated/transit_changed/concurrent); the invariant the oracle pins
     # is the leading decision tuple. Match by prefix so the diagnostics can grow
@@ -50,7 +55,7 @@ def main():
         print("  PASS converge_decision line")
     else:
         ok = False
-        print(f"  FAIL converge_decision: got {conv} want prefix [{ORACLE_CONVERGE!r}]")
+        print(f"  FAIL merge_observations: got {conv} want prefix [{ORACLE_CONVERGE!r}]")
 
     ok &= _diff("final ip r", out["final_table"], ORACLE_FINAL_IPR_REAPED)
     ok &= _diff("/etc/hosts", out["etc_hosts"], ORACLE_ETC_HOSTS)

@@ -92,11 +92,10 @@ _ENABLED = os.environ.get("FROGNET_DATA_CACHE_ENABLED", "1").strip() == "1"
 # 258 + 258 rows every 4.3s, competing for the same MySQL as the writes that
 # caused it. Sensor is node identity and changes near never; SensorData is all
 # the churn. The write rate was normal, the invalidation granularity was not.
-# [DB_SECRET_IS_INJECTABLE_V1] The installer rewrites the default below. An
-# empty default is correct and intended: DB_CONFIG.json normally supplies the
-# password, and a machine where neither is set must fail to connect loudly
-# rather than try an empty one and look like a permissions problem.
-_DB_PASS = os.environ.get("FROGNET_DB_PASS", "")
+# [ONE_CREDENTIAL_ONE_SOURCE_V1] No credential lives in this file. See
+# core/db_credentials for why five copies of one password is how a node ends up
+# spraying "Access denied for user 'FrogUser'" at its own auth log forever.
+from core import db_credentials as _cred
 
 _GEN_TABLES = ("Sensor", "SensorData")
 _GEN_KEY_LEGACY = "SensorTables"     # V2's shared row; read only by the preflight
@@ -124,25 +123,66 @@ _SQL_SENSORDATA = ("SELECT *, UNIX_TIMESTAMP(UpdatedAt) AS UpdatedAtEpoch "
 
 # -- connection ---------------------------------------------------------------
 
-_db_config: Optional[Dict[str, Any]] = None
-_db_config_lock = threading.Lock()
 _conn_local = threading.local()
 
+class _ConnHolder:
+    """[A_THREAD_THAT_DIES_MUST_TAKE_ITS_CONNECTION_WITH_IT_V1 - John 2026-09-15]
 
-def _load_db_config() -> Dict[str, Any]:
-    global _db_config
-    if _db_config is not None:
-        return _db_config
-    with _db_config_lock:
-        if _db_config is None:
-            with open("/opt/frognet_semantic/DB_CONFIG.json") as f:
-                _db_config = json.load(f)
-        return _db_config
+    Owns one MySQL connection and closes it when nothing references it any
+    more -- which, for a connection parked in a threading.local(), is when the
+    thread that opened it terminates and CPython clears that thread's local
+    storage.
+
+    The connection used to sit directly on the threading.local. That is one
+    connection per thread, held for the life of the thread, and released by
+    close_thread_conn() -- a function defined in this file, documented "Call on
+    thread exit", and called from nowhere in the tree. The daemon spawns a
+    thread per served request, so every request that touched the cache left a
+    connection behind when its thread ended.
+
+    Measured on the databasehost, 2026-09-15: daemon_main.py holding about 270
+    of MariaDB's 300 connections with 253 live threads -- MORE CONNECTIONS THAN
+    THREADS, which is the leak stated as a number. api.php then could not get a
+    handle and returned
+
+        {"error":"DB connect failed","detail":"Too many connections"}
+
+    which reached the benchmark as HTTP 500, as HTTP 502 "http exec error:
+    TimeoutError" when the origin timed out instead, and as HTTP 503 from the
+    proxy. Campaigns died on all three messages before anyone looked at the
+    connection count. Restarting the daemon took it from 298 to 24.
+
+    Python has no thread-exit hook, so the fix cannot live at the thread
+    creation sites -- there are many and more get added. Tying the lifetime to
+    the thread-local storage needs nothing at any creation site and cannot be
+    forgotten by the next one.
+    """
+
+    __slots__ = ("conn",)
+
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __del__(self):
+        conn, self.conn = self.conn, None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
+
+# [ONE_CREDENTIAL_ONE_SOURCE_V1] _load_db_config() removed. It was a second
+# private reader of DB_CONFIG.json with its own cache and its own lock; there is
+# one reader now, core/db_credentials, and it caches once for the process.
 
 
 def _get_conn():
     import mysql.connector
-    conn = getattr(_conn_local, "conn", None)
+    _h = getattr(_conn_local, "holder", None)
+    conn = _h.conn if _h is not None else None
     if conn is not None:
         try:
             sock = conn._socket.sock
@@ -156,46 +196,33 @@ def _get_conn():
             conn.close()
         except Exception:
             pass
-        _conn_local.conn = None
+        _conn_local.holder = None
 
-    cfg = _load_db_config()
-    conn = mysql.connector.connect(
-        host=cfg.get("host", "127.0.0.1"), user=cfg.get("user", "FrogUser"),
-        # [DB_SECRET_IS_INJECTABLE_V1] DB_CONFIG.json is the source of truth and
-        # stays that way. _DB_PASS is the installer's injection SITE, used only
-        # when the config carries no password.
-        #
-        # frognet_install.sh lists this file in SECRET_INJECT_FILES and dies if a
-        # listed file yields zero matches. It recognises four forms: a PHP
-        # DB_PASS define, a JSON or dict password key, an environment-variable
-        # default, and a build token.
-        #
-        # NOTE FOR ANYONE EDITING THIS COMMENT: do not write those forms out
-        # literally here. The injector is a regex over the whole file and does
-        # not know what a comment is -- spelling them out put THREE COPIES OF THE
-        # LIVE PASSWORD into this comment block on the first attempt. Describe
-        # them; do not quote them.
-        #
-        # The previous `cfg.get` call matched none of the four, so injection
-        # reported NO-SECRET-FIELD and the install aborted:
-        #
-        #   NO-SECRET-FIELD /opt/frognet_semantic/daemon/engine/data_cache.py
-        #   [FATAL] DB secret injection failed -- refusing to continue
-        #
-        # This is the same form daemon/cache/semcache_db.py already uses, so the
-        # installer sees one site here exactly as it does there.
-        password=cfg.get("password") or _DB_PASS,
-        database=cfg.get("database", "FrogNet"),
-        port=cfg.get("port", 3306),
-        autocommit=True, use_pure=True, connection_timeout=10,
-    )
+    # [ONE_CREDENTIAL_ONE_SOURCE_V1] core/db_credentials is the only reader of
+    # DB_CONFIG.json now, so this module no longer carries an injection site of
+    # its own. The `_DB_PASS` default that used to back-stop `cfg.get("password")`
+    # is gone: an empty password is not a fallback, it is an install that did not
+    # finish, and it should say so rather than arrive at MySQL as a permissions
+    # problem.
+    # [CREDENTIAL_FAILURE_IS_FATAL_V1] A wrong credential cannot be retried into
+    # a right one. Stop, rather than serve every read from a cache that can
+    # never fill while MySQL logs an Access-denied line per attempt.
+    try:
+        conn = mysql.connector.connect(
+            **_cred.connect_kwargs(),
+            autocommit=True, use_pure=True, connection_timeout=10,
+        )
+    except Exception as _e:
+        if _cred.is_fatal(_e):
+            _cred.fatal(_e, "DAEMON-DATA-CACHE")
+        raise
     try:
         sock = conn._socket.sock
         if sock:
             sock.settimeout(10.0)
     except Exception:
         pass
-    _conn_local.conn = conn
+    _conn_local.holder = _ConnHolder(conn)
     return conn
 
 

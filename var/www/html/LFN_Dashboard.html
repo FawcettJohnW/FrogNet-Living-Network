@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FrogNet Living Network – Live Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        background: #0b0b0b;
+        color: #e0e0e0;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+    }
+
+    h1, h2, h3 {
+        color: #6cf;
+        margin: 0;
+        padding: 0;
+    }
+
+    #header {
+        padding: 12px 20px;
+        background: #111;
+        border-bottom: 1px solid #333;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    #header .title {
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    #header .subtitle {
+        font-size: 12px;
+        color: #aaa;
+    }
+
+    #statusBar {
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        font-size: 13px;
+    }
+
+    .status-label {
+        color: #aaa;
+    }
+
+    .status-value.good {
+        color: #6f6;
+    }
+    .status-value.bad {
+        color: #f66;
+    }
+    .status-value.warn {
+        color: #fc6;
+    }
+
+    #errorPanel {
+        margin: 0;
+        padding: 6px 14px;
+        background: #331111;
+        color: #f88;
+        font-family: monospace;
+        font-size: 12px;
+        display: none;
+        border-bottom: 1px solid #552222;
+        white-space: pre-wrap;
+    }
+
+    #main {
+        display: grid;
+        grid-template-columns: 2fr 2fr 1.5fr;
+        grid-template-rows: 2fr 2fr;
+        grid-template-areas:
+            "map topo charts"
+            "map charts details";
+        gap: 10px;
+        padding: 10px;
+        height: calc(100vh - 70px);
+        box-sizing: border-box;
+    }
+
+    .panel {
+        background: #151515;
+        border: 1px solid #303030;
+        border-radius: 8px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    .panel h2 {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+
+    #mapPanel {
+        grid-area: map;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #topologyPanel {
+        grid-area: topo;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #chartsPanel {
+        grid-area: charts;
+        display: grid;
+        grid-template-rows: 1fr 1fr 1fr;
+        gap: 8px;
+    }
+
+    #detailsPanel {
+        grid-area: details;
+        display: flex;
+        flex-direction: column;
+    }
+
+    canvas {
+        background: #111;
+        border-radius: 6px;
+        width: 100%;
+        height: 100%;
+    }
+
+    #mapCanvas, #topologyCanvas {
+        flex: 1;
+    }
+
+    #echoPanel {
+        font-family: monospace;
+        font-size: 11px;
+        background: #090909;
+        border-radius: 4px;
+        padding: 4px 6px;
+        max-height: 70px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+
+    #nodeList {
+        flex: 0 0 auto;
+        margin-bottom: 8px;
+        max-height: 80px;
+        overflow-y: auto;
+        font-size: 12px;
+    }
+
+    #nodeList span {
+        cursor: pointer;
+        margin-right: 8px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: #111;
+        border: 1px solid #333;
+    }
+
+    #nodeList span.selected {
+        background: #244;
+        border-color: #6cf;
+        color: #cff;
+    }
+
+    #nodeDetails {
+        flex: 1;
+        font-family: monospace;
+        font-size: 11px;
+        background: #090909;
+        border-radius: 4px;
+        padding: 4px 6px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+
+    #eventsPanel {
+        flex: 1;
+        margin-top: 6px;
+        font-family: monospace;
+        font-size: 11px;
+        background: #090909;
+        border-radius: 4px;
+        padding: 4px 6px;
+        overflow: auto;
+        white-space: pre-wrap;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #333;
+        border-radius: 3px;
+    }
+</style>
+
+<!-- Chart.js must be available here -->
+<script src="/js/chart.umd.min.js"></script>
+
+</head>
+<body>
+<div id="header">
+    <div>
+        <div class="title">FrogNet Living Network</div>
+        <div class="subtitle">A living, adaptive, resilient network of frogs, sensors, and semantics</div>
+    </div>
+    <div id="statusBar">
+        <span class="status-label">Cluster:</span>
+        <span id="clusterStatus" class="status-value bad">Disconnected</span>
+
+        <span class="status-label">Frogs:</span>
+        <span id="frogCount" class="status-value">0</span>
+
+        <span class="status-label">Links:</span>
+        <span id="linkCount" class="status-value">0</span>
+
+        <span class="status-label">Semantic Share:</span>
+        <span id="semanticShare" class="status-value">0%</span>
+    </div>
+</div>
+<div id="errorPanel"></div>
+
+<div id="main">
+    <!-- MAP PANEL -->
+    <div class="panel" id="mapPanel">
+        <h2>Living Map (Frogs in the Field)</h2>
+        <canvas id="mapCanvas"></canvas>
+        <div style="margin-top:4px;">
+            <pre id="echoPanel">{ waiting for frognet_echo... }</pre>
+        </div>
+    </div>
+
+    <!-- TOPOLOGY PANEL -->
+    <div class="panel" id="topologyPanel">
+        <h2>Network Topology (Who Talks to Whom)</h2>
+        <canvas id="topologyCanvas"></canvas>
+    </div>
+
+    <!-- CHARTS PANEL -->
+    <div id="chartsPanel">
+        <div class="panel">
+            <h2>Throughput (Semantic vs Raw bytes/cycle)</h2>
+            <canvas id="chartThroughput"></canvas>
+        </div>
+        <div class="panel">
+            <h2>Latency (Semantic vs Raw ms)</h2>
+            <canvas id="chartLatency"></canvas>
+        </div>
+        <div class="panel">
+            <h2>Per-Opcode Compression Savings (%)</h2>
+            <canvas id="chartSavings"></canvas>
+        </div>
+    </div>
+
+    <!-- DETAILS & EVENTS -->
+    <div class="panel" id="detailsPanel">
+        <h2>Selected Frog & Events</h2>
+        <div id="nodeList"></div>
+        <div id="nodeDetails"></div>
+        <div id="eventsPanel"></div>
+    </div>
+</div>
+
+<script>
+/**********************************************************************
+ * LIVING NETWORK DATA MODEL
+ *
+ * All data comes from:
+ *   - http://databasehost.frognet/api.php?entity=sensors&action=values&parse=1
+ *   - frognet_echo.php on the current host
+ *
+ * Sensors we try to use (if present):
+ *   - SemanticProxy   (per-node summary)
+ *   - SemanticDaemon  (per-node summary + opcodes)
+ *   - syncInterfaces  (per-node host sync / discovery metrics)
+ *   - FixDefaultRoute (per-node routing changes)
+ *   - GPS             (per-node lat/lon)
+ *   - SystemStats     (per-node cpu/ram/load/temp)  [optional]
+ *   - LinkHealth      (per-node link RTTs & slow flags) [optional]
+ **********************************************************************/
+
+const API_BASE = "http://databasehost.frognet/api.php";
+const errorPanel = document.getElementById("errorPanel");
+
+function showError(msg) {
+    errorPanel.style.display = "block";
+    errorPanel.textContent = msg;
+    console.error(msg);
+}
+
+/******************** HTTP HELPERS ************************/
+
+async function apiFetch(url) {
+    const r = await fetch(url, { cache: "no-cache" });
+    if (!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
+    const j = await r.json();
+    if (j.ok === false || j.error) {
+        throw new Error(`API error from ${url}: ${JSON.stringify(j)}`);
+    }
+    return j;
+}
+
+async function fetchSensorsByType(sensorType) {
+    const url = `${API_BASE}?entity=sensors&action=values&parse=1&SensorType=${encodeURIComponent(sensorType)}`;
+    const j = await apiFetch(url);
+    return j.rows || [];
+}
+
+async function fetchLatestByType(sensorType) {
+    const rows = await fetchSensorsByType(sensorType);
+    if (!rows.length) return null;
+    return rows[rows.length - 1];
+}
+
+async function fetchFrognetEcho() {
+    try {
+        const frogUrl = `${window.location.origin.replace(/\/$/, "")}/frognet_echo.php`;
+        const r = await fetch(frogUrl, { cache: "no-cache" });
+        if (!r.ok) throw new Error(`HTTP ${r.status} from ${frogUrl}`);
+        const txt = (await r.text()).trim();
+        // hostname,ip,gw0,gw1
+        const parts = txt.split(",");
+        if (parts.length < 4) {
+            return { raw: txt };
+        }
+        return {
+            hostname: parts[0],
+            ip: parts[1],
+            gw0: parts[2],
+            gw1: parts[3],
+            raw: txt
+        };
+    } catch (e) {
+        showError("Error fetching frognet_echo: " + e.message);
+        return { error: e.message };
+    }
+}
+
+/******************** STATE BUILDING ************************/
+
+function hostFromSensorName(name, marker) {
+    // E.g. FrogNetHost.TealBox.SemanticProxy.Summary
+    const idx = name.indexOf(marker);
+    if (idx === -1) return name;
+    return name.substring(0, idx);
+}
+
+async function buildLivingState() {
+    const [echo,
+           semProxyRows,
+           semDaemonRows,
+           gpsRows,
+           sysRows,
+           linkHealthRows,
+           syncRows,
+           fixRows] = await Promise.all([
+        fetchFrognetEcho(),
+        fetchSensorsByType("SemanticProxy"),
+        fetchSensorsByType("SemanticDaemon"),
+        fetchSensorsByType("GPS"),
+        fetchSensorsByType("SystemStats").catch(() => []),
+        fetchSensorsByType("LinkHealth").catch(() => []),
+        fetchSensorsByType("syncInterfaces").catch(() => []),
+        fetchSensorsByType("FixDefaultRoute").catch(() => [])
+    ]);
+
+    const nodes = {};  // hostname -> {name, gps, system, semProxy, semDaemon, sync, fix, linkHealth}
+    const links = {};  // key "a|b" -> {a,b, slow, rtt_ms}
+
+    function ensureNode(host) {
+        if (!nodes[host]) {
+            nodes[host] = {
+                name: host,
+                gps: null,
+                system: null,
+                semProxy: null,
+                semDaemon: null,
+                sync: null,
+                fix: null,
+                linkHealth: null
+            };
+        }
+        return nodes[host];
+    }
+
+    // SemanticProxy rows
+    for (const row of semProxyRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".SemanticProxy.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.semProxy = data;
+    }
+
+    // SemanticDaemon rows
+    for (const row of semDaemonRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".SemanticDaemon.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.semDaemon = data;
+    }
+
+    // GPS
+    for (const row of gpsRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".GPS.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.gps = data;
+    }
+
+    // SystemStats
+    for (const row of sysRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".SystemStats.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.system = data;
+    }
+
+    // syncInterfaces
+    for (const row of syncRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".syncInterfaces.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.sync = data;
+    }
+
+    // FixDefaultRoute
+    for (const row of fixRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".FixDefaultRoute.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.fix = data;
+    }
+
+    // LinkHealth: build link set
+    for (const row of linkHealthRows) {
+        const name = row.SensorName || "";
+        const host = hostFromSensorName(name, ".LinkHealth.");
+        const node = ensureNode(host);
+        const data = row.data || (row.jsonData ? JSON.parse(row.jsonData) : {});
+        node.linkHealth = data;
+        if (data && data.links) {
+            for (const [peer, info] of Object.entries(data.links)) {
+                const k = host < peer ? `${host}|${peer}` : `${peer}|${host}`;
+                if (!links[k]) {
+                    links[k] = {
+                        a: host,
+                        b: peer,
+                        rtt_ms: info.rtt_ms || 0,
+                        slow: !!info.slow
+                    };
+                }
+            }
+        }
+    }
+
+    // Summary metrics
+    let totalSemanticBytes = 0;
+    let totalRawBytes = 0;
+    let totalSemanticMessages = 0;
+    let totalMessages = 0;
+    const opcodeSavings = {}; // opcode -> {saved_pct, raw, packed}
+
+    for (const node of Object.values(nodes)) {
+        const p = node.semProxy && node.semProxy.counters ? node.semProxy.counters : null;
+        const d = node.semDaemon || null;
+
+        if (p) {
+            const semBytes = (p.sem_req_bytes || 0) + (p.sem_resp_bytes || 0);
+            totalSemanticBytes += semBytes;
+            totalSemanticMessages += (p.semantic || 0);
+            totalMessages += (p.total || 0);
+        }
+
+        // Derive per-opcode savings from daemon metrics
+        if (d && d.opcodes) {
+            for (const [opcode, stats] of Object.entries(d.opcodes)) {
+                const unc = stats.uncompressed_bytes || 0;
+                const comp = stats.compressed_bytes || 0;
+                const saved = Math.max(unc - comp, 0);
+                const pct = unc > 0 ? (saved / unc) * 100.0 : 0.0;
+                const existing = opcodeSavings[opcode];
+                if (!existing) {
+                    opcodeSavings[opcode] = {
+                        raw_bytes: unc,
+                        packed_bytes: comp,
+                        saved_pct: pct
+                    };
+                } else {
+                    existing.raw_bytes += unc;
+                    existing.packed_bytes += comp;
+                    // recompute pct later; for now just accumulate
+                }
+            }
+        }
+    }
+
+    for (const [opcode, s] of Object.entries(opcodeSavings)) {
+        const unc = s.raw_bytes;
+        const comp = s.packed_bytes;
+        const saved = Math.max(unc - comp, 0);
+        s.saved_pct = unc > 0 ? (saved / unc) * 100.0 : 0.0;
+    }
+
+    const semanticShare = totalMessages > 0 ? (totalSemanticMessages / totalMessages) * 100.0 : 0.0;
+
+    const frogCount = Object.keys(nodes).length;
+    const linkCount = Object.keys(links).length;
+
+    return {
+        echo,
+        nodes,
+        links,
+        frogCount,
+        linkCount,
+        semanticShare,
+        opcodeSavings
+    };
+}
+
+/******************** MAP & TOPOLOGY RENDERING ************************/
+
+const mapCanvas = document.getElementById("mapCanvas");
+const topoCanvas = document.getElementById("topologyCanvas");
+const mapCtx = mapCanvas.getContext("2d");
+const topoCtx = topoCanvas.getContext("2d");
+let selectedHost = null;
+
+function resizeCanvasToPanel(canvas) {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width - 4;
+    canvas.height = rect.height - 26; // leave room for title
+}
+
+window.addEventListener("resize", () => {
+    resizeCanvasToPanel(mapCanvas);
+    resizeCanvasToPanel(topoCanvas);
+});
+
+resizeCanvasToPanel(mapCanvas);
+resizeCanvasToPanel(topoCanvas);
+
+function renderMap(state) {
+    const { nodes } = state;
+    const ctx = mapCtx;
+    const w = mapCanvas.width;
+    const h = mapCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, w, h);
+
+    // Collect nodes with GPS
+    const gpsNodes = [];
+    for (const node of Object.values(nodes)) {
+        if (node.gps && typeof node.gps.lat === "number" && typeof node.gps.lon === "number") {
+            gpsNodes.push(node);
+        }
+    }
+
+    if (!gpsNodes.length) {
+        ctx.fillStyle = "#666";
+        ctx.font = "12px Arial";
+        ctx.fillText("No GPS data yet. Add GPS sensors to frogs for map view.", 10, 20);
+        return;
+    }
+
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const node of gpsNodes) {
+        minLat = Math.min(minLat, node.gps.lat);
+        maxLat = Math.max(maxLat, node.gps.lat);
+        minLon = Math.min(minLon, node.gps.lon);
+        maxLon = Math.max(maxLon, node.gps.lon);
+    }
+
+    const pad = 20;
+    const eps = 0.0001;
+    const latSpan = Math.max(maxLat - minLat, eps);
+    const lonSpan = Math.max(maxLon - minLon, eps);
+
+    function project(node) {
+        const nx = (node.gps.lon - minLon) / lonSpan;
+        const ny = (node.gps.lat - minLat) / latSpan;
+        const x = pad + nx * (w - 2 * pad);
+        const y = h - pad - ny * (h - 2 * pad);
+        return { x, y };
+    }
+
+    // Draw nodes
+    for (const node of gpsNodes) {
+        const { x, y } = project(node);
+        const radius = 6;
+        const isSel = (node.name === selectedHost);
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = isSel ? "#6cf" : "#3a8";
+        ctx.fill();
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = isSel ? 2 : 1;
+        ctx.stroke();
+
+        ctx.font = "10px Arial";
+        ctx.fillStyle = "#ccc";
+        ctx.fillText(node.name, x + 8, y - 8);
+    }
+}
+
+function renderTopology(state) {
+    const { nodes, links } = state;
+    const ctx = topoCtx;
+    const w = topoCanvas.width;
+    const h = topoCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, w, h);
+
+    const hosts = Object.keys(nodes);
+    if (!hosts.length) {
+        ctx.fillStyle = "#666";
+        ctx.font = "12px Arial";
+        ctx.fillText("No nodes yet. Waiting for SemanticProxy metrics.", 10, 20);
+        return;
+    }
+
+    const centerX = w / 2;
+    const centerY = h / 2;
+    const radius = Math.min(w, h) / 2 - 30;
+    const coords = {}; // host -> {x,y}
+
+    hosts.forEach((host, idx) => {
+        const angle = (idx / hosts.length) * Math.PI * 2;
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        coords[host] = { x, y };
+    });
+
+    // Draw links
+    ctx.lineWidth = 1.5;
+    for (const link of Object.values(links)) {
+        const a = coords[link.a];
+        const b = coords[link.b];
+        if (!a || !b) continue;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        if (link.slow) {
+            ctx.strokeStyle = "#f66";
+        } else if (link.rtt_ms && link.rtt_ms > 0) {
+            ctx.strokeStyle = "#6cf";
+        } else {
+            ctx.strokeStyle = "#555";
+        }
+        ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const host of hosts) {
+        const { x, y } = coords[host];
+        const node = nodes[host];
+        const isSel = (host === selectedHost);
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, Math.PI * 2);
+        ctx.fillStyle = isSel ? "#6cf" : "#3a8";
+        ctx.fill();
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = isSel ? 2 : 1;
+        ctx.stroke();
+
+        ctx.font = "10px Arial";
+        ctx.fillStyle = "#ccc";
+        ctx.fillText(host, x + 8, y - 8);
+    }
+}
+
+/******************** CHARTS ************************/
+
+let throughputChart, latencyChart, savingsChart;
+
+function initCharts() {
+    if (typeof Chart === "undefined") {
+        showError("Chart.js is not loaded. Make sure /js/chart.umd.min.js exists.");
+        return;
+    }
+
+    throughputChart = new Chart(document.getElementById("chartThroughput"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Semantic bytes_out", data: [], borderColor: "#6cf", tension: 0.1 },
+                { label: "Raw bytes_out",      data: [], borderColor: "#f66", tension: 0.1 }
+            ]
+        },
+        options: { animation: false, responsive: true, maintainAspectRatio: false }
+    });
+
+    latencyChart = new Chart(document.getElementById("chartLatency"), {
+        type: "line",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "Semantic latency", data: [], borderColor: "#6cf", tension: 0.1 },
+                { label: "Raw latency",      data: [], borderColor: "#f66", tension: 0.1 }
+            ]
+        },
+        options: { animation: false, responsive: true, maintainAspectRatio: false }
+    });
+
+    savingsChart = new Chart(document.getElementById("chartSavings"), {
+        type: "bar",
+        data: {
+            labels: [],
+            datasets: [
+                { label: "% Savings", data: [], backgroundColor: "#6f6" }
+            ]
+        },
+        options: { animation: false, responsive: true, maintainAspectRatio: false }
+    });
+}
+
+initCharts();
+
+/******************** NODE LIST & DETAILS ************************/
+
+const nodeListDiv = document.getElementById("nodeList");
+const nodeDetailsDiv = document.getElementById("nodeDetails");
+const eventsDiv = document.getElementById("eventsPanel");
+
+function renderNodeList(nodes) {
+    const hosts = Object.keys(nodes);
+    if (!hosts.length) {
+        nodeListDiv.textContent = "(no frogs yet)";
+        return;
+    }
+    if (!selectedHost || !nodes[selectedHost]) {
+        selectedHost = hosts[0];
+    }
+
+    nodeListDiv.innerHTML = "";
+    hosts.forEach(host => {
+        const span = document.createElement("span");
+        span.textContent = host;
+        if (host === selectedHost) span.classList.add("selected");
+        span.onclick = () => {
+            selectedHost = host;
+            renderNodeList(nodes);
+            renderNodeDetails(nodes);
+        };
+        nodeListDiv.appendChild(span);
+    });
+}
+
+function renderNodeDetails(nodes) {
+    if (!selectedHost || !nodes[selectedHost]) {
+        nodeDetailsDiv.textContent = "(no frog selected)";
+        return;
+    }
+    const n = nodes[selectedHost];
+    const detail = {
+        host: n.name,
+        gps: n.gps || null,
+        system: n.system || null,
+        semantic_proxy_counters: n.semProxy ? n.semProxy.counters || n.semProxy : null,
+        semantic_daemon_summary: n.semDaemon ? n.semDaemon.counters || n.semDaemon : null,
+        sync: n.sync || null,
+        fix_default_route: n.fix || null,
+        link_health: n.linkHealth || null
+    };
+    nodeDetailsDiv.textContent = JSON.stringify(detail, null, 2);
+}
+
+function logEvent(msg) {
+    const ts = new Date().toLocaleTimeString();
+    const line = `[${ts}] ${msg}\n`;
+    eventsDiv.textContent = line + eventsDiv.textContent;
+}
+
+/******************** STATUS / UPDATE LOOP ************************/
+
+const clusterStatusSpan = document.getElementById("clusterStatus");
+const frogCountSpan = document.getElementById("frogCount");
+const linkCountSpan = document.getElementById("linkCount");
+const semanticShareSpan = document.getElementById("semanticShare");
+const echoPanel = document.getElementById("echoPanel");
+
+async function updateLoop() {
+    try {
+        const state = await buildLivingState();
+
+        // status
+        clusterStatusSpan.textContent = "Connected";
+        clusterStatusSpan.className = "status-value good";
+        frogCountSpan.textContent = state.frogCount;
+        linkCountSpan.textContent = state.linkCount;
+        semanticShareSpan.textContent = state.semanticShare.toFixed(1) + "%";
+
+        // echo
+        echoPanel.textContent = JSON.stringify(state.echo, null, 2);
+
+        // map & topology
+        resizeCanvasToPanel(mapCanvas);
+        resizeCanvasToPanel(topoCanvas);
+        renderMap(state);
+        renderTopology(state);
+
+        // node list / details
+        renderNodeList(state.nodes);
+        renderNodeDetails(state.nodes);
+
+        // charts
+        const now = new Date().toLocaleTimeString();
+        const semBytes = state.semanticShare > 0 ? 1 : 0; // not actually used; below we derive from nodes
+        let semanticBytesOut = 0;
+        for (const node of Object.values(state.nodes)) {
+            const p = node.semProxy && node.semProxy.counters ? node.semProxy.counters : null;
+            if (p) {
+                semanticBytesOut += (p.sem_req_bytes || 0) + (p.sem_resp_bytes || 0);
+            }
+        }
+        const rawBytesOut = 0; // until you instrument raw separately
+
+        if (throughputChart) {
+            throughputChart.data.labels.push(now);
+            throughputChart.data.datasets[0].data.push(semanticBytesOut);
+            throughputChart.data.datasets[1].data.push(rawBytesOut);
+            if (throughputChart.data.labels.length > 60) {
+                throughputChart.data.labels.shift();
+                throughputChart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            throughputChart.update();
+        }
+
+        // latency: we approximate from SemanticProxy total_sem_latency / semantic messages
+        let totalSemLatency = 0;
+        let totalSemCount = 0;
+        for (const node of Object.values(state.nodes)) {
+            const p = node.semProxy && node.semProxy.counters ? node.semProxy.counters : null;
+            if (p) {
+                totalSemLatency += (p.total_sem_latency_ms || 0);
+                totalSemCount += (p.semantic || 0);
+            }
+        }
+        const avgSemLatency = totalSemCount > 0 ? totalSemLatency / totalSemCount : 0;
+        const avgRawLatency = 0; // not yet measured separately
+
+        if (latencyChart) {
+            latencyChart.data.labels.push(now);
+            latencyChart.data.datasets[0].data.push(avgSemLatency);
+            latencyChart.data.datasets[1].data.push(avgRawLatency);
+            if (latencyChart.data.labels.length > 60) {
+                latencyChart.data.labels.shift();
+                latencyChart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            latencyChart.update();
+        }
+
+        // opcode savings
+        if (savingsChart) {
+            const opcodes = state.opcodeSavings || {};
+            const keys = Object.keys(opcodes);
+            savingsChart.data.labels = keys;
+            savingsChart.data.datasets[0].data = keys.map(k => opcodes[k].saved_pct || 0);
+            savingsChart.update();
+        }
+
+        // simple event example: log when semanticShare crosses 50%
+        if (state.semanticShare > 50) {
+            logEvent("Semantic traffic dominates (>50% of messages).");
+        }
+
+    } catch (e) {
+        clusterStatusSpan.textContent = "Disconnected";
+        clusterStatusSpan.className = "status-value bad";
+        showError("Update error: " + e.message);
+    }
+}
+
+// run periodically
+setInterval(updateLoop, 2000);
+updateLoop();
+
+</script>
+
+</body>
+</html>

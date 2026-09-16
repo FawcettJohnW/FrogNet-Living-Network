@@ -43,6 +43,15 @@ import time
 import traceback
 import fcntl
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
+try:
+    from core.frognet_diag import (diag as _diag, diag_exc as _diag_exc,
+                                   Timer as _diag_timer)
+except ImportError:
+    def _diag(*a, **k): pass
+    def _diag_exc(*a, **k): pass
+    class _diag_timer:
+        ms = -1.0
 from socketserver import ThreadingMixIn
 from typing import Any, Dict, Set
 
@@ -80,7 +89,29 @@ GAME_ORIGIN = GameOrigin()
 
 _STRIP_HDRS = {"transfer-encoding", "connection", "content-length", "server", "date"}
 
+#: [MAX_ACTIVE_IS_A_KNOB_V1] Rebuilt by set_max_active() when --max-active is
+#: given, before serve_forever(). A BoundedSemaphore cannot be resized, so the
+#: object is replaced rather than adjusted -- which is safe only before any
+#: request has been served, and that is the only place it is called from.
+_MAX_ACTIVE = MAX_ACTIVE_REQUESTS
 _ACTIVE = threading.BoundedSemaphore(MAX_ACTIVE_REQUESTS)
+
+
+def set_max_active(n: int) -> int:
+    global _ACTIVE, _MAX_ACTIVE
+    n = int(n)
+    if n < 1:
+        raise ValueError("--max-active must be at least 1, got %d" % n)
+    _MAX_ACTIVE = n
+    _ACTIVE = threading.BoundedSemaphore(n)
+    return n
+
+
+def max_active() -> int:
+    """The value actually in force, for the banner and the 503 body."""
+    return _MAX_ACTIVE
+
+
 _REMOTE_APACHE_SLOTS = threading.BoundedSemaphore(
     int(os.environ.get("FROGNET_REMOTE_APACHE_SLOTS", "64"))
 )
@@ -532,7 +563,7 @@ class FrogNetProxyHandler(BaseHTTPRequestHandler):
                      "client_ip": self.client_address[0],
                      "target_host": self.headers.get("Host","")},
                 where="max_active_requests",
-                extras={"max_active": MAX_ACTIVE_REQUESTS})
+                extras={"max_active": _MAX_ACTIVE})
         try:
             return self._do_any_inner(method, origin_local=False)
         finally:
@@ -612,7 +643,50 @@ class FrogNetProxyHandler(BaseHTTPRequestHandler):
                 where="netutil_environment_read",
                 extras={"exc_type": type(e).__name__, "host_header": repr(host_header)})
 
-        semantic_path = canonical_semantic_key(method, raw_path, body)
+        # [DIAG-PROXY] The semantic arm of the AIConnect ramp fails 100% of
+        # attempts with RemoteDisconnected -- the client's connection closed
+        # with no status line, at both peers, at equal rates, from the first
+        # thread. That is this handler raising something _do_any_inner does not
+        # catch: only NetutilFailure is handled below, so anything else unwinds
+        # into BaseHTTPRequestHandler, which closes the socket. The client is
+        # told nothing and the cause is whatever landed in the proxy's own
+        # stderr, unattached to the request that caused it.
+        #
+        # Everything about the request goes out BEFORE the work is attempted,
+        # so a request that kills the handler is still fully described. Not
+        # only the fields the current suspicion points at: method, path, host,
+        # client, content type and length, the header set, and the head of the
+        # body -- the body is what canonical_semantic_key inspects to build a
+        # template key, and it is the one input that differs between the arm
+        # that works and the arm that does not.
+        _dg_t = _diag_timer()
+        _diag("DIAG-PROXY", "request", method=method, raw_path=raw_path,
+              host=host_header, client=client_ip, target=target_host,
+              target_ip=target_ip, content_type=self.headers.get("Content-Type"),
+              content_len=content_len, body_len=len(body),
+              body_head=body[:200], hdrs=dict(self.headers),
+              origin_local=origin_local)
+        try:
+            semantic_path = canonical_semantic_key(method, raw_path, body)
+        except BaseException as e:
+            _diag_exc("DIAG-PROXY", "canonical_semantic_key RAISED", e,
+                      method=method, raw_path=raw_path,
+                      content_type=self.headers.get("Content-Type"),
+                      body_len=len(body), body_head=body[:200],
+                      ms=round(_dg_t.ms, 1))
+            # Not a recovery: the request still fails. It fails with the cause
+            # named to the client instead of the connection vanishing, which is
+            # what send_error_reply exists for. [NO_FALLBACK_V1]
+            return send_error_reply(
+                self, 500, f"semantic key failed: {type(e).__name__}: {e}",
+                ctx={"method": method, "raw_path": raw_path,
+                     "client_ip": client_ip, "target_host": host_header},
+                where="canonical_semantic_key",
+                extras={"exc_type": type(e).__name__,
+                        "content_type": self.headers.get("Content-Type"),
+                        "body_len": len(body)})
+        _diag("DIAG-PROXY", "semantic key", semantic_path=semantic_path,
+              ms=round(_dg_t.ms, 1))
 
         ctx = {
             "method": method,
@@ -644,6 +718,27 @@ class FrogNetProxyHandler(BaseHTTPRequestHandler):
                 self, 503, f"Node environment unreadable: {e}",
                 ctx=ctx, where="netutil_environment_read",
                 extras={"exc_type": type(e).__name__})
+        except BaseException as e:
+            # [DIAG-PROXY] Everything else used to unwind out of the handler
+            # and close the socket, so the client saw RemoteDisconnected and
+            # the traceback landed in the proxy's stderr with nothing tying it
+            # to the request. Log the request and the traceback together, then
+            # fail the request loudly with the cause in it. Nothing is
+            # substituted and nothing continues. [NO_FALLBACK_V1]
+            _diag_exc("DIAG-PROXY", "proxy_dispatch RAISED", e,
+                      method=method, raw_path=raw_path,
+                      semantic_path=semantic_path, host=host_header,
+                      client=client_ip, target=target_host,
+                      target_ip=target_ip,
+                      content_type=self.headers.get("Content-Type"),
+                      body_len=len(body), body_head=body[:200],
+                      ms=round(_dg_t.ms, 1))
+            return send_error_reply(
+                self, 500, f"dispatch failed: {type(e).__name__}: {e}",
+                ctx=ctx, where="proxy_dispatch",
+                extras={"exc_type": type(e).__name__,
+                        "content_type": self.headers.get("Content-Type"),
+                        "body_len": len(body)})
 
 
 class FrogNetReflectHandler(BaseHTTPRequestHandler):
@@ -771,6 +866,29 @@ class FrogNetReflectHandler(BaseHTTPRequestHandler):
 class FrogNetProxyServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
+
+    # [NEVER_LET_THE_ACCEPT_QUEUE_BUILD_V1]
+    # HTTPServer inherits request_queue_size = 5 from socketserver. Five.
+    #
+    # The proxy's job at the door is to take the connection off the pipe and
+    # hand it to a thread; it is the THREAD's job to do the work. A queue that
+    # can only hold five means the pipe stops accepting the moment six arrive
+    # together, and the kernel starts dropping SYNs:
+    #
+    #     TCP: request_sock_TCP: Possible SYN flooding on port 0.0.0.0:80.
+    #          Sending cookies.
+    #
+    # measured under a ramp of concurrent POSTs, with clients seeing
+    # RemoteDisconnected -- connections accepted and closed with no response,
+    # which reads like a handler crash and is not one. Nothing was overloaded:
+    # the listener simply refused to keep taking connections off the wire.
+    #
+    # The queue exists to cover the microseconds between accept and dispatch,
+    # so it should be far larger than any burst that gap can accumulate. It is
+    # not a work queue and it is not backpressure -- MAX_ACTIVE_REQUESTS is
+    # where load is actually bounded, and that returns a 503 a client can read
+    # rather than a dropped connection it has to guess about.
+    request_queue_size = 4096
 
 
 def _ensure_admin_alias_bound():
@@ -921,9 +1039,18 @@ def main():
     p.add_argument("--upstream-port", type=int, default=int(os.environ.get("FROGNET_UPSTREAM_PORT", "8080")))
     p.add_argument("--daemon-port", type=int, default=int(os.environ.get("FROGNET_DAEMON_PORT", str(DAEMON_PORT_DEFAULT))))
     p.add_argument("--eligible-ifaces", default=os.environ.get("FROGNET_SEMANTIC_IFACES", ",".join(sorted(DEFAULT_UPSTREAM_IFACES))))
+    p.add_argument("--max-active", type=int, default=MAX_ACTIVE_REQUESTS,
+                   help="concurrent in-flight requests through this proxy. "
+                        "[MAX_ACTIVE_IS_A_KNOB_V1] Each :80 request holds a "
+                        "slot for its whole RPC, so this is the throughput "
+                        "ceiling, and past it clients get 503 rather than "
+                        "queueing. Default %(default)d.")
     p.add_argument("--telemetry", default="on")
     p.add_argument("--telemetry-interval", type=float, default=5.0)
     args, _ = p.parse_known_args()
+    set_max_active(args.max_active)
+    print("[Proxy] [MAX_ACTIVE_IS_A_KNOB_V1] max concurrent requests = %d"
+          % max_active(), flush=True)
 
     eligible: Set[str] = {x.strip() for x in (args.eligible_ifaces or "").split(",") if x.strip()}
     if not eligible:

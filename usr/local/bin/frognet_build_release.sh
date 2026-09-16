@@ -126,13 +126,23 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 # survives anywhere in the tar, so a missed file cannot silently ship.
 ###############################################################################
 FROGNET_DB_WRAP_KEY="${FROGNET_DB_WRAP_KEY:-fn0-dbwrap-v1-do-not-rely-on-secrecy}"
+# [ONE_CREDENTIAL_ONE_SOURCE_V1 - John 2026-09-12] Three of the five entries
+# here were Python modules carrying their own copy of the password as a
+# module-level default, kept in agreement with the other two ONLY by this
+# injection running over all five in the same pass. It works exactly once. A
+# module restored from a build tar, a partial reinstall, or a unit started
+# without FROGNET_DB_PASS leaves a stale literal, and the node then sprays
+#   [Warning] Access denied for user 'FrogUser'@'localhost' (using password: YES)
+# at its own auth log for as long as the service retries. Two of them shipped
+# a real, working pond password as their shipped default.
+#
+# Those three now read core/db_credentials, which reads DB_CONFIG.json at call
+# time. They hold no secret, so they are not injection sites and must NOT be
+# listed: a listed file that yields zero matches is a FATAL injection failure.
+# Two files carry the credential, and they are the two a human edits.
 SECRET_INJECT_FILES=(
     var/www/html/config.php
-   
     opt/frognet_semantic/DB_CONFIG.json
-    opt/frognet_semantic/daemon/cache/semcache_db.py
-    opt/frognet_semantic/proxy/cache/semcache_db.py
-    opt/frognet_semantic/daemon/engine/data_cache.py
 )
 
 # [DB_SECRET_SCRUB_V1] Files that may historically contain the password but are
@@ -424,17 +434,25 @@ _MANIFEST="/usr/local/lib/frognet_world_manifest.sh"
 [ -r "$_MANIFEST" ] || { log "ERROR: manifest not readable: $_MANIFEST"; exit 1; }
 # shellcheck source=/dev/null
 . "$_MANIFEST"
-frognet_check_manifest / || exit 1
+# [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1] Report what is absent and
+# build. An operator asking for a tarball gets a tarball.
+frognet_check_manifest /
 WORLD_PATHS=( "${FROGNET_WORLD_PATHS[@]}" )
 
 # Expand and skip missing paths
 SAFE_WORLD_PATHS=()
-# [RELEASE_MANIFEST_FAILFAST_V1] The manifest IS the contract. A path listed
-# in WORLD_PATHS but absent on the build host means the build host is broken
-# or the manifest is stale - either way the release must not ship with a
-# silent hole. (Proven cost 2026-07-06: an all_5 built past a missing
-# /etc/setup_iptables shipped without it, and the absence was only noticed
-# during a field root-cause days later.)
+# [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1 - John 2026-09-15] A path in
+# WORLD_PATHS but absent on the build host is REPORTED, loudly, by path, and
+# the build continues. It used to exit 1.
+#
+# The cost it was guarding against is real and stays worth printing: an all_5
+# built past a missing /etc/setup_iptables shipped without it and the absence
+# surfaced days later in the field. But "the absence was not noticed" is an
+# argument for making it impossible to miss in the output, which these lines
+# do. It is not an argument for a tool refusing to produce the artifact its
+# operator asked for -- on 2026-09-15 that stopped AI-Host tarring itself up
+# at all over two apache vhost files and /etc/setup_iptables, on a host that
+# is not an apache server.
 _MISSING=()
 for p in "${WORLD_PATHS[@]}"; do
     if [[ -e "/$p" ]]; then
@@ -445,10 +463,10 @@ for p in "${WORLD_PATHS[@]}"; do
 done
 if (( ${#_MISSING[@]} )); then
     for m in "${_MISSING[@]}"; do
-        echo "FATAL: manifest path missing on build host: $m" >&2
+        echo "MISSING: manifest path absent on build host, NOT in this release: $m" >&2
     done
-    echo "FATAL: ${#_MISSING[@]} manifest path(s) missing - refusing to build an incomplete world" >&2
-    exit 1
+    echo "MISSING: ${#_MISSING[@]} manifest path(s) absent - this release has that hole in it." >&2
+    echo "         Unpacking it will not create them. Building anyway." >&2
 fi
 
 # [LIB_MANIFEST_AUTODISCOVER_V1] /usr/local/bin and /usr/local/sbin ship WHOLE, but
@@ -524,6 +542,10 @@ tar -czf "$WORLD_TGZ" \
     `# still has them on disk cannot re-ship them.` \
     --exclude='usr/local/bin/setup_lillypad.bash' \
     --exclude='usr/local/bin/setup_lillypad_v3.bash' \
+    --exclude='opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash' \
+    --exclude='opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash' \
+    --exclude='usr/local/bin/frognet-tunnel-daemon.py' \
+    --exclude='usr/local/bin/ham_concentrator_up.sh' \
     --exclude='usr/local/bin/frognet-tunnel-setup.sh' \
     `# [NO_STAGING_DIRS_UNDER_OPT_V1] /opt/frognet_semantic is Python source only.` \
     `# etc/bin/usr/var have no business there - they are stray staging mirrors` \

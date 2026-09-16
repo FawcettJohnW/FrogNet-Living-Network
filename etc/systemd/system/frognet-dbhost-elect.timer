@@ -1,0 +1,8 @@
+[Unit]
+Description=Re-evaluate databasehost.frognet on control, 1/min during the post-merge window
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=60
+AccuracySec=5s
+[Install]
+WantedBy=timers.target

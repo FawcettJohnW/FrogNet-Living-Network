@@ -85,10 +85,8 @@ cmd_broker_state() {
     if [[ -f "$FROGNET_CONF" ]]; then
         local pn="" pw="" ch=""
         pn=$(grep -m1 -E '^(POND_NAME|GROUP_NAME)=' "$FROGNET_CONF" | cut -d= -f2-)
-        # [CONF_INJECTION_V1] POND_PASSWORD is now written double-quoted; go
-        # through fn_conf_get so the quotes and escapes are undone once, here.
-        pw=$(fn_conf_get POND_PASSWORD)
-        ch=$(fn_conf_get CHORUSES)
+        pw=$(grep -m1 '^POND_PASSWORD=' "$FROGNET_CONF" | cut -d= -f2-)
+        ch=$(grep -m1 '^CHORUSES=' "$FROGNET_CONF" | cut -d= -f2- | tr -d '"')
         [[ -z "$pond" && -n "$pn" ]] && { enabled=true; pond="$pn"; }
         [[ -n "$pw" ]] && has_pw=true
         choruses="$ch"
@@ -120,10 +118,7 @@ cmd_apply_broker() {
 
     # If form didn't supply pw, preserve current pond.conf password.
     if [[ -z "$pw" && -f "$POND_CONF" ]]; then
-        # Legacy pre-consolidation pond.conf: unquoted, so read it raw, but
-        # strip a surrounding quote pair in case it was written post-fix.
         pw=$(grep '^POND_PASSWORD=' "$POND_CONF" | head -1 | cut -d= -f2-)
-        pw="${pw#\"}"; pw="${pw%\"}"
     fi
 
     local choruses=""

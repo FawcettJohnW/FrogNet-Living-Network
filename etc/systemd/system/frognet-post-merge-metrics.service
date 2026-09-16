@@ -1,0 +1,27 @@
+[Unit]
+Description=FrogNet Post-Merge Metrics & SensorData Emission
+Documentation=https://frognet.org/docs/metrics
+Requires=frognet-daemon.service
+After=frognet-daemon.service network-online.target
+Wants=network-online.target
+
+# Do NOT run until merge is complete and databasehost is known
+ConditionPathExists=/etc/sentinels/merge_complete
+ConditionPathExists=/etc/sentinels/databasehost_assigned
+
+[Service]
+Type=oneshot
+
+# Environment switches
+# FROGNET_DEBUG=0 enables detailed / sensitive metrics
+EnvironmentFile=-/etc/frognet/env
+Environment=FROGNET_DEBUG=0
+
+ExecStart=/usr/local/bin/frognet_post_merge_metrics.sh
+
+# Hard fail if script exits non-zero
+SuccessExitStatus=0
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

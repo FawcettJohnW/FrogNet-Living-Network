@@ -1,0 +1,1579 @@
+#!/opt/frognet_semantic/venv/bin/python3
+"""
+proxy/transport_semantic.py
+
+Semantic transport with SAME/DIFF caching protocol.
+
+v4.1 fixes:
+- BUG 1: reference=None sentinel — REQ_REPEAT now fires for zero-field
+  requests (echo, getHosts) after the first request.
+- BUG 4: req_hash truncated to REQ_HASH_LEN (16 bytes) on the wire.
+  Hash computed once per (path, opcode, reference) and cached.
+- BUG 5: In-memory LRU for RESP_SAME responses.  Avoids MySQL round-trip
+  for hot, unchanging data (echo responses looked up every 6 seconds).
+- BUG 6: Pipelining-ready _DaemonWorker.  Drains all queued requests in
+  a single send burst before reading replies in order, amortizing TCP
+  overhead when multiple requests target the same daemon.
+- Telemetry redesign: every bump_cache call now carries req_type/resp_type
+  so the story of REQ_FULL vs REQ_REPEAT and RESP_SAME vs RESP_DIFF is
+  visible in the reports.
+
+v4.2 fixes:
+- BUG 7: (REVERTED in v4.6) Originally bypassed coalescing for echo/discovery
+  probes.  This caused unbounded pending queue growth when a downstream node
+  was unreachable — each probe got its own 50s timeout slot, inflating pending
+  to 400+ and cascading failures across the mesh.  Echo probes now coalesce
+  like all other RPCs.
+
+v4.5 fixes:
+- BUG 8: _DaemonWorker batch model caused head-of-line blocking.  All
+  queued RPCs were sent in a burst, then the thread blocked reading ALL
+  replies before touching the queue again.  One slow reply (e.g. multi-hop
+  relay through a saturated SilverBox) blocked every caller in the batch
+  for the full timeout.  Fix: split into writer thread + reader thread.
+  Writer sends one frame at a time and stores _Rpc in pending map by seq.
+  Reader pulls replies, matches by seq, completes individual caller's
+  Event.  No batching, no head-of-line blocking.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import socket
+import struct
+import subprocess
+import time
+import threading
+import queue
+from collections import OrderedDict
+from contextlib import contextmanager
+from typing import Any, Dict, List, Tuple, Optional
+
+from proxy.origin import inject_origin_into_semantic_request
+from proxy.templates import get_template_store, learn_templates_from_real
+from proxy.proxy_metrics import bump_sem
+from proxy.proxy_metrics import bump_cache
+from proxy.proxy_metrics import bump_coalesce, bump_lru, bump_link, bump_template
+from proxy.cache import semcache_db
+
+from core.codec import SemanticCodec, REQ_HASH_LEN
+from core.tokens import TokenStore
+from core.semcache_wire import (
+    try_parse, wrap_req_full, wrap_req_repeat, wrap_req_raw,
+    wrap_req_diff,
+    wrap_hello,                                              # ---- ADDED ----
+    OP_RESP_SAME, OP_RESP_DIFF, OP_RESP_RAW, OP_REQ_MISS, OP_ERROR,
+    op_name
+)
+
+_TRANSPORT_VERSION = "v4.11-no-lock-gymnastics"
+
+_RPC_TIMEOUT_SEC = float(os.environ.get("FROGNET_SEM_RPC_TIMEOUT", "10"))
+_MAX_FRAME = int(os.environ.get("FROGNET_SEM_MAX_FRAME", "4194304"))
+_DEBUG = os.environ.get("FROGNET_DEBUG", "0").strip() == "1"
+_DAEMON_PORT = int(os.environ.get("FROGNET_DAEMON_PORT", "9009"))
+_PROXY_LISTEN_PORT = int(os.environ.get("FROGNET_PROXY_LISTEN_PORT", "9010"))
+_WORKER_THREADS = int(os.environ.get("FROGNET_WORKER_THREADS", "256"))
+
+# Bug 5: in-memory LRU size for RESP_SAME cache
+_SAME_LRU_MAX = int(os.environ.get("FROGNET_SAME_LRU_MAX", "256"))
+
+
+# ---- ADDED: resolve local FrogNet IP for HELLO frames ----
+def _get_local_gw() -> str:
+    """Get this node's FrogNet subnet IP for HELLO frames."""
+    val = os.environ.get("FROGNET_LOCAL_GW", "").strip()
+    if val:
+        return val
+    try:
+        r = subprocess.run(
+            ["getEth0Address"], capture_output=True, text=True, check=False
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return "0.0.0.0"
+
+_LOCAL_GW = _get_local_gw()
+# ---- END ADDED ----
+
+
+def _debug(msg: str) -> None:
+    if _DEBUG:
+        print(f"[SEM-TRANSPORT] {msg}", flush=True)
+
+
+@contextmanager
+def _client_write(handler, label: str):
+    """Catch BrokenPipeError when writing response to client.
+
+    The client (monitor, browser, etc.) may close the socket before
+    the proxy finishes writing — especially on slow shaped links.
+    This is normal, not an error.  Suppress the traceback, log once.
+    """
+    try:
+        yield
+        handler.close_connection = True
+    except BrokenPipeError:
+        _debug(f"BrokenPipe writing {label} to client (client closed)")
+        handler.close_connection = True
+
+
+# ====================================================================
+# REFERENCE VALUE CACHE (for diff encoding)
+# ====================================================================
+# BUG 1 FIX: default is None (never sent), not {} (sent with zero fields).
+# Key: (target_ip, opcode) -> Optional[Dict[str, Any]]
+_request_references: Dict[Tuple[str, int], Optional[Dict[str, Any]]] = {}
+_response_references: Dict[Tuple[str, int], Optional[Dict[str, Any]]] = {}
+_ref_lock = threading.RLock()
+
+
+def _get_request_reference(target_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
+    """Return None if never sent, or the last-sent reference dict."""
+    with _ref_lock:
+        ref = _request_references.get((target_ip, opcode))
+        return ref.copy() if ref is not None else None
+
+
+def _set_request_reference(target_ip: str, opcode: int, ref: Dict[str, Any]) -> None:
+    with _ref_lock:
+        _request_references[(target_ip, opcode)] = ref.copy()
+    # Write-through to persistent storage (fire-and-forget)
+    try:
+        semcache_db.upsert_ref(target_ip, opcode, 'req', ref)
+    except Exception:
+        pass
+
+
+def _clear_request_reference(target_ip: str, opcode: int) -> None:
+    """Clear reference on REQ_MISS so next request sends full data."""
+    with _ref_lock:
+        _request_references.pop((target_ip, opcode), None)
+    try:
+        semcache_db.delete_ref(target_ip, opcode, 'req')
+    except Exception:
+        pass
+
+
+def _get_response_reference(target_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
+    with _ref_lock:
+        ref = _response_references.get((target_ip, opcode))
+        return ref.copy() if ref is not None else None
+
+
+def _set_response_reference(target_ip: str, opcode: int, ref: Dict[str, Any]) -> None:
+    with _ref_lock:
+        _response_references[(target_ip, opcode)] = ref.copy()
+    try:
+        semcache_db.upsert_ref(target_ip, opcode, 'resp', ref)
+    except Exception:
+        pass
+
+
+def load_references_from_db() -> int:
+    """Load persistent references from DB into in-memory dicts.
+
+    Called once at proxy startup, before accepting connections.
+    Returns total number of references loaded.
+    """
+    refs = semcache_db.load_all_refs()
+    count = 0
+    with _ref_lock:
+        for (target_ip, opcode), ref_dict in refs.get('req', {}).items():
+            _request_references[(target_ip, opcode)] = ref_dict
+            count += 1
+        for (target_ip, opcode), ref_dict in refs.get('resp', {}).items():
+            _response_references[(target_ip, opcode)] = ref_dict
+            count += 1
+    return count
+
+
+# ====================================================================
+# BUG 5: IN-MEMORY LRU CACHE for RESP_SAME
+# ====================================================================
+# Keyed by same_id (bytes), value is (body, ctype, is_raw, status, headers_bytes).
+# Avoids MySQL round-trip for hot, unchanging responses.
+_same_lru: OrderedDict = OrderedDict()
+_same_lru_lock = threading.RLock()
+
+
+def _same_lru_get(same_id: bytes):
+    """LRU get.  Returns cached tuple or None."""
+    with _same_lru_lock:
+        val = _same_lru.get(same_id)
+        if val is not None:
+            _same_lru.move_to_end(same_id)
+    if val is not None:
+        bump_lru(hit=True)
+    else:
+        bump_lru(hit=False)
+    return val
+
+
+def _same_lru_put(same_id: bytes, val):
+    """LRU put.  Evicts oldest if over capacity."""
+    with _same_lru_lock:
+        _same_lru[same_id] = val
+        _same_lru.move_to_end(same_id)
+        while len(_same_lru) > _SAME_LRU_MAX:
+            _same_lru.popitem(last=False)
+
+
+# ====================================================================
+# REQUEST COALESCING
+# ====================================================================
+# One in-flight RPC per (target_ip, req_hash).  If a second request
+# arrives for the same (target, hash) while the first is still in
+# flight, the second caller blocks until the first completes, then
+# both use the same wire_reply.
+#
+# This prevents duplicate RPCs from saturating slow links.
+
+class _InflightRPC:
+    __slots__ = ("event", "wire_reply", "error")
+    def __init__(self):
+        self.event = threading.Event()
+        self.wire_reply: Optional[bytes] = None
+        self.error: Optional[Exception] = None
+
+_inflight: Dict[Tuple[str, bytes], _InflightRPC] = {}
+_inflight_lock = threading.RLock()
+
+
+def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes) -> Tuple[bytes, bool]:
+    """
+    Send wire_req to target via worker, coalescing duplicate in-flight requests.
+
+    Returns (wire_reply, was_coalesced).
+    Raises on RPC failure.
+    """
+    key = (target_ip, req_hash)
+
+    with _inflight_lock:
+        existing = _inflight.get(key)
+        if existing is not None:
+            _debug(f"COALESCE: waiting on in-flight RPC to {target_ip} hash={req_hash.hex()}")
+        else:
+            entry = _InflightRPC()
+            _inflight[key] = entry
+
+    # Second caller — wait for the in-flight RPC
+    if existing is not None:
+        if not existing.event.wait(timeout=_RPC_TIMEOUT_SEC):
+            raise TimeoutError(f"coalesced RPC timed out waiting for in-flight to {target_ip}")
+        if existing.error is not None:
+            raise existing.error
+        if existing.wire_reply is None:
+            raise RuntimeError(f"coalesced RPC: in-flight completed but no reply from {target_ip}")
+        bump_coalesce(peer_ip=target_ip)
+        return existing.wire_reply, True
+
+    # First caller — owns the entry, executes the RPC
+    try:
+        wire_reply = worker.call(wire_req)
+        entry.wire_reply = wire_reply
+        return wire_reply, False
+    except Exception as e:
+        entry.error = e
+        raise
+    finally:
+        entry.event.set()
+        with _inflight_lock:
+            _inflight.pop(key, None)
+
+
+# NH semaphore removed: the two-socket architecture keeps send and
+# receive fully decoupled.  Worker threads enqueue onto the send
+# socket freely; the writer thread drains it as fast as the link
+# allows.  No artificial concurrency cap needed.
+
+
+# ====================================================================
+# REQ_HASH CACHE — avoid recomputing for static requests
+# ====================================================================
+# Key: (path, opcode, frozenset(reference.items())) -> truncated hash
+_hash_cache: Dict[Tuple, bytes] = {}
+_hash_cache_lock = threading.RLock()
+
+
+def _compute_req_hash(target_ip: str, path: str, opcode: int, reference: Dict[str, Any]) -> bytes:
+    """Compute and cache the truncated request hash."""
+    # For cache key, freeze the reference dict
+    try:
+        cache_key = (target_ip, path, opcode, json.dumps(reference, sort_keys=True, default=str))
+    except Exception:
+        cache_key = None
+
+    if cache_key is not None:
+        with _hash_cache_lock:
+            cached = _hash_cache.get(cache_key)
+            if cached is not None:
+                return cached
+
+    full = hashlib.sha256(
+        json.dumps({"_dst": target_ip, "_path": path, "_op": opcode, **reference}, sort_keys=True, default=str).encode()
+    ).digest()
+    truncated = full[:REQ_HASH_LEN]
+
+    if cache_key is not None:
+        with _hash_cache_lock:
+            _hash_cache[cache_key] = truncated
+            # Bound the cache
+            if len(_hash_cache) > 4096:
+                # Drop oldest quarter
+                keys = list(_hash_cache.keys())
+                for k in keys[:1024]:
+                    _hash_cache.pop(k, None)
+
+    return truncated
+
+
+def _recv_exact(sock: socket.socket, n: int) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        blk = sock.recv(n - len(buf))
+        if not blk:
+            raise RuntimeError("socket closed")
+        buf.extend(blk)
+    return bytes(buf)
+
+
+def _recv_frame(sock: socket.socket) -> bytes:
+    hdr = _recv_exact(sock, 4)
+    (n,) = struct.unpack("!I", hdr)
+    if n <= 0 or n > _MAX_FRAME:
+        raise RuntimeError(f"bad frame length {n}")
+    return _recv_exact(sock, n)
+
+
+def _send_frame(sock: socket.socket, payload: bytes) -> None:
+    n = len(payload)
+    if n <= 0 or n > _MAX_FRAME:
+        raise RuntimeError(f"invalid frame size {n}")
+    sock.sendall(struct.pack("!I", n))
+    sock.sendall(payload)
+
+
+class _Rpc:
+    def __init__(self, packet: bytes):
+        self.packet = packet
+        self.reply: Optional[bytes] = None
+        self.err: Optional[Exception] = None
+        self.done = threading.Event()
+        self.submitted_at = time.time()
+
+
+class _DaemonWorker:
+    """
+    Two-socket architecture with cleanup thread.
+
+      _send_sock: proxy connects OUT to daemon:9009.  Writer thread drains
+                  the send queue onto this socket.
+      _recv_sock: proxy listens on 9010; daemon connects BACK here.  Reader
+                  thread reads replies, matches by seq, signals caller's Event.
+
+    Threads:
+      writer:   queue.get() -> assign seq -> _send_frame on _send_sock.
+      reader:   _recv_frame on _recv_sock -> match seq -> rpc.done.set().
+      cleanup:  every 1s, scans _pending for stale RPCs, signals them.
+                Detects dead workers (no reader callback) and reconnects.
+
+    Callers block on rpc.done.wait() — a pure semaphore wait.
+    The cleanup thread is the sole timeout mechanism.
+    """
+
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+        self.q: queue.Queue[_Rpc] = queue.Queue()
+        self._send_sock: Optional[socket.socket] = None
+        self._recv_sock: Optional[socket.socket] = None
+        self._seq = 0
+        self._unknown_streak = 0
+        self._pending: Dict[int, _Rpc] = {}
+        self._pending_lock = threading.RLock()
+        self._state_lock = threading.RLock()
+        self._connect_lock = threading.RLock()
+        self._reader_alive = False
+        self._send_sock_at = 0.0         # epoch when send sock opened
+        self._ever_had_reader = False     # True after first daemon callback
+        self._reader_gen = 0             # incremented on each _register_recv_sock
+        self._last_reconnect_at = 0.0    # rate-limit reconnection attempts
+
+        self._writer = threading.Thread(target=self._write_loop, daemon=True,
+                                        name=f"sem-writer-{host}")
+        self._writer.start()
+        self._cleaner = threading.Thread(target=self._cleanup_loop, daemon=True,
+                                         name=f"sem-cleanup-{host}")
+        self._cleaner.start()
+
+    # ── Connection establishment ──────────────────────────────────────
+
+    def _open_send_sock(self) -> socket.socket:
+        """Connect outbound to daemon:9009 and send HELLO."""
+        last_exc = None
+        for attempt in range(4):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                s.settimeout(5.0)
+                s.connect((self.host, self.port))
+                hello = wrap_hello(_LOCAL_GW)
+                _send_frame(s, hello)
+                print(f"[DIAG-WORKER] send_sock connected to {self.host}:{self.port} "
+                      f"fd={s.fileno()} sent HELLO return_ip={_LOCAL_GW}", flush=True)
+                s.settimeout(15.0)
+                return s
+            except ConnectionResetError as e:
+                last_exc = e
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                if attempt < 3:
+                    time.sleep(0.5)
+                    continue
+                raise
+            except Exception:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                raise
+        raise last_exc
+
+    def _open_return_channel(self):
+        """Open second connection to daemon:9009 as the return channel.
+
+        Sends HELLO with body 'RETURN:<local_gw>'.  The daemon's server
+        routes this to the existing session (matched by return_ip) and
+        calls session.set_send_sock(), giving the daemon a socket to
+        write replies on.
+
+        This eliminates the need for the daemon to connect BACK to
+        proxy:9010, which fails under WiFi client isolation.
+        """
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        s.settimeout(5.0)
+        try:
+            s.connect((self.host, self.port))
+            hello = wrap_hello(f"RETURN:{_LOCAL_GW}")
+            _send_frame(s, hello)
+            # Read daemon's HELLO reply confirms return channel is live
+            frame = _recv_frame(s)
+            s.settimeout(5.0)  # reader uses 5s timeout for gen checks
+            print(f"[DIAG-WORKER] RETURN channel to {self.host}:{self.port} "
+                  f"fd={s.fileno()}", flush=True)
+            return s
+        except Exception:
+            try:
+                s.close()
+            except Exception:
+                pass
+            raise
+
+    def _get_or_connect(self) -> socket.socket:
+        """Get existing send socket or connect a new one.
+
+        Uses only scoped `with` blocks — no manual release/acquire.
+        _connect_lock serializes connection attempts.
+        _state_lock is held only briefly to read/write socket pointers."""
+        with self._state_lock:
+            if self._send_sock is not None:
+                return self._send_sock
+
+        with self._connect_lock:
+            # Double-check after acquiring connect_lock
+            with self._state_lock:
+                if self._send_sock is not None:
+                    return self._send_sock
+
+            # Connect OUTSIDE all locks — this can take seconds
+            new_sock = self._open_send_sock()
+
+            # Swap in under state_lock
+            with self._state_lock:
+                self._send_sock = new_sock
+                self._send_sock_at = time.time()
+                self._seq = 0
+                self._unknown_streak = 0
+
+            # Open proxy-initiated return channel so the daemon doesn't
+            # need to connect back to us (fails under WiFi client isolation).
+            # Non-fatal: daemon can still connect back via port 9010.
+            try:
+                ret_sock = self._open_return_channel()
+                self._register_recv_sock(ret_sock)
+            except Exception as e:
+                print(f"[DIAG-WORKER] RETURN channel to {self.host} "
+                      f"failed: {e!r}, waiting for daemon callback",
+                      flush=True)
+
+            return new_sock
+
+    def _register_recv_sock(self, sock: socket.socket) -> None:
+        """Called by proxy listener (port 9010) when daemon connects back.
+        Proof this is a real FrogNet daemon — clear all failure state.
+        Increments _reader_gen so stale readers self-evict."""
+        with self._state_lock:
+            old = self._recv_sock
+            self._recv_sock = sock
+            self._reader_alive = True
+            self._ever_had_reader = True
+            self._reader_gen += 1
+            gen = self._reader_gen
+        # Best-effort wake of old reader — but don't rely on it.
+        # The reader will self-evict via gen check within 5s.
+        if old is not None:
+            try:
+                old.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
+                old.close()
+            except Exception:
+                pass
+        fd = sock.fileno()
+        print(f"[DIAG-WORKER] recv_sock registered from {self.host} "
+              f"fd={fd} gen={gen}", flush=True)
+        sock.settimeout(5.0)  # reader wakes every 5s to check gen
+        t = threading.Thread(target=self._read_loop, args=(sock, gen),
+                             daemon=True, name=f"sem-reader-{self.host}")
+        t.start()
+
+    # ── Failure handling ──────────────────────────────────────────────
+
+    def _fail_all_pending(self, err: Exception) -> None:
+        with self._pending_lock:
+            for rpc in self._pending.values():
+                if rpc.reply is None and rpc.err is None:
+                    rpc.err = err
+                rpc.done.set()
+            self._pending.clear()
+
+    def _close(self, err: Optional[Exception] = None) -> None:
+        with self._state_lock:
+            self._reader_alive = False
+            old_send = self._send_sock
+            old_recv = self._recv_sock
+            self._send_sock = None
+            self._recv_sock = None
+            self._send_sock_at = 0.0
+        for s in (old_send, old_recv):
+            if s is not None:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+        if old_send is not None or old_recv is not None:
+            print(f"[DIAG-WORKER] CLOSE sockets to {self.host}", flush=True)
+        if err:
+            self._fail_all_pending(err)
+
+    # ── Cleanup thread ────────────────────────────────────────────────
+
+    def _cleanup_loop(self) -> None:
+        """Runs every second.  Three jobs:
+        1. Signal any RPC in _pending older than _RPC_TIMEOUT_SEC.
+        2. If send sock is up but no reader callback, close it.
+        3. If both sockets are down on a known peer, try to reconnect.
+        No cooldown, no circuit breaker.
+        """
+        while True:
+            time.sleep(1.0)
+            now = time.time()
+
+            # --- Job 1: signal stale RPCs ---
+            stale_seqs = []
+            with self._pending_lock:
+                for seq, rpc in self._pending.items():
+                    if (now - rpc.submitted_at) > _RPC_TIMEOUT_SEC:
+                        stale_seqs.append(seq)
+                for seq in stale_seqs:
+                    rpc = self._pending.pop(seq)
+                    rpc.err = TimeoutError(
+                        f"RPC to {self.host} timed out "
+                        f"({now - rpc.submitted_at:.0f}s)")
+                    rpc.done.set()
+            if stale_seqs:
+                print(f"[CLEANUP] {self.host}: signaled {len(stale_seqs)} "
+                      f"stale RPCs", flush=True)
+
+            # --- Job 2: dead worker detection ---
+            # Known peer: 5s grace.  New peer: _RPC_TIMEOUT_SEC grace
+            # (WG return path may take time to establish).
+            dead_thresh = 5.0 if self._ever_had_reader else _RPC_TIMEOUT_SEC
+            sock_age = (now - self._send_sock_at) if self._send_sock_at > 0 else 0
+            if (self._send_sock is not None
+                    and not self._reader_alive
+                    and sock_age > dead_thresh):
+                print(f"[CLEANUP] {self.host}: send sock up {sock_age:.0f}s, "
+                      f"no reader — closing", flush=True)
+                self._close(err=RuntimeError(
+                    f"peer {self.host}: no daemon callback after "
+                    f"{sock_age:.0f}s"))
+
+            # --- Job 3: reconnect ---
+            # Both sockets dead on a known peer.  Open send socket and
+            # send HELLO so the daemon can connect back.  Rate-limited
+            # to one attempt every 5 seconds.
+            if (self._send_sock is None
+                    and not self._reader_alive
+                    and self._ever_had_reader
+                    and (now - self._last_reconnect_at) >= 5.0):
+                self._last_reconnect_at = now
+                try:
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    s.settimeout(3.0)
+                    s.connect((self.host, self.port))
+                    hello = wrap_hello(_LOCAL_GW)
+                    _send_frame(s, hello)
+                    s.settimeout(15.0)
+                    with self._state_lock:
+                        self._send_sock = s
+                        self._send_sock_at = now
+                        self._seq = 0
+                        self._unknown_streak = 0
+                    print(f"[CLEANUP] {self.host}: reconnect HELLO sent",
+                          flush=True)
+                    # Open return channel so daemon doesn't need callback
+                    try:
+                        ret = self._open_return_channel()
+                        self._register_recv_sock(ret)
+                    except Exception as re:
+                        _debug(f"[CLEANUP] {self.host}: RETURN channel "
+                               f"failed: {re!r}")
+                except Exception as e:
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                    _debug(f"[CLEANUP] {self.host}: reconnect failed: {e!r}")
+
+    # ── Writer thread ─────────────────────────────────────────────────
+
+    def _write_loop(self) -> None:
+        while True:
+            try:
+                rpc = self.q.get(timeout=1.0)
+            except queue.Empty:
+                continue
+
+            # Fail RPCs that sat in the queue too long (writer was blocked)
+            queue_age = time.time() - rpc.submitted_at
+            if queue_age > _RPC_TIMEOUT_SEC:
+                print(f"[DIAG-WRITER] EXPIRED in queue {queue_age:.0f}s "
+                      f"to {self.host}", flush=True)
+                rpc.err = TimeoutError(
+                    f"RPC to {self.host} expired in send queue "
+                    f"({queue_age:.0f}s)")
+                rpc.done.set()
+                continue
+
+            try:
+                sock = self._get_or_connect()
+                with self._state_lock:
+                    seq = self._seq
+                    self._seq += 1
+                with self._pending_lock:
+                    self._pending[seq] = rpc
+                _send_frame(sock, rpc.packet)
+                print(f"[DIAG-WRITER] SENT seq={seq} {len(rpc.packet)}B "
+                      f"to {self.host} pending={len(self._pending)}",
+                      flush=True)
+            except Exception as e:
+                print(f"[DIAG-WRITER] SEND ERROR {e!r} to {self.host}",
+                      flush=True)
+                rpc.err = e
+                rpc.done.set()
+                self._close(err=e)
+
+    # ── Reader thread ─────────────────────────────────────────────────
+
+    def _read_loop(self, my_sock: socket.socket, my_gen: int) -> None:
+        """Read replies, match by seq, signal callers.
+
+        The reader NEVER calls _close() or acquires _state_lock.
+        When it dies, it closes my_sock and exits. The cleanup thread
+        detects stale RPCs and dead workers independently."""
+        print(f"[DIAG-READER] started for {self.host} gen={my_gen}",
+              flush=True)
+        try:
+            while True:
+                if self._reader_gen != my_gen:
+                    print(f"[DIAG-READER] stale gen={my_gen} "
+                          f"(current={self._reader_gen}) for {self.host}",
+                          flush=True)
+                    break
+                try:
+                    frame = _recv_frame(my_sock)
+                except socket.timeout:
+                    continue
+                if len(frame) < 4:
+                    raise RuntimeError(f"reply frame too short: {len(frame)}B")
+                seq = struct.unpack("!I", frame[:4])[0]
+                reply_data = frame[4:]
+                with self._pending_lock:
+                    rpc = self._pending.pop(seq, None)
+                if rpc is None:
+                    self._unknown_streak += 1
+                    print(f"[DIAG-READER] UNKNOWN seq={seq} from {self.host} "
+                          f"streak={self._unknown_streak}", flush=True)
+                    if self._unknown_streak >= 3:
+                        raise RuntimeError(
+                            f"seq desync: {self._unknown_streak} unknown")
+                    continue
+                self._unknown_streak = 0
+                rpc.reply = reply_data
+                rpc.done.set()
+                print(f"[DIAG-READER] RECV seq={seq} {len(reply_data)}B "
+                      f"from {self.host} pending={len(self._pending)}",
+                      flush=True)
+        except Exception as e:
+            print(f"[DIAG-READER] ERROR {e!r} from {self.host} gen={my_gen}",
+                  flush=True)
+        # Never call _close(). Never touch _state_lock.
+        # Cleanup thread handles teardown.
+        try:
+            my_sock.close()
+        except Exception:
+            pass
+        print(f"[DIAG-READER] exited for {self.host} gen={my_gen}",
+              flush=True)
+
+    # ── Public API ────────────────────────────────────────────────────
+
+    def call(self, packet: bytes) -> bytes:
+        """Enqueue RPC and block until reply or timeout.
+
+        If the reader is dead on a known peer, fail immediately — no
+        reply can arrive.  New peers get a pass (first connection).
+        Otherwise queue the RPC and wait at most _RPC_TIMEOUT_SEC.
+        """
+        # Reader dead on known peer → fail immediately, zero blocking.
+        # New peers (_ever_had_reader=False) pass through so the writer
+        # can open the initial send socket.
+        if self._ever_had_reader and not self._reader_alive:
+            raise RuntimeError(
+                f"peer {self.host}: no connection")
+
+        rpc = _Rpc(packet)
+        self.q.put(rpc)
+
+        # call() owns the timeout.
+        if not rpc.done.wait(timeout=_RPC_TIMEOUT_SEC):
+            with self._pending_lock:
+                for seq, p in list(self._pending.items()):
+                    if p is rpc:
+                        del self._pending[seq]
+                        break
+            raise TimeoutError(
+                f"RPC to {self.host} timed out ({_RPC_TIMEOUT_SEC}s)")
+
+        if rpc.err:
+            raise rpc.err
+        if rpc.reply is None:
+            raise RuntimeError(f"RPC to {self.host}: signaled but no reply")
+
+        return rpc.reply
+
+
+# ====================================================================
+# PROXY CALLBACK LISTENER (port 9010) — accepts daemon return connections
+# ====================================================================
+
+_WORKERS: Dict[Tuple[str, int], _DaemonWorker] = {}
+_WORKERS_LOCK = threading.RLock()
+
+# Fix 3: per-target concurrency cap — one dead daemon cannot consume
+# all 256 _ACTIVE slots.  32 is enough for legitimate coalesced bursts
+# but prevents a single unreachable target from starving everything else.
+_PER_TARGET_MAX = int(os.environ.get("FROGNET_PER_TARGET_MAX", "32"))
+_per_target_sems: Dict[str, threading.BoundedSemaphore] = {}
+_per_target_sems_lock = threading.Lock()
+
+_proxy_listener_started = False
+_proxy_listener_lock = threading.RLock()
+
+
+def _is_frognet_ip(ip: str) -> bool:
+    """Return True if ip looks like a FrogNet gateway (10.x.x.1, excluding 10.253 transit).
+    Rejects LAN devices, routers, printers that should never get a worker."""
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        a, b, c, d = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+    except ValueError:
+        return False
+    return a == 10
+
+
+def _proxy_listener_loop() -> None:
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("0.0.0.0", _PROXY_LISTEN_PORT))
+    srv.listen(256)
+    srv.settimeout(1.0)
+    print(f"[PROXY-LISTENER] listening for daemon callbacks on port {_PROXY_LISTEN_PORT}", flush=True)
+    while True:
+        try:
+            conn, addr = srv.accept()
+        except socket.timeout:
+            continue
+        except Exception as e:
+            print(f"[PROXY-LISTENER] accept error: {e!r}", flush=True)
+            continue
+        try:
+            conn.settimeout(5.0)
+            hdr = conn.recv(4)
+            if len(hdr) == 4:
+                import struct
+                n = struct.unpack("!I", hdr)[0]
+                frame = conn.recv(n)
+                msg = try_parse(frame)
+                if msg and msg.op == 0x50 and msg.body:
+                    peer_ip = msg.body.decode("ascii").strip()
+                else:
+                    peer_ip = addr[0]
+            else:
+                peer_ip = addr[0]
+            conn.settimeout(None)
+        except Exception:
+            peer_ip = addr[0]
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        tcp_src = addr[0]
+        print(f"[PROXY-LISTENER] daemon callback from {peer_ip} (tcp_peer={addr[0]})", flush=True)
+        with _WORKERS_LOCK:
+            worker = _WORKERS.get((peer_ip, _DAEMON_PORT))
+            if worker is not None and worker._recv_sock is not None:
+                # This identity already has a live recv channel (e.g. WG tunnel).
+                # The callback is from the same node via a different IP (LAN DHCP).
+                # Fall through to addr[0] lookup.
+                print(f"[PROXY-LISTENER] recv_sock already active for {peer_ip}, trying tcp_peer {addr[0]}", flush=True)
+                worker = None
+            if worker is None and addr[0] != peer_ip:
+                # HELLO identity didn't match a waiting worker.
+                # Try the actual TCP source address — this is the DHCP IP
+                # the proxy originally connected to (e.g. 10.101.10.75).
+                tcp_worker = _WORKERS.get((addr[0], _DAEMON_PORT))
+                if tcp_worker is not None and tcp_worker._recv_sock is None:
+                    worker = tcp_worker
+                    print(f"[PROXY-LISTENER] matched callback {peer_ip} to worker {addr[0]} via tcp_peer", flush=True)
+        if worker is None:
+            print(f"[PROXY-LISTENER] no worker for {peer_ip} (tcp_peer={addr[0]}) — rejecting callback", flush=True)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            continue
+
+        worker._register_recv_sock(conn)
+
+
+def _ensure_proxy_listener() -> None:
+    global _proxy_listener_started
+    with _proxy_listener_lock:
+        if _proxy_listener_started:
+            return
+        _proxy_listener_started = True
+    t = threading.Thread(target=_proxy_listener_loop, daemon=True, name="proxy-cb-listener")
+    t.start()
+
+
+def _get_worker(host: str, port: int) -> _DaemonWorker:
+    if not _is_frognet_ip(host):
+        raise RuntimeError(
+            f"rejecting worker for {host}: not a FrogNet gateway (10.x.x.1, not 10.253)")
+    _ensure_proxy_listener()
+    with _WORKERS_LOCK:
+        key = (host, port)
+        if key not in _WORKERS:
+            _WORKERS[key] = _DaemonWorker(host, port)
+        return _WORKERS[key]
+
+
+def _serialize_http_request(method: str, path: str, headers: Dict[str, str], body: str, host: str, port: int) -> bytes:
+    """Serialize HTTP request for REQ_RAW."""
+    return json.dumps({
+        "method": method,
+        "path": path,
+        "headers": headers,
+        "body": body,
+        "host": host,
+        "port": port,
+    }, separators=(",", ":")).encode("utf-8")
+
+
+def _estimate_http_request_wire(method: str, path: str, headers: Dict[str, str], body: bytes) -> int:
+    """
+    Estimate the actual wire bytes for an HTTP/1.1 request over WireGuard.
+
+    Without FrogNet, every HTTP request opens a NEW TCP connection over WG.
+    Cost breakdown:
+      TCP handshake (SYN, SYN-ACK, ACK):  3 pkts × (60 + 60 WG) = 360
+      HTTP request data:                   request_line + headers + body
+      WG encap on data packets:            ceil(data / 1420) × 60
+      Receiver ACKs for data:              ceil(data / 1420) × 120
+    TCP teardown is counted on the response side.
+    """
+    WG_PER_PKT = 60       # WG header 32 + UDP 8 + outer IP 20
+    INNER_MTU = 1420       # typical WG inner MTU
+    TCP_HANDSHAKE_WG = 360 # 3 control packets with WG encap
+    TCP_ACK_WG = 120       # bare ACK (60) + WG encap (60)
+
+    # HTTP layer bytes
+    n = len(method) + 1 + len(path) + len(" HTTP/1.1\r\n")
+    for k, v in (headers or {}).items():
+        n += len(str(k)) + 2 + len(str(v)) + 2
+    n += 2  # \r\n
+    n += len(body) if body else 0
+
+    pkts = max(1, (n + INNER_MTU - 1) // INNER_MTU)
+    return TCP_HANDSHAKE_WG + n + (pkts * WG_PER_PKT) + (pkts * TCP_ACK_WG)
+
+
+def _estimate_http_response_wire(body_size: int, content_type: str = "text/plain") -> int:
+    """
+    Estimate wire bytes for an HTTP/1.1 response over WireGuard.
+
+    Includes response data, WG encap per packet, receiver ACKs, and TCP teardown.
+    """
+    WG_PER_PKT = 60
+    INNER_MTU = 1420
+    TCP_TEARDOWN_WG = 480  # 4 control packets (FIN-ACK × 2) with WG encap
+    TCP_ACK_WG = 120
+    RESP_HEADERS = 194     # status line + typical response headers
+
+    total = RESP_HEADERS + body_size
+    pkts = max(1, (total + INNER_MTU - 1) // INNER_MTU)
+    return TCP_TEARDOWN_WG + total + (pkts * WG_PER_PKT) + (pkts * TCP_ACK_WG)
+
+
+def _deserialize_headers(data: bytes) -> Dict[str, str]:
+    if not data:
+        return {}
+    try:
+        return json.loads(data.decode("utf-8"))
+    except:
+        return {}
+
+
+# ====================================================================
+# RPC DISPATCH — coalesce or direct based on path
+# ====================================================================
+
+def _get_target_sem(target_ip: str) -> threading.BoundedSemaphore:
+    """Get or create per-target semaphore."""
+    with _per_target_sems_lock:
+        sem = _per_target_sems.get(target_ip)
+        if sem is None:
+            sem = threading.BoundedSemaphore(_PER_TARGET_MAX)
+            _per_target_sems[target_ip] = sem
+        return sem
+
+
+def _dispatch_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str) -> Tuple[bytes, bool]:
+    """
+    All RPCs go through coalescing.  Duplicate in-flight requests to the
+    same (target_ip, req_hash) wait on the first caller's result.  This
+    prevents unbounded pending growth when a downstream node is slow or
+    unreachable — probes included, since echo probes are among the most
+    frequent messages and their answers rarely change.
+
+    Per-target semaphore prevents one dead daemon from consuming all
+    global _ACTIVE slots.
+    """
+    sem = _get_target_sem(target_ip)
+    if not sem.acquire(blocking=True, timeout=5.0):
+        raise RuntimeError(
+            f"per-target limit ({_PER_TARGET_MAX}) exceeded for {target_ip}")
+    try:
+        return _coalesced_rpc(target_ip, req_hash, worker, wire_req)
+    finally:
+        try:
+            sem.release()
+        except ValueError:
+            pass
+
+
+# ====================================================================
+# MAIN ENTRY POINT
+# ====================================================================
+
+def handle_request(
+    handler,
+    ctx: Dict[str, Any],
+    *,
+    target_ip: str,
+    method: str,
+    path: str,
+    headers: Dict[str, str],
+    body: bytes,
+    is_fast_path: bool = True,
+) -> None:
+    """
+    Handle HTTP request via daemon with SAME/DIFF caching.
+    """
+    from proxy.proxy_main import send_error_reply
+
+    store = get_template_store()
+    codec = SemanticCodec()
+
+    try:
+        semcache_db.ensure_table()
+    except:
+        pass
+
+    semantic_path = ctx.get("semantic_path", path)
+    req_row, resp_row = store.lookup_by_path(method, semantic_path)
+
+    if req_row and resp_row:
+        bump_template(hit=True)
+        result = _handle_semantic_request(
+            handler, ctx, store, codec,
+            target_ip=target_ip,
+            method=method,
+            path=path,
+            body=body,
+            req_row=req_row,
+            resp_row=resp_row,
+        )
+        if result is not False:
+            return
+        # Daemon doesn't have template for this opcode — fall through to raw
+        _debug(f"TEMPLATE MISMATCH fallback: {method} {semantic_path} to {target_ip}")
+
+    if not is_fast_path:
+        bump_template(hit=False)
+        _debug(f"FAIL CLOSED: no template for {method} {semantic_path} on slow link to {target_ip}")
+        return send_error_reply(
+            handler, 503,
+            f"FROGNET FAIL CLOSED: No template for {method} {semantic_path} - "
+            f"slow link to {target_ip} requires semantic compression"
+        )
+
+    _debug(f"BOOTSTRAP: no template for {method} {semantic_path}, sending REQ_RAW to {target_ip}")
+    bump_template(hit=False)
+    return _handle_raw_and_learn(
+        handler, ctx, store,
+        target_ip=target_ip,
+        method=method,
+        path=path,
+        headers=headers,
+        body=body,
+    )
+
+
+# ====================================================================
+# SEMANTIC PATH (has templates)
+# ====================================================================
+
+def _handle_semantic_request(
+    handler,
+    ctx: Dict[str, Any],
+    store,
+    codec: SemanticCodec,
+    *,
+    target_ip: str,
+    method: str,
+    path: str,
+    body: bytes,
+    req_row,
+    resp_row,
+) -> None:
+    from proxy.proxy_main import send_error_reply
+
+    req_headers = ctx.get("headers") or {}
+    http_req_would = _estimate_http_request_wire(method, path, req_headers, body)
+
+    req_tpl = store.build_request_template(req_row)
+    resp_tpl = store.build_reply_template(resp_row)
+    opcode = req_tpl.opcode
+
+    body_text = body.decode("utf-8", "replace") if body else ""
+    extracted = req_tpl.extract_dynamic(body_text)
+    pairs = [(k, v) for k, v in (extracted or [])]
+
+    next_hop = ctx.get("via") or target_ip
+    try:
+        worker = _get_worker(next_hop, _DAEMON_PORT)
+    except RuntimeError:
+        # Non-FrogNet IP (LAN device, router, etc.) — fall through to direct
+        return False
+
+    # ---- Retry loop: first attempt may be REPEAT/DIFF; on REQ_MISS
+    #      we clear reference and resend as REQ_FULL (at most once). ----
+    _MAX_ATTEMPTS = 2
+    reference = _get_request_reference(target_ip, opcode)
+
+    for attempt in range(_MAX_ATTEMPTS):
+        sem_req, new_reference, is_identical = codec.encode_request_diff(
+            opcode=opcode,
+            url_vals=[],
+            json_vals=pairs,
+            type_map=req_tpl.type_map or {},
+            reference=reference,
+            tokens=TokenStore(req_tpl.tokens),
+            compress=True,
+        )
+
+        req_hash = _compute_req_hash(target_ip, path, opcode, new_reference)
+
+        if not is_identical:
+            sem_req = inject_origin_into_semantic_request(
+                sem_req,
+                ctx.get("client_ip", ""),
+                ctx.get("target_host") or target_ip,
+            )
+
+        # ---- Three-way request type decision ----
+        if is_identical:
+            wire_req = wrap_req_repeat(req_hash)
+            req_type = "REQ_REPEAT"
+            _debug(f"REQ_REPEAT to {target_ip} hash={req_hash.hex()} (identical)")
+        elif reference is None:
+            # First time for this (target_ip, opcode): send all fields
+            wire_req = wrap_req_full(req_hash, sem_req)
+            req_type = "REQ_FULL"
+            _debug(f"REQ_FULL to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B sem)")
+        else:
+            # Have reference, some fields changed: send only the diff
+            wire_req = wrap_req_diff(req_hash, sem_req)
+            req_type = "REQ_DIFF"
+            _debug(f"REQ_DIFF to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B diff)")
+
+        t0 = time.time()
+        try:
+            wire_reply, was_coalesced = _dispatch_rpc(target_ip, req_hash, worker, wire_req, path)
+        except Exception as e:
+            _debug(f"RPC failed to {target_ip}: {e!r}")
+            return send_error_reply(handler, 503, f"Semantic RPC failed: {e!r}")
+
+        rtt_ms = (time.time() - t0) * 1000.0
+        bump_sem(peer_ip=target_ip, wire_req=len(wire_req), wire_resp=len(wire_reply))
+        bump_link(next_hop=next_hop, wire_out=len(wire_req), wire_in=len(wire_reply))
+
+        msg = try_parse(wire_reply)
+
+        # ---- REQ_MISS: clear reference and retry as REQ_FULL ----
+        if msg is not None and msg.op == OP_REQ_MISS:
+            _clear_request_reference(target_ip, opcode)
+            bump_cache(
+                peer_ip=target_ip, req_type=req_type, resp_type="REQ_MISS",
+                endpoint=path,
+                bytes_would=http_req_would,
+                bytes_actual=len(wire_req) + len(wire_reply),
+                rtt_ms=rtt_ms,
+            )
+            if attempt < _MAX_ATTEMPTS - 1:
+                _debug(f"REQ_MISS from {target_ip}, retrying as REQ_FULL (attempt {attempt+1})")
+                reference = None   # force REQ_FULL on next iteration
+                continue
+            else:
+                _debug(f"REQ_MISS from {target_ip}, no retries left")
+                return send_error_reply(handler, 503, "REQ_MISS from daemon; exhausted retries")
+
+        # Not a REQ_MISS — break out of retry loop and process response
+        break
+
+    # ---- Commit reference AFTER daemon accepted the request ----
+    # This prevents desync: if daemon didn't cache (e.g. 500 from Apache),
+    # we don't advance our reference either.
+    if msg is not None and msg.op in (OP_RESP_SAME, OP_RESP_DIFF, OP_RESP_RAW):
+        _set_request_reference(target_ip, opcode, new_reference)
+
+    # Legacy daemon (no FNW1 header) — should not happen with current nodes
+    if msg is None:
+        _debug(f"non-FNW1 response from {target_ip}, {len(wire_reply)} bytes — rejecting")
+        return send_error_reply(handler, 502, "Non-FNW1 response from daemon")
+
+    # ---- OP_ERROR: daemon processing error ----
+    if msg.op == OP_ERROR:
+        error_msg = msg.payload.decode("utf-8", "replace") if msg.payload else ""
+        error_status = msg.status or 503
+        _debug(f"OP_ERROR from {target_ip}: status={error_status} msg={error_msg}")
+        # Template mismatch: daemon doesn't have templates for this opcode.
+        # Signal caller to fall back to raw passthrough.
+        if "no templates for opcode" in error_msg or "engine error" in error_msg:
+            _debug(f"TEMPLATE MISMATCH: signaling raw fallback for opcode={opcode}")
+            return False
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="ERROR",
+            endpoint=path,
+            bytes_would=http_req_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return send_error_reply(handler, error_status, f"Daemon: {error_msg}")
+
+    resp_type = op_name(msg.op)
+    _debug(f"received {resp_type} from {target_ip}")
+
+    # ---- RESP_SAME ----
+    if msg.op == OP_RESP_SAME:
+        cached_body = _serve_from_same(handler, msg.same_id, target_ip, is_raw=False)
+        if not cached_body:
+            # LRU + DB miss — clear reference so next request sends REQ_FULL
+            # instead of REQ_REPEAT, forcing RESP_DIFF to repopulate cache
+            _clear_request_reference(target_ip, opcode)
+        cached_resp_size = len(cached_body) if cached_body else 0
+        http_resp_would = _estimate_http_response_wire(cached_resp_size)
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME",
+            endpoint=path,
+            bytes_would=http_req_would + http_resp_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return
+
+    # ---- RESP_DIFF ----
+    if msg.op == OP_RESP_DIFF:
+        reconstructed_size = _handle_resp_diff(handler, codec, resp_tpl, msg.same_id, msg.payload, req_hash, target_ip, opcode)
+        http_resp_would = _estimate_http_response_wire(reconstructed_size)
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="RESP_DIFF",
+            endpoint=path,
+            bytes_would=http_req_would + http_resp_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return
+
+    # ---- RESP_RAW ----
+    if msg.op == OP_RESP_RAW:
+        resp_body_size = len(msg.body) if msg.body else 0
+        http_resp_would = _estimate_http_response_wire(resp_body_size)
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="RESP_RAW",
+            endpoint=path,
+            bytes_would=http_req_would + http_resp_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return _handle_resp_raw_and_learn(
+            handler, ctx, store, msg.same_id, msg.status, msg.headers, msg.body,
+            req_hash, target_ip, method, path, headers={}, body=b"",
+        )
+
+    return send_error_reply(handler, 503, f"Unknown wire op: {resp_type}")
+
+
+# ====================================================================
+# RAW BOOTSTRAP PATH (FAST link, no template)
+# ====================================================================
+
+def _handle_raw_and_learn(
+    handler,
+    ctx: Dict[str, Any],
+    store,
+    *,
+    target_ip: str,
+    method: str,
+    path: str,
+    headers: Dict[str, str],
+    body: bytes,
+) -> None:
+    from proxy.proxy_main import send_error_reply
+
+    host = ctx.get("target_host") or target_ip
+    body_text = body.decode("utf-8", "replace") if body else ""
+    http_req = _serialize_http_request(method, path, headers, body_text, host, 80)
+    http_req_would = _estimate_http_request_wire(method, path, headers, body)
+    req_hash = hashlib.sha256(http_req).digest()[:REQ_HASH_LEN]
+    next_hop = ctx.get("via") or target_ip
+
+    worker = _get_worker(next_hop, _DAEMON_PORT)
+
+    # ---- Retry loop: REQ_REPEAT miss → resend as REQ_RAW (at most once) ----
+    _MAX_ATTEMPTS = 2
+    use_repeat = semcache_db.is_req_seen(target_ip, req_hash)
+
+    for attempt in range(_MAX_ATTEMPTS):
+        if use_repeat:
+            wire_req = wrap_req_repeat(req_hash)
+            req_type = "REQ_REPEAT"
+            _debug(f"BOOTSTRAP REQ_REPEAT to {target_ip} (raw, seen before)")
+        else:
+            wire_req = wrap_req_raw(req_hash, http_req)
+            req_type = "REQ_RAW"
+            _debug(f"BOOTSTRAP REQ_RAW to {target_ip} ({len(http_req)}B)")
+
+        t0 = time.time()
+        try:
+            wire_reply, was_coalesced = _dispatch_rpc(target_ip, req_hash, worker, wire_req, path)
+        except Exception as e:
+            _debug(f"BOOTSTRAP: RPC failed to {target_ip}: {e!r}")
+            return send_error_reply(handler, 503, f"RAW RPC failed: {e!r}")
+
+        rtt_ms = (time.time() - t0) * 1000.0
+        bump_sem(peer_ip=target_ip, wire_req=len(wire_req), wire_resp=len(wire_reply))
+        bump_link(next_hop=next_hop, wire_out=len(wire_req), wire_in=len(wire_reply))
+
+        msg = try_parse(wire_reply)
+        if msg is None:
+            _debug(f"BOOTSTRAP: non-FNW1 response from {target_ip}")
+            return send_error_reply(handler, 502, "Invalid response from daemon (not FNW1)")
+
+        # ---- REQ_MISS: clear seen flag and retry as REQ_RAW ----
+        if msg.op == OP_REQ_MISS:
+            semcache_db.clear_req_seen(target_ip, req_hash)
+            bump_cache(
+                peer_ip=target_ip, req_type=req_type, resp_type="REQ_MISS",
+                endpoint=path,
+                bytes_would=http_req_would,
+                bytes_actual=len(wire_req) + len(wire_reply),
+                rtt_ms=rtt_ms,
+            )
+            if attempt < _MAX_ATTEMPTS - 1:
+                _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, retrying as REQ_RAW (attempt {attempt+1})")
+                use_repeat = False   # force REQ_RAW on next iteration
+                continue
+            else:
+                _debug(f"BOOTSTRAP: REQ_MISS from {target_ip}, no retries left")
+                return send_error_reply(handler, 503, "REQ_MISS from daemon; exhausted retries")
+
+        # Not a REQ_MISS — break out and process response
+        break
+
+    resp_type = op_name(msg.op)
+    _debug(f"BOOTSTRAP: received {resp_type} from {target_ip}")
+
+    # ---- OP_ERROR ----
+    if msg.op == OP_ERROR:
+        error_msg = msg.payload.decode("utf-8", "replace") if msg.payload else ""
+        error_status = msg.status or 503
+        _debug(f"BOOTSTRAP: OP_ERROR from {target_ip}: status={error_status} msg={error_msg}")
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="ERROR",
+            endpoint=path,
+            bytes_would=http_req_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return send_error_reply(handler, error_status, f"Daemon: {error_msg}")
+
+    if msg.op == OP_RESP_SAME:
+        cached_body = _serve_from_same(handler, msg.same_id, target_ip, is_raw=True)
+        if not cached_body:
+            # LRU + DB miss — clear req_seen so next request sends REQ_RAW
+            # instead of REQ_REPEAT, forcing fresh response to repopulate cache
+            semcache_db.clear_req_seen(target_ip, req_hash)
+        cached_resp_size = len(cached_body) if cached_body else 0
+        http_resp_would = _estimate_http_response_wire(cached_resp_size)
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME",
+            endpoint=path,
+            bytes_would=http_req_would + http_resp_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return
+
+    if msg.op == OP_RESP_RAW:
+        resp_body_size = len(msg.body) if msg.body else 0
+        http_resp_would = _estimate_http_response_wire(resp_body_size)
+        bump_cache(
+            peer_ip=target_ip, req_type=req_type, resp_type="RESP_RAW",
+            endpoint=path,
+            bytes_would=http_req_would + http_resp_would,
+            bytes_actual=len(wire_req) + len(wire_reply),
+            rtt_ms=rtt_ms,
+        )
+        return _handle_resp_raw_and_learn(
+            handler, ctx, store, msg.same_id, msg.status, msg.headers, msg.body,
+            req_hash, target_ip, method, path, headers, body,
+        )
+
+    return send_error_reply(handler, 503, f"Unexpected op in bootstrap: {resp_type}")
+
+
+# ====================================================================
+# RESPONSE HANDLERS
+# ====================================================================
+
+def _handle_resp_raw_and_learn(
+    handler,
+    ctx: Dict[str, Any],
+    store,
+    same_id: bytes,
+    status: int,
+    headers_bytes: bytes,
+    body: bytes,
+    req_hash: bytes,
+    target_ip: str,
+    method: str,
+    path: str,
+    headers: Dict[str, str],
+    req_body: bytes,
+) -> None:
+    from proxy.proxy_main import send_error_reply
+
+    if not same_id or len(same_id) != 16:
+        return send_error_reply(handler, 503, "Invalid same_id in RESP_RAW")
+
+    resp_headers = _deserialize_headers(headers_bytes)
+    ctype = resp_headers.get("Content-Type", "application/octet-stream")
+
+    raw_hash = hashlib.sha256(body).digest()
+    semcache_db.upsert_raw(same_id, req_hash, raw_hash, body, status, headers_bytes, ctype)
+    semcache_db.mark_req_seen(target_ip, req_hash)
+
+    # Populate LRU for future RESP_SAME hits
+    _same_lru_put(same_id, (body, ctype, True, status, headers_bytes))
+
+    _debug(f"BOOTSTRAP: cached {len(body)}B for same_id={same_id.hex()}")
+
+    if status < 400 and body:
+        semantic_path = ctx.get("semantic_path", path)
+        try:
+            upstream = {
+                "status": status,
+                "body": body,
+                "headers": resp_headers,
+            }
+            learn_templates_from_real(
+                method=method,
+                semantic_path=semantic_path,
+                req_headers=headers,
+                req_body=req_body,
+                upstream=upstream,
+                store=store,
+            )
+            _debug(f"BOOTSTRAP: LEARNED template for {method} {semantic_path}")
+        except Exception as e:
+            _debug(f"BOOTSTRAP: template learning failed (non-fatal): {e!r}")
+
+    with _client_write(handler, "BOOTSTRAP"):
+        handler.send_response(status)
+        for k, v in resp_headers.items():
+            if k and k.lower() not in {"transfer-encoding", "connection", "content-length"}:
+                handler.send_header(k, v)
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("X-FrogNet-Cache", "BOOTSTRAP")
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        if body:
+            handler.wfile.write(body)
+
+
+def _serve_from_same(handler, same_id: bytes, target_ip: str, is_raw: bool) -> bytes:
+    """
+    BUG 5: Serve RESP_SAME from in-memory LRU first, MySQL fallback.
+    Returns the response body bytes (for telemetry sizing).
+    """
+    from proxy.proxy_main import send_error_reply
+
+    if not same_id or len(same_id) != 16:
+        send_error_reply(handler, 503, "Invalid same_id in RESP_SAME")
+        return b""
+
+    # Try LRU first
+    lru_hit = _same_lru_get(same_id)
+
+    if lru_hit is not None:
+        body, ctype, cached_is_raw, status, hdrs_bytes = lru_hit
+        _debug(f"SAME LRU hit, {len(body)}B same_id={same_id.hex()}")
+    else:
+        # MySQL fallback
+        if is_raw:
+            hit = semcache_db.get_raw_by_sameid(same_id)
+            if not hit:
+                _debug(f"RAW SAME cache miss for same_id={same_id.hex()}")
+                send_error_reply(handler, 503, "SAME cache miss (proxy)")
+                return b""
+            body, status, hdrs_bytes = hit
+            ctype = "application/octet-stream"
+            cached_is_raw = True
+        else:
+            hit = semcache_db.get_by_sameid(same_id)
+            if not hit:
+                _debug(f"SAME cache miss for same_id={same_id.hex()}")
+                send_error_reply(handler, 503, "SAME cache miss (proxy)")
+                return b""
+            body, ctype = hit
+            status = 200
+            hdrs_bytes = b""
+            cached_is_raw = False
+
+        # Populate LRU for next time
+        _same_lru_put(same_id, (body, ctype, cached_is_raw, status, hdrs_bytes))
+        _debug(f"SAME MySQL hit → LRU, {len(body)}B same_id={same_id.hex()}")
+
+    # Serve response
+    with _client_write(handler, f"SAME same_id={same_id.hex()}"):
+        if cached_is_raw:
+            resp_headers = _deserialize_headers(hdrs_bytes) if hdrs_bytes else {}
+            handler.send_response(status)
+            for k, v in resp_headers.items():
+                handler.send_header(k, v)
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("X-FrogNet-Cache", "SAME-RAW")
+            handler.send_header("Connection", "close")
+            handler.end_headers()
+            handler.wfile.write(body)
+        else:
+            handler.send_response(200)
+            handler.send_header("Content-Type", ctype)
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("X-FrogNet-Cache", "SAME")
+            handler.send_header("Connection", "close")
+            handler.end_headers()
+            handler.wfile.write(body)
+
+    return body
+
+
+def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes, req_hash: bytes, target_ip: str, opcode: int) -> int:
+    """Handle RESP_DIFF. Returns reconstructed body size (0 on error)."""
+    from proxy.proxy_main import send_error_reply
+
+    if not same_id or len(same_id) != 16:
+        send_error_reply(handler, 503, "Invalid same_id in RESP_DIFF")
+        return 0
+    if not sem_blob:
+        send_error_reply(handler, 503, "Empty sem_blob in RESP_DIFF")
+        return 0
+
+    try:
+        reference = _get_response_reference(target_ip, opcode)
+        fields = codec.decode_reply(sem_blob, resp_tpl, TokenStore(resp_tpl.tokens), reference)
+        new_ref = {k: v for k, v in fields}
+        _set_response_reference(target_ip, opcode, new_ref)
+
+        body_out = resp_tpl.rebuild([v for _, v in fields])
+        data = body_out.encode("utf-8", "replace")
+        ctype = resp_tpl.content_type()
+
+        sem_hash = hashlib.sha256(sem_blob).digest()
+        semcache_db.upsert(same_id, req_hash, b"\x00" * 32, sem_hash, data, ctype)
+
+        # Populate LRU for future RESP_SAME
+        _same_lru_put(same_id, (data, ctype, False, 200, b""))
+
+        _debug(f"DIFF: cached {len(data)}B for same_id={same_id.hex()}")
+
+        with _client_write(handler, "DIFF"):
+            handler.send_response(200)
+            handler.send_header("Content-Type", ctype)
+            handler.send_header("Content-Length", str(len(data)))
+            handler.send_header("X-FrogNet-Cache", "DIFF")
+            handler.send_header("Connection", "close")
+            handler.end_headers()
+            handler.wfile.write(data)
+
+        return len(data)
+
+    except BrokenPipeError:
+        _debug("BrokenPipe in DIFF path (client closed)")
+        return 0
+    except Exception as e:
+        send_error_reply(handler, 502, f"DIFF decode failed: {e!r}")
+        return 0

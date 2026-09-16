@@ -78,12 +78,18 @@ for iface in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep '^
 
     # A tunnel is only LIVE if:
     #   1. Recent handshake (crypto layer works), AND
-    #   2. Has a 10.101.x.0/24 route — either a via route or scope-link
+    #   2. Has a FrogNet /24 route — either a via route or scope-link
     #      (without a FrogNet route, the tunnel serves no purpose)
     has_frognet_route=0
-    if ip route show dev "$iface" 2>/dev/null | grep -qE '^10\.101\.[0-9]+\.0/24'; then
+    # [FROGNET_PLANE_IS_TEN_V1] FrogNet is 10/8 less 10.253.* (transit /30s) and
+    # 10.254.* (chorus on-link). The literal 10.101. this used to match is an
+    # address range the mesh has not used in a long time, so has_frognet_route
+    # was 0 for every live tunnel and this script marked them all DEAD.
+    if ip route show dev "$iface" 2>/dev/null \
+         | grep -E '^10\.[0-9]+\.[0-9]+\.0/24' | grep -qvE '^10\.25[34]\.'; then
         has_frognet_route=1
-    elif ip route show 2>/dev/null | grep -qE "10\.101\.[0-9]+\.0/24.*dev ${iface}.*via"; then
+    elif ip route show 2>/dev/null | grep -E "^10\.[0-9]+\.[0-9]+\.0/24.*dev ${iface}.*via" \
+         | grep -qvE '^10\.25[34]\.'; then
         has_frognet_route=1
     fi
 
@@ -93,7 +99,7 @@ for iface in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep '^
     else
         reason=""
         (( age > MAX_HANDSHAKE_AGE )) && reason="stale handshake"
-        (( has_frognet_route == 0 )) && { [[ -n "$reason" ]] && reason+=", "; reason+="no 10.101.x route"; }
+        (( has_frognet_route == 0 )) && { [[ -n "$reason" ]] && reason+=", "; reason+="no FrogNet route"; }
         DEAD_IFACES["$iface"]="${endpoint}:${age_str}"
         log "  DEAD: $iface (endpoint=$endpoint handshake=$age_str reason=$reason)"
     fi
@@ -202,11 +208,11 @@ while IFS= read -r route_line; do
         log "REMOVE route (dead dev $dev): $route_line"
         do_or_dry ip route del $route_line
     fi
-done < <(ip route show | grep 'dev wg' | grep '10\.101\.' || true)
+done < <(ip route show | grep 'dev wg' | grep -E '^10\.' | grep -vE '^10\.25[34]\.' || true)
 
 # 4b: Remove scope-link routes that duplicate existing via routes
-# A scope-link route like "10.101.x.0/24 dev wgN scope link" is wrong when
-# a via route like "10.101.x.0/24 via 10.101.x.1 dev wgN metric 22" exists.
+# A scope-link route like "10.x.y.0/24 dev wgN scope link" is wrong when
+# a via route like "10.x.y.0/24 via 10.x.y.1 dev wgN metric 22" exists.
 # The scope-link tells the kernel the subnet is directly attached (it's not —
 # it's behind a broker relay), and it shadows the correct via route.
 while IFS= read -r route_line; do
@@ -218,7 +224,7 @@ while IFS= read -r route_line; do
     [[ -n "$dev" ]] || continue
     # Extract the subnet
     subnet=$(echo "$route_line" | awk '{print $1}')
-    [[ "$subnet" == 10.101.*.0/24 ]] || continue
+    [[ "$subnet" == 10.*.0/24 && "$subnet" != 10.25[34].* ]] || continue
 
     # Check if a via route also exists for this subnet
     if ip route show "$subnet" 2>/dev/null | grep -q "via.*onlink"; then
@@ -228,7 +234,7 @@ while IFS= read -r route_line; do
         # No via route — this scope-link is the only path. Keep it, but warn.
         warn "scope-link is only route for $subnet on $dev — keeping (discovery will add via route)"
     fi
-done < <(ip route show | grep 'dev wg' | grep '10\.101\.' | grep 'scope link' || true)
+done < <(ip route show | grep 'dev wg' | grep -E '^10\.' | grep -vE '^10\.25[34]\.' | grep 'scope link' || true)
 
 # ---------------------------------------------------------------------------
 # Phase 5: Verify and re-seed
@@ -238,7 +244,7 @@ log ""
 log "--- Phase 5: Post-cleanup state ---"
 log ""
 log "Routes:"
-ip r | grep '10\.101\.' | while IFS= read -r l; do log "  $l"; done || log "  (none)"
+ip r | grep -E '^10\.' | grep -vE '^10\.25[34]\.' | while IFS= read -r l; do log "  $l"; done || log "  (none)"
 log ""
 log "Interfaces:"
 ip link show | grep -E '^[0-9]+: wg' | while IFS= read -r l; do log "  $l"; done || log "  (none)"
@@ -251,13 +257,13 @@ if (( APPLY )); then
     log "--- Re-seeding discovery ---"
     DC="/usr/local/bin/frognet_discovery_cache.sh"
     if [[ -x "$DC" ]]; then
-        # Reset cache for all 10.101.x.1 gateways we have routes to
+        # Reset cache for all FrogNet 10.x.y.1 gateways we have routes to
         while IFS= read -r route_line; do
             subnet=$(echo "$route_line" | awk '{print $1}')
-            [[ "$subnet" == 10.101.*.0/24 ]] || continue
+            [[ "$subnet" == 10.*.0/24 && "$subnet" != 10.25[34].* ]] || continue
             gw="${subnet%%.0/24}.1"
             "$DC" reset "$gw" 2>/dev/null && log "  Cache reset: $gw" || true
-        done < <(ip route show | grep '10\.101\.' | grep 'dev wg' || true)
+        done < <(ip route show | grep -E '^10\.' | grep -vE '^10\.25[34]\.' | grep 'dev wg' || true)
     fi
 
     if [[ -x /usr/local/bin/runMerge.bash ]]; then

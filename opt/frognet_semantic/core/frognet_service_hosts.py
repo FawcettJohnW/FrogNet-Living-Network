@@ -178,12 +178,34 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
     lines = []
     for role in _live_roles(handlers, dbhost):
         h = handlers[role]
+        _report = {}
         try:
             hosts_list, lan_list = gather_candidates(h, dbhost=dbhost,
                                                      lan_subnets=lan_subnets,
-                                                     local_ips=local_ips)
+                                                     local_ips=local_ips,
+                                                     report=_report)
         except Exception as e:
             log(f"SERVICE_ELECT role={role} reason=gather_failed err={e}")
+            continue
+        # [READ_FAILED_IS_NOT_EMPTY_V1 - John 2026-09-12] "No row in the store" and
+        # "the store did not answer" are different states and only ONE of them is
+        # decidable.
+        #
+        # An empty answer is information: nobody published, nobody is preferred, the
+        # highest .1 wins ([NO_ROW_MEANS_HIGHEST_IP_V1] below). A failed read is not
+        # information, and applying the floor to it means a node whose store is
+        # broken confidently renames every role -- including databasehost -- at
+        # ITSELF, because it is the only .1 it can still see. Measured on BAMacBook
+        # 2026-09-12 13:11: every capability read returned HTTP 500 in ~2ms,
+        # gather_candidates reported StoreBroken, and the floor then pointed
+        # databasehost.frognet at the MacBook, which holds no data.
+        #
+        # So: no opinion. Emit no line for this role and let whatever stands, stand.
+        if _report.get("read_failed"):
+            log(f"SERVICE_ELECT role={role} decision=ABSTAIN "
+                f"reason=capability_read_failed err={_report.get('read_error')} "
+                f"dbhost={dbhost} -- the store did not answer. This is NOT an empty "
+                f"pool and the floor does NOT apply; the standing line is kept.")
             continue
         # [NO_REACHABILITY_CULL_V1] The determination is the role's UnREST callback over
         # the SHARED capability tuples - a pure function of the converged memory, the same
@@ -256,19 +278,33 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
         # anyone opens when a .frognet name does not resolve. A comment cannot resolve,
         # so nothing is misdirected by its presence.
         if wip is None:
-            _n_pub = len([c for c in hosts_list if not c.get("_unpublished")])
-            _msg = (f"SERVICE_ELECT role={role} winner=NONE reason=no_host_meets_criteria "
-                    f"-- {len(lan_list)} machine(s) on this LAN, {len(hosts_list)} in the "
-                    f"pond ({_n_pub} with a published capability row), and NOT ONE meets "
-                    f"the {role} criteria. {role}.frognet will NOT exist until one does. "
-                    f"dbhost={dbhost}")
-            log(_msg)
-            # Loud, in the journal, not only in the merge log a person has to go find.
-            try:
-                print("[SERVICE_ELECT] " + _msg, file=sys.stderr, flush=True)
-            except Exception:
-                pass
-            lines.append(no_host_marker(role))
+            # [NO_ROW_MEANS_HIGHEST_IP_V1 - John 2026-09-12] No winner falls to the
+            # highest .1 in the converged block. Every role. No exceptions, no
+            # marker, no missing name.
+            #
+            # The rule this replaces treated "no capability row" as a failure to be
+            # surfaced: it wrote a comment into /etc/hosts and left <role>.frognet
+            # unresolvable "until one does". But an absent row is not a failure and
+            # it does not mean the role is impossible -- it means nothing at all.
+            # Nobody published, so nobody is preferred, so the deterministic
+            # tiebreak decides, exactly as it does for databasehost.
+            #
+            # This is not a fabricated winner and it does not diverge per node: the
+            # hosts block is converged and identical everywhere, so max(.1) is the
+            # same answer on every machine in the pond. The divergence the old
+            # comment warned about came from local-by-definition -- a node naming
+            # ITSELF -- which is a different thing and stays retired.
+            _ones = _alive_ones(etc_hosts)
+            wip = max(_ones, key=lambda a: tuple(int(o) for o in a.split("."))) \
+                if _ones else None
+            if wip:
+                log(f"SERVICE_ELECT role={role} winner={wip} reason=floor_highest_dot1 "
+                    f"-- no candidate row for this role; the deterministic floor "
+                    f"decides, same on every node. dbhost={dbhost}")
+            else:
+                log(f"SERVICE_ELECT role={role} winner=NONE reason=no_live_hosts "
+                    f"-- the converged block holds no .1 FrogNetHost at all, so "
+                    f"there is nothing to elect from. dbhost={dbhost}")
         log(f"SERVICE_ELECT role={role} hosts={len(hosts_list)} "
             f"lan={len(lan_list)} bad={len(bad)} winner={wip or 'none'} "
             f"dbhost={dbhost}")
@@ -324,35 +360,47 @@ def apply_to_etc_hosts(etc_hosts: List[str],
 def commit_service_lines(etc_hosts: List[str], role_lines: List[str],
                          ready_roles, control_ip: Optional[str],
                          logger=None) -> List[str]:
-    """Commit each elected role line, per that role's own barrier.
+    """Commit every elected role line. No barrier.
 
     [ROLE_ELECTION_UNCOUPLED_V1] Every registered service's platform-selection callback
     runs at the end of every converged runMerge.
 
-    [ROLE_BARRIER_PER_ROLE_V1] Whether its result may be committed is a separate
-    question, answered per role by role_barrier_ready over that role's OWN capability
-    records - never over another role's.
+    [ABSENT_IS_A_DECIDABLE_STATE_V1 - John 2026-09-12] The barrier is gone. It asked
+    "has every live machine published a capability record for this role yet", and
+    deferred the commit until they had.
 
-    [BARRIER_DEFERS_CHANGE_NOT_FIRST_V1] And the barrier may defer a CHANGE. It may not
-    prevent the FIRST assignment. A role with no line at all is broken - the
-    Communicator dials mediahost.frognet and gets NXDOMAIN - whereas a role whose line
-    might move later is merely unsettled, and the next merge settles it. Proven on a
-    live pond: four machines in the hosts block had not published an admissible record
-    in anywhere from 34,000 to 330,000 seconds, so every barrier was shut and stayed
-    shut, and mediahost.frognet never existed at all even though the election was
-    naming a healthy winner on every pass. A gate that can wait forever must not be the
-    only thing standing between a working election and a hosts line.
+    That question does not need an answer. If a capability is not in the store then it
+    is not in the store: that host has no capability to rank on, it sorts to the floor,
+    and the deterministic highest-.1 tiebreak decides. Absent data is a VALID input to
+    the election, not a missing precondition for running it. Every node reads the same
+    store and the same converged hosts block, so every node reaches the same answer
+    from the same absence.
 
-    So: barrier open -> commit. Barrier shut and a line already stands -> keep it,
-    which is the anti-flap the barrier exists for. Barrier shut and NO line stands ->
-    commit anyway and say so. databasehost keeps its pin at the control while shut,
-    because the control is deterministic (highest .1) and always valid, so the
-    coordination plane is never nameless.
+    What the barrier actually bought was anti-flap on a CHANGE, and it was paid for in
+    the worst currency available: a wait with no upper bound. Proven twice on live
+    ponds. Once with four machines whose records were 34,000 to 330,000 seconds stale,
+    so every barrier stayed shut and mediahost.frognet never existed at all while the
+    election named a healthy winner every pass -- patched then by letting a FIRST
+    assignment through. And again on Seattle7, where the barrier reported recorded=[]
+    for every role on every merge because the single control read was TIMING OUT, and
+    nothing in the log distinguished that from a silent fleet.
+
+    A gate that can wait forever, to damp a change that self-corrects on the next
+    merge, is a bad trade. It also cost one store read per role per merge to ask a
+    question whose answer is now never consulted -- on the node where the store is
+    slow, which is the node where it hurts.
+
+    So: every role commits its elected line, every merge. A winner that moves, moves.
+    databasehost still pins at the control when the election names nobody, because the
+    control is deterministic (highest .1) and always valid, so the coordination plane
+    is never nameless.
+
+    `ready_roles` is accepted and IGNORED, for caller-signature compatibility.
     """
     log = logger or (lambda s: None)
     ready = set(ready_roles or ())
     out = list(etc_hosts)
-    committed, held, provisional, nohost = [], [], [], []
+    committed, nohost = [], []
     # [NO_HOST_MEETS_CRITERIA_V1] Any marker from a PREVIOUS pass is dropped first,
     # unconditionally. It is a statement about one election; carrying a stale one
     # forward would leave "#No media servers on this LAN" sitting under a working
@@ -381,25 +429,17 @@ def commit_service_lines(etc_hosts: List[str], role_lines: List[str],
             continue
         name = ln.split()[1]                       # "<role>.frognet"
         role = name[:-len(".frognet")] if name.endswith(".frognet") else name
-        standing = any(len(l.split()) >= 2 and l.split()[1] == name for l in out)
-        if role not in ready and standing:
-            held.append(role)                      # defer the change, keep the line
-            continue
-        if role not in ready:
-            provisional.append(role)               # first assignment: never defer it
-        else:
-            committed.append(role)
+        # [ABSENT_IS_A_DECIDABLE_STATE_V1] Unconditional. The election decided;
+        # the decision is committed.
+        committed.append(role)
         out = [l for l in out if not (len(l.split()) >= 2 and l.split()[1] == name)]
         out.append(ln)
-    if "databasehost" not in ready and control_ip:
-        out = [l for l in out if not l.endswith(" databasehost.frognet")]
+    if control_ip and not any(l.endswith(" databasehost.frognet") for l in out):
+        # The election named no databasehost. The control is the deterministic
+        # highest .1 and always valid, so the coordination plane never goes
+        # nameless. This is the floor, not a barrier.
         out.append(f"{control_ip} databasehost.frognet")
-        log(f"SERVICE_COMMIT databasehost barrier shut -> pinned at {control_ip}")
-    if provisional:
-        log(f"SERVICE_COMMIT provisional={sorted(provisional)} "
-            f"(barrier shut but no line stood - first assignment is never deferred)")
-    if held:
-        log(f"SERVICE_COMMIT held={sorted(held)} (barrier shut; prior line stands)")
+        log(f"SERVICE_COMMIT databasehost unelected -> floor at {control_ip}")
     if committed:
         log(f"SERVICE_COMMIT committed={sorted(committed)}")
     if nohost:

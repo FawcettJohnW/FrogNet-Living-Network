@@ -196,7 +196,7 @@ def _wan_subnets(dbhost: str = "databasehost_control.frognet"):
 
 
 def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
-                      lan_subnets=None, local_ips=None):
+                      lan_subnets=None, local_ips=None, report=None):
     """Build BOTH candidate lists from capability memory in ONE pass:
       hosts_list - every REAL 10/8 host (253 excluded), LAN and WAN alike: the
                    pond-wide / federated set. databasehost elects over this.
@@ -243,12 +243,32 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
             # A missing envelope no longer disqualifies anything -- refusing a
             # ballot for having no timestamp is an age judgement by another name,
             # and it took out every node pond-wide against an older api.php.
+            # [ROW_PICK_IS_NOT_READ_ORDER_V1 - John 2026-09-14] Order rows by the
+            # STORE's own envelope timestamp, never by the reader's clock.
+            #
+            # This was `ts = _clock() - r["age_s"]`, with _clock() called freshly
+            # per row. age_s is whole seconds and a host's rows are written in
+            # bursts, so rows for one IP routinely carry the SAME age_s -- and
+            # then the comparison below was decided by the microseconds of
+            # _clock() drift between loop iterations. The row the database
+            # happened to return LAST won, and T.get issues no ORDER BY, so that
+            # is not stable across queries. Different rows carry different
+            # capability blobs and score differently, which is precisely the
+            # split [DBHOST_DETERMINISTIC_ROW_V1] exists to prevent -- and it
+            # became reachable when [CAPABILITY_DOES_NOT_AGE_V1] let rows live
+            # forever, so hosts accumulate several.
+            #
+            # ts_env is the UpdatedAt envelope the store recorded. It is absolute,
+            # identical for every reader, and does not move between passes. A real
+            # tie (same envelope second) breaks on the SensorName, which is a
+            # property of the row rather than of when it was read.
             try:
-                _env = r.get("age_s")
-                ts = 0.0 if _env is None else float(_clock() - _env)
+                _env = r.get("ts_env")
+                ts = 0.0 if _env is None else float(_env)
             except (TypeError, ValueError):
                 ts = 0.0
-            if ip in by_ip and by_ip[ip][0] >= ts:
+            _key = (ts, str(r.get("name", "")))
+            if ip in by_ip and by_ip[ip][0] >= _key:
                 continue                              # keep the newer row already held
             # [CAPABILITY_DOES_NOT_AGE_V1] The age gate is GONE. Superseded
             # [BALLOT_ADMISSIBILITY_V1], which refused any ballot past a max-age.
@@ -273,7 +293,7 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
             # live load/temps ride inside the same self-contained blob
             c["_perf"] = {"loadavg": blob.get("loadavg") or cap.get("loadavg") or {},
                           "temps_c": blob.get("temps_c") or cap.get("temps_c") or []}
-            by_ip[ip] = (ts, c)
+            by_ip[ip] = (_key, c)
         # deterministic emit order: by IP, so the lists are identical on every node
         for ip in sorted(by_ip):
             c = by_ip[ip][1]
@@ -307,6 +327,15 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
         # that turns "couldn't read" into "no candidates" with no trace, which is exactly
         # how a single malformed row hid as mediahost hosts=0. Log it; the accumulated
         # (possibly partial) lists still return so one role can't wedge the whole merge.
+        #
+        # [READ_FAILED_IS_NOT_EMPTY_V1 - John 2026-09-12] Logging it was not enough. The
+        # caller got two empty lists and could not tell them apart from a store that
+        # answered and held nothing -- so a store returning HTTP 500 looked exactly like
+        # a pond where nobody had published, and the election "decided" on no
+        # information at all. Report it, so the caller can decline to have an opinion.
+        if report is not None:
+            report["read_failed"] = True
+            report["read_error"] = f"{type(e).__name__}: {e}"
         try:
             print(f"[ROLE_ELECT] gather_candidates role={role} read_exc err={e!r}",
                   file=sys.stderr, flush=True)

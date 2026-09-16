@@ -537,53 +537,18 @@ mkdir -p /var/log/apache2 && chmod 777 /var/log/apache2 || true
 log "Directories created"
 
 phase "B4: Sudoers"
-# [SETUP_API_OFF_V1] The web setup surface is OFF. The sudoers grant that let
-# www-data run the setup helpers as root is the thing that made the endpoint a
-# root-execution path, so it is not installed, and any copy left from a prior
-# install is removed. Setup is done on the box (edit /etc/frognet/tunnel.conf
-# and run the helpers directly, or the CLI), not from a web page.
-rm -f /etc/sudoers.d/frognet-setup
-log "Setup-API sudoers grant NOT installed (web setup disabled); removed any prior copy"
-
-# [SETUP_API_OFF_V1] Neutralise any setup surface an EARLIER install left on
-# disk. On a fresh install the world tar already carries the disabled stubs;
-# this makes an UPGRADE safe too, so a node built before this change does not
-# keep a live setup page and API. The helper is stripped of its ability to act
-# even if something still calls it.
-_wwwroot="/var/www/html"
-if [[ -f "${_wwwroot}/frognet_setup_v4_api.php" ]]; then
-    cat > "${_wwwroot}/frognet_setup_v4_api.php" <<'DISABLED_API'
-<?php
-// [SETUP_API_OFF_V1] Disabled setup API. Runs nothing; answers 410.
-header('Content-Type: application/json');
-header('Cache-Control: no-store');
-http_response_code(410);
-echo json_encode(['ok'=>false,'error'=>'The web setup API is disabled. Configure this node on the host.']);
-DISABLED_API
-fi
-for _p in setup_frognet.html setup_frognet2.html setup_frognet_dark.html; do
-    if [[ -f "${_wwwroot}/${_p}" ]]; then
-        printf '%s\n' '<!doctype html><meta charset="utf-8"><title>FrogNet setup (disabled)</title><h1>Web setup is disabled</h1><p>Configure this node on the host: edit /etc/frognet/tunnel.conf and run the setup helpers, or use the CLI.</p>' \
-            > "${_wwwroot}/${_p}"
-    fi
-done
-# The setup helpers can no longer be reached as root (no sudoers grant), but
-# make them inert if invoked directly by anything left over.
-for _h in /usr/local/bin/frognet_setup_helper.bash /usr/local/bin/frognet_setup_v4_helper.bash; do
-    if [[ -f "$_h" ]] && ! grep -q 'SETUP_API_OFF_V1' "$_h"; then
-        mv -f "$_h" "${_h}.disabled" 2>/dev/null || true
-        cat > "$_h" <<'DISABLED_HELPER'
-#!/bin/bash
-# [SETUP_API_OFF_V1] Web-setup helper disabled. The web setup surface was
-# removed; this helper is no longer invoked. The original is beside this file
-# with a .disabled suffix. Emits an error and exits non-zero.
-echo '{"ok":false,"error":"web setup disabled"}'
-exit 1
-DISABLED_HELPER
-        chmod 0755 "$_h"
-    fi
-done
-log "Any pre-existing web setup surface neutralised (API/pages stubbed, helpers made inert)"
+# www-data needs to invoke the FrogNet setup helpers as root so
+# setup_frognet.html can apply identity and broker settings.  Without
+# this fragment, every action in the setup page returns a 401.
+cat > /etc/sudoers.d/frognet-setup <<'SUDOERS'
+www-data ALL=(root) NOPASSWD: /usr/local/bin/frognet_setup_helper.bash
+www-data ALL=(root) NOPASSWD: /usr/local/bin/frognet_setup_v4_helper.bash
+Defaults!/usr/local/bin/frognet_setup_helper.bash    !requiretty
+Defaults!/usr/local/bin/frognet_setup_v4_helper.bash !requiretty
+SUDOERS
+chmod 0440 /etc/sudoers.d/frognet-setup
+visudo -cf /etc/sudoers.d/frognet-setup >/dev/null || die "sudoers fragment is invalid"
+log "Sudoers fragment installed"
 
 ###############################################################################
 #                    PHASE C: EXTRACT WORLD TAR
@@ -706,12 +671,23 @@ phase "C1b: DB secret injection"
 # Replacement is format-aware and value-agnostic: we rewrite the field, so we do
 # not need to know what the old value was.
 ###############################################################################
+# [ONE_CREDENTIAL_ONE_SOURCE_V1 - John 2026-09-12] Three of the five entries
+# here were Python modules carrying their own copy of the password as a
+# module-level default, kept in agreement with the other two ONLY by this
+# injection running over all five in the same pass. It works exactly once. A
+# module restored from a build tar, a partial reinstall, or a unit started
+# without FROGNET_DB_PASS leaves a stale literal, and the node then sprays
+#   [Warning] Access denied for user 'FrogUser'@'localhost' (using password: YES)
+# at its own auth log for as long as the service retries. Two of them shipped
+# a real, working pond password as their shipped default.
+#
+# Those three now read core/db_credentials, which reads DB_CONFIG.json at call
+# time. They hold no secret, so they are not injection sites and must NOT be
+# listed: a listed file that yields zero matches is a FATAL injection failure.
+# Two files carry the credential, and they are the two a human edits.
 SECRET_INJECT_FILES=(
     var/www/html/config.php
     opt/frognet_semantic/DB_CONFIG.json
-    opt/frognet_semantic/daemon/cache/semcache_db.py
-    opt/frognet_semantic/proxy/cache/semcache_db.py
-    opt/frognet_semantic/daemon/engine/data_cache.py
 )
 
 _inject_rc=0
@@ -1056,23 +1032,15 @@ if [[ -n "$INSTALLED_PHP" ]]; then
     done
     log "PHP $INSTALLED_PHP (mod_php, all FPM disabled)"
 fi
-# [APACHE_LAN_BIND_V1] ports.conf is GENERATED, not written here.
-#
-# This used to be a bare "Listen 8080" plus "Listen 8443", which binds every
-# interface: the FrogNet LAN, wg0 once the pond is up, and any upstream WiFi
-# this node joins. The docroot's two unauthenticated endpoints (api.php,
-# frognet_setup_v4_api.php) are only safe on the FrogNet LAN, so the socket now
-# has to match that claim. The address is resolved at each apache2 start by
-# frognet-apache-bind.sh, because it is not known yet at install time.
-install -m 0755 /usr/local/bin/frognet-apache-bind.sh /usr/local/bin/frognet-apache-bind.sh 2>/dev/null || true
-mkdir -p /etc/systemd/system/apache2.service.d
-cat > /etc/systemd/system/apache2.service.d/10-frognet-bind.conf <<'BINDDROPIN'
-[Service]
-ExecStartPre=/usr/local/bin/frognet-apache-bind.sh
-BINDDROPIN
-systemctl daemon-reload 2>/dev/null || true
-# Generate an initial ports.conf now so a config test before first boot passes.
-/usr/local/bin/frognet-apache-bind.sh || true
+cat > /etc/apache2/ports.conf <<'PORTS'
+Listen 8080
+<IfModule ssl_module>
+    Listen 8443
+</IfModule>
+<IfModule mod_gnutls.c>
+    Listen 8443
+</IfModule>
+PORTS
 # [APACHE_LOG_TO_JOURNAL_V1] Stop apache writing under /var/log/apache2.
 #
 # /var/log is tmpfs on these nodes, nothing ships a tmpfiles.d entry to recreate
@@ -1126,13 +1094,31 @@ cat > /etc/apache2/sites-available/databasehost.conf <<'VHOST'
     </Directory>
 </VirtualHost>
 VHOST
-# [APACHE_LAN_BIND_V1] frognet-ssl.conf (*:8443 and *:443) is no longer written
-# or enabled. Both vhosts served this same unauthenticated docroot on every
-# interface, under a shared "universal" certificate. If TLS comes back it needs
-# a per-node cert and an address-specific Listen in frognet-apache-bind.sh.
-rm -f /etc/apache2/sites-enabled/frognet-ssl.conf
-a2dissite frognet-ssl 2>/dev/null || true
-a2ensite 000-default admin-site databasehost 2>/dev/null || true
+cat > /etc/apache2/sites-available/frognet-ssl.conf <<'VHOST'
+<IfModule mod_ssl.c>
+    <VirtualHost *:8443>
+        ServerName frognethost.frognet
+        DocumentRoot /var/www/html
+        SSLEngine on
+        SSLCertificateFile      /etc/ssl/frognet-universal.crt
+        SSLCertificateKeyFile   /etc/ssl/frognet-universal.key
+        SSLOptions +StrictRequire
+        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    </VirtualHost>
+    <VirtualHost *:443>
+        ServerName databasehost.frognet
+        DocumentRoot /var/www/html
+        SSLEngine on
+        SSLCertificateFile      /etc/ssl/localCA/databasehost.frognet.crt
+        SSLCertificateKeyFile   /etc/ssl/localCA/databasehost.frognet.key
+        SSLOptions +StrictRequire
+        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
+    </VirtualHost>
+</IfModule>
+VHOST
+a2ensite 000-default admin-site databasehost frognet-ssl 2>/dev/null || true
 systemctl enable apache2
 log "Apache configured (not started - SSL certs come later)"
 
@@ -1155,8 +1141,9 @@ address=/heartbeat.belkin.com/0.0.0.0
 DNSCONF
 # [DNSMASQ_USE_EXISTING_TRACKER_V1] Point dnsmasq at the dhcp_tracking.bash that
 # already ships in the world tar, instead of writing a lesser trigger by heredoc.
-# dhcp_tracking.bash fires on add AND del, filters to FrogNet (10.10x) leases so
-# non-FrogNet DHCP churn does not spuriously merge, and logs via debugTag -- all
+# dhcp_tracking.bash fires on add AND del, filters to the FrogNet plane (10/8
+# less the reserved 10.253.* transit and 10.254.* chorus planes) so non-FrogNet
+# DHCP churn does not spuriously merge, and logs via debugTag -- all
 # of which the old inline "add-only, no filter" script dropped. It is a shipped
 # node tool, so it stays in step with the rest of the tree; the heredoc drifted.
 # dhcp_tracking.sh is only a one-line exec shim onto the .bash, so either path
@@ -1180,9 +1167,11 @@ rm -f /etc/dnsmasq.d/forward_to_unbound.conf 2>/dev/null || true
 
 cat > /etc/systemd/system/dnsmasq.service.d/override.conf <<'UNIT'
 [Unit]
+# [UNIT_AFTER_IS_ONE_LINE_V1] After= takes its whole list on ONE line. Split
+# across two, systemd rejects the orphan line with "Missing '=', ignoring line"
+# on every daemon-reload, and the dependency silently does not exist.
 Wants=network-online.target
-After=network-online.target
-NetworkManager-wait-online.service
+After=network-online.target NetworkManager-wait-online.service
 
 [Service]
 Restart=on-failure
@@ -2182,11 +2171,8 @@ chk "FrogUser auth"          mysql -u FrogUser -p"${DB_PASS}" FrogNet -e "SELECT
 chk "interfaces_override"    test -f /etc/frognet/interfaces_override.conf
 chk "ip_forward"             test "$(sysctl -n net.ipv4.ip_forward)" = "1"
 chk "ssl cert"               test -f /etc/ssl/frognet-universal.crt
-# [SETUP_API_OFF_V1] Was two checks asserting the setup sudoers grant EXISTS and
-# is valid. The grant is now deliberately absent (web setup disabled), so the
-# check is inverted: its presence would be the failure.
-chk "setup grant absent"     test ! -f /etc/sudoers.d/frognet-setup
-chk "setup API disabled"     sh -c 'grep -q SETUP_API_OFF_V1 /var/www/html/frognet_setup_v4_api.php 2>/dev/null || test ! -f /var/www/html/frognet_setup_v4_api.php'
+chk "sudoers"                test -f /etc/sudoers.d/frognet-setup
+chk "sudoers valid"          visudo -cf /etc/sudoers.d/frognet-setup
 chk "qrencode"               command -v qrencode
 # [DEFERRED_BROKER_SETUP_V1] Was: "pond-bootstrap enabled" -- it asserted the
 # timer was enabled, so it would now fail by design. What matters is that the
