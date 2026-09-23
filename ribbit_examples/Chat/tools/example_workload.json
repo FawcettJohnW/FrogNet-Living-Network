@@ -1,0 +1,4 @@
+{"name": "300 field devices",
+ "devices": 300,
+ "per_device": {"latest_per_s": 20, "every_generation": false, "distinct_per_s": 0, "persistent_per_s": 2,
+                "bulk_bytes_per_s": 51200, "largest_value_bytes": 4096, "blocking_reads": 1}}

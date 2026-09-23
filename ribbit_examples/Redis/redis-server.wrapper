@@ -1,0 +1,3 @@
+#!/bin/sh
+# Redis test harness launches src/redis-server <config> [--args]; this hands it to the Ribbit compatibility process.
+exec "${RIBBIT_REDIS:-/home/claude/ribbit/ribbit-redis}" "$@"

@@ -1,0 +1,26 @@
+{
+  "app": "frogchat",
+  "description": "P2P chat through shared memory",
+  "db_name": "FrogChat",
+  "db_user": "frogchat",
+  "default_port": 8788,
+  "server": {
+    "api": [
+      "server/ram.php"
+    ],
+    "api_config": "ram_config.php",
+    "schema": "server/schema.sql",
+    "path_prefix": "/ram.php"
+  },
+  "client": {
+    "files": [
+      "client/frogchat.py"
+    ],
+    "entry": "frogchat.py"
+  },
+  "oracle": "test_frogchat_oracle.py",
+  "client_cpp": {
+    "dir": "client_cpp",
+    "binary": "frogchat"
+  }
+}

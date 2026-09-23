@@ -1,0 +1,1317 @@
+{
+ "rows": {
+  "rdbchecksum": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "daemonize": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "io-threads-do-reads": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "always-show-logo": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "protected-mode": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "rdbcompression": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "rdb-del-sync-files": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "activerehashing": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "stop-writes-on-bgsave-error": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "set-proc-title": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "dynamic-hz": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lazyfree-lazy-eviction": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lazyfree-lazy-expire": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lazyfree-lazy-server-del": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lazyfree-lazy-user-del": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lazyfree-lazy-user-flush": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-disable-tcp-nodelay": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-diskless-sync": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "aof-rewrite-incremental-fsync": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "no-appendfsync-on-rewrite": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-require-full-coverage": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "rdb-save-incremental-fsync": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "aof-load-truncated": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "aof-use-rdb-preamble": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "aof-timestamp-enabled": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-replica-no-failover": {
+   "alias": "cluster-slave-no-failover",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-lazy-flush": {
+   "alias": "slave-lazy-flush",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-serve-stale-data": {
+   "alias": "slave-serve-stale-data",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-read-only": {
+   "alias": "slave-read-only",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-ignore-maxmemory": {
+   "alias": "slave-ignore-maxmemory",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "jemalloc-bg-thread": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "activedefrag": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "syslog-enabled": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-enabled": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "appendonly": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-allow-reads-when-down": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-allow-pubsubshard-when-down": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "crash-log-enabled": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "crash-memcheck-enabled": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "use-exit-on-panic": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "disable-thp": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-allow-replica-migration": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-announced": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "latency-tracking": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "aof-disable-auto-gc": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "replica-ignore-disk-write-errors": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lua-enable-deprecated-api": {
+   "alias": "",
+   "immutable": true,
+   "hidden": true,
+   "protected": false
+  },
+  "aclfile": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "unixsocket": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "pidfile": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-announce-ip": {
+   "alias": "slave-announce-ip",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "masteruser": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-ip": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-config-file": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-hostname": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-human-nodename": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "syslog-ident": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "dbfilename": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": true
+  },
+  "appendfilename": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "appenddirname": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "server_cpulist": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "bio_cpulist": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "aof_rewrite_cpulist": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "bgsave_cpulist": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "ignore-warnings": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "proc-title-template": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "bind-source-addr": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "logfile": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "req-res-logfile": {
+   "alias": "",
+   "immutable": true,
+   "hidden": true,
+   "protected": false
+  },
+  "locale-collate": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "masterauth": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "requirepass": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "supervised": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "syslog-facility": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-diskless-load": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "loglevel": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxmemory-policy": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "appendfsync": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "oom-score-adj": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "acl-pubsub-default": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "sanitize-dump-payload": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "enable-protected-configs": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "enable-debug-command": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "enable-module-command": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-preferred-endpoint-type": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "propagation-error-behavior": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "shutdown-on-sigint": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "shutdown-on-sigterm": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "databases": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "port": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "io-threads": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "auto-aof-rewrite-percentage": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-replica-validity-factor": {
+   "alias": "cluster-slave-validity-factor",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "list-max-listpack-size": {
+   "alias": "list-max-ziplist-size",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tcp-keepalive": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-migration-barrier": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "active-defrag-cycle-min": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "active-defrag-cycle-max": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "active-defrag-threshold-lower": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "active-defrag-threshold-upper": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lfu-log-factor": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "lfu-decay-time": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-priority": {
+   "alias": "slave-priority",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-diskless-sync-delay": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxmemory-samples": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxmemory-eviction-tenacity": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "timeout": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replica-announce-port": {
+   "alias": "slave-announce-port",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tcp-backlog": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-port": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-bus-port": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-port": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-announce-tls-port": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-timeout": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-ping-replica-period": {
+   "alias": "repl-ping-slave-period",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "list-compress-depth": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "rdb-key-save-delay": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "key-load-delay": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "active-expire-effort": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "hz": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "min-replicas-to-write": {
+   "alias": "min-slaves-to-write",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "min-replicas-max-lag": {
+   "alias": "min-slaves-max-lag",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "watchdog-period": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "shutdown-timeout": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-diskless-sync-max-replicas": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxclients": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "unixsocketperm": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "socket-mark-id": {
+   "alias": "",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "client-default-resp": {
+   "alias": "",
+   "immutable": true,
+   "hidden": true,
+   "protected": false
+  },
+  "active-defrag-max-scan-fields": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "slowlog-max-len": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "acllog-max-len": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "busy-reply-threshold": {
+   "alias": "lua-time-limit",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-node-timeout": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-ping-interval": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "slowlog-log-slower-than": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "latency-monitor-threshold": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "proto-max-bulk-len": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "stream-node-max-entries": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-backlog-size": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxmemory": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "cluster-link-sendbuf-limit": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "hash-max-listpack-entries": {
+   "alias": "hash-max-ziplist-entries",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "set-max-intset-entries": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "set-max-listpack-entries": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "set-max-listpack-value": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "zset-max-listpack-entries": {
+   "alias": "zset-max-ziplist-entries",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "active-defrag-ignore-bytes": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "hash-max-listpack-value": {
+   "alias": "hash-max-ziplist-value",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "stream-node-max-bytes": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "zset-max-listpack-value": {
+   "alias": "zset-max-ziplist-value",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "hll-sparse-max-bytes": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tracking-table-max-keys": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "client-query-buffer-limit": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "maxmemory-clients": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "repl-backlog-ttl": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "auto-aof-rewrite-min-size": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "loading-process-events-interval-bytes": {
+   "alias": "",
+   "immutable": false,
+   "hidden": true,
+   "protected": false
+  },
+  "tls-port": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-session-cache-size": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-session-cache-timeout": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-cluster": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-replication": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-auth-clients": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-prefer-server-ciphers": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-session-caching": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-cert-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-key-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-key-file-pass": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-client-cert-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-client-key-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-client-key-file-pass": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-dh-params-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-ca-cert-file": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-ca-cert-dir": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-protocols": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-ciphers": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "tls-ciphersuites": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "dir": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": true
+  },
+  "save": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "client-output-buffer-limit": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "oom-score-adj-values": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "notify-keyspace-events": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "bind": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  },
+  "replicaof": {
+   "alias": "slaveof",
+   "immutable": true,
+   "hidden": false,
+   "protected": false
+  },
+  "latency-tracking-info-percentiles": {
+   "alias": "",
+   "immutable": false,
+   "hidden": false,
+   "protected": false
+  }
+ },
+ "defaults": {
+  "bind-source-addr": "",
+  "cluster-enabled": "no",
+  "loglevel": "notice",
+  "port": "7799",
+  "auto-aof-rewrite-percentage": "100",
+  "daemonize": "no",
+  "repl-ping-replica-period": "10",
+  "lfu-decay-time": "1",
+  "lazyfree-lazy-eviction": "no",
+  "slave-announce-port": "0",
+  "slave-lazy-flush": "no",
+  "client-output-buffer-limit": "normal 0 0 0 slave 268435456 67108864 60 pubsub 33554432 8388608 60",
+  "rdbcompression": "yes",
+  "acl-pubsub-default": "resetchannels",
+  "hash-max-listpack-entries": "512",
+  "jemalloc-bg-thread": "yes",
+  "dir": "/home/claude/redis-7.2.11",
+  "masterauth": "",
+  "replica-lazy-flush": "no",
+  "zset-max-ziplist-value": "64",
+  "locale-collate": "",
+  "list-max-ziplist-size": "-2",
+  "masteruser": "",
+  "tls-prefer-server-ciphers": "no",
+  "list-compress-depth": "0",
+  "slave-priority": "100",
+  "tls-ca-cert-dir": "",
+  "propagation-error-behavior": "ignore",
+  "zset-max-ziplist-entries": "128",
+  "list-max-listpack-size": "-2",
+  "set-max-listpack-value": "64",
+  "appenddirname": "appendonlydir",
+  "unixsocket": "",
+  "tls-ciphersuites": "",
+  "always-show-logo": "no",
+  "aof-timestamp-enabled": "no",
+  "hash-max-listpack-value": "64",
+  "dbfilename": "dump.rdb",
+  "tls-dh-params-file": "",
+  "tls-replication": "no",
+  "replica-ignore-disk-write-errors": "no",
+  "appendfsync": "everysec",
+  "set-proc-title": "yes",
+  "unixsocketperm": "0",
+  "syslog-enabled": "no",
+  "timeout": "0",
+  "repl-diskless-sync": "yes",
+  "set-max-intset-entries": "512",
+  "logfile": "",
+  "slowlog-log-slower-than": "10000",
+  "repl-disable-tcp-nodelay": "no",
+  "active-expire-effort": "1",
+  "repl-backlog-ttl": "3600",
+  "cluster-replica-no-failover": "no",
+  "cluster-announce-human-nodename": "",
+  "cluster-port": "0",
+  "socket-mark-id": "0",
+  "supervised": "no",
+  "cluster-config-file": "nodes.conf",
+  "cluster-announce-port": "0",
+  "cluster-node-timeout": "15000",
+  "crash-memcheck-enabled": "yes",
+  "latency-tracking": "yes",
+  "enable-module-command": "no",
+  "pidfile": "",
+  "bio_cpulist": "",
+  "cluster-announce-hostname": "",
+  "activerehashing": "yes",
+  "shutdown-on-sigint": "default",
+  "ignore-warnings": "",
+  "replica-ignore-maxmemory": "yes",
+  "maxmemory-samples": "5",
+  "no-appendfsync-on-rewrite": "no",
+  "replicaof": "",
+  "io-threads": "1",
+  "stream-node-max-entries": "100",
+  "hll-sparse-max-bytes": "3000",
+  "bgsave_cpulist": "",
+  "repl-timeout": "60",
+  "min-replicas-to-write": "0",
+  "tls-auth-clients": "yes",
+  "stream-node-max-bytes": "4096",
+  "hz": "10",
+  "tcp-keepalive": "300",
+  "rdbchecksum": "yes",
+  "active-defrag-max-scan-fields": "1000",
+  "dynamic-hz": "yes",
+  "replica-serve-stale-data": "yes",
+  "repl-backlog-size": "1048576",
+  "acllog-max-len": "128",
+  "tracking-table-max-keys": "1000000",
+  "active-defrag-cycle-max": "25",
+  "latency-tracking-info-percentiles": "50 99 99.9",
+  "cluster-slave-validity-factor": "10",
+  "min-replicas-max-lag": "10",
+  "syslog-ident": "redis",
+  "slave-serve-stale-data": "yes",
+  "latency-monitor-threshold": "0",
+  "syslog-facility": "local0",
+  "lazyfree-lazy-user-flush": "no",
+  "rdb-save-incremental-fsync": "yes",
+  "rdb-del-sync-files": "no",
+  "bind": "* -::*",
+  "tls-port": "0",
+  "maxmemory": "0",
+  "repl-diskless-sync-delay": "5",
+  "replica-read-only": "yes",
+  "disable-thp": "yes",
+  "lazyfree-lazy-server-del": "no",
+  "oom-score-adj-values": "0 200 800",
+  "replica-announce-port": "0",
+  "maxmemory-clients": "0",
+  "set-max-listpack-entries": "128",
+  "aof-use-rdb-preamble": "yes",
+  "server_cpulist": "",
+  "cluster-announce-ip": "",
+  "lazyfree-lazy-user-del": "no",
+  "io-threads-do-reads": "no",
+  "slaveof": "",
+  "zset-max-listpack-entries": "128",
+  "tls-ciphers": "",
+  "tls-session-caching": "yes",
+  "shutdown-timeout": "10",
+  "busy-reply-threshold": "5000",
+  "proc-title-template": "{title} {listen-addr} {server-mode}",
+  "cluster-link-sendbuf-limit": "0",
+  "save": "",
+  "tls-cluster": "no",
+  "min-slaves-max-lag": "10",
+  "replica-announce-ip": "",
+  "zset-max-listpack-value": "64",
+  "lazyfree-lazy-expire": "no",
+  "aof_rewrite_cpulist": "",
+  "maxclients": "10000",
+  "appendonly": "no",
+  "cluster-replica-validity-factor": "10",
+  "slowlog-max-len": "128",
+  "maxmemory-eviction-tenacity": "10",
+  "slave-ignore-maxmemory": "yes",
+  "enable-protected-configs": "no",
+  "min-slaves-to-write": "0",
+  "repl-diskless-load": "disabled",
+  "aclfile": "",
+  "replica-announced": "yes",
+  "active-defrag-threshold-upper": "100",
+  "slave-announce-ip": "",
+  "shutdown-on-sigterm": "default",
+  "tls-session-cache-size": "20480",
+  "replica-priority": "100",
+  "crash-log-enabled": "yes",
+  "active-defrag-ignore-bytes": "104857600",
+  "client-query-buffer-limit": "1073741824",
+  "aof-load-truncated": "yes",
+  "cluster-allow-pubsubshard-when-down": "yes",
+  "cluster-announce-tls-port": "0",
+  "proto-max-bulk-len": "536870912",
+  "sanitize-dump-payload": "no",
+  "tls-session-cache-timeout": "300",
+  "tls-client-key-file": "",
+  "cluster-slave-no-failover": "no",
+  "cluster-announce-bus-port": "0",
+  "repl-ping-slave-period": "10",
+  "stop-writes-on-bgsave-error": "yes",
+  "lfu-log-factor": "10",
+  "requirepass": "",
+  "hash-max-ziplist-entries": "512",
+  "appendfilename": "appendonly.aof",
+  "tls-client-cert-file": "",
+  "hash-max-ziplist-value": "64",
+  "cluster-require-full-coverage": "yes",
+  "cluster-allow-reads-when-down": "no",
+  "lua-time-limit": "5000",
+  "protected-mode": "yes",
+  "cluster-migration-barrier": "1",
+  "notify-keyspace-events": "",
+  "tcp-backlog": "511",
+  "enable-debug-command": "no",
+  "active-defrag-threshold-lower": "10",
+  "tls-key-file-pass": "",
+  "tls-protocols": "",
+  "active-defrag-cycle-min": "1",
+  "tls-cert-file": "",
+  "aof-rewrite-incremental-fsync": "yes",
+  "cluster-allow-replica-migration": "yes",
+  "repl-diskless-sync-max-replicas": "0",
+  "auto-aof-rewrite-min-size": "67108864",
+  "slave-read-only": "yes",
+  "maxmemory-policy": "noeviction",
+  "activedefrag": "no",
+  "oom-score-adj": "no",
+  "tls-client-key-file-pass": "",
+  "databases": "16",
+  "cluster-preferred-endpoint-type": "ip",
+  "tls-key-file": "",
+  "tls-ca-cert-file": ""
+ }
+}

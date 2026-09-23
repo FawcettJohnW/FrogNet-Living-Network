@@ -1,0 +1,36 @@
+--- a/src/modes/world.cpp
++++ b/src/modes/world.cpp
+@@
+ #include "race/race_manager.hpp"
++#include "race/state_validator.hpp"
+@@
+     PROFILER_POP_CPU_MARKER();
+     if(RaceManager::get()->isRecordingRace()) ReplayRecorder::get()->update(ticks);
++    if(StateValidator::get()) StateValidator::get()->update();
+ 
+     PROFILER_PUSH_CPU_MARKER("World::update (projectiles)", 0xa0, 0x7F, 0x00);
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@
+ #include "race/race_manager.hpp"
++#include "race/state_validator.hpp"
+@@
+     if(CommandLine::has("--history"))
+     {
+@@
+     }   // --history
++
++    // --validator-log=FILE [--validator-every=TICKS]: fixed-tick record of every
++    // kart's state, above the network. The oracle for a networking replacement.
++    std::string validator_log;
++    if(CommandLine::has("--validator-log", &validator_log))
++    {
++        int every = 6;
++        CommandLine::has("--validator-every", &every);
++        StateValidator::create(validator_log, every);
++    }
+--- a/sources.cmake
++++ b/sources.cmake
+@@   (both lists are alphabetical; add one line to each)
++src/race/state_validator.cpp
++src/race/state_validator.hpp

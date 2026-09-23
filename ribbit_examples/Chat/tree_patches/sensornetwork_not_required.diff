@@ -1,0 +1,24 @@
+--- a/var/www/html/Create_Database.sql	2026-09-18 15:06:42.243024521 +0000
++++ b/var/www/html/Create_Database.sql	2026-09-18 15:06:42.246092549 +0000
+@@ -74,7 +74,7 @@
+   `SensorID`       INT NOT NULL AUTO_INCREMENT,
+   `FrogID`         VARCHAR(64)  NOT NULL,
+   `SensorAddress`  VARCHAR(191)  NOT NULL,
+-  `SensorNetwork`  VARCHAR(1024) NOT NULL,
++  `SensorNetwork`  VARCHAR(1024) NOT NULL DEFAULT '',
+   -- [TUPLE_ADDRESS_V1] Name, Type and Address are the THREE COORDINATES that address
+   -- a segment of network shared memory -- a Linda tuple space. The columns are called
+   -- Sensor* because sensors were the first application; nothing here is
+--- a/var/www/html/schema_fixups.sql	2026-09-18 15:06:42.243997508 +0000
++++ b/var/www/html/schema_fixups.sql	2026-09-18 15:06:42.246092549 +0000
+@@ -148,3 +148,10 @@
+ ALTER TABLE Sensor DROP INDEX IF EXISTS idx_sensor_name;
+ ALTER TABLE Sensor ADD UNIQUE KEY IF NOT EXISTS idx_tuple_address
+       (`SensorName`, `SensorType`, `SensorAddress`);
++
++-- [A_COORDINATE_IS_NOT_AN_IP_V1] SensorNetwork was NOT NULL with no default, and api.php
++-- fills it only when SensorAddress parses as an IPv4. A writer whose address is an
++-- identity rather than an IP -- any client that is not a FrogNet node -- therefore could
++-- not write at all: "Field 'SensorNetwork' doesn't have a default value". The network is
++-- not part of the tuple address and is not required. Same treatment SensorLocation has.
++ALTER TABLE Sensor MODIFY `SensorNetwork` VARCHAR(1024) NOT NULL DEFAULT '';
