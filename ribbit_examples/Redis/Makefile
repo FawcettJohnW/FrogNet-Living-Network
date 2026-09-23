@@ -7,8 +7,10 @@ ribbit-redis: $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(OBJ)
 src/%.o: src/%.cpp src/server.hpp src/memory.hpp src/pmap.hpp src/hmap.hpp src/resp.hpp src/cmdtable.hpp src/stream.hpp src/blocking.hpp src/lfmap.hpp src/ebr.hpp src/cfgtable.hpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
-src/cmdtable.hpp: tools/gen_cmdtable.py
-	python3 tools/gen_cmdtable.py $(REDIS_SRC) $@
+# src/cmdtable.hpp is generated and checked in. Regenerate it only on request:
+#   make cmdtable REDIS_SRC=/path/to/redis-7.2.11
+cmdtable:
+	python3 tools/gen_cmdtable.py $(REDIS_SRC) src/cmdtable.hpp
 clean:
 	rm -f $(OBJ) ribbit-redis
-.PHONY: all clean
+.PHONY: all clean cmdtable

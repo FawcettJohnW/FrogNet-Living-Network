@@ -6,7 +6,7 @@ Both examples test the same idea: distributed and concurrent programs don't have
 
 > Determine your truth. Write your truth. Read the other truths. Go.
 
-## [FrogChat](frogchat/)
+## [FrogChat](Chat/)
 
 Person-to-person chat over the Internet with no chat server.
 
@@ -14,7 +14,7 @@ Each person writes lines into shared memory and waits on their own part of it. T
 
 This is the place to start. It shows the programming model at its smallest.
 
-## [Redis-on-Ribbit](redis-on-ribbit/)
+## [Redis-on-Ribbit](Redis/)
 
 A Redis-compatible server whose entire keyspace lives in Ribbit shared memory, built in four days.
 

@@ -23,7 +23,7 @@ make
 
 This produces `ribbit-redis` in the top directory. `make clean` removes the objects and the binary.
 
-`src/cmdtable.hpp` is generated from Redis 7.2.11's command definitions and is already included. You only need `make REDIS_SRC=/path/to/redis-7.2.11` if you delete it and want it regenerated.
+`src/cmdtable.hpp` is generated from Redis 7.2.11's command definitions and is already included. To regenerate it from a Redis source tree: `make cmdtable REDIS_SRC=/path/to/redis-7.2.11`.
 
 ## Run it
 
