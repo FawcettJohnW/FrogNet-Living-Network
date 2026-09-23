@@ -72,7 +72,7 @@ Across eight very different system conversions, including this one, the base Rib
 
 ## Build and run
 
-Requirements: Linux, a C++20 compiler (g++), `make`, and Tcl for the test suite.
+Requirements: Linux, a C++20 compiler (g++) and `make`. See BUILDING.md for details.
 
 ```
 make
@@ -85,33 +85,33 @@ This produces `ribbit-redis`. It's one process with the memory and the RESP fron
 ./ribbit-redis --port 6379 --io-threads 4
 ```
 
-## Run Redis's own test suite against it
+## Test and benchmark it yourself
 
-Redis's source is not included here. Fetch Redis 7.2.11 from https://download.redis.io and build it normally. Then replace its server with a wrapper, so the suite launches Ribbit instead:
+Everything needed to reproduce the results is in `bench/`:
 
-```
-cd redis-7.2.11
-mv src/redis-server src/redis-server.stock
-printf '#!/bin/sh\nexec "${RIBBIT_REDIS:-/path/to/ribbit-redis}" "$@" ${RIBBIT_ARGS}\n' > src/redis-server
-chmod +x src/redis-server
-
-./runtest --ignore-encoding --ignore-digest --durable
-RIBBIT_ARGS="--io-threads 4" ./runtest --ignore-encoding --ignore-digest --durable --clients 8
-```
-
-`--ignore-encoding` and `--ignore-digest` are required, because Ribbit doesn't use Redis's internal encodings or RDB digest. Expect `[err]` lines for not-applicable tests such as DEBUG RELOAD and replication. That's the signature of Ribbit being the server under test.
-
-To restore stock Redis, move `src/redis-server.stock` back.
-
-## Reproduce the benchmarks
-
-Run stock Redis and Ribbit on the same machine with the same `redis-benchmark` line, and pin the server and the client to separate physical cores:
+| Script | What it does |
+|---|---|
+| `bench/install_wrapper.sh` | puts Ribbit behind a Redis 7.2.11 source tree's `src/redis-server`, so Redis's test suite runs against it (`--restore` puts stock back) |
+| `bench/run_suite.sh` | runs Redis's own test suite against Ribbit and tallies the result |
+| `bench/scale.sh` | stock Redis on one core, then Ribbit on one, two, three … cores, same benchmark line |
+| `bench/summarize.py` | turns `scale.sh` output into tables, absolute and relative to stock |
 
 ```
-redis-benchmark -p 6379 -q -c 200 -P 16 -t set,get,lpush,sadd -r 1000000 -n 2000000
+bench/install_wrapper.sh ~/redis-7.2.11
+IO_THREADS=4 CLIENTS=8 bench/run_suite.sh ~/redis-7.2.11
+
+REDIS=~/redis-7.2.11 SERVER_CORES="0 1 2" CLIENT_CORES=3 bench/scale.sh | tee scale.log
+python3 bench/summarize.py scale.log
 ```
 
-Then run Ribbit with `--io-threads 2` and `--io-threads 3` on the same machine. Please publish your numbers with the machine they came from. Reference results describe the hardware that produced them, not a limit.
+Redis's source is not included here; BUILDING.md shows how to fetch and build it. How to run each step and how to read the results:
+
+- **BUILDING.md**: building Ribbit and stock Redis
+- **TESTING.md**: running Redis's test suite, and what `[ok]` and `[err]` mean
+- **BENCHMARKS.md**: choosing cores, running the benchmark, and reading the tables
+- **QUESTION-3.md**: the register of deliberate differences from Redis
+
+Please publish your numbers with the machine they came from. Reference results describe the hardware that produced them, not a limit.
 
 ## Relationship to FrogNet
 

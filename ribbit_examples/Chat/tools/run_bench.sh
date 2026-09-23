@@ -13,8 +13,6 @@
 # Run this on the CLIENT machine. On the SERVER, at the same time, run
 #   ./server_monitor.sh PORT --out DIR        (stop it with Ctrl-C when this finishes)
 # Both stamp everything in UTC epoch seconds, so the two directories line up.
-# Afterwards:   ./bench_to_sim.py CLIENT_DIR [SERVER_DIR]   turns the measurements
-# into a profile the simulator loads.
 #
 # What is recorded:
 #   env.json            this machine (CPU, cores, memory, kernel), the target, when

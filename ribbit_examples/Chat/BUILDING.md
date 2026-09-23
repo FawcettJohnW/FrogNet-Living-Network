@@ -58,6 +58,15 @@ make windows
 
 This produces `frogchat.exe`.
 
+## The benchmark tools
+
+```
+cd tools
+make
+```
+
+This builds `frogbench`, `flood` and `mesh`. `make frogbench.exe` cross-builds frogbench for Windows with mingw-w64. How to run them is in BENCHMARKS.md.
+
 ## Verify
 
 With the server running:

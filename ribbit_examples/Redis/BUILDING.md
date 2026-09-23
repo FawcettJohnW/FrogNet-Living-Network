@@ -5,6 +5,7 @@
 - Linux (x86-64 or ARM64). It has been built and run on Ubuntu x86-64 and on a Raspberry Pi 5.
 - g++ with C++20 support (g++ 10 or later; tested with 13.3)
 - make
+- `taskset` (util-linux) and Python 3, for the benchmark scripts
 
 The server itself needs nothing else: no Redis source, no FrogNet components, no third-party libraries.
 
@@ -55,7 +56,7 @@ cd redis-7.2.11
 make MALLOC=libc
 ```
 
-Then follow "Run Redis's own test suite against it" in README.md to put the wrapper in place. `redis-server.wrapper` in this directory is a ready-made copy. Set `RIBBIT_REDIS` to the full path of your `ribbit-redis` binary, or edit the default path in the wrapper.
+To run Redis's test suite against Ribbit, install the wrapper with `bench/install_wrapper.sh ~/redis-7.2.11` and follow TESTING.md. To benchmark, see BENCHMARKS.md.
 
 ## Profiling and tools
 

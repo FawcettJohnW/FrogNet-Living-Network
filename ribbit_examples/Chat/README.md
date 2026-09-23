@@ -32,6 +32,7 @@ On the wire, FrogChat uses FNW1, FrogNet's semantic protocol. An unchanged quest
 | `server_cpp/ram_server.cpp` | The memory server: FNW1 and the memory in one C++ process. |
 | `cpp/` | The C++ client library used by the C++ client and server. |
 | `common/probe_ram.py` | Checks whether a memory is reachable. |
+| `tools/` | Benchmarks: `frogbench`, `flood`, `mesh`, `run_bench.sh`, and the envelope and report generators. |
 
 ## Run it
 
@@ -81,6 +82,18 @@ python3 apps/frogchat/test_frogchat_oracle.py HOST:8788
 ```
 
 The oracle exercises the client against the memory, including the 21-byte SAME round trip. It ends with `PASS (0 failed)`.
+
+## Measure it
+
+```
+cd tools && make
+./frogbench
+```
+
+`frogbench` brings up its own memory, checks that the contract holds on this machine (every value kept, in order, exactly once; blocking reads wake when they should), then measures how far it goes. `run_bench.sh` does the same against a real server across a real network, and `bench_envelope.py` turns the results into recommended limits for that host.
+
+- **BUILDING.md**: building the server, clients and tools
+- **BENCHMARKS.md**: running every benchmark, and how to read the results
 
 ## Relationship to FrogNet
 
