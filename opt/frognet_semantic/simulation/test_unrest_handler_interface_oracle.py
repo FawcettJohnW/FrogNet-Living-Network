@@ -25,7 +25,7 @@ PROVES:
   2. FORMAT handlers (JSON/XML/HTML/text) do only compress/decompress: their codec slot is
      real, and everything else is the empty-return default (advertise writes nothing,
      score==-1.0, evaluate==None).
-  3. ROLE handlers (databasehost/mediahost/boardgame) advertise their <role>/capability to
+  3. ROLE handlers (databasehost/mediahost) advertise their <role>/capability to
      BOTH databasehost_control.frognet and databasehost.frognet, perf inside the blob.
   4. publish_all() fans one probe across every role -> the all-contexts publish.
 

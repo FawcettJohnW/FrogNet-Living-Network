@@ -208,8 +208,6 @@
     <div class="win-body">
       <div class="pond-h">open streams</div>
       <div id="streamList"><div class="empty">No open calls right now.</div></div>
-      <div class="pond-h">games</div>
-      <div id="gameList"><div class="empty">No games in progress.</div></div>
     </div>
   </div>
 
@@ -311,33 +309,14 @@ function rowStream(c){
   return div;
 }
 
-function rowGame(g){
-  const div = document.createElement("div");
-  div.className = "row";
-  const name = g.name || g.game || g.service || g.session || "table";
-  const seats = (g.seats||[]).length;
-  const ply = g.players!=null ? g.players : (g.presence||[]).length;
-  div.innerHTML =
-    `<span class="ic">🎲</span>
-     <span class="meta">
-       <div class="nm">${escapeHtml(name)}</div>
-       <div class="sub">${ply} playing${seats?` · ${seats} seats`:""}${g.open_seats!=null?` · ${g.open_seats} open`:""}</div>
-     </span>`;
-  return div;
-}
-
 async function refreshPond(){
   if(!pondOpen) return;
-  let calls=[], games=[];
+  let calls=[];
   try{ calls = (await api("/api/calls")).calls||[]; }catch(e){}
-  try{ games = (await api("/api/games")).games||[]; }catch(e){}
   const sl = $("#streamList"); sl.innerHTML="";
   if(!calls.length){ sl.innerHTML = '<div class="empty">No open calls right now.</div>'; }
   else for(const c of calls) sl.appendChild(rowStream(c));
-  const gl = $("#gameList"); gl.innerHTML="";
-  if(!games.length){ gl.innerHTML = '<div class="empty">No games in progress.</div>'; }
-  else for(const g of games) gl.appendChild(rowGame(g));
-  const tot = calls.length + games.length;
+  const tot = calls.length;
   $("#pondBadge").textContent = tot ? tot : "";
 }
 

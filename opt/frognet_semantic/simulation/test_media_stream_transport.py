@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _TREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # opt/frognet_semantic
 for _p in (_TREE, os.path.join(_TREE, "simulation"), os.path.join(_TREE, "core"),
            os.path.normpath(os.path.join(_TREE, "..", "..",
-                            "etc", "frognet_bundles", "communicator"))):
+                            "opt", "frognet_semantic", "ribbit", "examples", "communicator"))):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 

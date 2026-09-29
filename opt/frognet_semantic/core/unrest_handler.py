@@ -32,7 +32,7 @@ empty-return default this base provides. So:
     inherits `return`-style no-ops for election and lifecycle.
   * the SotF handler overrides the SAME codec slot, where for it that slot manages the
     media/chat stream rather than compressing a body, PLUS the role slot.
-  * a pure ROLE handler (databasehost/boardgame) overrides election (score/evaluate) and
+  * a pure ROLE handler (databasehost) overrides election (score/evaluate) and
     inherits the real lifecycle (advertise/hostReset) below; its codec slot is `return`.
 
 THE LIFECYCLE IS REAL ON ANY HANDLER THAT NAMES A ROLE. `advertise()` dual-writes this

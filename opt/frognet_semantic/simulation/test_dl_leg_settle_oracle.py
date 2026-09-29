@@ -31,7 +31,7 @@ LegController, and contrasts no-settle vs settle:
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUNDLE = os.environ.get("FN_COMMUNICATOR_DIR") or os.path.normpath(
-    os.path.join(HERE, "..", "..", "..", "etc", "frognet_bundles", "communicator"))
+    os.path.join(HERE, "..", "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 sys.path.insert(0, BUNDLE)
 import sotf_leg_adapt as A, sotf_ladder as L
 

@@ -33,7 +33,7 @@
 set -u
 [ "$(id -u)" = "0" ] || { echo "[advertisers] must run as root" >&2; exit 1; }
 command -v systemctl >/dev/null 2>&1 || { echo "[advertisers] no systemd; skipping" >&2; exit 0; }
-BUNDLE="${FROGNET_BUNDLE:-/etc/frognet_bundles/communicator}"
+BUNDLE="${FROGNET_BUNDLE:-/opt/frognet_semantic/ribbit/examples/communicator}"
 UNIT_DIR=/etc/systemd/system
 
 # 1. ensure the probe + the generic writer are present on PATH

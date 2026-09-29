@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _TREE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # opt/frognet_semantic
 for _p in (_TREE, os.path.join(_TREE, "core"),
            os.path.normpath(os.path.join(_TREE, "..", "..",
-                            "etc", "frognet_bundles", "communicator"))):
+                            "opt", "frognet_semantic", "ribbit", "examples", "communicator"))):
     if os.path.isdir(_p) and _p not in sys.path:
         sys.path.insert(0, _p)
 import importlib.util
@@ -52,7 +52,7 @@ try:
 except Exception:
     _LADDER = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "..", "etc", "frognet_bundles", "communicator", "sotf_ladder.py"))
+        "..", "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator", "sotf_ladder.py"))
     spec = importlib.util.spec_from_file_location("sotf_ladder", _LADDER)
     ladder = importlib.util.module_from_spec(spec); spec.loader.exec_module(ladder)
 

@@ -577,8 +577,6 @@ class App(tk.Tk):
                                   bg=REED, fg=WATER, relief="flat", padx=22, pady=12,
                                   font=F_BIG)
         self.call_btn.pack(side="left")
-        tk.Button(act, text="Games", command=self._games_popup, bg=WATER2, fg=LILY,
-                  relief="flat", padx=16, pady=12).pack(side="left", padx=10)
         self.relay_lbl = tk.Label(act, text="", fg=MUTE, bg=WATER, font=F_SMALL)
         self.relay_lbl.pack(side="left", padx=14)
 
@@ -616,8 +614,6 @@ class App(tk.Tk):
                        command=self._set_aspect).pack(side="left")
         tk.Button(ctl, text="Invite", command=self._ask_who, bg=REED, fg=WATER,
                   relief="flat", padx=12).pack(side="left", padx=(14, 6))
-        tk.Button(ctl, text="Games", command=self._games_popup, bg=WATER3, fg=LILY,
-                  relief="flat", padx=12).pack(side="left")
         tk.Button(ctl, text="Diagnostics", command=self._open_diag, bg=WATER3,
                   fg=MUTE, relief="flat", padx=12).pack(side="left")
         self.quiet_btn = tk.Button(ctl, text="Quiet mode", command=self._toggle_quiet,
@@ -2009,115 +2005,6 @@ class App(tk.Tk):
     # =====================================================================
     # preflight
     # =====================================================================
-    # =====================================================================
-    # games
-    # =====================================================================
-    GAME_CATALOG = [
-        ("Card Games", [
-            ("hearts", "Hearts", "card"),
-            ("liarsdice", "Liar's Dice", "card"),
-        ]),
-        ("Board Games", [
-            ("backgammon", "Backgammon", "board"),
-            ("connectfour", "Connect Four", "card"),
-            ("reversi", "Reversi", "card"),
-        ]),
-    ]
-
-    def _game_app_path(self, game, family):
-        """Where a game's entry point lives. One place, so the chooser and the
-        launcher cannot disagree about what is installed."""
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if family == "board":
-            return os.path.join(root, "boardgame", "app", "bg_play.py")
-        if family == "bg":
-            return os.path.join(root, "net.frognet.backgammon", "app", "bg_app.py")
-        if game in ("connectfour", "reversi"):
-            return os.path.join(root, "games-common",
-                                {"connectfour": "connect4_play.py",
-                                 "reversi": "reversi_play.py"}[game])
-        return os.path.join(root, "games-common", "game_app.py")
-
-    def _games_popup(self):
-        """[OFFER_ONLY_WHAT_EXISTS_V1] Only games whose app is actually on this box.
-
-        GAME_CATALOG is a fixed list of five and every one of them was offered
-        unconditionally; the existence check lived in _launch_game, so you picked a
-        game, the window closed, and a status line said the app was missing. A chooser
-        that lists things that are not there is worse than no chooser.
-        """
-        installed, absent = [], []
-        for category, games in self.GAME_CATALOG:
-            here = [(g, t, f) for g, t, f in games
-                    if os.path.exists(self._game_app_path(g, f))]
-            gone = [t for g, t, f in games
-                    if not os.path.exists(self._game_app_path(g, f))]
-            if here:
-                installed.append((category, here))
-            absent.extend(gone)
-
-        win = tk.Toplevel(self)
-        win.title("Games")
-        win.configure(bg=WATER2)
-        win.attributes("-topmost", True)
-        tk.Label(win, text="FrogNet Games", fg=LILY, bg=WATER2,
-                 font=F_BIG).pack(pady=(16, 2), padx=24)
-        if not installed:
-            tk.Label(win, text="no game bundles are installed on this machine",
-                     fg=ROSE, bg=WATER2, font=F_MED).pack(padx=24, pady=(6, 4))
-            tk.Label(win, text="they live beside the communicator in\n%s"
-                               % os.path.dirname(os.path.dirname(
-                                   os.path.abspath(__file__))),
-                     fg=MUTE, bg=WATER2, font=F_SMALL,
-                     justify="left").pack(padx=24, pady=(0, 12))
-        else:
-            tk.Label(win, text="each opens in its own window, over the tuple space",
-                     fg=MUTE, bg=WATER2, font=F_SMALL).pack(pady=(0, 12), padx=24)
-        for category, games in installed:
-            tk.Label(win, text=category.upper(), fg=MUTE, bg=WATER2,
-                     font=F_LABEL).pack(anchor="w", padx=24, pady=(8, 4))
-            for game, title, family in games:
-                tk.Button(win, text=title,
-                          command=lambda g=game, f=family, w=win: (
-                              self._launch_game(g, f), w.destroy()),
-                          bg=REED, fg=WATER, relief="flat", width=22,
-                          pady=6).pack(padx=24, pady=2)
-        if absent:
-            tk.Label(win, text="not installed: " + ", ".join(sorted(absent)),
-                     fg=MUTE, bg=WATER2, font=F_SMALL,
-                     wraplength=300).pack(padx=24, pady=(12, 0))
-        tk.Label(win, text="", bg=WATER2).pack(pady=6)
-
-    def _launch_game(self, game, family, table="table-1"):
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        host = getattr(self.cp, "dbhost", "databasehost.frognet")
-        if family == "board":
-            app = os.path.join(root, "boardgame", "app", "bg_play.py")
-            cmd = [sys.executable, app, "--connect", host, "--who", self.args.name,
-                   "--gid", table]
-        elif family == "bg":
-            app = os.path.join(root, "net.frognet.backgammon", "app", "bg_app.py")
-            cmd = [sys.executable, app, "--space", host, "--table", table,
-                   "--who", self.args.name]
-        elif game in ("connectfour", "reversi"):
-            play = {"connectfour": "connect4_play.py", "reversi": "reversi_play.py"}[game]
-            app = os.path.join(root, "games-common", play)
-            cmd = [sys.executable, app, "--who", self.me_id, "--table", table,
-                   "--dbhost", host, "--bundles-root", root]
-        else:
-            app = os.path.join(root, "games-common", "game_app.py")
-            cmd = [sys.executable, app, "--game", game, "--table", table,
-                   "--who", self.me_id, "--dbhost", host, "--bundles-root", root]
-        if not os.path.exists(app):
-            self.status.config(text="game app missing: %s"
-                                    % os.path.relpath(app, root))
-            return
-        try:
-            subprocess.Popen(cmd)
-            self.status.config(text="launched %s (table %s)" % (game, table))
-        except Exception as e:
-            self.status.config(text="game launch failed: %s" % type(e).__name__)
-
     # =====================================================================
     # video
     # =====================================================================

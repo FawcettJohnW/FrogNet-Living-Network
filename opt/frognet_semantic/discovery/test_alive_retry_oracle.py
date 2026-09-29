@@ -5,7 +5,7 @@ Field case (New-York-2 runMerge, 2026-06-20): the 10.130.130 (Seattle3) transit
 verified inconsistently across merge passes - VERIFY_OK, then a walk FAIL_ECHO
 (:9009 verdict=none), then VERIFY_SUSPECT, then FAIL_ECHO again. Each missed pong
 dropped the measured candidate to vouch-only, so the single-winner roles
-(mediahost/boardgame) flapped pass to pass. The :9009 ping-pong is acknowledged
+(mediahost) flapped pass to pass. The :9009 ping-pong is acknowledged
 to false-negative on high-RTT/tunnel paths, yet one miss at the walk was
 destructive.
 

@@ -83,7 +83,6 @@ FROGNET_WORLD_PATHS=(
     etc/apache2/sites-available/default-ssl.conf
     etc/apache2/sites-available/devices-site.conf
     etc/apache2/sites-available/frognet-ssl.conf
-    etc/apache2/conf-available/unrest-family-calendar.conf
 
     etc/dnsmasq.d
     etc/frognet
@@ -133,11 +132,6 @@ FROGNET_WORLD_PATHS=(
     # Web files
     var/www/html
     var/www/www_admin
-
-    # Application bundles: the Communicator and the app codices, including the
-    # capability role-election code (frognet_role_elect, frognet_service_hosts,
-    # frognet_tuples).
-    etc/frognet_bundles
 
     # Python source. agent_workload/ -- ddpbench.py, the tuplespace collectives
     # and the DDP hooks -- is inside this and ships with it; it is deliberately
@@ -281,7 +275,7 @@ FROGNET_NEVER_SHIP=(
     # carried {"host": "10.250.250.1", "name": "Gorp", "id": "gorp",
     # "pref_camera": "/dev/video0", "pref_mic": "plughw:2,0"} - a person's display
     # name and their camera and microphone. Not source.
-    'etc/frognet_bundles/communicator/shell.json'
+    'opt/frognet_semantic/ribbit/examples/communicator/shell.json'
 
     # Shared secrets.
     'etc/frognet/sem_cache_secret'

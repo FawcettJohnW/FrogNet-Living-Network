@@ -19,7 +19,7 @@
 """
 working_memory.py - the LOCAL source/sink (working memory), distinct from the wire.
 
-Mirrors the backgammon_codex.py store contract:
+The store contract:
   - TransientStore (get/upsert/drop): the floating live cache. Holds NO durable
     state of its own; ALWAYS there (election always yields a holder).
   - PermStore (load/save): the resumable AUTHORITY.

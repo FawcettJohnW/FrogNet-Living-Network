@@ -53,10 +53,10 @@ import time
 # -- paths: the planes (here, persistent) + the real frognet_log + the sim -----
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SEM  = os.path.dirname(_HERE); _ROOT = os.path.dirname(os.path.dirname(_SEM))
-_CANDS = [_HERE, _SEM, _SEM+"/proxy", _SEM+"/core", _ROOT+"/etc/frognet_bundles/communicator",
+_CANDS = [_HERE, _SEM, _SEM+"/proxy", _SEM+"/core", _ROOT+"/opt/frognet_semantic/ribbit/examples/communicator",
     "/tmp/fn2/opt/frognet_semantic","/tmp/fn2/opt/frognet_semantic/simulation",
     "/tmp/fn2/opt/frognet_semantic/proxy","/tmp/fn2/opt/frognet_semantic/core",
-    "/tmp/fn2/etc/frognet_bundles/communicator"]
+    "/tmp/fn2/opt/frognet_semantic/ribbit/examples/communicator"]
 for _p in _CANDS:
     if os.path.isdir(_p) and _p not in sys.path: sys.path.insert(0, _p)
 

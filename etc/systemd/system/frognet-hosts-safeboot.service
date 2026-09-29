@@ -1,7 +1,7 @@
 [Unit]
 Description=Neutralize stale databasehost.frognet to localhost until discovery re-elects
 After=local-fs.target
-Before=frognet-daemon.service frognet-proxy.service frognet-reaper.service frognet-beacon.service frognet-post-merge-metrics.service frognet-merge-watcher.service
+Before=frognet-daemon.service frognet-proxy.service frognet-reaper.service frognet-post-merge-metrics.service frognet-merge-watcher.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes

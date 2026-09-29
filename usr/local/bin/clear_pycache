@@ -18,4 +18,3 @@
 ################################################################
 find /usr/local/bin -name __pycache__ -exec rm -rf {} \;
 find /opt/frognet_semantic -name __pycache__ -exec rm -rf {} \;
-find /etc/frognet_bundles -name __pycache__ -exec rm -rf {} \;

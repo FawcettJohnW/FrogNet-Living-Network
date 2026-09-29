@@ -78,7 +78,6 @@ INCLUDE_PATHS=(
   "/var/lib/misc/dnsmasq.leases"
   "/var/lib/NetworkManager"
   "/var/lib/dnsmasq.d"
-  "/etc/frognet_bundles"
 )
 
 # Exclude large/volatile content

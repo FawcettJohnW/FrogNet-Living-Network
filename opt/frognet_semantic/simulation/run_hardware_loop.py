@@ -19,7 +19,7 @@
 import os, sys
 # installed layout: communicator bundle modules + media assets next to this sim
 _HERE = os.path.dirname(os.path.abspath(__file__))
-for _c in ["/etc/frognet_bundles/communicator", os.path.join(_HERE, "..", "..", "..", "etc", "frognet_bundles", "communicator")]:
+for _c in ["/opt/frognet_semantic/ribbit/examples/communicator", os.path.join(_HERE, "..", "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator")]:
     if os.path.isdir(_c):
         sys.path.insert(0, os.path.abspath(_c)); break
 _MEDIA = os.path.join(_HERE, "media_assets")
@@ -43,7 +43,7 @@ Run: python3 run_hardware_loop.py
 import os, sys, time, struct, json, threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-COMM = os.path.abspath([p for p in ["/etc/frognet_bundles/communicator", os.path.join(_HERE,"..","..","..","etc","frognet_bundles","communicator")] if os.path.isdir(p)][0])
+COMM = os.path.abspath([p for p in ["/opt/frognet_semantic/ribbit/examples/communicator", os.path.join(_HERE,"..","..","..","opt", "frognet_semantic", "ribbit", "examples", "communicator")] if os.path.isdir(p)][0])
 if COMM not in sys.path: sys.path.insert(0, COMM)
 
 import sotf_metrics

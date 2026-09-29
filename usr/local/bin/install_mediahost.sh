@@ -32,7 +32,7 @@
 #
 # Usage:  sudo ./install_mediahost.sh [--src <dir>] [--port N] [--bind ADDR]
 #   --src   directory holding frognet_communicator.py + frognet_capability_probe.sh
-#           (default: . then /etc/frognet_bundles/communicator)
+#           (default: . then /opt/frognet_semantic/ribbit/examples/communicator)
 #   --port  A/V server port (default 9000)
 #   --bind  bind address (default 0.0.0.0 — reachable on the LAN)
 set -eu
@@ -51,7 +51,7 @@ done
 [ "$(id -u)" = "0" ] || { echo "must run as root (sudo)" >&2; exit 1; }
 
 if [ -z "$SRC" ]; then
-  for c in . /etc/frognet_bundles/communicator; do
+  for c in . /opt/frognet_semantic/ribbit/examples/communicator; do
     [ -f "$c/frognet_communicator.py" ] && { SRC="$c"; break; }
   done
 fi
@@ -106,7 +106,7 @@ fi
 rm -f /run/frognet_avcap.json 2>/dev/null || true
 
 # 2. deploy the A/V server + shared probe into the communicator bundle
-BUNDLE=/etc/frognet_bundles/communicator
+BUNDLE=/opt/frognet_semantic/ribbit/examples/communicator
 mkdir -p "$BUNDLE"
 # copy a file into the bundle UNLESS it's already that same file (SRC may BE the
 # bundle, e.g. the default payload dir) — cp of a file onto itself errors under set -e.

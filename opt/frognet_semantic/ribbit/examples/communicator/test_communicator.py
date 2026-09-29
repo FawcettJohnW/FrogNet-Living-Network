@@ -18,7 +18,7 @@
 ################################################################
 """
 test_communicator.py - oracles for the Communicator spine. Pure stdlib; run:
-    python3 test_communicator.py [--bundles /path/to/etc/frognet_bundles]
+    python3 test_communicator.py
 
 Every claim the Communicator makes is asserted here against the running code.
 """
@@ -30,11 +30,8 @@ import sys
 from working_memory import InMemoryTransient, InMemoryPerm
 from bringup import (default_bringup, State, BringUp, FakeBle, FakeSetupHelper,
                      FakeIdentity, FakePondAdmin, FakeLillypad)
-from launcher import LocalFileBeacons, grouped
 from communicator import Communicator, converge_presence, converge_room
 from media_codex import MediaReplica
-from bundle_codex import ElementReplica
-from family_view import home_model
 
 PASS, FAIL = "PASS", "FAIL"
 results = []
@@ -163,106 +160,12 @@ def t_av_call():
     check("idle tick encodes SAME (zero wire)", k4 == "same")
 
 
-def t_calendar():
-    print("T8 calendar bundle: events are lossless-eventual (every one lands, in order)")
-    a = Communicator("10.179.179.1", "Alice"); a.start()
-    cal = a.open_bundle("net.frognet.calendar")
-    cal.emit_to("peer")                              # ensure a channel exists pre-add
-    rep = ElementReplica(cal.codex, lossless_fields=("event",))
-    for uid, summary in [("u1", "Soccer"), ("u2", "Dentist"), ("u3", "Dinner")]:
-        cal.add_event({"uid": uid, "summary": summary, "start": uid})
-    for frame, _ in cal.emit_to("peer"):
-        rep.apply(frame)
-    got = [e["uid"] for e in rep.received["event"]]
-    check("opened via the registry the launcher feeds", cal is a.open_bundle("net.frognet.calendar"))
-    check("all 3 events landed (lossless-eventual)", got == ["u1", "u2", "u3"])
-    check("element name is resident-once", cal.codex.resident.get("name") == "family-calendar.events")
-
-
-def t_backgammon():
-    print("T9 backgammon bundle: moves lossless, position latest-only, history off-wire")
-    a = Communicator("10.179.179.1", "Alice"); a.start()
-    bg = a.open_bundle("net.frognet.backgammon", gid="g1")
-    bg.emit_to("peer")
-    rep = ElementReplica(bg.codex, lossless_fields=("move",))
-    plays = [({"frm": 24, "die": 6}, "POS-A"),
-             ({"frm": 13, "die": 5}, "POS-B"),
-             ({"frm": 8, "die": 3}, "POS-C")]
-    for mv, pos in plays:
-        bg.play_move(mv, pos)
-    for frame, _ in bg.emit_to("peer"):
-        rep.apply(frame)
-    check("all 3 moves landed (lossless-eventual)", len(rep.received["move"]) == 3)
-    check("position converged to latest (latest-only)", rep.latest.get("position") == "POS-C")
-    check("growing move history stayed off the wire (resident memory)", len(bg.moves()) == 3)
-    check("gid is resident-once", bg.codex.resident.get("gid") == "g1")
-
-
-def t_family_view(bundles_root):
-    print("T10 family front end: one family across ponds/choruses, beacon surfaced first")
-    me = Communicator("10.179.179.1", "You"); me.start(); me.go_online()
-    roster = [
-        {"peer_id": "grandma",  "person": "Grandma",  "pond": "home-pond",  "chorus": "Seattle"},
-        {"peer_id": "dad",      "person": "Dad",      "pond": "home-pond",  "chorus": "Seattle"},
-        {"peer_id": "sister",   "person": "Sister",   "pond": "nyc-pond",   "chorus": "New York"},
-        {"peer_id": "traveler", "person": "Traveler", "pond": "nyc-pond",   "chorus": "Seattle"},
-        {"peer_id": "uncle",    "person": "Uncle",    "pond": "cabin-pond", "chorus": "Cabin"},
-    ]
-    peers = {e["peer_id"]: Communicator(f"10.9.9.{i+2}", e["person"])
-             for i, e in enumerate(roster)}
-    for c in peers.values():
-        c.start()
-    peers["grandma"].go_online(); peers["grandma"].raise_beacon()      # the one byte
-    peers["dad"].go_online(); peers["sister"].go_online(); peers["traveler"].go_online()
-    # uncle (cabin-pond) never converges -> dark / unreachable
-    for pid in ("grandma", "dad", "sister", "traveler"):
-        for frame, _ in peers[pid].presence.emit_to(me.node_id):
-            me.presence.ingest(pid, frame)
-
-    src = LocalFileBeacons(bundles_root) if bundles_root else None
-    m = home_model(me, roster, src)
-
-    alert_names = [a["name"] for a in m["alerts"]]
-    check("NEED_HELP surfaces to alerts from any network", alert_names == ["Grandma"])
-
-    nets = {(n["pond"], n["chorus"]): n for n in m["networks"]}
-    check("cabin-pond is dark (no converged member)",
-          nets[("cabin-pond", "Cabin")]["reachable"] is False)
-    check("home-pond/Seattle is lit", nets[("home-pond", "Seattle")]["reachable"] is True)
-    check("alert is counted on its own network",
-          nets[("home-pond", "Seattle")]["needs_help"] == 1)
-
-    fam = {g["chorus"]: g for g in m["family"]}
-    check("family is grouped by chorus", set(fam) == {"Seattle", "New York", "Cabin"})
-    check("a family can span >1 pond", fam["Seattle"]["ponds"] == ["home-pond", "nyc-pond"])
-    check("within a family, the one needing help ranks first",
-          fam["Seattle"]["members"][0]["name"] == "Grandma")
-    check("an unreachable member still appears (offline, not dropped)",
-          fam["Cabin"]["members"][0]["reachable"] is False)
-    if src is not None:
-        check("the bundle grid still groups by hub", "games" in m["bundles"])
-
-
-def t_launcher(bundles_root):
-    print("T6 launcher: discovery by beacon, grouped by hub")
-    if not bundles_root:
-        check("bundles root provided (skipped)", True); return
-    g = grouped(LocalFileBeacons(bundles_root))
-    titles = {b.get("name") for items in g.values() for b in items}
-    check("found backgammon + calendar beacons", {"backgammon", "calendar"} <= titles)
-    check("grouped by hub (games present)", "games" in g)
-    check("family-management present", "family-management" in g)
-
-
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--bundles", default=None)
-    a = ap.parse_args()
+    ap.parse_args()
     t_presence_convergence(); t_beacon(); t_text_lossless()
     t_bringup(); t_float()
-    t_av_call(); t_calendar(); t_backgammon()
-    t_family_view(a.bundles)
-    t_launcher(a.bundles)
+    t_av_call()
     n = len(results); ok = sum(1 for _, v in results if v)
     print(f"\n{ok}/{n} checks passed")
     return 0 if ok == n else 1

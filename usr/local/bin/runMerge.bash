@@ -40,7 +40,7 @@
 # __pycache__/*.pyc from a prior build makes Python load the OLD bytecode instead
 # of the updated .py on disk — so a freshly deployed fix silently does not run.
 # Purge every merge, up front, across all FrogNet code roots.
-for _pcroot in /opt/frognet_semantic /usr/local/bin /etc/frognet_bundles; do
+for _pcroot in /opt/frognet_semantic /usr/local/bin; do
     [[ -d "$_pcroot" ]] || continue
     find "$_pcroot" -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
     find "$_pcroot" -type f -name '*.pyc' -delete 2>/dev/null

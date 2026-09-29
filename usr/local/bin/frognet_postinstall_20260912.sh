@@ -195,9 +195,9 @@ fi
 # pass, but the proxy and daemon are long-lived and import core/ directly.
 # ---------------------------------------------------------------------------
 log "purging stale bytecode"
-find /opt/frognet_semantic /usr/local/bin /etc/frognet_bundles \
+find /opt/frognet_semantic /usr/local/bin \
      -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
-find /opt/frognet_semantic /usr/local/bin /etc/frognet_bundles \
+find /opt/frognet_semantic /usr/local/bin \
      -type f -name '*.pyc' -delete 2>/dev/null
 
 # ---------------------------------------------------------------------------

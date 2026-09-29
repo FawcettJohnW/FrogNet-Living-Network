@@ -41,7 +41,7 @@ for _ in range(3):
     _ROOT = os.path.dirname(_ROOT)                 # .../opt/frognet_semantic
 _WORK = os.path.dirname(os.path.dirname(_ROOT))    # .../work
 sys.path.insert(0, _ROOT)
-sys.path.insert(0, os.path.join(_WORK, "etc", "frognet_bundles", "communicator"))
+sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 
 FAILS = []
 def check(label, problems):

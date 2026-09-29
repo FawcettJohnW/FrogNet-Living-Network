@@ -1,6 +1,7 @@
 # communicator -- presence, chat and A/V calling through shared memory
 
-The FrogNet Communicator, unchanged: presence, chat, the five call-state tuples and the media ladder. Everything that
+The FrogNet Communicator: the same source a FrogNet node runs (its services start from this directory) and, built with
+`build.sh`, the stand-alone version below. presence, chat, the five call-state tuples and the media ladder. Everything that
 is state is tuples in the Communicator's region, on the default Ribbit API, written by the party with standing to know
 it and read by everyone else. The streams go to a media host, a separate role that every call meets at: it publishes
 where it listens as a tuple, and callers read that tuple and dial it. `AI_README.md` is the application's own guide
@@ -11,7 +12,7 @@ to its parts and its traps.
 | `comms_ram.cpp` | `comms-ram`: the Communicator's RAM host, a `ribbit::RamHost` with no operations of its own |
 | `*.py`, `assets/`, `communicator_app.jsx` | the Communicator |
 | `frognet_mediahost_server.py` | the media host (`--addr` the address it publishes, `--dbhost` the memory) |
-| `core/` | the FrogNet node modules the Communicator imports; `build.sh` adds the default API's `frognet_tuples` |
+| `frognet_tuples.py` | on a FrogNet node, the node's own `core.frognet_tuples`; `build.sh` replaces it in `build/` with the default API's |
 | `tests_passing_on_node.txt` | the oracles that pass on the untouched bundle with a FrogNet node's own modules |
 
 ## Build, test, run

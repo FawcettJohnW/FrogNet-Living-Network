@@ -28,7 +28,7 @@ _HERE = os.path.abspath(__file__)
 _FS = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))     # opt/frognet_semantic
 _WORK = os.path.dirname(os.path.dirname(_FS))                      # work
 sys.path.insert(0, _FS)
-sys.path.insert(0, os.path.join(_WORK, "etc", "frognet_bundles", "communicator"))
+sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 
 FAILS = []
 def check(label, problems):
@@ -56,9 +56,9 @@ def run():
         probs = []
         try:
             rr = importlib.import_module("core.role_registry")
-            # [ROLE_HANDLERS_3ROLE_V1] boardgame is a real elected engine role (primer Sec.5.4);
+            # [ROLE_HANDLERS_2ROLE_V1] mediahost and databasehost are the elected engine roles (boardgame went with the games, 2026-09-29);
             # aihost is intentionally NOT a handler - exact set so a stray role still trips this.
-            if set(rr.ROLE_HANDLERS) != {"mediahost", "databasehost", "boardgame"}:
+            if set(rr.ROLE_HANDLERS) != {"mediahost", "databasehost"}:
                 probs.append(f"ROLE_HANDLERS wrong: {set(rr.ROLE_HANDLERS)}")
             if rr.role_handler("databasehost") is None or rr.role_handler("mediahost") is None:
                 probs.append("role_handler() returned None for a known role")
@@ -85,7 +85,7 @@ def run():
             fsh = importlib.import_module("frognet_service_hosts")
             logs = []
             handlers = fsh._role_handlers(log=lambda s: logs.append(s))
-            if set(handlers) != {"mediahost", "databasehost", "boardgame"}:  # [ROLE_HANDLERS_3ROLE_V1]
+            if set(handlers) != {"mediahost", "databasehost"}:  # [ROLE_HANDLERS_2ROLE_V1]
                 probs.append(f"_role_handlers returned {set(handlers)}")
             if any("role_registry_import_failed" in l for l in logs):
                 probs.append(f"first strategy still failed (should hit role_registry cleanly): {logs}")

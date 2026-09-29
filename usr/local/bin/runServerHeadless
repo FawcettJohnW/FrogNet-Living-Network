@@ -18,7 +18,7 @@
 ################################################################
 # A/V relay (content-blind byte-fan), headless.  runServerHeadless [BIND]  (default 0.0.0.0:9000)
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$HERE/fnav.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/etc/frognet_bundles/communicator}"; fi
+if [ -f "$HERE/fnav.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/opt/frognet_semantic/ribbit/examples/communicator}"; fi
 bind="${1:-0.0.0.0:9000}"
 echo "[runServerHeadless] relay on ${bind}" >&2
 exec python3 "$COMM_DIR/fnav.py" --serve "$bind"

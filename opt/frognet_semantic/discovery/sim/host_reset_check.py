@@ -15,7 +15,7 @@ for _ in range(3):
     _ROOT = os.path.dirname(_ROOT)                 # .../opt/frognet_semantic
 _WORK = os.path.dirname(os.path.dirname(_ROOT))    # .../work
 sys.path.insert(0, _ROOT)
-sys.path.insert(0, os.path.join(_WORK, "etc", "frognet_bundles", "communicator"))
+sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 
 FAILS = []
 def check(label, problems):
@@ -26,15 +26,141 @@ def check(label, problems):
         print(f"  [PASS] {label}")
 
 from working_memory import InMemoryTransient, InMemoryPerm
-from bundle_codex import CalendarCodex, BackgammonCodex, CAL_ELEMENT
 from substrate import Codex, Channel, Freshness
+
+# ---------------------------------------------------------------------------
+# Test fixtures: two modules that are each the perm authority for one element --
+# a lossless event list and a move log with a latest-only position. hostReset is
+# proven against them. (They were the calendar and backgammon bundles' codices;
+# those applications were dropped with /etc/frognet_bundles.)
+# ---------------------------------------------------------------------------
+from typing import Any, Dict, List, Tuple
+from working_memory import WorkingMemory, TransientStore, PermStore
+
+EVENTS_ELEMENT = "fixture.events"
+_EVENTS_FIELDS = ["name", "version", "event"]
+_EVENTS_FRESHNESS = {
+    "name":    Freshness.RESIDENT_ONCE,
+    "version": Freshness.LATEST_ONLY,
+    "event":   Freshness.LOSSLESS_EVENTUAL,     # every event must land, may be late
+}
+
+
+class EventsModule(WorkingMemory):
+    """A shared list of events (test fixture). add_event commits perm-first then transient,
+    and offers the event (lossless) + bumped version (latest)."""
+
+    def __init__(self, transient: TransientStore, perm: PermStore):
+        super().__init__(transient, perm)
+        self.codex = Codex(None, "POST", "fixture/events",
+                           _EVENTS_FIELDS, _EVENTS_FRESHNESS, mode="json",
+                           resident={"name": EVENTS_ELEMENT})
+        self.codex.learn()
+        self._channels: Dict[str, Channel] = {}
+        self._commit(EVENTS_ELEMENT, {"name": EVENTS_ELEMENT, "version": 0,
+                                   "events": [], "ts": self.now_ms()})
+
+    def add_event(self, ev: Dict[str, Any]) -> Dict[str, Any]:
+        st = self._live(EVENTS_ELEMENT)
+        st["events"] = [e for e in st["events"] if e.get("uid") != ev.get("uid")] + [ev]
+        st["version"] = int(st["version"]) + 1
+        self._commit(EVENTS_ELEMENT, st)
+        for ch in self._channels.values():
+            ch.offer("event", ev)                    # lossless: queued, never dropped
+            ch.offer("version", st["version"])
+        return ev
+
+    def emit_to(self, peer_id: str) -> List[Tuple[bytes, str]]:
+        ch = self._channels.setdefault(peer_id, Channel(self.codex))
+        return ch.flush()
+
+    def events(self) -> List[Dict[str, Any]]:
+        return list(self._live(EVENTS_ELEMENT)["events"])
+
+    # hostReset hooks: I am the perm authority for the events element.
+    def _owned_keys(self):
+        return [EVENTS_ELEMENT]
+
+    def _consistency_check(self):
+        """One event per uid (add_event's invariant). On reconcile after a network
+        join, two islands' perms may both hold the uid - keep the latest by ts, so the
+        re-asserted memory is coherent before it is published."""
+        st = self.p.load(EVENTS_ELEMENT)
+        if not st:
+            return
+        by_uid = {}
+        for e in st.get("events", []):
+            u = e.get("uid")
+            if u not in by_uid or int(e.get("ts", 0)) >= int(by_uid[u].get("ts", 0)):
+                by_uid[u] = e
+        deduped = list(by_uid.values())
+        if len(deduped) != len(st.get("events", [])):
+            st["events"] = deduped
+            self.p.save(EVENTS_ELEMENT, st)
+
+
+class MovesModule(WorkingMemory):
+    """A move log with a latest position (test fixture). play_move commits the new
+    position and offers a bounded move-tip (lossless) + the position (latest-only)."""
+
+    def __init__(self, transient: TransientStore, perm: PermStore, gid: str,
+                 white: str = "white", black: str = "black"):
+        super().__init__(transient, perm)
+        self.gid = gid
+        self.element = f"fixture.moves.{gid}"
+        fields = ["gid", "position", "move"]
+        freshness = {
+            "gid":      Freshness.RESIDENT_ONCE,
+            "position": Freshness.LATEST_ONLY,        # stale board coalesces
+            "move":     Freshness.LOSSLESS_EVENTUAL,  # every move lands, in order
+        }
+        self.codex = Codex(None, "POST", f"fixture/moves/{gid}",
+                           fields, freshness, mode="json", resident={"gid": gid})
+        self.codex.learn()
+        self._channels: Dict[str, Channel] = {}
+        self._commit(self.element, {"gid": gid, "white": white, "black": black,
+                                    "position": None, "moves": [], "ts": self.now_ms()})
+
+    def play_move(self, move: Dict[str, Any], position: Any) -> None:
+        st = self._live(self.element)
+        st["moves"].append(move)                     # history is resident memory...
+        st["position"] = position
+        self._commit(self.element, st)
+        for ch in self._channels.values():
+            ch.offer("move", move)                   # ...the wire carries the bounded tip
+            ch.offer("position", position)
+
+    def emit_to(self, peer_id: str) -> List[Tuple[bytes, str]]:
+        ch = self._channels.setdefault(peer_id, Channel(self.codex))
+        return ch.flush()
+
+    def moves(self) -> List[Dict[str, Any]]:
+        return list(self._live(self.element)["moves"])
+
+    # hostReset hooks: I am the perm authority for this element.
+    def _owned_keys(self):
+        return [self.element]
+
+    def _consistency_check(self):
+        """The position must reflect the last move that landed (latest-only position
+        can coalesce stale, but the lossless move log is authoritative). If a position
+        was published with no move behind it, fall back to no-position so peers
+        re-derive from the move log rather than trust an orphan board."""
+        st = self.p.load(self.element)
+        if not st:
+            return
+        if st.get("position") is not None and not st.get("moves"):
+            st["position"] = None
+            self.p.save(self.element, st)
+
+
 from frognet_host_reset import host_reset_all
 
 def run():
     perm = InMemoryPerm()
     old_t = InMemoryTransient()
-    cal = CalendarCodex(old_t, perm)
-    bg = BackgammonCodex(old_t, perm, gid="g1")
+    cal = EventsModule(old_t, perm)
+    bg = MovesModule(old_t, perm, gid="g1")
     cal.add_event({"uid": "e1", "title": "soccer", "ts": 10})
     cal.add_event({"uid": "e2", "title": "dentist", "ts": 20})
     bg.play_move({"n": 1, "from": 24, "to": 23}, position="p1")
@@ -44,7 +170,7 @@ def run():
     cal.t = new_t
     bg.t = new_t
     probs = []
-    if new_t.get(CAL_ELEMENT) is not None:
+    if new_t.get(EVENTS_ELEMENT) is not None:
         probs.append("precondition: new transient should start cold")
     check("[FLOAT] new databasehost transient starts cold (nothing migrated yet)", probs)
 
@@ -52,7 +178,7 @@ def run():
     rendered = {}
     def read_vector():
         # read shared memory BY TUPLE VECTOR from the (now re-asserted) new transient
-        return [k for k in (CAL_ELEMENT, bg.element) if new_t.get(k) is not None]
+        return [k for k in (EVENTS_ELEMENT, bg.element) if new_t.get(k) is not None]
     def render_ui(vec):
         rendered["vec"] = list(vec)
 
@@ -61,18 +187,18 @@ def run():
 
     # --- 1. SMOOTH MOVE: new transient rebuilt from perm by re-assertion ---
     probs = []
-    if new_t.get(CAL_ELEMENT) is None or new_t.get(bg.element) is None:
+    if new_t.get(EVENTS_ELEMENT) is None or new_t.get(bg.element) is None:
         probs.append("new transient was NOT repopulated from perm on hostReset")
     if cal.events() != [{"uid": "e1", "title": "soccer", "ts": 10},
                         {"uid": "e2", "title": "dentist", "ts": 20}]:
-        probs.append(f"calendar state lost across the float: {cal.events()}")
+        probs.append(f"event list lost across the float: {cal.events()}")
     if bg.moves() != [{"n": 1, "from": 24, "to": 23}]:
-        probs.append(f"backgammon state lost across the float: {bg.moves()}")
+        probs.append(f"move log lost across the float: {bg.moves()}")
     check("[SMOOTH] every module rebuilt the new transient from perm (memory, not migration)", probs)
 
     # --- 2. UI culmination over the re-asserted shared vector ---
     probs = []
-    if rendered.get("vec") != [CAL_ELEMENT, bg.element]:
+    if rendered.get("vec") != [EVENTS_ELEMENT, bg.element]:
         probs.append(f"UI not rendered over the full re-asserted vector: {rendered.get('vec')}")
     if not out["ui_rendered"]:
         probs.append("dispatcher did not render UI")
@@ -80,9 +206,9 @@ def run():
 
     # --- 3. CONSISTENCY-FIRST: a dup uid in perm is repaired before re-assertion ---
     probs = []
-    st = perm.load(CAL_ELEMENT)
+    st = perm.load(EVENTS_ELEMENT)
     st["events"] = [{"uid": "e1", "ts": 10}, {"uid": "e1", "ts": 99}, {"uid": "e2", "ts": 20}]
-    perm.save(CAL_ELEMENT, st)
+    perm.save(EVENTS_ELEMENT, st)
     cal.t = InMemoryTransient()
     cal.hostReset()
     ev = cal.events()
@@ -98,9 +224,9 @@ def run():
     probs = []
     cal.t = InMemoryTransient()
     r1 = cal.hostReset()
-    v1 = cal.t.get(CAL_ELEMENT)["version"]
+    v1 = cal.t.get(EVENTS_ELEMENT)["version"]
     r2 = cal.hostReset()
-    v2 = cal.t.get(CAL_ELEMENT)["version"]
+    v2 = cal.t.get(EVENTS_ELEMENT)["version"]
     if v1 != v2:
         probs.append(f"hostReset bumped version (not idempotent): {v1} -> {v2}")
     if r1["written"] != r2["written"]:

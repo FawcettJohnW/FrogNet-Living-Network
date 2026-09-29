@@ -94,11 +94,6 @@ NOT_SOURCE=(
     # this to games/ddnet left the parent to arrive from a live box, which is
     # how a source tarball ends up carrying a game.
     #
-    # The FrogNet apps that happen to be games are NOT here. backgammon,
-    # hearts, liarsdice, the boardgame engine and games-common are bundles that
-    # demonstrate the shared-memory programming model, they are a few hundred
-    # KB each, and they are the point.
-    'etc/frognet_bundles/games'
     # Build output, regenerable from CMakeLists.txt + src/ + include/.
     'usr/local/bin/frognet_monitor_cpp/build'
     'usr/local/bin/frognet_monitor_cpp/linux'

@@ -19,7 +19,7 @@
 """
 communicator.py - FrogNet Communicator, the phone-shaped desktop shell, LIVE.
 
-Same surface designed with John (Home / Call / Text / Games / Calendar), but the
+Same surface designed with John (Home / Call / Text), but the
 presence grid, Call/Hang Up, and Text are now driven by the REAL backend that already
 exists next to this file - communicator_app.py - not local state:
 
@@ -103,9 +103,8 @@ BADGE   = "#19271f"   # small overlay badges over video
 
 PHONE_W, PHONE_H = 390, 780
 
-SERVICES = [("Phone", "Call", True), ("Text", "Text", True),
-            ("Games", "Games", False), ("Calendar", "Calendar", False)]
-TABS = ["Home", "Call", "Text", "Games", "Calendar"]
+SERVICES = [("Phone", "Call", True), ("Text", "Text", True)]
+TABS = ["Home", "Call", "Text"]
 
 LOBBY_SID = "lobby"        # standalone Text room when no call is active (session-scoped chat)
 
@@ -482,7 +481,6 @@ class Communicator(tk.Tk):
         self.host = cfg["host"]
         self.dbhost = cfg.get("dbhost", B.DBHOST)          # _control: coordination ONLY
         # game state / metrics are DATA, not discovery -> the elected data host, never _control
-        self.gamehost = cfg.get("gamehost") or "databasehost.frognet"
         # call settings: RUNTIME-ONLY (never persisted, so two identities on one box
         # don't inherit each other's camera). Absent a flag, none is sent and the
         # engine picks its default.
@@ -1435,9 +1433,7 @@ class Communicator(tk.Tk):
             w.destroy()
         for t, b in self._tabbtns.items():
             b.configure(fg=(PAD if t == self.tab.get() else INKDIM))
-        {"Home": self._home, "Call": self._call, "Text": self._text,
-         "Games": self._games,
-         "Calendar": lambda: self._bundle("Calendar", "Shared calendar bundle.")}[self.tab.get()]()
+        {"Home": self._home, "Call": self._call, "Text": self._text}[self.tab.get()]()
 
     # ------------------------------------------------------------------- Home
     def _home(self):
@@ -1968,227 +1964,6 @@ class Communicator(tk.Tk):
                          daemon=True).start()
 
     # ===================================================================== Games
-    def _games(self):
-        """The Games HUB - a live lobby driven by tuples. Games in progress are tuples in the
-        shared DB (select across each game\'s dimension); this shows them as JOIN (open seats),
-        WATCH (in play), or REPLAY (finished), plus the installed games you can START. Lobby
-        chat is a tuple strip at the bottom. Reading a game tuple IS watching it."""
-        import games_lobby as GL
-        tk.Label(self.content, text="GAMES ON THE POND", fg=INKDIM, bg=BG,
-                 font=self.f_mono_sm).pack(anchor="w", padx=16, pady=(12, 4))
-
-        wrap = tk.Frame(self.content, bg=BG)
-        wrap.pack(fill="both", expand=True, padx=12)
-
-        # ---- SELECT * across all game tuples, classify ----
-        try:
-            rows = GL.list_tables(B.T, self.gamehost)
-            sec = GL.classify(rows)
-        except Exception as e:
-            sec = {"joinable": [], "watching": [], "over": []}
-            self._status(f"lobby: {e}", BAD)
-
-        def table_row(parent, r, kind):
-            card = tk.Frame(parent, bg=PANEL, highlightbackground=LINE, highlightthickness=1)
-            card.pack(fill="x", pady=3)
-            # action button FIRST (right) so it paints on first show
-            if kind == "join":
-                tk.Button(card, text=f"Join ({r['open_seats']} open)",
-                          command=lambda rr=r: self._game_open(rr, "player"),
-                          fg="#06140c", bg=PAD, bd=0, padx=12, pady=5, cursor="hand2",
-                          font=self.f_mono).pack(side="right", padx=(4, 10))
-            elif kind == "watch":
-                tk.Button(card, text="Watch",
-                          command=lambda rr=r: self._game_open(rr, "watch"),
-                          fg="#06140c", bg=PADDIM, bd=0, padx=12, pady=5, cursor="hand2",
-                          font=self.f_mono).pack(side="right", padx=(4, 10))
-            else:
-                tk.Button(card, text="Replay",
-                          command=lambda rr=r: self._game_open(rr, "watch"),
-                          fg=INK, bg=PANELHI, bd=0, padx=12, pady=5, cursor="hand2",
-                          font=self.f_mono).pack(side="right", padx=(4, 10))
-            txt = tk.Frame(card, bg=PANEL); txt.pack(side="left", anchor="w", pady=6, padx=8)
-            tk.Label(txt, text=f"{r['title']} . {r['table']}", fg=INK, bg=PANEL,
-                     font=self.f_big).pack(anchor="w")
-            who = ", ".join(r["seats"]) or "no one yet"
-            extra = (f"ply {r['ply']}" if r["ply"] else "new")
-            here = len(r.get("here") or [])
-            tk.Label(txt, text=f"{who} . {extra}" + (f" . {here} here" if here else ""),
-                     fg=INKDIM, bg=PANEL, font=self.f_mono_sm).pack(anchor="w")
-
-        # ---- JOIN: open lobby seats ----
-        if sec["joinable"]:
-            tk.Label(wrap, text="JOIN A GAME", fg=PAD, bg=BG, font=self.f_mono_sm).pack(anchor="w", pady=(6, 2))
-            for r in sec["joinable"]: table_row(wrap, r, "join")
-        # ---- WATCH: in progress ----
-        if sec["watching"]:
-            tk.Label(wrap, text="WATCH IN PROGRESS", fg=PADDIM, bg=BG, font=self.f_mono_sm).pack(anchor="w", pady=(8, 2))
-            for r in sec["watching"]: table_row(wrap, r, "watch")
-        # ---- REPLAY: finished ----
-        if sec["over"]:
-            tk.Label(wrap, text="FINISHED", fg=INKDIM, bg=BG, font=self.f_mono_sm).pack(anchor="w", pady=(8, 2))
-            for r in sec["over"][:4]: table_row(wrap, r, "over")
-
-        # ---- START a new game (installed games) ----
-        tk.Label(wrap, text="START A NEW GAME", fg=PAD, bg=BG, font=self.f_mono_sm).pack(anchor="w", pady=(10, 2))
-        try:
-            beacons = B.ApiBeacons(self.dbhost).beacons()
-        except Exception:
-            beacons = []
-        seen = set()
-        startable = False
-        for b in beacons:
-            if b.get("hub") != "games":
-                continue
-            bid = b.get("id", "?")
-            if bid in seen:
-                continue
-            seen.add(bid)
-            if B.bundle_local_app(b) is None:
-                continue
-            startable = True
-            row = tk.Frame(wrap, bg=PANEL, highlightbackground=LINE, highlightthickness=1)
-            row.pack(fill="x", pady=3)
-            tk.Button(row, text="Start",
-                      command=lambda bb=b: self._game_start(bb),
-                      fg="#06140c", bg=PAD, bd=0, padx=14, pady=5, cursor="hand2",
-                      font=self.f_mono).pack(side="right", padx=(4, 10))
-            tk.Label(row, text=b.get("title", bid), fg=INK, bg=PANEL,
-                     font=self.f_big).pack(side="left", anchor="w", padx=10, pady=6)
-        if not startable:
-            tk.Label(wrap, text="no games installed here", fg=INKDIM, bg=BG,
-                     font=self.f_mono_sm).pack(anchor="w", pady=4)
-
-        # ---- lobby chat (a tuple) ----
-        self._games_chat(wrap)
-        try:
-            self.content.update_idletasks()
-        except Exception:
-            pass
-
-    def _game_meta(self, beacon):
-        """(game_name, app_path) for a beacon: game name from id last segment; app from the
-        local bundle. boardgame -> its own bg_play; the card games -> the shared game_app."""
-        gid = beacon.get("id", "")
-        name = gid.split(".")[-1] if gid else beacon.get("title", "game").lower()
-        return name
-
-    def _game_start(self, beacon):
-        """Matchmaker Start: if there\'s already an OPEN lobby for this game that I\'m not
-        already seated at, JOIN it instead of minting another room (prevents duplicate
-        matchmaker rooms). Only create a fresh table when none is joinable. One room per
-        click is the bug we\'re avoiding here."""
-        import games_lobby as GL
-        name = self._game_meta(beacon)
-        try:
-            rows = GL.list_tables(B.T, self.gamehost)
-        except Exception:
-            rows = []
-        # an existing open lobby for THIS game with a seat free and me not already in it
-        openrooms = [r for r in rows
-                     if r["service"] == name and r["phase"] == "lobby"
-                     and r["open_seats"] > 0 and self.me_id not in r["seats"]]
-        if openrooms:
-            # join the oldest open room (stable: smallest table id) -> matchmaking, no dup
-            target = sorted(openrooms, key=lambda r: r["table"])[0]
-            self._launch_game_app(name, target["table"], role="player", beacon=beacon)
-            return
-        # none joinable -> create exactly one new table
-        table = f"{self.me_id}-{int(time.time())}"
-        self._launch_game_app(name, table, role="start", beacon=beacon)
-
-    def _game_open(self, row, role):
-        """Join or watch an existing table."""
-        self._launch_game_app(row["service"], row["table"], role=role)
-
-    # which games are the shared games-common codices (run via game_app over tuples)
-    CARD_GAMES = ("connectfour", "hearts", "liarsdice", "reversi", "backgammon")
-
-    def _launch_game_app(self, game, table, role="player", beacon=None):
-        """Launch the correct app for the game's FAMILY:
-          - boardgame  -> its own windowed bg_play.py (elected-host board)
-          - backgammon -> its own bg_app.py over the tuple space (--space)
-          - card games -> the shared game_app.py (codex run locally over tuples)
-        Routing by family is essential: game_app only knows the card-game codices, so
-        backgammon/boardgame must NOT be sent to it."""
-        import os as _os
-        bundles = B.BUNDLES_ROOT
-        bid = beacon.get("id") if beacon else None
-        watch = (role == "watch")
-
-        if game == "boardgame" or bid == "net.frognet.boardgame":
-            app = _os.path.join(bundles, "boardgame", "app", "bg_play.py")
-            cmd = [sys.executable, app, "--connect", self.host.split(":")[0],
-                   "--who", self.me_name, "--gid", table]
-        elif game in self.CARD_GAMES:
-            app = _os.path.join(bundles, "games-common", "game_app.py")
-            cmd = [sys.executable, app, "--game", game, "--table", table,
-                   "--who", self.me_id, "--dbhost", self.gamehost,
-                   "--bundles-root", bundles]
-            if watch:
-                cmd.append("--watch")
-            elif role == "start":
-                cmd.append("--start")
-        else:
-            self._status(f"don't know how to launch '{game}'", BAD)
-            return
-
-        if not _os.path.isfile(app):
-            self._status(f"{game}: app not installed here ({_os.path.basename(app)})", BAD)
-            return
-        try:
-            env = dict(_os.environ, FROGNET_BUNDLES_ROOT=bundles)
-            subprocess.Popen(cmd, env=env, start_new_session=(os.name != "nt"))
-            self._status(f"{'watching' if watch else 'opening'} {game} . {table}", PAD)
-            self.after(800, self.render)
-        except Exception as e:
-            self._status(f"launch failed: {e}", BAD)
-
-    def _games_chat(self, parent):
-        """A lobby-scoped chat right in the Games tab - converges through the same session
-        tuple machinery the Text tab uses (B.chat_send/chat_read on LOBBY_SID)."""
-        wrap = tk.Frame(parent, bg=BG); wrap.pack(fill="x", side="bottom", pady=(8, 4))
-        tk.Frame(parent, bg=LINE, height=1).pack(fill="x", side="bottom")
-        tk.Label(wrap, text="lobby chat", fg=INKDIM, bg=BG,
-                 font=self.f_mono_sm).pack(anchor="w", pady=(0, 4))
-        log = tk.Frame(wrap, bg=BG); log.pack(fill="x")
-        for who, msg, _ in self.conversation[-4:]:
-            row = tk.Frame(log, bg=BG); row.pack(anchor="w", fill="x")
-            tk.Label(row, text=f"{who}:", fg=(PAD if who == "you" else INKDIM), bg=BG,
-                     font=self.f_mono_sm).pack(side="left")
-            tk.Label(row, text=msg, fg=INK, bg=BG, font=self.f_mono_sm).pack(side="left", padx=4)
-        row = tk.Frame(wrap, bg=PANEL); row.pack(fill="x", pady=(4, 0))
-        self.games_entry = tk.Entry(row, bg=BG, fg=INK, insertbackground=INK,
-                                    font=self.f_sans, relief="flat",
-                                    highlightbackground=LINE, highlightthickness=1)
-        self.games_entry.pack(side="left", fill="x", expand=True, pady=6, ipady=5, padx=(0, 6))
-        self.games_entry.bind("<Return>", lambda e: self._games_send())
-        snd = tk.Label(row, text="send", fg="#06140c", bg=PAD, font=self.f_mono, cursor="hand2",
-                       padx=14, pady=6)
-        snd.pack(side="left"); snd.bind("<Button-1>", lambda e: self._games_send())
-
-    def _games_send(self):
-        txt = self.games_entry.get().strip()
-        if not txt:
-            return
-        self.games_entry.delete(0, "end")
-        msg = {"from": self.me_id, "text": txt, "ts": int(time.time() * 1000)}
-        self.conversation.append(("you", txt, _hhmm(msg["ts"])))
-        self.render()
-        threading.Thread(target=B.chat_send,
-                         args=(LOBBY_SID, self.me_id, msg, self.dbhost),
-                         daemon=True).start()
-
-    # ----------------------------------------------------------------- bundle
-    def _bundle(self, name, note):
-        f = tk.Frame(self.content, bg=BG); f.pack(expand=True, fill="both")
-        tk.Label(f, text=f"{name.upper()} HUB", fg=INKDIM, bg=BG, font=self.f_mono_sm).pack(pady=(40, 14))
-        tk.Label(f, text=name[0], fg=PADDIM, bg=PANEL, font=self.f_huge, width=3, height=1,
-                 highlightbackground=LINE, highlightthickness=1).pack(pady=8)
-        tk.Label(f, text=note, fg=INKDIM, bg=BG, font=self.f_sans, wraplength=260,
-                 justify="center").pack(pady=12)
-        tk.Label(f, text="tab present because the bundle is installed", fg=PADDIM, bg=BG,
-                 font=self.f_mono_sm).pack(pady=8)
 
 
 def _build_args():

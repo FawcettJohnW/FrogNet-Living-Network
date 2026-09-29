@@ -20,16 +20,12 @@
 communicator_app.py -- the FrogNet Communicator (desktop shell, standalone Tk).
 
 THIS is the app. It is not a chat bolted onto the mesh; it is the thing the user
-opens to reach their people, and the mesh is what makes it work. The family roster,
-games, and calendar are BUNDLES that plug in underneath -- this shell hosts them.
+opens to reach their people, and the mesh is what makes it work.
 
-Four parts, each bound to a real surface that already exists on the Host:
+Three parts, each bound to a real surface that already exists on the Host:
 
   bring-up / identity  -> who am I + which Host (persisted ~/.frognet_communicator)
-  presence / roster    -> GET/POST/DELETE http://<host>:8780/registeredUsers
-                          (frognet_roster_server.py; swap for the tuple space later)
-  launcher / bundles   -> launcher.grouped(LocalFileBeacons(<bundles_root>))
-                          each bundle launches as its own standalone app (--connect/--who)
+  presence             -> a transient presence tuple per person (see PRESENCE below)
   Call (A/V)           -> frognet_communicator.py client against <host>:9000
                           (the proven A/V engine; audio is the gate, the first codex)
 
@@ -39,7 +35,7 @@ The shell drives the engines; the user never types --stream or a port. Run:
     python3 communicator_app.py --host 10.250.250.1 --name john
 
 stdlib only (tkinter + urllib + subprocess). The A/V Call needs ffmpeg on PATH
-for --display; bundles and roster do not.
+for --display; presence does not.
 """
 from __future__ import annotations
 
@@ -55,23 +51,15 @@ import urllib.request
 import urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BUNDLES_ROOT = os.environ.get("FROGNET_BUNDLES_ROOT") or os.path.join(HERE, "bundles")  # self-contained: bundles live INSIDE the app dir
 ENGINE = os.path.join(HERE, "frognet_communicator.py")    # the A/V Call engine
 CONFIG = os.environ.get("FROGNET_CONFIG") or os.path.join(HERE, "shell.json")  # per-instance: each app dir is its own identity
 
 # ROSTER_PORT removed: presence is now a transient tuple, no roster server
 AV_PORT = 9000         # frognet_communicator.py --serve
 DBHOST = "databasehost_control.frognet"   # SD: presence/call/chat coordination -> control; resolve each poll
-SENSOR_TYPE = "installed_family_plugin"
-BEACON_FRESH_S = 12 * 60          # drop beacons not re-planted within ~2-3 heartbeats
-
-# palette shared with the family bundle so shell + bundles read as one product
 BG = "#12161b"; CARD = "#1b222b"; INK = "#e8edf2"; MUTED = "#8a96a3"
 ACCENT = "#3fb68b"; LINE = "#26303a"; ALERT = "#e0533d"; DARK = "#404a55"
 
-# the launcher's grouping is the bundle's real headless core; the SOURCE of beacons
-# is the transient DB (the design), not a folder scan.
-from launcher import grouped, BeaconSource          # noqa: E402
 import frognet_tuples as T                           # noqa: E402  the UnREST tuple substrate
 import sotf_ladder as L                              # noqa: E402  ladder + bandwidth cadence
 
@@ -129,44 +117,6 @@ def chat_read(sid: str, dbhost: str) -> list:
     return out
 
 
-class ApiBeacons(BeaconSource):
-    """Discover bundles by associative read on the transient DB (the design).
-
-    Queries api.php sensors/values for SensorType=installed_family_plugin against the
-    CURRENT databasehost.frognet (re-resolved every call, so it follows the float),
-    and drops beacons whose heartbeat ts is stale -- a service that stopped re-planting
-    disappears on its own, no registry teardown.
-    """
-    def __init__(self, dbhost: str, fresh_s: int = BEACON_FRESH_S, timeout: float = 4.0):
-        self.dbhost = dbhost
-        self.fresh_s = fresh_s
-        self.timeout = timeout
-
-    def beacons(self):
-        url = (f"http://{self.dbhost}/api.php?entity=sensors&action=values"
-               f"&SensorType={SENSOR_TYPE}&parse=1")
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            rows = json.loads(r.read().decode()).get("rows", [])
-        now = int(time.time())
-        out = []
-        for row in rows:
-            data = row.get("data")
-            if not isinstance(data, dict):
-                raw = row.get("jsonData")
-                try:
-                    data = json.loads(raw) if isinstance(raw, str) else None
-                except Exception:
-                    data = None
-            if not isinstance(data, dict) or not data.get("app"):
-                continue
-            ts = int(data.get("ts", 0) or 0)
-            if self.fresh_s and ts and (now - ts) > self.fresh_s:
-                continue                          # stale heartbeat -- service is gone
-            out.append(data)
-        return out
-
-
 # ---------------------------------------------------------------------------
 # config (bring-up identity): who am I, which Host. Persisted across launches.
 # ---------------------------------------------------------------------------
@@ -191,7 +141,7 @@ def save_config(cfg: dict) -> None:
 # Identity/availability is published into the floating transient DB and must be
 # RE-ASSERTED periodically (on the database-changed callback / poll). Nothing here is
 # durable: a presence tuple ages out by its ts, so "online" is a continuously refreshed
-# fact and "offline" is simply the absence of a fresh refresh -- exactly like beacons and
+# fact and "offline" is simply the absence of a fresh refresh -- exactly like
 # capability tuples. No roster server, no port, no DELETE: stale == gone, by freshness.
 # Memory, not messages: you write your own presence; everyone reads each other's.
 # ---------------------------------------------------------------------------
@@ -263,71 +213,6 @@ def call_commands(host: str, me_id: str, peer_id: str, display: bool = True) -> 
     return [sender, viewer]
 
 
-def _local_bundle_index() -> dict:
-    """Scan installed bundles under BUNDLES_ROOT and index each by the IDENTIFIERS it
-    declares in its own bundle.json (id, name) AND its folder name. The map value is
-    (folder_path, app_relpath). This is the local truth -- we match a network beacon to a
-    local bundle by its stable id, not by guessing the folder name from beacon keys."""
-    idx = {}
-    try:
-        for folder in os.listdir(BUNDLES_ROOT):
-            bdir = os.path.join(BUNDLES_ROOT, folder)
-            if not os.path.isdir(bdir):
-                continue
-            app = None
-            meta = os.path.join(bdir, "bundle.json")
-            ids = {folder}
-            if os.path.isfile(meta):
-                try:
-                    d = json.load(open(meta))
-                    app = d.get("app") or app
-                    for k in ("id", "name", "module"):
-                        if d.get(k):
-                            ids.add(d[k])
-                except Exception:
-                    pass
-            for key in ids:
-                idx[key] = (bdir, app)
-    except Exception:
-        pass
-    return idx
-
-
-def bundle_local_app(beacon: dict) -> str | None:
-    """A discovered beacon names the bundle; to LAUNCH it the bundle must be installed
-    locally. Match the beacon to an installed bundle by any identifier it shares with the
-    local bundle.json (id/name/module) or the folder name; use the beacon's app if given,
-    else the LOCAL bundle.json's app. Returns the absolute app path, or None if not present.
-    Robust to the beacon's id/module not equalling the on-disk folder name."""
-    idx = _local_bundle_index()
-    for key in (beacon.get("id"), beacon.get("name"), beacon.get("module"),
-                beacon.get("dir")):
-        if key and key in idx:
-            bdir, local_app = idx[key]
-            app = beacon.get("app") or local_app
-            if not app:
-                return None
-            path = os.path.join(bdir, app)
-            return path if os.path.isfile(path) else None
-    # last resort: the old direct-join behavior (beacon carries dir+app matching the folder)
-    app = beacon.get("app")
-    if app:
-        for key in (beacon.get("dir"), beacon.get("id"), beacon.get("module")):
-            if key:
-                path = os.path.join(BUNDLES_ROOT, key, app)
-                if os.path.isfile(path):
-                    return path
-    return None
-
-
-def bundle_command(beacon: dict, host: str, me_name: str) -> list | None:
-    path = bundle_local_app(beacon)
-    if not path:
-        return None                                # discovered but not installed here
-    avhost = host.split(":")[0]                     # bundles speak to the fabric (Apache)
-    return [sys.executable, path, "--connect", avhost, "--who", me_name]
-
-
 # ===========================================================================
 # Tk shell
 # ===========================================================================
@@ -392,7 +277,7 @@ def run_shell(cfg: dict):
         return f"{me_id}-{peer}-{int(time.time())}"
 
     def poll_loop():
-        # register once, then poll roster + bundle discovery + incoming calls.
+        # register once, then poll presence + incoming calls.
         try:
             roster_register(host, me_id, me_name)
         except Exception as e:
@@ -412,10 +297,6 @@ def run_shell(cfg: dict):
                 roster_q.put(("users", roster_list(host)))
             except Exception as e:
                 roster_q.put(("error", str(e)))
-            try:
-                roster_q.put(("bundles", grouped(ApiBeacons(dbhost))))
-            except Exception as e:
-                roster_q.put(("bundles_err", str(e)))
             # --- refresh perceived bandwidth (drives the cadence). Reads an
             # optional SD:bearer.<host> tuple if something publishes one; absent
             # that, stays at DEFAULT_BEARER. No fabricated estimate. ---
@@ -471,8 +352,6 @@ def run_shell(cfg: dict):
 
     # -- people (presence) ---------------------------------------------------
     people_box = tk.Frame(body, bg=BG); people_box.pack(fill="x")
-    # -- bundles (discovered on the transient DB) ----------------------------
-    bundles_box = tk.Frame(body, bg=BG); bundles_box.pack(fill="x")
 
     def render_people(users):
         for w in people_box.winfo_children():
@@ -507,40 +386,6 @@ def run_shell(cfg: dict):
                           font=("Helvetica", 10, "bold"), fg="#06231a", bg=ACCENT,
                           bd=0, padx=16, pady=6, cursor="hand2").pack(side="right",
                                                                       padx=(4, 12))
-
-    # -- bundles (rendered from transient-DB discovery) ----------------------
-    def render_bundles(by_hub, err=None):
-        for w in bundles_box.winfo_children():
-            w.destroy()
-        section(bundles_box, "Apps")
-        if err:
-            tk.Label(bundles_box, text=f"discovery: {err}", fg=ALERT, bg=BG,
-                     font=("Helvetica", 9), anchor="w").pack(fill="x", padx=2)
-            return
-        any_shown = False
-        for hub, items in (by_hub or {}).items():
-            for b in items:
-                any_shown = True
-                installed = bundle_local_app(b) is not None
-                card = tk.Frame(bundles_box, bg=CARD); card.pack(fill="x", pady=3)
-                col = tk.Frame(card, bg=CARD); col.pack(side="left", fill="x",
-                                                        expand=True, padx=12, pady=8)
-                tk.Label(col, text=b.get("title", b.get("module", "?")), fg=INK, bg=CARD,
-                         font=("Helvetica", 12, "bold"), anchor="w").pack(fill="x")
-                tk.Label(col, text=hub + ("" if installed else "  \u00b7 not installed here"),
-                         fg=MUTED, bg=CARD, font=("Helvetica", 9), anchor="w").pack(fill="x")
-                if installed:
-                    tk.Button(card, text="Open", command=lambda bb=b: open_bundle(bb),
-                              font=("Helvetica", 10, "bold"), fg=INK, bg=LINE,
-                              bd=0, padx=16, pady=6, cursor="hand2").pack(side="right",
-                                                                          padx=(4, 12))
-                else:
-                    tk.Label(card, text="\u2014", fg=DARK, bg=CARD,
-                             font=("Helvetica", 12)).pack(side="right", padx=(4, 16))
-        if not any_shown:
-            tk.Label(bundles_box, text="no bundles announced on the network yet",
-                     fg=MUTED, bg=BG, font=("Helvetica", 10), anchor="w").pack(
-                         fill="x", padx=2)
 
     def _spawn(cmd):
         return subprocess.Popen(cmd)
@@ -707,17 +552,6 @@ def run_shell(cfg: dict):
         status.config(text=f"hung up {peer}", fg=MUTED)
         render_people(last_users[0])
 
-    def open_bundle(b):
-        cmd = bundle_command(b, host, me_name)
-        if not cmd:
-            status.config(text=f"{b.get('title','app')} not installed here", fg=MUTED)
-            return
-        try:
-            procs.append(_spawn(cmd))
-            status.config(text=f"opened {b.get('title','app')}", fg=ACCENT)
-        except Exception as e:
-            status.config(text=f"open failed: {e}", fg=ALERT)
-
     def _ring_dialog(sid, frm, frm_name):
         win = tk.Toplevel(root); win.title("Incoming call"); win.configure(bg=BG)
         win.geometry("320x160")
@@ -774,7 +608,6 @@ def run_shell(cfg: dict):
 
     last_users = [[]]                              # remember roster for re-render on call state
     render_people([])
-    render_bundles({})
 
     # -- pump the queue into the UI on the Tk thread -------------------------
     def drain():
@@ -785,10 +618,6 @@ def run_shell(cfg: dict):
                     status.config(text="connected", fg=ACCENT)
                     last_users[0] = payload
                     render_people(payload)
-                elif kind == "bundles":
-                    render_bundles(payload)
-                elif kind == "bundles_err":
-                    render_bundles({}, err=payload)
                 elif kind == "calls":
                     handle_calls(payload)
                 elif kind == "chat":
@@ -842,7 +671,7 @@ def _derive_host() -> str:
     """The FrogNet Host this client talks to, BY CONVENTION -- never asked. It is the .1 of
     the local FrogNet /24 (the served-subnet gateway that runs roster/A/V/control). Derived
     from this node's own 10/8 address. The shared-DB plane is resolved separately by NAME
-    (DBHOST = databasehost_control.frognet); this .1 is only the A/V / bundle-launch host."""
+    (DBHOST = databasehost_control.frognet); this .1 is only the A/V host."""
     try:
         ip = T.my_ip()                       # e.g. 10.250.250.37  -> host is 10.250.250.1
         if ip and ip.startswith("10."):

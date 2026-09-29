@@ -17,6 +17,5 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export FROGNET_BUNDLES_ROOT="$HERE/bundles"
 export FROGNET_COMMUNICATOR_HOME="$HERE"
 exec python3 "$HERE/communicator.py" "$@"

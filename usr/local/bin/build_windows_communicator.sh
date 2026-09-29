@@ -43,25 +43,22 @@ NAME="FrogNetCommunicator-${VER}-windows"
 # [BUNDLE_TREE_IS_THE_CLIENT_V1] The Windows client is the BUNDLE tree.
 #
 # There are TWO communicator trees and they are NOT the same files:
-#     etc/frognet_bundles/communicator/       <- what communicator_live.py imports
+#     opt/frognet_semantic/ribbit/examples/communicator/       <- what communicator_live.py imports
 #     opt/frognet_semantic/etc/communicator/  <- the node-side copy
 # fnav.py differs between them; the bundle copy has media_capability() and the
 # node copy does not. Building the payload from the wrong one produces a client
 # that dies at startup with AttributeError. Verified below, not assumed.
-COMMS="${SRC_ROOT}/etc/frognet_bundles/communicator"
-BUNDLES_SRC="${SRC_ROOT}/etc/frognet_bundles"
+COMMS="${SRC_ROOT}/opt/frognet_semantic/ribbit/examples/communicator"
 
 die() { echo "FATAL: $*" >&2; exit 1; }
 
 [[ -d "$COMMS" ]]       || die "no communicator dir at $COMMS"
-[[ -d "$BUNDLES_SRC" ]] || die "no bundles dir at $BUNDLES_SRC"
 
 # The payload is the ZIP ROOT. Unzipping produces install.bat and the client
 # right where the user is standing -- no nested folder to descend into first.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 PAY="${STAGE}/payload"
-mkdir -p "$PAY/bundles"
 
 # ---- client -----------------------------------------------------------------
 # EVERY non-test .py, not an import closure.
@@ -92,7 +89,7 @@ done
 (( n_py > 0 )) || die "no .py files found in $COMMS"
 
 # ---- launchers and installers ----------------------------------------------
-for f in add_bundle.bat comms_web.html shell.json; do
+for f in comms_web.html shell.json; do
     [[ -f "$COMMS/$f" ]] && cp "$COMMS/$f" "$PAY/"
 done
 
@@ -115,15 +112,13 @@ REM one the command line has always named:
 REM     python3 communicator_live.py --name <name>
 REM communicator.py is a different, older app; it never reaches the live one.
 set HERE=%~dp0
-set FROGNET_BUNDLES_ROOT=%HERE%bundles
 set FROGNET_COMMUNICATOR_HOME=%HERE%
 python "%HERE%communicator_live.py" %*
 LAUNCH
 
 cat > "$PAY/install.bat" <<'INSTALL'
 @echo off
-REM FrogNet Communicator installer. Per-user, no admin. Re-runnable: bundles you
-REM added yourself are kept.
+REM FrogNet Communicator installer. Per-user, no admin. Re-runnable.
 setlocal
 set SRC=%~dp0
 set APP=%LOCALAPPDATA%\FrogNetCommunicator
@@ -158,12 +153,6 @@ REM the errorlevel check reads the way it does.
 if exist "%SRC%core" (
   robocopy "%SRC%core" "%APP%\core" /e /njh /njs /ndl /nc /ns /np >nul
   if errorlevel 8 echo WARNING: core\ did not copy cleanly -- the client may not start.
-)
-
-if not exist "%APP%\bundles" mkdir "%APP%\bundles"
-REM Mirror every shipped bundle, but never delete one the user added.
-for /d %%D in ("%SRC%bundles\*") do (
-  robocopy "%%D" "%APP%\bundles\%%~nxD" /e /njh /njs /ndl /nc /ns /np >nul
 )
 
 :shortcut
@@ -271,36 +260,6 @@ done
 # The rule: this package is the SAME code, plus core/, plus whatever is
 # genuinely OS-specific. Every divergence has to earn itself.
 
-# ---- bundles ----------------------------------------------------------------
-# [THE_COMMUNICATOR_IS_THE_CLIENT_V1] No game bundles. None.
-#
-# This shipped every DIRECTORY under etc/frognet_bundles, which is how a C++
-# source checkout ended up in a Windows Python client: games/ddnet is 58M and
-# 1340 files of .cpp, .h, cmake, fonts and .map data, none of it runnable there
-# and none of it buildable there. Measured 2026-08-11: an 862M zip for a 1.6M
-# client, unpacked and then xcopied a second time into %LOCALAPPDATA% with
-# Defender reading every file. That is the ten-minute install.
-#
-# The Windows client is the communicator and what the communicator imports.
-# Games and the calendar are not that. They install afterwards, per bundle, with
-# add_bundle.bat -- which is why that script exists.
-#
-# FROGNET_BUNDLES=a,b,c ships those bundles anyway, for building a demo image
-# with something already in it. Named explicitly, never by "whatever is in the
-# directory".
-n_b=0
-if [[ -n "${FROGNET_BUNDLES:-}" ]]; then
-    IFS=',' read -ra _want <<< "$FROGNET_BUNDLES"
-    for b in "${_want[@]}"; do
-        b="$(echo "$b" | tr -d '[:space:]')"
-        [[ -n "$b" ]] || continue
-        [[ -d "$BUNDLES_SRC/$b" ]] || die "FROGNET_BUNDLES names '$b', which is not in $BUNDLES_SRC"
-        cp -r "$BUNDLES_SRC/$b" "$PAY/bundles/$b"
-        n_b=$((n_b + 1))
-        echo "  bundle included by request: $b"
-    done
-fi
-
 # ---- hygiene ----------------------------------------------------------------
 # Ship no bytecode. Ship no editor droppings.
 find "$PAY" -name "__pycache__" -type d -prune -exec rm -rf {} + 2>/dev/null || true
@@ -336,7 +295,7 @@ MAX_MB="${FROGNET_MAX_PAYLOAD_MB:-8}"
 if (( PAY_MB > MAX_MB )); then
     echo "WARNING: payload is ${PAY_MB}MB (expected under ${MAX_MB}MB)." >&2
     echo "         biggest things in it:" >&2
-    du -sh "$PAY"/* "$PAY"/bundles/* 2>/dev/null | sort -rh | head -6 \
+    du -sh "$PAY"/* 2>/dev/null | sort -rh | head -6 \
         | sed 's|^|           |' >&2
     echo "         set FROGNET_MAX_PAYLOAD_MB to raise the bar deliberately." >&2
 fi
@@ -348,7 +307,6 @@ rm -f "$OUT"
 echo "built ${OUT}"
 echo "  client .py     ${n_py}  (skipped ${n_skip} backup files)"
 echo "  core modules   ${n_core}"
-echo "  bundles        ${n_b}"
 echo "  total files    $(find "$PAY" -type f | wc -l)"
 echo "  size           $(du -h "$OUT" | cut -f1)"
 echo

@@ -51,8 +51,6 @@ tar -cvzf "/tmp/all_tar.tgz" \
     --exclude='usr/local/sbin/*.pyc' \
     --exclude='usr/local/lib/python3.11/**/__pycache__' \
     --exclude='usr/local/lib/python3.11/**/*.pyc' \
-    --exclude='etc/frognet_bundles/**/__pycache__' \
-    --exclude='etc/frognet_bundles/**/*.pyc' \
     --exclude='etc/wireguard/*.conf' \
     --exclude='etc/NetworkManager/system-connections' \
     --exclude='etc/frognet/tunnel.conf' \
@@ -77,7 +75,6 @@ tar -cvzf "/tmp/all_tar.tgz" \
     --exclude='usr/local/bin/semantic_cache_schema.sql' \
     --exclude='*addExternalNameserver.php' \
     --exclude='etc/frognet/db.env' \
-    --exclude='etc/frognet_bundles/games' \
     -C / \
     /usr/local/bin /opt/frognet_semantic/proxy /opt/frognet_semantic/daemon \
     /opt/frognet_semantic/discovery \

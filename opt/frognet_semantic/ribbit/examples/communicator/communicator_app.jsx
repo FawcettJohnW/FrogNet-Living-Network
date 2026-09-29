@@ -6,9 +6,8 @@ import React, { useState, useEffect, useRef } from "react";
    This is the LAYOUT + PRESENTATION LOGIC, driven by real state. It implements the
    model worked out with John:
 
-   - Tabs ARE the bundle launcher. Home (Services) is the landing tab; Phone/Call and
-     Text are the communication surface; Games/Calendar (and other hubs) appear when
-     present.
+   - Home (Services) is the landing tab; Phone/Call and Text are the communication
+     surface.
    - Phone -> people selector AND a list of Joinable streams. Joinability lives in the
      stream's own tuples (watchable / joinable / group), set by originator/admin; the
      list is a filtered read of the space.
@@ -73,7 +72,6 @@ const OTHERS = [
 ];
 
 const TABS_BASE = ["Home", "Call", "Text"];
-const TABS_BUNDLES = ["Games", "Calendar"]; // appear "when present"
 
 export default function Communicator() {
   const [tab, setTab] = useState("Home");
@@ -116,7 +114,7 @@ export default function Communicator() {
     setDraft("");
   }
 
-  const activeTabs = [...TABS_BASE, ...TABS_BUNDLES];
+  const activeTabs = TABS_BASE;
 
   return (
     <div style={{ minHeight: "100vh", background: "#05090a", display: "flex",
@@ -156,11 +154,9 @@ export default function Communicator() {
             <Text {...{ conversation, draft, setDraft, sendMessage, ptt, setPtt,
               speakText, setSpeakText }} />
           )}
-          {tab === "Games" && <Bundle name="Games" note="UnREST game hub — Hearts, chess, backgammon. Tab present because the bundle is installed." />}
-          {tab === "Calendar" && <Bundle name="Calendar" note="Shared calendar bundle. Convergent records; edits are lossless-eventual." />}
         </div>
 
-        {/* tab bar = the bundle launcher */}
+        {/* tab bar */}
         <div style={{ display: "flex", borderTop: `1px solid ${C.line}`, background: C.panel }}>
           {activeTabs.map((t) => (
             <button key={t} onClick={() => setTab(t)}
@@ -182,8 +178,6 @@ function Home({ onPick }) {
   const services = [
     { name: "Phone", to: "Call", desc: "Call someone, or join a stream", live: true },
     { name: "Text", to: "Text", desc: "Conversation + push-to-talk", live: true },
-    { name: "Games", to: "Games", desc: "Hearts · chess · backgammon", live: false },
-    { name: "Calendar", to: "Calendar", desc: "Shared schedule", live: false },
   ];
   return (
     <div style={{ padding: 16 }}>
@@ -442,21 +436,3 @@ function Text({ conversation, draft, setDraft, sendMessage, ptt, setPtt, speakTe
   );
 }
 
-/* ------------------------------- bundle tabs ------------------------------- */
-function Bundle({ name, note }) {
-  return (
-    <div style={{ padding: 24, textAlign: "center" }}>
-      <div style={{ fontFamily: MONO, fontSize: 11, color: C.inkDim, letterSpacing: 1,
-        textTransform: "uppercase", marginBottom: 14 }}>{name} hub</div>
-      <div style={{ width: 64, height: 64, borderRadius: 16, background: C.panel,
-        border: `1px solid ${C.line}`, margin: "0 auto 16px", display: "flex",
-        alignItems: "center", justifyContent: "center", color: C.padDim, fontFamily: MONO,
-        fontSize: 26 }}>{name[0]}</div>
-      <div style={{ color: C.inkDim, fontSize: 13, maxWidth: 260, margin: "0 auto",
-        lineHeight: 1.5 }}>{note}</div>
-      <div style={{ fontFamily: MONO, fontSize: 10, color: C.padDim, marginTop: 18 }}>
-        tab present because the bundle is installed
-      </div>
-    </div>
-  );
-}

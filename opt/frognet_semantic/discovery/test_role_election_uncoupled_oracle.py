@@ -55,8 +55,7 @@ BLOCK = ["10.102.60.1 FrogNetHost", "10.160.160.1 FrogNetHost"]
 CTL = "10.160.160.1"
 # what the one generic loop returns when every registered role elects
 ELECTED = ["10.102.60.1 mediahost.frognet",
-           "10.160.160.1 databasehost.frognet",
-           "10.102.60.1 boardgame.frognet"]
+           "10.160.160.1 databasehost.frognet"]
 
 
 def names(lines):
@@ -85,11 +84,10 @@ def old_gate(etc_hosts, role_lines, ready, ctl):
 
 # =============================================================================
 print("-- barrier OPEN: every role elected and committed ----------------------")
-ALL = {"databasehost", "mediahost", "boardgame"}
+ALL = {"databasehost", "mediahost"}
 open_ = commit_service_lines(BLOCK, ELECTED, ALL, CTL)
 ck("mediahost is committed", "mediahost.frognet" in names(open_))
 ck("databasehost is committed", "databasehost.frognet" in names(open_))
-ck("boardgame is committed", "boardgame.frognet" in names(open_))
 ck("each carries the winner its callback named",
    host_of(open_, "mediahost") == "10.102.60.1"
    and host_of(open_, "databasehost") == "10.160.160.1")
@@ -104,8 +102,6 @@ ck("mediahost is STILL committed -- this is the whole point",
    "mediahost.frognet" in names(shut), names(shut))
 ck("and still names its own callback's winner",
    host_of(shut, "mediahost") == "10.102.60.1", host_of(shut, "mediahost"))
-ck("boardgame is still committed too",
-   "boardgame.frognet" in names(shut))
 ck("databasehost is pinned at the control, not at its elected winner",
    host_of(shut, "databasehost") == CTL, host_of(shut, "databasehost"))
 ck("exactly one databasehost line",
@@ -115,12 +111,10 @@ ck("exactly one databasehost line",
 old = old_gate(BLOCK, ELECTED, False, CTL)
 ck("CONTROL: the old gate dropped mediahost entirely",
    "mediahost.frognet" not in names(old), names(old))
-ck("CONTROL: it dropped boardgame too -- the whole loop was skipped",
-   "boardgame.frognet" not in names(old))
 ck("CONTROL: and it pinned databasehost, which is why nothing looked broken",
    host_of(old, "databasehost") == CTL)
 ck("the new gate keeps a role the old one lost",
-   names(shut) - names(old) == {"mediahost.frognet", "boardgame.frognet"},
+   names(shut) - names(old) == {"mediahost.frognet"},
    names(shut) - names(old))
 
 
@@ -132,7 +126,7 @@ ck("the stale mediahost line is gone",
    host_of(again, "mediahost") == "10.102.60.1")
 ck("one line per role after a re-elect",
    all(sum(1 for l in again if l.endswith(" %s.frognet" % r)) == 1
-       for r in ("mediahost", "databasehost", "boardgame")))
+       for r in ("mediahost", "databasehost")))
 ck("committing twice is idempotent",
    commit_service_lines(again, ELECTED, ALL, CTL) == again)
 
@@ -162,7 +156,7 @@ ck("a role that elected nobody gets no line, not a floor",
 # =============================================================================
 print("-- each role waits on its OWN records, not on databasehost's ------------")
 # mediahost information complete, databasehost information not: media must decide.
-mh = commit_service_lines(BLOCK, ELECTED, {"mediahost", "boardgame"}, CTL)
+mh = commit_service_lines(BLOCK, ELECTED, {"mediahost"}, CTL)
 ck("mediahost decides while databasehost is still waiting",
    host_of(mh, "mediahost") == "10.102.60.1")
 ck("and databasehost is pinned meanwhile", host_of(mh, "databasehost") == CTL)
@@ -216,11 +210,9 @@ LIVE = ["10.250.250.1 databasehost_control.frognet",
 live_out = commit_service_lines(LIVE, ELECTED, set(), CTL)
 ck("mediahost is committed even with every barrier shut",
    host_of(live_out, "mediahost") == "10.102.60.1", host_of(live_out, "mediahost"))
-ck("boardgame too", host_of(live_out, "boardgame") == "10.102.60.1")
 ck("databasehost is still pinned at the control", host_of(live_out, "databasehost") == CTL)
 ck("no role is left without a line when the election named a winner",
-   names(live_out) >= {"mediahost.frognet", "databasehost.frognet",
-                       "boardgame.frognet"}, names(live_out))
+   names(live_out) >= {"mediahost.frognet", "databasehost.frognet"}, names(live_out))
 
 # [ABSENT_IS_A_DECIDABLE_STATE_V1] and with no ready roles at all, the elected
 # winner still lands: absence of records is an input to the election, not a reason

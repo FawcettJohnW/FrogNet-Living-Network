@@ -29,7 +29,6 @@ It exposes a small local HTTP API that any front end drives:
   GET  /api/state         -> {me, roster[], call{session,host,port,members}|null,
                              codec, stats{}, chat[]}
   GET  /api/calls         -> {calls:[{session,host,port,members}]}  every open call
-  GET  /api/games         -> {games:[...]}  open game tables (games_lobby.list_tables)
   POST /api/call          -> start a call           {session,host,port}
   POST /api/join  {session}
   POST /api/hangup
@@ -152,14 +151,6 @@ class Backend:
         except Exception:
             return []
 
-    def list_games(self):
-        try:
-            import games_lobby
-            import frognet_tuples as T
-            return games_lobby.list_tables(T, self.cp.dbhost)
-        except Exception:
-            return []
-
     # ---- live stream parameter: video quality cap (resolution). codec is set_codec. ----
     def set_level_cap(self, cap):
         with self.lock:
@@ -273,8 +264,6 @@ def make_handler(backend: Backend):
                 self._json(backend.state())
             elif path == "/api/calls":
                 self._json({"calls": backend.list_calls()})
-            elif path == "/api/games":
-                self._json({"games": backend.list_games()})
             elif path == "/api/video.jpg":
                 jpg = backend.video_jpeg()
                 self.send_response(200)
