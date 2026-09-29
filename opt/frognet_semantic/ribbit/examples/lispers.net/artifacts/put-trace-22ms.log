@@ -1,0 +1,51 @@
+[frogram 1354.85] OUT seq=0 op=3 POST /ram.php?op=write body=157B raw=y {"service":"lisp","variable":"site|0||/16","instance":"198.18.0.0/16","bag":{"prefix":"198.18.0.0/16","active":true,"accept_more_specifics":true,"key_id":0}}
+[frogram 1354.87] IN  seq=0 op=20 47B
+[frogram 1354.87] APPLIED POST /ram.php?op=write done status=200
+[frogram 1354.87] OUT seq=1 op=3 GET /ram.php?op=read&service=lisp&variable=site-lengths%7C0%7C&instance=16 body=0B raw=y 
+[frogram 1354.9] IN  seq=1 op=20 50B
+[frogram 1354.9] APPLIED GET /ram.php?op=read&service=lisp&variable=site-lengths%7C0%7C&instance=16 done status=200
+[frogram 1354.9] OUT seq=2 op=3 POST /ram.php?op=write body=81B raw=y {"service":"lisp","variable":"site-lengths|0|","instance":"16","bag":{"bits":16}}
+[frogram 1354.92] IN  seq=2 op=20 47B
+[frogram 1354.92] APPLIED POST /ram.php?op=write done status=200
+[frogram 1354.92] OUT seq=3 op=3 GET /ram.php?op=read&service=lisp&variable=registration-lengths%7C0%7C body=0B raw=y 
+[frogram 1354.94] IN  seq=3 op=20 50B
+[frogram 1354.94] APPLIED GET /ram.php?op=read&service=lisp&variable=registration-lengths%7C0%7C done status=200
+[frogram 1354.94] OUT seq=4 op=1 GET /ram.php?op=read&service=lisp&variable=site-lengths%7C0%7C body=0B raw=n 
+[frogram 1354.97] IN  seq=4 op=20 169B
+[frogram 1354.97] APPLIED GET /ram.php?op=read&service=lisp&variable=site-lengths%7C0%7C done status=200
+[frogram 1354.97] OUT seq=5 op=1 GET /ram.php?op=read&service=lisp&variable=ddt-delegation-lengths%7C0%7C body=0B raw=n 
+[frogram 1354.99] IN  seq=5 op=20 50B
+[frogram 1354.99] APPLIED GET /ram.php?op=read&service=lisp&variable=ddt-delegation-lengths%7C0%7C done status=200
+[frogram 1354.99] OUT seq=6 op=1 GET /ram.php?op=read&service=lisp&variable=site%7C0%7C%7C%2F16 body=0B raw=n 
+[frogram 1355.01] IN  seq=6 op=20 245B
+[frogram 1355.01] APPLIED GET /ram.php?op=read&service=lisp&variable=site%7C0%7C%7C%2F16 done status=200
+[frogram 1355.01] OUT seq=7 op=1 GET /ram.php?op=read&service=lisp&variable=resolver-applied%7C0%7C body=0B raw=n 
+[frogram 1355.01] OUT seq=8 op=3 POST /ram.php?op=write body=94B raw=y {"service":"lisp","variable":"resolver-applied|0|","instance":"site|16","bag":{"source_id":1}}
+[frogram 1355.01] OUT seq=9 op=3 GET /ram.php?op=read&service=lisp&variable=site%7C0%7C%7C%2F16&after=1&wait_s=3600.000 body=0B raw=y 
+[frogram 1355.01] OUT seq=10 op=3 GET /ram.php?op=read&service=lisp&variable=registration-lengths%7C0%7C&after=0&wait_s=3600.000 body=0B raw=y 
+[frogram 1355.01] OUT seq=11 op=3 GET /ram.php?op=read&service=lisp&variable=site-lengths%7C0%7C&after=2&wait_s=3600.000 body=0B raw=y 
+[frogram 1355.01] OUT seq=12 op=3 GET /ram.php?op=read&service=lisp&variable=ddt-delegation-lengths%7C0%7C&after=0&wait_s=3600.0 body=0B raw=y 
+[frogram 1355.03] IN  seq=7 op=20 50B
+[frogram 1355.03] APPLIED GET /ram.php?op=read&service=lisp&variable=resolver-applied%7C0%7C done status=200
+==== put 0
+[frogram 1355.03] OUT seq=13 op=1 GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 body=0B raw=n 
+[frogram 1355.05] IN  seq=8 op=20 47B
+[frogram 1355.05] APPLIED POST /ram.php?op=write done status=200
+[frogram 1355.06] IN  seq=13 op=20 50B
+[frogram 1355.06] APPLIED GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 done status=200
+==== put 0 done 22.9 ms {'ok': True, 'result': 'good'}
+==== put 1
+[frogram 1355.06] OUT seq=14 op=2 GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 body=0B raw=n 
+[frogram 1355.08] IN  seq=14 op=17 33B
+[frogram 1355.08] APPLIED GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 done status=200
+==== put 1 done 22.8 ms {'ok': True, 'result': 'good'}
+==== put 2
+[frogram 1355.08] OUT seq=15 op=2 GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 body=0B raw=n 
+[frogram 1355.1] IN  seq=15 op=19 21B
+[frogram 1355.1] APPLIED GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 done status=200
+==== put 2 done 22.8 ms {'ok': True, 'result': 'good'}
+==== put 3
+[frogram 1355.1] OUT seq=16 op=2 GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 body=0B raw=n 
+[frogram 1355.13] IN  seq=16 op=19 21B
+[frogram 1355.13] APPLIED GET /ram.php?op=read&service=lisp&variable=registration%7C0%7C%7C%2F24 done status=200
+==== put 3 done 22.7 ms {'ok': True, 'result': 'good'}

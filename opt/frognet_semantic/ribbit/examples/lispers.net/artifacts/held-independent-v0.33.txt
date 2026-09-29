@@ -1,0 +1,14 @@
+== test_held_resolver
+PASS cross-process warm wake, zero request reads, expiry, withdrawal
+PASS held site-policy wake and zero warmed authorization reads
+== test_held_ddt
+PASS held DDT dynamic /N wake, LPM, zero warmed reads, tombstone fallback/withdrawal
+== test_held_map_cache
+PASS held map-cache dynamic /N, LPM, zero warmed reads, inactive withdrawal fallback
+== test_held_database_mapping
+PASS held database-mapping LPM, zero warmed reads, inactive withdrawal fallback
+== test_held_etr_request
+PASS independent-process ETR Map-Request from held database mapping, zero request-time reads, withdrawal fallback
+== cross_process_ram
+                  ~~~~~~~~^^^
+IndexError: list index out of range

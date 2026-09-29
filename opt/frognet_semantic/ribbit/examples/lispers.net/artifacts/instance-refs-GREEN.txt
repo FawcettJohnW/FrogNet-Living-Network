@@ -1,0 +1,27 @@
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 211 REQ_FULL 34 REQ_DIFF 169 REQ_REPEAT 1593 | RESP_SAME 769 RESP_DIFF 558 RESP_RAW 463 REQ_MISS 6 | bytes out 100396 in 917439
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+reads answered RAW 466, reads whose location changed shape or was new 466, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+PASS [INSTANCE_REFERENCES_V1] a read goes RAW only for a new location or a real shape change (466 RAW, 466 justified)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315333 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 1, 0 fail)
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 208 REQ_FULL 37 REQ_DIFF 171 REQ_REPEAT 1592 | RESP_SAME 771 RESP_DIFF 563 RESP_RAW 459 REQ_MISS 7 | bytes out 100379 in 923146
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+reads answered RAW 462, reads whose location changed shape or was new 462, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+PASS [INSTANCE_REFERENCES_V1] a read goes RAW only for a new location or a real shape change (462 RAW, 462 justified)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 2, 0 fail)
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 204 REQ_FULL 50 REQ_DIFF 175 REQ_REPEAT 1592 | RESP_SAME 798 RESP_DIFF 542 RESP_RAW 457 REQ_MISS 20 | bytes out 100710 in 934462
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+reads answered RAW 460, reads whose location changed shape or was new 460, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+PASS [INSTANCE_REFERENCES_V1] a read goes RAW only for a new location or a real shape change (460 RAW, 460 justified)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 3, 0 fail)

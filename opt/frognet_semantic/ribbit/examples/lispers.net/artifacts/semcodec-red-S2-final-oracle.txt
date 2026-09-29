@@ -1,0 +1,12 @@
+FAIL dec_err: 3194 cases, 3194 differ
+FAIL dec_rep: 641241 cases, 641241 differ
+FAIL dec_req: 15309 cases, 15309 differ
+FAIL enc_err: 10 cases, 10 differ
+FAIL enc_rep: 6089 cases, 6089 differ
+FAIL enc_rep_diff: 16003 cases, 16003 differ
+FAIL enc_req: 3000 cases, 3000 differ
+FAIL enc_req_diff: 16003 cases, 16003 differ
+FAIL lz4dec: 419 cases, 419 differ
+FAIL lz4smart: 170 cases, 170 differ
+FAIL veq: 20058 cases, 20058 differ
+RESULT FAIL semcodec vs /home/claude/src/opt/frognet_semantic/core/codec.py (seed 20260924, scale 1, 721496 cases)

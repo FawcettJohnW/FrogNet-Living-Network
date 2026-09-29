@@ -1,0 +1,25 @@
+--- platform/ribbit-v0.57/ribbit_cpp/fnwp_engine.hpp	2026-09-28 03:13:26.406900829 +0000
++++ build/platform/ribbit_cpp/fnwp_engine.hpp	2026-09-28 03:15:08.698879211 +0000
+@@ -399,7 +399,21 @@
+     const detail::IKey& ik = w.ik; const uint64_t op = ik.first; const Template& t = tpl_.at(op); std::optional<semcodec::Fields> dyn;
+     if (a.status < 400) {
+         if (t.ram_rows) { auto it = rr_tpl_.find(ik); if (it != rr_tpl_.end()) dyn = ramrows::extract(a.body, ramrows::learn(it->second)); }
+-        else dyn = semtpl::extract(t.resp_frag, a.body, true);
++        else {
++            dyn = semtpl::extract(t.resp_frag, a.body, true);
++            // [REPLY_EXTRACTION_PROVEN_V1] prove the template holds this answer before trusting the fields, as the
++            // client proves a request: extract keeps only the template paths (absent ones read as null, others are
++            // dropped), so an answer of another shape would be rebuilt by the far end as the old shape, silently.
++            if (dyn && !a.body.empty()) {
++                pyv::List vals; for (auto& kv : *dyn) vals.push_back(kv.second);
++                bool same = false;
++                try { std::string rebuilt = semtpl::rebuild_reply(t.resp_frag, vals);
++                      auto x = semtpl::detail::json_try(a.body), y = semtpl::detail::json_try(rebuilt);
++                      same = (x && y) ? semtpl::python_eq(*x, *y) : rebuilt == a.body; }
++                catch (const std::exception&) { same = false; }
++                if (!same) dyn.reset();                 // -> RESP_RAW below; nothing is guessed
++            }
++        }
+     }
+     if (dyn && !semcodec::fits_wire(*dyn)) dyn.reset();  // [HOLDABLE_V1] a field the wire cannot carry: the answer goes RAW
+     if (!dyn) {                                         // [RAW_SIGNAL_V1]: this answer cannot be held -> RESP_RAW

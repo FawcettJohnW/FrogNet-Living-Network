@@ -1,0 +1,14 @@
+PASS identity
+FAIL score: capable, benchmark -- handler red: score
+FAIL score: capable, no benchmark -> cores
+FAIL score: ineligible, udp 4342 closed
+FAIL score: ineligible, no udp field
+FAIL score: ineligible, no public ip
+FAIL score: malformed capability field raises, naming it -- handler red: score
+FAIL evaluate: best capable host from the WAN-inclusive list; LAN list ignored
+FAIL evaluate: tie goes to the higher IP
+FAIL evaluate: nobody capable -> none
+FAIL advertise writes lisp/capability -- handler red: advertise
+FAIL codec: learn a mapping record -- handler red: learn
+FAIL boundary opens UDP 43420 -- handler red: open_boundary
+RESULT FAIL lisp_handler: 12 fail

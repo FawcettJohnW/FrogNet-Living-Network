@@ -1,0 +1,28 @@
+S1 performance, qualify.sh run 20260924-185729, Linux 6.18.44-fc-v40 x86_64, 1 core (this container, not AI-Host), g++ 13.3.0 -O2, Python 3.12.3.
+Single thread, in memory: framing only, no socket, no outer length prefix.
+== C++ ribbit_cpp/semwire.hpp
+wrap_req_full 64B            median      47.9 ns/op  min      47.1  max      49.5  (9 x 2000000)
+wrap_req_full 4KiB           median      84.8 ns/op  min      83.2  max      89.8  (9 x 500000)
+wrap_req_repeat              median      36.3 ns/op  min      35.3  max      36.9  (9 x 2000000)
+wrap_resp_same               median      36.0 ns/op  min      35.5  max      40.6  (9 x 2000000)
+wrap_resp_raw 40B+1KiB       median      81.2 ns/op  min      80.6  max      84.6  (9 x 1000000)
+wrap_rtt_pong                median      62.0 ns/op  min      60.4  max      64.5  (9 x 2000000)
+try_parse REQ_FULL 64B       median      31.7 ns/op  min      31.5  max      33.7  (9 x 5000000)
+try_parse REQ_FULL 4KiB      median      32.4 ns/op  min      31.6  max      43.9  (9 x 5000000)
+try_parse REQ_REPEAT         median      16.8 ns/op  min      16.7  max      17.0  (9 x 5000000)
+try_parse RESP_SAME          median      17.0 ns/op  min      16.8  max      17.6  (9 x 5000000)
+try_parse RESP_RAW 40B+1KiB  median      34.2 ns/op  min      33.9  max      35.6  (9 x 5000000)
+try_parse RTT_PONG           median      28.0 ns/op  min      27.8  max      28.3  (9 x 5000000)
+== Python core/semcache_wire.py
+wrap_req_full 64B            median     367.4 ns/op  min     364.3  max     386.9  (9 x 100000)
+wrap_req_full 4KiB           median     509.2 ns/op  min     505.5  max     549.3  (9 x 100000)
+wrap_req_repeat              median     242.6 ns/op  min     241.4  max     244.6  (9 x 100000)
+wrap_resp_same               median     243.1 ns/op  min     240.7  max     262.7  (9 x 100000)
+wrap_resp_raw 40B+1KiB       median     729.1 ns/op  min     722.1  max     754.9  (9 x 100000)
+wrap_rtt_pong                median     365.1 ns/op  min     362.0  max     391.6  (9 x 100000)
+try_parse REQ_FULL 64B       median    1055.6 ns/op  min    1050.4  max    1075.4  (9 x 100000)
+try_parse REQ_FULL 4KiB      median    1241.6 ns/op  min    1225.3  max    1287.1  (9 x 100000)
+try_parse REQ_REPEAT         median     791.3 ns/op  min     788.8  max     806.7  (9 x 100000)
+try_parse RESP_SAME          median     837.2 ns/op  min     826.6  max     858.8  (9 x 100000)
+try_parse RESP_RAW 40B+1KiB  median    1738.8 ns/op  min    1728.2  max    1768.7  (9 x 100000)
+try_parse RTT_PONG           median    1150.2 ns/op  min    1139.3  max    1160.5  (9 x 100000)

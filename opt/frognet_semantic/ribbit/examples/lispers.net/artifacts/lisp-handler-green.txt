@@ -1,0 +1,31 @@
+PASS identity
+PASS score: capable, benchmark
+PASS score: capable, no benchmark -> cores
+PASS score: ineligible, udp 4342 closed
+PASS score: ineligible, no udp field
+PASS score: ineligible, no public ip
+PASS score: malformed capability field raises, naming it
+PASS evaluate: best capable host from the WAN-inclusive list; LAN list ignored
+PASS evaluate: tie goes to the higher IP
+PASS evaluate: nobody capable -> none
+PASS advertise writes lisp/capability
+PASS advertise: the capability reads back under host:<ip>:lisp
+PASS codec: learn a mapping record
+PASS codec: fragment mode lisp, fields iid/eid/ttl/rlocs
+PASS codec: extract
+PASS codec: rebuild is the record
+PASS codec: body not JSON raises
+PASS codec: body not an object raises
+PASS codec: body missing ttl raises
+PASS codec: body rloc without address raises
+PASS boundary opens UDP 43420
+PASS boundary: site with its password
+PASS Map-Register over UDP -> Map-Notify back (type 4, same nonce)
+PASS Map-Register with a bad HMAC is not answered
+PASS Map-Request -> Map-Reply with the registered RLOC
+PASS Map-Request for an unregistered EID -> negative reply (no locators)
+PASS boundary counted what it handled
+PASS site opens on its own Engine
+PASS the site resolves the boundary's registration through memory
+PASS boundary stops
+RESULT PASS lisp_handler: 0 fail

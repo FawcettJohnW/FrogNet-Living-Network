@@ -1,0 +1,205 @@
+DIFF urlparse
+  in    =urlparse S2f2f5deda080405d5d3b
+  python=raise notported
+  c++   =raise value *
+DIFF learn
+  in    =learn json 0 S7b
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b2261223a
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b2261223a
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S5b312c32
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S5b312c32
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b2261223a317d7d
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b2261223a317d7d
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b2761273a317d
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b2761273a317d
+  python=raise declined json_unparsable
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b2261223a4e614e7d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S61=D(S74797065=S616e79)),S6669656c645f6f72646572=L(S61),S747970655f6d6170=D(S61=S616e79),S626173656c696e65=D(S61=N),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b2261223a4e614e7d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S61=D(S74797065=S616e79)),S6669656c645f6f72646572=L(S61),S747970655f6d6170=D(S61=S616e79),S626173656c696e65=D(S61=N),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S5b496e66696e6974792c2d496e66696e6974795d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S5f6172726179=D(S74797065=S616e79)),S6669656c645f6f72646572=L(S76616c7565),S747970655f6d6170=D(S76616c7565=S6172726179),S626173656c696e65=D(S76616c7565=L(N,N)),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S5b496e66696e6974792c2d496e66696e6974795d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S5f6172726179=D(S74797065=S616e79)),S6669656c645f6f72646572=L(S76616c7565),S747970655f6d6170=D(S76616c7565=S6172726179),S626173656c696e65=D(S76616c7565=L(N,N)),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b2261223a312c2261223a327d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S61=D(S74797065=S696e74)),S6669656c645f6f72646572=L(S61),S747970655f6d6170=D(S61=S696e74),S626173656c696e65=D(S61=I2),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b2261223a312c2261223a327d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S61=D(S74797065=S696e74)),S6669656c645f6f72646572=L(S61),S747970655f6d6170=D(S61=S696e74),S626173656c696e65=D(S61=I2),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S7b225c7564383030223a317d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S74797065=S616e79),S6669656c645f6f72646572=L(S76616c7565),S747970655f6d6170=D(S76616c7565=S616e79),S626173656c696e65=D(S76616c7565=D(Seda080=I1)),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 1 S7b225c7564383030223a317d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S74797065=S616e79),S6669656c645f6f72646572=L(S76616c7565),S747970655f6d6170=D(S76616c7565=S616e79),S626173656c696e65=D(S76616c7565=D(Seda080=I1)),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+DIFF learn
+  in    =learn json 0 S5b225c756463303078225d
+  python=ok D(S6d6f6465=S6a736f6e,S736368656d61=D(S5f6172726179=D(S74797065=S737472696e67)),S6669656c645f6f72646572=L(S76616c7565),S747970655f6d6170=D(S76616c7565=S6172726179),S626173656c696e65=D(S76616c7565=L(Sedb08078)),S626173656c696e655f626c6f6273=D(),S746f6b656e73=D(S6970=D(),S686f7374=D(),S737472=D(),S656e756d=D()))
+  c++   =raise other:driver: bad value tag j
+corpus outcomes (python):
+      1112 build_url ok
+       577 build_url raise declined text_repr
+       146 build_url raise encode
+       165 build_url raise value build_url:
+       220 canon_key ok
+         7 ctype ok
+      1650 detect_rep ok
+       550 detect_rep raise notported
+      1421 detect_req ok
+       779 detect_req raise notported
+      5006 dumps ok
+         4 dumps raise type
+      1500 dyn_shape ok
+      1444 dyn_vals ok
+        28 dyn_vals raise notported
+        28 dyn_vals raise value *
+      2500 empty_arrays ok
+      4018 extract ok
+         3 extract raise declined unknown_mode
+         3 extract raise notported
+      1511 fields ok
+      2500 first_row ok
+      4145 leaf ok
+      5866 learn ok
+        16 learn raise declined json_unparsable
+        10 learn raise encode
+         2 learn raise notported
+      2500 merge ok
+      1526 normalize ok
+         4 normalize raise notported
+         2 normalize raise value *
+       929 opcode ok
+        77 opcode raise encode
+      1532 parse_qs ok
+      1532 parse_qsl ok
+      3380 pred ok
+      3287 rebuild ok
+       470 rebuild raise declined array_literal
+       781 rebuild raise declined array_type
+         2 rebuild raise declined blob_missing
+       498 rebuild raise declined pair_heuristic
+        12 rebuild raise declined text_repr
+        11 rebuild raise declined unknown_mode
+        11 rebuild raise notported
+      2990 rebuild_body ok
+        10 rebuild_body raise declined text_repr
+      2000 rebuild_json ok
+      2500 sanitize ok
+      2500 schema ok
+      1487 sniff ok
+       538 sniff raise notported
+      1000 tpl_id ok
+       182 train ok R
+       526 train ok T
+       189 train raise declined json_unparsable
+       603 train raise notported
+       824 urlencode ok
+       176 urlencode raise encode
+      1507 urlparse ok
+        17 urlparse raise notported
+         8 urlparse raise value *
+declined semantics (command, case, what the Python did instead):
+       486 build_url text_repr -> python ok
+        62 build_url text_repr -> python raise encode
+        29 build_url text_repr -> python raise value
+       550 detect_rep notported -> python ok
+       779 detect_req notported -> python ok
+        28 dyn_vals notported -> python ok
+       305 extract cannot_hold(json_shape) -> python ok
+         4 extract cannot_hold(json_unparsable) -> python ok
+         3 extract notported -> python ok
+         3 extract unknown_mode -> python ok
+        16 learn json_unparsable -> python ok
+         2 learn notported -> python ok
+         4 normalize notported -> python ok
+       470 rebuild array_literal -> python ok
+       781 rebuild array_type -> python ok
+         2 rebuild blob_missing -> python ok
+        11 rebuild notported -> python ok
+       293 rebuild pair_heuristic -> python ok
+       139 rebuild pair_heuristic -> python raise type
+        66 rebuild pair_heuristic -> python raise value
+        12 rebuild text_repr -> python ok
+        11 rebuild unknown_mode -> python ok
+        10 rebuild_body text_repr -> python ok
+       538 sniff notported -> python ok
+       189 train json_unparsable -> python ok
+       603 train notported -> python ok
+        11 urlparse notported -> python ok
+         6 urlparse notported -> python raise value
+blobs written by learn/train into fresh roots: python 2, c++ 0
+FAIL blobs: 2 cases, 2 differ
+PASS build_url: 2000 cases, 0 differ
+PASS canon_key: 220 cases, 0 differ
+PASS ctype: 7 cases, 0 differ
+PASS detect_rep: 2200 cases, 0 differ
+PASS detect_req: 2200 cases, 0 differ
+PASS dumps: 5010 cases, 0 differ
+PASS dyn_shape: 1500 cases, 0 differ
+PASS dyn_vals: 1500 cases, 0 differ
+PASS empty_arrays: 2500 cases, 0 differ
+PASS extract: 4024 cases, 0 differ
+PASS fields: 1511 cases, 0 differ
+PASS first_row: 2500 cases, 0 differ
+PASS leaf: 4145 cases, 0 differ
+FAIL learn: 5894 cases, 5894 differ
+PASS merge: 2500 cases, 0 differ
+PASS normalize: 1532 cases, 0 differ
+PASS opcode: 1006 cases, 0 differ
+PASS parse_qs: 1532 cases, 0 differ
+PASS parse_qsl: 1532 cases, 0 differ
+PASS pred: 3380 cases, 0 differ
+PASS rebuild: 5072 cases, 0 differ
+PASS rebuild_body: 3000 cases, 0 differ
+PASS rebuild_json: 2000 cases, 0 differ
+PASS sanitize: 2500 cases, 0 differ
+PASS schema: 2500 cases, 0 differ
+PASS sniff: 2025 cases, 0 differ
+PASS tpl_id: 1000 cases, 0 differ
+PASS train: 1500 cases, 0 differ
+PASS urlencode: 1000 cases, 0 differ
+FAIL urlparse: 1532 cases, 1 differ
+RESULT FAIL semtpl vs /home/claude/sfix/opt/frognet_semantic/core/json_handler.py (seed 20260924, scale 1, 68822 cases)
+rc=1

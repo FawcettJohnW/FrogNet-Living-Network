@@ -1,0 +1,170 @@
+--- control/lispers.net-master/lisp/lispapi.py	2026-09-18 20:57:44.000000000 +0000
++++ instrumented-control/lisp/lispapi.py	2026-09-24 05:43:14.423547655 +0000
+@@ -69,6 +69,8 @@
+ import requests
+ import json
+ import os
++import time
++import lispmetrics
+ 
+ #
+ # Supress cert verfication warnings from requests library.
+@@ -1424,12 +1426,14 @@
+     # All functions below here are private functions.
+     #
+     def __get(self, command):
++        _metric_t0 = time.monotonic_ns()
+         url = self.url + command.split(" ")[1]
+ 
+         self.__api_debug("get command: {}".format(command))
+         try:
+             r = requests.get(url, auth=(self.user, self.pw), verify=False,
+                 timeout=REQ_TIMEOUT)
++            lispmetrics.emit("rest_client", verb="GET", command=command, elapsed_ns=time.monotonic_ns()-_metric_t0, response_bytes=len(r.content), request_bytes=0, status=r.status_code)
+         except:
+             return(None)
+         #endtry
+@@ -1441,6 +1445,7 @@
+     #enddef
+ 
+     def __get_data(self, command, data):
++        _metric_t0 = time.monotonic_ns()
+         url = self.url + "data/" + command.split(" ")[1]
+         data = self.__ascii_to_unicode(command, data)
+ 
+@@ -1448,6 +1453,7 @@
+         try:
+             r = requests.get(url, data=data, auth=(self.user, self.pw),
+                 verify=False, timeout=REQ_TIMEOUT)
++            lispmetrics.emit("rest_client", verb="GET", command=command, elapsed_ns=time.monotonic_ns()-_metric_t0, response_bytes=len(r.content), request_bytes=len(data.encode() if isinstance(data,str) else data), status=r.status_code)
+         except:
+             return(None)
+         #endtry
+@@ -1465,6 +1471,7 @@
+     #enddef
+ 
+     def __put(self, command, data):
++        _metric_t0 = time.monotonic_ns()
+         url = self.url + command.split(" ")[1]
+         data = self.__ascii_to_unicode(command, data)
+ 
+@@ -1472,6 +1479,7 @@
+         try:
+             r = requests.put(url, data=data, auth=(self.user, self.pw),
+                 verify=False, timeout=REQ_TIMEOUT)
++            lispmetrics.emit("rest_client", verb="PUT", command=command, elapsed_ns=time.monotonic_ns()-_metric_t0, response_bytes=len(r.content), request_bytes=len(data.encode() if isinstance(data,str) else data), status=r.status_code)
+         except:
+             return(None)
+         #endtry
+@@ -1483,6 +1491,7 @@
+     #enddef
+ 
+     def __delete(self, command, data):
++        _metric_t0 = time.monotonic_ns()
+         url = self.url + command.split(" ")[1]
+         data = self.__ascii_to_unicode(command, data)
+ 
+@@ -1490,6 +1499,7 @@
+         try:
+             r = requests.delete(url, data=data, auth=(self.user, self.pw),
+                 verify=False, timeout=REQ_TIMEOUT)
++            lispmetrics.emit("rest_client", verb="DELETE", command=command, elapsed_ns=time.monotonic_ns()-_metric_t0, response_bytes=len(r.content), request_bytes=len(data.encode() if isinstance(data,str) else data), status=r.status_code)
+         except:
+             return(None)
+         #endtry
+--- control/lispers.net-master/lisp/lisp.py	2026-09-18 20:57:44.000000000 +0000
++++ instrumented-control/lisp/lisp.py	2026-09-24 05:43:14.437451662 +0000
+@@ -40,6 +40,7 @@
+ import hashlib
+ import datetime
+ import os
++import lispmetrics
+ import sys
+ import random
+ import threading
+@@ -6947,6 +6948,7 @@
+ # is going out a socket interface (even if internal).
+ #
+ def lisp_ipc(packet, send_socket, node):
++    lispmetrics.emit("ipc_begin", node=node, bytes=len(packet))
+ 
+     #
+     # Can't send an IPC message to a process that is not running.
+@@ -6969,6 +6971,7 @@
+         try:
+             if (type(segment) == str): segment = segment.encode()
+             send_socket.sendto(segment, node)
++            lispmetrics.emit("ipc_segment", node=node, bytes=len(segment), total_bytes=len(packet))
+             lprint("Send IPC {}-out-of-{} byte to {} succeeded".format( \
+                 len(segment), len(packet), node))
+             retry_count = 0
+--- control/lispers.net-master/lisp/lisp-core.py	2026-09-18 20:57:44.000000000 +0000
++++ instrumented-control/lisp/lisp-core.py	2026-09-24 05:43:49.229323256 +0000
+@@ -50,6 +50,7 @@
+ #
+ # -----------------------------------------------------------------------------
+ from __future__ import division
++import lispmetrics
+ from future import standard_library
+ standard_library.install_aliases()
+ from builtins import str
+@@ -212,10 +213,10 @@
+ 
+     if (data_structure in ["map-cache", "map-resolver"]):
+         if (lisp.lisp_is_running("lisp-rtr")):
+-            lisp.lisp_ipc_lock.acquire()
++            _lock_t0 = time.monotonic_ns(); lisp.lisp_ipc_lock.acquire(); lispmetrics.emit("ipc_lock", data_structure=data_structure, wait_ns=time.monotonic_ns()-_lock_t0)
+             lisp.lisp_ipc(ipc, lisp_ipc_socket, "lisp-rtr")
+         elif (lisp.lisp_is_running("lisp-itr")):
+-            lisp.lisp_ipc_lock.acquire()
++            _lock_t0 = time.monotonic_ns(); lisp.lisp_ipc_lock.acquire(); lispmetrics.emit("ipc_lock", data_structure=data_structure, wait_ns=time.monotonic_ns()-_lock_t0)
+             lisp.lisp_ipc(ipc, lisp_ipc_socket, "lisp-itr")
+         else:
+             return(json.dumps([]))
+@@ -223,10 +224,10 @@
+     #endif
+     if (data_structure in ["map-server", "database-mapping"]):
+         if (lisp.lisp_is_running("lisp-etr")):
+-            lisp.lisp_ipc_lock.acquire()
++            _lock_t0 = time.monotonic_ns(); lisp.lisp_ipc_lock.acquire(); lispmetrics.emit("ipc_lock", data_structure=data_structure, wait_ns=time.monotonic_ns()-_lock_t0)
+             lisp.lisp_ipc(ipc, lisp_ipc_socket, "lisp-etr")
+         elif (lisp.lisp_is_running("lisp-itr")):
+-            lisp.lisp_ipc_lock.acquire()
++            _lock_t0 = time.monotonic_ns(); lisp.lisp_ipc_lock.acquire(); lispmetrics.emit("ipc_lock", data_structure=data_structure, wait_ns=time.monotonic_ns()-_lock_t0)
+             lisp.lisp_ipc(ipc, lisp_ipc_socket, "lisp-itr")
+         else:
+             return(json.dumps([]))
+@@ -234,7 +235,7 @@
+     #endif
+     if (data_structure in ["site-cache", "site-cache-summary"]):
+         if (lisp.lisp_is_running("lisp-ms")):
+-            lisp.lisp_ipc_lock.acquire()
++            _lock_t0 = time.monotonic_ns(); lisp.lisp_ipc_lock.acquire(); lispmetrics.emit("ipc_lock", data_structure=data_structure, wait_ns=time.monotonic_ns()-_lock_t0)
+             lisp.lisp_ipc(ipc, lisp_ipc_socket, "lisp-ms")
+         else:
+             return(json.dumps([]))
+@@ -244,7 +245,9 @@
+     lisp.lprint("Waiting for api get-data '{}', parmameters: '{}'".format( \
+         data_structure, data))
+ 
++    _recv_t0 = time.monotonic_ns()
+     opcode, source, port, output = lisp.lisp_receive(lisp_ipc_socket, True)
++    lispmetrics.emit("ipc_reply", data_structure=data_structure, wait_ns=time.monotonic_ns()-_recv_t0, response_bytes=len(output))
+     lisp.lisp_ipc_lock.release()
+     output = output.decode()
+     return(output)
+--- /dev/null	2026-09-24 04:57:16.770364773 +0000
++++ instrumented-control/lisp/lispmetrics.py	2026-09-24 05:43:13.736200245 +0000
+@@ -0,0 +1,12 @@
++# Optional, append-only characterization telemetry. Disabled unless LISP_METRICS_FILE is set.
++import json, os, threading, time
++_lock=threading.Lock()
++def emit(kind, **fields):
++    path=os.getenv('LISP_METRICS_FILE')
++    if not path:return
++    rec={'ts_ns':time.time_ns(),'mono_ns':time.monotonic_ns(),'pid':os.getpid(),'kind':kind}; rec.update(fields)
++    line=json.dumps(rec,sort_keys=True,separators=(',',':'))+'\n'
++    try:
++        with _lock:
++            with open(path,'a',encoding='utf-8') as f:f.write(line)
++    except Exception: pass

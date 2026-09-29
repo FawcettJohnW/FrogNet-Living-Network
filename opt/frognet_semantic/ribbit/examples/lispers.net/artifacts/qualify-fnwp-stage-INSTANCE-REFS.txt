@@ -1,0 +1,12 @@
+Ribbit-LISP qualification 20260926-123629 on Linux 6.18.44-fc-v42 x86_64, 1 cores; endpoint 127.0.0.1:8788
+== FNWP engines end to end on the RAM wire (ClientEngine <-> ServerEngine over ram_server.cpp's api())
+reads answered RAW 466, reads whose location changed shape or was new 466, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315333 B); RESP_DIFF 200, bytes out 4200
+RESULT PASS fnwp e2e (seed 1, 0 fail)
+reads answered RAW 462, reads whose location changed shape or was new 462, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+RESULT PASS fnwp e2e (seed 2, 0 fail)
+reads answered RAW 460, reads whose location changed shape or was new 460, SAME-miss recoveries (body evicted from the 256-entry SAME cache) 1
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+RESULT PASS fnwp e2e (seed 3, 0 fail)
+results: /home/claude/lisp/ribbit-lisp-conformance/results/20260926-123629

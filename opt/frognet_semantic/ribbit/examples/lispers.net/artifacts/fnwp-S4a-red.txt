@@ -1,0 +1,4 @@
+  c++   =raise other:fnwp S4a red: build_request
+outcomes (python): {'REQ_FULL': 5915, 'REQ_REPEAT': 4056, 'REQ_DIFF': 14883}
+FAIL build: 24854 cases, 24854 differ
+RESULT FAIL fnwp S4a vs /home/claude/sfix/opt/frognet_semantic/proxy/transport_semantic.py (seed 20260925, 24854 cases)

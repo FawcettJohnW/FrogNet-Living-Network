@@ -1,0 +1,45 @@
+[RAM-SERVER] 2026-09-24 15:57:45 FNW1 and the memory, in one process, on 0.0.0.0:8788
+[RAM-SERVER] 2026-09-24 15:57:46 session up   127.0.0.1 frogram-cpp-c61d8c82d754458
+[RAM-SERVER] 2026-09-24 15:57:46 session up   127.0.0.1 frogram-cpp-a75ef7952ccbf58f
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-c61d8c82d754458 after 51 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-a75ef7952ccbf58f after 56 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-6d2519a0d3ec47ab
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-cae9ece9eb37ba30
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-cae9ece9eb37ba30 after 23 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-6d2519a0d3ec47ab after 10 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-e9a7dc5db22dbb07
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-9793e17e7a14f7c3
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-e9a7dc5db22dbb07 after 17 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-9793e17e7a14f7c3 after 8 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-ce377b1fa3b5765
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-dad175496ad5baa
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-ce377b1fa3b5765 after 13 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-dad175496ad5baa after 3 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-6cdccd659495665
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-8a61c4f2465f2524
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-6a40c602e0110516
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-6a40c602e0110516 after 46 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-4521dc8011dfe832
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-4521dc8011dfe832 after 4 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-b5e0d4c3bceec2bc
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-b5e0d4c3bceec2bc after 48 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-ce4c5c2af2fb9569
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-ce4c5c2af2fb9569 after 1 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-6cdccd659495665 after 46 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session down 127.0.0.1 frogram-cpp-8a61c4f2465f2524 after 14 requests
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-79e900639fe31e2a
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-80021b5e86b977e7
+[RAM-SERVER] 2026-09-24 15:57:47 session up   127.0.0.1 frogram-cpp-e0aaba4f6178f0e5
+[RAM-SERVER] 2026-09-24 15:57:52 session down 127.0.0.1 frogram-cpp-e0aaba4f6178f0e5 after 40 requests
+[RAM-SERVER] 2026-09-24 15:57:52 session down 127.0.0.1 frogram-cpp-80021b5e86b977e7 after 2 requests
+[RAM-SERVER] 2026-09-24 15:57:52 session down 127.0.0.1 frogram-cpp-79e900639fe31e2a after 61 requests
+[RAM-SERVER] 2026-09-24 15:57:52 session up   127.0.0.1 frogram-cpp-3e0e8909531d29d8
+[RAM-SERVER] 2026-09-24 15:57:52 session up   127.0.0.1 frogram-cpp-60df666426c9da60
+[RAM-SERVER] 2026-09-24 15:57:52 session up   127.0.0.1 frogram-cpp-2257c01895dd55d8
+[RAM-SERVER] 2026-09-24 15:57:53 session down 127.0.0.1 frogram-cpp-60df666426c9da60 after 31 requests
+[RAM-SERVER] 2026-09-24 15:57:53 session down 127.0.0.1 frogram-cpp-2257c01895dd55d8 after 9 requests
+[RAM-SERVER] 2026-09-24 15:57:53 session down 127.0.0.1 frogram-cpp-3e0e8909531d29d8 after 32 requests
+[RAM-SERVER] 2026-09-24 15:57:53 session up   127.0.0.1 frogram-cpp-acdee3266cf6238c
+[RAM-SERVER] 2026-09-24 15:57:53 session up   127.0.0.1 frogram-cpp-98b791782fcd2eb
+[RAM-SERVER] 2026-09-24 15:57:53 session down 127.0.0.1 frogram-cpp-98b791782fcd2eb after 7 requests
+[RAM-SERVER] 2026-09-24 15:57:53 session down 127.0.0.1 frogram-cpp-acdee3266cf6238c after 12 requests

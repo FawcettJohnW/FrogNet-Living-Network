@@ -1,0 +1,50 @@
+PASS json_handler learn: body is not JSON                                     raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS json_handler extract: body is not JSON                                   raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS json_handler extract: scalar body on an object template                  raised TypeError: JSON body is int; the template (field_order ['a', 'b.c', 'rows']) holds an object
+PASS json_handler extract: array body on an object template                   raised TypeError: JSON body is list; the template (field_order ['a', 'b.c', 'rows']) holds an object
+PASS json_handler rebuild: array field is non-JSON text                       raised JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+PASS json_handler rebuild: array field is Python-literal text                 raised JSONDecodeError: Expecting value: line 1 column 2 (char 1)
+PASS json_handler rebuild: array field is ""                                  raised JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+PASS json_handler rebuild: array field is an int                              raised TypeError: array field 'rows': got int, not a list
+PASS json_handler rebuild: array field JSON is an object                      raised TypeError: array field 'rows': JSON text holds dict, not a list
+PASS json_handler rebuild: top-level array is non-JSON text                   raised JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+PASS json_handler rebuild: top-level array is an int                          raised TypeError: array field 'value': got int, not a list
+PASS json_handler rebuild: top-level array, no baseline                       raised KeyError: 'top-level array template has no baseline value to rebuild from'
+PASS json_handler rebuild: baseline blob missing                              raised FileNotFoundError: [Errno 2] No such file or directory: '/tmp/nofb-blobs-lsm1n2kv/sha256-0000000000000000000000000000000000000000
+PASS json_handler _max_items: malformed env                                   raised ValueError: invalid literal for int() with base 10: 'many'
+PASS template: fragment text is not JSON                                      raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS template: fragment is None                                               raised TypeError: template fragment is NoneType, not a dict or JSON text
+PASS template: fragment JSON is not an object                                 raised TypeError: template fragment JSON holds list, not an object
+PASS template: fragment has no mode                                           raised KeyError: 'template fragment has no mode'
+PASS template: unknown mode                                                   raised KeyError: "template mode 'bogus' has no handler (known: html, json, raw, sotf_media, text, xml)"
+PASS template: tokens are not a dict                                          raised TypeError: template tokens are str, not a dict
+PASS template: request template has no URL                                    raised ValueError: request template t has no action URL
+PASS template: url_query_keys is not a list                                   raised TypeError: request template t url_query_keys is str, not a list
+PASS format_registry: request "{bad" is JSON by its bytes                     returned 'json', want 'json'
+PASS format_registry: no parse probe (json.loads / ElementTree) in detection  source scan of the sniffers
+PASS codec decode_error_reply: error frame with a malformed status            raised ValueError: invalid literal for int() with base 10: 'xx'
+PASS codec decode_error_reply: a non-error frame is still None                returned None, want None
+PASS store _loads_json_maybe: column text is not JSON                         raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS store build_request_template: no row                                     raised LookupError: build_request_template: no request row
+PASS store build_reply_template: no row                                       raised LookupError: build_reply_template: no response row
+PASS store build_request_template: params is not an object                    raised TypeError: request template tpl_1: params is list, not a JSON object
+PASS store build_request_template: url_query_keys is not a list               raised TypeError: request template tpl_1: url_query_keys is str, not a list
+PASS store store_templates: empty path                                        raised ValueError: store_templates: method 'GET' / semantic_path '' is empty
+PASS store store_templates: request template is not a dict                    raised TypeError: Treq must be dict, got <class 'str'>
+PASS store store_templates: INSERT fails (no fallback INSERT)                 raised RuntimeError: fake mysql: url_query_keys
+PASS store _with_conn: a failing call is not retried                          raised RuntimeError: boom
+PASS store ensure_tables: a failing migration step raises                     raised RuntimeError: fake mysql: ALTER TABLE
+PASS templates _parse_json_body: body is not JSON                             raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS templates canonical_semantic_key: upsert body is not JSON                raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS templates extract_dynamic_query_vals: declared key missing               raised LookupError: dynamic query key 'a' declared by the template is not in '/p'
+PASS templates extract_dynamic_query_vals: path has no query                  raised LookupError: dynamic query key 'a' declared by the template is not in '/p?b=1'
+PASS templates extract_dynamic_query_vals: blank value is ""                  returned [('a', '')], want [('a', '')]
+PASS templates learn_templates_from_real: a store failure propagates          raised RuntimeError: store down
+PASS templates learn_templates_from_real: a malformed JSON reply raises       raised JSONDecodeError: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+PASS templates fail_closed_template_missing: client hung up                   raised BrokenPipeError: [Errno 32] Broken pipe
+PASS transport _handle_resp_raw_and_learn: learn_templates_from_real not under except 0 try/except block(s) wrap it
+PASS discovery select_database_host: control read timed out                   raised CapabilityReadFailed: StoreSlow on 10.251.251.1: TimeoutError: timed out
+PASS discovery role_barrier_ready: control read timed out                     raised CapabilityReadFailed: StoreSlow on 10.251.251.1: TimeoutError: timed out
+PASS discovery select_database_host: read answered, nothing published -> highest .1 baseline returned ['10.251.251.1 databasehost.frognet'], want ['10.251.251.1 databasehost.frognet']
+PASS discovery _num: a malformed capability field                             raised ValueError: capability field: malformed dict {'value': 1}
+RESULT PASS no-fallbacks: 49 probes, 0 fail (/home/claude/src24/opt/frognet_semantic)

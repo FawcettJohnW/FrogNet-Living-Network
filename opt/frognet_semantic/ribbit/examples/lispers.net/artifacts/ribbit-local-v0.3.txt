@@ -1,0 +1,11 @@
+test_map_cache_is_collection (tests.test_read_contract.ReadContract.test_map_cache_is_collection) ... ok
+test_site_cache_is_collection (tests.test_read_contract.ReadContract.test_site_cache_is_collection) ... ok
+test_system_is_mapping (tests.test_read_contract.ReadContract.test_system_is_mapping) ... ok
+test_map_resolver_add_get_delete (tests.test_roundtrip_contract.RoundTripContract.test_map_resolver_add_get_delete) ... ok
+test_iid_isolation (tests.test_mapping_contract.MappingContract.test_iid_isolation) ... ok
+test_longest_prefix_match (tests.test_mapping_contract.MappingContract.test_longest_prefix_match) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.002s
+
+OK

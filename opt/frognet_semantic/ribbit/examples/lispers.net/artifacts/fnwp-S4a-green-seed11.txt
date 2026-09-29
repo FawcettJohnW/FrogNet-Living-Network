@@ -1,0 +1,2 @@
+PASS build: 37276 cases, 0 differ
+RESULT PASS fnwp S4a vs /home/claude/sfix/opt/frognet_semantic/proxy/transport_semantic.py (seed 11, 37276 cases)

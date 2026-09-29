@@ -1,0 +1,125 @@
+corpus outcomes (python):
+      2231 build_url ok
+      1138 build_url raise declined text_repr
+       246 build_url raise encode
+       385 build_url raise value build_url:
+       220 canon_key ok
+         7 ctype ok
+      3137 detect_rep ok
+      1063 detect_rep raise notported
+      2640 detect_req ok
+      1560 detect_req raise notported
+     10006 dumps ok
+         4 dumps raise type
+      3000 dyn_shape ok
+      2892 dyn_vals ok
+        57 dyn_vals raise notported
+        51 dyn_vals raise value *
+      5000 empty_arrays ok
+      8018 extract ok
+         3 extract raise declined unknown_mode
+         3 extract raise notported
+      3011 fields ok
+      5000 first_row ok
+      8145 leaf ok
+     11658 learn ok
+        16 learn raise declined json_unparsable
+        18 learn raise encode
+         2 learn raise notported
+      5000 merge ok
+      3024 normalize ok
+         4 normalize raise notported
+         4 normalize raise value *
+      1817 opcode ok
+       189 opcode raise encode
+      3032 parse_qs ok
+      3032 parse_qsl ok
+      6380 pred ok
+      6478 rebuild ok
+       905 rebuild raise declined array_literal
+      1568 rebuild raise declined array_type
+         2 rebuild raise declined blob_missing
+      1085 rebuild raise declined pair_heuristic
+        12 rebuild raise declined text_repr
+        11 rebuild raise declined unknown_mode
+        11 rebuild raise notported
+      5983 rebuild_body ok
+        17 rebuild_body raise declined text_repr
+      4000 rebuild_json ok
+      5000 sanitize ok
+      5000 schema ok
+      2847 sniff ok
+      1178 sniff raise notported
+      2000 tpl_id ok
+       376 train ok R
+      1035 train ok T
+       399 train raise declined json_unparsable
+      1190 train raise notported
+      1606 urlencode ok
+       394 urlencode raise encode
+      2985 urlparse ok
+        22 urlparse raise notported
+        25 urlparse raise value *
+declined semantics (command, case, what the Python did instead):
+       938 build_url text_repr -> python ok
+       113 build_url text_repr -> python raise encode
+        87 build_url text_repr -> python raise value
+      1063 detect_rep notported -> python ok
+      1560 detect_req notported -> python ok
+        57 dyn_vals notported -> python ok
+       519 extract cannot_hold(json_shape) -> python ok
+         8 extract cannot_hold(json_unparsable) -> python ok
+         3 extract notported -> python ok
+         3 extract unknown_mode -> python ok
+        16 learn json_unparsable -> python ok
+         2 learn notported -> python ok
+         4 normalize notported -> python ok
+       905 rebuild array_literal -> python ok
+      1568 rebuild array_type -> python ok
+         2 rebuild blob_missing -> python ok
+        11 rebuild notported -> python ok
+       597 rebuild pair_heuristic -> python ok
+       368 rebuild pair_heuristic -> python raise type
+       120 rebuild pair_heuristic -> python raise value
+        12 rebuild text_repr -> python ok
+        11 rebuild unknown_mode -> python ok
+        17 rebuild_body text_repr -> python ok
+      1178 sniff notported -> python ok
+       399 train json_unparsable -> python ok
+      1190 train notported -> python ok
+        18 urlparse notported -> python ok
+         4 urlparse notported -> python raise value
+blobs written by learn/train into fresh roots: python 2, c++ 2
+PASS blobs: 2 cases, 0 differ
+PASS build_url: 4000 cases, 0 differ
+PASS canon_key: 220 cases, 0 differ
+PASS ctype: 7 cases, 0 differ
+PASS detect_rep: 4200 cases, 0 differ
+PASS detect_req: 4200 cases, 0 differ
+PASS dumps: 10010 cases, 0 differ
+PASS dyn_shape: 3000 cases, 0 differ
+PASS dyn_vals: 3000 cases, 0 differ
+PASS empty_arrays: 5000 cases, 0 differ
+PASS extract: 8024 cases, 0 differ
+PASS fields: 3011 cases, 0 differ
+PASS first_row: 5000 cases, 0 differ
+PASS leaf: 8145 cases, 0 differ
+PASS learn: 11694 cases, 0 differ
+PASS merge: 5000 cases, 0 differ
+PASS normalize: 3032 cases, 0 differ
+PASS opcode: 2006 cases, 0 differ
+PASS parse_qs: 3032 cases, 0 differ
+PASS parse_qsl: 3032 cases, 0 differ
+PASS pred: 6380 cases, 0 differ
+PASS rebuild: 10072 cases, 0 differ
+PASS rebuild_body: 6000 cases, 0 differ
+PASS rebuild_json: 4000 cases, 0 differ
+PASS sanitize: 5000 cases, 0 differ
+PASS schema: 5000 cases, 0 differ
+PASS sniff: 4025 cases, 0 differ
+PASS tpl_id: 2000 cases, 0 differ
+PASS train: 3000 cases, 0 differ
+PASS urlencode: 2000 cases, 0 differ
+PASS urlparse: 3032 cases, 0 differ
+RESULT PASS semtpl vs /home/claude/sfix/opt/frognet_semantic/core/json_handler.py (seed 7, scale 2, 136122 cases)
+rc=0

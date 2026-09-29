@@ -1,0 +1,207 @@
+[ISOLATION] FROGNET_SENTINEL_DIR=/tmp/frogsim_sentinels_tc31rezz
+================== FrogNet comprehensive simulator - M6 gate ==================
+
+SIM: using live patched code from /home/claude/src24-orig/opt/frognet_semantic (proxy) and /home/claude/src24-orig/usr/local/bin (bin)
+sim_build 2026-06-05-v9
+calibration: none on disk (model uses guessed RTTs; a hardware run produces model_calibration.json)
+
+TIER 1 - model (algorithm + topologies + lifecycle/churn/invariants)
+  [PASS] model suite (frognet_sim)  (rc=0, ~120 checks ok)
+
+TIER 2 - real planner + committer (M1)
+  [PASS] real-engine 23 topologies  (rc=0, ~20 checks ok)
+
+TIER 2b - failure modes through real planner+committer
+  [PASS] failure modes (reroute/black-hole/partition)  (rc=0, ~7 checks ok)
+
+TIER 3 - real broker in the loop (M3)
+  [PASS] broker-decided ponds  (rc=0, ~0 checks ok)
+
+TIER R - regression vs learned baselines + failure-scenario replay
+  [PASS] regression (learned baselines + scenario replay)  (rc=0, ~23 checks ok)
+
+TIER 4 - real kernel in netns (M2)
+  [PASS] netns provisioning plan (dry-run)  (rc=0, ~0 checks ok)
+        (execute on a Linux box: FROGNET_SIM_BACKEND=real FROGNET_SIM_EXECUTE=1)
+
+TIER 5 - proxy semantic data plane (M4)
+[json_handler] BUILD=2026-06-03-nonfinite-guard
+[xml_handler] BUILD=2026-06-08-lxml-fullfidelity
+[html_handler] BUILD=2026-06-08-lxml-fullfidelity
+[templates] BUILD=2026-03-24-v1
+  [FAIL] collectives + DDP hooks (agent_workload)  (rc=1, ~0 checks ok, 1 fail markers)
+  [PASS] proxy decision/keying/origin  (rc=0, ~15 checks ok)
+  [PASS] proxy RETURN channel handshake  (rc=0, ~30 checks ok)
+  [PASS] DB connection lifetime vs thread churn  (rc=0, ~32 checks ok)
+[TUPLE] PUT_FAILED dbhost=databasehost.frognet:80 -> UNRESOLVED(RuntimeError) name=SD:probe.1790286249.preflight err=gaierror:[Errno -2] Name or service not known
+[21:44:09.021] [   15.213] [DIAG-STORE] pid=3212 thr=MainThread/3212 GET -> url=http://databasehost.frognet:80/api.php?entity=sensors&action=values&parse=1&SensorType=nb1.preflight.store&SensorName__like=SD%3Aprobe.1790286249.%25 dbhost=databasehost.frognet:80 ip=UNRESOLVED(RuntimeError:[HOSTS_ONLY_V1] 'databasehost.frognet' not in /etc/hosts; refusing to fall through to DNS.) service=nb1.preflight.store name_like=SD:probe.1790286249.% fresh_s=0 timeout=20.0
+[21:44:09.023] [   15.215] [DIAG-STORE] pid=3212 thr=MainThread/3212 GET FAILED exc_type=gaierror exc=[Errno -2] Name or service not known errno=-2 url=http://databasehost.frognet:80/api.php?entity=sensors&action=values&parse=1&SensorType=nb1.preflight.store&SensorName__like=SD%3Aprobe.1790286249.%25 dbhost=databasehost.frognet:80 ip=UNRESOLVED(RuntimeError:[HOSTS_ONLY_V1] 'databasehost.frognet' not in /etc/hosts; refusing to fall through to DNS.) ms=1.5 classified=StoreError
+Traceback (most recent call last):
+  File "/home/claude/src24-orig/opt/frognet_semantic/core/frognet_tuples.py", line 937, in _values_raw
+    with _urlopen(req, timeout=timeout) as r:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/claude/src24-orig/opt/frognet_semantic/core/frognet_tuples.py", line 292, in _urlopen
+    c.request(method, path, body=body, headers=headers)
+  File "/usr/lib/python3.12/http/client.py", line 1356, in request
+    self._send_request(method, url, body, headers, encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1402, in _send_request
+    self.endheaders(body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1351, in endheaders
+    self._send_output(message_body, encode_chunked=encode_chunked)
+  File "/usr/lib/python3.12/http/client.py", line 1111, in _send_output
+    self.send(msg)
+  File "/usr/lib/python3.12/http/client.py", line 1055, in send
+    self.connect()
+  File "/home/claude/src24-orig/opt/frognet_semantic/core/frognet_tuples.py", line 129, in connect
+    super().connect()
+  File "/usr/lib/python3.12/http/client.py", line 1021, in connect
+    self.sock = self._create_connection(
+                ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 828, in create_connection
+    for res in getaddrinfo(host, port, 0, SOCK_STREAM):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/socket.py", line 963, in getaddrinfo
+    for res in _socket.getaddrinfo(host, port, family, type, proto, flags):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+socket.gaierror: [Errno -2] Name or service not known
+  [PASS] live store round-trip (skips if unreachable)  (rc=0, ~0 checks ok)
+        (transport on :9009 + daemon + DB store are box-tier)
+  [PASS] transport calibration-capture (loopback mechanism)  (rc=0, ~4 checks ok)
+        (real proxy/daemon round trip is the box fill-in)
+
+TIER C - codex language compliance (PRIMER 2: JSON/XML/HTML/text)
+  [PASS] codex spec-compliance (round-trip + security)  (rc=0, ~172 checks ok)
+
+TIER T - physical transport + socket sets (this feature)
+  [PASS] faithful transport sim (transport_sim_tier, 24 checks)  (rc=0)
+  [PASS] transport factory self-test (sim+loopback+netem, 12)  (rc=0)
+  [PASS] aiconnect ramp oracle (ceiling/extend/receiver)  (rc=0)
+  [PASS] channel_sets UNIT (alloc/registry/threads)  (rc=0)
+  [PASS] channel_sets INTEGRATION (HOL isolation via sim)  (rc=0)
+  [PASS] SotF stream mode 0 (sim)  (rc=0)
+  [PASS] SotF stream mode 1 (loopback real-TCP)  (rc=0)
+  [PASS] SotF media planes (drop/instrumentation + ladder over sim)  (rc=0)
+        (mode 2 remote echo, shaped netem execute, and the cross-box
+         physical hop are box-tier - enable the real-TCP mode-2 leg with
+         --transport real ; add --shape-iface for tc-netem)
+
+TIER D - discovery pathway (runMerge: discovery.py + routes.py)
+=== discovery regression suite (83 oracles) ===
+  [   PASS    ] test_alive_retry_oracle    PASS: one transient :9009 miss is absorbed (route kept); LOOP and dead paths unchanged; healthy paths probed once. tries=1 reproduces the old drop (fail-on-old).
+  [   PASS    ] test_attached_onlink_oracle ALL ATTACHED-ONLINK ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_behind_relay_pingpong_oracle ALL BEHIND-RELAY PINGPONG ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_blank_authname_oracle RESULT: PASS
+  [   PASS    ] test_boot_gate_oracle      ALL BOOT-GATE CHECKS PASS
+  [   PASS    ] test_bundle_float_oracle   ALL BUNDLE-FLOAT CHECKS PASS
+  [   PASS    ] test_capability_no_age_oracle [ROLE_ELECT] TRACE ip=10.250.250.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_child_onlink_uplink_oracle ALL CHILD-ONLINK-UPLINK ORACLE CHECKPOINTS PASS
+  [REGRESSION ] test_clean_install_oracle  CLEAN-INSTALL ORACLE FAILED
+  [   PASS    ] test_data_cache_gen_oracle ALL PASS
+  [   PASS    ] test_databasehost_converge_oracle RESULT: PASS
+  [   PASS    ] test_dbhost_ballot_freshness_oracle ALL DBHOST-FRESHNESS CHECKS PASS
+  [   PASS    ] test_dbhost_incumbency_oracle ALL DBHOST-INCUMBENCY CHECKS PASS
+  [   PASS    ] test_dbhost_rank_malformed_oracle ALL DBHOST-RANK-MALFORMED ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_dbhost_row_pick_oracle [ROLE_ELECT] TRACE ip=10.170.170.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_dbhost_static_rank_oracle ALL DBHOST-STATIC-RANK CHECKS PASS
+  [   PASS    ] test_descend_depth_oracle  ALL DESCEND-DEPTH CHECKS PASS
+  [   PASS    ] test_descend_oracle        ALL DESCEND ORACLE CHECKS PASS
+  [   PASS    ] test_direct_neighbors_oracle urllib.error.HTTPError: HTTP Error 403: Forbidden
+  [   PASS    ] test_elector_oracle        ALL ELECTOR CHECKS PASS
+  [   PASS    ] test_empty_array_template_oracle ORACLE GREEN
+  [   PASS    ] test_fabric_integration    ALL FABRIC INTEGRATION CHECKPOINTS PASS
+  [   PASS    ] test_fastpath_existing_route_oracle [KERNEL] EXEC FAILED wg show wg2 transfer err=[Errno 2] No such file or directory: 'wg'
+  [   PASS    ] test_fixdefault_modeb      
+  [   PASS    ] test_fixdefault_oracle     ALL FIXDEFAULT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_healthcheck_oracle    ALL HEALTHCHECK ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_host_records_oracle   ALL HOST-RECORDS ORACLE CHECKS PASS
+  [   PASS    ] test_host_reset_oracle     ALL HOST-RESET CHECKS PASS
+  [   PASS    ] test_hosts_authoritative_oracle [ PASS ] test_hosts_authoritative_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_hosts_oracle          ALL HOSTS ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_identity_preflight_oracle ALL IDENTITY-PREFLIGHT CHECKPOINTS PASS
+  [   PASS    ] test_kernel_oracle         ALL KERNEL ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_kernel_parity         
+  [   PASS    ] test_lan_chain_oracle      ALL LAN-CHAIN ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_lan_neighbor_resolver_oracle PASS - [LAN_NEIGHBOR_IS_A_RESOLVER_V1]
+  [   PASS    ] test_lan_untunnelled_oracle ORACLE GREEN
+  [   PASS    ] test_leaf_src_oracle       ALL LEAF-SRC CHECKPOINTS PASS
+  [   PASS    ] test_loop9009_hairpin_oracle ALL LOOP9009-HAIRPIN ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_malformed_capability_guard_oracle ALL MALFORMED-GUARD CHECKS PASS
+  [   PASS    ] test_mapinterfaces_oracle  ALL MAPINTERFACES ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_multitunnel_failcache_oracle ALL MULTITUNNEL-FAILCACHE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_nameless_host_oracle  RESULT: PASS
+  [   PASS    ] test_neighbor_client_dot1_oracle ALL NEIGHBOR-CLIENT-DOT1 ORACLE CHECKPOINTS PASS
+  [KNOWN-FAIL ] test_not_frognet_skip_oracle FAILURES ABOVE
+  [   PASS    ] test_ny2_alive_gate_oracle ALL NY-2 ALIVE-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_onsegment_gate_oracle ALL ONSEGMENT-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_pingpong_return_ip_oracle ALL RETURN-IP ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_prewarm_pip_serial_oracle [ PASS ] test_prewarm_pip_serial_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_propagate_oracle      ALL PROPAGATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_propagate_reach_oracle ALL PROPAGATE-REACH CHECKPOINTS PASS
+  [   PASS    ] test_prune_dest_extras_oracle [ PASS ] test_prune_dest_extras_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_prune_kernel_route_oracle ALL PRUNE-KERNEL-GUARD ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_real_backends         ALL REAL-BACKEND CHECKS PASS
+  [   PASS    ] test_reap_stale_winner_oracle [ PASS ] test_reap_stale_winner_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_record_walk_oracle    ALL RECORD-WALK ORACLE CHECKS PASS
+  [   PASS    ] test_reflect_pinned_path_oracle ALL REFLECT-PINNED-PATH ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_reflect_promote_vouch_oracle ALL REFLECT-PROMOTE-VOUCH CHECKPOINTS PASS
+  [   PASS    ] test_reflect_vouch_gate_oracle ALL REFLECT-VOUCH-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_role_election_uncoupled_oracle ORACLE GREEN
+  [   PASS    ] test_role_registry_lxmlfree_oracle ALL ROLE-REGISTRY-LXMLFREE CHECKS PASS
+  [   PASS    ] test_routes_oracle         ALL ROUTES ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_runagain_convergence_oracle [ PASS ] test_runagain_convergence_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_runagain_real_delta_oracle FAILURES: none
+  [   PASS    ] test_runmerge_oracle       ALL RUNMERGE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_safeboot_oracle       ALL SAFEBOOT CHECKS PASS
+  [   PASS    ] test_seattle5_reflect_oracle ALL SEATTLE5-REFLECT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_seattle6_oracle       ALL SEATTLE6 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_service_election_oracle ALL SERVICE-ELECTION CHECKS PASS
+  [   PASS    ] test_service_handlers_static_oracle ALL SERVICE-HANDLER-STATIC CHECKS PASS
+  [   PASS    ] test_service_host_consistency_oracle [ROLE_ELECT] TRACE ip=10.250.250.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_snapshot_struct       ALL SNAPSHOT STRUCT CHECKS PASS
+  [   PASS    ] test_sync_on_route_mutation_oracle ALL SYNC-ON-ROUTE-MUTATION ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_transit_from_winners_oracle [ PASS ] test_transit_from_winners_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_tunnel_kernel_immediate_oracle ALL TUNNEL-KERNEL-IMMEDIATE CHECKPOINTS PASS
+  [   PASS    ] test_tunnel_peer_health_emit_oracle ALL TUNNEL-PEER-HEALTH-EMIT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_upstream_lease_dot1_oracle ALL UPSTREAM-LEASE-DOT1 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_verify_route_oracle   ALL VERIFY-ROUTE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_route_oracle    ALL VOUCH-ROUTE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_transit_gate_oracle ALL VOUCH-TRANSIT-GATE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_ts_gate_oracle  ALL VOUCH-TS-GATE CHECKS PASS
+  [   PASS    ] test_walk_pingpong_gate_oracle [KERNEL] EXEC FAILED wg show wg2 transfer err=[Errno 2] No such file or directory: 'wg'
+  [   PASS    ] test_winner_hysteresis_nexthop_oracle RESULT: PASS
+  [   PASS    ] test_winner_via_hysteresis_oracle ALL WINNER-VIA-HYSTERESIS CHECKS PASS
+
+KNOWN-FAILS (tracked, not gating):
+  - test_not_frognet_skip_oracle: pass 1 does not mark despite a definitive refusal from a fake verify; passes in a clean container on identical modules.
+
+DISCOVERY GATE: FAIL (81 pass, 1 known-fail, 1 regression)
+  REGRESSIONS: test_clean_install_oracle
+  [FAIL] discovery oracle suite (incl. Seattle6 identity-down)  (rc=1, ~0 checks ok)
+        (real LAN/gateway route engine; runMerge ip r as hardware truth)
+
+================== SUMMARY ==================
+  PASS  model suite (frognet_sim)
+  PASS  real-engine 23 topologies
+  PASS  failure modes (reroute/black-hole/partition)
+  PASS  broker-decided ponds
+  PASS  regression (learned baselines + scenario replay)
+  PASS  netns provisioning plan (dry-run)
+  FAIL  collectives + DDP hooks (agent_workload)
+  PASS  proxy decision/keying/origin
+  PASS  proxy RETURN channel handshake
+  PASS  DB connection lifetime vs thread churn
+  PASS  live store round-trip (skips if unreachable)
+  PASS  transport calibration-capture (loopback mechanism)
+  PASS  codex spec-compliance (round-trip + security)
+  PASS  faithful transport sim (transport_sim_tier, 24 checks)
+  PASS  transport factory self-test (sim+loopback+netem, 12)
+  PASS  aiconnect ramp oracle (ceiling/extend/receiver)
+  PASS  channel_sets UNIT (alloc/registry/threads)
+  PASS  channel_sets INTEGRATION (HOL isolation via sim)
+  PASS  SotF stream mode 0 (sim)
+  PASS  SotF stream mode 1 (loopback real-TCP)
+  PASS  SotF media planes (drop/instrumentation + ladder over sim)
+  FAIL  discovery oracle suite (incl. Seattle6 identity-down)
+
+GATE: FAIL (2 tier(s) failed)
+rc=1

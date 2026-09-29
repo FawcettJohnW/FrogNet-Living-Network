@@ -1,0 +1,50 @@
+[codec] BUILD=2026-03-24-v1
+corpus outcomes (python):
+      3089 dec_err none 
+       105 dec_err ok
+     68848 dec_rep ok
+      3173 dec_rep raise index
+    182474 dec_rep raise json
+     87077 dec_rep raise lz4
+    289182 dec_rep raise struct
+     10487 dec_rep raise value
+     15309 dec_req ok
+         9 enc_err ok
+         1 enc_err raise struct
+      4894 enc_rep ok
+       570 enc_rep raise encode
+       111 enc_rep raise struct
+       136 enc_rep raise type
+       378 enc_rep raise value
+     12138 enc_rep_diff ok
+      2032 enc_rep_diff raise encode
+        36 enc_rep_diff raise overflow
+       561 enc_rep_diff raise type
+      1236 enc_rep_diff raise value
+      1838 enc_req ok
+       564 enc_req raise encode
+       108 enc_req raise struct
+       134 enc_req raise type
+       356 enc_req raise value
+     12138 enc_req_diff ok
+      2032 enc_req_diff raise encode
+        36 enc_req_diff raise overflow
+       561 enc_req_diff raise type
+      1236 enc_req_diff raise value
+        73 lz4dec ok
+       346 lz4dec raise lz4
+       170 lz4smart ok
+     20035 veq ok
+        23 veq raise overflow
+PASS dec_err: 3194 cases, 0 differ
+PASS dec_rep: 641241 cases, 0 differ
+PASS dec_req: 15309 cases, 0 differ
+PASS enc_err: 10 cases, 0 differ
+PASS enc_rep: 6089 cases, 0 differ
+PASS enc_rep_diff: 16003 cases, 0 differ
+PASS enc_req: 3000 cases, 0 differ
+PASS enc_req_diff: 16003 cases, 0 differ
+PASS lz4dec: 419 cases, 0 differ
+PASS lz4smart: 170 cases, 0 differ
+PASS veq: 20058 cases, 0 differ
+RESULT PASS semcodec vs /home/claude/src/opt/frognet_semantic/core/codec.py (seed 20260924, scale 1, 721496 cases)

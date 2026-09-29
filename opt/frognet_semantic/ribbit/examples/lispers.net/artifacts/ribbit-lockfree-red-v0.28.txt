@@ -1,0 +1,21 @@
+F
+======================================================================
+FAIL: test_ribbit_participant_has_no_mutex_or_condition_variable (tests.test_sync_architecture.SynchronizationArchitectureTests.test_ribbit_participant_has_no_mutex_or_condition_variable)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/mnt/data/ribbit-v027-lockfree/tests/test_sync_architecture.py", line 10, in test_ribbit_participant_has_no_mutex_or_condition_variable
+    self.assertEqual(found, [], 'participant-local synchronization survived: ' + ', '.join(found))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Lists differ: ['std::mutex', 'std::condition_variable', 'std::lock_guard', 'std::unique_lock'] != []
+
+First list contains 4 additional elements.
+First extra element 0:
+'std::mutex'
+
+- ['std::mutex', 'std::condition_variable', 'std::lock_guard', 'std::unique_lock']
++ [] : participant-local synchronization survived: std::mutex, std::condition_variable, std::lock_guard, std::unique_lock
+
+----------------------------------------------------------------------
+Ran 1 test in 0.002s
+
+FAILED (failures=1)

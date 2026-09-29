@@ -1,0 +1,612 @@
+scope,file,function,first,last,nloc,ccn,class,ran,reason
+in,ribbit_cpp/lisp_engine.hpp,prefix_parse,42,52,11,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,contains,53,58,6,6,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,q,59,61,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,masked_key,63,68,6,6,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,prefix_key,69,69,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::HeldSlot,85,85,1,2,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::~HeldSlot,86,90,5,4,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::put,94,101,8,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::each_in,102,108,7,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::get,109,114,6,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::h,118,118,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::find,119,122,4,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::group,123,130,8,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,HeldSlot::member,131,137,7,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,now_ms,155,157,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,registration_lifetime,158,162,5,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,be16,163,165,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,be32,166,168,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,put16,169,172,4,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,put32,173,178,6,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,put64_native,179,182,4,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,unhex,183,188,6,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,hex,189,197,9,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,verify_register_hmac,198,211,14,11,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,make_notify_from_register,212,233,22,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,addr4,234,238,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,append4,239,243,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,addr_len,259,259,1,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,sg_padded,266,266,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,plain_eid,267,296,28,19,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,one_iid,297,299,3,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,strip_iid_register,300,321,22,14,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,strip_iid_request,322,333,12,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,add_sg_to_reply,334,347,14,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,add_iid_to_reply,348,357,10,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,decode_register4,359,400,41,16,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,decode_request4,406,434,29,13,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,encode_negative_reply,435,448,14,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,addr6,449,453,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,lcaf_locator,456,468,13,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,format_addr,469,469,1,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,append6,470,474,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,decode_register6,475,511,36,20,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,decode_request6,512,538,27,13,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,encode_reply6,574,599,25,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,encode_reply4,600,623,24,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::snap_load,658,660,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::snap_store,661,664,4,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::HeldResolverView::HeldResolverView,674,679,6,5,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::ResolverRegistry::each,690,690,1,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::ResolverRegistry::size,691,691,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::ResolverRegistry::~ResolverRegistry,692,692,1,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::fail,696,696,1,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::spawn,697,702,6,3,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::ram_var,754,756,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::ram_var_len,757,759,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::from_cell,760,779,20,14,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::bag_json,780,780,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::key,781,781,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::view_key,782,782,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::read_ram,783,791,9,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::var_hash,802,802,1,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::mark_find,803,813,11,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::held_read,814,822,9,5,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::await_own,826,845,20,8,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::checked_bits,847,847,1,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::participant_id,852,859,8,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::own,860,860,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::applied,861,863,3,2,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::apply_mapping_slot,882,886,5,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::hold_registrations,889,893,5,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::hold_governance,894,896,3,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::held_resolver_if_any,898,904,7,5,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::hold_own_cells,910,928,18,13,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_held,929,936,8,8,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::site_pol_of,942,954,11,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::each_site_resident,957,963,7,6,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::apply_site_slot,964,968,5,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_mapping_slot,969,976,8,8,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_site_slot,985,992,8,8,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::site_authorizes,1247,1254,8,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::apply_liveness,1314,1318,5,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_liveness,1319,1325,7,8,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::held_liveness,1326,1332,7,4,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::materialize_length,1356,1371,16,6,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::materialize_site_length,1372,1377,6,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::materialize_ddt_length,1378,1386,9,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_manifest,1387,1391,5,7,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_site_manifest,1392,1396,5,7,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::watch_ddt_manifest,1397,1401,5,7,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::held_resolver,1402,1429,28,16,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::each_site,1438,1441,4,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::authoritative_site_for,1442,1463,13,6,LISP semantics,,no-RAM backend removed (1 branch)
+in,ribbit_cpp/lisp_engine.hpp,Engine::arg,1464,1467,4,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::rlocs,1468,1484,17,10,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::mapping_json,1485,1503,19,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::make_mapping,1504,1525,20,9,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::site_password,1526,1551,26,16,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::wire_registration_json,1552,1569,18,8,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::packet_needs_auth,1573,1597,25,16,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::register_eid_afi,1598,1602,5,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::decrypt_register,1604,1623,18,12,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::packet_site_password,1624,1631,8,6,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::apply_wire_registrations,1636,1648,13,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::publish_known_length,1649,1655,7,2,LISP semantics,,no-RAM backend removed (1 branch)
+in,ribbit_cpp/lisp_engine.hpp,Engine::governance_for,1656,1659,4,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::govern,1660,1667,8,3,LISP semantics,,no-RAM backend removed (1 branch)
+in,ribbit_cpp/lisp_engine.hpp,Engine::governed_in,1668,1672,5,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::share_views_of,1677,1677,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::answer_request,1684,1753,63,52,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::request_itr_rloc,1755,1762,8,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::site_group_for,1766,1776,11,6,LISP semantics,,no-RAM backend removed (1 branch)
+in,ribbit_cpp/lisp_engine.hpp,Engine::site_prefixes,1778,1782,5,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::Engine,1812,1812,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::Engine,1813,1817,5,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::remote_call,1830,1842,13,12,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::~Engine,1843,1880,38,48,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::call,1884,1895,12,7,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_engine.hpp,Engine::dispatch,1896,2758,273,214,LISP semantics,,"in-scope branches only (40 of 52 operations out, see list); no-RAM backend removed"
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::registers,67,67,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::requests,68,68,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::rejected,69,69,1,1,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Worker::push,82,88,7,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Worker::pop,89,93,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Worker::sleep_unless_changed,94,96,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Worker::wake,97,97,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Worker::~Worker,98,98,1,2,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Strand::push,110,114,5,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Strand::pop,115,119,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::Strand::pending,120,120,1,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::role_name,152,152,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::candidate_type,153,153,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::default_port,154,154,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::num,171,176,6,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::ip4,177,181,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::score,184,194,10,10,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::evaluate,196,209,13,11,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::fields,213,213,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::member,214,218,5,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::small_int,219,224,6,5,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::check_value,225,248,24,14,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::record,249,255,7,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::check_fragment,256,259,4,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::learn,260,271,12,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::lisp_detail::extract,272,278,7,2,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::learn_request_template,281,281,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::learn_reply_template,282,282,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::extract_request_dynamic,283,283,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::extract_reply_dynamic,284,284,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::rebuild_reply,285,293,9,3,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::open_site,296,296,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispHandler::open_boundary,297,299,3,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispSite::LispSite,301,301,1,1,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispSite::call,302,302,1,1,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::LispBoundary,304,324,20,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::~LispBoundary,325,329,5,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::call,330,330,1,1,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::map_referral,331,388,48,29,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::configure,392,411,20,10,configuration,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::stop,412,420,9,7,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::loop,421,513,78,38,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::request_eid_afi,516,526,11,9,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::reject,527,532,6,1,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::strand_for,533,542,10,5,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::run_strand,543,553,11,6,coordination/state,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::answer_register,554,567,12,4,LISP semantics,,reachable from the job's entry points
+in,ribbit_cpp/lisp_handler.hpp,frognet::LispBoundary::work,568,580,13,6,LISP semantics,,reachable from the job's entry points
+in,tools/lisp_boundary.cpp,end_on_term_signals,17,21,5,1,LISP semantics,,reachable from the job's entry points
+in,tools/lisp_boundary.cpp,main,22,53,27,18,LISP semantics,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,ResidentMemory::write,157,162,6,4,LISP semantics,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,ResidentMemory::write_nowait,163,163,1,1,coordination/state,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,ResidentMemory::read,164,170,7,3,LISP semantics,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,ResidentMemory::remove,171,171,1,1,LISP semantics,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,lisp_op,173,195,22,10,LISP semantics,,reachable from the job's entry points
+in,tools/ramsrv/ram_server.cpp,private_service,197,197,1,2,LISP semantics,,reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,encode_etr_register4,546,573,28,13,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::HeldMapCacheView::HeldMapCacheView,710,710,1,2,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::wait_applied,866,881,16,11,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::apply_governance_slot,937,941,5,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::watch_governance_slot,977,984,8,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::materialize_map_cache_length,993,999,7,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::watch_map_cache_manifest,1000,1004,5,7,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::held_map_cache,1005,1011,7,5,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::watch_database,1012,1018,7,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::held_database,1019,1025,7,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::apply_map_resolver_changes,1026,1029,4,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::watch_map_resolvers,1030,1036,7,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::ms_bag,1037,1044,8,6,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::ms_from,1045,1055,11,5,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::apply_map_server_changes,1056,1060,5,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::watch_map_servers,1061,1068,8,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::held_map_server_view,1069,1077,9,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::map_server_config,1079,1089,11,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::set_ms_key,1090,1094,5,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::ms_key,1095,1098,4,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::etr_register_for,1100,1111,12,12,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::registrar_send,1125,1144,18,9,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::etr_notify_ack,1147,1168,22,13,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::run_registrar_receiver,1171,1196,26,13,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::stop_registrar,1197,1204,8,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::run_registrar,1205,1230,26,14,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::etr_tag,1238,1238,1,2,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::db_var,1239,1239,1,1,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::governor_authorizes,1255,1262,8,7,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::govern_etr_entry,1263,1278,16,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::govern_etr,1280,1293,14,11,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::run_governor,1295,1311,17,13,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::run_heartbeat,1337,1348,12,8,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::held_map_resolver_view,1349,1355,7,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::each_mapping,1430,1433,4,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::each_governance,1434,1437,4,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::participant,1678,1678,1,1,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::write_cell,1785,1788,4,2,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::read_cells,1789,1792,4,2,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::failure,1798,1798,1,2,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::adopt_site_key,1799,1805,7,4,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::forget_site_keys,1806,1810,5,3,,,not reachable from the job's entry points
+out,ribbit_cpp/lisp_engine.hpp,Engine::ram_version,1824,1829,6,4,,,not reachable from the job's entry points
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::be32,43,43,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::rd32,44,46,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::wall,47,47,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Ceiling::set_hard,52,52,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Ceiling::note,53,58,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Ceiling::whole_max,59,63,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::Sender,70,70,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::~Sender,71,71,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::start,72,72,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::stop,73,76,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::submit,77,79,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::transfers,80,80,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::segments,81,81,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::bytes,82,82,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::max_in_flight,83,83,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Sender::run,86,100,15,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Reassembler::feed,111,123,13,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Landed::put,133,133,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Landed::take,135,140,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/dataplane.hpp,fnwp::dataplane::Landed::close,141,141,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::register_reader,19,25,7,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::next_serial,30,30,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::local_reader,32,37,6,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::push_retired,38,42,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::quiescent,43,47,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::Guard::Guard,52,54,3,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::Guard::Guard,57,57,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::Guard::~Guard,58,61,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::Guard::protect,62,64,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::guard,66,66,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::retire,67,71,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::collect,72,81,10,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::drain,82,82,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ebr.hpp,ribbit::Ebr::~Ebr,85,88,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_client.hpp,fnwp::detail::sorted_keys,19,25,7,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_client.hpp,fnwp::detail::req_hash,26,32,7,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_client.hpp,fnwp::detail::origin_trailer,33,38,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_client.hpp,fnwp::build_request,40,49,10,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_client.hpp,fnwp::apply_resp_diff,53,59,7,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::sv,51,51,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::is_ram_read,52,54,3,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::sha16,55,58,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::sha32,59,62,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::http_json,63,66,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::fields_of,67,67,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::location,71,81,11,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::without,82,87,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::detail::learn,89,108,16,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::ClientEngine,131,132,2,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::api,147,147,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::stats,148,148,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::same_put,159,162,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::prepare,164,167,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::raw_locked,168,171,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::prepare_locked,172,198,27,14,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::complete_raw_locked,199,217,19,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::defer,218,220,3,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::complete,221,229,9,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::complete_locked,230,273,43,21,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::request_marker,274,282,9,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::is_reply_marker,283,287,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::reply_from_marker,288,295,8,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ClientEngine::request,296,303,8,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::ServerEngine,315,315,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::reply_marker,319,325,7,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::handle,326,326,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::api,327,327,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::cache_put,334,337,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::begin,339,357,19,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::semantic_locked,358,382,24,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_engine.hpp,fnwp::ServerEngine::finish,383,423,38,23,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::detail::printable,27,31,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::detail::repr_str,32,45,14,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::detail::repr_bytes,46,56,11,11,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::detail::repr,57,68,12,16,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::detail::surrogateescape,69,77,9,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::pyrepr,79,79,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::response_body_hash,80,88,9,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::same_id,89,96,8,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::diff_encode_response,98,108,11,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/fnwp_server.hpp,fnwp::daemon_reply,112,125,14,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::WsaOnce::WsaOnce,54,54,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::dial,57,77,19,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::send_all,78,85,8,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::recv_n,86,94,9,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::be32,95,95,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::be16,96,96,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::be64,97,97,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::rd32,98,98,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::rd16,99,99,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::rd64,100,100,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::send_frame,101,101,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::recv_frame,102,102,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::hello,103,103,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::urlenc,105,112,8,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Json::quote,121,130,10,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::P::P,134,134,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::P::ws,135,135,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::P::bad,136,136,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::P::val,137,164,28,30,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Json::parse,167,167,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::trace,178,186,9,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::Impl::finish,202,205,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::Session,207,237,26,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::~Session,238,250,13,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::send_loop,251,283,30,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::apply_reply,284,300,17,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::read_loop,301,340,38,13,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::log_writes_to,345,345,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::current_write_log,346,346,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::calls_this_thread,347,347,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::call,348,363,16,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::post,364,372,9,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::stats,373,379,7,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Session::shutdown,380,384,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Memory::write,387,391,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Memory::write_nowait,392,395,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Memory::read,396,407,12,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Memory::remove,408,408,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::Plane,414,417,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::~Plane,418,418,1,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::read_loop,419,429,11,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::publish,430,436,7,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::drop,437,437,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.cpp,frogram::Plane::read,438,455,18,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.hpp,frogram::Json::size,48,48,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.hpp,frogram::Session::token,73,73,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.hpp,frogram::Session::api,74,74,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/frogram.hpp,frogram::Memory::Memory,110,111,2,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Int::of,34,34,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Int::str,35,35,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Dict::size,46,46,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Obj::Obj,55,55,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Obj::is,56,56,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Obj::as,57,57,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Obj::as,58,58,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Dict::find,61,64,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/pyval.hpp,pyv::Dict::set,65,69,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::TriggerList::acquire,43,51,9,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::TriggerList::fire,52,55,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::LockFreeTable::find_or_create,90,99,10,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::LockFreeTable::find,100,103,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::H,106,108,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::pattern_key,109,111,3,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::Memory::write,116,135,20,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::Memory::remove,138,147,10,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::Memory::match,149,199,50,37,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_memory.hpp,ramm::Memory::wait,204,216,13,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ram_probe.cpp,main,7,21,14,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::num,19,24,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::dump,25,35,11,12,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::epoch,36,36,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::dup_keys,37,42,6,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::to_obj,43,53,11,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::to_json,54,65,12,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::shape,66,69,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::same_shape,70,76,7,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::esc,77,77,1,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::leaf_names,78,81,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::leaf_values,82,85,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::fill,86,91,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::detail::rows,93,98,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::learn,101,114,14,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::extract,115,131,17,11,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/ramrows.hpp,ramrows::rebuild,132,148,17,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::put,43,43,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::get,44,48,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::slice,50,53,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::unpack,55,58,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::utf8_put,60,66,7,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::ascii_run,68,73,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::utf8_replace,75,97,23,18,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::wtf8_walk,100,121,22,16,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::is_surrogate,122,122,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_strict,124,129,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_replace,131,137,7,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::int_repr,139,143,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::int_from_digits,145,155,11,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::int_to_float,157,162,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::float_repr,165,191,27,12,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::dumps_str,194,220,27,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::dumps,221,247,27,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::fail,252,252,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::ws,253,253,1,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::lit,254,254,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::hexv,255,260,6,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::hex4,262,267,6,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::str,268,307,40,25,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::number,308,332,25,28,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::value,333,347,15,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::object,348,374,27,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::JsonScan::array,375,390,16,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::lz4_check,393,395,3,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::json_dumps,399,399,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::json_loads,401,409,9,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::lz4_compress,412,426,15,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::lz4_decompress,430,461,32,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::lz4_smart,463,468,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::values_equal,473,493,21,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::type_id,495,503,9,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_value,506,536,31,13,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::fits_wire,540,544,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::fits_wire,545,545,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_field,547,552,6,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::finish,553,565,13,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::merged,566,570,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_full,571,576,6,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::encode_diff,577,596,20,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::vset,599,602,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::vget,603,606,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::decode_fieldblock,607,632,26,12,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::decode_packet,634,643,10,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::merge_reference,644,650,7,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::take_or_none,652,655,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::detail::py_int,658,683,26,32,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::encode_request,686,688,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::encode_reply,689,691,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::encode_request_diff,693,696,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::encode_reply_diff,697,699,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::encode_error_reply,701,708,8,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::decode_error_reply,709,721,11,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::decode_request,722,733,12,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semcodec.hpp,semcodec::decode_reply,734,744,11,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::cps,68,73,6,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::enc,74,76,3,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::is_space,77,77,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::digit,78,81,4,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::is_alnum,82,86,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::is_word,87,87,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::icase_az09,88,90,3,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::find_map,91,94,4,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::lower,95,99,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::lower,100,100,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::upper,101,105,5,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::strip,106,111,6,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::cp_at,113,118,6,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::strip,119,125,7,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::starts,126,126,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::ends,127,127,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::has,128,128,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::replace_all,129,133,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::split,134,138,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::u::decode_replace,139,139,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::urlparse,144,177,34,31,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::hexv,179,181,3,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::unquote,182,198,17,12,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::unquote_plus,199,199,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::quote,200,210,11,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::quote_plus,211,214,4,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::parse_qsl,216,225,10,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::parse_qs,226,233,8,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::urlencode,234,237,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::static_query_keys,240,244,5,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::tuple_location_query_keys,249,270,22,16,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::normalize_path_for_semantics,271,289,19,14,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::extract_dynamic_query_vals,290,297,8,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::with_dynamic_shape,298,303,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::extract_metric_name,307,311,5,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::with_body_shape,320,334,15,16,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::canonical_semantic_key,335,353,19,13,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::crc32,357,361,5,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::template_id,363,366,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::opcode_for,367,371,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::integral_text,375,378,4,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::num_key,379,382,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::python_eq,384,404,21,24,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::is_str,405,405,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::get,406,406,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::truthy,407,416,10,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::str_list,417,421,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::sanitize_nonfinite,422,427,6,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::dumps_ascii_str,431,445,15,18,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::dumps_ascii,446,458,13,18,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::dumps_ascii,460,460,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::is_ipv4,463,474,12,12,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::looks_like_interface,475,484,10,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::looks_like_enum,485,494,10,16,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::is_plausible_host,495,506,12,20,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::force_string_for_path,508,514,7,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::force_host_for_path,515,520,6,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::leaf_type,522,534,13,13,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::type1,538,538,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::safe_key,539,547,9,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::sorted_keys,548,548,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::infer_schema,551,563,13,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::merge_schema,564,588,25,25,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::field_order,590,608,19,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::field_order_and_type_map,610,612,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::get_by_path,613,618,6,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::child_dict,622,625,4,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::rebuild_json,627,643,17,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::first_row_only,644,648,5,5,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::empty_arrays,650,654,5,8,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::empty_arrays_in,656,656,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::blob::root,660,660,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::blob::id_for,661,665,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::blob::store,666,675,10,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::blob::load,676,680,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::tokens,685,685,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::json_frag,686,689,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::text_frag,690,694,5,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::json_try,695,699,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::ported_mode,700,704,5,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::mode_of,705,705,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::py_str,706,714,9,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::learn,716,741,26,11,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::extract,743,754,12,11,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::coerce_array,756,761,6,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::rebuild_reply,763,806,44,37,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::build_url,809,818,10,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::rebuild_body,819,833,15,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::content_type,834,842,9,9,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::looks_like_json,846,849,4,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::xml_gate,850,858,9,10,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::looks_like_html,859,870,12,15,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::looks_like_text,871,876,6,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::header,877,877,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::ctype,878,878,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detail::notported,879,879,1,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::sniff_body_mode,881,889,9,6,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detect_request_mode,890,899,10,7,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::detect_reply_mode,900,911,12,23,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semtpl.hpp,semtpl::learn_templates,915,937,22,11,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::put,62,62,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::get,63,67,5,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::head,68,74,7,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::need_hash,75,78,4,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::need_same_id,79,82,4,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::fits,83,85,3,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::hash_len_payload,86,92,7,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::hash_only,93,98,6,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::short_payload,99,101,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::detail::id_len_payload,103,115,13,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::is_fnw1,118,118,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_req_full,120,122,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_req_repeat,123,123,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_req_raw,124,126,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_req_diff,127,129,3,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_resp_same,130,135,6,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_resp_diff,136,142,7,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_resp_raw,143,153,11,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_req_miss,154,154,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_error,156,162,7,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_seq_reset,163,163,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_hello,164,172,9,4,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_rtt_ping,173,180,8,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_rtt_pong,181,188,8,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::wrap_rtt_loop,189,189,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::try_parse,193,264,72,28,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/semwire.hpp,semwire::op_name,266,289,24,17,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::role_name,35,35,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::candidate_type,36,36,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::default_port,37,37,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::mode,38,38,1,2,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::learn_request_template,41,41,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::learn_reply_template,42,42,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::extract_request_dynamic,43,43,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::extract_reply_dynamic,44,44,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::rebuild_reply,45,45,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::decode_payload,46,46,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::score,49,49,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::hostReset,59,62,4,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::evaluate,68,68,1,1,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::role_scope,69,73,5,3,,,FrogNet machinery (Rule 5)
+platform,ribbit_cpp/unrest_handler.hpp,frognet::UnRESTHandler::advertise,74,86,13,3,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,wall,79,79,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,logline,81,81,1,2,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,send_all,84,84,1,3,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,recv_n,85,85,1,3,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,be32,86,86,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,be16,87,87,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,rd32,88,88,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,recv_frame,89,89,1,5,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,send_frame,90,90,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,hash16,91,92,2,3,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,dump,95,105,11,14,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,hexval,109,109,1,7,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,urldec,110,118,9,7,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,query,119,120,2,4,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,ok_rows,128,132,5,3,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,bad,134,134,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,api,198,239,42,32,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,Session::reply,252,253,2,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,Session::reply_locked,254,254,1,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,Session::finish_and_send,260,270,11,7,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,engine_secret,274,274,1,2,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,wire_reply,276,285,10,7,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,engine_frame,290,311,22,10,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,handle_frame,312,325,14,12,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,serve,326,370,42,27,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,ram_server_start,375,390,13,8,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,end_on_term_signals,396,400,5,1,,,FrogNet machinery (Rule 5)
+platform,tools/ramsrv/ram_server.cpp,main,401,418,17,11,,,FrogNet machinery (Rule 5)

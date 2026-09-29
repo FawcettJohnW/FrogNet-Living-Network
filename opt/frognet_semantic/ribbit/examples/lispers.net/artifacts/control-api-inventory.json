@@ -1,0 +1,589 @@
+[
+  {
+    "method": "api_print",
+    "args": [],
+    "doc": "Print contents of lispapi class. Returns a string. "
+  },
+  {
+    "method": "api_enable_debug",
+    "args": [],
+    "doc": "Enable debug output for this LISP API. "
+  },
+  {
+    "method": "api_disable_debug",
+    "args": [],
+    "doc": "Disable debug output for this LISP API. "
+  },
+  {
+    "method": "get_enable",
+    "args": [
+      "force_query"
+    ],
+    "doc": "Returns \"lisp enable\" status for system. Returns a dictionary\narray."
+  },
+  {
+    "method": "get_debug",
+    "args": [],
+    "doc": "Returns \"lisp debug\" status for system. Returns a dictionary\narray."
+  },
+  {
+    "method": "get_xtr_parameters",
+    "args": [],
+    "doc": "Returns the \"lisp xtr-parameters\" settings for the system. Returns\na dictionary array."
+  },
+  {
+    "method": "is_itr_enabled",
+    "args": [],
+    "doc": "Return True if ITR is enabled on system. "
+  },
+  {
+    "method": "is_etr_enabled",
+    "args": [],
+    "doc": "Return True if ETR is enabled on system. "
+  },
+  {
+    "method": "is_rtr_enabled",
+    "args": [],
+    "doc": "Return True if RTR is enabled on system. "
+  },
+  {
+    "method": "is_mr_enabled",
+    "args": [],
+    "doc": "Return True if MR is enabled on system. "
+  },
+  {
+    "method": "is_ms_enabled",
+    "args": [],
+    "doc": "Return True if Map-Server is enabled on system. "
+  },
+  {
+    "method": "is_ddt_enabled",
+    "args": [],
+    "doc": "Return True if DDT-node is enabled on system. "
+  },
+  {
+    "method": "is_itr_debug_enabled",
+    "args": [],
+    "doc": "Return True if ITR debug looging is enabled on system. "
+  },
+  {
+    "method": "is_etr_debug_enabled",
+    "args": [],
+    "doc": "Return True if ETR debug looging is enabled on system. "
+  },
+  {
+    "method": "is_rtr_debug_enabled",
+    "args": [],
+    "doc": "Return True if RTR debug looging is enabled on system. "
+  },
+  {
+    "method": "is_mr_debug_enabled",
+    "args": [],
+    "doc": "Return True if Map-Resolver debug looging is enabled on system. "
+  },
+  {
+    "method": "is_ms_debug_enabled",
+    "args": [],
+    "doc": "Return True if Map-Server debug looging is enabled on system. "
+  },
+  {
+    "method": "is_ddt_debug_enabled",
+    "args": [],
+    "doc": "Return True if DDT-node debug looging is enabled on system. "
+  },
+  {
+    "method": "enable_itr",
+    "args": [],
+    "doc": "Activate ITR functionality on system. "
+  },
+  {
+    "method": "enable_etr",
+    "args": [],
+    "doc": "Activate ETR functionality on system. "
+  },
+  {
+    "method": "enable_rtr",
+    "args": [],
+    "doc": "Activate RTR functionality on system. "
+  },
+  {
+    "method": "enable_mr",
+    "args": [],
+    "doc": "Activate Map-Resolver functionality on system. "
+  },
+  {
+    "method": "enable_ms",
+    "args": [],
+    "doc": "Activate Map-Server functionality on system. "
+  },
+  {
+    "method": "enable_ddt",
+    "args": [],
+    "doc": "Activate DDT-node functionality on system. "
+  },
+  {
+    "method": "disable_itr",
+    "args": [],
+    "doc": "Deactivate ITR functionality on system. "
+  },
+  {
+    "method": "disable_etr",
+    "args": [],
+    "doc": "Deactivate ETR functionality on system. "
+  },
+  {
+    "method": "disable_rtr",
+    "args": [],
+    "doc": "Deactivate RTR functionality on system. "
+  },
+  {
+    "method": "disable_mr",
+    "args": [],
+    "doc": "Deactivate Map-Resolver functionality on system. "
+  },
+  {
+    "method": "disable_ms",
+    "args": [],
+    "doc": "Deactivate Map-Server functionality on system. "
+  },
+  {
+    "method": "disable_ddt",
+    "args": [],
+    "doc": "Deactivate DDT-node functionality on system. "
+  },
+  {
+    "method": "enable_core_debug",
+    "args": [],
+    "doc": "Activate the LISP core process debug logging. "
+  },
+  {
+    "method": "enable_itr_debug",
+    "args": [],
+    "doc": "Activate ITR debug logging. "
+  },
+  {
+    "method": "enable_etr_debug",
+    "args": [],
+    "doc": "Activate ETR debug logging. "
+  },
+  {
+    "method": "enable_rtr_debug",
+    "args": [],
+    "doc": "Activate RTR debug logging. "
+  },
+  {
+    "method": "enable_mr_debug",
+    "args": [],
+    "doc": "Activate Map-Resolver debug logging. "
+  },
+  {
+    "method": "enable_ms_debug",
+    "args": [],
+    "doc": "Activate Map-Server debug logging. "
+  },
+  {
+    "method": "enable_ddt_debug",
+    "args": [],
+    "doc": "Activate DDT-node debug logging. "
+  },
+  {
+    "method": "disable_core_debug",
+    "args": [],
+    "doc": "Deactivate the LISP core process debug logging. "
+  },
+  {
+    "method": "disable_itr_debug",
+    "args": [],
+    "doc": "Deactivate ITR debug logging. "
+  },
+  {
+    "method": "disable_etr_debug",
+    "args": [],
+    "doc": "Deactivate ETR debug logging. "
+  },
+  {
+    "method": "disable_rtr_debug",
+    "args": [],
+    "doc": "Deactivate RTR debug logging. "
+  },
+  {
+    "method": "disable_mr_debug",
+    "args": [],
+    "doc": "Deactivate Map-Resolver debug logging. "
+  },
+  {
+    "method": "disable_ms_debug",
+    "args": [],
+    "doc": "Deactivate Map-Server debug logging. "
+  },
+  {
+    "method": "disable_ddt_debug",
+    "args": [],
+    "doc": "Deactivate DDT-node debug logging. "
+  },
+  {
+    "method": "add_user_account",
+    "args": [
+      "username",
+      "password"
+    ],
+    "doc": "Configures a user-account command. Returns True if successful. "
+  },
+  {
+    "method": "delete_user_account",
+    "args": [
+      "username"
+    ],
+    "doc": "Removes a user-account command. Returns True if successful. "
+  },
+  {
+    "method": "enable_itr_security",
+    "args": [],
+    "doc": "Enable AES encryption for packets ITRs or RTRs encapsulate. "
+  },
+  {
+    "method": "disable_itr_security",
+    "args": [],
+    "doc": "Disable AES encryption for packets ITRs or RTRs encapsulate. "
+  },
+  {
+    "method": "enable_xtr_nat_traversal",
+    "args": [],
+    "doc": "Enable NAT-traversal functionality on ITR and ETR. Make sure\nyour database-mapping configuration contains an interface\n(versus an address) for an RLOC."
+  },
+  {
+    "method": "disable_xtr_nat_traversal",
+    "args": [],
+    "doc": "Disable NAT-traversal functionality in an ITR and ETR."
+  },
+  {
+    "method": "enable_xtr_rloc_probing",
+    "args": [],
+    "doc": "Enable RLOC-probing functionality on an ITR or RTR."
+  },
+  {
+    "method": "disable_xtr_rloc_probing",
+    "args": [],
+    "doc": "Disable RLOC-probing functionality on an ITR and RTR."
+  },
+  {
+    "method": "enable_xtr_nonce_echoing",
+    "args": [],
+    "doc": "Enable Nonce-Echoing functionality on an ITR or RTR."
+  },
+  {
+    "method": "disable_xtr_nonce_echoing",
+    "args": [],
+    "doc": "Disable Nonce-Echoing functionality on an ITR and RTR."
+  },
+  {
+    "method": "enable_xtr_data_plane_logging",
+    "args": [],
+    "doc": "Enable data-plane logging functionality on an xTR."
+  },
+  {
+    "method": "disable_xtr_data_plane_logging",
+    "args": [],
+    "doc": "Disable data-plane logging functionality on an xTR."
+  },
+  {
+    "method": "enable_xtr_flow_logging",
+    "args": [],
+    "doc": "Enable packet flow logging functionality on an xTR."
+  },
+  {
+    "method": "disable_xtr_flow_logging",
+    "args": [],
+    "doc": "Disable packet flow logging functionality on an xTR."
+  },
+  {
+    "method": "add_mr_ddt_root",
+    "args": [
+      "address"
+    ],
+    "doc": "Configure the address of a LISP-DDT root node. Variable 'address'\nis an IPv4 or IPv6 address string. Returns error string or \"good\"\nwhen successful."
+  },
+  {
+    "method": "delete_mr_ddt_root",
+    "args": [
+      "address"
+    ],
+    "doc": "Deconfigure the address of a LISP-DDT root node. Variable 'address'\nis an IPv4 or IPv6 address string. Returns error string or \"good\"\nwhen successful."
+  },
+  {
+    "method": "add_mr_referral",
+    "args": [
+      "iid",
+      "prefix",
+      "group",
+      "referral_set"
+    ],
+    "doc": "Configure a referral EID-prefix. First argument is an instance-ID\nvalue in string format. the second argument is an IPv4, IPv6\nor MAC address prefix string. The third argument is an optional\ngroup address when an (S,G) entry is being passed where 'prefix'\nis S and 'group\" is G. The fourth argument is an array\nof DDT-node IPv4 or IPv6 address strings. Returns error string or\n\"good\" when successful."
+  },
+  {
+    "method": "delete_mr_referral",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Deconfigure a referral EID-prefix. The 'prefix' and 'group'\narguments are IPv4, IPv6 or MAC address prefix strings. The 'iid'\nargument is the value of an instance-ID in string format.\nReturns error string or \"good\" when successful."
+  },
+  {
+    "method": "add_ddt_delegation",
+    "args": [
+      "iid",
+      "prefix",
+      "group",
+      "referral_set"
+    ],
+    "doc": "Configure a LISP-DDT delegation EID-prefix with a referral-set.\nFirst argument is an instance-ID value in string format. the\nsecond argument is an IPv4, IPv6 or MAC address prefix string.\nThe third argument is an optional group address when an (S,G)\nentry is being passed where 'prefix' is S and 'group\" is G.\nThe fourth argument is an array of child DDT-node IPv4 or IPv6\naddress strings. Returns error string or \"good\" when successful."
+  },
+  {
+    "method": "delete_ddt_delegation",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Deconfigure a LISP-DDT delegation EID-prefix. The 'prefix'\nargument is an IPv4, IPv6 or MAC address prefix string.\nThe second argument is an array of child DDT-node IPv4 or IPv6\naddress strings. Returns error string or \"good\" when successful."
+  },
+  {
+    "method": "add_ddt_auth_prefix",
+    "args": [
+      "iid",
+      "auth_prefix",
+      "group"
+    ],
+    "doc": "Configure a LISP-DDT authoritative-prefix for a DDT-node.\nThe 'auth_prefix' argument is an IPv4, IPv6 or MAC address prefix\nstring. Returns error string or \"good\" when successful."
+  },
+  {
+    "method": "delete_ddt_auth_prefix",
+    "args": [
+      "iid",
+      "auth_prefix",
+      "group"
+    ],
+    "doc": "Deconfigure a LISP-DDT authoritative-prefix for a DDT-node.\nThe 'auth_prefix' argument is an IPv4, IPv6 or MAC address prefix\nstring. Returns error string or \"good\" when successful."
+  },
+  {
+    "method": "add_ms_map_server_peer",
+    "args": [
+      "iid",
+      "prefix",
+      "group",
+      "peer_set"
+    ],
+    "doc": "Configure a Map-Server peer for a given EID-prefix. This allows\na Map-Server to return all otther Map-Servers in a Map-Referral\nmessage for this given EID-prefix. First argument is an\ninstance-ID value in string format. the second argument is an\nIPv4, IPv6 or MAC address prefix string. The third argument is an\noptional group address when an (S,G) entry is being passed where\n'prefix' is S and 'group\" is G. The fourth argument is an array of\nof all Map-Servers serving this EID-prefix. It should include\nthis local Map-Server the API call is to. Each element of the\narray are address strings. Returns error string or \"good\" when\nsuccessful."
+  },
+  {
+    "method": "delete_ms_map_server_peer",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Deconfigure a Map-Server peer EID-prefix in a Map-Server. The\n'prefix' argument is an IPv4, IPv6 or MAC address prefix string.\nThe second argument is an array of child DDT-node IPv4 or IPv6\naddress strings. Returns error string or \"good\" when successful."
+  },
+  {
+    "method": "add_ms_site",
+    "args": [
+      "site_name",
+      "auth_key",
+      "prefix_list",
+      "description"
+    ],
+    "doc": "Add LISP site with allowed EID-prefix list. Array prefix_list\nmust be built by build_ms_site_allowed_prefix() before using this\ncall."
+  },
+  {
+    "method": "build_ms_site_allowed_prefix",
+    "args": [
+      "prefix_list",
+      "iid",
+      "prefix",
+      "group",
+      "ams",
+      "fpr",
+      "fnpr",
+      "pprd",
+      "pra"
+    ],
+    "doc": "Add EID-prefix and attributes to a prefix-list array to be supplied\nwith site information when calling add_ms_site(). Caller needs to\nintialize prefix_list to [] for the first call and needs to pass\nthe same variable on each subsequent call."
+  },
+  {
+    "method": "delete_ms_site",
+    "args": [
+      "site_name"
+    ],
+    "doc": "Delete LISP site and all allowed EID-prefixes previously added\nfor the site."
+  },
+  {
+    "method": "add_etr_database_mapping",
+    "args": [
+      "iid",
+      "prefix",
+      "group",
+      "rloc_set"
+    ],
+    "doc": "Add database-mapping for LISP site to ETR. The rloc-set can be an\narray of address strings or an array of dictionaries that has been\ncreated by making successive calls to build_rloc_record()."
+  },
+  {
+    "method": "delete_etr_database_mapping",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Remove database-mapping for LISP site from ETR."
+  },
+  {
+    "method": "add_etr_map_server",
+    "args": [
+      "address",
+      "auth_key",
+      "address_is_name"
+    ],
+    "doc": "Add Map-Server address to ETR at LISP site. If parameter\naddress_is_name is set to True then 'address' is a DNS name for\nthe Map-Server."
+  },
+  {
+    "method": "get_etr_map_server",
+    "args": [
+      "address",
+      "address_is_name"
+    ],
+    "doc": "Get Map-Server info from ETR at LISP site. If parameter\naddress_is_name is set to True then 'address' is a DNS name for\nthe Map-Resolver."
+  },
+  {
+    "method": "delete_etr_map_server",
+    "args": [
+      "address",
+      "address_is_name"
+    ],
+    "doc": "Remove Map-Server address from ETR at LISP site. If parameter\naddress_is_name is set to True then 'address' is a DNS name for\nthe Map-Server."
+  },
+  {
+    "method": "add_itr_map_resolver",
+    "args": [
+      "address",
+      "address_is_name"
+    ],
+    "doc": "Add Map-Resolver info to RTR, or ITR at LISP site. If parameter\naddress_is_name is set to True then 'address' is a DNS name for\nthe Map-Resolver."
+  },
+  {
+    "method": "get_itr_map_resolver",
+    "args": [
+      "address",
+      "address_is_name"
+    ],
+    "doc": "Get Map-Resolver info from RTR, or ITR at LISP site. If parameter\naddress_is_name is set to True then 'address' is a DNS name for\nthe Map-Resolver."
+  },
+  {
+    "method": "delete_itr_map_resolver",
+    "args": [
+      "address",
+      "address_is_name"
+    ],
+    "doc": "Remove Map-Resolver address from RTR, or ITR at LISP site. If\nparameter address_is_name is set to True then 'address' is a DNS\nname for the Map-Resolver."
+  },
+  {
+    "method": "build_rloc_record",
+    "args": [
+      "rloc_or_int",
+      "upriority",
+      "uweight",
+      "rloc_name",
+      "mpriority",
+      "mweight",
+      "rloc_set"
+    ],
+    "doc": "Build an RLOC record to be passed to add_itr_map_cache() and\nadd_etr_database_mapping(). Returns an array of dictionaries."
+  },
+  {
+    "method": "add_itr_map_cache",
+    "args": [
+      "iid",
+      "prefix",
+      "group",
+      "rloc_set"
+    ],
+    "doc": "Add map-cache entry to ITR or RTR. The rloc-set can be an array\nof address strings or an array of dictionaries that has been\ncreated by making successive calls to build_rloc_record()."
+  },
+  {
+    "method": "delete_itr_map_cache",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Delete map-cache from ITR or RTR."
+  },
+  {
+    "method": "get_system",
+    "args": [],
+    "doc": "Return system information for a lispers.net system. A dictionary\narray of values is returned."
+  },
+  {
+    "method": "get_map_cache",
+    "args": [],
+    "doc": "Return the entire map-cache from an ITR or RTR. The returned format\nis an array of map-cache entries. Each entry is a dictionary\narray with unicoded keys and string values."
+  },
+  {
+    "method": "get_map_cache_entry",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Do a longest match lookup in the map-cache from an ITR or RTR.\nThe returned value will be a dictionary array with unicoded keys\nand string values."
+  },
+  {
+    "method": "get_site_cache",
+    "args": [],
+    "doc": "Return the entire site-cache from a Map-Server. The returned format\nis an array of site-cache entries. Each entry is a dictionary\narray with unicoded keys and string values."
+  },
+  {
+    "method": "get_site_cache_entry",
+    "args": [
+      "iid",
+      "prefix",
+      "group"
+    ],
+    "doc": "Do a longest match lookup in the site-cache from a Map-Server.\nThe returned value will be a dictionary array with unicoded keys\nand string values."
+  },
+  {
+    "method": "add_policy",
+    "args": [
+      "policy_name",
+      "match_iid",
+      "match_seid",
+      "match_deid",
+      "match_srloc",
+      "match_drloc",
+      "match_rloc_name",
+      "match_geo",
+      "match_elp",
+      "match_rle",
+      "match_json",
+      "match_datetime_range",
+      "set_action",
+      "set_record_ttl",
+      "set_iid",
+      "set_seid",
+      "set_deid",
+      "set_rloc",
+      "set_rloc_name",
+      "set_geo",
+      "set_elp",
+      "set_rle",
+      "set_json"
+    ],
+    "doc": "Add a LISP policy. All parameters except policy_name are\noptional."
+  },
+  {
+    "method": "delete_policy",
+    "args": [
+      "policy_name"
+    ],
+    "doc": "Delete a LISP policy. The policy is referenced by policy name."
+  }
+]

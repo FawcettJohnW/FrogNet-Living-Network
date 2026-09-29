@@ -1,0 +1,49 @@
+[codec] BUILD=2026-03-24-v1
+corpus wrap outcomes (python): {'ok': 4273, 'raise value': 394, 'raise struct': 99, 'raise encode': 2}
+corpus parse outcomes (python):
+      5121 msg ERROR
+      7373 msg HELLO
+        83 msg LEGACY
+      2980 msg REQ_DIFF
+      2956 msg REQ_FULL
+     10340 msg REQ_MISS
+      3035 msg REQ_RAW
+     10309 msg REQ_REPEAT
+      2902 msg RESP_DIFF
+      3482 msg RESP_RAW
+     10389 msg RESP_SAME
+     12789 msg RTT_LOOP
+     87104 msg RTT_PING
+     70754 msg RTT_PONG
+     12862 msg SEQ_RESET
+     19953 msg unknown-op
+     20727 none
+       726 raise value short ERROR header
+      7550 raise value short ERROR message
+       153 raise value short HELLO frame
+      5788 raise value short HELLO ip
+      3537 raise value short REQ_DIFF header
+      8003 raise value short REQ_DIFF payload
+      3498 raise value short REQ_FULL header
+      7915 raise value short REQ_FULL payload
+      2665 raise value short REQ_MISS frame
+      3541 raise value short REQ_RAW header
+      7973 raise value short REQ_RAW payload
+      2659 raise value short REQ_REPEAT frame
+      3315 raise value short RESP_DIFF header
+      7658 raise value short RESP_DIFF payload
+      4033 raise value short RESP_RAW header
+       422 raise value short RESP_RAW headers
+      8155 raise value short RESP_RAW payload
+       428 raise value short RESP_RAW payload content
+      2609 raise value short RESP_SAME frame
+     34905 raise value short RTT_PING header
+     78731 raise value short RTT_PING pad
+     60853 raise value short RTT_PONG frame
+PASS wrap: 4768 cases, 0 differ
+PASS parse: 538276 cases, 0 differ
+PASS is_fnw1: 5000 cases, 0 differ
+PASS op_name: 256 cases, 0 differ
+PASS rt_cpp_to_py: 4273 cases, 0 differ
+PASS rt_py_to_cpp: 4273 cases, 0 differ
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 20260924, fuzz 200000)

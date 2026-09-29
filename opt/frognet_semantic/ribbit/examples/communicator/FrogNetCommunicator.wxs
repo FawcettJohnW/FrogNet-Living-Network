@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FrogNetCommunicator.wxs — WiX v4 source for the Communicator MSI.
+     Build on Windows:  wix build FrogNetCommunicator.wxs -o FrogNetCommunicator.msi
+     (Harvest the payload dir into components, or use `wix build` with a HarvestDirectory.)
+     This installs the single-dir client (client .py + bundles/) under LocalAppData and
+     creates a Start Menu shortcut to run_communicator.bat. Per-user, no admin. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="FrogNet Communicator" Manufacturer="Fawcett Innovations LLC"
+           Version="1.0.0.0" UpgradeCode="6F2A1C9E-0B3D-4E2A-9C1F-FROGNET00001"
+           Scope="perUser" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="FrogNetCommunicator">
+        <!-- HarvestDirectory of the payload goes here; one Component per file, plus the
+             bundles\ subtree. Use `wix build -bindpath payload` + a HeatWave/harvest, or
+             list components explicitly. The run_communicator.bat is KEYPATH for the shortcut. -->
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="FrogNetSC" Name="FrogNet Communicator"
+                  Target="[INSTALLFOLDER]run_communicator.bat"
+                  WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="CleanShortcut" On="uninstall" />
+        <RegistryValue Root="HKCU" Key="Software\FawcettInnovations\FrogNetCommunicator"
+                       Name="installed" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="FrogNet Communicator" Level="1">
+      <!-- ComponentGroupRef Id="PayloadFiles" (from harvest) -->
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

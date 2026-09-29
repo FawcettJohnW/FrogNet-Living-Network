@@ -1,0 +1,9 @@
+1
+N=20000 per run, 5 runs, pipelined through the JSON-lines interface, FNW1 backend, warmed
+wire.etr_request4 (ETR, held database mapping): median 21.30 us/request  runs [21.32, 21.46, 21.03, 21.27, 21.3]
+wire.request4     (Map-Server, held registration): median 25.91 us/request  runs [25.91, 25.08, 26.09, 26.61, 25.55]
+wire.etr_request6 (ETR, held database mapping): median 26.10 us/request  runs [26.03, 26.1, 26.36, 26.51, 25.9]
+wire.etr_register4 (ETR Map-Register, 2 IPv4 records, HMAC-SHA-1): median 27.30 us/register  runs [27.3, 26.83, 27.03, 28.18, 30.38]
+wire.etr_register4 (held map-server configuration): median 21.65 us/register  runs [21.77, 21.65, 21.43, 21.55, 22.01]
+map_server_reads after runs: 0
+database_mapping_reads after runs: 0  request_reads: 0

@@ -1,0 +1,34 @@
+{
+  "control_map_register": {
+    "physical_lines": 417,
+    "nonblank_noncomment_lines": 223,
+    "if_sites": 41,
+    "for_sites": 3,
+    "deepcopy_sites": 1,
+    "lock_sites": 2
+  },
+  "control_merge_support": {
+    "physical_lines": 98,
+    "nonblank_noncomment_lines": 62,
+    "if_sites": 12,
+    "for_sites": 4,
+    "deepcopy_sites": 1,
+    "lock_sites": 1
+  },
+  "control_combined_selected_regions": {
+    "physical_lines": 515,
+    "nonblank_noncomment_lines": 285,
+    "if_sites": 53,
+    "for_sites": 7,
+    "deepcopy_sites": 2,
+    "lock_sites": 3
+  },
+  "ribbit_entire_current_engine": {
+    "physical_lines": 71,
+    "nonblank_noncomment_lines": 57,
+    "if_sites": 74,
+    "for_sites": 0,
+    "deepcopy_sites": 0,
+    "lock_sites": 0
+  }
+}

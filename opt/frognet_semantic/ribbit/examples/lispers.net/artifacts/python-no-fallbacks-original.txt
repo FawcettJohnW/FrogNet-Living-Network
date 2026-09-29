@@ -1,0 +1,60 @@
+Traceback (most recent call last):
+  File "/home/claude/src24-orig/opt/frognet_semantic/proxy/templates.py", line 400, in learn_templates_from_real
+    store.store_templates(method, semantic_path, req_template, resp_template)
+  File "/home/claude/s2/ribbit-lisp-conformance/tools/test_python_no_fallbacks_oracle.py", line 165, in store_templates
+    def store_templates(self, *a): raise RuntimeError('store down')
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: store down
+FAIL json_handler learn: body is not JSON                                     returned {'mode': 'json', 'schema': {}, 'field_order': [], 'type_map': {}, 'baseline': {}, 'baseline_blobs': {}, 'tokens': {'ip': {}, 'host': {}, 'str': {}, 'enum': {}}}
+FAIL json_handler extract: body is not JSON                                   returned []
+FAIL json_handler extract: scalar body on an object template                  returned []
+FAIL json_handler extract: array body on an object template                   returned []
+FAIL json_handler rebuild: array field is non-JSON text                       returned '{"a":1,"b":{"c":"s"},"rows":[]}'
+FAIL json_handler rebuild: array field is Python-literal text                 returned '{"a":1,"b":{"c":"s"},"rows":["x"]}'
+FAIL json_handler rebuild: array field is ""                                  returned '{"a":1,"b":{"c":"s"},"rows":[]}'
+FAIL json_handler rebuild: array field is an int                              returned '{"a":1,"b":{"c":"s"},"rows":[]}'
+FAIL json_handler rebuild: array field JSON is an object                      returned '{"a":1,"b":{"c":"s"},"rows":[]}'
+FAIL json_handler rebuild: top-level array is non-JSON text                   returned '[]'
+FAIL json_handler rebuild: top-level array is an int                          returned '[]'
+FAIL json_handler rebuild: top-level array, no baseline                       returned '[]'
+FAIL json_handler rebuild: baseline blob missing                              returned '{"a":1,"b":{"c":"s"},"rows":[]}'
+FAIL json_handler _max_items: malformed env                                   returned 64
+FAIL template: fragment text is not JSON                                      returned <core.template.RequestTemplate object at 0x7efed24ea6f0>
+FAIL template: fragment is None                                               returned <core.template.ReplyTemplate object at 0x7efed24ea6f0>
+FAIL template: fragment JSON is not an object                                 returned <core.template.ReplyTemplate object at 0x7efed3d3b7d0>
+FAIL template: fragment has no mode                                           returned <core.template.RequestTemplate object at 0x7efed294b5c0>
+FAIL template: unknown mode                                                   returned <core.template.ReplyTemplate object at 0x7efed3d3b7d0>
+FAIL template: tokens are not a dict                                          returned <core.template.ReplyTemplate object at 0x7efed294b5c0>
+FAIL template: request template has no URL                                    returned <core.template.RequestTemplate object at 0x7efed3d3b7d0>
+FAIL template: url_query_keys is not a list                                   returned <core.template.RequestTemplate object at 0x7efed294b5c0>
+FAIL format_registry: request "{bad" is JSON by its bytes                     returned 'text', want 'json'
+FAIL format_registry: no parse probe (json.loads / ElementTree) in detection  source scan of the sniffers
+FAIL codec decode_error_reply: error frame with a malformed status            returned None
+PASS codec decode_error_reply: a non-error frame is still None                returned None, want None
+FAIL store _loads_json_maybe: column text is not JSON                         returned {}
+FAIL store build_request_template: no row                                     returned None
+FAIL store build_reply_template: no row                                       returned <core.template.ReplyTemplate object at 0x7efed24ea720>
+FAIL store build_request_template: params is not an object                    returned <core.template.RequestTemplate object at 0x7efed24ea810>
+FAIL store build_request_template: url_query_keys is not a list               returned <core.template.RequestTemplate object at 0x7efed24ea840>
+FAIL store store_templates: empty path                                        returned None
+FAIL store store_templates: request template is not a dict                    returned None
+FAIL store store_templates: INSERT fails (no fallback INSERT)                 returned None
+FAIL store _with_conn: a failing call is not retried                          returned 'succeeded on retry'
+FAIL store ensure_tables: a failing migration step raises                     returned None (printed: [TEMPLATE-STORE] migration step skipped: fake mysql: ALTER TABLE
+[TEMPLATE-STORE] migratio)
+FAIL templates _parse_json_body: body is not JSON                             returned None (printed: [TEMPLATES] body present (4B) but not JSON: JSONDecodeError('Expecting property name enclo)
+FAIL templates canonical_semantic_key: upsert body is not JSON                returned '/api.php?entity=sensor_data&action=upsert_by_name' (printed: [TEMPLATES] body present (4B) but not JSON: JSONDecodeError('Expecting property name enclo)
+FAIL templates extract_dynamic_query_vals: declared key missing               returned [('a', '')]
+FAIL templates extract_dynamic_query_vals: path has no query                  returned [('a', '')]
+PASS templates extract_dynamic_query_vals: blank value is ""                  returned [('a', '')], want [('a', '')]
+FAIL templates learn_templates_from_real: a store failure propagates          returned None (printed: [Proxy TRAIN] learning GET /p resp_body=7B
+[Proxy TRAIN] req_handler=RawFormatHandler req_)
+FAIL templates learn_templates_from_real: a malformed JSON reply raises       returned None (printed: [Proxy TRAIN] learning GET /p resp_body=4B
+[Proxy TRAIN] req_handler=RawFormatHandler req_)
+FAIL templates fail_closed_template_missing: client hung up                   returned None
+FAIL transport _handle_resp_raw_and_learn: learn_templates_from_real not under except 1 try/except block(s) wrap it
+FAIL discovery select_database_host: control read timed out                   returned ['10.251.251.1 databasehost.frognet']
+FAIL discovery role_barrier_ready: control read timed out                     returned (False, {'10.155.155.1', '10.251.251.1', '10.199.199.1', '10.250.250.1', '10.123.123.1'}, set())
+PASS discovery select_database_host: read answered, nothing published -> highest .1 baseline returned ['10.251.251.1 databasehost.frognet'], want ['10.251.251.1 databasehost.frognet']
+FAIL discovery _num: a malformed capability field                             returned 0.0
+RESULT FAIL no-fallbacks: 49 probes, 46 fail (/home/claude/src24-orig/opt/frognet_semantic)

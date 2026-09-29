@@ -1,0 +1,4 @@
+registration_manifest:
+24
+site_manifest:
+16

@@ -1,0 +1,2 @@
+PASS Dino-derived Map-Register fixture unchanged
+PASS Dino-derived Map-Reply bytes unchanged

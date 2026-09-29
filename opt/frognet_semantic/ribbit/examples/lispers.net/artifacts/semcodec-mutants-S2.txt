@@ -1,0 +1,15 @@
+CAUGHT equality tolerance 1e-6: FAIL enc_rep_diff: 16003 cases, 29 differ;FAIL enc_req_diff: 16003 cases, 29 differ;FAIL veq: 20058 cases, 15 differ;
+CAUGHT bool not numeric: FAIL enc_rep_diff: 16003 cases, 102 differ;FAIL enc_req_diff: 16003 cases, 102 differ;FAIL veq: 20058 cases, 60 differ;
+CAUGHT UTF-8 E0 lower bound: FAIL dec_rep: 641241 cases, 2 differ;
+CAUGHT repr exponent threshold: FAIL enc_rep: 6089 cases, 174 differ;FAIL enc_rep_diff: 16003 cases, 160 differ;FAIL enc_req: 3000 cases, 33 differ;FAIL enc_req_diff: 16003 cases, 160 differ;
+CAUGHT JSON \u00XX upper case: FAIL enc_rep: 6089 cases, 1018 differ;FAIL enc_rep_diff: 16003 cases, 4519 differ;FAIL enc_req: 3000 cases, 1018 differ;FAIL enc_req_diff: 16003 cases, 4519 differ;
+CAUGHT high-surrogate range to DFFF: FAIL dec_rep: 641241 cases, 2 differ;
+CAUGHT lz4_smart keeps equal size: FAIL enc_rep: 6089 cases, 13 differ;FAIL enc_rep_diff: 16003 cases, 42 differ;FAIL enc_req: 3000 cases, 5 differ;FAIL enc_req_diff: 16003 cases, 42 differ;FAIL lz4smart: 170 cases, 1 differ;
+CAUGHT STR slice not clamped: FAIL dec_rep: 641241 cases, 12503 differ;
+CAUGHT int() allows trailing underscore: FAIL dec_err: 3194 cases, 10 differ;
+CAUGHT JSON leading zero takes digits: FAIL dec_rep: 641241 cases, 4 differ;
+CAUGHT absent reference field counts as changed: FAIL enc_rep_diff: 16003 cases, 1712 differ;FAIL enc_req_diff: 16003 cases, 1712 differ;
+CAUGHT JSON duplicate key appended: FAIL dec_rep: 641241 cases, 2 differ;
+CAUGHT diff ignores empty reference: FAIL enc_rep_diff: 16003 cases, 107 differ;FAIL enc_req_diff: 16003 cases, 107 differ;
+CAUGHT int digit limit off by one: FAIL dec_err: 3194 cases, 5 differ;
+mutants caught: 14 of 14

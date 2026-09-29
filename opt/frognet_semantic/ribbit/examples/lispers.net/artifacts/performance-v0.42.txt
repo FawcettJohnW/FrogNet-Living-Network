@@ -1,0 +1,12 @@
+1
+N=20000 per run, 5 runs, pipelined through the JSON-lines interface, FNW1 backend, warmed
+wire.etr_request4 (ETR, held database mapping): median 21.33 us/request  runs [21.33, 21.3, 21.47, 21.87, 20.99]
+wire.request4     (Map-Server, held registration): median 25.51 us/request  runs [25.95, 25.26, 25.51, 25.48, 28.96]
+wire.etr_request6 (ETR, held database mapping): median 25.87 us/request  runs [26.7, 25.87, 25.96, 25.69, 25.61]
+wire.etr_register4 (ETR Map-Register, 2 IPv4 records, HMAC-SHA-1): median 32.59 us/register  runs [26.93, 36.23, 40.03, 32.59, 28.26]
+wire.etr_register4 (held map-server configuration): median 26.67 us/register  runs [24.95, 32.9, 30.74, 23.96, 26.67]
+wire.etr_notify4 (verify Map-Notify, build Map-Notify-Ack, HMAC-SHA-1): median 92.65 us/notify  runs [91.36, 98.79, 92.65, 89.92, 97.47]
+map_server_reads after runs: 0
+database_mapping_reads after runs: 0  request_reads: 0
+registrar trigger latency, N=200: median 464 us, p90 826 us, max 1766 us
+Map-Notify -> Map-Notify-Ack UDP round trip, N=500: median 31 us, p90 47 us, max 4149 us

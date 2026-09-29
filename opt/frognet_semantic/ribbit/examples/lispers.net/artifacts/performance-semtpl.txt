@@ -1,0 +1,4 @@
+c++    8691 B, 5 fields: learn median 649.5 us p90 729.5 | extract 101.4 / 115.5 | rebuild 117.2 / 130.5 (N=2000)
+c++    8691 B, 5 fields: learn median 636.8 us p90 715.9 | extract 97.7 / 114.2 | rebuild 111.3 / 128.5 (N=2000)
+c++    8691 B, 5 fields: learn median 652.1 us p90 735.6 | extract 104.6 / 115.6 | rebuild 118.8 / 129.6 (N=2000)
+python 8691 B, 5 fields: learn median 1289.4 us p90 1450.4 | extract 125.8 / 144.6 | rebuild 138.5 / 158.4 (N=2000)

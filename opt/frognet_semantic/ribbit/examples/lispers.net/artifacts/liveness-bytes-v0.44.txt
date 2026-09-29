@@ -1,0 +1,4 @@
+native liveness, 14 heartbeats in 3 s: ETR 404 B per beat (write + held read), resolver 404 B per beat (its held liveness view receiving the cell) — independent of the number of database mappings
+conventional refresh, N=1: 88 B of Map-Register(s) per map-server every 60 s (116 with IP/UDP headers)
+conventional refresh, N=10: 340 B of Map-Register(s) per map-server every 60 s (368 with IP/UDP headers)
+conventional refresh, N=100: 3100 B of Map-Register(s) per map-server every 60 s (3240 with IP/UDP headers)

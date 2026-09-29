@@ -1,0 +1,24 @@
+S2 performance, 2026-09-24T20:07:28Z, Linux 6.18.44-fc-v40 x86_64, 1 core (this container, not AI-Host), g++ 13.3.0 -O2, Python 3.12.3, liblz4 1.9.4.
+Single thread, in memory: codec only, no framing, no socket.
+== C++ ribbit_cpp/semcodec.hpp
+encode_reply 5 fields              median      550.1 ns/op  min      546.4  max      654.1  (9 x 300000)
+encode_reply_diff 5, identical     median      427.6 ns/op  min      396.8  max      454.1  (9 x 300000)
+encode_reply_diff 5, one changed   median      732.4 ns/op  min      706.6  max      750.9  (9 x 300000)
+encode_reply JSON dict 40 keys     median     2750.9 ns/op  min     2706.8  max     2963.6  (9 x 100000)
+encode_reply 4000 B str, LZ4       median     1070.7 ns/op  min     1055.4  max     1132.2  (9 x 50000)
+decode_reply 5 fields              median      741.2 ns/op  min      679.9  max      805.6  (9 x 300000)
+decode_reply diff + reference      median      547.2 ns/op  min      533.0  max      560.0  (9 x 300000)
+decode_reply JSON dict 40 keys     median     4862.0 ns/op  min     4602.5  max     5020.5  (9 x 100000)
+decode_reply 4000 B str, LZ4       median      725.7 ns/op  min      716.0  max      750.0  (9 x 50000)
+sizes: 5 fields 74 B, diff 19 B, JSON dict 379 B, 4000 B str compressed to 157 B
+== Python core/codec.py
+encode_reply 5 fields              median     6196.6 ns/op  min     6056.9  max     6482.5  (9 x 20000)
+encode_reply_diff 5, identical     median     2715.1 ns/op  min     2542.9  max     2918.0  (9 x 20000)
+encode_reply_diff 5, one changed   median     4414.5 ns/op  min     4332.1  max     4777.0  (9 x 20000)
+encode_reply JSON dict 40 keys     median    11759.3 ns/op  min    11119.0  max    12097.7  (9 x 20000)
+encode_reply 4000 B str, LZ4       median     3315.6 ns/op  min     3086.7  max     3602.8  (9 x 20000)
+decode_reply 5 fields              median     4119.3 ns/op  min     4056.3  max     4493.7  (9 x 20000)
+decode_reply diff + reference      median     1865.5 ns/op  min     1714.4  max     1985.7  (9 x 20000)
+decode_reply JSON dict 40 keys     median     7827.5 ns/op  min     7686.8  max     8239.5  (9 x 20000)
+decode_reply 4000 B str, LZ4       median     2432.2 ns/op  min     2411.8  max     2451.9  (9 x 20000)
+sizes: 5 fields 74 B, diff 19 B, JSON dict 379 B, 4000 B str compressed to 157 B

@@ -1,0 +1,18 @@
+== ASan+UBSan driver, seed 20260924, fuzz 200000
+PASS wrap: 4768 cases, 0 differ
+PASS parse: 538276 cases, 0 differ
+PASS is_fnw1: 5000 cases, 0 differ
+PASS op_name: 256 cases, 0 differ
+PASS rt_cpp_to_py: 4273 cases, 0 differ
+PASS rt_py_to_cpp: 4273 cases, 0 differ
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 20260924, fuzz 200000)
+== -O2 driver, seed 1, fuzz 500000
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 1, fuzz 500000)
+== -O2 driver, seed 2, fuzz 500000
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 2, fuzz 500000)
+== -O2 driver, seed 3, fuzz 500000
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 3, fuzz 500000)
+== -O2 driver, seed 4, fuzz 500000
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 4, fuzz 500000)
+== -O2 driver, seed 5, fuzz 500000
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 5, fuzz 500000)

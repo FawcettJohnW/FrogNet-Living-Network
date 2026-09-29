@@ -1,0 +1,13 @@
+{
+  "curl_mentions": 20,
+  "ipc_calls": 35,
+  "ipc_lock_refs": 22,
+  "json_dumps": 34,
+  "json_loads": 31,
+  "latency_debug": 12,
+  "lock_acquire": 14,
+  "lock_release": 10,
+  "python_files": 44,
+  "requests_http": 5,
+  "sleep_calls": 22
+}

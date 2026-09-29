@@ -1,0 +1,10 @@
+Control source: lisp/lisp.py lisp_process_map_register(), inspected from frozen lispers.net-master.zip.
+
+Observed behavior used by Ribbit design:
+- Merge registration is keyed by xTR-ID under a parent site-EID.
+- If a unicast merge registration arrives with a different site-id, control clears the parent's individual registrations and merged registered RLOCs before accepting the new site's truths.
+- A non-merge registration after merge does not need to mutate each prior xTR registration to determine current resolution; control replaces the parent site-EID's registered RLOC set and marks inconsistent_registration based on prior merge mode.
+- TTL=0 is accepted only when packet source is in the selected registration's current RLOC set.
+
+Ribbit consequence:
+Independent xTR registration cells remain independently owned. A separate map-server-owned governing cell selects whether effective state is direct or merged and, for merged state, which site-id epoch participates. This is a representation choice; externally observable behavior remains governed by the conformance tests/oracle.

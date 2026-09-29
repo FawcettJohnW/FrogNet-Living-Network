@@ -1,0 +1,17 @@
+# build output and test results (every build and qualify writes these)
+bin/
+build/
+results/
+__pycache__/
+*.pyc
+*.srchash
+*.o
+# programs the lispers.net qualification compiles into its source directories
+examples/lispers.net/ribbit_cpp/lisper-ram
+examples/lispers.net/ribbit_cpp/ribbit-lisp
+examples/lispers.net/tools/check-ms-secret
+examples/lispers.net/tools/check-site-secret
+examples/lispers.net/tools/lisp-boundary
+examples/lispers.net/tools/lisp-handler-driver
+examples/lispers.net/tools/lisp-service
+examples/lispers.net/tools/tuple-write

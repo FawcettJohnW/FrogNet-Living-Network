@@ -1,0 +1,5 @@
+binary=/tmp/v40a-base/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=8
+binary=/tmp/v40a-base/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+binary=/tmp/v40a-base/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+binary=/tmp/v40a-base/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+binary=/tmp/v40a-base/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=10

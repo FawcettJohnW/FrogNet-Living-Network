@@ -1,0 +1,10 @@
+wire.etr_request4 (ETR, held database mapping): median 20.78 us/request  runs [20.75, 22.67, 20.73, 20.8, 20.7
+wire.request4     (Map-Server, held registration): median 25.22 us/request  runs [25.91, 25.05, 24.76, 25.22, 
+wire.etr_request6 (ETR, held database mapping): median 25.57 us/request  runs [25.81, 25.44, 25.57, 25.74, 25.
+wire.etr_register4 (ETR Map-Register, 2 IPv4 records, HMAC-SHA-1): median 26.62 us/register  runs [27.36, 28.2
+wire.etr_register4 (held map-server configuration): median 21.38 us/register  runs [21.49, 21.65, 21.19, 21.37
+wire.etr_notify4 (verify Map-Notify, build Map-Notify-Ack, HMAC-SHA-1): median 88.09 us/notify  runs [84.43, 8
+registrar trigger latency, N=200: median 321 us, p90 423 us, max 1612 us
+Map-Notify -> Map-Notify-Ack UDP round trip, N=500: median 29 us, p90 49 us, max 2164 us
+native registration: database change -> governor -> ITR resolves new RLOC, N=100: median 1577 us, p90 1891 us,
+re-governance, N=50: site deleted -> ITR stops resolving median 524 us (p90 684); site restored -> resolves median 619 us (p90 789)

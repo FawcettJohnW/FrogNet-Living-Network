@@ -1,0 +1,1 @@
+old semcodec vs fixed codec.py: enc_rep_diff 647, enc_req_diff 647, veq 257 differ; new: 0 of 715,366

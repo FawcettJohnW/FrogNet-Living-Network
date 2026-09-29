@@ -1,0 +1,1 @@
+one change, native path (v0.44): ETR process 593 B, Map-Server process 2095 B, ITR process 1070 B (v0.41 candidate with claim copy: 2427 / 1548 / 1920 B; conventional: one full register, 88 B for N=1)

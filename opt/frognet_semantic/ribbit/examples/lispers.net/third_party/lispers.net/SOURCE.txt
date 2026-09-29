@@ -1,0 +1,3 @@
+lisp/lisp.py from github.com/farinacci/lispers.net, branch master (codeload zip), fetched 2026-09-26, unmodified.
+sha256 72491017487779183ea895936ac014fd49086a59f36a7ae833201687193c89e5
+Used only by the Dino byte oracle (tools/test_control_wire_oracle.py). Apache License 2.0: LICENSE and NOTICE here are Dino's.

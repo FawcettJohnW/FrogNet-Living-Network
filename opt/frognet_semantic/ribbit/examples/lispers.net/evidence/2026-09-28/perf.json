@@ -1,0 +1,2522 @@
+[
+ {
+  "run": "FrogNetHost.Seattle5.314362.001",
+  "system": "lispers.net",
+  "workload": "reg",
+  "clients": 1,
+  "state": 1000,
+  "ops": 7141,
+  "ops_s": 357.05,
+  "p50_ms": 2.8428340156096965,
+  "p95_ms": 3.312800021376461,
+  "p99_ms": 3.961898008128628,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 17.00491617321423,
+    "net_B_per_op": 278.822573869206,
+    "net_pk_per_op": 2.022405825514634,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 12.66,
+      "cpu_s_per_M": 1772.8609438453998,
+      "rss_mb": 126.3203125,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 5.370811896274443,
+    "net_B_per_op": 279.8395182747514,
+    "net_pk_per_op": 2.3208234140876627,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.326477566,
+      "cpu_s_per_M": 45.71874611398963,
+      "rss_mb": 28.453125,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 5.455443100519493,
+    "net_B_per_op": 168.01722447836437,
+    "net_pk_per_op": 1.0509732530457918,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.09000000000000341,
+      "cpu_s_per_M": 12.603276851981992,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.002",
+  "system": "lispers.net",
+  "workload": "reg",
+  "clients": 4,
+  "state": 1000,
+  "ops": 15851,
+  "ops_s": 792.55,
+  "p50_ms": 4.842495982302353,
+  "p95_ms": 6.064485991373658,
+  "p99_ms": 6.715972005622461,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 32.390292971989616,
+    "net_B_per_op": 277.00378525014196,
+    "net_pk_per_op": 2.0083275503122833,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.609999999999996,
+      "cpu_s_per_M": 1552.5834332218785,
+      "rss_mb": 126.33984375,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.7270209013461453,
+    "net_B_per_op": 260.75869030345086,
+    "net_pk_per_op": 2.1521039682038987,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.8171367700000001,
+      "cpu_s_per_M": 51.551117910541926,
+      "rss_mb": 28.484375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 6.051587301592027,
+    "net_B_per_op": 74.34685508800706,
+    "net_pk_per_op": 0.4482997918112422,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 4.41612516560516,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.003",
+  "system": "lispers.net",
+  "workload": "reg",
+  "clients": 16,
+  "state": 1000,
+  "ops": 15375,
+  "ops_s": 768.75,
+  "p50_ms": 20.226861000992358,
+  "p95_ms": 24.950338003691286,
+  "p99_ms": 28.67558499565348,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 32.32221523042554,
+    "net_B_per_op": 277.3880325203252,
+    "net_pk_per_op": 2.0112520325203254,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.39999999999999,
+      "cpu_s_per_M": 1586.9918699186985,
+      "rss_mb": 126.59375,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 7.506265664290234,
+    "net_B_per_op": 262.45040650406503,
+    "net_pk_per_op": 2.1566178861788616,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 1.0061884429999997,
+      "cpu_s_per_M": 65.44315076422761,
+      "rss_mb": 28.859375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.775000000023283,
+    "net_B_per_op": 58.76988617886179,
+    "net_pk_per_op": 0.3695609756097561,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 4.552845528455765,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.004",
+  "system": "lispers.net",
+  "workload": "reg",
+  "clients": 64,
+  "state": 1000,
+  "ops": 14361,
+  "ops_s": 718.05,
+  "p50_ms": 85.20704600960016,
+  "p95_ms": 149.32669000700116,
+  "p99_ms": 203.0164650059305,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 31.07922645160893,
+    "net_B_per_op": 276.42490077292666,
+    "net_pk_per_op": 2.0037601838312096,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 23.700000000000003,
+      "cpu_s_per_M": 1650.3029036975145,
+      "rss_mb": 126.95703125,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 5.238924838182528,
+    "net_B_per_op": 262.8772369612144,
+    "net_pk_per_op": 2.1667711162175336,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.9953757669999999,
+      "cpu_s_per_M": 69.31103453798481,
+      "rss_mb": 28.96875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.192559074814945,
+    "net_B_per_op": 84.07060789638605,
+    "net_pk_per_op": 0.5054661931620361,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 4.177982034677409,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.005",
+  "system": "lispers.net",
+  "workload": "req",
+  "clients": 1,
+  "state": 1000,
+  "ops": 6671,
+  "ops_s": 333.55,
+  "p50_ms": 2.907556015998125,
+  "p95_ms": 3.4509309916757047,
+  "p99_ms": 4.387232998851687,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 18.23780794350329,
+    "net_B_per_op": 215.19907060410733,
+    "net_pk_per_op": 2.0247339229500825,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 13.490000000000009,
+      "cpu_s_per_M": 2022.1855793734087,
+      "rss_mb": 126.9921875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.443076149917739,
+    "net_B_per_op": 257.894018887723,
+    "net_pk_per_op": 2.330385249587768,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.22367210199999998,
+      "cpu_s_per_M": 33.52902143606656,
+      "rss_mb": 29.078125,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.771478962042983,
+    "net_B_per_op": 163.20101933743067,
+    "net_pk_per_op": 1.0451206715634838,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 10.493179433369418,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.006",
+  "system": "lispers.net",
+  "workload": "req",
+  "clients": 4,
+  "state": 1000,
+  "ops": 10310,
+  "ops_s": 515.5,
+  "p50_ms": 7.605884980875999,
+  "p95_ms": 9.439935005502775,
+  "p99_ms": 10.68835100159049,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 33.47896642062945,
+    "net_B_per_op": 214.02337536372454,
+    "net_pk_per_op": 2.0154219204655672,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.74000000000001,
+      "cpu_s_per_M": 2399.6120271581,
+      "rss_mb": 126.9921875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.2266164470363354,
+    "net_B_per_op": 201.7776915615907,
+    "net_pk_per_op": 2.1907856450048495,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.465175428,
+      "cpu_s_per_M": 45.118858195926286,
+      "rss_mb": 29.078125,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.2802128197763176,
+    "net_B_per_op": 83.21008729388943,
+    "net_pk_per_op": 0.5263821532492725,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.04999999999999716,
+      "cpu_s_per_M": 4.8496605237630614,
+      "rss_mb": 51.47265625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.007",
+  "system": "lispers.net",
+  "workload": "req",
+  "clients": 16,
+  "state": 1000,
+  "ops": 9684,
+  "ops_s": 484.2,
+  "p50_ms": 31.866403995081782,
+  "p95_ms": 41.21961598866619,
+  "p99_ms": 44.93093700148165,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 33.086945627725385,
+    "net_B_per_op": 214.33994217265592,
+    "net_pk_per_op": 2.0181743081371333,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.789999999999992,
+      "cpu_s_per_M": 2559.8926063610074,
+      "rss_mb": 126.9921875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 7.767599447795785,
+    "net_B_per_op": 209.86627426683188,
+    "net_pk_per_op": 2.2392606361007847,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.5901366160000001,
+      "cpu_s_per_M": 60.93934489880216,
+      "rss_mb": 29.171875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.0449124586506313,
+    "net_B_per_op": 139.09489880214787,
+    "net_pk_per_op": 0.8027674514663362,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 6.195786864932081,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.008",
+  "system": "lispers.net",
+  "workload": "req",
+  "clients": 64,
+  "state": 1000,
+  "ops": 9672,
+  "ops_s": 483.6,
+  "p50_ms": 130.2012630039826,
+  "p95_ms": 155.14054501545615,
+  "p99_ms": 168.1904300057795,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 33.012500000186265,
+    "net_B_per_op": 213.2051282051282,
+    "net_pk_per_op": 2.007547559966915,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 25.00999999999999,
+      "cpu_s_per_M": 2585.8147229114966,
+      "rss_mb": 126.9921875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 9.029514757347954,
+    "net_B_per_op": 204.9933829611249,
+    "net_pk_per_op": 2.209470636889992,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.6280918540000001,
+      "cpu_s_per_M": 64.93919086021506,
+      "rss_mb": 29.265625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.920099875174635,
+    "net_B_per_op": 158.48025227460712,
+    "net_pk_per_op": 0.8876137303556658,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 7.237386269645098,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.009",
+  "system": "lispers.net",
+  "workload": "mixed",
+  "clients": 1,
+  "state": 1000,
+  "ops": 6673,
+  "ops_s": 333.65,
+  "p50_ms": 2.966834988910705,
+  "p95_ms": 3.5298209986649454,
+  "p99_ms": 4.348234011558816,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 18.368374670358786,
+    "net_B_per_op": 228.25910385134122,
+    "net_pk_per_op": 2.028173235426345,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 13.54000000000002,
+      "cpu_s_per_M": 2029.0723812378271,
+      "rss_mb": 126.9921875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 4.752351097225396,
+    "net_B_per_op": 249.9423048104301,
+    "net_pk_per_op": 2.4124082121984114,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.2846480669999999,
+      "cpu_s_per_M": 42.65668619811178,
+      "rss_mb": 29.421875,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.939393939243387,
+    "net_B_per_op": 224.96823018132773,
+    "net_pk_per_op": 1.2577551326240073,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.04999999999999716,
+      "cpu_s_per_M": 7.492881762325364,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.010",
+  "system": "lispers.net",
+  "workload": "mixed",
+  "clients": 4,
+  "state": 1000,
+  "ops": 9822,
+  "ops_s": 491.1,
+  "p50_ms": 8.06398197892122,
+  "p95_ms": 9.29697198444046,
+  "p99_ms": 10.914462996879593,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 32.8853159145732,
+    "net_B_per_op": 226.53644878843411,
+    "net_pk_per_op": 2.0155772755039707,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.669999999999987,
+      "cpu_s_per_M": 2511.7084096925255,
+      "rss_mb": 126.99609375,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 11.183961669531596,
+    "net_B_per_op": 249.98085929545917,
+    "net_pk_per_op": 2.3271227855833843,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.676072094,
+      "cpu_s_per_M": 68.83242659336184,
+      "rss_mb": 29.453125,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 4.230287859829376,
+    "net_B_per_op": 121.31307269395235,
+    "net_pk_per_op": 0.7345754428833231,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.0800000000000125,
+      "cpu_s_per_M": 8.144980655672216,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.011",
+  "system": "lispers.net",
+  "workload": "mixed",
+  "clients": 16,
+  "state": 1000,
+  "ops": 9822,
+  "ops_s": 491.1,
+  "p50_ms": 32.791650999570265,
+  "p95_ms": 36.41121200053021,
+  "p99_ms": 39.50440001790412,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 32.53998236893871,
+    "net_B_per_op": 227.46579108124618,
+    "net_pk_per_op": 2.020667888413765,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.69999999999999,
+      "cpu_s_per_M": 2514.7627774384027,
+      "rss_mb": 126.99609375,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 6.021829130513605,
+    "net_B_per_op": 658.7734677255141,
+    "net_pk_per_op": 2.6512930156790877,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.6121881739999999,
+      "cpu_s_per_M": 62.32826043575646,
+      "rss_mb": 29.671875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 4.341317365244459,
+    "net_B_per_op": 184.0172062716351,
+    "net_pk_per_op": 1.0694359600895949,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.0899999999999892,
+      "cpu_s_per_M": 9.163103237628711,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.012",
+  "system": "lispers.net",
+  "workload": "mixed",
+  "clients": 64,
+  "state": 1000,
+  "ops": 9891,
+  "ops_s": 494.55,
+  "p50_ms": 132.2745720099192,
+  "p95_ms": 142.79801500379108,
+  "p99_ms": 153.46699600922875,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 32.710163111966246,
+    "net_B_per_op": 225.84319077949652,
+    "net_pk_per_op": 2.007178242847033,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.83000000000004,
+      "cpu_s_per_M": 2510.362956222833,
+      "rss_mb": 127,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.5545023697821296,
+    "net_B_per_op": 577.8747346072187,
+    "net_pk_per_op": 2.5505004549590535,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.548119467,
+      "cpu_s_per_M": 55.41598089171975,
+      "rss_mb": 29.796875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 4.862317042962634,
+    "net_B_per_op": 94.16742493175614,
+    "net_pk_per_op": 0.5634415124860985,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.0799999999999983,
+      "cpu_s_per_M": 8.08816095440282,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.013",
+  "system": "lispers.net",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 1,
+  "ops": 18761,
+  "ops_s": 938.05,
+  "p50_ms": 16.15107399993576,
+  "p95_ms": 22.275781986536458,
+  "p99_ms": 26.50119998725131,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 39.23390175622967,
+    "net_B_per_op": 213.05148979265496,
+    "net_pk_per_op": 2.0079953094184746,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 29.629999999999995,
+      "cpu_s_per_M": 1579.3401204626616,
+      "rss_mb": 121.33203125,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 4.736775976906861,
+    "net_B_per_op": 452.01497787964394,
+    "net_pk_per_op": 2.2431107083844144,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.907521208,
+      "cpu_s_per_M": 48.37275241191834,
+      "rss_mb": 29.921875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.6475037821206167,
+    "net_B_per_op": 39.931933265817385,
+    "net_pk_per_op": 0.2675230531421566,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.04999999999999716,
+      "cpu_s_per_M": 2.6651031394913467,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.014",
+  "system": "lispers.net",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 100,
+  "ops": 17544,
+  "ops_s": 877.2,
+  "p50_ms": 17.87180799874477,
+  "p95_ms": 20.468288013944402,
+  "p99_ms": 23.510253988206387,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 38.9615287908084,
+    "net_B_per_op": 213.093650250798,
+    "net_pk_per_op": 2.0081509347925217,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 29.010000000000005,
+      "cpu_s_per_M": 1653.5567715458278,
+      "rss_mb": 121.8046875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.8533952553679534,
+    "net_B_per_op": 189.609382124943,
+    "net_pk_per_op": 2.1163930688554493,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.8016074970000001,
+      "cpu_s_per_M": 45.691261798905614,
+      "rss_mb": 30.328125,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.775674993636647,
+    "net_B_per_op": 47.960499316005475,
+    "net_pk_per_op": 0.30483356133150935,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 3.4199726402190076,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.015",
+  "system": "lispers.net",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 1000,
+  "ops": 10162,
+  "ops_s": 508.1,
+  "p50_ms": 29.812815017066896,
+  "p95_ms": 40.770260005956516,
+  "p99_ms": 46.45833701943047,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 33.153334171053096,
+    "net_B_per_op": 214.35790198779767,
+    "net_pk_per_op": 2.0187955126943513,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 24.98,
+      "cpu_s_per_M": 2458.1775241094274,
+      "rss_mb": 126.46484375,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 5.3060712493513,
+    "net_B_per_op": 199.2187561503641,
+    "net_pk_per_op": 2.2025191891359968,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.5779486050000001,
+      "cpu_s_per_M": 56.87350964377092,
+      "rss_mb": 30.4375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.2112393376070765,
+    "net_B_per_op": 117.29757921668963,
+    "net_pk_per_op": 0.7313520960440858,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.04999999999999716,
+      "cpu_s_per_M": 4.9202912812435695,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.016",
+  "system": "lispers.net",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 10000,
+  "ops": 1857,
+  "ops_s": 92.85,
+  "p50_ms": 175.18394000944681,
+  "p95_ms": 206.90754702081904,
+  "p99_ms": 244.1237469902262,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 27.53081808017892,
+    "net_B_per_op": 225.04200323101776,
+    "net_pk_per_op": 2.10016155088853,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 21.119999999999997,
+      "cpu_s_per_M": 11373.182552504039,
+      "rss_mb": 169.56640625,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 7.098303393151285,
+    "net_B_per_op": 489.3381798599892,
+    "net_pk_per_op": 3.4711900915455036,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.13420689600000002,
+      "cpu_s_per_M": 72.27081098546043,
+      "rss_mb": 31.640625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 5.620492414987175,
+    "net_B_per_op": 745.3333333333334,
+    "net_pk_per_op": 4.373721055465805,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 37.69520732364426,
+      "rss_mb": 51.4765625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.017",
+  "system": "lispers.net",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 1,
+  "ops": 18473,
+  "ops_s": 923.65,
+  "p50_ms": 16.58805800252594,
+  "p95_ms": 22.10200298577547,
+  "p99_ms": 25.729287997819483,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 39.702327947881486,
+    "net_B_per_op": 213.66161424782115,
+    "net_pk_per_op": 2.00974395063065,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 29.880000000000003,
+      "cpu_s_per_M": 1617.495804687923,
+      "rss_mb": 121.46875,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 4.534576143060944,
+    "net_B_per_op": 193.40031397174255,
+    "net_pk_per_op": 2.1117847669571805,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.9914375290000002,
+      "cpu_s_per_M": 53.66954631083203,
+      "rss_mb": 32.09375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.3033033031781978,
+    "net_B_per_op": 45.85405727277649,
+    "net_pk_per_op": 0.28322416499756403,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07000000000000739,
+      "cpu_s_per_M": 3.7893141341421206,
+      "rss_mb": 51.5390625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.018",
+  "system": "lispers.net",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 100,
+  "ops": 16418,
+  "ops_s": 820.9,
+  "p50_ms": 19.072814990067855,
+  "p95_ms": 23.655347002204508,
+  "p99_ms": 28.28599000349641,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 38.552997724737274,
+    "net_B_per_op": 213.2822511877208,
+    "net_pk_per_op": 2.010049945182117,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 28.76,
+      "cpu_s_per_M": 1751.7358996223659,
+      "rss_mb": 121.90625,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 4.456754374965341,
+    "net_B_per_op": 198.15397734194178,
+    "net_pk_per_op": 2.1425264953100256,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.8744157509999998,
+      "cpu_s_per_M": 53.25957796321109,
+      "rss_mb": 32.375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.0653266330965256,
+    "net_B_per_op": 49.80947740285053,
+    "net_pk_per_op": 0.3203191618954806,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 3.654525520770025,
+      "rss_mb": 51.56640625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.019",
+  "system": "lispers.net",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 1000,
+  "ops": 9725,
+  "ops_s": 486.25,
+  "p50_ms": 31.05606499593705,
+  "p95_ms": 42.17090000747703,
+  "p99_ms": 46.83385801035911,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 33.44628514115488,
+    "net_B_per_op": 214.50190231362467,
+    "net_pk_per_op": 2.019845758354756,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 25.040000000000003,
+      "cpu_s_per_M": 2574.8071979434453,
+      "rss_mb": 126.50390625,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 6.079217848916621,
+    "net_B_per_op": 214.50457583547558,
+    "net_pk_per_op": 2.2517223650385603,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.6188254430000001,
+      "cpu_s_per_M": 63.63243629820052,
+      "rss_mb": 32.421875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.9759939985645953,
+    "net_B_per_op": 106.18426735218509,
+    "net_pk_per_op": 0.6397943444730078,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.05000000000001137,
+      "cpu_s_per_M": 5.141388174808367,
+      "rss_mb": 51.5859375,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.020",
+  "system": "lispers.net",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 10000,
+  "ops": 2278,
+  "ops_s": 113.9,
+  "p50_ms": 136.90099297673441,
+  "p95_ms": 181.30329801351763,
+  "p99_ms": 204.7392169770319,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 28.166375219333197,
+    "net_B_per_op": 220.42537313432837,
+    "net_pk_per_op": 2.062774363476734,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 21.4,
+      "cpu_s_per_M": 9394.205443371377,
+      "rss_mb": 154.703125,
+      "n": 3
+     },
+     "ribbit-front": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.2784841686838337,
+    "net_B_per_op": 346.8274802458297,
+    "net_pk_per_op": 2.9824407374890254,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.15876353100000007,
+      "cpu_s_per_M": 69.69426294995614,
+      "rss_mb": 32.59375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.1062124248276377,
+    "net_B_per_op": 407.5877963125549,
+    "net_pk_per_op": 2.4587357330992097,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.06999999999999318,
+      "cpu_s_per_M": 30.728709394202447,
+      "rss_mb": 51.62890625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.021",
+  "system": "ribbit",
+  "workload": "reg",
+  "clients": 1,
+  "state": 1000,
+  "ops": 782,
+  "ops_s": 39.1,
+  "p50_ms": 25.102209008764476,
+  "p95_ms": 29.178587981732562,
+  "p99_ms": 34.4490880088415,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 4.392146991308622,
+    "net_B_per_op": 3394.0920716112532,
+    "net_pk_per_op": 18.52173913043478,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 1.83,
+      "cpu_s_per_M": 2340.153452685422,
+      "rss_mb": 27.6953125,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 14.948323670268342,
+    "net_B_per_op": 6724.386189258312,
+    "net_pk_per_op": 38.26342710997442,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.09083986799999999,
+      "cpu_s_per_M": 116.16351406649615,
+      "rss_mb": 32.625,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 15.165644171762,
+    "net_B_per_op": 5366.584398976982,
+    "net_pk_per_op": 30.24168797953964,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 2.739999999999995,
+      "cpu_s_per_M": 3503.836317135543,
+      "rss_mb": 55.56640625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.022",
+  "system": "ribbit",
+  "workload": "reg",
+  "clients": 4,
+  "state": 1000,
+  "ops": 3224,
+  "ops_s": 161.2,
+  "p50_ms": 24.38953801174648,
+  "p95_ms": 27.51826200983487,
+  "p99_ms": 32.84861400607042,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 6.624525916875089,
+    "net_B_per_op": 2172.8045905707195,
+    "net_pk_per_op": 9.410669975186105,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 3.44,
+      "cpu_s_per_M": 1066.9975186104218,
+      "rss_mb": 29.25390625,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 6.506935687447644,
+    "net_B_per_op": 4031.0108560794047,
+    "net_pk_per_op": 17.562344913151364,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.2466752419999999,
+      "cpu_s_per_M": 76.51217183622826,
+      "rss_mb": 32.765625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 15.446138465362601,
+    "net_B_per_op": 2265.58405707196,
+    "net_pk_per_op": 10.135235732009926,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 4.180000000000007,
+      "cpu_s_per_M": 1296.5260545905728,
+      "rss_mb": 56.4375,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.023",
+  "system": "ribbit",
+  "workload": "reg",
+  "clients": 16,
+  "state": 1000,
+  "ops": 11829,
+  "ops_s": 591.45,
+  "p50_ms": 26.28123600152321,
+  "p95_ms": 32.70959499059245,
+  "p99_ms": 45.17577201477252,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.367088607123382,
+    "net_B_per_op": 1804.3942006932116,
+    "net_pk_per_op": 6.149463183701074,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.850000000000001,
+      "cpu_s_per_M": 748.1612985036775,
+      "rss_mb": 38.7578125,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 14.403240096194551,
+    "net_B_per_op": 3272.72499788655,
+    "net_pk_per_op": 10.548482542903034,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 1.0067390109999999,
+      "cpu_s_per_M": 85.10770234170259,
+      "rss_mb": 32.875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 35.87690768079748,
+    "net_B_per_op": 1611.9532504860936,
+    "net_pk_per_op": 4.884605630230789,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 11.799999999999997,
+      "cpu_s_per_M": 997.5483980049029,
+      "rss_mb": 57.109375,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.024",
+  "system": "ribbit",
+  "workload": "reg",
+  "clients": 64,
+  "state": 1000,
+  "ops": 31297,
+  "ops_s": 1564.85,
+  "p50_ms": 38.06442700442858,
+  "p95_ms": 63.00563502009027,
+  "p99_ms": 74.58945500547998,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 31.438766408367535,
+    "net_B_per_op": 1724.9270537112184,
+    "net_pk_per_op": 4.392018404319903,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 21.28,
+      "cpu_s_per_M": 679.9373741892194,
+      "rss_mb": 53.86328125,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 11.788515051803584,
+    "net_B_per_op": 3105.6423299357766,
+    "net_pk_per_op": 6.660830111512285,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 2.323525877,
+      "cpu_s_per_M": 74.24116934530466,
+      "rss_mb": 33.40625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 68.87651821852032,
+    "net_B_per_op": 1475.1943317250855,
+    "net_pk_per_op": 2.5251621561171995,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 25.50999999999999,
+      "cpu_s_per_M": 815.094098475892,
+      "rss_mb": 58.78125,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.025",
+  "system": "ribbit",
+  "workload": "req",
+  "clients": 1,
+  "state": 1000,
+  "ops": 17819,
+  "ops_s": 890.95,
+  "p50_ms": 1.0213220084551722,
+  "p95_ms": 1.5503440226893872,
+  "p99_ms": 2.0985509909223765,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 4.731127196543289,
+    "net_B_per_op": 213.32167910657165,
+    "net_pk_per_op": 2.0092597788877042,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 2.759999999999998,
+      "cpu_s_per_M": 154.89084684886907,
+      "rss_mb": 53.87109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 3.8345105954038616,
+    "net_B_per_op": 396.4991301419833,
+    "net_pk_per_op": 2.3135978449969135,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.5077789779999999,
+      "cpu_s_per_M": 28.496491273359894,
+      "rss_mb": 33.96875,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.5469977197012073,
+    "net_B_per_op": 53.87547000392839,
+    "net_pk_per_op": 0.33514787586284306,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.06999999999999318,
+      "cpu_s_per_M": 3.9283910432680385,
+      "rss_mb": 58.875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.026",
+  "system": "ribbit",
+  "workload": "req",
+  "clients": 4,
+  "state": 1000,
+  "ops": 60277,
+  "ops_s": 3013.85,
+  "p50_ms": 1.2105269997846335,
+  "p95_ms": 1.967476011486724,
+  "p99_ms": 2.5063510111067444,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 9.77011494173296,
+    "net_B_per_op": 211.91882475902915,
+    "net_pk_per_op": 1.9987723343895683,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 4.660000000000004,
+      "cpu_s_per_M": 77.30975330557267,
+      "rss_mb": 53.87109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 5.301691491990552,
+    "net_B_per_op": 234.67108515685916,
+    "net_pk_per_op": 2.095509066476434,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 1.9105953140000003,
+      "cpu_s_per_M": 31.696921114189497,
+      "rss_mb": 34.5625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.925598991110745,
+    "net_B_per_op": 15.058081855434079,
+    "net_pk_per_op": 0.09071453456542296,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.06999999999999318,
+      "cpu_s_per_M": 1.1613053071651407,
+      "rss_mb": 58.875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.027",
+  "system": "ribbit",
+  "workload": "req",
+  "clients": 16,
+  "state": 1000,
+  "ops": 187968,
+  "ops_s": 9398.4,
+  "p50_ms": 1.6061780042946339,
+  "p95_ms": 2.442739001708105,
+  "p99_ms": 2.9930949967820197,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.182181681357601,
+    "net_B_per_op": 211.61521109976167,
+    "net_pk_per_op": 1.9961908409942117,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.120000000000005,
+      "cpu_s_per_M": 43.19884235614575,
+      "rss_mb": 53.87109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 13.835107065057754,
+    "net_B_per_op": 171.42896131256384,
+    "net_pk_per_op": 2.009022812393599,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 8.919012831,
+      "cpu_s_per_M": 47.44963414517365,
+      "rss_mb": 37.625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.422407267274393,
+    "net_B_per_op": 4.150424540347293,
+    "net_pk_per_op": 0.026515151515151516,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.06999999999999318,
+      "cpu_s_per_M": 0.3724038134150131,
+      "rss_mb": 58.875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.028",
+  "system": "ribbit",
+  "workload": "req",
+  "clients": 64,
+  "state": 1000,
+  "ops": 408145,
+  "ops_s": 20407.25,
+  "p50_ms": 2.938334015198052,
+  "p95_ms": 4.510475002462044,
+  "p99_ms": 5.889336986001581,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 18.33084947821464,
+    "net_B_per_op": 211.60916095995296,
+    "net_pk_per_op": 1.9962243810410516,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 11.879999999999995,
+      "cpu_s_per_M": 29.107302551789182,
+      "rss_mb": 53.87109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 43.13750641350758,
+    "net_B_per_op": 170.67439267907238,
+    "net_pk_per_op": 2.004567004373446,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 29.542094968,
+      "cpu_s_per_M": 72.38137173798528,
+      "rss_mb": 41.40625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.6259064766491105,
+    "net_B_per_op": 2.1471364343554376,
+    "net_pk_per_op": 0.01339719952467873,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.07999999999998408,
+      "cpu_s_per_M": 0.19600877139248082,
+      "rss_mb": 58.8671875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.029",
+  "system": "ribbit",
+  "workload": "mixed",
+  "clients": 1,
+  "state": 1000,
+  "ops": 3221,
+  "ops_s": 161.05,
+  "p50_ms": 1.2598600005730987,
+  "p95_ms": 25.964475004002452,
+  "p99_ms": 27.734578994568437,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 1,
+  "components": {
+   "control": {
+    "host_busy_pct": 4.3153631993522055,
+    "net_B_per_op": 862.4247128221049,
+    "net_pk_per_op": 5.389009624340267,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 1.8900000000000006,
+      "cpu_s_per_M": 586.7742936976097,
+      "rss_mb": 53.87109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 6.416040100386931,
+    "net_B_per_op": 1519.0891027631171,
+    "net_pk_per_op": 9.446755665942254,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.15421166599999991,
+      "cpu_s_per_M": 47.876953120149,
+      "rss_mb": 38.015625,
+      "n": 2
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 10.132932029043182,
+    "net_B_per_op": 955.4178826451413,
+    "net_pk_per_op": 5.611300838248991,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 2.140000000000015,
+      "cpu_s_per_M": 664.3899410121127,
+      "rss_mb": 58.96875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.030",
+  "system": "ribbit",
+  "workload": "mixed",
+  "clients": 4,
+  "state": 1000,
+  "ops": 11626,
+  "ops_s": 581.3,
+  "p50_ms": 1.3600459787994623,
+  "p95_ms": 25.659195001935586,
+  "p99_ms": 30.446560005657375,
+  "errors": 0,
+  "unanswered": 1,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 7.825868142648628,
+    "net_B_per_op": 699.3889557887494,
+    "net_pk_per_op": 3.757182177877172,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 3.6499999999999915,
+      "cpu_s_per_M": 313.95148804403846,
+      "rss_mb": 56.79296875,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 4.352748773524343,
+    "net_B_per_op": 1127.4028040598657,
+    "net_pk_per_op": 5.67675898847411,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 0.5074695870000003,
+      "cpu_s_per_M": 43.64954300705318,
+      "rss_mb": 38.015625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 16.662546353638948,
+    "net_B_per_op": 518.3116291071735,
+    "net_pk_per_op": 2.1840701875107515,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 3.8100000000000023,
+      "cpu_s_per_M": 327.7137450541891,
+      "rss_mb": 59.046875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.031",
+  "system": "ribbit",
+  "workload": "mixed",
+  "clients": 16,
+  "state": 1000,
+  "ops": 46527,
+  "ops_s": 2326.35,
+  "p50_ms": 1.8876420217566192,
+  "p95_ms": 27.754579001339152,
+  "p99_ms": 32.74459397653118,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 17.849084983927014,
+    "net_B_per_op": 603.9434951748448,
+    "net_pk_per_op": 3.023126356739098,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 10.449999999999989,
+      "cpu_s_per_M": 224.60076944569795,
+      "rss_mb": 74.4453125,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 8.779931584873346,
+    "net_B_per_op": 928.9084187675973,
+    "net_pk_per_op": 4.070862080082533,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 2.232899153,
+      "cpu_s_per_M": 47.9914706084639,
+      "rss_mb": 38.28125,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 31.234193222011285,
+    "net_B_per_op": 389.25460485309605,
+    "net_pk_per_op": 1.1429277623745353,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 10.569999999999993,
+      "cpu_s_per_M": 227.179917037419,
+      "rss_mb": 58.953125,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.032",
+  "system": "ribbit",
+  "workload": "mixed",
+  "clients": 64,
+  "state": 1000,
+  "ops": 102503,
+  "ops_s": 5125.15,
+  "p50_ms": 2.6659260038286448,
+  "p95_ms": 62.23731499630958,
+  "p99_ms": 83.0836429959163,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 29.408044524130972,
+    "net_B_per_op": 544.0547788845205,
+    "net_pk_per_op": 2.5500034145342085,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 19.47,
+      "cpu_s_per_M": 189.94566012702066,
+      "rss_mb": 85.1484375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 16.509674134396708,
+    "net_B_per_op": 813.2692213886423,
+    "net_pk_per_op": 3.078026984576061,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 6.287448578,
+      "cpu_s_per_M": 61.339166443908965,
+      "rss_mb": 39.546875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 47.8742592114383,
+    "net_B_per_op": 322.03749158561214,
+    "net_pk_per_op": 0.5590470522813966,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 17.17999999999998,
+      "cpu_s_per_M": 167.60485058973865,
+      "rss_mb": 59.0546875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.033",
+  "system": "ribbit",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 1,
+  "ops": 184191,
+  "ops_s": 9209.55,
+  "p50_ms": 1.6286220052279532,
+  "p95_ms": 2.539498993428424,
+  "p99_ms": 3.14826300018467,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 13.441062256677561,
+    "net_B_per_op": 211.66508135576657,
+    "net_pk_per_op": 1.996666503792259,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.049999999999999,
+      "cpu_s_per_M": 43.70463269106525,
+      "rss_mb": 20.7109375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 23.172588832371932,
+    "net_B_per_op": 172.19731691559306,
+    "net_pk_per_op": 2.0162331492852528,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 9.62320737,
+      "cpu_s_per_M": 52.24580663550336,
+      "rss_mb": 41.078125,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.474320241700919,
+    "net_B_per_op": 8.784175122562992,
+    "net_pk_per_op": 0.050311904490447416,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.06999999999999318,
+      "cpu_s_per_M": 0.3800402842700956,
+      "rss_mb": 61.26171875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.034",
+  "system": "ribbit",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 100,
+  "ops": 184253,
+  "ops_s": 9212.65,
+  "p50_ms": 1.617621979676187,
+  "p95_ms": 2.551221987232566,
+  "p99_ms": 3.2262440072372556,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 12.958312406103447,
+    "net_B_per_op": 211.6148393784633,
+    "net_pk_per_op": 1.996217157929586,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 7.779999999999999,
+      "cpu_s_per_M": 42.22454993948538,
+      "rss_mb": 21.58984375,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 20.289487049237536,
+    "net_B_per_op": 173.62147156355664,
+    "net_pk_per_op": 2.01969031711831,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 9.196858284000001,
+      "cpu_s_per_M": 49.914293303229805,
+      "rss_mb": 41.9375,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.489254108735936,
+    "net_B_per_op": 8.849229049187802,
+    "net_pk_per_op": 0.050745442407993356,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.05999999999997385,
+      "cpu_s_per_M": 0.3256392026179973,
+      "rss_mb": 63.57421875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.035",
+  "system": "ribbit",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 1000,
+  "ops": 180883,
+  "ops_s": 9044.15,
+  "p50_ms": 1.6571780142839998,
+  "p95_ms": 2.5814810069277883,
+  "p99_ms": 3.2020770013332367,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.015056462773792,
+    "net_B_per_op": 211.56496188143717,
+    "net_pk_per_op": 1.995632535948652,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.24,
+      "cpu_s_per_M": 45.55430858621319,
+      "rss_mb": 27.22265625,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 21.070745697796475,
+    "net_B_per_op": 172.65179148952637,
+    "net_pk_per_op": 2.013787918157041,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 9.195388373,
+      "cpu_s_per_M": 50.83611159147073,
+      "rss_mb": 43.046875,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 2.6115618661964475,
+    "net_B_per_op": 10.377138813487171,
+    "net_pk_per_op": 0.06145408910732352,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 0.3317061304821474,
+      "rss_mb": 66.15234375,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.036",
+  "system": "ribbit",
+  "workload": "req-host",
+  "clients": 16,
+  "state": 10000,
+  "ops": 182458,
+  "ops_s": 9122.9,
+  "p50_ms": 1.6515669994987547,
+  "p95_ms": 2.527145989006385,
+  "p99_ms": 3.1182810198515654,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.251632345147229,
+    "net_B_per_op": 211.5466847164827,
+    "net_pk_per_op": 1.995478411470037,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.53,
+      "cpu_s_per_M": 46.75048504313321,
+      "rss_mb": 46.23046875,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 16.61350006367613,
+    "net_B_per_op": 171.8833539773537,
+    "net_pk_per_op": 2.012249394381173,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 8.927030547,
+      "cpu_s_per_M": 48.926495670236434,
+      "rss_mb": 43.15625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 6.16078136730072,
+    "net_B_per_op": 5.354267831500948,
+    "net_pk_per_op": 0.03303774019226342,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.0800000000000125,
+      "cpu_s_per_M": 0.43845706957224406,
+      "rss_mb": 73.13671875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.037",
+  "system": "ribbit",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 1,
+  "ops": 186926,
+  "ops_s": 9346.3,
+  "p50_ms": 1.5958260046318173,
+  "p95_ms": 2.46655399678275,
+  "p99_ms": 3.0579659796785563,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 12.467010179575643,
+    "net_B_per_op": 211.60896290510684,
+    "net_pk_per_op": 1.9960893615655393,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 7.69,
+      "cpu_s_per_M": 41.13927436525684,
+      "rss_mb": 90.890625,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 16.54067905194638,
+    "net_B_per_op": 171.5311139167371,
+    "net_pk_per_op": 2.0088323721686656,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 10.272316059000001,
+      "cpu_s_per_M": 54.953917908691146,
+      "rss_mb": 44.515625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.655155029014645,
+    "net_B_per_op": 4.238655938713715,
+    "net_pk_per_op": 0.026973240747675552,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.060000000000002274,
+      "cpu_s_per_M": 0.3209826348394673,
+      "rss_mb": 91.65625,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.038",
+  "system": "ribbit",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 100,
+  "ops": 185438,
+  "ops_s": 9271.9,
+  "p50_ms": 1.6076590109150857,
+  "p95_ms": 2.52501800423488,
+  "p99_ms": 3.1521699856966734,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 12.918600275625217,
+    "net_B_per_op": 211.63039937876812,
+    "net_pk_per_op": 1.9962844724382274,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 7.75,
+      "cpu_s_per_M": 41.79294427247921,
+      "rss_mb": 92.86328125,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 21.33350396728811,
+    "net_B_per_op": 171.91437569430215,
+    "net_pk_per_op": 2.0111951164270536,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 10.634768371,
+      "cpu_s_per_M": 57.349455726442265,
+      "rss_mb": 44.5625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 3.7876900075216797,
+    "net_B_per_op": 6.658365599283858,
+    "net_pk_per_op": 0.03954960687669194,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.0700000000000216,
+      "cpu_s_per_M": 0.37748465794509,
+      "rss_mb": 107.90234375,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.039",
+  "system": "ribbit",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 1000,
+  "ops": 181264,
+  "ops_s": 9063.2,
+  "p50_ms": 1.6588629805482924,
+  "p95_ms": 2.5225360004696995,
+  "p99_ms": 3.0683180084452033,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.357492776854466,
+    "net_B_per_op": 210.87251191632095,
+    "net_pk_per_op": 1.9891098066907935,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.309999999999999,
+      "cpu_s_per_M": 45.84473475152264,
+      "rss_mb": 94.51171875,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 14.8332694518759,
+    "net_B_per_op": 171.63018580633772,
+    "net_pk_per_op": 2.009957851531468,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 9.325264715,
+      "cpu_s_per_M": 51.44576261695648,
+      "rss_mb": 44.5625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 4.132437142222715,
+    "net_B_per_op": 7.140292611881013,
+    "net_pk_per_op": 0.040377570835907844,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.09000000000000341,
+      "cpu_s_per_M": 0.4965133727601918,
+      "rss_mb": 125.2421875,
+      "n": 1
+     }
+    }
+   }
+  }
+ },
+ {
+  "run": "FrogNetHost.Seattle5.314362.040",
+  "system": "ribbit",
+  "workload": "req-nested",
+  "clients": 16,
+  "state": 10000,
+  "ops": 183288,
+  "ops_s": 9164.4,
+  "p50_ms": 1.6336780099663883,
+  "p95_ms": 2.527220989577472,
+  "p99_ms": 3.1702069973107427,
+  "errors": 0,
+  "unanswered": 0,
+  "duration_s": 20,
+  "load_processes": 4,
+  "components": {
+   "control": {
+    "host_busy_pct": 14.548411307271447,
+    "net_B_per_op": 211.59763323294487,
+    "net_pk_per_op": 1.9959408144559383,
+    "procs": {
+     "lispers.net": {
+      "cpu_s": 0,
+      "cpu_s_per_M": 0.0,
+      "rss_mb": 0,
+      "n": 0
+     },
+     "ribbit-front": {
+      "cpu_s": 8.510000000000002,
+      "cpu_s_per_M": 46.42966260748113,
+      "rss_mb": 110.73046875,
+      "n": 1
+     }
+    }
+   },
+   "load": {
+    "host_busy_pct": 20.780888774643863,
+    "net_B_per_op": 172.229289424294,
+    "net_pk_per_op": 2.0134215005892364,
+    "procs": {
+     "load-generator": {
+      "cpu_s": 10.417573754,
+      "cpu_s_per_M": 56.83718385273449,
+      "rss_mb": 44.5625,
+      "n": 5
+     }
+    }
+   },
+   "ram": {
+    "host_busy_pct": 6.166748889988387,
+    "net_B_per_op": 6.373041333857099,
+    "net_pk_per_op": 0.041912181921347824,
+    "procs": {
+     "ram-server": {
+      "cpu_s": 0.10999999999998522,
+      "cpu_s_per_M": 0.6001484003316377,
+      "rss_mb": 144.8515625,
+      "n": 1
+     }
+    }
+   }
+  }
+ }
+]

@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/tmp/w32/tools/test_control_wire_oracle.py", line 22, in <module>
+    ack=call('wire.etr_notify4',hex=notify.hex(),source='192.0.2.250')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/w32/tools/test_control_wire_oracle.py", line 12, in call
+    proc.stdin.write(json.dumps({'operation':op,'args':args})+'\n');proc.stdin.flush();o=json.loads(proc.stdout.readline());assert o['ok'],o;return o['result']
+                                                                                                                                   ~^^^^^^
+AssertionError: {'ok': False, 'error': 'unsupported operation: wire.etr_notify4'}

@@ -1,0 +1,5 @@
+[run]
+parallel = True
+branch = True
+sigterm = True
+data_file = /tmp/lcov/data/.coverage

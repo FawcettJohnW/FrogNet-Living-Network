@@ -1,0 +1,2 @@
+binary=/tmp/w34-base/ribbit_cpp/ribbit-lisp pass=13 fail=7
+last failure: AssertionError: {'iid': '77', 'prefix': '198.18.77.0/24', 'group': '', 'rlocs': [{'address': '192.0.2.1', 'priority': 1, 'weight': 100}], 't

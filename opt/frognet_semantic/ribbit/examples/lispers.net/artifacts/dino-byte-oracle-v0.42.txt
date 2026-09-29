@@ -1,0 +1,4 @@
+PASS register4 fixture == control encoder
+PASS ribbit reply4 == control encoder
+PASS ribbit etr_register4 == control lisp_build_map_register
+PASS ribbit etr_notify4 ack == control lisp_send_map_notify_ack
