@@ -1,0 +1,15 @@
+{
+  "ribbit_lisp_cpp": {
+    "physical_lines": 118,
+    "nonblank_lines": 116,
+    "if_tokens": 167,
+    "for_tokens": 42
+  },
+  "conformance_tests": {
+    "physical_lines": 436,
+    "nonblank_lines": 411,
+    "if_tokens": 0,
+    "for_tokens": 0
+  },
+  "warning": "Structural counts only; not a control-equivalent reduction ratio."
+}

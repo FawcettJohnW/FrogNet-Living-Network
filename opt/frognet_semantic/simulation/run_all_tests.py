@@ -43,7 +43,7 @@ PKG = os.path.dirname(os.path.abspath(__file__))
 TESTS = PKG  # installed layout: tests live in this simulation dir
 ENV = dict(os.environ, FROGNET_LOG_LEVEL="ERROR",
            PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
-           PYTHONPATH=os.pathsep.join([p for p in [os.path.dirname(PKG), "/etc/frognet_bundles/communicator", os.path.abspath(os.path.join(PKG,"..","..","..","etc","frognet_bundles","communicator"))] if os.path.isdir(p)]))
+           PYTHONPATH=os.pathsep.join([p for p in [os.path.dirname(PKG), "/opt/frognet_semantic/ribbit/examples/communicator", os.path.abspath(os.path.join(PKG,"..","..","..","opt", "frognet_semantic", "ribbit", "examples", "communicator"))] if os.path.isdir(p)]))
 
 # (script, how to judge pass): "rc" = exit 0; or a substring that must appear in output
 SUITE = [

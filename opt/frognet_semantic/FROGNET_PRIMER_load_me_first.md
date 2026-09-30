@@ -106,8 +106,8 @@ PROVENANCE / INVARIANTS (do not regress)
   host). All election reads candidate data from _control.
 - broker = coordination + cross-NAT transit + cross-site federation ONLY.
 - Prove every change on the simulator with an oracle that FAILS on old code and
-  PASSES on new. The 8 discovery oracles needing etc/frognet_bundles/communicator
-  (boot_gate, elector, safeboot, service_election, host_reset, bundle_float,
+  PASSES on new. The 8 discovery oracles needing opt/frognet_semantic/ribbit/examples/communicator
+  (boot_gate, elector, safeboot, service_election, host_reset,
   malformed_capability_guard, role_registry) are unrelated to these changes and
   pass in a complete tree; they are not in this payload's scope.
 

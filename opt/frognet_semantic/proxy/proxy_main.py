@@ -83,8 +83,6 @@ from proxy.transport_real import real_upstream_local, real_upstream_remote_80, M
 from proxy.transport_semantic import handle_request  # unified handler
 from proxy.proxy_metrics import (start_flusher, bump_real, observe_peer,
                                  live_endpoint_stats)
-from core.game_origin import GameOrigin, looks_like_game
-GAME_ORIGIN = GameOrigin()
 
 
 _STRIP_HDRS = {"transfer-encoding", "connection", "content-length", "server", "date"}
@@ -274,22 +272,6 @@ def proxy_dispatch(
 
     if not target_ip:
         return send_error_reply(self, 400, "Missing/invalid Host header", ctx=ctx, where="missing_host_header", extras={"host_header": repr(headers.get("Host") if headers else "")})
-
-    if raw_path.split("?", 1)[0] == "/game" or (body and looks_like_game(
-            body.decode("utf-8","replace") if isinstance(body,(bytes,bytearray)) else str(body))):
-        code, _resp = GAME_ORIGIN.serve(body)
-        _data = _resp.encode("utf-8")
-        try:
-            self.send_response(code)
-            self.send_header("Content-Type","application/json; charset=utf-8")
-            self.send_header("Content-Length",str(len(_data)))
-            self.send_header("Connection","close")
-            self.end_headers(); self.wfile.write(_data)
-        except BrokenPipeError:
-            pass
-        finally:
-            self.close_connection = True
-        return
 
     # ------------------------------------------------------------------
     # EXPLICIT ASYNC GATE (HEADER-BASED)

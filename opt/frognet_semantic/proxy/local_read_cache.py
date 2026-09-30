@@ -34,7 +34,7 @@ Coherence: invalidate-on-write (per SensorName)
 -----------------------------------------------
 A write (POST upsert/update/create/delete) to a sensor busts every cached read
 whose response CONTAINED that SensorName. That precisely scopes invalidation:
-  - a write to SD:...state.table1 busts the backgammon polls (their result holds
+  - a write to SD:...state.table1 busts the polls (their result holds
     that name) - narrow AND broad queries alike, because a broad query's result
     set lists its members;
   - a convergence capability write (a name NOT in those result sets) does NOT

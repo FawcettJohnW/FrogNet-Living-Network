@@ -1,0 +1,9 @@
+CAUGHT little-endian read: FAIL parse: 358276 cases, 232943 differ;FAIL rt_py_to_cpp: 4273 cases, 4225 differ;
+CAUGHT HELLO length limit 256: FAIL wrap: 4768 cases, 1 differ;FAIL rt_cpp_to_py: 4274 cases, 1 differ;
+CAUGHT RTT_PING payload None, not empty: FAIL parse: 358276 cases, 84301 differ;FAIL rt_py_to_cpp: 4273 cases, 2036 differ;
+CAUGHT RESP_RAW also sets payload: FAIL parse: 358276 cases, 1760 differ;FAIL rt_py_to_cpp: 4273 cases, 90 differ;
+CAUGHT op_name zero-pads: FAIL op_name: 256 cases, 11 differ;
+CAUGHT RTT_PONG ping_id unchecked: FAIL wrap: 4768 cases, 6 differ;FAIL rt_cpp_to_py: 4279 cases, 6 differ;
+CAUGHT HELLO length before ASCII: FAIL wrap: 4768 cases, 1 differ;
+CAUGHT ERROR short-message count off: FAIL parse: 358276 cases, 867 differ;
+mutants caught: 8 of 8

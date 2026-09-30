@@ -48,7 +48,7 @@ IP = "/usr/sbin/ip"
 def _ensure_bundle_on_path() -> None:
     """[BUNDLE_PATH_V1] The merge-end election hooks (reach_plane tuple write +
     service-host election) live in the Communicator bundle, installed at
-    /etc/frognet_bundles/communicator. runMerge launches discovery with
+    /opt/frognet_semantic/ribbit/examples/communicator. runMerge launches discovery with
     PYTHONPATH=/opt/frognet_semantic ONLY, so `import frognet_tuples` /
     `frognet_service_hosts` fail there (`No module named ...`) and both hooks
     silently no-op. Add the bundle dir to sys.path so they resolve. core.* still
@@ -62,10 +62,10 @@ def _ensure_bundle_on_path() -> None:
     env = _os.environ.get("FROGNET_BUNDLE_DIR")
     if env:
         cands.append(env)
-    cands.append("/etc/frognet_bundles/communicator")
+    cands.append("/opt/frognet_semantic/ribbit/examples/communicator")
     here = _os.path.dirname(_os.path.abspath(__file__))
     repo = _os.path.abspath(_os.path.join(here, "..", "..", ".."))
-    cands.append(_os.path.join(repo, "etc", "frognet_bundles", "communicator"))
+    cands.append(_os.path.join(repo, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
     for d in cands:
         if d and _os.path.isdir(d) and d not in _sys.path:
             _sys.path.insert(0, d)
@@ -579,7 +579,7 @@ def main():
         # deterministic (highest .1) and already in out['etc_hosts'].
         _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
         # [SERVICE_HOSTS_ELECTION_V1] POST-merge determination. Every component's host
-        # (databasehost, mediahost, boardgame, ...) is its UnREST callback's pure pick
+        # (databasehost, mediahost, ...) is its UnREST callback's pure pick
         # over the capability tuples in databasehost_control - identical on every node by
         # construction. No floor, no per-node reachability cull. self_ip = this node's .1,
         # used only for local-by-definition when a callback names no winner. This is a

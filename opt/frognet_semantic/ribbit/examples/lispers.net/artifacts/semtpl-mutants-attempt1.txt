@@ -1,0 +1,16 @@
+CAUGHT strip: ASCII whitespace only: FAIL detect_rep: 2200 cases, 1 differ;FAIL leaf: 4145 cases, 20 differ;FAIL learn: 5894 cases, 22 differ;FAIL pred: 3380 cases, 10 differ;FAIL schema: 2500 cases, 14 differ;
+CAUGHT lower: ASCII only: FAIL leaf: 4145 cases, 15 differ;
+CAUGHT IGNORECASE [a-z0-9]: ASCII only: FAIL detect_rep: 2200 cases, 16 differ;FAIL detect_req: 2200 cases, 4 differ;FAIL sniff: 2025 cases, 4 differ;
+CAUGHT ensure_ascii escapes in upper-case hex: FAIL dumps: 5010 cases, 1090 differ;FAIL rebuild: 5072 cases, 205 differ;FAIL rebuild_body: 3000 cases, 712 differ;FAIL train: 1500 cases, 1 differ;
+CAUGHT quote: lower-case percent hex: FAIL build_url: 2000 cases, 348 differ;FAIL urlencode: 1000 cases, 470 differ;
+CAUGHT parse_qsl drops blank values: FAIL dyn_vals: 1500 cases, 3 differ;FAIL normalize: 1532 cases, 13 differ;FAIL parse_qs: 1532 cases, 52 differ;FAIL parse_qsl: 1532 cases, 52 differ;
+CAUGHT dict key: no $-before-newline: FAIL learn: 5894 cases, 26 differ;FAIL schema: 2500 cases, 47 differ;FAIL train: 1500 cases, 2 differ;
+MISSED field order not sorted
+CAUGHT rebuild_json: no rows special case: FAIL rebuild: 5072 cases, 61 differ;FAIL rebuild_body: 3000 cases, 769 differ;FAIL rebuild_json: 2000 cases, 723 differ;
+CAUGHT blob threshold 4096: FAIL blobs: 2 cases, 1 differ;FAIL learn: 5894 cases, 2 differ;
+CAUGHT text sniff threshold 0.2: FAIL detect_rep: 2200 cases, 3 differ;FAIL detect_req: 2200 cases, 6 differ;FAIL sniff: 2025 cases, 7 differ;
+CAUGHT cannot-hold returned as empty fields: FAIL extract: 4024 cases, 305 differ;
+MISSED host path: equality, not suffix
+MISSED merge: types must match to be equal
+semtpl mutants caught: 11 of 14
+rc=0

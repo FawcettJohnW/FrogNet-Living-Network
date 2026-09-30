@@ -1,0 +1,2 @@
+PASS rdiff: 4000 cases, 0 differ
+RESULT PASS fnwp S4b-reply vs /home/claude/sfix/opt/frognet_semantic/daemon/engine/session.py (seed 20260925)

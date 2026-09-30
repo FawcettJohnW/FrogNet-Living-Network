@@ -1,0 +1,2 @@
+held_remove_observable=FAIL remove produced no later truth
+exit=1

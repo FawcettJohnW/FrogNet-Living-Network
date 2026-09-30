@@ -1,0 +1,4 @@
+v0.63-bounded, second issue (2026-09-28) -- compiled code UNCHANGED since v0.63-bounded; no rebuild needed if you
+built v0.63. Changed since the first issue: tools/acceptance.py (monitor snapshots read at each run boundary; every
+scale step from a fresh start; the load generator spread over processes), tools/matched_audit.py (new),
+README.md, README-EXPERIMENT.md, RIBBIT-LISP-REPORT.md and DOCUMENTS.md (new), docs/ (the analysis documents and working notes), evidence/loopback-runs/, evidence/2026-09-28/ (the run and the audit the report describes).

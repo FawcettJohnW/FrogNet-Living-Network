@@ -1,0 +1,2 @@
+usage: test_control_wire_oracle.py [-h] [--ribbit RIBBIT] control_root
+test_control_wire_oracle.py: error: the following arguments are required: control_root

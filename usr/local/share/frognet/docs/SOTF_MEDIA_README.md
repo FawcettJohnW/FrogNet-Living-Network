@@ -2,7 +2,7 @@
 
 This overlay drops in from / and lands files at their real system paths:
 
-  /etc/frognet_bundles/communicator/   runtime modules + the phone app
+  /opt/frognet_semantic/ribbit/examples/communicator/   runtime modules + the phone app
       sotf_media_codex.py      codex (AV raw on the established socket; control SAME/DIFF)
       sotf_metrics.py          throughput + control-plane convergence counters
       sotf_media_backing.py    real backings: tuple-on-:80, established socket, election regen

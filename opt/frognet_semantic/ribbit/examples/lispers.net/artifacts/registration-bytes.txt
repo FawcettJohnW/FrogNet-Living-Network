@@ -1,0 +1,6 @@
+N = database-mapping entries (1 RLOC each). Native = FNW1 frame bytes (out+in) per participant. UDP = full Map-Register(s).
+   N | establish ETR       MS | refresh ETR       MS | change ETR     MS | UDP register pkts  w/ hdrs
+   1 |           576      972 |         578      820 |        580    822 |           88    1      116
+  10 |          5771     6358 |        1218     6363 |        581    826 |          340    1      368
+ 100 |         58058    54533 |        7710    55862 |        582    830 |         3100    5     3240
+A conventional ETR sends the full UDP register(s) at establishment, every 60 s refresh, and on change.

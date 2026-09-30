@@ -19,7 +19,7 @@
 # Windowed viewer — NEEDS a display.
 #   runClient NAME [RELAY] [extra…]   (add --no-video --no-audio for receive-only)
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$HERE/communicator_live.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/etc/frognet_bundles/communicator}"; fi
+if [ -f "$HERE/communicator_live.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/opt/frognet_semantic/ribbit/examples/communicator}"; fi
 : "${FN_RELAY:=mediahost.frognet:9000}"
 if [ -z "$1" ]; then echo "usage: runClient NAME [RELAY] [extra…]   (needs a display)" >&2; exit 2; fi
 name="$1"; shift

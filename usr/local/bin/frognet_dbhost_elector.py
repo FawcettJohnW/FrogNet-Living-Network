@@ -95,7 +95,7 @@ def _read_last_merge():
 def main():
     # paths for the live election + my FrogNet identity
     sys.path.insert(0, "/opt/frognet_semantic")
-    sys.path.insert(0, "/etc/frognet_bundles/communicator")
+    sys.path.insert(0, "/opt/frognet_semantic/ribbit/examples/communicator")
     # [NO_FALLBACK_V1] `return 0  # never fail the timer` is the fallback in its
     # purest form: the election modules are missing, no election runs, and
     # systemd records a clean success. The timer then reports green forever

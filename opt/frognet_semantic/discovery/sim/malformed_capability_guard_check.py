@@ -17,7 +17,7 @@ import os, sys, time
 _HERE = os.path.abspath(__file__)
 _FS = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))     # opt/frognet_semantic
 _WORK = os.path.dirname(os.path.dirname(_FS))                      # work
-sys.path.insert(0, os.path.join(_WORK, "etc", "frognet_bundles", "communicator"))
+sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 
 import frognet_tuples as T
 import frognet_role_elect as E

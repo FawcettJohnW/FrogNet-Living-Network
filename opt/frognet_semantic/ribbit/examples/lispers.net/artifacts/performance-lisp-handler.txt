@@ -1,0 +1,4 @@
+Map-Request -> Map-Reply (registered)    median     29.1 us  p90     36.0 us  (N=2000)
+Map-Request -> negative reply            median     18.0 us  p90     20.4 us  (N=2000)
+Map-Register -> Map-Notify               median    450.8 us  p90    564.4 us  (N=2000)
+{'registers': 2001, 'requests': 4001, 'rejected': 0}

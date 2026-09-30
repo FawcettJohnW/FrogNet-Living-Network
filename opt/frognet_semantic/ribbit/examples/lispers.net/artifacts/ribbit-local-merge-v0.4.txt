@@ -1,0 +1,18 @@
+test_map_cache_is_collection (tests.test_read_contract.ReadContract.test_map_cache_is_collection) ... ok
+test_site_cache_is_collection (tests.test_read_contract.ReadContract.test_site_cache_is_collection) ... ok
+test_system_is_mapping (tests.test_read_contract.ReadContract.test_system_is_mapping) ... ok
+test_map_resolver_add_get_delete (tests.test_roundtrip_contract.RoundTripContract.test_map_resolver_add_get_delete) ... ok
+test_iid_isolation (tests.test_mapping_contract.MappingContract.test_iid_isolation) ... ok
+test_longest_prefix_match (tests.test_mapping_contract.MappingContract.test_longest_prefix_match) ... ok
+test_merge_registration_unions_independent_xtrs (tests.test_registration_contract.RegistrationContract.test_merge_registration_unions_independent_xtrs) ... ok
+test_merge_replacement_changes_only_own_xtr_truth (tests.test_registration_contract.RegistrationContract.test_merge_replacement_changes_only_own_xtr_truth) ... ok
+test_refresh_cannot_change_locator_set (tests.test_registration_contract.RegistrationContract.test_refresh_cannot_change_locator_set) ... ok
+test_registration_replaces_locator_set (tests.test_registration_contract.RegistrationContract.test_registration_replaces_locator_set) ... ok
+test_registration_resolves_registered_rlocs (tests.test_registration_contract.RegistrationContract.test_registration_resolves_registered_rlocs) ... ok
+test_zero_ttl_deregisters (tests.test_registration_contract.RegistrationContract.test_zero_ttl_deregisters) ... ok
+test_zero_ttl_from_non_rloc_is_ignored (tests.test_registration_contract.RegistrationContract.test_zero_ttl_from_non_rloc_is_ignored) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.002s
+
+OK

@@ -99,7 +99,7 @@ def scenario():
     _root = os.path.abspath(__file__)
     for _ in range(5):
         _root = os.path.dirname(_root)              # .../work
-    sys.path.insert(0, os.path.join(_root, "etc", "frognet_bundles", "communicator"))
+    sys.path.insert(0, os.path.join(_root, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
     # core handlers live under opt/frognet_semantic/core as a package
     import importlib
     for m in ("frognet_role_elect",):

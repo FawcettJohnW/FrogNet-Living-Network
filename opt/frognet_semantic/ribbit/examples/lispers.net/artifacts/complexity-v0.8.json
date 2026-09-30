@@ -1,0 +1,14 @@
+{
+  "checkpoint": "v0.8",
+  "file": "ribbit_cpp/ribbit_lisp.cpp",
+  "physical_lines": 894,
+  "nonblank_noncomment_lines": 894,
+  "semicolon_count": 608,
+  "if_sites": 169,
+  "for_sites": 49,
+  "while_sites": 1,
+  "max_line_length": 198,
+  "lines_over_200": 0,
+  "publishable_complexity_comparison": false,
+  "reason": "counts are now honest for Ribbit-LISP, but control and Ribbit behavioral surfaces are not yet aligned enough for a ratio"
+}

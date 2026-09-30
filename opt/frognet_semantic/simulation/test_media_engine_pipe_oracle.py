@@ -31,7 +31,7 @@ import os, sys, subprocess, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUNDLE = os.environ.get("FN_COMMUNICATOR_DIR") or os.path.normpath(
-    os.path.join(HERE, "..", "..", "..", "etc", "frognet_bundles", "communicator"))
+    os.path.join(HERE, "..", "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 ENGINE = os.path.join(BUNDLE, "frognet_communicator.py")
 sys.path.insert(0, BUNDLE)
 

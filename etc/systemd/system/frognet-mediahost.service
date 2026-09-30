@@ -22,15 +22,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/etc/frognet_bundles/communicator
-Environment=PYTHONPATH=/opt/frognet_semantic:/etc/frognet_bundles/communicator
+WorkingDirectory=/opt/frognet_semantic/ribbit/examples/communicator
+Environment=PYTHONPATH=/opt/frognet_semantic:/opt/frognet_semantic/ribbit/examples/communicator
 Environment=FROGNET_LOG_LEVEL=INFO
 # The fnav relay: a type-agnostic FNWP frame fan — accepts caller connections and forwards
 # each peer's audio/video frames to all OTHER peers. This is the media host fnav clients
 # (fnav.Call / comms.py) actually speak. It is NOT frognet_mediahost_server.py, which speaks
 # the older SotF create-stream/conn_info tuple protocol that fnav does not use.
 # Headless: binds a socket only — no camera, mic, or display — so it runs on any node.
-ExecStart=/usr/bin/env python3 /etc/frognet_bundles/communicator/fnav.py --serve 0.0.0.0:9000
+ExecStart=/usr/bin/env python3 /opt/frognet_semantic/ribbit/examples/communicator/fnav.py --serve 0.0.0.0:9000
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal

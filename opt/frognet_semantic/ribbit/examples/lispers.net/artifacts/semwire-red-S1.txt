@@ -1,0 +1,94 @@
+[codec] BUILD=2026-03-24-v1
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'')
+  python=ok 464e5731010000000000000000000000000000000000000000
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'\x00')
+  python=ok 464e573101000000000000000000000000000000000000000100
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', b'x')
+  python=ok 464e573101000000000000000000000000000000000000000178
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<256>')
+  python=ok 464e5731010000000000000000000000000000000000000100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<1000>')
+  python=ok 464e57310100000000000000000000000000000000000003e8fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<4096>')
+  python=ok 464e57310100000000000000000000000000000000000010004bb8e803f0aac5d19fb677f0a1e725a9e8c8e4e9f37de38b053c8da16c5893b36f3c2c2590d9078fcc7c93916d5d37c973c45aba3e5da4d0ac2da00e9134e7d8458e3b6d4dc432478c40205e2d1144c31640b6a615076671f02e60c01630f089ebf48bee3560455558d37ef094fe5c582f300671e4ac5e8a3740853
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<65536>')
+  python=ok 464e57310100000000000000000000000000000000000100004bf7df76c9d5a0b342aa68e7328c4aef512cf82d67f2981e7139ed95a1714b66b15ea62a957fd8b35bb149468eae9ec3cf0a9f5032043e90c437ca5914f574adf5b6657419ae1d05370f8a7b725a2b1b356f0649d7ef4cf8aa2836260b8f39cbab122e9ac27144d581ebe270629ea9b67b2ac0e181ab6447e2b7396
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<70001>')
+  python=ok 464e5731010000000000000000000000000000000000011171c4642836bcaab479f3edb688333d1b5e6185f5ad2673264eeac7cb63cb45a9ad0fb75d2f4349e05a138dc071a51486721368e4218fe018044d76e923b4e4312d826749f0dcfa456ceda8de97cefb5caec2bdd82bb60833eb17b28b65a156e11acda09e7582233e74d02d55cae49fa337b081d7d0d96320eb79bf8db
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00', '<1048576>')
+  python=ok 464e57310100000000000000000000000000000000001000008dabd97b4bad0508738069e9dad689c2f2a78e1c6ead34dfcc38be7b9731155a781adf75f811cd0f6d83bf3d6009a1f460df3a5dde99cc223c819cf05a409a167f509aa01cc5f7f82654d9edefd5b3be81431fc3b3d237940025474ab3f05a422e121653d9b7c3b2cfaa230511befbb4946a857def6ffdf9e637727
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', b'')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c9200000000
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', b'\x00')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c920000000100
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', b'x')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c920000000178
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', '<256>')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c9200000100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', '<1000>')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c92000003e8fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  c++   =raise other:semwire S1 red: not implemented
+DIFF wrap req_full(b'\xdc\xa3\x82\tH~3\xdf\xa4\xe0\x01[ \x12,\x92', '<4096>')
+  python=ok 464e573101dca38209487e33dfa4e0015b20122c92000010004bb8e803f0aac5d19fb677f0a1e725a9e8c8e4e9f37de38b053c8da16c5893b36f3c2c2590d9078fcc7c93916d5d37c973c45aba3e5da4d0ac2da00e9134e7d8458e3b6d4dc432478c40205e2d1144c31640b6a615076671f02e60c01630f089ebf48bee3560455558d37ef094fe5c582f300671e4ac5e8a3740853
+  c++   =raise other:semwire S1 red: not implemented
+corpus wrap outcomes (python): {'ok': 4273, 'raise value': 394, 'raise struct': 99, 'raise encode': 2}
+corpus parse outcomes (python):
+      5121 msg ERROR
+      7373 msg HELLO
+        83 msg LEGACY
+      2980 msg REQ_DIFF
+      2956 msg REQ_FULL
+     10340 msg REQ_MISS
+      3035 msg REQ_RAW
+     10309 msg REQ_REPEAT
+      2902 msg RESP_DIFF
+      3482 msg RESP_RAW
+     10389 msg RESP_SAME
+     12789 msg RTT_LOOP
+     87104 msg RTT_PING
+     70754 msg RTT_PONG
+     12862 msg SEQ_RESET
+     19953 msg unknown-op
+     20727 none
+       726 raise value short ERROR header
+      7550 raise value short ERROR message
+       153 raise value short HELLO frame
+      5788 raise value short HELLO ip
+      3537 raise value short REQ_DIFF header
+      8003 raise value short REQ_DIFF payload
+      3498 raise value short REQ_FULL header
+      7915 raise value short REQ_FULL payload
+      2665 raise value short REQ_MISS frame
+      3541 raise value short REQ_RAW header
+      7973 raise value short REQ_RAW payload
+      2659 raise value short REQ_REPEAT frame
+      3315 raise value short RESP_DIFF header
+      7658 raise value short RESP_DIFF payload
+      4033 raise value short RESP_RAW header
+       422 raise value short RESP_RAW headers
+      8155 raise value short RESP_RAW payload
+       428 raise value short RESP_RAW payload content
+      2609 raise value short RESP_SAME frame
+     34905 raise value short RTT_PING header
+     78731 raise value short RTT_PING pad
+     60853 raise value short RTT_PONG frame
+FAIL wrap: 4768 cases, 4768 differ
+FAIL parse: 538276 cases, 538276 differ
+FAIL is_fnw1: 5000 cases, 5000 differ
+FAIL op_name: 256 cases, 256 differ
+FAIL rt_cpp_to_py: 0 cases, 0 differ
+FAIL rt_py_to_cpp: 4273 cases, 4273 differ
+RESULT FAIL semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 20260924, fuzz 200000)

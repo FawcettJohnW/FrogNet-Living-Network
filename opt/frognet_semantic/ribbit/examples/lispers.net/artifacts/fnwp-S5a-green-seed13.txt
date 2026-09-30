@@ -1,0 +1,5 @@
+PASS dreply: 10030 cases, 0 differ
+PASS rbh: 2977 cases, 0 differ
+PASS repr S: 6003 cases, 0 differ
+PASS sid: 990 cases, 0 differ
+RESULT PASS fnwp S5a vs /home/claude/sfix/opt/frognet_semantic/daemon/engine/session.py (seed 13, 20000 cases)

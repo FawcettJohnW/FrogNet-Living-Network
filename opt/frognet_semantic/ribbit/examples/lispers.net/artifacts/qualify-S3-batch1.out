@@ -1,0 +1,39 @@
+Ribbit-LISP qualification 20260925-123850 on Linux 6.18.44-fc-v42 x86_64, 1 cores; endpoint 127.0.0.1:8788
+== build
+build PASS
+== semtpl S3 oracle (C++ templates vs core/json_handler.py, template.py, format_registry.py, proxy/templates.py)
+PASS blobs: 2 cases, 0 differ
+PASS build_url: 2000 cases, 0 differ
+PASS canon_key: 220 cases, 0 differ
+PASS ctype: 7 cases, 0 differ
+PASS detect_rep: 2200 cases, 0 differ
+PASS detect_req: 2200 cases, 0 differ
+PASS dumps: 5010 cases, 0 differ
+PASS dyn_shape: 1500 cases, 0 differ
+PASS dyn_vals: 1500 cases, 0 differ
+PASS empty_arrays: 2500 cases, 0 differ
+PASS extract: 4024 cases, 0 differ
+PASS fields: 1518 cases, 0 differ
+PASS first_row: 2500 cases, 0 differ
+PASS leaf: 4145 cases, 0 differ
+PASS learn: 5894 cases, 0 differ
+PASS merge: 2549 cases, 0 differ
+PASS normalize: 1532 cases, 0 differ
+PASS opcode: 1006 cases, 0 differ
+PASS parse_qs: 1532 cases, 0 differ
+PASS parse_qsl: 1532 cases, 0 differ
+PASS pred: 3380 cases, 0 differ
+PASS rebuild: 5072 cases, 0 differ
+PASS rebuild_body: 3000 cases, 0 differ
+PASS rebuild_json: 2000 cases, 0 differ
+PASS sanitize: 2500 cases, 0 differ
+PASS schema: 2500 cases, 0 differ
+PASS sniff: 2025 cases, 0 differ
+PASS tpl_id: 1000 cases, 0 differ
+PASS train: 1500 cases, 0 differ
+PASS urlencode: 1000 cases, 0 differ
+PASS urlparse: 1532 cases, 0 differ
+RESULT PASS semtpl vs /home/claude/sfix/opt/frognet_semantic/core/json_handler.py (seed 20260924, scale 1, 68878 cases)
+semtpl semtpl mutants caught: 14 of 14
+results: /home/claude/s2/ribbit-lisp-conformance/results/20260925-123850
+rc=0

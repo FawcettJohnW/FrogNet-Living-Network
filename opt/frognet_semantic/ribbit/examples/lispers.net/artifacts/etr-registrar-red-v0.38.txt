@@ -1,0 +1,3 @@
+    if not r['ok']: raise RuntimeError(r['error'])
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: unsupported operation: etr_registrar.start

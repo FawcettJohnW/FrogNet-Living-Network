@@ -1,0 +1,14 @@
+1
+N=20000 per run, 5 runs, pipelined through the JSON-lines interface, FNW1 backend, warmed
+wire.etr_request4 (ETR, held database mapping): median 21.67 us/request  runs [21.65, 21.67, 21.92, 21.89, 21.13]
+wire.request4     (Map-Server, held registration): median 25.97 us/request  runs [26.73, 25.9, 26.32, 25.97, 25.44]
+wire.etr_request6 (ETR, held database mapping): median 26.36 us/request  runs [26.36, 26.47, 26.44, 26.36, 26.18]
+wire.etr_register4 (ETR Map-Register, 2 IPv4 records, HMAC-SHA-1): median 26.89 us/register  runs [27.21, 26.63, 26.89, 26.8, 27.13]
+wire.etr_register4 (held map-server configuration): median 21.57 us/register  runs [21.69, 21.59, 21.57, 21.32, 21.5]
+wire.etr_notify4 (verify Map-Notify, build Map-Notify-Ack, HMAC-SHA-1): median 86.80 us/notify  runs [85.41, 87.37, 88.08, 85.65, 86.8]
+map_server_reads after runs: 0
+database_mapping_reads after runs: 0  request_reads: 0
+registrar trigger latency, N=200: median 411 us, p90 504 us, max 1865 us
+Map-Notify -> Map-Notify-Ack UDP round trip, N=500: median 31 us, p90 49 us, max 5732 us
+(first native-registration run failed: its ETR published no liveness, so, as intended from v0.44, nothing resolved; the benchmark now starts liveness)
+native registration: database change -> governor -> ITR resolves new RLOC, N=100: median 1720 us, p90 2368 us, max 2753 us

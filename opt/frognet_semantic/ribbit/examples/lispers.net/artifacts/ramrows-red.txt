@@ -1,0 +1,7 @@
+{"pairs": 396, "hold": 0, "exact": 0, "raw": 0, "raw_really_changed": 0, "diff_bytes": 0, "raw_bytes": 0, "errors": 396}
+FAIL handler error: ramrows red: learn
+FAIL handler error: ramrows red: learn
+FAIL handler error: ramrows red: learn
+FAIL handler error: ramrows red: learn
+FAIL handler error: ramrows red: learn
+RESULT FAIL ramrows (seed 1, 100 steps, 396 pairs)

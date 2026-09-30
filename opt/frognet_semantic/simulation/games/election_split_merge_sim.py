@@ -24,8 +24,7 @@ known_hosts IS its reachable candidate view. A SPLIT cuts L2 segments and re-con
 a MERGE restores them and re-converges.
 
 Election truth: frognet_role_elect.elect(handler) over the real core handlers
-(databasehost = WAN-wide mysql gate, mediahost = LAN-only ffmpeg+libvpx gate, gamehost =
-board class, python3-trivial). We feed each node's reachable set as that node's tuple
+(databasehost = WAN-wide mysql gate, mediahost = LAN-only ffmpeg+libvpx gate). We feed each node's reachable set as that node's tuple
 view and assert: (1) every node in a partition elects the SAME winner per role
 (deterministic agreement), (2) a reachable specialist wins its role on merit, (3) on
 split the winner re-elects within the island, (4) on merge it returns.
@@ -49,14 +48,12 @@ def db_cap(ip, mon=False):   # mysql gate; 'mon' = the DB monster (off-mesh beef
 def media_cap(ip, gpu=False, libvpx=True):
     return dict(lan_ip=ip, ffmpeg=1, libvpx=1 if libvpx else 0,
                 cores=(16 if gpu else 2), cpu_bench_total=(14000 if gpu else 1500))
-def game_cap(ip):            # board class: python3-trivial, every reachable box eligible
-    return dict(lan_ip=ip)
 
 # Map node -> which roles it advertises (a specialist advertises only its class).
 def caps_for(roles_by_node, reachable_ips):
     """Build {role: {ip: cap}} from the per-node advertisement, restricted to the set
     of IPs reachable in THIS partition (a candidate you can't reach isn't a candidate)."""
-    out = {"databasehost": {}, "mediahost": {}, "gamehost": {}}
+    out = {"databasehost": {}, "mediahost": {}}
     for ip, roles in roles_by_node.items():
         if ip not in reachable_ips: continue
         for role, blob in roles.items():
@@ -99,7 +96,7 @@ def elect_all(roles_by_node, node_ip, reach_ips, wan_subnets):
     install_view(caps, wan_subnets, node_ip)
     RE, role_handler = fresh_elect()
     res={}
-    for role in ("databasehost","mediahost","gamehost"):
+    for role in ("databasehost","mediahost"):
         h=role_handler(role); w=RE.elect(h)
         res[role]= w["lan_ip"] if w else None
     return res
@@ -125,15 +122,15 @@ def agree_and_report(tag, topo, roles_by_node, ip_of, wan_of):
         reach_ips=set(); 
         for n in grp: reach_ips|=reach[n]
         # WAN subnets within this island = the /24s of reachable nodes other than own LAN
-        # role scope: mediahost is LAN-scoped (one winner PER LAN); databasehost &
-        # gamehost are WAN-wide (one winner across the whole partition).
+        # role scope: mediahost is LAN-scoped (one winner PER LAN); databasehost is
+        # WAN-wide (one winner across the whole partition).
         LAN_SCOPED={"mediahost"}
         per_node={}
         for n in grp:
             wan = {slash24(ip_of[m]) for m in grp if slash24(ip_of[m])!=slash24(ip_of[n])}
             per_node[n]=elect_all(roles_by_node, ip_of[n], reach_ips, wan)
         # WAN-wide roles: every node in the partition must match
-        for role in ("databasehost","gamehost"):
+        for role in ("databasehost",):
             vals={n:per_node[n][role] for n in grp}
             if len(set(vals.values()))!=1:
                 problems.append(f"partition {grp} WAN role {role} DISAGREED: {vals}")
@@ -145,7 +142,7 @@ def agree_and_report(tag, topo, roles_by_node, ip_of, wan_of):
                 if len(set(vals.values()))!=1:
                     problems.append(f"partition {grp} LAN role {role} on {lan} DISAGREED: {vals}")
         # summary: WAN winners once, mediahost per-LAN
-        srec=dict((r,per_node[grp[0]][r]) for r in ("databasehost","gamehost"))
+        srec=dict((r,per_node[grp[0]][r]) for r in ("databasehost",))
         srec["mediahost(by LAN)"]={slash24(ip_of[n]):per_node[n]["mediahost"] for n in grp}
         summary[tuple(grp)]=srec
     check(f"{tag}: all nodes in each partition agree on every role", problems)
@@ -164,8 +161,8 @@ def build_world(seed):
     for name,ip in sites.items():
         n=S.FrogNode(name); n.add_iface("eth0", ip+"/24"); t.add(n)
     # specialists hang off site LANs (non-.1 boxes on a site's /24)
-    # DB monster off NYC; media GPU box off SEA; board box off AMS
-    spec={"DBMON":("10.102.60.50","NYC"), "GPU":("10.160.160.50","SEA"), "BRD":("10.120.120.50","AMS")}
+    # DB monster off NYC; media GPU box off SEA
+    spec={"DBMON":("10.102.60.50","NYC"), "GPU":("10.160.160.50","SEA")}
     for name,(ip,site) in spec.items():
         n=S.FrogNode(name); n.add_iface("eth0", ip+"/24"); t.add(n)
         t.link((name,"eth0"),(site,"eth0"))               # same /24 as its site gw
@@ -180,12 +177,11 @@ def build_world(seed):
         t.link((a,f"wg{i}"),(b,f"wg{i}"))
         segs.append(((a,f"wg{i}"),(b,f"wg{i}")))
     roles_by_node={
-        sites["SEA"]:{"databasehost":db_cap(sites["SEA"]),"mediahost":media_cap(sites["SEA"]),"gamehost":game_cap(sites["SEA"])},
-        sites["NYC"]:{"databasehost":db_cap(sites["NYC"]),"mediahost":media_cap(sites["NYC"]),"gamehost":game_cap(sites["NYC"])},
-        sites["AMS"]:{"databasehost":db_cap(sites["AMS"]),"mediahost":media_cap(sites["AMS"]),"gamehost":game_cap(sites["AMS"])},
+        sites["SEA"]:{"databasehost":db_cap(sites["SEA"]),"mediahost":media_cap(sites["SEA"])},
+        sites["NYC"]:{"databasehost":db_cap(sites["NYC"]),"mediahost":media_cap(sites["NYC"])},
+        sites["AMS"]:{"databasehost":db_cap(sites["AMS"]),"mediahost":media_cap(sites["AMS"])},
         "10.102.60.50":{"databasehost":db_cap("10.102.60.50",mon=True)},     # DB monster
         "10.160.160.50":{"mediahost":media_cap("10.160.160.50",gpu=True)},   # media GPU box
-        "10.120.120.50":{"gamehost":game_cap("10.120.120.50")},              # board box
     }
     ip_of={n: t.nodes[n].ifaces["eth0"].ip for n in t.nodes}
     return t, roles_by_node, ip_of, segs
@@ -197,7 +193,7 @@ def run():
         t,roles,ip_of,segs = build_world(seed)
         whole = agree_and_report("WHOLE", t, roles, ip_of, None)
         # expectation while whole: DB monster (off NYC) wins data WAN-wide; media is LAN
-        # so each LAN's own media box wins locally; board specialist wins gamehost.
+        # so each LAN's own media box wins locally.
         for grp,res in whole.items():
             if res["databasehost"]!="10.102.60.50":
                 FAILS.append(f"seed{seed} WHOLE: DB monster should win data, got {res['databasehost']}")

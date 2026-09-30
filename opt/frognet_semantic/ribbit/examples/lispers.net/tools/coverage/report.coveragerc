@@ -1,0 +1,8 @@
+[run]
+branch = True
+data_file = /tmp/lcov/data/.coverage
+[paths]
+source =
+    /tmp/lispers/lispers.net-master/lisp/
+    ./
+    /lispers.net/

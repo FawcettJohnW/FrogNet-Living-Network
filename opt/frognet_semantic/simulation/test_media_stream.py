@@ -42,14 +42,14 @@ def check(name, cond, extra=""):
         FAIL += 1; print(f"  [FAIL] {name}  {extra}")
 
 # load the real sotf_ladder for bearer/ceiling semantics: it's on PYTHONPATH on a
-# box (/etc/frognet_bundles/communicator); fall back to a path relative to THIS file.
+# box (/opt/frognet_semantic/ribbit/examples/communicator); fall back to a path relative to THIS file.
 ladder = None
 try:
     import sotf_ladder as ladder
 except Exception:
     _LADDER_PATH = os.path.normpath(os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
-        "..", "..", "..", "etc", "frognet_bundles", "communicator", "sotf_ladder.py"))
+        "..", "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator", "sotf_ladder.py"))
     if os.path.exists(_LADDER_PATH):
         spec = importlib.util.spec_from_file_location("sotf_ladder", _LADDER_PATH)
         ladder = importlib.util.module_from_spec(spec); spec.loader.exec_module(ladder)

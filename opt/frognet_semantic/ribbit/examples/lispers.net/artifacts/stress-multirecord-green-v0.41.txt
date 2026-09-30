@@ -1,0 +1,5 @@
+binary=/tmp/v41/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 599, 'good': 1} partial_applications=0
+binary=/tmp/v41/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 599, 'good': 1} partial_applications=0
+binary=/tmp/v41/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 587, 'good': 13} partial_applications=0
+binary=/tmp/v41/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 593, 'good': 7} partial_applications=0
+binary=/tmp/v41/ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 586, 'good': 14} partial_applications=0

@@ -1,0 +1,9 @@
+{"same": 783, "changed_held": 106, "changed_diff_bytes": 6333, "changed_raw_bytes": 191342, "pairs": 1196, "hold": 889, "exact": 889, "raw": 307, "raw_really_changed": 307, "diff_bytes": 6333, "raw_bytes": 769464, "errors": 0}
+CHANGED answers carried as a diff: 106, 6333 B of diff vs 191342 B of answers (3.3%, 30x less)
+RESULT PASS ramrows (seed 1, 300 steps, 1196 pairs)
+{"same": 819, "changed_held": 72, "changed_diff_bytes": 4621, "changed_raw_bytes": 144334, "pairs": 1196, "hold": 891, "exact": 891, "raw": 305, "raw_really_changed": 305, "diff_bytes": 4621, "raw_bytes": 839468, "errors": 0}
+CHANGED answers carried as a diff: 72, 4621 B of diff vs 144334 B of answers (3.2%, 31x less)
+RESULT PASS ramrows (seed 2, 300 steps, 1196 pairs)
+{"same": 800, "changed_held": 121, "changed_diff_bytes": 6871, "changed_raw_bytes": 221804, "pairs": 1196, "hold": 921, "exact": 921, "raw": 275, "raw_really_changed": 275, "diff_bytes": 6871, "raw_bytes": 847382, "errors": 0}
+CHANGED answers carried as a diff: 121, 6871 B of diff vs 221804 B of answers (3.1%, 32x less)
+RESULT PASS ramrows (seed 3, 300 steps, 1196 pairs)

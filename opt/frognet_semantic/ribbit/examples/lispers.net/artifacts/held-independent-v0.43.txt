@@ -1,0 +1,20 @@
+== test_held_resolver
+PASS cross-process warm wake, zero request reads, expiry, withdrawal
+PASS held site-policy wake and zero warmed authorization reads
+== test_held_ddt
+PASS held DDT dynamic /N wake, LPM, zero warmed reads, tombstone fallback/withdrawal
+== test_held_map_cache
+PASS held map-cache dynamic /N, LPM, zero warmed reads, inactive withdrawal fallback
+== test_held_database_mapping
+PASS held database-mapping LPM, zero warmed reads, inactive withdrawal fallback
+== test_held_etr_request
+PASS independent-process ETR Map-Request from held database mapping, zero request-time reads, withdrawal fallback, IPv4 and IPv6; ETR Map-Register from the held view accepted by an independent Map-Server; held map-server configuration, zero reads, no published password; Map-Notify from an independent Map-Server verified and acknowledged
+== test_etr_registrar
+PASS periodic ETR registrar: timer sends with refresh, immediate register to a new map-server, UDP datagrams accepted by an independent Map-Server, published send truth observed by another process
+== test_etr_registrar_notify
+PASS registrar control socket: register sent, notify from an independent Map-Server verified and acknowledged from the same socket, tampered notify dropped, counts observed by another process, keyless map-server recorded not fatal, clean stop
+== test_native_registration
+PASS native registration: ETR truth governed in place by the Map-Server participant, decisions observed, merged and withdrawn per ETR, resolved by an independent ITR; no packet, no copy of ETR truth
+== cross_process_ram
+cross_process_visibility=PASS
+replacement_visibility=PASS

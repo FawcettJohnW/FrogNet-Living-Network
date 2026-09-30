@@ -1,0 +1,1 @@
+binary=/tmp/w34-base/ribbit_cpp/ribbit-lisp pass=20 fail=0

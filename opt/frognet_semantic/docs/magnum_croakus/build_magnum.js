@@ -443,8 +443,8 @@ const frontTitle = (s) => {
 // back to yesterday's answer is the thing it exists to prevent.
 const doctrineScan = () => {
   const roots = [ process.env.FROGNET_SRC,
-                  "../etc/frognet_bundles/communicator",
-                  "/etc/frognet_bundles/communicator" ].filter(Boolean);
+                  "../opt/frognet_semantic/ribbit/examples/communicator",
+                  "/opt/frognet_semantic/ribbit/examples/communicator" ].filter(Boolean);
   const root = roots.find((d) => { try { return fs.statSync(d).isDirectory(); }
                                    catch (e) { return false; } });
   if (!root) return null;

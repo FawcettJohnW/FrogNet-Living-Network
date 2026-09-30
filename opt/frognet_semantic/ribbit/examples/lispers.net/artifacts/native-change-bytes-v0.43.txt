@@ -1,0 +1,3 @@
+one change, native v0.43 path: ETR process 593 B, Map-Server process 2055 B, ITR process 1498 B (v0.41 candidate with claim copy: 2427 / 1548 / 1920 B; conventional: one full register, 88 B for N=1)
+one change, native v0.43 path: ETR process 593 B, Map-Server process 1252 B, ITR process 1115 B (v0.41 candidate with claim copy: 2427 / 1548 / 1920 B; conventional: one full register, 88 B for N=1)
+one change, native v0.43 path: ETR process 593 B, Map-Server process 1428 B, ITR process 1116 B (v0.41 candidate with claim copy: 2427 / 1548 / 1920 B; conventional: one full register, 88 B for N=1)

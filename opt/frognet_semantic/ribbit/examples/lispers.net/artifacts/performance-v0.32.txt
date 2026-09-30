@@ -1,0 +1,10 @@
+v0.32 runtime lock-free snapshot publication performance qualification
+Host-local microbenchmark; 5,000,000 acquisitions/run; 9 runs; g++ -std=c++17 -O2 -pthread.
+This measures snapshot acquisition only, not Map-Request throughput.
+
+shared_ptr_atomic_median_ns=20.09
+ebr_raw_pointer_median_ns=20.22
+ratio_shared_over_ebr=0.99
+
+Interpretation: runtime lock freedom was obtained without a measurable snapshot-acquisition penalty in this run.
+Absolute nanoseconds are host/toolchain-specific; retain the same-host A/B, not the absolute value, as the portable result.

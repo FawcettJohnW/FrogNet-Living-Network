@@ -28,13 +28,14 @@
 #     ./build_linux_communicator.sh [SRC_ROOT] [OUTDIR]
 #     VER=2.9 ./build_linux_communicator.sh / /tmp
 #
-#     SRC_ROOT  tree containing BOTH etc/frognet_bundles and opt/frognet_semantic.
+#     SRC_ROOT  the tree root: opt/frognet_semantic holds both the Communicator
+#               (ribbit/examples/communicator) and core/.
 #               On a node that is "/". Default: current directory.
 #     OUTDIR    where the tarball lands. Default: current directory.
 #     CORE_ROOT override for core/ if it is not under SRC_ROOT.
 #
 # The client and core genuinely live in DIFFERENT trees on a node --
-# /etc/frognet_bundles/communicator and /opt/frognet_semantic/core -- so this
+# /opt/frognet_semantic/ribbit/examples/communicator and /opt/frognet_semantic/core -- so this
 # does not pretend one root covers both. CORE_ROOT exists for that reason.
 set -euo pipefail
 
@@ -43,20 +44,18 @@ OUTDIR="${2:-.}"
 VER="${VER:-2.9}"
 NAME="FrogNetCommunicator-${VER}-linux"
 
-COMMS="${SRC_ROOT%/}/etc/frognet_bundles/communicator"
-BUNDLES_SRC="${SRC_ROOT%/}/etc/frognet_bundles"
+COMMS="${SRC_ROOT%/}/opt/frognet_semantic/ribbit/examples/communicator"
 CORE_SRC="${CORE_ROOT:-${SRC_ROOT%/}/opt/frognet_semantic/core}"
 
 die() { echo "FATAL: $*" >&2; exit 1; }
 
 [[ -d "$COMMS" ]]       || die "no communicator dir at $COMMS (SRC_ROOT should be the tree root, e.g. /)"
-[[ -d "$BUNDLES_SRC" ]] || die "no bundles dir at $BUNDLES_SRC"
 [[ -d "$CORE_SRC" ]]    || die "no core/ at $CORE_SRC - frognet_tuples.py cannot resolve (set CORE_ROOT)"
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 PAY="${STAGE}/payload"
-mkdir -p "$PAY/bundles" "$PAY/core"
+mkdir -p "$PAY/core"
 
 # ---- client -----------------------------------------------------------------
 # EVERY non-test .py, not an import closure. A static closure from
@@ -106,23 +105,12 @@ done
 [[ -f "$PAY/core/__init__.py" ]]       || die "core/__init__.py missing - not a package"
 [[ -f "$PAY/core/frognet_tuples.py" ]] || die "core/frognet_tuples.py missing - the shim target"
 
-# ---- bundles ----------------------------------------------------------------
-n_b=0
-for d in "$BUNDLES_SRC"/*; do
-    [[ -d "$d" ]] || continue
-    b="$(basename "$d")"
-    case "$b" in communicator|communicator.old|*.old|*.out_of_way) continue ;; esac
-    cp -r "$d" "$PAY/bundles/$b"
-    n_b=$((n_b + 1))
-done
-
 # ---- launcher ---------------------------------------------------------------
 cat > "$PAY/run_communicator.sh" <<'LAUNCH'
 #!/usr/bin/env bash
 # FrogNet Communicator launcher. Resolves everything from its own location, so
 # the install directory can be moved without editing anything.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-export FROGNET_BUNDLES_ROOT="$HERE/bundles"
 export FROGNET_COMMUNICATOR_HOME="$HERE"
 exec python3 "$HERE/communicator_live.py" "$@"
 LAUNCH
@@ -137,7 +125,7 @@ cat > "$PAY/install.sh" <<'INSTALL'
 #   ./install.sh --prefix DIR install somewhere else
 #
 # No root. Nothing is written outside your home unless you name a prefix.
-# Re-runnable: bundles you added yourself are kept.
+# Re-runnable.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
@@ -164,7 +152,7 @@ python3 -c 'import tkinter' 2>/dev/null || {
     exit 1; }
 
 echo "installing to $APP"
-mkdir -p "$APP" "$APP/bundles"
+mkdir -p "$APP"
 
 cp -f "$SRC"/*.py "$APP/"
 cp -f "$SRC"/run_communicator.sh "$APP/"
@@ -175,13 +163,6 @@ chmod +x "$APP/run_communicator.sh"
 # `from core import frognet_tuples` against the install directory.
 rm -rf "$APP/core"
 cp -r "$SRC/core" "$APP/core"
-
-# merge ship-with bundles without clobbering ones the user added
-for d in "$SRC"/bundles/*; do
-    [[ -d "$d" ]] || continue
-    b="$(basename "$d")"
-    [[ -e "$APP/bundles/$b" ]] || cp -r "$d" "$APP/bundles/$b"
-done
 
 mkdir -p "$BIN"
 ln -sf "$APP/run_communicator.sh" "$BIN/frognet-communicator"
@@ -268,7 +249,6 @@ rm -f "$OUT"
 echo "built ${OUT}"
 echo "  client .py     ${n_py}  (skipped ${n_skip} test_ oracles)"
 echo "  core modules   ${n_core}"
-echo "  bundles        ${n_b}"
 echo "  total files    $(find "$PAY" -type f | wc -l)"
 echo "  size           $(du -h "$OUT" | cut -f1)"
 echo

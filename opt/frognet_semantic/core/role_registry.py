@@ -23,16 +23,13 @@
 # XML/HTML semantic compression. format_registry re-exports these for compatibility.
 from .sotf_handler import SotFMediaHandler
 from .database_handler import DatabaseRoleHandler
-from .game_role import GameRoleHandler
 
 SOTF_MEDIA_HANDLER = SotFMediaHandler()      # also the media-role handler
 DATABASE_HANDLER   = DatabaseRoleHandler()
-GAME_HANDLER       = GameRoleHandler()
 
 ROLE_HANDLERS = {
     "mediahost":    SOTF_MEDIA_HANDLER,
     "databasehost": DATABASE_HANDLER,
-    "boardgame":    GAME_HANDLER,
 }
 
 

@@ -62,16 +62,9 @@ gone "etc/frognet/tunnel.conf.lanonly-removed.20260725T171739Z"
 gone "etc/frognet/tunnel.conf.lanonly-removed.20260726T202620Z"
 gone "etc/frognet/tunnel.conf.lanonly-removed.20260726T223001Z"
 
-echo "-- stash the build script already skips by name"
-gone "etc/frognet_bundles/boardgame.out_of_way" 
+echo "-- the bundles directory, retired: the Communicator runs from /opt/frognet_semantic/ribbit/examples/communicator"
+gone "etc/frognet_bundles"
 
-echo "-- zero-byte shell accidents"
-gone "etc/frognet_bundles/communicator/0"
-gone "etc/frognet_bundles/communicator/0.3"
-gone "etc/frognet_bundles/communicator/10.160.160.1"
-gone "etc/frognet_bundles/communicator/="
-gone "etc/frognet_bundles/communicator/None"
-gone "etc/frognet_bundles/communicator/communicator"
 
 echo "-- zero-byte shell accident"
 gone "opt/frognet_semantic/daemon/engine/execution.pysystemctl"
@@ -218,7 +211,7 @@ gone "var/www/html/webrtc-web"
 
 echo
 echo "-- python bytecode (regenerated on next import)"
-for d in /opt/frognet_semantic /etc/frognet_bundles /usr/local/bin; do
+for d in /opt/frognet_semantic /usr/local/bin; do
     [ -d "$d" ] || continue
     if [ "$APPLY" -eq 1 ]; then
         find "$d" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null

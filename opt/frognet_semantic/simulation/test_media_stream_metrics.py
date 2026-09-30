@@ -29,7 +29,7 @@ Proves:
 import os, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BUNDLE = os.path.normpath(os.path.join(HERE, "..", "..", "etc", "frognet_bundles", "communicator"))
+BUNDLE = os.path.normpath(os.path.join(HERE, "..", "..", "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
 _TREE = os.path.dirname(HERE)  # opt/frognet_semantic
 for p in (BUNDLE, HERE, _TREE, os.path.join(_TREE, "core")):
     if os.path.isdir(p) and p not in sys.path:

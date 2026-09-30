@@ -1,0 +1,3 @@
+    ack,frm=recv(1.5); assert ack,'no Map-Notify-Ack on the map-server control port'
+                              ^^^
+AssertionError: no Map-Notify-Ack on the map-server control port

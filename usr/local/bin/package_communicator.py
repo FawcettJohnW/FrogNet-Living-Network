@@ -131,59 +131,22 @@ python communicator_live.py %*
 
 INSTALL_SH = """#!/usr/bin/env bash
 # install the client to ~/.local/share/FrogNetCommunicator and add a launcher on PATH.
-# Layout mirrors Windows: client .py FLAT at the app root, game bundles under ./bundles/
-# (so the launcher's bundles-root resolution finds them).
+# Layout mirrors Windows: client .py FLAT at the app root.
 set -eu
 APP="${XDG_DATA_HOME:-$HOME/.local/share}/FrogNetCommunicator"
 SRC="$(cd "$(dirname "$0")" && pwd)"
 echo "installing to $APP"
-mkdir -p "$APP/bundles"
+mkdir -p "$APP"
 cp -f "$SRC"/bundle/*.py "$APP/"
-cp -f "$SRC/run_communicator.sh" "$SRC/add_bundle.sh" "$APP/"
-chmod +x "$APP/run_communicator.sh" "$APP/add_bundle.sh"
+cp -f "$SRC/run_communicator.sh" "$APP/"
+chmod +x "$APP/run_communicator.sh"
 mkdir -p "$HOME/.local/bin"
 ln -sf "$APP/run_communicator.sh" "$HOME/.local/bin/frognet-communicator"
 echo "done. run: frognet-communicator --name <you>"
-echo "add a game:  $APP/add_bundle.sh <bundle>.tar.gz"
-"""
-
-# add a game bundle (a from-/ tar of etc/frognet_bundles/<name>) into a client install.
-ADD_BUNDLE_SH = """#!/usr/bin/env bash
-# add_bundle.sh <bundle.tar.gz> [install_dir] — install a game bundle into the client.
-set -eu
-PKG="${1:?usage: add_bundle.sh <bundle.tar.gz> [install_dir]}"
-APP="${2:-${XDG_DATA_HOME:-$HOME/.local/share}/FrogNetCommunicator}"
-[ -d "$APP/bundles" ] || { echo "not a client install: $APP" >&2; exit 1; }
-TMP="$(mktemp -d)"; tar xzf "$PKG" -C "$TMP"
-for d in "$TMP"/etc/frognet_bundles/*/; do
-  name="$(basename "$d")"; echo "installing $name"
-  rm -rf "$APP/bundles/$name"; cp -r "$d" "$APP/bundles/$name"
-done
-rm -rf "$TMP"
-echo "done - restart the Communicator."
-"""
-
-ADD_BUNDLE_BAT = """@echo off
-REM add_bundle.bat <install_dir> <bundle.tar.gz> — install a game bundle into the client.
-setlocal
-set INSTALL=%~1
-set PKG=%~2
-if "%INSTALL%"=="" echo usage: add_bundle.bat ^<install_dir^> ^<bundle.tar.gz^> & exit /b 2
-if not exist "%INSTALL%\\bundles" echo not a client install: %INSTALL% & exit /b 1
-set TMP=%TEMP%\\fnbundle_%RANDOM%
-mkdir "%TMP%"
-tar -xzf "%PKG%" -C "%TMP%"
-for /d %%D in ("%TMP%\\etc\\frognet_bundles\\*") do (
-  echo installing %%~nxD
-  xcopy /e /i /y "%%D" "%INSTALL%\\bundles\\%%~nxD" >nul
-)
-rmdir /s /q "%TMP%"
-echo done - restart the Communicator to see it.
-endlocal
 """
 
 # Windows installer mirrors the proven communicator.old/install-optional.bat layout:
-# flat .py at %APP%, games under %APP%\\bundles\\, Start Menu + Desktop shortcuts.
+# flat .py at %APP%, Start Menu + Desktop shortcuts.
 INSTALL_BAT = """@echo off
 REM FrogNet Communicator - Windows installer. No admin needed. Requires Python 3 (python.org).
 setlocal enabledelayedexpansion
@@ -198,7 +161,6 @@ REM and the eight ladder doors live there, so copying only *.py shipped a Window
 REM client with no artwork at all -- comms_brand then falls back to the plain card.
 if exist "%SRC%bundle\\assets" xcopy /e /i /y /q "%SRC%bundle\\assets" "%APP%\\assets" >nul
 copy /y "%SRC%run_communicator.bat" "%APP%\\" >nul
-if not exist "%APP%\\bundles" mkdir "%APP%\\bundles"
 set SM=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs
 powershell -NoProfile -Command ^
   "$w=New-Object -ComObject WScript.Shell;" ^
@@ -256,10 +218,6 @@ audio bed, so the ceiling drops to L2 WHISPER. The lobby says so in red.
 
 Verify an install without making a call:
   cd bundle && python test_comms_ui_oracle.py
-
-Add a game bundle later:
-  Linux:    tar xzf <bundle>.tar.gz -C ~/.local/share/FrogNetCommunicator
-  Windows:  add_bundle.bat "%LOCALAPPDATA%\\FrogNetCommunicator" <bundle>.tar.gz
 """
 
 
@@ -322,7 +280,6 @@ def build(src, out, version):
     files = {
         "run_communicator.sh": RUN_SH, "run_communicator.bat": RUN_BAT,
         "install.sh": INSTALL_SH, "install.bat": INSTALL_BAT,
-        "add_bundle.sh": ADD_BUNDLE_SH, "add_bundle.bat": ADD_BUNDLE_BAT,
         "README.txt": README,
     }
     for name, body in files.items():

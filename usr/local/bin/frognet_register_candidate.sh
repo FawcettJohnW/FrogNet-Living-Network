@@ -37,7 +37,7 @@ set -u
 ROLE="${1:?role required: databasehost|mediahost}"
 AV_PORT="${2:-${FROGNET_AV_PORT:-}}"
 PROBE="${FROGNET_PROBE:-/usr/local/bin/frognet_capability_probe.sh}"
-BUNDLE="${FROGNET_BUNDLE:-/etc/frognet_bundles/communicator}"
+BUNDLE="${FROGNET_BUNDLE:-/opt/frognet_semantic/ribbit/examples/communicator}"
 
 [ -x "$PROBE" ] || { echo "frognet_register_candidate: missing probe $PROBE" >&2; exit 0; }
 BLOB="$("$PROBE" 2>/dev/null)"

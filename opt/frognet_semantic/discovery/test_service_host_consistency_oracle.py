@@ -14,11 +14,10 @@ a function of the converged memory, identical on every node. No floor, no fallba
 per-node cull. Local by definition only when the callback names no winner. The
 determination is a read; it never triggers a re-run.
 
-Drives the REAL service_host_lines / DatabaseRoleHandler / GameRoleHandler against ONE
+Drives the REAL service_host_lines / DatabaseRoleHandler against ONE
 fixed persisted tuple set, simulating several nodes by varying ONLY the per-node inputs
 that USED to change the outcome (reachable_subnets, self_ip):
   A  databasehost.frognet is IDENTICAL across nodes with DIFFERENT reachable sets
-  B  boardgame.frognet (flat score, highest-IP tiebreak) is identical across nodes
   C  local-by-definition: empty pool + self_ip -> the line is self_ip (never absent host)
 REGRESSION: on the old per-node-cull code, A/B diverge (a node that can't route to 130's
 /24 drops it and elects a different host) -> the split this fix removes.
@@ -50,7 +49,7 @@ PERF = {
     "10.120.120.1": dict(cores=4, mem_available_kb=8000000, cpu_bench_total=9000,
                          disk_write_mbps=20.0, disk_fsync_ms=15.0, disk_free_gb=20.0),
 }
-ROLES = ("databasehost", "boardgame", "mediahost")
+ROLES = ("databasehost", "mediahost")
 PERSISTED = {r: [row(ip, r, **PERF[ip]) for ip in PERF] for r in ROLES}
 
 def fake_values_raw(service, dbhost=None, timeout=4.0, name_like=None, fresh_s=0):
@@ -84,13 +83,6 @@ print(f"  databasehost: reach-all={a_db}  reach-no130={b_db}")
 check(a_db is not None and a_db == b_db,
       "A databasehost.frognet identical regardless of per-node reachable set "
       "(no per-node cull -> no split)")
-
-# ---- B: boardgame identical (flat score, highest-IP tiebreak) ----------------
-a_bg = winner("boardgame", ALL)
-b_bg = winner("boardgame", NO130)
-print(f"  boardgame: reach-all={a_bg}  reach-no130={b_bg}")
-check(a_bg is not None and a_bg == b_bg,
-      "B boardgame.frognet identical across nodes")
 
 # ---- C: [NO_LOCAL_BY_DEFINITION_V1] empty pool -> NO LINE, and never self_ip --
 #

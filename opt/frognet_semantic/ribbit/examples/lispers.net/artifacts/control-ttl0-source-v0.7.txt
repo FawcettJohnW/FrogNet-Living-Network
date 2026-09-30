@@ -1,0 +1,1 @@
+Control source check: lisp/lisp.py 10448-10458 computes bad = !is_rloc_in_rloc_set(source) and ignores TTL-0 when bad.

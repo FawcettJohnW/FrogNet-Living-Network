@@ -1,0 +1,5 @@
+FAIL dreply: 3027 cases, 3027 differ
+FAIL rbh: 916 cases, 916 differ
+FAIL repr S: 1742 cases, 1742 differ
+FAIL sid: 315 cases, 315 differ
+RESULT FAIL fnwp S5a vs /home/claude/sfix/opt/frognet_semantic/daemon/engine/session.py (seed 20260925, 6000 cases)

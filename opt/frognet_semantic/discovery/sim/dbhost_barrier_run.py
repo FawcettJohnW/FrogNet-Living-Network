@@ -4,10 +4,10 @@ dbhost_barrier_run.py - simulate the ENTIRE service-election run end to end.
 Flow (John's design): merge converges -> control is the highest .1 -> every live
 machine publishes its capability to _control -> WAIT until _control holds a fresh
 record for every live machine -> only THEN decide databasehost, and off the same
-loop mediahost + boardgame. Proves, against the REAL discovery.hosts barrier:
+loop mediahost. Proves, against the REAL discovery.hosts barrier:
 
   [STANDALONE] a lone FrogNetHost is ready at once (it is the only machine and it
-               published) -> it is its own databasehost + mediahost + boardgame.
+               published) -> it is its own databasehost + mediahost.
   [DEFER]      3 live, only 2 have published -> NOT ready -> databasehost pins to
                control, media/games are not decided yet (no split on a partial pool).
   [PARTIAL_STALE] a live machine whose record aged past the ballot window counts as

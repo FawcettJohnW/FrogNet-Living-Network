@@ -1,0 +1,124 @@
+Ribbit-LISP qualification 20260924-203013 on Linux 6.18.44-fc-v40 x86_64, 1 cores; endpoint 127.0.0.1:8788
+== build
+build PASS
+== local conformance
+local: OK (skipped=1)
+== clean FNW1 conformance
+fnw1: OK (skipped=1)
+== independent-process tests (each on a fresh server)
+test_held_resolver: 3/3
+test_held_ddt: 3/3
+test_held_map_cache: 3/3
+test_held_database_mapping: 3/3
+test_held_etr_request: 3/3
+test_etr_registrar: 3/3
+test_etr_registrar_notify: 3/3
+test_native_registration: 3/3
+test_native_liveness: 3/3
+test_native_regovernance: 3/3
+cross_process_ram: cross_process_visibility=PASS replacement_visibility=PASS 
+== Dino byte oracle
+oracle: 4 of 4 PASS
+== semwire S1 oracle (C++ FNW1 framing vs core/semcache_wire.py)
+PASS wrap: 4768 cases, 0 differ
+PASS parse: 538276 cases, 0 differ
+PASS is_fnw1: 5000 cases, 0 differ
+PASS op_name: 256 cases, 0 differ
+PASS rt_cpp_to_py: 4273 cases, 0 differ
+PASS rt_py_to_cpp: 4273 cases, 0 differ
+RESULT PASS semwire vs /home/claude/src/opt/frognet_semantic/core/semcache_wire.py (seed 20260924, fuzz 200000)
+semwire mutants caught: 8 of 8
+== semcodec S2 oracle (C++ codec v5 vs core/codec.py)
+PASS dec_err: 3194 cases, 0 differ
+PASS dec_rep: 641241 cases, 0 differ
+PASS dec_req: 15309 cases, 0 differ
+PASS enc_err: 10 cases, 0 differ
+PASS enc_rep: 6089 cases, 0 differ
+PASS enc_rep_diff: 16003 cases, 0 differ
+PASS enc_req: 3000 cases, 0 differ
+PASS enc_req_diff: 16003 cases, 0 differ
+PASS lz4dec: 419 cases, 0 differ
+PASS lz4smart: 170 cases, 0 differ
+PASS veq: 20058 cases, 0 differ
+RESULT PASS semcodec vs /home/claude/src/opt/frognet_semantic/core/codec.py (seed 20260924, scale 1, 721496 cases)
+semcodec mutants caught: 14 of 14
+== multi-record atomicity stress
+stress 1: binary=./ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+stress 2: binary=./ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+stress 3: binary=./ribbit_cpp/ribbit-lisp rounds=600 outcomes={'unauthorized': 600} partial_applications=0
+== runtime lock-freedom and reclamation
+pointer_atomic_lock_free=YES
+born=100001 dead=100001
+source gates: participant locks/atomic shared_ptr 0, Memory::remove 0
+== performance
+wire.etr_request4 (ETR, held database mapping): median 20.39 us/request  runs [22.9, 19.1, 20.64, 20.39, 18.51]
+wire.request4     (Map-Server, held registration): median 24.32 us/request  runs [26.14, 23.35, 25.19, 24.32, 22.82]
+wire.etr_request6 (ETR, held database mapping): median 24.58 us/request  runs [26.16, 24.43, 25.16, 24.58, 22.97]
+wire.etr_register4 (ETR Map-Register, 2 IPv4 records, HMAC-SHA-1): median 23.45 us/register  runs [23.45, 23.24, 23.43, 24.8, 24.4]
+wire.etr_register4 (held map-server configuration): median 18.66 us/register  runs [18.66, 18.55, 18.43, 19.42, 20.59]
+wire.etr_notify4 (verify Map-Notify, build Map-Notify-Ack, HMAC-SHA-1): median 83.95 us/notify  runs [85.14, 84.85, 83.95, 82.43, 82.57]
+registrar trigger latency, N=200: median 273 us, p90 354 us, max 1470 us
+Map-Notify -> Map-Notify-Ack UDP round trip, N=500: median 38 us, p90 58 us, max 1001 us
+native registration: database change -> governor -> ITR resolves new RLOC, N=100: median 1183 us, p90 1387 us, max 1511 us
+re-governance, N=50: site deleted -> ITR stops resolving median 446 us (p90 601); site restored -> resolves median 531 us (p90 631)
+-- semwire S1 encode/parse, C++
+wrap_req_full 64B            median      44.8 ns/op  min      42.8  max      46.3  (9 x 2000000)
+wrap_req_full 4KiB           median      77.7 ns/op  min      71.6  max      81.8  (9 x 500000)
+wrap_req_repeat              median      32.7 ns/op  min      31.6  max      34.1  (9 x 2000000)
+wrap_resp_same               median      33.1 ns/op  min      31.0  max      35.1  (9 x 2000000)
+wrap_resp_raw 40B+1KiB       median      74.8 ns/op  min      70.4  max      84.1  (9 x 1000000)
+wrap_rtt_pong                median      56.4 ns/op  min      53.1  max      61.2  (9 x 2000000)
+try_parse REQ_FULL 64B       median      31.4 ns/op  min      29.0  max      32.0  (9 x 5000000)
+try_parse REQ_FULL 4KiB      median      30.6 ns/op  min      27.8  max      32.9  (9 x 5000000)
+try_parse REQ_REPEAT         median      16.3 ns/op  min      15.3  max      16.9  (9 x 5000000)
+try_parse RESP_SAME          median      15.6 ns/op  min      14.8  max      16.7  (9 x 5000000)
+try_parse RESP_RAW 40B+1KiB  median      29.6 ns/op  min      28.9  max      31.3  (9 x 5000000)
+try_parse RTT_PONG           median      27.2 ns/op  min      24.0  max      28.0  (9 x 5000000)
+-- semwire S1 encode/parse, Python reference
+wrap_req_full 64B            median     382.0 ns/op  min     354.5  max     565.8  (9 x 100000)
+wrap_req_full 4KiB           median     481.9 ns/op  min     446.1  max     514.1  (9 x 100000)
+wrap_req_repeat              median     225.6 ns/op  min     212.1  max     243.8  (9 x 100000)
+wrap_resp_same               median     229.5 ns/op  min     217.2  max     241.2  (9 x 100000)
+wrap_resp_raw 40B+1KiB       median     694.5 ns/op  min     654.8  max     717.0  (9 x 100000)
+wrap_rtt_pong                median     344.2 ns/op  min     333.2  max     349.3  (9 x 100000)
+try_parse REQ_FULL 64B       median     923.0 ns/op  min     888.5  max     983.0  (9 x 100000)
+try_parse REQ_FULL 4KiB      median    1117.6 ns/op  min    1062.1  max    1162.2  (9 x 100000)
+try_parse REQ_REPEAT         median     704.8 ns/op  min     663.0  max     774.4  (9 x 100000)
+try_parse RESP_SAME          median     763.6 ns/op  min     742.2  max     833.0  (9 x 100000)
+try_parse RESP_RAW 40B+1KiB  median    1580.7 ns/op  min    1488.6  max    1767.1  (9 x 100000)
+try_parse RTT_PONG           median    1028.6 ns/op  min     977.7  max    1082.2  (9 x 100000)
+-- semcodec S2 codec, C++
+encode_reply 5 fields              median      566.2 ns/op  min      549.5  max      589.0  (9 x 300000)
+encode_reply_diff 5, identical     median      444.2 ns/op  min      403.0  max      473.9  (9 x 300000)
+encode_reply_diff 5, one changed   median      785.6 ns/op  min      759.2  max      823.4  (9 x 300000)
+encode_reply JSON dict 40 keys     median     2968.4 ns/op  min     2791.0  max     3123.6  (9 x 100000)
+encode_reply 4000 B str, LZ4       median     1031.2 ns/op  min      991.4  max     1101.1  (9 x 50000)
+decode_reply 5 fields              median      700.9 ns/op  min      688.0  max      728.9  (9 x 300000)
+decode_reply diff + reference      median      514.4 ns/op  min      477.2  max      536.9  (9 x 300000)
+decode_reply JSON dict 40 keys     median     4973.9 ns/op  min     4652.8  max     5084.0  (9 x 100000)
+decode_reply 4000 B str, LZ4       median      870.1 ns/op  min      751.9  max      885.0  (9 x 50000)
+sizes: 5 fields 74 B, diff 19 B, JSON dict 379 B, 4000 B str compressed to 157 B
+-- semcodec S2 codec, Python reference
+encode_reply 5 fields              median     7036.5 ns/op  min     6352.2  max     7158.7  (9 x 20000)
+encode_reply_diff 5, identical     median     2779.9 ns/op  min     2623.8  max     2972.6  (9 x 20000)
+encode_reply_diff 5, one changed   median     4558.9 ns/op  min     4265.6  max     4808.6  (9 x 20000)
+encode_reply JSON dict 40 keys     median    11259.9 ns/op  min    10792.8  max    11765.6  (9 x 20000)
+encode_reply 4000 B str, LZ4       median     2926.3 ns/op  min     2866.0  max     3135.2  (9 x 20000)
+decode_reply 5 fields              median     3988.7 ns/op  min     3821.5  max     4245.2  (9 x 20000)
+decode_reply diff + reference      median     1869.4 ns/op  min     1822.1  max     2010.1  (9 x 20000)
+decode_reply JSON dict 40 keys     median     8126.2 ns/op  min     7847.8  max     8551.5  (9 x 20000)
+decode_reply 4000 B str, LZ4       median     2570.3 ns/op  min     2408.5  max     2700.2  (9 x 20000)
+sizes: 5 fields 74 B, diff 19 B, JSON dict 379 B, 4000 B str compressed to 157 B
+== bytes on the wire (FNW1; BLDC is not in this tree)
+N = database-mapping entries (1 RLOC each). Native = FNW1 frame bytes (out+in) per participant. UDP = full Map-Register(s).
+   N | establish ETR       MS | refresh ETR       MS | change ETR     MS | UDP register pkts  w/ hdrs
+   1 |           576      972 |         578     1037 |        580    822 |           88    1      116
+  10 |          5771     4171 |        1218     4237 |        581   1226 |          340    1      368
+ 100 |         58048    54511 |        7710    50494 |        582    646 |         3100    5     3240
+A conventional ETR sends the full UDP register(s) at establishment, every 60 s refresh, and on change.
+one change, native path: ETR process 593 B, Map-Server process 2518 B, ITR process 1493 B (v0.41 candidate with claim copy: 2427 / 1548 / 1920 B; conventional: one full register, 88 B for N=1)
+native liveness, 14 heartbeats in 3 s: ETR 404 B per beat (write + held read), resolver 404 B per beat (its held liveness view receiving the cell) — independent of the number of database mappings
+conventional refresh, N=1: 88 B of Map-Register(s) per map-server every 60 s (116 with IP/UDP headers)
+conventional refresh, N=10: 340 B of Map-Register(s) per map-server every 60 s (368 with IP/UDP headers)
+conventional refresh, N=100: 3100 B of Map-Register(s) per map-server every 60 s (3240 with IP/UDP headers)
+results: /home/claude/pkg/ribbit-lisp-conformance/results/20260924-203013

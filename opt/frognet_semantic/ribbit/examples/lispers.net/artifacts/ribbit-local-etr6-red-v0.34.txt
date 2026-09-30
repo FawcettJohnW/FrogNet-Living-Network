@@ -1,0 +1,62 @@
+test_map_cache_is_collection (tests.test_read_contract.ReadContract.test_map_cache_is_collection) ... ok
+test_site_cache_is_collection (tests.test_read_contract.ReadContract.test_site_cache_is_collection) ... skipped 'adapter lacks site_cache.list'
+test_system_is_mapping (tests.test_read_contract.ReadContract.test_system_is_mapping) ... ok
+test_map_resolver_add_get_delete (tests.test_roundtrip_contract.RoundTripContract.test_map_resolver_add_get_delete) ... ok
+test_iid_isolation (tests.test_mapping_contract.MappingContract.test_iid_isolation) ... ok
+test_longest_prefix_match (tests.test_mapping_contract.MappingContract.test_longest_prefix_match) ... ok
+test_database_mapping_longest_prefix_iid_and_withdrawal (tests.test_mapping_contract.DatabaseMappingContract.test_database_mapping_longest_prefix_iid_and_withdrawal) ... ok
+test_merge_registration_unions_independent_xtrs (tests.test_registration_contract.RegistrationContract.test_merge_registration_unions_independent_xtrs) ... ok
+test_merge_replacement_changes_only_own_xtr_truth (tests.test_registration_contract.RegistrationContract.test_merge_replacement_changes_only_own_xtr_truth) ... ok
+test_nonmerge_replaces_prior_merged_truths (tests.test_registration_contract.RegistrationContract.test_nonmerge_replaces_prior_merged_truths) ... ok
+test_refresh_cannot_change_locator_set (tests.test_registration_contract.RegistrationContract.test_refresh_cannot_change_locator_set) ... ok
+test_refresh_extends_own_registration_lifetime (tests.test_registration_contract.RegistrationContract.test_refresh_extends_own_registration_lifetime) ... ok
+test_registration_replaces_locator_set (tests.test_registration_contract.RegistrationContract.test_registration_replaces_locator_set) ... ok
+test_registration_resolves_registered_rlocs (tests.test_registration_contract.RegistrationContract.test_registration_resolves_registered_rlocs) ... ok
+test_ttl_seconds_encoding_expires_without_reaper (tests.test_registration_contract.RegistrationContract.test_ttl_seconds_encoding_expires_without_reaper) ... ok
+test_zero_ttl_deregisters (tests.test_registration_contract.RegistrationContract.test_zero_ttl_deregisters) ... ok
+test_zero_ttl_from_non_rloc_is_ignored (tests.test_registration_contract.RegistrationContract.test_zero_ttl_from_non_rloc_is_ignored) ... ok
+test_authoritative_unregistered_ipv6_site_gets_one_minute_negative_reply (tests.test_wire_contract.WireContract.test_authoritative_unregistered_ipv6_site_gets_one_minute_negative_reply) ... ok
+test_authoritative_unregistered_site_gets_one_minute_negative_reply (tests.test_wire_contract.WireContract.test_authoritative_unregistered_site_gets_one_minute_negative_reply) ... ok
+test_etr_map_request_answers_from_held_database_mapping_ipv4 (tests.test_wire_contract.WireContract.test_etr_map_request_answers_from_held_database_mapping_ipv4) ... ok
+test_etr_map_request_answers_from_held_database_mapping_ipv6 (tests.test_wire_contract.WireContract.test_etr_map_request_answers_from_held_database_mapping_ipv6) ... ERROR
+test_ipv6_multirecord_register (tests.test_wire_contract.WireContract.test_ipv6_multirecord_register) ... ok
+test_ipv6_register_request_reply (tests.test_wire_contract.WireContract.test_ipv6_register_request_reply) ... ok
+test_map_register_hmac_sha1_sha256 (tests.test_wire_contract.WireContract.test_map_register_hmac_sha1_sha256) ... ok
+test_map_register_to_map_request_to_map_reply_ipv4 (tests.test_wire_contract.WireContract.test_map_register_to_map_request_to_map_reply_ipv4) ... ok
+test_multiple_locator_records_survive_wire_path (tests.test_wire_contract.WireContract.test_multiple_locator_records_survive_wire_path) ... ok
+test_multirecord_authorization_failure_is_atomic (tests.test_wire_contract.WireContract.test_multirecord_authorization_failure_is_atomic) ... ok
+test_multirecord_malformed_later_record_is_atomic (tests.test_wire_contract.WireContract.test_multirecord_malformed_later_record_is_atomic) ... ok
+test_multirecord_notify_copies_all_records_and_authenticates_once (tests.test_wire_contract.WireContract.test_multirecord_notify_copies_all_records_and_authenticates_once) ... ok
+test_multirecord_refresh_rejects_changed_later_record_atomically (tests.test_wire_contract.WireContract.test_multirecord_refresh_rejects_changed_later_record_atomically) ... ok
+test_multirecord_withdrawal_applies_each_record (tests.test_wire_contract.WireContract.test_multirecord_withdrawal_applies_each_record) ... ok
+test_multirecord_withdrawal_source_failure_is_atomic (tests.test_wire_contract.WireContract.test_multirecord_withdrawal_source_failure_is_atomic) ... ok
+test_truncated_register_rejected (tests.test_wire_contract.WireContract.test_truncated_register_rejected) ... ok
+test_two_record_map_register_applies_both_records (tests.test_wire_contract.WireContract.test_two_record_map_register_applies_both_records) ... ok
+test_unmapped_ipv6_request_gets_negative_native_forward_reply (tests.test_wire_contract.WireContract.test_unmapped_ipv6_request_gets_negative_native_forward_reply) ... ok
+test_unmapped_request_gets_negative_native_forward_reply (tests.test_wire_contract.WireContract.test_unmapped_request_gets_negative_native_forward_reply) ... ok
+test_want_map_notify_ack_preserves_nonce_and_authenticates (tests.test_wire_contract.WireContract.test_want_map_notify_ack_preserves_nonce_and_authenticates) ... ok
+test_wire_ttl0_requires_registered_sender (tests.test_wire_contract.WireContract.test_wire_ttl0_requires_registered_sender) ... ok
+test_accept_more_specifics_authorizes_child (tests.test_site_authorization.SiteAuthorizationContract.test_accept_more_specifics_authorizes_child) ... ok
+test_exact_configured_site_authorized (tests.test_site_authorization.SiteAuthorizationContract.test_exact_configured_site_authorized) ... ok
+test_more_specific_rejected_without_ams (tests.test_site_authorization.SiteAuthorizationContract.test_more_specific_rejected_without_ams) ... ok
+test_unknown_site_registration_rejected_without_state_mutation (tests.test_site_authorization.SiteAuthorizationContract.test_unknown_site_registration_rejected_without_state_mutation) ... ok
+test_wire_authentication_gates_state_mutation (tests.test_site_authorization.SiteAuthorizationContract.test_wire_authentication_gates_state_mutation) ... ok
+test_delegation_longest_prefix_referral_set (tests.test_ddt_contract.DDTContract.test_delegation_longest_prefix_referral_set) ... ok
+test_delegations_are_iid_isolated (tests.test_ddt_contract.DDTContract.test_delegations_are_iid_isolated) ... ok
+
+======================================================================
+ERROR: test_etr_map_request_answers_from_held_database_mapping_ipv6 (tests.test_wire_contract.WireContract.test_etr_map_request_answers_from_held_database_mapping_ipv6)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/w32/tests/test_wire_contract.py", line 288, in test_etr_map_request_answers_from_held_database_mapping_ipv6
+    b=bytes.fromhex(self.adapter.call('wire.etr_request6',hex=req6(target='2001:db8:e7:c801::1',mask=128,nonce=nonce).hex()))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/w32/conformance/adapters/command.py", line 18, in call
+    if not out.get("ok",False): raise RuntimeError(out.get("error","adapter failure"))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: unsupported operation: wire.etr_request6
+
+----------------------------------------------------------------------
+Ran 45 tests in 5.368s
+
+FAILED (errors=1, skipped=1)

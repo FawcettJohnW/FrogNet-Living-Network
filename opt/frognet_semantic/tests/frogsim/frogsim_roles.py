@@ -16,14 +16,13 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-"""frogsim_roles.py - properly calculate databasehost / mediahost / gamehost over a
+"""frogsim_roles.py - properly calculate databasehost / mediahost over a
 CONVERGED System, using the REAL election engine (core.frognet_role_elect + the real
-DatabaseRoleHandler / SotFMediaHandler / GameRoleHandler). Not a model: each node
+DatabaseRoleHandler / SotFMediaHandler). Not a model: each node
 publishes a capability tuple, the observer's reach_plane (LAN vs WAN, from its
 converged routes) is published, and RE.elect() runs per role. Then we validate:
 
   databasehost - pond-wide agreement; best mysql-capable (WAN-inclusive), IP tiebreak.
-  gamehost     - pond-wide agreement; highest-IP reachable host (no capability gate).
   mediahost    - LAN-scoped; each node elects its best ffmpeg+libvpx host on its OWN
                  attached LAN (a WAN/relayed box is barred).
 """
@@ -90,7 +89,7 @@ def _install_persistent_fake():
     sys.modules["core.frognet_tuples"] = T
     import core
     core.frognet_tuples = T
-    bundle = os.path.join(WT, "etc", "frognet_bundles", "communicator")
+    bundle = os.path.join(WT, "opt", "frognet_semantic", "ribbit", "examples", "communicator")
     if bundle not in sys.path:
         sys.path.insert(0, bundle)
     for m in ("frognet_role_elect", "core.frognet_role_elect"):
@@ -98,19 +97,17 @@ def _install_persistent_fake():
     from core import frognet_role_elect as RE   # module-level T binds to the fake
     from core.database_handler import DatabaseRoleHandler
     from core.sotf_handler import SotFMediaHandler
-    from core.game_role import GameRoleHandler
-    return RE, DatabaseRoleHandler, SotFMediaHandler, GameRoleHandler
+    return RE, DatabaseRoleHandler, SotFMediaHandler
 
 
 def _caps_for(system, caps_by_node):
     """Build the per-role capability dicts keyed by each node's .1 identity."""
-    db, media, game = {}, {}, {}
+    db, media = {}, {}
     for name, nd in system.node.items():
         c = caps_by_node.get(name, {})
         ip = nd.one
         if getattr(nd, "dead", False):
             continue                                   # a dead node publishes nothing
-        game[ip] = dict(lan_ip=ip, cores=c.get("cpu", 1))   # gamehost: trivial eligibility
         if c.get("mysql"):
             db[ip] = dict(lan_ip=ip, mysql_running=1, cores=c.get("cpu", 2),
                           cpu_bench_total=c.get("bench", 1000),
@@ -120,19 +117,19 @@ def _caps_for(system, caps_by_node):
         if c.get("media"):
             media[ip] = dict(lan_ip=ip, ffmpeg=1, libvpx=1, cores=c.get("cpu", 2),
                              cpu_bench_total=c.get("bench", 1000))
-    return {"databasehost": db, "mediahost": media, "boardgame": game}
+    return {"databasehost": db, "mediahost": media}
 
 
 _RE = None
 
 
 def elect_all(system, caps_by_node):
-    """Return {node: {databasehost, mediahost, gamehost}} using the REAL election."""
+    """Return {node: {databasehost, mediahost}} using the REAL election."""
     global _RE
     caps = _caps_for(system, caps_by_node)
     if _RE is None:
         _RE = _install_persistent_fake()
-    RE, DatabaseRoleHandler, SotFMediaHandler, GameRoleHandler = _RE
+    RE, DatabaseRoleHandler, SotFMediaHandler = _RE
     cap_rows = _cap_rows(caps)
     out = {}
     for node in system.node:
@@ -155,7 +152,6 @@ def elect_all(system, caps_by_node):
         out[node] = {
             "databasehost": _elect(DatabaseRoleHandler()),
             "mediahost":    _elect(SotFMediaHandler()),
-            "gamehost":     _elect(GameRoleHandler()),
         }
     return out
 
@@ -163,17 +159,8 @@ def elect_all(system, caps_by_node):
 def validate_roles(system, results, caps_by_node):
     problems = []
     dbs = {r["databasehost"] for r in results.values()}
-    games = {r["gamehost"] for r in results.values()}
     if len(dbs) > 1:
         problems.append(f"databasehost DISAGREEMENT across nodes: {dbs}")
-    if len(games) > 1:
-        problems.append(f"gamehost DISAGREEMENT across nodes: {games}")
-    # gamehost should be the highest-IP reachable host (no gate)
-    from discovery.sim.fabric import _ip_to_int
-    all_ones = [nd.one for nd in system.node.values() if not getattr(nd, "dead", False)]
-    exp_game = max(all_ones, key=_ip_to_int)
-    if games and next(iter(games)) != exp_game:
-        problems.append(f"gamehost={games} but highest-IP reachable is {exp_game}")
     # databasehost should be a mysql-capable node
     dbcap = {system.node[n].one for n, c in caps_by_node.items() if c.get("mysql")}
     if dbs and dbcap and next(iter(dbs)) not in dbcap:
@@ -221,9 +208,8 @@ def _run():
         s = System(spec); s.converge(max_cycles=15)
         res = elect_all(s, caps); probs = validate_roles(s, res, caps)
         db = next(iter({r["databasehost"] for r in res.values()}))
-        gm = next(iter({r["gamehost"] for r in res.values()}))
         if not probs:
-            print(f"  PASS  {name:8} databasehost={db} gamehost={gm} mediahost=LAN-local/node"); ok += 1
+            print(f"  PASS  {name:8} databasehost={db} mediahost=LAN-local/node"); ok += 1
         else:
             print(f"  FAIL  {name:8} {probs}")
     print(f"\nROLE ELECTION GATE: {'PASS' if ok == total else 'FAIL'} ({ok}/{total})")

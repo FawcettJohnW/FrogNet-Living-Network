@@ -20,7 +20,7 @@
 #   runCaptureHeadless NAME [RELAY] [extra…]
 # Default relay mediahost.frognet:9000 (elected media role). Override: 2nd arg or $FN_RELAY.
 HERE="$(cd "$(dirname "$0")" && pwd)"
-if [ -f "$HERE/fnav.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/etc/frognet_bundles/communicator}"; fi
+if [ -f "$HERE/fnav.py" ]; then COMM_DIR="${COMM_DIR:-$HERE}"; else COMM_DIR="${COMM_DIR:-/opt/frognet_semantic/ribbit/examples/communicator}"; fi
 : "${FN_RELAY:=mediahost.frognet:9000}"
 if [ -z "$1" ]; then echo "usage: runCaptureHeadless NAME [RELAY] [extra…]" >&2; exit 2; fi
 name="$1"; shift

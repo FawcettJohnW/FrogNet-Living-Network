@@ -1,0 +1,197 @@
+DIFF urlparse
+  in    =urlparse S2f6170692e7068703f656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d582670617273653d31
+  python=ok S S S2f6170692e706870 S S656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d582670617273653d31 S
+  c++   =raise unimplemented
+DIFF parse_qsl
+  in    =parse_qsl S2f6170692e7068703f656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d582670617273653d31
+  python=ok P(S2f6170692e7068703f656e74697479=S73656e736f7273,S616374696f6e=S76616c756573,S53656e736f724e616d65=S58,S7061727365=S31)
+  c++   =raise unimplemented
+DIFF parse_qs
+  in    =parse_qs S2f6170692e7068703f656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d582670617273653d31
+  python=ok Q(S2f6170692e7068703f656e74697479=L(S73656e736f7273),S616374696f6e=L(S76616c756573),S53656e736f724e616d65=L(S58),S7061727365=L(S31))
+  c++   =raise unimplemented
+DIFF normalize
+  in    =normalize S2f6170692e7068703f656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d582670617273653d31
+  python=ok S2f6170692e7068703f656e746974793d73656e736f727326616374696f6e3d76616c7565732653656e736f724e616d653d58 L(S7061727365)
+  c++   =raise unimplemented
+DIFF urlparse
+  in    =urlparse S2f2f6170692e7068703f783d31
+  python=ok S S6170692e706870 S S S783d31 S
+  c++   =raise unimplemented
+DIFF parse_qsl
+  in    =parse_qsl S2f2f6170692e7068703f783d31
+  python=ok P(S2f2f6170692e7068703f78=S31)
+  c++   =raise unimplemented
+DIFF parse_qs
+  in    =parse_qs S2f2f6170692e7068703f783d31
+  python=ok Q(S2f2f6170692e7068703f78=L(S31))
+  c++   =raise unimplemented
+DIFF normalize
+  in    =normalize S2f2f6170692e7068703f783d31
+  python=ok S2f6170692e706870 L(S78)
+  c++   =raise unimplemented
+DIFF urlparse
+  in    =urlparse S2f2f2f612f2f623f633d64
+  python=ok S S S2f612f2f62 S S633d64 S
+  c++   =raise unimplemented
+DIFF parse_qsl
+  in    =parse_qsl S2f2f2f612f2f623f633d64
+  python=ok P(S2f2f2f612f2f623f63=S64)
+  c++   =raise unimplemented
+DIFF parse_qs
+  in    =parse_qs S2f2f2f612f2f623f633d64
+  python=ok Q(S2f2f2f612f2f623f63=L(S64))
+  c++   =raise unimplemented
+DIFF normalize
+  in    =normalize S2f2f2f612f2f623f633d64
+  python=ok S2f612f62 L(S63)
+  c++   =raise unimplemented
+DIFF urlparse
+  in    =urlparse S2f613b703f712366
+  python=ok S S S2f61 S70 S71 S66
+  c++   =raise unimplemented
+DIFF parse_qsl
+  in    =parse_qsl S2f613b703f712366
+  python=ok P(S2f613b703f712366=S)
+  c++   =raise unimplemented
+DIFF parse_qs
+  in    =parse_qs S2f613b703f712366
+  python=ok Q(S2f613b703f712366=L(S))
+  c++   =raise unimplemented
+DIFF normalize
+  in    =normalize S2f613b703f712366
+  python=ok S2f61 L(S71)
+  c++   =raise unimplemented
+DIFF urlparse
+  in    =urlparse S687474703a2f2f686f73743a38302f702f613b623f633d312366726167
+  python=ok S68747470 S686f73743a3830 S2f702f61 S62 S633d31 S66726167
+  c++   =raise unimplemented
+DIFF parse_qsl
+  in    =parse_qsl S687474703a2f2f686f73743a38302f702f613b623f633d312366726167
+  python=ok P(S687474703a2f2f686f73743a38302f702f613b623f63=S312366726167)
+  c++   =raise unimplemented
+DIFF parse_qs
+  in    =parse_qs S687474703a2f2f686f73743a38302f702f613b623f633d312366726167
+  python=ok Q(S687474703a2f2f686f73743a38302f702f613b623f63=L(S312366726167))
+  c++   =raise unimplemented
+DIFF normalize
+  in    =normalize S687474703a2f2f686f73743a38302f702f613b623f633d312366726167
+  python=ok S2f702f61 L(S63)
+  c++   =raise unimplemented
+corpus outcomes (python):
+       955 build_url ok
+       487 build_url raise declined text_repr
+       120 build_url raise encode
+       148 build_url raise value build_url:
+       290 build_url raise value request
+       196 canon_key ok
+        24 canon_key raise json
+         5 ctype ok
+         2 ctype raise key
+      1649 detect_rep ok
+       551 detect_rep raise notported
+      1423 detect_req ok
+       777 detect_req raise notported
+      5006 dumps ok
+         4 dumps raise type
+      1500 dyn_shape ok
+       382 dyn_vals ok
+      1090 dyn_vals raise lookup
+        28 dyn_vals raise value *
+      2500 empty_arrays ok
+      3707 extract ok
+         4 extract raise json
+         8 extract raise key
+         3 extract raise notported
+       302 extract raise type
+      1511 fields ok
+      2500 first_row ok
+      4145 leaf ok
+      5866 learn ok
+        10 learn raise encode
+        16 learn raise json
+         2 learn raise notported
+      2500 merge ok
+      1530 normalize ok
+         2 normalize raise value *
+       929 opcode ok
+        77 opcode raise encode
+      1532 parse_qs ok
+      1532 parse_qsl ok
+      3380 pred ok
+      3123 rebuild ok
+       515 rebuild raise declined pair_heuristic
+         9 rebuild raise declined text_repr
+       363 rebuild raise json
+        22 rebuild raise key
+         2 rebuild raise notfound
+        11 rebuild raise notported
+      1027 rebuild raise type
+      2980 rebuild_body ok
+        10 rebuild_body raise declined text_repr
+        10 rebuild_body raise key
+      2000 rebuild_json ok
+      2500 sanitize ok
+      2500 schema ok
+      1490 sniff ok
+       535 sniff raise notported
+      1000 tpl_id ok
+       129 train ok R
+       403 train ok T
+       416 train raise json
+       552 train raise notported
+       824 urlencode ok
+       176 urlencode raise encode
+      1518 urlparse ok
+        14 urlparse raise value *
+declined semantics (command, case, what the Python did instead):
+       398 build_url text_repr -> python ok
+        56 build_url text_repr -> python raise encode
+        33 build_url text_repr -> python raise value
+       551 detect_rep notported -> python ok
+       777 detect_req notported -> python ok
+         3 extract notported -> python ok
+         2 learn notported -> python ok
+        11 rebuild notported -> python ok
+       267 rebuild pair_heuristic -> python ok
+       183 rebuild pair_heuristic -> python raise type
+        65 rebuild pair_heuristic -> python raise value
+         9 rebuild text_repr -> python ok
+        10 rebuild_body text_repr -> python ok
+       535 sniff notported -> python ok
+       517 train notported -> python ok
+        35 train notported -> python raise json
+blobs written by learn/train into fresh roots: python 2, c++ 0
+FAIL blobs: 2 cases, 2 differ
+FAIL build_url: 2000 cases, 2000 differ
+FAIL canon_key: 220 cases, 220 differ
+FAIL ctype: 7 cases, 7 differ
+FAIL detect_rep: 2200 cases, 2200 differ
+FAIL detect_req: 2200 cases, 2200 differ
+FAIL dumps: 5010 cases, 5010 differ
+FAIL dyn_shape: 1500 cases, 1500 differ
+FAIL dyn_vals: 1500 cases, 1500 differ
+FAIL empty_arrays: 2500 cases, 2500 differ
+FAIL extract: 4024 cases, 4024 differ
+FAIL fields: 1511 cases, 1511 differ
+FAIL first_row: 2500 cases, 2500 differ
+FAIL leaf: 4145 cases, 4145 differ
+FAIL learn: 5894 cases, 5894 differ
+FAIL merge: 2500 cases, 2500 differ
+FAIL normalize: 1532 cases, 1532 differ
+FAIL opcode: 1006 cases, 1006 differ
+FAIL parse_qs: 1532 cases, 1532 differ
+FAIL parse_qsl: 1532 cases, 1532 differ
+FAIL pred: 3380 cases, 3380 differ
+FAIL rebuild: 5072 cases, 5072 differ
+FAIL rebuild_body: 3000 cases, 3000 differ
+FAIL rebuild_json: 2000 cases, 2000 differ
+FAIL sanitize: 2500 cases, 2500 differ
+FAIL schema: 2500 cases, 2500 differ
+FAIL sniff: 2025 cases, 2025 differ
+FAIL tpl_id: 1000 cases, 1000 differ
+FAIL train: 1500 cases, 1500 differ
+FAIL urlencode: 1000 cases, 1000 differ
+FAIL urlparse: 1532 cases, 1532 differ
+RESULT FAIL semtpl vs /home/claude/src24/opt/frognet_semantic/core/json_handler.py (seed 20260924, scale 1, 68822 cases)
+rc=1

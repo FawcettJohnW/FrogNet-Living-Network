@@ -79,7 +79,6 @@ WRAP_KEY="${FROGNET_DB_WRAP_KEY:-fn0-dbwrap-v1-do-not-rely-on-secrecy}"
 SRC_PATHS=(
     opt/frognet_semantic
     usr/local/bin usr/local/sbin usr/local/lib
-    etc/frognet_bundles
     var/www/html var/www/www_admin
 )
 

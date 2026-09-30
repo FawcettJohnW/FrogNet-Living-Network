@@ -1,0 +1,14 @@
+{
+  "checkpoint": "v0.7",
+  "file": "ribbit_cpp/ribbit_lisp.cpp",
+  "physical_lines": 136,
+  "nonblank_noncomment_lines": 133,
+  "semicolon_count": 608,
+  "if_sites": 169,
+  "for_sites": 49,
+  "while_sites": 1,
+  "max_line_length": 1015,
+  "lines_over_200": 42,
+  "publishable_complexity_comparison": false,
+  "reason": "engine has not yet been normally reformatted; physical LOC is not a valid comparative metric"
+}

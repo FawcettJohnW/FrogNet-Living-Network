@@ -1,0 +1,21 @@
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 212 REQ_FULL 10 REQ_DIFF 989 REQ_REPEAT 794 | RESP_SAME 356 RESP_DIFF 344 RESP_RAW 1088 REQ_MISS 5 | bytes out 131084 in 1401691
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315333 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 1, 0 fail)
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 266 REQ_FULL 11 REQ_DIFF 991 REQ_REPEAT 738 | RESP_SAME 308 RESP_DIFF 346 RESP_RAW 1080 REQ_MISS 6 | bytes out 138588 in 1379288
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 2, 0 fail)
+PASS workload: 2000 answers through the engines, every read equal to api()'s own (0 differ)
+frames: REQ_RAW 238 REQ_FULL 23 REQ_DIFF 996 REQ_REPEAT 761 | RESP_SAME 337 RESP_DIFF 351 RESP_RAW 1075 REQ_MISS 17 | bytes out 135555 in 1413702
+PASS the engines spoke semantic FNWP (RESP_DIFF and RESP_SAME seen)
+PASS storm: 200 reads of 500 cells after a one-member rewrite, every answer equal to api()'s
+storm: bytes in 14800 for 200 changed answers of ~71576 B each (reduced wire: 14315371 B); RESP_DIFF 200, bytes out 4200
+PASS storm: under 2% of the reduced wire's bytes
+RESULT PASS fnwp e2e (seed 3, 0 fail)

@@ -1,0 +1,5 @@
+1
+N=20000 per run, 5 runs, pipelined through the JSON-lines interface, FNW1 backend, warmed
+wire.etr_request4 (ETR, held database mapping): median 20.36 us/request  runs [20.36, 20.19, 20.31, 20.57, 20.49]
+wire.request4     (Map-Server, held registration): median 25.28 us/request  runs [25.04, 25.28, 25.59, 25.14, 25.77]
+database_mapping_reads after runs: 0  request_reads: 0

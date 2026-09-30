@@ -1,0 +1,2 @@
+PASS register4 fixture == control encoder
+PASS ribbit reply4 == control encoder

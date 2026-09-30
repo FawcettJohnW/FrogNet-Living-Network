@@ -1,0 +1,131 @@
+[codec] BUILD=2026-03-24-v1
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020500315f5f303a
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020900315f5f303a626f6f6d
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020700315f5f303a3a78
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020700315f5f303ac3a9
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020400315f5f30
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff010000000203005f313a
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff010000000207005f313a626f6f6d
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff010000000205005f313a3a78
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff010000000205005f313ac3a9
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff010000000202005f31
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020300315f3a
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020700315f3a626f6f6d
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020500315f3a3a78
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020500315f3ac3a9
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020200315f
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020500307831303a
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020900307831303a626f6f6d
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020700307831303a3a78
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff01000000020700307831303ac3a9
+  python=raise value *
+  c++   =none
+DIFF dec_err
+  in    =dec_err 0500ffffffff0100000002040030783130
+  python=raise value *
+  c++   =none
+corpus outcomes (python):
+       778 dec_err none 
+       105 dec_err ok
+      2311 dec_err raise value
+     68848 dec_rep ok
+      3173 dec_rep raise index
+    182474 dec_rep raise json
+     87077 dec_rep raise lz4
+    289182 dec_rep raise struct
+     10487 dec_rep raise value
+     15309 dec_req ok
+         9 enc_err ok
+         1 enc_err raise struct
+      4894 enc_rep ok
+       570 enc_rep raise encode
+       111 enc_rep raise struct
+       136 enc_rep raise type
+       378 enc_rep raise value
+     12138 enc_rep_diff ok
+      2032 enc_rep_diff raise encode
+        36 enc_rep_diff raise overflow
+       561 enc_rep_diff raise type
+      1236 enc_rep_diff raise value
+      1838 enc_req ok
+       564 enc_req raise encode
+       108 enc_req raise struct
+       134 enc_req raise type
+       356 enc_req raise value
+     12138 enc_req_diff ok
+      2032 enc_req_diff raise encode
+        36 enc_req_diff raise overflow
+       561 enc_req_diff raise type
+      1236 enc_req_diff raise value
+        73 lz4dec ok
+       346 lz4dec raise lz4
+       170 lz4smart ok
+     20035 veq ok
+        23 veq raise overflow
+FAIL dec_err: 3194 cases, 2311 differ
+PASS dec_rep: 641241 cases, 0 differ
+PASS dec_req: 15309 cases, 0 differ
+PASS enc_err: 10 cases, 0 differ
+PASS enc_rep: 6089 cases, 0 differ
+PASS enc_rep_diff: 16003 cases, 0 differ
+PASS enc_req: 3000 cases, 0 differ
+PASS enc_req_diff: 16003 cases, 0 differ
+PASS lz4dec: 419 cases, 0 differ
+PASS lz4smart: 170 cases, 0 differ
+PASS veq: 20058 cases, 0 differ
+RESULT FAIL semcodec vs /home/claude/src24/opt/frognet_semantic/core/codec.py (seed 20260924, scale 1, 721496 cases)

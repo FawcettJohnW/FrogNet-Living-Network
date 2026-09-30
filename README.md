@@ -319,7 +319,9 @@ opt/frognet_semantic/     the engine
   internet_tunnels_v3/    broker registration, WireGuard peering
   simulation/             the harness
   broker/                 full_broker.tgz, the broker ships as an archive
-etc/frognet_bundles/      applications: communicator, boardgame
+opt/frognet_semantic/ribbit/  Ribbit: platform, default API, docs, and the examples (chat,
+                          lispers.net, pytorch, communicator, redis); the Communicator
+                          a node runs is examples/communicator
 usr/local/bin/            installer, node tooling, runMerge
 var/www/html/             api.php, the store's HTTP face
 ```

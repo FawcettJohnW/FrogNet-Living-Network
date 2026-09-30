@@ -64,7 +64,7 @@ def _is_real_host(ip: str) -> bool:
     Candidates need NOT be .1 - a specialist advertises at its own address. Excluding
     10.254 here matters for the media/game elections the same way it does for
     databasehost: a corrupted identity that landed in the chorus plane must never be
-    an electable mediahost/boardgame candidate."""
+    an electable mediahost candidate."""
     if not ip or not ip.startswith("10."):
         return False
     o = ip.split(".")
