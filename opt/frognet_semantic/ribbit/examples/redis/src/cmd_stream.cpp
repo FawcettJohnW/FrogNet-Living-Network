@@ -83,19 +83,26 @@ static void cmd_xadd(Client& c, const Argv& a, Reply& r) {
     SID id;
     ebr::Guard eg;
     if (auto_id) {
-        // this XADD's own number (one fetch_add on the meta cell's accumulator); each entry keeps its XADD's number, so
-        // the sequence is the distance from the number of the entry this XADD builds on: one at a time that is exactly
-        // Redis's id (+1 in the same millisecond, 0 in a new one), and overlapping XADDs get distinct numbers, hence
-        // distinct ids -- no second attempt, ever
+        // Unique by construction, one decision, in this order:
+        //  1. count this XADD in flight (one fetch_add on its own cell) -- BEFORE anything else, so any XADD that overlaps
+        //     this one at any point sees a count of 2 or more;
+        //  2. take this XADD's number (one fetch_add on the meta cell's accumulator; each entry keeps it);
+        //  3. read the stream (the last id, the entry it belongs to) -- AFTER counting, so an XADD that counted 1 reads
+        //     a stream every earlier XADD has already published to;
+        //  4. alone (the only XADD in flight, and the last entry carries number n-1): Redis's exact id -- sequence 0 in a
+        //     new millisecond, the last sequence + 1 in the same one. Otherwise sequence 2^63 + n: a range the exact
+        //     form never reaches, and numbers are distinct, so no two XADDs can produce one id.
+        //  The count is taken back after the insert, landed or not. (Measured: counting after taking the number let
+        //  ten whole XADDs run between the two steps, and one of them held the id the stale XADD then chose.)
+        Bag zero_if; zero_if.kind = Kind::StreamMeta;
+        const int64_t in_flight = g.mem.add(k.R, k.name, k.h, INFLIGHT_INST, zero_if, 1, 0, false).acc_after;
+        struct Out { Region& R; const std::string& nm; size_t h; ~Out() { Bag z; z.kind = Kind::StreamMeta; g.mem.add(R, nm, h, INFLIGHT_INST, z, -1, 0, false); } } out_{k.R, k.name, k.h};
         auto ad = g.mem.add(k.R, k.name, k.h, db::VAL, *meta_bag(Meta()), 1, 0, false);
         uint64_t n = (uint64_t)ad.acc_after + unpack_meta(ad.node->bag->s).added;
-        // Unique by construction, one decision:
-        //  - the entry this XADD builds on carries number n-1 (no other XADD in flight): Redis's exact id -- sequence 0 in
-        //    a new millisecond, the last sequence + 1 in the same one;
-        //  - otherwise (XADDs overlapping, the last entry seen may be older): sequence 2^63 + n. The exact form never
-        //    reaches that range and numbers are distinct, so no two XADDs can produce one id.
+        m = meta_of(g.mem.var(k.R, k.name, k.h));
         CellPtr lc = g.mem.cell(k.R, k.name, k.h, inst_of(m.last));
-        bool alone = (lc && lc->bag->kind == Kind::StreamEntry) ? (uint64_t)lc->bag->n == n - 1 : (m.last == SID{0, 0} && n == 1);
+        bool pred = (lc && lc->bag->kind == Kind::StreamEntry) ? (uint64_t)lc->bag->n == n - 1 : (m.last == SID{0, 0} && n == 1);
+        bool alone = in_flight == 1 && pred;
         uint64_t now = (uint64_t)Memory::now_ms();
         const uint64_t HIGH = 1ULL << 63;
         if (alone) {
@@ -111,7 +118,16 @@ static void cmd_xadd(Client& c, const Argv& a, Reply& r) {
             }
         }
         e.n = (int64_t)n;
-        if (!g.mem.replace_if(k.R, k.name, k.h, inst_of(id), nullptr, Bag(e))) { r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return; }
+        if (!g.mem.replace_if(k.R, k.name, k.h, inst_of(id), nullptr, Bag(e))) {
+            if (getenv("RIBBIT_XADD_DIAG")) {   // [DIAG-XADD] the collision, in full: what this XADD saw and what holds the id
+                CellPtr held = g.mem.cell(k.R, k.name, k.h, inst_of(id));
+                fprintf(stderr, "[DIAG-XADD] lost id=%llu-%llu n=%llu in_flight=%lld pred=%d alone=%d now=%llu last=%llu-%llu lc_n=%lld held_n=%lld\n",
+                        (unsigned long long)id.ms, (unsigned long long)id.seq, (unsigned long long)n, (long long)in_flight, (int)pred, (int)alone,
+                        (unsigned long long)now, (unsigned long long)m.last.ms, (unsigned long long)m.last.seq,
+                        lc ? (long long)lc->bag->n : -1LL, held ? (long long)held->bag->n : -1LL);
+            }
+            r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return;
+        }
     } else {
         if (!seq_given) { if (want.ms > m.last.ms) id = SID{want.ms, 0}; else if (want.ms == m.last.ms) { if (m.last.seq == UINT64_MAX) { r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return; } id = SID{want.ms, m.last.seq + 1}; } else { r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return; } }
         else { if (!(m.last < want)) { r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return; } id = want; }

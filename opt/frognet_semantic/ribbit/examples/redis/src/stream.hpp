@@ -21,6 +21,7 @@ static std::string pack_meta(const Meta& m) { return be64(m.last.ms) + be64(m.la
 static Meta unpack_meta(const std::string& s) { Meta m; if (s.size() < 56) return m; m.last.ms = rd64(s, 0); m.last.seq = rd64(s, 8); m.added = rd64(s, 16); m.maxdel.ms = rd64(s, 24); m.maxdel.seq = rd64(s, 32); m.first.ms = rd64(s, 40); m.first.seq = rd64(s, 48); return m; }
 static bool first_last(const VarPtr& v, SID& first, SID& last);
 static const std::string MAXDEL_PFX = std::string("\x07", 1);   // one cell per XDEL: the greatest id it deleted
+static const std::string INFLIGHT_INST = std::string("\x09", 1);  // XADDs in flight now (an accumulator; 0 at rest)
 // [THE_MEMORY_DECIDES_V1] The stream's meta, derived on read wherever it can be: the last id is the greater of the one
 // stored and the greatest entry; the first id is the first entry; entries-added is the stored count plus the meta cell's
 // accumulator (each XADD one fetch_add); the max deleted id is the greater of the stored one and every XDEL's own cell.

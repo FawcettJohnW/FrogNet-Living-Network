@@ -44,5 +44,9 @@ stream-cgroups, bitops, bitfield, hyperloglog.
   (Ribbit platform fnwp storm test: 2.6 MB instead of 14,800 B). Now as the Python daemon: the entry always stays, only
   the answer is not kept above 64 KB, and SAME is said only for an answer held here.
 - XADD auto ids: the distance-from-base rule was not unique when XADDs overlapped (an XADD that saw an older last entry
-  measured from another base; one in ~4 audit runs lost an insert). Now: the entry built on carries number n-1 (alone)
-  -> Redis's exact id; otherwise sequence 2^63 + n, a range the exact form never reaches -- unique by construction.
+  measured from another base; one in ~4 audit runs lost an insert). Then "the entry built on carries n-1" was taken
+  as "alone", which it is not (one in ~5 runs). Now, in this order: count the XADD in flight (a fetch_add on its own
+  cell), take its number, read the stream, decide. Alone = the only XADD in flight AND the last entry carries n-1 ->
+  Redis's exact id; otherwise sequence 2^63 + n, a range the exact form never reaches. Counting after the number was
+  still one in ~16: [DIAG-XADD] (RIBBIT_XADD_DIAG=1) caught ten whole XADDs running between the two steps. Counting
+  first: 26 of 26 instrumented runs, 0 collisions; stream suites = control; audit 38/38.
