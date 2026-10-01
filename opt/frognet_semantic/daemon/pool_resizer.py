@@ -122,12 +122,23 @@ def _run_reeval(reason: str) -> None:
 
 def _timer_loop():
     """Periodic re-evaluation."""
-    while True:
-        time.sleep(_REEVAL_INTERVAL)
-        try:
-            _run_reeval("timer")
-        except Exception as e:
-            print(f"[DB-POOL-REEVAL] timer error: {e!r}")
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        while True:
+            time.sleep(_REEVAL_INTERVAL)
+            try:
+                _run_reeval("timer")
+            except Exception as e:
+                print(f"[DB-POOL-REEVAL] timer error: {e!r}")
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[DB-POOL-REEVAL] [WORKER_EXIT_REASON_V1] _timer_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - the DB pool is frozen at its current size", flush=True)
 
 
 def _sentinel_loop():
@@ -137,31 +148,42 @@ def _sentinel_loop():
     at most once per re-eval window.  Otherwise stats over a tiny
     window produce noisy decisions.
     """
-    last_run = 0.0
-    min_gap = max(60.0, _REEVAL_INTERVAL / 60.0)  # never more than ~1/min
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        last_run = 0.0
+        min_gap = max(60.0, _REEVAL_INTERVAL / 60.0)  # never more than ~1/min
 
-    while True:
-        time.sleep(_SENTINEL_POLL)
-        try:
-            if not os.path.exists(_SENTINEL_PATH):
-                continue
+        while True:
+            time.sleep(_SENTINEL_POLL)
             try:
-                os.remove(_SENTINEL_PATH)
-            except OSError as e:
-                # Couldn't remove - log and skip rather than re-fire next minute.
-                print(f"[DB-POOL-REEVAL] sentinel remove failed: {e!r}")
-                continue
+                if not os.path.exists(_SENTINEL_PATH):
+                    continue
+                try:
+                    os.remove(_SENTINEL_PATH)
+                except OSError as e:
+                    # Couldn't remove - log and skip rather than re-fire next minute.
+                    print(f"[DB-POOL-REEVAL] sentinel remove failed: {e!r}")
+                    continue
 
-            now = time.monotonic()
-            if now - last_run < min_gap:
-                print(f"[DB-POOL-REEVAL] sentinel ignored (rate-limited, "
-                      f"{now - last_run:.0f}s since last run)")
-                continue
-            last_run = now
+                now = time.monotonic()
+                if now - last_run < min_gap:
+                    print(f"[DB-POOL-REEVAL] sentinel ignored (rate-limited, "
+                          f"{now - last_run:.0f}s since last run)")
+                    continue
+                last_run = now
 
-            _run_reeval("sentinel")
-        except Exception as e:
-            print(f"[DB-POOL-REEVAL] sentinel error: {e!r}")
+                _run_reeval("sentinel")
+            except Exception as e:
+                print(f"[DB-POOL-REEVAL] sentinel error: {e!r}")
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[DB-POOL-REEVAL] [WORKER_EXIT_REASON_V1] _sentinel_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - sentinel-triggered pool re-evaluation has stopped", flush=True)
 
 
 def start():

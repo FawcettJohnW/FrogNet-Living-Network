@@ -73,6 +73,7 @@ DDL:              var/www/html/data_cache_gen.sql
 
 from __future__ import annotations
 
+from core import tuple_key as _tk
 import datetime as _dt
 import json
 import os
@@ -106,10 +107,9 @@ _EXPECTED_TRIGGERS = 6
 # same set). A key outside this set is a filter we cannot express, and an
 # inexpressible filter must reach MySQL -- never be silently applied to a column
 # that does not exist.
-_SENSOR_COLS = ("SensorID", "FrogID", "SensorAddress", "SensorNetwork",
-                "SensorName", "SensorType", "SensorLocation", "Tags")
+_SENSOR_COLS = _tk.SENSOR_COLS    # [TUPLE_KEY_V1] one definition, core/tuple_key.py
 # Query keys that are not filters.
-_CONTROL_KEYS = ("entity", "action", "order", "limit", "parse", "fresh_s")
+_CONTROL_KEYS = _tk.CONTROL_KEYS  # [TUPLE_KEY_V1]
 
 _SQL_GEN = ("SELECT TableName, Gen, UNIX_TIMESTAMP() AS DbNow "
             "FROM FrogNetTableGen WHERE TableName IN (%s, %s)")
@@ -522,14 +522,7 @@ def _matches(row: Dict[str, Any], filters: Dict[str, str]) -> bool:
 
 
 def _parse_api_path(path: str) -> Optional[Dict[str, str]]:
-    if not path or "api.php" not in path:
-        return None
-    try:
-        q = urlparse(path).query
-        return {k: (v[0] if v else "")
-                for k, v in parse_qs(q, keep_blank_values=True).items()}
-    except Exception:
-        return None
+    return _tk.params(path)             # [TUPLE_KEY_V1] the same parse the key is built from
 
 
 def _int_or_zero(v) -> int:

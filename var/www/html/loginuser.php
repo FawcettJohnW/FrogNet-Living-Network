@@ -39,7 +39,7 @@ if ($numRows > 0)
 	$team=$row['Team'];
 	$registeredHost=$row['registeredHost'];
 
-        $updateQuery = 'UPDATE AuthorizedUsers SET loginHost="'.$loginHost.'" WHERE UserID="'.$userid.'"';
+        $updateQuery = 'UPDATE AuthorizedUsers SET loginHost="'.$loginHost.'" WHERE UserID="'.$userID.'"';
         $updateResult = mysqli_query( $mysqli, $updateQuery);
 
 	$lastMessageID=$row['lastMessageID'];
@@ -49,6 +49,6 @@ if ($numRows > 0)
 }
 else
 {
-        echo '{"Status":[{"Code":0}], "UserID":[{"UserID":0}], "Team":[{"Team":""}], "RegisteredHost":[{"RegisteredHost":""}], "LastMessageID":[{"LastMessageID":''}]}';
+        echo '{"Status":[{"Code":0}], "UserID":[{"UserID":0}], "Team":[{"Team":""}], "RegisteredHost":[{"RegisteredHost":""}], "LastMessageID":[{"LastMessageID":""}]}';
 }
 ?>

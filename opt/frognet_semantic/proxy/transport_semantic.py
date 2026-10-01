@@ -1567,11 +1567,10 @@ class _DaemonWorker:
                         # re-fired on every subsequent failure, turning one event
                         # into 6087 log lines from a single PID in an hour.
                         if self._connect_fails == _CONNECT_MAX_TRIES:
-                            # [CONNECT_TRIES_RETIRE_V2] retire() -- NOT mark(). A down .1/.2 is
-                            # still FrogNet, so it must never enter the non-FrogNet cache; but
-                            # after 3 failed :9009 connects the transport must still stop
-                            # dialing it for this merge. retire() covers any address and any
-                            # cause and clears at the next merge's flush.
+                            # [CONNECT_TRIES_RETIRE_V2] under [ONE_STATE_V1]: mark(). There is one set
+                            # (retire() was deleted with the .1/.2 carve-out): after 3 failed :9009
+                            # connects of any cause the peer is out for this merge, whatever its
+                            # address; runMerge's flush_not_frognet stage clears it next merge.
                             _nf_mark(self.host,
                                      reason=f"{self._connect_fails} failed :9009 connects")
                             print(f"[CLEANUP] {self.host}: {self._connect_fails} failed :9009 "
@@ -2495,6 +2494,24 @@ def _handle_semantic_request(
                 target_ip=target_ip, method=method, path=path,
                 headers=req_headers, body=body,
             )
+        # [SAME_MOVES_REFERENCE_V1] The daemon, answering RESP_SAME, sets its response
+        # reference for (peer, opcode) to the fields of the answer the SAME names
+        # (daemon/engine/session.py: new_ref = dyn_vals). The proxy must move its own the
+        # same way, from the same template, or the next RESP_DIFF is applied to a
+        # reference it was not encoded against -- fields the daemon omitted as unchanged
+        # get filled from a different answer (proven: test_resp_same_reference_oracle).
+        _same_text = cached_body.decode("utf-8", "replace") if isinstance(cached_body, bytes) else str(cached_body)
+        _same_vals = resp_tpl.extract_dynamic(_same_text)
+        if _same_vals is None:
+            # The daemon extracted this answer to decide SAME; if the proxy cannot, the two
+            # references can no longer be made equal. Say so and resync: drop both proxy
+            # references so the next request is REQ_FULL, which clears the daemon's too.
+            print(f"[SAME_MOVES_REFERENCE_V1] RESP_SAME body not extractable by opcode={opcode} "
+                  f"reply template; resync with REQ_FULL target={target_ip}", flush=True)
+            _clear_request_reference(target_ip, opcode)
+            _response_references.pop((target_ip, opcode), None)
+        else:
+            _set_response_reference(target_ip, opcode, {k: v for k, v in _same_vals})
         cached_resp_size = len(cached_body)
         http_resp_would = _estimate_http_response_wire(cached_resp_size)
         bump_cache(

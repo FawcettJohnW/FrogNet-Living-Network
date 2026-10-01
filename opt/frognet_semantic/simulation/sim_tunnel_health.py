@@ -36,7 +36,7 @@ What is REAL installed code here (not modeled):
     drives it directly with injected handshake-age / refresh callables and the
     real config thresholds, and asserts both the returned actions AND the log
     lines it emits.
-  - discovery.healthcheck.HealthCheck - the per-merge echo filter.
+  - discovery.healthcheck.HealthCheck - the per-merge filter (:9009 on the peer's .2).
   - discovery.sources.FakeBroker.transits - the real transit-gate logic.
 
 MODELED (the foil only): policy_echo_keyed - the REJECTED design, kept solely to
@@ -145,20 +145,32 @@ def policy_echo_keyed(echo_ok_seq, grace=2):
 
 # -- scenarios -------------------------------------------------------
 def s_echo_filter_real():
-    print("merge filter (REAL HealthCheck): dead-echo tunnel excluded from routes/hosts")
+    print("merge filter (REAL HealthCheck): tunnel whose peer .2 does not pong is excluded")
+    # [PINGPONG_HEALTH_V1] + [HEALTH_ON_DOT2_V1]: HealthCheck takes a verify backend
+    # (measure_or_loop over :9009), not an HTTP echo callable, and probes the peer's
+    # .2. This scenario passed an echo callable since June and crashed on it.
+    from discovery.sources import FakeVerify
 
     class FakeRoutes:
-        def rtmut(self, *a, caller="?"): return 0
+        def __init__(self):
+            self.dests = []
 
-    def health_echo(peer_ip):
-        return ("200", "BAMacBook,10.179.179.1,,") if peer_ip == "10.179.179.1" else ("000", "")
-    dead, filtered = HealthCheck(FakeRoutes(), health_echo, logger=lambda s: None).run(
+        def rtmut(self, *a, caller="?"):
+            if len(a) > 2 and a[1] in ("replace", "del"):
+                self.dests.append(a[2])
+            return 0
+
+    fr = FakeRoutes()
+    verify = FakeVerify(dead={"10.250.250.2"})     # Seattle5's .2 does not pong
+    dead, filtered = HealthCheck(fr, verify, logger=lambda s: None).run(
         [("wg1", "BAMacBook-10.179.179", "10.179.179.0/24"),
          ("wg2", "Seattle5-10.250.250", "10.250.250.0/24")],
         all_devs=["eth0", "wg1", "wg2"])
-    check("dead-echo wg2 flagged dead, wg1 healthy", "wg2" in dead and "wg1" not in dead, str(dead))
+    check("wg2 (peer .2 silent) flagged dead, wg1 healthy", "wg2" in dead and "wg1" not in dead, str(dead))
     check("wg2 dropped from walk devices (no route/host through it this merge)",
           "wg2" not in filtered and "wg1" in filtered, str(filtered))
+    check("health probe routes are peer .2/32 only - never a production .1",
+          fr.dests and all(d.split("/")[0].endswith(".2") for d in fr.dests), str(fr.dests))
 
 
 def s_live_tunnel_echo_blip():

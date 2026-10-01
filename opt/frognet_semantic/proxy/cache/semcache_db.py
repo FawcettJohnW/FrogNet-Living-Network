@@ -694,15 +694,26 @@ def evict_stale(hours: int = _EVICT_HOURS) -> int:
 
 
 def _eviction_loop() -> None:
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
     import time
-    while True:
-        time.sleep(3600)
-        try:
-            n = evict_stale()
-            if n > 0:
-                print(f"[PROXY-CACHE] evicted {n} stale rows", file=_sys.stderr, flush=True)
-        except Exception:
-            pass
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        while True:
+            time.sleep(3600)
+            try:
+                n = evict_stale()
+                if n > 0:
+                    print(f"[PROXY-CACHE] evicted {n} stale rows", file=_sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[PROXY-CACHE] eviction cycle FAILED: {e!r} - table growth is unbounded until this succeeds", flush=True)
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[PROXY-CACHE] [WORKER_EXIT_REASON_V1] _eviction_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - the proxy cache table will now grow without bound", flush=True)
 
 
 def start_eviction() -> None:

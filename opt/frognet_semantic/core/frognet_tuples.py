@@ -65,8 +65,8 @@ def _warn(msg: str) -> None:
         print(f"[TUPLE] {msg}", file=sys.stderr, flush=True)
     except Exception:
         pass
+    import logging                            # [IMPORT_GUARD_V2] stdlib: outside the try
     try:
-        import logging
         lg = logging.getLogger("frognet.communicator")
         if lg.handlers:
             lg.warning("[TUPLE] %s", msg)

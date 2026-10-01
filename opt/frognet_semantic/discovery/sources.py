@@ -97,13 +97,12 @@ class FakeVerify:
                                                    # (ECONNREFUSED-class): the ONLY thing that marks
     loops: set = field(default_factory=set)        # [LOOP_DETECT_9009_V1] targets (or (target,dev)) whose
                                                    # candidate route hairpins back through us
-    # [PROVE_DOT1_V1] Opt-in per-avenue model. When `reach` is provided, the :9009
-    # ping-pong verdict depends on the (target, dev, via) actually installed - a .1
-    # answers ONLY through the next hop that forwards to it (e.g. Seattle2's .1
-    # pongs via 10.250.250.191, NOT via .134). This mirrors FakeReflect: read the
-    # live <target>/32 probe route _prove_dot1 just installed and match the avenue.
-    # `reach is None` (the default) keeps the legacy dead/refused/loops behaviour so
-    # every existing verify-wired oracle is unaffected.
+    # Opt-in per-avenue model. When `reach` is provided, the :9009 ping-pong verdict
+    # depends on the (target, dev, via) of the live <target>/32 route - a target
+    # answers ONLY through the next hop that forwards to it. Discovery no longer
+    # probes any .1 ([DISCOVERY_ON_DOT2_ONLY_V1]); test_behind_relay_dot2_oracle
+    # uses this to make a .1 that WOULD pong, proving nothing asks it.
+    # `reach is None` (the default) keeps the dead/refused/loops behaviour.
     kernel: object = None
     reach: object = None                            # set[(target, dev, via)] or None
 

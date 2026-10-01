@@ -1541,24 +1541,35 @@ def _flusher_loop(interval: float) -> None:
     # [NO_FALLBACK_V1] `import random` in try/except Exception: pass. random is
     # stdlib - its absence is a broken interpreter - and time.sleep() on a
     # non-negative float cannot fail. The guard could only hide a real fault.
-    time.sleep(random.uniform(0.0, max(0.0, interval)))
-    _hb_register("proxy")
-    while True:
-        time.sleep(interval)
-        try:
-            # [NODE_HEARTBEAT_TS_V1] Read-then-write this process's heartbeat
-            # BEFORE emitting. If the database changed, caches are dropped first
-            # so nothing this cycle is computed from data that no longer exists.
-            _hb_cycle("proxy")
-            _emit_all_sensors()
-            # [STALE_PEER_AGEOUT_V1] Age-out runs AFTER sensor emission
-            # so the final snapshot of a soon-to-be-dropped peer still
-            # makes it to the dashboard (so a real peer that dies
-            # doesn't just vanish from history without a final reading).
-            _age_out_stale_peers()
-            print(f"[PROXY-METRICS] flusher fired at {time.strftime('%H:%M:%S')}", flush=True)
-        except Exception as e:
-            print(f"[PROXY-METRICS] flusher error: {e!r}", flush=True)
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        time.sleep(random.uniform(0.0, max(0.0, interval)))
+        _hb_register("proxy")
+        while True:
+            time.sleep(interval)
+            try:
+                # [NODE_HEARTBEAT_TS_V1] Read-then-write this process's heartbeat
+                # BEFORE emitting. If the database changed, caches are dropped first
+                # so nothing this cycle is computed from data that no longer exists.
+                _hb_cycle("proxy")
+                _emit_all_sensors()
+                # [STALE_PEER_AGEOUT_V1] Age-out runs AFTER sensor emission
+                # so the final snapshot of a soon-to-be-dropped peer still
+                # makes it to the dashboard (so a real peer that dies
+                # doesn't just vanish from history without a final reading).
+                _age_out_stale_peers()
+                print(f"[PROXY-METRICS] flusher fired at {time.strftime('%H:%M:%S')}", flush=True)
+            except Exception as e:
+                print(f"[PROXY-METRICS] flusher error: {e!r}", flush=True)
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[PROXY-METRICS] [WORKER_EXIT_REASON_V1] _flusher_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - this proxy will no longer emit any telemetry", flush=True)
 
 
 def start_flusher(interval: float = 30.0) -> None:

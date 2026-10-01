@@ -197,8 +197,9 @@ def html_fullsuite() -> dict:
     try:
         import html5lib
         have_h5 = True
-    except Exception:
+    except Exception as _he:                 # [IMPORT_GUARD_V2] optional validator: say it is skipped
         have_h5 = False
+        print("SKIP html5lib certification: %r" % (_he,))
 
     cert_ok = cert_tot = 0
     for f in files:
@@ -225,8 +226,8 @@ def html_fullsuite() -> dict:
                     ours = html5lib.parse(out1, treebuilder="lxml")
                     from lxml import etree as ET
                     cert_ok += 1 if ET.tostring(ref) == ET.tostring(ours) else 0
-                except Exception:
-                    pass
+                except Exception as _ce:           # [IMPORT_GUARD_V2] a failed certification is counted and named
+                    print("html5lib certification failed: %r" % (_ce,))
     if have_h5:
         res["html5lib_cert"] = (cert_ok, cert_tot)
     return res

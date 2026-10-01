@@ -133,35 +133,6 @@ def _add_host(disc, name, host_path, dev, authoritative=False):
         disc.hosts.add_host(name, host_path, dev, authoritative=authoritative)
 
 
-def _prove_dot1(disc, x_ip, dev, via):
-    """[PROVE_DOT1_V1] Prove the PRODUCTION .1 of X through (dev, via) with the
-    :9009 ping-pong - the authoritative route-liveness gate.
-
-    A seg-relay does NOT forward the .2 discovery plane onward, so a node BEHIND a
-    relay never answers reflect on .2 even when its production .1 is reachable
-    through that same next hop (John's `ip r r <dest>/24 via <relay> && ping
-    <dest>.1` proof). Reflect-on-.2 is only the fast path; the .1 :9009 ping-pong is
-    the authority. Install a transient /32 to X's .1 on this avenue, ping-pong THROUGH
-    it, tear down. PONG proves the route carries. Returns float rtt, "LOOP", or None.
-    No verify backend wired (most oracles) -> None, so this is inert there."""
-    verify = getattr(disc, "verify", None)
-    if verify is None:
-        return None
-    d1 = net_dot(x_ip, 1)
-    src = disc.dev_src(dev) if hasattr(disc, "dev_src") else ""
-    if disc.r.probe_install(d1, dev, via, src) != 0:
-        return None
-    try:
-        v = verify.measure_or_loop(d1, dev)
-    finally:
-        disc.r.probe_delete(d1)
-    if v == "LOOP":
-        return "LOOP"
-    if isinstance(v, float):
-        return v
-    return None
-
-
 def _probe_through(disc, x_ip, dev, via):
     """Evaluate next-hop (dev, via) toward node X. THE RULE: never ping X's far end
     - that times out (~14s) whenever this avenue does not actually forward to X and
@@ -198,6 +169,8 @@ def _probe_through(disc, x_ip, dev, via):
             disc._probe_fail_cache[fkey] = _time.monotonic() + 3.0
         return None
 
+    _log = getattr(disc, "log", None) or (lambda *_a, **_k: None)
+
     d2 = net_dot(x_ip, 2)
     src = disc.dev_src(dev) if hasattr(disc, "dev_src") else ""
     reflect = getattr(disc, "reflect", None)
@@ -209,7 +182,10 @@ def _probe_through(disc, x_ip, dev, via):
         # of the production data-plane traffic. Probing .1 here rode the production
         # plane and blocked for the full 15s RPC budget behind the saturated
         # database host (.1), stalling the whole node. .2 keeps discovery isolated.
-        if disc.r.probe_install(d2, dev, via, src) != 0:
+        rc = disc.r.probe_install(d2, dev, via, src)
+        if rc != 0:
+            _log(f"PROBE_FAIL plane=.2 x={x_ip} target={d2} dev={dev} "
+                 f"via={via or '-'} src={src or '-'} reason=probe_install_rc={rc}")
             return _fail()
         try:
             verdict = reflect.probe(ident, d2)
@@ -218,18 +194,16 @@ def _probe_through(disc, x_ip, dev, via):
         if verdict == "LOOP":
             return "LOOP"
         if verdict != "OK":
-            # [PROVE_DOT1_V1] .2 didn't reflect - but the .2 discovery plane is not
-            # forwarded across a seg-relay, so a node BEHIND a relay lands here even
-            # though its production .1 is reachable through this same next hop. Fall
-            # back to the authoritative gate: prove the .1 via the :9009 ping-pong
-            # THROUGH this avenue. PONG -> real, proven route (rank by that rtt).
-            # No pong -> this path genuinely does not reach X.
-            r1 = _prove_dot1(disc, x_ip, dev, via)
-            if r1 == "LOOP":
-                return "LOOP"
-            if isinstance(r1, float):
-                return r1
-            return _fail()              # this path does not reach X
+            # [DISCOVERY_ON_DOT2_ONLY_V1] John 2026-09-25: all discovery happens on
+            # .2, and NO FALLBACKS. [PROVE_DOT1_V1] used to retry here on X's
+            # PRODUCTION .1 (a metric-6 /32 that overrode the installed /24 for X's
+            # .1 - databasehost and control included - through every candidate
+            # avenue, LAN clients included). That rescue is gone. X's .2 did not
+            # reflect through this avenue: that is this avenue's result, and it is
+            # stated here with everything needed to chase it.
+            _log(f"PROBE_FAIL plane=.2 x={x_ip} target={d2} dev={dev} "
+                 f"via={via or '-'} src={src or '-'} reason=reflect_verdict={verdict}")
+            return _fail()              # this path does not reach X on .2
         # reachable: rank by RTT to the NEXT HOP (fast), not X's far end.
         nh = via if via else _tunnel_peer(disc, dev)
         if nh:
@@ -378,28 +352,15 @@ def descend(disc, active_devs, immediate, *, active_states=None, max_workers=64,
         seen.add(ip)
         # Cached parallel probe result (echo line + measured rtt) for this neighbour.
         el, v = _probe_results.get(ip, ("", None))
-        # [TUNNEL_PEER_HEALTH_EMIT_V1] The .2 discovery plane is silent over some
-        # tunnels on real hardware: echo/measure to <peer>.2 does not answer across
-        # wg even when the tunnel carries. But the tunnel's own peer .1 is the SAME
-        # liveness the healthcheck already proved with a SRCLESS :9009 ping-pong.
-        # (An identity-src :9009 here false-negatives - the peer cannot return to our
-        # .1 over the tunnel - which is exactly why the .2 path and dev_src's
-        # identity-src probe both fail on the direct peer while healthcheck passes.)
-        # Re-run that exact srcless .1 probe; a PONG proves the peer is reachable, so
-        # emit it as a MEASURED immediate rather than discarding a health-proven peer.
-        # Behind-peer .1's (a different /24 reached THROUGH this tunnel) do NOT pong
-        # srcless - their return path needs our propagated identity - so they stay
-        # None here and fall through to the seed probe (identity-src) unchanged.
-        if (v is None and dev.startswith("wg")
-                and getattr(disc, "verify", None) is not None):
-            d1h = net_dot(ip, 1)
-            if disc.r.probe_install(d1h, dev, "", "") == 0:   # SRCLESS - mirrors healthcheck
-                try:
-                    hv = disc.verify.measure_or_loop(d1h, dev)
-                finally:
-                    disc.r.probe_delete(d1h)
-                if isinstance(hv, float):
-                    v = hv
+        # [DISCOVERY_ON_DOT2_ONLY_V1] A tunnel immediate is measured on its .2 like
+        # every other discovery probe. [TUNNEL_PEER_HEALTH_EMIT_V1] used to retry a
+        # silent .2 on the peer's PRODUCTION .1 (srcless metric-6 /32) and emit the
+        # peer as measured - a fallback that hid every dark .2 it rescued. When the
+        # .2 does not measure, say so with the addresses involved; the peer is not
+        # emitted from a measurement that did not happen.
+        if v is None and dev.startswith("wg"):
+            log(f"IMMEDIATE_NO_ANSWER plane=.2 ip={ip} target={net_dot(ip, 2)} "
+                f"dev={dev} measure=frognet_alive echo={'yes' if el else 'no'}")
         fields = el.split(",") if el else []
         ename = fields[0].strip() if fields else ""
         eid1 = fields[1].strip() if len(fields) > 1 else ""
@@ -490,9 +451,9 @@ def descend(disc, active_devs, immediate, *, active_states=None, max_workers=64,
             fr.append((ip, dev, root_via))
     # seg-relays are crawled like any frontier entry so their children surface as
     # seeds. NO relay tagging: every seed is resolved uniformly by _probe_and_emit,
-    # which probes each next-hop avenue and PROVES it (reflect on .2, or the .1
-    # :9009 ping-pong for a node behind a relay). A getHosts listing is a claim, not
-    # a route - there is no vouch path.
+    # which probes each next-hop avenue and PROVES it by reflect on .2 - the only
+    # plane discovery uses. A getHosts listing is a claim, not a route - there is
+    # no vouch path.
     fr.extend(list(seg_roots))                                     # (ip, dev, root_via)
     # [DESCEND_FRONTIER_FROM_KNOWN_V1] Seed the frontier ALSO from what we ALREADY know:
     # the installed /24 routes (the route-bearing hosts). The crawl itself stays two
@@ -628,12 +589,11 @@ def descend(disc, active_devs, immediate, *, active_states=None, max_workers=64,
 
     # ---- probe: ONE uniform pass, every seed through every next-hop avenue -----
     # Gather -> locate -> route: probe each seed through every next_hop (tunnel /
-    # gateway / on-segment neighbour). Each avenue is PROVEN - reflect on .2 (fast),
-    # or the .1 :9009 ping-pong for a node behind a seg-relay whose .2 the relay
-    # won't forward. A node reached through a relay is not special: the relay's
-    # segment address is simply one of its next_hop avenues, and the .1 probe rides
-    # `via <relay> dev eth0` - exactly John's proven manual route. Multiple answering
-    # avenues per /24 is the goal; promote ranks by RTT. No vouch, no relay taxonomy.
+    # gateway / on-segment neighbour). Each avenue is PROVEN by reflect on .2. A
+    # node reached through a relay is not special: the relay's segment address is
+    # simply one of its next_hop avenues, and the .2 probe rides `via <relay> dev
+    # eth0`. An avenue whose .2 does not reflect is a named PROBE_FAIL, never a .1
+    # retry. Multiple answering avenues per /24 is the goal; promote ranks by RTT.
     n = 0
     direct_batch = [(sip, next_hops) for sip in seeds
                     if not (disc.is_local_ip(sip) or disc.is_on_local_subnet(sip))]

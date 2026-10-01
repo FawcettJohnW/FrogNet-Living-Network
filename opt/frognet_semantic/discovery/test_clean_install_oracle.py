@@ -293,6 +293,15 @@ def plane_reset_release_symmetry():
         check(True, "reset removes no individual files needing restore")
         return
     wtext = open(bld, encoding="utf-8", errors="replace").read() if bld else ""
+    # [WORLD_MANIFEST_IS_THE_LIST_V1] The builder no longer holds the path list: WORLD_PATHS comes from
+    # FROGNET_WORLD_PATHS in /usr/local/lib/frognet_world_manifest.sh, which the builder (and full_tar.bash)
+    # sources. Reading only the builder found no entries and reported every reset-deleted file unrestorable.
+    # The manifest IS the list; read it with the builder, same line-anchored rule.
+    for _m in (_os.path.join("/usr", "local", "lib", "frognet_world_manifest.sh"),
+               _os.path.join(_TREE, "usr", "local", "lib", "frognet_world_manifest.sh")):
+        if _os.path.exists(_m):
+            wtext += "\n" + open(_m, encoding="utf-8", errors="replace").read()
+            break
     inst = _script("frognet_install.sh")
     if not inst:
         print("  SKIP symmetry - needs frognet_install.sh (release tooling)")

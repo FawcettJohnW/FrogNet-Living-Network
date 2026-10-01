@@ -77,8 +77,8 @@ def _looks_like_xml(text: str) -> bool:
         return False
     if re.search(r"<[A-Za-z0-9\-_]+", t[:200]) is None:
         return False
+    import xml.etree.ElementTree as ET        # [IMPORT_GUARD_V2] stdlib: outside the probe
     try:
-        import xml.etree.ElementTree as ET
         ET.fromstring(t)
         return True
     except Exception:

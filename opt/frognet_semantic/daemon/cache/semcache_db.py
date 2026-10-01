@@ -355,16 +355,27 @@ def _flush_pending_reads() -> int:
 
 def _flusher_loop() -> None:
     """Background: every _LRU_FLUSH_SEC, flush queued LastReadAt updates."""
-    while True:
-        time.sleep(_LRU_FLUSH_SEC)
-        try:
-            n = _flush_pending_reads()
-            if n:
-                # Only log when something happened, to keep logs quiet.
-                pass
-        except Exception as e:
-            print(f"[DAEMON-CACHE] flusher loop error: {e!r}",
-                  file=sys.stderr, flush=True)
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        while True:
+            time.sleep(_LRU_FLUSH_SEC)
+            try:
+                n = _flush_pending_reads()
+                if n:
+                    # Only log when something happened, to keep logs quiet.
+                    pass
+            except Exception as e:
+                print(f"[DAEMON-CACHE] flusher loop error: {e!r}",
+                      file=sys.stderr, flush=True)
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[DAEMON-CACHE] [WORKER_EXIT_REASON_V1] _flusher_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - LastReadAt stops advancing; LRU ages will stop moving", flush=True)
 
 
 def start_flusher() -> None:
@@ -647,15 +658,26 @@ def evict_stale(hours: int = _EVICT_HOURS) -> int:
 
 def _eviction_loop() -> None:
     """Background thread: evict stale rows hourly."""
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
     import time
-    while True:
-        time.sleep(3600)
-        try:
-            n = evict_stale()
-            if n > 0:
-                print(f"[DAEMON-CACHE] evicted {n} stale rows", file=sys.stderr, flush=True)
-        except Exception:
-            pass
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        while True:
+            time.sleep(3600)
+            try:
+                n = evict_stale()
+                if n > 0:
+                    print(f"[DAEMON-CACHE] evicted {n} stale rows", file=sys.stderr, flush=True)
+            except Exception as e:
+                print(f"[DAEMON-CACHE] eviction cycle FAILED: {e!r} - table growth is unbounded until this succeeds", flush=True)
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[DAEMON-CACHE] [WORKER_EXIT_REASON_V1] _eviction_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - the daemon cache table will now grow without bound", flush=True)
 
 
 def start_eviction() -> None:

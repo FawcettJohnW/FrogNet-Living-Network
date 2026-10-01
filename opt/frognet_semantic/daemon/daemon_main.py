@@ -114,11 +114,19 @@ def main() -> None:
     #
     # Recovery is automatic: _tables_ensured stays False on failure, so the
     # next caller retries.
+    # [TEMPLATE_TABLE_IS_REQUIRED_V1] John, 2026-09-25: do not carry on without the template table; record the real
+    # reason. A daemon without its templates answers every semantic request "no templates for opcode" -- it runs, and
+    # it serves nothing it exists to serve. It now stops, with the full traceback of what actually failed. The boot
+    # race the note above describes (mariadb up after frognet-daemon) is closed where it belongs: the unit is ordered
+    # After=/Wants=mariadb.service, so this fires on a real failure, not on start order.
     try:
         from core.store import TemplateStore as _TplStore
         _TplStore().ensure_tables()
     except Exception as e:
-        print(f"[Daemon] WARNING: template table init failed: {e!r}", flush=True)
+        import traceback as _tb
+        print(f"[Daemon] FATAL: template table init failed: {e!r} -- the daemon cannot serve semantic requests "
+              f"without it and will not start.\n{_tb.format_exc()}", flush=True)
+        raise SystemExit(1) from e
 
     resolver = DestinationResolver()
     server = DaemonServer(host=host, port=port, resolver=resolver)

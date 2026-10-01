@@ -388,14 +388,14 @@ class SemanticCodec:
             # we're trying to decode tells us whether it's an FNW1 frame
             # (464e5731 = 'FNW1') being wrong-layered, or some other 'F'
             # leading payload (daemon misencoded).
+            import inspect, sys
             try:
-                import inspect, sys
                 frame = inspect.currentframe().f_back
                 packet = frame.f_locals.get('packet') or frame.f_locals.get('blob')
                 first16 = packet[:16].hex() if packet else '<no-packet>'
                 print(f"[CODEC-DECODE] first16={first16} caller={frame.f_code.co_name}", file=sys.stderr)
-            except Exception:
-                pass
+            except Exception as _pe:           # [IMPORT_GUARD_V2] the probe's own failure is named, not hidden
+                print(f"[CODEC-DECODE] caller probe failed: {_pe!r}", file=sys.stderr)
             raise ValueError(f"Unsupported semantic wire version {version}")
 
     def _type_to_id(self, value: Any) -> int:

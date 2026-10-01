@@ -25,9 +25,8 @@ pass-on-new:  (x_ip, via or dev) -> (10.28.28.1,"wg0") and (10.28.28.1,"wg2") ar
                                     distinct; wg2 is probed, reflects OK, installs.
                                     Oracle PASSES.
 
-No :9009 verify backend is wired (verify=None) - the fall-through _prove_dot1 is
-inert, so a non-reaching avenue takes the _fail() path exactly as on hardware when
-the daemon is dark. That is what makes the collapse observable in the sim.
+A non-reaching avenue takes the _fail() path (a named PROBE_FAIL on .2) exactly as
+on hardware. That is what makes the collapse observable in the sim.
 """
 import os
 import sys

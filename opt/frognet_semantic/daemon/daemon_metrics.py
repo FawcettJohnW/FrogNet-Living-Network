@@ -787,16 +787,27 @@ def _flusher_loop(interval: float) -> None:
     # same boundary onto the elected database host.
     # [NO_FALLBACK_V1] random is stdlib and time.sleep() on a non-negative
     # float cannot fail; the guard could only hide a real fault.
-    time.sleep(random.uniform(0.0, max(0.0, interval)))
-    _hb_register("daemon")
-    while True:
-        time.sleep(interval)
-        try:
-            # [NODE_HEARTBEAT_TS_V1] see proxy_metrics: detect before emitting.
-            _hb_cycle("daemon")
-            _emit_daemon_batch(window_sec=interval)
-        except Exception as e:
-            print(f"[DAEMON-METRICS] flusher error: {e!r}", flush=True)
+    # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+    # exits without saying so is indistinguishable from one that is fine. Name the exit.
+    _exit_reason = "unset"
+    _started_at = time.time()
+    try:
+        time.sleep(random.uniform(0.0, max(0.0, interval)))
+        _hb_register("daemon")
+        while True:
+            time.sleep(interval)
+            try:
+                # [NODE_HEARTBEAT_TS_V1] see proxy_metrics: detect before emitting.
+                _hb_cycle("daemon")
+                _emit_daemon_batch(window_sec=interval)
+            except Exception as e:
+                print(f"[DAEMON-METRICS] flusher error: {e!r}", flush=True)
+    except BaseException as e:
+        _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+        raise
+    finally:
+        print(f"[DAEMON-METRICS] [WORKER_EXIT_REASON_V1] _flusher_loop thread exited reason={_exit_reason} "
+              f"lifetime_s={time.time() - _started_at:.0f} - this daemon will no longer emit any telemetry", flush=True)
 
 
 def start_daemon_flusher(interval: float = 300.0) -> None:

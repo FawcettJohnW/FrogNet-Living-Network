@@ -59,49 +59,37 @@ import threading
 import time
 from urllib.parse import urlparse, parse_qs
 
+from core import tuple_key as _tk    # [TUPLE_KEY_V1] THE key for tuple-store calls, shared with data_cache and templates
+
 _ENABLED = os.environ.get("FROGNET_LOCAL_READ_CACHE", "1").strip() == "1"
 _TTL = float(os.environ.get("FROGNET_LOCAL_READ_CACHE_TTL", "10"))  # backstop only
 
-_READ_ACTIONS = ("values", "list", "get")
+_READ_ACTIONS = _tk.READ_ACTIONS
 # [LRC_UPSERT_BATCH_IS_A_WRITE_V1] upsert_batch was missing. daemon_metrics.py sends
 # the whole per-node metric set through it (one round-trip instead of N) and api.php
 # handles it - so the busiest writer on the node did not bust the read cache, and
 # reads kept being served pre-write values until something else happened to bust it.
-_WRITE_ACTIONS = ("upsert", "upsert_by_name", "upsert_batch",
-                  "update", "create", "delete")
-_ENTITIES = ("sensors", "sensor_data")
+_WRITE_ACTIONS = _tk.WRITE_ACTIONS
+_ENTITIES = _tk.TUPLE_ENTITIES
 
 _lock = threading.RLock()
-# key -> {"resp": {status, headers, body}, "names": set[str], "at": float}
+# [TUPLE_KEY_V1] tuple key -> {call controls -> {"resp": {status, headers, body}, "names": set[str], "at": float}}.
+# The key is THE tuple key (core/tuple_key.py); an answer also depends on the call's controls (action, limit, order,
+# parse, fresh_s), so each stored answer is filed under its controls and serves only a call with the same ones.
 _cache: dict = {}
 _stats = {"hits": 0, "misses": 0, "stores": 0, "writes_seen": 0, "busted": 0}
 
 
 def _params(path: str):
-    if not path or "api.php" not in path:
-        return None
-    try:
-        q = urlparse(path).query
-        out = {}
-        for k, v in parse_qs(q, keep_blank_values=True).items():
-            out[k] = v[0] if v else ""
-        return out
-    except Exception:
-        return None
+    return _tk.params(path)
 
 
 def read_key(method: str, path: str):
-    """Stable cache key for a cacheable local read, else None."""
-    if not _ENABLED or method != "GET":
+    """(tuple key, call controls) for a cacheable read, else None."""
+    if not _ENABLED:
         return None
-    p = _params(path)
-    if not p or p.get("entity") not in _ENTITIES:
-        return None
-    if p.get("action") not in _READ_ACTIONS:
-        return None
-    # Normalize: sort params so equivalent queries collapse to one key.
-    items = sorted((k, v) for k, v in p.items())
-    return "&".join(f"{k}={v}" for k, v in items)
+    k = _tk.read_key(method, path)
+    return None if k is None else (k, _tk.controls(path))
 
 
 def _names_from_body(body: bytes) -> set:
@@ -123,16 +111,19 @@ def _names_from_body(body: bytes) -> set:
 
 
 def get(key):
-    """Return a cached response dict (copy) or None."""
     if key is None:
         return None
+    k, ctl = key
     with _lock:
-        e = _cache.get(key)
+        per = _cache.get(k)
+        e = per.get(ctl) if per else None
         if e is None:
             _stats["misses"] += 1
             return None
         if _TTL > 0 and (time.time() - e["at"]) > _TTL:
-            _cache.pop(key, None)
+            per.pop(ctl, None)
+            if not per:
+                _cache.pop(k, None)
             _stats["misses"] += 1
             return None
         _stats["hits"] += 1
@@ -165,8 +156,9 @@ def put(key, resp):
             return
     except (ValueError, AttributeError):
         pass          # not JSON we understand - fall through and cache as before
+    k, ctl = key
     with _lock:
-        _cache[key] = {
+        _cache.setdefault(k, {})[ctl] = {
             "resp": {"status": 200,
                      "headers": dict(resp.get("headers") or {}),
                      "body": body},
@@ -177,46 +169,9 @@ def put(key, resp):
 
 
 def _written_names(path: str, body: bytes):
-    """The set of SensorNames a write targets, or None if unidentifiable.
-
-    [LRC_BATCH_INVALIDATE_V1] Returns a SET because upsert_batch carries
-    {"items":[{"SensorName":...}, ...]} -- a whole tick of metrics in one POST.
-    upsert_batch was already in _WRITE_ACTIONS, but this function only looked for
-    a TOP-LEVEL SensorName, found none in a batch body, returned None, and so hit
-    the clear-all branch on every batch write. That is the blunt
-    flush-on-any-write the module docstring warns against: with writes at
-    ~288/min it measurably costs cache effectiveness (broad-read hit rate 95.0%
-    -> 86.6%, busts 299 -> 686 over a 10-minute soak) versus busting by name.
-
-    None (=> caller clears all) is reserved for a write we genuinely cannot
-    attribute. An empty set is NOT None: a batch with no named items wrote
-    nothing, so it should bust nothing.
-    """
-    p = _params(path) or {}
-    if p.get("SensorName"):
-        return {p["SensorName"]}
-    try:
-        text = (body or b"").decode("utf-8", "replace")
-    except Exception:
-        return None
-    try:
-        d = json.loads(text)
-        if isinstance(d, dict):
-            items = d.get("items")
-            if isinstance(items, list):
-                return {it["SensorName"] for it in items
-                        if isinstance(it, dict) and it.get("SensorName")}
-            if d.get("SensorName"):
-                return {d["SensorName"]}
-    except Exception:
-        pass
-    try:
-        for k, v in parse_qs(text, keep_blank_values=True).items():
-            if k == "SensorName" and v:
-                return {v[0]}
-    except Exception:
-        pass
-    return None
+    # [LRC_BATCH_INVALIDATE_V1] carried by core/tuple_key.written_names: a set of names (items[] for upsert_batch),
+    # an empty set busts nothing, None alone clears all.
+    return _tk.written_names(path, body)
 
 
 def invalidate_for_write(method: str, path: str, body: bytes) -> int:
@@ -233,15 +188,20 @@ def invalidate_for_write(method: str, path: str, body: bytes) -> int:
         _stats["writes_seen"] += 1
         if names is None:
             # Cannot identify the target - be safe, not stale: clear all.
-            n = len(_cache)
+            n = sum(len(per) for per in _cache.values())
             _cache.clear()
             _stats["busted"] += n
             return n
-        victims = [k for k, e in _cache.items() if e["names"] & names]
-        for k in victims:
-            _cache.pop(k, None)
-        _stats["busted"] += len(victims)
-        return len(victims)
+        busted = 0
+        for k in list(_cache):
+            per = _cache[k]
+            for ctl in [c for c, e in per.items() if e["names"] & names]:
+                per.pop(ctl, None)
+                busted += 1
+            if not per:
+                _cache.pop(k, None)
+        _stats["busted"] += busted
+        return busted
 
 
 def stats():
@@ -253,7 +213,7 @@ def clear_all() -> int:
     """[NODE_HEARTBEAT_TS_V1] Drop every cached local read: the database it was
     read from may no longer be the one being served. Returns entries dropped."""
     with _lock:
-        n = len(_cache)
+        n = sum(len(per) for per in _cache.values())
         _cache.clear()
         return n
 

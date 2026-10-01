@@ -51,9 +51,8 @@ KNOWN_FAIL = {
     "test_child_onlink_uplink_oracle":
         "IMMEDIATE candidate via read from the live box (192.168.0.1), not the "
         "fixture; cascades to rc=2 on every install. Harness, not shipped code.",
-    "test_not_frognet_skip_oracle":
-        "pass 1 does not mark despite a definitive refusal from a fake verify; "
-        "passes in a clean container on identical modules.",
+    # test_not_frognet_skip_oracle left this list 2026-09-25: its two failing checks asserted the .1/.2 carve-out
+    # that [ONE_STATE_V1] removed (the note that stood here named the wrong cause); they now assert the ruling.
 }
 
 # [DESCEND_V1 retirement, John 2026-07-08] These oracles assert the internals of
@@ -93,9 +92,8 @@ RETIRED = {
     # request must be a frame, not an absence" -- that no longer hold, and those
     # are all of it. test_resp_same_oracle.py at the tree root is the gate for
     # the restored behaviour and belongs in a runner in its place.
-    "test_no_caches_oracle":
-        "gates the removal of the RESP_SAME/answer caches; reversed by "
-        "[SAME_IS_BACK_V1] - see test_resp_same_oracle.py",
+    # [NO_CACHES_V1_ORACLE_DELETED] 2026-09-25: the file itself is removed; it gated a purge that DOCTRINE.txt records as
+    # a mistake and [SAME_IS_BACK_V1] reversed, and it could only ever fail. test_resp_same_oracle.py is the live gate.
 }
 
 

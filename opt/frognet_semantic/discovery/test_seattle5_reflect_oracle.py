@@ -48,9 +48,8 @@ def build_seattle5():
         "10.250.250.191": "Seattle3,10.130.130.1,10.250.250.191,0.0.0.0",
         # .20/.85/.134 are PLAIN clients (do NOT self-identify). Seattle2 is NOT on
         # this segment - it sits BEHIND Seattle3 (surfaced via Seattle3's getHosts).
-        # The proven behind-relay route lives in test_behind_relay_pingpong_oracle,
-        # which wires a :9009 verify backend; this oracle has verify=None, so a
-        # node behind a relay correctly does NOT route here (nothing proves its .1).
+        # Its .2 is not in this fixture's reflect reach, so it must NOT route here.
+        # Found-on-.2 vs dark-on-.2 behind a relay is test_behind_relay_dot2_oracle.
         # tunnel peers answer at their .2 discovery alias
         "10.111.11.2":  "BABox,10.111.11.1,,",
         "10.179.178.2": "BAMacBook,10.179.178.1,,",
@@ -147,13 +146,12 @@ def main():
     ok3 = has_route("10.130.130.0/24", "10.250.250.191", "eth0")
     checks.append(("Seattle3 10.130.130.0/24 via 10.250.250.191 dev eth0", ok3))
 
-    # 2) Seattle2 is BEHIND Seattle3 and this oracle wires NO :9009 verify backend,
-    #    so the behind-relay .1 cannot be proven here -> Seattle2 must NOT route. A
-    #    route appearing here would be an unproven (fake) route. The PROVEN
-    #    behind-relay case (route iff .1 pongs via .191) is in
-    #    test_behind_relay_pingpong_oracle.
+    # 2) Seattle2 is BEHIND Seattle3 and its .2 does not reflect in this fixture ->
+    #    Seattle2 must NOT route. A route appearing here would be an unproven (fake)
+    #    route. Discovery is .2 only ([DISCOVERY_ON_DOT2_ONLY_V1]); the reflects /
+    #    dark pair is test_behind_relay_dot2_oracle.
     ok2 = not has_route("10.120.120.0/24", "", "eth0")
-    checks.append(("Seattle2 NOT routed without a :9009 proof (no fake route)", ok2))
+    checks.append(("Seattle2 NOT routed without a .2 proof (no fake route)", ok2))
 
     # 3) The bug's tell: NO route to Seattle3/Seattle2 whose VIA is 10.250.250.1
     #    (self) - the old net_dot(ip,1)-collapses-to-self mistake. Check `via`

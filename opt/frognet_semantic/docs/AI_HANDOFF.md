@@ -69,7 +69,7 @@ class-level patterns, not instance fixes.
 ### Fixes landed 2026-07-20 (each with an oracle; see FROGNET_NOW for tags)
 - `[LOOP_MEMO_V1]` counter+memo (discovery.py + descend.py).
 - fail-cache key `fkey=(x_ip, via or dev)` — `test_multitunnel_failcache_oracle`.
-- `[TUNNEL_PEER_HEALTH_EMIT_V1]` — `test_tunnel_peer_health_emit_oracle`.
+- `[TUNNEL_PEER_HEALTH_EMIT_V1]` — removed 2026-09-25 (`[DISCOVERY_ON_DOT2_ONLY_V1]`); see `test_tunnel_peer_dot2_oracle`.
 - prune proto-kernel guard — `test_prune_kernel_route_oracle`.
 - `[NEIGHBOR_CLIENT_DOT1_V1]` — `test_neighbor_client_dot1_oracle`.
 - sim fidelity: `route_egress` treats a bare host addr as `/32` (fabric.py) — the

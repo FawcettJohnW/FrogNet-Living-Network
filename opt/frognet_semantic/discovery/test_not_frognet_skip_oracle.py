@@ -80,15 +80,18 @@ def main():
     check(not not_frognet.is_marked(TMO),
           "timeout host is NOT marked (slow real node must not be poisoned)")
 
-    print("=== guard: a protected FrogNet role (.1) is never cached or skipped ===")
-    not_frognet.mark(DOT1, "should_be_refused")          # protected -> refused
-    check(not not_frognet.is_marked(DOT1), ".1 is never marked non-FrogNet")
+    # [ONE_STATE_V1] (John, 2026-08-08: "it's either unreachable or it's not") removed the .1/.2 carve-out from
+    # mark(). These two checks asserted the carve-out ("a .1 is never marked") and failed from that day; the runner
+    # carried them as a KNOWN-FAIL with a wrong explanation. The property that survives: a TIMEOUT never marks,
+    # for any address -- .1 included.
+    print("=== [ONE_STATE_V1]: no role is exempt; a timeout still never marks ===")
+    not_frognet.flush()
+    check(not_frognet.mark(DOT1, "unreachable") and not_frognet.is_marked(DOT1),
+          ".1 that is unreachable IS marked, like any address (ONE_STATE_V1)")
+    not_frognet.flush()
     v3 = CountingVerify(dead={DOT1})
     _disc(v3).walk("eth0", DOT1, 1)
-    # .1 is the node's served identity; it still gets walked (not skipped). The
-    # on-segment branch only fires for non-.1, so .1 takes the normal path - the
-    # point is simply that is_marked never silenced it.
-    check(not not_frognet.is_marked(DOT1), ".1 still not in the cache after a walk")
+    check(not not_frognet.is_marked(DOT1), ".1 that only TIMES OUT is not marked (a timeout never marks)")
 
     try:
         os.remove(not_frognet.SENTINEL)

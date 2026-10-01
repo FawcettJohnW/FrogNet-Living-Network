@@ -40,7 +40,7 @@ $result = mysqli_query( $mysqli, $query);
                 $frogs .=    '{ "networkName":"'.$row['NetoworkName'].
                              '", "networkIP":"'.$row['IPAddress'].
                              '", "frognetID":"'.$row['FrogID'].
-                             '", "lastHeartbeat":"'.$row['LastHeartbeat'].
+                             '", "lastHeartbeat":"'.$row['LastHeartbeat'].'"}';
             }
             echo '{"Status":[{"Code":1}], "NumEntries":[{"NumEntries":'.$num_row.'}], "Frogs":['.$frogs.']}';
         }

@@ -44,14 +44,9 @@ import traceback
 import fcntl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-try:
-    from core.frognet_diag import (diag as _diag, diag_exc as _diag_exc,
-                                   Timer as _diag_timer)
-except ImportError:
-    def _diag(*a, **k): pass
-    def _diag_exc(*a, **k): pass
-    class _diag_timer:
-        ms = -1.0
+# [IMPORT_GUARD_V2] 2026-09-25: the proxy always runs in the tree; a no-op diag stub hid a broken install.
+from core.frognet_diag import (diag as _diag, diag_exc as _diag_exc,
+                               Timer as _diag_timer)
 from socketserver import ThreadingMixIn
 from typing import Any, Dict, Set
 
@@ -83,6 +78,7 @@ from proxy.transport_real import real_upstream_local, real_upstream_remote_80, M
 from proxy.transport_semantic import handle_request  # unified handler
 from proxy.proxy_metrics import (start_flusher, bump_real, observe_peer,
                                  live_endpoint_stats)
+
 
 
 _STRIP_HDRS = {"transfer-encoding", "connection", "content-length", "server", "date"}
@@ -272,6 +268,9 @@ def proxy_dispatch(
 
     if not target_ip:
         return send_error_reply(self, 400, "Missing/invalid Host header", ctx=ctx, where="missing_host_header", extras={"host_header": repr(headers.get("Host") if headers else "")})
+
+    # [GAME_ORIGIN_REMOVED_V1] John, 2026-09-25: core/game_origin.py is outdated and removed for now. The in-proxy
+    # /game origin that stood here went with it; /game requests take the normal path.
 
     # ------------------------------------------------------------------
     # EXPLICIT ASYNC GATE (HEADER-BASED)
@@ -845,6 +844,25 @@ class FrogNetReflectHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
+_SERVE_THREAD = None
+
+
+def _serve_then(srv, boot_step):
+    """[SERVE_BEFORE_PUBLISH_V1] Start srv serving, then run boot_step (which may call srv's own port). If boot_step
+    raises, stop srv and re-raise: the process exits with the real error, as when boot_step ran before serving."""
+    global _SERVE_THREAD
+    _SERVE_THREAD = threading.Thread(target=srv.serve_forever, name="proxy-serve")
+    _SERVE_THREAD.start()
+    try:
+        boot_step()
+    except BaseException as e:
+        print(f"[Proxy] FATAL: boot step {getattr(boot_step, '__name__', boot_step)!s} failed: {e!r} "
+              f"- stopping the listener", flush=True)
+        srv.shutdown()
+        _SERVE_THREAD.join()
+        raise
+
+
 class FrogNetProxyServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -992,8 +1010,14 @@ def run_proxy(listen: str, upstream_host: str, upstream_port: int, daemon_port: 
     # [NO_FALLBACK_V1] Same as the daemon side: a node that cannot publish its
     # capability is invisible to service-host election, and a WARNING at boot is
     # not how that should be discovered.
+    # [SERVE_BEFORE_PUBLISH_V1] 2026-09-25, Seattle5 stuck after a restart while it WAS the databasehost:
+    # publish_all() writes to http://databasehost.frognet/api.php -- port 80 -- and when this node is the
+    # databasehost that is THIS proxy, bound above but not yet serving. Every write sat in our own listen backlog
+    # until it timed out (~65 s each, a control + data write per role handler); for all of that the node answered
+    # nothing: `curl http://<self>/frognet_echo.php` hung, and every peer's call to it with it. Serve first, then
+    # publish. A publish that raises still stops the proxy, loudly, as before [NO_FALLBACK_V1].
     from core.role_publish import publish_all
-    publish_all()
+    _serve_then(srv, publish_all)
 
     # ---- Reflect vhost (loop/reflection detector) on its own port ----
     # Isolated second listener; never touches the :80 semantic path, so a
@@ -1009,7 +1033,7 @@ def run_proxy(listen: str, upstream_host: str, upstream_port: int, daemon_port: 
         print(f"[Proxy] WARNING: reflect vhost bind failed on {reflect_port}: {e!r}",
               flush=True)
 
-    srv.serve_forever()
+    _SERVE_THREAD.join()
 
 
 def main():

@@ -518,21 +518,32 @@ class MediaServer:
             pass
 
     def _on_conn(self, conn: socket.socket, addr) -> None:
-        _setup_sock(conn)
+        # [WORKER_EXIT_REASON_V1] restored (lost from this tree since the 2026-08-11 NY2 session): a thread that
+        # exits without saying so is indistinguishable from one that is fine. Name the exit.
+        _exit_reason = "unset"
+        _started_at = time.time()
         try:
-            role, session, direction = _recv_hello(conn)
-        except (OSError, ValueError, ConnectionError) as e:
-            log.error("media_server_hello_fail peer=%s:%s errno=%s",
-                      addr[0], addr[1], errno_name(e))
-            try: conn.close()
-            except OSError: pass
-            return
-        log.info("media_server_accept peer=%s:%s role=%s session=%s direction=%s",
-                 addr[0], addr[1], role.value, session, direction)
-        if direction == "in":
-            self._add_viewer(session, conn, who=f"{addr[0]}:{addr[1]}")
-        else:
-            self._relay_sender(session, conn, who=f"{addr[0]}:{addr[1]}")
+            _setup_sock(conn)
+            try:
+                role, session, direction = _recv_hello(conn)
+            except (OSError, ValueError, ConnectionError) as e:
+                log.error("media_server_hello_fail peer=%s:%s errno=%s",
+                          addr[0], addr[1], errno_name(e))
+                try: conn.close()
+                except OSError: pass
+                return
+            log.info("media_server_accept peer=%s:%s role=%s session=%s direction=%s",
+                     addr[0], addr[1], role.value, session, direction)
+            if direction == "in":
+                self._add_viewer(session, conn, who=f"{addr[0]}:{addr[1]}")
+            else:
+                self._relay_sender(session, conn, who=f"{addr[0]}:{addr[1]}")
+        except BaseException as e:
+            _exit_reason = f"exception:{type(e).__name__}: {e!r}"
+            raise
+        finally:
+            print(f"[MEDIA-PLANES] [WORKER_EXIT_REASON_V1] _on_conn thread exited reason={_exit_reason} "
+                  f"lifetime_s={time.time() - _started_at:.0f} - this media connection's handler is gone", flush=True)
 
     def _add_viewer(self, session: str, conn: socket.socket, who: str) -> None:
         plane = OutPlane(conn, session, who=who)     # server writes to viewer; non-blocking drop

@@ -17,8 +17,10 @@
 ################################################################
 [Unit]
 Description=FrogNet Semantic Daemon
-After=network-online.target
-Wants=network-online.target
+After=network-online.target mariadb.service
+Wants=network-online.target mariadb.service
+# [TEMPLATE_TABLE_IS_REQUIRED_V1] daemon_main.py stops when its template table cannot be ensured; start it after
+# MariaDB so that stop means a real failure, not a boot race the start limit below would turn into a failed unit.
 
 # [CREDENTIAL_FAILURE_IS_FATAL_V1] Restart=always with no start limit turns a
 # deliberate crater into a one-second loop: the process exits because it cannot

@@ -33,7 +33,7 @@ header('Content-Type: application/json');
 // ── Config ────────────────────────────────────────────────────────────────
 
 function broker_url(): string {
-    $conf = '/etc/frognet/tunnel.conf'  // [ONE_CONF_V1];
+    $conf = '/etc/frognet/tunnel.conf';  // [ONE_CONF_V1]
     if (!file_exists($conf)) {
         http_response_code(503);
         die(json_encode(['error' => 'Broker not configured']));

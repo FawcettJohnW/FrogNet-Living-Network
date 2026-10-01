@@ -83,13 +83,9 @@ def main():
     rc |= run("server watch + tuples adapter", ["test_media_stream_watch.py"])
     rc |= run("transport over real FNWP-1 sockets", ["test_media_stream_transport.py"], need_tree=True)
     rc |= run("metrics + slow-node detection", ["test_media_stream_metrics.py"])
-    _rungs = None
-    try:
-        import importlib.util
-        _spec = importlib.util.find_spec("media_stream_rungs")
-        _rungs = _spec.origin if _spec and _spec.origin else None
-    except Exception:
-        _rungs = None
+    import importlib.util                     # [IMPORT_GUARD_V2] stdlib; find_spec answers None when absent
+    _spec = importlib.util.find_spec("media_stream_rungs")
+    _rungs = _spec.origin if _spec and _spec.origin else None
     if _rungs:
         rc |= run("rung R0 (sim transport + real codec, byte-exact)",
                   [_rungs, "R0", "--frames", "30"], need_tree=True)

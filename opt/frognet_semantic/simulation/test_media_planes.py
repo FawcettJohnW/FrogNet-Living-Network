@@ -90,8 +90,8 @@ for _name in ("frognet", "frognet.media"):
 try:
     import frognet_log
     frognet_log.set_level("TRACE")
-except Exception:
-    pass
+except Exception as _le:                     # [IMPORT_GUARD_V2] named: the run proceeds without TRACE and says so
+    print("NOTE frognet_log unavailable, TRACE capture off: %r" % (_le,))
 
 
 def _saw(substr, level=None):

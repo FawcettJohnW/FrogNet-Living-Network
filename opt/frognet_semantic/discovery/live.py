@@ -288,108 +288,6 @@ def _local_domain():
     return hn.split(".", 1)[1] if "." in hn else hn
 
 
-def _wan_ns_from_exit_sentinel():
-    """field 5 (csv) of exit_host.tsv -> [ns, ...]; empty if absent."""
-    path = _sent("exit_host.tsv")
-    try:
-        if os.path.getsize(path) == 0:
-            return []
-        line = open(path).readline().rstrip("\n")
-    except OSError:
-        return []
-    cols = line.split("\t")
-    if len(cols) >= 5 and cols[4].strip():
-        return [x for x in cols[4].split(",") if x]
-    return []
-
-
-def _tunnel_peer_resolvers(local_ips=()):
-    """The machine at the far end of every directly-connected WG tunnel.
-
-    Same contract as manageResolv.bash [PEER_PRIMARY_IS_A_RESOLVER_V1], reading
-    the same sentinel, so the two paths cannot disagree:
-
-        # dev<TAB>primary_ip<TAB>name -- written by the merge
-        wg2<TAB>10.250.250.1<TAB>Seattle5
-
-    Field 2 as written. Nothing here re-derives it from the kernel table:
-    AllowedIPs is 10.0.0.0/8 on every FrogNet tunnel and names no pond, and an
-    interface's several /24 routes are mostly TRANSIT rather than the pond AT
-    THE END of it. Both measured on live nodes 2026-08-12
-    ([TUNNEL_PEER_IS_KNOWN_AT_WALK_TIME_V1]).
-
-    No fallback when the sentinel is absent: the merge has not run and this node
-    has no peers to name yet. Never ourselves -- 127.0.0.1 already covers
-    own-pond names and a duplicate burns a timeout slot.
-    """
-    self_nets = {".".join(ip.split(".")[:3]) + ".1" for ip in local_ips
-                 if ip.count(".") == 3}
-    out = []
-    try:
-        rows = open(_sent("tunnel_peers.tsv")).read().splitlines()
-    except OSError:
-        return out
-    for ln in rows:
-        f = ln.split("\t")
-        if len(f) < 2 or f[0].lstrip().startswith("#"):
-            continue
-        peer = f[1].strip()
-        if not peer or peer.startswith("127.") or peer in self_nets:
-            continue
-        if peer not in out:
-            out.append(peer)
-    return out
-
-
-def _lan_neighbor_resolvers(local_ips=()):
-    """The FrogNet .1 of every node sitting directly on one of our LAN segments.
-
-    [LAN_NEIGHBOR_IS_A_RESOLVER_V1] _tunnel_peer_resolvers covers the machine at
-    the far end of a wg tunnel. It does NOT cover a FrogNet that reached us over
-    eth0/wlan by taking a DHCP lease on our segment -- there is no tunnel, so
-    tunnel_peers.tsv never names it, and that node's pond was unresolvable from
-    here. Measured on Seattle3, 2026-08-13: `nslookup brokerhost.seattle2`
-    returned SERVFAIL while the identical query run ON Seattle2 answered
-    10.120.120.63.
-
-    Reads the sentinel the merge already writes for exactly this join --
-    /etc/sentinels/frognet_neighbor_via, [NEIGHBOR_FROGNET_ADDR_V1],
-    written at the tail of this same module:
-
-        # <their DHCP lease on our segment> <their FrogNet .1>
-        10.250.250.221 10.160.160.1
-
-    Field 2, as written. The VALUE is the routable identity that its dnsmasq is
-    bound to and that answers for its pond; the KEY is only a lease on our wire
-    and answers for nothing. Nothing here re-derives the pair from ARP or the
-    kernel table: the merge learned it from the neighbour's own echo line, which
-    is the only place the lease-to-identity mapping exists.
-
-    No fallback when the sentinel is absent - the merge has not run and this node
-    has no LAN neighbours to name yet. Never ourselves: 127.0.0.1 and
-    [SELF_IP_IS_A_RESOLVER_V1] already cover own-pond names and a duplicate burns
-    a timeout slot.
-    """
-    self_nets = {".".join(ip.split(".")[:3]) + ".1" for ip in local_ips
-                 if ip.count(".") == 3}
-    out = []
-    try:
-        rows = open(_sent("frognet_neighbor_via")).read().splitlines()
-    except OSError:
-        return out
-    for ln in rows:
-        if ln.lstrip().startswith("#"):
-            continue
-        f = ln.split()
-        if len(f) < 2:
-            continue
-        dot1 = f[1].strip()
-        if not dot1 or dot1.startswith("127.") or dot1 in self_nets:
-            continue
-        if dot1 not in out:
-            out.append(dot1)
-    return out
-
 
 def _default_gateway(k):
     """The via of the default route, or "" - the one resolver whose
@@ -401,6 +299,25 @@ def _default_gateway(k):
             if via and via.count(".") == 3 and not via.startswith("127."):
                 return via
     return ""
+
+
+def _dns_upstream(k):
+    """[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] THE DNS upstream -- one definition, used for both
+    dnsmasq_upstream.conf and /etc/resolv.conf so the two can never name different ones.
+    Field 2 of exit_host.tsv (the gateway the default route points at, [DNS_NEXTHOP_ONLY_V1]);
+    before the first merge writes that sentinel, the default route's gateway, which is the
+    same address. Never 127.x (a loop). "" when there is no default route."""
+    next_hop = ""
+    try:
+        if os.path.getsize(_sent("exit_host.tsv")) > 0:
+            cols = open(_sent("exit_host.tsv")).readline().rstrip("\n").split("\t")
+            if len(cols) >= 2:
+                next_hop = cols[1].strip()
+    except OSError:
+        pass
+    if not next_hop:
+        next_hop = _default_gateway(k)
+    return next_hop if next_hop and not next_hop.startswith("127.") else ""
 
 
 def _write_dnsmasq_upstream(k, logger=print):
@@ -419,19 +336,8 @@ def _write_dnsmasq_upstream(k, logger=print):
     that has not merged.
     """
     path = _sent("dnsmasq_upstream.conf")
-    next_hop = ""
-    try:
-        if os.path.getsize(_sent("exit_host.tsv")) > 0:
-            cols = open(_sent("exit_host.tsv")).readline().rstrip("\n").split("\t")
-            if len(cols) >= 2:
-                next_hop = cols[1].strip()
-    except OSError:
-        pass
-    if not next_hop:
-        next_hop = _default_gateway(k)
-    body = ""
-    if next_hop and not next_hop.startswith("127."):
-        body = f"nameserver {next_hop}\n"
+    next_hop = _dns_upstream(k)
+    body = f"nameserver {next_hop}\n" if next_hop else ""
     if _write_if_changed(path, body, logger):
         logger(f"DNSMASQ_UPSTREAM next_hop={next_hop or '<none>'}")
         # [NO_DNSMASQ_SIGNAL_V1] No signal here. This file is dnsmasq's
@@ -441,12 +347,20 @@ def _write_dnsmasq_upstream(k, logger=print):
         # this tree. The SIGHUP that used to be here bought nothing.
 
 
+def _resolv_text(k, hn, local_domain):
+    """The /etc/resolv.conf this node writes at the merge tail, as text.
+    [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] John 2026-09-26: ONLY 127.0.0.1, the upstream (if any),
+    and 8.8.8.8. Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
+    peers or LAN neighbours ([PEER_PRIMARY_IS_A_RESOLVER_V1], [LAN_NEIGHBOR_IS_A_RESOLVER_V1]
+    retired): other ponds' names are dnsmasq's job (frognet_forwarders_auto.conf)."""
+    from .resolv import build_resolv
+    return "\n".join(build_resolv(local_domain, hn, _dns_upstream(k))) + "\n"
+
 def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
                                self_identity=""):
     """fixDefaultRoute (Mode A + B + forced) then manageResolv, over the real
     kernel. This is the merge tail bash did and live.main was missing."""
     from .fixdefault import FixDefaultRoute
-    from .resolv import build_resolv, wan_ns_from_default
     fdr = FixDefaultRoute(
         k,
         dev_ip4={d: dev_ip.get(d, "") for d in devs},
@@ -465,35 +379,9 @@ def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
         self_identity=self_identity,
     )
     fdr.run()
-    # manageResolv: 127.0.0.1 + WAN ns.
-    #
-    # [DEFAULT_ROUTE_IS_ALWAYS_A_RESOLVER_V1] The default route's gateway and
-    # every directly-connected tunnel peer are ALWAYS nameservers. This was an
-    # `or`: with exit_host.tsv present the fallback never ran, so a node whose
-    # sentinel named an unreachable resolver had no working WAN nameserver at
-    # all despite a good default route. exit_host entries still come first.
-    # Order matters: resolvers that can answer FrogNet names come FIRST, and
-    # the default route's gateway goes LAST. It is the one that knows nothing
-    # about any pond -- put it ahead of a tunnel peer and every FrogNet name
-    # eats a timeout against the WAN before reaching a resolver that has it.
-    # [LAN_NEIGHBOR_IS_A_RESOLVER_V1] LAN neighbours sit with the tunnel peers,
-    # ahead of the default gateway, for the same reason: they can answer FrogNet
-    # names and it cannot. A node reached over eth0/wlan is no less a resolver
-    # than one reached over wg - the bearer is not the point, the pond behind it
-    # is.
-    wan_ns = (_wan_ns_from_exit_sentinel()
-              + _tunnel_peer_resolvers(local_ips)
-              + _lan_neighbor_resolvers(local_ips)
-              + wan_ns_from_default(k))
+    # manageResolv: [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, upstream (if any), 8.8.8.8.
     hn = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
-    # [SELF_IP_IS_A_RESOLVER_V1] This node's own address goes directly under
-    # 127.0.0.1. self_identity when the caller has it; otherwise the .1 we hold
-    # on the 10/8 plane, which is the address dnsmasq is bound to.
-    _self_ns = self_identity or next(
-        (ip for ip in sorted(local_ips)
-         if ip.startswith("10.") and ip.endswith(".1")), "")
-    content = "\n".join(
-        build_resolv(_local_domain(), hn, wan_ns, self_ip=_self_ns)) + "\n"
+    content = _resolv_text(k, hn, _local_domain())
     _write_if_changed("/etc/resolv.conf", content, logger)
     _write_dnsmasq_upstream(k, logger)
 

@@ -1,3 +1,134 @@
+[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1]
+=================================
+/etc/resolv.conf names ONLY 127.0.0.1, the upstream (if any), and 8.8.8.8. (John, 2026-09-26)
+
+    # Section 3: nameservers
+    # Local FrogNet DNS
+    nameserver 127.0.0.1
+
+    nameserver <upstream>          <- omitted when there is none
+    nameserver 8.8.8.8
+
+"The upstream" has ONE definition, discovery/live.py _dns_upstream(): exit_host.tsv's next hop, else the default
+route's gateway, never 127.x. The same function writes dnsmasq_upstream.conf, so the two files cannot name
+different upstreams.
+
+RETIRED: [SELF_IP_IS_A_RESOLVER_V1] (this node's own address), [PEER_PRIMARY_IS_A_RESOLVER_V1] (tunnel peers),
+[LAN_NEIGHBOR_IS_A_RESOLVER_V1] (LAN neighbours), the "# WAN fallback DNS" header, and the short-lived
+[RESOLV_LOCAL_SELF_WAN_ONLY_V1] of the same day (127.0.0.1, self, WAN), which this supersedes. glibc reads only
+the first three nameserver lines; on Seattle5 six 10.x entries sat ahead of 192.168.0.1. Other ponds' names are
+dnsmasq's job (frognet_forwarders_auto.conf).
+
+GATE: discovery/test_resolv_layout_oracle.py drives the real _resolv_text with a tunnel peer and a LAN neighbour in
+the merge's own sentinels and requires the file byte for byte, with an upstream and with none -- FAILS on both
+earlier layouts, PASSES here. test_lan_neighbor_resolver_oracle retired; oracle_self_identity_lines keeps its
+/etc/hosts rule and drops the resolv half. FrogSim: discovery 83/83, every tier identical before and after.
+
+
+[SAME_MOVES_REFERENCE_V1]
+=========================
+On RESP_SAME the proxy moves its response reference exactly as the daemon does. (2026-09-26)
+
+THE DEFECT
+----------
+The daemon, answering RESP_SAME, sets its response reference for (peer, opcode) to the fields
+of the answer the SAME names (daemon/engine/session.py, REQ_REPEAT and REQ_DIFF branches:
+new_ref = dyn_vals). The proxy's RESP_SAME branch served the cached body and left its own
+reference where it was. Whenever the SAME'd answer was not the proxy's last decoded answer for
+that opcode -- two items sharing one template, read A, B, A -- the two references differed, and
+the next RESP_DIFF was applied to a reference it was not encoded against. Fields the daemon
+omitted as unchanged were filled by the proxy from a different answer. Silent wrong data.
+
+PROVEN on the real code (proxy/test_resp_same_reference_oracle.py: the real
+transport_semantic.handle_request against a real daemon SemanticSession and the real template
+store on MariaDB; only the socket hop and the origin are substituted):
+  A={"id":"A","n":1,"s":"x"}  B={"id":"B","n":2,"s":"x"}   read A, A, B, A (RESP_SAME), then B
+  changes to n=1: the daemon diffs against A and omits n; the shipped proxy answered n=2.
+
+THE FIX (proxy/transport_semantic.py, semantic RESP_SAME branch only)
+---------------------------------------------------------------------
+After serving the SAME'd body, the proxy sets its reference to resp_tpl.extract_dynamic() of
+that body -- the same template, the same extraction the daemon used. If the body cannot be
+extracted, the references can no longer be made equal: it says so and drops both proxy
+references, so the next request is REQ_FULL (which clears the daemon's). The RAW SAME branch in
+_handle_raw_and_learn is unchanged: the daemon's RAW SAME does not touch the reference either.
+
+WHY IT MATTERS NOW
+------------------
+Instance references ([INSTANCE_REFERENCES_V1], the C++ engines, v0.51) keep many instances of one
+template, so an answer's SAME is routinely not the last answer decoded. The C++ client has the
+same rule; the Python proxy now agrees with it and with the daemon.
+
+GATE
+----
+test_resp_same_reference_oracle FAILS on the shipped proxy and PASSES on this one. FrogSim
+run_all.py: discovery 83/83 and every tier identical before and after (the collectives tier is red
+on both only because torch is not installable in the container).
+
+
+[DISCOVERY_ON_DOT2_ONLY_V1] + [HEALTH_ON_DOT2_V1]
+=================================================
+All discovery happens on .2. NO FALLBACKS. (John, 2026-09-25)
+
+THE RULE
+--------
+Discovery and tunnel health probe a node's .2 alias and nothing else. The .1 is
+the production address; discovery never installs a probe route to it. When a .2
+does not answer, that is the avenue's result: it is logged with the addresses
+involved and the avenue produces no candidate. There is no retry on .1.
+
+The incumbency hold is not discovery: it checks an installed winner's .1 over the
+winner's own installed route and writes no route. [ROUTE_INCUMBENCY_HOLD_V1] stands.
+
+WHAT WAS REMOVED
+----------------
+Three paths put probe routes on production .1 addresses. Each began as a rescue
+when a .2 did not answer, and the .2 failure was never root-caused because the
+rescue hid it every time.
+
+  healthcheck.py      probed <peer>.1: metric-6 /32 dev wgN at the start of every
+                      merge. A /32 beats the installed /24, so production traffic
+                      to every tunnel peer's .1 rode the probe route until it was
+                      deleted. Now <peer>.2.  [HEALTH_ON_DOT2_V1]
+  descend.py          [TUNNEL_PEER_HEALTH_EMIT_V1]: a tunnel immediate whose .2
+                      did not measure was re-probed srcless on its .1 and emitted
+                      as measured. Removed; a silent .2 logs IMMEDIATE_NO_ANSWER.
+  descend.py          [PROVE_DOT1_V1] _prove_dot1: when X's .2 did not reflect
+                      through an avenue, a /32 to X's .1 was installed through that
+                      avenue - LAN clients included - and ping-ponged. Removed; a
+                      dark .2 logs PROBE_FAIL plane=.2 x= target= dev= via= src=
+                      reason=.
+
+WHY IT MATTERED (Seattle5, 2026-09-25, two merges of ~150 s each)
+----------------------------------------------------------------
+At 14:59:58-59 the health probe pointed 10.155.155.1, 10.123.123.1 and 10.251.251.1
+at probe routes. From 15:01:11 to 15:01:27 _prove_dot1 pointed 10.199.199.1 (the
+elected databasehost), 10.251.251.1 (databasehost_control), 10.155.155.1 and
+10.123.123.1 at 10.250.250.100 (AI-Host, not a router), then .20, then .85, ~2 s
+each. 70 probe installs in two merges. Not one candidate on Seattle5 or BAMacBook
+came from a .1 probe that day: every rescue failed, and every one disrupted the
+store traffic, the permanent proxy->daemon sockets and every :9009 liveness check
+aimed at those addresses while it ran.
+
+WHAT THIS EXPOSES
+-----------------
+Anywhere a .2 is dark, the node now says so instead of being rescued. Two cases are
+on record and were never root-caused:
+  - a .2 over a tunnel whose far end returns our identity-src probe by another path
+    (NY1 2026-07-14 answered out eth0 via NY2, not back over wg2);
+  - a node behind a seg-relay whose .2 the relay did not forward (Seattle2 behind
+    Seattle3, 2026-07-10).
+Those are defects in the .2 plane, to be fixed there. They are not reasons to probe .1.
+
+GATE
+----
+test_healthcheck_oracle      rewritten: verdicts on .2, and no .1 ever given a route.
+test_tunnel_peer_dot2_oracle replaces test_tunnel_peer_health_emit_oracle.
+test_behind_relay_dot2_oracle replaces test_behind_relay_pingpong_oracle.
+Each fails on the previous tree (the fixtures make every .1 answer, so a rescue
+always succeeds there) and passes on this one.
+
+
 [SAME_IS_BACK_V1] + [SAME_COMPARES_THE_BODY_V1]
 ================================================
 RESP_SAME restored, and the comparison it depends on fixed.

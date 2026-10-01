@@ -37,10 +37,10 @@ PROVEN — code (runs on-box):
   the old (x_ip, via) collapsed all tunnels into one; the first tunnel's failure
   poisoned the rest and a node reachable only over a non-first tunnel was never
   probed. Oracle: test_multitunnel_failcache_oracle.
-- [TUNNEL_PEER_HEALTH_EMIT_V1] descend.py: a tunnel peer whose .2 discovery plane
-  is silent is emitted from the srcless .1 health signal (healthcheck's proven
-  probe), so reap cannot delete a health-proven peer. Oracle:
-  test_tunnel_peer_health_emit_oracle.
+- [TUNNEL_PEER_HEALTH_EMIT_V1] REMOVED 2026-09-25 by [DISCOVERY_ON_DOT2_ONLY_V1]: it
+  re-probed a silent .2 on the peer's production .1 - a fallback. A silent .2 is now
+  IMMEDIATE_NO_ANSWER and the peer is not emitted. Oracle:
+  test_tunnel_peer_dot2_oracle.
 - prune_dest_extras proto-kernel guard: routes.py never prunes a "proto kernel"
   connected route (NM stamps them metric 100/600, so the old metric-None
   heuristic missed them and deleted a client node off its own LAN). Oracle:
