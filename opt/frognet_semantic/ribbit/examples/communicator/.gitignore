@@ -1,0 +1,7 @@
+build/
+build-msvc/
+build-win/
+dist/
+vcpkg-*/
+vcpkg/
+__pycache__/

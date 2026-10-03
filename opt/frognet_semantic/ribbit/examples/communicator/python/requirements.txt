@@ -1,0 +1,4 @@
+av>=12
+PySide6-Essentials>=6.5
+sounddevice>=0.4
+numpy>=1.24

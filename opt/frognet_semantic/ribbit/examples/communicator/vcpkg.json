@@ -1,0 +1,24 @@
+{
+  "name": "frognet-communicator",
+  "version-string": "2.0",
+  "description": "FrogNet Communicator: the libraries the Windows build (Visual Studio) needs, built by vcpkg",
+  "dependencies": [
+    "qtbase",
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "avdevice",
+        "avformat",
+        "swscale",
+        "swresample",
+        "vpx"
+      ]
+    },
+    "portaudio",
+    "opus",
+    "lz4",
+    "openssl"
+  ]
+}
