@@ -2,6 +2,7 @@
 # Copyright (C) 2016-2026 Fawcett Innovations LLC
 # SPDX-License-Identifier: GPL-2.0-only
 #
+#
 # build.sh [RIBBIT_ROOT] -- build the C++ Communicator. Self-contained: the Ribbit platform it needs is vendored in
 # third_party/ribbit. Pass a FrogNet tree's ribbit directory (opt/frognet_semantic/ribbit) to build against that instead.
 set -euo pipefail
