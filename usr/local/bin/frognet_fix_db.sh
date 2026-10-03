@@ -28,7 +28,7 @@
 # restarts the two services that cache it. Ends by proving api.php answers 200.
 set -u
 
-PASS="${FROGNET_DB_PASS:-Act30n!}"
+PASS="${FROGNET_DB_PASS:?set FROGNET_DB_PASS to the password to install - this script carries no default (ONE_CREDENTIAL_ONE_SOURCE_V1)}"
 CFG_PHP=/var/www/html/config.php
 CFG_JSON=/opt/frognet_semantic/DB_CONFIG.json
 

@@ -1,3 +1,20 @@
+/***************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ **************************************************************/
 // test_fnwp_e2e: the C++ FNWP client engine against the C++ FNWP server engine, the RAM op being ram_server.cpp's own
 // api() (compiled in). Every answer the client returns must equal, byte for byte, the answer api() gives directly for the
 // same request at that moment. Workload: writes, one-member rewrites, new shapes, removes, repeated reads. Then the storm

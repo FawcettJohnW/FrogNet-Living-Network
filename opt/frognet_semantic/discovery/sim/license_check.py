@@ -227,9 +227,13 @@ def run():
     # A declared third-party tree still has to be a real decision, not a
     # wildcard: a path listed here that is not on disk is a stale exclusion
     # quietly widening what the walk skips.
+    # A third-party path that is also never-ship (lispers.net: Apache-2.0, the frozen oracle the lispers example tests
+    # against -- third-party so the applier never stamps it, never-ship so no world carries it) is absent from every
+    # shipped tree by design; requiring it there would fail every world built from the manifest.
     check("every FROGNET_THIRD_PARTY path exists",
           [f"{t} is declared third-party but is not in the tree"
-           for t in third if not os.path.exists(os.path.join(tree, t))])
+           for t in third if not os.path.exists(os.path.join(tree, t))
+           and not any(fnmatch.fnmatch(t, p) for p in never)])
 
 
 def main():

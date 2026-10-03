@@ -1,4 +1,21 @@
 #!/opt/frognet_semantic/venv/bin/python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 """test_worker_liveness_oracle.py — [WORKER_EXIT_REASON_V1] Tier 0 gate.
 
 The New-York-2 wedge: a _DaemonWorker's writer and cleanup loops both gate on
@@ -174,7 +191,16 @@ def t_safety_cap_message_is_conditional():
     """The 60s message asserted 'cleanup thread appears stalled' even when the
     thread had exited. It must consult the threads."""
     src = _src("proxy/transport_semantic.py")
-    call = ast.unparse(_fn(src, "call"))
+    # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] split call() into submit() + wait() (call() is now `return
+    # self.wait(self.submit(packet))`); the safety cap and its message live in the helpers call() runs. The property is
+    # about that whole path, so it is checked across it -- not only call()'s own body.
+    path = []
+    for name in ("call", "submit", "_submit_checked", "wait", "_wait_resolved"):
+        try:
+            path.append(ast.unparse(_fn(src, name)))
+        except Exception:
+            pass
+    call = "\n".join(path)
     assert "is_alive()" in call, \
         "call() does not check thread liveness before blaming cleanup"
     assert "appears stalled" not in call, \

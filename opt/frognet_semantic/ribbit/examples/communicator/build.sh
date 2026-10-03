@@ -15,6 +15,7 @@ RIBBIT=${RIBBIT:-$(cd ../../cpp && pwd)}
 DEFAULTS=${DEFAULTS:-$(cd ../../defaults/api && pwd)}
 SEMANTIC=${SEMANTIC:-$(cd ../../.. && pwd)}                 # opt/frognet_semantic: its core/ modules are copied, not duplicated
 CXX=${CXX:-g++}
+source "$(dirname "$(readlink -f "$0")")/../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
 rm -rf build; mkdir -p build/core
 F="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -Wno-free-nonheap-object -I$RIBBIT/include -I$DEFAULTS"
 echo "== comms-ram";    $CXX $F comms_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/comms-ram

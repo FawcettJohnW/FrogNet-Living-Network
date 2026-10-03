@@ -19,7 +19,7 @@
 // DB connection info
 define('DB_HOST', '127.0.0.1'); // adjust if MySQL is on another host
 define('DB_USER', 'FrogUser');
-define('DB_PASS', 'Act30n!');
+define('DB_PASS', '__FROGNET_DB_PASS__');
 define('DB_NAME', 'FrogNet');
 
 // CORS (adjust or tighten for production)

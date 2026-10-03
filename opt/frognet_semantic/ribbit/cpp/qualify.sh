@@ -23,7 +23,11 @@ note(){ echo "$*" | tee -a "$SUMMARY"; }
 has(){ case " $STAGES " in *" $1 "*) return 0;; *) return 1;; esac; }
 CXX=${CXX:-g++}
 JOBS=${JOBS:-$(nproc)}
-WERR="-Wall -Wextra -Werror"
+# GCC 12 (Raspberry Pi OS bookworm, aarch64) reports -Wfree-nonheap-object inside libstdc++'s new_allocator.h for
+# tests/semtpl_driver.cpp, which frees no non-heap object -- a GCC 12 false positive at -O2 (GCC 12 on x86-64 and GCC 13
+# do not report it). Same fix as examples/lispers.net/tools/qualify.sh: every other warning stays an error; this one
+# diagnostic is off in every build, -Werror or not (it is on by default in GCC, not only with -Wall).
+WERR="-Wall -Wextra -Werror -Wno-free-nonheap-object"
 NOFP="-Wno-free-nonheap-object"
 note ""; note "################################################################################"
 note "##  RIBBIT PLATFORM -- $(sed -n 's/^#define RIBBIT_PLATFORM_VERSION "\(.*\)"/\1/p' src/ram_host.cpp)"
@@ -38,10 +42,8 @@ if has build; then
     $CXX "$@" -o "$out" 2>&1 | sed -u "s|^|  $name: |" | tee "$log"; local rc=${PIPESTATUS[0]}
     if [ "$rc" = 0 ]; then printf '  built %-34s %4ss\n' "$out" "$(( $(date +%s)-t0 ))"
     else printf '  FAILED %-33s (compiler errors above)\n' "$out"; return 1; fi; }
-  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev"; do
-    h=${hp%%:*}; pkg=${hp##*:}
-    if ! echo "#include <$h>" | $CXX -x c++ -fsyntax-only - 2>/dev/null; then note "build FAIL: <$h> not found -- install $pkg"; exit 1; fi
-  done
+  # [AUTO_INSTALL_BUILD_DEPS_V1] missing lz4 / OpenSSL headers are installed, not reported
+  source "$(dirname "$(readlink -f "$0")")/ensure_build_deps.sh"; ribbit_ensure_build_deps
   echo "  $JOBS parallel jobs"; t_all=$(date +%s)
   build_one bin/frogram.o -std=c++17 $NOFP -O2 -pthread -Iinclude -c src/frogram.cpp || { note "build FAIL"; exit 1; }
   FO=bin/frogram.o
@@ -57,11 +59,12 @@ if has build; then
   run bin/bench-semcodec -std=c++17 $NOFP -O2 $I tests/bench_semcodec.cpp -llz4
   run bin/semtpl-driver -std=c++17 -O2 $WERR $I tests/semtpl_driver.cpp -llz4 -lcrypto
   run bin/bench-semtpl -std=c++17 $NOFP -O2 $I tests/bench_semtpl.cpp -llz4 -lcrypto
-  run bin/ramrows-driver -std=c++17 -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
+  run bin/ramrows-driver -std=c++17 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
   run bin/test-lockfree-snapshot -std=c++17 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
   run bin/test-ebr-stress -std=c++17 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
   run bin/test-ram-memory -std=c++17 -O2 -pthread $WERR $I tests/test_ram_memory.cpp
   run bin/test-write-window -std=c++17 -O2 -pthread $WERR $I tests/test_write_window.cpp
+  run bin/test-row-scan-bound -std=c++17 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp
   run bin/test-fnwp-e2e -std=c++17 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp -llz4 -lcrypto
   run bin/test-session-tcp -std=c++17 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp -llz4 -lcrypto
   run bin/test-fanin-data -std=c++17 -O2 -pthread $WERR $I tests/test_fanin_data.cpp src/frogram.cpp -llz4 -lcrypto
@@ -102,17 +105,46 @@ if has dataplane; then
     tag=$(echo "$ep" | tr -c 'A-Za-z0-9.\n' '_')
     timeout 600 ./bin/test-session-tcp 8931 "$ep" > "$OUT/session-tcp$tag.txt" 2>&1; grep -E "^RESULT|^FAIL" "$OUT/session-tcp$tag.txt" | tee -a "$SUMMARY"
   done
-  $PY tests/shaped_relay.py --listen 127.0.0.1:8933 --to 127.0.0.1:8932 --rate 4000000 --delay-ms 10 > "$OUT/relay.txt" 2>&1 & RPID=$!; sleep 0.5
+  $PY tests/shaped_relay.py --listen 127.0.0.1:8933 --to 127.0.0.1:8932 --rate 4000000 --delay-ms 10 > "$OUT/relay.txt" 2>&1 & RPID=$!
+  # [RELAY_READY_BEFORE_FANIN_V1] Wait until the relay is LISTENING, not a fixed half second: on a Raspberry Pi the
+  # Python relay was not up in 0.5 s, the test's connect to 8933 was refused, and it aborted with frogram::Unreachable
+  # (20261001-102146). Checked with ss, not by connecting -- a probe connection would itself be relayed to 8932, where
+  # nothing listens until the test starts. A relay that exits, or is not listening within 30 s, stops the stage with
+  # its log; the test never runs against a relay that is not there.
+  relay_up=0
+  for _i in $(seq 1 300); do
+    kill -0 "$RPID" 2>/dev/null || break
+    if ss -ltnH 'sport = :8933' 2>/dev/null | grep -q .; then relay_up=1; break; fi
+    sleep 0.1
+  done
+  if [ "$relay_up" != 1 ]; then
+    note "RESULT FAIL fan-in: the shaped relay on 127.0.0.1:8933 is not listening (relay log: $OUT/relay.txt)"
+    sed 's/^/  relay: /' "$OUT/relay.txt" | tail -n 20
+  else
   timeout 900 ./bin/test-fanin-data 8932 8933 /lisper-api 2000000 > "$OUT/fanin.txt" 2>&1
   grep -E "^RESULT|^FAIL|interleave|slowest" "$OUT/fanin.txt" | tee -a "$SUMMARY"
+  fi
   kill $RPID 2>/dev/null; wait $RPID 2>/dev/null
 fi
 
 if has memory; then
   note "== [ROW_LOCKS_V1] the RAM host's memory: row locks only, triggers on envelopes and on the space"
   timeout 300 ./bin/test-ram-memory include/ram_memory.hpp > "$OUT/memory.txt" 2>&1
-  timeout 300 ./bin/test-write-window >> "$OUT/memory.txt" 2>&1
-  grep -a -E "^(RAM-MEMORY|WRITE-WINDOW)" "$OUT/memory.txt" | while read -r l; do note "$l"; done
+  grep -a -E "^RAM-MEMORY" "$OUT/memory.txt" | while read -r l; do note "$l"; done
+  # The write window and the row scan race writers against readers; one run proves little (the row-scan miss showed on
+  # a Pi 5 about 2 runs in 20). Each is run repeatedly and the report says how many runs passed, with the first failure.
+  repeat_race(){   # label, runs, command...
+    local label=$1 runs=$2; shift 2; local ok=0 i first=""
+    for i in $(seq 1 "$runs"); do
+      if timeout 300 "$@" > "$OUT/race-run.txt" 2>&1; then ok=$((ok+1))
+      else [ -z "$first" ] && first=$(grep -a -m1 "^FAIL" "$OUT/race-run.txt"); fi
+      cat "$OUT/race-run.txt" >> "$OUT/memory.txt"
+    done
+    rm -f "$OUT/race-run.txt"
+    if [ "$ok" = "$runs" ]; then note "$label PASS: $ok of $runs runs"
+    else note "$label FAIL: $ok of $runs runs passed -- first failure: ${first:-see $OUT/memory.txt}"; fi; }
+  repeat_race WRITE-WINDOW 20 ./bin/test-write-window
+  repeat_race ROW-SCAN-BOUND 5 ./bin/test-row-scan-bound
 fi
 
 if has lockfree; then

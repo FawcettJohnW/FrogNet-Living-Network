@@ -1,0 +1,298 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#e7e5df; overflow:hidden; }
+</style>
+</helmet>
+
+<div style="position:fixed; inset:0; background:#e7e5df; overflow:hidden;">
+  <div ref="{{ stageRef }}" style="position:absolute; left:50%; top:50%; width:1920px; height:1080px; transform:translate(-50%,-50%); transform-origin:center center; background:#f3efe4; overflow:hidden;">
+
+    <canvas ref="{{ canvasRef }}" width="1920" height="1080" style="position:absolute; inset:0; width:1920px; height:1080px;"></canvas>
+
+    <!-- header -->
+    <div style="position:absolute; left:0; right:0; top:38px; text-align:center;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:18px; letter-spacing:0.18em; color:#9b988c;">SENSORS · STREAMS · LIVE STATE</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:40px; letter-spacing:-0.02em; color:#1b1a16; margin-top:8px;">A network that knows — or one you have to tell.</div>
+    </div>
+
+    <!-- divider -->
+    <div style="position:absolute; left:960px; top:148px; bottom:118px; width:1.5px; background:#d8d2c4;"></div>
+    <div style="position:absolute; left:960px; top:470px; transform:translate(-50%,-50%); width:62px; height:62px; border-radius:50%; background:#f3efe4; border:1.5px solid #d8d2c4; display:flex; align-items:center; justify-content:center; font-family:'Archivo',sans-serif; font-weight:700; font-size:18px; color:#9b988c;">vs</div>
+
+    <!-- LEFT: REST -->
+    <div style="position:absolute; left:64px; top:148px; width:600px;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:17px; letter-spacing:0.14em; color:#b4663c;">THE OLD WAY</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:54px; line-height:1; letter-spacing:-0.03em; color:#1b1a16; margin-top:6px;">REST</div>
+      <div style="font-family:'Source Serif 4',Georgia,serif; font-size:22px; line-height:1.32; color:#3a3a32; margin-top:12px; max-width:556px;">The network holds nothing of its own. To know a sensor or a stream, it has to be told — fetched one request at a time, stale the moment after.</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:22px; letter-spacing:0.01em; color:#b4663c; margin-top:13px;">Told, not living.</div>
+    </div>
+    <div style="position:absolute; left:64px; top:392px; display:flex; gap:46px; align-items:flex-end;">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.1em; color:#9b988c; margin-bottom:5px;">FEEDS KNOWN NOW</div>
+        <div ref="{{ restLiveRef }}" style="font-family:'Archivo',sans-serif; font-weight:800; font-size:44px; color:#b4663c; line-height:0.9;">0 / 5</div>
+      </div>
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.1em; color:#9b988c; margin-bottom:7px;">FETCHING</div>
+        <div ref="{{ restReqRef }}" style="font-family:'IBM Plex Mono',monospace; font-weight:500; font-size:20px; color:#b4663c; line-height:1.2;">GET …</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: UnREST -->
+    <div style="position:absolute; left:1016px; top:148px; width:600px;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:17px; letter-spacing:0.14em; color:#2c5a3c;">THE FROGNET WAY</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:54px; line-height:1; letter-spacing:-0.03em; color:#1b1a16; margin-top:6px;">UnREST</div>
+      <div style="font-family:'Source Serif 4',Georgia,serif; font-size:22px; line-height:1.32; color:#3a3a32; margin-top:12px; max-width:580px;">The network is alive with state. Every sensor and stream already lives in shared memory — read what you need, and it's already there, current.</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:22px; letter-spacing:0.01em; color:#2c5a3c; margin-top:13px;">A living network that knows.</div>
+    </div>
+    <div style="position:absolute; left:1016px; top:392px; display:flex; gap:46px; align-items:flex-end;">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.1em; color:#9b988c; margin-bottom:5px;">FEEDS KNOWN NOW</div>
+        <div ref="{{ unLiveRef }}" style="font-family:'Archivo',sans-serif; font-weight:800; font-size:44px; color:#2c5a3c; line-height:0.9;">5 / 5</div>
+      </div>
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.1em; color:#9b988c; margin-bottom:7px;">STATUS</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-weight:500; font-size:20px; color:#2c5a3c; line-height:1.2;">● ALL LIVE</div>
+      </div>
+    </div>
+
+    <!-- captions -->
+    <div style="position:absolute; left:64px; bottom:50px; width:820px; font-family:'IBM Plex Mono',monospace; font-size:16px; line-height:1.5; color:#6f6d64;">Between requests the network knows nothing. Each reader holds a past reply, already going stale.</div>
+    <div style="position:absolute; left:1016px; bottom:50px; width:840px; font-family:'IBM Plex Mono',monospace; font-size:16px; line-height:1.5; color:#6f6d64;">Sensor and stream data live in the network itself. Every reader sees the present, not a past reply.</div>
+
+  </div>
+</div>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" fill="#f3efe4"/>
+    <circle cx="30" cy="50" r="13" fill="none" stroke="#9b988c" stroke-width="1.4" stroke-dasharray="3 3"/>
+    <text x="30" y="55" text-anchor="middle" font-family="Archivo" font-weight="800" font-size="14" fill="#b4663c">?</text>
+    <circle cx="72" cy="50" r="15" fill="#2c5a3c" opacity="0.18"/>
+    <circle cx="72" cy="50" r="15" fill="none" stroke="#2c5a3c" stroke-width="1.4"/>
+    <circle cx="72" cy="50" r="4" fill="#2c5a3c"/>
+    <g fill="#2c5a3c"><circle cx="60" cy="38" r="2"/><circle cx="84" cy="38" r="2"/><circle cx="60" cy="62" r="2"/><circle cx="84" cy="62" r="2"/></g>
+  </svg>
+</template>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.canvasRef=React.createRef(); this.stageRef=React.createRef();
+    this.restLiveRef=React.createRef(); this.restReqRef=React.createRef(); this.unLiveRef=React.createRef();
+  }
+  renderVals(){ return { canvasRef:this.canvasRef, stageRef:this.stageRef,
+    restLiveRef:this.restLiveRef, restReqRef:this.restReqRef, unLiveRef:this.unLiveRef }; }
+  componentDidMount(){
+    this.W=1920; this.H=1080;
+    this.ctx=this.canvasRef.current.getContext('2d');
+    this._resize=()=>{ const s=Math.min(window.innerWidth/this.W, window.innerHeight/this.H);
+      if(this.stageRef.current) this.stageRef.current.style.transform='translate(-50%,-50%) scale('+s+')'; };
+    window.addEventListener('resize',this._resize); this._resize();
+
+    this.feeds=[
+      {key:'TEMP',  unit:'°C', type:'num', kT:-9, kVal:0},
+      {key:'RANGE', unit:'m',  type:'num', kT:-9, kVal:0},
+      {key:'HEADING',unit:'°', type:'num', kT:-9, kVal:0},
+      {key:'BATTERY',unit:'%', type:'num', kT:-9, kVal:0},
+      {key:'VIDEO', unit:'',   type:'stream', kT:-9, kVal:0},
+    ];
+    this.NF=this.feeds.length;
+    // layout
+    this.consumer={x:158,y:508}; this.server={x:470,y:508};
+    this.sensorL=[]; for(let i=0;i<this.NF;i++) this.sensorL.push({x:812,y:388+i*60});
+    this.mem={x:1466,y:530,r:104};
+    this.sensorR=[]; for(let i=0;i<this.NF;i++){ const a=-Math.PI/2 + i*2*Math.PI/this.NF;
+      this.sensorR.push({x:this.mem.x+Math.cos(a)*190, y:this.mem.y+Math.sin(a)*184}); }
+
+    this.reqDur=1.05; this.reqGap=0.22; this.liveWin=1.25; this.maxAge=7.0;
+    this.req={idx:-1,active:false,t0:0}; this.nextReq=0.5;
+    this.T=0; this.statusClock=0;
+    window.__net=this;
+    this.last=performance.now();
+    this._raf=requestAnimationFrame(this.frame.bind(this));
+  }
+  componentWillUnmount(){ cancelAnimationFrame(this._raf); window.removeEventListener('resize',this._resize); }
+  step(n){ for(let i=0;i<n;i++) this.update(0.016); this.draw(); }
+  trueVal(f){ const T=this.T;
+    switch(f.key){
+      case 'TEMP': return 21+3*Math.sin(T*0.3)+0.4*Math.sin(T*2.1);
+      case 'RANGE': return 15+9*Math.sin(T*0.5+1);
+      case 'HEADING': return (T*16)%360;
+      case 'BATTERY': return 64+28*Math.sin(T*0.045+0.5);
+      case 'VIDEO': return Math.floor(T*24);
+    } return 0; }
+  fmt(f,v){ switch(f.key){
+      case 'TEMP': return v.toFixed(1)+'°';
+      case 'RANGE': return v.toFixed(1);
+      case 'HEADING': return Math.round(v)+'°';
+      case 'BATTERY': return Math.round(v)+'%';
+      case 'VIDEO': return '24fps';
+    } return ''; }
+  update(dt){
+    this.T+=dt;
+    if(!this.req.active && this.T>=this.nextReq){ this.req.active=true; this.req.t0=this.T; this.req.idx=(this.req.idx+1)%this.NF; }
+    if(this.req.active){ const p=(this.T-this.req.t0)/this.reqDur;
+      if(p>=1){ const f=this.feeds[this.req.idx]; f.kVal=this.trueVal(f); f.kT=this.T; this.req.active=false; this.nextReq=this.T+this.reqGap; } }
+    this.statusClock-=dt; if(this.statusClock<=0){ this.statusClock=0.2; this.updateDOM(); }
+  }
+  restLive(){ let c=0; for(const f of this.feeds) if(f.kT>=0 && this.T-f.kT<this.liveWin) c++; return c; }
+  updateDOM(){
+    if(this.restLiveRef.current) this.restLiveRef.current.textContent=this.restLive()+' / '+this.NF;
+    if(this.unLiveRef.current) this.unLiveRef.current.textContent=this.NF+' / '+this.NF;
+    if(this.restReqRef.current) this.restReqRef.current.textContent = this.req.active? ('GET /'+this.feeds[this.req.idx].key.toLowerCase()) : 'GET …';
+  }
+  draw(){
+    const ctx=this.ctx, T=this.T;
+    ctx.fillStyle='#f3efe4'; ctx.fillRect(0,0,this.W,this.H);
+    ctx.strokeStyle='rgba(150,138,116,0.09)'; ctx.lineWidth=1;
+    for(let x=0;x<=this.W;x+=80){ ctx.beginPath(); ctx.moveTo(x,150); ctx.lineTo(x,700); ctx.stroke(); }
+    for(let y=160;y<=700;y+=80){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(this.W,y); ctx.stroke(); }
+    this.drawREST(T); this.drawUN(T);
+    // feed tiles
+    const tw=164,th=150,gap=8,ty=748;
+    for(let i=0;i<this.NF;i++) this.tile(64+i*(tw+gap),ty,tw,th,this.feeds[i],'rest',T);
+    for(let i=0;i<this.NF;i++) this.tile(1016+i*(tw+gap),ty,tw,th,this.feeds[i],'un',T);
+  }
+  drawREST(T){
+    const ctx=this.ctx;
+    // inert gray links
+    ctx.strokeStyle='rgba(150,138,116,0.45)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(this.consumer.x,this.consumer.y); ctx.lineTo(this.server.x,this.server.y); ctx.stroke();
+    for(const s of this.sensorL){ ctx.beginPath(); ctx.moveTo(this.server.x,this.server.y); ctx.lineTo(s.x,s.y); ctx.stroke(); }
+    // sensors (gray = network doesn't hold them)
+    for(let i=0;i<this.NF;i++){ const s=this.sensorL[i];
+      ctx.fillStyle='#cfc9bb'; ctx.beginPath(); ctx.arc(s.x,s.y,12,0,6.2832); ctx.fill();
+      ctx.fillStyle='#8a8578'; ctx.font="500 14px 'IBM Plex Mono', monospace"; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(this.feeds[i].key, s.x+20, s.y); }
+    // server
+    ctx.fillStyle='#b8b2a4'; this.rr(ctx,this.server.x-52,this.server.y-34,104,68,9); ctx.fill();
+    ctx.fillStyle='#6f6a5e'; ctx.font="600 14px 'IBM Plex Mono', monospace"; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('SERVER',this.server.x,this.server.y);
+    // consumer
+    ctx.fillStyle='#1b1a16'; this.rr(ctx,this.consumer.x-50,this.consumer.y-34,100,68,9); ctx.fill();
+    ctx.fillStyle='#cfcabd'; ctx.fillText('AI / APP',this.consumer.x,this.consumer.y-7);
+    ctx.fillStyle='#b4663c'; ctx.font="500 12px 'IBM Plex Mono', monospace"; ctx.fillText('asks…',this.consumer.x,this.consumer.y+12);
+    // active request dot along path consumer->server->sensor->server->consumer
+    if(this.req.active){ const p=(this.T-this.req.t0)/this.reqDur, s=this.sensorL[this.req.idx];
+      const path=[this.consumer,this.server,s,this.server,this.consumer];
+      const seg=Math.min(3,Math.floor(p*4)), lp=(p*4)-seg;
+      const a=path[seg], b=path[seg+1], x=a.x+(b.x-a.x)*lp, y=a.y+(b.y-a.y)*lp;
+      const outbound=seg<2;
+      ctx.fillStyle=outbound?'#b4663c':this.feedColor(this.feeds[this.req.idx]);
+      ctx.beginPath(); ctx.arc(x,y,7,0,6.2832); ctx.fill();
+      ctx.fillStyle='#b4663c'; ctx.font="600 14px 'IBM Plex Mono', monospace"; ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText('GET /'+this.feeds[this.req.idx].key.toLowerCase(), (this.consumer.x+this.server.x)/2, this.consumer.y-44); }
+  }
+  drawUN(T){
+    const ctx=this.ctx, m=this.mem;
+    // links
+    ctx.strokeStyle='rgba(44,90,60,0.30)'; ctx.lineWidth=1.6;
+    for(const s of this.sensorR){ ctx.beginPath(); ctx.moveTo(s.x,s.y); ctx.lineTo(m.x,m.y); ctx.stroke(); }
+    // living memory glow
+    const pulse=0.5+0.5*Math.sin(T*2.2);
+    const g=ctx.createRadialGradient(m.x,m.y,10,m.x,m.y,m.r+30);
+    g.addColorStop(0,'rgba(44,90,60,'+(0.30+0.06*pulse)+')'); g.addColorStop(1,'rgba(44,90,60,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(m.x,m.y,m.r+30,0,6.2832); ctx.fill();
+    ctx.fillStyle='rgba(44,90,60,0.10)'; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,6.2832); ctx.fill();
+    ctx.strokeStyle='rgba(44,90,60,0.55)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(m.x,m.y,m.r,0,6.2832); ctx.stroke();
+    ctx.fillStyle='#2c5a3c'; ctx.textAlign='center';
+    ctx.font="800 19px 'Archivo', sans-serif"; ctx.textBaseline='middle';
+    ctx.fillText('LIVING', m.x, m.y-14); ctx.fillText('SHARED MEMORY', m.x, m.y+10);
+    ctx.font="500 13px 'IBM Plex Mono', monospace"; ctx.fillStyle='rgba(44,90,60,0.7)';
+    ctx.fillText('knows every feed, always', m.x, m.y+34);
+    // continuous streams sensor->memory (living)
+    for(let i=0;i<this.NF;i++){ const s=this.sensorR[i];
+      const ex=m.x+(s.x-m.x)*(m.r/Math.hypot(s.x-m.x,s.y-m.y)), ey=m.y+(s.y-m.y)*(m.r/Math.hypot(s.x-m.x,s.y-m.y));
+      for(let k=0;k<3;k++){ const f=((T*0.6+i*0.17+k/3)%1); const x=s.x+(ex-s.x)*f, y=s.y+(ey-s.y)*f;
+        ctx.fillStyle='rgba(44,90,60,'+(0.7*(1-f)+0.25)+')'; ctx.beginPath(); ctx.arc(x,y,3.2,0,6.2832); ctx.fill(); } }
+    // sensors (alive)
+    for(let i=0;i<this.NF;i++){ const s=this.sensorR[i];
+      ctx.fillStyle='#2c5a3c'; ctx.beginPath(); ctx.arc(s.x,s.y,12,0,6.2832); ctx.fill();
+      ctx.strokeStyle='rgba(44,90,60,0.25)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(s.x,s.y,12+3+2*Math.sin(T*3+i),0,6.2832); ctx.stroke();
+      ctx.fillStyle='#3a3a32'; ctx.font="500 13px 'IBM Plex Mono', monospace"; ctx.textBaseline='middle';
+      const left=s.x<m.x; ctx.textAlign=left?'right':'left'; ctx.fillText(this.feeds[i].key, s.x+(left?-18:18), s.y); }
+  }
+  feedColor(){ return '#2a6f97'; }
+  tile(x,y,w,h,f,side,T){
+    const ctx=this.ctx;
+    let live,age,val,status,sc,barF;
+    if(side==='un'){ live=true; val=this.fmt(f,this.trueVal(f)); status='LIVE'; sc='#2c5a3c'; barF=1; }
+    else { age=f.kT<0? 999 : (T-f.kT); live=age<this.liveWin;
+      if(f.kT<0){ val='—'; status='UNKNOWN'; sc='#9b988c'; barF=0; }
+      else { val=this.fmt(f,f.kVal); if(live){ status='JUST TOLD'; sc='#2c5a3c'; } else { status='STALE '+age.toFixed(0)+'s'; sc='#b4663c'; }
+        barF=Math.max(0,1-age/this.maxAge); } }
+    // bg
+    ctx.fillStyle = side==='un' ? 'rgba(44,90,60,0.07)' : (live?'rgba(44,90,60,0.06)':'rgba(180,102,60,0.05)');
+    this.rr(ctx,x,y,w,h,8); ctx.fill();
+    ctx.strokeStyle = side==='un' ? 'rgba(44,90,60,0.4)' : (live?'rgba(44,90,60,0.35)':'rgba(180,102,60,0.30)');
+    ctx.lineWidth=1.5; this.rr(ctx,x,y,w,h,8); ctx.stroke();
+    // key
+    ctx.fillStyle='#6f6d64'; ctx.font="500 13px 'IBM Plex Mono', monospace"; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.fillText(f.key, x+14, y+26);
+    // value or stream
+    if(f.type==='stream'){
+      const sx=x+14, sw=w-28, sy=y+44, sh=42;
+      ctx.fillStyle = side==='un'||live ? 'rgba(44,90,60,0.10)':'rgba(150,138,116,0.12)';
+      this.rr(ctx,sx,sy,sw,sh,4); ctx.fill();
+      if(side==='un'||live){ ctx.save(); ctx.beginPath(); this.rr(ctx,sx,sy,sw,sh,4); ctx.clip();
+        const lx=sx+((T*150)%sw); ctx.strokeStyle='rgba(44,90,60,0.55)'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(lx,sy); ctx.lineTo(lx,sy+sh); ctx.stroke();
+        for(let b=0;b<5;b++){ const bx=sx+8+b*((sw-16)/5); const bh=6+ (Math.sin(T*5+b*1.3)*0.5+0.5)*(sh-14);
+          ctx.fillStyle='rgba(44,90,60,0.35)'; ctx.fillRect(bx,sy+sh-6-bh,5,bh); }
+        ctx.restore();
+        ctx.fillStyle='#2c5a3c'; ctx.font="700 14px 'Archivo', sans-serif"; ctx.textAlign='right'; ctx.fillText('24 fps', x+w-14, y+38);
+      } else { ctx.fillStyle='#b4663c'; ctx.font="600 13px 'IBM Plex Mono', monospace"; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(f.kT<0?'NO FRAME':'FROZEN', sx+sw/2, sy+sh/2); ctx.textBaseline='alphabetic'; }
+    } else {
+      ctx.fillStyle = (side==='un'||live)?'#1b1a16':(f.kT<0?'#b9b3a6':'#8a8578');
+      ctx.font="800 36px 'Archivo', sans-serif"; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText(val, x+14, y+80);
+      if(f.unit && val!=='—'){ ctx.fillStyle='#9b988c'; ctx.font="500 16px 'IBM Plex Mono', monospace"; ctx.fillText(f.unit, x+14+ctx.measureText(val).width*0.0+this.valW(val), y+80); }
+    }
+    // status + freshness bar
+    ctx.fillStyle=sc; ctx.font="600 13px 'IBM Plex Mono', monospace"; ctx.textAlign='left';
+    ctx.fillText((side==='un'?'● ':'')+status, x+14, y+h-16);
+    ctx.fillStyle='rgba(0,0,0,0.07)'; this.rr(ctx,x+14,y+h-10,w-28,4,2); ctx.fill();
+    ctx.fillStyle=sc; this.rr(ctx,x+14,y+h-10,(w-28)*barF,4,2); ctx.fill();
+  }
+  valW(v){ this.ctx.save(); this.ctx.font="800 36px 'Archivo', sans-serif"; const w=this.ctx.measureText(v).width; this.ctx.restore(); return w+8; }
+  rr(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  frame(now){
+    try{ const dt=Math.min(0.05,(now-this.last)/1000); this.last=now; this.update(dt); this.draw(); }
+    catch(e){ window.__netErr=String(e)+' @ '+(e.stack||'').split('\n')[1]; return; }
+    this._raf=requestAnimationFrame(this.frame.bind(this));
+  }
+}
+</script>
+</body>
+</html>

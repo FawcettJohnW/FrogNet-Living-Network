@@ -1,0 +1,252 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#e7e5df; overflow:hidden; }
+</style>
+</helmet>
+
+<div style="position:fixed; inset:0; background:#e7e5df; overflow:hidden;">
+  <div ref="{{ stageRef }}" style="position:absolute; left:50%; top:50%; width:1920px; height:1080px; transform:translate(-50%,-50%); transform-origin:center center; background:#f3efe4; overflow:hidden;">
+
+    <canvas ref="{{ canvasRef }}" width="1920" height="1080" style="position:absolute; inset:0; width:1920px; height:1080px;"></canvas>
+
+    <!-- Title block -->
+    <div style="position:absolute; left:64px; top:54px; max-width:760px;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:19px; letter-spacing:0.16em; color:#2c5a3c; margin-bottom:14px;">AUTONOMOUS UGV SWARM · FROGNET</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:54px; line-height:0.98; letter-spacing:-0.03em; color:#1b1a16;">The brain rides with the swarm.</div>
+      <div style="font-family:'Source Serif 4',Georgia,serif; font-size:25px; line-height:1.34; color:#3a3a32; margin-top:16px; max-width:680px;">A network-hosted AI on one moving vehicle coordinates the whole fleet — over the mesh, with no upstream link.</div>
+    </div>
+
+    <!-- NO UPLINK badge -->
+    <div style="position:absolute; right:64px; top:54px; display:flex; align-items:center; gap:18px; padding:18px 24px; border:1.5px solid #c8a98f; border-radius:4px; background:rgba(243,239,228,0.7);">
+      <svg width="58" height="58" viewBox="0 0 58 58" fill="none">
+        <circle cx="29" cy="13" r="7" fill="none" stroke="#9b988c" stroke-width="2"/>
+        <path d="M29 20 L29 50" stroke="#9b988c" stroke-width="2" stroke-dasharray="4 5"/>
+        <path d="M12 14 L46 44 M46 14 L12 44" stroke="#b4663c" stroke-width="3.5" stroke-linecap="round"/>
+      </svg>
+      <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; line-height:1.12; color:#b4663c; letter-spacing:0.01em;">NO UPLINK<br><span style="color:#6f6d64; font-weight:600; font-size:16px; letter-spacing:0.04em;">FULLY AUTONOMOUS</span></div>
+    </div>
+
+    <!-- Legend -->
+    <div style="position:absolute; left:64px; bottom:54px; display:flex; flex-direction:column; gap:13px;">
+      <div style="display:flex; align-items:center; gap:13px;">
+        <svg width="22" height="22" viewBox="0 0 22 22"><path d="M18 11 L6 17 L9 11 L6 5 Z" fill="#2c5a3c"/></svg>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:16px; color:#3a3a32;">Network-hosted AI — rides a moving vehicle</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:13px;">
+        <svg width="22" height="22" viewBox="0 0 22 22"><path d="M18 11 L6 17 L9 11 L6 5 Z" fill="#1b1a16"/></svg>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:16px; color:#3a3a32;">UGV — roams under AI control</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:13px;">
+        <svg width="22" height="22" viewBox="0 0 22 22"><line x1="3" y1="11" x2="19" y2="11" stroke="#2c5a3c" stroke-width="2.4"/><circle cx="11" cy="11" r="3" fill="#2c5a3c"/></svg>
+        <span style="font-family:'IBM Plex Mono',monospace; font-size:16px; color:#3a3a32;">Mesh link · control &amp; telemetry</span>
+      </div>
+    </div>
+
+    <!-- Live status -->
+    <div style="position:absolute; right:64px; bottom:54px; display:flex; gap:46px; text-align:right;">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:15px; letter-spacing:0.1em; color:#9b988c; margin-bottom:6px;">NODES</div>
+        <div ref="{{ nodeRef }}" style="font-family:'Archivo',sans-serif; font-weight:800; font-size:40px; color:#1b1a16; line-height:1;">09</div>
+      </div>
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:15px; letter-spacing:0.1em; color:#9b988c; margin-bottom:6px;">MESH LINKS</div>
+        <div ref="{{ linkRef }}" style="font-family:'Archivo',sans-serif; font-weight:800; font-size:40px; color:#1b1a16; line-height:1;">—</div>
+      </div>
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:15px; letter-spacing:0.1em; color:#2c5a3c; margin-bottom:6px;">AI BRAIN</div>
+        <div ref="{{ brainRef }}" style="font-family:'Archivo',sans-serif; font-weight:800; font-size:40px; color:#2c5a3c; line-height:1;">V-01</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" fill="#f3efe4"/>
+    <circle cx="50" cy="50" r="34" fill="none" stroke="#2c5a3c" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.5"/>
+    <line x1="38" y1="42" x2="58" y2="56" stroke="#2c5a3c" stroke-width="1" opacity="0.5"/>
+    <line x1="58" y1="56" x2="45" y2="66" stroke="#2c5a3c" stroke-width="1" opacity="0.5"/>
+    <path d="M62 38 L50 44 L53 38 L50 32 Z" fill="#2c5a3c"/>
+    <path d="M44 46 L34 51 L36 46 L34 41 Z" fill="#1b1a16"/>
+    <path d="M60 60 L50 65 L52 60 L50 55 Z" fill="#1b1a16"/>
+    <circle cx="62" cy="38" r="8" fill="none" stroke="#2c5a3c" stroke-width="1.2"/>
+  </svg>
+</template>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.canvasRef = React.createRef();
+    this.stageRef  = React.createRef();
+    this.nodeRef   = React.createRef();
+    this.linkRef   = React.createRef();
+    this.brainRef  = React.createRef();
+  }
+  renderVals(){
+    return { canvasRef:this.canvasRef, stageRef:this.stageRef,
+             nodeRef:this.nodeRef, linkRef:this.linkRef, brainRef:this.brainRef };
+  }
+  componentDidMount(){
+    this.W=1920; this.H=1080; this.cx=960; this.cy=560; this.areaR=452; this.R=302;
+    this.ctx=this.canvasRef.current.getContext('2d');
+    this._resize=()=>{ const s=Math.min(window.innerWidth/this.W, window.innerHeight/this.H);
+      if(this.stageRef.current) this.stageRef.current.style.transform='translate(-50%,-50%) scale('+s+')'; };
+    window.addEventListener('resize',this._resize); this._resize();
+    this.initSwarm();
+    this.last=performance.now();
+    this.cmdClock=1.0; this.tlmClock=2.4; this.statusClock=0;
+    this.pulses=[]; this.handoff=null; this.nextHandoff=13;
+    window.__swarm = this;
+    this._raf=requestAnimationFrame(this.frame.bind(this));
+  }
+  componentWillUnmount(){ cancelAnimationFrame(this._raf); window.removeEventListener('resize',this._resize); }
+  step(n){ const base=performance.now(); for(let i=0;i<n;i++){ this.update(0.016, base+i*16); this.draw(base+i*16); } }
+  rand(a,b){ return a+Math.random()*(b-a); }
+  ptInArea(f){ f=(f===undefined?0.9:f); const ang=this.rand(0,6.2832), rr=this.areaR*f*Math.sqrt(Math.random());
+    return {x:this.cx+Math.cos(ang)*rr, y:this.cy+Math.sin(ang)*rr}; }
+  initSwarm(){
+    this.N=11; this.v=[];
+    for(let i=0;i<this.N;i++){ const p=this.ptInArea(0.88);
+      this.v.push({x:p.x,y:p.y,heading:this.rand(0,6.2832),speed:this.rand(30,46),wp:this.ptInArea(0.9)}); }
+    this.brain=0;
+  }
+  assignWp(k){ this.v[k].wp = this.ptInArea(k===this.brain?0.5:0.92); }
+  ang(a){ while(a>Math.PI)a-=6.283185; while(a<-Math.PI)a+=6.283185; return a; }
+  frame(now){
+    try {
+      const dt=Math.min(0.05,(now-this.last)/1000); this.last=now;
+      this.update(dt,now); this.draw(now);
+    } catch(e){ window.__swarmErr = String(e) + ' @ ' + (e.stack||'').split('\n')[1]; return; }
+    this._raf=requestAnimationFrame(this.frame.bind(this));
+  }
+  update(dt,now){
+    const V=this.v;
+    for(let k=0;k<V.length;k++){
+      const v=V[k];
+      let dx=v.wp.x-v.x, dy=v.wp.y-v.y, d=Math.hypot(dx,dy);
+      if(d<48) this.assignWp(k);
+      let da=this.ang(Math.atan2(dy,dx)-v.heading);
+      const cd=Math.hypot(v.x-this.cx,v.y-this.cy);
+      if(cd>this.areaR*0.97){ const inward=Math.atan2(this.cy-v.y,this.cx-v.x); da=this.ang(inward-v.heading); }
+      const turn=2.6*dt;
+      v.heading += Math.max(-turn,Math.min(turn,da));
+      v.heading += Math.sin(now*0.0012+k*1.7)*0.6*dt;
+      v.x += Math.cos(v.heading)*v.speed*dt;
+      v.y += Math.sin(v.heading)*v.speed*dt;
+    }
+    this.buildGraph();
+    this.cmdClock-=dt; if(this.cmdClock<=0){ this.cmdClock=2.5; this.spawnWave('cmd'); }
+    this.tlmClock-=dt; if(this.tlmClock<=0){ this.tlmClock=3.3; this.spawnWave('tlm'); }
+    for(const p of this.pulses) p.age+=dt;
+    this.pulses=this.pulses.filter(p=> p.age <= p.t0+p.dur);
+    this.nextHandoff-=dt;
+    if(!this.handoff && this.nextHandoff<=0) this.startHandoff();
+    if(this.handoff){ this.handoff.t += dt/1.5; if(this.handoff.t>=1){ this.brain=this.handoff.to; this.handoff=null; this.nextHandoff=13; } }
+    this.statusClock-=dt; if(this.statusClock<=0){ this.statusClock=0.3; this.updateStatus(); }
+  }
+  buildGraph(){
+    const V=this.v, n=V.length; this.adj=[]; this.edges=[];
+    for(let i=0;i<n;i++) this.adj.push([]);
+    for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){ const d=Math.hypot(V[i].x-V[j].x,V[i].y-V[j].y);
+      if(d<this.R){ const s=1-d/this.R; this.edges.push([i,j,s]); this.adj[i].push(j); this.adj[j].push(i); } }
+    this.parent=new Array(n).fill(-1); this.depth=new Array(n).fill(-1); this.conn=new Array(n).fill(false);
+    const q=[this.brain]; this.depth[this.brain]=0; this.conn[this.brain]=true;
+    while(q.length){ const u=q.shift(); for(const w of this.adj[u]) if(this.depth[w]<0){
+      this.depth[w]=this.depth[u]+1; this.parent[w]=u; this.conn[w]=true; q.push(w); } }
+  }
+  maxDepth(){ let m=0; for(const d of this.depth) if(d>m)m=d; return m; }
+  spawnWave(kind){
+    const md=this.maxDepth();
+    for(let k=0;k<this.v.length;k++){ if(k===this.brain||!this.conn[k]) continue; const p=this.parent[k];
+      if(kind==='cmd') this.pulses.push({from:p,to:k,t0:this.depth[p]*0.16,dur:0.62,age:0,kind:'cmd'});
+      else this.pulses.push({from:k,to:p,t0:(md-this.depth[k])*0.14,dur:0.62,age:0,kind:'tlm'}); }
+  }
+  startHandoff(){
+    let best=-1,bestScore=-1;
+    for(let k=0;k<this.v.length;k++){ if(k===this.brain||!this.conn[k]) continue;
+      const cd=Math.hypot(this.v[k].x-this.cx,this.v[k].y-this.cy);
+      const score=this.adj[k].length*1000 - cd; if(score>bestScore){ bestScore=score; best=k; } }
+    if(best>=0) this.handoff={from:this.brain,to:best,t:0}; else this.nextHandoff=4;
+  }
+  updateStatus(){
+    if(this.nodeRef.current) this.nodeRef.current.textContent=String(this.v.length).padStart(2,'0');
+    if(this.linkRef.current) this.linkRef.current.textContent=String(this.edges.length).padStart(2,'0');
+    if(this.brainRef.current) this.brainRef.current.textContent='V-'+String(this.brain+1).padStart(2,'0');
+  }
+  draw(now){
+    const ctx=this.ctx, V=this.v, t=now*0.001;
+    ctx.fillStyle='#f3efe4'; ctx.fillRect(0,0,this.W,this.H);
+    ctx.strokeStyle='rgba(150,138,116,0.12)'; ctx.lineWidth=1;
+    for(let x=0;x<=this.W;x+=80){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,this.H); ctx.stroke(); }
+    for(let y=0;y<=this.H;y+=80){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(this.W,y); ctx.stroke(); }
+    ctx.save(); ctx.setLineDash([10,11]); ctx.strokeStyle='rgba(44,90,60,0.30)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.arc(this.cx,this.cy,this.areaR,0,6.2832); ctx.stroke(); ctx.restore();
+    ctx.fillStyle='rgba(44,90,60,0.45)'; ctx.font="500 15px 'IBM Plex Mono', monospace"; ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+    ctx.fillText('OPERATIONAL AREA · SELF-FORMING MESH', this.cx, this.cy-this.areaR-14);
+    for(const e of this.edges){ ctx.strokeStyle='rgba(44,90,60,'+(0.09+0.20*e[2])+')'; ctx.lineWidth=1+e[2]*1.1;
+      ctx.beginPath(); ctx.moveTo(V[e[0]].x,V[e[0]].y); ctx.lineTo(V[e[1]].x,V[e[1]].y); ctx.stroke(); }
+    for(let k=0;k<V.length;k++){ if(k===this.brain||!this.conn[k]) continue; const p=this.parent[k];
+      ctx.strokeStyle='rgba(44,90,60,0.46)'; ctx.lineWidth=2.4; ctx.beginPath(); ctx.moveTo(V[p].x,V[p].y); ctx.lineTo(V[k].x,V[k].y); ctx.stroke(); }
+    for(const pl of this.pulses){ const f=(pl.age-pl.t0)/pl.dur; if(f<0||f>1) continue;
+      const a=V[pl.from], b=V[pl.to], x=a.x+(b.x-a.x)*f, y=a.y+(b.y-a.y)*f;
+      if(pl.kind==='cmd'){ ctx.fillStyle='rgba(44,90,60,0.22)'; ctx.beginPath(); ctx.arc(x,y,9,0,6.2832); ctx.fill();
+        ctx.fillStyle='#2c5a3c'; ctx.beginPath(); ctx.arc(x,y,5,0,6.2832); ctx.fill(); }
+      else { ctx.fillStyle='rgba(120,116,104,0.85)'; ctx.beginPath(); ctx.arc(x,y,3.5,0,6.2832); ctx.fill(); } }
+    for(let k=0;k<V.length;k++) this.drawVehicle(V[k], k===this.brain, !this.conn[k], t);
+    if(this.handoff){ const a=V[this.handoff.from], b=V[this.handoff.to], f=this.handoff.t;
+      const x=a.x+(b.x-a.x)*f, y=a.y+(b.y-a.y)*f, pr=11+3*Math.sin(t*10);
+      ctx.fillStyle='rgba(44,90,60,0.16)'; ctx.beginPath(); ctx.arc(x,y,26,0,6.2832); ctx.fill();
+      ctx.fillStyle='#2c5a3c'; ctx.beginPath(); ctx.arc(x,y,pr,0,6.2832); ctx.fill();
+      ctx.fillStyle='#f3efe4'; ctx.font="700 13px 'Archivo', sans-serif"; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('AI',x,y); }
+  }
+  drawVehicle(v,isB,disc,t){
+    const ctx=this.ctx;
+    if(isB){ const rr=27+4*Math.sin(t*3);
+      ctx.strokeStyle='rgba(44,90,60,0.13)'; ctx.setLineDash([6,9]); ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(v.x,v.y,this.R,0,6.2832); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle='rgba(44,90,60,0.55)'; ctx.lineWidth=2.2; ctx.beginPath(); ctx.arc(v.x,v.y,rr,0,6.2832); ctx.stroke();
+      ctx.fillStyle='#2c5a3c'; ctx.font="700 15px 'Archivo', sans-serif"; ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText('AI', v.x, v.y-rr-7); }
+    ctx.save(); ctx.translate(v.x,v.y); ctx.rotate(v.heading);
+    const sz=isB?17:12;
+    ctx.beginPath(); ctx.moveTo(sz,0); ctx.lineTo(-sz*0.72,sz*0.72); ctx.lineTo(-sz*0.38,0); ctx.lineTo(-sz*0.72,-sz*0.72); ctx.closePath();
+    ctx.fillStyle=isB?'#2c5a3c':'#1b1a16'; ctx.fill(); ctx.restore();
+    if(disc){ ctx.strokeStyle='rgba(180,102,60,0.95)'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(v.x,v.y,19,0,6.2832); ctx.stroke();
+      ctx.fillStyle='rgba(180,102,60,0.95)'; ctx.font="700 14px 'IBM Plex Mono', monospace"; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('!', v.x+27, v.y-19); }
+  }
+}
+</script>
+</body>
+</html>

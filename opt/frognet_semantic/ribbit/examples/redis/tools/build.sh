@@ -1,4 +1,21 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # Build the RAM host with the Redis region resident, and the RESP front.
 # Incremental and parallel: a file is recompiled only if it, or a header it includes, changed since its object was
 # built (the compiler's own dependency files, -MMD); the platform is re-copied and re-patched only if the platform or
@@ -11,13 +28,14 @@ cd "$(dirname "$0")/.."
 PLAT=${PLAT:-platform/ribbit-v0.63}
 JOBS=${JOBS:-$(nproc)}
 CXX="${CXX_BIN:-g++} -O2 -pthread"          # CXX_BIN=g++-11 etc.; GCC 11 and newer
-W="-Wall -Wextra -Wno-unused-parameter"
+source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
+W="-Wall -Wextra -Wno-unused-parameter -Wno-free-nonheap-object"   # GCC 12 aarch64 false positive in libstdc++; see ribbit/cpp/qualify.sh
 [ "${CLEAN:-0}" = 1 ] && rm -rf build
 mkdir -p build/obj
 P=build/platform
 
 # ---- the platform, patched: redone only when the platform or a patch script changed
-PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py"
+PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py"
 STAMP=$( (find "$PLAT" -type f -print0 | sort -z | xargs -0 sha256sum; sha256sum $PATCHES tools/make_host.sh) | sha256sum | cut -c1-16)
 if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   echo "== platform: copying and patching"
@@ -26,6 +44,7 @@ if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   python3 tools/apply_same_miss.py $P/ribbit_cpp                          # [SAME_MISS_FROM_CACHE_V1]
   python3 tools/apply_coalesce.py $P/ribbit_cpp                           # [CLIENT_COALESCES_V1]
   python3 tools/apply_wire_order.py $P/ribbit_cpp                         # [WIRE_ORDER_TURNS_V1]
+  python3 tools/apply_row_scan_bound.py $P/ribbit_cpp                     # [ROW_SCAN_BOUND_V1]
   tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_redis.cpp
   echo "$STAMP" > build/platform.stamp
 fi

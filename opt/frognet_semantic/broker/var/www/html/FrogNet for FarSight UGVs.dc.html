@@ -1,0 +1,415 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FrogNet for FarSight UGVs · Fawcett Innovations</title>
+<meta name="description" content="How a partition-tolerant shared-memory fabric carries search-and-rescue UGV coordination when infrastructure is down.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FrogNet for FarSight UGVs">
+<meta property="og:description" content="How a partition-tolerant shared-memory fabric carries search-and-rescue UGV coordination when infrastructure is down.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="assets/fonts/fonts.css" rel="stylesheet">
+<style>
+  body { margin:0; background:#1a1d18; }
+</style>
+<script type="application/json" id="speaker-notes">[
+"The hook is autonomy. FrogNet puts a sovereign, self-forming mesh with a real-time network shared memory that supports simultaneous AI control of all connected devices, so the fleet senses, decides, and coordinates with no cloud or base station, and a link that holds even when constrained or contested. Production system, TRL 6-7. Prepared for the FarSight UGV program, with AEROS as the orchestration layer.",
+"What a FrogNet actually is: a box of standard Pi-class Linux that is a complete network on its own - DNS, DHCP, web, database, AI - and runs fully standalone. Nodes discover each other and mesh into a pond - one sovereign network owned end to end that is mobile, self-forming and self-healing. The transient database is the real-time network memory: every node reads and writes it; it floats between hosts but keeps one address mesh-wide and always holds the current truth. Sensors hang off individual nodes, and an AI on the mesh reads the shared memory and acts. A broker links ponds over WireGuard only when the internet is there - offline is the baseline.",
+"A vehicle that depends on a link back to base or cloud is dead the moment that link is jammed - and in this theater the link will be jammed. Left: a chain of someone else's infrastructure, one cut link killing the vehicle. Right: each vehicle is a complete node; they mesh peer to peer, share state, and keep coordinating with no base and no link to cut.",
+"The holy-grail slide. The network hosts an AI with direct read-write access to one shared real-time world state, so it sees every vehicle's sensors at once, controls any vehicle, and coordinates with no message-passing and no central brain to kill. The loop is sensor to network AI to actuator, and it survives loss of any node, link, or the internet. Proven April 17 2026: a closed loop through a database 2,400 miles away, over a 4,800-baud link at 20% loss, under two seconds.",
+"Contested-theater survivability. Conventional links are binary - working or dropped. FrogNet's protocol has video that steps down through resolution and frame rate (720p, 480p, 320p, each easing from 30 to 7 fps) then sheds to audio-only, text, and canned messages, and climbs back as the link recovers. The swarm forms itself and merges on contact; HaLow held a continuous mesh through dense urban driving; no central node to kill.",
+"Close on what Daniel Tone has already proven - independently, on his own nodes in New York, an independent reproduction of the whole system. An autonomous vehicle has to sense, decide and act, and stay meshed while moving; Dan demonstrated all three. One: the April 17 closed-loop demo drove a physical actuator from a web UI through a database 2,400 miles away, over a 4,800-baud link at 20 percent loss, under two seconds - the control loop of an autonomous vehicle. Two: a trunk-mounted 900 MHz HaLow node held the mesh through dense urban driving in Queens with no dropped links - a moving platform that never loses the swarm. Three: MeshTastic and LoRa sensor data bridged straight into the shared memory end to end. Four, last week: Dan stood up a node on nothing but a Starlink uplink and it joined the mesh as a full member in minutes - SSH-reachable and writing to the shared database. Five, completed today: remote firmware updates to the ESP32 boards, so any sensor or actuator can be repurposed across the fleet with no physical access. These are the building blocks of an autonomous UGV; next is a pilot on a handful of units, then the 500-vehicle fleet. And Dan took the system from concept to execution in only a few days - the leverage is in the ideas, not the labor; shift the paradigm and a small adaptable team moves at a pace a big one cannot."
+]</script>
+</helmet>
+
+<x-import component-from-global-scope="deck-stage" from="./deck-stage.js" width="1920" height="1080" hint-size="100%,100%">
+
+<!-- ============ SLIDE 1 — COVER ============ -->
+<section data-label="Cover" data-screen-label="01 Cover" data-speaker-notes="The hook is autonomy. FrogNet puts a sovereign, self-forming mesh with a real-time network shared memory that supports simultaneous AI control of all connected devices, so the fleet senses, decides, and coordinates with no cloud or base station, and a link that holds even when constrained or contested. Production system, TRL 6-7. Prepared for the FarSight UGV program, with AEROS as the orchestration layer." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:80px 104px; display:flex; flex-direction:column; justify-content:space-between; position:relative; isolation:isolate;">
+  <img src="assets/frognet-logo.png" alt="FrogNet logo" style="position:absolute; top:138px; right:40px; width:600px; height:auto; z-index:-1;">
+  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c;">Fawcett Innovations LLC &nbsp;·&nbsp; The FrogNet Living Network</div>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#6f6d64; text-align:right; line-height:1.7;">PREPARED FOR FARSIGHT VISION × AEROS<br>PRODUCTION SYSTEM · TRL 6–7 · FIELD-PROVEN</div>
+  </div>
+
+  <div style="max-width:1220px;">
+    <div style="display:flex; align-items:center; gap:28px; margin:0 0 26px;">
+      <svg width="92" height="92" viewBox="0 0 92 92" fill="none" style="flex:none;">
+        <circle cx="46" cy="46" r="9" fill="#2c5a3c"/>
+        <circle cx="46" cy="46" r="20" stroke="#2c5a3c" stroke-width="2" opacity="0.6"/>
+        <circle cx="46" cy="46" r="31" stroke="#2c5a3c" stroke-width="1.5" opacity="0.38"/>
+        <circle cx="46" cy="46" r="43" stroke="#2c5a3c" stroke-width="1.5" opacity="0.2"/>
+      </svg>
+      <div style="font-family:'Archivo',sans-serif; font-weight:600; font-size:24px; letter-spacing:0.01em; color:#1b1a16;">How to Think Like a Frog</div>
+    </div>
+    <h1 style="font-family:'Archivo',sans-serif; font-weight:800; font-size:104px; line-height:0.98; letter-spacing:-0.03em; color:#1b1a16; margin:0;">A fleet that thinks<br>for itself.</h1>
+    <div style="width:72px; height:4px; background:#2c5a3c; margin:38px 0 32px;"></div>
+    <p style="font-size:31px; line-height:1.46; max-width:31em; color:#2f2c25; margin:0;">FrogNet is a sovereign, self-forming mesh with a <em style="color:#1b1a16; font-style:italic;">real-time network shared memory</em> — one live picture that supports simultaneous AI control of every connected device — no cloud, no base station, and a link that holds even when it's constrained or contested.</p>
+  </div>
+
+  <div style="display:flex; justify-content:space-between; align-items:flex-end; border-top:1.5px solid #1b1a16; padding-top:22px;">
+    <div style="font-family:'Archivo',sans-serif; font-size:18px; line-height:1.55;">
+      <span style="font-weight:600; color:#1b1a16;">John W. Fawcett</span><span style="color:#6f6d64;">, CEO</span> &nbsp;·&nbsp; <span style="font-weight:600; color:#1b1a16;">Daniel Tone</span><span style="color:#6f6d64;">, VP Engineering</span>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#9b988c;">Networked autonomy for unmanned ground systems</div>
+  </div>
+</section>
+
+<!-- ============ SLIDE 2 — ANATOMY OF A FROGNET ============ -->
+<section data-label="Anatomy" data-screen-label="02 Anatomy" data-speaker-notes="What a FrogNet actually is: a box of standard Pi-class Linux that is a complete network on its own — DNS, DHCP, web, database, AI — and runs fully standalone with zero connectivity. Nodes discover each other and mesh into a pond - one sovereign network owned end to end that is mobile, self-forming and self-healing. The transient database is the real-time network memory: every node reads and writes it; it floats between hosts but keeps one address mesh-wide and always holds the current truth. Sensors hang off individual nodes, and an AI on the mesh reads the shared memory and acts. A broker links ponds over WireGuard only when the internet is there — offline is the baseline." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:66px 104px; display:flex; flex-direction:column;">
+  <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c; margin:0 0 14px;">Anatomy of a FrogNet</div>
+  <h2 style="font-family:'Archivo',sans-serif; font-weight:700; font-size:50px; line-height:1.02; letter-spacing:-0.02em; color:#1b1a16; margin:0 0 14px;">A complete, sovereign network — mobile, self-forming, self-healing.</h2>
+  <p style="font-size:22px; line-height:1.45; color:#3a3a32; margin:0 0 26px; max-width:54em;">Each node is a whole network on its own, the size of a deck of cards. Nodes discover each other and mesh into a pond you own end to end — forming and healing themselves with no operator, even on the move — and its shared memory is a live database every node reads and writes.</p>
+
+  <div style="display:grid; grid-template-columns:1.32fr 1fr; gap:56px; flex:1; align-items:center;">
+    <!-- anatomy diagram -->
+    <div>
+      <svg viewBox="0 0 640 466" style="width:100%; height:auto;">
+        <!-- uplink (external) -->
+        <rect x="235" y="6" width="170" height="40" rx="9" fill="none" stroke="#c9c4b6" stroke-width="1.3" stroke-dasharray="5 4"/>
+        <text x="320" y="25" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#9b988c">INTERNET · OTHER PONDS</text>
+        <text x="320" y="39" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#b3afa2">optional · via broker / WireGuard</text>
+        <line x1="320" y1="46" x2="320" y2="82" stroke="#c9c4b6" stroke-width="1.3" stroke-dasharray="5 4"/>
+        <text x="335" y="70" font-family="IBM Plex Mono, monospace" font-size="10" fill="#9b988c">uplink</text>
+        <!-- pond boundary -->
+        <rect x="16" y="82" width="608" height="374" rx="18" fill="none" stroke="#9bb6a4" stroke-width="1.5" stroke-dasharray="7 6"/>
+        <text x="36" y="106" font-family="IBM Plex Mono, monospace" font-size="12" letter-spacing="0.06em" fill="#5d7a66">THE POND — ONE SOVEREIGN NETWORK</text>
+        <!-- nodes -->
+        <rect x="91" y="130" width="118" height="60" rx="11" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="150" y="157" text-anchor="middle" font-family="Archivo, sans-serif" font-size="15" font-weight="700" fill="#1b1a16">NODE</text>
+        <text x="150" y="176" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#5d7a66">Linux · Pi-class</text>
+        <rect x="261" y="130" width="118" height="60" rx="11" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="320" y="157" text-anchor="middle" font-family="Archivo, sans-serif" font-size="15" font-weight="700" fill="#1b1a16">NODE</text>
+        <text x="320" y="176" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#5d7a66">Linux · Pi-class</text>
+        <rect x="431" y="130" width="118" height="60" rx="11" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="490" y="157" text-anchor="middle" font-family="Archivo, sans-serif" font-size="15" font-weight="700" fill="#1b1a16">NODE</text>
+        <text x="490" y="176" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#5d7a66">Linux · Pi-class</text>
+        <!-- mesh -->
+        <line x1="209" y1="160" x2="261" y2="160" stroke="#7aa088" stroke-width="1.8"/>
+        <line x1="379" y1="160" x2="431" y2="160" stroke="#7aa088" stroke-width="1.8"/>
+        <!-- node to DB -->
+        <line x1="170" y1="190" x2="252" y2="232" stroke="#2c5a3c" stroke-width="1.4"/>
+        <line x1="320" y1="190" x2="320" y2="222" stroke="#2c5a3c" stroke-width="1.4"/>
+        <line x1="470" y1="190" x2="388" y2="232" stroke="#2c5a3c" stroke-width="1.4"/>
+        <text x="398" y="214" font-family="Source Serif 4, serif" font-size="12.5" font-style="italic" fill="#6f6d64">read + write</text>
+        <!-- transient DB cylinder -->
+        <rect x="212" y="236" width="216" height="44" fill="#2c5a3c"/>
+        <ellipse cx="320" cy="280" rx="108" ry="14" fill="#20402b"/>
+        <ellipse cx="320" cy="236" rx="108" ry="14" fill="#34764a"/>
+        <text x="320" y="258" text-anchor="middle" font-family="Archivo, sans-serif" font-size="14" font-weight="700" fill="#ffffff">TRANSIENT DATABASE</text>
+        <text x="320" y="274" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#cfe6d4">the real-time network memory</text>
+        <text x="320" y="312" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#5d7a66">one address, mesh-wide · always current</text>
+        <text x="320" y="328" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#9b988c">floats to the highest node — never a stale address</text>
+        <!-- sensor platform -->
+        <line x1="118" y1="190" x2="140" y2="372" stroke="#9bb6a4" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <rect x="66" y="372" width="176" height="74" rx="11" fill="#f0ede4" stroke="#c9c4b6" stroke-width="1.3"/>
+        <text x="154" y="400" text-anchor="middle" font-family="Archivo, sans-serif" font-size="13" font-weight="700" fill="#1b1a16">SENSOR PLATFORM</text>
+        <text x="154" y="420" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#6f6d64">ESP32 · LoRa · Meshtastic</text>
+        <text x="154" y="437" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#9b988c">hangs off a node — writes to memory</text>
+        <!-- AI platform -->
+        <line x1="522" y1="190" x2="500" y2="372" stroke="#9bb6a4" stroke-width="1.4" stroke-dasharray="5 4"/>
+        <rect x="398" y="372" width="176" height="74" rx="11" fill="#f0ede4" stroke="#c9c4b6" stroke-width="1.3"/>
+        <text x="486" y="400" text-anchor="middle" font-family="Archivo, sans-serif" font-size="13" font-weight="700" fill="#1b1a16">AI PLATFORM</text>
+        <text x="486" y="420" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" fill="#6f6d64">local inference, on-node</text>
+        <text x="486" y="437" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="9.5" fill="#9b988c">reads memory — decides — acts</text>
+      </svg>
+    </div>
+
+    <!-- callouts -->
+    <div style="display:flex; flex-direction:column; gap:18px;">
+      <div>
+        <div style="display:flex; align-items:center; gap:9px; margin-bottom:5px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:19px; color:#1b1a16; white-space:nowrap;">The node — a network in a box</span></div><div style="font-size:18px; color:#3a3a32; line-height:1.4;">DNS, DHCP, web, database and AI on standard Pi-class Linux. Runs fully standalone with zero connectivity.</div>
+      </div>
+      <div style="border-top:1px solid #dcd7c9; padding-top:16px;">
+        <div style="display:flex; align-items:center; gap:9px; margin-bottom:5px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:19px; color:#1b1a16; white-space:nowrap;">The database is network memory</span></div><div style="font-size:18px; color:#3a3a32; line-height:1.4;">Every node reads and writes one real-time store. It floats between hosts but keeps a single address mesh-wide and always holds the current truth — no history, no stale copies.</div>
+      </div>
+      <div style="border-top:1px solid #dcd7c9; padding-top:16px;">
+        <div style="display:flex; align-items:center; gap:9px; margin-bottom:5px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:19px; color:#1b1a16; white-space:nowrap;">Sensors &amp; AI hang off nodes</span></div><div style="font-size:18px; color:#3a3a32; line-height:1.4;">ESP32 and LoRa sensors attach to individual nodes, and an AI on the mesh reads the shared memory and acts on it.</div>
+      </div>
+      <div style="border-top:1px solid #dcd7c9; padding-top:16px;">
+        <div style="display:flex; align-items:center; gap:9px; margin-bottom:5px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:19px; color:#1b1a16; white-space:nowrap;">Sovereign — uplink optional</span></div><div style="font-size:18px; color:#3a3a32; line-height:1.4;">A broker links ponds over WireGuard only when the internet is there. Offline is the baseline; nothing in the chain belongs to anyone else.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SLIDE 3 — WHY AUTONOMY NEEDS A DIFFERENT NETWORK ============ -->
+<section data-label="The Inversion" data-screen-label="03 The Inversion" data-speaker-notes="A vehicle that depends on a link back to base or cloud is dead the moment that link is jammed — and in this theater the link will be jammed. The left diagram is a chain of someone else's infrastructure with one cut link killing the vehicle. The right is the FrogNet answer: each vehicle is a complete node, they mesh peer to peer, share state, and keep coordinating with no base and no link to cut. The four chips are the load-bearing shifts for unmanned systems." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:72px 104px; display:flex; flex-direction:column;">
+  <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c; margin:0 0 16px;">Why autonomy needs a different network</div>
+  <h2 style="font-family:'Archivo',sans-serif; font-weight:700; font-size:46px; line-height:1.04; letter-spacing:-0.02em; color:#1b1a16; margin:0 0 32px; max-width:27em;">A machine that depends on a link to base is dead the moment the link is jammed.</h2>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:56px; flex:1;">
+    <!-- TETHERED -->
+    <div style="display:flex; flex-direction:column;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.07em; color:#9b988c; margin-bottom:14px;">TETHERED — DEPENDENT ON SOMEONE ELSE'S CHAIN</div>
+      <svg viewBox="0 0 520 230" style="width:100%; height:auto;">
+        <line x1="78" y1="96" x2="188" y2="96" stroke="#c9c4b6" stroke-width="2"/>
+        <line x1="214" y1="96" x2="324" y2="96" stroke="#c9c4b6" stroke-width="2"/>
+        <line x1="358" y1="96" x2="430" y2="96" stroke="#c25b4e" stroke-width="2" stroke-dasharray="5 5"/>
+        <g font-family="Archivo, sans-serif">
+          <circle cx="48" cy="96" r="30" fill="#ece8dc" stroke="#c9c4b6" stroke-width="1.5"/>
+          <text x="48" y="100" text-anchor="middle" font-size="14" font-weight="600" fill="#6f6d64">C2</text>
+          <circle cx="201" cy="96" r="30" fill="#ece8dc" stroke="#c9c4b6" stroke-width="1.5"/>
+          <text x="201" y="100" text-anchor="middle" font-size="13" font-weight="600" fill="#6f6d64">RELAY</text>
+          <circle cx="341" cy="96" r="30" fill="#ece8dc" stroke="#c9c4b6" stroke-width="1.5"/>
+          <text x="341" y="100" text-anchor="middle" font-size="13" font-weight="600" fill="#6f6d64">LINK</text>
+          <circle cx="466" cy="96" r="30" fill="#2c5a3c"/>
+          <text x="466" y="92" text-anchor="middle" font-size="12.5" font-weight="700" fill="#f3efe4">VEHICLE</text>
+          <text x="466" y="106" text-anchor="middle" font-size="12.5" font-weight="700" fill="#f3efe4"></text>
+        </g>
+        <text x="394" y="58" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="20" fill="#c25b4e">&#10005;</text>
+        <text x="394" y="146" text-anchor="middle" font-family="Source Serif 4, serif" font-size="13" fill="#c25b4e" font-style="italic">jammed</text>
+        <text x="48" y="166" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#9b988c">cloud / base</text>
+      </svg>
+      <p style="font-size:20px; line-height:1.42; color:#3a3a32; margin:14px 0 0;">Jam one link and the vehicle goes blind, deaf, and dumb. Every layer it depends on is someone else's.</p>
+    </div>
+
+    <!-- SOVEREIGN -->
+    <div style="display:flex; flex-direction:column;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.07em; color:#2c5a3c; margin-bottom:14px;">SOVEREIGN — THE FLEET IS THE NETWORK</div>
+      <svg viewBox="0 0 520 230" style="width:100%; height:auto;">
+        <rect x="14" y="16" width="492" height="198" rx="16" fill="none" stroke="#9bb6a4" stroke-width="1.5" stroke-dasharray="7 6"/>
+        <g stroke="#7aa088" stroke-width="1.6" opacity="0.85">
+          <line x1="118" y1="74" x2="262" y2="58"/>
+          <line x1="262" y1="58" x2="404" y2="82"/>
+          <line x1="118" y1="74" x2="258" y2="118"/>
+          <line x1="262" y1="58" x2="258" y2="118"/>
+          <line x1="404" y1="82" x2="258" y2="118"/>
+          <line x1="150" y1="170" x2="258" y2="118"/>
+          <line x1="276" y1="178" x2="258" y2="118"/>
+          <line x1="404" y1="166" x2="258" y2="118"/>
+          <line x1="118" y1="74" x2="150" y2="170"/>
+          <line x1="404" y1="82" x2="404" y2="166"/>
+          <line x1="150" y1="170" x2="276" y2="178"/>
+          <line x1="276" y1="178" x2="404" y2="166"/>
+        </g>
+        <g fill="#2c5a3c">
+          <circle cx="118" cy="74" r="16"/>
+          <circle cx="262" cy="58" r="16"/>
+          <circle cx="404" cy="82" r="16"/>
+          <circle cx="258" cy="118" r="19"/>
+          <circle cx="150" cy="170" r="16"/>
+          <circle cx="276" cy="178" r="16"/>
+          <circle cx="404" cy="166" r="16"/>
+        </g>
+        <text x="260" y="36" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12" letter-spacing="0.1em" fill="#5d7a66">EVERY VEHICLE A NODE · PEER TO PEER</text>
+      </svg>
+      <p style="font-size:20px; line-height:1.42; color:#3a3a32; margin:14px 0 0;">Each vehicle is a complete node. They mesh directly, share state, and keep coordinating with <em style="color:#1b1a16; font-style:italic;">no base, no cloud, no link to cut.</em></p>
+    </div>
+  </div>
+
+  <!-- chips -->
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:28px; border-top:1.5px solid #1b1a16; padding-top:22px; margin-top:18px;">
+    <div><div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:17px; color:#1b1a16; white-space:nowrap;">Offline-first</span></div><div style="font-size:16px; color:#6f6d64; line-height:1.35;">Assumes no link; keeps operating when the link is gone.</div></div>
+    <div><div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:17px; color:#1b1a16; white-space:nowrap;">Any radio is a pipe</span></div><div style="font-size:16px; color:#6f6d64; line-height:1.35;">Rides whatever the platform carries — HaLow, LoRa, SATCOM.</div></div>
+    <div><div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:17px; color:#1b1a16; white-space:nowrap;">Proximity = perimeter</span></div><div style="font-size:16px; color:#6f6d64; line-height:1.35;">Off the internet — nothing to attack from across the world.</div></div>
+    <div><div style="display:flex; align-items:center; gap:9px; margin-bottom:6px;"><span style="width:8px; height:8px; background:#2c5a3c; transform:rotate(45deg); display:inline-block; flex:none;"></span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:17px; color:#1b1a16; white-space:nowrap;">Memory, not messages</span></div><div style="font-size:16px; color:#6f6d64; line-height:1.35;">Vehicles share state, not packets — no C2 session to spoof.</div></div>
+  </div>
+</section>
+
+<!-- ============ SLIDE 3 — THE AUTONOMY ENGINE ============ -->
+<section data-label="Autonomy Engine" data-screen-label="04 Autonomy Engine" data-speaker-notes="This is the holy-grail slide. The network hosts an AI with direct read-write access to one shared real-time world state — so it sees every vehicle's sensors at once, controls any vehicle, and coordinates with no message-passing and no central brain to kill. The loop is sensor to network AI to actuator, closing through the shared state, and it survives loss of any node, any link, or the internet. Proven April 17 2026: a closed sensor-AI-actuator loop through a database 2,400 miles away, over a 4,800-baud link with 20 percent loss, in under two seconds. If it closes transatlantic over jammed dial-up, it closes across a field of vehicles." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:66px 104px; display:flex; flex-direction:column;">
+  <div style="display:flex; justify-content:space-between; align-items:baseline; margin:0 0 6px;">
+    <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c;">The autonomy engine</div>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; color:#6f6d64;">NETWORK-HOSTED AI · SHARED WORLD STATE</div>
+  </div>
+  <h2 style="font-family:'Archivo',sans-serif; font-weight:700; font-size:50px; line-height:1.0; letter-spacing:-0.02em; color:#1b1a16; margin:0 0 30px;">The network sees every vehicle — and steers them all.</h2>
+
+  <div style="display:grid; grid-template-columns:1.25fr 1fr; gap:54px; flex:1;">
+    <!-- distributed AI diagram -->
+    <div style="display:flex; flex-direction:column;">
+      <svg viewBox="0 0 620 300" style="width:100%; height:auto;">
+        <defs>
+          <marker id="d2" markerWidth="9" markerHeight="9" refX="4.5" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 Z" fill="#2c5a3c"/></marker>
+          <marker id="d2b" markerWidth="9" markerHeight="9" refX="2.5" refY="3.2" orient="auto"><path d="M7,0 L0,3.2 L7,6.4 Z" fill="#2c5a3c"/></marker>
+        </defs>
+        <!-- vehicle nodes -->
+        <rect x="86" y="14" width="128" height="58" rx="12" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="150" y="40" text-anchor="middle" font-family="Archivo, sans-serif" font-size="16" font-weight="700" fill="#1b1a16">UGV</text>
+        <text x="150" y="59" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#5d7a66">sensors · actuators</text>
+        <rect x="246" y="14" width="128" height="58" rx="12" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="310" y="40" text-anchor="middle" font-family="Archivo, sans-serif" font-size="16" font-weight="700" fill="#1b1a16">UGV</text>
+        <text x="310" y="59" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#5d7a66">sensors · actuators</text>
+        <rect x="406" y="14" width="128" height="58" rx="12" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.5"/>
+        <text x="470" y="40" text-anchor="middle" font-family="Archivo, sans-serif" font-size="16" font-weight="700" fill="#1b1a16">UGV</text>
+        <text x="470" y="59" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#5d7a66">sensors · actuators</text>
+        <text x="566" y="48" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="26" fill="#9bb6a4">…</text>
+        <!-- vehicles to bar -->
+        <line x1="150" y1="72" x2="150" y2="112" stroke="#2c5a3c" stroke-width="2" marker-start="url(#d2b)" marker-end="url(#d2)"/>
+        <line x1="310" y1="72" x2="310" y2="112" stroke="#2c5a3c" stroke-width="2" marker-start="url(#d2b)" marker-end="url(#d2)"/>
+        <line x1="470" y1="72" x2="470" y2="112" stroke="#2c5a3c" stroke-width="2" marker-start="url(#d2b)" marker-end="url(#d2)"/>
+        <text x="346" y="100" font-family="Source Serif 4, serif" font-size="13" fill="#6f6d64" font-style="italic">publish · read back</text>
+        <!-- shared world bar -->
+        <rect x="40" y="112" width="540" height="50" rx="12" fill="#2c5a3c"/>
+        <text x="310" y="134" text-anchor="middle" font-family="Archivo, sans-serif" font-size="15" font-weight="700" letter-spacing="0.04em" fill="#ffffff">SHARED REAL-TIME WORLD STATE</text>
+        <text x="310" y="152" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#b9dcc4">every vehicle's state, in one place · mesh-wide</text>
+        <!-- bar to AI -->
+        <line x1="310" y1="162" x2="310" y2="214" stroke="#2c5a3c" stroke-width="2" marker-start="url(#d2b)" marker-end="url(#d2)"/>
+        <text x="326" y="192" font-family="Source Serif 4, serif" font-size="13" fill="#6f6d64" font-style="italic">reads all · writes control</text>
+        <!-- AI node -->
+        <rect x="190" y="214" width="240" height="62" rx="12" fill="#e9efe6" stroke="#2c5a3c" stroke-width="1.8"/>
+        <text x="310" y="241" text-anchor="middle" font-family="Archivo, sans-serif" font-size="16" font-weight="700" fill="#1b1a16">NETWORK-HOSTED AI</text>
+        <text x="310" y="261" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#5d7a66">sees &amp; steers every vehicle · floats like the data</text>
+      </svg>
+      <p style="font-size:19px; line-height:1.42; color:#3a3a32; margin:18px 0 0;">Every vehicle publishes what it senses and reads back what to do. A network-hosted AI sees the whole fleet's state in one place — and writes control to any vehicle in real time, with no message-passing an adversary can jam, spoof, or sever.</p>
+    </div>
+
+    <!-- the loop + proof -->
+    <div style="display:flex; flex-direction:column;">
+      <div style="font-family:'IBM Plex Mono',monospace; font-size:14px; letter-spacing:0.07em; color:#2c5a3c; margin-bottom:12px;">THE LOOP THAT DRIVES AUTONOMY</div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px;">
+        <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:18px; color:#1b1a16; background:#e9efe6; border:1px solid #2c5a3c; border-radius:6px; padding:7px 14px;">sensor</span>
+        <span style="color:#2c5a3c; font-size:20px;">&rarr;</span>
+        <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:18px; color:#1b1a16; background:#e9efe6; border:1px solid #2c5a3c; border-radius:6px; padding:7px 14px;">network AI</span>
+        <span style="color:#2c5a3c; font-size:20px;">&rarr;</span>
+        <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:18px; color:#1b1a16; background:#e9efe6; border:1px solid #2c5a3c; border-radius:6px; padding:7px 14px;">actuator</span>
+      </div>
+      <p style="font-size:19px; line-height:1.44; color:#3a3a32; margin:0 0 18px;">The sense-act loop closes through the shared state — and it keeps running through the loss of any vehicle, any link, or the internet entirely.</p>
+      <div style="border-left:3px solid #2c5a3c; padding:4px 0 4px 18px; margin-top:auto;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; color:#2c5a3c; margin-bottom:8px;">PROVEN · APRIL 17, 2026</div>
+        <p style="font-size:20px; line-height:1.4; color:#1b1a16; margin:0; font-weight:600;">A closed sensor → AI → actuator loop, through a database 2,400 miles away, over a 4,800-baud link at 20% loss — in under 2 seconds.</p>
+        <p style="font-size:17px; line-height:1.4; color:#6f6d64; margin:10px 0 0; font-style:italic;">If it closes transatlantic over jammed dial-up, it closes across a field of vehicles.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- proof stat row -->
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:36px; border-top:1.5px solid #1b1a16; padding-top:22px; margin-top:24px;">
+    <div><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:30px; color:#2c5a3c;">93.8%</span><span style="font-size:16px; color:#6f6d64; margin-left:10px;">bandwidth cut</span></div>
+    <div><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:30px; color:#2c5a3c;">44×</span><span style="font-size:16px; color:#6f6d64; margin-left:10px;">throughput @ 4,800 baud</span></div>
+    <div><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:30px; color:#2c5a3c;">&lt;2s</span><span style="font-size:16px; color:#6f6d64; margin-left:10px;">RTT @ 20% loss</span></div>
+    <div><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:30px; color:#2c5a3c;">10</span><span style="font-size:16px; color:#6f6d64; margin-left:10px;">live nodes, 3 cities</span></div>
+  </div>
+</section>
+
+<!-- ============ SLIDE 4 — SURVIVABILITY UNDER JAMMING ============ -->
+<section data-label="Survivability" data-screen-label="05 Survivability" data-speaker-notes="Contested-theater survivability. Conventional links are binary, working or dropped. FrogNet's protocol has video that steps down through resolution and frame rate (720p, 480p, 320p, each easing from 30 to 7 fps) then sheds to audio-only, text, and canned messages, and it climbs back as the link recovers. Only total jamming ends it. Right side: the swarm forms itself and merges on contact, HaLow held a continuous mesh through dense urban driving across multipath and vehicle metal, and there is no central node to kill." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:66px 104px; display:flex; flex-direction:column;">
+  <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c; margin:0 0 14px;">Survivability under jamming</div>
+  <h2 style="font-family:'Archivo',sans-serif; font-weight:700; font-size:50px; line-height:1.02; letter-spacing:-0.02em; color:#1b1a16; margin:0 0 30px;">Coordination that does not stop.</h2>
+
+  <div style="display:grid; grid-template-columns:1fr 1.08fr; gap:54px; flex:1;">
+    <!-- staircase -->
+    <div style="border-right:1px solid #dcd7c9; padding-right:50px; display:flex; flex-direction:column;">
+      <p style="font-size:21px; line-height:1.42; margin:0 0 18px;">Conventional links are binary — <em style="font-style:italic;">working, or dropped.</em> FrogNet's video steps down by <strong style="color:#1b1a16; font-weight:600;">resolution, then frame rate</strong> — then sheds to audio, text and canned messages, climbing back as the link recovers.</p>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:0.12em; color:#9b988c; margin-bottom:2px;">VIDEO — RESOLUTION ↓ THEN FRAME RATE ↓</div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">720p</span><div style="height:17px; width:330px; max-width:100%; background:#2c5a3c; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">30 · 15 · 7 fps</span></div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">480p</span><div style="height:17px; width:262px; max-width:100%; background:#386f4a; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">30 · 15 · 7 fps</span></div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">320p</span><div style="height:17px; width:196px; max-width:100%; background:#4a8a60; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">30 · 15 · 7 fps</span></div>
+        <div style="height:1px; background:#dcd7c9; margin:8px 0 4px;"></div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">AUDIO</span><div style="height:17px; width:124px; max-width:100%; background:#6ba37e; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">two-way voice</span></div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">TEXT</span><div style="height:17px; width:74px; max-width:100%; background:#93c0a2; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">real-time typed</span></div>
+        <div style="display:flex; align-items:center; gap:13px;"><span style="font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; color:#2c5a3c; width:54px;">CANNED</span><div style="height:17px; width:30px; max-width:100%; background:#b9d6c2; border-radius:2px; flex:none;"></div><span style="font-size:14px; color:#3a3a32;">pre-set: hold · move · contact</span></div>
+      </div>
+      <p style="font-size:18px; line-height:1.4; color:#6f6d64; margin:16px 0 0;">It never cliffs — it drops a rung and keeps the link alive. Only total jamming — zero bytes through — ends it.</p>
+    </div>
+
+    <!-- ops -->
+    <div style="display:flex; flex-direction:column; gap:20px;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; margin-bottom:6px;">The swarm forms itself</div>
+        <p style="font-size:20px; line-height:1.4; color:#3a3a32; margin:0;">Vehicles discover each other and mesh with no configuration, <em style="font-style:italic; color:#2c5a3c;">merge with other units on contact</em>, and heal when one is lost. There is no central node for an adversary to take out.</p>
+      </div>
+      <div style="border-top:1px solid #dcd7c9; padding-top:18px;">
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; margin-bottom:6px;">Proven mobile &amp; contested</div>
+        <p style="font-size:20px; line-height:1.4; color:#3a3a32; margin:0;">A 900 MHz HaLow node held the mesh continuously through dense urban driving — across multipath, building occlusions, and the metal of the vehicle itself. The exact RF nightmare of a moving ground vehicle.</p>
+      </div>
+      <div style="border-top:1px solid #dcd7c9; padding-top:18px;">
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; margin-bottom:6px;">One box, civil to contested</div>
+        <p style="font-size:20px; line-height:1.4; color:#3a3a32; margin:0;">The same architecture runs a private family network and a first-responder mesh — genuinely dual-use, civil through defense.</p>
+      </div>
+    </div>
+  </div>
+  <div style="font-family:'IBM Plex Mono',monospace; font-size:13.5px; color:#9b988c; margin-top:22px;">Fielded over WiFi, LoRa &amp; WireGuard at emergency operations centers — not on amateur radio bands, by deliberate design.</div>
+</section>
+
+<!-- ============ SLIDE 5 — WHAT DAN HAS PROVEN ============ -->
+<section data-label="The Proof" data-screen-label="06 The Proof" data-speaker-notes="Close on what Daniel Tone has already proven - independently, on his own nodes in New York, an independent reproduction of the whole system. An autonomous vehicle has to sense, decide and act, and stay meshed while moving; Dan demonstrated all three. One: the April 17 closed-loop demo drove a physical actuator from a web UI through a database 2,400 miles away, over a 4,800-baud link at 20 percent loss, under two seconds - the control loop of an autonomous vehicle. Two: a trunk-mounted 900 MHz HaLow node held the mesh through dense urban driving in Queens with no dropped links - a moving platform that never loses the swarm. Three: MeshTastic and LoRa sensor data bridged straight into the shared memory end to end. Four, last week: Dan stood up a node on nothing but a Starlink uplink and it joined the mesh as a full member in minutes - SSH-reachable and writing to the shared database. Five, completed today: remote firmware updates to the ESP32 boards, so any sensor or actuator can be repurposed across the fleet with no physical access. These are the building blocks of an autonomous UGV; next is a pilot on a handful of units, then the 500-vehicle fleet. And Dan took the system from concept to execution in only a few days - the leverage is in the ideas, not the labor; shift the paradigm and a small adaptable team moves at a pace a big one cannot." style="box-sizing:border-box; width:100%; height:100%; background:#f3efe4; color:#2f2c25; font-family:'Source Serif 4',Georgia,serif; padding:66px 104px; display:flex; flex-direction:column;">
+  <div style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:600; letter-spacing:0.2em; text-transform:uppercase; color:#2c5a3c; margin:0 0 14px;">Already proven — independently</div>
+  <h2 style="font-family:'Archivo',sans-serif; font-weight:700; font-size:50px; line-height:1.02; letter-spacing:-0.02em; color:#1b1a16; margin:0 0 16px; max-width:26em;">Dan has already proven the hard parts.</h2>
+  <p style="font-size:21px; line-height:1.45; color:#3a3a32; margin:0 0 32px; max-width:62em;">An autonomous, re-taskable fleet has to sense and act, stay meshed on the move, pull in any sensor, join from anywhere, and be reprogrammed in the field. Daniel Tone has demonstrated each on FrogNet, on his own nodes in New York — <em style="font-style:italic; color:#1b1a16;">an independent reproduction of the whole system,</em> the latest completed today.</p>
+
+  <div style="display:flex; flex-direction:column; flex:1;">
+    <div style="display:grid; grid-template-columns:300px 1fr; gap:44px; align-items:baseline; padding:15px 0; border-top:1px solid #dcd7c9;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; line-height:1.14;">Sense → decide → act</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:#2c5a3c; margin-top:6px;">APRIL 17, 2026</div>
+      </div>
+      <p style="font-size:19px; line-height:1.4; margin:0; color:#2f2c25;">Dan drove a physical actuator from a web UI — every step routed through a database <strong style="color:#1b1a16; font-weight:600;">2,400 miles away</strong>, over a 4,800-baud link at 20% loss, in under 2 seconds. <span style="color:#2c5a3c; font-style:italic; display:block; margin-top:5px;">The closed control loop of an autonomous vehicle, proven over a worst-case link.</span></p>
+    </div>
+    <div style="display:grid; grid-template-columns:300px 1fr; gap:44px; align-items:baseline; padding:15px 0; border-top:1px solid #dcd7c9;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; line-height:1.14;">A mesh that moves</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:#2c5a3c; margin-top:6px;">MOBILE · 900 MHz HALOW</div>
+      </div>
+      <p style="font-size:19px; line-height:1.4; margin:0; color:#2f2c25;">Dan ran a <strong style="color:#1b1a16; font-weight:600;">trunk-mounted HaLow node</strong> through dense urban driving in Queens — no dropped links across multipath, building occlusion, and the vehicle's own metal. <span style="color:#2c5a3c; font-style:italic; display:block; margin-top:5px;">A moving platform that never loses the swarm.</span></p>
+    </div>
+    <div style="display:grid; grid-template-columns:300px 1fr; gap:44px; align-items:baseline; padding:15px 0; border-top:1px solid #dcd7c9;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; line-height:1.14;">Sensors over any radio</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:#2c5a3c; margin-top:6px;">MESHTASTIC · LORA</div>
+      </div>
+      <p style="font-size:19px; line-height:1.4; margin:0; color:#2f2c25;">Dan bridged <strong style="color:#1b1a16; font-weight:600;">MeshTastic and LoRa</strong> sensor data straight into the shared memory, end to end — RF-delivered readings the whole mesh sees at once. <span style="color:#2c5a3c; font-style:italic; display:block; margin-top:5px;">Field sensors over the radios a unit actually carries.</span></p>
+    </div>
+    <div style="display:grid; grid-template-columns:300px 1fr; gap:44px; align-items:baseline; padding:15px 0; border-top:1px solid #dcd7c9;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; line-height:1.14;">Join from anywhere</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:#2c5a3c; margin-top:6px;">LAST WEEK · STARLINK</div>
+      </div>
+      <p style="font-size:19px; line-height:1.4; margin:0; color:#2f2c25;">Dan stood up a node on <strong style="color:#1b1a16; font-weight:600;">nothing but a Starlink uplink</strong> — it joined the mesh as a full member in minutes, SSH-reachable and writing to the shared database. <span style="color:#2c5a3c; font-style:italic; display:block; margin-top:5px;">Drop a unit anywhere with a sat link and it's on the network.</span></p>
+    </div>
+    <div style="display:grid; grid-template-columns:300px 1fr; gap:44px; align-items:baseline; padding:15px 0; border-top:1px solid #dcd7c9; border-bottom:1px solid #dcd7c9;">
+      <div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:21px; color:#1b1a16; line-height:1.14;">Re-task on the fly</div>
+        <div style="font-family:'IBM Plex Mono',monospace; font-size:13px; letter-spacing:0.06em; color:#2c5a3c; margin-top:6px;">TODAY · OTA FIRMWARE</div>
+      </div>
+      <p style="font-size:19px; line-height:1.4; margin:0; color:#2f2c25;">Dan pushed a <strong style="color:#1b1a16; font-weight:600;">remote firmware update</strong> to the ESP32 boards — repurpose any sensor or actuator across the fleet with no physical access. <span style="color:#2c5a3c; font-style:italic; display:block; margin-top:5px;">Re-mission the hardware from afar — a soil sensor becomes a perimeter tripwire.</span></p>
+    </div>
+  </div>
+
+  <p style="font-size:23px; line-height:1.4; color:#1b1a16; font-weight:600; margin:30px 0 0; text-wrap:pretty;">The building blocks of an autonomous, re-taskable fleet — already working, independently. <span style="color:#2c5a3c;">Next is the fleet: a pilot on a handful of units, then the 500.</span></p>
+  <p style="font-size:19px; line-height:1.42; color:#6f6d64; margin:12px 0 0; max-width:66em; font-style:italic;">And he took it from concept to execution in a few days — the leverage is in the ideas, not the labor. Shift the paradigm, stay adaptable, and a few people do what used to take an army.</p>
+
+  <div style="display:flex; justify-content:space-between; align-items:center; border-top:1.5px solid #1b1a16; padding-top:24px; margin-top:30px;">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" style="flex:none;">
+        <circle cx="20" cy="20" r="4.5" fill="#2c5a3c"/>
+        <circle cx="20" cy="20" r="10" stroke="#2c5a3c" stroke-width="1.5" opacity="0.6"/>
+        <circle cx="20" cy="20" r="16" stroke="#2c5a3c" stroke-width="1.2" opacity="0.32"/>
+      </svg>
+      <div style="font-family:'Archivo',sans-serif; font-weight:600; font-size:19px; color:#1b1a16;">Fawcett Innovations LLC &nbsp;<span style="color:#9b988c; font-weight:500;">· with AEROS Systems</span></div>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace; font-size:15px; color:#6f6d64;"><span>unixpro</span><span>&#64;</span><span>ufie</span><span>.org</span> &nbsp;·&nbsp; (206) 335-9639</div>
+  </div>
+</section>
+
+</x-import>
+</x-dc>
+</body>
+</html>

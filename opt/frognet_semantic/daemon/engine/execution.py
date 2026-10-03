@@ -53,6 +53,7 @@ import threading
 from typing import Any, Dict, List, Tuple, Optional
 
 from core.codec import SemanticCodec
+from core import tuple_key as _tuple_key    # [INSTANCE_REFERENCES_V1] the instance location, one definition
 from core.tokens import TokenStore
 from core.semcache_wire import wrap_resp_raw
 
@@ -104,37 +105,46 @@ SEM_HDR_V1_LEN = 8
 # This MUST be module-level, not per-session, because the proxy may
 # reconnect (new session) but keep sending diff-encoded requests that
 # depend on the reference built up in the previous session.
-_request_refs: Dict[Tuple[str, int], Optional[Dict[str, Any]]] = {}
+# [INSTANCE_REFERENCES_V1] Keyed (peer_ip, opcode, instance). The template (opcode) is the recognized format; the
+# instance is the location in the message's data (core/tuple_key.py), which travels in every frame. A template with no
+# location fields has exactly one instance, "".
+_request_refs: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
 _request_refs_lock = threading.RLock()
 
 
-def _get_request_ref(peer_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
+def _get_request_ref(peer_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
     with _request_refs_lock:
-        ref = _request_refs.get((peer_ip, opcode))
+        ref = _request_refs.get((peer_ip, opcode, inst))
         return ref.copy() if ref is not None else None
 
 
-def _set_request_ref(peer_ip: str, opcode: int, ref: Dict[str, Any]) -> None:
+def _set_request_ref(peer_ip: str, opcode: int, inst: str, ref: Dict[str, Any]) -> None:
     with _request_refs_lock:
-        _request_refs[(peer_ip, opcode)] = ref.copy()
+        _request_refs[(peer_ip, opcode, inst)] = ref.copy()
 
 
-def get_request_ref(peer_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
-    """Return a copy of the fully-merged request reference for (peer_ip, opcode), or None."""
+def get_request_ref(peer_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
+    """Return a copy of the fully-merged request reference for (peer_ip, opcode, instance), or None."""
     with _request_refs_lock:
-        ref = _request_refs.get((peer_ip, opcode))
+        ref = _request_refs.get((peer_ip, opcode, inst))
         return ref.copy() if ref is not None else None
 
 
-def has_request_ref(peer_ip: str, opcode: int) -> bool:
-    """Check whether a request reference exists for this (peer, opcode).
+def template_instance(req_tpl, explicit: Dict[str, Any]) -> str:
+    """[INSTANCE_REFERENCES_V1] The instance of a message: its template's location fields, read from the fields the
+    frame carries explicitly (they are sent in every frame)."""
+    fields = _tuple_key.location_fields(str(req_tpl.method or "GET"), req_tpl.url_static,
+                                        getattr(req_tpl, "url_query_keys", []) or [],
+                                        (getattr(req_tpl, "fragment", {}) or {}).get("field_order", []) or [])
+    return _tuple_key.instance(fields, explicit)
+class Prepared:
+    """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] One decoded request, between begin() on the socket thread and execute() on a
+    worker. early: a reply decided at decode time (the 7-tuple execute() returns), else None."""
+    __slots__ = ("early", "req_tpl", "resp_tpl", "opcode", "inst", "url_vals", "json_vals")
 
-    Used by the session layer to decide whether a REQ_DIFF can be decoded.
-    If False, the daemon must respond REQ_MISS so the proxy falls back
-    to REQ_FULL.
-    """
-    with _request_refs_lock:
-        return _request_refs.get((peer_ip, opcode)) is not None
+    def __init__(self):
+        self.early = None
+        self.req_tpl = self.resp_tpl = self.opcode = self.inst = self.url_vals = self.json_vals = None
 
 
 class ExecutionEngine:
@@ -144,43 +154,49 @@ class ExecutionEngine:
         self.resolver = resolver if resolver is not None else DestinationResolver()
         self.http = http_client if http_client is not None else HttpClient()
 
-    def execute(
-        self,
-        *,
-        normalized_packet: bytes,
-        peer_ip: str,
-        origin_ip: str,
-        dest_host: str,
-    ) -> Tuple[bytes, int, int, Optional[int], Optional[List[Tuple[str, Any]]], Optional[Dict[str, str]]]:
-        """
-        Execute one semantic request packet and return:
-          (semantic_reply_bytes, upstream_http_status, reply_len_bytes,
-           opcode, dynamic_vals, type_map)
-
-        The last three are returned so the session layer can diff-encode
-        the response before sending on the wire. They are None on error paths.
-
-        dest_host MUST be provided by the packet trailer (session extracts it).
-        """
+    def begin(self, *, normalized_packet: bytes, peer_ip: str, require_reference: bool = False) -> "Prepared":
+        """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] The decode half of execute(): template lookup, the explicit fields,
+        the instance, the merge against the instance's reference and the reference commit. The session calls this
+        on the SOCKET THREAD, in arrival order, so the request reference moves in wire order; execute(prepared=...)
+        then runs on a worker. A decision made here (error, REQ_MISS) is carried in Prepared.early."""
+        p = Prepared()
+        def early(t):
+            p.early = t; return p
         if not normalized_packet or len(normalized_packet) < SEM_HDR_V1_LEN:
             rep = self.codec.encode_error_reply(400, "short semantic packet")
-            return rep, 400, len(rep), None, None, None
+            return early((rep, 400, len(rep), None, None, None, None))
 
         try:
             version, flags, opcode, nfields = struct.unpack("<BBIH", normalized_packet[:SEM_HDR_V1_LEN])
         except Exception as e:
             rep = self.codec.encode_error_reply(400, f"bad header: {e!r}")
-            return rep, 400, len(rep), None, None, None
+            return early((rep, 400, len(rep), None, None, None, None))
 
         # Lookup request+reply templates by opcode
         req_tpl, resp_tpl = self.loader.lookup_by_opcode(opcode)
         if not req_tpl or not resp_tpl:
             rep = self.codec.encode_error_reply(503, f"no templates for opcode={opcode}")
-            return rep, 503, len(rep), opcode, None, None
+            return early((rep, 503, len(rep), opcode, None, None, None))
 
         # Decode request values, merging with reference if FLAG_DIFF is set
+        # [INSTANCE_REFERENCES_V1] The location travels in every frame: decode the explicit fields first, take the
+        # instance, then that instance's reference. A difference for an instance this side does not hold is REQ_MISS
+        # (the proxy resends FULL), exactly as a missing reference always was.
         try:
-            req_ref = _get_request_ref(peer_ip, opcode)
+            u0, j0 = self.codec.decode_request(normalized_packet, req_tpl, TokenStore(req_tpl.tokens), reference=None)
+            inst = template_instance(req_tpl, {k: v for k, v in list(u0) + list(j0) if v is not None})
+        except Exception as e:
+            trace(f"[DAEMON DECODE ERROR] opcode={opcode} instance err={e!r}")
+            rep = self.codec.encode_error_reply(400, f"decode error: {e}")
+            return early((rep, 400, len(rep), opcode, None, None, None))
+        # The codec marks every request FLAG_DIFF (a first send is a diff against nothing), so the wire op -- which the
+        # session knows -- says whether a reference is required: REQ_DIFF passes require_reference=True.
+        if require_reference and _get_request_ref(peer_ip, opcode, inst) is None:
+            trace(f"[INSTANCE_REFERENCES_V1] opcode={opcode} peer={peer_ip} instance={inst!r} - no reference, REQ_MISS")
+            return early((b"", 200, {"req_miss": True, "opcode": opcode, "missing": ["<instance reference>"],
+                                     "declared": [inst]}, opcode, None, None, inst))
+        try:
+            req_ref = _get_request_ref(peer_ip, opcode, inst)
             url_vals, json_vals = self.codec.decode_request(
                 normalized_packet,
                 req_tpl,
@@ -203,7 +219,7 @@ class ExecutionEngine:
             if _missing:
                 # Clear it: it cannot satisfy this template, and keeping it would
                 # fail every subsequent request the same way.
-                _set_request_ref(peer_ip, opcode, {})
+                _set_request_ref(peer_ip, opcode, inst, {})
                 # [REF_INCOMPLETE_IS_A_REQ_MISS_V1] Signal this with REQ_MISS,
                 # not a 409.
                 #
@@ -232,10 +248,10 @@ class ExecutionEngine:
                 trace(f"[REF_INCOMPLETE_IS_A_REQ_MISS_V1] opcode={opcode} "
                       f"peer={peer_ip} missing={_missing} declared={_url_keys} "
                       f"- ref cleared, REQ_MISS (was: 409, which nothing obeyed)")
-                return (b"", 200,
-                        {"req_miss": True, "opcode": opcode,
-                         "missing": list(_missing), "declared": list(_url_keys)},
-                        opcode, None, None)
+                return early((b"", 200,
+                              {"req_miss": True, "opcode": opcode,
+                               "missing": list(_missing), "declared": list(_url_keys)},
+                              opcode, None, None, inst))
 
             # Update request reference with all decoded values
             new_req_ref = {}
@@ -243,13 +259,40 @@ class ExecutionEngine:
                 new_req_ref[k] = v
             for k, v in json_vals:
                 new_req_ref[k] = v
-            _set_request_ref(peer_ip, opcode, new_req_ref)
+            _set_request_ref(peer_ip, opcode, inst, new_req_ref)
 
         except Exception as e:
             trace(f"[DAEMON DECODE ERROR] opcode={opcode} err={e!r}")
             rep = self.codec.encode_error_reply(400, f"decode error: {e}")
-            return rep, 400, len(rep), opcode, None, None
+            return early((rep, 400, len(rep), opcode, None, None, inst))
 
+        p.req_tpl, p.resp_tpl, p.opcode, p.inst = req_tpl, resp_tpl, opcode, inst
+        p.url_vals, p.json_vals = url_vals, json_vals
+        return p
+
+    def execute(
+        self,
+        *,
+        normalized_packet: bytes,
+        peer_ip: str,
+        origin_ip: str,
+        dest_host: str,
+        require_reference: bool = False,
+        prepared: Optional["Prepared"] = None,
+    ) -> Tuple[bytes, int, int, Optional[int], Optional[List[Tuple[str, Any]]], Optional[Dict[str, str]], Optional[str]]:
+        """
+        Execute one semantic request packet and return:
+          (semantic_reply_bytes, upstream_http_status, reply_len_bytes,
+           opcode, dynamic_vals, type_map, instance)
+        instance is [INSTANCE_REFERENCES_V1]'s location of this message (None before the template is known).
+        prepared: the result of begin() when the session already decoded this packet on its socket thread
+        ([REFERENCES_MOVE_IN_WIRE_ORDER_V1]); otherwise begin() runs here.
+        """
+        p = prepared if prepared is not None else self.begin(normalized_packet=normalized_packet, peer_ip=peer_ip, require_reference=require_reference)
+        if p.early is not None:
+            return p.early
+        req_tpl, resp_tpl, opcode, inst = p.req_tpl, p.resp_tpl, p.opcode, p.inst
+        url_vals, json_vals = p.url_vals, p.json_vals
         # Resolve destination STRICTLY from explicit dest_host (except control-plane paths)
         try:
             dest = self.resolver.resolve(
@@ -261,7 +304,7 @@ class ExecutionEngine:
         except Exception as e:
             trace(f"[DAEMON RESOLVE ERROR] opcode={opcode} err={e!r}")
             rep = self.codec.encode_error_reply(502, f"resolve error: {e}")
-            return rep, 502, len(rep), opcode, None, None
+            return rep, 502, len(rep), opcode, None, None, inst
 
         # Rebuild HTTP request
         try:
@@ -277,7 +320,7 @@ class ExecutionEngine:
         except Exception as e:
             trace(f"[DAEMON REBUILD ERROR] opcode={opcode} err={e!r}")
             rep = self.codec.encode_error_reply(502, f"rebuild error: {e}")
-            return rep, 502, len(rep), opcode, None, None
+            return rep, 502, len(rep), opcode, None, None, inst
 
         # -- Read materialization --
         # [DATA_CACHE_GEN_V2] Reads only, and only when RAM is proven equal to
@@ -301,7 +344,7 @@ class ExecutionEngine:
                 )
                 trace(f"[DAEMON EXTRACT] opcode={opcode} status=200 src=data_cache "
                       f"resp_text_len={len(_cached)} resp_text={_cached[:120]!r}")
-                return sem_reply, 200, len(sem_reply), opcode, resp_pairs, resp_tpl.type_map
+                return sem_reply, 200, len(sem_reply), opcode, resp_pairs, resp_tpl.type_map, inst
             except Exception:
                 # [RAW_SIGNAL_V1] extraction failed - hand the body back raw
                 # rather than wrapping an FNW1 frame inside another one.
@@ -311,7 +354,7 @@ class ExecutionEngine:
                     "headers_bytes": b'{"Content-Type":"application/json"}',
                     "body":          _cached.encode("utf-8"),
                 }
-                return b"", 200, raw_info, opcode, None, None
+                return b"", 200, raw_info, opcode, None, None, inst
 
         # Execute HTTP via local loopback (Apache:8080 if local, else proxy:80)
         try:
@@ -327,7 +370,7 @@ class ExecutionEngine:
         except Exception as e:
             trace(f"[DAEMON HTTP ERROR] opcode={opcode} err={e!r}")
             rep = self.codec.encode_error_reply(502, f"http exec error: {e!r}")
-            return rep, 502, len(rep), opcode, None, None
+            return rep, 502, len(rep), opcode, None, None, inst
 
         # Encode semantic reply - FULL encoding for stable hashing
         # Session layer uses sha256(sem_reply) to detect SAME vs DIFF.
@@ -359,7 +402,7 @@ class ExecutionEngine:
                         "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
                         "body":          resp_body_bytes,
                     }
-                    return b"", int(status), raw_info, opcode, None, None
+                    return b"", int(status), raw_info, opcode, None, None, inst
                 # Non-200 (error responses): fallback is acceptable
                 dyn = [("value", [])]
 
@@ -370,12 +413,12 @@ class ExecutionEngine:
                 tokens=TokenStore(resp_tpl.tokens),
             )
             return (sem_reply, int(status), len(sem_reply),
-                    opcode, dyn, resp_tpl.type_map or {})
+                    opcode, dyn, resp_tpl.type_map or {}, inst)
 
         except Exception as e:
             trace(f"[DAEMON REPLY ERROR] opcode={opcode} err={e!r}")
             rep = self.codec.encode_error_reply(502, f"reply encode error: {e!r}")
-            return rep, 502, len(rep), opcode, None, None
+            return rep, 502, len(rep), opcode, None, None, inst
 
 # ---- DEPLOYMENT MARKER ----
 print("[execution] BUILD=2026-03-24-v1", flush=True)

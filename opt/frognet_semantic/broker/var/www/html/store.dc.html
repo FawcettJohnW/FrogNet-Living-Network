@@ -1,0 +1,206 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get a node — The FrogNet Living Network</title>
+<meta name="description" content="Be on the network this week. Buy a flash-ready SD card, a built-and-configured Raspberry Pi node, or spin one up in the cloud. The FrogNet software is always free.">
+<meta property="og:title" content="Get a node — The FrogNet Living Network">
+<meta property="og:description" content="Be on the network this week. A flash-ready card, a built node, or a cloud droplet. The software is always free.">
+<meta property="og:type" content="website">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}
+.buygrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media(max-width:820px){.buygrid{grid-template-columns:1fr}}
+.buy{background:var(--paper);padding:32px 28px;display:flex;flex-direction:column}
+.buy--feat{background:var(--paper-3);position:relative}
+.buy__flag{position:absolute;top:0;right:0;font-family:var(--fm);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#062015;background:var(--amber);padding:5px 11px}
+.buy__k{font-family:var(--fm);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber-deep);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.buy__tag{color:var(--ink-dim);letter-spacing:.1em}
+.buy__price{font-family:var(--fd);font-size:38px;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.buy__price small{font-family:var(--fm);font-size:12px;color:var(--ink-dim);letter-spacing:.04em;margin-left:7px;text-transform:uppercase}
+.buy h3{font-size:20px;margin:14px 0 8px;color:var(--ink)}
+.buy p{font-size:15px;color:var(--ink-dim);margin:0 0 18px;line-height:1.6}
+.buy__pts{list-style:none;padding:0;margin:0 0 22px}
+.buy__pts li{position:relative;padding:7px 0 7px 20px;font-size:14px;line-height:1.5;color:var(--ink-dim);border-top:1px solid var(--rule)}
+.buy__pts li::before{content:"";position:absolute;left:0;top:15px;width:11px;height:1px;background:var(--amber-deep)}
+.buy .btn{margin-top:auto;align-self:flex-start}
+.buynote{font-family:var(--fm);font-size:12.5px;color:var(--ink-dim);margin-top:22px;max-width:78ch;line-height:1.75}
+.buynote a{color:var(--amber-deep);text-decoration:none}
+.trust{display:flex;flex-wrap:wrap;gap:14px 30px;margin-top:26px;font-family:var(--fm);font-size:12.5px;color:var(--ink-2)}
+.trust span{display:inline-flex;align-items:center;gap:8px}
+.trust i{width:7px;height:7px;border-radius:50%;background:var(--amber);flex:none}
+.keep{background:var(--petrol);border:1px solid var(--hair);padding:clamp(26px,4vw,40px)}
+.keep h3{font-size:23px;color:#fff;margin:0 0 6px}
+.keep>p.intro{color:var(--mist-dim);font-size:15px;margin:0 0 24px;max-width:60ch;line-height:1.6}
+.keepform{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+.keepform input{font-family:var(--fb);font-size:15px;color:#fff;background:#06181b;border:1px solid var(--hair);padding:13px 14px;flex:1 1 260px;border-radius:0;transition:border-color .18s}
+.keepform input::placeholder{color:var(--mist-faint)}
+.keepform input:focus{outline:none;border-color:var(--amber)}
+.keepnote{font-family:var(--fm);font-size:12px;color:var(--mist-faint);margin-top:16px;line-height:1.6}
+.keepnote a{color:var(--amber);text-decoration:none}
+.sent{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--amber-deep);background:#08201466;padding:16px 18px;margin-top:18px;font-size:14.5px;color:var(--mist)}
+.sent .x{font-family:var(--fm);color:var(--amber);font-size:18px;line-height:1}
+.free{border:2px solid var(--amber-deep);background:#fbf7ec;padding:26px 28px}
+.free h3{color:var(--ink);margin:0 0 8px;font-size:20px}
+.free p{color:var(--ink-dim);font-size:15px;margin:0;line-height:1.6}
+.free a{color:var(--amber-deep);text-decoration:none}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="why.dc.html">Why</a><a href="the-claim.dc.html">The Claim</a><a href="products.dc.html">Product</a><a href="use-cases.dc.html">Use Cases</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="library.dc.html">The Books</a><a href="about.dc.html">About</a><a class="btn btn--ghost nav__cta2" href="license.dc.html">Request a license</a><a class="btn btn--primary nav__cta is-on" href="store.dc.html">Get a node</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Store head">
+<div class="wrap">
+<p class="eyebrow reveal">Get a node</p>
+<h1 class="reveal">Be on the network <span class="glow">this week.</span></h1>
+<p class="lede reveal">One box is already a whole network. Buy a flash-ready card for hardware you own, a Raspberry Pi built and meshing out of the box, or spin one up in the cloud. No accounts, no monthly bill — and the FrogNet software itself is always free.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Buy">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">Three ways on</span></div>
+<h2>Pick how you want to start.</h2>
+<p class="sec__lead">Every one of these gets you a working node. Start with one — add more later and they find each other on their own.</p></div>
+<div class="buygrid reveal">
+<div class="buy">
+<div class="buy__k">Flash it yourself<span class="buy__tag">SD card</span></div>
+<div class="buy__price">$24.95</div>
+<h3>FrogNet on an SD card</h3>
+<p>A flash-ready image on a card. Drop it into a Raspberry Pi or mini-PC you already own, power on, and you're a node.</p>
+<ul class="buy__pts"><li>Bring your own hardware</li><li>Ships ready to boot</li><li>The cheapest way to try it</li></ul>
+<a class="btn btn--primary" href="https://www.paypal.com/paypalme/FROGNETPAY/24.95" target="_blank" rel="noopener">Buy the card — $24.95 <span class="ar">→</span></a>
+</div>
+<div class="buy buy--feat">
+<span class="buy__flag">Most popular</span>
+<div class="buy__k">Built &amp; configured<span class="buy__tag">Pi 4</span></div>
+<div class="buy__price">$299</div>
+<h3>FrogNet Pi 4 host</h3>
+<p>Built, flashed, and configured on a Raspberry Pi 4 — powered on and meshing out of the box. Nothing to set up.</p>
+<ul class="buy__pts"><li>Plug in and it just works</li><li>Add antennas, radios, or a router</li><li>The no-fuss way to start</li></ul>
+<a class="btn btn--primary" href="https://www.paypal.com/paypalme/FROGNETPAY/299" target="_blank" rel="noopener">Buy the host — $299 <span class="ar">→</span></a>
+</div>
+<div class="buy">
+<div class="buy__k">In the cloud<span class="buy__tag">Droplet</span></div>
+<div class="buy__price">Referral</div>
+<h3>A cloud droplet</h3>
+<p>Run a node or broker in the cloud on a DigitalOcean droplet, spun up through our referral link — handy as an always-on member or a broker for reaching home while you're away.</p>
+<ul class="buy__pts"><li>Always on, anywhere</li><li>Great as a broker</li><li>Pay DigitalOcean directly</li></ul>
+<a class="btn btn--ghost" href="https://m.do.co/c/frognet" target="_blank" rel="noopener">Get a droplet <span class="ar">→</span></a>
+</div>
+</div>
+<div class="trust reveal">
+<span><i></i>Secure PayPal checkout — no account needed</span>
+<span><i></i>Ships from Fawcett Innovations</span>
+<span><i></i>Questions first? <a href="contact.dc.html" style="color:var(--amber-deep);text-decoration:none">Just ask →</a></span>
+</div>
+<p class="buynote reveal">Prices in USD. External antennas, long-range radios, and routers are quoted with your Pi 4 order — <a href="contact.dc.html">tell me your range and bearers</a> and I'll send a total. Hardware ships from Fawcett Innovations. The FrogNet software is always free to download and flash yourself.</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="Keep me posted">
+<div class="wrap">
+<div class="cgrid">
+<div class="reveal">
+<p class="eyebrow">Not ready yet?</p>
+<h2 style="color:#fff">Leave your email. I'll tell you when there's something worth knowing.</h2>
+<p class="sec__lead">No newsletter machine, no drip campaign. Just a note from me when a new node ships, the price changes, or the books get a big update. Unsubscribe by replying "stop."</p>
+</div>
+<div class="reveal">
+<div class="keep">
+<h3>Keep me posted</h3>
+<p class="intro">Nothing is stored on a server — this just composes an email to me for you to send.</p>
+<form class="keepform" onSubmit="{{ onSubmit }}">
+<input id="kemail" name="email" type="email" placeholder="you@example.com" value="{{ email }}" onInput="{{ set }}" required="{{ true }}"/>
+<button class="btn btn--primary" type="submit" disabled="{{ disabled }}">Keep me posted <span class="ar">→</span></button>
+</form>
+<sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}"><div class="sent"><span class="x">✓</span><div>Your mail client should have opened with a note ready to send to <b style="color:var(--amber-2)">john@fawcettinnovations.com</b>. If it didn't, email that address directly.</div></div></sc-if>
+<p class="keepnote">Prefer to just write? <a href="mailto:john@fawcettinnovations.com?subject=Keep%20me%20posted%20on%20FrogNet">Open a blank email →</a></p>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Software is free">
+<div class="wrap">
+<div class="free reveal">
+<h3>Rather build it yourself for nothing?</h3>
+<p>The hardware above is just the fastest path onto the network. The FrogNet software is free to download, flash, and run on any spare box — start with <a href="How to Think Like a Frog.dc.html">the book</a>, then <a href="license.dc.html">request a free developer license</a>.</p>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Store CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Own your line</p>
+<h2>A network that's nobody's but yours.</h2>
+<p>Pick a node, plug it in, and you're on a private network the same afternoon — no company in the middle, no monthly bill, no off-switch in anyone else's hand.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="#buy" onclick="window.scrollTo({top:0});">Choose a node <span class="ar">↑</span></a><a class="btn btn--ghost" href="index.dc.html">See what it does <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="store.dc.html">Get a node</a><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div>
+<div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="security.dc.html" style="color:inherit;text-decoration:none">Security</a> · <a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { email:"", sent:false };
+  renderVals(){
+    const email = this.state.email;
+    const disabled = !email.trim();
+    const set = (e) => this.setState({ email: e.target.value });
+    const onSubmit = (e) => {
+      e.preventDefault();
+      if (disabled) return;
+      const body = "Please keep me posted on FrogNet.\n\nMy email: " + email.trim() + "\n";
+      const url = "mailto:john@fawcettinnovations.com"
+        + "?subject=" + encodeURIComponent("Keep me posted on FrogNet")
+        + "&body=" + encodeURIComponent(body);
+      window.location.href = url;
+      this.setState({ sent: true });
+    };
+    return { email, set, onSubmit, disabled, sent: this.state.sent };
+  }
+}
+</script>
+</body>
+</html>

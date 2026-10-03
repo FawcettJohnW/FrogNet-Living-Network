@@ -1,0 +1,45 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+[Unit]
+Description=FrogNet Tunnel Broker — Traffic Metering Daemon
+After=frognet-broker.service
+Requires=frognet-broker.service
+# Give the broker time to create the DB before we start
+StartLimitBurst=10
+StartLimitIntervalSec=120
+
+[Service]
+Type=exec
+User=root
+Group=root
+WorkingDirectory=/opt/frognet-broker
+Environment=FROGNET_BROKER_DIR=/var/lib/frognet-broker
+Environment=FROGNET_BROKER_LOG=INFO
+# Tiers: basic=5GB, standard=50GB, mega=100GB (defined in broker_metering.py)
+Environment=FROGNET_THROTTLE_RATE=64kbit
+Environment=FROGNET_METER_INTERVAL=60
+# Set webhook URL for notifications when ready:
+# Environment=FROGNET_NOTIFY_WEBHOOK=https://hooks.example.com/frognet
+
+ExecStart=/opt/frognet-broker/venv/bin/python3 /opt/frognet-broker/broker_metering.py daemon
+
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

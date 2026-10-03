@@ -1,0 +1,153 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How FrogNet compares — the honest map · Fawcett Innovations</title>
+<meta name="description" content="Where FrogNet sits next to CRDTs, Reticulum, VPN overlays, traditional VPNs, community mesh, delta-encoding/QUIC, realtime backends, Meshtastic, and MQTT — stated plainly, category by category, without a feature matrix.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="How FrogNet compares — the honest map">
+<meta property="og:description" content="Where FrogNet sits next to CRDTs, Reticulum, VPN overlays, tuple spaces, Meshtastic, and MQTT — stated plainly, category by category.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.obs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule)}.ob{background:var(--paper);padding:34px 32px;display:flex;flex-direction:column}.ob__n{font-family:var(--fm);font-size:12px;letter-spacing:.14em;color:var(--amber-deep)}.ob__see{font-family:var(--fd);font-weight:700;font-size:clamp(21px,2.4vw,27px);letter-spacing:-.02em;line-height:1.15;color:var(--ink);margin:12px 0 12px;text-wrap:balance}.ob p{font-size:15.5px;line-height:1.65;color:var(--ink-dim);margin:0}.ob__so{margin-top:16px;padding-top:15px;border-top:1px solid var(--rule);font-family:var(--fm);font-size:12.5px;line-height:1.6;color:var(--ink-2)}.ob__so b{color:var(--amber-deep);display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:5px}.ob--wide{grid-column:1/-1}@media(max-width:800px){.obs{grid-template-columns:1fr}}.creed{font-family:var(--fd);font-weight:700;font-size:clamp(24px,3.4vw,38px);letter-spacing:-.02em;line-height:1.2;color:#fff;text-wrap:balance;max-width:20ch;margin:0 auto}.creed em{font-style:normal;color:var(--amber)}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a class="is-on" href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Compare head">
+<div class="wrap">
+<div class="sec reveal" style="max-width:780px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§00</span><span class="sec__tag">The honest map</span></div>
+<h1>How FrogNet compares.</h1>
+<p class="sec__lead">You already know things this resembles. So first, the measuring stick: a real, full FrogNet is a complete network that installs itself onto whatever hardware is present — discovery, elections, routing over any transports multiplexed together, shared memory as the programming model, a media ladder, and the applications, complete on a LAN with no broker and no tunnel in it. Every comparison below starts there: the whole of them against the whole of us. We will not compare a part of FrogNet to the whole of something else. No matrix — each neighbor gets the one honest statement, and where a question is settled elsewhere on this site, it says so and points there.</p></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="crdt" data-screen-label="CRDTs">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">CRDTs &amp; local-first</span></div>
+<h2>Automerge, Yjs, and the local-first world.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>The whole of a CRDT library is a data structure inside your application — a merge law and its bookkeeping, linked into a program you already had to build, on a network you already had to have. The whole of FrogNet is the network, the memory, and the application platform, installed onto bare hardware. The resemblance lives in one corner of one layer — both ends hold the same structure and only differences cross the wire — and even there the two are built toward opposite goals. A CRDT's goal is <strong>convergence</strong>: every replica must provably arrive at one identical merged state, so it carries the machinery of merge — causal history, tombstones, a merge law per data type. UnREST doesn't have that goal. Its goal is <strong>operation</strong>: each node acts <em>now</em> on the current value of what it can reach. Current value wins, stale values are reaped rather than reconciled, and nothing ever blocks waiting for agreement.</p>
+<p>The diff on the wire isn't consensus machinery; it's economy — the reason a live picture fits over links where full payloads never did. A CRDT is a data structure that guarantees agreement. FrogNet is a fabric that guarantees operation — and the fabric, not the merge law, is the product: discovery, elections, routing, media, and the applications, running on a LAN pond that is complete with no tunnel and no broker in it. <a href="Magnum Croakus.html#s-22-from-messages-to-memory" style="color:var(--amber-deep)">The model is specified in Magnum Croakus § 22 →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="reticulum" data-screen-label="Reticulum">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§02</span><span class="sec__tag">Reticulum &amp; ham</span></div>
+<h2 style="color:#fff">The closest neighbor.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>The whole of Reticulum is a networking stack — addressing, encryption, routing — with no IP, no sockets, and applications written natively to its API. It is the strongest thing anyone can bring to this table: genuinely transport-agnostic, encrypted at the foundation, infrastructure-free, and respect where it's due. The whole of FrogNet is that layer <em>and</em> everything above and below it: it hosts the applications you already have on the addressing you already use, elects its services, ships its media, and installs itself. Reticulum could ride under FrogNet as one more transport, the way Wi-Fi or a LoRa radio does — but FrogNet doesn't need it. <a href="Magnum Croakus.html#s-transports-multiplexed" style="color:var(--amber)">Transports multiplexed in one topology — Magnum Croakus § 5 →</a></p>
+<p>On amateur radio, both stacks are out — the same rule, for the same reason — and the full treatment of that, along with how ham traffic actually crosses distance today, lives where connectivity is settled: <a href="products.dc.html#connectivity">Connectivity — what's in, what's out, and why →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="overlays" data-screen-label="VPN overlays">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§03</span><span class="sec__tag">VPN overlays</span></div>
+<h2>Tailscale, Nebula, ZeroTier, Yggdrasil.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>The whole of an overlay is a private wire between your machines plus the coordination service that arranges it — and that service is the network's center; without it, so much for the network. The whole of FrogNet is a network that is complete before any of that exists. The resemblance is the WireGuard underneath, and it ends there. FrogNet's tunnels are one bearer among several, used for one case: crossing the public internet. The broker introduces nodes and holds no authority — and though it terminates the cross-internet tunnels, it runs none of the semantic stack, so what crosses it is label-stripped diffs and codec-less frames it cannot reconstruct — while the network is complete on a LAN with no tunnel and no broker anywhere in it. An overlay connects your machines. FrogNet operates them: discovery, elections, services, media, applications. <a href="Magnum Croakus.html#s-17-the-broker" style="color:var(--amber-deep)">The broker, and what it can and can't see — Magnum Croakus § 17 →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="vpn" data-screen-label="Traditional VPN">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§04</span><span class="sec__tag">Traditional VPN</span></div>
+<h2 style="color:#fff">The tunnel to someone else's gateway.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>The whole of a traditional VPN — the corporate concentrator, the commercial exit node — is a single encrypted tunnel from your device to a hub someone else runs: reach the office LAN, or borrow an IP on the way to the internet. It connects one endpoint to one hub, and that hub is the entire point and the single throat; lose it and there is nothing left. It moves your packets. It does not form a network among your own machines, hold any shared state, elect a service, or outlive the concentrator. The whole of FrogNet is a peer network with no hub to lose: nodes discover each other, elect their own services, and operate on a LAN with nothing in the middle at all. Where FrogNet does cross the public internet it rides a WireGuard tunnel as one bearer among several — a road it drives on, not the thing it is. A VPN gives you a private pipe to somewhere. FrogNet <em>is</em> the somewhere. <a href="Magnum Croakus.html#s-18-the-tunnel" style="color:var(--amber)">WireGuard as one bearer among several — Magnum Croakus § 18 →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="mesh" data-screen-label="Traditional mesh">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§05</span><span class="sec__tag">Traditional mesh</span></div>
+<h2>BATMAN, OLSR, 802.11s — the routing layer.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>The whole of a traditional mesh — BATMAN-adv, OLSR, 802.11s, the AREDN and community-mesh world — is multi-hop packet routing: it finds paths across radios that cannot all hear each other and forwards frames along them. That is real, and hard, and FrogNet respects it — but it is one layer, the road under the traffic. It hands you a routed link and stops; what runs on that link is still yours to build, on hardware you still have to provision, with services you still have to stand up. The whole of FrogNet is everything above that road: it discovers who is present, elects the services, carries shared memory as the programming model, ships an adaptive media ladder, hosts the applications, and installs the whole of itself onto bare hardware — over whatever transports are present, a traditional mesh among them where one exists. A traditional mesh moves packets between nodes. FrogNet makes the nodes a network. <a href="Magnum Croakus.html#s-transports-multiplexed" style="color:var(--amber-deep)">Transports multiplexed above the routing layer — Magnum Croakus § 5 →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="tuplespaces" data-screen-label="The wire">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§06</span><span class="sec__tag">The wire & the model</span></div>
+<h2 style="color:#fff">“Isn’t this just delta encoding, or QUIC?”</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>This is where the reflex is strongest, so take it head-on. <strong>Semantic compression looks like delta encoding</strong> — and at the bit level, it is a diff. The difference is where the template comes from and what it is welded to. gRPC and protobuf need a schema you write and version ahead of time; a byte-differ needs a matched pair of blobs to compare. FrogNet <em>learns</em> the template from the first real exchange, keys it by the stable parts of the request, and diffs the <em>canonical value</em> — so two replies that differ only in formatting cross as a 16-byte SAME. And it is not a library you call: it is fused to the memory model — SAME / DIFF / FULL against a reference both ends hold, reaped rather than reconciled — so discovery, coordination, and application traffic all get it for free, without anyone reaching for it.</p>
+<p><strong>Multiplexed streams look like QUIC.</strong> The independent channel-sets that keep a bulk file transfer from stalling a live call are solving the same head-of-line problem HTTP/3 solves — but the transport is not the point. FrogNet is transport-agnostic: QUIC would be a fine bearer <em>under</em> it, right next to TCP, a WireGuard tunnel, or a 900&nbsp;MHz radio. What wins the constrained link is not the multiplexing; it is that the thing crossing it is a difference against shared memory, not a request re-stated from scratch. QUIC moves your bytes faster. FrogNet sends far fewer of them. <a href="Magnum Croakus.html#s-24-fnwp-1-the-wire" style="color:var(--amber)">FNWP-1, the wire — Magnum Croakus § 24 →</a></p>
+<p>And the idea underneath — coordinate through shared values, not messages — is not new, and we do not pretend it is: Gelernter’s tuple spaces named it in 1986. UnREST is that idea carried to the wide area, with the two changes that let it survive a real network — current value wins, and a read never blocks. <a href="Magnum Croakus.html#s-23-the-accelerant-semantic-compression" style="color:var(--amber)">The compression it rests on — Magnum Croakus § 23 →</a></p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="miscat" data-screen-label="Not the same thing">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§07</span><span class="sec__tag">Not the same thing</span></div>
+<h2>Four filing errors, preempted.</h2>
+<div class="prose prose--wide" style="margin-top:16px">
+<p>Each of these, taken whole, is one instrument. FrogNet, taken whole, is the bench they'd sit on.</p>
+<p><strong>Meshtastic</strong>, whole, is text and telemetry over LoRa — and FrogNet carries it as a friend, not a competitor: Meshtastic and LoRa bridges write radio-delivered readings straight into shared memory as sensor rows.</p>
+<p><strong>MQTT</strong>, whole, is a message bus. FrogNet is memory, not messages — nothing subscribes, nothing queues, nothing replays; every node acts on the current value of what it can reach, and stale is reaped.</p>
+<p><strong>Realtime backends</strong> — Firebase, Convex, Liveblocks, a WebSocket-plus-pub/sub tier — are hosted services that push updates to subscribers over a socket you rent, a vendor’s cloud in the middle holding the truth. FrogNet gives the same live-update feel with no socket tier, no subscriptions, and no vendor: presence is a value in shared memory, an update is a diff, and it runs on a LAN with nothing in the middle at all.</p>
+<p><strong>Syncthing</strong>, whole, synchronizes files — durable artifacts, eventually. FrogNet's transient plane is the opposite instrument: the always-there current value, with the permanent store standing separately as the authority.</p>
+<p><strong>Secure Scuttlebutt</strong>, whole, is an append-only log that gossips history. FrogNet keeps no history on the wire at all — the present is the protocol.</p>
+</div></div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Compare CTA">
+<div class="wrap"><div class="ctab reveal">
+<h2>Still filing it somewhere?</h2>
+<p>Then try the standing invitation: reproduce the result with the stack you'd file it under — and if it can't, that's the interesting part, not a gotcha.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="the-claim.dc.html">Read the claim <span class="ar">→</span></a><a class="btn btn--ghost" href="demonstrations.dc.html">See it run <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

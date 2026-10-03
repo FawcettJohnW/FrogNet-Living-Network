@@ -1,0 +1,626 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FrogNet — the network with no attack surface · Fawcett Innovations</title>
+<meta name="description" content="FrogNet eliminates the network attack surface, then carries an HD bidirectional call over an 850 Kbps link — on infrastructure you own.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FrogNet — the network with no attack surface">
+<meta property="og:description" content="First, we eliminated the Internet attack surface. Then we made a private, transcontinental HD video call — no lag — over an 850 Kbps link.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.hero h1{text-wrap:balance}.hero__in{grid-template-columns:1fr}.hero__lead2{margin:30px 0 0;font-size:clamp(17px,1.7vw,20px);color:#fff;font-weight:500}.hero__more{margin:34px 0 0;font-family:var(--fd);font-weight:700;font-size:clamp(24px,3.4vw,40px);letter-spacing:-.02em;color:var(--amber)}.hero__list{list-style:none;padding:0;margin:16px 0 0;max-width:62ch}.hero__list li{position:relative;padding-left:24px;margin:0 0 11px}.hero__list li::before{content:"";position:absolute;left:0;top:13px;width:13px;height:1px;background:var(--amber)}.hero__list a{color:var(--mist);text-decoration:none;border-bottom:1px solid transparent;transition:color .15s,border-color .15s;font-size:16.5px;line-height:1.5}.hero__list a:hover{color:#fff;border-bottom-color:var(--amber)}.hero__base{margin:32px 0 0;font-size:clamp(18px,2.1vw,23px);line-height:1.4;color:#fff;max-width:36ch}.spec{scroll-margin-top:88px}.sec h2{text-wrap:balance}.foot__brand p{text-wrap:pretty}.cardbox{border:2px solid var(--amber-deep);background:#fbf7ec}.cardbox h3{color:var(--ink)}.ladder{display:grid;grid-template-columns:1fr 1fr;gap:18px}.lvl{background:#fff;border:1px solid var(--rule);padding:26px 26px 24px}.lvl--feat{border-color:var(--amber);box-shadow:inset 0 0 0 1px var(--amber)}.lvl__top{display:flex;align-items:center;gap:14px;margin-bottom:14px}.lvl__n{width:38px;height:38px;flex:none;border-radius:50%;background:var(--amber);color:#062015;font-family:var(--fd);font-weight:700;font-size:20px;display:flex;align-items:center;justify-content:center}.lvl__cost{font-family:var(--fm);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2)}.lvl h3{font-size:20px;margin:0 0 10px;color:var(--ink)}.lvl p{font-size:15px;line-height:1.6;color:var(--ink-dim);margin:0 0 12px}.lvlpts{list-style:none;padding:0;margin:0}.lvlpts li{position:relative;padding:9px 0 9px 22px;font-size:14.5px;line-height:1.55;color:var(--ink-dim);border-top:1px solid var(--rule)}.lvlpts li::before{content:"";position:absolute;left:0;top:16px;width:12px;height:1px;background:var(--amber)}.lvlpts b{color:var(--ink)}@media(max-width:820px){.ladder{grid-template-columns:1fr}}
+.hero__note{margin:18px 0 0;font-size:15.5px;line-height:1.5;color:var(--mist-dim);max-width:54ch}.hero__creed{margin:20px 0 0;font-size:16px;line-height:1.5;color:var(--mist);max-width:56ch;border-left:2px solid var(--amber);padding-left:16px}.eng-bypass{display:inline-flex;flex-direction:column;gap:2px;margin:24px 0 0;text-decoration:none;border:1px solid var(--amber);border-radius:12px;padding:13px 20px;background:rgba(61,186,106,.08);transition:background .16s,transform .16s}.eng-bypass:hover{background:rgba(61,186,106,.16);transform:translateY(-1px)}.eng-bypass__k{font-family:var(--fm);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}.eng-bypass__t{font-family:var(--fd);font-weight:700;font-size:16px;letter-spacing:-.01em;color:#fff}.hero__eng{margin:18px 0 0;font-family:var(--fm);font-size:12.5px;letter-spacing:.02em;color:var(--mist-faint)}.hero__eng a{color:var(--amber);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .15s}.hero__eng a:hover{border-color:var(--amber)}.hero__cred{list-style:none;display:flex;flex-wrap:wrap;gap:16px 30px;margin:32px 0 0;padding:26px 0 0;border-top:1px solid var(--hair)}.hero__cred li{display:flex;flex-direction:column;gap:3px}.hero__cred b{font-family:var(--fd);font-weight:700;font-size:20px;color:#fff;letter-spacing:-.01em;line-height:1}.hero__cred li span{font-family:var(--fm);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--mist-faint)}.showcase{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin:6px 0 40px}.showcase__note{text-align:center;margin:20px 0 44px;font-family:var(--fm);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}.phone{width:222px;flex:none}.phone__cap{margin:15px 4px 0;font-family:var(--fm);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-dim);text-align:center}.phone__body{border-radius:34px;background:#0a1618;padding:9px;box-shadow:0 26px 48px rgba(21,32,30,.22)}.scr{position:relative;border-radius:26px;overflow:hidden;background:#0d2226;aspect-ratio:9/19.3;display:flex;flex-direction:column;color:var(--mist);font-family:var(--fb)}.scr__bar{display:flex;align-items:center;justify-content:space-between;padding:10px 15px 6px;font-family:var(--fm);font-size:9px;letter-spacing:.04em;color:var(--mist-dim);flex:none}.scr__bar b{color:#fff;font-weight:500}.callvid{flex:1;position:relative;background:radial-gradient(120% 80% at 50% 30%,#155048,#0a1c1e);display:flex;align-items:center;justify-content:center}.callchip{position:absolute;top:10px;left:10px;font-family:var(--fm);font-size:8.5px;letter-spacing:.04em;color:#bff5d3;background:rgba(9,20,22,.5);border:1px solid rgba(61,186,106,.4);border-radius:20px;padding:3px 8px}.avatar{border-radius:50%;background:linear-gradient(150deg,#3DBA6A,#1f6b43);color:#06210f;display:flex;align-items:center;justify-content:center;font-family:var(--fd);font-weight:700}.avatar--lg{width:66px;height:66px;font-size:26px}.selfthumb{position:absolute;right:9px;bottom:9px;width:44px;height:58px;border-radius:9px;background:linear-gradient(160deg,#26454a,#0e2226);border:1px solid rgba(255,255,255,.12);display:flex;align-items:flex-end;justify-content:center;font-family:var(--fm);font-size:8px;color:var(--mist-dim);padding-bottom:4px}.callmeta{flex:none;display:flex;align-items:center;justify-content:space-between;padding:12px 15px 16px;background:#0b1c1f}.callmeta b{color:#fff;font-size:14px;font-weight:600;display:block}.callmeta em{font-style:normal;font-family:var(--fm);font-size:9.5px;color:var(--mist-dim)}.ctrls{display:flex;gap:8px}.ctrls i{width:26px;height:26px;border-radius:50%;background:#1b3a40;display:block}.ctrls i.end{background:#d6593a}.map{flex:1;position:relative;background:#0e2a24;overflow:hidden}.map .rd{position:absolute;background:rgba(120,160,150,.16)}.map .rd1{left:-10%;top:40%;width:120%;height:11px;transform:rotate(-8deg)}.map .rd2{left:46%;top:-10%;width:11px;height:120%;transform:rotate(6deg)}.pin{position:absolute;width:22px;height:22px;border-radius:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;color:#06210f;font-family:var(--fd);font-weight:700;font-size:10px;box-shadow:0 3px 8px rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.85)}.pin--a{background:#3DBA6A}.pin--b{background:#54cf80}.pin--c{background:#c8b04f}.plist{flex:none;background:#0b1c1f;padding:6px 12px 12px}.plist div{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:11px;color:var(--mist);border-top:1px solid #14312c}.plist div:first-child{border-top:0}.plist em{font-style:normal;margin-left:auto;font-family:var(--fm);font-size:9px;color:var(--mist-dim)}.plist .dot{width:7px;height:7px;border-radius:50%;background:#3DBA6A;flex:none}.plist .dot.out{background:#c8b04f}.plist .dot.off{background:#536763}.board{flex:1;background:#0c211c;display:flex;flex-direction:column;justify-content:space-between;padding:10px 8px;position:relative}.pts{display:flex;gap:2px;height:40%}.tri{flex:1}.pts--top .tri{clip-path:polygon(50% 100%,0 0,100% 0)}.pts--bot .tri{clip-path:polygon(50% 0,0 100%,100% 100%)}.pts .tri:nth-child(odd){background:#1f6b43}.pts .tri:nth-child(even){background:#7a3a2c}.chk{position:absolute;width:15px;height:15px;border-radius:50%;border:1px solid rgba(0,0,0,.3)}.gchat{flex:none;background:#0b1c1f;padding:9px 11px;display:flex;flex-direction:column;gap:5px}.bub{max-width:80%;font-size:10.5px;padding:5px 9px;border-radius:11px;line-height:1.3}.bub--them{align-self:flex-start;background:#1b3a40;color:var(--mist)}.bub--me{align-self:flex-end;background:#3DBA6A;color:#06210f}
+.head .brand{cursor:pointer}
+.fd{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:18px;background:radial-gradient(58% 58% at 50% 46%,rgba(6,16,15,.80),rgba(3,8,8,.97));opacity:0;transition:opacity .34s ease}
+.fd.is-in{opacity:1}
+.portal{position:relative;width:min(84vmin,720px);height:min(84vmin,720px);border-radius:50%;overflow:hidden;background:#fff;box-shadow:0 0 0 4px rgba(61,186,106,.6),0 0 0 14px #071312,0 0 80px rgba(61,186,106,.3),0 40px 120px rgba(0,0,0,.62)}
+.portal__stack{position:absolute;inset:0;transform:scale(1);transition:transform 2.6s ease-in}
+.portal.is-going .portal__stack{transform:scale(1.18)}
+.portal__scene{position:absolute;inset:0;overflow:hidden;background:radial-gradient(84% 96% at 50% 28%,#123c33,#06140f 74%)}
+.psc-beam{position:absolute;left:50%;top:4%;width:54%;height:70%;transform:translateX(-50%);background:linear-gradient(180deg,rgba(125,255,171,.18),rgba(125,255,171,0) 74%);filter:blur(7px);clip-path:polygon(40% 0,60% 0,100% 100%,0 100%);pointer-events:none}
+.psc-title{position:absolute;left:0;right:0;top:22%;text-align:center;font-family:var(--fd);font-weight:700;font-size:clamp(12px,1.9vw,18px);letter-spacing:.03em;color:#eafff1;text-shadow:0 2px 22px rgba(0,0,0,.7)}
+.psc-table{position:absolute;left:50%;bottom:27%;transform:translateX(-50%);width:58%;aspect-ratio:220/116;filter:drop-shadow(0 8px 26px rgba(0,0,0,.5))}
+.psc-table svg{display:block;width:100%;height:100%}
+.psc-sweep{position:absolute;left:50%;bottom:27%;transform:translateX(-50%);width:38%;aspect-ratio:1/1;border-radius:50%;background:conic-gradient(from 0deg,rgba(125,255,171,.3),rgba(125,255,171,0) 32%);mix-blend-mode:screen;opacity:.5;pointer-events:none;animation:fdsweep 2.8s linear infinite}
+@keyframes fdsweep{to{transform:translateX(-50%) rotate(360deg)}}
+.psc-frogs{position:absolute;inset:0;pointer-events:none}
+.fdfrog{position:absolute}
+.fdfrog__bob{width:100%;animation:fdbob 2.4s ease-in-out infinite}
+.fdfrog svg{display:block;width:100%;height:auto}
+.fdfrog .eye{filter:drop-shadow(0 0 2.6px #7dffab)}
+@keyframes fdbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.psc-cap{position:absolute;left:0;right:0;bottom:17%;text-align:center;font-family:var(--fm);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:rgba(125,255,171,.72)}
+.pdoor{position:absolute;inset:0;border-radius:50%;overflow:hidden}
+.ph{position:absolute;overflow:hidden;background:#fff}
+.ph img{position:absolute;pointer-events:none;max-width:none}
+.pdoor--v .ph{top:0;height:100%;width:50.6%;transition:transform .5s cubic-bezier(.62,.02,.2,1)}
+.pdoor--v .ph--l{left:0;border-right:1px solid #d7ebde}
+.pdoor--v .ph--r{right:0}
+.pdoor--v .ph img{top:0;height:100%;width:197.6%}
+.pdoor--v .ph--l img{left:0}
+.pdoor--v .ph--r img{right:0}
+.pdoor--v.is-open .ph--l{transform:translateX(-104%)}
+.pdoor--v.is-open .ph--r{transform:translateX(104%)}
+.pdoor--h .ph{left:0;width:100%;height:50.6%;transition:transform .5s cubic-bezier(.62,.02,.2,1)}
+.pdoor--h .ph--t{top:0;border-bottom:1px solid #d7ebde}
+.pdoor--h .ph--b{bottom:0}
+.pdoor--h .ph img{left:0;width:100%;height:197.6%}
+.pdoor--h .ph--t img{top:0}
+.pdoor--h .ph--b img{bottom:0}
+.pdoor--h.is-open .ph--t{transform:translateY(-104%)}
+.pdoor--h.is-open .ph--b{transform:translateY(104%)}
+@media (prefers-reduced-motion:reduce){.fdfrog__bob,.psc-sweep,.portal__stack{animation:none;transition:none}}
+.rv{position:relative;margin:0;border:1px solid var(--hair);background:#040d0e;background-size:cover;background-position:center;overflow:hidden}
+.rv video{display:block;width:100%;aspect-ratio:16/9;background:transparent}
+.rv__rec{position:absolute;top:12px;left:12px;z-index:2;display:flex;align-items:center;gap:7px;font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffd9cf;background:rgba(9,20,22,.62);border:1px solid rgba(232,86,58,.5);border-radius:20px;padding:5px 11px;pointer-events:none}
+.rv__rec i{width:7px;height:7px;border-radius:50%;background:#e8563a;display:block;animation:cb 1.8s ease-in-out infinite}
+@keyframes cb{0%,100%{opacity:1}50%{opacity:.35}}
+.rvcap{margin:11px 2px 0;font-family:var(--fm);font-size:11.5px;line-height:1.6;color:var(--mist-dim)}
+.rvcap b{color:#fff}
+.hero h1 .num{color:var(--amber);font-family:var(--fm);font-weight:500;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hero h1 .kill,.phead h1 .kill{color:var(--coral)}
+.hero__sig{margin:20px 0 0;font-size:clamp(17px,1.9vw,23px);font-weight:500;line-height:1.4;color:#fff;max-width:34ch}
+.hero__sig .glow{color:var(--amber)}
+.hero__sig .num{color:var(--amber);font-family:var(--fm);font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="hero dark" data-screen-label="Hero">
+<div class="hero__bp"></div><div class="hero__glow"></div>
+<div class="wrap hero__in">
+<div>
+<p class="eyebrow">The FrogNet Living Network</p>
+<h1>First, we <span class="kill">eliminated</span> the Internet attack surface<sup style="color:var(--amber);font-size:.42em;vertical-align:super;font-weight:400">1</sup>. Then we made a private, transcontinental HD video call — no lag — over an <span class="num">850&nbsp;Kbps</span> link.</h1>
+<h3 class="hero__sig">The call held and the video <span class="glow">automatically adjusted</span> as we ramped the bitrate down through <span class="num">450&nbsp;Kbps</span>, then back up.</h3>
+<p class="hero__sub">FrogNet exposes no application endpoints, APIs, services, or useful protocol semantics — on the public Internet or on the local network. A meaningful attack requires physical compromise of the FrogNet or one of its machines, from a physical position where that breach can be used. Even intercepted traffic yields semantic packets, not the application conversation beneath them.</p>
+<p class="hero__note reveal" style="margin:14px 0 0;font-family:var(--fm);font-size:12px;line-height:1.65;color:var(--mist-dim);max-width:62ch"><sup style="color:var(--amber)">1</sup> What "no attack surface" means, precisely: no discoverable application endpoints, no exposed application protocols, no remotely reachable application interfaces.</p>
+<p class="hero__creed">The security is not bought by making the network useless. The first unedited run below carries 1280×720 video at 22 frames per second in both directions, across the country, through an encrypted tunnel and a constrained 900&nbsp;MHz bearer.</p>
+<div class="hero__cta"><a class="btn btn--primary btn--down" href="#proof">Watch the 850&nbsp;Kbps call <span class="ar">↓</span></a><a class="btn btn--ghost" href="the-claim.dc.html">Read the architecture <span class="ar">→</span></a><a class="btn btn--ghost" href="unrest-examples.dc.html">See the code <span class="ar">→</span></a></div>
+<a class="eng-bypass" href="#withpeople"><span class="eng-bypass__k">Not here for the engineering?</span><span class="eng-bypass__t">See what you'd actually do with it <span class="ar">↓</span></span></a>
+<ul class="hero__cred"><li><b>18 mo</b><span>cross-internet</span></li><li><b>~10 yr</b><span>running at home</span></li><li><b>Falsifiable</b><span>test gate ships with it</span></li><li><b>Patent lineage</b><span>pop-up networking</span></li></ul>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="proof" data-screen-label="Proof it works">
+<div class="wrap">
+<div class="sec reveal" style="max-width:800px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§01</span><span class="sec__tag">Proof, before the pitch</span></div>
+<h2 style="color:#fff">No attack surface. No sacrifice in communication.</h2>
+<p class="sec__lead">This is the actual first run, recorded as it happened and unedited: a live HD video call — 1280×720 at 22 frames a second, both directions, no delay — crossing the country over Wi-Fi, an encrypted tunnel, and a 900&nbsp;MHz radio link carrying the session at approximately 850&nbsp;Kbps. The counter on screen shows ~89% of the bytes never had to be sent.</p></div>
+<div class="reveal" style="max-width:820px">
+<figure class="rv" style="background-image:url(media/communicator-proof-poster.png)"><span class="rv__rec"><i></i>First run · live</span><video data-persist="index-proof" controls preload="metadata" playsinline poster="media/communicator-proof-poster.png"><source src="media/communicator-proof.mp4" type="video/mp4"/></video></figure>
+<p class="rvcap"><b>Proof it works.</b> HD bidirectional communication holding at approximately 850&nbsp;Kbps over the 900&nbsp;MHz link, ~89% of the bytes never sent.<sup style="color:var(--amber);font-size:.7em">2</sup></p>
+<p class="reveal" style="margin:10px 0 0;font-family:var(--fm);font-size:11.5px;line-height:1.6;color:var(--mist-dim);max-width:70ch"><sup style="color:var(--amber)">2</sup> A did-vs-would estimate against published WebRTC bandwidth for the same session, not a packet capture — we label our numbers.</p>
+</div>
+<div class="hero__cta reveal" style="margin-top:26px"><a class="btn btn--primary" href="demonstrations.dc.html">See all the demonstrations <span class="ar">→</span></a><a class="btn btn--ghost" href="the-claim.dc.html">Read the claim behind it <span class="ar">→</span></a></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Why it's possible">
+<div class="wrap">
+<div class="sec reveal" style="max-width:820px"><div class="sec__rule"><span class="sec__no">§02</span><span class="sec__tag">Why that was possible</span></div>
+<h2>Fielding City paves the road for every trip. We left ours standing.</h2>
+<p class="sec__lead">Nothing above needed a new network or a faster radio. It needed a different way to <em>program</em> the one we already have — and the shift is easiest to see as two cities working from the same map.</p></div>
+<div class="grid grid--2 reveal" style="background:var(--hair);margin-top:8px">
+<div class="card"><span class="card__no">Fielding City · REST</span><h3>The map is paper</h3><p>REST is stateless by design — it forgets between every exchange. A map tells you where things are; it moves nothing. So to send one message you build a truck, plot the route, drive it over, wait for a signature, drive the receipt back — then destroy the truck, the road, all of it, and build the whole thing again for the next message. The city runs on churn, spending most of its energy building and unbuilding the roads it drives on. It works. It is also never finished.</p></div>
+<div class="card"><span class="card__no">FrogNet Estates</span><h3>The same map, alive</h3><p>Same streets, same addresses, same routing table — only here the map isn't paper. The road is already up, the trucks already on it, the bank already open. You put the message on the wire and it goes, riding a connection that was never torn down. Both ends hold the same picture, so only the <strong>difference</strong> has to cross: nothing when nothing changed, the changed fields when they do, the whole shape only to teach it once. Nothing gets rebuilt; nothing gets destroyed.</p></div>
+</div>
+<p class="reveal" style="margin-top:18px;max-width:72ch">That is the whole performance story: the road never comes down <em>and</em> the message never carries what the far end already holds — and the two multiply, which is how a full session fits over a link this thin. It isn't a demolition. FrogNet Estates is built over the existing streets and runs alongside them; traffic that wants the old roads keeps them. <a href="the-claim.dc.html" style="color:var(--amber-deep)">The claim, in full →</a></p>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="The claim in brief">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§03</span><span class="sec__tag">The claim, in brief</span></div>
+<h2 style="color:#fff">Two defaults, taken the other way.</h2>
+<p class="sec__lead">Live media rides UDP and network programming means passing messages — both good defaults, and on a real degrading link both flip. FrogNet runs media on <b>TCP</b> and drops whole frames at the sender, so the picture thins instead of shattering; and it coordinates through <b>shared memory</b>, so changing quality is a value the far side reads, not a session to renegotiate. <a href="the-claim.dc.html" style="color:var(--amber)">The full claim, with the tape →</a></p></div>
+<div class="grid grid--2 reveal" style="background:var(--hair)">
+<div class="card" style="background:#06181b"><span class="card__no" style="color:var(--amber)">What it is</span><h3 style="color:#fff;margin-top:8px">A private layer beside the Internet</h3><p style="color:var(--mist-dim)">Your devices join the FrogNet; the FrogNet reaches the Internet — directly or through another FrogNet gateway — so you get both at once. Traffic to the private <b style="color:#fff">10.x</b> network rides the adaptive node; everything else routes out at normal speed. It coexists with a 10.x network you already run — nodes just need unique addresses.</p></div>
+<div class="card" style="background:#06181b"><span class="card__no" style="color:var(--amber)">What it is not</span><h3 style="color:#fff;margin-top:8px">A way to optimize the whole Internet</h3><p style="color:var(--mist-dim)">The gains — semantic compression, the adaptive wire, custom handlers — need a cooperating FrogNet on <b style="color:#fff">both ends</b>. Talk to an ordinary public server and you reach it fine, as plain HTTP, with none of the advantages. And a FrogNet's size is bounded by its hardware, most of all the elected database host. Yes, both ends run it — that's the point, not a caveat.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="efficiency" data-screen-label="Efficiency">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§04</span><span class="sec__tag">Automation &amp; efficiency</span></div>
+<h2>Billed for change — never for <em>liveness.</em></h2>
+<p class="sec__lead">Here is the whole efficiency argument in one game. Picture two people playing backgammon online while friends watch. A naive server handles it like a courier: every move, it bundles up the whole game and mails a fresh copy to everyone — and the copy gets <em>bigger every move</em>. (Real systems send deltas and do better than that — the honest comparison is in the caption below.) FrogNet works like a board on the wall of a room everyone is in. Someone moves a piece; everyone just sees it. Each update is only the move — a few bytes — however long the game runs or however many people watch. That is UnREST's shared memory and BLDC-1's semantic compression doing their job automatically, with no code from you.</p></div>
+<div class="two reveal">
+<div class="world world--old"><span class="world__tag"><i style="background:#d6593a"></i>A naive re-send</span><h3>Mails the whole game, every move</h3><p>Re-sends everything that has happened so far. By move 42 a single move costs 1,619 bytes — and it never stops growing.</p></div>
+<div class="world world--new"><span class="world__tag"><i style="background:#4faa52"></i>FrogNet</span><h3>Shares one board everyone reads</h3><p>Sends only what changed — the move itself. About 45 bytes, flat, from first move to last. Extra watchers read the same board for free.</p></div>
+</div>
+<figure class="fig reveal" style="margin-top:30px">
+<div class="fig__bar"><span class="fig__no">FIG.1 · Per-move data, one full game</span><div class="fig__key"><span><i style="background:#d6593a"></i>Naive baseline — re-sends the whole game</span><span><i style="background:#4faa52"></i>FrogNet — sends just the move</span></div></div>
+<svg viewBox="0 0 820 430" role="img" aria-label="Per-move data sent in one backgammon game. The regular way climbs from 286 to 1,619 bytes over 42 moves; FrogNet drops to about 45 bytes and stays flat.">
+<g font-family="'IBM Plex Mono',monospace" font-size="11" fill="#5d6a66">
+<line x1="88" y1="362" x2="788" y2="362" stroke="#c8bfa9"/>
+<line x1="88" y1="272" x2="788" y2="272" stroke="#e3dccb"/>
+<line x1="88" y1="182" x2="788" y2="182" stroke="#e3dccb"/>
+<line x1="88" y1="92" x2="788" y2="92" stroke="#e3dccb"/>
+<text x="78" y="365" text-anchor="end">0</text><text x="78" y="275" text-anchor="end">500</text><text x="78" y="185" text-anchor="end">1,000</text><text x="78" y="95" text-anchor="end">1,500 B</text></g>
+<polygon points="88,362 88,310 105.1,304 122.1,298 139.2,292 156.3,286 173.4,280 190.4,274 207.5,268 224.6,262 241.7,256 258.7,250 275.8,244 292.9,238 310,232 327,226 344.1,220 361.2,214 378.2,208 395.3,202 412.4,196 429.5,190 446.5,184 463.6,178 480.7,172 497.8,166 514.8,160 531.9,154 549,148 566,142 583.1,136 600.2,130 617.3,124 634.3,118 651.4,112 668.5,106 685.6,100 702.6,94 719.7,88 736.8,82 753.9,76 770.9,70 788,64 788,362" fill="#d6593a" fill-opacity="0.07"/>
+<polyline points="88,310 105.1,304 122.1,298 139.2,292 156.3,286 173.4,280 190.4,274 207.5,268 224.6,262 241.7,256 258.7,250 275.8,244 292.9,238 310,232 327,226 344.1,220 361.2,214 378.2,208 395.3,202 412.4,196 429.5,190 446.5,184 463.6,178 480.7,172 497.8,166 514.8,160 531.9,154 549,148 566,142 583.1,136 600.2,130 617.3,124 634.3,118 651.4,112 668.5,106 685.6,100 702.6,94 719.7,88 736.8,82 753.9,76 770.9,70 788,64" fill="none" stroke="#d6593a" stroke-width="2.6" stroke-linejoin="round"/>
+<polyline points="88,338 105.1,354 122.1,354 139.2,354 156.3,354 173.4,354 190.4,354 207.5,354 224.6,354 241.7,354 258.7,354 275.8,354 292.9,354 310,354 327,354 344.1,354 361.2,354 378.2,354 395.3,354 412.4,354 429.5,354 446.5,354 463.6,354 480.7,354 497.8,354 514.8,354 531.9,354 549,354 566,354 583.1,354 600.2,354 617.3,354 634.3,354 651.4,354 668.5,354 685.6,354 702.6,354 719.7,354 736.8,354 753.9,354 770.9,354 788,354" fill="none" stroke="#4faa52" stroke-width="2.6" stroke-linejoin="round"/>
+<circle cx="788" cy="64" r="4.2" fill="#d6593a"/><circle cx="788" cy="354" r="4.2" fill="#4faa52"/>
+<g font-family="'IBM Plex Mono',monospace" font-size="12">
+<text x="782" y="54" text-anchor="end" fill="#b5482e">1,619 B — climbing</text><text x="782" y="347" text-anchor="end" fill="#3d8a40">~45 B — flat</text></g>
+<g font-family="'IBM Plex Mono',monospace" font-size="11" fill="#5d6a66">
+<text x="88" y="382" text-anchor="start">move 1</text><text x="310" y="382" text-anchor="middle">14</text><text x="549" y="382" text-anchor="middle">28</text><text x="788" y="382" text-anchor="end">42</text>
+<text x="438" y="406" text-anchor="middle">move number →</text></g>
+</svg>
+<figcaption>Same 42-move game, measured on FrogNet's real engine — not a mock-up. Against a <b>naive re-send</b> of the whole game each move it's about 20× less (40,011 → 1,981 bytes) — but that's the easy comparison, and we flag it as such. Against a <b>competently written message protocol</b> that already sends deltas, FrogNet is about <b>3.4× leaner</b> on the same match. The honest number is 3.4×; the 20× is just what a badly written baseline hands you. Full method and per-scenario numbers in <a href="Magnum Croakus.html#s-what-the-numbers-say" style="color:var(--amber-deep)">Magnum Croakus — What the numbers say</a>.</figcaption>
+</figure>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="for-devs" data-screen-label="For programmers">
+<div class="wrap">
+<div class="sec reveal"><div class="sec__rule"><span class="sec__no">§05</span><span class="sec__tag">What it gives programmers</span></div>
+<h2>Stop writing the plumbing. Write the <em>values.</em></h2>
+<p class="sec__lead">If you've ever wired a sensor to a dashboard or made two services agree on a number, you know the tax: a one-line goal that becomes a thousand lines of reconnect, retry, and serialization. FrogNet deletes that layer.</p></div>
+<div class="reveal">
+<div class="codepair">
+<div class="codep codep--old"><div class="codep__bar"><b>The old way</b><span>request · block · parse</span></div><pre><span class="c"># package a request, send it, BLOCK on a round trip</span>
+resp = client.<span class="k">get</span>(<span class="s">"/sensor/42/reading"</span>)
+<span class="c"># handle the status code, deserialize the body</span>
+reading = resp.<span class="k">json</span>()[<span class="s">"value"</span>]
+<span class="c"># and it's already stale — so you poll. again.</span>
+use(reading)</pre></div>
+<div class="codep codep--new"><div class="codep__bar"><b>FrogNet</b><span>write · read · done</span></div><pre><span class="c"># producer writes the value where it computes it</span>
+<span class="k">put</span>(<span class="s">"sensors"</span>, <span class="s">"reading"</span>, scope, {<span class="s">"value"</span>: v})
+
+<span class="c"># consumer reads it where it needs it — always current</span>
+reading = <span class="k">get</span>(<span class="s">"sensors"</span>, <span class="s">"reading"</span>, scope)[<span class="s">"value"</span>]
+use(reading)</pre></div>
+</div>
+<p class="codecap">No endpoint to design. No verb to choose. No status code to map. No poll loop. The shared space is the rendezvous; convergence is the efficiency. <a href="Magnum Croakus.html#s-28-rest-and-unrest-side-by-side" style="color:var(--amber-deep);text-decoration:none">REST and UnREST, side by side — Magnum Croakus § 28 →</a></p>
+</div>
+<div class="speclist reveal" style="margin-top:54px;border-top:1px solid var(--rule)">
+<div class="spec"><span class="spec__no">01</span><div><h3>Real-time data, no polling</h3><p>Read the value where your code needs it — it's always current. Convergence diffs each read against what you last saw, so an unchanged value is nearly free. Stability is the cheap case, not the expensive one.</p></div></div>
+<div class="spec"><span class="spec__no">02</span><div><h3>Tuple access is the whole interface</h3><p>Write a named value where you compute it; read it where you need it. The producer doesn't know who reads; the consumer doesn't know who wrote. Time, presence, and identity all decoupled.</p></div></div>
+<div class="spec"><span class="spec__no">03</span><div><h3>No more messages</h3><p>No curl, no HTTP handlers, no glue code, no JSON wrangling, no retries, no reconnect logic, no version numbers on a control channel. You describe what's true and where; the substrate moves it.</p></div></div>
+</div>
+<p class="reveal" style="margin-top:30px;font-family:var(--fm);font-size:13.5px;line-height:1.7;color:var(--ink-dim);max-width:78ch">Because state is content-addressed, not party-addressed: <strong style="color:var(--ink)">watchers and replay come free</strong> — any reader sees the same converged state, and the change log <em>is</em> the recording. (it's also why the efficiency chart above stays flat no matter how many people watch.)</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="paradigm" data-screen-label="Why it works">
+<div class="wrap">
+<div class="flag">
+<div class="reveal"><p class="eyebrow">Why it works</p>
+<p class="stmt" style="margin:0 0 24px">Exchange <span class="glow">memory,</span> not messages.</p>
+<div class="prose prose--wide">
+<p>Every networked program rebuilds shared state by sending, receiving, ordering, and retrying messages — the hardest, most fragile code in the system. FrogNet inverts it: state is the <strong>medium</strong>, not the outcome.</p>
+<p>The idea is forty years old — Linda tuple spaces, from David Gelernter at Yale in the mid-1980s — carried into the wide-area, partition-prone, sovereign world it was always shaped for. Your whole job collapses to four declarations: what the data <em>is</em>, how <em>fresh</em> each field must be, where <em>truth lives</em>, and what a received value <em>means</em>. Everything between is inherited from the substrate.</p><p style="margin-top:14px"><a href="Magnum Croakus.html#s-22-from-messages-to-memory" style="color:var(--amber)">Magnum Croakus § 22 — From Messages to Memory →</a></p>
+</div></div>
+<dl class="speclistv reveal">
+<div><dt>CONTINUOUS</dt><dd>audio — protected</dd></div>
+<div><dt>LATEST_ONLY</dt><dd>video, status, positions</dd></div>
+<div><dt>LOSSLESS_EVENTUAL</dt><dd>chat, moves, commands</dd></div>
+<div><dt>RESIDENT_ONCE</dt><dd>schema, layout, scaffold</dd></div>
+<div style="border-bottom:0;padding-top:18px"><dt class="amb">freshness <em>is</em> the protocol</dt><dd></dd></div>
+</dl>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="The stack">
+<div class="wrap">
+<div class="sec reveal"><div class="sec__rule"><span class="sec__no">§06</span><span class="sec__tag">Under the hood</span></div>
+<h2>Ten software subsystems, one fabric.</h2>
+<p class="sec__lead">Ten parts, each doing one job — the coordination layer, the codec, the wire protocol, the media ladder, the floating database, and the rest. I wrote the software; my co-founder Daniel Tone builds the hardware and RF that carry it onto real radios. It takes both.</p></div>
+<div class="grid grid--2 reveal">
+<div class="card"><span class="card__no">UnREST</span><h3>Tuple-space coordination</h3><p>The shared-memory layer — a variable any participant reads or writes, time- and identity-decoupled. The Linda idea, at network scale.</p><a class="cref" href="Magnum Croakus.html#s-22-from-messages-to-memory">Magnum Croakus § 22 — From messages to memory →</a></div>
+<div class="card"><span class="card__no">BLDC-1</span><h3>Semantic compression</h3><p>A codec that learns a payload's structure once, then ships only the diff — an unchanged value collapses to a hash of about twenty bytes, whatever its size.</p><a class="cref" href="Magnum Croakus.html#s-23-the-accelerant-semantic-compression">Magnum Croakus § 23 — Semantic compression →</a></div>
+<div class="card"><span class="card__no">FNWP-1</span><h3>Wire protocol</h3><p>The binary framing underneath — the SAME/DIFF machinery that makes "billed for change, never for liveness" true on the wire.</p><a class="cref" href="Magnum Croakus.html#s-24-fnwp-1-the-wire">Magnum Croakus § 24 — FNWP-1, the wire →</a></div>
+<div class="card"><span class="card__no">SotF</span><h3>Adaptive real-time media</h3><p>Song of the Frogs — an A/V ladder that sheds video before audio and steps fidelity to match the bearer, proven HD down to a 25-byte beacon and back.</p><a class="cref" href="Magnum Croakus.html#s-27-song-of-the-frogs-unrest-unleashed">Magnum Croakus § 27 — Song of the Frogs →</a></div>
+<div class="card"><span class="card__no">Transient DB</span><h3>Floating database</h3><p>A current-state store on an elected host that floats to another node if that host dies — because the meaning was never trapped in the process.</p><a class="cref" href="Magnum Croakus.html#s-15-one-name-a-moving-target">Magnum Croakus § 15 — One name, a moving target →</a></div>
+<div class="card"><span class="card__no">Elections</span><h3>Capability-scored roles</h3><p>Hosts are chosen by measured capability and re-elected the moment a better node appears. Authority serves at the network's pleasure.</p><a class="cref" href="Magnum Croakus.html#s-14-selecting-the-service-hosts">Magnum Croakus § 14 — Selecting the service hosts →</a></div>
+<div class="card"><span class="card__no">Autonomics</span><h3>Self-discovery, repair &amp; tuning</h3><p>Automated discovery, integration, repair, and optimization: nodes find each other, join, heal around failure, and tune their own routing and roles — the network administers itself instead of waiting for someone to.</p><a class="cref" href="Magnum Croakus.html#part-discovery">Magnum Croakus — Discovery &amp; autonomics →</a></div>
+<div class="card"><span class="card__no">Sensor platform</span><h3>Extensible sensing</h3><p>A pluggable framework for bringing any sensor — soil, camera, gate, telemetry — onto the shared fabric as first-class, always-current state, with no bespoke integration per device.</p><a class="cref" href="Magnum Croakus.html#s-20-the-sensor-platform">Magnum Croakus § 20 — The sensor platform →</a></div>
+<div class="card"><span class="card__no">AI platform</span><h3>Extensible intelligence</h3><p>A framework for running AI on the same shared memory, so models read and write the network's live state directly — the substrate is the pipeline, not a thing bolted beside it.</p><a class="cref" href="Magnum Croakus.html#s-21-the-ai-platform">Magnum Croakus § 21 — The AI platform →</a></div>
+<div class="card"><span class="card__no">HTTP coordination</span><h3>HTTP as the control plane</h3><p>Ordinary HTTP repurposed as the coordination tool — the one protocol already allowed nearly everywhere — so nodes discover and coordinate through existing infrastructure without demanding a new port.</p><a class="cref" href="Magnum Croakus.html#s-12-we-eat-our-own-cooking">Magnum Croakus § 12 — HTTP as coordination →</a></div>
+</div>
+
+</div>
+</section>
+
+<section class="zone zone--paper light" id="adopt" data-screen-label="Adoption ladder">
+<div class="wrap">
+<div class="sec reveal" style="max-width:780px"><div class="sec__rule"><span class="sec__no">§07</span><span class="sec__tag">Two ways in</span></div>
+<h2>Two levels of adoption — and you can stop at the first.</h2>
+<p class="sec__lead">You don't have to rewrite anything to win. The first level is a drop-in that pays for itself the same afternoon; the second is where the architecture gives you everything it has.</p></div>
+<div class="ladder reveal">
+<div class="lvl"><div class="lvl__top"><span class="lvl__n">1</span><span class="lvl__cost">a library on the wire · an afternoon</span></div>
+<h3>Move your internal sites onto FrogNet</h3>
+<p>Point your existing services at FrogNet transport and <b>leave the code alone</b>. Standard semantic compression — BLDC-1 with SAME/DIFF — ships only what actually changed, so an unchanged response collapses to a small hash instead of a full payload.</p>
+<ul class="lvlpts"><li><b>An order-of-magnitude drop in bandwidth</b> with no rewrite — the win lands before any redesign does.</li><li><b>A security gain, not just a speed one:</b> a compact binary frame instead of sprawling plaintext REST endpoints, and traffic that stays on your own fabric rather than fanning out through public infrastructure.</li></ul></div>
+<div class="lvl lvl--feat"><div class="lvl__top"><span class="lvl__n">2</span><span class="lvl__cost">rewrite to memory-first · the destination</span></div>
+<h3>Rewrite the application as UnREST</h3>
+<p>Change the model, not just the wire. The application exchanges network shared memory instead of firing requests at a server — read a value where you need it, write it where you compute it, and let the substrate converge.</p>
+<ul class="lvlpts"><li><b>Maximum advantage:</b> the stack of caches, sockets, and presence services collapses into one shared space that goes silent when nothing is changing.</li><li><b>Local reads, self-healing:</b> every participant already holds the current state, so there is no centre to gate it, bottleneck it, or take it down.</li></ul></div>
+</div>
+<p class="reveal" style="margin-top:22px;font-family:var(--fm);font-size:13.5px;line-height:1.7;color:var(--ink-dim);max-width:80ch">Most teams take level one first — an order of magnitude for an afternoon's work — and move to level two where it earns them the most. The full walk-through, with worked numbers, is in <a href="Magnum Croakus.html#part-rest-dropin-unrest" style="color:var(--amber-deep)">Appendix D of the build manual</a> and on the <a href="use-cases.dc.html" style="color:var(--amber-deep)">use-cases page</a>.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" style="background:var(--paper-2)" data-screen-label="Is / is not">
+<div class="wrap">
+<div class="grid grid--2 reveal" style="background:var(--rule)">
+<div class="card"><span class="card__no">What it is</span><div class="prose prose--wide" style="margin-top:12px"><ul><li>A transport-agnostic fabric — one flat plane of shared state over any bearers.</li><li>Self-forming, sovereign, and partition-tolerant by default.</li><li>Running across the internet for 18+ months; a home network for ~a decade.</li></ul></div></div>
+<div class="card"><span class="card__no">What it is not</span><div class="prose prose--wide" style="margin-top:12px"><ul><li>Not a cloud service — there is no center holding the meaning.</li><li>Not a VPN or tunnel product — WireGuard is just one bearer it can use.</li><li>Not request/response — it moves <strong>memory</strong>, not messages.</li></ul></div></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Proof">
+<div class="wrap">
+<div class="flag">
+<div class="reveal"><div class="sec__rule" style="margin-bottom:24px"><span class="sec__no">§08</span><span class="sec__tag">Where the proof stands</span></div>
+<h2 style="color:var(--ink)">Built, running, and <em>falsifiable.</em></h2>
+<div class="prose prose--wide" style="margin-top:18px">
+<p>FrogNet ships with a simulator whose only job is to try to break it — building hostile topologies, killing nodes mid-run, partitioning the mesh — and it exits nonzero the instant any check fails. Green is green because every oracle passed, not by default. The backgammon number above came off that same real engine, not a slide. <a href="Magnum Croakus.html#part-proving-it-the-simulator" style="color:var(--amber-deep)">The simulator and its oracles — Magnum Croakus →</a></p>
+<p>That posture — <strong>read the source, find the root cause, instrument, prove</strong> — is the discipline FrogNet ships with, and the one behind every line you would build on it.</p></div>
+<div class="hero__cta" style="margin-top:28px"><a class="btn btn--primary" href="license.dc.html">Request a developer license <span class="ar">→</span></a><a class="btn btn--ghost" href="library.dc.html">Read the books <span class="ar">→</span></a></div></div>
+<dl class="speclistv reveal">
+<div><dt>Cross-internet mesh</dt><dd>18+ months</dd></div>
+<div><dt>Home network</dt><dd>~10 years</dd></div>
+<div><dt>Patent lineage</dt><dd class="amb">pop-up networking ✓</dd></div>
+<div><dt>Developer license</dt><dd class="amb">free ✓</dd></div>
+<div><dt>Falsifiable gate</dt><dd class="amb">ships with it ✓</dd></div>
+<div style="border-bottom:0"><dt>Founders</dt><dd>two · SW + RF</dd></div>
+</dl>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="for-people" style="padding-block:46px">
+<div class="wrap"><div class="band reveal">That&#39;s the engine&nbsp;·&nbsp;above is how it works, below is what you&#39;d do with it</div></div>
+</section>
+
+<section class="zone zone--paper light" id="withpeople" data-screen-label="What you'd do">
+<div class="wrap">
+<div class="sec reveal" style="max-width:800px"><div class="sec__rule"><span class="sec__no">§09</span><span class="sec__tag">Why you'd want it</span></div>
+<h2>All the things you'd do with your people — somewhere that's just <em>yours.</em></h2>
+<p class="sec__lead">No accounts, no algorithm deciding what you see, no company quietly selling it back to you. Just the people you choose and the ordinary things you'd want to do together.</p></div>
+<div class="showcase reveal">
+<div class="phone"><div class="phone__body"><div class="scr">
+<div class="scr__bar"><b>9:41</b><span>FrogNet · secure</span></div>
+<div class="callvid"><span class="callchip">● healthy · adapting</span><span class="avatar avatar--lg">M</span><span class="selfthumb">You</span></div>
+<div class="callmeta"><span><b>Mom</b><em>12:04 · HD</em></span><span class="ctrls"><i></i><i></i><i class="end"></i></span></div>
+</div></div><p class="phone__cap">The call that won't drop</p></div>
+<div class="phone"><div class="phone__body"><div class="scr">
+<div class="scr__bar"><b>9:41</b><span>Home · private</span></div>
+<div class="map"><span class="rd rd1"></span><span class="rd rd2"></span><span class="pin pin--a" style="left:30%;top:34%">D</span><span class="pin pin--b" style="left:63%;top:52%">M</span><span class="pin pin--c" style="left:44%;top:72%">G</span></div>
+<div class="plist"><div><i class="dot"></i>Dad<em>home</em></div><div><i class="dot off"></i>Mia<em>school</em></div><div><i class="dot out"></i>Grandpa<em>out · 2 mi</em></div></div>
+</div></div><p class="phone__cap">Your people, a map only you see</p></div>
+<div class="phone"><div class="phone__body"><div class="scr">
+<div class="scr__bar"><b>9:41</b><span>Game night</span></div>
+<div class="board"><div class="pts pts--top"><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i></div><span class="chk" style="left:13%;top:9%;background:#e8dfce"></span><span class="chk" style="left:13%;top:20%;background:#e8dfce"></span><span class="chk" style="left:87%;top:9%;background:#3a4a44"></span><span class="chk" style="left:46%;top:88%;background:#e8dfce"></span><span class="chk" style="left:62%;top:9%;background:#3a4a44"></span><span class="chk" style="left:30%;top:88%;background:#e8dfce"></span><div class="pts pts--bot"><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i><i class="tri"></i></div></div>
+<div class="gchat"><span class="bub bub--them">your roll — double sixes?</span><span class="bub bub--me">watch this</span></div>
+</div></div><p class="phone__cap">Game night across three houses</p></div>
+</div>
+<p class="showcase__note reveal">Interface previews — the Communicator, the family map, and the game table</p>
+<div class="grid grid--3 reveal">
+<div class="card"><span class="card__no">Game night</span><h3>Play together</h3><p>Cards, board games, party games — everyone at the same table, wherever they happen to be, with no app store or subscription sitting in the middle.</p></div>
+<div class="card"><span class="card__no">Photos &amp; video</span><h3>Share the album</h3><p>Send the vacation photos and the home videos at full quality to the whole family — and they stay <em>in</em> the family, not parked on a platform mining them.</p></div>
+<div class="card"><span class="card__no">Text &amp; calls</span><h3>Talk any way you like</h3><p>Group chats, voice, and video with your people — no phone numbers handed out, no stranger and no company reading along.</p></div>
+<div class="card"><span class="card__no">Watch together</span><h3>Movie night, in sync</h3><p>Start a show and watch it together from different houses, in step, with the side chat running the whole time.</p></div>
+<div class="card"><span class="card__no">Everyone's map</span><h3>Know who's around</h3><p>A simple presence map for the household — who's home, who's out — that no outsider and no company ever gets to see.</p></div>
+<div class="card"><span class="card__no">Files &amp; keepsakes</span><h3>Pass things hand to hand</h3><p>Documents, recordings, the shoebox of scanned photos — moved straight between your own machines, never left sitting on someone's cloud.</p></div>
+<div class="card cardbox" style="grid-column:1/-1"><span class="card__no" style="color:var(--amber-deep)">Private by design</span><h3>Know that your conversations and your data are private</h3><p>Not a policy you're asked to trust — the way the network is built. There's no company in the middle that <em>could</em> read them, sell them, or lose them, because there is no middle at all.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="for-you" data-screen-label="What it does">
+<div class="wrap">
+<div class="sec reveal"><div class="sec__rule"><span class="sec__no">§10</span><span class="sec__tag">Everything it does</span></div>
+<h2>It starts with a private call. It doesn't <em>stop there.</em></h2>
+<p class="sec__lead">One network, running today — across the internet for years, and on local radios with no internet at all. Here's the range.</p></div>
+<div class="speclist speclist--2 reveal">
+<div class="spec" id="cap-messaging"><span class="spec__no">01</span><div><h3>Private calls, video &amp; messaging</h3><p>Reach the people you choose with calls, video, and chat that no company can read — because there's no company in the middle to read it.</p></div></div>
+<div class="spec" id="cap-family"><span class="spec__no">02</span><div><h3>Your family's own network</h3><p>A presence map, shared photos, and a calendar for your people — living in your home, not on a platform that sells what it learns about you.</p></div></div>
+<div class="spec" id="cap-blackout"><span class="spec__no">03</span><div><h3>Works in a blackout</h3><p>Storm, outage, or dead zone — everyone stays connected. It runs on local radios and Wi-Fi with no internet at all, and reaches across the web only when you choose.</p></div></div>
+<div class="spec" id="cap-offgrid"><span class="spec__no">04</span><div><h3>Off-grid, anywhere</h3><p>Ranch, worksite, boat, or back-country camp. If two points can reach each other by any means — Wi-Fi, long-range radio, satellite — FrogNet links them. <a href="products.dc.html#connectivity">Every transport it rides →</a></p></div></div>
+<div class="spec" id="cap-sensors"><span class="spec__no">05</span><div><h3>Your sensors and smart home</h3><p>Cameras, gates, soil, weather — read into one private picture you own, with no gateway subscription and nothing routed through anyone's cloud.</p></div></div>
+<div class="spec" id="cap-emergency"><span class="spec__no">06</span><div><h3>Ready for the worst day</h3><p>Built for when the infrastructure fails: emergency and disaster communication that keeps working while the towers, power, and internet are down.</p></div></div>
+<div class="spec" id="cap-own"><span class="spec__no">07</span><div><h3>No cloud, nothing rented</h3><p>Runs on boxes you already have — a Raspberry Pi, an old laptop. FrogNet itself carries no recurring cloud fee and no off-switch in anyone else's hand. Owning the capability isn't the same as a lower bill, though: replacing a paid service only saves you money if you actually cancel it.</p></div></div>
+<div class="spec" id="cap-build"><span class="spec__no">08</span><div><h3>Yours to build on</h3><p>Developers get a network you write to like local variables — the whole platform, free to build on. <a href="use-cases.dc.html" style="color:var(--amber-deep)">See where it's deployed →</a></p></div></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="opportunities" style="background:var(--paper-2)" data-screen-label="Opportunities">
+<div class="wrap">
+<div class="sec reveal" style="max-width:780px"><div class="sec__rule"><span class="sec__no">§11</span><span class="sec__tag">What it opens up</span></div>
+<h2>Investigate what a network of your own makes possible.</h2>
+<p class="sec__lead">You don't have to be a network engineer. You plug in a box, it finds the others on its own, and you're running — often the same afternoon. From a single family to a whole town, here's what people stand up on day one.</p></div>
+<div class="grid grid--2 reveal">
+<div class="card"><span class="card__no">Family</span><h3>Everyone under one private roof</h3><p>Calls, video, messages, shared photos, and a where's-everyone map for just your people — no accounts, no cloud, nothing sold. It runs on a spare box in the closet and keeps working when the internet doesn't.</p></div>
+<div class="card"><span class="card__no">Small business</span><h3>Your shop's own nervous system</h3><p>Tie the registers, cameras, back office, and the phone in your pocket into one system without renting a separate SaaS for each. No monthly seat fees, and your numbers never leave the building.</p></div>
+<div class="card"><span class="card__no">Farm &amp; ranch</span><h3>Eyes on every acre — no cell bars needed</h3><p>Soil, tanks, gates, and cameras spread across land the carriers gave up on, read into one picture over long-range radio. Set it up once; it heals itself when a node drops off.</p></div>
+<div class="card"><span class="card__no">Remote community</span><h3>Connectivity a town can own</h3><p>A village, a co-op, or a disaster zone can stand up its own calls, messaging, and services with no carrier and no data center — and keep them running through the outage that takes everything else down.</p></div>
+</div>
+<p class="reveal" style="margin-top:30px;font-family:var(--fm);font-size:13.5px;line-height:1.7;color:var(--ink-dim);max-width:80ch">The same box does all of it at once — you don't pick a lane. Start with the one you need today; the rest is already there when you want it.</p>
+<div class="hero__cta reveal" style="margin-top:26px"><a class="btn btn--primary" href="license.dc.html">Get your free license <span class="ar">→</span></a><a class="btn btn--ghost" href="use-cases.dc.html">Explore the use cases <span class="ar">→</span></a></div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" id="privacy" data-screen-label="Privacy & security">
+<div class="wrap">
+<div class="sec reveal" style="max-width:830px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§12</span><span class="sec__tag">Privacy &amp; security</span></div>
+<h2 style="color:#fff">We'll even tell you the one place it could be tapped.</h2>
+<p class="sec__lead">Most services would never admit to one. Here it is. While your network stays on local Wi-Fi or radio, there is no point on the internet to tap at all. When you bridge two sites <em>across</em> the public internet, the traffic passes through a single relay — a broker<sup style="color:var(--amber);font-size:.7em">3</sup> — and that one point is, in theory, where machine-to-machine traffic could be intercepted. So look at what someone trying would actually be up against.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card"><span class="card__no">It's hidden</span><h3>Won't answer a knock</h3><p>The relay sits on an IP you control and a port you choose, behind WireGuard — which stays silent to bad probes. A scanner sweeping the whole internet gets no reply and no hint anything is even there.</p></div>
+<div class="card"><span class="card__no">It's yours</span><h3>On ground you picked</h3><p>You choose the address and the port. No well-known endpoint, no service banner, nothing announcing itself — just one quiet door among billions of addresses.</p></div>
+<div class="card"><span class="card__no">It's meaningless</span><h3>Nothing readable crosses it</h3><p>Everything through the relay is semantically compressed and run through the SAME/DIFF protocol — not messages, just differences against state the far end already holds. Without that memory, it's noise.</p></div>
+</div>
+<div class="sec reveal" style="max-width:830px;margin:44px 0 0"><h3 style="color:#fff;font-size:clamp(20px,2.3vw,26px);margin:0 0 12px">And public input needs no door at all.<sup style="color:var(--amber);font-size:.62em;vertical-align:super">5</sup></h3><p style="color:var(--mist);line-height:1.65;max-width:80ch">Even a form on the open internet doesn't have to be a way in. It can sit exposed and still be air-gapped from the network: the public side only drops files into a watched folder — it never holds a socket the network answers. Inside, those files are picked up, inspected however you like, and only the vetted result is handed to the applications; replies make the reverse trip. Nothing on the internet can address the network; it can only leave a file the inside chooses to read. A <em>selective directional gap</em> — disconnected doesn't mean dark.</p></div>
+<p class="stmt reveal" style="margin:36px 0 0;font-size:clamp(19px,2.5vw,29px)">Finding it would be like finding <span class="glow">a single grain of sand</span> on a long beach. Making sense of what crossed it would be like extracting <span class="glow">one strand of DNA</span> from that single grain.</p>
+<div class="fnotes reveal" style="margin:40px 0 0;padding:20px 0 0;border-top:1px solid var(--hair);max-width:82ch;font-family:var(--fm);font-size:12.5px;line-height:1.75;color:var(--mist-dim)">
+<p style="margin:0 0 11px"><sup style="color:var(--amber)">3</sup> Full disclosure: on this site the broker shares one droplet with the public storefront — the marketing site and its license form — because that's where people come to <em>get</em> FrogNet. The storefront isn't part of the network it advertises; a production broker exposes nothing to the internet but the silent WireGuard endpoint.<sup style="color:var(--amber)">4</sup></p>
+<p style="margin:0"><sup style="color:var(--amber)">4</sup> And that single box runs nominal — the limit was never CPU, it's the network, and semantic compression with SAME/DIFF cut that to a trickle, leaving ample room for real-time video.</p>
+<p style="margin:11px 0 0"><sup style="color:var(--amber)">5</sup> This is the established cross-domain pattern — a data diode or watched-folder drop — and the boundary FrogNet is designed to sit behind. It isn't a shipped FrogNet feature yet; the architecture assumes it, and the implementation is on the roadmap.</p>
+</div>
+<div class="hero__cta reveal" style="margin-top:26px"><a class="btn btn--ghost" href="privacy.dc.html">And what we don't collect <span class="ar">→</span></a></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" id="books" data-screen-label="The books">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§13</span><span class="sec__tag">The books · the core · free</span></div>
+<h2>The whole idea — explained for anyone.</h2>
+<p class="sec__lead">FrogNet is written down, from first principles, in two free books. Start with the story; drop into the manual when you're ready to build.</p></div>
+<div class="grid grid--2 reveal">
+<div class="card"><span class="card__no">Start here · the why</span><h3 style="margin-top:12px">How to Think Like a Frog</h3><p>The ideas behind FrogNet in plain English — no code, no jargon. Why the network you rent works the way it does, and what changes when you own it instead. If you read one thing, read this.</p><p style="margin-top:16px"><a href="How to Think Like a Frog.dc.html" style="font-family:var(--fm);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber-deep);text-decoration:none">Read the book →</a></p></div>
+<div class="card"><span class="card__no">Then · the how</span><h3 style="margin-top:12px">Magnum Croakus</h3><p>How to Work Like a Frog — the engineering build manual. Install a node, discover the mesh, elect the database, and write your own handlers, with worked examples throughout.</p><p style="margin-top:16px"><a href="Magnum Croakus.html" style="font-family:var(--fm);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber-deep);text-decoration:none">Read the manual →</a></p></div>
+</div>
+<div class="hero__cta reveal" style="margin-top:30px"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Start reading — it's free <span class="ar">→</span></a><a class="btn btn--ghost" href="library.dc.html">Visit the full library <span class="ar">→</span></a></div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" id="licensing" data-screen-label="Licensing">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Own it</p>
+<h2>Headed for an open standard — with a reference you can run.</h2>
+<p>The protocol underneath FrogNet is being written up as an open specification, so the wire is a public contract anyone can implement against — the engine you license is the reference implementation, not a black box. Both books are free, and so is the developer license — no seat count, no expiry. When FrogNet runs inside something commercial, a simple license covers it, with support and The Communicator included. And a Foundation is being established to steward the standard, so it stays owned by the people who use it. Closed engine, open protocol — on purpose: <a href="licensing.dc.html#the-plan">the plan →</a></p>
+<div class="hero__cta"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Start with the book <span class="ar">→</span></a><a class="btn btn--ghost" href="license.dc.html">Request a license <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount(){ this.initChart(); this.initFrogDoor(); }
+  initFrogDoor(){
+    var brand = document.querySelector('.head .brand');
+    if(!brand) return;
+    brand.setAttribute('title','Open the door…');
+    var self=this;
+    brand.addEventListener('click', function(e){ e.preventDefault(); self.playFrogDoor(); });
+  }
+  _mulberry32(a){ return function(){ a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296; }; }
+  _frogSVG(){
+    return '<svg viewBox="0 0 44 40" aria-hidden="true">'
+      +'<g fill="#1d5334">'
+      +'<ellipse cx="22" cy="27" rx="12" ry="10"/>'
+      +'<ellipse cx="9" cy="33" rx="6.5" ry="3.8" transform="rotate(-22 9 33)"/>'
+      +'<ellipse cx="35" cy="33" rx="6.5" ry="3.8" transform="rotate(22 35 33)"/>'
+      +'<circle cx="14" cy="13" r="6"/><circle cx="30" cy="13" r="6"/>'
+      +'</g>'
+      +'<circle class="eye" cx="14" cy="12" r="2.1" fill="#7dffab"/>'
+      +'<circle class="eye" cx="30" cy="12" r="2.1" fill="#7dffab"/>'
+      +'</svg>';
+  }
+  _node(x,y,r){ r=r||3.4; return '<circle cx="'+x+'" cy="'+y+'" r="'+(r+2.4)+'" fill="rgba(61,186,106,.25)"/><circle cx="'+x+'" cy="'+y+'" r="'+r+'" fill="#7dffab"/>'; }
+  _tableSVG(){
+    return '<svg viewBox="0 0 220 116" preserveAspectRatio="xMidYMid meet" aria-hidden="true">'
+      +'<ellipse cx="110" cy="66" rx="104" ry="46" fill="#061a13"/>'
+      +'<ellipse cx="110" cy="60" rx="104" ry="46" fill="#0c2a20" stroke="#1e5142" stroke-width="2"/>'
+      +'<g stroke="#2f7d5e" stroke-width="1.4">'
+      +'<line x1="110" y1="60" x2="40" y2="50"/><line x1="110" y1="60" x2="78" y2="34"/><line x1="110" y1="60" x2="150" y2="34"/><line x1="110" y1="60" x2="182" y2="52"/><line x1="110" y1="60" x2="150" y2="86"/><line x1="110" y1="60" x2="72" y2="86"/>'
+      +'<line x1="78" y1="34" x2="150" y2="34" opacity=".5"/><line x1="40" y1="50" x2="72" y2="86" opacity=".5"/><line x1="182" y1="52" x2="150" y2="86" opacity=".5"/>'
+      +'</g><g>'
+      +this._node(110,60,4.6)+this._node(40,50)+this._node(78,34)+this._node(150,34)+this._node(182,52)+this._node(150,86)+this._node(72,86)
+      +'</g></svg>';
+  }
+  playFrogDoor(){
+    if(this._fdOpen) return; this._fdOpen=true;
+    var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var rng = this._mulberry32((Date.now()>>>0) ^ 0x9e3779b9);
+    var LOGO='assets/frognet-logo.png';
+    var fd=document.createElement('div'); fd.className='fd';
+    var count=7+Math.floor(rng()*10); var frogs='';
+    for(var i=0;i<count;i++){
+      var ang=(i/count)*6.2832 + (rng()-0.5)*0.9;
+      var jr=0.82+rng()*0.42;
+      var px=50+34*Math.cos(ang)*jr, py=58+19*Math.sin(ang)*jr;
+      px=Math.max(14,Math.min(86,px)); py=Math.max(32,Math.min(80,py));
+      var depth=Math.max(0,Math.min(1,(py-34)/46));
+      var w=(5+depth*6).toFixed(1), rot=(rng()*10-5).toFixed(1), flip=rng()<0.5?-1:1;
+      frogs+='<div class="fdfrog" style="left:'+px.toFixed(1)+'%;top:'+py.toFixed(1)+'%;width:'+w+'%;transform:translate(-50%,-82%);z-index:'+Math.round(py*10)+'"><div class="fdfrog__bob" style="animation-delay:'+(rng()*2).toFixed(2)+'s"><div style="transform:rotate('+rot+'deg) scaleX('+flip+')">'+this._frogSVG()+'</div></div></div>';
+    }
+    var types=['v','h','v','h'], N=types.length, doors='';
+    for(var k=0;k<N;k++){
+      var z=40-k, img='<img src="'+LOGO+'" alt="">';
+      var inner = types[k]==='v'
+        ? '<span class="ph ph--l">'+img+'</span><span class="ph ph--r">'+img+'</span>'
+        : '<span class="ph ph--t">'+img+'</span><span class="ph ph--b">'+img+'</span>';
+      doors+='<div class="pdoor pdoor--'+types[k]+'" style="z-index:'+z+'">'+inner+'</div>';
+    }
+    fd.innerHTML='<div class="portal"><div class="portal__stack">'
+      +'<div class="portal__scene"><div class="psc-beam"></div><div class="psc-title">THE FROGS ARE READY</div>'
+      +'<div class="psc-table">'+this._tableSVG()+'</div><div class="psc-sweep"></div>'
+      +'<div class="psc-frogs">'+frogs+'</div><div class="psc-cap">Network Control · standing by</div></div>'
+      +doors+'</div></div>';
+    document.body.appendChild(fd);
+    var portal=fd.querySelector('.portal');
+    var doorEls=[].slice.call(fd.querySelectorAll('.pdoor'));
+    var self=this, closed=false, timers=[];
+    function T(fn,ms){ var id=setTimeout(fn,ms); timers.push(id); return id; }
+    function cleanup(){ timers.forEach(clearTimeout); if(fd.parentNode) fd.parentNode.removeChild(fd); self._fdOpen=false; document.removeEventListener('keydown',onKey); }
+    function close(){ if(closed) return; closed=true; portal.classList.remove('is-going');
+      var st=reduce?0:170;
+      for(var c=0;c<doorEls.length;c++){ (function(el,idx){ T(function(){ el.classList.remove('is-open'); }, idx*st); })(doorEls[doorEls.length-1-c], c); }
+      T(function(){ fd.classList.remove('is-in'); T(cleanup,340); }, reduce?250:(doorEls.length*st+540)); }
+    function onKey(e){ if(e.key==='Escape') close(); }
+    fd.addEventListener('click',function(e){ if(e.target===fd) close(); });
+    document.addEventListener('keydown',onKey);
+    void fd.offsetWidth;
+    fd.classList.add('is-in');
+    var startDelay=500, stagger=reduce?0:250;
+    T(function(){ portal.classList.add('is-going'); }, startDelay);
+    for(var o=0;o<doorEls.length;o++){ (function(el,idx){ T(function(){ el.classList.add('is-open'); }, startDelay+idx*stagger); })(doorEls[o], o); }
+    var openDone=startDelay+(N-1)*stagger+(reduce?60:520);
+    this._fdTimer=T(close, openDone+(reduce?1200:1600));
+  }
+  initChart(){
+    const cv = document.getElementById('fnchart');
+    if(!cv) return;
+    const ctx = cv.getContext('2d');
+    const elOld = document.getElementById('ctr-old');
+    const elNew = document.getElementById('ctr-new');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const N = 42;
+    const regPer = [], fnPer = [];
+    for(let m=1;m<=N;m++) regPer.push(286 + (1619-286)*(m-1)/(N-1));
+    fnPer.push(136); for(let m=2;m<=N;m++) fnPer.push(45);
+    const regCum = [], fnCum = []; let ra=0, fa=0;
+    for(let i=0;i<N;i++){ ra+=regPer[i]; fa+=fnPer[i]; regCum.push(ra); fnCum.push(fa); }
+    const YMAX = 42000;
+    const fmt = v => Math.round(v).toLocaleString('en-US') + ' B';
+    let W,H,DPR;
+    const size = () => {
+      DPR = Math.min(window.devicePixelRatio||1, 2);
+      W = cv.clientWidth || 480;
+      H = Math.max(300, Math.min(420, Math.round(W*0.66)));
+      cv.width = W*DPR; cv.height = H*DPR; cv.style.height = H+'px';
+      ctx.setTransform(DPR,0,0,DPR,0,0);
+    };
+    const PL=46, PR=16, PT=22, PB=34;
+    const X = i => PL + (W-PL-PR) * (i/(N-1));
+    const Y = v => (H-PB) - (H-PB-PT) * (v/YMAX);
+    const draw = (curF) => {
+      const cur = Math.max(0, Math.min(N-1, curF));
+      const ci = Math.floor(cur);
+      const frac = cur - ci;
+      ctx.clearRect(0,0,W,H);
+      ctx.font = "11px 'IBM Plex Mono', monospace";
+      // gridlines
+      for(let g=0; g<=4; g++){
+        const val = YMAX*g/4, y = Y(val);
+        ctx.strokeStyle = g===0 ? 'rgba(27,58,64,.9)' : 'rgba(27,58,64,.4)';
+        ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(PL,y); ctx.lineTo(W-PR,y); ctx.stroke();
+        ctx.fillStyle = 'rgba(123,147,143,.85)'; ctx.textAlign='right'; ctx.textBaseline='middle';
+        ctx.fillText(g===0 ? '0' : (val/1000)+'k', PL-8, y);
+      }
+      // helper to draw a cumulative curve up to cur (interpolated)
+      const pts = (arr) => {
+        const p = [];
+        for(let i=0;i<=ci;i++) p.push([X(i), Y(arr[i])]);
+        if(ci < N-1 && frac>0){ const vi = arr[ci] + (arr[ci+1]-arr[ci])*frac; p.push([X(ci+frac), Y(vi)]); }
+        return p;
+      };
+      const rp = pts(regCum), fp = pts(fnCum);
+      // regular fill
+      ctx.beginPath(); ctx.moveTo(rp[0][0], H-PB);
+      rp.forEach(p=>ctx.lineTo(p[0],p[1]));
+      ctx.lineTo(rp[rp.length-1][0], H-PB); ctx.closePath();
+      ctx.fillStyle = 'rgba(214,89,58,.10)'; ctx.fill();
+      // regular line
+      ctx.beginPath(); rp.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+      ctx.strokeStyle = '#d6593a'; ctx.lineWidth = 2.6; ctx.lineJoin='round'; ctx.stroke();
+      // frognet line
+      ctx.beginPath(); fp.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+      ctx.strokeStyle = '#4faa52'; ctx.lineWidth = 2.6; ctx.stroke();
+      // leading dots
+      const re = rp[rp.length-1], fe = fp[fp.length-1];
+      ctx.fillStyle='#4faa52'; ctx.beginPath(); ctx.arc(fe[0],fe[1],3.6,0,7); ctx.fill();
+      ctx.fillStyle='#d6593a'; ctx.beginPath(); ctx.arc(re[0],re[1],4.4,0,7); ctx.fill();
+      ctx.strokeStyle='rgba(214,89,58,.4)'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(re[0],re[1],8,0,7); ctx.stroke();
+      // x labels
+      ctx.fillStyle='rgba(123,147,143,.85)'; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+      ctx.fillText('move 1', PL, H-12);
+      ctx.textAlign='right'; ctx.fillText('42', W-PR, H-12);
+      ctx.textAlign='center'; ctx.fillStyle='rgba(123,147,143,.6)'; ctx.fillText('cumulative bytes sent  ·  move →', (PL+W-PR)/2, H-12);
+      // gap annotation near end
+      const mv = Math.round(cur)+1;
+      if(cur > N*0.5){
+        const ratio = (regCum[Math.round(cur)] / fnCum[Math.round(cur)]);
+        ctx.fillStyle='#3DBA6A'; ctx.font="600 12px 'IBM Plex Mono', monospace"; ctx.textAlign='right';
+        ctx.fillText('≈ '+ratio.toFixed(0)+'× less', W-PR-6, Math.max(PT+12,(re[1]+fe[1])/2));
+      }
+      // counters
+      if(elOld) elOld.textContent = fmt(regCum[Math.round(cur)]);
+      if(elNew) elNew.textContent = fmt(fnCum[Math.round(cur)]);
+    };
+    size();
+    this._onR = () => { size(); draw(this._lastCur!=null?this._lastCur:N-1); };
+    window.addEventListener('resize', this._onR);
+    if(reduce){ this._lastCur=N-1; draw(N-1); return; }
+    const GROW=4600, HOLD=2000, FADE=600;
+    let start=null;
+    const tick = (ts) => {
+      if(start==null) start=ts;
+      let e = ts-start;
+      const total = GROW+HOLD+FADE;
+      if(e > total){ start=ts; e=0; }
+      let cur;
+      if(e < GROW){ const p=e/GROW; const ease=1-Math.pow(1-p,1.7); cur=ease*(N-1); }
+      else { cur = N-1; }
+      this._lastCur = cur;
+      draw(cur);
+      this._raf = requestAnimationFrame(tick);
+    };
+    this._raf = requestAnimationFrame(tick);
+  }
+  renderVals(){ return {}; }
+}
+</script>
+</body>
+</html>

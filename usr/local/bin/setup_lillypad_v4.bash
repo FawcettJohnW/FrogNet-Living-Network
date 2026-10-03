@@ -241,36 +241,41 @@ chown mysql:mysql /var/log/mysql /var/log/mysql/slow_query.log 2>/dev/null || tr
 systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
 sleep 2
 
-# -- MariaDB: sync FrogUser password from config.php --
-FROG_PASS=""
-if [[ -f /var/www/html/config.php ]]; then
-    FROG_PASS=$(grep -oP "define\('DB_PASS',\s*'\\K[^']+" /var/www/html/config.php 2>/dev/null)
-fi
-if [[ -z "$FROG_PASS" ]] && [[ -f /opt/frognet_semantic/DB_CONFIG.json ]]; then
-    FROG_PASS=$(python3 -c "import json; print(json.load(open('/opt/frognet_semantic/DB_CONFIG.json'))['password'])" 2>/dev/null)
-fi
-if [[ -n "$FROG_PASS" ]]; then
-    log "  Syncing FrogUser password from config..."
-    mysql -u root <<SQLEOF || log "  WARNING: FrogUser password sync failed"
+# -- MariaDB: sync FrogUser password from the two credential files --
+# [ONE_CREDENTIAL_ONE_SOURCE_V1] config.php and DB_CONFIG.json are the two files that carry the password. They must
+# both hold it, hold the SAME one, and neither may still be the build token -- otherwise there is nothing correct to
+# sync, and this stops instead of guessing. (It used to take config.php, fall back to DB_CONFIG.json, and sync
+# whatever it found: run on a tree laid over a node, it set MariaDB's FrogUser to the literal __FROGNET_DB_PASS__.)
+# FrogUser is recreated at localhost, 127.0.0.1 and % -- a TCP connect to 127.0.0.1 matches 'localhost' with
+# skip-name-resolve off and '127.0.0.1' with it on (frognet_fix_db.sh); missing one leaves a stale password there.
+_PHP_PASS=$(grep -oP "define\('DB_PASS',\s*'\K[^']+" /var/www/html/config.php 2>/dev/null) \
+    || die "no DB_PASS in /var/www/html/config.php"
+_JSON_PASS=$(python3 -c "import json; print(json.load(open('/opt/frognet_semantic/DB_CONFIG.json'))['password'])") \
+    || die "cannot read password from /opt/frognet_semantic/DB_CONFIG.json"
+[[ "$_PHP_PASS" == "__FROGNET_DB_PASS__" || "$_JSON_PASS" == "__FROGNET_DB_PASS__" ]] && \
+    die "a credential file still holds the build token __FROGNET_DB_PASS__ - put the real password in config.php and DB_CONFIG.json first"
+[[ "$_PHP_PASS" == "$_JSON_PASS" ]] || die "config.php and DB_CONFIG.json hold different passwords - make them the same first"
+FROG_PASS="$_PHP_PASS"
+log "  Syncing FrogUser password from config.php / DB_CONFIG.json..."
+mysql -u root <<SQLEOF || die "FrogUser password sync failed (mysql -u root)"
 DROP USER IF EXISTS 'FrogUser'@'localhost';
+DROP USER IF EXISTS 'FrogUser'@'127.0.0.1';
 DROP USER IF EXISTS 'FrogUser'@'%';
 CREATE USER 'FrogUser'@'localhost' IDENTIFIED BY '${FROG_PASS}';
+CREATE USER 'FrogUser'@'127.0.0.1' IDENTIFIED BY '${FROG_PASS}';
 CREATE USER 'FrogUser'@'%' IDENTIFIED BY '${FROG_PASS}';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'localhost';
+GRANT ALL ON FrogNet.* TO 'FrogUser'@'127.0.0.1';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'%';
 GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'localhost';
+GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'127.0.0.1';
 GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'%';
 FLUSH PRIVILEGES;
 SQLEOF
-    # Verify
-    if mysql -u FrogUser -p"${FROG_PASS}" FrogNet -e "SELECT 1" >/dev/null 2>&1; then
-        log "  FrogUser password sync OK"
-    else
-        log "  WARNING: FrogUser still cannot authenticate"
-    fi
-else
-    log "  WARNING: Could not find FrogUser password in config.php or DB_CONFIG.json"
-fi
+# Verify both ways in: the socket (localhost) and TCP to 127.0.0.1, which is how api.php and the Python readers connect
+mysql -u FrogUser -p"${FROG_PASS}" FrogNet -e "SELECT 1" >/dev/null || die "FrogUser cannot authenticate over the socket after sync"
+mysql -h 127.0.0.1 -u FrogUser -p"${FROG_PASS}" FrogNet -e "SELECT 1" >/dev/null || die "FrogUser cannot authenticate over TCP 127.0.0.1 after sync"
+log "  FrogUser password sync OK (socket and 127.0.0.1)"
 
 # -- Apache: fix PHP module version mismatch --
 INSTALLED_PHP=$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null)

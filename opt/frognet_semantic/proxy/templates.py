@@ -80,6 +80,10 @@ def _extract_metric_name(sensor_name: Any) -> str:
 # Single source of truth.  Used by normalize_path_for_semantics() and
 # extract_dynamic_query_keys() alike.
 
+import zlib
+from core.json_handler import _sanitize_nonfinite, infer_schema_preserve_arrays, _build_field_order_and_type_map    # [BODY_FIELD_SET_IS_PART_OF_THE_IDENTITY_V1]
+from core import tuple_key as _tk    # [INSTANCE_REFERENCES_V1] the tuple location, one definition
+
 _STATIC_QUERY_KEYS = frozenset({
     "entity",
     "action",
@@ -145,12 +149,17 @@ def normalize_path_for_semantics(path: str) -> Tuple[str, List[str]]:
 
     qs = parse_qsl(parsed.query, keep_blank_values=True)
 
+    # [INSTANCE_REFERENCES_V1] A tuple call's location is not part of its template: the template is the format ("read
+    # tuple at location"), the location is the instance ("read tuple at a,b,c"). core/tuple_key.py says which query
+    # keys are the location; they travel as dynamic values. Non-tuple calls: empty set, today's keying exactly.
+    location = _tk.location_query_keys(path)
+
     stable = {}
     dynamic_keys = []
     seen_dynamic = set()
 
     for k, v in qs:
-        if k in _STATIC_QUERY_KEYS:
+        if k in _STATIC_QUERY_KEYS and k not in location:
             stable[k] = v
         elif k not in seen_dynamic:
             seen_dynamic.add(k)
@@ -233,15 +242,46 @@ def _with_dynamic_shape(base: str, dynamic_keys: List[str]) -> str:
     return f"{base}{sep}__dyn={shape}"
 
 
+def _with_body_shape(key: str, body: bytes) -> str:
+    """Fold the JSON body's field set into the template key.
+
+    [BODY_FIELD_SET_IS_PART_OF_THE_IDENTITY_V1] The same rule as [DYNAMIC_KEY_SET_IS_PART_OF_THE_IDENTITY_V1], for
+    the body. The JSON handler flattens a body into its field paths, and those paths ARE the wire layout: values are
+    packed contiguously in field order. Two bodies with different field sets on one key are two wire layouts sharing
+    one opcode, and both sides learn from RAW exchanges at different moments -- the proxy when the reply arrives, the
+    daemon's node when it serves the request -- so with requests in flight the encoder and the decoder can hold
+    different templates for the same opcode. Proven on the RAM wire, 2026-09-26: a write of
+    {"service":"lisp","variable":"map-resolver","instance":"192.0.2.254","bag":{"address":...,"active":false}} was
+    executed by the far end as {"bag":{"source_id":false},"instance":"192.0.2.254","service":"192.0.2.254",
+    "variable":"lisp"}, status 200: the fields of one shape read into the slots of another. Silent wrong data.
+
+    The field paths are folded as their crc32 (8 hex digits), so the key stays short whatever the body carries. The
+    names only: the values stay dynamic. A body that is not a JSON object has one fixed layout and adds nothing.
+    """
+    text = (body or b"").strip()
+    if not text:
+        return key
+    try:
+        obj = _sanitize_nonfinite(json.loads(text.decode("utf-8", "replace")))
+    except ValueError:
+        return key
+    if not isinstance(obj, dict):
+        return key
+    field_order, _tm = _build_field_order_and_type_map(infer_schema_preserve_arrays(obj, path=""), prefix="")
+    shape = zlib.crc32(",".join(field_order).encode("utf-8")) & 0xFFFFFFFF
+    sep = "&" if "?" in key else "?"
+    return f"{key}{sep}__body={shape:08x}"
+
+
 def canonical_semantic_key(method: str, raw_path: str, body: bytes) -> str:
     base, dynamic_keys = normalize_path_for_semantics(raw_path)
 
     if method.upper() != "POST":
-        return _with_dynamic_shape(base, dynamic_keys)
+        return _with_body_shape(_with_dynamic_shape(base, dynamic_keys), body)
     if not base.startswith("/api.php"):
-        return _with_dynamic_shape(base, dynamic_keys)
+        return _with_body_shape(_with_dynamic_shape(base, dynamic_keys), body)
     if "entity=sensor_data" not in base or "action=upsert_by_name" not in base:
-        return _with_dynamic_shape(base, dynamic_keys)
+        return _with_body_shape(_with_dynamic_shape(base, dynamic_keys), body)
 
     j = _parse_json_body(body)
     if not isinstance(j, dict):

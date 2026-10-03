@@ -1,0 +1,279 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demonstrations — watch it keep working while everything changes · Fawcett Innovations</title>
+<meta name="description" content="Live HD over a 900 MHz radio, starved to 450 kbps and recovering without a redial. Real first-run captures, with the engineering underneath each one.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Demonstrations — watch it keep working while everything changes">
+<meta property="og:description" content="Live HD over a 900 MHz radio, starved to 450 kbps and recovering without a redial. Real first-run captures, with the engineering underneath each one.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}
+.lens{display:flex;flex-wrap:wrap;gap:12px 26px;margin-top:28px;font-family:var(--fm);font-size:12.5px;color:var(--mist-dim)}
+.lens b{color:var(--amber)}
+/* video placeholder */
+.demovid{position:relative;aspect-ratio:16/9;background:linear-gradient(160deg,#06181b,#040d0e);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.demovid .bp{position:absolute;inset:0;background-image:linear-gradient(var(--hair-2) 1px,transparent 1px),linear-gradient(90deg,var(--hair-2) 1px,transparent 1px);background-size:32px 32px;opacity:.55}
+.demovid .play{position:relative;width:62px;height:62px;border-radius:50%;border:1.5px solid var(--amber);display:flex;align-items:center;justify-content:center;color:var(--amber);background:rgba(61,186,106,.06)}
+.demovid .play svg{width:20px;height:20px;margin-left:4px;display:block}
+.demovid .lab{position:absolute;left:15px;bottom:13px;font-family:var(--fm);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mist-dim)}
+.demovid .hint{position:absolute;right:15px;top:12px;font-family:var(--fm);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mist-faint);border:1px solid var(--hair);padding:4px 8px}
+/* demo blocks */
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:clamp(28px,4vw,54px);align-items:center;padding:clamp(30px,4vw,50px) 0;border-top:1px solid var(--rule)}
+.dark .demo{border-color:var(--hair)}
+.demo:first-of-type{border-top:0}
+@media(max-width:820px){.demo{grid-template-columns:1fr;gap:22px}.demo--flip .demovid{order:-1}}
+.demo--flip .demovid{order:2}
+.demonum{font-family:var(--fm);font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--amber-deep)}
+.dark .demonum{color:var(--amber)}
+.demo h3{font-size:clamp(23px,3vw,33px);letter-spacing:-.02em;margin:12px 0 14px;color:var(--ink)}
+.dark .demo h3{color:#fff}
+.demowatch{font-size:16px;margin:0 0 16px;color:var(--ink-dim)}
+.dark .demowatch{color:var(--mist-dim)}
+.demowatch b{color:var(--ink)}.dark .demowatch b{color:#fff}
+.demoeng{font-family:var(--fm);font-size:12.5px;line-height:1.6;color:var(--ink-2);border-left:2px solid var(--amber-deep);padding:2px 0 2px 14px}
+.dark .demoeng{color:var(--mist);border-color:var(--amber)}
+.demoeng .k{display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber-deep);margin-bottom:5px}
+.dark .demoeng .k{color:var(--amber)}
+/* transport path */
+.path{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:8px 0 6px}
+.hop{flex:1 1 120px;min-width:110px;background:#06181b;border:1px solid var(--hair);padding:14px 14px;display:flex;flex-direction:column;justify-content:center}
+.hop--node{border-color:var(--amber-deep);background:#08201466}
+.hop__k{font-family:var(--fm);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mist-faint);margin-bottom:6px}
+.hop b{font-family:var(--fd);font-size:15px;color:#fff;font-weight:600;letter-spacing:-.01em}
+.hop--node b{color:var(--amber-2)}
+.link{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:0 0 auto;padding:0 2px;color:var(--amber)}
+.link span{font-family:var(--fm);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mist-dim);margin-top:3px;white-space:nowrap}
+@media(max-width:720px){.hop{flex:1 1 44%}.link{flex:1 1 100%;flex-direction:row;gap:8px;padding:2px 0}.link svg{transform:rotate(90deg)}}
+.aside{border:1px solid var(--hair);background:var(--petrol);padding:22px 24px;margin-top:26px}
+.aside .k{font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);margin-bottom:10px}
+.aside p{margin:0;color:var(--mist-dim);font-size:15px}
+.aside p b{color:#fff}
+.efacts{margin-top:18px;border:1px solid var(--hair);background:#06181b}
+.efacts__h{font-family:var(--fm);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);padding:11px 16px;border-bottom:1px solid var(--hair)}
+.efacts dl{margin:0;padding:6px 16px 14px}
+.efrow{display:grid;grid-template-columns:132px 1fr;gap:10px;padding:9px 0;border-bottom:1px solid rgba(61,186,106,.09)}
+.efrow:last-child{border-bottom:0}
+.efrow dt{font-family:var(--fm);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--mist-faint);align-self:start;padding-top:2px}
+.efrow dd{margin:0;display:flex;flex-wrap:wrap;gap:6px}
+.efrow dd .plain{color:var(--mist);font-size:13.5px;line-height:1.5}
+.chipf{font-family:var(--fm);font-size:11px;letter-spacing:.02em;color:var(--mist);background:#0c2226;border:1px solid var(--hair);border-radius:20px;padding:3px 10px;white-space:nowrap}
+.chipf--step{border-color:var(--amber-deep);color:var(--amber-2)}
+@media(max-width:820px){.efrow{grid-template-columns:1fr;gap:4px}}
+.realvid{position:relative;margin:0;border:1px solid var(--hair);background:#040d0e;background-size:cover;background-position:center;overflow:hidden}
+.realvid video{display:block;width:100%;aspect-ratio:16/9;background:transparent}
+.realvid__rec{position:absolute;top:12px;left:12px;z-index:2;display:flex;align-items:center;gap:7px;font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffd9cf;background:rgba(9,20,22,.62);border:1px solid rgba(232,86,58,.5);border-radius:20px;padding:5px 11px;pointer-events:none}
+.realvid__rec i{width:7px;height:7px;border-radius:50%;background:#e8563a;display:block;animation:recblink 1.8s ease-in-out infinite}
+@keyframes recblink{0%,100%{opacity:1}50%{opacity:.35}}
+.realcap{margin:12px 2px 0;font-family:var(--fm);font-size:11.5px;line-height:1.6;letter-spacing:.02em;color:var(--mist-dim)}
+.vidquote{margin:22px 0 0;border-left:2px solid var(--amber);padding:2px 0 2px 18px}
+.vidquote p{font-family:var(--fd);font-weight:600;font-size:clamp(17px,2vw,21px);line-height:1.4;color:#fff;margin:0;text-wrap:balance}
+.vidquote cite{display:block;margin-top:9px;font-style:normal;font-family:var(--fm);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist-faint)}
+.twovid{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:34px}
+@media(max-width:900px){.twovid{grid-template-columns:1fr}}
+.twovid h4{font-size:16px;color:#fff;margin:0 0 4px}
+.twovid .demonum{margin-bottom:10px;display:block}
+</style>
+<script>(function(){function wire(){document.querySelectorAll('video[data-persist]').forEach(function(v){if(v._w)return;v._w=1;var k='fnvid:'+v.getAttribute('data-persist');var t=parseFloat(localStorage.getItem(k)||'0');v.addEventListener('loadedmetadata',function(){if(t>0&&t<v.duration){try{v.currentTime=t;}catch(e){}}});v.addEventListener('timeupdate',function(){if(!v.seeking)localStorage.setItem(k,v.currentTime);});});}if(document.readyState!=='loading')wire();document.addEventListener('DOMContentLoaded',wire);setTimeout(wire,900);})();</script>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a class="is-on" href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Demos head">
+<div class="wrap">
+<p class="eyebrow reveal">Demonstrations</p>
+<h1 class="reveal">Watch it <span class="glow">keep working</span> while <span class="kill">everything changes.</span></h1>
+<p class="lede reveal">FrogNet is engineered so that changing conditions are ordinary, not exceptional. The best way to see that isn't a benchmark — it's watching the system stay up while the link starves, a node reboots, or two networks collide. Every demo below reads two ways. One thing to keep in mind: each of these is an <em>application riding the fabric</em> — the call, the game, the map are demonstrations of what the architecture underneath can do, not the product itself.</p>
+<div class="lens reveal"><span><b>What you see</b> — the outcome, in plain terms</span><span><b>Under the hood</b> — what the engineering is doing</span></div>
+<p class="reveal" style="margin-top:26px;display:inline-flex;align-items:center;gap:10px;font-family:var(--fm);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--amber);border:1px solid var(--hair);border-radius:30px;padding:9px 16px"><span style="width:7px;height:7px;border-radius:50%;background:#e8563a;display:inline-block"></span>The two flagship captures below are the real first-run experiments — recorded live, unedited. The rest land as they're captured.</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="Flagship demo">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§01</span><span class="sec__tag">The flagship</span></div>
+<h2 style="color:#fff">The conversation never stopped.</h2>
+<p class="sec__lead">A live HD call held together over a 900&nbsp;MHz radio while the link was deliberately starved. The headline isn't the resolution — it's that nobody ever redialed. What you're watching is the actual first run, recorded as it happened.</p></div>
+<div class="demo reveal" style="border-top:0;padding-top:0">
+<figure class="realvid" style="background-image:url(media/communicator-ladder-poster.png)"><span class="realvid__rec"><i></i>First run · live</span><video data-persist="communicator-ladder" controls preload="metadata" playsinline poster="media/communicator-ladder-poster.png"><source src="media/communicator-ladder.mp4" type="video/mp4"/></video></figure>
+<div class="demobody">
+<span class="demonum">Demonstration 01 · bandwidth + jitter</span>
+<h3>HD, then audio, then a heartbeat — and back.</h3>
+<p class="demowatch"><b>What you see:</b> a live HD video call — 1280×720 at 22 frames a second — running across a 900 MHz radio with a one-megabit ceiling. Squeeze the link and it steps down the ladder (987 → 637 → 450 kbps) with audio holding priority as the picture thins; ease off and it climbs right back to L7 and full frame rate. No reconnect, no redial — and an on-screen counter shows ~89% of the bytes never had to be sent.<sup style="color:var(--amber);font-size:.7em">†</sup></p>
+<p style="margin:8px 0 0;font-family:var(--fm);font-size:11px;line-height:1.6;color:var(--mist-dim)"><sup style="color:var(--amber)">†</sup> A did-vs-would estimate from published WebRTC bandwidth for the same session, not a packet capture.</p>
+<div class="demoeng"><span class="k">Under the hood</span>SotF's quality ladder steps fidelity to match the bearer in real time and recovers in-session. Jitter and loss are injected on purpose, not just to prove survival but to map the operating region where bandwidth, latency, jitter, and loss interact. <a href="Magnum Croakus.html#s-27-song-of-the-frogs-unrest-unleashed" style="color:var(--amber)">Magnum Croakus § 27 — Song of the Frogs →</a></div>
+<div class="efacts"><div class="efacts__h">Engineering facts</div><dl>
+<div class="efrow"><dt>Transport path</dt><dd><span class="chipf">Wi-Fi</span><span class="chipf">WireGuard</span><span class="chipf">Internet</span><span class="chipf">WireGuard</span><span class="chipf">900 MHz</span></dd></div>
+<div class="efrow"><dt>Link</dt><dd><span class="plain">900 MHz radio, ~1 Mbit ceiling</span></dd></div>
+<div class="efrow"><dt>Baseline</dt><dd><span class="plain">1280×720, 22 fps, no drops, bidirectional, no delay</span></dd></div>
+<div class="efrow"><dt>Bandwidth saved</dt><dd><span class="plain">~89% — roughly 6× (did-vs-would estimate)</span></dd></div>
+<div class="efrow"><dt>Impairments</dt><dd><span class="chipf">bandwidth reduction</span><span class="chipf">jitter injection</span></dd></div>
+<div class="efrow"><dt>Observed ladder</dt><dd><span class="chipf--step chipf">987 kbps</span><span class="chipf--step chipf">637 kbps · L6</span><span class="chipf--step chipf">450 kbps · L5</span><span class="chipf--step chipf">audio priority</span><span class="chipf--step chipf">850 kbps · L7 · 17.5 fps</span></dd></div>
+<div class="efrow"><dt>Operator action</dt><dd><span class="plain">A slider — no reconnect, no redial; recovers on its own</span></dd></div>
+</dl></div>
+</div>
+</div>
+
+<div class="reveal" style="margin-top:16px">
+<p class="ref" style="margin-bottom:14px">The path it ran over — one heterogeneous route, coast to coast</p>
+<div class="path">
+<div class="hop"><span class="hop__k">Seattle</span><b>Laptop</b></div>
+<div class="link"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5h13M10 1l4 4-4 4"/></svg><span>Wi-Fi</span></div>
+<div class="hop hop--node"><span class="hop__k">node</span><b>Seattle FrogNet</b></div>
+<div class="link"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5h13M10 1l4 4-4 4"/></svg><span>WireGuard</span></div>
+<div class="hop"><span class="hop__k">rendezvous</span><b>Broker</b></div>
+<div class="link"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5h13M10 1l4 4-4 4"/></svg><span>WireGuard</span></div>
+<div class="hop hop--node"><span class="hop__k">node</span><b>New York FrogNet</b></div>
+<div class="link"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5h13M10 1l4 4-4 4"/></svg><span>900 MHz</span></div>
+<div class="hop hop--node"><span class="hop__k">node</span><b>2nd NY node</b></div>
+<div class="link"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1 5h13M10 1l4 4-4 4"/></svg><span>local</span></div>
+<div class="hop"><span class="hop__k">New York</span><b>Laptop</b></div>
+</div>
+<div class="aside"><div class="k">Why the path matters</div><p>Wired Wi-Fi, an encrypted internet tunnel, and a 900&nbsp;MHz radio — all in one call. The adaptation responds to the <b>characteristics of the link</b> (bandwidth, latency, jitter, loss), not to any specific medium. That is what "transport independent" means, shown rather than claimed. <a href="products.dc.html#connectivity">Every transport it rides →</a></p></div>
+</div>
+
+<div class="reveal" style="margin-top:34px">
+<p class="ref" style="margin-bottom:14px">The companion capture — establishing the baseline</p>
+<div class="twovid">
+<div>
+<figure class="realvid" style="background-image:url(media/communicator-proof-poster.png)"><span class="realvid__rec"><i></i>First run · live</span><video data-persist="communicator-proof" controls preload="metadata" playsinline poster="media/communicator-proof-poster.png"><source src="media/communicator-proof.mp4" type="video/mp4"/></video></figure>
+<p class="realcap">"Proof it works" — the steady-state run. HD video holding over the 900&nbsp;MHz link before any degradation, with the did-vs-would byte counter reading ~89% saved. This is the baseline the ladder climbs down from.</p>
+</div>
+<div>
+<span class="demonum">What this one proves</span>
+<h4>UnREST, in one sentence you can watch</h4>
+<p class="demowatch" style="margin-bottom:16px"><b>What you see:</b> a bidirectional 1280×720 call at 22&nbsp;fps on a one-megabit radio, with no four-second delay — because the wire carries only the audio and video themselves, not the REST framing and control traffic that normally rides along. Strip the messages and the picture fits where it never fit before. <a href="Magnum Croakus.html#s-28-rest-and-unrest-side-by-side" style="color:var(--amber)">Magnum Croakus § 28 — REST and UnREST, side by side →</a></p>
+<div class="vidquote"><p>"I never thought I'd be able to do this level of video at this bandwidth."</p><cite>— from the live capture, 900 MHz run</cite></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="The sequence">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule"><span class="sec__no">§02</span><span class="sec__tag">The rest of the sequence</span></div>
+<h2>Four more that make the same point.</h2>
+<p class="sec__lead">Different failure, same behavior: the system treats the disruption as routine and keeps the thing you care about running.</p></div>
+
+<div class="demo reveal">
+<figure class="demovid"><div class="bp"></div><span class="tick tick--tl"></span><span class="tick tick--tr"></span><span class="tick tick--bl"></span><span class="tick tick--br"></span><div class="play"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></div><span class="lab">Demo 02 · network merge</span><span class="hint">drop in capture</span></figure>
+<div class="demobody">
+<span class="demonum">Demonstration 02 · merge</span>
+<h3>The network healed itself.</h3>
+<p class="demowatch"><b>What you see:</b> two separate little networks come into range of each other and, without anyone configuring anything, become one — everybody can suddenly reach everybody.</p>
+<div class="demoeng"><span class="k">Under the hood</span>Autonomous discovery finds the new neighbours, the mesh converges, the DatabaseHost is re-elected for the combined network, and every node's routing picture updates on its own. <a href="Magnum Croakus.html#s-16-split-merge-and-why-it-is-safe" style="color:var(--amber-deep)">Magnum Croakus § 16 — Split, Merge, and Why It Is Safe →</a></div>
+<div class="efacts"><div class="efacts__h">Engineering facts</div><dl>
+<div class="efrow"><dt>Setup</dt><dd><span class="plain">Two independent ponds, no shared config</span></dd></div>
+<div class="efrow"><dt>Trigger</dt><dd><span class="chipf">networks come into range</span></dd></div>
+<div class="efrow"><dt>Observed</dt><dd><span class="chipf--step chipf">discovery</span><span class="chipf--step chipf">convergence</span><span class="chipf--step chipf">host re-election</span><span class="chipf--step chipf">routes updated</span></dd></div>
+<div class="efrow"><dt>Operator action</dt><dd><span class="plain">None — no configuration touched</span></dd></div>
+</dl></div>
+</div>
+</div>
+
+<div class="demo demo--flip reveal">
+<figure class="demovid"><div class="bp"></div><span class="tick tick--tl"></span><span class="tick tick--tr"></span><span class="tick tick--bl"></span><span class="tick tick--br"></span><div class="play"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></div><span class="lab">Demo 03 · node reboot</span><span class="hint">drop in capture</span></figure>
+<div class="demobody">
+<span class="demonum">Demonstration 03 · self-healing</span>
+<h3>A node rebooted. Nobody noticed.</h3>
+<p class="demowatch"><b>What you see:</b> on the live network monitor, a node drops off the map, restarts, and rejoins — while everything else keeps working the whole time.</p>
+<div class="demoeng"><span class="k">Under the hood</span>frognet_monitor shows live failure detection, recovery, and rediscovery: routes re-form around the gap and the node is re-absorbed with no manual step. <a href="Magnum Croakus.html#s-7-how-a-lan-forms-and-splits" style="color:var(--amber-deep)">Magnum Croakus § 7 — How a LAN Forms and Splits →</a></div>
+<div class="efacts"><div class="efacts__h">Engineering facts</div><dl>
+<div class="efrow"><dt>Fault injected</dt><dd><span class="chipf">node reboot</span></dd></div>
+<div class="efrow"><dt>Observed</dt><dd><span class="chipf--step chipf">node drops</span><span class="chipf--step chipf">routes re-form</span><span class="chipf--step chipf">restart</span><span class="chipf--step chipf">rediscovery</span><span class="chipf--step chipf">re-absorbed</span></dd></div>
+<div class="efrow"><dt>Rest of mesh</dt><dd><span class="plain">Kept working throughout</span></dd></div>
+<div class="efrow"><dt>Operator action</dt><dd><span class="plain">None — self-healed</span></dd></div>
+</dl></div>
+</div>
+</div>
+
+<div class="demo reveal">
+<figure class="demovid"><div class="bp"></div><span class="tick tick--tl"></span><span class="tick tick--tr"></span><span class="tick tick--bl"></span><span class="tick tick--br"></span><div class="play"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></div><span class="lab">Demo 04 · echo fan-out</span><span class="hint">drop in capture</span></figure>
+<div class="demobody">
+<span class="demonum">Demonstration 04 · fan-out</span>
+<h3>One message, a thousand times, almost free.</h3>
+<p class="demowatch"><b>What you see:</b> the same status echoed out to a whole mesh of nodes, over and over — and the bandwidth graph barely moves.</p>
+<div class="demoeng"><span class="k">Under the hood</span>frognet_echo exercises semantic compression at scale: repetitive messages collapse to SAME/DIFF verdicts, so an unchanged re-assertion costs a few bytes instead of a full payload. <a href="Magnum Croakus.html#s-23-the-accelerant-semantic-compression" style="color:var(--amber-deep)">Magnum Croakus § 23 — Semantic Compression →</a></div>
+<div class="efacts"><div class="efacts__h">Engineering facts</div><dl>
+<div class="efrow"><dt>Workload</dt><dd><span class="chipf">repeated fan-out</span><span class="chipf">many nodes</span></dd></div>
+<div class="efrow"><dt>Mechanism</dt><dd><span class="chipf--step chipf">SAME</span><span class="chipf--step chipf">DIFF</span><span class="plain">verdicts on the wire</span></dd></div>
+<div class="efrow"><dt>Observed</dt><dd><span class="plain">Bandwidth graph stays flat as repetition climbs</span></dd></div>
+<div class="efrow"><dt>Unchanged re-assert</dt><dd><span class="plain">A few bytes, not a full payload</span></dd></div>
+</dl></div>
+</div>
+</div>
+
+<div class="demo demo--flip reveal">
+<figure class="demovid"><div class="bp"></div><span class="tick tick--tl"></span><span class="tick tick--tr"></span><span class="tick tick--bl"></span><span class="tick tick--br"></span><div class="play"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l16 9-16 9z"/></svg></div><span class="lab">Demo 05 · mixed workload</span><span class="hint">drop in capture</span></figure>
+<div class="demobody">
+<span class="demonum">Demonstration 05 · realistic load</span>
+<h3>Everything at once, still calm.</h3>
+<p class="demowatch"><b>What you see:</b> chat, live telemetry, and discovery all running together on the same network — and it just behaves.</p>
+<div class="demoeng"><span class="k">Under the hood</span>Concurrent handlers share one space without stepping on each other — the realistic operational picture, not a single-feature happy path. <a href="Magnum Croakus.html#s-30-what-the-simulator-holds" style="color:var(--amber-deep)">Magnum Croakus § 30 — What the Simulator Holds →</a></div>
+<div class="efacts"><div class="efacts__h">Engineering facts</div><dl>
+<div class="efrow"><dt>Running at once</dt><dd><span class="chipf">chat</span><span class="chipf">telemetry</span><span class="chipf">discovery</span></dd></div>
+<div class="efrow"><dt>Shared substrate</dt><dd><span class="plain">One transient database, concurrent handlers</span></dd></div>
+<div class="efrow"><dt>Observed</dt><dd><span class="plain">Stable under mixed load — no single-feature happy path</span></dd></div>
+<div class="efrow"><dt>Operator action</dt><dd><span class="plain">None</span></dd></div>
+</dl></div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="Philosophy">
+<div class="wrap">
+<div class="ctab reveal" style="max-width:820px">
+<p class="eyebrow" style="justify-content:center">The point of all of it</p>
+<h2 style="color:#fff">We optimize for the day something goes wrong.</h2>
+<p>Not for the benchmark on a good day. Every demo shows the same discipline — solve the root cause, design for failure, automate over configure — so that links flapping, nodes vanishing, and networks splitting are ordinary weather, not an outage.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Ask for a live demo <span class="ar">→</span></a><a class="btn btn--ghost" href="unrest-examples.dc.html">See the code behind it <span class="ar">→</span></a><a class="btn btn--ghost" href="library.dc.html">Read the books <span class="ar">→</span></a></div>
+</div>
+</div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

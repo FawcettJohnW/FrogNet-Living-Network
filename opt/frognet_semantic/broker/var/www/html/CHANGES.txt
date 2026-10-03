@@ -1,0 +1,382 @@
+FrogNet site — rev 26 candidate · 2026-07-13
+================================================
+Base: rev 25. Homepage repositioning requested by John W. Fawcett.
+
+APPLIED
+- Replaced the resilience-first homepage hero with the security/performance
+  thesis: "We eliminated the network attack surface. Then we made an HD
+  bidirectional phone call over 850 Kbps."
+- Defined the claim directly beneath the headline: no exposed application
+  endpoints, APIs, services, or useful protocol semantics on the public or
+  local network; intercepted traffic yields semantic packets rather than the
+  underlying application conversation.
+- Reframed the first proof section around the conjunction: no attack surface
+  without sacrificing useful communication.
+- Updated page title, description, Open Graph title, and Open Graph description
+  to match the new hero.
+- Kept the resolution claim technically exact: 1280x720 is HD, not Full HD
+  (1920x1080).
+- Site integrity check passes across all 29 HTML files.
+
+NOTE
+- This positioning intentionally supersedes the rev-25 homepage posture. The
+  existing SECURITY POSTURE section in DOCTRINE.txt still records the prior,
+  narrower wording and should be reconciled with the final security argument
+  before publication.
+
+---
+
+FrogNet site — repackaged bundle (rev 25 · 2026-07-13)
+======================================================
+Base: rev 24. Currency completion — no page content change.
+
+APPLIED
+- DOCTRINE.txt: added the SECURITY POSTURE section (decided 2026-07-13) — the
+  frame worked out this session and left out of rev 24. Records the defensible
+  claim (nodes expose no internet-facing app interfaces; the fabric's whole
+  internet surface is the broker's HTTP control API + a silent, unscannable WG
+  endpoint; intercepted traffic is only semantic diffs; residual entry is
+  credential custody, REMOTE not physical) AND the banned overclaims ("eliminated
+  the attack surface", "physical compromise only") that get falsified from our
+  own source. Also pins the claim to the recommended split topology and the demo
+  numbers (HD=720p not full-HD; floor 450 kbps not 850), and logs the open
+  license-form CR/LF header-injection as the live falsifier to fix before launch.
+
+---
+
+FrogNet site — repackaged bundle (rev 24 · 2026-07-13)
+======================================================
+Base: rev 23. Currency completion — no page content change.
+
+APPLIED
+- DOCTRINE.txt: promoted the two rev-23 decisions from changelog notes into
+  ARCHITECTURE RULES (dated 2026-07-13), and moved the header currency date to
+  2026-07-13. (1) The site is served THROUGH the node's proxy(:80)->Apache
+  (127.0.0.1:8080)->:9009-daemon path; frognet-site.apache.conf is the deploy
+  config; frognet_site.py is dev-only and bypasses that path. (2) The licensing/
+  contact receiver lives on the WEB SERVER, not the broker; the broker is never
+  a party to website data. Per the DOCTRINE MAINTENANCE rule, rev 23 changed
+  decided facts without updating DOCTRINE, so this rev completes it.
+
+---
+
+FrogNet site — repackaged bundle (rev 23 · 2026-07-13)
+======================================================
+Base: frognet-site-rev22. Product-accuracy pass + form receiver hooked up.
+
+APPLIED
+- UnREST Programming Models(.dc.html and -print.dc.html), Diagram 8: retired the
+  dead "vouch" model. SVG label "promote · vouch" -> "promote · prove"; caption
+  "...an unreachable network is vouched for by a relay." -> "...a network you
+  can't reach directly is carried by a relay that has itself proven the onward
+  path." Brings both pages in line with prove-then-route (DOCTRINE: liveness is
+  the :9009 ping-pong; a getHosts claim is not proof). These were the only two
+  stale spots; build_magnum.js and the rest of the site were already correct.
+- SERVE THE SITE THROUGH THE NODE (eat our own cooking). On a FrogNet node the
+  proxy owns :80 and forwards local web content to Apache on 127.0.0.1:8080,
+  handing each exchange to the :9009 daemon. So the site rides the proxy+daemon
+  by being what that Apache serves. The deploy config for this lives OUTSIDE the
+  webroot as frognet-site.apache.conf (DocumentRoot -> this bundle; /api/ reverse-
+  proxied to the license receiver). frognet_site.py is included as a DEV-ONLY
+  convenience (serves site + receiver on one port for local testing); it BYPASSES
+  the proxy/daemon and must not be used on a node.
+- license_endpoint.py header comment corrected: the receiver belongs on the WEB
+  SERVER, not the broker. It is website form-handling (store + sendmail) with no
+  shared state or data path with node introduction/tunnel minting. NOTIFY_TO and
+  SENDMAIL remain the two lines to set before going live. (Open item, not yet
+  patched: the name/country fields reach the mail Subject and CTRL_RE does not
+  block CR/LF, so a crafted field can inject headers; sanitize before launch.)
+
+---
+
+FrogNet site — repackaged bundle (rev 2)
+========================================
+Base: frognet-site-v2. Deterministic fixes + verbatim inserts using facts you
+supplied. No competitor claims and no argument restructure done without you.
+
+APPLIED
+- Nav canonicalized on all 14 content pages to one 10-item bar. Fixes the three
+  divergent pages (demonstrations/why/the-claim).
+- Removed shipped bytecode (__pycache__/*.pyc).
+- Removed three blank-rendering orphan stubs (13 Shifts / UGV Swarm / REST vs
+  UnREST .dc.html); nav's "(standalone).html" builds remain.
+- New Magnum builder: build_magnum.js -> Appendix A-E (REST-drop-in as D,
+  Glossary E), broker "never a party to the data", email john@fawcettinnovations.com.
+  Rebuilt book: Magnum_Croakus.docx (bundle root).
+- DigitalOcean referral stripped: products.dc.html "Get a droplet" now points to
+  https://www.digitalocean.com/ (affiliate code /c/frognet removed, CTA kept).
+- did/would comparator labeled on demonstrations.dc.html: the ~89% counter now
+  reads "...an estimate from published WebRTC bandwidth for the same session,
+  not a packet capture."
+- Stewardship framing added to the developer-license FAQ answer on
+  licensing.dc.html: "...running shared infrastructure means knowing who runs
+  the fabric."
+
+STILL YOURS — I won't fabricate these
+- Comparison page: the CRDT/local-first and Reticulum lines. Two lines from you
+  and I build the page.
+- use-cases section order: the domain use-case CARDS are already casual-first
+  (capability headline -> scenario -> mechanism on the turn-over). The only
+  nerd-first thing is the page opening with "§01 The inversion" before the
+  payoff. Flipping that inverts your principle->consequences argument — a
+  rhetorical call, not a mechanical move. Say "lead with payoff" and it's a
+  2-minute section swap.
+
+NOT REBUILT (would mean inventing your system)
+- .dc.html authoring source, support.js/x-dc runtime, deck-stage.js, React
+  essays: shipped as-is from v2.
+
+rev 3 — single-source figures + continuity fixes
+------------------------------------------------
+- Figures single-sourced: magnum-figures/ (extracted byte-identical from the
+  shipped docx; aspect ratios verified against the builder transforms) now
+  feeds BOTH the two HTML book editions and build_magnum.js. No diagrams/
+  duplicate. Builder output path fixed to write next to itself (was an
+  absolute /home/claude/work path — it could not have run from this bundle).
+  Rebuilt Magnum_Croakus.docx from the new source; content and embedded
+  image hashes verified identical.
+- Footer canonicalized on all 14 pages (nav was already canonical; footer had
+  7 variants). Canonical = index link list (incl. Use cases + Build manual,
+  Editions & licensing -> licensing.dc.html) + merged bottom line: Privacy
+  link AND the full "The FrogNet Living Network" brand line. Verified
+  byte-identical across all 14.
+- Library now links the two orphaned pages: the Starve Test announcement and
+  FrogNet for FarSight UGVs (card copy = each page's own meta description,
+  verbatim). UnREST Programming Models print edition added to the downloads
+  grid, mirroring the Magnum print card.
+- Broken anchor repaired: library's "The 60-second version" pointed at
+  index.dc.html#everyday (no such id). Now #paradigm ("Why it works") —
+  best-evidence pick: the button sits on the paradigm book's card and
+  #paradigm is the index's short version of it. Repoint if you meant another.
+- README.txt fonts note corrected: fonts are local (assets/fonts/ via
+  site.css), zero external requests — the old Google Fonts note was stale.
+- media/README.txt corrected: The Claim page plays the videos too.
+- Still unlinked by design pending your call: Magnum_Croakus.docx in bundle
+  root (nothing on the site points at the docx).
+- Still open (yours): comparison page copy; use-cases section order; the two
+  .mp4 drop-ins.
+
+rev 4 — the open-source plan, made prominent
+--------------------------------------------
+- New section on licensing.dc.html: "§02 The plan — Not open source, yet. On
+  purpose." (id=the-plan). Interfaces-are-promises rationale, Python 2->3
+  lesson, Foundation trajectory with link to about#foundation. FAQ renumbered
+  to §03.
+- FAQ Q1 rewritten to a short answer pointing at The plan.
+- Linked from four surfaces: license.dc.html footnote ("yet, on purpose: the
+  plan ->"), products.dc.html §08 lead, about.dc.html Foundation paragraph,
+  and the index licensing block.
+- All anchors verified; nav and footer still byte-identical across 14 pages.
+
+rev 5 — the connectivity plan, made prominent
+---------------------------------------------
+- New section on products.dc.html after The Node: "Connectivity —
+  Connectivity is accomplished by transport, not the other way around"
+  (id=connectivity). Structure per John's direction:
+  * Top: Ham is out (Part 97.113(a)(4), same statement as the book), and
+    Reticulum out with it (encryption mandatory by the project's own account).
+  * The honest alternative: ham's RF hop is modem audio (Bell 202 /
+    acoustic-coupler lineage, 1200-baud packet, kilobits on HF) and its
+    long haul is internet backhaul in the clear (Winlink CMS, AREDN tunnels,
+    EchoLink); FrogNet crosses the internet deliberately inside owned
+    WireGuard on a flat 10/8.
+  * The in-list, six cards: Ethernet/Wi-Fi; WireGuard tunnels (18+ mo);
+    900 MHz/HaLow (cross-country HD call, Queens drive); LoRa/MeshTastic;
+    Satellite/Starlink with the more-than-one-network note (dish dark =
+    local fabric keeps running; one dish fed dozens of nodes); and the
+    general rule — anything that moves packets.
+  * Closer: "Ham is a transport. FrogNet is a solution."
+  All factual claims reuse the site's/book's own stated evidence.
+- Linked from three surfaces: The Node's Bearers spec line, the index
+  off-grid capability card, and the demonstrations "transport independent"
+  aside.
+- Anchors verified; nav and footer still byte-identical across 14 pages.
+
+rev 6 — transports combine
+--------------------------
+- Connectivity section: added the combination paragraph — several bearers on
+  one node, and mixed by role across the network (one machine the tunnel
+  gateway, one the 900 MHz gateway, one upstream on eth1); the fabric routes
+  over whichever path reaches. Flagship-call mixed path cited as the evidence.
+
+rev 7 — ingress/egress diagram
+------------------------------
+- Connectivity section: inline SVG under the transports-combine paragraph.
+  One pond (flat 10/8) with four nodes on LAN links; node A = WireGuard
+  tunnel gateway through the internet cloud to a remote pond; node B =
+  900 MHz radio gateway (wavy line) to a distant node with no wire at all;
+  node C = eth1 wired gateway to the upstream router/ISP; node D = plain
+  member with no uplink. Every external link double-arrowed (ingress and
+  egress). Site palette (paper/ink/rule/amber), IBM Plex Mono, aria-label
+  for accessibility. Rendered and visually verified before shipping.
+
+rev 8 — the differentiator, in the book
+---------------------------------------
+- Magnum Croakus, end of Chapter 5 (The Wire and the Radio): new section
+  "The differentiator — transports multiplexed in one topology." Names the
+  key concept explicitly: transport independence PLUS multiplexing in one
+  topology (tunnel gateway / 900 MHz gateway / eth1 upstream, one pond);
+  the through-line that the transport feeds the processing algorithms which
+  feed discovery and routing (tied to the walk's RTT-ranked winners, Part V);
+  and the next-generation claim with the connectivity law as the closer.
+- New Figure 2: magnum-figures/multi_transport.png, rendered from the site's
+  connectivity SVG (white bg, 1200px) — same single figure source feeds the
+  site, the docx, and both HTML editions. Existing figures renumbered 3-13
+  in both HTML editions (verified contiguous 1-13, no in-text cross-refs
+  existed). Docx rebuilt from the patched builder: 959 paras, 4 embedded
+  figures, all content probes green.
+
+rev 9 — mobile, and the chain
+-----------------------------
+- Book (builder + docx + both HTML editions), differentiator section: added
+  the mobile paragraph — devices latch onto whatever medium is available on
+  contact with another FrogNet, no operator intervention in most cases;
+  Queens drive cited as the proof at traffic speed; "people do not have to
+  be network or RF engineers to get things up and working in the field."
+- Added the causal chain as a code block in the book and a mono line on the
+  site: transport independence -> discovery & route optimization -> route
+  resilience & fault tolerance -> system survivability, with the closing
+  line that survivability is the last link of a chain that begins with
+  refusing to care what the wire is.
+- Site connectivity section carries the same two additions before the
+  "Ham is a transport" closer. Docx rebuilt: 966 paras, probes green.
+
+rev 10 — mobile detach/attach use case
+--------------------------------------
+- use-cases.dc.html, §04 Proven ground: the Mobile · radio card is now
+  "Detach, drive, re-attach" — a vehicle node detaches cleanly out of range
+  and latches back onto whatever medium is available on contact, no operator
+  in the loop. Property line: split and merge, automatic — the mesh re-forms,
+  not reconnects. Same Queens evidence, status stays Field-validated.
+
+rev 11 — proof section on the front page
+----------------------------------------
+- index.dc.html: new "§00 Proof, before the pitch" section between the hero
+  and §01 Why you'd want it (id=proof). Headline "Watch it work before you
+  read a word." Carries the proof video (media/communicator-proof.mp4,
+  data-persist=index-proof, branded poster standing in until the file lands)
+  with the honest caption including the did/would estimate label — "We label
+  our numbers." CTAs to demonstrations and the-claim. Video figure styles
+  (.rv/.rvcap) copied from the-claim into index's style block. Existing
+  section numbering untouched (§00 precedes §01). Hero's "See what it looks
+  like" anchor still lands on #withpeople; the scroll passes through proof
+  first.
+
+rev 12 — patent claims corrected
+--------------------------------
+- The site claimed "Three issued U.S. patents on the core methods"
+  (track-record) and "3 US patents" in the index hero cred and spec list.
+  Wrong: the issued patents are storage virtualization, pop-up networking
+  (the direct FrogNet architectural precursor), and a physical product —
+  they predate FrogNet. How to Think Like a Frog already stated this
+  correctly; only the site copy drifted.
+- track-record now reads: "Three issued U.S. patents predating FrogNet —
+  including pop-up networking, its direct architectural precursor."
+- index hero cred item and for-devs spec now read "Patent lineage —
+  pop-up networking" instead of a bare count implying FrogNet patents.
+- FLAGGED, not changed: HTTLAF's "Nine additional patentable inventions
+  identified, four highest-priority filing defensively" may be stale
+  against John's current position (dozen+ identified, not pursuing).
+  John to confirm before any edit.
+
+rev 13 — patent filing line corrected in the book
+--------------------------------------------------
+- How to Think Like a Frog: "Nine additional patentable inventions
+  identified, four highest-priority filing defensively" was stale against
+  John's documented decision not to file. Now reads: "More than a dozen
+  additional patentable inventions identified in the code — deliberately
+  not filed." Site-wide sweep confirms no other filing-plan claims remain.
+
+rev 14 — the doctrine and the gate travel with the bundle
+----------------------------------------------------------
+- DOCTRINE.txt in bundle root: decided facts and frames (fabric not library,
+  operation not convergence, tunnels optional, ham out, patent lineage,
+  not filing, transport multiplexing, the chain) — read-first for any
+  session, human or AI.
+- checksite.py in bundle root: the verification suite as a permanent gate
+  (refs, anchors, nav/footer canonical, figure contiguity, no bytecode,
+  figures present, banned-claim sweep for corrected falsehoods). Exits
+  nonzero on any failure. Run against the EXTRACTED tar.
+
+rev 15 — doctrine maintenance made binding
+-------------------------------------------
+- DOCTRINE.txt: maintenance clause added — ships in every bundle, updated in
+  the same rev as any new decision or correction; a rev that changes a
+  decided fact without updating the doctrine is incomplete and does not ship.
+- checksite.py now enforces presence of DOCTRINE.txt, CHANGES.txt, and
+  itself alongside the four figures.
+
+rev 16 — doctrine v2, deep-mined from the record
+-------------------------------------------------
+- DOCTRINE.txt rebuilt from a deep mine of prior chats: THE FRAME,
+  ARCHITECTURE RULES (two-DB discipline, runMerge-only elections, GUID
+  identity, 9009 liveness, AllowedIPs 10/8, SotF contract), CONNECTIVITY,
+  PUBLIC EVIDENCE & NUMBERS (with the estimate-labeling rule and the
+  encoding-not-encryption rule), NAMING & VOICE, BOOK/BUILD RULES
+  (grep PASSED|FAILED never tail -1; the docx-js left+bottom border bug;
+  three coupled book surfaces), INTERNAL BUSINESS FACTS (patents, AEROS
+  co-branding, FarSight determination, SBIR deadline/objectives), and
+  WORKING RULES.
+- Two supersessions stated explicitly so stale handoff docs can't bite:
+  the old "say open source/OSS externally" rule is DEAD (not open source,
+  on purpose, plan published); the builder's diagrams/ dependency is DEAD
+  (magnum-figures/ is the one source).
+- README install step 0: maintenance files are not deployed to the webroot.
+
+rev 17 — install walkthrough video worked into the site
+--------------------------------------------------------
+- products.dc.html §07 Get a node: "Watch it done — standing up a node"
+  video slot (media/standing-up-a-node.mp4, data-persist=node-standup),
+  branded poster generated in site palette (1280x720, matching the
+  first-run poster style). Caption states only what the transcript states:
+  any spare box, ~2 GB RAM, one way off the machine; installer qualifies
+  the box and fills missing deps; name + 10-net address; declare egress
+  interfaces; NetStart on every boot; one machine is a complete network.
+- .rv video styles added to products' style block.
+- media/README.txt registers the new drop-in and its poster.
+- checksite.py: drop-in exemption generalized — any missing media/*.mp4 is
+  a drop-in by rule.
+- DOCTRINE.txt videos line updated in the same rev.
+
+rev 18 — fail fast, fail hard
+------------------------------
+- checksite.py: three errors='replace' decode tolerances removed — a
+  non-UTF-8 page now crashes the gate instead of being silently patched.
+- DOCTRINE.txt WORKING RULES: fail-fast/fail-hard/root-cause rule added in
+  the same rev, per the maintenance clause. No silent swallows in anything
+  shipped for this project.
+
+rev 19 — pipe failures and stderr suppression banned, gate self-audits
+-----------------------------------------------------------------------
+- checksite.py: os.popen (which swallowed find's exit status — the gate
+  could report clean on a failed scan) replaced with pure-Python os.walk.
+- checksite.py now self-audits all bundle-root .py tooling for swallow
+  patterns: os.popen, stderr-to-/dev/null, || true, decode tolerances,
+  bare except.
+- DOCTRINE.txt: rule expanded same-rev — pipefail in any shipped shell, no
+  stderr suppression, subprocess with check, and every try/except must
+  carry a stated reason; "keep going quietly" is not a reason.
+
+rev 20 — the comparison page, whole against whole
+--------------------------------------------------
+- comparison.dc.html added: §00 the honest map + the measuring stick (a
+  real, full FrogNet, defined), §01 CRDTs/local-first (operation vs
+  convergence), §02 Reticulum & ham (points to connectivity for the settled
+  Part 97 treatment), §03 VPN overlays, §04 tuple spaces/Linda, §05 four
+  miscategorizations (Meshtastic, MQTT, Syncthing, SSB), closing CTA to the
+  dare. Per John's rule, EVERY section opens with the whole of the neighbor
+  against the whole of FrogNet — no part-vs-whole comparisons anywhere.
+- Canonical footer gains "How it compares" on all 15 pages (verified
+  byte-identical); the-claim links the map after the dare; checksite now
+  covers 15 pages.
+- DOCTRINE.txt: COMPARISONS section added same-rev with the
+  whole-against-whole rule.
+
+rev 21 — comparison page in the nav
+------------------------------------
+- "Compare" added to the canonical nav between The Claim and Product on all
+  15 pages; comparison.dc.html carries the active marker. Root cause of the
+  page's invisibility: rev20 shipped it footer-only, a discoverability
+  decision made silently. First insertion pass failed hard on attribute
+  order (is-on precedes href on active items) — re-anchored on the closing
+  text within the nav element. Nav verified canonical across all 15.

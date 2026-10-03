@@ -1,0 +1,1233 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Think Like a Frog — the book · Fawcett Innovations</title>
+<meta name="description" content="Networking for the 21st century, in plain English. Why the network you rent works the way it does, and what changes when you own it instead. Free to read.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="How to Think Like a Frog — the book">
+<meta property="og:description" content="Networking for the 21st century, in plain English. Why the network you rent works the way it does, and what changes when you own it instead. Free to read.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="assets/fonts/fonts.css" rel="stylesheet">
+<style>
+  body { margin: 0; background: #f5f2e9; color: #2a2823;
+         font-family: "Source Serif 4", Georgia, serif;
+         -webkit-font-smoothing: antialiased; }
+  :root {
+    --paper:#f5f2e9; --ink:#1b1a16; --body:#2a2823; --muted:#6f6d64;
+    --faint:#9b988c; --hair:#dcd7c9; --accent:#2c5a3c; --accent-soft:#e7ece1;
+  }
+  .doc { box-sizing: border-box; max-width: 8.5in; margin: 0 auto;
+         background: inherit; padding: 56px clamp(24px, 5vw, 0.85in) 96px;
+         font-size: 16.5px; line-height: 1.66; }
+  .doc-frame { width: 100%; border-collapse: collapse; }
+  .doc-frame td { padding: 0; }
+  .running-hdr, .running-ftr, .hdr-space, .ftr-space { display: none; }
+
+  p { margin: 0 0 1.05em; text-wrap: pretty; }
+  h1, h2, h3, h4 { font-family: "Archivo", system-ui, sans-serif;
+                   color: var(--ink); text-wrap: balance; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  code, .mono { font-family: "IBM Plex Mono", monospace; font-size: 0.84em;
+                background: rgba(44,90,60,0.07); padding: 0.05em 0.32em;
+                border-radius: 2px; color: #234a31; }
+  .muted { color: var(--muted); }
+  em { font-style: italic; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  /* ---- Cover ---- */
+  .cover { padding: 24px 0 8px; }
+  h1.cover-title { font-size: clamp(40px, 7.5vw, 60px); font-weight: 700;
+                   letter-spacing: -0.025em; line-height: 1.0; margin: 0; }
+  .cover-rule { width: 64px; height: 3px; background: var(--accent);
+                margin: 26px 0 22px; }
+  .cover-sub { font-family: "Archivo", sans-serif; font-weight: 500;
+               font-size: 20px; letter-spacing: 0.01em; color: var(--ink);
+               margin: 0 0 28px; }
+  .ripple { display: block; margin: 0 0 28px; }
+  .cover-lede { font-size: 20px; line-height: 1.5; max-width: 30em;
+                color: var(--body); margin: 0 0 40px; }
+  .cover-lede em { color: var(--ink); }
+  .cover-meta { font-family: "Archivo", sans-serif; font-size: 14px;
+                line-height: 1.7; }
+  .cover-meta .who { font-weight: 600; color: var(--ink); letter-spacing: 0.01em; }
+  .cover-meta .org { color: var(--muted); }
+
+  /* ---- Section openers ---- */
+  .section-start { break-before: page; padding-top: 6px; }
+  .section-head { margin: 0 0 30px; padding-bottom: 18px;
+                  border-bottom: 1.5px solid var(--ink); }
+  .eyebrow { font-family: "Archivo", sans-serif; font-size: 11px;
+             font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+             color: var(--accent); margin: 0 0 12px; }
+  h2.sec { font-size: 30px; font-weight: 700; letter-spacing: -0.015em;
+           line-height: 1.06; margin: 0; }
+  h3.sub { font-size: 19px; font-weight: 600; letter-spacing: -0.005em;
+           margin: 2.1em 0 0.55em; color: var(--ink); }
+  .note { font-style: italic; color: var(--muted); border-left: 2px solid var(--hair);
+          padding-left: 16px; margin: 0 0 1.4em; }
+
+  /* ---- Lists ---- */
+  ul.spec { list-style: none; margin: 0.5em 0 1.5em; padding: 0; }
+  ul.spec li { position: relative; padding: 0 0 0 22px; margin: 0 0 0.55em;
+               line-height: 1.55; }
+  ul.spec li::before { content: ""; position: absolute; left: 2px; top: 0.62em;
+                       width: 5px; height: 5px; background: var(--accent);
+                       transform: rotate(45deg); }
+  ul.spec li strong { font-weight: 600; }
+
+  /* ---- Pull quote ---- */
+  .pq { margin: 1.7em 0; padding: 4px 0 4px 24px; border-left: 3px solid var(--accent);
+        font-family: "Source Serif 4", serif; font-size: 23px; line-height: 1.34;
+        font-weight: 600; color: var(--ink); text-wrap: balance; break-inside: avoid; }
+
+  /* ---- Cost table ---- */
+  .table-wrap { margin: 1.2em 0 1.5em; }
+  table.cost { width: 100%; border-collapse: collapse; font-size: 13.5px;
+               line-height: 1.4; }
+  table.cost th { font-family: "Archivo", sans-serif; font-size: 10.5px;
+                  font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+                  text-align: left; color: var(--muted); vertical-align: bottom;
+                  border-bottom: 1.5px solid var(--ink); padding: 0 14px 9px 0; }
+  table.cost td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--hair);
+                  vertical-align: top; }
+  table.cost td:first-child { font-weight: 600; color: var(--ink);
+                              font-family: "Archivo", sans-serif; font-size: 13px; }
+  table.cost .fg { color: var(--accent); font-weight: 600;
+                   font-family: "Archivo", sans-serif; font-size: 13px; }
+  table.cost tr.total td { border-top: 2px solid var(--ink); border-bottom: none;
+                           padding-top: 13px; font-weight: 600; color: var(--ink);
+                           font-size: 13px; }
+  table.cost tr.total .fg { color: var(--accent); }
+
+  /* ---- Paradigm shift ---- */
+  .shift { margin: 2.6em 0 0; }
+  .shift-head { display: flex; align-items: baseline; gap: 20px;
+                border-bottom: 1px solid var(--hair); padding-bottom: 12px;
+                margin-bottom: 16px; break-inside: avoid; }
+  .shift-num { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 38px;
+               line-height: 1; letter-spacing: -0.03em; color: var(--accent);
+               flex: none; min-width: 50px; }
+  .shift-title { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 20px;
+                 letter-spacing: -0.01em; color: var(--ink); margin: 0; line-height: 1.15; }
+  .shift-tagline { font-size: 15px; color: var(--muted); margin: 3px 0 0;
+                   line-height: 1.3; }
+
+  /* ---- Stat band ---- */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+           background: var(--hair); border: 1px solid var(--hair);
+           margin: 1.3em 0 1.6em; break-inside: avoid; }
+  .stat { background: var(--paper); padding: 16px 18px; }
+  .stat-num { font-family: "Archivo", sans-serif; font-size: 29px; font-weight: 700;
+              letter-spacing: -0.02em; color: var(--accent); line-height: 1; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-top: 7px; line-height: 1.32; }
+
+  /* ---- Eight levels ladder ---- */
+  .levels { margin: 1.2em 0 1.5em; border-top: 1px solid var(--hair); }
+  .level { display: grid; grid-template-columns: 52px 150px 1fr; gap: 18px;
+           align-items: baseline; padding: 13px 0; border-bottom: 1px solid var(--hair);
+           break-inside: avoid; }
+  .level-tag { font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: 15px;
+               color: var(--accent); }
+  .level-name { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 14.5px;
+                color: var(--ink); }
+  .level-bar { height: 4px; background: var(--accent); margin-top: 7px; opacity: 0.85; }
+  .level-desc { font-size: 14.5px; line-height: 1.45; color: var(--body); }
+
+  /* ---- Figure / screenshot placeholder ---- */
+  figure.shot { margin: 1.9em 0; break-inside: avoid; }
+  .shot-frame { aspect-ratio: 16 / 6.5; border: 1px solid var(--hair);
+                background: repeating-linear-gradient(135deg, #eeebe0 0, #eeebe0 9px,
+                            #f2efe6 9px, #f2efe6 18px);
+                display: flex; align-items: center; justify-content: center;
+                text-align: center; padding: 18px; }
+  .shot-frame span { font-family: "IBM Plex Mono", monospace; font-size: 12px;
+                     color: #8a8779; letter-spacing: 0.01em; line-height: 1.5;
+                     max-width: 42ch; }
+  figure.shot figcaption { font-family: "Archivo", sans-serif; font-size: 12px;
+                           color: var(--muted); margin-top: 9px; letter-spacing: 0.01em; }
+  figure.shot figcaption b { color: var(--ink); font-weight: 600; }
+
+  /* ---- Contents ---- */
+  .toc-group { margin-bottom: 1.5em; break-inside: avoid; }
+  .toc-major { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 15.5px;
+               color: var(--ink); letter-spacing: 0.01em; padding-bottom: 7px;
+               border-bottom: 1px solid var(--hair); margin-bottom: 9px; }
+  .toc-list { columns: 2; column-gap: 36px; }
+  .toc-item { font-size: 14px; line-height: 1.5; color: var(--body); padding: 2px 0;
+              break-inside: avoid; }
+  .toc-item .n { font-family: "IBM Plex Mono", monospace; font-size: 12px;
+                 color: var(--accent); margin-right: 8px; }
+  .toc-list.single { columns: 1; }
+
+  /* ---- Closing ---- */
+  .closing { margin-top: 2.4em; padding-top: 18px; border-top: 1.5px solid var(--ink);
+             font-family: "Archivo", sans-serif; font-size: 13px; color: var(--muted);
+             letter-spacing: 0.02em; }
+  .closing .dot { color: var(--accent); margin: 0 8px; }
+
+  /* ---- Diagrams ---- */
+  figure.dgm { margin: 2em 0; break-inside: avoid; }
+  .dgm-canvas { background: #faf8f1; border: 1px solid var(--hair); border-radius: 3px;
+                padding: 22px 24px; }
+  .dgm-title { font-family: "Archivo", sans-serif; font-size: 10.5px; font-weight: 600;
+               letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+               margin: 0 0 18px; }
+  figure.dgm figcaption { font-family: "Archivo", sans-serif; font-size: 12px;
+                          color: var(--muted); margin-top: 9px; letter-spacing: 0.01em;
+                          line-height: 1.45; }
+  figure.dgm figcaption b { color: var(--ink); font-weight: 600; }
+  .dgm svg { display: block; width: 100%; height: auto; }
+
+  .bldc { display: grid; grid-template-columns: 1fr 34px 1fr; align-items: center; }
+  .bldc-card { border: 1px solid var(--hair); border-radius: 3px; background: #fff; padding: 13px 15px; }
+  .bldc-card-h, .wire-h { font-family: "Archivo", sans-serif; font-size: 11px; font-weight: 600;
+                          color: var(--ink); margin-bottom: 11px; letter-spacing: 0.01em; }
+  .bldc-rows { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; line-height: 1.75; }
+  .bldc-rows .k { color: #9b988c; }
+  .bldc-rows .v { background: #e1ebe1; color: #234a31; padding: 0 4px; border-radius: 2px; }
+  .bldc-legend { display: flex; flex-direction: column; gap: 6px; margin-top: 14px;
+                 font-family: "Archivo", sans-serif; font-size: 10px; color: var(--muted); }
+  .bldc-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                   margin-right: 5px; vertical-align: -1px; }
+  .sw-k { background: #d8d4c7; } .sw-v { background: #bcd2bf; }
+  .bldc-arrow { text-align: center; color: var(--accent); font-size: 20px; }
+  .bldc-wire { padding-left: 6px; }
+  .wire-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
+  .wire-chips span { font-family: "IBM Plex Mono", monospace; font-size: 11px; background: #e1ebe1;
+                     color: #234a31; padding: 2px 6px; border-radius: 2px; }
+  .wire-size { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 18px;
+               color: var(--accent); line-height: 1.1; }
+  .wire-size span { display: block; font-weight: 500; font-size: 10px; color: var(--muted);
+                    letter-spacing: 0.04em; text-transform: uppercase; margin-top: 3px; }
+  .wire-same { font-family: "Archivo", sans-serif; font-size: 11.5px; color: var(--muted); }
+  .wire-same b { color: var(--ink); font-weight: 600; }
+
+  .tl-row { display: grid; grid-template-columns: 104px 1fr; gap: 14px; align-items: center; }
+  .tl-cap-row, .tl-axis-row { display: grid; grid-template-columns: 104px 1fr; gap: 14px; }
+  .tl-label { font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 600;
+              color: var(--ink); line-height: 1.2; text-align: right; }
+  .tl-label span { display: block; font-weight: 500; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .tl-track { height: 28px; display: flex; border: 1px solid var(--hair); border-radius: 2px;
+              overflow: hidden; background: #fff; }
+  .tl-seg-tx { background: var(--accent); }
+  .tl-seg-gap { background: repeating-linear-gradient(45deg, #ece8dd, #ece8dd 4px, #f6f3ea 4px, #f6f3ea 8px); }
+  .tl-full { background: var(--accent); position: relative; }
+  .tl-full::after { content: ""; position: absolute; inset: 0;
+                    background: repeating-linear-gradient(90deg, transparent, transparent 30px,
+                    rgba(255,255,255,0.25) 30px, rgba(255,255,255,0.25) 31px); }
+  .tl-cap { font-family: "Archivo", sans-serif; font-size: 11px; color: var(--muted); margin: 6px 0 12px; }
+  .tl-cap b { color: var(--accent); font-weight: 700; }
+  .tl-axis { font-family: "Archivo", sans-serif; font-size: 10px; color: var(--faint);
+             letter-spacing: 0.12em; text-transform: uppercase; margin-top: 4px; }
+
+  .scopes { font-family: "Archivo", sans-serif; }
+  .scope { border: 1.5px solid; border-radius: 5px; padding: 13px 14px 14px; }
+  .scope-tag { display: block; margin: 0 0 11px; font-size: 10px; font-weight: 600; letter-spacing: 0.03em; }
+  .scope.pond { border-color: #b3c0ad; background: #f2f4ec; }
+  .scope.pond > .scope-tag { color: var(--accent); }
+  .scope.chorus { border-color: #c4ccb9; background: #ecf0e5; margin-top: 13px; }
+  .scope.chorus > .scope-tag { color: #43623f; }
+  .scope.lily { border-color: var(--hair); background: #faf9f3; }
+  .scope.lily > .scope-tag { color: var(--muted); }
+  .scope.self { border-color: var(--hair); background: #fff; }
+  .scope.self > .scope-tag { color: var(--muted); }
+  .scope.self .self-body { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; color: #234a31; }
+  .scope.ghost { border-style: dashed; background: transparent; min-height: 34px; }
+  .scope.ghost > .scope-tag { color: var(--faint); }
+
+  .pipe { display: flex; align-items: stretch; }
+  .pipe-box { flex: 1 1 0; border: 1px solid var(--hair); background: #fff; border-radius: 3px;
+              padding: 12px 8px; text-align: center; }
+  .pipe-box .pb-h { font-family: "Archivo", sans-serif; font-size: 12px; font-weight: 600; color: var(--ink); }
+  .pipe-box .pb-s { font-size: 10px; color: var(--muted); margin-top: 3px; font-family: "Archivo", sans-serif; }
+  .pipe-fn { background: #e7ece1; border-color: #cdd9cd; }
+  .pipe-fn .pb-h { font-family: "IBM Plex Mono", monospace; color: #234a31; font-size: 12.5px; }
+  .pipe-wireb { background: repeating-linear-gradient(45deg, #efeada, #efeada 5px, #faf8f1 5px, #faf8f1 10px);
+                border-style: dashed; }
+  .pipe-arrow { flex: 0 0 22px; align-self: center; text-align: center; color: var(--faint); font-size: 15px; }
+  .pipe-foot { text-align: center; font-family: "Archivo", sans-serif; font-size: 11px;
+               color: var(--muted); margin-top: 14px; }
+
+  @page { size: letter; margin: 0; }
+  @media print {
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; }
+    a { color: inherit; }
+    .doc { max-width: none !important; margin: 0 !important;
+           padding: 0 0.75in !important; box-shadow: none !important; border: none !important; }
+    #dc-root, .sc-host { height: auto !important; }
+    .hdr-space, .ftr-space { display: table-cell; height: 0.8in !important; }
+    .running-hdr, .running-ftr { display: flex !important;
+           justify-content: space-between; align-items: baseline;
+           position: fixed !important; left: 0; right: 0; margin: 0 !important;
+           font-family: "Archivo", sans-serif; font-size: 10px; color: #8a8779;
+           letter-spacing: 0.08em; text-transform: uppercase; }
+    .running-hdr { top: 0; padding: 0.4in 0.75in 0 !important; }
+    .running-ftr { bottom: 0; padding: 0 0.75in 0.4in !important; }
+    h1, h2, h3, h4 { break-after: avoid; }
+    figure, pre, blockquote, .pq, .stats, .shift-head, .level, .toc-group, table { break-inside: avoid; }
+    p, li { orphans: 3; widows: 3; }
+    .screen-only { display: none !important; }
+  }
+</style>
+</helmet>
+
+<main class="doc">
+  <table class="doc-frame" role="presentation">
+    <thead><tr><td class="hdr-space"></td></tr></thead>
+    <tbody><tr><td>
+
+      <div class="running-hdr"><span>How to Think Like a Frog</span><span>Fawcett Innovations LLC</span></div>
+      <div class="running-ftr"><span>FrogNet — Networking for the 21st Century</span><span>john@fawcettinnovations.com</span></div>
+
+      <!-- ============ COVER ============ -->
+      <header class="cover">
+        <h1 class="cover-title">How to Think<br>Like a Frog</h1>
+        <div class="cover-rule"></div>
+        <p class="cover-sub">Networking for the 21st Century</p>
+        <svg class="ripple" width="80" height="22" viewBox="0 0 80 22" fill="none" aria-hidden="true">
+          <circle cx="11" cy="11" r="4" fill="#2c5a3c"></circle>
+          <circle cx="11" cy="11" r="9.5" stroke="#2c5a3c" stroke-opacity="0.45" fill="none"></circle>
+          <circle cx="40" cy="11" r="3" fill="#2c5a3c" fill-opacity="0.7"></circle>
+          <circle cx="40" cy="11" r="8" stroke="#2c5a3c" stroke-opacity="0.3" fill="none"></circle>
+          <circle cx="67" cy="11" r="2" fill="#2c5a3c" fill-opacity="0.5"></circle>
+          <circle cx="67" cy="11" r="6.5" stroke="#2c5a3c" stroke-opacity="0.22" fill="none"></circle>
+        </svg>
+        <p class="cover-lede">FrogNet combines fifty years of lessons in networking, programming, and hardware engineering to move the science into this century. From the user's perspective, nothing changes — <em>and a great deal more becomes possible.</em></p>
+        <div class="cover-meta">
+          <p class="who">John W. Fawcett, CEO &nbsp;·&nbsp; Daniel Tone, VP of Engineering</p>
+          <p class="org">The FrogNet Living Network · Fawcett Innovations LLC</p>
+        </div>
+      </header>
+
+      <!-- ============ CONTENTS ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Contents</p>
+          <h2 class="sec">What's Inside</h2>
+        </div>
+
+        <div class="toc-group">
+          <div class="toc-major">What FrogNet Does, In Plain English</div>
+          <div class="toc-list">
+            <div class="toc-item">A Small Box That Changes What Your Family Can Do</div>
+            <div class="toc-item">What You Pay Today for the Same Things</div>
+            <div class="toc-item">Mom Living Alone</div>
+            <div class="toc-item">It Still Works When the Internet Does Not</div>
+            <div class="toc-item">A Word About Privacy</div>
+            <div class="toc-item">What Follows</div>
+          </div>
+        </div>
+
+        <div class="toc-group">
+          <div class="toc-major">Introduction · The Paradigm Shifts</div>
+          <div class="toc-list">
+            <div class="toc-item"><span class="n">01</span>Transport Abstraction</div>
+            <div class="toc-item"><span class="n">02</span>Offline-First</div>
+            <div class="toc-item"><span class="n">03</span>Sovereign Networking</div>
+            <div class="toc-item"><span class="n">04</span>Emergent Internet</div>
+            <div class="toc-item"><span class="n">05</span>Living Topology</div>
+            <div class="toc-item"><span class="n">06</span>/etc/hosts vs. DNS</div>
+            <div class="toc-item"><span class="n">07</span>Network as Database</div>
+            <div class="toc-item"><span class="n">08</span>Stateless vs. Stateful</div>
+            <div class="toc-item"><span class="n">09</span>Infrastructure Compression</div>
+            <div class="toc-item"><span class="n">10</span>Serial vs. Parallel</div>
+            <div class="toc-item"><span class="n">11</span>Security</div>
+            <div class="toc-item"><span class="n">12</span>Networked Intelligence</div>
+            <div class="toc-item"><span class="n">13</span>Memory, Not Messages</div>
+          </div>
+        </div>
+
+        <div class="toc-group">
+          <div class="toc-major">What FrogNet Is and Does</div>
+          <div class="toc-list">
+            <div class="toc-item">Network Foundation</div>
+            <div class="toc-item">Semantic Compression Engine (BLDC-1)</div>
+            <div class="toc-item">Node Architecture</div>
+            <div class="toc-item">Pond and Chorus Model</div>
+            <div class="toc-item">Transient Database</div>
+            <div class="toc-item">AI Platform</div>
+            <div class="toc-item">Sensor and Actuator Platform</div>
+            <div class="toc-item">Broker and Tunnel System</div>
+            <div class="toc-item">Security Model</div>
+            <div class="toc-item">Wire Protocol (FNW1)</div>
+            <div class="toc-item">Management and Operations</div>
+            <div class="toc-item">Applications Built on the Platform</div>
+            <div class="toc-item">Deployment and Distribution</div>
+            <div class="toc-item">Intellectual Property Position</div>
+            <div class="toc-item">Proven in Production</div>
+          </div>
+        </div>
+
+        <div class="toc-group">
+          <div class="toc-major">Appendix A — How FrogNet Handles Emergencies</div>
+          <div class="toc-list">
+            <div class="toc-item">Summer Camp</div>
+            <div class="toc-item">The Ambulance</div>
+            <div class="toc-item">The Disaster</div>
+            <div class="toc-item">Small Business, Farm, and Other Everyday Uses</div>
+          </div>
+        </div>
+
+        <div class="toc-group">
+          <div class="toc-major">Appendix B — The Song of the Frogs</div>
+          <div class="toc-list">
+            <div class="toc-item">The Idea</div>
+            <div class="toc-item">The Eight Levels</div>
+            <div class="toc-item">How This Differs from Every Other Streaming Protocol</div>
+            <div class="toc-item">What Makes This Possible</div>
+            <div class="toc-item">Beyond SotF — The Custom Protocol Architecture</div>
+            <div class="toc-item">What This Means</div>
+            <div class="toc-item">Status</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ PLAIN ENGLISH ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section One · For Everyone</p>
+          <h2 class="sec">What FrogNet Does, In Plain English</h2>
+        </div>
+
+        <p class="note">Network engineers can skip this section. The technical material starts at the Introduction.</p>
+
+        <p>The rest of this document is for network engineers. This section is for everyone else. It is shorter than the rest on purpose — you do not need the technical detail to understand what FrogNet does or why you might want one.</p>
+
+        <h3 class="sub">A Small Box That Changes What Your Family Can Do</h3>
+        <p>Imagine a small box — about the size of a deck of cards — plugged in at your house. Your mother has one at her house. Your sister has one at her flat in London. Each box costs about what you'd spend on a nice dinner out.</p>
+        <p>Plug them in and they find each other. You do not configure anything. You do not set up accounts. You do not pick a service plan. The boxes form a private, encrypted network that runs a photo gallery, a family chat, a shared calendar, a bulletin board for sticky notes, a family map that shows where everyone is, and video calling — all on hardware that belongs to your family and nobody else.</p>
+        <p>Your photos are not on iCloud. Your messages are not on WhatsApp. Your location is not sold to data brokers. Everything stays on your boxes. The only thing that crosses the internet is encrypted traffic that nobody — not your internet provider, not a hacker, not a government — can read, and that does not look like FrogNet to anyone watching.</p>
+        <p>The ongoing cost is a few dollars a month — a small broker subscription that lets your phones reach the network when you're away from home. That is all. No per-person fees. No storage tiers. No annual price increases. No surprise changes to the terms of service. A small broker subscription, and your family has its own private internet — internationally — for as long as the boxes are plugged in.</p>
+        <p>The actual cost depends on how the broker is deployed. A typical family network running on a commercial broker service is expected to run a few dollars a month — primarily data transfer for the traffic that crosses the internet between your boxes. A family running the broker on their own hardware (for example, a small server already at home or in an office) pays essentially nothing beyond electricity. Larger or more active networks cost more; the current FrogNet development network, with ten nodes across Seattle, New York, and Amsterdam, running heavy testing traffic, runs about forty dollars a month. A typical Mom-and-family deployment will be on the low end of that range, not the high.</p>
+
+        <h3 class="sub">What You Pay Today for the Same Things</h3>
+        <p>Most people are already paying for all of this. They are just paying a different company for each piece, and their data is spread across those companies. Here is what a typical family pays today for the services a single FrogNet box would replace, and what each service costs on FrogNet.</p>
+
+        <div class="table-wrap">
+          <table class="cost">
+            <thead>
+              <tr>
+                <th style="width:18%">What You Do</th>
+                <th style="width:24%">What You Use Today</th>
+                <th style="width:16%">Typical Cost</th>
+                <th style="width:26%">How FrogNet Does It</th>
+                <th style="width:16%">FrogNet Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Store family photos</td><td>iCloud+, Google One, Amazon Photos</td><td>$3–$10 / mo</td><td>Private gallery on your box</td><td class="fg">Included</td></tr>
+              <tr><td>Know where family is</td><td>Life360 (Gold), Find My</td><td>$15 / mo</td><td>GPS map in the FrogNet app</td><td class="fg">Included</td></tr>
+              <tr><td>Monitor your home</td><td>Ring, Nest, SimpliSafe</td><td>$10–$20 / mo</td><td>Sensors on your box, no cloud</td><td class="fg">Included</td></tr>
+              <tr><td>Check on an aging parent</td><td>Life Alert, medical alert services</td><td>$30–$60 / mo</td><td>Passive sensors + family alerts</td><td class="fg">Included</td></tr>
+              <tr><td>Share files with family</td><td>Dropbox, Google Drive, OneDrive</td><td>$10 / mo</td><td>Peer-to-peer, on your hardware</td><td class="fg">Included</td></tr>
+              <tr><td>Message your family</td><td>WhatsApp, iMessage, Signal</td><td>Free, with tradeoffs</td><td>FrogChat on your box</td><td class="fg">Included</td></tr>
+              <tr><td>Video call family</td><td>FaceTime, Zoom, Meet</td><td>Free, with limits</td><td>Peer-to-peer, no call server</td><td class="fg">Included</td></tr>
+              <tr><td>Shared calendar</td><td>Google Calendar, Apple Calendar</td><td>Free; trains their AI</td><td>Calendar on your box</td><td class="fg">Included</td></tr>
+              <tr class="total"><td>Typical family total, today</td><td colspan="2">$60–$120 / mo + unlimited access to your personal data</td><td>Total on FrogNet</td><td class="fg">A few $ / mo, data stays yours</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Look at the bottom row. The right side is the whole bill on FrogNet — one broker subscription, for every person in your family, everywhere you live, for as long as the boxes stay plugged in. Your data stays on hardware you own.</p>
+        <p>The left side is what you already pay — money leaving your household every month, plus a second price that never shows up on the bill: unlimited access to your personal data. The companies in that column read your messages, scan your photos, sell your location, and train their AI on your schedule. You pay them, and then they monetize you on top. FrogNet is the offer to stop paying both prices.</p>
+
+        <h3 class="sub">Mom Living Alone</h3>
+        <p>If there is one scenario that explains why this matters, it is this one.</p>
+        <p>An elderly parent lives alone. You want to know she is okay. The options on the market are not great — cameras she will hate, wearables she will forget, services that charge sixty dollars a month to watch her.</p>
+        <p>A FrogNet box at her house, with a few small passive sensors, learns her daily patterns. When Mom gets up. When she makes coffee. When she moves through the house. It does not watch her. It does not record her. It notices when the pattern changes. If Mom does not get up at her usual time, the system alerts the family — through the private FrogNet, not through a company's servers. No cameras. No surveillance. Her dignity stays intact. Your peace of mind goes up.</p>
+        <p>That one use alone is worth the cost of the box.</p>
+
+        <h3 class="sub">It Still Works When the Internet Does Not</h3>
+        <p>Every app on your phone assumes the internet is there. When it is not — a storm, a blackout, a rural road with no bars — your apps are useless. You cannot call, text, or check on anyone.</p>
+        <p>FrogNet does not assume the internet is there. Each box is a complete, self-contained network. If the internet disappears, the box keeps running. If two boxes can see each other by WiFi or Ethernet, they mesh together and share everything — photos, messages, sensor data, GPS positions — with no internet required. When the internet comes back, everything catches up.</p>
+        <p>This matters most in the moments you cannot plan for: when a hurricane takes out the cell towers, when your kid is at a camp with no coverage, when an ambulance drives through a dead zone with a patient in the back. The same box that handles your family photos in good weather keeps working in bad weather. That is not a feature anyone else offers.</p>
+        <p>For a longer look at how FrogNet performs in emergencies, see Appendix A at the end of this document.</p>
+
+        <h3 class="sub">A Word About Privacy</h3>
+        <p>People ask how FrogNet compares to Signal, or to a VPN. The short answer is that Signal is excellent at what it does, and a VPN is useful for what it does, but neither one does what FrogNet does.</p>
+        <p>Signal protects the content of your messages from the people carrying them. FrogNet eliminates the carrier. There is nobody in the middle to trust, compromise, or compel. No servers to subpoena. No phone numbers. No accounts. No metadata. And it keeps working when the internet does not.</p>
+        <p>A VPN is an encrypted tunnel to someone else's building — the cloud, Google, Apple, Meta. Your data still ends up on their servers. A FrogNet is not a tunnel. It is your own building. The services run on your hardware. There is no “other end” where a company has your data. There is no company at all.</p>
+
+        <h3 class="sub">What Follows</h3>
+        <p>Everything described above is operational today. FrogNet runs across ten nodes in Seattle, New York, and Amsterdam, with more locations coming online. On April 17, 2026, a collaborator in New York completed the first independent end-to-end closed-loop demonstration — a web application, a sensor, and a physical actuator, all on a WiFi network in New York, coordinating through a database 2,400 miles away in Seattle, entirely over FrogNet's semantic protocol. It is not a prototype. It is not a simulation. It is a production system built over more than a decade by a network architect with fifty years of experience at companies including Boeing, Electronic Arts, Sierra On-Line, Microsoft, and NanoString Technologies.</p>
+        <p>The rest of this document explains how it works. It describes twelve paradigm shifts — foundational assumptions about how networks have worked since 1969 that FrogNet replaces — followed by a comprehensive inventory of everything FrogNet is and does. If you are not a network engineer, you do not need to read it. If you want to understand why the claims in this section are architectural truths rather than marketing promises, read on.</p>
+
+        <figure class="shot">
+          <div class="shot-frame"><span>SCREENSHOT — fln_dashboard route-map view of the live ten-node mesh</span></div>
+          <figcaption><b>Figure 1.</b> The live ten-node mesh across Seattle, New York, and Amsterdam, drawn from observed topology.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ============ INTRODUCTION ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Two</p>
+          <h2 class="sec">Introduction</h2>
+        </div>
+        <p>Every network in existence today was built on a set of assumptions that made sense in 1969. Connectivity is rare and expensive, so design for disconnection tolerance. Memory is scarce, so keep the network stateless. Administrators are available, so require human configuration. The internet is reachable, so treat it as the backbone.</p>
+        <p>Those assumptions have calcified into orthodoxy. Fifty years of protocol design, tooling, and engineering education have been built on top of them. Nobody questions them because everybody learned from people who learned from people who learned from people who never questioned them either.</p>
+        <p>FrogNet questions all of them.</p>
+        <p>This document describes twelve paradigm shifts — foundational assumptions about how networks work that FrogNet replaces with better answers for the environments it actually operates in. It then describes, in detail, everything FrogNet is and does.</p>
+        <p>Reading this document will not make you a FrogNet engineer. But it will make you think differently about what a network can be — and that is the prerequisite for understanding why FrogNet matters.</p>
+      </section>
+
+      <!-- ============ PARADIGM SHIFTS ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Three · Thirteen Shifts</p>
+          <h2 class="sec">The Paradigm Shifts</h2>
+        </div>
+        <p>FrogNet did not make incremental improvements to existing networking. It went back to first principles and replaced thirteen foundational assumptions with designs that match the actual constraints of the environments it operates in.</p>
+        <p>The paradigm shifts in this document are not theoretical. They allowed a single programmer, working alone, to develop and validate this entire system — the transport-abstracted fabric, the semantic compression engine, the discovery and routing layer, the transient database, the sensor and AI platform, and a real-time adaptive media plane — from scratch, in less than a year. That is not a claim about unusual talent. It is a claim about the leverage of the ideas. The same work, attempted inside the assumptions these shifts replace, would have required a team and a far longer schedule, because most of the effort in conventional networked systems is spent building and debugging the very machinery these shifts delete: the message-passing, the session state, the consensus, the per-application protocols.</p>
+
+        <p class="pq">Remove the machinery and one person can hold the whole system in their head.</p>
+
+        <p>The author spent years on this problem while still inside the old paradigms and made comparatively slow progress; the leaps came only after letting go of those assumptions. The proof of a paradigm is not that it can be argued for — it is that it lets a small number of people build what used to take many. By that test, these shifts are real.</p>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">01</div>
+            <div><h3 class="shift-title">Transport Abstraction</h3><p class="shift-tagline">Protocol Independent of Physical Layer</p></div>
+          </div>
+          <p>Every network stack in existence is built around a specific transport assumption. TCP/IP assumes reliable-ish packet delivery. Radio protocols assume unreliable, low-bandwidth, high-latency links. WiFi assumes high-bandwidth local area. The entire OSI model is built around the idea that you choose your transport and build your protocol for it.</p>
+          <p>FrogNet separates transport from processing completely. The application layer has no idea what transport is underneath. The same code runs identically over fiber, WiFi, Ethernet, WireGuard tunnel, LoRa, satellite, or a narrowband RF link. You don't configure for the transport. You don't optimize for it. You don't even know it's there. The semantic compression layer adapts automatically to whatever the link gives it.</p>
+          <p>This isn't just transport agnostic as a marketing claim. It's an architectural decision that eliminates an entire category of protocol design work. It also means that a single deployment can span WiFi, Ethernet, and RF simultaneously — the same network, the same code, the same behavior, regardless of what the physical layer is doing underneath.</p>
+          <p class="pq">The radio is just a pipe. Which radio? Whichever one is there.</p>
+          <p>FrogNet does not care, and FrogNet is not a radio protocol. The conclusions in this document about performance, compression, and survivability are consequences of what happens above the transport, not of any particular choice of transport below it.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">02</div>
+            <div><h3 class="shift-title">Offline-First</h3><p class="shift-tagline">Disconnection Is the Baseline, Not the Error</p></div>
+          </div>
+          <p>Every networked application ever built assumes connectivity as the baseline and treats disconnection as an error condition to be handled. Offline mode is a feature you add later, grudgingly, when users complain. Progressive Web Apps, service workers, local storage — these are all retrofits on top of a fundamentally online-first architecture.</p>
+          <p>FrogNet inverts this. Offline is the default. Every node operates fully standalone as the baseline condition. Connectivity is an enhancement that arrives when available and disappears without consequence. Applications built on FrogNet don't handle disconnection — they never assumed connection in the first place. The architecture matches the physical reality of the environments FrogNet operates in, where connectivity is intermittent by nature.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">03</div>
+            <div><h3 class="shift-title">Sovereign Networking</h3><p class="shift-tagline">No Dependency Chain, No External Authority</p></div>
+          </div>
+          <p>Every network you use today depends on someone else's infrastructure. Your WiFi depends on your ISP. Your ISP depends on backbone providers. Your applications depend on cloud providers. Your DNS depends on root servers. At every layer, someone else is in the chain — someone who can fail, someone who can be compromised, someone who can cut you off, someone who can surveil you, someone who can monetize your traffic.</p>
+          <p>FrogNet has no such dependencies. The network is yours. The data is yours. The infrastructure is yours. No ISP, no cloud provider, no DNS authority, no certificate authority, no backbone provider is in the chain.</p>
+          <p class="pq">You are not a tenant in someone else's infrastructure — you are the infrastructure.</p>
+          <p>This matters differently in different contexts. For a family it means privacy. For a business it means control. For a military unit it means survivability. For a community it means resilience. But the underlying shift is the same: from dependent networking, where you operate at the sufferance of others, to sovereign networking, where you operate on your own terms.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">04</div>
+            <div><h3 class="shift-title">Emergent Internet</h3><p class="shift-tagline">Self-Assembled, Not Designed</p></div>
+          </div>
+          <p>The internet was designed. IANA allocates address space. ICANN manages domains. ISPs negotiate peering agreements. BGP routes are configured by human administrators. The entire global routing infrastructure is the product of deliberate human decisions made by known authorities.</p>
+          <p>FrogNet's internet emerges. No allocation authority. No routing administrator. No peering negotiation. Nodes discover each other, calculate topology, write routes, and form a coherent network — automatically, repeatedly, every time the topology changes. The internet that results wasn't designed by anyone. It assembled itself from the nodes that happened to be reachable at that moment.</p>
+          <p>This is a fundamentally different model of what a network is. The traditional internet is a constructed artifact. A FrogNet is a living system.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">05</div>
+            <div><h3 class="shift-title">Living Topology</h3><p class="shift-tagline">Derived from Reality, Never from a Plan</p></div>
+          </div>
+          <p>Every network you administer has a topology you designed, documented, and maintain. Subnets are planned. Routes are configured. VLANs are assigned. When something changes you update the documentation, push new configs, and hope nothing breaks. The network is a designed artifact that requires human maintenance to stay consistent with reality.</p>
+          <p>FrogNet's topology is never designed and never documented because it doesn't need to be. It is calculated fresh from observed reality every time anything changes. The highest-IP node becomes the database host. Routes are written to match whatever interfaces are actually up. Hosts files reflect what the node can actually reach. The network's representation of itself is always derived from ground truth, never from a plan that may have drifted from reality.</p>
+          <p>Network engineers spend enormous effort keeping designed topology consistent with actual topology. FrogNet eliminates that gap by never having a designed topology in the first place.</p>
+          <p>The clearest day-to-day consequence of this is something administrators of conventional networks would call impossible: moving a node from one network to another without touching the node.</p>
+          <p>In FrogNet, a node's pond — the network it belongs to — is recorded in the broker, not in the node's own configuration. When a node's pond assignment changes server-side, the node's next poll returns a different set of peers, a different chorus membership, and a different set of tunnels to maintain. The node's daemon diffs the new state against the old, tears down what's gone, brings up what's new, and the node is now on the new network. No script ran on the node. Nobody logged in. No configuration file was edited. The truth changed in the broker; the node's view of itself was rebuilt from that truth automatically on the next poll cycle.</p>
+          <p>This is the routine operational form of what Living Topology and Network as Database together imply. Membership lives in the network. The node's job is to keep its local state aligned with what the network already knows.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">06</div>
+            <div><h3 class="shift-title">/etc/hosts vs. DNS</h3><p class="shift-tagline">Ground Truth Over Administered Namespace</p></div>
+          </div>
+          <p>DNS was designed for a world where networks are large, stable, and administered by professionals. You configure a nameserver, you delegate zones, you manage TTLs, you wait for propagation. The assumption underneath all of it is that the network topology is known, relatively static, and has a central authority responsible for keeping the namespace consistent.</p>
+          <p>FrogNet operates in the opposite environment. Nodes appear and disappear. Topology changes without warning. There is no central authority. There is no administrator. The network manages itself or it doesn't work.</p>
+          <p>DNS fails in this environment — not because it's poorly implemented, but because it was designed for a different problem. A nameserver that goes offline takes its zone with it. A TTL that hasn't expired serves stale data. Split-brain scenarios during network partitions produce inconsistent resolution across the mesh.</p>
+          <p>FrogNet uses <code>/etc/hosts</code> — the oldest, simplest, most reliable name resolution mechanism in existence. Every node maintains its own hosts file. <code>runMerge</code> recalculates and rewrites it every time the topology changes. There is no TTL to expire, no zone to delegate, no nameserver to go offline. The resolution is local, instant, and always current for the topology the node can actually see.</p>
+          <p>The floating <code>databasehost.frognet</code> address — always the highest-IP active node on the mesh — is recalculated and rewritten to every hosts file on every merge. No node ever has a stale address for the database. The moment the topology changes, the hosts file changes with it.</p>
+          <p>DNS is the right answer for a stable, administered network. <code>/etc/hosts</code> is the right answer for a self-forming mesh where the only ground truth is what the node can directly observe. FrogNet uses the right tool for the actual problem.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">07</div>
+            <div><h3 class="shift-title">Network as Database</h3><p class="shift-tagline">Data in the Network, Not Behind It</p></div>
+          </div>
+          <p>Every distributed system ever built treats the network as a pipe — data lives in databases, the network moves it between them. You have servers with databases, clients that query them, and a network that connects them. The database and the network are separate concerns.</p>
+          <p>FrogNet collapses that distinction. The transient database isn't behind the network — it is the network. Every node can read and write it. Every sensor writes to it. Every dashboard reads from it. Every AI host queries it and writes back to it. There is no client-server distinction because there is no separate tier for data storage — the data is in the network itself, always available, always current, always at the same address regardless of which physical node is hosting it at any given moment.</p>
+          <p>This is what Gelernter was reaching for with Linda tuple spaces in 1985. FrogNet is the first practical distributed implementation of that idea at network scale.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">08</div>
+            <div><h3 class="shift-title">Stateless vs. Stateful</h3><p class="shift-tagline">The Network Carries Context</p></div>
+          </div>
+          <p>Every network built since the early days of the internet is stateless by design. Each request arrives with no memory of what came before. The server reconstructs context from scratch — parsing headers, re-establishing session state, re-transmitting data the other end almost certainly already has. This was a reasonable choice in 1969 when memory was scarce and connections were unreliable. It has been the default assumption ever since, and nobody questioned it.</p>
+          <p>FrogNet questions it.</p>
+          <p>The semantic compression engine introduces state at the network level. The fabric remembers what it has already seen. Templates are learned from the structure of real traffic and cached locally. When a response arrives that matches a known template, only the values that changed cross the wire — not the structure, not the unchanged fields, not the overhead. The network itself carries the context so the application doesn't have to re-transmit it.</p>
+          <p>This is not delta encoding. Delta encoding sends the difference between two versions of a document. <code>BLDC-1</code> goes further — it separates structure from value, learns the structure once, and then only transmits values. On steady-state traffic, a 500KB JSON payload becomes 50–150 bytes on the wire. The application never changes. The protocol never changes. The wire changes completely.</p>
+          <p>The stateless model was a constraint imposed by 1960s hardware. FrogNet removes the constraint.</p>
+
+          <figure class="dgm">
+            <div class="dgm-canvas">
+              <div class="dgm-title">BLDC-1 — structure is learned once; only values cross the wire</div>
+              <div class="bldc">
+                <div class="bldc-card">
+                  <div class="bldc-card-h">Full HTTP response · ~500 KB</div>
+                  <div class="bldc-rows">
+                    <div><span class="k">"node":</span> <span class="v">"seattle-03"</span></div>
+                    <div><span class="k">"temp_c":</span> <span class="v">21.4</span></div>
+                    <div><span class="k">"rh_pct":</span> <span class="v">48</span></div>
+                    <div><span class="k">"status":</span> <span class="v">"ok"</span></div>
+                    <div><span class="k">"ts":</span> <span class="v">17:42:08</span></div>
+                  </div>
+                  <div class="bldc-legend"><span><i class="sw-k"></i>structure — cached both ends</span><span><i class="sw-v"></i>values — the only change</span></div>
+                </div>
+                <div class="bldc-arrow">→</div>
+                <div class="bldc-wire">
+                  <div class="wire-h">On the wire (steady state)</div>
+                  <div class="wire-chips"><span>seattle-03</span><span>21.4</span><span>48</span><span>ok</span><span>17:42:08</span></div>
+                  <div class="wire-size">50–150 bytes<span>changed values only</span></div>
+                  <div class="wire-same" style="margin-top:13px;">Nothing changed? → <b>SAME · 16 bytes</b></div>
+                </div>
+              </div>
+            </div>
+            <figcaption><b>Diagram 1.</b> The fabric caches the structure of repeated traffic, so a steady-state response carries only its changed values — and an unchanged response collapses to a 16-byte <code>SAME</code> frame.</figcaption>
+          </figure>
+
+          <figure class="shot">
+            <div class="shot-frame"><span>SCREENSHOT — frognet_monitor showing live BLDC-1 compression ratio and SAME/DIFF wire stats</span></div>
+            <figcaption><b>Figure 2.</b> Live BLDC-1 template matching: unchanged responses collapse to a 16-byte <code>SAME</code> frame.</figcaption>
+          </figure>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">09</div>
+            <div><h3 class="shift-title">Infrastructure Compression</h3><p class="shift-tagline">Transparent, Automatic, Zero Application Changes</p></div>
+          </div>
+          <p>Every compression system ever built is an application-level decision. You choose to compress a file. You choose to gzip an HTTP response. You configure your CDN to minify assets. Compression is something developers do deliberately to specific data when they decide it's worth the effort.</p>
+          <p>FrogNet makes compression an infrastructure property. The developer writes REST. The network compresses everything, automatically, transparently, using a codec that learns the structure of the actual traffic flowing through it. There is no configuration, no decision, no per-endpoint optimization. Every HTTP exchange on every interface is compressed. The developer never thinks about it.</p>
+          <p>This is the same paradigm shift that happened when hardware TCP offloading moved network stack processing from software to silicon — except FrogNet does it for semantic content, not just packets. All system-level coordination within FrogNet uses REST, which means the coordination overhead itself is compressed. On a steady-state network, management traffic approaches zero wire cost.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">10</div>
+            <div><h3 class="shift-title">Serial vs. Parallel</h3><p class="shift-tagline">Physics as the Only Constraint</p></div>
+          </div>
+          <p>Traditional request/response networking is serial at its core. A request goes out. The sender waits. The response comes back. The next request goes out. Even with pipelining — which overlaps the sending of requests — processing remains sequential and the wire sits idle between transactions.</p>
+          <p>On a constrained link, idle time is catastrophic. Every microsecond of dead air is bandwidth you cannot recover. A 4800-baud link is already at the edge of what's usable. Wasting half of it on dead air between serial transactions makes it unusable.</p>
+          <p>FrogNet eliminates the dead air entirely.</p>
+          <p>The 256-worker daemon pool means up to 256 requests are in flight simultaneously — not sequentially overlapped, but genuinely parallel, each on its own thread, each with its own database connection. By the time the wire finishes transmitting one frame, the next is already queued and waiting. The transmitter never starves. The link runs at or near 100% duty cycle continuously.</p>
+          <p>The result is that effective throughput is not limited by processing speed — it is limited only by physics. You cannot move bits faster than the channel allows. FrogNet makes sure every bit the channel allows is carrying useful payload.</p>
+          <p>This is why the measured throughput improvement is 44× on the same physical link. The link didn't get faster. The utilization went from fractional to near-total. The measurement was taken on an Ethernet-to-Ethernet channel shaped with delay, jitter, and loss to match a narrowband RF condition — a real 4800-baud throughput ceiling, achieved deterministically.</p>
+
+          <figure class="dgm">
+            <div class="dgm-canvas">
+              <div class="dgm-title">Serial vs parallel — keeping the wire full</div>
+              <div class="tl-row">
+                <div class="tl-label">Serial<span>request / wait / reply</span></div>
+                <div class="tl-track">
+                  <div class="tl-seg-tx" style="flex:0 0 16%"></div>
+                  <div class="tl-seg-gap" style="flex:0 0 16%"></div>
+                  <div class="tl-seg-tx" style="flex:0 0 16%"></div>
+                  <div class="tl-seg-gap" style="flex:0 0 16%"></div>
+                  <div class="tl-seg-tx" style="flex:0 0 16%"></div>
+                  <div class="tl-seg-gap" style="flex:0 0 14%"></div>
+                  <div class="tl-seg-tx" style="flex:0 0 6%"></div>
+                </div>
+              </div>
+              <div class="tl-cap-row"><div></div><div class="tl-cap">hatched = dead air, bandwidth you cannot recover</div></div>
+              <div class="tl-row">
+                <div class="tl-label">Parallel<span>256-worker pool</span></div>
+                <div class="tl-track"><div class="tl-full" style="flex:1"></div></div>
+              </div>
+              <div class="tl-cap-row"><div></div><div class="tl-cap">≈100% duty cycle — <b>44× throughput on the same link</b></div></div>
+              <div class="tl-axis-row"><div></div><div class="tl-axis">time →</div></div>
+            </div>
+            <figcaption><b>Diagram 2.</b> Conventional request/response leaves the wire idle between transactions. FrogNet's worker pool keeps frames queued so the transmitter never starves — throughput becomes a question of physics, not protocol overhead.</figcaption>
+          </figure>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">11</div>
+            <div><h3 class="shift-title">Security</h3><p class="shift-tagline">Physical Proximity Replaces Perimeter Defense</p></div>
+          </div>
+          <p>Every traditional security model assumes a hostile perimeter. The internet is outside, attackers are out there, and you build walls to keep them away from your services. Every service behind those walls still needs its own authentication layer because the perimeter is assumed to be already breached.</p>
+          <p>FrogNet rejects that premise entirely.</p>
+          <p>The physical layer is the first perimeter. You cannot attack a FrogNet from across the internet — it isn't on the internet. You must be physically present and in range to reach the mesh. This isn't a policy decision — it's physics. No firewall rule, no certificate, no password protects you the way physics does.</p>
+          <p>Network membership is the trust boundary. If you're on the mesh, you're trusted. If you're not, you can't reach anything to attack. Layering traditional per-service authentication on top of this is not just unnecessary — it's the wrong mental model applied to the wrong architecture.</p>
+          <p>This means the complexity, latency, and overhead of PKI, TLS handshakes, session tokens, and credential stores simply don't exist at the application layer. That overhead — which can consume 25 seconds of a 4800-baud link just for a TLS certificate chain — is eliminated by design, not by cutting corners.</p>
+          <p>WireGuard handles tunnel encryption where internet traversal is required — Curve25519, compact handshake, solid crypto. The security model is layered correctly: physics first, WireGuard where needed, standard Linux security tooling available underneath for anyone who wants it.</p>
+          <p>Traditional security paradigms were built for systems exposed to the internet. FrogNet is not that system.</p>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">12</div>
+            <div><h3 class="shift-title">Networked Intelligence</h3><p class="shift-tagline">Distributed AI with Shared Real-Time World State</p></div>
+          </div>
+          <p>Every AI deployment ever built follows the same model. Data is collected, sent to a central location, processed by a model, and results are returned. The AI lives in the cloud. The sensors live at the edge. The network is the pipe between them. The AI is smart but blind — it can only see what gets sent to it, with whatever latency the pipeline introduces.</p>
+          <p>This model has three fundamental problems. It requires connectivity. It introduces latency between observation and action. And it concentrates intelligence in one place, which means a single point of failure, a single point of compromise, and a single point of control.</p>
+          <p>FrogNet dissolves all three.</p>
+          <p>Every node can run its own AI. Every AI has direct, real-time, read-write access to the transient database — which means every AI can see every sensor on the entire mesh, not just the sensors on its own node. Multiple AIs can run simultaneously on different nodes, observing the same data, writing to the same scratchpad, coordinating through the transient database without any message-passing infrastructure, without any API contracts between them, without any orchestration layer. They share a world. They act in it.</p>
+          <p>Multiple dashboards can do the same thing — any node, any browser, any connected device sees the same real-time network state simultaneously. There is no master dashboard and no replica. There is one transient database and every observer sees it directly.</p>
+          <p>The sensor-to-actuator loop — sensor writes to transient DB, AI reads it, AI writes control signal, actuator reads control signal — runs entirely within the mesh. It survives complete internet loss. It survives the loss of any individual node. It survives network partitions, because each fragment continues operating on the sensors it can reach. The first independent end-to-end demonstration of that loop was completed on April 17, 2026 — a button press in a Flask UI on a WiFi network in New York, routing through the transient database in Seattle, activating a physical actuator back in New York.</p>
+          <p>The traditional model puts intelligence in the cloud and data at the edge, connected by a fragile pipe. FrogNet puts intelligence at the edge with the data, connected by a mesh that heals itself. That is not an improvement on centralized AI. It is a different theory of where intelligence lives in a network.</p>
+
+          <figure class="dgm">
+            <div class="dgm-canvas">
+              <div class="dgm-title">Where intelligence lives — centralized vs mesh</div>
+              <svg viewBox="0 0 620 210" xmlns="http://www.w3.org/2000/svg">
+                <line x1="310" y1="16" x2="310" y2="196" stroke="#dcd7c9" stroke-width="1"></line>
+                <text x="22" y="26" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#6f6d64">Conventional — hub &amp; spoke</text>
+                <line x1="46" y1="156" x2="143" y2="78" stroke="#c9c4b6" stroke-width="1"></line>
+                <line x1="108" y1="156" x2="143" y2="78" stroke="#c9c4b6" stroke-width="1"></line>
+                <line x1="178" y1="156" x2="143" y2="78" stroke="#c9c4b6" stroke-width="1"></line>
+                <line x1="240" y1="156" x2="143" y2="78" stroke="#c9c4b6" stroke-width="1"></line>
+                <rect x="68" y="38" width="150" height="40" rx="10" fill="#fff" stroke="#9b988c" stroke-width="1.3"></rect>
+                <text x="143" y="63" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="#1b1a16">Cloud AI</text>
+                <circle cx="46" cy="166" r="11" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+                <circle cx="108" cy="166" r="11" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+                <circle cx="178" cy="166" r="11" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+                <circle cx="240" cy="166" r="11" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+                <text x="22" y="200" font-family="Archivo, sans-serif" font-size="10.5" fill="#8f8b7e">sensors at the edge · intelligence in the cloud · fragile pipe</text>
+                <text x="330" y="26" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#2c5a3c">FrogNet — peer mesh</text>
+                <line x1="372" y1="58" x2="470" y2="46" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="470" y1="46" x2="560" y2="80" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="560" y1="80" x2="520" y2="156" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="520" y1="156" x2="388" y2="150" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="388" y1="150" x2="372" y2="58" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="372" y1="58" x2="560" y2="80" stroke="#9bb39e" stroke-width="1"></line>
+                <line x1="470" y1="46" x2="520" y2="156" stroke="#9bb39e" stroke-width="1"></line>
+                <circle cx="372" cy="58" r="16" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.3"></circle>
+                <circle cx="470" cy="46" r="16" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.3"></circle>
+                <circle cx="560" cy="80" r="16" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.3"></circle>
+                <circle cx="520" cy="156" r="16" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.3"></circle>
+                <circle cx="388" cy="150" r="16" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.3"></circle>
+                <text x="372" y="62" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#2c5a3c">AI</text>
+                <text x="470" y="50" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#2c5a3c">AI</text>
+                <text x="560" y="84" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#2c5a3c">AI</text>
+                <text x="520" y="160" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#2c5a3c">AI</text>
+                <text x="388" y="154" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#2c5a3c">AI</text>
+                <text x="330" y="200" font-family="Archivo, sans-serif" font-size="10.5" fill="#6f6d64">an AI and the shared data on every node · mesh heals itself</text>
+              </svg>
+            </div>
+            <figcaption><b>Diagram 3.</b> The conventional model concentrates intelligence in the cloud and leaves sensors at the edge behind a fragile pipe. FrogNet puts an AI and the shared data on every node, connected by a mesh that heals itself.</figcaption>
+          </figure>
+        </div>
+
+        <div class="shift">
+          <div class="shift-head">
+            <div class="shift-num">13</div>
+            <div><h3 class="shift-title">Memory, Not Messages</h3><p class="shift-tagline">The Network Is a Shared Memory You Read and Write</p></div>
+          </div>
+          <p>This is the shift that underlies the other twelve, and the one that took the longest to see — because it is the hardest to unlearn. Every networked system in common use is built on messages: one party sends, another receives, and the entire discipline of networking is the management of that exchange — requests, replies, acknowledgments, retries, sessions, subscriptions, ordering, delivery guarantees. FrogNet does not send messages. It exposes a shared memory, and the only two things a program does are write a value where it computes one and read a value where it needs one. There is no sender and no receiver, because there is nothing in flight — there is only memory that several machines can see, and which converges to its current value beneath the application without the application orchestrating the exchange.</p>
+
+          <figure class="dgm">
+            <div class="dgm-canvas">
+              <div class="dgm-title">Messages vs shared memory</div>
+              <svg viewBox="0 0 620 200" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <marker id="ahmsg" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#b7b3a6"></path></marker>
+                  <marker id="ahmem" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker>
+                </defs>
+                <line x1="310" y1="16" x2="310" y2="184" stroke="#dcd7c9" stroke-width="1"></line>
+                <text x="22" y="26" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#6f6d64">Messages — send · ack · retry · sequence</text>
+                <circle cx="70" cy="102" r="22" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+                <text x="70" y="107" text-anchor="middle" font-family="Archivo, sans-serif" font-size="13" font-weight="600" fill="#1b1a16">A</text>
+                <circle cx="244" cy="102" r="22" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+                <text x="244" y="107" text-anchor="middle" font-family="Archivo, sans-serif" font-size="13" font-weight="600" fill="#1b1a16">B</text>
+                <line x1="96" y1="78" x2="217" y2="78" stroke="#b7b3a6" stroke-width="1.2" marker-end="url(#ahmsg)"></line>
+                <text x="156" y="72" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#8f8b7e">send</text>
+                <line x1="218" y1="102" x2="97" y2="102" stroke="#b7b3a6" stroke-width="1.2" marker-end="url(#ahmsg)"></line>
+                <text x="156" y="98" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#8f8b7e">ack</text>
+                <line x1="96" y1="126" x2="217" y2="126" stroke="#b7b3a6" stroke-width="1.2" marker-end="url(#ahmsg)"></line>
+                <text x="156" y="138" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#8f8b7e">retry</text>
+                <text x="156" y="168" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#b7b3a6">+ session · dedupe · ordering</text>
+                <text x="330" y="26" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#2c5a3c">Shared memory — write · read</text>
+                <circle cx="384" cy="60" r="20" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+                <text x="384" y="65" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">A</text>
+                <circle cx="540" cy="60" r="20" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+                <text x="540" y="65" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">B</text>
+                <rect x="427" y="120" width="74" height="34" rx="6" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.4"></rect>
+                <text x="464" y="141" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="12" fill="#234a31">value</text>
+                <line x1="394" y1="78" x2="446" y2="118" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahmem)"></line>
+                <text x="398" y="108" font-family="Archivo, sans-serif" font-size="10" fill="#2c5a3c">write</text>
+                <line x1="492" y1="118" x2="532" y2="78" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahmem)"></line>
+                <text x="512" y="108" font-family="Archivo, sans-serif" font-size="10" fill="#2c5a3c">read</text>
+                <text x="464" y="180" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#b7b3a6">one value · several machines see it · nothing in flight</text>
+              </svg>
+            </div>
+            <figcaption><b>Diagram 4.</b> Conventional networking manages an exchange — send, acknowledge, retry, sequence. FrogNet exposes one shared value several machines can see: you write where you compute and read where you need, with nothing in flight.</figcaption>
+          </figure>
+          <p>The distinction is not cosmetic, and it is more than a friendlier programming interface. Most systems that claim to simplify networking only hide the message behind a nicer surface — remote procedure calls, message queues, web APIs all still have a send and a receive underneath, and that underlying machinery reasserts itself the moment something fails. FrogNet does not hide the message; it removes the category. There is no degraded message path waiting to leak through, because there is no message. That is the difference between a convenience layer and a genuine paradigm shift: a convenience layer has the old model still running underneath, and a paradigm shift does not.</p>
+          <p>The elegance is in what the shift lets you stop writing. A programmer describes a piece of shared data with a few declarations: what its fields are, how fresh each field must be, where authority over it lives if anywhere, and what a received value means. From those declarations, an entire category of hand-written code simply ceases to exist — the retry loops, the version counters, the acknowledgment handling, the deduplication, the jitter buffers, the backpressure protocols. In the adaptive media system, for instance, “video gives way before audio on a failing link” is not an algorithm anyone wrote; it is two freshness declarations, one marking audio as the protected stream and one marking video as droppable. The hard behavior became a property you declare once rather than logic you build and debug. That is elegance in the engineering sense: the difficult thing did not get a better implementation — it stopped needing one.</p>
+          <p>And because it is one mechanism, it spans the entire system with no seams. Presence, a multiplayer game, a sensor-fusion loop, a live video call, a control setpoint driving hardware — all of them are the same handful of declarations over the same shared memory. In a conventional stack each of those is a different subsystem with its own protocol: a publish-subscribe bus, game netcode, an industrial control bus, a media stack, a messaging layer, each with its own failure modes and its own glue. Collapsing them onto a single coordination model is what makes possible the programming that was previously out of reach for a small team — not because any one of those capabilities was impossible elsewhere, but because composing all of them on one substrate, without an army of integration code, was. This is the shift that let one person build what is described in the rest of this document.</p>
+          <p>There is an honest boundary that is itself part of the design, and naming it is what keeps the claim credible. A shared memory of this kind gives you bounded-stale current state — the best available answer right now — but it does not give consensus, a total ordering of all writes, or atomic changes across many values at once. FrogNet does not pretend otherwise. For the few things that genuinely require an order — whose turn it is, who holds a lease, which of two commands won — it elects a single authority and routes those decisions through it.</p>
+          <p class="pq">Design for merge, elect for order, and never let the shared picture pretend to be the order.</p>
+          <p>The reason the model is so light is precisely that it refuses to impose the heavy distributed-systems guarantees on the overwhelming majority of coordination that never needed them. Treating all coordination as if it required consensus is the original mistake that made conventional networked software so heavy; declining to make that mistake is as much a part of this shift as the shared memory itself.</p>
+        </div>
+      </section>
+
+      <!-- ============ WHAT FROGNET IS AND DOES ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Four · The Inventory</p>
+          <h2 class="sec">What FrogNet Is and Does</h2>
+        </div>
+        <p>The following is a comprehensive description of FrogNet's architecture, capabilities, and proven performance characteristics as of April 2026.</p>
+
+        <h3 class="sub">Network Foundation</h3>
+        <ul class="spec">
+          <li>Transport-agnostic fabric — WiFi, Ethernet, WireGuard, LoRa, narrowband RF, any combination</li>
+          <li>Self-forming — nodes discover each other automatically, no configuration required</li>
+          <li>Self-organizing — topology managed without human intervention</li>
+          <li>Self-optimizing — routing and compression improve as the network learns traffic patterns</li>
+          <li>Self-healing — network fragments operate independently, rejoin without reconciliation</li>
+          <li>Network-to-network architecture — not device-to-device, entire networks federate</li>
+          <li>No central authority — no single point of failure anywhere in the design</li>
+          <li>Internet-optional — uses internet when available, operates fully without it</li>
+          <li>Federation — even extremely low-speed links cause independent networks to join and behave as one cohesive system</li>
+        </ul>
+
+        <h3 class="sub">Semantic Compression Engine (BLDC-1)</h3>
+        <ul class="spec">
+          <li>Reduces structured HTTP traffic by 93.8% in production</li>
+          <li>Supports HTML, XML, JSON, CSV, and plain text natively</li>
+          <li>Extensible via OO derivation — new data types added without changing the core</li>
+          <li>Template learning — network learns structure of traffic automatically</li>
+          <li>SAME/DIFF protocol — unchanged responses collapse to 16 bytes</li>
+          <li>Applied at infrastructure layer — zero application changes required</li>
+          <li>REST is the native protocol — coordination and data use the same compressed transport</li>
+          <li>44× throughput improvement proven on constrained links (Ethernet-shaped to match narrowband RF: 4800 baud, added jitter, 20% packet loss)</li>
+          <li>Parallelization fills dead air between messages — near-100% link duty cycle</li>
+          <li>All system-level coordination uses REST — automatically benefits from compression</li>
+        </ul>
+
+        <h3 class="sub">Node Architecture</h3>
+        <ul class="spec">
+          <li>Each node is a complete sovereign network</li>
+          <li>Runs DNS, DHCP, Apache web server, MySQL database locally</li>
+          <li>Operates fully standalone with zero connectivity</li>
+          <li>Meshes automatically when other nodes come into range</li>
+          <li>Standard Linux hardware — Raspberry Pi, x86, anything</li>
+          <li>Python, PHP, bash — no exotic dependencies</li>
+        </ul>
+
+        <h3 class="sub">Pond and Chorus Model — Scope as Architecture</h3>
+        <p>FrogNet's scope hierarchy answers a problem that conventional networking solves with a lot of heavier machinery: how do you segment a network without designing the segmentation in advance, and how do you change membership without reconfiguring the members?</p>
+        <p><strong>Four scopes, nested:</strong></p>
+        <ul class="spec">
+          <li><strong>Self</strong> — the node itself. Everything the node can do standalone with no other node reachable. Local web server, local database, local AI, local sensors and actuators. This is the offline-first baseline; every other scope is an enhancement.</li>
+          <li><strong>Lillypad</strong> — the node plus everything directly attached to it. The sensors on its LAN, the ESP32 sensor and actuator boards talking Bluetooth or WiFi to a Pi Zero worker hanging off the node, the laptops and phones using it as their gateway. The lillypad is what an operator thinks of as “their FrogNet” in the small.</li>
+          <li><strong>Chorus</strong> — a visibility and routing group inside a pond. Nodes in the same chorus can reach each other; nodes in different choruses on the same pond cannot. Membership is dynamic — a node can be in many choruses at once, each with its own subnet within the pond's address space. Choruses can be public (any pond member can join by name) or invisible (joining requires the name and a password). A chorus is the right shape for a task force: a named group of platforms that need to see each other, formed and dissolved by membership change rather than reconfiguration. Choruses are how segmentation happens — not by VLAN, not by firewall rule, but by membership in a named group.</li>
+          <li><strong>Pond</strong> — the full network. A pond has a name, a network block, a broker, and a membership list. Nodes register into the pond by knowing its name and the address of its broker. Every pond has an “Entire Pond” chorus that all members are auto-joined to on registration; other choruses are opt-in.</li>
+        </ul>
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">Scope as architecture — Self ⊂ Lillypad ⊂ Chorus ⊂ Pond</div>
+            <div class="scopes">
+              <div class="scope pond"><span class="scope-tag">POND · the full network — broker holds membership</span>
+                <div class="scope chorus"><span class="scope-tag">CHORUS · visibility group — segmentation by membership</span>
+                  <div class="scope lily"><span class="scope-tag">LILLYPAD · node + attached sensors &amp; devices</span>
+                    <div class="scope self"><span class="scope-tag">SELF · standalone node</span>
+                      <div class="self-body">web · db · AI · sensors — runs with zero connectivity</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="scope chorus ghost"><span class="scope-tag">CHORUS · another group — invisible to the first</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption><b>Diagram 5.</b> Each scope nests inside the next. Membership — not VLANs or firewall rules — defines who can see whom, and it lives in the broker, so moving a node between groups is a record change, not a reconfiguration.</figcaption>
+        </figure>
+
+        <p>The broker is the keeper of pond and chorus membership. It is never able to reconstruct the traffic — on one LAN nodes talk directly and the broker never sees a byte; across the internet the WireGuard tunnels it hands out meet at the broker, which terminates them and relays the traffic on, so in its own namespace it does see decrypted bytes — but running none of the semantic stack (no codec, no template, no baseline, no tuple database) what it sees is label-stripped diffs and codec-less frames, not content. It knows who belongs to what, and little else. When a node polls the broker, it gets back its current membership. The node reconciles its local state against that. That is the entire control loop.</p>
+        <p><strong>Two consequences fall out:</strong></p>
+        <p><em>Membership is data, not configuration.</em> Moving a node from one pond to another is a single broker record change. Adding a node to a chorus is a single broker call. There is no “push the new config” step because there is no config to push — the node will read the new truth on its next poll. Pond reassignment on the fly, demonstrated in production this month, is the operational form of this property.</p>
+        <p><em>Sensors and actuators live in lillypads, but their data lives in the pond.</em> An ESP32 reading a light level, a MeshTastic-bridged sensor on a ridge with no IP infrastructure of its own, a LoRa endpoint delivering a soil-moisture reading through an RF bridge — all of them write into the transient database through their host node's proxy and become visible across the entire pond instantly. The closed-loop demonstration of April 17, 2026 — a Flask UI in New York, an ESP32 sensor on a Manhattan desk, an ESP32 actuator on the same desk, all coordinating through a database 2,400 miles away in Seattle — is the simplest possible expression of this property. The same pattern scales: dozens of ESP32 boards per lillypad, dozens of lillypads per pond, all writing to one transient database, all visible to every node and every AI on the network simultaneously.</p>
+        <p>The transports a host node uses to reach other nodes are equally varied. Standard Ethernet and 5 GHz WiFi for short range. WireGuard tunnels over the public Internet when the broker provides a path. A 900 MHz HaLow hat — IEEE 802.11ah on the sub-gigahertz ISM band, rated for approximately two miles in clear air — for long-range, license-free, full-IP links between Pi-class nodes; HaLow presents to Linux as a standard WiFi interface, so FrogNet rides it without any protocol translation. Daniel Tone has driven a HaLow node trunk-mounted through Queens, New York, holding the link continuously across multipath, building occlusions, and the metal enclosure of the vehicle itself. MeshTastic and generic LoRa bridges for sensor data arriving over radios narrower than IP can ride directly. None of the application code knows the difference. None of the pond/chorus logic changes. New transports plug in below the line; the architecture above the line does not move.</p>
+
+        <figure class="shot">
+          <div class="shot-frame"><span>SCREENSHOT — fln_dashboard family-colored route map with pond, choruses, and egress pathways</span></div>
+          <figcaption><b>Figure 3.</b> Scope as architecture: a pond, its choruses, and egress pathways rendered from live membership.</figcaption>
+        </figure>
+
+        <h3 class="sub">Transient Database</h3>
+        <p>The transient database's design lineage traces directly to the real-time data buses used in commercial aviation, specifically ARINC 429 — the broadcast bus that has carried flight-control, navigation, and instrumentation data on commercial aircraft for nearly five decades. ARINC 429 is simple: no store-and-forward, no reconciliation, no message addressing. A transmitter broadcasts current state at a fixed rate, and any subscriber on the bus that needs a given parameter reads it. There is no notion of “delivery” because the bus is always carrying the current truth — if you missed it, the next sample is on its way.</p>
+        <p>The transient database is that idea projected onto a network. Any node writes its current sensor state into the database. Any reader sees it. No history, no reconciliation on rejoin after a network split, no delivery semantics to negotiate. The database is always carrying the current truth, mesh-wide, and any subscriber that needs a given parameter reads it. ARINC 429 gave commercial aircraft a way to coordinate dozens of independent systems on a shared real-time substrate without requiring any of them to know about each other. The transient database gives FrogNet the same capability across a network.</p>
+        <ul class="spec">
+          <li>Floating MariaDB instance on highest-IP node, recalculated on every merge</li>
+          <li>Always available anywhere on the mesh — same address regardless of which node hosts it</li>
+          <li>Stores real-time sensor data as generic JSON tuples — any sensor, any type</li>
+          <li>Intentionally ephemeral — no reconciliation on split/rejoin, matches the physics</li>
+          <li>Network-wide shared scratchpad visible to all nodes simultaneously</li>
+          <li>Supports real-time dashboards and AI inference simultaneously</li>
+          <li>WellKnownSite table — service discovery without DNS, maps service names to node IPs dynamically</li>
+        </ul>
+
+        <h3 class="sub">AI Platform</h3>
+        <ul class="spec">
+          <li>Local Ollama inference — no cloud, no backhaul required</li>
+          <li>Domain-specific models trained for the deployment context</li>
+          <li>Reads live sensor data from transient database</li>
+          <li>Writes commands back to actuators through the same database</li>
+          <li>Sensor-to-actuator loops operate entirely offline</li>
+          <li>Online/offline — behaves identically with or without internet</li>
+          <li>Multiple AIs can run simultaneously across nodes, sharing the same world state</li>
+          <li>Multiple dashboards see the same real-time data simultaneously — no master, no replica</li>
+        </ul>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">The closed loop — sensor, AI, and actuator share one database</div>
+            <svg viewBox="0 0 620 215" xmlns="http://www.w3.org/2000/svg">
+              <defs><marker id="ahlp" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker></defs>
+              <rect x="235" y="76" width="150" height="54" rx="8" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.5"></rect>
+              <text x="310" y="99" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600" fill="#234a31">Transient Database</text>
+              <text x="310" y="116" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#6f6d64">shared · mesh-wide</text>
+              <rect x="28" y="83" width="120" height="40" rx="4" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="88" y="107" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#1b1a16">Sensor / ESP32</text>
+              <rect x="250" y="8" width="120" height="38" rx="4" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="310" y="32" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#1b1a16">AI · Ollama</text>
+              <rect x="472" y="83" width="120" height="40" rx="4" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="532" y="107" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#1b1a16">Actuator</text>
+              <line x1="150" y1="103" x2="232" y2="103" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahlp)"></line>
+              <text x="191" y="96" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">writes</text>
+              <line x1="296" y1="74" x2="296" y2="49" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahlp)"></line>
+              <text x="288" y="64" text-anchor="end" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">reads</text>
+              <line x1="324" y1="49" x2="324" y2="74" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahlp)"></line>
+              <text x="332" y="64" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">command</text>
+              <line x1="388" y1="103" x2="470" y2="103" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ahlp)"></line>
+              <text x="429" y="96" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">reads</text>
+              <path d="M532,124 C532,188 88,188 88,125" fill="none" stroke="#2c5a3c" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.75" marker-end="url(#ahlp)"></path>
+              <text x="310" y="183" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#8f8b7e">physical effect closes the loop</text>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 6.</b> Sensor, AI, and actuator never address each other. Each reads and writes one shared database, so the control loop runs entirely inside the mesh and survives the loss of the internet or any single node.</figcaption>
+        </figure>
+
+        <h3 class="sub">Sensor and Actuator Platform</h3>
+        <ul class="spec">
+          <li>ESP32 sensor and actuator boards via Bluetooth, WiFi, or Ethernet</li>
+          <li>Pi Zero concentrators aggregate and push to local database</li>
+          <li>External mesh radio technologies (Meshtastic, MeshCore, generic LoRa) integrate as data endpoints — their RF bridges write directly into the transient database</li>
+          <li>FrogNet can also sit on top of those same mesh radio bearers — the semantic layer riding the RF network as its transport</li>
+          <li>Any sensor type — environmental, health, telemetry, structural, agricultural</li>
+          <li>Bidirectional actuator control validated end-to-end on April 17, 2026 (Flask UI, sensor board, actuator board, all coordinating through the transient database across a 2,400-mile WAN)</li>
+          <li>Real-time ingestion with immediate mesh-wide visibility</li>
+        </ul>
+
+        <h3 class="sub">Broker and Tunnel System</h3>
+        <ul class="spec">
+          <li>StreamingFrog broker manages WireGuard tunnel lifecycle</li>
+          <li>Broker is not restricted to any specific infrastructure</li>
+          <li>Can run on any internet-connected server</li>
+          <li>Can run inside a corporate VPN for fully private tunnel networks</li>
+          <li>Can run on any node in the mesh itself</li>
+          <li>Bidirectional tunnel management — creation, refresh, teardown</li>
+          <li>256-worker daemon pool for genuine parallel processing</li>
+        </ul>
+
+        <h3 class="sub">Security Model</h3>
+        <ul class="spec">
+          <li>Physical proximity is the first perimeter — must be in range to join</li>
+          <li>Network membership is the trust boundary — not per-service credentials</li>
+          <li>WireGuard encryption on all tunnels — Curve25519, compact handshake</li>
+          <li>Inbound from internet closed by default — nodes don't advertise themselves</li>
+          <li>No TLS overhead on internal traffic — eliminated by design, not by omission</li>
+          <li>Standard Linux underneath — full ecosystem of security tools available if wanted</li>
+          <li>TOFU trust model for script distribution — pins on first contact, rejects on key mismatch</li>
+          <li>Ed25519 signatures for mesh-wide script distribution</li>
+          <li>Not deployed on amateur (ham) radio bands — FCC Part 97.113(a)(4) prohibits obscured communications, and template-based compression is indistinguishable from a cipher to a listener without the template dictionary. This is a deliberate design constraint, not a limitation.</li>
+        </ul>
+
+        <h3 class="sub">Wire Protocol (FNW1)</h3>
+        <ul class="spec">
+          <li>Custom wire protocol — <code>REQ_FULL</code>, <code>REPEAT</code>, <code>RAW</code>, <code>DIFF</code>, <code>RESP_DIFF</code>, <code>SAME</code>, <code>ERROR</code>, <code>SEQ_RESET</code>, <code>HELLO</code> opcodes</li>
+          <li>4-byte big-endian length prefix on all frames</li>
+          <li>Sequence-tagged frames for ordered delivery</li>
+          <li><code>WIRE_VERSION=3</code>, <code>REQ_HASH_LEN=16</code></li>
+          <li>LZ4 smart compression underneath BLDC-1</li>
+        </ul>
+
+        <h3 class="sub">Management and Operations</h3>
+        <ul class="spec">
+          <li><code>frognet_monitor</code> — real-time dashboard showing all nodes, daemon status, metrics</li>
+          <li>Admin API — <code>X-Admin-Key</code> protected PHP endpoint for remote node management</li>
+          <li>Admin Android fragment — PIN-gated admin UI within FrogNet Family app</li>
+          <li>Admin HTML dashboard — browser-based management at FrogNetAdmin vhost</li>
+          <li>Restart individual daemons remotely — tunnel, proxy, daemon independently</li>
+          <li>Force merge remotely — trigger <code>sync_interfaces.sh</code> from admin UI</li>
+          <li>WiFi reconnection — switch antennas to new endpoints via <code>nmcli</code> through admin API</li>
+          <li><code>frognet-runonce</code> — Ed25519-signed script distribution across mesh via gossip relay</li>
+          <li>Metrics pipeline — v5 sensor model, SemanticProxy, SemanticCache, SemanticDaemon sensors</li>
+          <li>Unified logging — <code>frognet_log.py</code>, ERR/INFO/DEBUG via <code>FROGNET_LOG_LEVEL</code></li>
+          <li><code>setup_lillypad.bash</code> — complete node provisioning script</li>
+        </ul>
+
+        <h3 class="sub">Applications Built on the Platform</h3>
+        <ul class="spec">
+          <li>FrogChat — vanilla JS single-file chat app, no dependencies, runs in any browser</li>
+          <li>FrogNet Family Android app — Kotlin, GPS tracking, chat, sticky notes, dual-write architecture</li>
+          <li>Real-time GPS presence map — all users visible mesh-wide via transient DB</li>
+          <li>Voice and video calling — WebRTC P2P for 1:1, Galène SFU for group calls</li>
+          <li>Family calendar — CalDAV/CardDAV, mesh-synchronized</li>
+          <li>Shared photo gallery — self-hosted, no cloud</li>
+          <li>Family wiki — flat-file, runs on any node</li>
+          <li>Distributed file sync — transport-agnostic, peer-to-peer</li>
+          <li>Wellness monitoring — passive activity signals, anomaly detection, elder care alerts</li>
+          <li>Emergency broadcast — mesh-wide alert system, works without internet</li>
+        </ul>
+
+        <h3 class="sub">Deployment and Distribution</h3>
+        <ul class="spec">
+          <li>Passcode system — broker authentication for FrogNet Family tunnels</li>
+          <li>NetworkManager fix — <code>dns=default</code> prevents resolv.conf overwrites</li>
+          <li>Broker portability — any server, any VPN, any node, no vendor dependency</li>
+        </ul>
+
+        <h3 class="sub">Intellectual Property Position</h3>
+        <ul class="spec">
+          <li>Three issued US patents — storage virtualization, pop-up networking, physical product</li>
+          <li>Pop-up networking patent is direct architectural precursor to mesh formation — lineage, not just a filing date</li>
+          <li>More than a dozen additional patentable inventions identified in the code — deliberately not filed</li>
+          <li>NSF Phase I SBIR invitation in hand — Wireless Technologies topic</li>
+          <li>CAGE code 1A5Y5, SAM registered, full awards authority</li>
+        </ul>
+
+        <h3 class="sub">Proven in Production</h3>
+        <div class="stats">
+          <div class="stat"><div class="stat-num">93.8%</div><div class="stat-label">bandwidth reduction on real production traffic</div></div>
+          <div class="stat"><div class="stat-num">44×</div><div class="stat-label">throughput improvement on constrained links</div></div>
+          <div class="stat"><div class="stat-num">10 nodes</div><div class="stat-label">across Seattle, New York &amp; Amsterdam</div></div>
+          <div class="stat"><div class="stat-num">4800 baud</div><div class="stat-label">full web apps validated at the floor</div></div>
+        </div>
+        <ul class="spec">
+          <li>Ten nodes across Seattle, New York, and Amsterdam</li>
+          <li>First independent end-to-end closed-loop demonstration completed April 17, 2026 — Daniel Tone (New York) driving a physical actuator in New York from a Flask UI in New York, with all coordination passing through the transient database on SeattleDB, 2,400 miles away, entirely over semantic-compressed HTTP</li>
+          <li>Sub-2-second transaction RTT transatlantic over a 4800-baud link with 20% loss</li>
+          <li>93.8% bandwidth reduction on real traffic</li>
+          <li>44× throughput improvement on constrained links</li>
+          <li>Active development partner in New York City</li>
+          <li>MeshTastic-bridged sensor flow operational — RF-delivered sensor data writes directly into the transient database, validated end-to-end by Daniel Tone in New York</li>
+          <li>Mobile HaLow link validated through dense urban driving — Daniel Tone operated a trunk-mounted HaLow node through Queens, New York with no observed link drops, demonstrating continuous mesh participation across multipath, building occlusions, and the metal enclosure of the vehicle</li>
+          <li>Emergency-management coordination at emergency operations centers, over WiFi, LoRa, and WireGuard — not on amateur radio bands</li>
+          <li>TRL 6–7</li>
+        </ul>
+
+        <figure class="shot">
+          <div class="shot-frame"><span>SCREENSHOT — frognet_monitor live 93.8% compression number and per-node daemon status</span></div>
+          <figcaption><b>Figure 4.</b> Production telemetry: live compression ratio and per-node daemon health across the mesh.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ============ APPENDIX A ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Appendix A</p>
+          <h2 class="sec">How FrogNet Handles Emergencies</h2>
+        </div>
+        <p>These scenarios were referenced in the opening section and are reproduced here for readers who want concrete examples of how FrogNet performs when conventional infrastructure fails. Each one is a deployment pattern the current system supports today, not a future roadmap.</p>
+
+        <h3 class="sub">Summer Camp</h3>
+        <p>Your twelve-year-old is at a camp in the mountains. There is no cell service and barely any electricity. The camp does not have commercial internet, but the ranger's station has a long-range LoRa link to a Meshtastic-style RF gateway at the trailhead, and the trailhead has a satellite uplink that comes up for a few hours each evening.</p>
+        <p>The camp has a FrogNet box. So does your house. For most of the day, the camp's box operates on its own — a local network inside the camp for the staff and kids. When the evening uplink comes up, the camp's box and yours find each other and synchronize everything that happened during the day. Your kid's check-ins, their photos, their GPS dots on the family map — all of it arrives in a single batch that the semantic compression engine sends over the narrow link in a fraction of the bandwidth it would normally take.</p>
+        <p>You leave a sticky note that says “Grandma says hi.” The camp's box picks it up the next evening. Your kid sees it when they wake up.</p>
+        <p>Nothing goes through any company's servers. No cell service is required at the camp. The link between camp and home is a few hours of narrowband a day, and FrogNet treats that as perfectly sufficient — because for this kind of family communication, it is.</p>
+
+        <h3 class="sub">The Ambulance</h3>
+        <p>A paramedic crew responds to an emergency. They load the patient and begin treatment. Between the scene and the hospital, they pass through areas with no cell coverage. In a conventional system, the data they are collecting — vitals, treatment notes, patient status — cannot reach the hospital until they drive back into cell range. The emergency room gets no warning, no preparation time, no head start on the case.</p>
+        <p>With FrogNet, the ambulance has a box. The hospital has a box. The boxes connect through whatever path is available — cellular, WiFi hotspots along the route, a commercial narrowband data radio, or even a dedicated LoRa relay. Patient data flows to the hospital in real time when connectivity exists. When it does not, the ambulance's box stores everything locally and transmits the moment a link reappears. The ER sees vitals updating as the ambulance approaches. They are ready before the doors open.</p>
+        <p>This is not hypothetical architecture. FrogNet's semantic compression engine was specifically designed to deliver full web applications over links as narrow as 4800 baud — slower than a 1990s dialup modem — and has been validated at that rate. It achieves 44× the throughput of conventional protocols on the same physical link by learning the structure of the traffic and transmitting only what has changed. On a steady-state data feed like patient vitals, a 500-kilobyte update collapses to fewer than 150 bytes on the wire. That is small enough to send over almost anything that carries IP.</p>
+
+        <h3 class="sub">The Disaster</h3>
+        <p>A hurricane hits the Gulf Coast. Cell towers are down. Power is out. The internet does not exist. First responders from six agencies converge on the area with no way to coordinate because every system they use depends on infrastructure that is no longer there.</p>
+        <p>Each FrogNet box is a sovereign network. Drop one at the command post, one at the field hospital, one at the staging area, one in each search-and-rescue vehicle. They mesh automatically over WiFi when they are near each other. When they are out of WiFi range, they connect by whatever IP-capable radio is in the truck — commercial narrowband, LoRa, Part 15 ISM-band equipment, or a satellite uplink. Sensor data from the field flows into a shared database that every node on the mesh can see. An AI running on one of the boxes watches the sensor feeds and flags anomalies. Dashboards at the command post show real-time positions of every unit.</p>
+        <p>None of this requires the internet. None of it requires a cell tower. None of it requires any infrastructure that the hurricane could take out. The FrogNet is the infrastructure, and it came in the back of a truck.</p>
+        <p>The network grows. When two independent FrogNets come within range of each other, they discover each other and merge into a single, larger network — automatically, with no human intervention. A rescue team from Texas arrives with their own FrogNet. They drive within WiFi range of the command post. The two networks see each other, exchange routing information, and become one. Every node on both sides can now reach every other node. This happens in seconds, without anyone configuring anything.</p>
+        <p>The same merging works across different transport types simultaneously. The command post connects to the field hospital by Ethernet. The field hospital connects to a remote unit by narrowband radio. A supply convoy connects through a satellite uplink. From the application's perspective, it is all one network. The applications do not know and do not care whether the bytes travel by wire, WiFi, radio, or satellite. FrogNet handles the transport. The applications just work.</p>
+
+        <h3 class="sub">Small Business, Farm, and Other Everyday Uses</h3>
+        <p>A small business with three locations and ten remote employees replaces Google Workspace with FrogNet boxes at each office and each home. Internal files, messaging, a company wiki, and sensor monitoring at the warehouse — all running on their own hardware, all private, no monthly per-seat fees, no corporate data passing through anyone else's servers.</p>
+        <p>A family farm deploys sensor nodes in the fields and a FrogNet box at the farmhouse. Soil moisture, temperature, humidity — all flowing into a local dashboard through a LoRa or Meshtastic RF bridge. A local AI makes irrigation recommendations. None of this requires cell coverage in the field. None of it requires a cloud subscription to view your own sensor data.</p>
+      </section>
+
+      <!-- ============ APPENDIX B ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Appendix B · Work in Progress</p>
+          <h2 class="sec">The Song of the Frogs</h2>
+          <p style="font-family:'Archivo',sans-serif; font-size:15px; font-weight:500; color:var(--muted); margin:12px 0 0; letter-spacing:0.01em;">Communication That Does Not Stop</p>
+        </div>
+        <p>Everything described in the main body of this document is operational today. This appendix is different. It describes work in progress — and it does so for two reasons.</p>
+        <p>The first reason is to introduce SotF-ACP — the Song of the Frogs Adaptive Communications Protocol — a communications protocol that does not stop. SotF-ACP is being built on top of FrogNet to handle the use case that matters most when everything else fails: two people trying to communicate across a link that is degrading toward zero.</p>
+        <p>The second reason is broader. SotF-ACP is being built on top of an extension point in FrogNet's semantic compression engine that allows entirely new wire protocols to be plugged in as infrastructure — with no application changes, no schema declarations, no per-endpoint configuration. SotF-ACP is the first non-trivial use of that extension point. The story of SotF-ACP is therefore also the story of a generic capability with implications well beyond adaptive media. This appendix tells both stories: the protocol, and the architecture that made the protocol possible.</p>
+        <p>Conventional communication has two states: working, or dropped. A video call is up, or it ends. A voice call is up, or it ends. A text message goes through, or it queues forever waiting for connectivity that may never come. The user experiences a binary outcome.</p>
+        <p>SotF-ACP has eight states.</p>
+
+        <h3 class="sub">The Idea</h3>
+        <p>If you have ever stood by a frog pond at dusk, you have heard it. One frog calls. Another answers. A third joins. Within seconds the pond is a chorus of dozens of voices, overlapping, layered, continuous. The song is the multitude.</p>
+        <p>Take any one frog out. The song continues. Take most of them out, and the song continues quieter. Take all but one, and that one still sings — and if anyone is listening, the song is still there. The medium changes. The meaning does not.</p>
+        <p>That is the shape SotF-ACP is built around. Two users have a conversation. The protocol underneath decides, in real time, what shape of message the current link can carry — full bidirectional video at one end of the spectrum, a single byte-scale heartbeat at the other — and renders it appropriately on the other end. The users experience one continuous conversation. The wire carries whatever it can. When the link improves, the protocol climbs back up. When it gets worse, the protocol slides down. Neither end has to know what level the other is at. The protocol does the translation.</p>
+
+        <h3 class="sub">The Eight Levels</h3>
+        <p>The levels span roughly six orders of magnitude of bandwidth. The exact boundaries are still being tuned, but the structure is fixed:</p>
+        <div class="levels">
+          <div class="level"><div class="level-tag">L7</div><div><div class="level-name">Full Video</div><div class="level-bar" style="width:100%"></div></div><div class="level-desc">Full bidirectional video. Video and audio both directions, high quality. The link is healthy.</div></div>
+          <div class="level"><div class="level-tag">L6</div><div><div class="level-name">Reduced Video</div><div class="level-bar" style="width:80%"></div></div><div class="level-desc">Lower resolution or framerate. Audio unaffected.</div></div>
+          <div class="level"><div class="level-tag">L5</div><div><div class="level-name">Audio, Duplex</div><div class="level-bar" style="width:62%"></div></div><div class="level-desc">Audio only, bidirectional. Video has been dropped; voice is intact in both directions.</div></div>
+          <div class="level"><div class="level-tag">L4</div><div><div class="level-name">Audio, Half-Duplex</div><div class="level-bar" style="width:48%"></div></div><div class="level-desc">Audio one direction, audio reply the other. Half-duplex voice.</div></div>
+          <div class="level"><div class="level-tag">L3</div><div><div class="level-name">Compressed Voice</div><div class="level-bar" style="width:34%"></div></div><div class="level-desc">Compressed voice (Codec2 or similar). Voice still recognizable, but down to 1.2–2.4 kbps.</div></div>
+          <div class="level"><div class="level-tag">L2</div><div><div class="level-name">Text</div><div class="level-bar" style="width:22%"></div></div><div class="level-desc">Real-time typed exchange. Voice is gone; the conversation becomes written.</div></div>
+          <div class="level"><div class="level-tag">L1</div><div><div class="level-name">Tokens</div><div class="level-bar" style="width:12%"></div></div><div class="level-desc">Pre-defined short tokens: “OK,” “wait,” “help,” “no,” “yes,” “moving,” “stopped.” A handful of bytes per exchange.</div></div>
+          <div class="level"><div class="level-tag">L0</div><div><div class="level-name">Presence</div><div class="level-bar" style="width:5%"></div></div><div class="level-desc">A single periodic byte that says only: I am here, I am listening, I am alive.</div></div>
+        </div>
+        <p class="pq">Even at L0, the connection is not “dropped.” It is the smallest possible song.</p>
+        <p>If anything more is possible, the protocol climbs back up. If even L0 fails — total link loss, full jamming, the radio physically destroyed — that is the only condition under which the conversation actually ends.</p>
+
+        <h3 class="sub">How This Differs from Every Other Streaming Protocol</h3>
+        <p>This is the part a video or voice engineer will find most surprising. Every real-time media protocol in widespread use — RTP, WebRTC, SIP, the voice/video stacks that ship in every consumer app — handles a degrading link the same way: fire packets into the network as fast as you can, hope most of them arrive, and patch up the wreckage on the receiving end. UDP is the substrate. Packets are independent. The sender does not know which ones got through. The receiver assembles whatever shows up, runs jitter buffers and packet-loss concealment over the gaps, and renders the result. When the link is good, this works well. When the link degrades, the receiver renders the corruption: blocky video, audio that warbles and drops out, partial frames sewn together from packets that arrived and packets that did not. The picture you see is wrong in ways that are unmistakably “the network is failing.”</p>
+        <p>Call it the shotgun approach. The sender sprays. The receiver salvages.</p>
+        <p>SotF-ACP inverts every part of this.</p>
+        <p>The substrate underneath is TCP — reliable, in-order delivery. Frames arrive complete or they do not arrive at all. There is no such thing as half of a frame reaching the receiver. There is no packet-loss concealment, because there is no packet loss; there is only frame delivery or frame omission, and both are clean.</p>
+        <p>The decision about what to drop is made at the sender, in real time, based on what the link is telling the kernel right now. When the sender's outbound buffer starts filling — the operating system's explicit signal that the link is saturated — the protocol drops complete frames before they ever cross the wire. Not pieces of frames. Whole frames. The receiver does not have to know a frame was dropped. The next frame that arrives is intact, in order, and renderable on its own.</p>
+        <p>The user-visible effect on a degrading video call is therefore not corruption. It is reduced frame rate. The picture stays clean; it just updates less often. When the frame rate drops below the threshold where video is useful, the protocol drops to audio-only — but the audio is clean, not glitchy. When the audio bandwidth becomes too much, it drops to compressed voice. When that becomes too much, text. Each transition is a clean handoff to a lower-bandwidth, higher-survivability rendering of the same conversation. At no point does the user see a broken version of the higher level. They see the appropriate level for the link they currently have.</p>
+        <p>There is a deeper structural difference beneath the clean handoff. In WebRTC and SIP, changing quality means renegotiating the session — a fresh ICE/DTLS/SRTP handshake and a round trip of offer and answer before a single frame flows at the new setting. SotF-ACP keeps the two planes physically apart: the audio and video bytes ride one standing TCP stream opened once at the start of the call, while every control value — which rung each side wants, and where to reach it — lives in shared network memory. Changing quality is therefore a memory write, not a renegotiation. There is no handshake to redo and no session to tear down and rebuild; the next frame simply arrives at the new rung. It is the same shift that runs the rest of FrogNet — memory, not messages — applied to the hardest real-time case.</p>
+        <p>This matters more than it sounds. A brain can fill in a missing frame but cannot unscramble a half-pixelated one. It tolerates an audio stream that pauses and resumes; it fights one that warbles and clicks. Conventional real-time protocols deliver exactly the kind of degradation human perception handles worst. SotF-ACP delivers the kind it handles best.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">A cliff vs a staircase — what degradation feels like</div>
+            <svg viewBox="0 0 620 250" xmlns="http://www.w3.org/2000/svg">
+              <defs><marker id="ahax" markerWidth="7" markerHeight="7" refX="5" refY="2.5" orient="auto"><path d="M0,0 L5,2.5 L0,5 Z" fill="#1b1a16"></path></marker></defs>
+              <line x1="70" y1="206" x2="588" y2="206" stroke="#1b1a16" stroke-width="1.2" marker-end="url(#ahax)"></line>
+              <line x1="70" y1="206" x2="70" y2="34" stroke="#1b1a16" stroke-width="1.2" marker-end="url(#ahax)"></line>
+              <text x="40" y="120" transform="rotate(-90 40 120)" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#6f6d64" letter-spacing="0.06em">USABLE COMMS</text>
+              <text x="330" y="236" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#6f6d64" letter-spacing="0.06em">LINK QUALITY DEGRADING →</text>
+              <path d="M70,62 L300,62 L300,206" fill="none" stroke="#b7b3a6" stroke-width="3"></path>
+              <text x="310" y="150" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="#8f8b7e">call drops</text>
+              <path d="M70,68 L150,68 L150,94 L220,94 L220,118 L290,118 L290,142 L360,142 L360,164 L430,164 L430,182 L500,182 L500,194 L560,194 L560,206" fill="none" stroke="#2c5a3c" stroke-width="3"></path>
+              <text x="108" y="62" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c5a3c">L7</text>
+              <text x="248" y="112" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c5a3c">L5</text>
+              <text x="388" y="158" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c5a3c">L3</text>
+              <text x="508" y="188" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c5a3c">L1</text>
+              <text x="566" y="200" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#2c5a3c">L0</text>
+              <line x1="360" y1="42" x2="392" y2="42" stroke="#b7b3a6" stroke-width="3"></line>
+              <text x="398" y="46" font-family="Archivo, sans-serif" font-size="10.5" fill="#6f6d64">Conventional</text>
+              <line x1="360" y1="60" x2="392" y2="60" stroke="#2c5a3c" stroke-width="3"></line>
+              <text x="398" y="64" font-family="Archivo, sans-serif" font-size="10.5" fill="#2c5a3c">SotF-ACP</text>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 7.</b> Every conventional real-time protocol works until a threshold, then drops to zero. SotF-ACP steps down through eight levels — video, audio, voice, text, tokens, presence — staying alive until the link carries literally nothing.</figcaption>
+        </figure>
+
+        <h3 class="sub">What Makes This Possible</h3>
+        <p>SotF-ACP is not a clever protocol bolted onto a fragile stack. It is the direct beneficiary of everything described in the main body of this document. The properties FrogNet has — the same ones that make a 4800-baud link useful for full web applications — are what allow eight levels of graceful degradation to exist at all.</p>
+        <ul class="spec">
+          <li><strong>Transport abstraction (shift 1)</strong> means SotF-ACP does not care what carries its frames. A level can fall back to a narrowband radio bearer the moment the WiFi link dies, then climb back when WiFi returns. The protocol does not know or care which transport is underneath.</li>
+          <li><strong>Offline-first (shift 2)</strong> means presence at L0 is not a special “offline mode” — it is just the lowest level of the same protocol, operating on whatever store-and-forward path can reach the other end.</li>
+          <li><strong>Semantic compression (shifts 8 and 9)</strong> is what makes L2 and L1 possible at bandwidths where conventional protocols cannot pass anything at all. Text under BLDC-1 collapses to its information content; tokens collapse further. By the time you reach L1, the wire cost is small enough that almost any IP-carrying medium will pass it.</li>
+          <li><strong>Parallel processing (shift 10)</strong> keeps the wire full. Even at low levels, the link runs at near-100% duty cycle — every byte the channel allows carries useful payload, not idle protocol overhead.</li>
+          <li><strong>Networked intelligence (shift 12)</strong> means the rendering of incoming frames is a local decision. The receiving end's AI and codec stack reconstruct the appropriate output for the current level using context it already has — voiceprint, recent conversation, identity — without having to receive that context over the wire.</li>
+        </ul>
+        <p>The triggers that move the protocol between levels are primarily local to the sender. The kernel tells the sending process when its send buffer is filling up — the link is saturated — and the level shifts down; when that signal runs clean below the next-higher level's threshold for long enough, the level shifts up. The hysteresis is deliberate — the protocol does not chase noise — but the response to a genuine degradation is fast enough that the user perceives one continuous conversation, not a sequence of cliffs. There is also one deliberate cooperative path, and it is worth being precise about what it is and is not: a receiver on a poor link publishes the level it can sustain into the shared memory both ends already use, and the sender reconciles its output to that published level. This is not a feedback protocol in the traditional sense — there is no request, no reply, no acknowledgment, no round-trip the sender waits on. It is a value left in shared memory that the other side reads on its own clock, exactly like every other piece of coordination in FrogNet. The effect is that the two ends fight a degrading link together rather than the sender guessing alone, without paying for a control channel.</p>
+
+        <h3 class="sub">Beyond SotF — The Custom Protocol Architecture</h3>
+        <p>SotF-ACP was possible to build in the first place because FrogNet's semantic compression engine is not a single fixed codec. It is a host for custom wire protocols, and BLDC-1 is the default protocol that rides it. The extension point that BLDC-1 uses is the same one that SotF-ACP uses. Anything else that wants to define its own wire shape can use it too.</p>
+        <p>The interface a custom protocol has to implement is tiny. Two functions. That is the entire contract:</p>
+        <ul class="spec">
+          <li><code>encode(payload) → wire_bytes</code>. The proxy hands the protocol the HTTP payload bound for the wire. The protocol returns whatever bytes should actually be transmitted. Nothing about how it produces those bytes is the proxy's concern. The protocol can compress, encrypt, transform, replace, fragment, batch, or invent anything it wants.</li>
+          <li><code>decode(wire_bytes) → payload</code>. The proxy hands the protocol whatever it just read from the wire. The protocol returns the payload that should be delivered into the local HTTP stack. Same freedom: any transformation the protocol chose to apply is invisible to everything above and below.</li>
+        </ul>
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">The custom-protocol contract — two functions, bytes in / bytes out</div>
+            <div class="pipe">
+              <div class="pipe-box"><div class="pb-h">Application</div><div class="pb-s">ordinary HTTP</div></div>
+              <div class="pipe-arrow">→</div>
+              <div class="pipe-box pipe-fn"><div class="pb-h">encode()</div><div class="pb-s">payload → wire bytes</div></div>
+              <div class="pipe-arrow">→</div>
+              <div class="pipe-box pipe-wireb"><div class="pb-h">wire</div><div class="pb-s">any bytes</div></div>
+              <div class="pipe-arrow">→</div>
+              <div class="pipe-box pipe-fn"><div class="pb-h">decode()</div><div class="pb-s">wire bytes → payload</div></div>
+              <div class="pipe-arrow">→</div>
+              <div class="pipe-box"><div class="pb-h">Application</div><div class="pb-s">ordinary HTTP</div></div>
+            </div>
+            <div class="pipe-foot">the proxy ferries the bytes · the application never knows the protocol exists</div>
+          </div>
+          <figcaption><b>Diagram 8.</b> A custom protocol implements just <code>encode()</code> and <code>decode()</code>. The proxy hands it bytes and ships whatever it returns; the application keeps speaking ordinary HTTP and never knows the protocol exists.</figcaption>
+        </figure>
+
+        <p>That is the interface. There is no schema to declare. No callback to register beyond those two functions. No protocol-aware framing the proxy needs to know about. No negotiation handshake the proxy mediates. The custom protocol sees bytes in and produces bytes out. The proxy ferries them. The application never knows the protocol exists.</p>
+        <p>What can ride this two-function interface is limited only by what someone wants to build. SotF-ACP — adaptive media on a degrading link — is one example. Others, all architecturally possible today without any change to the engine:</p>
+        <ul class="spec">
+          <li><strong>Domain-specific compression.</strong> BLDC-1 is excellent on structured text. Medical imaging, scientific instrument data, telemetry from specialized industrial controllers, geospatial tilesets — these have compressibility properties a domain-tuned codec can exploit far more aggressively than a general one. A DICOM-aware custom protocol could deliver medical-imaging payloads at fractions of the wire cost BLDC-1 would.</li>
+          <li><strong>Application-layer encryption.</strong> WireGuard handles tunnel encryption between FrogNet nodes. A custom protocol can add end-to-end encryption on top of that, so payloads are opaque even to the other endpoints in the mesh, even to the broker, even to the local proxy itself if desired. Useful for regulated industries, fragmented-trust deployments, and any requirement that exceeds what mesh membership alone provides.</li>
+          <li><strong>Obfuscation and protocol mimicry.</strong> A custom protocol can shape its wire bytes to resemble something else entirely — generic HTTPS, plain TLS application data, a streaming video feed — making the FrogNet traffic indistinguishable to a passive observer from whatever protocol is being mimicked. Useful in adversarial-network environments where the very existence of a particular traffic pattern is itself information you do not want to reveal.</li>
+          <li><strong>Format translation.</strong> A custom protocol can transform payloads between formats on the wire: HL7 medical records to compact binary, verbose XML to a stripped binary representation, JSON to MessagePack. The application keeps speaking whatever format is convenient. The wire sees whatever format is efficient.</li>
+          <li><strong>Tunnel-within-a-tunnel.</strong> A custom protocol can carry an entirely different protocol — SIP, MQTT, Modbus, an industrial control bus — through FrogNet's transport, with the FrogNet stack acting as a generic data-link layer for the foreign protocol. This lets non-IP protocols ride FrogNet's mesh as if they had native transport.</li>
+          <li><strong>Anything else.</strong> The interface imposes no constraints beyond bytes-in / bytes-out. A custom protocol can do work that has no name yet.</li>
+        </ul>
+        <p>The custom-protocol extension architectures that exist elsewhere are all positioned somewhere FrogNet's are not. CORBA interceptors and gRPC middleware are application-layer — the application must opt in, the framework imposes a schema, and the transformation surface is bounded by the framework's protocol model. Custom TCP options and IP protocols are transport-layer — they require kernel support and run head-first into NAT and middleboxes the moment they leave a controlled environment. Service meshes like Istio and Linkerd offer per-service traffic shaping but require sidecars, configuration, and a control plane that is itself a protocol.</p>
+        <p>FrogNet's custom-protocol architecture has none of those constraints. It is application-transparent. It requires no schema. It runs as infrastructure rather than middleware. It has no opt-in barrier. The application makes ordinary HTTP calls. The proxy hands those calls to whatever protocol is configured to handle them. The protocol does whatever it does. The bytes that result cross the wire. The other end reverses the process. The application sees ordinary HTTP responses.</p>
+        <p>There is nothing else like this — not as a research artifact, not as a commercial product, not as a standards proposal. The closest comparable architecture is something a team would have to build from scratch, embedded in a custom networking stack. Which is exactly what FrogNet did, and what is now available as an infrastructure capability.</p>
+        <p>SotF-ACP, the adaptive communications protocol described above, is the first non-trivial proof that this works. It is unlikely to be the last.</p>
+
+        <h3 class="sub">What This Means</h3>
+        <p>For a family network, this is a feature people will use rarely and value when they do — the call from the cabin in the mountains that downgrades to text instead of dying, the message from the ambulance that gets through as a token when video cannot.</p>
+        <p>For a business or institutional deployment, it is the difference between “the link went down” and “the link is degraded but the conversation continues.” Operational coordination does not stop when bandwidth drops.</p>
+        <p>For deployments where lives depend on the link — first responders, field medics, disaster zones, military units operating in contested environments — it is the architectural answer to a problem the industry has not solved. Every other system in this space treats degradation as a sequence of failure modes to be handled. SotF-ACP treats degradation as a continuum along which communication never stops.</p>
+        <p>There is one condition under which SotF-ACP cannot help: completely jammed, absolutely no path of any kind between the two endpoints. No protocol can deliver a byte across a link that is carrying zero bytes. But the door at which conventional systems give up — the link is bad, the service is unavailable, the call drops — is several orders of magnitude above the floor SotF-ACP operates at. The space between “this would have been a dropped call” and “completely jammed” is where SotF-ACP lives, and that space is enormous.</p>
+
+        <h3 class="sub">Status</h3>
+        <p>The protocol now runs a full adaptive loop with recovery, end to end. The level state machine, the buffer-fill trigger logic, session lifecycle, and per-level rung selection all run cleanly under simulated link degradation, with live two-way video on real hardware. Two advances landed beyond the original prototype. First, degradation is now bidirectional and self-healing: each side steps its own quality down when its link congests and back up after the link has been clean for long enough, with deliberate hysteresis so it settles rather than oscillates. Second, the two ends cooperate to fight a bad link — a receiver whose reception is poor publishes the level it can sustain into the shared memory, and the sender reconciles what it transmits to match, per recipient, so one participant on a jammed link is served a survivable stream while everyone else stays at full quality. This cooperation is written as shared memory, not a control protocol: there is no request and no reply, only a published setpoint each side converges to. The work is being done in the open, on top of the FrogNet stack described in the main body of this document; nothing in SotF-ACP requires anything FrogNet does not already provide — which is the point. What remains before field readiness is honest and specific: serving distinct video tiers to different recipients on the same call (the audio-versus-video survival boundary is live today; finer per-recipient video tiering is proven in simulation but not yet on the live path), and validation on production radios where real loss and latency can be measured rather than modeled. The advantage figures quoted for degraded links are grounded first-order models, not yet field measurements.</p>
+
+        <div class="closing">
+          Fawcett Innovations LLC <span class="dot">·</span> john@fawcettinnovations.com <span class="dot">·</span> (206) 335-9639 <span class="dot">·</span> CAGE 1A5Y5
+        </div>
+      </section>
+
+    </td></tr></tbody>
+    <tfoot><tr><td class="ftr-space"></td></tr></tfoot>
+  </table>
+</main>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,209 @@
+FROGNET DOCTRINE — READ FIRST, EVERY SESSION
+=============================================
+Decided facts and frames, mined from the working record through 2026-07-13.
+Do not reopen them. Do not soften them. An AI's networking priors are the
+1969 orthodoxy this project inverts; when in doubt, this file wins over the
+AI's instinct.
+
+MAINTENANCE (binding): this file ships in EVERY artifact bundle produced for
+this project and is updated IN THE SAME REV as any new decision, fact
+correction, or frame correction from John. A rev that changes a decided fact
+without updating this file is incomplete and does not ship. checksite.py
+enforces presence; the author's gate is currency.
+
+DEPLOY NOTE: DOCTRINE.txt, CHANGES.txt, and checksite.py are build and
+maintenance files. Do NOT copy them to the public webroot (see README).
+
+THE FRAME
+- FrogNet is a FABRIC in the true sense (one flat plane over any bearers);
+  in implementation it is usually wired as a mesh. Never "a WireGuard mesh."
+  Never a library, never a VPN, never a topology.
+- Convergence is a MEANS; the GOAL is OPERATION: every node acts NOW on the
+  current value of what it can reach. Current-value-wins; stale is reaped;
+  nothing blocks on agreement. Never frame in CRDT terms.
+- Tunnels are ONE bearer for ONE case — crossing the public internet, or a
+  LAN shortcut. A LAN pond is complete with no tunnel and no broker in it.
+- The broker is never the authority and never a party to the data. Its
+  state is a cache the nodes refill. (The A/V relay across the internet is
+  a separate plane from the 9009 proxy/daemon path, by design.)
+- No pip-install exists or should: a node BECOMES the box's networking
+  (.1 identity, AP, DHCP/DNS, port-80 intercept, routes, elections). The
+  unit of the product is a NETWORK. Minimum honest verification: two boxes,
+  or the simulator (real code against modelled networks).
+
+ARCHITECTURE RULES (load-bearing specifics)
+- Two DBs, never conflated: databasehost_control.frognet (deterministic,
+  highest-.1, authoritative control) vs databasehost.frognet (elected,
+  floating data host). ALL elections read candidates from _control.
+- Elections run only in runMerge — never from user/client space.
+- Capability tuples re-published to BOTH planes on every databasehost
+  change and at boot. AI hosts do NOT join the services election (a network
+  may have more than one).
+- Identity is the /etc/fnid GUID; broker keys on `guid`; no MAC fallback.
+  Every hostname is "FrogNetHost" — identify by subnet or pubkey.
+- Liveness gates on the :9009 ping-pong; HTTP echo is identity only.
+- The site is served THROUGH the node's own path (eat our own cooking): the
+  proxy owns :80 and forwards local content to Apache on 127.0.0.1:8080, which
+  the :9009 daemon carries. Deploy by making the site that Apache's content
+  (frognet-site.apache.conf). frognet_site.py is DEV-ONLY and bypasses the
+  proxy/daemon — never on a node. (decided 2026-07-13)
+- The website's licensing/contact receiver lives on the WEB SERVER, not the
+  broker: it is form-handling (store + sendmail) with no shared state or data
+  path with node introduction or tunnel minting. The broker is never a party
+  to website data. The file's old "on the broker" note was wrong; ignore it.
+  (decided 2026-07-13)
+- WireGuard AllowedIPs is always 10.0.0.0/8. No exceptions.
+- The "No GROUP_TOKEN ... 401" reconcile line is a confirmed red herring.
+- SotF data-plane contract: non-blocking sends, send-or-drop on
+  EWOULDBLOCK, newest-wins, no queue. Converge the state, never the stream.
+- UnREST is a Linda homage (UnREST : REST :: Linda : Ada).
+
+CONNECTIVITY
+- Connectivity is accomplished by transport — not the other way around.
+- Transports MULTIPLEX in one topology: one machine the tunnel gateway, one
+  the 900 MHz gateway, one on eth1 upstream; one pond, one flat 10/8.
+- Devices latch onto whatever medium is available on contact — no operator
+  intervention in most cases. People do not have to be network or RF
+  engineers. The chain: transport independence -> discovery & route
+  optimization -> route resilience & fault tolerance -> system survivability.
+- HAM IS OUT. Part 97.113(a)(4) consensus bars BLDC-1 (obscured meaning);
+  Reticulum is out with it (mandatory encryption). Never a bearer example.
+  Ham's RF hop is modem audio (Bell 202 / acoustic-coupler lineage); its
+  long haul backhauls over the internet in the clear. Ham is a transport;
+  FrogNet is a solution.
+- Bearers in: Ethernet, Wi-Fi, WireGuard/internet, 900 MHz/HaLow, LoRa,
+  satellite (Starlink = one pipe; FrogNet supplies more than one network).
+
+PUBLIC EVIDENCE & NUMBERS (use these; label estimates as estimates)
+- Backgammon: 40,011 bytes traditional vs 1,981 FrogNet, ~20x, 42 moves,
+  measured on the real engine. BLDC-1 production average 93.8%. Typical
+  UnREST win ~16x; the narrowband (4800-baud-class) figure is 44x.
+- The ~89% did/would counter is an ESTIMATE from published WebRTC bandwidth
+  for the same session, not a packet capture — always labeled.
+- April 17, 2026: independent closed-loop demo (Dan, NY actuator through
+  the Seattle DB, 2,400 miles). Queens drive: 900 MHz HaLow node at traffic
+  speed, no observed drops. 18+ months cross-internet; ~10 years at home.
+- Ladder: L7 CHORUS -> L0 PULSE; observed live steps 987 -> 637 -> 450 kbps
+  with in-session recovery, no redial.
+- Semantic compression is ENCODING, not encryption (EAR treats compression/
+  coding as excluded from encryption controls) — never describe BLDC-1 as
+  encrypting anything.
+
+SECURITY POSTURE (decided 2026-07-13)
+- Stated ARCHITECTURALLY and precisely, NEVER as an absolute. The claim:
+  FrogNet nodes expose NO internet-facing application interfaces (no public
+  endpoints/APIs/protocols; node services live on 10/8, reachable only through
+  the tunnel). The fabric's ENTIRE internet-facing surface is two things — the
+  broker's HTTP control/enrollment API (its public face streamingfrog.com; the
+  /my-channels poll; uvicorn behind Apache) and a silent WireGuard endpoint.
+- WireGuard is unscannable by design (never answers a non-handshake from a
+  non-peer). Say "unadvertised," NEVER "anonymous" (the address is real and
+  routable, just not in DNS / not enumerable).
+- Intercepted traffic exposes only semantic diffs: WG ciphertext across the
+  internet; off-model FNWP reference-diffs on a plaintext LAN. Honest caveat,
+  kept: an attacker already ON the mesh, holding the model, is not
+  "interception" and is a different case.
+- Residual entry is CREDENTIAL CUSTODY and it is REMOTE, not physical: a leaked
+  GROUP_TOKEN / WG key, or broker compromise, uses the same door WG opens for
+  real peers. Physical proximity is ONE path to a credential, never the only
+  one.
+- BANNED OVERCLAIMS (they get falsified in the first HN comment, from our own
+  source — the broker answers HTTP, the license form is a live public POST):
+  "eliminated the (entire) attack surface"; "remaining attacks require physical
+  compromise / proximity." The phone call is EVIDENCE, not the headline; lead
+  with the precise version. Hero that survives: "What if your applications had
+  no network interface to attack?"
+- Pinned to the RECOMMENDED split topology (web server with site + licensing
+  form on one host; broker with control plane + WG on another). John's droplet
+  co-locates them BY CHOICE — a single-box tradeoff, not the advised config; if
+  pressed, say so. Separate before going loud so the live target matches the
+  pitch.
+- Demo evidence discipline: it is HD = 720p (1280×720), NOT "full HD" (1080p);
+  the surprise floor is 450 kbps, NOT 850. Lead "HD bidirectional call," reveal
+  "450 kbps." Real numbers, or a skeptic pauses the video.
+- OPEN, fix before launch: license_endpoint.py puts name/country into the mail
+  Subject and CTRL_RE does not block CR/LF -> header injection (sendmail -t ->
+  arbitrary Bcc). Web-server surface, not fabric, but a live public falsifier
+  of the whole security story until patched.
+
+COMPARISONS (decided 2026-07-05)
+- Whole against whole, always. Every comparison starts with the difference
+  between the compared thing ENTIRE and a real, full FrogNet — the complete
+  self-installing network (discovery, elections, multiplexed transports,
+  shared memory, media, applications; complete on a LAN with no broker and
+  no tunnel). Never compare a part of FrogNet to the whole of something
+  else. No feature matrices; one honest statement per neighbor; settled
+  questions point to where they're settled (ham/Reticulum -> connectivity).
+
+NAMING & VOICE
+- Formal product name: "The FrogNet Living Network" (the bare mark
+  "FrogNet" is already trademarked elsewhere); "FrogNet" fine in prose.
+- People: John W. Fawcett (CEO, software); Daniel Tone (co-founder, VP Eng,
+  hardware & RF; ran the April 17 loop and the Queens drive). Julie is
+  John's wife; Donna (deceased) was Julie's mother — never reverse.
+- Voice: state, don't sneer. Honesty devices are the brand (graded evidence
+  labels, admitted tap point, labeled estimates, stated reasons).
+- SUPERSEDED RULE: any prior instruction to say "open source"/"OSS" in
+  external docs is DEAD. Current posture (2026-07-05): NOT open source, on
+  purpose, with the plan stated (interfaces are promises; Python 2->3;
+  Foundation trajectory). See licensing.dc.html#the-plan.
+
+BOOK / BUILD RULES (Magnum Croakus + editions)
+- Validate with `grep -iE "PASSED|FAILED"` — NEVER `| tail -1` (it hid a
+  real failure for many builds).
+- docx-js border bug: never left+bottom borders on the same paragraph
+  (this docx-js emits top->bottom->left->right; OOXML wants
+  top->left->bottom->right).
+- codeBlock lines <=66 chars, ASCII only.
+- Search for existing content before writing new (the duplicate-SotF
+  lesson). Renumber sections after any insert/move/delete; keep HTML book
+  figures contiguous (checksite verifies).
+- SUPERSEDED: the builder no longer reads diagrams/*.png — magnum-figures/
+  is the ONE figure source for the site, the docx, and both HTML editions;
+  the builder writes its docx next to itself.
+- Three coupled surfaces: build_magnum.js (docx) + Magnum Croakus.html +
+  Magnum Croakus-print.html. A content change lands in all three or none.
+
+INTERNAL — BUSINESS FACTS (never deploy to a public webroot)
+- Patents: three issued PREDATE FrogNet — storage virtualization, pop-up
+  networking (the direct architectural precursor), a physical lock. NEVER
+  "on the core methods." A dozen+ FrogNet inventions identified and
+  DELIBERATELY NOT FILED. Decided, documented, closed.
+- Licensing: free personal/non-commercial; commercial from Fawcett
+  Innovations LLC; source not published (yet — the plan is public).
+- AEROS (Pierre Mondoux): independent-but-complementary platforms; general
+  FrogNet capabilities remain FrogNet property even where useful in AEROS;
+  co-branding ask on the table: "Powered by The FrogNet Living Network"
+  (Intel-Inside model) on AEROS materials that present or depend on
+  FrogNet. John Bulldis (business consultant) requires NDA before MoU
+  participation.
+- FarSight Vision (Christina Monets): a customer, SAR — not a weapons
+  end-user; the export concern does not apply. Do not relitigate.
+- NSF SBIR Phase I: deadline July 27, 2026; two selected objectives —
+  delay-tolerant custom-handler proof over satellite, and BLDC-1
+  characterization across bearer conditions. Dan's Queens HaLow drive is
+  the feasibility anchor.
+
+WORKING RULES
+- FAIL FAST, FAIL HARD, FIX THE ROOT CAUSE. No silent swallows, no
+  defensive isinstance ladders, no decode tolerances, no fallbacks that let
+  broken state limp along unreported. A failure raises or prints one loud
+  named line; a gate that tolerates corruption is not a gate.
+- The same rule in shell and subprocess form: no piping through anything
+  that hides an exit status (set -euo pipefail in any shipped shell; no
+  os.popen — subprocess with check, or pure Python); no redirecting stderr
+  to /dev/null; no "|| true". Every try/except carries a stated reason for
+  existing, and "keep going quietly" is not a reason — fail, then root
+  cause. checksite self-audits bundle-root tooling for these patterns.
+- Read the actual file before describing it. Search the record before
+  asserting any John/business fact — the memory summary is a hint, not a
+  source. Never say "Confirmed" as self-validation; a claim is proven by a
+  gate that fails on the old and passes on the new.
+- Corrections are class-level. When code and primer disagree, primer wins
+  unless John says the primer is stale.
+- Verify every repackage by running checksite.py on the EXTRACTED tar.
+  Ship no bytecode. Unique tar names. Ship whole directories.
+- Videos (drop-ins, exact names, README documents them):
+  media/communicator-ladder.mp4, media/communicator-proof.mp4,
+  media/standing-up-a-node.mp4 (install walkthrough, products #buy).
+  Any media/*.mp4 is a drop-in; checksite exempts them by rule.

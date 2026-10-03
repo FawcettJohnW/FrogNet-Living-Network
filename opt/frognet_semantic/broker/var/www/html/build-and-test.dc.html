@@ -1,0 +1,219 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How to Build &amp; Test This — what it takes to stand up a FrogNet · The FrogNet Living Network</title>
+<meta name="description" content="FrogNet is a full network fabric — a matrix of system and application code, not an app you install. Here is the unvarnished version: what it is, and what it actually takes in hardware, software, and internet to stand one up and put it under the test gate.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="How to Build & Test This — what it takes to stand up a FrogNet">
+<meta property="og:description" content="A fabric, not an app. What it takes in hardware, software, and internet to stand up a multi-node FrogNet and put it under the falsifiable test gate.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}.mref{display:inline-block;margin-top:14px;font-family:var(--fm);font-size:11px;letter-spacing:.02em;color:var(--amber-deep);text-decoration:none;line-height:1.5}.dark .mref{color:var(--amber)}.mref:hover{text-decoration:underline}.check{display:block;margin-top:12px;font-family:var(--fm);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--amber)}.check b{color:#fff;font-weight:600}.steps{counter-reset:st;display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule)}.steps>div{counter-increment:st;background:var(--paper);padding:24px 26px 24px 74px;position:relative}.steps>div::before{content:counter(st,decimal-leading-zero);position:absolute;left:26px;top:24px;font-family:var(--fm);font-size:13px;font-weight:700;color:var(--amber-deep)}.steps h3{font-size:18px;margin:0 0 6px;color:var(--ink)}.steps p{margin:0;color:var(--ink-2);font-size:14.5px;line-height:1.6}.steps .see{display:block;margin-top:9px;font-family:var(--fm);font-size:11px;letter-spacing:.02em;color:var(--amber-deep)}.notapp{display:grid;gap:1px;background:var(--hair);border:1px solid var(--hair)}.notapp>div{background:var(--abyss);padding:26px 24px}.notapp .no{font-family:var(--fm);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#c0705a}.notapp h3{color:#fff;font-size:18px;margin:8px 0 8px}.notapp p{color:var(--mist-dim);font-size:14.5px;line-height:1.62;margin:0}.reqfig{font-family:var(--fm);font-size:11px;letter-spacing:.02em;color:var(--mist-dim);margin-top:8px}.mono{font-family:var(--fm);font-size:.9em;color:var(--amber-2)}.simtab-wrap{overflow-x:auto;margin-top:24px}.simtab{width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}.simtab th{font-family:var(--fm);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--amber);text-align:left;padding:0 16px 11px;border-bottom:1px solid var(--hair);font-weight:600}.simtab td{padding:14px 16px;border-bottom:1px solid var(--hair);color:var(--mist);vertical-align:top;line-height:1.5}.simtab tr:last-child td{border-bottom:0}.simtab td:first-child{color:#fff;font-weight:500}.simtab .shape{font-family:var(--fm);font-size:11.5px;color:var(--mist-dim);white-space:nowrap}.simtab .res{font-family:var(--fm);font-size:11px;color:var(--amber-2);white-space:nowrap}.simcap{font-family:var(--fm);font-size:11px;color:var(--mist-dim);margin-top:13px;letter-spacing:.02em;line-height:1.6}.simlabel{font-family:var(--fm);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);font-weight:600;margin:38px 0 0}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a class="is-on" href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Build & Test head">
+<div class="wrap">
+<p class="eyebrow reveal">Getting real</p>
+<h1 class="reveal">How to build and test this.</h1>
+<p class="lede reveal">FrogNet is a network <em>fabric</em> — a matrix of system-level and application-level code that implements a whole architecture — not an application you install and open. There is no honest &ldquo;try it on your laptop in five minutes,&rdquo; because the thing it does, keep operating while the network underneath it changes, only exists across multiple cooperating machines. This is the unvarnished version: what it actually is, and what it actually takes to stand one up and put it under test.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="What it is">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">Read this first</span></div>
+<h2>A fabric, not an app.</h2>
+<p class="sec__lead">You do not run FrogNet the way you run a program. FrogNet is the layer other programs run <em>on</em>: a transport-agnostic mesh with its own discovery, host election, wire protocol, semantic codec, adaptive media stack, and a floating shared-memory database. The demos you have seen — a call that will not drop, a game table, a sensor map — are <em>applications on top of it</em>. They are the paint, not the building.</p></div>
+<div class="notapp reveal" style="margin-top:12px">
+<div><span class="no">It is not</span><h3>a chat app</h3><p>The Communicator is one demonstration that a session survives conditions that kill other stacks. It is not the product. The product is the fabric underneath it — and a dozen other applications ride the same fabric at once.</p></div>
+<div><span class="no">It is not</span><h3>a single binary</h3><p>A FrogNet is <b style="color:#fff">N cooperating nodes</b> sharing one live memory — a daemon, handlers, a codec, an elected database host, and a wire protocol all running together. You can stand up many nodes on a single machine over loopback, which addresses 254 hosts, so even one box runs a genuine multi-node network.</p></div>
+<div><span class="no">It is not</span><h3>a cloud service</h3><p>There is nothing to sign up for and no server of ours in the path. You own every box in it. That is the whole point — and it is also why standing one up is real work, not a download.</p></div>
+</div>
+<a class="mref" href="Magnum Croakus.html#s-4-one-world-any-box">Magnum Croakus § 4 — One world, any box →</a>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="Hardware">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§02</span><span class="sec__tag">What it takes · hardware</span></div>
+<h2 style="color:#fff">At least two boxes. Realistically, a few.</h2>
+<p class="sec__lead">Nothing exotic — FrogNet is designed to run on hardware you already have. But it is genuinely a multi-machine system, and the honest minimum reflects that.</p></div>
+<div class="spec-list reveal" style="margin-top:8px">
+<div class="spec"><span class="spec__no">01</span><div><h3>Nodes — two minimum, three to see anything interesting</h3><p>Two boxes make a pond. Three or more is where election, merge, and self-healing actually have something to do. A Raspberry Pi is a real node; so is a retired laptop. Mix them — heterogeneity is the normal case, not the exception.</p></div></div>
+<div class="spec"><span class="spec__no">02</span><div><h3>The database host — the one that matters</h3><p>One node is elected — deterministically, no vote or coordinator — as the most-capable box actually running the database, and it holds the shared memory every other node reads and writes. The store is memory-bound, so RAM decides it, and that box's capacity sets the ceiling for the whole pond: a Pi bounds a small one, a capable box carries a much larger one. It isn't pinned to a machine — split the network and each island elects its own; merge and the most-capable box wins again.<a class="mref" href="Magnum Croakus.html#s-14-selecting-the-service-hosts">Magnum Croakus § 14 — Selecting the service hosts →</a></p></div></div>
+<div class="spec"><span class="spec__no">03</span><div><h3>Transports — anything two points can talk over</h3><p>Wired Ethernet, Wi-Fi, WireGuard tunnels, 900&nbsp;MHz radios — FrogNet does not care. If you want to <em>see</em> transport independence rather than take our word for it, put two different bearers in the same path and watch the fabric not notice.<a class="mref" href="Magnum Croakus.html#s-transports-multiplexed">Magnum Croakus § 5 — Transports multiplexed under one topology →</a></p></div></div>
+<div class="spec"><span class="spec__no">04</span><div><h3>A broker — an introducer, in the cloud or on the LAN</h3><p>Two nodes on the same wire need no broker; they find each other unaided. The broker exists for the third case — nodes that cannot see each other directly. It is a <em>stateless</em> introducer that holds no truth: it hands out membership and mints the WireGuard tunnels that carry the 10-net between sites. Those tunnels terminate at the broker, so it does relay the traffic — but running none of the semantic stack, what crosses it is label-stripped diffs and codec-less frames it cannot reconstruct into content. There is a public broker you can point at; you can also run your own. On a LAN a broker earns its keep differently — it mints a tunnel not to <em>reach</em> a node but to <em>shorten</em> a path it already has, collapsing a long discovery chain to a direct hop.<a class="mref" href="Magnum Croakus.html#s-17-the-broker">Magnum Croakus § 17 — The Broker →</a></p></div></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="The simulator">
+<div class="wrap">
+<div class="sec reveal" style="max-width:780px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§03</span><span class="sec__tag">What it takes · testing</span></div>
+<h2 style="color:#fff">Or prove the whole system on one laptop.</h2>
+<p class="sec__lead">Three boxes show you election and merge. They don't show you a five-node ring, two LANs bridged by a tunnel, or a call surviving a starved 256&nbsp;kbps link — and they don't let you kill the middle node a hundred times before lunch. FrogNet ships a full <em>simulator</em> that runs the <b style="color:#fff">real ported code</b> — the real planner, committer, broker, semantic codec, and SotF media handler — over a modelled fabric. So on one laptop, no radios and no second machine, you can prove three things: the whole network <b style="color:#fff">converges</b>, real video <b style="color:#fff">survives a bad link</b>, and the wire win is a <b style="color:#fff">number you can count</b>. The one thing it can't prove is hop-by-hop packet forwarding across real interfaces — that last step is confirmed on hardware.</p></div>
+<figure class="reveal" style="margin:8px 0 0;border:1px solid var(--hair);background:var(--abyss-2);overflow:hidden">
+<img src="assets/diagrams/sim-topology-dark.svg" alt="Three panels showing the simulator standing up a topology: one converged pond of six nodes with a single elected database host; the middle node killed so the pond splits into two islands that each elect their own host; and the path returning so the two merge back into one pond with no reconciliation." style="width:100%;display:block"/>
+<figcaption style="font-family:var(--fm);font-size:12px;line-height:1.6;color:var(--mist-dim);padding:13px 18px;border-top:1px solid var(--hair)">A topology the simulator stands up and drives with the real engine — the same form/split/merge the tables below assert, kill-a-node included.</figcaption>
+</figure>
+<div class="grid grid--2 reveal" style="background:var(--hair);margin-top:8px">
+<div class="card"><span class="card__no">One model</span><h3 style="color:#fff;margin-top:8px">The whole network is one object</h3><p>The fabric models the nodes, links, bearers, and the <span class="mono">getHosts</span> graph as a single object and <em>derives</em> what each node can actually see — so an echo only &ldquo;carries&rdquo; a peer's identity when the observer could truly reach it. The inputs aren't hand-fed; they fall out of the model, which is the only way a whole-system test means anything.</p></div>
+<div class="card"><span class="card__no">Real discovery</span><h3 style="color:#fff;margin-top:8px">It runs the code, not a script</h3><p>Each round runs the actual ported discovery; routes install into a per-node kernel; packets route over the <em>actually-installed</em> tables with real longest-prefix, lowest-metric semantics, each round's routes carried forward as the next round's input. A fix is proven against ground truth, never against a model that might share the bug — last run, <b style="color:#fff">70 discovery oracles green, zero regressions</b>.</p></div>
+<div class="card"><span class="card__no">Fake here, real on the box</span><h3 style="color:#fff;margin-top:8px">A laptop, or a real kernel</h3><p>By default it runs on deterministic fake backends — no privileges, the whole suite in seconds on any laptop (<b style="color:#fff">23/23 topologies</b> converge). Set <span class="mono">FROGNET_SIM_BACKEND=real</span> on a Linux box with root and the identical logic installs into real network namespaces — one netns per node, veth per segment — where <b style="color:#fff">the kernel itself is the oracle</b>: an off-link gateway is rejected as invalid, so a route the engine got wrong simply won't install. Same 23/23, now against a live FIB.</p></div>
+<div class="card"><span class="card__no">Measured against hardware</span><h3 style="color:#fff;margin-top:8px">The 120→ny1 chain</h3><p>The load-bearing proof: five nodes — Sea2 → Sea3 → Sea6 → Sea5 <span class="mono">==wg==&gt;</span> NY1 — proven three independent ways: the engine crawls the whole chain, a packet walk arrives end to end and back, and on a <b style="color:#fff">real kernel FIB all 49 chain pairs resolve</b>. The ground truth is folded from a physical run on the real boxes, confirmed by ping both directions — the sim grades the algorithm against what hardware did, not its own opinion.</p></div>
+</div>
+<p class="simlabel">The topologies it stands up</p>
+<div class="simtab-wrap reveal">
+<table class="simtab">
+<thead><tr><th>Topology class</th><th>Shape</th><th>What it exercises</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Three-node chain</td><td class="shape">A — B — C</td><td>Multi-hop route install; each node reached downstream via its neighbor's <span class="mono">.1</span>. Baseline captured from real hardware.</td><td class="res">12/12 pairs · 3 cycles</td></tr>
+<tr><td>Five-node ring</td><td class="shape">○ 5 nodes, cyclic</td><td>Convergence on a cyclic topology — every pair reachable, no route folds into a loop.</td><td class="res">all pairs · loop-free</td></tr>
+<tr><td>Two LANs, one tunnel</td><td class="shape">LAN ⇄ wg ⇄ LAN</td><td>A forwarder carries a whole subtree over one WireGuard tunnel; two LANs resolve as one <span class="mono">10/8</span> overlay.</td><td class="res">all pairs reachable</td></tr>
+<tr><td>Multi-site pond</td><td class="shape">many LANs + forwarders</td><td>Cross-site overlay and per-service election across the whole pond, to a fixpoint.</td><td class="res">converges</td></tr>
+<tr><td>Seattle guest chain</td><td class="shape">Sea2→Sea3→Sea6→Sea5 <span class="mono">==wg==&gt;</span> NY1</td><td>Deep multi-pass crawl to the far end, then tunnel egress — the 120→ny1 proof, folded from a physical run.</td><td class="res">arrives both ways</td></tr>
+<tr><td>Kill-a-node <span class="mono">(fault)</span></td><td class="shape">5-chain, middle dies</td><td>Partition into exactly the two islands it should — and no phantom route anywhere still points at the node that's gone.</td><td class="res">split asserted · 0 phantom</td></tr>
+</tbody>
+</table>
+</div>
+<p class="simcap">Representative classes from the 23-class suite; each stood up and converged by the real engine.</p>
+<p class="simlabel">How each run is scored · 2026-07-12</p>
+<div class="simtab-wrap reveal">
+<table class="simtab">
+<thead><tr><th>Scenario</th><th>What it proves</th><th>How it's checked</th><th>Result</th></tr></thead>
+<tbody>
+<tr><td>Discovery regression catalog</td><td>Engine and route-render fidelity across the catalog of known breakages</td><td>Curated oracle suite</td><td class="res">70 / 70 · 0 regressions</td></tr>
+<tr><td>Topology convergence</td><td>Every node sees every subnet; all pairs reachable over installed routes</td><td>Real engine to a fixpoint vs a fake kernel</td><td class="res">23 / 23 classes</td></tr>
+<tr><td>Chain-depth crawl</td><td>Multi-pass discovery reaches the far end of a guest chain, then stops</td><td>Real engine, neighbours frozen to immediate knowledge</td><td class="res">NY1→Sea2 · 3 passes</td></tr>
+<tr><td>End-to-end route walk</td><td>A packet traverses the full Seattle chain to NY over installed tables</td><td>Fabric traceroute, each hop resolved by the node's own table</td><td class="res">arrived</td></tr>
+<tr><td>Role election</td><td>databasehost, gamehost and mediahost chosen deterministically per pond</td><td>Real election engine over a converged system</td><td class="res">3 / 3</td></tr>
+<tr><td>Media codex (SotF / UnREST)</td><td>SAME/DIFF bandwidth savings, multi-writer visibility, float re-assert</td><td>Codex simulator</td><td class="res">23 / 23</td></tr>
+<tr><td>Real-kernel FIB</td><td>Converged routes install and resolve on an actual Linux kernel FIB</td><td>Each node in its own netns; kernel <span class="mono">ip route get</span> is the oracle</td><td class="res">23 / 23 · 49-pair chain</td></tr>
+</tbody>
+</table>
+</div>
+<p class="simcap">Single-machine validation of the routing and election core — RC build <span class="mono">20260710-ax-LANVIA-CLEAN</span>. Real engine, independent oracle: route correctness and election outcome, not timing or RF.</p>
+<p class="simlabel">Real video through a starved link · SotF media</p>
+<p class="sec__lead" style="max-width:780px;color:var(--mist-dim)">The routing gate proves the network finds itself. This proves the <em>media</em> survives it. Push a real VP8 clip through the real SotF transport and codec, sweep bandwidth, latency, jitter, and outage, and measure exactly what arrives — every delivered byte verified. Then watch the survivors play in a browser.</p>
+<div class="simtab-wrap reveal">
+<table class="simtab">
+<thead><tr><th>Real VP8 stream · 45 frames</th><th>Clean baseline</th><th>Contested RF · 512&nbsp;kbps, 50&nbsp;ms, periodic outage</th></tr></thead>
+<tbody>
+<tr><td>Frame delivery</td><td class="res">45 / 45 · 100%</td><td class="res">41 / 45 · 91%</td></tr>
+<tr><td>Keyframes <span class="mono">(reliable)</span></td><td class="res">3 / 3</td><td class="res">3 / 3 · protected, retried</td></tr>
+<tr><td>Deltas <span class="mono">(droppable)</span></td><td class="res">42 / 42</td><td class="res">38 / 42 · recover at next keyframe</td></tr>
+<tr><td>Latency per frame <span class="mono">(p50 / p95)</span></td><td class="res">2 / 3 ms</td><td class="res">101 / 151 ms</td></tr>
+<tr><td>Payload integrity</td><td class="res">100% verified</td><td class="res">100% of delivered bytes</td></tr>
+</tbody>
+</table>
+</div>
+<p class="simcap">Real frames through the real SotF codec — the reliable-keyframe / droppable-delta policy doing its job under loss. The picture degrades and recovers instead of stalling, and nothing that arrives is corrupt. <span class="mono">python3 sotf_browser_server.py</span> plays the survivors in a browser with live stats. Impaired sweeps use real outage probability — stochastic characterization, not fixed oracles.</p>
+<p class="simlabel">The wire win, counted · REST vs SotF</p>
+<p class="sec__lead" style="max-width:780px;color:var(--mist-dim)">Same frames, two ways: as REST — one HTTP request and response per frame — and as SotF — one raw vector on a persistent socket. The bake-off charges both paths with FrogNet's <em>own</em> wire-byte estimator, so the REST baseline is FrogNet's accounting, not a strawman. REST pays a handshake, tunnel encap, per-packet ACKs, and an envelope on every frame and waits <b style="color:#fff">one round-trip per frame</b>; SotF pays a 4-byte length prefix and waits <b style="color:#fff">none</b> — which is what caps frame rate on a latency-bound bearer.</p>
+<p class="reqfig">Every fix ships an <b style="color:#fff">oracle</b> that fails on the old code and passes on the new, reproducing the real failure — so the day a contract breaks, one test turns red with the line that did it. And the boundary the project holds itself to, stated plainly: on any laptop the simulator proves the <em>logic, the media survival, and the byte economics</em> — the lower, higher-portability tiers. What it defers to a real box is hop-by-hop packet forwarding across live interfaces and the real-kernel FIB over <span class="mono">ip</span>/<span class="mono">wg</span> — the box-only tiers, Linux and root. The logic and the clean media baseline are deterministic and byte-identical every run; impaired media sweeps are Monte-Carlo characterization, not fixed oracles. A green suite is not a full-spec result; report the measured numbers, name the gaps. <a href="simulator.dc.html" style="color:var(--amber)">Run it yourself, step by step →</a></p>
+<a class="mref" href="Magnum Croakus.html#s-30-what-the-simulator-holds">Magnum Croakus § 30 — What the simulator holds →</a>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Software">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§04</span><span class="sec__tag">What it takes · software</span></div>
+<h2>Linux, the daemon, and your handlers.</h2>
+<p class="sec__lead">The system code is FrogNet's job; the application code is yours. The line between them is the handler interface — and the handler source is available, so you can see exactly where your code meets the fabric.</p></div>
+<div class="grid grid--2 reveal" style="background:var(--rule);margin-top:8px">
+<div class="card"><span class="card__no">On every node</span><h3 style="margin-top:8px">The proxy and the daemon</h3><p>Two services come up with each node: the <b>proxy</b> takes port 80 for FrogNet traffic — a redirect scoped to the <span class="mono">10/8</span> plane — and the <b>daemon</b> is the worker pool behind it that learns templates, runs the UnREST handlers, and collapses each exchange to SAME, DIFF, or FULL. Discovery and election ride the same path; a separate tunnel daemon owns any WireGuard links. No central coordinator.</p></div>
+<div class="card"><span class="card__no">Across the boxes</span><h3 style="margin-top:8px">Linux, in its real variety</h3><p>FrogNet runs on the Linux you already have, on the mix of boxes you already have. Breadth is a first-class concern here — the same discipline that put a configuration agent across 42 distinct system configurations at Microsoft.</p></div>
+<div class="card"><span class="card__no">Your code</span><h3 style="margin-top:8px">UnREST handlers — source available</h3><p>You write to the network the way you write to local variables: parse, intercept, vector, fan out. The handler source is published, so the boundary between application and fabric is inspectable, not a black box.</p></div>
+<div class="card"><span class="card__no">Optional</span><h3 style="margin-top:8px">WireGuard for tunneled hops</h3><p>Any hop you want encrypted or routed across the public net can ride a WireGuard tunnel — always <span class="mono">AllowedIPs 10/8</span>, so the route table alone decides which tunnel a packet takes. WireGuard is user-supplied; FrogNet ships no crypto of its own. Nothing above the tunnel changes.</p></div>
+</div>
+<a class="mref" href="Magnum Croakus.html#s-25-the-object-oriented-handler">Magnum Croakus § 25 — The object-oriented handler →</a>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="Internet path">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§05</span><span class="sec__tag">What it takes · the internet path (optional)</span></div>
+<h2 style="color:#fff">Two cooperating ends, and a rendezvous between them.</h2>
+<p class="sec__lead">FrogNet is a private layer that lives <em>alongside</em> the internet, not on top of it. Crossing the public net means both ends run FrogNet and meet through a broker. This is the honest constraint stated plainly: it is infrastructure for a network you own on both sides.</p></div>
+<div class="codep reveal" style="margin-top:8px"><pre><span class="c"># a real heterogeneous path FrogNet holds a live call across —</span>
+<span class="c"># adaptation responds to the characteristics of each hop, not to any one medium:</span>
+
+  laptop <span class="k">→</span> Wi-Fi <span class="k">→</span> Seattle node <span class="k">→</span> WireGuard <span class="k">→</span> broker
+         <span class="k">→</span> WireGuard <span class="k">→</span> NY node <span class="k">→</span> 900 MHz radio <span class="k">→</span> NY node <span class="k">→</span> laptop
+
+<span class="c"># traffic to the private 10.x network rides the adaptive FrogNet node;</span>
+<span class="c"># everything else routes straight out to the internet, at normal speed.</span></pre></div>
+<p class="reqfig">Nodes that can already see each other need no broker at all. You need one to introduce nodes that <em>cannot</em> — to bridge across NAT and the internet by minting WireGuard tunnels that carry the 10-net between sites, after which two LANs become one 10.0.0.0/8 overlay. The two coexist on the same machine, and a 10.x network you already run keeps working — FrogNet nodes just need unique addresses.</p>
+<a class="mref" href="Magnum Croakus.html#s-18-the-tunnel">Magnum Croakus § 18 — The Tunnel →</a>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="The sequence">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§06</span><span class="sec__tag">Standing up your first pond</span></div>
+<h2>Loopback, then a LAN, then a second transport, then the world.</h2>
+<p class="sec__lead">There is no single command that produces a network, because a network is more than one machine agreeing. Build it up in stages — each stage proves one more thing the last could not.</p></div>
+<div class="steps reveal" style="margin-top:8px">
+<div><h3>One box, loopback — already a real network</h3><p>Loopback is a network: it addresses 254 hosts, so you can bring up several nodes on a single machine and watch discovery, election, and shared memory work for real across them. What one box <em>can't</em> show you yet is physical transport diversity or a true partition — those need more than one machine.</p><span class="see">You should see · multiple nodes, autonomous discovery, an elected host, shared state — all on one box</span></div>
+<div><h3>A second machine — the network spans hardware</h3><p>Bring up nodes on a second box across a real wire. Now discovery is finding peers over physical links, and election spans machines — the coordination you saw on loopback, proven across hardware it can actually lose.</p><span class="see">You should see · cross-machine discovery, an elected host spanning boxes, state shared over the wire</span></div>
+<div><h3>Add a third and a second transport — break it on purpose</h3><p>Add a node, then add a different bearer to the path. Now do violence to it: pull a cable, kill the elected host, split the network in two. Watch it re-elect, keep operating on each side, and merge with no reconciliation when the path returns.</p><span class="see">You should see · re-election, partition tolerance, clean automatic merge</span><span class="see">Or rehearse all of it in the simulator first — it is built for exactly this abuse.</span></div>
+<div><h3>Cross the internet — join two ponds</h3><p>Point the nodes at a broker — the public one, or your own — and let it introduce the two sides and mint the WireGuard tunnels that carry the 10-net between them. The two FrogNets converge into one 10.0.0.0/8 overlay, and the fabric behaves exactly as it did on the LAN — the internet is just one more bearer underneath it. That sameness is the whole result.</p><span class="see">You should see · two networks converge into one overlay, transport-independent, live</span></div>
+</div>
+<a class="mref" href="Magnum Croakus.html#s-16-split-merge-and-why-it-is-safe">Magnum Croakus § 16 — Split, merge &amp; why it is safe →</a>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Build & Test CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Still with us</p>
+<h2>Still want to build one?</h2>
+<p>Good — that is exactly the reader this was written for. The developer license is free, the handler source is available, and the build manual walks every step in full detail.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="license.dc.html">Request a license <span class="ar">→</span></a><a class="btn btn--ghost" href="unrest-examples.dc.html">See the code <span class="ar">→</span></a><a class="btn btn--ghost" href="the-claim.dc.html">Read the claim <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

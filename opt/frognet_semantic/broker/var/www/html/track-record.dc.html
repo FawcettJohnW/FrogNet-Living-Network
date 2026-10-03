@@ -1,0 +1,94 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track Record — fifty years of systems that had to work · Fawcett Innovations</title>
+<meta name="description" content="Boeing flight simulation, Sierra On-Line, EA network play, Magic Online, the SCCM UNIX/Linux agent, and a mesh fabric written from scratch. The line, in order.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Track Record — fifty years of systems that had to work">
+<meta property="og:description" content="Boeing flight simulation, Sierra On-Line, EA network play, Magic Online, the SCCM UNIX/Linux agent, and a mesh fabric written from scratch. The line, in order.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Track record head">
+<div class="wrap">
+<p class="eyebrow reveal">Track record</p>
+<h1 class="reveal">Fifty years of systems that had to actually work.</h1>
+<p class="lede reveal">Flight simulators, game networks for millions of players, enterprise fleet management, and a mesh fabric written from scratch. Different domains, one constant: real systems, real users, real consequences when the wire failed. Here's the line.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="The line">
+<div class="wrap">
+<div class="sec reveal" style="margin-bottom:34px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">Shipped · 1976 → now</span></div></div>
+<div class="reveal">
+<div class="rec"><div class="rec__meta"><span class="rec__yr">now · 2016→</span>Fawcett Innovations LLC<br/>Burien, WA</div><div><h3>The FrogNet Living Network<span>founder · architect · sole developer</span></h3><p>Designed and wrote a complete transport-agnostic mesh fabric — tuple-space coordination, a semantic codec, a wire protocol, an adaptive media stack, a floating database, and capability-scored host election. Running in production across the internet for 18+ months. Free developer license; commercial licensing available. Three issued U.S. patents predating FrogNet — including pop-up networking, its direct architectural precursor.</p><span class="rec__proof"><b>Demonstrates</b> end-to-end systems design at the hardest layer, solo</span></div></div>
+<div class="rec"><div class="rec__meta"><span class="rec__yr">2010s</span>Microsoft<br/>System Center</div><div><h3>SCCM UNIX/Linux agent<span>cross-platform configuration management at enterprise scale</span></h3><p>Authored the agent that brought UNIX and Linux machines under System Center Configuration Manager, spanning 42 distinct system configurations — the kind of breadth where every assumption about "the platform" is wrong on some box.</p><span class="rec__proof"><b>Demonstrates</b> 500,000+ production installs · deep cross-platform UNIX/Linux</span></div></div>
+<div class="rec"><div class="rec__meta"><span class="rec__yr">2000s</span>Wizards of the Coast</div><div><h3>Magic: The Gathering Online v3.0<span>real-time multiplayer where state is property</span></h3><p>Built core systems for a game whose objects have real economic value — so a dropped move or a desynced board isn't a glitch, it's a loss. I was overruled on the next version's move to HTTP; my v3 code held and carried the product for more than a decade while the replacement crawled toward shipping. This is where "design for merge, elect for order" stopped being theory — and where fitness for the work beat legibility to management.</p><span class="rec__proof"><b>Demonstrates</b> state integrity under concurrency and partition</span></div></div>
+<div class="rec"><div class="rec__meta"><span class="rec__yr">2000s</span>Electronic Arts</div><div><h3>Network play system<span>matchmaking and play across a hostile early internet</span></h3><p>Wrote the netcode behind the online multiplayer in <em>Need for Speed: High Stakes</em> and <em>Hot Pursuit</em> — players finding and racing each other reliably when NAT, packet loss, and flaky links were the norm. The unpublished twitch title <em>Motor City</em> is where the modem-era trick was born: send a binary blob, cast it into a struct on the far side — shared structure, minimal wire. That is the oldest form of the FrogNet thesis and the seed of the codec.</p><span class="rec__proof"><b>Demonstrates</b> production networking against real-world link conditions</span></div></div>
+<div class="rec"><div class="rec__meta"><span class="rec__yr">1990s</span>Sierra On-Line</div><div><h3>SIGS — the Sierra Internet Gaming System<span>online multiplayer before the playbook existed</span></h3><p>Principal architect, designed from scratch, of Sierra's Internet gaming system — founding titles Hoyle and the multiplayer RTS <em>Outpost 2</em>. SIGS was rebranded WON, the World Opponent Network, the service that carried Half-Life and Counter-Strike before Steam existed and the direct predecessor to Steam. There was no prior art to copy; you designed the protocol and found out if it held.</p><span class="rec__proof"><b>Demonstrates</b> protocol design from first principles</span></div></div>
+<div class="rec"><div class="rec__meta"><span class="rec__yr">1976→</span>Boeing<br/>Harris H-800</div><div><h3>Flight simulation<span>assembler and FORTRAN on aerospace hardware</span></h3><p>Started a career in software where the standard was already aerospace-grade: real-time flight simulation in Harris H-800 assembler and FORTRAN, where "close enough" isn't a thing and the timing budget is the law. The discipline never left.</p><span class="rec__proof"><b>Demonstrates</b> real-time, hard-constraint engineering from the ground up</span></div></div>
+</div>
+<div class="reveal" style="margin-top:46px;padding-top:30px;border-top:1px solid var(--rule)">
+<p class="ref" style="letter-spacing:.04em;text-transform:none;font-size:13px">Five platform generations · assembler to modern kernels · games, aerospace, enterprise, and sovereign infrastructure.</p>
+<div class="hero__cta" style="margin-top:22px"><a class="btn btn--ghost" href="about.dc.html">The person behind it <span class="ar">→</span></a></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Track record CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">The point</p>
+<h2>That breadth is the point.</h2>
+<p>Hard problems rarely sit inside one domain. Fifty years across aerospace, gaming, enterprise, and networking is exactly the range it takes to see the real fault instead of the familiar one.</p>
+<p style="margin-top:14px">After decades of building distributed systems for games, enterprise management, and communications, the same problems kept appearing under different names. FrogNet is the result of solving those recurring problems once, at the architectural level.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Put it to work <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

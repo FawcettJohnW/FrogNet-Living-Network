@@ -1,3 +1,17 @@
 usr/local/bin/frognet-ai
 opt/frognet_semantic/agent_workload
 var/www/html/webrtc-web
+
+# node-local: PyTorch code rides the snapshot, not the repo; bytecode; each node's own identity and OS state
+usr/local/frognet-ai
+__pycache__/
+*.pyc
+/etc/dnsmasq.d/opts_only.conf
+/etc/frognet/node-id
+/etc/frognet/ssid_projection.conf
+/etc/frognet/broker.conf.superseded.*
+/etc/NetworkManager/conf.d/
+/etc/iptables/rules.v*
+/etc/ssl/localCA/
+/etc/ssl/certs/
+/etc/ssl/openssl.cnf

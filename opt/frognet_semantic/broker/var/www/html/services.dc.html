@@ -1,0 +1,111 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Services — engineering from the people who built it · Fawcett Innovations</title>
+<meta name="description" content="Consulting and engineering from Fawcett Innovations: FrogNet deployment, UnREST development, and distributed-systems work at the transport layer.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Services — engineering from the people who built it">
+<meta property="og:description" content="Consulting and engineering from Fawcett Innovations: FrogNet deployment, UnREST development, and distributed-systems work at the transport layer.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Services head">
+<div class="wrap">
+<p class="eyebrow reveal">Services</p>
+<h1 class="reveal">FrogNet is free to build on. When you need more, this is the help.</h1>
+<p class="lede reveal">The developer license and the build manual get you a long way on your own. Past that — a commercial deployment, a custom UnREST handler, a hard network problem that has no Stack Overflow answer — Fawcett Innovations is the team that wrote the stack. A senior engineer who has shipped this class of system for fifty years, not a layer of account management over a junior bench.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="What I take on">
+<div class="wrap">
+<div class="sec reveal"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">What I take on</span></div><h2>Six places I'm worth the call.</h2></div>
+<div class="grid grid--2 reveal">
+<div class="card"><span class="card__no">01</span><h3>Distributed systems & coordination</h3><p>Shared state across unreliable links, host election and failover, self-forming topology, split-and-merge recovery. I'll design it so it stays correct under partition instead of pretending partition won't happen.</p></div>
+<div class="card"><span class="card__no">02</span><h3>Networking & custom protocols</h3><p>Wire formats and framing, overlays and tunneling, NAT traversal, semantic compression, routing and discovery. When off-the-shelf doesn't fit, I build the protocol and prove it under loss, latency, and jitter.</p></div>
+<div class="card"><span class="card__no">03</span><h3>Real-time media & streaming</h3><p>Adaptive audio/video that holds a call together on a degrading link and recovers on its own — the same ladder I've driven from HD down to a bare beacon over a 900 MHz radio backhaul and back, in production.</p></div>
+<div class="card"><span class="card__no">04</span><h3>Embedded, edge & offline-first</h3><p>Systems with no cloud and no center — running on Pi-class hardware, mini-PCs, and radios, designed so a lost uplink is normal weather rather than an outage.</p></div>
+<div class="card"><span class="card__no">05</span><h3>Legacy rescue & modernization</h3><p>I've shipped on a 1970s Harris mainframe and on this year's Linux kernel. I can read an old system straight, find the real fault instead of the convenient one, and move it forward without betting the business on the migration.</p></div>
+<div class="card"><span class="card__no">06</span><h3>Architecture review & due diligence</h3><p>An independent read of a design, a codebase, or an acquisition target: what's load-bearing, what's a liability, what the demo is quietly hiding, and what it will cost to make it real.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="Engagements">
+<div class="wrap">
+<div class="sec reveal"><div class="sec__rule"><span class="sec__no">§02</span><span class="sec__tag">How engagements work</span></div><h2>Four ways to use me — pick the smallest that solves your problem.</h2><p class="sec__lead">I'd rather sell you the focused engagement that actually moves the needle than the biggest one. Most relationships start with a review and grow from there.</p></div>
+<div class="engage reveal">
+<div class="eng"><span class="eng__tier">01 · Review</span><h3>Architecture & risk review</h3><p class="eng__for">days · fixed scope</p><p>I read the design or the code, run it against the hard cases, and hand you a plain-spoken assessment with the risks ranked and the decisions named. The cheapest way to find out if you have a problem.</p></div>
+<div class="eng"><span class="eng__tier">02 · Design sprint</span><h3>Architecture & protocol design</h3><p class="eng__for">weeks · defined deliverable</p><p>We scope a specific hard piece — a protocol, a coordination model, a media path, a migration plan — and I design it end to end, with the proof harness that shows it holds.</p></div>
+<div class="eng"><span class="eng__tier">03 · Build</span><h3>Hands-on implementation</h3><p class="eng__for">project-based</p><p>I write the hard part myself and prove it on real hardware, then hand it over documented and tested so your team can carry it. Not a slide deck — running code with a gate that's green for a reason.</p></div>
+<div class="eng"><span class="eng__tier">04 · Fractional</span><h3>Fractional principal engineer</h3><p class="eng__for">ongoing · part-time</p><p>A standing senior seat for a team that needs depth it can't hire full-time — design authority, code review, and the hard-call judgment that keeps a system from painting itself into a corner.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Fit">
+<div class="wrap">
+<div class="sec reveal" style="margin-bottom:34px"><div class="sec__rule"><span class="sec__no">§03</span><span class="sec__tag">Whether we're a fit</span></div></div>
+<div class="grid grid--2 reveal">
+<div class="card"><span class="card__no">Good fit</span><h3 style="margin-top:12px">You should call me if…</h3><div class="prose prose--wide"><ul><li>The problem is in the network, the protocol, or the coordination — not just the UI on top of it.</li><li>You need one accountable senior owner, not a team to manage.</li><li>"It works on the demo" isn't good enough; you need it to hold under failure.</li><li>You're evaluating someone else's system and want a straight second read.</li><li>You have a legacy system nobody left understands.</li></ul></div></div>
+<div class="card"><span class="card__no">Not a fit</span><h3 style="margin-top:12px">I'm probably the wrong call if…</h3><div class="prose prose--wide"><ul><li>You want a large staffing bench or a body-shop arrangement.</li><li>The work is a standard web/CRUD app a generalist can deliver faster and cheaper.</li><li>The decision's already made and you need someone to rubber-stamp it.</li><li>You need 24/7 production on-call as the core of the role.</li></ul><p style="margin-top:4px">If I'm not the right fit, I'll usually be able to point you at who is.</p></div></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Services CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Get in touch</p>
+<h2>Start with a conversation, not a contract.</h2>
+<p>Tell me what's hard. I'll tell you straight whether it's something I can move, and what the smallest useful engagement would look like.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Get in touch <span class="ar">→</span></a><a class="btn btn--ghost" href="track-record.dc.html">See the track record</a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

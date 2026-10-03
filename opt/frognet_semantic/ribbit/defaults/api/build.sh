@@ -8,6 +8,7 @@ set -eu
 cd "$(dirname "$0")"
 RIBBIT=${RIBBIT:-$(cd ../../cpp && pwd)}
 CXX=${CXX:-g++}
+source "$(dirname "$(readlink -f "$0")")/../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
 mkdir -p build
 F="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -Wno-free-nonheap-object -I$RIBBIT/include -I."
 echo "== libtuples.so"; $CXX $F -shared -fPIC tuples_c.cpp tuples.cpp "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/libtuples.so

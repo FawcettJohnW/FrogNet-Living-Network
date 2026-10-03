@@ -1,3 +1,20 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 """
 fixdefault.py - fixDefaultRoute, ported from the bash original. Default-route
 (non-10.x) selection, separate from FrogNet's 10.x table.
@@ -343,6 +360,14 @@ class FixDefaultRoute:
                 continue
             dev, nh = rg
             if not (dev and self._is_ip(nh)):
+                continue
+            # [LAN_GW_DOT1_V1] applies to the exit ladder too: a 10.x next hop that is not its /24's .1 is not a
+            # gateway, however reachable it is -- the same rule purge_dead_defaults applies to defaults it did not
+            # write. Seattle3, 2026-08-13: route_get() toward the far exits answered Seattle6's DHCP lease
+            # 10.250.250.221, purge deleted the defaults via .221, and this put them straight back; resolv then took
+            # .221 as the upstream nameserver. Not rewritten to .1 (a guess): the candidate is skipped, and said so.
+            if self._is_10x(nh) and nh != self._pfx24(nh) + ".1":
+                self.log(f"EXIT_CANDIDATE decision=skip reason=lan_gw_not_dot1 exit_host={h} via={nh} dev={dev}")
                 continue
             if not self.ping(nh, dev):
                 continue

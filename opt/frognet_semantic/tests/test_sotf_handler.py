@@ -132,8 +132,10 @@ def main() -> int:
           f"got {fragment.get('mode')!r}")
     check("baseline.session_id captured",
           fragment["baseline"]["session_id"] == "sotf-smoke-1")
-    check("payload mapped as 'string' (FINDING-1 workaround)",
-          fragment["type_map"]["payload"] == "string")
+    # FINDING-1 is resolved: core/codec.py's [TYPERAW_NATIVE_BYTES] returns native bytes for TYPE_RAW, so the handler
+    # carries payload as "raw" (no base64/TYPE_STR ~33% tax). The codec round-trip below proves the bytes survive.
+    check("payload mapped as 'raw' (FINDING-1 resolved: TYPE_RAW native bytes)",
+          fragment["type_map"]["payload"] == "raw")
 
     dyn = handler.extract_request_dynamic(body0, fragment)
     check("extract returns list-of-tuples", isinstance(dyn, list) and

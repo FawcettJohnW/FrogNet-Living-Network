@@ -1,0 +1,211 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Use Cases — family, farm, business, community · Fawcett Innovations</title>
+<meta name="description" content="What a network of your own makes possible: a family under one private roof, eyes on every acre with no cell bars, a shop&#x27;s own nervous system, connectivity a town can own.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Use Cases — family, farm, business, community">
+<meta property="og:description" content="What a network of your own makes possible: a family under one private roof, eyes on every acre with no cell bars, a shop&#x27;s own nervous system, connectivity a town can own.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}
+/* inversion strip */
+.inv{display:grid;grid-template-columns:1fr auto 1fr;gap:0;background:var(--hair);border:1px solid var(--hair);align-items:stretch}
+@media(max-width:640px){.inv{grid-template-columns:1fr}}
+.inv__side{background:var(--abyss);padding:26px 26px}
+.inv__side.n{background:var(--petrol-2)}
+.inv__k{font-family:var(--fm);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mist-dim);margin-bottom:12px}
+.inv__side.o .inv__k{color:var(--coral)}.inv__side.n .inv__k{color:var(--lily)}
+.inv__q{font-family:var(--fd);font-size:clamp(20px,2.4vw,27px);color:#fff;letter-spacing:-.015em;line-height:1.1;margin:0 0 10px}
+.inv__d{font-size:14.5px;color:var(--mist-dim);margin:0}
+.inv__mid{display:flex;align-items:center;justify-content:center;padding:0 18px;background:var(--abyss);color:var(--amber);font-family:var(--fm);font-size:22px}
+@media(max-width:640px){.inv__mid{padding:14px;font-size:16px}}
+/* on-ramp stages */
+.ramp{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media(max-width:820px){.ramp{grid-template-columns:1fr}}
+.stage{background:var(--paper);padding:28px 26px;display:flex;flex-direction:column}
+.stage__n{font-family:var(--fm);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber-deep)}
+.stage h3{font-size:21px;margin:12px 0 4px;color:var(--ink)}
+.stage__cost{font-family:var(--fm);font-size:12px;color:var(--ink-dim);margin-bottom:14px}
+.stage p{font-size:15px;color:var(--ink-dim);margin:0 0 16px}
+.stage__win{margin-top:auto;font-family:var(--fm);font-size:12.5px;color:var(--amber-deep);border-top:1px solid var(--rule);padding-top:12px}
+.stage--feat{background:var(--paper-3)}
+/* opportunity cards */
+.opp{display:flex;flex-direction:column}
+.opp__top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.opp .card__no{color:var(--ink-dim)}.dark .opp .card__no{color:var(--mist-dim)}
+.tag{font-family:var(--fm);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border:1px solid;white-space:nowrap}
+.tag--new{color:var(--amber-deep);border-color:var(--rule-2)}
+.dark .tag--new{color:var(--amber);border-color:var(--hair)}
+.opp h3{font-size:19px;margin:0 0 8px}
+.opp>p{font-size:15px;margin:0 0 14px}
+.opp__why{margin-top:auto;font-family:var(--fm);font-size:12.5px;line-height:1.6;border-top:1px solid var(--rule);padding-top:12px}
+.dark .opp__why{border-color:var(--hair)}
+.opp__why b{color:var(--amber-deep);font-weight:500}.dark .opp__why b{color:var(--amber)}
+/* domain use cases */
+.uc{display:flex;flex-direction:column}
+.uc__top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.uc .card__no{color:var(--ink-dim)}.dark .uc .card__no{color:var(--mist-dim)}
+.uc__stat{font-family:var(--fm);font-size:10px;letter-spacing:.1em;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.uc__stat::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.uc__stat--op{color:var(--lily)}.uc__stat--val{color:var(--amber-deep)}.dark .uc__stat--val{color:var(--amber)}.uc__stat--dev{color:var(--ink-dim)}.dark .uc__stat--dev{color:var(--mist-faint)}
+.uc h3{margin:0 0 8px;font-size:19px}
+.uc>p{margin:0 0 13px;font-size:15px;color:var(--ink-dim)}.dark .uc>p{color:var(--mist-dim)}
+.uc__mech{margin-top:auto;font-family:var(--fm);font-size:12px;line-height:1.55;border-top:1px solid var(--rule);padding-top:11px;color:var(--ink-2)}
+.dark .uc__mech{border-color:var(--hair);color:var(--mist)}
+.uc__mech b{color:var(--amber-deep);font-weight:500}.dark .uc__mech b{color:var(--amber)}
+.legend{display:flex;flex-wrap:wrap;gap:14px 24px;margin-top:26px;font-family:var(--fm);font-size:12px;color:var(--mist-dim)}
+.legend span{display:inline-flex;align-items:center;gap:8px}.legend i{width:8px;height:8px;border-radius:50%}
+.legend i.op{background:var(--lily)}.legend i.val{background:var(--amber)}.legend i.dev{background:var(--mist-faint)}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Use cases head">
+<div class="wrap">
+<p class="eyebrow reveal">Use Cases · built on UnREST</p>
+<h1 class="reveal">What a network that <span class="glow">remembers</span> makes possible.</h1>
+<p class="lede reveal">These aren't apps with FrogNet swapped in for a server. UnREST inverts the model the whole web is built on — and that inversion changes what is cheap, what is possible, and what stops being infrastructure at all. Here is where that matters, and where you could build on it.</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="The inversion">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§01</span><span class="sec__tag">The inversion</span></div>
+<h2 style="color:#fff">The web asks. UnREST remembers.</h2>
+<p class="sec__lead">Every case on this page comes back to one move. REST is Fielding City — it tears up its roads and relays them for every trip: a request for every answer, a server in the middle that owns the truth. UnREST is the same map alive — the roads built once and left standing, both ends already holding the same memory, so only the difference moves, and the centre, the round trip, and most of the bytes simply stop being necessary. Same streets, same cars — planned, not rebuilt.</p></div>
+<div class="inv reveal">
+<div class="inv__side o"><div class="inv__k">REST · the web today</div><p class="inv__q">Ask, wait, receive.</p><p class="inv__d">A request per answer. A server in the middle owns the truth, fans every change out, and is the bottleneck and the single point of failure.</p></div>
+<div class="inv__mid">→</div>
+<div class="inv__side n"><div class="inv__k">UnREST · memory, not messages</div><p class="inv__q">Already hold it. Sync the change.</p><p class="inv__d">Each peer holds the same structure; only diffs cross. Access is local and immediate, there is no centre to gate or lose, and the wire goes silent when nothing changes.</p></div>
+</div>
+<p class="sec__lead reveal" style="margin-top:24px">The full three-stage argument, with first-order numbers, is <a href="Magnum Croakus.html#part-rest-dropin-unrest" style="color:var(--amber)">Appendix D of the build manual →</a></p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="On-ramp">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule"><span class="sec__no">§02</span><span class="sec__tag">The on-ramp</span></div>
+<h2>You don't have to rewrite to start.</h2>
+<p class="sec__lead">The most important thing about adopting UnREST: the bandwidth win arrives before the rewrite does. There are three stages, and each is useful on its own.</p></div>
+<div class="ramp reveal">
+<div class="stage"><span class="stage__n">Stage 1 · today</span><h3>Plain REST</h3><p class="stage__cost">where most systems are</p><p>A server behind an API, a cache, a pub/sub tier, a presence service. Seven moving parts to keep one thing in sync — and every change is a round trip through the centre.</p><span class="stage__win">The baseline you're leaving.</span></div>
+<div class="stage stage--feat"><span class="stage__n">Stage 2 · an afternoon</span><h3>Drop in the codec</h3><p class="stage__cost">a library on the wire, not a rewrite</p><p>Put BLDC-1 and SAME/DIFF on the wire and leave your architecture exactly where it is. The client still calls the server — it just exchanges a compressed diff instead of the whole payload.</p><span class="stage__win">≈ 10× less bandwidth. No rewrite.</span></div>
+<div class="stage"><span class="stage__n">Stage 3 · the destination</span><h3>Go memory-first</h3><p class="stage__cost">change the model, not just the wire</p><p>No server owns the truth; each member holds the board and only diffs cross. Seven components collapse to one shared space; presence becomes a tuple; a round trip becomes a local read.</p><span class="stage__win">Silent when idle. No centre to lose.</span></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="Opportunities">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§03</span><span class="sec__tag">Where you could build</span></div>
+<h2 style="color:#fff">Things that get cheap — or possible — the moment the centre goes away.</h2>
+<p class="sec__lead">A brainstorm, not a roadmap. Each of these is a product the inversion makes newly viable: either the standing infrastructure it used to need evaporates, or it works over links that used to defeat it.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card opp"><div class="opp__top"><span class="card__no">Collaboration</span><span class="tag tag--new">newly cheap</span></div><h3>Realtime without the realtime bill</h3><p>Live docs, boards, and multiplayer canvases that today need a socket tier, a pub/sub fleet, and a presence service.</p><p class="opp__why"><b>Why UnREST ·</b> presence is a tuple and edits are diffs — the fan-out infrastructure and its bill disappear.</p></div>
+<div class="card opp"><div class="opp__top"><span class="card__no">SaaS model</span><span class="tag tag--new">new category</span></div><h3>Sovereign, self-hosted alternatives</h3><p>The private-data-plane version of the tools people currently rent — chat, files, calendars, dashboards — that a business owns outright.</p><p class="opp__why"><b>Why UnREST ·</b> no central server means no vendor account, no data exhaust, no monthly per-seat floor.</p></div>
+<div class="card opp"><div class="opp__top"><span class="card__no">Edge &amp; IoT</span><span class="tag tag--new">newly possible</span></div><h3>Fleets over links that used to fail</h3><p>Sensor and vehicle fleets that report into one live picture over narrowband, radio, or intermittent backhaul.</p><p class="opp__why"><b>Why UnREST ·</b> only changed fields cross, so a field that fits nowhere under REST fits with headroom.</p></div>
+<div class="card opp"><div class="opp__top"><span class="card__no">Offline-first</span><span class="tag tag--new">structurally</span></div><h3>Apps that are actually offline-first</h3><p>Software that keeps working disconnected and re-converges on reconnect — not bolted on afterward, but the default.</p><p class="opp__why"><b>Why UnREST ·</b> every peer already holds the current state; a dropped member re-syncs on its own.</p></div>
+<div class="card opp"><div class="opp__top"><span class="card__no">Comms</span><span class="tag tag--new">new protocol</span></div><h3>Calls that degrade instead of drop</h3><p>Media products for field, maritime, tactical, and rural use where "the call dropped" is not acceptable.</p><p class="opp__why"><b>Why UnREST ·</b> SotF rides the handler interface — an adaptive ladder from HD to a heartbeat and back, no re-dial.</p></div>
+<div class="card opp"><div class="opp__top"><span class="card__no">Games</span><span class="tag tag--new">newly cheap</span></div><h3>Multiplayer as governed memory</h3><p>Turn- and state-based multiplayer without authoritative game servers to run and scale.</p><p class="opp__why"><b>Why UnREST ·</b> each player writes only their own intent; an elected engine is the single writer of the board.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Proven ground">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§04</span><span class="sec__tag">Proven ground</span></div>
+<h2>Where it already earns its keep.</h2>
+<p class="sec__lead">The opportunities above rest on ground that is already worked. Each of these is a real deployment or a validated field test — reframed around the one UnREST property that makes it work.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card uc"><div class="uc__top"><span class="card__no">Disastercomm</span><span class="uc__stat uc__stat--op">Operational</span></div><h3>When the infrastructure is gone</h3><p>A hurricane takes the towers and the internet. Drop a box at the command post, the field hospital, and each vehicle; six agencies become one picture.</p><p class="uc__mech"><b>Property ·</b> no centre to lose — independent meshes discover and merge on their own, over Wi-Fi, radio, and tunnel at once.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">EMS · telemedicine</span><span class="uc__stat uc__stat--op">Operational</span></div><h3>The ambulance that never disconnects</h3><p>A crew treats a patient across dead zones the whole way in; the hospital watches the data arrive continuously, not at the door.</p><p class="uc__mech"><b>Property ·</b> diffs, not payloads — a live web app rides links as narrow as 4800 baud over whatever path exists.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Defense · autonomy</span><span class="uc__stat uc__stat--dev">In development</span></div><h3>A fleet that thinks for itself</h3><p>Unmanned ground vehicles share one live world model and coordinate with no base station brokering every message.</p><p class="uc__mech"><b>Property ·</b> shared memory, not a hub — FarSight UGVs read and write the same space, tolerant of nodes dropping in and out.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Contested links</span><span class="uc__stat uc__stat--val">Field-validated</span></div><h3>One dish, a whole site</h3><p>A single satellite uplink feeds dozens of working nodes without saturating the pipe — and nothing in the middle to tap.</p><p class="uc__mech"><b>Property ·</b> only change crosses the shared uplink; identity is a key, membership a token, so there is no centre to subpoena.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Off-grid</span><span class="uc__stat uc__stat--op">Operational</span></div><h3>Where the map runs out of bars</h3><p>Ranches, worksites, and back-country camps on one private network — sensors, cameras, and comms that route through no one's cloud.</p><p class="uc__mech"><b>Property ·</b> transport-agnostic memory — long-range Wi-Fi, HaLow, and LoRa carry the same fabric across yards and miles.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Agriculture</span><span class="uc__stat uc__stat--val">Field-validated</span></div><h3>The farm sensor mesh</h3><p>Soil, tank, gate, and weather sensors across acres report into one live picture any node can read — no gateway subscription.</p><p class="uc__mech"><b>Property ·</b> write-by-name, read-by-pattern — a MeshTastic/LoRa bridge writes RF readings straight into shared memory.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Home · care</span><span class="uc__stat uc__stat--op">Operational</span></div><h3>Mom, living alone</h3><p>Passive sensors learn a parent's daily rhythm and flag the day it breaks — no cameras, no wearable, no $60/month service watching.</p><p class="uc__mech"><b>Property ·</b> your own data plane — activity reads into the shared store; anomaly detection raises the alert, privately.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Family</span><span class="uc__stat uc__stat--op">Operational</span></div><h3>Your people, no cloud</h3><p>Chat, calls, a presence map, calendar, photos, and a wiki across the country — owned by you, dependent on no company.</p><p class="uc__mech"><b>Property ·</b> presence is a tuple — a full suite of apps has run a household for the better part of a decade.</p></div>
+<div class="card uc"><div class="uc__top"><span class="card__no">Mobile · radio</span><span class="uc__stat uc__stat--val">Field-validated</span></div><h3>Detach, drive, re-attach</h3><p>A vehicle-mounted node holds its link through dense terrain and urban clutter as the bearer flaps — and when it drives out of range it detaches cleanly, then latches back onto whatever medium is available the moment it meets a FrogNet again, no operator in the loop.</p><p class="uc__mech"><b>Property ·</b> split and merge, automatic — the mesh re-forms, not reconnects. A 900 MHz HaLow node driven through Queens, NY with no observed drops, the topology changing under it at traffic speed.</p></div>
+</div>
+<div class="legend reveal"><span><i class="op"></i>Operational — running today</span><span><i class="val"></i>Field-validated — proven on hardware</span><span><i class="dev"></i>In development</span></div>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="What carries it">
+<div class="wrap">
+<div class="flag reveal">
+<div>
+<div class="sec" style="margin-bottom:0"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§05</span><span class="sec__tag">What carries all of it</span></div>
+<h2 style="color:#fff;font-size:clamp(28px,4vw,44px)">One fabric, one voice.</h2></div>
+<p style="color:var(--mist-dim);max-width:56ch;margin-top:20px">Every case on this page rides the same two things: <strong style="color:#fff">FrogNet</strong>, the sovereign self-forming mesh of shared memory, and <strong style="color:#fff">SotF-ACP</strong>, the adaptive protocol for communication that does not stop. The books explain the why; the manual shows the how.</p>
+<div class="hero__cta"><a class="btn btn--ghost" href="products.dc.html">See the product <span class="ar">→</span></a><a class="btn btn--ghost" href="library.dc.html">Read the books <span class="ar">→</span></a></div>
+</div>
+<div>
+<dl class="speclistv">
+<div><dt>The fabric</dt><dd class="amb">FrogNet</dd></div>
+<div><dt>The model</dt><dd>exchange memory, not messages</dd></div>
+<div><dt>The compression</dt><dd>SAME / DIFF / FULL</dd></div>
+<div><dt>The voice</dt><dd class="amb">SotF-ACP</dd></div>
+<div><dt>Adoption</dt><dd class="ok">drop-in, then rewrite</dd></div>
+<div><dt>Ownership</dt><dd class="ok">yours, outright</dd></div>
+</dl>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Use cases CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Have one of your own?</p>
+<h2>Tell me where you'd deploy it.</h2>
+<p>New use cases get developed with the people who bring them. If your situation looks like one of these — or nothing like them — describe it, and I'll tell you whether UnREST fits and which stage to start at.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Start a conversation <span class="ar">→</span></a><a class="btn btn--ghost" href="Magnum Croakus.html#part-rest-dropin-unrest">Read Appendix D <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

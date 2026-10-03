@@ -1,3 +1,20 @@
+/***************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ **************************************************************/
 // ram_memory.hpp -- the C++ RAM host's memory. [ROW_LOCKS_V1] John 2026-09-27:
 //   "The C++ engine needs row level locking and no more. The locks are multi-reader/single writer."
 //   Waits: a condition belongs to the WAIT. a, b and c together identify one storage location (no hierarchy, no
@@ -16,6 +33,7 @@
 #pragma once
 #include <algorithm>
 #include <atomic>
+#include <thread>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -145,9 +163,33 @@ public:
             }
         return 0;
     }
+    // [ROW_SCAN_BOUND_V1] A held read that falls back to the rows walks them one at a time, each under its own lock, while
+    // writers keep writing. Without a bound it could return row Z's new write (id 160) but not row Y's (id 150), which
+    // landed on Y after the walk had passed it; the reader then follows "after" = 160 and never sees 150 (Raspberry Pi,
+    // test-write-window: "racing reader missed the final write of 13 rows"). The bound: before the walk, take the
+    // window's head h0 and the id of the write at position h0-1. Every write at a position below h0 is seen by the walk
+    // -- its writer already held the row's lock when h0 was read, so the walk waits for it -- and every write at h0 or
+    // later has a larger id (ids rise with position). Reporting only ids up to that one leaves nothing behind a
+    // reader's "after": a row rewritten mid-walk is reported by the next read.
+    static uint64_t row_scan_bound(WriteWindow* wnd) {
+        for (;;) {
+            const uint64_t h0 = wnd->head.load(std::memory_order_acquire);
+            if (h0 == 0) return 0;
+            WindowSlot& sl = wnd->slot[(h0 - 1) % WINDOW];
+            for (;;) {
+                if (sl.pos.load(std::memory_order_acquire) == h0 - 1) {
+                    const uint64_t id = sl.id.load(std::memory_order_acquire);
+                    if (sl.pos.load(std::memory_order_acquire) == h0 - 1) return id;
+                }
+                if (wnd->head.load(std::memory_order_acquire) > h0 - 1 + WINDOW) break;   // lapped: take a new h0
+                std::this_thread::yield();               // its writer is between claiming h0-1 and publishing it
+            }
+        }
+    }
     // ---- read: the query's rows (copied under each row's shared lock), id order
     std::vector<Cell> match(const std::string& s, const std::string& v, const std::string& i, long long after, int fresh, double now) const {
         std::vector<Cell> out; const double cutoff = now - fresh;
+        uint64_t scan_lim = 0; bool bounded = false;    // [ROW_SCAN_BOUND_V1] set when a held read falls back to the rows
         auto take = [&](Row* r) {
             std::shared_lock<std::shared_mutex> g(r->m);
             if (!r->live) return;
@@ -188,12 +230,14 @@ public:
                 std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
                 return out;
             }
-            // the window does not reach back to `after`: the rows themselves (below) answer
+            // the window does not reach back to `after`: the rows themselves (below) answer -- bounded by row_scan_bound
+            scan_lim = row_scan_bound(wnd); bounded = true;
         }
         auto each_row = [&](Variable* var) { for (Row* r = var->rows.load(std::memory_order_acquire); r; r = r->next_in_variable) take(r); };
         if (!v.empty()) { if (Variable* var = vars_.find(H(s, v), [&](Variable* n) { return n->service == s && n->variable == v; })) each_row(var); }
         else if (Service* sv = services_.find(H(s), [&](Service* n) { return n->service == s; }))
             for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service) each_row(var);
+        if (bounded) out.erase(std::remove_if(out.begin(), out.end(), [&](const Cell& c) { return c.id > scan_lim; }), out.end());
         std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
         return out;
     }

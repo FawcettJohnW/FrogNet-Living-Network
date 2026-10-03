@@ -1,0 +1,121 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.pv{max-width:760px}.pv h2{text-wrap:balance;margin:0 0 14px}.pv p{font-size:16.5px;line-height:1.7;color:var(--ink-dim);margin:0 0 16px}.pv p b{color:var(--ink)}.pvbig{font-family:var(--fd);font-weight:700;font-size:clamp(26px,3.6vw,40px);letter-spacing:-.02em;line-height:1.15;color:var(--ink);margin:0 0 22px;text-wrap:balance}.pvbig em{font-style:normal;color:var(--amber-deep)}.pvlist{list-style:none;padding:0;margin:6px 0 0}.pvlist li{position:relative;padding:16px 0 16px 30px;border-top:1px solid var(--rule)}.pvlist li::before{content:"";position:absolute;left:0;top:23px;width:15px;height:1px;background:var(--amber)}.pvlist h3{font-size:17px;margin:0 0 5px;color:var(--ink)}.pvlist p{font-size:15px;margin:0;color:var(--ink-dim)}.pvsig{margin-top:26px;font-family:var(--fm);font-size:13px;letter-spacing:.02em;color:var(--ink-2)}
+.pvkey{border-left:3px solid var(--amber);background:rgba(61,186,106,.06);padding:22px 26px;margin:30px 0 0}.pvkey p{margin:0;font-family:var(--fd);font-weight:600;font-size:clamp(18px,2.3vw,23px);line-height:1.35;color:var(--ink);text-wrap:balance}.pvkey p em{font-style:normal;color:var(--amber-deep)}
+.pathgrid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule);margin-top:30px}@media(max-width:760px){.pathgrid{grid-template-columns:1fr}}.pathcol{background:var(--paper,#fff);padding:26px 26px}.pathcol h3{font-family:var(--fm);font-size:11px;letter-spacing:.15em;text-transform:uppercase;margin:0 0 14px;color:var(--amber-deep)}.pathcol ul{list-style:none;margin:0;padding:0}.pathcol li{font-size:15px;line-height:1.5;color:var(--ink-dim);padding:8px 0 8px 20px;position:relative}.pathcol li::before{content:"";position:absolute;left:0;top:15px;width:9px;height:9px;border-radius:50%}.pathcol--yes li::before{background:var(--amber)}.pathcol--no li::before{background:none;border:1.5px solid var(--ink-2);top:14px;width:8px;height:8px}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="why.dc.html">Why</a><a href="the-claim.dc.html">The Claim</a><a href="products.dc.html">Product</a><a href="use-cases.dc.html">Use Cases</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="library.dc.html">The Books</a><a href="about.dc.html">About</a><a class="btn btn--ghost nav__cta2" href="license.dc.html">Request a license</a><a class="btn btn--primary nav__cta" href="store.dc.html">Get a node</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Security head">
+<div class="wrap">
+<p class="eyebrow reveal">Security &amp; ownership</p>
+<h1 class="reveal">The security comes from the shape, not from a promise.</h1>
+<p class="lede reveal">FrogNet runs on hardware you own, links you control, and encrypted tunnels between your own nodes. No company can <em>read</em> what passes between them — on your own LAN the traffic never leaves it, and where sites bridge across the internet it travels as encrypted bytes a broker relays but cannot open. Most of the questions a security review asks are answered by the architecture before anyone writes a policy.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Ownership">
+<div class="wrap">
+<div class="pv reveal">
+<p class="pvbig">Your data lives on <em>your</em> machines. You own the nodes, the keys, and everything that passes between them.</p>
+<p>A FrogNet node is your computer. The mesh it forms is between your computers and the ones you choose to federate with. Nothing is hosted on my side, nothing is escrowed, and there is no account of yours for me to hold. Ownership isn't a setting — it's where the software runs.</p>
+</div>
+
+<div class="pvkey reveal">
+<p>The broker can't read a byte of your traffic. On your LAN it <em>isn't in the path at all;</em> when sites bridge across the internet, it relays only opaque, encrypted bytes.</p>
+</div>
+
+<div class="pathgrid reveal">
+<div class="pathcol pathcol--yes">
+<h3>What the broker does</h3>
+<ul>
+<li>Introduces two nodes that can't yet see each other</li>
+<li>Hands out the encrypted tunnels that let them connect</li>
+<li>For an internet bridge, relays those encrypted bytes without being able to read them</li>
+</ul>
+</div>
+<div class="pathcol pathcol--no">
+<h3>What the broker can never do</h3>
+<ul>
+<li>Read your calls, video, files, or telemetry</li>
+<li>Read your shared memory — the values nodes read and write</li>
+<li>Touch LAN traffic at all — nodes that can already reach each other never involve it</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Boundaries">
+<div class="wrap">
+<ul class="pvlist pv reveal">
+<li><h3>Encryption boundary: node to node</h3><p>Traffic between nodes rides encrypted point-to-point tunnels. The boundary is the pair of nodes at each end — data is protected in transit for the whole hop, not just to some gateway in the middle.</p></li>
+<li><h3>Identity: each node proves itself with keys</h3><p>Every node has a permanent identity and a keypair set at install. Nodes authenticate each other by key, so a peer is trusted because it holds the right key — not because a central authority vouched for it.</p></li>
+<li><h3>Offline: it keeps working</h3><p>Losing the internet doesn't stop a FrogNet. Nodes that can still reach each other keep discovering, sharing state, and carrying traffic. Local operation was never conditional on a connection to anywhere else.</p></li>
+<li><h3>If the broker disappears</h3><p>Lose the broker <b>service</b> and every existing link keeps carrying traffic — the tunnels are already up. Only brand-new cross-internet introductions pause until a broker is reachable again; LAN discovery and existing links carry on.</p></li>
+<li><h3>No central point to compromise</h3><p>There is no master server holding your data, your directory, or your keys. Each node holds its own. That means there is no single system whose breach exposes the network — because the network isn't kept in one place.</p></li>
+</ul>
+
+<div class="pv reveal" style="margin-top:34px">
+<h2>Trust assumptions, stated plainly</h2>
+<p>You trust the hardware you run FrogNet on, the keys your nodes hold, and the peers you choose to federate with. You do <b>not</b> have to trust me, a cloud provider, or a broker with the contents of your traffic — a broker relays only opaque encrypted bytes and can never read them, and on your LAN it isn't involved at all. If any of that ever changes, it will be said here, in plain language.</p>
+<p class="pvsig">— John W. Fawcett · Fawcett Innovations LLC · <a href="mailto:john@fawcettinnovations.com" style="color:var(--amber-deep);text-decoration:none">john@fawcettinnovations.com</a></p>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Security CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Own it outright</p>
+<h2>The surest security is a network with no middle.</h2>
+<p>Nobody can hand over what they never held. Read how the architecture puts you in the only trusted seat, then run your own.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Start with the book <span class="ar">→</span></a><a class="btn btn--ghost" href="privacy.dc.html">Read the privacy stance <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="store.dc.html">Get a node</a><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div>
+<div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="security.dc.html" style="color:inherit;text-decoration:none">Security</a> · <a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

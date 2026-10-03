@@ -95,6 +95,7 @@ from typing import Any, Dict, List, Tuple, Optional
 
 from proxy.origin import inject_origin_into_semantic_request
 from proxy.templates import get_template_store, learn_templates_from_real, extract_dynamic_query_vals
+from core import tuple_key as _tuple_key    # [INSTANCE_REFERENCES_V1] the instance location, one definition
 from proxy.proxy_metrics import bump_sem
 from proxy.proxy_metrics import bump_cache
 from proxy.proxy_metrics import bump_coalesce, bump_lru, bump_link, bump_template
@@ -310,44 +311,52 @@ def _client_write(handler, label: str):
 # REFERENCE VALUE CACHE (for diff encoding)
 # ====================================================================
 # BUG 1 FIX: default is None (never sent), not {} (sent with zero fields).
-# Key: (target_ip, opcode) -> Optional[Dict[str, Any]]
-_request_references: Dict[Tuple[str, int], Optional[Dict[str, Any]]] = {}
-_response_references: Dict[Tuple[str, int], Optional[Dict[str, Any]]] = {}
+# [INSTANCE_REFERENCES_V1] Key: (target_ip, opcode, instance) -> Optional[Dict[str, Any]].
+# The template (opcode) is the recognized format; the instance is the location in the message's data
+# (core/tuple_key.py). A message is differenced against the last message for the SAME instance. A template with no
+# location fields has exactly one instance, "" -- every non-tuple call, keyed exactly as before.
+_request_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
+_response_references: Dict[Tuple[str, int, str], Optional[Dict[str, Any]]] = {}
 _ref_lock = threading.RLock()
 
 
-def _get_request_reference(target_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
-    """Return None if never sent, or the last-sent reference dict."""
-    trace_enter('transport_semantic._get_request_reference', target_ip=repr(target_ip), opcode=repr(opcode))
+def _get_request_reference(target_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
+    """Return None if never sent, or the last-sent reference dict for this instance."""
+    trace_enter('transport_semantic._get_request_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst))
     with _ref_lock:
-        ref = _request_references.get((target_ip, opcode))
+        ref = _request_references.get((target_ip, opcode, inst))
         return ref.copy() if ref is not None else None
 
 
-def _set_request_reference(target_ip: str, opcode: int, ref: Dict[str, Any]) -> None:
-    trace_enter('transport_semantic._set_request_reference', target_ip=repr(target_ip), opcode=repr(opcode), ref=repr(ref))
+def _set_request_reference(target_ip: str, opcode: int, inst: str, ref: Dict[str, Any]) -> None:
+    trace_enter('transport_semantic._set_request_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst), ref=repr(ref))
     with _ref_lock:
-        _request_references[(target_ip, opcode)] = ref.copy()
+        _request_references[(target_ip, opcode, inst)] = ref.copy()
 
 
-def _clear_request_reference(target_ip: str, opcode: int) -> None:
+def _clear_request_reference(target_ip: str, opcode: int, inst: str) -> None:
     """Clear reference on REQ_MISS so next request sends full data."""
-    trace_enter('transport_semantic._clear_request_reference', target_ip=repr(target_ip), opcode=repr(opcode))
+    trace_enter('transport_semantic._clear_request_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst))
     with _ref_lock:
-        _request_references.pop((target_ip, opcode), None)
+        _request_references.pop((target_ip, opcode, inst), None)
 
 
-def _get_response_reference(target_ip: str, opcode: int) -> Optional[Dict[str, Any]]:
-    trace_enter('transport_semantic._get_response_reference', target_ip=repr(target_ip), opcode=repr(opcode))
+def _get_response_reference(target_ip: str, opcode: int, inst: str) -> Optional[Dict[str, Any]]:
+    trace_enter('transport_semantic._get_response_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst))
     with _ref_lock:
-        ref = _response_references.get((target_ip, opcode))
+        ref = _response_references.get((target_ip, opcode, inst))
         return ref.copy() if ref is not None else None
 
 
-def _set_response_reference(target_ip: str, opcode: int, ref: Dict[str, Any]) -> None:
-    trace_enter('transport_semantic._set_response_reference', target_ip=repr(target_ip), opcode=repr(opcode), ref=repr(ref))
+def _set_response_reference(target_ip: str, opcode: int, inst: str, ref: Dict[str, Any]) -> None:
+    trace_enter('transport_semantic._set_response_reference', target_ip=repr(target_ip), opcode=repr(opcode), inst=repr(inst), ref=repr(ref))
     with _ref_lock:
-        _response_references[(target_ip, opcode)] = ref.copy()
+        _response_references[(target_ip, opcode, inst)] = ref.copy()
+
+
+def _clear_response_reference(target_ip: str, opcode: int, inst: str) -> None:
+    with _ref_lock:
+        _response_references.pop((target_ip, opcode, inst), None)
 
 
 # ====================================================================
@@ -392,6 +401,50 @@ def _same_lru_put(same_id: bytes, val):
 
 
 # ====================================================================
+# [REFERENCES_MOVE_IN_WIRE_ORDER_V1] John 2026-09-26: references move in WIRE ORDER. The request reference commits
+# as the frame enters the worker's send queue (under _ref_lock, with the encode); the daemon merges it as the frame
+# arrives. The response reference moves as the reply is APPLIED, and replies to one instance are applied in the order
+# the reader received them: the reader stamps each reply with an arrival ticket for its instance, and a caller applies
+# its reply only when every earlier ticket of that instance has been applied. Replies to other instances never wait.
+# Before this, a caller committed its request reference only after its reply, and applied replies on its own thread
+# in whatever order the threads woke: two callers on one instance both encoded against the same old reference, and
+# a RESP_DIFF could be applied against a reference another caller's later reply had already moved. Proven on the real
+# transport by proxy/test_fanout_wire_order_oracle.py: a reader answered another caller's row order, status 200.
+# ====================================================================
+_gate_lock = threading.Condition()
+_gate_issued: Dict[Tuple[str, int, str], int] = {}    # tickets stamped so far, per instance
+_gate_applied: Dict[Tuple[str, int, str], int] = {}   # tickets applied so far, per instance
+
+
+def _gate_stamp(gate) -> int:
+    with _gate_lock:
+        n = _gate_issued.get(gate, 0) + 1
+        _gate_issued[gate] = n
+        return n
+
+
+def _gate_wait_turn(gate, ticket: int) -> None:
+    """Block until every earlier reply of this instance has been applied."""
+    with _gate_lock:
+        _gate_lock.wait_for(lambda: _gate_applied.get(gate, 0) >= ticket - 1)
+
+
+def _gate_wait_applied(gate, ticket: int) -> None:
+    """Block until the reply with this ticket has been applied (a coalesced caller sharing the owner's reply)."""
+    with _gate_lock:
+        _gate_lock.wait_for(lambda: _gate_applied.get(gate, 0) >= ticket)
+
+
+def _gate_done(gate) -> None:
+    with _gate_lock:
+        _gate_applied[gate] = _gate_applied.get(gate, 0) + 1
+        # The counters stay (two ints per instance, alongside its references): a coalesced caller may still be
+        # waiting on this ticket after the owner applied it, and forgetting the instance here reset its count under
+        # that caller -- it then waited forever (found by the oracle's stack dump).
+        _gate_lock.notify_all()
+
+
+# ====================================================================
 # REQUEST COALESCING
 # ====================================================================
 # One in-flight RPC per (target_ip, req_hash).  If a second request
@@ -402,11 +455,57 @@ def _same_lru_put(same_id: bytes, val):
 # This prevents duplicate RPCs from saturating slow links.
 
 class _InflightRPC:
-    __slots__ = ("event", "wire_reply", "error")
+    __slots__ = ("event", "wire_reply", "error", "rpc", "applied", "answer", "result")
     def __init__(self):
         self.event = threading.Event()
         self.wire_reply: Optional[bytes] = None
         self.error: Optional[Exception] = None
+        self.rpc: Optional["_Rpc"] = None
+        # [COALESCED_CALLERS_SHARE_THE_ANSWER_V1] The owner applies the reply ONCE and records what it wrote to its
+        # client (status, headers, body); every coalesced caller replays that. Before this each coalesced caller
+        # decoded the shared wire reply itself, so a RESP_DIFF was applied again after later replies had moved the
+        # instance's reference: another caller's rows, status 200 (proxy/test_fanout_wire_order_oracle.py).
+        self.applied = threading.Event()
+        self.answer = None                                # (status, [(header, value)], body bytes)
+        self.result = None                                # what _apply_semantic_reply returned (False = RAW fallback)
+
+
+class _Tee:
+    """A handler that writes through to the real one and keeps what was written, so it can be replayed."""
+    def __init__(self, handler):
+        self._h = handler; self.status = None; self.hdrs = []; self.body = bytearray()
+        self.wfile = self
+        self.close_connection = getattr(handler, "close_connection", True)
+
+    def send_response(self, code, msg=None):
+        self.status = code; self._h.send_response(code) if msg is None else self._h.send_response(code, msg)
+
+    def send_header(self, k, v):
+        self.hdrs.append((k, v)); self._h.send_header(k, v)
+
+    def end_headers(self):
+        self._h.end_headers()
+
+    def write(self, data):
+        self.body += data; return self._h.wfile.write(data)
+
+    def flush(self):
+        f = getattr(self._h.wfile, "flush", None)
+        if f: f()
+
+    def __getattr__(self, name):                          # everything else (headers, client_address, ...) is the real handler's
+        return getattr(self._h, name)
+
+
+def _replay_answer(handler, answer):
+    status, hdrs, body = answer
+    with _client_write(handler, "COALESCED"):
+        handler.send_response(status)
+        for k, v in hdrs:
+            handler.send_header(k, v)
+        handler.end_headers()
+        if body:
+            handler.wfile.write(bytes(body))
 
 _inflight: Dict[Tuple[str, bytes], _InflightRPC] = {}
 _inflight_lock = threading.RLock()
@@ -464,6 +563,87 @@ def _coalesced_rpc(target_ip: str, req_hash: bytes, worker, wire_req: bytes) -> 
         entry.event.set()
         with _inflight_lock:
             _inflight.pop(key, None)
+
+
+class _Dispatch:
+    """One dispatched RPC: either this caller's own (rpc) or a coalesced wait on another's (entry)."""
+    __slots__ = ("target_ip", "req_hash", "worker", "entry", "rpc", "sem", "owner")
+
+    def __init__(self, target_ip, req_hash, worker, entry, rpc, sem, owner):
+        self.target_ip, self.req_hash, self.worker = target_ip, req_hash, worker
+        self.entry, self.rpc, self.sem, self.owner = entry, rpc, sem, owner
+
+
+def _dispatch_begin(target_ip: str, req_hash: bytes, worker, wire_req: bytes, path: str, gate) -> _Dispatch:
+    """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] The enqueue half of _dispatch_rpc: the caller holds _ref_lock across this so
+    its reference commit and its place in the writer's queue are one step. Never blocks on the network."""
+    trace_enter('transport_semantic._dispatch_begin', target_ip=repr(target_ip), req_hash=repr(req_hash), path=repr(path))
+    if _nf_is_marked(target_ip):
+        raise ConnectionError(f"{target_ip} cached non-FrogNet this session")
+    sem = _get_target_sem(target_ip)
+    if not sem.acquire(blocking=True, timeout=5.0):
+        raise RuntimeError(
+            f"per-target limit ({_PER_TARGET_MAX}) exceeded for {target_ip}")
+    key = (target_ip, req_hash)
+    try:
+        with _inflight_lock:
+            existing = _inflight.get(key)
+            if existing is not None:
+                _debug(f"COALESCE: waiting on in-flight RPC to {target_ip} hash={req_hash.hex()}")
+                return _Dispatch(target_ip, req_hash, worker, existing, existing.rpc, sem, False)
+            entry = _InflightRPC()
+            _inflight[key] = entry
+        try:
+            entry.rpc = worker.submit(wire_req, gate)
+        except BaseException as e:
+            entry.error = e
+            entry.event.set()
+            with _inflight_lock:
+                _inflight.pop(key, None)
+            raise
+        return _Dispatch(target_ip, req_hash, worker, entry, entry.rpc, sem, True)
+    except BaseException as exc:
+        sem.release()
+        _nf_mark_if_definitive(target_ip, exc)
+        raise
+
+
+def _dispatch_end(d: _Dispatch) -> Tuple[bytes, bool]:
+    """The wait half: (wire_reply, was_coalesced). Releases the per-target slot."""
+    try:
+        if not d.owner:
+            budget = d.worker._peer_latency.retry_budget()
+            wait_timeout = (budget * _TRANSPORT_MAX_ATTEMPTS) + 1.0
+            if not d.entry.event.wait(timeout=wait_timeout):
+                raise TimeoutError(f"coalesced RPC timed out waiting for in-flight to {d.target_ip}")
+            if d.entry.error is not None:
+                raise d.entry.error
+            if d.entry.wire_reply is None:
+                raise RuntimeError(f"coalesced RPC: in-flight completed but no reply from {d.target_ip}")
+            bump_coalesce(peer_ip=d.target_ip)
+            _nf_clear_strikes(d.target_ip)
+            return d.entry.wire_reply, True
+        try:
+            wire_reply = d.worker.wait(d.rpc)
+            d.entry.wire_reply = wire_reply
+            _nf_clear_strikes(d.target_ip)
+            return wire_reply, False
+        except BaseException as e:
+            d.entry.error = e
+            _nf_mark_if_definitive(d.target_ip, e)
+            raise
+        finally:
+            d.entry.event.set()
+            with _inflight_lock:
+                _inflight.pop((d.target_ip, d.req_hash), None)
+    finally:
+        try:
+            d.sem.release()
+        except ValueError as e:
+            print(f"[SEM-TRANSPORT] SLOT ACCOUNTING BROKEN for {d.target_ip}: "
+                  f"release past bound ({e}) - per-target concurrency cap "
+                  f"({_PER_TARGET_MAX}) is no longer enforced for this target",
+                  flush=True)
 
 
 # NH semaphore removed: the two-socket architecture keeps send and
@@ -574,10 +754,14 @@ class _Rpc:
     # silently by the reader.
     __slots__ = ("packet", "reply", "err", "done", "submitted_at",
                  "seqs", "sent_at", "attempts", "max_attempts",
-                 "retry_pending")
+                 "retry_pending", "gate", "ticket")
 
-    def __init__(self, packet: bytes, max_attempts: int = 3):
+    def __init__(self, packet: bytes, max_attempts: int = 3, gate=None):
         self.packet = packet
+        # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] gate: the instance this request belongs to, (target_ip, opcode,
+        # instance); ticket: this reply's arrival number for that instance, stamped by the reader.
+        self.gate = gate
+        self.ticket = 0
         self.reply: Optional[bytes] = None
         self.err: Optional[Exception] = None
         self.done = threading.Event()
@@ -1763,6 +1947,8 @@ class _DaemonWorker:
                     self._peer_latency.observe(time.time() - sent)
 
                 rpc.reply = reply_data
+                if rpc.gate is not None:
+                    rpc.ticket = _gate_stamp(rpc.gate)    # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] wire order, per instance
                 with self._pending_lock:
                     for sib in rpc.seqs:
                         if sib != seq:
@@ -1844,6 +2030,20 @@ class _DaemonWorker:
     # -- Public API ----------------------------------------------------
 
     def call(self, packet: bytes) -> bytes:
+        return self.wait(self.submit(packet))
+
+    def submit(self, packet: bytes, gate=None) -> "_Rpc":
+        """[REFERENCES_MOVE_IN_WIRE_ORDER_V1] Enqueue only. The caller commits its request reference under _ref_lock
+        around this call, so references commit in the order frames enter the writer's queue -- which is the order
+        they leave, and the order the daemon merges them."""
+        rpc = self._submit_checked(packet, gate)
+        return rpc
+
+    def wait(self, rpc: "_Rpc") -> bytes:
+        """Block until cleanup resolves rpc (reply or error)."""
+        return self._wait_resolved(rpc)
+
+    def _submit_checked(self, packet: bytes, gate=None) -> "_Rpc":
         """[ADAPTIVE_TIMEOUT_V1] Enqueue and block until cleanup resolves.
 
         Cleanup thread owns the time-based resolution: it will either
@@ -1879,9 +2079,11 @@ class _DaemonWorker:
             raise RuntimeError(
                 f"peer {self.host}: reader dead")
 
-        rpc = _Rpc(packet, max_attempts=_TRANSPORT_MAX_ATTEMPTS)
+        rpc = _Rpc(packet, max_attempts=_TRANSPORT_MAX_ATTEMPTS, gate=gate)
         self.q.put(rpc)
+        return rpc
 
+    def _wait_resolved(self, rpc: "_Rpc") -> bytes:
         # Safety cap only: cleanup normally resolves well before this.
         # max_attempts (3) * ceiling budget (3 * 30s = 90s) = 270s.
         # Double it for slop.
@@ -2320,77 +2522,91 @@ def _handle_semantic_request(
     # different retry budgets in one process, one of them unreachable from
     # configuration, is a setting that lies.
     _MAX_ATTEMPTS = max(2, _TRANSPORT_MAX_ATTEMPTS)
-    reference = _get_request_reference(target_ip, opcode)
-
+    # [INSTANCE_REFERENCES_V1] The instance: this template plus the location in this message's data.
+    loc_fields = _tuple_key.location_fields(method, req_tpl.url_static, url_keys,
+                                            (req_tpl.fragment or {}).get("field_order") or [])
+    inst = _tuple_key.instance(loc_fields, dict(list(url_vals) + list(pairs)))
+    gate = (target_ip, opcode, inst)
+    force_full = False
+    dispatch = None
     for attempt in range(_MAX_ATTEMPTS):
-        sem_req, new_reference, is_identical = codec.encode_request_diff(
-            opcode=opcode,
-            url_vals=url_vals,
-            json_vals=pairs,
-            type_map=req_tpl.type_map or {},
-            reference=reference,
-            tokens=TokenStore(req_tpl.tokens),
-            compress=True,
-        )
-
-        req_hash = _compute_req_hash(target_ip, path, opcode, new_reference)
-
-        # [SAME_IS_BACK_V1] Not on a REPEAT: it carries no fields to inject into,
-        # and the daemon serves it from the reference it already holds.
-        if not is_identical:
-            sem_req = inject_origin_into_semantic_request(
-                sem_req,
-                ctx.get("client_ip", ""),
-                ctx.get("target_host") or target_ip,
+        # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] Read the reference, encode, enqueue and commit as ONE step under
+        # _ref_lock: the reference commits in the order frames enter the writer's queue, which is the order the
+        # daemon merges them. Nothing under the lock touches the network.
+        with _ref_lock:
+            reference = None if force_full else _get_request_reference(target_ip, opcode, inst)
+            sem_req, new_reference, is_identical = codec.encode_request_diff(
+                opcode=opcode,
+                url_vals=url_vals,
+                json_vals=pairs,
+                type_map=req_tpl.type_map or {},
+                reference=reference,
+                tokens=TokenStore(req_tpl.tokens),
+                compress=True,
             )
-
-        # ---- Three-way request type decision ----
-        # [SAME_IS_BACK_V1] is_identical restored as the FIRST branch.
-        #
-        # The purge left a two-way decision -- REQ_FULL when there is no
-        # reference, REQ_DIFF otherwise -- and dropped the case the codec exists
-        # to signal. core/codec.py v4.1's own header records why it matters:
-        # "BUG 1 (REQ_REPEAT never fires): ... encode_*_diff now correctly
-        # returns is_identical=True for repeated zero-field requests (echo,
-        # getHosts)". Those endpoints have NO dynamic fields, so their reference
-        # never changes and there is never anything to diff -- they went out as
-        # REQ_FULL forever, and _handle_req_full has no RESP_SAME branch in this
-        # code or in the pre-purge original. Measured on New-York-1: 100% DIFF
-        # on /frognet_echo.php, req_type=REQ_FULL on every line.
-        #
-        # REQ_REPEAT is the only op that can produce RESP_SAME for a request
-        # whose fields never move, which is exactly what a static endpoint is.
-        if is_identical:
-            wire_req = wrap_req_repeat(req_hash)
-            req_type = "REQ_REPEAT"
-            _debug(f"REQ_REPEAT to {target_ip} hash={req_hash.hex()} (identical)")
-        elif reference is None:
-            wire_req = wrap_req_full(req_hash, sem_req)
-            req_type = "REQ_FULL"
-            _debug(f"REQ_FULL to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B sem)")
-        else:
-            wire_req = wrap_req_diff(req_hash, sem_req)
-            req_type = "REQ_DIFF"
-            _debug(f"REQ_DIFF to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B diff)")
-
-        t0 = time.time()
-        try:
-            wire_reply, was_coalesced = _dispatch_rpc(target_ip, req_hash, worker, wire_req, path)
-        except Exception as e:
+            if reference is not None and not is_identical and loc_fields:
+                # [INSTANCE_REFERENCES_V1] The location travels with every difference, so the daemon can pick this
+                # instance from its own local cache before applying it: encode against the reference WITHOUT the
+                # location fields, so they are always present. The reference kept is unchanged (new_reference above).
+                sem_req, _nr, _ident = codec.encode_request_diff(
+                    opcode=opcode,
+                    url_vals=url_vals,
+                    json_vals=pairs,
+                    type_map=req_tpl.type_map or {},
+                    reference={k: v for k, v in reference.items() if k not in loc_fields},
+                    tokens=TokenStore(req_tpl.tokens),
+                    compress=True,
+                )
+            req_hash = _compute_req_hash(target_ip, path, opcode, new_reference)
+            # [SAME_IS_BACK_V1] Not on a REPEAT: it carries no fields to inject into,
+            # and the daemon serves it from the reference it already holds.
+            if not is_identical:
+                sem_req = inject_origin_into_semantic_request(
+                    sem_req,
+                    ctx.get("client_ip", ""),
+                    ctx.get("target_host") or target_ip,
+                )
+            # ---- Three-way request type decision ---- ([SAME_IS_BACK_V1]: is_identical is the FIRST branch; a
+            # static endpoint's reference never changes and REQ_REPEAT is the only op that can produce RESP_SAME)
+            if is_identical:
+                wire_req = wrap_req_repeat(req_hash)
+                req_type = "REQ_REPEAT"
+                _debug(f"REQ_REPEAT to {target_ip} hash={req_hash.hex()} (identical)")
+            elif reference is None:
+                wire_req = wrap_req_full(req_hash, sem_req)
+                req_type = "REQ_FULL"
+                _debug(f"REQ_FULL to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B sem)")
+            else:
+                wire_req = wrap_req_diff(req_hash, sem_req)
+                req_type = "REQ_DIFF"
+                _debug(f"REQ_DIFF to {target_ip} hash={req_hash.hex()} ({len(sem_req)}B diff)")
+            t0 = time.time()
+            try:
+                dispatch = _dispatch_begin(target_ip, req_hash, worker, wire_req, path, gate)
+            except Exception as e:
+                dispatch = None
+                dispatch_exc = e
+            if dispatch is not None and dispatch.owner:
+                _set_request_reference(target_ip, opcode, inst, new_reference)   # committed as it leaves
+        if dispatch is None:
+            e = dispatch_exc
             _debug(f"RPC failed to {target_ip}: {e!r}")
-            # [PEER_LINK_QUALITY_V1 2026-05-25] Record the failure as a
-            # link-quality sample.  rtt_ms here is the elapsed wait
-            # before the exception was raised - useful for the UI to
-            # distinguish fast-fail (refused / reset) from slow-fail
-            # (timeout / no daemon callback).  bytes_out is whatever
-            # we wrote to the socket before the failure; bytes_in is
-            # 0 since we got no reply.
             _fail_rtt_ms = (time.time() - t0) * 1000.0
             bump_link_quality(
                 peer_ip=target_ip, rtt_ms=_fail_rtt_ms,
                 bytes_out=len(wire_req), bytes_in=0, status="fail")
             return send_error_reply(handler, 503, f"Semantic RPC failed: {e!r}", ctx=ctx, where="sem_rpc_exc", extras={"exc": repr(e), "target_ip": target_ip, "attempt": attempt, "req_type": req_type, "wire_req_len": len(wire_req), "path": path})
-
+        try:
+            wire_reply, was_coalesced = _dispatch_end(dispatch)
+        except Exception as e:
+            _debug(f"RPC failed to {target_ip}: {e!r}")
+            # [PEER_LINK_QUALITY_V1 2026-05-25] Record the failure as a link-quality sample.
+            _fail_rtt_ms = (time.time() - t0) * 1000.0
+            bump_link_quality(
+                peer_ip=target_ip, rtt_ms=_fail_rtt_ms,
+                bytes_out=len(wire_req), bytes_in=0, status="fail")
+            _clear_request_reference(target_ip, opcode, inst)   # nothing reached the daemon in a known state
+            return send_error_reply(handler, 503, f"Semantic RPC failed: {e!r}", ctx=ctx, where="sem_rpc_exc", extras={"exc": repr(e), "target_ip": target_ip, "attempt": attempt, "req_type": req_type, "wire_req_len": len(wire_req), "path": path})
         rtt_ms = (time.time() - t0) * 1000.0
         bump_sem(peer_ip=target_ip, wire_req=len(wire_req), wire_resp=len(wire_reply))
         bump_link(next_hop=next_hop, wire_out=len(wire_req), wire_in=len(wire_reply))
@@ -2399,12 +2615,21 @@ def _handle_semantic_request(
             peer_ip=target_ip, rtt_ms=rtt_ms,
             bytes_out=len(wire_req), bytes_in=len(wire_reply),
             status="ok")
-
+        # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] apply this reply only after every earlier reply of this instance
+        gate_owner = dispatch.owner
+        gate_ticket = dispatch.rpc.ticket if dispatch.rpc is not None else 0
+        if gate_ticket:
+            if gate_owner:
+                _gate_wait_turn(gate, gate_ticket)
+            else:
+                _gate_wait_applied(gate, gate_ticket)
         msg = try_parse(wire_reply)
 
         # ---- REQ_MISS: clear reference and retry as REQ_FULL ----
         if msg is not None and msg.op == OP_REQ_MISS:
-            _clear_request_reference(target_ip, opcode)
+            if gate_ticket and gate_owner:
+                _gate_done(gate)
+            _clear_request_reference(target_ip, opcode, inst)
             bump_cache(
                 peer_ip=target_ip, req_type=req_type, resp_type="REQ_MISS",
                 endpoint=path,
@@ -2414,7 +2639,7 @@ def _handle_semantic_request(
             )
             if attempt < _MAX_ATTEMPTS - 1:
                 _debug(f"REQ_MISS from {target_ip}, retrying as REQ_FULL (attempt {attempt+1})")
-                reference = None   # force REQ_FULL on next iteration
+                force_full = True   # force REQ_FULL on next iteration
                 continue
             else:
                 _debug(f"REQ_MISS from {target_ip}, no retries left")
@@ -2422,20 +2647,47 @@ def _handle_semantic_request(
 
         # Not a REQ_MISS - break out of retry loop and process response
         break
+    entry = dispatch.entry
+    if not gate_owner:
+        # [COALESCED_CALLERS_SHARE_THE_ANSWER_V1] the owner applied this reply once; take what it wrote
+        entry.applied.wait()
+        if entry.result is False:
+            return False
+        if entry.answer is None:
+            return send_error_reply(handler, 503, "coalesced RPC: owner produced no answer", ctx=ctx, where="sem_coalesced_no_answer", extras={"target_ip": target_ip, "path": path})
+        _replay_answer(handler, entry.answer)
+        return None
+    tee = _Tee(handler)
+    try:
+        result = _apply_semantic_reply(**dict(locals(), handler=tee))
+        entry.result = result
+        if result is not False:
+            entry.answer = (tee.status if tee.status is not None else 503, list(tee.hdrs), bytes(tee.body))
+        return result
+    finally:
+        entry.applied.set()
+        if gate_ticket:
+            _gate_done(gate)
 
-    # ---- Commit reference AFTER daemon accepted the request ----
-    # This prevents desync: if daemon didn't cache (e.g. 500 from Apache),
-    # we don't advance our reference either.
-    if msg is not None and msg.op in (OP_RESP_SAME, OP_RESP_DIFF, OP_RESP_RAW):
-        _set_request_reference(target_ip, opcode, new_reference)
+
+def _apply_semantic_reply(*, handler, ctx, store, codec, target_ip, method, path, body, req_row, resp_row, req_headers,
+                          http_req_would, req_tpl, resp_tpl, opcode, inst, gate, msg, wire_req, wire_reply, rtt_ms,
+                          req_type, new_reference, req_hash, **_ignored):
+    """The reply half of _handle_semantic_request, applied in wire order for its instance (the caller holds its turn).
+    [REFERENCES_MOVE_IN_WIRE_ORDER_V1]"""
+    from proxy.proxy_main import send_error_reply
+    # [REFERENCES_MOVE_IN_WIRE_ORDER_V1] the request reference was committed as the frame left; a reply the daemon
+    # could not decode or execute clears it, so the next request goes FULL and the daemon's reference is cleared too
 
     # Legacy daemon (no FNW1 header) - should not happen with current nodes
     if msg is None:
+        _clear_request_reference(target_ip, opcode, inst)
         _debug(f"non-FNW1 response from {target_ip}, {len(wire_reply)} bytes - rejecting")
         return send_error_reply(handler, 502, "Non-FNW1 response from daemon", ctx=ctx, where="sem_non_fnw1", extras={"target_ip": target_ip, "wire_reply_len": len(wire_reply), "wire_reply_prefix": wire_reply[:32].hex()})
 
     # ---- OP_ERROR: daemon processing error ----
     if msg.op == OP_ERROR:
+        _clear_request_reference(target_ip, opcode, inst)
         error_msg = msg.payload.decode("utf-8", "replace") if msg.payload else ""
         error_status = msg.status or 503
         _debug(f"OP_ERROR from {target_ip}: status={error_status} msg={error_msg}")
@@ -2477,11 +2729,8 @@ def _handle_semantic_request(
             # extra round-trip on the rare cache-miss path, no 503.
             _debug(f"SAME cache miss - auto-retrying via raw path for "
                    f"{target_ip} same_id={msg.same_id.hex()}")
-            _clear_request_reference(target_ip, opcode)
-            try:
-                _response_references.pop((target_ip, opcode), None)
-            except Exception:
-                pass
+            _clear_request_reference(target_ip, opcode, inst)
+            _clear_response_reference(target_ip, opcode, inst)
             bump_cache(
                 peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME",
                 endpoint=path,
@@ -2508,10 +2757,10 @@ def _handle_semantic_request(
             # references so the next request is REQ_FULL, which clears the daemon's too.
             print(f"[SAME_MOVES_REFERENCE_V1] RESP_SAME body not extractable by opcode={opcode} "
                   f"reply template; resync with REQ_FULL target={target_ip}", flush=True)
-            _clear_request_reference(target_ip, opcode)
-            _response_references.pop((target_ip, opcode), None)
+            _clear_request_reference(target_ip, opcode, inst)
+            _clear_response_reference(target_ip, opcode, inst)
         else:
-            _set_response_reference(target_ip, opcode, {k: v for k, v in _same_vals})
+            _set_response_reference(target_ip, opcode, inst, {k: v for k, v in _same_vals})
         cached_resp_size = len(cached_body)
         http_resp_would = _estimate_http_response_wire(cached_resp_size)
         bump_cache(
@@ -2525,7 +2774,7 @@ def _handle_semantic_request(
 
     # ---- RESP_DIFF ----
     if msg.op == OP_RESP_DIFF:
-        reconstructed_size = _handle_resp_diff(handler, codec, resp_tpl, msg.same_id, msg.payload, req_hash, target_ip, opcode)
+        reconstructed_size = _handle_resp_diff(handler, codec, resp_tpl, msg.same_id, msg.payload, req_hash, target_ip, opcode, inst)
         http_resp_would = _estimate_http_response_wire(reconstructed_size)
         bump_cache(
             peer_ip=target_ip, req_type=req_type, resp_type="RESP_DIFF",
@@ -3004,7 +3253,7 @@ def _serve_from_same(handler, same_id: bytes, target_ip: str, is_raw: bool) -> b
     return body
 
 
-def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes, req_hash: bytes, target_ip: str, opcode: int) -> int:
+def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes, req_hash: bytes, target_ip: str, opcode: int, inst: str) -> int:
     """Handle RESP_DIFF. Returns reconstructed body size (0 on error)."""
     trace_enter('transport_semantic._handle_resp_diff', handler=repr(handler), codec=repr(codec), resp_tpl=repr(resp_tpl), same_id=repr(same_id), sem_blob=repr(sem_blob), req_hash=repr(req_hash))
     from proxy.proxy_main import send_error_reply
@@ -3017,12 +3266,16 @@ def _handle_resp_diff(handler, codec, resp_tpl, same_id: bytes, sem_blob: bytes,
         return 0
 
     try:
-        reference = _get_response_reference(target_ip, opcode)
+        reference = _get_response_reference(target_ip, opcode, inst)
         fields = codec.decode_reply(sem_blob, resp_tpl, TokenStore(resp_tpl.tokens), reference)
         new_ref = {k: v for k, v in fields}
-        _set_response_reference(target_ip, opcode, new_ref)
+        _set_response_reference(target_ip, opcode, inst, new_ref)
 
-        body_out = resp_tpl.rebuild([v for _, v in fields])
+        # [REBUILD_TAKES_PAIRS_V1] Hand rebuild the (field, value) pairs decode_reply returned, not the bare values.
+        # json_handler.rebuild_reply reads a first value that is itself a 2-element list as a (key, value) pair, so a
+        # bare-value list whose first value was a 2-element array (getHosts with exactly two hosts) was rebuilt from
+        # the template baseline: one row, 200, no error. Pairs are the form every other caller uses.
+        body_out = resp_tpl.rebuild(list(fields))
         data = body_out.encode("utf-8", "replace")
         ctype = resp_tpl.content_type()
 

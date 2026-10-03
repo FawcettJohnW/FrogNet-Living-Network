@@ -1,0 +1,182 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Starve Test — announcement · Fawcett Innovations</title>
+<meta name="description" content="Announcing the transcontinental FrogNet first run: HD over Wi-Fi, WireGuard, and a 900 MHz radio in one call, surviving a deliberate starve.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Starve Test — announcement">
+<meta property="og:description" content="Announcing the transcontinental FrogNet first run: HD over Wi-Fi, WireGuard, and a 900 MHz radio in one call, surviving a deliberate starve.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link href="assets/fonts/fonts.css" rel="stylesheet">
+<style>
+body{margin:0;background:#e7e3d6;}
+.lbl{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.12em;color:#6f6d64;margin:0 0 14px 4px;}
+.card{background:#f3efe4;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.08);box-sizing:border-box;}
+.eyebrow{font-family:'Archivo',sans-serif;font-size:14px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:#2c5a3c;}
+.serif{font-family:'Source Serif 4',Georgia,serif;}
+.arch{font-family:'Archivo',sans-serif;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+.h1{font-family:'Archivo',sans-serif;font-weight:800;font-size:58px;line-height:1.0;letter-spacing:-.03em;color:#1b1a16;margin:0;}
+.dek{font-family:'Source Serif 4',Georgia,serif;font-size:24px;line-height:1.42;color:#36332b;margin:0;max-width:24em;}
+.dek em{color:#1b1a16;font-style:italic;}
+.panel{background:#141812;border-radius:4px;padding:26px 28px 20px;}
+.ptitle{font-family:'Archivo',sans-serif;font-weight:700;font-size:20px;letter-spacing:.02em;color:#eef0e6;}
+.psub{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#7f897b;margin-top:5px;}
+.badge{font-family:'IBM Plex Mono',monospace;font-size:14px;letter-spacing:.06em;color:#bfe9cb;border:1.5px solid #2f5d40;background:rgba(127,214,154,.07);border-radius:3px;padding:9px 15px;}
+.pfoot{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.1em;color:#6c766a;margin-top:6px;}
+.bars{display:flex;align-items:flex-end;gap:2px;height:13px;}
+.bars i{width:3px;background:#7fd69a;display:block;transform-origin:bottom;animation:bars 1.6s ease-in-out infinite;}
+@keyframes bars{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+.sweep{animation:sweep 6.5s linear infinite;}
+@keyframes sweep{0%{transform:translateX(0)}100%{transform:translateX(800px)}}
+.aglow{animation:aglow 2.6s ease-in-out infinite;}
+@keyframes aglow{0%,100%{opacity:.10}50%{opacity:.24}}
+.foot-line{border-top:1.5px solid #1b1a16;}
+.buy{font-family:'Source Serif 4',Georgia,serif;font-size:19px;line-height:1.4;color:#1b1a16;}
+.src{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#2c5a3c;}
+.post{font-family:'Source Serif 4',Georgia,serif;font-size:19px;line-height:1.6;color:#2a2823;}
+.post p{margin:0 0 1.05em;text-wrap:pretty;}
+.post .beat{margin:0 0 1.05em;}
+.post strong{font-weight:600;color:#1b1a16;}
+.post em{font-style:italic;color:#1b1a16;}
+.kicker{font-family:'Archivo',sans-serif;font-weight:700;font-size:21px;color:#1b1a16;margin:0 0 6px;}
+</style>
+</helmet>
+
+<div style="position:absolute;left:60px;top:60px;width:1080px;">
+<div class="lbl" data-drags-parent="1">FRAME A — THE EXHIBIT · shareable graphic (1080×4:5)</div>
+<div class="card" style="width:1080px;padding:68px 72px 60px;">
+  <div class="fx ac jb" style="margin-bottom:34px;">
+    <div class="eyebrow">FrogNet — Living Network</div>
+    <div class="mono" style="font-size:13px;letter-spacing:.12em;color:#8a8576;">FIELD DEMO · NY ↔ SEA</div>
+  </div>
+
+  <h1 class="h1">We starved the link until<br>it should have died.<br><span style="color:#2c5a3c;">The call didn't.</span></h1>
+  <div style="width:72px;height:4px;background:#2c5a3c;margin:30px 0 26px;"></div>
+  <p class="dek">An HD video call — a laptop in New York, a laptop in Seattle — carried across a <em>900&nbsp;MHz radio link.</em> We choked the bandwidth down to the dial-up era on purpose. The picture stepped down a rung at a time. <em>The audio never flinched.</em> Nothing reconnected, because nothing ever dropped.</p>
+
+  <div class="panel" style="margin-top:42px;">
+    <div class="fx ac jb">
+      <div>
+        <div class="ptitle">THE STARVE TEST</div>
+        <div class="psub">LIVE TELEMETRY · BOTH DIRECTIONS</div>
+      </div>
+      <div class="fx ac gap12">
+        <div class="bars"><i style="animation-delay:0s"></i><i style="animation-delay:.2s"></i><i style="animation-delay:.4s"></i><i style="animation-delay:.6s"></i></div>
+        <div class="badge">HD HELD · ≈300 Kbps / STREAM</div>
+      </div>
+    </div>
+
+    <svg viewBox="0 0 960 470" style="width:100%;height:auto;display:block;margin-top:14px;" font-family="'IBM Plex Mono',monospace">
+      <!-- lane bands -->
+      <rect x="120" y="30" width="800" height="115" fill="rgba(127,214,154,.04)"/>
+      <rect x="120" y="165" width="800" height="130" fill="rgba(127,214,154,.05)"/>
+      <rect x="120" y="320" width="800" height="80" fill="rgba(227,182,92,.05)"/>
+      <!-- phase dividers -->
+      <line x1="264" y1="30" x2="264" y2="410" stroke="rgba(255,255,255,.08)" stroke-dasharray="3 5"/>
+      <line x1="456" y1="30" x2="456" y2="410" stroke="rgba(255,255,255,.08)" stroke-dasharray="3 5"/>
+      <line x1="696" y1="30" x2="696" y2="410" stroke="rgba(255,255,255,.08)" stroke-dasharray="3 5"/>
+      <line x1="120" y1="410" x2="920" y2="410" stroke="rgba(255,255,255,.13)"/>
+      <!-- lane labels -->
+      <text x="104" y="80" text-anchor="end" fill="#9aa394" font-size="14" font-weight="500">LINK</text>
+      <text x="104" y="96" text-anchor="end" fill="#5f685b" font-size="11">capacity</text>
+      <text x="104" y="226" text-anchor="end" fill="#9aa394" font-size="14" font-weight="500">VIDEO</text>
+      <text x="104" y="242" text-anchor="end" fill="#5f685b" font-size="11">quality</text>
+      <text x="104" y="356" text-anchor="end" fill="#cfa84e" font-size="14" font-weight="500">AUDIO</text>
+      <text x="104" y="372" text-anchor="end" fill="#7a6e4c" font-size="11">voice</text>
+      <!-- LINK capacity area -->
+      <path d="M120,45 L264,45 L264,70 L360,70 L360,95 L456,95 L456,120 L696,120 L696,45 L920,45 L920,144 L120,144 Z" fill="rgba(111,154,126,.16)"/>
+      <path d="M120,45 L264,45 L264,70 L360,70 L360,95 L456,95 L456,120 L696,120 L696,45 L920,45" fill="none" stroke="#6f9a7e" stroke-width="2"/>
+      <!-- VIDEO staircase -->
+      <path d="M120,185 L264,185 L264,215 L360,215 L360,245 L456,245 L456,275 L696,275 L696,185 L920,185" fill="none" stroke="#7fd69a" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <circle cx="696" cy="185" r="5" fill="#7fd69a"/>
+      <text x="130" y="178" fill="#7fd69a" font-size="12">720p · L7</text>
+      <text x="552" y="266" text-anchor="middle" fill="#9fe0b3" font-size="12">L4 · floor</text>
+      <!-- floor annotation -->
+      <path d="M456,300 L456,307 L648,307 L648,300" fill="none" stroke="#8a9286" stroke-width="1.3"/>
+      <text x="552" y="299" text-anchor="middle" fill="#cfd6c8" font-size="13" font-weight="500">≈300 Kbps / stream · dial-up era</text>
+      <!-- AUDIO line -->
+      <path class="aglow" d="M120,360 L920,360" fill="none" stroke="#e3b65c" stroke-width="11" stroke-linecap="round"/>
+      <path d="M120,360 L920,360" fill="none" stroke="#e3b65c" stroke-width="3.5" stroke-linecap="round"/>
+      <text x="912" y="352" text-anchor="end" fill="#e3b65c" font-size="12" font-weight="500">0 DROPOUTS — HELD THROUGHOUT</text>
+      <!-- recovery marker -->
+      <line x1="696" y1="24" x2="696" y2="405" stroke="#e8e4d6" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <text x="912" y="218" text-anchor="end" fill="#e8e4d6" font-size="13" font-weight="500">LINK RESTORED →</text>
+      <text x="912" y="236" text-anchor="end" fill="#aeb4a6" font-size="12">INSTANT 720p · NO RECONNECT</text>
+      <!-- phase labels -->
+      <text x="192" y="430" text-anchor="middle" fill="#8a9286" font-size="12" letter-spacing="1">FULL</text>
+      <text x="360" y="430" text-anchor="middle" fill="#8a9286" font-size="12" letter-spacing="1">STARVE</text>
+      <text x="576" y="430" text-anchor="middle" fill="#8a9286" font-size="12" letter-spacing="1">FLOOR</text>
+      <text x="808" y="430" text-anchor="middle" fill="#8a9286" font-size="12" letter-spacing="1">RECOVER</text>
+      <!-- live sweep -->
+      <rect class="sweep" x="120" y="30" width="2.5" height="380" fill="rgba(255,255,255,.13)"/>
+    </svg>
+
+    <div class="fx jb pfoot">
+      <span>LADDER &nbsp; L7 720p · L6 · L5 · L4 floor &nbsp;·&nbsp; ≈300 Kbps/stream each way</span>
+      <span>900 MHz BEARER</span>
+    </div>
+  </div>
+
+  <div class="foot-line fx ac jb" style="margin-top:40px;padding-top:24px;gap:40px;">
+    <p class="buy" style="margin:0;max-width:30em;">Built for comms where the network is the enemy — <strong>field operations, disaster response, remote industrial sites.</strong> It runs today. Not a slide. Not a roadmap.</p>
+    <div style="text-align:right;flex-shrink:0;">
+      <img src="assets/frognet-logo.png" alt="FrogNet" style="height:34px;display:block;margin:0 0 8px auto;">
+      <div class="src">(Source available on request.)</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div style="position:absolute;left:1260px;top:60px;width:760px;">
+<div class="lbl" data-drags-parent="1">FRAME B — THE CAPTION · post copy, in John's voice</div>
+<div class="card" style="width:760px;padding:60px 64px;">
+  <div class="eyebrow" style="margin-bottom:26px;">The post</div>
+  <div class="post">
+    <p>We put a laptop in New York and a laptop in Seattle.</p>
+    <p>Between them: a 900&nbsp;MHz radio link and nothing you'd call the internet.</p>
+    <p>Then we started taking the bandwidth away. On purpose.</p>
+    <p>Down past broadband. Past DSL. Down into the dial-up era — about 300 kilobits a second per stream.</p>
+    <p><strong>A normal HD call dies here. Ours didn't.</strong></p>
+    <p>The picture stepped down a rung at a time — 720p, then a little less, then less again — and kept going. The audio never flinched. Not a stutter. Not a dropout. The call never reconnected, because it never disconnected.</p>
+    <p>Then we handed the bandwidth back.</p>
+    <p>The picture snapped to full 720p in both directions. Instantly. No <em>"reconnecting…"</em>, no dialing back in. It just stood back up.</p>
+    <p class="kicker">Here's the part that matters.</p>
+    <p>Nothing in the middle was holding the call together. No server to lose. No session to renegotiate. No connection state stranded on a link that kept flapping. Take the foundation most calls are built on and the whole thing falls over. We took ours away on purpose — and the call shrugged.</p>
+    <p>If you run comms where the network is the enemy — field operations, disaster response, remote industrial, anywhere the link is thin and mean — this is for you.</p>
+    <p><strong>FrogNet. Your own network, on hardware you already own.</strong></p>
+    <p class="src" style="margin:0;">(Source available on request.)</p>
+  </div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

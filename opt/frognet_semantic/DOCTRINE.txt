@@ -1,3 +1,49 @@
+[INSTANCE_REFERENCES_V1] + [BODY_FIELD_SET_IS_PART_OF_THE_IDENTITY_V1] + [REFERENCES_MOVE_IN_WIRE_ORDER_V1]
+=====================================================================================================
+The first genuine change to the core code: the template is the format, the local cache holds its instances,
+references move in wire order. (John, 2026-09-26)
+
+THE RULES
+---------
+- The template is the generally recognized format ("read tuple at location"). The key for a specific message is the
+  template plus the location in its data ("read tuple at a,b,c"). Templates are NOT keyed per tuple. Tuple
+  (databasehost) calls only; every other call keeps its per-endpoint template, so discovery is unchanged.
+- The tuple key is ONE definition, core/tuple_key.py. It now also says which of a template's fields are its
+  location (location_fields / instance); proxy/templates.py takes a tuple call's location keys out of the template
+  identity (they travel as dynamic values) and both references -- proxy and daemon, request and response -- are
+  keyed (peer, opcode, instance). The location is sent in every REQ_DIFF; the daemon reads it first, then takes that
+  instance's reference; an unknown instance is REQ_MISS.
+- A JSON object body's field paths are part of the template identity (&__body=<crc32 of the paths>), the same rule
+  as [DYNAMIC_KEY_SET_IS_PART_OF_THE_IDENTITY_V1]: the paths ARE the wire layout, and two bodies with different
+  field sets on one opcode let the two ends learn different templates from different RAW exchanges (proven on the
+  RAM wire: a write executed by the far end with its fields in another shape's slots, status 200).
+- References move in WIRE ORDER. Proxy: the reference read, the encode, the enqueue into the worker's send order
+  and the commit are one step under _ref_lock; the reader stamps each reply with an arrival ticket for its
+  instance and a caller applies its reply only after every earlier ticket of that instance. Daemon: the request
+  reference merges on the socket thread in arrival order (execution.begin, before the pool); the reply is encoded
+  and queued for the writer under one lock (_Emitter), so the response reference moves in the order replies go on
+  the return socket. The REPEAT cache entry carries the request's OWN merged values, never the instance's current
+  reference.
+- [COALESCED_CALLERS_SHARE_THE_ANSWER_V1] A caller coalesced onto another's in-flight RPC takes what the owner wrote
+  to its client, never the wire reply: a RESP_DIFF applied twice, the second time against a reference a later reply
+  moved, is wrong.
+- [REBUILD_TAKES_PAIRS_V1] The proxy hands rebuild() the (field, value) pairs; json_handler.rebuild_reply read a bare
+  value list whose first value was a 2-element array as (key, value) pairs and answered getHosts with one host of
+  two, status 200.
+- [NO_FALLBACK_V1] session._diff_encode_response no longer papers an encode failure over with a full encode on a
+  clobbered reference; it raises, naming peer, opcode and instance.
+
+GATE
+----
+proxy/test_instance_references_oracle.py (real proxy vs real daemon session on MariaDB): 6 checks fail on the tree
+before, all pass after. proxy/test_fanout_wire_order_oracle.py (the real _DaemonWorker over real sockets against a
+real DaemonServer, 8 readers on two instances varying limit and order, 4 writers): another caller's row order or
+row count with status 200 in 4 of 9 runs before; 0 problems in 13 of 13 runs after, up to 24 readers / 12 writers.
+proxy/test_resp_same_reference_oracle.py passes. FrogSim run_all.py: discovery 83/83, every tier identical to the
+baseline, from the extracted delivery tarball. The C++ engines (ribbit-lisp v0.52) carry the same rules; S3 is
+68,878 cases, 0 differ, against this templates.py.
+
+
 [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1]
 =================================
 /etc/resolv.conf names ONLY 127.0.0.1, the upstream (if any), and 8.8.8.8. (John, 2026-09-26)

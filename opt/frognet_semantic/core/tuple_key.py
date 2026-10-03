@@ -121,3 +121,54 @@ def write_key(method: str, path: str, body: bytes) -> Optional[str]:
     if names is None:
         return None
     return "entity=%s|SensorName=%s" % (p["entity"], ",".join(sorted(names)))
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# [INSTANCE_REFERENCES_V1] John 2026-09-26: the template is the generally recognized format ("read tuple at location");
+# each side's local cache holds many instances of it, and the key for a specific message is the template plus the
+# location in its data ("read tuple at a,b,c"). The location is THIS module's key -- the same definition read_key and
+# write_key use -- taken from the fields a template carries:
+#   read  : the address pattern, every query key that is not a control
+#   write : SensorName (query or body), or the names in items[] for a batch
+# A template with no location fields (every non-tuple call) has exactly one instance, as before.
+
+def location_query_keys(path: str) -> Set[str]:
+    """The query keys of this call that are its tuple location (and so are NOT part of its template's identity).
+    Empty for anything that is not a tuple call."""
+    p = params(path)
+    if not p or p.get("entity") not in TUPLE_ENTITIES:
+        return set()
+    if p.get("action") in READ_ACTIONS:
+        return {k for k in p if k not in CONTROL_KEYS}
+    if p.get("action") in WRITE_ACTIONS:
+        return {"SensorName"} & set(p)
+    return set()
+
+
+def location_fields(method: str, url_static: str, url_query_keys, json_fields) -> Tuple[str, ...]:
+    """The fields of a template that carry its instance location, in the template's own order."""
+    p = params(url_static)
+    if not p or p.get("entity") not in TUPLE_ENTITIES:
+        return ()
+    uk, jf = list(url_query_keys or []), list(json_fields or [])
+    if method == "GET" and p.get("action") in READ_ACTIONS:
+        return tuple(k for k in uk if k not in CONTROL_KEYS)
+    if method == "POST" and p.get("action") in WRITE_ACTIONS:
+        return tuple(f for f in uk + jf if f in ("SensorName", "items"))
+    return ()
+
+
+def instance(fields: Tuple[str, ...], values: Dict[str, object]) -> str:
+    """The instance location of one message: the values of its template's location fields. Every location field must be
+    present -- a message whose location is unknown cannot be placed in a local cache, and that is an error, not a guess."""
+    out = []
+    for f in fields:
+        if f not in values or values[f] is None:
+            raise KeyError("tuple_key.instance: location field %r missing from the message (fields %r)" % (f, fields))
+        v = values[f]
+        if f == "items":                       # a batch addresses the tuples it names, as write_key does
+            if not isinstance(v, list):
+                raise TypeError("tuple_key.instance: items is %s, not a list" % type(v).__name__)
+            v = sorted(it["SensorName"] for it in v)
+        out.append("%s=%r" % (f, v))
+    return "\x1f".join(out)

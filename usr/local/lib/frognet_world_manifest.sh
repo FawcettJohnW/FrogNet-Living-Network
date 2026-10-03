@@ -199,13 +199,79 @@ unset _l _rel
 # is Apache-licensed still has to be resolved before distribution -- the two
 # PHPMailer doc bundles below are the live example.
 FROGNET_THIRD_PARTY=(
-    var/www/html/php/php/PHPMailer
-    var/www/html/webrtc-web
-    var/www/html/js
-    var/www/html/bundle
+    # Dino Farinacci's lispers.net, Apache-2.0, vendored unmodified as the frozen oracle the lispers example is tested
+    # against. It carries its own LICENSE and NOTICE; ours must never be stamped on it. Not shipped: see NEVER_SHIP.
+    opt/frognet_semantic/ribbit/examples/lispers.net/third_party
+    # React and Babel (MIT), vendored by the broker's web UI. Never stamped with ours.
+    opt/frognet_semantic/broker/var/www/html/assets/vendor
 )
 
 FROGNET_NEVER_SHIP=(
+    # [NODE_LOCAL_NEVER_SHIPS_V1 - 2026-10-02] On a node, used there, never FrogNet source: pip's console-script
+    # launchers (pip writes them on install), the Redis front binary the Redis build installs for that machine's
+    # architecture, a third-party service unit, and the broker's state copies. full_tar from Seattle5 is the snapshot
+    # that becomes every node and the repository, so these are kept out of it here rather than deleted from the node.
+    usr/local/bin/bottle
+    usr/local/bin/bottle.py
+    usr/local/bin/cbor2
+    usr/local/bin/cheroot
+    usr/local/bin/dotenv
+    usr/local/bin/f2py
+    usr/local/bin/flask
+    usr/local/bin/futurize
+    usr/local/bin/gpsdclient
+    usr/local/bin/gunicorn
+    usr/local/bin/gunicornc
+    usr/local/bin/httpx
+    usr/local/bin/isympy
+    usr/local/bin/markdown-it
+    usr/local/bin/numpy-config
+    usr/local/bin/pasteurize
+    usr/local/bin/proton
+    usr/local/bin/proton-viewer
+    usr/local/bin/pyav
+    usr/local/bin/torchfrtrace
+    usr/local/bin/torchrun
+    usr/local/bin/ribbit-redis-front
+    etc/systemd/system/uptime-kuma.service
+    'opt/frognet_semantic/broker/opt/frognet_broker_v4/*.db'
+    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet_system_tune.sh from the board's own RAM and
+    # CPU count (innodb_buffer_pool_size, sysctl, service limits): each node's are its own, and a shipped copy would
+    # carry Seattle5's sizing onto a smaller board until the next boot.
+    etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
+    etc/sysctl.d/99-frognet.conf
+    'etc/systemd/system/*.service.d/99-frognet-tune.conf'
+    opt/frognet_semantic/broker/opt/frognet_broker_v4/files.zip
+    # [NODE_IDENTITY_NEVER_SHIPS_V1 - 2026-10-01] Files every node generates for itself. A tree built on one node
+    # carried them, and laying it over another node made that node Seattle5: dnsmasq served Seattle5's domain and
+    # DHCP range, and `frognet_install.sh --preserve` then "recovered" the name Seattle5 from opts_only.conf.
+    # Writers: frognet_install.sh, set_node_id.bash, frognet-netstart, frognet_nm_unmanage_if.sh.
+    etc/dnsmasq.d/opts_only.conf
+    etc/frognet/node-id
+    etc/frognet/ssid_projection.conf
+    'etc/frognet/broker.conf.superseded.*'
+    'etc/NetworkManager/conf.d/*'
+    'etc/iptables/rules.v*'
+    etc/ssl/localCA
+    # The machine's own OS state, not FrogNet: its CA links, openssl.cnf, and the systemd symlinks that enable or
+    # mask services on that one machine (hostapd, display-manager, default.target, ...).
+    etc/ssl/certs
+    etc/ssl/openssl.cnf
+    # A node's systemd aliases and masks (symlinks; full_tar does not skip links, which is how one node's copies reached
+    # the repository). None of these is a FrogNet unit -- those are frognet-*. A mask shipped as hostapd.service turns
+    # off another node's SSID; default.target and display-manager change how it boots.
+    'etc/systemd/system/dbus-*'
+    'etc/systemd/system/*.device.wants'
+    'etc/systemd/system/*.service.wants'
+    etc/systemd/system/default.target
+    etc/systemd/system/display-manager.service
+    etc/systemd/system/hostapd.service
+    etc/systemd/system/sshd.service
+    etc/systemd/system/chronyd.service
+    etc/systemd/system/iptables.service
+    etc/systemd/system/ip6tables.service
+    etc/systemd/system/jool.service
+    etc/systemd/system/systemd-resolved.service
     # [DO_NOT_SHIP_AN_INCOMPATIBLE_LICENCE_V1 - John 2026-09-14] PHPMailer's
     # generated phpdoc bundle carries Apache-2.0 JavaScript (bootstrap.js,
     # prettify/lang-clj.js). Apache-2.0 is incompatible with GPL-2.0-only, so
@@ -216,6 +282,9 @@ FROGNET_NEVER_SHIP=(
     # resolves the incompatibility instead of annotating it -- the library
     # itself stays, under its own licence, in THIRD_PARTY above.
     var/www/html/php/php/PHPMailer/docs
+    # Same rule for Dino's lispers.net (Apache-2.0): the oracle the lispers example is tested against, never run on a
+    # node. Not shipping it resolves the incompatibility; it stays in the repository under its own licence.
+    opt/frognet_semantic/ribbit/examples/lispers.net/third_party
     # WireGuard. The directory ships (the installer expects it); the configs and
     # keys do not. Every wg*.conf holds a live PrivateKey.
     'etc/wireguard/wg*.conf'

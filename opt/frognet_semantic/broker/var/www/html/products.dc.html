@@ -1,0 +1,367 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Product — a box, a protocol, and the apps that ride it · Fawcett Innovations</title>
+<meta name="description" content="The Node, UnREST, the Broker, the Communicator, and the application suite: one self-forming network seen from five seats. Software you install and own.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Product — a box, a protocol, and the apps that ride it">
+<meta property="og:description" content="The Node, UnREST, the Broker, the Communicator, and the application suite: one self-forming network seen from five seats. Software you install and own.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}
+.prodnav{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.prodnav a{font-family:var(--fm);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--mist-dim);border:1px solid var(--hair);padding:9px 14px;text-decoration:none;transition:.18s}
+.prodnav a:hover{border-color:var(--amber);color:#fff}
+.pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--fm);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill--op{color:var(--lily)}.pill--dev{color:var(--amber)}.light .pill--dev{color:var(--amber-deep)}
+.prod{scroll-margin-top:84px}
+.prodhead{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;margin-bottom:14px}
+.prodhead .code{font-family:var(--fm);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber-deep)}
+.dark .prodhead .code{color:var(--amber)}
+.flag h2 .u{font-style:normal;color:var(--amber-deep)}.dark .flag h2 .u{color:var(--amber)}
+.flag p{color:var(--ink-dim)}.dark .flag p{color:var(--mist-dim)}
+.flag p strong{color:var(--ink)}.dark .flag p strong{color:#fff}
+.editions{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--hair);border:1px solid var(--hair)}
+@media(max-width:760px){.editions{grid-template-columns:1fr}}
+.ed{background:var(--abyss);padding:30px 28px;display:flex;flex-direction:column}
+.ed__t{font-family:var(--fm);font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--amber)}
+.ed__p{font-family:var(--fd);font-size:30px;color:#fff;margin:14px 0 4px;letter-spacing:-.02em}
+.ed__u{font-family:var(--fm);font-size:12px;color:var(--mist-dim);margin-bottom:18px}
+.ed ul{list-style:none;margin:0 0 22px;padding:0}
+.ed li{font-size:14.5px;color:var(--mist-dim);padding:8px 0 8px 22px;position:relative;border-top:1px solid var(--hair)}
+.ed li::before{content:"";position:absolute;left:0;top:16px;width:12px;height:1px;background:var(--amber)}
+.ed .btn{margin-top:auto}
+.ed--feat{background:var(--petrol-2)}
+.dev{display:flex;flex-direction:column}
+.dev__glyph{height:100px;border:1px solid var(--hair);background:#06181b;display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.dev__glyph svg{width:auto;height:58px;display:block}
+.devtag{font-family:var(--fm);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber)}
+.dev h3{font-size:20px;color:#fff;margin:11px 0 8px}
+.dev p{font-size:15px;color:var(--mist-dim);margin:0}
+.buygrid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media(max-width:820px){.buygrid{grid-template-columns:1fr}}
+.buy{background:var(--paper);padding:30px 28px;display:flex;flex-direction:column}
+.buy--feat{background:var(--paper-3)}
+.buy__k{font-family:var(--fm);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber-deep);margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.buy__tag{color:var(--ink-dim);letter-spacing:.1em}
+.buy__price{font-family:var(--fd);font-size:36px;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.buy__price small{font-family:var(--fm);font-size:12px;color:var(--ink-dim);letter-spacing:.04em;margin-left:7px;text-transform:uppercase}
+.buy h3{font-size:20px;margin:14px 0 8px;color:var(--ink)}
+.buy p{font-size:15px;color:var(--ink-dim);margin:0 0 22px}
+.buy .btn{margin-top:auto;align-self:flex-start}
+.buynote{font-family:var(--fm);font-size:12.5px;color:var(--ink-dim);margin-top:22px;max-width:74ch;line-height:1.75}
+.rv{position:relative;margin:0;border:1px solid var(--rule);background:#040d0e;background-size:cover;background-position:center;overflow:hidden}
+.rv video{display:block;width:100%;aspect-ratio:16/9;background:transparent}
+.rv__rec{position:absolute;top:12px;left:12px;z-index:2;display:flex;align-items:center;gap:7px;font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#bff5d3;background:rgba(9,20,22,.62);border:1px solid rgba(61,186,106,.5);border-radius:20px;padding:5px 11px;pointer-events:none}
+.rv__rec i{width:7px;height:7px;border-radius:50%;background:#3DBA6A;display:block;animation:cb 1.8s ease-in-out infinite}
+@keyframes cb{0%,100%{opacity:1}50%{opacity:.35}}
+.rvcap{margin:11px 2px 0;font-family:var(--fm);font-size:11.5px;line-height:1.6}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a class="is-on" href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Product head">
+<div class="wrap">
+<p class="eyebrow reveal">The product</p>
+<h1 class="reveal">One stack. A box, a model, and the apps that <span class="glow">ride it.</span></h1>
+<p class="lede reveal">FrogNet is not a cloud you rent — it is a full network <em>fabric</em> you install and own: a matrix of system-level and application-level code implementing one architecture. A node turns any spare computer into a piece of a self-forming network; UnREST is the model that moves memory instead of messages; and a whole suite of applications runs on top of the same fabric at once. This is infrastructure, not a single app. Free to build on, licensed when you ship.</p>
+<div class="prodnav reveal"><a href="#node">The Node</a><a href="#unrest">UnREST</a><a href="#broker">The Broker</a><a href="#communicator">The Communicator</a><a href="#apps">The Apps</a><a href="#indev">In Development</a><a href="#buy">Get a node</a><a href="#editions">Editions</a></div>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Line overview">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">The line</span></div>
+<h2>Five parts, one network.</h2>
+<p class="sec__lead">Everything below is the same system seen from a different seat — the box you install, the protocol you build on, the rendezvous that joins sites, the flagship app, and the everyday suite. You can adopt one part without the others.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card"><span class="card__no">Infrastructure</span><h3>The Node</h3><p>Any spare box becomes a self-forming, self-healing piece of the mesh. Discovers its neighbours, elects roles, projects Wi-Fi, routes over any bearer.</p></div>
+<div class="card"><span class="card__no">Developer surface</span><h3>UnREST</h3><p>The programming model and handler framework. Exchange memory, not messages — SAME / DIFF / FULL on the wire, and your own protocols on the same interface.</p></div>
+<div class="card"><span class="card__no">Rendezvous</span><h3>The Broker</h3><p>A stateless introducer that joins nodes across the internet with WireGuard tunnels. LAN traffic never touches it; cross-internet traffic transits it — and though it terminates the tunnels, it runs none of the semantic stack, so what it can see is label-stripped diffs and codec-less frames, not your content.</p></div>
+<div class="card"><span class="card__no">Application</span><h3>The Communicator</h3><p>Presence, chat, calls, and games over one shared memory — with SotF, the adaptive media ladder that holds a call from HD down to a heartbeat.</p></div>
+<div class="card"><span class="card__no">Application suite</span><h3>The Apps</h3><p>FrogChat, the Family app, the Network Monitor, file sync, sensor bridges, board games — the software that has run a household for years.</p></div>
+<div class="card" style="background:var(--paper-3)"><span class="card__no">The idea</span><h3>The network is the database</h3><p>Underneath all five: a shared operational memory the whole mesh reads and writes. <a href="library.dc.html" style="color:var(--amber-deep);text-decoration:none">The books explain why →</a></p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint prod" id="node" data-screen-label="The Node">
+<div class="wrap"><div class="flag reveal">
+<div>
+<div class="prodhead"><span class="code">Product 01 · Infrastructure</span><span class="pill pill--op">Running today</span></div>
+<h2>The <span class="u">Node.</span></h2>
+<p>Install the frozen FrogNet world on any Linux box — a Raspberry Pi, a mini-PC, an old laptop — and it becomes a <strong>lillypad</strong>: a sovereign node that configures its own networking, stands up its own Wi-Fi when there is no wire, discovers every neighbour it can reach, and takes on whatever role it is most capable of. No controller, no account, no cloud. Its identity is a GUID minted once at install; its address is its own. Pull the uplink and it keeps working — a lost link is normal weather, not an outage.</p>
+<p>One node is a complete network. Add a second and they find each other; add a tenth and nothing changes but the reach. <a href="Magnum Croakus.html#part-installing-the-software" style="color:var(--amber)">Install, discovery &amp; elections — Magnum Croakus § 8–14 →</a></p>
+</div>
+<div>
+<dl class="speclistv">
+<div><dt>Runs on</dt><dd>Pi-class · mini-PC · x86 Linux</dd></div>
+<div><dt>Identity</dt><dd class="amb">/etc/fnid GUID</dd></div>
+<div><dt>Networking</dt><dd>self-configuring at boot</dd></div>
+<div><dt>Bearers</dt><dd><a href="#connectivity" style="color:inherit">Ethernet · Wi-Fi · HaLow · LoRa →</a></dd></div>
+<div><dt>Discovery</dt><dd>bounded HTTP walk</dd></div>
+<div><dt>Partition</dt><dd class="ok">split &amp; merge, automatic</dd></div>
+<div><dt>Install</dt><dd>one script, offline</dd></div>
+</dl>
+</div>
+</div></div>
+</section>
+
+<section class="zone zone--paper light prod" id="connectivity" style="background:var(--paper-2)" data-screen-label="Connectivity">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§—</span><span class="sec__tag">Connectivity</span></div>
+<h2>Connectivity is accomplished by transport — not the other way around.</h2>
+<p class="sec__lead">A transport is a way to move bytes. Connectivity is people and machines that keep reaching each other while conditions change. Most stacks start from a transport and build the solution around it — so the solution dies with the transport. FrogNet starts from connectivity, and every transport is interchangeable weather. Here is what's in, what's out, and why.</p></div>
+<div class="prose prose--wide reveal" style="max-width:760px">
+<p><strong>Ham is out — up front, before anything else.</strong> FrogNet's wire traffic is differences against state the far end already holds — frames a third party cannot read without the memory they refer to. The prevailing reading of FCC Part 97.113(a)(4) treats that as a message encoded to obscure its meaning, and amateur bands prohibit those. So FrogNet does not transmit on amateur radio bands — stated here the same way it's stated in the book. <strong>And Reticulum is out with it,</strong> on the same rule for the same reason: every Reticulum packet is encrypted by design, and by the project's own account that cannot be turned off. Whatever you think of either stack, neither one can legally carry its traffic over ham spectrum in the US.</p>
+<p><strong>Now the honest part about the alternative.</strong> Look at how amateur traffic actually moves. The RF hop is audio — software modems pushing tones through a voice radio, the same idea as a dial-up modem and at kindred speeds: 1200-baud packet still keys the Bell 202 tones of the acoustic-coupler era, and even the best modern HF modes deliver a few kilobits. And the moment the message needs to go farther than the radio reaches, it backhauls over the internet: Winlink through CMS servers, AREDN islands joined by tunnels over home broadband, EchoLink voice over IP by name. The screech does the last mile; the internet does the miles — in the clear, because the bands require it. FrogNet was built on accepting that fact instead of dressing it up: when the path must cross the internet, it crosses inside a WireGuard tunnel you own, on your own flat 10/8, through a relay that cannot read a byte.</p>
+</div>
+<div class="grid grid--3 reveal" style="margin-top:34px">
+<div class="card"><span class="card__no">Wire &amp; Wi-Fi</span><h3>Ethernet · Wi-Fi</h3><p>The LAN case. Nodes on a switch or an access point find each other unaided — and a node with no wire stands up its own Wi-Fi. Running in production for years.</p></div>
+<div class="card"><span class="card__no">Across the internet</span><h3>WireGuard tunnels</h3><p>Cross-site links ride encrypted tunnels on your own flat 10/8, introduced by the broker — which terminates them but, running none of the semantic stack, can reconstruct nothing that crosses it. 18+ months in production, coast to coast.</p></div>
+<div class="card"><span class="card__no">Long-range radio</span><h3>900 MHz · HaLow</h3><p>The unlicensed band where compression and encryption are simply legal. An HD call has crossed the country over it, and a node was driven through Queens on it without a drop.</p></div>
+<div class="card"><span class="card__no">Narrowband</span><h3>LoRa · MeshTastic bridges</h3><p>Sensor-grade RF across acres the carriers gave up on. Bridges write RF-delivered readings straight into shared memory as sensor rows.</p></div>
+<div class="card"><span class="card__no">Satellite</span><h3>Starlink &amp; friends</h3><p>Starlink supplies one network — the pipe to the internet. FrogNet supplies more than one: the local fabric keeps running on Wi-Fi and radio with the dish dark, and the cross-site tunnels light back up the moment it returns. One dish has fed dozens of working nodes without saturating the pipe.</p></div>
+<div class="card"><span class="card__no">Anything that moves packets</span><h3>The general rule</h3><p>Fiber, a phone's tether, point-to-point microwave — if two points can exchange bytes by any means, FrogNet links them. The application never sees the difference; that is what transport-independent means.</p></div>
+</div>
+<div class="prose prose--wide reveal" style="margin-top:30px;max-width:760px">
+<p><strong>And transports combine — in one node, and across the network.</strong> A single node can carry several bearers at once, and a network mixes them by role: one machine is the tunnel gateway, another is the 900&nbsp;MHz gateway, a third reaches its upstream on eth1 — and the fabric routes over whichever path reaches. The flagship call ran wired Wi-Fi, an encrypted internet tunnel, and a 900&nbsp;MHz radio in one session. No node cares which bearer its neighbour used to get there.</p>
+</div>
+<div class="reveal" style="margin-top:26px;max-width:820px">
+<p class="ref" style="margin-bottom:14px;color:var(--ink-dim)">One pond, three ways in and out — every link two-way, every methodology different</p>
+<svg viewBox="0 0 760 340" role="img" aria-label="Diagram: one FrogNet pond with three gateways — a WireGuard tunnel gateway to a remote site across the internet, a 900 MHz radio gateway to a distant node, and an eth1 wired gateway to an upstream — plus a plain member node. Every external link is bidirectional." style="width:100%;height:auto;display:block;font-family:'IBM Plex Mono',ui-monospace,monospace">
+<defs>
+<marker id="cx-ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5d6a66"/></marker>
+</defs>
+<!-- pond -->
+<rect x="150" y="42" width="330" height="256" rx="18" fill="#f3efe6" stroke="#d7cfbd" stroke-width="1.5"/>
+<text x="315" y="66" text-anchor="middle" font-size="10.5" letter-spacing="1.5" fill="#5d6a66">ONE POND · FLAT 10.0.0.0/8</text>
+<!-- LAN links inside -->
+<g stroke="#d7cfbd" stroke-width="1.4">
+<line x1="238" y1="122" x2="238" y2="216"/><line x1="392" y1="122" x2="392" y2="216"/>
+<line x1="272" y1="100" x2="358" y2="100"/><line x1="272" y1="238" x2="358" y2="238"/>
+<line x1="266" y1="118" x2="364" y2="220"/><line x1="364" y1="118" x2="266" y2="220"/>
+</g>
+<rect x="250" y="154" width="130" height="16" fill="#f3efe6"/>
+<text x="315" y="166" text-anchor="middle" font-size="9.5" fill="#5d6a66">LAN · Wi-Fi / Ethernet</text>
+<!-- nodes -->
+<g font-size="10.5" text-anchor="middle">
+<rect x="181" y="78" width="114" height="44" rx="8" fill="#ebe5d8" stroke="#1f6b43" stroke-width="1.5"/>
+<text x="238" y="96" fill="#15201e" font-weight="600">node C</text><text x="238" y="112" fill="#5d6a66" font-size="9.5">eth1 gateway</text>
+<rect x="335" y="78" width="114" height="44" rx="8" fill="#ebe5d8" stroke="#1f6b43" stroke-width="1.5"/>
+<text x="392" y="96" fill="#15201e" font-weight="600">node A</text><text x="392" y="112" fill="#5d6a66" font-size="9.5">tunnel gateway</text>
+<rect x="181" y="216" width="114" height="44" rx="8" fill="#ebe5d8" stroke="#d7cfbd" stroke-width="1.5"/>
+<text x="238" y="234" fill="#15201e" font-weight="600">node D</text><text x="238" y="250" fill="#5d6a66" font-size="9.5">member · no uplink</text>
+<rect x="335" y="216" width="114" height="44" rx="8" fill="#ebe5d8" stroke="#1f6b43" stroke-width="1.5"/>
+<text x="392" y="234" fill="#15201e" font-weight="600">node B</text><text x="392" y="250" fill="#5d6a66" font-size="9.5">900 MHz gateway</text>
+</g>
+<!-- eth1 upstream (left) -->
+<line x1="181" y1="100" x2="96" y2="100" stroke="#15201e" stroke-width="2.4" marker-start="url(#cx-ar)" marker-end="url(#cx-ar)"/>
+<text x="138" y="90" text-anchor="middle" font-size="9.5" fill="#15201e">eth1 · wired</text>
+<rect x="18" y="78" width="78" height="44" rx="8" fill="none" stroke="#5d6a66" stroke-width="1.4" stroke-dasharray="0"/>
+<text x="57" y="96" text-anchor="middle" font-size="10" fill="#15201e">upstream</text><text x="57" y="111" text-anchor="middle" font-size="9" fill="#5d6a66">router / ISP</text>
+<!-- WireGuard tunnel (right-top) -->
+<line x1="449" y1="100" x2="536" y2="100" stroke="#1f6b43" stroke-width="2" stroke-dasharray="7 4" marker-start="url(#cx-ar)" marker-end="url(#cx-ar)"/>
+<text x="492" y="90" text-anchor="middle" font-size="9.5" fill="#1f6b43">WireGuard</text>
+<ellipse cx="576" cy="100" rx="40" ry="24" fill="none" stroke="#5d6a66" stroke-width="1.4"/>
+<text x="576" y="104" text-anchor="middle" font-size="9.5" fill="#5d6a66">internet</text>
+<line x1="616" y1="100" x2="664" y2="100" stroke="#1f6b43" stroke-width="2" stroke-dasharray="7 4" marker-start="url(#cx-ar)" marker-end="url(#cx-ar)"/>
+<rect x="666" y="78" width="80" height="44" rx="8" fill="none" stroke="#5d6a66" stroke-width="1.4"/>
+<text x="706" y="96" text-anchor="middle" font-size="10" fill="#15201e">remote site</text><text x="706" y="111" text-anchor="middle" font-size="9" fill="#5d6a66">another pond</text>
+<!-- 900 MHz radio (right-bottom, wavy) -->
+<path d="M449 238 q 12 -9 24 0 t 24 0 t 24 0 t 24 0 t 24 0 t 24 0 t 24 0" fill="none" stroke="#3DBA6A" stroke-width="2" marker-start="url(#cx-ar)" marker-end="url(#cx-ar)"/>
+<text x="536" y="222" text-anchor="middle" font-size="9.5" fill="#1f6b43">900 MHz · radio</text>
+<rect x="623" y="216" width="120" height="44" rx="8" fill="none" stroke="#5d6a66" stroke-width="1.4"/>
+<text x="683" y="234" text-anchor="middle" font-size="10" fill="#15201e">distant node</text><text x="683" y="250" text-anchor="middle" font-size="9" fill="#5d6a66">ridge · no wire at all</text>
+</svg>
+</div>
+<div class="prose prose--wide reveal" style="margin-top:26px;max-width:760px">
+<p><strong>The same property is what makes FrogNet mobile.</strong> A device does not care what the transport is, so when it comes in contact with another FrogNet it latches onto whatever medium is available — with no operator intervention in most cases. A node has been driven through Queens at traffic speed on exactly this behavior: the topology changed under the mesh block by block and the walk re-formed it, nobody touching anything. That is the differentiator with a human face: people do not have to be network or RF engineers to get things up and working in the field.</p>
+<p style="font-family:var(--fm);font-size:13px;letter-spacing:.02em;color:var(--ink-2)">transport independence → discovery &amp; route optimization → route resilience &amp; fault tolerance → <strong>system survivability</strong></p>
+<p>Each stage exists because the one before it feeds it. Survivability isn't a feature bolted on at the top — it's the last link of a chain that begins with refusing to care what the wire is. <a href="Magnum Croakus.html#s-5-the-wire-and-the-radio" style="color:var(--amber-deep)">The wire and the radio — Magnum Croakus § 5 →</a></p>
+</div>
+<p class="sec__lead reveal" style="margin-top:30px;max-width:760px"><strong>Ham is a transport. FrogNet is a solution.</strong> When a band can't carry the traffic, the solution routes around the band — that is the whole idea.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light prod" id="unrest" data-screen-label="UnREST">
+<div class="wrap"><div class="flag reveal">
+<div>
+<div class="prodhead"><span class="code">Product 02 · Developer surface</span><span class="pill pill--dev">Build on it free</span></div>
+<h2><span class="u">UnREST</span> — the model you build on.</h2>
+<p>The web asks; UnREST remembers. It isn't a new protocol or a faster transport — it's a different <em>model</em> built on the same primitives (sockets, TCP, HTTP itself), arranged to remember instead of forget. Instead of a request for every answer, each end holds the same structure and only the <strong>difference</strong> crosses the wire — SAME when nothing changed, DIFF for what did, FULL only to teach a template once. Picture couriers on a freeway that's already built and always up, not trucks on a road resurfaced every trip: SAME carries a slip, DIFF a small parcel, FULL the whole box — and even the fullest courier is lighter than a truck hauling the entire load again, most of which the far end already holds. That is <strong>UnREST Core</strong>, and every exchange gets it for free: on repetitive traffic it routinely cuts the bytes on the wire by an order of magnitude, and the wire never sits idle waiting between round trips. About 3.4× against a competently written delta protocol, far more against a naive one.<sup style="color:var(--amber-deep);font-size:.7em">†</sup> The paradigm label is free; the budget is the engineering.</p>
+<p style="margin:10px 0 0;font-family:var(--fm);font-size:11px;line-height:1.6;color:var(--ink-dim);max-width:72ch"><sup style="color:var(--amber-deep)">†</sup> A first-order model on real frame sizes, not a packet capture; full per-workload breakdown in the manual.</p>
+<p><strong>UnREST Unleashed</strong> is the extension layer — write a handler, fill its slots, and you have an entirely new protocol on the same interface. SotF and the game protocol are built exactly this way. And you don't have to rewrite to start: drop the codec onto the wire you already run and the bandwidth win arrives before the rewrite does. <a href="Magnum Croakus.html#part-rest-dropin-unrest" style="color:var(--amber-deep);text-decoration:none">See the three-stage on-ramp →</a></p>
+</div>
+<div>
+<dl class="speclistv">
+<div><dt>Model</dt><dd>exchange memory, not messages</dd></div>
+<div><dt>Codec</dt><dd class="amb">BLDC-1 · SAME/DIFF/FULL</dd></div>
+<div><dt>Wire</dt><dd>FNWP-1, fanned &amp; interleaved</dd></div>
+<div><dt>Typical win</dt><dd class="ok">3.4× vs deltas · more vs naive</dd></div>
+<div><dt>Extend</dt><dd>one handler interface</dd></div>
+<div><dt>On-ramp</dt><dd>drop-in codec → rewrite</dd></div>
+<div><dt>License</dt><dd class="amb">free for dev &amp; personal</dd></div>
+</dl>
+</div>
+</div></div>
+</section>
+
+<section class="zone zone--dark dark blueprint prod" id="broker" data-screen-label="The Broker">
+<div class="wrap"><div class="flag reveal">
+<div>
+<div class="prodhead"><span class="code">Product 03 · Rendezvous</span><span class="pill pill--op">Running today</span></div>
+<h2>The <span class="u">Broker</span> &amp; the pond.</h2>
+<p>Nodes on the same LAN find each other unaided. To join sites across the internet, a <strong>broker</strong> introduces them and hands out WireGuard tunnels. It holds no authoritative state: its whole picture is rebuilt from what nodes tell it, and its working set is a single SQLite file. On one LAN it never sits in the data path at all; when sites bridge across the internet the encrypted tunnels meet at the broker, which <em>terminates</em> them and relays the traffic on — so in its own namespace it does see decrypted bytes. But it runs none of the semantic stack — no codec, no templates, no baseline, no tuple database — so those bytes are label-stripped diffs and codec-less frames it cannot turn back into content; the field names, the baseline, and the codec settings live only on your nodes, and node private keys never reach it. Lose the broker service and every existing link keeps carrying traffic.</p>
+<p>Membership is a redeemed passcode, not an account. A <strong>pond</strong> is simply the set of nodes that belong together — coast to coast, one flat <code>10.0.0.0/8</code>, addressed the same whether they share a switch or a continent. <a href="Magnum Croakus.html#s-17-the-broker" style="color:var(--amber)">The broker and the tunnel — Magnum Croakus § 17–18 →</a></p>
+</div>
+<div>
+<dl class="speclistv">
+<div><dt>Role</dt><dd>stateless rendezvous</dd></div>
+<div><dt>Cross-site</dt><dd class="amb">WireGuard, AllowedIPs 10/8</dd></div>
+<div><dt>State</dt><dd>a cache, rebuilt from polls</dd></div>
+<div><dt>Data path</dt><dd class="ok">never in it</dd></div>
+<div><dt>Membership</dt><dd>one-time passcode</dd></div>
+<div><dt>Backup</dt><dd>copy one SQLite file</dd></div>
+</dl>
+</div>
+</div></div>
+</section>
+
+<section class="zone zone--paper light prod" id="communicator" data-screen-label="The Communicator">
+<div class="wrap"><div class="flag reveal">
+<div>
+<div class="prodhead"><span class="code">Product 04 · Application</span><span class="pill pill--dev">SotF in development</span></div>
+<h2>The <span class="u">Communicator.</span></h2>
+<p>Presence, chat, calls, setup, and a game table — one application over one shared memory. Being present is not a service call; it is a tuple you write. The flagship piece is <strong>SotF</strong>, the Song of the Frogs Adaptive Communications Protocol: a live media ladder that trades fidelity for continuity as the link tightens. It has held an HD call across the country over a 900 MHz radio, stepped it down toward 300 Kbps and, when the link starved, all the way to a one-byte heartbeat — and climbed back <strong>without a re-dial.</strong></p>
+<p>Live media cannot be diffed, so this is where the rewrite earns its keep: not by shrinking frames, but by degrading a call instead of dropping it. <a href="Magnum Croakus.html#s-27-song-of-the-frogs-unrest-unleashed" style="color:var(--amber-deep)">SotF in full — Magnum Croakus § 27 →</a></p>
+</div>
+<div>
+<dl class="speclistv">
+<div><dt>Protocol</dt><dd class="amb">SotF-ACP</dd></div>
+<div><dt>Ladder</dt><dd>HD → ~300 Kbps → heartbeat</dd></div>
+<div><dt>Recovery</dt><dd class="ok">in-session, no re-dial</dd></div>
+<div><dt>Proven</dt><dd>1 Mbit HD over 900 MHz</dd></div>
+<div><dt>Also carries</dt><dd>presence · chat · games</dd></div>
+<div><dt>Media host</dt><dd>an elected role</dd></div>
+</dl>
+</div>
+</div></div>
+</section>
+
+<section class="zone zone--dark dark prod" id="apps" data-screen-label="The Apps">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§05</span><span class="sec__tag">Product 05 · The suite</span></div>
+<h2 style="color:#fff">The apps that already run on it.</h2>
+<p class="sec__lead">FrogNet was dogfooded in a house for the better part of a decade before it said a word in public. These are the applications that proved the stack — sovereign, self-hosted, no company in the middle.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card"><span class="card__no">Messaging</span><h3>FrogChat</h3><p>Group and direct messaging across the mesh — town or country — with no server holding the only copy.</p></div>
+<div class="card"><span class="card__no">Family</span><h3>The Family app</h3><p>Presence map, shared calendar, photos, and a family wiki. Your people, your data, no cloud account.</p></div>
+<div class="card"><span class="card__no">Operations</span><h3>Network Monitor</h3><p>The terminal info center — every node the mesh can see, live per-peer telemetry, bytes saved, and drill-down to a node's sensors.</p></div>
+<div class="card"><span class="card__no">Data</span><h3>File sync</h3><p>Transport-agnostic peer-to-peer file sync. The network is the rendezvous; no central server required.</p></div>
+<div class="card"><span class="card__no">Sensing</span><h3>Sensor bridges</h3><p>MeshTastic / LoRa bridges write RF-delivered readings straight into shared memory as sensor rows.</p></div>
+<div class="card"><span class="card__no">Play</span><h3>Board games</h3><p>Multiplayer state as governed memory — each player writes only their own intent, an elected engine rules the board. <a href="Magnum Croakus.html#s-32-the-first-handler-tic-tac-toe" style="color:var(--amber)">Write a handler — Magnum Croakus § 32–33 →</a></p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint prod" id="indev" data-screen-label="In development">
+<div class="wrap">
+<div class="sec reveal" style="max-width:780px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§06</span><span class="sec__tag">In development · concept</span></div>
+<h2 style="color:#fff">Carry the network.</h2>
+<p class="sec__lead">The Communicator doesn't have to live behind a screen. These put a FrogNet node in your hand and on your chest — voice and sensing over SotF, no cell tower in the loop. An affectionate nod to the ships that imagined it first; real hardware on a real mesh. Shown as early concepts.</p></div>
+<div class="grid grid--3 reveal">
+<div class="card dev"><div class="dev__glyph"><svg viewBox="0 0 64 56" fill="none" stroke="#3DBA6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="2" width="28" height="23" rx="4"/><rect x="18" y="31" width="28" height="23" rx="4"/><line x1="24" y1="9" x2="40" y2="9" stroke-width="1.5"/><line x1="24" y1="14" x2="40" y2="14" stroke-width="1.5"/><line x1="24" y1="19" x2="40" y2="19" stroke-width="1.5"/></svg></div><span class="devtag">Concept · voice</span><h3>The flip communicator</h3><p>Flip it open and talk. A pocket voice transmitter that rides SotF through the Communicator — the flip-open handset the classic crews made famous, running on a mesh you own instead of a script.</p></div>
+<div class="card dev"><div class="dev__glyph"><svg viewBox="0 0 64 56" fill="none" stroke="#3DBA6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="32" cy="28" rx="21" ry="15"/><path d="M23 30 l9 -8 l9 8"/><circle cx="32" cy="28" r="1.6" fill="#3DBA6A" stroke="none"/></svg></div><span class="devtag">Concept · wearable</span><h3>The tap badge</h3><p>Press it and you're on. A wearable badge that opens a SotF voice channel with a tap — the next-generation take, no handset at all. Tap to talk, tap to end.</p></div>
+<div class="card dev"><div class="dev__glyph"><svg viewBox="0 0 64 56" fill="none" stroke="#3DBA6A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="15" y="5" width="34" height="46" rx="5"/><rect x="21" y="11" width="22" height="13" rx="2" stroke-width="1.5"/><circle cx="24" cy="35" r="2.4" fill="#3DBA6A" stroke="none"/><circle cx="32" cy="35" r="2.4" fill="#3DBA6A" stroke="none"/><circle cx="40" cy="35" r="2.4" fill="#3DBA6A" stroke="none"/><line x1="21" y1="43" x2="43" y2="43" stroke-width="1.5"/></svg></div><span class="devtag">Concept · sensing</span><h3>The tricorder</h3><p>One handheld that reads the world: voice, haptic alerts, weather, personal health, and air quality folded into a single node you carry. A FrogNet sensor suite in your palm, everything it senses written straight into shared memory.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light prod" id="buy" data-screen-label="Get a node">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule"><span class="sec__no">§07</span><span class="sec__tag">Get a node</span></div>
+<h2>Three ways onto the network.</h2>
+<p class="sec__lead">Flash your own, buy one built and meshing out of the box, or spin a node up in the cloud. The software is free either way — this is just the fastest hardware path.</p></div>
+<div class="reveal" style="max-width:820px;margin-bottom:36px">
+<p class="ref" style="margin-bottom:14px;color:var(--ink-dim)">Watch it done — standing up a node, start to lillypad</p>
+<figure class="rv" style="background-image:url(media/standing-up-a-node-poster.png)"><span class="rv__rec"><i></i>Walkthrough</span><video data-persist="node-standup" controls preload="metadata" playsinline poster="media/standing-up-a-node-poster.png"><source src="media/standing-up-a-node.mp4" type="video/mp4"/></video></figure>
+<p class="rvcap" style="color:var(--ink-dim)"><b style="color:var(--ink)">The whole job.</b> Any spare box — a Pi, a mini-PC, an old laptop, a couple of gigs of RAM and one way off the machine. One installer qualifies the box and fills in whatever's missing, you give it a name and its 10-net address, tell it which interfaces reach out, and NetStart brings it up on every boot from then on. One machine is a complete network; the next video is what happens when it meets another.</p>
+</div>
+<div class="buygrid reveal">
+<div class="buy"><div class="buy__k">Flash it yourself<span class="buy__tag">SD card</span></div><div class="buy__price">$24.95</div><h3>FrogNet on an SD card</h3><p>A flash-ready image on a card. Drop it into a Raspberry Pi or mini-PC, power on, and you're a node. Bring your own hardware.</p><a class="btn btn--primary" href="contact.dc.html">Order a card <span class="ar">→</span></a></div>
+<div class="buy buy--feat"><div class="buy__k">Built &amp; configured<span class="buy__tag">Pi 4</span></div><div class="buy__price">$299</div><h3>FrogNet Pi 4 host</h3><p>Built, flashed, and configured on a Raspberry Pi 4 — powered on and meshing out of the box. Add external antennas, long-range radios, or a router to taste.</p><a class="btn btn--primary" href="contact.dc.html">Order a host <span class="ar">→</span></a></div>
+<div class="buy"><div class="buy__k">In the cloud<span class="buy__tag">Droplet</span></div><div class="buy__price">Referral</div><h3>A cloud droplet</h3><p>Run a node or broker in the cloud on a DigitalOcean droplet, spun up through our referral link — handy as an always-on broker or member.</p><a class="btn btn--ghost" href="https://www.digitalocean.com/" target="_blank" rel="noopener">Get a droplet <span class="ar">→</span></a></div>
+</div>
+<p class="buynote reveal">Prices in USD. External antennas, long-range radios, and routers are quoted with your Pi 4 order — tell me your range and bearers. Hardware ships from Fawcett Innovations; the FrogNet software is always free to download and flash yourself.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light prod" id="editions" style="background:var(--paper-2)" data-screen-label="Editions">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule"><span class="sec__no">§08</span><span class="sec__tag">Licensing</span></div>
+<h2>Free to build on. Licensed when you ship.</h2>
+<p class="sec__lead">The whole stack is free to evaluate, learn, and build on. A license only enters the picture when FrogNet is running in a commercial product — and even then it is a conversation, not a funnel. The engine ships under license and the protocol is headed for an open specification — <a href="licensing.dc.html#the-plan">the plan →</a></p></div>
+<div class="editions reveal">
+<div class="ed"><span class="ed__t">Developer &amp; personal</span><div class="ed__p">Free</div><div class="ed__u">evaluation · learning · non-commercial</div><ul><li>The full stack and build manual</li><li>UnREST Core and Unleashed</li><li>Personal, family, and research use</li><li>No seat count, no expiry</li></ul><a class="btn btn--primary" href="contact.dc.html">Request access <span class="ar">→</span></a></div>
+<div class="ed ed--feat"><span class="ed__t">Commercial</span><div class="ed__p">Licensed</div><div class="ed__u">production · products · revenue</div><ul><li>Everything in Developer</li><li>Deployment in a commercial product</li><li>Terms scoped to your build</li><li>Direct line to the author</li></ul><a class="btn btn--primary" href="contact.dc.html">Talk terms <span class="ar">→</span></a></div>
+<div class="ed"><span class="ed__t">With engineering</span><div class="ed__p">Fawcett</div><div class="ed__u">design · build · rescue</div><ul><li>A commercial license, plus</li><li>The engineer who wrote the stack</li><li>Custom handlers and hard problems</li><li>Review, build, or fractional</li></ul><a class="btn btn--ghost" href="services.dc.html">How I can help <span class="ar">→</span></a></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Product CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Own your network</p>
+<h2>Install it. Build on it. Keep it.</h2>
+<p>The developer license is free and the answer is usually yes. Tell me what you want to build and I'll send access and the manual.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Request a developer license <span class="ar">→</span></a><a class="btn btn--ghost" href="use-cases.dc.html">See what it's for <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

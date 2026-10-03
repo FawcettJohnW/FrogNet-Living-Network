@@ -168,8 +168,8 @@ Expected output: 22 PASS lines, then "ALL SMOKE-TEST CHECKS PASS".
 The test runs against your real `core/codec.py` and confirms:
 - handler exposes the production FormatHandler interface
 - template + dynamic round-trip through `SemanticCodec` preserves all
-  session-scoped fields and the binary payload (byte-identical, via
-  the base64 FINDING-1 workaround)
+  session-scoped fields and the binary payload (byte-identical, as
+  TYPE_RAW native bytes -- FINDING-1 resolved)
 - `encode_request_diff` shrinks subsequent frames
 - identical-content frames set `is_identical=True` (REQ_REPEAT path)
 - the `looks_like_sotf` sniffer hook accepts SotF envelopes and rejects
@@ -203,28 +203,13 @@ REQ_FULL. Two fields (`seq`, `payload`) are per-frame and travel as
 REQ_DIFF. Identical-content frames collapse to REQ_REPEAT (25 wire
 bytes, the codex floor).
 
-## FINDING-1 dependency
+## FINDING-1 (resolved)
 
-The `payload` field is currently mapped as `"string"` (TYPE_STR) with
-base64 encoding rather than `"raw"` (TYPE_RAW). This is because
-`core/codec.py` `_decode_fieldblock` currently shares a decode branch
-between TYPE_RAW and TYPE_STR — both pass through
-`.decode("utf-8", "replace")`, which mangles binary on the daemon side.
-Cost of the workaround: ~33% overhead on the payload portion only
-(session-scoped fields are unaffected).
-
-Once `_decode_fieldblock` is fixed to keep TYPE_RAW as `bytes` on
-decode:
-
-1. In `core/sotf_handler.py`, change `type_map["payload"]` from
-   `"string"` to `"raw"`.
-2. Remove the `_coerce_payload_for_wire` call in `_extract` (or change
-   it to a pass-through for bytes).
-3. Remove the base64 decode in `decode_payload` (it'll be bytes
-   already).
-
-The smoke test will need its base64 expectations adjusted at that
-point too.
+The `payload` field is mapped as `"raw"` (TYPE_RAW). `core/codec.py`'s `_decode_fieldblock` returns native bytes for
+TYPE_RAW (`[TYPERAW_NATIVE_BYTES]`) instead of sharing TYPE_STR's `.decode("utf-8", "replace")`, so binary survives the
+daemon side without the old base64/TYPE_STR workaround and its ~33% overhead on the payload. The JSON envelope still
+carries payload as base64 (JSON cannot hold raw bytes); the handler decodes it to bytes for the codec. Every node in a
+media session must run the raw handler: a peer on the old base64 handler mismatches the payload field.
 
 ## What this does NOT change
 

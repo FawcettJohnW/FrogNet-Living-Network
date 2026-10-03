@@ -1,0 +1,89 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why FrogNet exists — seven observations · Fawcett Innovations</title>
+<meta name="description" content="Seven things that are simply true about real networks — partitions, changing bandwidth, automatic recovery — and the architecture that falls out of taking them seriously.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Why FrogNet exists — seven observations">
+<meta property="og:description" content="Seven things that are simply true about real networks — partitions, changing bandwidth, automatic recovery — and the architecture that falls out of taking them seriously.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.obs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule)}.ob{background:var(--paper);padding:34px 32px;display:flex;flex-direction:column}.ob__n{font-family:var(--fm);font-size:12px;letter-spacing:.14em;color:var(--amber-deep)}.ob__see{font-family:var(--fd);font-weight:700;font-size:clamp(21px,2.4vw,27px);letter-spacing:-.02em;line-height:1.15;color:var(--ink);margin:12px 0 12px;text-wrap:balance}.ob p{font-size:15.5px;line-height:1.65;color:var(--ink-dim);margin:0}.ob__so{margin-top:16px;padding-top:15px;border-top:1px solid var(--rule);font-family:var(--fm);font-size:12.5px;line-height:1.6;color:var(--ink-2)}.ob__so b{color:var(--amber-deep);display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:5px}.ob__ref{margin-top:14px;font-family:var(--fm);font-size:11px;letter-spacing:.02em;color:var(--amber-deep);text-decoration:none;line-height:1.5}.ob__ref:hover{text-decoration:underline}.ob--wide{grid-column:1/-1}@media(max-width:800px){.obs{grid-template-columns:1fr}}.creed{font-family:var(--fd);font-weight:700;font-size:clamp(24px,3.4vw,38px);letter-spacing:-.02em;line-height:1.2;color:#fff;text-wrap:balance;max-width:20ch;margin:0 auto}.creed em{font-style:normal;color:var(--amber)}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a class="is-on" href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Why head">
+<div class="wrap">
+<p class="eyebrow reveal">Why FrogNet exists</p>
+<h1 class="reveal"><span class="kill">Not architecture. Not history.</span> <span class="glow">Seven observations.</span></h1>
+<p class="lede reveal">FrogNet didn't start as a product. It started as a short list of things that are simply true about real networks — observed over fifty years of building distributed systems that had to work when conditions changed. Every design decision downstream is a consequence of taking these seriously.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Observations">
+<div class="wrap">
+<div class="obs reveal">
+<div class="ob"><span class="ob__n">01</span><h3 class="ob__see">Networks partition.</h3><p>Not occasionally, not as an error — as a matter of course. Links drop, nodes go out of range, a truck drives into a tunnel. A network that treats a split as a failure is a network that fails constantly.</p><div class="ob__so"><b>So</b>Each fragment keeps operating on what it can reach, and rejoins with no reconciliation when the path returns.</div><a class="ob__ref" href="Magnum Croakus.html#s-16-split-merge-and-why-it-is-safe">Magnum Croakus § 16 — Split, merge &amp; why it's safe →</a></div>
+<div class="ob"><span class="ob__n">02</span><h3 class="ob__see">Bandwidth changes.</h3><p>The same path is fiber one minute and a starved radio the next. Designing for a fixed capacity means breaking the moment reality moves off the number you assumed.</p><div class="ob__so"><b>So</b>The system adapts to whatever the link gives it right now — degrading in clean steps instead of dropping.</div><a class="ob__ref" href="Magnum Croakus.html#s-27-song-of-the-frogs-unrest-unleashed">Magnum Croakus § 27 — The adaptive media ladder →</a></div>
+<div class="ob"><span class="ob__n">03</span><h3 class="ob__see">Users shouldn't have to care.</h3><p>The person on the call, or the application making a request, should not know or need to know whether the bytes are crossing Wi-Fi, a tunnel, or a 900 MHz radio. Transport is the system's problem, not theirs.</p><div class="ob__so"><b>So</b>Transport is fully abstracted — the same code runs identically over any bearer, and the application never sees the difference.</div><a class="ob__ref" href="Magnum Croakus.html#s-transports-multiplexed">Magnum Croakus § 5 — Transports multiplexed under one topology →</a></div>
+<div class="ob"><span class="ob__n">04</span><h3 class="ob__see">Intelligence belongs where the data is.</h3><p>Shipping every observation to a distant brain and waiting for a verdict adds latency, a single point of failure, and a dependency on a link that may not be there. The decision should happen next to the sensor.</p><div class="ob__so"><b>So</b>Every node can run its own AI against live shared state — the control loop stays inside the mesh and survives the loss of the internet.</div><a class="ob__ref" href="Magnum Croakus.html#s-21-the-ai-platform">Magnum Croakus § 21 — The AI platform →</a></div>
+<div class="ob"><span class="ob__n">05</span><h3 class="ob__see">Shared state beats point-to-point coordination.</h3><p>Most networking effort is spent managing an exchange — send, acknowledge, retry, sequence — that reasserts itself the moment something fails. A value several machines can simply see removes the whole category of that work.</p><div class="ob__so"><b>So</b>The network is a shared memory: write a value where you compute it, read it where you need it, with nothing in flight.</div><a class="ob__ref" href="Magnum Croakus.html#s-22-from-messages-to-memory">Magnum Croakus § 22 — From messages to memory →</a></div>
+<div class="ob"><span class="ob__n">06</span><h3 class="ob__see">Recovery should be automatic.</h3><p>If healing a network requires a human to log in and run a script, then every failure waits on someone being awake, reachable, and correct. Systems that depend on people at 3 a.m. are systems that are already broken.</p><div class="ob__so"><b>So</b>Discovery, election, routing, and repair run on their own — the network administers itself instead of waiting to be administered.</div><a class="ob__ref" href="Magnum Croakus.html#s-14-selecting-the-service-hosts">Magnum Croakus § 14 — Self-healing discovery &amp; election →</a></div>
+<div class="ob"><span class="ob__n">07</span><h3 class="ob__see">Infrastructure should belong to its owner.</h3><p>A network you depend on but do not control is a network someone else can fail, surveil, monetize, or switch off. Ownership is not a privacy feature bolted on the side — it is the foundation everything else stands on.</p><div class="ob__so"><b>So</b>No ISP, cloud, or authority sits in the chain. You are not a tenant in someone's infrastructure — you are the infrastructure.</div><a class="ob__ref" href="Magnum Croakus.html#s-4-one-world-any-box">Magnum Croakus § 4 — One world, any box →</a></div>
+<div class="ob ob--wide" style="background:var(--paper-2)"><span class="ob__n">The thread</span><h3 class="ob__see" style="max-width:24ch">Solve the root cause once, at the architectural level.</h3><p style="max-width:70ch">None of these is a hard observation on its own. What was hard — and what took fifty years to see clearly — was refusing to treat any of them as an exception to be handled after the fact. Take all seven as the baseline, and a different kind of network falls out: one where the disruptions everyone else calls incidents are simply the weather it was built for.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="Creed">
+<div class="wrap" style="text-align:center">
+<p class="eyebrow reveal" style="justify-content:center">The one line</p>
+<p class="creed reveal">Changing conditions are <em>ordinary, not exceptional.</em></p>
+<div class="hero__cta reveal" style="justify-content:center;margin-top:30px"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Read the reasoning in full <span class="ar">→</span></a><a class="btn btn--ghost" href="demonstrations.dc.html">See it hold up <span class="ar">→</span></a></div>
+</div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

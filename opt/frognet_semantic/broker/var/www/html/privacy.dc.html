@@ -1,0 +1,109 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — what we don&#x27;t collect · Fawcett Innovations</title>
+<meta name="description" content="The honest picture of what the FrogNet site and network do and don&#x27;t collect — by architecture, not by policy.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Privacy — what we don&#x27;t collect">
+<meta property="og:description" content="The honest picture of what the FrogNet site and network do and don&#x27;t collect — by architecture, not by policy.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>.phead h1{text-wrap:balance}.pv{max-width:760px}.pv h2{text-wrap:balance;margin:0 0 14px}.pv p{font-size:16.5px;line-height:1.7;color:var(--ink-dim);margin:0 0 16px}.pv p b{color:var(--ink)}.pvbig{font-family:var(--fd);font-weight:700;font-size:clamp(26px,3.6vw,40px);letter-spacing:-.02em;line-height:1.15;color:var(--ink);margin:0 0 22px;text-wrap:balance}.pvbig em{font-style:normal;color:var(--amber-deep)}.pvlist{list-style:none;padding:0;margin:6px 0 0}.pvlist li{position:relative;padding:16px 0 16px 30px;border-top:1px solid var(--rule)}.pvlist li::before{content:"";position:absolute;left:0;top:23px;width:15px;height:1px;background:var(--amber)}.pvlist h3{font-size:17px;margin:0 0 5px;color:var(--ink)}.pvlist p{font-size:15px;margin:0;color:var(--ink-dim)}.pvsig{margin-top:26px;font-family:var(--fm);font-size:13px;letter-spacing:.02em;color:var(--ink-2)}</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Privacy head">
+<div class="wrap">
+<p class="eyebrow reveal">Privacy</p>
+<h1 class="reveal">The short version: I don't collect anything.</h1>
+<p class="lede reveal">No accounts, no analytics, no trackers, no cookies that follow you, no profile with your name on it. Not because a policy makes me — because privacy is the whole point of what I build.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Privacy statement">
+<div class="wrap">
+<div class="pv reveal">
+<p class="pvbig">I built FrogNet so your life would stop living on someone else's computer. It would be strange to <em>run a surveillance operation</em> on the website that says so.</p>
+<p>So this site doesn't. There is no analytics script, no advertising pixel, no third-party tracker, and no cookie that identifies you. I don't know who you are, what else you've looked at, or where you go next — and I've built it that way on purpose.</p>
+</div>
+
+<ul class="pvlist pv reveal" style="margin-top:34px">
+<li><h3>No tracking, no analytics, no ads</h3><p>The site loads no analytics, no ad networks, and no social pixels. Nothing here is watching you read.</p></li>
+<li><h3>No accounts, no profiles</h3><p>You don't log in, and there's no database with your name in it. Nothing to leak, sell, or subpoena — because it doesn't exist.</p></li>
+<li><h3>Email only if you write to me</h3><p>If you request a license or send a message, you're composing an ordinary email. I use what you tell me only to write back — I don't add you to a list, and I don't pass it to anyone.</p></li>
+<li><h3>The product carries no telemetry</h3><p>FrogNet runs on <b>your</b> hardware. It doesn't phone home, report usage, or route your traffic through me. There's no centre to collect anything, by design — that's the architecture, not a promise. Even the broker that introduces nodes across the internet gets out of the way and never becomes a party to your data: <a href="Magnum Croakus.html#s-17-the-broker" style="color:var(--amber-deep)">Magnum Croakus § 17 — The Broker →</a></p></li>
+<li><h3>Standard hosting logs, nothing more</h3><p>Whoever serves these pages may keep basic request logs (an IP address, a timestamp) the way every web server does. I don't build profiles from them, and I don't combine them with anything else.</p></li>
+</ul>
+
+<div class="pv reveal" style="margin-top:38px">
+<h2>The trust model, in plain terms</h2>
+<p>For the security-minded, here is what identity and joining actually rest on — mechanisms, not promises.</p>
+</div>
+<ul class="pvlist pv reveal">
+<li><h3>Identity is a key, not a name</h3><p>Each node mints a permanent GUID when it is installed, and the broker keys on that — never on a hostname or MAC address. A node can be renamed or re-addressed and stay itself, and it cannot be impersonated by reusing a name. Every node's hostname is literally the same string; the name carries no authority.</p></li>
+<li><h3>Joining is a one-time exchange</h3><p>A new node redeems a passcode for a long-lived group token, which it then carries as its credential. It generates its own WireGuard keypair and hands the broker only the public half — private keys never leave the box.</p></li>
+<li><h3>The crypto is WireGuard, and it is yours</h3><p>FrogNet ships no cryptography of its own; you supply WireGuard. That is deliberate — it also keeps FrogNet clear of the Category-5 export triggers that shipping crypto would pull in.</p></li>
+<li><h3>The broker can't reconstruct your data</h3><p>Across the internet the broker terminates the WireGuard tunnels, so in its own namespace it does see decrypted transit bytes — but it cannot turn them back into content. It runs none of the semantic stack: no codec, no templates, no baseline, no tuple database. A diff on the wire is label-stripped index→value blocks; the field names and the baseline they change against live only on your nodes. Media is raw frames whose codec and resolution are set through the tuple space on the clients, not in-band. Node private keys never reach it. What a compromised broker yields is transit metadata and undecodable bytes — not your data. And a LAN pond runs complete with no broker at all. <a href="Magnum Croakus.html#s-17-the-broker" style="color:var(--amber-deep)">Magnum Croakus § 17 — The Broker →</a></p></li>
+</ul>
+
+<div class="pv reveal" style="margin-top:34px">
+<h2>If that ever changes</h2>
+<p>It won't change quietly. If anything about the above ever needs updating, it will be said plainly, right here, in the same plain language — not buried in a policy nobody reads.</p>
+<p class="pvsig">— John W. Fawcett · Fawcett Innovations LLC · <a href="mailto:john@fawcettinnovations.com" style="color:var(--amber-deep);text-decoration:none">john@fawcettinnovations.com</a></p>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Privacy CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Own it outright</p>
+<h2>The surest privacy is a network with no middle.</h2>
+<p>That's the real answer to "who can see this?" — nobody, because there's no company in the path. Read how it works, then run your own.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Start with the book <span class="ar">→</span></a><a class="btn btn--ghost" href="license.dc.html">Get your free license <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

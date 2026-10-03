@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 440" width="880" height="440" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" role="img">
+<rect width="880" height="440" fill="#091416"></rect>
+<text x="150" y="40" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="12" fill="#7b938f" font-weight="500" text-anchor="start" letter-spacing="2">ONE LINK, STARVING AND RECOVERING</text>
+<text x="150" y="60" font-family="&#39;Space Grotesk&#39;, system-ui, sans-serif" font-size="17" fill="#ffffff" font-weight="600" text-anchor="start">The ladder holds the call. The cliff drops it.</text>
+<rect x="401.6" y="78" width="156.4" height="267" fill="#d6593a" opacity="0.08"></rect>
+<text x="479.8" y="96" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11" fill="#d6593a" font-weight="500" text-anchor="middle" letter-spacing="1.5">LINK STARVED</text>
+<line x1="150" y1="95" x2="830" y2="95" stroke="#1b3a40" stroke-width="1" stroke-linecap="butt" stroke-dasharray="2 5"></line>
+<text x="138" y="99" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11.5" fill="#7b938f" font-weight="400" text-anchor="end">HD · 720p</text>
+<line x1="150" y1="155" x2="830" y2="155" stroke="#1b3a40" stroke-width="1" stroke-linecap="butt" stroke-dasharray="2 5"></line>
+<text x="138" y="159" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11.5" fill="#7b938f" font-weight="400" text-anchor="end">≈ 480p</text>
+<line x1="150" y1="215" x2="830" y2="215" stroke="#1b3a40" stroke-width="1" stroke-linecap="butt" stroke-dasharray="2 5"></line>
+<text x="138" y="219" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11.5" fill="#7b938f" font-weight="400" text-anchor="end">≈ 300 Kbps</text>
+<line x1="150" y1="290" x2="830" y2="290" stroke="#1b3a40" stroke-width="1" stroke-linecap="butt" stroke-dasharray="2 5"></line>
+<text x="138" y="294" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11.5" fill="#7b938f" font-weight="400" text-anchor="end">heartbeat</text>
+<line x1="150" y1="345" x2="830" y2="345" stroke="#1b3a40" stroke-width="1" stroke-linecap="butt"></line>
+<text x="138" y="349" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="11.5" fill="#7b938f" font-weight="400" text-anchor="end">0 · call dropped</text>
+<polyline points="150,95 442.4,95 442.4,345" fill="none" stroke="#d6593a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></polyline>
+<polyline points="442.4,345 830,345" fill="none" stroke="#d6593a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 6"></polyline>
+<circle cx="442.4" cy="345" r="4.5" fill="#d6593a"></circle>
+<text x="452.4" y="333" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="12" fill="#d6593a" font-weight="500" text-anchor="start">call drops</text>
+<polyline points="150,95 326.8,95 326.8,155 401.6,155 401.6,215 469.6,215 469.6,290 558,290 558,215 626,215 626,155 687.2,155 687.2,95 830,95" fill="none" stroke="#3DBA6A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
+<circle cx="150" cy="95" r="3" fill="#3DBA6A"></circle>
+<circle cx="326.8" cy="95" r="3" fill="#3DBA6A"></circle>
+<circle cx="326.8" cy="155" r="3" fill="#3DBA6A"></circle>
+<circle cx="401.6" cy="155" r="3" fill="#3DBA6A"></circle>
+<circle cx="401.6" cy="215" r="3" fill="#3DBA6A"></circle>
+<circle cx="469.6" cy="215" r="3" fill="#3DBA6A"></circle>
+<circle cx="469.6" cy="290" r="3" fill="#3DBA6A"></circle>
+<circle cx="558" cy="290" r="3" fill="#3DBA6A"></circle>
+<circle cx="558" cy="215" r="3" fill="#3DBA6A"></circle>
+<circle cx="626" cy="215" r="3" fill="#3DBA6A"></circle>
+<circle cx="626" cy="155" r="3" fill="#3DBA6A"></circle>
+<circle cx="687.2" cy="155" r="3" fill="#3DBA6A"></circle>
+<circle cx="687.2" cy="95" r="3" fill="#3DBA6A"></circle>
+<circle cx="830" cy="95" r="3" fill="#3DBA6A"></circle>
+<text x="513.8" y="278" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="12" fill="#54cf80" font-weight="500" text-anchor="middle">holds a heartbeat</text>
+<text x="653.2" y="141" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="12" fill="#54cf80" font-weight="500" text-anchor="middle">climbs back — no re-dial</text>
+<text x="490" y="385" font-family="&#39;IBM Plex Mono&#39;, ui-monospace, monospace" font-size="12" fill="#536763" font-weight="400" text-anchor="middle" letter-spacing="1">link capacity over time  →</text>
+<rect x="560" y="31" width="22" height="4" rx="1" fill="#3DBA6A"></rect>
+<text x="590" y="37" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="12" fill="#cdd9d7" font-weight="400" text-anchor="start">FrogNet — degrades, never drops</text>
+<rect x="560" y="49" width="22" height="4" rx="1" fill="#d6593a"></rect>
+<text x="590" y="55" font-family="&#39;IBM Plex Sans&#39;, system-ui, sans-serif" font-size="12" fill="#cdd9d7" font-weight="400" text-anchor="start">Conventional UDP — falls off a cliff</text>
+</svg>

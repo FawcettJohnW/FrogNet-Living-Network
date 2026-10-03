@@ -1,0 +1,827 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UnREST Programming Models · Fawcett Innovations</title>
+<meta name="description" content="A conceptual reference for programming against network shared memory: tuples, scopes, freshness classes, handlers, and convergence.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="UnREST Programming Models">
+<meta property="og:description" content="A conceptual reference for programming against network shared memory: tuples, scopes, freshness classes, handlers, and convergence.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="assets/fonts/fonts.css" rel="stylesheet">
+<style>
+  body { margin: 0; background: #f5f2e9; color: #2a2823;
+         font-family: "Source Serif 4", Georgia, serif;
+         -webkit-font-smoothing: antialiased; }
+  :root {
+    --paper:#f5f2e9; --ink:#1b1a16; --body:#2a2823; --muted:#6f6d64;
+    --faint:#9b988c; --hair:#dcd7c9; --accent:#2c5a3c; --accent-soft:#e7ece1;
+    --warm:#8a5a2b; --warm-soft:#f3e7d8; --cool:#33507e; --cool-soft:#e6ebf3;
+  }
+  .doc { box-sizing: border-box; max-width: 8.5in; margin: 0 auto;
+         background: inherit; padding: 56px clamp(24px, 5vw, 0.85in) 96px;
+         font-size: 16.5px; line-height: 1.66; }
+  .doc-frame { width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .doc-frame td { padding: 0; }
+  .running-hdr, .running-ftr, .hdr-space, .ftr-space { display: none; }
+
+  p { margin: 0 0 1.05em; text-wrap: pretty; }
+  h1, h2, h3, h4 { font-family: "Archivo", system-ui, sans-serif;
+                   color: var(--ink); text-wrap: balance; }
+  a { color: var(--accent); text-underline-offset: 2px; }
+  code, .mono { font-family: "IBM Plex Mono", monospace; font-size: 0.84em;
+                background: rgba(44,90,60,0.07); padding: 0.05em 0.32em;
+                border-radius: 2px; color: #234a31; }
+  .muted { color: var(--muted); }
+  em { font-style: italic; }
+  strong { font-weight: 600; color: var(--ink); }
+
+  /* ---- Cover ---- */
+  .cover { padding: 24px 0 8px; }
+  h1.cover-title { font-size: clamp(38px, 7vw, 56px); font-weight: 700;
+                   letter-spacing: -0.025em; line-height: 1.02; margin: 0; }
+  .cover-rule { width: 64px; height: 3px; background: var(--accent);
+                margin: 26px 0 22px; }
+  .cover-sub { font-family: "Archivo", sans-serif; font-weight: 500;
+               font-size: 20px; letter-spacing: 0.01em; color: var(--ink);
+               margin: 0 0 28px; }
+  .ripple { display: block; margin: 0 0 28px; }
+  .cover-lede { font-size: 19.5px; line-height: 1.5; max-width: 32em;
+                color: var(--body); margin: 0 0 40px; }
+  .cover-lede em { color: var(--ink); }
+  .cover-meta { font-family: "Archivo", sans-serif; font-size: 14px;
+                line-height: 1.7; }
+  .cover-meta .who { font-weight: 600; color: var(--ink); letter-spacing: 0.01em; }
+  .cover-meta .org { color: var(--muted); }
+
+  /* ---- Section openers ---- */
+  .section-start { break-before: page; padding-top: 6px; }
+  .section-head { margin: 0 0 30px; padding-bottom: 18px;
+                  border-bottom: 1.5px solid var(--ink); }
+  .eyebrow { font-family: "Archivo", sans-serif; font-size: 11px;
+             font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+             color: var(--accent); margin: 0 0 12px; }
+  h2.sec { font-size: 30px; font-weight: 700; letter-spacing: -0.015em;
+           line-height: 1.06; margin: 0; }
+  h3.sub { font-size: 19px; font-weight: 600; letter-spacing: -0.005em;
+           margin: 2.1em 0 0.55em; color: var(--ink); }
+  h4.subsub { font-family: "Archivo", sans-serif; font-size: 15px; font-weight: 600;
+              margin: 1.7em 0 0.5em; color: var(--ink); letter-spacing: 0.01em; }
+  .note { font-style: italic; color: var(--muted); border-left: 2px solid var(--hair);
+          padding-left: 16px; margin: 0 0 1.4em; }
+
+  /* ---- Lists ---- */
+  ul.spec { list-style: none; margin: 0.5em 0 1.5em; padding: 0; }
+  ul.spec li { position: relative; padding: 0 0 0 22px; margin: 0 0 0.6em;
+               line-height: 1.55; }
+  ul.spec li::before { content: ""; position: absolute; left: 2px; top: 0.62em;
+                       width: 5px; height: 5px; background: var(--accent);
+                       transform: rotate(45deg); }
+  ul.spec li strong { font-weight: 600; }
+
+  /* ---- Pull quote ---- */
+  .pq { margin: 1.7em 0; padding: 4px 0 4px 24px; border-left: 3px solid var(--accent);
+        font-family: "Source Serif 4", serif; font-size: 22px; line-height: 1.34;
+        font-weight: 600; color: var(--ink); text-wrap: balance; break-inside: avoid; }
+
+  /* ---- Code block ---- */
+  pre.code { font-family: "IBM Plex Mono", monospace; font-size: 12.7px; line-height: 1.62;
+             background: #faf8f1; border: 1px solid var(--hair); border-radius: 3px;
+             padding: 15px 17px; overflow-x: auto; margin: 1.3em 0; color: #34322b;
+             break-inside: avoid; }
+  pre.code .cm { color: #9b988c; }
+  pre.code .kw { color: #234a31; font-weight: 500; }
+  pre.code .st { color: #6b6557; }
+
+  /* ---- Definition cards ---- */
+  .defs { display: grid; gap: 12px; margin: 1.3em 0 1.6em; }
+  .def { border: 1px solid var(--hair); border-left: 3px solid var(--accent);
+         border-radius: 3px; background: #faf8f1; padding: 13px 16px; break-inside: avoid; }
+  .def-t { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 14.5px;
+           color: var(--ink); margin-bottom: 4px; }
+  .def-t code { font-size: 13px; }
+  .def-d { font-size: 15px; line-height: 1.5; color: var(--body); }
+
+  /* ---- Pull-out callout ---- */
+  .callout { background: var(--accent-soft); border: 1px solid #cdd9cd; border-radius: 4px;
+             padding: 16px 20px; margin: 1.5em 0; break-inside: avoid; }
+  .callout .co-h { font-family: "Archivo", sans-serif; font-size: 11px; font-weight: 600;
+                   letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent);
+                   margin: 0 0 7px; }
+  .callout p { margin: 0; font-size: 15.5px; line-height: 1.5; }
+
+  /* ---- Diagrams ---- */
+  figure.dgm { margin: 2em 0; break-inside: avoid; }
+  .dgm-canvas { background: #faf8f1; border: 1px solid var(--hair); border-radius: 3px;
+                padding: 22px 24px; }
+  .dgm-title { font-family: "Archivo", sans-serif; font-size: 10.5px; font-weight: 600;
+               letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+               margin: 0 0 18px; }
+  figure.dgm figcaption { font-family: "Archivo", sans-serif; font-size: 12px;
+                          color: var(--muted); margin-top: 9px; letter-spacing: 0.01em;
+                          line-height: 1.45; }
+  figure.dgm figcaption b { color: var(--ink); font-weight: 600; }
+  .dgm svg { display: block; width: 100%; height: auto; }
+
+  /* ---- Vertical tier stack ---- */
+  .stack { display: flex; flex-direction: column; }
+  .stackbox { border: 1px solid var(--hair); border-radius: 3px; background: #fff;
+              padding: 13px 16px; }
+  .stackbox.accent { background: var(--accent-soft); border-color: #cdd9cd; }
+  .stackbox .sb-h { font-family: "Archivo", sans-serif; font-size: 13.5px; font-weight: 600;
+                    color: var(--ink); }
+  .stackbox .sb-s { font-family: "IBM Plex Mono", monospace; font-size: 10.8px;
+                    color: var(--muted); margin-top: 4px; line-height: 1.55; }
+  .stack-arr { text-align: center; padding: 8px 0 7px; font-family: "Archivo", sans-serif; }
+  .stack-arr .ar { color: var(--accent); font-size: 15px; line-height: 1; }
+  .stack-arr .lbl { display: block; font-size: 10.5px; color: var(--muted);
+                    margin-top: 3px; letter-spacing: 0.02em; }
+
+  /* ---- Two-role plane diagram ---- */
+  .planes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .plane { border-radius: 4px; padding: 15px 16px; }
+  .plane.fixed { background: var(--cool-soft); border: 1.5px solid #b7c2d6; }
+  .plane.elected { background: var(--warm-soft); border: 1.5px solid #d9c3a3; }
+  .plane-tag { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 500;
+               margin-bottom: 4px; }
+  .plane.fixed .plane-tag { color: var(--cool); }
+  .plane.elected .plane-tag { color: var(--warm); }
+  .plane-rule { font-family: "Archivo", sans-serif; font-size: 12.5px; font-weight: 600;
+                color: var(--ink); margin-bottom: 9px; line-height: 1.3; }
+  .plane-body { font-size: 13px; line-height: 1.5; color: var(--body); }
+  .planes-mid { grid-column: 1 / -1; text-align: center; font-family: "Archivo", sans-serif;
+                font-size: 11.5px; color: var(--muted); padding: 2px 0; }
+  .planes-mid b { color: var(--accent); font-weight: 600; }
+
+  /* ---- Tuple mapping ---- */
+  .map { margin: 2px 0; }
+  .maprow { display: grid; grid-template-columns: 185px 26px 1fr; gap: 4px 10px;
+            align-items: baseline; font-family: "IBM Plex Mono", monospace;
+            font-size: 12.3px; line-height: 1.9; }
+  .maprow .ml { color: #234a31; font-weight: 500; }
+  .maprow .ma { color: var(--faint); text-align: center; }
+  .maprow .mr { color: var(--muted); }
+  .maprow .mr b { color: #234a31; font-weight: 600; background: #e1ebe1;
+                  padding: 0 5px; border-radius: 2px; }
+
+  /* ---- Depth spectrum ---- */
+  .spectrum { position: relative; padding: 46px 8px 4px; }
+  .spectrum-track { height: 6px; border-radius: 3px;
+                    background: linear-gradient(90deg, #c9d3c7 0%, #2c5a3c 100%); }
+  .spectrum-ends { display: flex; justify-content: space-between;
+                   font-family: "Archivo", sans-serif; font-size: 11px; font-weight: 600;
+                   color: var(--muted); margin-top: 11px; letter-spacing: 0.02em; }
+  .spectrum-mark { position: absolute; top: 4px; transform: translateX(-50%);
+                   text-align: center; width: 130px; }
+  .spectrum-lab { font-family: "Archivo", sans-serif; font-size: 12.5px; font-weight: 600;
+                  color: var(--ink); }
+  .spectrum-sub { font-size: 10px; color: var(--muted); font-family: "Archivo", sans-serif;
+                  margin-top: 1px; }
+  .spectrum-dot { width: 13px; height: 13px; border-radius: 50%; background: var(--accent);
+                  margin: 7px auto 0; border: 2.5px solid #faf8f1;
+                  box-shadow: 0 0 0 1px var(--accent); }
+
+  /* ---- Election pipeline ---- */
+  .pipe { display: flex; align-items: stretch; }
+  .pipe-box { flex: 1 1 0; border: 1px solid var(--hair); background: #fff; border-radius: 3px;
+              padding: 12px 8px; text-align: center; }
+  .pipe-box .pb-h { font-family: "Archivo", sans-serif; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+  .pipe-box .pb-s { font-size: 10px; color: var(--muted); margin-top: 3px; font-family: "Archivo", sans-serif; }
+  .pipe-arrow { flex: 0 0 24px; align-self: center; text-align: center; color: var(--accent); font-size: 15px; }
+  .pipe-foot { text-align: center; font-family: "Archivo", sans-serif; font-size: 11px;
+               color: var(--muted); margin-top: 14px; }
+
+  /* ---- AI tells ---- */
+  .tells { margin: 1.4em 0 0.6em; border-top: 1px solid var(--hair); }
+  .tell { display: grid; grid-template-columns: 26px 1fr; gap: 0 14px; padding: 15px 0;
+          border-bottom: 1px solid var(--hair); break-inside: avoid; }
+  .tell-n { font-family: "Archivo", sans-serif; font-weight: 700; font-size: 15px;
+            color: var(--faint); line-height: 1.4; }
+  .tell-no { font-size: 15.5px; line-height: 1.45; color: var(--body); margin: 0 0 5px; }
+  .tell-no em { color: #8a5a2b; font-style: italic; }
+  .tell-yes { font-size: 15px; line-height: 1.45; color: var(--ink); margin: 0; }
+  .tell-yes::before { content: "→ "; color: var(--accent); font-weight: 700; }
+
+  /* ---- Contents ---- */
+  .toc-group { margin-bottom: 1.5em; break-inside: avoid; }
+  .toc-major { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 15.5px;
+               color: var(--ink); letter-spacing: 0.01em; padding-bottom: 7px;
+               border-bottom: 1px solid var(--hair); margin-bottom: 9px; }
+  .toc-list { columns: 2; column-gap: 36px; }
+  .toc-item { font-size: 14px; line-height: 1.5; color: var(--body); padding: 2px 0;
+              break-inside: avoid; }
+  .toc-item .n { font-family: "IBM Plex Mono", monospace; font-size: 12px;
+                 color: var(--accent); margin-right: 8px; }
+
+  /* ---- Closing ---- */
+  .closing { margin-top: 2.4em; padding-top: 18px; border-top: 1.5px solid var(--ink);
+             font-family: "Archivo", sans-serif; font-size: 13px; color: var(--muted);
+             letter-spacing: 0.02em; }
+  .closing .dot { color: var(--accent); margin: 0 8px; }
+
+  @page { size: letter; margin: 0; }
+  @media print {
+    html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; }
+    a { color: inherit; }
+    .doc { max-width: 8.5in !important; margin: 0 auto !important;
+           padding: 0 0.75in !important; box-shadow: none !important; border: none !important; }
+    html, body, #dc-root, .sc-host, x-dc, main.doc {
+           width: auto !important; max-width: 8.5in !important; height: auto !important;
+           transform: none !important; overflow: visible !important; }
+    pre.code { white-space: pre-wrap !important; word-break: break-word !important;
+           overflow: visible !important; font-size: 10.5px !important; line-height: 1.5 !important; }
+    .maprow { font-size: 10.3px !important; }
+    figure.dgm { max-width: 6.4in; margin-left: auto; margin-right: auto; }
+    .dgm svg { max-height: 3.1in; }
+    .hdr-space, .ftr-space { display: table-cell; height: 0.8in !important; }
+    .running-hdr, .running-ftr { display: flex !important;
+           justify-content: space-between; align-items: baseline;
+           position: fixed !important; left: 0; right: 0; margin: 0 !important;
+           font-family: "Archivo", sans-serif; font-size: 10px; color: #8a8779;
+           letter-spacing: 0.08em; text-transform: uppercase; }
+    .running-hdr { top: 0; padding: 0.4in 0.75in 0 !important; }
+    .running-ftr { bottom: 0; padding: 0 0.75in 0.4in !important; }
+    h1, h2, h3, h4 { break-after: avoid; }
+    figure, pre, blockquote, .pq, .shift-head, .toc-group, table, .callout, .def, .tell { break-inside: avoid; }
+    p, li { orphans: 3; widows: 3; }
+    .screen-only { display: none !important; }
+  }
+</style>
+</helmet>
+
+<main class="doc">
+  <table class="doc-frame" role="presentation">
+    <thead><tr><td class="hdr-space"></td></tr></thead>
+    <tbody><tr><td>
+
+      <div class="running-hdr"><span>UnREST and Its Programming Models</span><span>Fawcett Innovations LLC</span></div>
+      <div class="running-ftr"><span>A conceptual reference for programmers</span><span>john@fawcettinnovations.com</span></div>
+
+      <!-- ============ COVER ============ -->
+      <header class="cover">
+        <h1 class="cover-title">UnREST and Its<br>Programming Models</h1>
+        <div class="cover-rule"></div>
+        <p class="cover-sub">A conceptual reference for programmers</p>
+        <svg class="ripple" width="90" height="22" viewBox="0 0 90 22" fill="none" aria-hidden="true">
+          <circle cx="11" cy="11" r="4" fill="#2c5a3c"></circle>
+          <circle cx="11" cy="11" r="9.5" stroke="#2c5a3c" stroke-opacity="0.45" fill="none"></circle>
+          <circle cx="45" cy="11" r="3" fill="#2c5a3c" fill-opacity="0.7"></circle>
+          <circle cx="45" cy="11" r="8" stroke="#2c5a3c" stroke-opacity="0.3" fill="none"></circle>
+          <circle cx="77" cy="11" r="2" fill="#2c5a3c" fill-opacity="0.5"></circle>
+          <circle cx="77" cy="11" r="6.5" stroke="#2c5a3c" stroke-opacity="0.22" fill="none"></circle>
+        </svg>
+        <p class="cover-lede">This document explains how to <em>think</em> about UnREST and the systems built on it. It is an orientation, not a specification — it gives you the mental model so the detailed reference reads as elaboration rather than as a new system to learn.</p>
+        <div class="cover-meta">
+          <p class="who">The order is deliberate: the idea, then the stack that implements it, then the memory it lives in, then the three services that use it.</p>
+          <p class="org">The FrogNet Living Network · Fawcett Innovations LLC</p>
+        </div>
+      </header>
+
+      <!-- ============ CONTENTS ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Contents</p>
+          <h2 class="sec">What's Inside</h2>
+        </div>
+        <div class="toc-group">
+          <div class="toc-major">The reference, in four moves</div>
+          <div class="toc-list">
+            <div class="toc-item"><span class="n">01</span>Overview — messages vs shared memory</div>
+            <div class="toc-item"><span class="n">02</span>The OO model — the client/server stack</div>
+            <div class="toc-item"><span class="n">03</span>The transient database — where the memory lives</div>
+            <div class="toc-item"><span class="n">04</span>The three implementations — at increasing depth</div>
+            <div class="toc-item"><span class="n">05</span>Building a UnRESTful app with AI</div>
+          </div>
+        </div>
+        <p class="note">It assumes you are comfortable with ordinary web-style programming: HTTP requests and responses, a client talking to a server, a server backed by a database, caches in between. UnREST reuses all of those pieces. What it changes is the default way you think about state — and that one change is what the rest unpacks.</p>
+      </section>
+
+      <!-- ============ 1. OVERVIEW ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section One</p>
+          <h2 class="sec">Overview</h2>
+        </div>
+
+        <h3 class="sub">The familiar model: messages</h3>
+        <p>Most networked code moves <strong>messages</strong>. A sender builds a request, sends it; a receiver handles it and sends a response. If you have written REST endpoints, queued jobs, or socket code, this is the world you know. It works, but the hard parts are well known too: messages arrive late, out of order, twice, or not at all — so you end up dealing with retries, deduplication, ordering, acknowledgements, and timeouts. The correctness of the system depends on messages being delivered and handled correctly.</p>
+
+        <h3 class="sub">The UnREST model: shared memory</h3>
+        <p>UnREST changes the <strong>default</strong>. Instead of sending a message to ask a service to do something, you <strong>change a piece of shared memory</strong>, and a service reacts to the change. Instead of requesting a value from whoever holds it, you <strong>read the value</strong>, which is simply <em>there</em>.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">The default, flipped</div>
+            <svg viewBox="0 0 620 196" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="ah-msg" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#b7b3a6"></path></marker>
+                <marker id="ah-mem" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker>
+              </defs>
+              <line x1="310" y1="14" x2="310" y2="182" stroke="#dcd7c9" stroke-width="1"></line>
+              <text x="22" y="24" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#6f6d64">MESSAGES · ask a service to act</text>
+              <circle cx="74" cy="104" r="22" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+              <text x="74" y="109" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">you</text>
+              <rect x="206" y="80" width="78" height="48" rx="5" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="245" y="100" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="#1b1a16">service</text>
+              <text x="245" y="115" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" fill="#6f6d64">owns state</text>
+              <line x1="100" y1="92" x2="202" y2="92" stroke="#b7b3a6" stroke-width="1.2" marker-end="url(#ah-msg)"></line>
+              <text x="151" y="86" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" fill="#8f8b7e">request — please do X</text>
+              <line x1="203" y1="116" x2="101" y2="116" stroke="#b7b3a6" stroke-width="1.2" marker-end="url(#ah-msg)"></line>
+              <text x="151" y="130" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" fill="#8f8b7e">response — ack · retry · order</text>
+              <text x="330" y="24" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#2c5a3c">SHARED MEMORY · change it, a service reacts</text>
+              <rect x="420" y="84" width="92" height="40" rx="6" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.4"></rect>
+              <text x="466" y="102" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11.5" fill="#234a31">value</text>
+              <text x="466" y="116" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">one current value</text>
+              <circle cx="356" cy="58" r="17" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+              <text x="356" y="62" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10.5" font-weight="600" fill="#1b1a16">you</text>
+              <circle cx="576" cy="58" r="17" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></circle>
+              <text x="576" y="62" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" font-weight="600" fill="#1b1a16">svc</text>
+              <line x1="367" y1="72" x2="430" y2="82" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ah-mem)"></line>
+              <text x="372" y="98" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">write</text>
+              <line x1="510" y1="86" x2="566" y2="72" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#ah-mem)"></line>
+              <text x="520" y="98" font-family="Archivo, sans-serif" font-size="9.5" fill="#2c5a3c">read · reacts</text>
+              <text x="466" y="150" text-anchor="middle" font-family="Archivo, sans-serif" font-size="10" fill="#b7b3a6">no recipient · no subscription · the read is the only event</text>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 1.</b> In the familiar model you address a service and manage an exchange. In UnREST you change a named value any node can read; the service reacts to the change. There is no recipient and no event stream — the read is the only event, and it happens because your code asked.</figcaption>
+        </figure>
+
+        <p>Concretely, state lives as named values any node on the network can read or write:</p>
+        <ul class="spec">
+          <li>There is <strong>one current value</strong> per name. Writing overwrites it in place — no log, no history. If you need to know what changed, compare the new value to the copy you already had.</li>
+          <li>The value is <strong>location-independent</strong>. From your code's point of view there is no fetch and no owner — the value is in shared memory and you read it. (Underneath, the network does route to it; the point is that your code does not have to care where it lives.)</li>
+          <li>A <strong>read returns the complete current value</strong>, never a change-event or a partial update. You read it whenever you need it, even in a tight loop.</li>
+          <li>An <strong>unchanged read is nearly free</strong>. Re-reading a value that hasn't changed collapses to a tiny "nothing changed" marker on the wire. The expensive case in a request/response system — polling something that rarely changes — is the cheap case here.</li>
+        </ul>
+
+        <div class="callout">
+          <p class="co-h">The academic lineage</p>
+          <p>This is <strong>Linda's tuple-space</strong> with two deliberate changes. First, <em>current-value-wins</em> instead of destructively consuming a tuple — so every write is idempotent and every read repeatable. Second, <em>reap instead of block</em> — a read takes the current value if it is there and returns immediately otherwise; nothing ever waits on the network. Read the name literally, too: it is REST turned inside out. In REST you ask a server for a representation of a resource; in UnREST you hold the memory and change it.</p>
+        </div>
+
+        <h3 class="sub">Messaging is not gone</h3>
+        <p>One clarification, because the slogan is easy to over-read: UnREST does <strong>not</strong> abolish messages. Request/response is fully supported, and there is an explicit raw mode — a plain HTTP request in, the full HTTP response back — that you can ask for by name when that is genuinely what you want. What changes is what you <em>reach for first</em>. By default you think in shared memory; you drop to explicit request/response only when you deliberately choose to. As Section 4 shows, one of the three services — discovery — does exactly that, because for its job, asking is the right shape.</p>
+
+        <h3 class="sub">What it's made of</h3>
+        <p>Underneath, UnREST is an ordinary client/server stack: an object layer your application programs against, a caching <strong>proxy</strong> and <strong>daemon</strong> that move data between nodes, and an <strong>Apache + database</strong> origin that holds the durable state. The one unusual thing lives in the middle — the proxy and daemon share a <em>model</em> of the data, which is what lets an unchanged read cost almost nothing and makes "messages" behave like "memory." Sections 2 and 3 are that machinery; Section 4 walks the three services built on top of it, which sit at increasing <strong>depth</strong>.</p>
+      </section>
+
+      <!-- ============ 2. THE OO MODEL ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Two</p>
+          <h2 class="sec">The OO Model — the Client/Server Stack</h2>
+        </div>
+
+        <h3 class="sub">You program against objects</h3>
+        <p>The programming surface is object-oriented. Your application does not assemble packets or parse wire formats. It works with two kinds of object:</p>
+        <ul class="spec">
+          <li><strong>Tuples</strong> — the named values in shared memory (covered in Section 3). This is your state.</li>
+          <li><strong>Handlers</strong> — objects that tell the transport everything it needs to know about a <em>kind</em> of data.</li>
+        </ul>
+        <p>There is a single handler interface — "the ONE UnREST handler interface, no special-casing" — and every concrete handler specialises it. A handler has two faces, and it helps to see them separately.</p>
+        <div class="defs">
+          <div class="def">
+            <div class="def-t">Format handlers <span class="muted" style="font-weight:400">— JSON, XML, HTML, text, raw bytes</span></div>
+            <div class="def-d">Teach the transport the <em>structure</em> of a content type. Given an example body, a format handler learns a <strong>template</strong>, identifies the few fields that actually vary, and can rebuild the full body from the template plus those fields. This is what makes responses compressible: once both ends know the template, an unchanged response is identified by a hash, and a changed one is sent as just its changed fields.</div>
+          </div>
+          <div class="def">
+            <div class="def-t">Role handlers <span class="muted" style="font-weight:400">— database, media, game</span></div>
+            <div class="def-d">The same kind of object carrying the behaviour that decides <em>which node runs a service</em> and <em>what happens when that changes</em>. They expose <code>score</code> and <code>evaluate</code> to pick a host, and <code>advertise</code> and <code>hostReset</code> to re-assert state when the network shifts (Section 4.1). A handler is not only about formatting.</div>
+          </div>
+        </div>
+
+        <h3 class="sub">The three processes (and the fourth tier)</h3>
+        <p>Beneath the object layer are three processes and a database tier. If you picture a caching reverse proxy in front of a web server, you already have the right shape.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">The four tiers — a semantic cache pair in front of an origin</div>
+            <div class="stack">
+              <div class="stackbox">
+                <div class="sb-h">Your application</div>
+                <div class="sb-s">reads / writes OBJECTS — tuples + handlers</div>
+              </div>
+              <div class="stack-arr"><span class="ar">&#8595;</span></div>
+              <div class="stackbox accent">
+                <div class="sb-h">PROXY &nbsp;·&nbsp; client side</div>
+                <div class="sb-s">local semantic cache — REQ_REPEAT = hash only; rebuilds the full value from the template it holds</div>
+              </div>
+              <div class="stack-arr"><span class="ar">&#8645;</span><span class="lbl">FrogNet wire (FNW1) · SAME / DIFF · hop-by-hop across the mesh</span></div>
+              <div class="stackbox accent">
+                <div class="sb-h">DAEMON &nbsp;:9009&nbsp; ·&nbsp; server side</div>
+                <div class="sb-s">re-executes against the backend, compares, replies RESP_SAME (16 B) or RESP_DIFF (changed fields)</div>
+              </div>
+              <div class="stack-arr"><span class="ar">&#8645;</span><span class="lbl">plain HTTP at 127.0.0.1</span></div>
+              <div class="stackbox">
+                <div class="sb-h">APACHE + api.php + DATABASE</div>
+                <div class="sb-s">the origin — durable state. The cache pair never becomes the authority.</div>
+              </div>
+            </div>
+          </div>
+          <figcaption><b>Diagram 2.</b> The tiers are the classic ones — client, server, database. The proxy is a local semantic cache; the daemon executes against the origin and answers with a difference. Because both ends hold the same handler, only a difference has to cross the wire.</figcaption>
+        </figure>
+
+        <p><strong>The proxy is the client side</strong> — a local semantic cache. Whenever your application reads or writes a value, that is, underneath, an ordinary HTTP request to <code>api.php</code>. The proxy intercepts it, uses the matching handler to template it, and computes a hash of the request. The <em>first</em> time it sees a given request it sends the whole thing; the <em>second</em> time it sends only a <strong>repeat</strong> — the hash by itself — and when the reply comes back as "unchanged," it reconstructs the full current value from the template it already holds.</p>
+        <p><strong>The daemon is the server side</strong>, listening on a fixed port (<code>:9009</code>). A pool of worker threads executes each request against the backend, templates the result with the same handler, compares it to what it returned last time, and replies one of two ways: <strong>SAME</strong> (a 16-byte identifier, no body) if nothing changed, or <strong>DIFF</strong> (the identifier plus only the changed fields) if something did.</p>
+        <div class="callout">
+          <p class="co-h">One rule, load-bearing</p>
+          <p>A repeat request <strong>always re-executes against the backend.</strong> "Repeat" means the <em>question</em> is identical, not that the answer is assumed. The daemon runs the query again and the SAME-or-DIFF decision reflects live data — so a cheap answer is never a stale answer.</p>
+        </div>
+        <p><strong>Apache, <code>api.php</code>, and the database are the origin</strong> — an ordinary LAMP tier holding the durable state, which the daemon reaches at <code>127.0.0.1</code>. The proxy and daemon are a cache pair <em>in front of</em> the real store; they never become the authority. (One service inverts this: a game host serves its origin from the proxy itself rather than from Apache. The shape is still a semantic cache in front of an origin.)</p>
+
+        <p>Here is a single read, end to end, the second time it is asked:</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">A repeat read, end to end</div>
+            <svg viewBox="0 0 620 268" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="sq-s" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker>
+                <marker id="sq-r" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#9b988c"></path></marker>
+              </defs>
+              <!-- lifelines -->
+              <g font-family="Archivo, sans-serif" font-size="11" font-weight="600">
+                <rect x="36" y="8" width="78" height="24" rx="3" fill="#fff" stroke="#1b1a16" stroke-width="1.1"></rect><text x="75" y="24" text-anchor="middle" fill="#1b1a16">your app</text>
+                <rect x="196" y="8" width="84" height="24" rx="3" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.1"></rect><text x="238" y="24" text-anchor="middle" fill="#234a31">proxy</text>
+                <rect x="362" y="8" width="100" height="24" rx="3" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.1"></rect><text x="412" y="24" text-anchor="middle" fill="#234a31">daemon :9009</text>
+                <rect x="520" y="8" width="84" height="24" rx="3" fill="#fff" stroke="#1b1a16" stroke-width="1.1"></rect><text x="562" y="24" text-anchor="middle" fill="#1b1a16">Apache/DB</text>
+              </g>
+              <g stroke="#dcd7c9" stroke-width="1">
+                <line x1="75" y1="32" x2="75" y2="256"></line>
+                <line x1="238" y1="32" x2="238" y2="256"></line>
+                <line x1="412" y1="32" x2="412" y2="256"></line>
+                <line x1="562" y1="32" x2="562" y2="256"></line>
+              </g>
+              <g font-family="Archivo, sans-serif" font-size="9.5">
+                <!-- app -> proxy -->
+                <line x1="76" y1="56" x2="236" y2="56" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#sq-s)"></line>
+                <text x="156" y="51" text-anchor="middle" fill="#2c5a3c">read a value (GET api.php?…)</text>
+                <!-- note over proxy -->
+                <rect x="158" y="66" width="160" height="20" rx="3" fill="#f3ecd9" stroke="#dcd7c9"></rect>
+                <text x="238" y="79" text-anchor="middle" fill="#8a5a2b" font-size="9">seen before → send the hash, not the request</text>
+                <!-- proxy -> daemon -->
+                <line x1="239" y1="104" x2="410" y2="104" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#sq-s)"></line>
+                <text x="324" y="99" text-anchor="middle" fill="#2c5a3c">REQ_REPEAT (hash)</text>
+                <!-- daemon -> origin -->
+                <line x1="413" y1="128" x2="558" y2="128" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#sq-s)"></line>
+                <text x="486" y="123" text-anchor="middle" fill="#2c5a3c">run the query — ALWAYS</text>
+                <!-- origin -> daemon -->
+                <line x1="561" y1="152" x2="416" y2="152" stroke="#9b988c" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#sq-r)"></line>
+                <text x="488" y="147" text-anchor="middle" fill="#8f8b7e">current rows</text>
+                <!-- note over daemon -->
+                <rect x="338" y="162" width="148" height="20" rx="3" fill="#f3ecd9" stroke="#dcd7c9"></rect>
+                <text x="412" y="175" text-anchor="middle" fill="#8a5a2b" font-size="9">compare to the response cached last time</text>
+                <!-- daemon -> proxy -->
+                <line x1="410" y1="200" x2="240" y2="200" stroke="#9b988c" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#sq-r)"></line>
+                <text x="324" y="195" text-anchor="middle" fill="#8f8b7e">RESP_SAME (16 B) — or DIFF</text>
+                <!-- note over proxy -->
+                <rect x="166" y="210" width="144" height="20" rx="3" fill="#f3ecd9" stroke="#dcd7c9"></rect>
+                <text x="238" y="223" text-anchor="middle" fill="#8a5a2b" font-size="9">rebuild the complete value from the template</text>
+                <!-- proxy -> app -->
+                <line x1="237" y1="248" x2="77" y2="248" stroke="#9b988c" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#sq-r)"></line>
+                <text x="156" y="243" text-anchor="middle" fill="#8f8b7e">the complete, current value</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 3.</b> The second time a question is asked, the proxy sends only the hash. The daemon still re-runs the query against the origin, then answers in sixteen bytes if nothing changed. The proxy rebuilds the full value locally — a cheap answer that is never a stale one.</figcaption>
+        </figure>
+
+        <h3 class="sub">Same handler, but not symmetric</h3>
+        <p>The proxy and daemon share the handler, and that shared model is exactly why only a <em>difference</em> has to cross the wire — both ends already hold the structure, so the message shrinks to what changed. But sharing the handler does <strong>not</strong> mean the two sides do the same thing in both directions. The relationship is asymmetric on purpose. What the proxy <em>says</em> in that shared vocabulary can carry compact or compound meaning the daemon expands and acts on:</p>
+        <ul class="spec">
+          <li>a <strong>repeat</strong> is just the hash of an earlier request — the daemon looks the hash up, recovers the full question, and routes it to the right executor;</li>
+          <li>a <strong>diff</strong> is only the changed fields of a request — the daemon reconstructs the whole request from the parts it already has;</li>
+          <li>a <strong>raw</strong> request tells the daemon to skip the semantic layer and pass plain HTTP straight through.</li>
+        </ul>
+        <p>The handler gives both sides a common language. The proxy is then free to compose requests in that language that mean <em>more</em> to the daemon than a literal one-to-one HTTP call would — a small token standing for a larger or special operation. Do not assume a request the proxy sends is a mirror of what comes back, or that a one-line request implies a one-line action on the other side.</p>
+
+        <h3 class="sub">Why this is "modern" client/server</h3>
+        <p>The tiers are the classic ones, and nothing about Apache or the database is unusual. The difference is the pair in the middle that <em>shares a model of the data</em>. Classic client/server re-sends the entire representation on every request and treats each request as independent. Here, because the proxy and daemon both hold the handler, an unchanged read costs a hash and a changed read costs a diff; and because the server's address is a floating role the mesh resolves, the client neither knows nor cares which physical box answered. Your application is written as though it were reading and writing local objects.</p>
+      </section>
+
+      <!-- ============ 3. THE TRANSIENT DATABASE ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Three</p>
+          <h2 class="sec">The Transient Database — Where the Memory Lives</h2>
+        </div>
+        <p>The shared memory is held in a <strong>transient database</strong>. "Transient" is the important word: it is durable enough to read reliably, but it is not a system of record. Values carry a timestamp and age out if nobody keeps re-asserting them, and the database itself can move from one node to another. You store coordination and live state here, not your permanent records.</p>
+
+        <h3 class="sub">Two roles, and why there are two</h3>
+        <p>The transient is not a single fixed server. It exists as <strong>two roles</strong>, and understanding the split is the most important thing in this section.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">Control plane vs data plane — on the 10/8 network</div>
+            <div class="planes">
+              <div class="plane fixed">
+                <div class="plane-tag">databasehost_control.frognet</div>
+                <div class="plane-rule">Fixed by a rule — the highest <code style="background:none;color:inherit;padding:0">.1</code> address, always present</div>
+                <div class="plane-body">Deterministic: every node computes the same answer from the host list, with no negotiation. Holds the <strong>inputs</strong> to elections — each node's published capability, presence, and the table of services.</div>
+              </div>
+              <div class="plane elected">
+                <div class="plane-tag">databasehost.frognet</div>
+                <div class="plane-rule">Elected for fitness — the most capable box wins, and it floats</div>
+                <div class="plane-body">Chosen by capability rather than by a fixed rule, so it can be a different node than control. When the network changes, the election re-runs and the role can move. Holds the durable application data — an <strong>output</strong>.</div>
+              </div>
+              <div class="planes-mid">control reads everyone's capability &nbsp;<b>→</b>&nbsp; runs the selector &nbsp;<b>→</b>&nbsp; elects the data host</div>
+            </div>
+          </div>
+          <figcaption><b>Diagram 4.</b> The control host is fixed by a rule (highest <code>.1</code>); the data host is elected and floats. The control host holds the inputs to elections; the data host is one of the outputs. Point "must always resolve the same everywhere" traffic at control, and durable data at the data host.</figcaption>
+        </figure>
+
+        <h3 class="sub">Tuples: the values themselves</h3>
+        <p>A single value in the transient is a <strong>tuple</strong>. You address it with a trio — <strong>service / variable / scope</strong> — and it carries a JSON value you define. Under the hood it maps onto one row of a simple sensor table (the same <code>api.php</code> schema everything else uses):</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">One tuple → one sensor row</div>
+            <div class="map">
+              <div class="maprow"><span class="ml">service</span><span class="ma">→</span><span class="mr"><b>SensorType</b> &nbsp; "communicator"</span></div>
+              <div class="maprow"><span class="ml">variable.scope</span><span class="ma">→</span><span class="mr"><b>SensorName</b> &nbsp; "av_caps.host:10.130.130.1:4173"</span></div>
+              <div class="maprow"><span class="ml">writer's 10/8 IP</span><span class="ma">→</span><span class="mr"><b>SensorAddress</b> &nbsp; who reported this value</span></div>
+              <div class="maprow"><span class="ml">the value</span><span class="ma">→</span><span class="mr"><b>jsonData</b> &nbsp; the JSON blob you define</span></div>
+            </div>
+          </div>
+          <figcaption><b>Diagram 5.</b> There is exactly one row per <code>SensorName</code>, and a write is an upsert — resolve-or-create — so re-writing a value overwrites it in place. No history is kept.</figcaption>
+        </figure>
+
+        <p>Coordination tuples are marked with an <code>SD:</code> prefix on the name (presence, capability, call signaling, and so on). The prefix lets a dead service's leftover values stay recognizable so they can be reaped. Ordinary observed data — sensor readings, link state — has no prefix and is never a reap candidate, so live coordination state and durable data can share the store without being confused.</p>
+
+        <h3 class="sub">Scope: whose value it is, and how it expires</h3>
+        <p><strong>Scope</strong> is the part people get wrong, so it is worth spelling out. Four helpers cover the common cases:</p>
+        <pre class="code"><span class="kw">host_scope</span>()             <span class="cm"># "host:&lt;ip&gt;:&lt;pid&gt;"   one running instance; goes away when the process exits</span>
+<span class="kw">node_scope</span>()             <span class="cm"># "host:&lt;ip&gt;"        one durable row per node, outlives any single process</span>
+<span class="kw">role_scope</span>(<span class="st">"mediahost"</span>)  <span class="cm"># "host:&lt;ip&gt;:&lt;role&gt;" one row per (node, role); two roles never collide</span>
+<span class="kw">session_scope</span>(call_id)   <span class="cm"># "session:&lt;id&gt;"     scoped to a call / session</span></pre>
+        <p><code>host_scope</code> includes the process id, so a long-running service gets a value unique to that instance that disappears when it stops. <code>node_scope</code> drops the pid for a value that must be a single row per node and survive restarts (a periodic advertiser, say). <code>role_scope</code> exists because one node can advertise capability under <em>several</em> roles at once — it might be a candidate for both <code>mediahost</code> and <code>databasehost</code> — and since the key does not encode the service, qualifying the scope with the role keeps those rows from overwriting each other.</p>
+
+        <h3 class="sub">Writing and reading</h3>
+        <p>In code, it is two calls:</p>
+        <pre class="code"><span class="kw">import</span> frognet_tuples <span class="kw">as</span> T
+
+<span class="cm"># write / refresh this node's presence</span>
+T.put(<span class="st">"communicator"</span>, <span class="st">"presence"</span>, T.host_scope(),
+      {<span class="st">"name"</span>: <span class="st">"Alice"</span>, <span class="st">"status"</span>: <span class="st">"online"</span>})
+
+<span class="cm"># read every node's presence, across all scopes</span>
+<span class="kw">for</span> r <span class="kw">in</span> T.get(<span class="st">"communicator"</span>, <span class="st">"presence"</span>):
+    print(r[<span class="st">"addr"</span>], <span class="st">"->"</span>, r[<span class="st">"value"</span>])</pre>
+        <p><code>put</code> stamps a timestamp so readers can decide whether a value is still fresh. Its <code>own</code> flag controls cleanup: <code>own=True</code> (the default) means this process owns the value and it is removed when the process exits cleanly — right for live state like presence. <code>own=False</code> is a fire-and-forget refresh that must <em>outlive</em> a short-lived writer and age out by staleness instead; a once-a-minute advertiser uses this, because arming cleanup would delete its value moments later and leave the election with nothing to read.</p>
+        <p><code>get(service, variable)</code> returns every instance of that variable across scopes; <code>get_all(service)</code> returns every variable for a service. Passing <code>fresh_s=N</code> drops values older than N seconds — the reader's own freshness decision, made the same way by everyone so they agree.</p>
+
+        <h3 class="sub">Floating, re-assertion, and robustness</h3>
+        <p>Because the data host can float, writers re-resolve the host and re-assert their values on a heartbeat, and a background reaper deletes whatever stopped being asserted. The reaper, not cleanup-on-exit, is the real guarantee — a crashing node never gets the chance to say goodbye. One more rule keeps reads safe: a single malformed row is dropped and logged, never allowed to abort the read.</p>
+        <p class="pq">Skip the bad row, note it, and return the rest — one corrupt blob must never empty a whole candidate list.</p>
+      </section>
+
+      <!-- ============ 4. THE THREE IMPLEMENTATIONS ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Four</p>
+          <h2 class="sec">The Three Implementations</h2>
+        </div>
+        <p>The three services are the same idea at three <strong>depths</strong>. Discovery is the shallow end — still moving messages, but so heavily optimized that a stable request is nearly free. The communicator and games are the deep end — they stop thinking in request/response and work in shared memory directly.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">Three services, one substrate — at increasing depth</div>
+            <div class="spectrum">
+              <div class="spectrum-mark" style="left:15%;">
+                <div class="spectrum-lab">Discovery</div>
+                <div class="spectrum-sub">probes, asks, waits</div>
+                <div class="spectrum-dot"></div>
+              </div>
+              <div class="spectrum-mark" style="left:62%;">
+                <div class="spectrum-lab">Communicator</div>
+                <div class="spectrum-sub">writes &amp; reads memory</div>
+                <div class="spectrum-dot"></div>
+              </div>
+              <div class="spectrum-mark" style="left:88%;">
+                <div class="spectrum-lab">Games</div>
+                <div class="spectrum-sub">governed memory</div>
+                <div class="spectrum-dot"></div>
+              </div>
+              <div class="spectrum-track"></div>
+              <div class="spectrum-ends"><span>MESSAGES — ask and answer</span><span>SHARED MEMORY — write and read</span></div>
+            </div>
+          </div>
+          <figcaption><b>Diagram 6.</b> The depth is not in the wire — every read and write rides the same proxy/daemon machinery with SAME/DIFF underneath. It is in <b>how each service's own code is written</b>: discovery's code is structured as messages; the communicator's and games' code is structured as shared memory.</figcaption>
+        </figure>
+
+        <h3 class="sub">4.1 — How a role gets elected</h3>
+        <p>Three of the services run on an <strong>elected role</strong> — one node the whole network treats as "the one" for a job: the data host, the mediahost, the game engine. Election is not a vote and not a negotiation. It is a deterministic computation each node runs for itself, which is why a split network keeps working on each side and a merged network re-derives the same answer without anyone coordinating. A role is defined by a small handler with two callbacks:</p>
+        <div class="defs">
+          <div class="def">
+            <div class="def-t"><code>score(candidate)</code></div>
+            <div class="def-d">Given one node's published capability, how fit is it for this role? A number, or "ineligible."</div>
+          </div>
+          <div class="def">
+            <div class="def-t"><code>evaluate(candidates)</code></div>
+            <div class="def-d">Given all the candidates and their scores, choose the winner — best score, with the highest IP breaking ties.</div>
+          </div>
+        </div>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">The shared election loop — write one handler, register it</div>
+            <div class="pipe">
+              <div class="pipe-box"><div class="pb-h">gather</div><div class="pb-s">read every node's capability from control</div></div>
+              <div class="pipe-arrow">&#8594;</div>
+              <div class="pipe-box"><div class="pb-h">score</div><div class="pb-s">rate each candidate for this role</div></div>
+              <div class="pipe-arrow">&#8594;</div>
+              <div class="pipe-box"><div class="pb-h">pick</div><div class="pb-s">best score · highest IP wins ties</div></div>
+              <div class="pipe-arrow">&#8594;</div>
+              <div class="pipe-box"><div class="pb-h">publish</div><div class="pb-s">a name like databasehost.frognet</div></div>
+            </div>
+            <div class="pipe-foot">Adding a new elected service is just writing <code>score</code> and <code>evaluate</code> — the loop around them is shared.</div>
+          </div>
+          <figcaption><b>Diagram 7.</b> Making the criteria a callback is the point: the data host gates on MySQL running and ranks on storage; the mediahost scores on media capability, elected per local network; the game engine treats every eligible node equally and lets the highest IP win.</figcaption>
+        </figure>
+
+        <p>When the network changes, the same computation runs again and a role can land on a different node. Two more callbacks handle the move: <code>advertise</code> re-publishes a node's capability, and <code>hostReset</code> re-asserts a node's own state after the ground shifts under it. Because an elected role keeps no private state — whatever it has acted on is recorded in the shared object it governs — re-running the same logic over unchanged memory does nothing, so a role can float to a new node without dropping the thread.</p>
+
+        <h3 class="sub">4.2 — Discovery: messages, highly optimized</h3>
+        <p>Discovery turns a pile of links into a usable network. It works the oldest way: by <strong>asking</strong>. Each node probes outward from its own interfaces, asks each address who it is, asks each reachable peer what <em>it</em> knows, and from the answers writes itself a routing table. This is still request/response — and that is deliberate. For a job where reachability has to be re-proven constantly and no node's claim can be trusted on its own, asking is the right shape.</p>
+        <p>What makes it FrogNet rather than plain HTTP is that the asking is nearly free. Discovery asks the same questions over and over, and almost always the answer is the same as last time — so the responses ride the SAME/DIFF compression from Section 2. A peer whose information hasn't moved since you last asked answers in sixteen bytes.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">How a node builds its own routing table</div>
+            <svg viewBox="0 0 620 210" xmlns="http://www.w3.org/2000/svg">
+              <defs><marker id="dq" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker></defs>
+              <rect x="22" y="80" width="118" height="48" rx="5" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></rect>
+              <text x="81" y="100" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">this node</text>
+              <text x="81" y="115" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">probes outward</text>
+              <g font-family="Archivo, sans-serif" font-size="9.5">
+                <line x1="140" y1="60" x2="300" y2="40" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#dq)"></line>
+                <line x1="140" y1="104" x2="300" y2="104" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#dq)"></line>
+                <line x1="140" y1="148" x2="300" y2="168" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#dq)"></line>
+                <rect x="306" y="24" width="190" height="34" rx="4" fill="#faf8f1" stroke="#dcd7c9"></rect>
+                <text x="316" y="38" font-family="'IBM Plex Mono', monospace" font-size="9.5" fill="#234a31">probe :9009 — the .2 PROVES</text>
+                <text x="316" y="51" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">a live round-trip, the path works now</text>
+                <rect x="306" y="87" width="190" height="34" rx="4" fill="#faf8f1" stroke="#dcd7c9"></rect>
+                <text x="316" y="101" font-family="'IBM Plex Mono', monospace" font-size="9.5" fill="#234a31">echo — the .1 CARRIES</text>
+                <text x="316" y="114" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">peer's identity: name + upstreams</text>
+                <rect x="306" y="150" width="190" height="34" rx="4" fill="#faf8f1" stroke="#dcd7c9"></rect>
+                <text x="316" y="164" font-family="'IBM Plex Mono', monospace" font-size="9.5" fill="#234a31">getHosts — ask what it knows</text>
+                <text x="316" y="177" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">recurse to a bounded depth</text>
+                <line x1="496" y1="104" x2="556" y2="104" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#dq)"></line>
+              </g>
+              <rect x="500" y="78" width="104" height="52" rx="5" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.4"></rect>
+              <text x="552" y="98" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="#234a31">routing</text>
+              <text x="552" y="112" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11" font-weight="600" fill="#234a31">table</text>
+              <text x="552" y="125" text-anchor="middle" font-family="Archivo, sans-serif" font-size="8.5" fill="#6f6d64">promote · prove</text>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 8.</b> "<code>.2</code> proves, <code>.1</code> carries": you probe a served <code>.2</code> address to prove the path actually works, and record the <code>.1</code> the reply carries. Reachability is measured, never asserted — the lowest measured round-trip wins, and a network you can't reach directly is carried by a relay that has itself proven the onward path. There is no coordinator: every node ends up with its own table.</figcaption>
+        </figure>
+
+        <h3 class="sub">4.3 — The communicator: session memory</h3>
+        <p>The communicator is a deeper use of the model, and the contrast with discovery is the point: where discovery asks questions and acts on the answers, the communicator never asks anyone anything. It works in shared <strong>session</strong> state — who is online, who is calling whom, who has joined a call. A participant appears by <em>writing its own presence</em> into the shared region, and drops out simply by ceasing to refresh it. The governing role — the <strong>mediahost</strong>, elected one per local network — reacts to those writes.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">Control plane forms the meeting · data plane carries it</div>
+            <svg viewBox="0 0 620 196" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <marker id="cm-a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker>
+              </defs>
+              <rect x="14" y="14" width="592" height="92" rx="6" fill="#f1f4ec" stroke="#b3c0ad" stroke-width="1.2"></rect>
+              <text x="28" y="32" font-family="Archivo, sans-serif" font-size="10.5" font-weight="600" letter-spacing="0.06em" fill="#2c5a3c">CONTROL PLANE — shared memory (the mediahost's region)</text>
+              <rect x="236" y="46" width="148" height="46" rx="6" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.4"></rect>
+              <text x="310" y="66" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#234a31">presence + call objects</text>
+              <text x="310" y="81" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">the roster — one current value</text>
+              <circle cx="74" cy="69" r="20" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+              <text x="74" y="74" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">Alice</text>
+              <circle cx="546" cy="69" r="20" fill="#fff" stroke="#1b1a16" stroke-width="1.3"></circle>
+              <text x="546" y="74" text-anchor="middle" font-family="Archivo, sans-serif" font-size="12" font-weight="600" fill="#1b1a16">Bob</text>
+              <line x1="96" y1="69" x2="234" y2="69" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#cm-a)"></line>
+              <text x="165" y="62" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#2c5a3c">writes her presence / offer</text>
+              <line x1="386" y1="69" x2="524" y2="69" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#cm-a)"></line>
+              <text x="455" y="62" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#2c5a3c">reads the current roster</text>
+              <path d="M74,93 C74,150 546,150 546,93" fill="none" stroke="#8a5a2b" stroke-width="2" marker-end="url(#cm-a)"></path>
+              <rect x="240" y="138" width="140" height="22" rx="4" fill="#f3e7d8" stroke="#d9c3a3"></rect>
+              <text x="310" y="153" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9.5" font-weight="600" fill="#8a5a2b">DATA PLANE — A/V streams directly</text>
+              <text x="310" y="184" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#9b988c">the substrate forms the meeting; it does not carry the meeting's contents</text>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 9.</b> The clearest example of the control-plane / data-plane split. The rendezvous — presence, call offers, who has accepted — is shared-memory objects in the transient. The heavy payload, the actual audio and video, is not memory: once the session object establishes who is connected, the media streams directly between participants.</figcaption>
+        </figure>
+
+        <h3 class="sub">4.4 — Games: governed memory</h3>
+        <p>A game is the case that needs a single authority: two players must never see two different boards. So unlike the other two, it has one <strong>writer-of-record</strong> — the <strong>boardgame</strong> engine — supplied by the same election that designates every other role, and deliberately kept a <em>different</em> role from the data host so that game authority and data storage need not sit on the same machine.</p>
+
+        <figure class="dgm">
+          <div class="dgm-canvas">
+            <div class="dgm-title">Players state intent · the engine resolves it · everyone reads the board</div>
+            <svg viewBox="0 0 620 210" xmlns="http://www.w3.org/2000/svg">
+              <defs><marker id="gm-a" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#2c5a3c"></path></marker></defs>
+              <rect x="18" y="20" width="150" height="50" rx="5" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="93" y="40" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#1b1a16">player 1 — USER object</text>
+              <text x="93" y="55" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">a move is intent inside it</text>
+              <rect x="18" y="140" width="150" height="50" rx="5" fill="#fff" stroke="#1b1a16" stroke-width="1.2"></rect>
+              <text x="93" y="160" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#1b1a16">player 2 — USER object</text>
+              <text x="93" y="175" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">writes its own object</text>
+              <rect x="225" y="70" width="172" height="70" rx="6" fill="#f3e7d8" stroke="#d9c3a3" stroke-width="1.4"></rect>
+              <text x="311" y="98" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#8a5a2b">elected engine</text>
+              <text x="311" y="113" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="9.5" fill="#8a5a2b">boardgame.frognet</text>
+              <text x="311" y="128" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#9b6b39">validates · cannot be forged</text>
+              <rect x="452" y="78" width="150" height="54" rx="6" fill="#e7ece1" stroke="#2c5a3c" stroke-width="1.4"></rect>
+              <text x="527" y="101" text-anchor="middle" font-family="Archivo, sans-serif" font-size="11.5" font-weight="600" fill="#234a31">GAME object</text>
+              <text x="527" y="116" text-anchor="middle" font-family="Archivo, sans-serif" font-size="9" fill="#6f6d64">the current board</text>
+              <g font-family="Archivo, sans-serif" font-size="9">
+                <line x1="168" y1="46" x2="223" y2="86" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#gm-a)"></line>
+                <line x1="168" y1="164" x2="223" y2="124" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#gm-a)"></line>
+                <line x1="397" y1="105" x2="450" y2="105" stroke="#2c5a3c" stroke-width="1.3" marker-end="url(#gm-a)"></line>
+                <text x="423" y="99" text-anchor="middle" fill="#2c5a3c">writes</text>
+                <path d="M527,132 C527,196 93,196 93,72" fill="none" stroke="#2c5a3c" stroke-width="1.2" stroke-dasharray="4 4" opacity="0.8" marker-end="url(#gm-a)"></path>
+                <text x="311" y="190" text-anchor="middle" fill="#8f8b7e">both players read the complete current board</text>
+              </g>
+            </svg>
+          </div>
+          <figcaption><b>Diagram 10.</b> Players never message moves to each other. Each writes its own user object, where a move is stated intent; the engine validates against the rules — authority a player cannot fake by writing memory — and writes the resolved board back. Because the engine records what it applied <em>inside</em> the game object, the engine role can re-elect to a different node and play continues from the last resolved board.</figcaption>
+        </figure>
+      </section>
+
+      <!-- ============ 5. BUILDING WITH AI ============ -->
+      <section class="section-start">
+        <div class="section-head">
+          <p class="eyebrow">Section Five</p>
+          <h2 class="sec">Building a UnRESTful App with AI</h2>
+        </div>
+        <p>An AI assistant is a strong collaborator on this kind of system, but it has one specific, predictable failure that will cost you time if you don't watch for it: it quietly re-introduces <strong>message-thinking</strong>. Request/response, publish/subscribe, send-acknowledge-retry — that is the overwhelming majority of its training, so it is the shape it falls back to whenever it isn't actively held to the model. The symptoms are recognizable:</p>
+
+        <div class="tells">
+          <div class="tell"><div class="tell-n">1</div><div>
+            <p class="tell-no">It asks, in effect, <em>"so when the value is sent, who receives it?"</em></p>
+            <p class="tell-yes">There is no recipient. The read is the only event, and it happens because the reader's code asked.</p>
+          </div></div>
+          <div class="tell"><div class="tell-n">2</div><div>
+            <p class="tell-no">It reaches for <em>"subscribe to the change stream to learn what changed."</em></p>
+            <p class="tell-yes">There is no stream. You always get the complete current value; if you care what changed, diff it against your own previous copy. An unchanged read is the cheap case, not a wasteful one.</p>
+          </div></div>
+          <div class="tell"><div class="tell-n">3</div><div>
+            <p class="tell-no">It hands the compressor a <em>growing array</em> — a full history that gets longer every tick — and asks it to work out the delta.</p>
+            <p class="tell-yes">The per-tick cost then climbs forever. Send a small bounded tip; keep history resident in memory.</p>
+          </div></div>
+          <div class="tell"><div class="tell-n">4</div><div>
+            <p class="tell-no">It gives a governing role <em>private "what I've already handled" state.</em></p>
+            <p class="tell-yes">That breaks the ability to float. Record what you have handled <em>inside</em> the governed object, so any node can take the role over and re-running over unchanged memory does nothing.</p>
+          </div></div>
+        </div>
+
+        <div class="callout">
+          <p class="co-h">The model in one sentence</p>
+          <p>Change memory, not messages; a node writes its own object and an elected role reacts; reads return the complete current value; an unchanged read is free; the carrier conveys structure, not diffs. Give the assistant that up front — then watch for the four tells as the sign it has slipped back into the familiar model.</p>
+        </div>
+
+        <h3 class="sub">Two working habits that matter more than anything else</h3>
+        <ul class="spec">
+          <li><strong>Make it read the actual source before it describes anything.</strong> An AI will describe your code confidently from memory, and it will be wrong about <em>your</em> codebase in ways that sound exactly as confident as when it is right. Require it to open the file and read the function before it tells you what the function does.</li>
+          <li><strong>Make it prove, not assert.</strong> For any change, ask for a test on the real system that <em>fails on the old code and passes on the new</em>, and that reproduces the actual failure you saw — not a convenient stand-in. And treat a correction from you as a <em>class</em> of mistake to fix everywhere, not a single line to patch.</li>
+        </ul>
+        <p>Used that way — model first, read before describing, prove before believing — an AI is genuinely helpful on UnREST. Used loosely, it will hand you a clean message-passing system that merely calls its messages "memory."</p>
+
+        <p class="note">This conceptual layer is meant to be read first and then set aside. The detailed reference covers the wire format, the exact deterministic election rule, the codec internals, and the database schema — each of which is an instance of the model described here.</p>
+
+        <div class="closing">
+          The FrogNet Living Network <span class="dot">·</span> Fawcett Innovations LLC <span class="dot">·</span> john@fawcettinnovations.com
+        </div>
+      </section>
+
+    </td></tr></tbody>
+    <tfoot><tr><td class="ftr-space"></td></tr></tfoot>
+  </table>
+</main>
+</x-dc>
+</body>
+</html>

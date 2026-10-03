@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # S4a oracle: fnwp::build_request (include/fnwp_client.hpp through tools/fnwp-driver) against John's Python, composed
 # exactly as proxy/transport_semantic.py _handle_semantic_request composes it: core/codec.py encode_request_diff,
 # transport_semantic._compute_req_hash, proxy/origin.py inject_origin_into_semantic_request, core/semcache_wire.py

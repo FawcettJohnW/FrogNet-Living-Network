@@ -1,0 +1,278 @@
+#!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+# =============================================================================
+# frognet-pond — FrogNet broker admin tool (v4)
+#
+# Run on the droplet (reads admin token from local DB) or remotely
+# (set FROGNET_ADMIN_TOKEN and FROGNET_BROKER_URL in env).
+#
+# Commands:
+#   frognet-pond create <pond> [options]
+#       --max-users   N       Max nodes in this pond (default: 50)
+#       --node-base   IP      First gateway IP (default: 10.101.100.1)
+#       --increment   N       Third-octet step per node (default: 10)
+#       --password    PW      Pond join password (optional)
+#
+#   frognet-pond list                    List all ponds
+#   frognet-pond status <pond>           Full pond detail
+#   frognet-pond members <pond>          Nodes and their chorus memberships
+#   frognet-pond allocations <pond>      Node IP allocations (confirmed + tentative)
+#   frognet-pond remove <pond> <chorus> <node>   Remove node from chorus
+#
+# Environment:
+#   FROGNET_BROKER_URL    (default: http://localhost:18427)
+#   FROGNET_ADMIN_TOKEN   Bearer token (auto-read from local DB if unset)
+# =============================================================================
+
+set -euo pipefail
+
+BROKER_URL="${FROGNET_BROKER_URL:-http://localhost:18428}"
+ADMIN_TOKEN="${FROGNET_ADMIN_TOKEN:-}"
+
+# Auto-read admin token from broker DB when running on the droplet
+if [[ -z "$ADMIN_TOKEN" && -f /var/lib/frognet_broker_v4/broker.db ]]; then
+    ADMIN_TOKEN=$(sqlite3 /var/lib/frognet_broker_v4/broker.db \
+        "SELECT value FROM admin_config WHERE key='admin_token';" 2>/dev/null || true)
+fi
+
+if [[ -z "$ADMIN_TOKEN" ]]; then
+    echo "ERROR: FROGNET_ADMIN_TOKEN not set and could not read from local DB" >&2
+    exit 1
+fi
+
+_curl() {
+    curl -sk \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -H "Content-Type: application/json" \
+        "$@"
+}
+
+_check() {
+    # Print pretty JSON; if it contains 'detail' or 'error' use red output
+    local out="$1"
+    if echo "$out" | jq -e '.detail // .error' >/dev/null 2>&1; then
+        echo "$out" | jq -r '"ERROR: " + (.detail // .error)' >&2
+        return 1
+    fi
+    echo "$out" | jq .
+}
+
+# ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+cmd_create() {
+    local pond="${1:?Usage: frognet-pond create <pond> [--max-users N] [--node-base IP] [--increment N] [--password PW]}"
+    shift
+
+    local max_users=50
+    local node_base="10.101.100.1"
+    local increment=10
+    local password=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --max-users)  max_users="$2";  shift 2 ;;
+            --node-base)  node_base="$2";  shift 2 ;;
+            --increment)  increment="$2";  shift 2 ;;
+            --password)   password="$2";   shift 2 ;;
+            *) echo "Unknown option: $1" >&2; exit 1 ;;
+        esac
+    done
+
+    echo "Creating pond '$pond'..."
+    local body
+    body=$(printf '{"name":"%s","max_users":%d,"node_base":"%s","node_increment":%d,"password":"%s"}' \
+        "$pond" "$max_users" "$node_base" "$increment" "$password")
+    _check "$(_curl -X POST "${BROKER_URL}/api/v1/ponds" -d "$body")"
+}
+
+# ---------------------------------------------------------------------------
+# list
+# ---------------------------------------------------------------------------
+
+cmd_list() {
+    _curl "${BROKER_URL}/api/v1/ponds" | jq -r '
+        if .ponds | length == 0 then "  (no ponds)"
+        else
+          .ponds[] |
+          "  \(.name)  [\(.node_count)/\(.max_users) nodes]" +
+          "  base=\(.node_base)  step=\(.node_increment)" +
+          "\n    choruses: " + (.choruses | join(", "))
+        end
+    '
+}
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+cmd_status() {
+    local pond="${1:?Usage: frognet-pond status <pond>}"
+    local data
+    data=$(_curl "${BROKER_URL}/api/v1/ponds/${pond}")
+
+    echo "$data" | jq -r '"Pond: \(.pond)  max_users: \(.max_users)"'
+    echo ""
+    echo "$data" | jq -r '
+        .choruses[] |
+        "  Chorus: \(.name)  subnet=\(.subnet)  visible=\(.visible)" +
+        (if (.members | length) == 0
+         then "\n    (no members)"
+         else (.members[] |
+               "\n    \(.name)  node_subnet=\(.subnet)  chorus_ip=\(.chorus_ip)")
+         end)
+    '
+    echo ""
+    echo "Tunnels:"
+    echo "$data" | jq -r '.tunnels[] | "  \(.name)"' 2>/dev/null || echo "  (none)"
+}
+
+# ---------------------------------------------------------------------------
+# members
+# ---------------------------------------------------------------------------
+
+cmd_members() {
+    local pond="${1:?Usage: frognet-pond members <pond>}"
+    _curl "${BROKER_URL}/api/v1/ponds/${pond}" | jq -r '
+        .choruses[] |
+        "  [\(.name)  \(.subnet)]" +
+        (if (.members | length) == 0
+         then "\n    (empty)"
+         else (.members[] |
+               "\n    \(.name)  node=\(.subnet)  chorus_ip=\(.chorus_ip)")
+         end)
+    '
+}
+
+# ---------------------------------------------------------------------------
+# allocations
+# ---------------------------------------------------------------------------
+
+cmd_allocations() {
+    local pond="${1:?Usage: frognet-pond allocations <pond>}"
+    echo "IP allocations for pond '$pond':"
+    _curl "${BROKER_URL}/api/v1/ponds/${pond}" | jq -r '
+        if (.allocations | length) == 0 then "  (none)"
+        else
+          .allocations[] |
+          "  \(.ip)  " +
+          (if .confirmed then "confirmed" else "tentative") +
+          (if .has_node  then "" else "  [no pubkey yet]") end
+        end
+    '
+}
+
+# ---------------------------------------------------------------------------
+# remove
+# ---------------------------------------------------------------------------
+
+cmd_remove() {
+    local pond="${1:?Usage: frognet-pond remove <pond> <chorus> <node>}"
+    local chorus="${2:?Usage: frognet-pond remove <pond> <chorus> <node>}"
+    local node="${3:?Usage: frognet-pond remove <pond> <chorus> <node>}"
+
+    echo "Removing '$node' from chorus '$chorus' in pond '$pond'..."
+    local body
+    body=$(printf '{"pond":"%s","chorus":"%s","node_name":"%s"}' \
+        "$pond" "$chorus" "$node")
+    _check "$(_curl -X DELETE "${BROKER_URL}/api/v1/chorus-member" -d "$body")"
+}
+
+# ---------------------------------------------------------------------------
+# bootstrap (first-time setup on a fresh droplet)
+# ---------------------------------------------------------------------------
+
+cmd_bootstrap() {
+    echo "Bootstrapping broker..."
+    local out
+    out=$(_curl -X POST "${BROKER_URL}/api/v1/bootstrap" \
+          -H "Authorization:" 2>/dev/null)   # no token yet
+    echo "$out" | jq .
+    local token
+    token=$(echo "$out" | jq -r '.admin_token // empty')
+    if [[ -n "$token" ]]; then
+        echo ""
+        echo "Save this token — it will not be shown again:"
+        echo "  $token"
+        echo ""
+        echo "To persist on this droplet:"
+        echo "  echo 'FROGNET_ADMIN_TOKEN=$token' >> /etc/environment"
+        echo "  echo '$token' > /etc/frognet/admin_token_v4.conf && chmod 600 /etc/frognet/admin_token_v4.conf"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# help
+# ---------------------------------------------------------------------------
+
+cmd_help() {
+    cat << 'HELP'
+frognet-pond — FrogNet broker admin tool (v4)
+
+Commands:
+  bootstrap
+      First-time broker setup. Prints the admin token.
+
+  create <pond> [options]
+      --max-users   N      Max nodes (default: 50)
+      --node-base   IP     First gateway IP (default: 10.101.100.1)
+      --increment   N      Third-octet step per node (default: 10)
+      --password    PW     Pond join password (optional)
+
+  list
+      List all ponds with node counts and choruses.
+
+  status <pond>
+      Full pond detail: choruses, members, tunnels, allocations.
+
+  members <pond>
+      Nodes and their chorus IP assignments.
+
+  allocations <pond>
+      Node IP pool: confirmed (registered) and tentative (allocated, not yet online).
+
+  remove <pond> <chorus> <node>
+      Remove a node from a chorus. Tears down tunnels to peers
+      no longer sharing any chorus. Auto-deletes chorus if empty.
+
+Environment:
+  FROGNET_BROKER_URL    (default: http://localhost:18427)
+  FROGNET_ADMIN_TOKEN   Auto-read from /var/lib/frognet_broker_v4/broker.db on droplet
+HELP
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+case "${1:-help}" in
+    bootstrap)    cmd_bootstrap ;;
+    create)       shift; cmd_create "$@" ;;
+    list)         cmd_list ;;
+    status)       shift; cmd_status "$@" ;;
+    members)      shift; cmd_members "$@" ;;
+    allocations)  shift; cmd_allocations "$@" ;;
+    remove)       shift; cmd_remove "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *)
+        echo "Unknown command: $1" >&2
+        cmd_help >&2
+        exit 1 ;;
+esac

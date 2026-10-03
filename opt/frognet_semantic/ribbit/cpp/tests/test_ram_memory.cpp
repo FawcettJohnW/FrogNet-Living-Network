@@ -1,3 +1,20 @@
+/***************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ **************************************************************/
 // test_ram_memory.cpp -- [ROW_LOCKS_V1] oracle for ribbit_cpp/ram_memory.hpp.
 //   1. lock gate: the memory's source holds no lock but a row's std::shared_mutex (and a trigger's private mutex)
 //   2. concurrent writers on many rows of one variable, concurrent readers, and parked waiters on exact rows, on the

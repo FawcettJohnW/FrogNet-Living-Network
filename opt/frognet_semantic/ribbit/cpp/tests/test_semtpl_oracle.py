@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # S3 oracle: C++ templates (include/semtpl.hpp through tools/semtpl-driver) against John's Python, imported and run:
 # core/json_handler.py, text_handler.py, template.py, template_utils.py, format_registry.py, blob_store.py, store.py
 # (ids), proxy/templates.py, and urllib.parse as they call it. Every case is compared exactly.

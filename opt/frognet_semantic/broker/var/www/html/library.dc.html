@@ -1,0 +1,230 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Library — books, essays, and papers · Fawcett Innovations</title>
+<meta name="description" content="The whole idea written down: How to Think Like a Frog, Magnum Croakus, REST vs UnREST, The 13 Shifts, and the rest of the FrogNet library. Free to read.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Library — books, essays, and papers">
+<meta property="og:description" content="The whole idea written down: How to Think Like a Frog, Magnum Croakus, REST vs UnREST, The 13 Shifts, and the rest of the FrogNet library. Free to read.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}
+.book{display:grid;grid-template-columns:300px 1fr;gap:clamp(30px,4.5vw,60px);padding:clamp(38px,5vw,60px) 0;border-top:1px solid var(--rule);align-items:start}
+.book:first-of-type{border-top:0}
+@media(max-width:840px){.book{grid-template-columns:1fr;gap:30px;max-width:520px}}
+.bookcover{position:relative;display:flex;flex-direction:column;justify-content:space-between;min-height:372px;padding:26px 24px;border:1px solid var(--hair);overflow:hidden;background:linear-gradient(165deg,#0d2226,#06131400)}
+.bookcover::after{content:"";position:absolute;inset:0;background-image:linear-gradient(var(--hair-2) 1px,transparent 1px),linear-gradient(90deg,var(--hair-2) 1px,transparent 1px);background-size:34px 34px;opacity:.5;pointer-events:none}
+.bookcover--think{background:linear-gradient(165deg,#123227,#08130f)}
+.bookcover--work{background:linear-gradient(165deg,#10292e,#070f11)}
+.bc-top{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.bc-mark{width:34px;height:36px;object-fit:contain;background:#f0ead9;border-radius:50%;padding:3px;box-shadow:0 0 0 1px rgba(0,0,0,.18)}
+.bc-tag{font-family:var(--fm);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.bc-body{position:relative;z-index:1}
+.bc-title{font-family:var(--fd);font-weight:700;color:#fff;font-size:29px;line-height:1.02;letter-spacing:-.02em;margin:0}
+.bc-rule{width:44px;height:3px;background:var(--amber);margin:16px 0 14px}
+.bc-sub{font-family:var(--fm);font-size:12.5px;letter-spacing:.02em;color:var(--mist);margin:0}
+.bc-foot{position:relative;z-index:1;font-family:var(--fm);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mist-faint);display:flex;justify-content:space-between;gap:10px}
+.book__kind{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;font-family:var(--fm);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);margin-bottom:16px}
+.book__kind .pill{color:var(--amber-deep);border:1px solid var(--rule-2);padding:5px 11px}
+.book h2.book__title{font-size:clamp(27px,3.4vw,40px);letter-spacing:-.022em;margin:0 0 6px}
+.book__st{font-family:var(--fm);font-size:13.5px;letter-spacing:.02em;color:var(--ink-dim);margin:0 0 18px}
+.book__desc{color:var(--ink-2);font-size:16.5px;max-width:62ch;margin:0 0 22px}
+.book__desc strong{color:var(--ink);font-weight:600}
+.contents{border-top:1px solid var(--rule);margin:0 0 24px}
+.contents__h{font-family:var(--fm);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);padding:14px 0 4px}
+.contents ol{list-style:none;margin:0;padding:0;columns:2;column-gap:40px}
+@media(max-width:520px){.contents ol{columns:1}}
+.contents li{break-inside:avoid;font-family:var(--fm);font-size:13px;line-height:1.5;color:var(--ink-2);padding:5px 0;display:flex;gap:10px}
+.contents li b{color:var(--amber-deep);font-weight:500;flex:none}
+.book__cta{display:flex;flex-wrap:wrap;gap:12px}
+.startline{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media(max-width:640px){.startline{grid-template-columns:1fr}}
+.startcell{background:var(--paper);padding:26px 26px}
+.startcell h3{font-size:20px;margin:10px 0 8px;color:var(--ink)}
+.startcell p{color:var(--ink-dim);font-size:15.5px;margin:0}
+.startcell .k{font-family:var(--fm);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber-deep)}
+.reads a.card{display:block;text-decoration:none}
+.reads .card__no{display:flex;align-items:center;gap:8px}
+.reads .card h3{transition:color .18s}
+.reads a.card:hover h3{color:var(--amber-deep)}
+.reads .rmore{font-family:var(--fm);font-size:12px;letter-spacing:.06em;color:var(--amber-deep);margin-top:14px;display:inline-flex;gap:7px}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a class="is-on" href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Library head">
+<div class="wrap">
+<p class="eyebrow reveal">The FrogNet Library</p>
+<h1 class="reveal">Two books. The <span class="glow">why,</span> and the how.</h1>
+<p class="lede reveal">FrogNet is documented the way it was built — from first principles, and provably. One book explains the ideas to anyone; the other is the engineering manual you build a network from. Read either free.</p>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="The pair">
+<div class="wrap">
+<div class="sec reveal" style="max-width:760px"><div class="sec__rule"><span class="sec__no">§01</span><span class="sec__tag">The pair</span></div>
+<h2>Think first. Then work.</h2>
+<p class="sec__lead">The two volumes are a matched set — the same architecture at two depths. Start wherever you stand: the paradigm if you want to understand it, the manual if you want to run it.</p></div>
+
+<div class="book reveal">
+<div class="bookcover bookcover--think">
+<div class="bc-top"><img class="bc-mark" src="assets/frognet-mark-96.png" alt="FrogNet"/><span class="bc-tag">Book One · The Why</span></div>
+<div class="bc-body"><p class="bc-title">How to Think Like a Frog</p><div class="bc-rule"></div><p class="bc-sub">Networking for the 21st&nbsp;Century</p></div>
+<div class="bc-foot"><span>Fawcett · Tone</span><span>Read free</span></div>
+</div>
+<div>
+<div class="book__kind"><span class="pill">For everyone</span><span>The paradigm · no code required</span></div>
+<h2 class="book__title">How to Think Like a Frog</h2>
+<p class="book__st">Networking for the 21st Century — the ideas behind the network.</p>
+<p class="book__desc">Every network in use today rests on assumptions that made sense in 1969. This book takes them apart and rebuilds them for the world we actually live in — <strong>fifty years of lessons in networking, programming, and hardware moved into this century.</strong> It starts in plain English, then walks the thirteen shifts that make FrogNet different, and ends with what the system is and does today. If you read one thing first, read this.</p>
+<div class="contents">
+<div class="contents__h">What's inside</div>
+<ol>
+<li><b>1 ·</b> What FrogNet Does, in Plain English</li>
+<li><b>2 ·</b> Introduction — the 1969 assumptions</li>
+<li><b>3 ·</b> The Thirteen Paradigm Shifts</li>
+<li><b>4 ·</b> What FrogNet Is and Does</li>
+<li><b>A ·</b> How FrogNet Handles Emergencies</li>
+<li><b>B ·</b> The Song of the Frogs</li>
+</ol>
+</div>
+<div class="book__cta"><a class="btn btn--primary" href="How to Think Like a Frog.dc.html">Read the book <span class="ar">→</span></a><a class="btn btn--ghost" href="index.dc.html#paradigm">The 60-second version <span class="ar">→</span></a></div>
+</div>
+</div>
+
+<div class="book reveal">
+<div class="bookcover bookcover--work">
+<div class="bc-top"><img class="bc-mark" src="assets/frognet-mark-96.png" alt="FrogNet"/><span class="bc-tag">Book Two · The How</span></div>
+<div class="bc-body"><p class="bc-title">Magnum Croakus</p><div class="bc-rule"></div><p class="bc-sub">How to Work Like a Frog</p></div>
+<div class="bc-foot"><span>Fawcett · Tone</span><span>Build manual</span></div>
+</div>
+<div>
+<div class="book__kind"><span class="pill">For engineers</span><span>The build manual · 13 parts + reference</span></div>
+<h2 class="book__title">Magnum Croakus</h2>
+<p class="book__st">How to Work Like a Frog — the working companion to <em>How to Think Like a Frog.</em></p>
+<p class="book__desc">The complete engineering guide: how to install a node, how the mesh discovers itself, how the floating database is elected, how UnREST and semantic compression move memory instead of messages, and how to write your own handlers. <strong>When it shows a command, it is the command.</strong> Deep enough to build or deploy the network from — with worked examples, wire traces, and a falsifiable simulator throughout.</p>
+<div class="contents">
+<div class="contents__h">Thirteen parts + reference</div>
+<ol>
+<li><b>I ·</b> What FrogNet Does</li>
+<li><b>II ·</b> Runs on What You Have</li>
+<li><b>III ·</b> Hooking Up the Network</li>
+<li><b>IV ·</b> Installing the Software</li>
+<li><b>V ·</b> Discovery</li>
+<li><b>VI ·</b> The Floating Database</li>
+<li><b>VII ·</b> Across the Internet</li>
+<li><b>VIII–X ·</b> UnREST &amp; Handlers</li>
+<li><b>XI ·</b> The Simulator</li>
+<li><b>XII–XIII ·</b> Games &amp; the Communicator</li>
+<li><b>App ·</b> Command &amp; Helper Reference</li>
+<li><b>App ·</b> Glossary</li>
+</ol>
+</div>
+<div class="book__cta"><a class="btn btn--primary" href="Magnum Croakus.html">Read the manual <span class="ar">→</span></a><a class="btn btn--ghost" href="Magnum Croakus-print.html">Print / PDF <span class="ar">→</span></a></div>
+</div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" style="background:var(--paper-2)" data-screen-label="Where to start">
+<div class="wrap">
+<div class="sec reveal" style="max-width:680px"><div class="sec__rule"><span class="sec__no">§02</span><span class="sec__tag">Where to start</span></div>
+<h2>Not sure which one?</h2></div>
+<div class="startline reveal">
+<div class="startcell"><span class="k">Start here if…</span><h3>You want to understand it.</h3><p>You're curious what "the network is the database" means, or why a mesh that owns itself matters. Begin with <a href="How to Think Like a Frog.dc.html" style="color:var(--amber-deep)">How to Think Like a Frog</a> — plain English first, no code required.</p></div>
+<div class="startcell"><span class="k">Go here if…</span><h3>You want to build it.</h3><p>You're ready to install a node, write a handler, or deploy across sites. Open <a href="Magnum Croakus.html" style="color:var(--amber-deep)">Magnum Croakus</a> — every command, wire trace, and worked example you need to work like a frog.</p></div>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light reads" data-screen-label="Shorter reads">
+<div class="wrap">
+<div class="sec reveal" style="max-width:680px"><div class="sec__rule"><span class="sec__no">§03</span><span class="sec__tag">Field notes</span></div>
+<h2>Shorter reads.</h2>
+<p class="sec__lead">Standalone pieces that go deep on one idea — pulled from the books or written alongside them.</p></div>
+<div class="grid grid--3 reveal">
+<a class="card" href="The 13 Shifts (standalone).html"><span class="card__no">Essay</span><h3>The Thirteen Shifts</h3><p>The 1969 assumptions FrogNet replaced, one by one — the spine of <em>How to Think Like a Frog.</em></p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="REST vs UnREST (standalone).html"><span class="card__no">Essay</span><h3>REST vs UnREST</h3><p>Why request-reply leaves the wire idle, and what it looks like to exchange memory instead.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="UGV Swarm Autonomy (standalone).html"><span class="card__no">Case</span><h3>UGV Swarm Autonomy</h3><p>FrogNet under the hardest load: coordinating autonomous ground vehicles over narrow, flaky links.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="FrogNet - The Starve Test (article).dc.html"><span class="card__no">Article</span><h3>The Starve Test</h3><p>Starve the link until everything else breaks — and watch what keeps running.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="FrogNet Announcement - The Starve Test.dc.html"><span class="card__no">Announcement</span><h3>The Starve Test — announcement</h3><p>The transcontinental FrogNet first run: HD over Wi-Fi, WireGuard, and a 900 MHz radio in one call, surviving a deliberate starve.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="FrogNet for FarSight UGVs.dc.html"><span class="card__no">Case</span><h3>FrogNet for FarSight UGVs</h3><p>How a partition-tolerant shared-memory fabric carries search-and-rescue UGV coordination when infrastructure is down.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="UnREST Programming Models.dc.html"><span class="card__no">For devs</span><h3>UnREST Programming Models</h3><p>Write the values, not the plumbing — the shapes an application takes on a tuple space.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+<a class="card" href="FrogNet Living Network.dc.html"><span class="card__no">Overview</span><h3>The Living Network</h3><p>Split, merge, elect, re-form — the network as something that stays alive through failure.</p><span class="rmore">Read <span class="ar">→</span></span></a>
+</div>
+</div>
+</section>
+
+<section class="zone zone--paper light" style="background:var(--paper-2)" data-screen-label="Reference">
+<div class="wrap">
+<div class="sec reveal" style="max-width:680px"><div class="sec__rule"><span class="sec__no">§04</span><span class="sec__tag">Reference &amp; downloads</span></div>
+<h2>The pages you keep a finger in.</h2>
+<p class="sec__lead">The build manual's appendices, linked directly, plus print-ready copies of both books. Everything free.</p></div>
+<div class="grid grid--3 reveal">
+<a class="card" href="Magnum Croakus.html#part-command-helper-reference" style="text-decoration:none"><span class="card__no">Appendix C</span><h3>Command &amp; Helper Reference</h3><p>Every command, helper, daemon, and file the book uses, grouped by the job it does.</p></a>
+<a class="card" href="Magnum Croakus.html#part-rest-dropin-unrest" style="text-decoration:none"><span class="card__no">Appendix D</span><h3>REST, the Drop-In, and UnREST</h3><p>One system through three stages, with first-order numbers — the adoption argument in full.</p></a>
+<a class="card" href="Magnum Croakus.html#part-glossary" style="text-decoration:none"><span class="card__no">Appendix E</span><h3>Glossary</h3><p>The working vocabulary of the whole stack — Pond, Chorus, DatabaseHost, UnREST, SotF — in one place.</p></a>
+</div>
+<div class="grid grid--3 reveal" style="margin-top:1px">
+<a class="card" href="Magnum Croakus-print.html" style="text-decoration:none"><span class="card__no">Download</span><h3>Magnum Croakus — print / PDF</h3><p>The full build manual, formatted for print. Open and save as PDF.</p></a>
+<a class="card" href="UnREST Programming Models-print.dc.html" style="text-decoration:none"><span class="card__no">Download</span><h3>UnREST Programming Models — print / PDF</h3><p>The programming-models reference, formatted for print. Open and save as PDF.</p></a>
+<a class="card" href="How to Think Like a Frog.dc.html" style="text-decoration:none"><span class="card__no">Read online</span><h3>How to Think Like a Frog</h3><p>The paradigm book, in the browser. Networking for the 21st century.</p></a>
+<a class="card" href="contact.dc.html" style="text-decoration:none"><span class="card__no">Access</span><h3>The stack &amp; build manual</h3><p>Request a free developer license and I'll send you access and the manual.</p></a>
+</div>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="Library CTA">
+<div class="wrap"><div class="ctab reveal">
+<p class="eyebrow" style="justify-content:center">Free to read · free to build on</p>
+<h2>Read the books. Then build on it.</h2>
+<p>Both volumes are free. When you're ready to run FrogNet, a developer and personal-use license is free too — a commercial license covers you in production.</p>
+<div class="hero__cta"><a class="btn btn--primary" href="contact.dc.html">Request a developer license <span class="ar">→</span></a><a class="btn btn--ghost" href="How to Think Like a Frog.dc.html">Start reading <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

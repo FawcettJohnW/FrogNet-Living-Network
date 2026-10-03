@@ -75,6 +75,41 @@ def _manifest_third_party() -> "list[str]":
 
 THIRD_PARTY: list[str] = _manifest_third_party()
 
+
+# [NEVER_SHIP_IS_NOT_OURS_TO_STAMP_V1 - 2026-10-02] license_check skips FROGNET_NEVER_SHIP; the applier did not, so run
+# on a live node it stamped the grant onto what lives there but never ships: pip's console-script launchers, a
+# third-party service unit, and the node's own identity files (opts_only.conf, ssid_projection.conf). Read from the same
+# manifest, matched the way full_tar's --exclude matches (a pattern, or a directory and everything under it).
+def _manifest_never_ship() -> "list[str]":
+    import re as _re
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(here, "..", "lib", "frognet_world_manifest.sh"),
+                 "/usr/local/lib/frognet_world_manifest.sh"):
+        cand = os.path.normpath(cand)
+        if not os.path.exists(cand):
+            continue
+        text = open(cand, encoding="utf-8", errors="replace").read()
+        m = _re.search(r"FROGNET_NEVER_SHIP=\((.*?)\n\)", text, _re.S)
+        if not m:
+            return []
+        return [ln.split("#", 1)[0].strip().strip("'\"") for ln in m.group(1).splitlines()
+                if ln.split("#", 1)[0].strip()]
+    raise SystemExit("frognet_apply_license: no world manifest found; refusing to apply headers without knowing what "
+                     "never ships")
+
+
+NEVER_SHIP: list[str] = _manifest_never_ship()
+
+
+def _never_ship(rel: str) -> bool:
+    import fnmatch as _fn
+    for p in NEVER_SHIP:
+        if _fn.fnmatch(rel, p) or rel.startswith(p.rstrip("/") + "/"):
+            return True
+        if "*" in p and any(_fn.fnmatch("/".join(rel.split("/")[:i]), p) for i in range(1, rel.count("/") + 1)):
+            return True
+    return False
+
 # Never carries a header: no comment syntax, or not source.
 SKIP_EXT = {
     ".json", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
@@ -213,7 +248,13 @@ def walk(root: str):
         if any(rel_dp == t or rel_dp.startswith(t + os.sep) for t in THIRD_PARTY):
             dns[:] = []
             continue
+        if rel_dp != "." and _never_ship(rel_dp):
+            dns[:] = []
+            continue
         for fn in fns:
+            rel = os.path.normpath(os.path.join(rel_dp, fn))
+            if _never_ship(rel):
+                continue
             yield os.path.join(dp, fn)
 
 

@@ -1,0 +1,181 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Claim — two defaults, and where the tradeoff flips · Fawcett Innovations</title>
+<meta name="description" content="Live media on TCP, and networking as shared memory instead of messages — two defaults FrogNet takes the other side of, and the real-link case where the tradeoff flips. Reproduction welcome; efficiency stated honestly.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Claim — two defaults, and where the tradeoff flips">
+<meta property="og:description" content="Live media on TCP, and networking as shared memory instead of messages — two defaults FrogNet takes the other side of, and the real-link case where the tradeoff flips. Reproduction welcome.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}
+.kicker-red{display:inline-flex;align-items:center;gap:9px;font-family:var(--fm);font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:#ff8a6b}
+.kicker-red i{width:8px;height:8px;border-radius:50%;background:#e8563a;display:block;animation:cb 1.8s ease-in-out infinite}
+@keyframes cb{0%,100%{opacity:1}50%{opacity:.35}}
+.big{font-family:var(--fd);font-weight:800;font-size:clamp(30px,5.2vw,60px);line-height:1.04;letter-spacing:-.03em;color:#fff;text-wrap:balance;margin:0}
+.big em{font-style:normal;color:var(--amber)}
+.assump{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--hair);border:1px solid var(--hair);margin-top:4px}
+@media(max-width:840px){.assump{grid-template-columns:1fr}}
+.as{background:#06181b;padding:36px 34px;display:flex;flex-direction:column}
+.as__n{font-family:var(--fm);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber)}
+.as__dogma{font-family:var(--fd);font-weight:700;font-size:clamp(20px,2.5vw,27px);line-height:1.2;letter-spacing:-.02em;color:#fff;margin:14px 0 4px;text-wrap:balance}
+.as__struck{color:var(--mist-faint);text-decoration:line-through;text-decoration-color:#e8563a;text-decoration-thickness:2px}
+.as p{font-size:15.5px;line-height:1.68;color:var(--mist-dim);margin:14px 0 0}
+.as p b{color:#fff}
+.as__so{margin-top:16px;padding-top:15px;border-top:1px solid var(--hair);font-family:var(--fm);font-size:12.5px;line-height:1.6;color:var(--mist)}
+.as__so b{color:var(--amber);display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;margin-bottom:5px}
+.result{border:1px solid var(--amber);background:rgba(61,186,106,.07);padding:32px 34px;margin-top:1px}
+.result h3{font-family:var(--fm);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:0 0 12px}
+.result p{font-size:clamp(18px,2.3vw,24px);line-height:1.4;color:#fff;margin:0;text-wrap:balance;font-family:var(--fd);font-weight:600}
+.result p em{font-style:normal;color:var(--amber-2)}
+.tvid{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:34px}
+@media(max-width:900px){.tvid{grid-template-columns:1fr}}
+.rv{position:relative;margin:0;border:1px solid var(--hair);background:#040d0e;background-size:cover;background-position:center;overflow:hidden}
+.rv video{display:block;width:100%;aspect-ratio:16/9;background:transparent}
+.rv__rec{position:absolute;top:12px;left:12px;z-index:2;display:flex;align-items:center;gap:7px;font-family:var(--fm);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#ffd9cf;background:rgba(9,20,22,.62);border:1px solid rgba(232,86,58,.5);border-radius:20px;padding:5px 11px;pointer-events:none}
+.rv__rec i{width:7px;height:7px;border-radius:50%;background:#e8563a;display:block;animation:cb 1.8s ease-in-out infinite}
+.rvcap{margin:11px 2px 0;font-family:var(--fm);font-size:11.5px;line-height:1.6;color:var(--mist-dim)}
+.rvcap b{color:#fff}
+.challenge{text-align:center;max-width:820px;margin:0 auto}
+.challenge .big{margin-bottom:18px}
+.chq{font-family:var(--fd);font-weight:700;font-size:clamp(22px,3vw,34px);line-height:1.25;letter-spacing:-.02em;color:#fff;text-wrap:balance;margin:0 auto 8px;max-width:20ch}
+.chq em{font-style:normal;color:var(--amber)}
+.small{font-family:var(--fm);font-size:13px;line-height:1.7;color:var(--mist-dim);max-width:60ch;margin:0 auto}
+.foot__col a[href="why.dc.html"]{color:inherit}
+</style>
+<script>(function(){function wire(){document.querySelectorAll('video[data-persist]').forEach(function(v){if(v._w)return;v._w=1;var k='fnvid:'+v.getAttribute('data-persist');var t=parseFloat(localStorage.getItem(k)||'0');v.addEventListener('loadedmetadata',function(){if(t>0&&t<v.duration){try{v.currentTime=t;}catch(e){}}});v.addEventListener('timeupdate',function(){if(!v.seeking)localStorage.setItem(k,v.currentTime);});});}if(document.readyState!=='loading')wire();document.addEventListener('DOMContentLoaded',wire);setTimeout(wire,900);})();</script>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a class="is-on" href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="Claim head">
+<div class="wrap">
+<p class="kicker-red reveal"><i></i>Two defaults, and where they flip</p>
+<h1 class="reveal">Two choices the field made for good reasons — and the case where <span class="glow">the tradeoff turns over.</span></h1>
+<p class="lede reveal">UDP for live media, and messages as the way to network — both were the right defaults for the links they were chosen on, and most of the time they still are. FrogNet takes the other side of each. <span class="glow">Not because the field was wrong</span> — because on a real degrading link the tradeoff flips. Here's the reasoning, and the tape you can check it against.</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark" data-screen-label="The two assumptions">
+<div class="wrap">
+<div class="assump reveal">
+<div class="as">
+<span class="as__n">The default · media</span>
+<h2 class="as__dogma">Live media rides UDP.</h2>
+<p>RTP, WebRTC, and SIP spray packets and salvage the wreckage because, on most links, best-effort delivery beats waiting on a retransmit — and TCP's <b>head-of-line blocking</b> is a real cost: one stalled segment holds up everything queued behind it. That is a good default, and we're not pretending it isn't.</p>
+<p><b>Where it flips:</b> we run live media on <b>TCP</b> and defuse head-of-line blocking at the source. Under buffer pressure the sender drops <em>whole frames</em> before they are ever queued, so what's in flight is always the freshest frames delivered intact — never a backlog of stale ones stuck behind a retransmit. No half-frame to salvage: clean frame, or clean omission.</p>
+<div class="as__so"><b>The tradeoff</b>On a badly degrading link this stays watchable where best-effort corrupts — the picture thins instead of shattering. The better side of the tradeoff for integrity-critical live media; not a claim UDP is obsolete.</div>
+</div>
+<div class="as">
+<span class="as__n">The default · coordination</span>
+<h2 class="as__dogma">Network programming means passing messages.</h2>
+<p>Requests, replies, acknowledgments, retries, renegotiation — the whole discipline manages an exchange that has to reassert itself the moment something fails. The transport underneath advanced enormously; the model we <em>program</em> it in did not. It's how nearly everything on the wire is written, and for good reason.</p>
+<p><b>Where it flips:</b> FrogNet coordinates through <b>shared memory</b> instead — Gelernter's tuple spaces, carried to the wide area (lineage on the <a href="comparison.dc.html#tuplespaces">compare page</a>; the model is specified in <a href="Magnum Croakus.html#s-22-from-messages-to-memory">Magnum Croakus § 22</a>). You write a value where you compute it and read it where you need it; changing call quality isn't a renegotiated session, it's a memory write the far side simply reads.</p>
+<div class="as__so"><b>The tradeoff</b>No session to fall off a cliff: the media ladder steps from HD to a heartbeat and back with no redial, because there was never a connection to renegotiate — only a value that changed.</div>
+</div>
+</div>
+<div class="result reveal">
+<h3>The result — and what it isn't</h3>
+<p>Clean audio and video that <em>self-adjusts</em> over a real 900 MHz link as it's starved and recovers — with <em>no redial.</em> The headline isn't the bitrate; modern codecs hit low bitrates every day. It's the <b>behavior under changing conditions</b> — it degrades and climbs back on its own, because quality is a value the network holds, not a session it has to rebuild.</p>
+<p style="margin-top:16px;font-family:var(--fm);font-size:12px;line-height:1.7;color:var(--mist-dim)">How it's built, in the manual: <a href="Magnum Croakus.html#s-27-song-of-the-frogs-unrest-unleashed" style="color:var(--amber)">§ 27 — Song of the Frogs</a> (the media ladder) and <a href="Magnum Croakus.html#s-24-fnwp-1-the-wire" style="color:var(--amber)">§ 24 — FNWP-1</a> (the wire it rides).</p>
+</div>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="FrogNet and the Internet">
+<div class="wrap">
+<div class="sec reveal" style="max-width:730px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§</span><span class="sec__tag">Scope, up front</span></div>
+<h2 style="color:#fff">FrogNet and the Internet.</h2>
+<p class="sec__lead">Before the objection writes itself: FrogNet does not replace the Internet, and it does not wall you off from it. It's a private network layer that runs <em>alongside</em> the public web — and yes, both ends run FrogNet. That isn't a limitation to explain away; it's the whole point.</p></div>
+<div class="assump reveal">
+<div class="as">
+<span class="as__n">What it is</span>
+<h2 class="as__dogma">A private layer beside the Internet.</h2>
+<p>Local devices join the FrogNet; the FrogNet reaches the Internet — directly, or through another FrogNet acting as the gateway. Traffic addressed to the private <b>10.x</b> network rides the adaptive FrogNet node; everything else routes straight out, at normal speed. The address decides — and if you already run your own <b>10.x</b> network, FrogNet coexists without interfering; its nodes just need unique addresses.</p>
+<div class="as__so"><b>So</b>Both at once, all the time — public sites and FrogNet services side by side, neither one taxing the other.</div>
+</div>
+<div class="as">
+<span class="as__n">What it is not</span>
+<h2 class="as__dogma">A way to optimize the whole Internet.</h2>
+<p>The gains here — semantic compression, the adaptive wire, custom handlers — need a cooperating FrogNet on <b>both ends</b>. Talk to an ordinary public server with no FrogNet on it and you reach it fine, but as plain HTTP, with none of the advantages. And a FrogNet's size is bounded by its hardware — most of all the elected database host that holds the shared memory.</p>
+<div class="as__so"><b>So</b>Infrastructure for a network you own on both sides, honestly bounded — not a client for someone else's.</div>
+</div>
+</div>
+<p class="reveal" style="margin-top:16px;font-family:var(--fm);font-size:12px;line-height:1.7;color:var(--mist-dim)">The full picture, with the data flow and the numbers: <a href="unrest-examples.dc.html#model" style="color:var(--amber)">UnREST by example — FrogNet and the Internet →</a></p>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="The proof">
+<div class="wrap">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§</span><span class="sec__tag">The evidence</span></div>
+<h2 style="color:#fff">Two first runs. Unedited.</h2>
+<p class="sec__lead">Not a rehearsed demo reel — the actual experiments, recorded as they happened, narrated in real time. One establishes the baseline; one starves the link and watches the ladder move.</p></div>
+<div class="tvid reveal">
+<div>
+<figure class="rv" style="background-image:url(media/communicator-proof-poster.png)"><span class="rv__rec"><i></i>First run · live</span><video data-persist="claim-proof" controls preload="metadata" playsinline poster="media/communicator-proof-poster.png"><source src="media/communicator-proof.mp4" type="video/mp4"/></video></figure>
+<p class="rvcap"><b>Baseline.</b> HD video holding over the 900&nbsp;MHz link — 1280×720 at 22 fps, bidirectional, no delay — with the did-vs-would counter reading ~89% of the bytes never sent.<sup style="color:var(--amber);font-size:.7em">†</sup></p>
+<p style="margin:8px 0 0;font-family:var(--fm);font-size:11px;line-height:1.6;color:var(--mist-dim)"><sup style="color:var(--amber)">†</sup> A did-vs-would estimate against published WebRTC bandwidth for the same session, not a packet capture.</p>
+</div>
+<div>
+<figure class="rv" style="background-image:url(media/communicator-ladder-poster.png)"><span class="rv__rec"><i></i>First run · live</span><video data-persist="claim-ladder" controls preload="metadata" playsinline poster="media/communicator-ladder-poster.png"><source src="media/communicator-ladder.mp4" type="video/mp4"/></video></figure>
+<p class="rvcap"><b>The ladder.</b> The link is starved live — 987 → 637 → 450 kbps — audio holding priority as the picture thins, then a clean climb back to full frame rate. No reconnect. No redial.</p>
+</div>
+</div>
+<p class="reveal" style="margin-top:16px;font-family:var(--fm);font-size:11.5px;letter-spacing:.02em;color:var(--mist-faint)">Video files land in <code>media/</code> at deploy; the branded first-run frames stand in until then.</p>
+</div>
+</section>
+
+<section class="zone zone--petrol dark" data-screen-label="The dare">
+<div class="wrap"><div class="challenge reveal">
+<p class="kicker-red" style="justify-content:center"><i></i>Check it yourself</p>
+<p class="chq">We'd rather be <em>reproduced</em> than believed.</p>
+<p>Filing this under something you already know — CRDTs, Reticulum, an overlay, a tuple space? <a href="comparison.dc.html">The honest map</a> takes each in turn and says where the resemblance is real. And the protocol underneath is being written up as an <b>open specification</b>, so the wire becomes a contract you can implement against — not a black box you're asked to trust. <a href="licensing.dc.html#the-plan">Where that's headed →</a></p>
+<p class="small" style="margin-top:16px">We state the efficiency honestly: against a competently written message protocol, the shared-memory wire runs about <b>3.4× leaner</b> over a full backgammon match. The flashier “20× vs. naive re-send” compares against an implementation nobody ships, and we don't lean on it. The full three-stage breakdown — plain REST, the drop-in, and the UnREST rewrite, with the numbers — is <a href="Magnum Croakus.html#s-what-the-numbers-say">Magnum Croakus, “What the numbers say”</a>. And if you have clean, self-adjusting media below 500&nbsp;Kbps over a real degrading link that recovers without a redial, we'd genuinely like to see it.</p>
+<div class="hero__cta" style="justify-content:center;margin-top:30px"><a class="btn btn--primary" href="demonstrations.dc.html">See the full demonstrations <span class="ar">→</span></a><a class="btn btn--ghost" href="How to Think Like a Frog.dc.html">Read the reasoning <span class="ar">→</span></a></div>
+</div></div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+</body>
+</html>

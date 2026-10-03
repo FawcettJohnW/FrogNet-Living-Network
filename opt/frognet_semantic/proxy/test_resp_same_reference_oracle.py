@@ -1,3 +1,20 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 """
 test_resp_same_reference_oracle.py - [SAME_MOVES_REFERENCE_V1]
 
@@ -66,19 +83,33 @@ def main():
     a_sock, _b_sock = _socket.socketpair()             # the session sets socket options on its receive socket; unused
     sess = DS.SemanticSession(recv_sock=a_sock, peer_ip="127.0.0.1", resolver=None, http_client=Origin())
 
+    class _Latency:
+        def retry_budget(self): return 1.0
+
     class W:
-        pass
+        """The socket hop, substituted: submit() hands the frame to the daemon session and holds the reply; wait()
+        returns it. The proxy's real _dispatch_begin/_dispatch_end run around it ([REFERENCES_MOVE_IN_WIRE_ORDER_V1])."""
+        _peer_latency = _Latency()
+
+        def submit(self, wire_req, gate=None):
+            import types
+            rpc = types.SimpleNamespace(gate=gate, ticket=0, reply=None)
+            msg = DS.try_parse(wire_req)
+            SEEN.append(DS.op_name(msg.op) if msg else "?")
+            _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
+            r = DS.try_parse(reply)
+            SEEN.append(DS.op_name(r.op) if r else "?")
+
+            rpc.reply = reply
+            return rpc
+
+        def wait(self, rpc):
+            return rpc.reply
+
+        def call(self, wire_req):                       # the RAW bootstrap path still uses call()
+            return self.wait(self.submit(wire_req))
 
     TS._get_worker = lambda host, port, set_id=0: W()
-
-    def dispatch(target_ip, req_hash, worker, wire_req, path):
-        msg = DS.try_parse(wire_req)
-        SEEN.append(DS.op_name(msg.op) if msg else "?")
-        _seq, reply, _w = sess._process_frame_inner(wire_req, 1, len(wire_req))
-        r = DS.try_parse(reply)
-        SEEN.append(DS.op_name(r.op) if r else "?")
-        return reply, False
-    TS._dispatch_rpc = dispatch
 
     def get(item):
         h = Handler()

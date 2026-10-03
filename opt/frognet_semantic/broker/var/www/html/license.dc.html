@@ -1,0 +1,185 @@
+<!--************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ ************************************************************-->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Developer License — free for individuals · Fawcett Innovations</title>
+<meta name="description" content="Free for personal, hobby, educational, research, and evaluation use. A short form, a quick review, then access to the distribution and the build manual.">
+<link rel="icon" type="image/png" href="assets/frognet-mark-96.png">
+<meta property="og:site_name" content="The FrogNet Living Network">
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Developer License — free for individuals">
+<meta property="og:description" content="Free for personal, hobby, educational, research, and evaluation use. A short form, a quick review, then access to the distribution and the build manual.">
+<meta property="og:image" content="https://fawcettinnovations.com/assets/frognet-mark-560.png">
+<meta name="twitter:card" content="summary">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="site.css"/>
+<script src="site.js"></script>
+<style>
+.phead h1{text-wrap:balance}.sec h2{text-wrap:balance}
+.form{background:var(--petrol);border:1px solid var(--hair);padding:clamp(26px,4vw,40px)}
+.form h3{font-size:22px;color:#fff;margin:0 0 6px}
+.form>p.intro{color:var(--mist-dim);font-size:15px;margin:0 0 26px}
+.fgrid{display:grid;grid-template-columns:1fr 1fr;gap:18px 20px}
+@media(max-width:560px){.fgrid{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:8px}
+.field--full{grid-column:1/-1}
+.field label{font-family:var(--fm);font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--mist-dim)}
+.field label .req{color:var(--amber)}
+.field input,.field textarea{font-family:var(--fb);font-size:15px;color:#fff;background:#06181b;border:1px solid var(--hair);padding:12px 13px;width:100%;border-radius:0;transition:border-color .18s}
+.field textarea{resize:vertical;min-height:92px;line-height:1.5}
+.field input::placeholder,.field textarea::placeholder{color:var(--mist-faint)}
+.field input:focus,.field textarea:focus{outline:none;border-color:var(--amber)}
+.attblock{margin:26px 0 8px;border-top:1px solid var(--hair);padding-top:22px}
+.attk{font-family:var(--fm);font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--amber);margin:0 0 14px}
+.att{display:flex;gap:13px;align-items:flex-start;padding:13px 0;border-bottom:1px solid var(--hair);font-size:14.5px;color:var(--mist);line-height:1.5;cursor:pointer}
+.att input{margin-top:3px;flex:none;width:18px;height:18px;accent-color:var(--amber);cursor:pointer}
+.att b{color:#fff;font-weight:600}
+.forma{display:flex;flex-wrap:wrap;align-items:center;gap:16px 20px;margin-top:24px}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.formnote{font-family:var(--fm);font-size:12px;color:var(--mist-faint);line-height:1.6;max-width:40ch}
+.formnote a{color:var(--amber);text-decoration:none}
+.licok{display:flex;gap:14px;align-items:flex-start;border:1px solid var(--amber-deep);background:#08201466;padding:18px 20px;margin-top:22px;font-size:14.5px;color:var(--mist)}
+.licok .x{font-family:var(--fm);color:var(--amber);font-size:18px;line-height:1}
+.licerr{border:1px solid var(--coral);background:#1a0a0866;padding:16px 20px;margin-top:22px;font-size:14px;color:var(--mist)}
+.licerr a{color:var(--amber);text-decoration:none}
+.tiers{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--rule);border:1px solid var(--rule)}
+@media(max-width:640px){.tiers{grid-template-columns:1fr}}
+.tier{background:var(--paper);padding:26px 26px}
+.tier--c{background:var(--paper-3)}
+.tier h3{font-size:20px;color:var(--ink);margin:0 0 4px}
+.tier .price{font-family:var(--fm);font-size:13px;letter-spacing:.04em;color:var(--amber-deep);margin:0 0 14px}
+.tier ul{margin:0;padding:0;list-style:none}
+.tier li{font-size:14.5px;color:var(--ink-dim);padding:7px 0 7px 20px;position:relative;border-top:1px solid var(--rule)}
+.tier li::before{content:"";position:absolute;left:0;top:15px;width:12px;height:1px;background:var(--amber-deep)}
+</style>
+</helmet>
+<header class="head"><div class="wrap head__in">
+<a class="brand" href="index.dc.html" aria-label="The FrogNet Living Network — home"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<input class="navchk" type="checkbox" id="navchk"/><label class="navtog" for="navchk" aria-label="Menu"><span></span><span></span><span></span></label>
+<nav class="nav"><a href="the-claim.dc.html">The Claim</a><a href="demonstrations.dc.html">Demos</a><a href="simulator.dc.html">Simulator</a><a href="comparison.dc.html">Compare</a><a href="unrest-examples.dc.html">UnREST</a><a href="build-and-test.dc.html">Build &amp; Test</a><a href="products.dc.html">Product</a><a href="why.dc.html">Why</a><a href="library.dc.html">Books</a><a href="about.dc.html">About</a><a class="btn btn--primary nav__cta" href="license.dc.html">Request a license</a></nav>
+</div></header>
+
+<section class="phead dark blueprint" data-screen-label="License head">
+<div class="wrap">
+<p class="eyebrow reveal">Developer license · free</p>
+<h1 class="reveal">Request the developer license.</h1>
+<p class="lede reveal">Free for developers and individuals — personal, hobby, educational, research, and evaluation use. A few straight answers, a quick review, and you get access to the distribution and the build manual. The license lets me steward FrogNet coherently toward an open standard, and meet the law I'm bound by — it is <b style="color:#fff">not a barrier to using the code</b>.</p>
+</div>
+</section>
+
+<section class="zone zone--dark dark blueprint" data-screen-label="Why a license">
+<div class="wrap" style="max-width:820px">
+<div class="sec reveal" style="max-width:720px"><div class="sec__rule" style="border-color:var(--hair)"><span class="sec__no">§</span><span class="sec__tag">Why I ask at all</span></div>
+<h2 style="color:#fff">Why there's a form.</h2>
+<p class="sec__lead">I want you to have this. The form isn't a gate to keep you out or a funnel to sell you something — it exists so I can steer FrogNet coherently while it becomes a standard, and to meet the law I'm bound by. Once it's done, the free license is genuinely free.</p></div>
+<div class="grid grid--3 reveal" style="margin-top:8px">
+<div class="card" style="background:#06181b"><span class="card__no" style="color:var(--amber)">Stewardship</span><h3 style="color:#fff;margin-top:8px">Keeping it coherent</h3><p style="color:var(--mist-dim)">FrogNet is meant to become the foundation of an open standard — a real RFC, with <b style="color:#fff">Magnum Croakus</b> as its seed. I've watched projects I admired fracture into incompatible dialects, or their authors burn out under design-by-committee, before the ground was solid. Knowing who's building on it lets me steward one coherent fabric until the specification and its foundation can carry that weight on their own. To be clear about what I'm stewarding: the <b style="color:#fff">protocol is the open part</b> — the public contract anyone implements — and the engine is my reference implementation, kept closed only so a half-finished internal API doesn't harden into a compatibility promise before the spec freezes.</p></div>
+<div class="card" style="background:#06181b"><span class="card__no" style="color:var(--amber)">The law</span><h3 style="color:#fff;margin-top:8px">I'm legally required to</h3><p style="color:var(--mist-dim)">FrogNet is U.S.-origin software, so U.S. export-control law obliges me to know who's receiving it and where. That's the country field and the three attestations — not bureaucracy I invented, obligations I have to meet before I can hand you the distribution.</p></div>
+<div class="card" style="background:#06181b"><span class="card__no" style="color:var(--amber)">Free stays free</span><h3 style="color:#fff;margin-top:8px">Not a funnel, not a fee</h3><p style="color:var(--mist-dim)">Personal, hobby, learning, research, and evaluation use is free — no seat count, no expiry. The form only separates out building a business on it (which needs a commercial license), and your answers establish eligibility and nothing else: no marketing list, no resale. Prefer to skip it? <a href="mailto:john@fawcettinnovations.com?subject=FrogNet%20developer%20license%20request" style="color:var(--amber)">Just email me</a>.</p></div>
+</div>
+
+<section class="zone zone--dark dark" data-screen-label="License form">
+<div class="wrap" style="max-width:820px">
+<form class="form reveal" onSubmit="{{ onSubmit }}">
+<h3>Tell me who you are and what you'll build</h3>
+<p class="intro">Nothing here is used for marketing. These answers establish eligibility for the free license and are required before access is granted.</p>
+<div class="fgrid">
+<div class="field"><label for="name">Name <span class="req">*</span></label><input id="name" name="name" type="text" placeholder="Your name" value="{{ f.name }}" onInput="{{ set }}"/></div>
+<div class="field"><label for="email">Email <span class="req">*</span></label><input id="email" name="email" type="email" placeholder="you@example.com" value="{{ f.email }}" onInput="{{ set }}"/></div>
+<div class="field"><label for="org">Organization (or “individual”) <span class="req">*</span></label><input id="org" name="org" type="text" placeholder="Company, lab, or “individual”" value="{{ f.org }}" onInput="{{ set }}"/></div>
+<div class="field"><label for="country">Country of the actual user <span class="req">*</span></label><input id="country" name="country" type="text" placeholder="Where it will be used" value="{{ f.country }}" onInput="{{ set }}"/></div>
+<div class="field field--full"><label for="use">What you want to build or try</label><textarea id="use" name="use" placeholder="A sentence or two — what you're building, or just “evaluating for a home mesh.”" value="{{ f.use }}" onInput="{{ set }}"></textarea></div>
+</div>
+<div class="attblock">
+<p class="attk">Eligibility — please confirm all three</p>
+<label class="att"><input type="checkbox" name="noncommercial" checked="{{ a.noncommercial }}" onChange="{{ setAttest }}"/><span>I'm requesting the <b>free developer / individual license</b> for personal, hobby, educational, research, evaluation, or other non-commercial use. Using FrogNet as a core platform to make money requires a separate commercial license.</span></label>
+<label class="att"><input type="checkbox" name="party" checked="{{ a.party }}" onChange="{{ setAttest }}"/><span>Neither I nor my organization is a party barred from receiving U.S.-origin software, and the country above is not one to which such transfers are prohibited.</span></label>
+<label class="att"><input type="checkbox" name="enduse" checked="{{ a.enduse }}" onChange="{{ setAttest }}"/><span>I will not use FrogNet for a prohibited end-use, and I will not re-export or transfer it in violation of applicable export-control law.</span></label>
+</div>
+<div class="forma">
+<button class="btn btn--primary" type="submit" disabled="{{ disabled }}">{{ btnLabel }} <span class="ar">→</span></button>
+<p class="formnote">Prefer email? <a href="mailto:john@fawcettinnovations.com?subject=FrogNet%20developer%20license%20request">Write me directly →</a></p>
+</div>
+<sc-if value="{{ sent }}" hint-placeholder-val="{{ false }}"><div class="licok"><span class="x">✓</span><div>Request received{{ refText }}. Access follows once it's reviewed — typically within a couple of business days. You'll hear back from <b>john@fawcettinnovations.com</b>.</div></div></sc-if>
+<sc-if value="{{ error }}" hint-placeholder-val=""><div class="licerr">Couldn't submit that ({{ error }}). The request endpoint may not be reachable from here — please <a href="mailto:john@fawcettinnovations.com?subject=FrogNet%20developer%20license%20request">email me directly</a> and I'll sort it.</div></sc-if>
+</form>
+</div>
+</section>
+
+<section class="zone zone--paper light" data-screen-label="Terms in brief">
+<div class="wrap" style="max-width:820px">
+<div class="sec reveal" style="max-width:640px"><div class="sec__rule"><span class="sec__no">§</span><span class="sec__tag">The terms in brief</span></div>
+<h2>Free to build with. Licensed to build a business on.</h2></div>
+<div class="tiers reveal">
+<div class="tier"><h3>Developer &amp; Individual</h3><p class="price">Free</p><ul><li>Personal, hobby, educational, and research use.</li><li>Non-commercial deployment — your home, your lab, your neighborhood.</li><li>Evaluation and prototyping ahead of a commercial decision.</li><li>Full access to the distribution under the developer terms.</li></ul></div>
+<div class="tier tier--c"><h3>Commercial</h3><p class="price">Contact for terms</p><ul><li>FrogNet as a core platform to make money.</li><li>Operational deployment inside a for-profit organization.</li><li>Bundling or redistributing it in a commercial offering.</li><li>Per-arrangement — <a href="licensing.dc.html" style="color:var(--amber-deep)">see licensing →</a></li></ul></div>
+</div>
+<p style="font-family:var(--fm);font-size:12.5px;color:var(--ink-dim);margin-top:20px;line-height:1.7">Access is to the distribution under those terms; the engine source is not published — the protocol is headed for an <a href="licensing.dc.html#the-plan" style="color:var(--amber-deep)">open specification you build against, not our code →</a>. The full license text ships with the distribution.</p>
+</div>
+</section>
+
+<footer class="foot"><div class="wrap">
+<div class="foot__top">
+<div class="foot__brand"><a class="brand" href="index.dc.html"><img class="brand__mark" src="assets/frognet-mark-96.png" alt="FrogNet" width="34" height="36"/><span class="brand__name">The FrogNet <b>Living Network</b></span></a>
+<p>The FrogNet Living Network — a sovereign, self-forming mesh you own outright. Free to build on with a developer license; commercial licensing, support, and engineering from Fawcett Innovations.</p>
+<div class="foot__id"><b>Fawcett Innovations LLC</b><br/>CAGE 1A5Y5 · Burien, Washington<br/><a href="mailto:john@fawcettinnovations.com" style="color:var(--amber);text-decoration:none">john@fawcettinnovations.com</a></div></div>
+<div class="foot__col"><h4>Product</h4><a href="products.dc.html#node">The Node</a><a href="products.dc.html#unrest">UnREST</a><a href="products.dc.html#communicator">The Communicator</a><a href="licensing.dc.html">Editions &amp; licensing</a></div><div class="foot__col"><h4>Learn</h4><a href="why.dc.html">Why FrogNet exists</a><a href="the-claim.dc.html">The claim</a><a href="use-cases.dc.html">Use cases</a><a href="demonstrations.dc.html">Demonstrations</a><a href="simulator.dc.html">Validate the shape</a><a href="library.dc.html">The books</a><a href="Magnum Croakus.html">Build manual</a><a href="unrest-examples.dc.html">UnREST by example</a><a href="build-and-test.dc.html">Build &amp; test it</a><a href="comparison.dc.html">How it compares</a><a href="track-record.dc.html">Track record</a><a href="about.dc.html">About John</a><a href="services.dc.html">Services</a><a href="contact.dc.html">Contact</a></div>
+</div>
+<div class="foot__bot"><span>© 2026 Fawcett Innovations LLC. All rights reserved.</span><span><a href="privacy.dc.html" style="color:inherit;text-decoration:none">Privacy</a> · FrogNet™ · The FrogNet Living Network · built in the Pacific Northwest</span></div>
+</div></footer>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { f:{name:'',email:'',org:'',country:'',use:''}, a:{noncommercial:false,party:false,enduse:false}, sending:false, sent:false, ref:'', error:'' };
+  renderVals(){
+    var f=this.state.f, a=this.state.a, self=this;
+    var disabled = this.state.sending || this.state.sent || !(f.name.trim()&&f.email.trim()&&f.org.trim()&&f.country.trim()&&a.noncommercial&&a.party&&a.enduse);
+    var set=function(e){ var n=e.target.name, v=e.target.value; self.setState(function(s){ var nf=Object.assign({},s.f); nf[n]=v; return {f:nf}; }); };
+    var setAttest=function(e){ var n=e.target.name, v=e.target.checked; self.setState(function(s){ var na=Object.assign({},s.a); na[n]=v; return {a:na}; }); };
+    var onSubmit=function(e){ e.preventDefault(); if(disabled) return; self.submit(); };
+    return {
+      f:f, a:a, set:set, setAttest:setAttest, onSubmit:onSubmit, disabled:disabled,
+      sent:this.state.sent, error:this.state.error,
+      refText: this.state.ref ? ' (ref '+this.state.ref+')' : '',
+      btnLabel: this.state.sending ? 'Sending…' : (this.state.sent ? 'Received' : 'Submit request')
+    };
+  }
+  submit(){
+    var self=this, f=this.state.f;
+    this.setState({ sending:true, error:'' });
+    var payload = { name:f.name, email:f.email, org:f.org, country:f.country, use:f.use,
+      attest_noncommercial:true, attest_party:true, attest_enduse:true };
+    fetch('/api/license-request', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { ok:r.ok, j:j, status:r.status }; }); })
+      .then(function(res){
+        if(res.ok && res.j.ok){ self.setState({ sending:false, sent:true, ref:res.j.id||'' }); }
+        else { self.setState({ sending:false, error:(res.j.error||('HTTP '+res.status)) }); }
+      })
+      .catch(function(){ self.setState({ sending:false, error:'no endpoint reachable' }); });
+  }
+}
+</script>
+</body>
+</html>

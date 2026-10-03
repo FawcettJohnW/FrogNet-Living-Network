@@ -1,4 +1,21 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # Ribbit-LISP qualification on a real machine.
 # Builds everything, runs every gate the checkpoints report, and writes each stage's raw output to results/<stamp>/.
 #
@@ -88,10 +105,8 @@ if has build; then
     if [ "$rc" = 0 ]; then echo "$SRC_HASH" > "$out.srchash"; printf '  built %-34s %4ss\n' "$out" "$(( $(date +%s)-t0 ))"
     else printf '  FAILED %-33s (compiler errors above)\n' "$out"; return 1; fi; }
   # The libraries everything links: if a header is missing, say which package provides it -- before compiling
-  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev"; do
-    h=${hp%%:*}; pkg=${hp##*:}
-    if ! echo "#include <$h>" | $CXX -x c++ -fsyntax-only - 2>/dev/null; then note "build FAIL: <$h> not found -- install $pkg"; exit 1; fi
-  done
+  # [AUTO_INSTALL_BUILD_DEPS_V1] missing lz4 / OpenSSL headers are installed, not reported
+  source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps
   echo "  $JOBS parallel jobs"
   t_all=$(date +%s)
   build_one ribbit_cpp/frogram.o -std=c++17 $NOFP -O2 -pthread -I"$RIBBIT/include" -c "$RIBBIT/src/frogram.cpp" || { cat "$BLOG"/*.txt >> "$OUT/build.txt"; note "build FAIL"; exit 1; }
