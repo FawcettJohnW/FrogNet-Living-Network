@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FD&amp;F Terminal</title>
+<link rel="stylesheet" href="xterm.css">
+<style>
+  :root {
+    --bg: #0e1116; --panel: #151a21; --line: #252c36; --text: #d6dde6; --dim: #7d8794;
+    --ok: #5fd38d; --off: #6b7280; --accent: #4fb3ff; --warn: #f0b35a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 240px 1fr; height: 100vh; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  aside h1 { font-size: 13px; font-weight: 600; margin: 0; padding: 14px 14px 4px; letter-spacing: .02em; }
+  .net { color: var(--dim); padding: 0 14px 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px;
+    border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+  .targets { overflow: auto; flex: 1; padding: 6px; }
+  .t { display: grid; grid-template-columns: 10px 1fr; gap: 2px 8px; padding: 8px; border-radius: 6px; cursor: default; }
+  .t .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); margin-top: 5px; }
+  .t.alive .dot { background: var(--ok); }
+  .t .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t .meta { grid-column: 2; color: var(--dim); font-size: 11px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .t.can { cursor: pointer; }
+  .t.can:hover { background: #1c232d; }
+  .t:not(.can) .name { color: var(--dim); }
+  .err { color: var(--warn); padding: 8px 14px; font-size: 12px; border-top: 1px solid var(--line); }
+  main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .tabs { display: flex; gap: 2px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); background: var(--panel); min-height: 35px; overflow-x: auto; }
+  .tab { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px 6px 0 0; color: var(--dim); cursor: pointer; white-space: nowrap; }
+  .tab.on { background: var(--bg); color: var(--text); }
+  .tab.ended { font-style: italic; }
+  .tab button { all: unset; cursor: pointer; color: var(--dim); padding: 0 2px; }
+  .tab button:hover { color: var(--text); }
+  .stage { flex: 1; position: relative; min-height: 0; }
+  .term { position: absolute; inset: 8px; display: none; }
+  .term.on { display: block; }
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); text-align: center; padding: 16px; }
+  @media (max-width: 640px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    aside { max-height: 32vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <h1>FD&amp;F Terminal</h1>
+    <div class="net" id="net">connecting…</div>
+    <div class="targets" id="targets"></div>
+    <div class="err" id="err" hidden></div>
+  </aside>
+  <main>
+    <div class="tabs" id="tabs"></div>
+    <div class="stage" id="stage"><div class="empty" id="empty">Pick a machine on the left.<br>Machines in green that run fdf-term-serve accept logins.</div></div>
+  </main>
+</div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const sessions = new Map();     // sid -> {target, term, fit, el, tab, after, ended, queue, sending}
+let active = null;
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.status);
+  return j;
+}
+function showErr(m) { const e = $("err"); e.hidden = !m; e.textContent = m || ""; }
+
+// ---- targets: held on /api/targets until the list changes
+async function watchTargets() {
+  let gen = -1;
+  for (;;) {
+    try {
+      const d = await api("/api/targets?after=" + gen);
+      gen = d.gen; $("net").textContent = "network " + d.ram; showErr(d.error);
+      const box = $("targets"); box.innerHTML = "";
+      for (const t of d.targets) {
+        const can = t.alive && t.term, el = document.createElement("div");
+        el.className = "t" + (t.alive ? " alive" : "") + (can ? " can" : "");
+        el.title = can ? "Log in to " + t.name : (!t.alive ? "not connected" : "does not run fdf-term-serve");
+        el.innerHTML = '<span class="dot"></span><span class="name"></span><span class="meta"></span>';
+        el.querySelector(".name").textContent = t.name;
+        el.querySelector(".meta").textContent = (t.os || "") + (t.ips.length ? " · " + t.ips[0] : "") + (can ? "" : t.alive ? " · no terminal" : " · offline");
+        if (can) el.onclick = () => openSession(t.name);
+        box.appendChild(el);
+      }
+    } catch (e) { showErr("fdf-browser unreachable (" + e.message + "); reload the page once it runs"); return; }
+  }
+}
+
+// ---- one session
+async function openSession(target) {
+  const el = document.createElement("div"); el.className = "term"; $("stage").appendChild(el);
+  const term = new Terminal({cursorBlink: true, fontFamily: 'ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace', fontSize: 14,
+                             theme: {background: "#0e1116"}});
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(el);
+  const tab = document.createElement("div"); tab.className = "tab";
+  tab.innerHTML = '<span></span><button title="Close">✕</button>'; tab.firstChild.textContent = target;
+  $("tabs").appendChild(tab); $("empty").hidden = true;
+  const s = {target, term, fit, el, tab, after: 0, ended: false, queue: [], sending: false, sid: null};
+  select(s); fit.fit();
+  try { s.sid = (await api("/api/open", {target, cols: term.cols, rows: term.rows})).sid; }
+  catch (e) { term.write("\r\n[could not open: " + e.message + "]\r\n"); s.ended = true; tab.classList.add("ended"); }
+  if (!s.sid) return;
+  sessions.set(s.sid, s);
+  tab.onclick = () => select(s);
+  tab.querySelector("button").onclick = ev => { ev.stopPropagation(); closeSession(s); };
+  term.onData(d => send(s, {t: d}));
+  term.onResize(({cols, rows}) => send(s, {r: [cols, rows]}));
+  pump(s);
+}
+function b64(str) { const u = new TextEncoder().encode(str); let b = ""; for (const c of u) b += String.fromCharCode(c); return btoa(b); }
+function unb64(s) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+
+// input: one write in flight; keystrokes typed meanwhile go together in the next one, in order
+async function send(s, bag) {
+  if (s.ended) return;
+  const last = s.queue[s.queue.length - 1];
+  if (bag.t !== undefined && last && last.t !== undefined) last.t += bag.t; else s.queue.push(bag);
+  if (s.sending) return;
+  s.sending = true;
+  while (s.queue.length) {
+    const q = s.queue.shift(), b = q.t !== undefined ? {d: b64(q.t)} : q;
+    try { await api("/api/in", Object.assign({sid: s.sid}, b)); }
+    catch (e) { s.term.write("\r\n[input failed: " + e.message + "]\r\n"); break; }
+  }
+  s.sending = false;
+}
+
+// output: held read on termout/S after the last id
+async function pump(s) {
+  let seq = 0;
+  while (!s.ended) {
+    let d;
+    try { d = await api("/api/out?sid=" + s.sid + "&after=" + s.after); }
+    catch (e) { end(s, "output failed: " + e.message); return; }
+    d.cells.sort((a, b) => a.id - b.id);
+    for (const c of d.cells) {
+      s.after = Math.max(s.after, c.id);
+      const b = c.bag;
+      if (b.s >= 0 && b.s !== seq) s.term.write("\r\n[output lost: " + (b.s - seq) + " block(s)]\r\n");
+      if (b.s >= 0) seq = b.s + 1;
+      if (b.d !== undefined) s.term.write(unb64(b.d));
+      if (b.x) { end(s, b.why || "ended"); break; }
+    }
+  }
+}
+function end(s, why) {
+  if (s.ended) return;
+  s.ended = true; s.tab.classList.add("ended");
+  s.term.write("\r\n\x1b[2m[" + s.target + ": " + why + "]\x1b[0m\r\n");
+  api("/api/done", {sid: s.sid}).catch(() => {});
+  sessions.delete(s.sid);
+}
+function closeSession(s) {
+  if (!s.ended) send(s, {x: 1});
+  s.ended = true; s.term.dispose(); s.el.remove(); s.tab.remove();
+  sessions.delete(s.sid);
+  if (active === s) { active = null; const tabs = [...document.querySelectorAll(".tab")]; if (tabs.length) tabs[tabs.length - 1].click(); else $("empty").hidden = false; }
+}
+function select(s) {
+  for (const t of document.querySelectorAll(".tab")) t.classList.remove("on");
+  for (const t of document.querySelectorAll(".term")) t.classList.remove("on");
+  s.tab.classList.add("on"); s.el.classList.add("on"); active = s; s.fit.fit(); s.term.focus();
+}
+window.addEventListener("resize", () => { if (active) active.fit.fit(); });
+window.addEventListener("pagehide", () => {
+  for (const s of sessions.values()) if (!s.ended) navigator.sendBeacon("/api/in", JSON.stringify({sid: s.sid, x: 1}));
+});
+watchTargets();
+</script>
+</body>
+</html>

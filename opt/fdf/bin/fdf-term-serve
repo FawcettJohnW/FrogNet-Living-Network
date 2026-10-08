@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+# fdf-term-serve [--install | --uninstall] -- [FDF_TERM_V1] this machine accepts browser terminal logins, through the
+# RAM manager only (no port opened here, no machine-to-machine connection). Run as root (it runs /bin/login).
+#
+# Tuples (<App>.<QueueName>.<submitter>), T = this machine's hostname (the name fdf-client announces), S = a browser
+# session id, k = seq mod RING (a bounded ring of instance names: a rewrite replaces the row and takes a new id):
+#   service "term"        variable T  instance "S.k"   bag {"s":seq, "open":1,"cols":C,"rows":R} | {"s":seq,"d":b64}
+#                                                          | {"s":seq,"r":[C,R]} | {"s":seq,"x":1}       browser -> T
+#   service "termout"     variable S  instance "k"     bag {"s":seq,"d":b64} | {"s":seq,"x":1,"why":...}  T -> browser
+#   service "term.hosts"  variable T  instance "ad"    bag {"since":epoch,"host":T}                       advertisement
+# Input is ONE held read on term/T after the last id seen: it returns the moment a browser writes. Each session's
+# output is written as the PTY produces it. Each session is a PTY running /bin/login; it ends when login/the shell
+# exits or the browser sends {"x":1}. On end, the session's rows are removed (DELETE ?op=remove).
+#   --install    writes /etc/systemd/system/fdf-term-serve.service and starts it (after fdf-join)
+#   --uninstall  stops and removes it
+import base64, fcntl, os, pty, select, signal, socket, struct, subprocess, sys, termios, threading, time
+sys.path.insert(0, "/opt/fdf/lib/python")
+import fdfram
+
+RING_IN = 256
+RING_OUT = 512
+ME = socket.gethostname()
+UNIT = "/etc/systemd/system/fdf-term-serve.service"
+
+
+def log(*a):
+    print("[FDF_TERM] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+class Session:
+    def __init__(self, ram, sid, cols, rows):
+        self.ram, self.sid, self.oseq, self.iseq, self.done = ram, sid, 0, 0, False
+        self.lock = threading.Lock()
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.environ["TERM"] = "xterm-256color"
+            os.execv("/bin/login", ["login"])
+        self.pid, self.fd = pid, fd
+        self.resize(cols, rows)
+        log("session", sid, "opened: pid", pid, "%dx%d" % (cols, rows))
+        self.pumper = threading.Thread(target=self.pump, daemon=True)
+        self.pumper.start()
+
+    def resize(self, cols, rows):
+        fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", int(rows), int(cols), 0, 0))
+
+    def out(self, bag):
+        with self.lock:
+            bag["s"] = self.oseq
+            self.ram.write("termout", self.sid, str(self.oseq % RING_OUT), bag)
+            self.oseq += 1
+
+    def pump(self):                                   # PTY -> termout/S, as fast as the PTY produces
+        why = "logout"
+        try:
+            while True:
+                try:
+                    b = os.read(self.fd, 65536)
+                except OSError:
+                    break                             # EIO: the child closed the PTY
+                if not b:
+                    break
+                self.out({"d": base64.b64encode(b).decode()})
+        except fdfram.RamError as e:
+            why = "RAM: %s" % e
+            log("session", self.sid, "output write failed:", e)
+        os.close(self.fd)       # only this thread closes the PTY: closed elsewhere, the number can be reused by a socket
+        self.end(why)           # that this thread's next os.read() would then read from
+
+    def input(self, bag):
+        if bag.get("s") != self.iseq:                 # the ring wrapped past us, or a write was lost: say so, end
+            log("session", self.sid, "input seq", bag.get("s"), "expected", self.iseq, "-- ending the session")
+            self.end("input lost (seq %s, expected %s)" % (bag.get("s"), self.iseq))
+            return
+        self.iseq += 1
+        if "d" in bag:
+            os.write(self.fd, base64.b64decode(bag["d"]))
+        elif "r" in bag:
+            self.resize(*bag["r"])
+        elif "x" in bag:
+            self.end("closed by the browser")
+
+    def end(self, why):
+        with self.lock:
+            if self.done:
+                return
+            self.done = True
+        try:
+            os.kill(self.pid, signal.SIGHUP)          # login and its shell hang up; reaped in clean(), off this thread
+        except ProcessLookupError:
+            pass
+        try:
+            self.out({"x": 1, "why": why})
+        except fdfram.RamError as e:
+            log("session", self.sid, "could not write the end:", e)
+        log("session", self.sid, "ended:", why)
+        SESSIONS.pop(self.sid, None)
+        threading.Thread(target=self.clean, args=(why,), daemon=True).start()
+
+    def clean(self, why):                             # the session's rows leave the shared space
+        if threading.current_thread() is not self.pumper:
+            self.pumper.join()                        # the PTY reports EIO once login has hung up; pump closes it
+        try:
+            os.waitpid(self.pid, 0)
+        except ChildProcessError:
+            pass
+        try:
+            ids = [c["id"] for c in self.ram.read("term", ME) if c["instance"].rsplit(".", 1)[0] == self.sid]
+            n = sum(self.ram.remove(i) for i in ids)
+            if why == "closed by the browser":        # nobody reads this session's output any more: remove it too
+                m = sum(self.ram.remove(c["id"]) for c in self.ram.read("termout", self.sid))
+                log("session", self.sid, "removed", n, "input and", m, "output row(s)")
+            else:                                     # the browser reads the end, then removes the output (/api/done)
+                log("session", self.sid, "removed", n, "input row(s); the browser removes the output once it has read it")
+        except fdfram.RamError as e:
+            log("session", self.sid, "remove failed (does this RAM manager's HTTP front accept DELETE?):", e)
+
+
+SESSIONS = {}
+
+
+def serve():
+    if os.geteuid() != 0:
+        sys.exit("fdf-term-serve: run as root (it runs /bin/login)")
+    ram = fdfram.Ram()
+    ram.write("term.hosts", ME, "ad", {"since": time.time(), "host": ME})
+    last = max([c["id"] for c in ram.read("term", ME)] + [0])     # rows from before this start are not ours to run
+    log("serving browser logins for", ME, "through", ram.hostport, "(input after id %d)" % last)
+
+    def bye(*_):
+        for s in list(SESSIONS.values()):
+            s.end("fdf-term-serve stopped")
+        try:
+            for c in ram.read("term.hosts", ME):
+                ram.remove(c["id"])
+        except fdfram.RamError as e:
+            log("could not withdraw the advertisement:", e)
+        log("stopped")
+        os._exit(0)
+    signal.signal(signal.SIGTERM, bye)
+    signal.signal(signal.SIGINT, bye)
+
+    while True:                                       # held: returns the moment a browser writes past `last`
+        cells = ram.read("term", ME, after=last, wait_s=fdfram.HOLD_S)
+        for c in sorted(cells, key=lambda c: c["id"]):
+            last = max(last, c["id"])
+            sid, bag = c["instance"].rsplit(".", 1)[0], c["bag"]
+            s = SESSIONS.get(sid)
+            if s is None:
+                if bag.get("open") and bag.get("s") == 0:
+                    s = SESSIONS[sid] = Session(ram, sid, bag.get("cols", 80), bag.get("rows", 24))
+                    s.iseq = 1
+                elif not bag.get("x"):
+                    log("row for unknown session", sid, "seq", bag.get("s"), "-- telling it so")
+                    ram.write("termout", sid, "end", {"s": -1, "x": 1, "why": "no such session on " + ME})
+                continue
+            s.input(bag)
+
+
+def install():
+    if os.geteuid() != 0:
+        sys.exit("fdf-term-serve --install: run as root")
+    if not os.path.exists("/opt/fdf/var/join.env"):
+        sys.exit("fdf-term-serve --install: this machine has not joined a network (run fdf-join HOST:PORT first)")
+    open(UNIT, "w").write("""[Unit]
+Description=FD&F browser terminal logins on this machine, through the RAM manager
+After=fdf-client.service
+Wants=fdf-client.service
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-term-serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+""")
+    for a in (["daemon-reload"], ["enable", "fdf-term-serve.service"], ["restart", "fdf-term-serve.service"]):
+        subprocess.run(["systemctl"] + a, check=True)
+    print("fdf-term-serve.service started: this machine (%s) accepts browser logins" % ME)
+    print("check:  systemctl status fdf-term-serve   |   journalctl -u fdf-term-serve -f")
+
+
+def uninstall():
+    if os.path.exists(UNIT):
+        subprocess.run(["systemctl", "disable", "--now", "fdf-term-serve.service"], check=True)
+        os.remove(UNIT)
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+    print("fdf-term-serve.service removed")
+
+
+if __name__ == "__main__":
+    try:
+        if "--install" in sys.argv:
+            install()
+        elif "--uninstall" in sys.argv:
+            uninstall()
+        else:
+            serve()
+    except fdfram.RamError as e:
+        sys.exit("fdf-term-serve: %s" % e)

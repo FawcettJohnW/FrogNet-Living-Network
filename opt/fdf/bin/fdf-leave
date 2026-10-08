@@ -1,0 +1,15 @@
+#!/bin/bash
+# fdf-leave -- [FDF_JOIN_V1] undo fdf-join: stop and remove fdf-client.service (and fdf-term-serve.service, which needs
+# the membership), and remove /opt/fdf/var/join.env. Run as root.
+set -eu
+[ "$(id -u)" = 0 ] || { echo "fdf-leave: run as root" >&2; exit 1; }
+for u in fdf-term-serve fdf-client; do
+    if [ -e /etc/systemd/system/$u.service ]; then
+        systemctl disable --now $u.service
+        rm -f /etc/systemd/system/$u.service
+        echo "removed $u.service"
+    fi
+done
+systemctl daemon-reload
+rm -f /opt/fdf/var/join.env
+echo "left the network (removed /opt/fdf/var/join.env)"
