@@ -108,6 +108,10 @@ line="${fqdn},${eth0IP},${wlan0IP},${wlan1IP}"
 tmp="$(mktemp /etc/sentinels/.getFrogNet.cache.XXXXXX 2>/dev/null)" || tmp=""
 if [[ -n "$tmp" && "$domain_ok" -eq 1 ]]; then
     printf '%s\n' "$line" > "$tmp"
+    # [ECHO_CACHE_READABLE_V1 - T4a] mktemp makes the file 0600, and the cache is written by root (the merge) but
+    # read by Apache (www-data, frognet_echo.php): with it 0600 every echo of this node came back EMPTY once root had
+    # run this once (seen at install F6 in the T4a container). It is a name and three addresses, not a secret.
+    chmod 644 "$tmp"
     mv -f "$tmp" "$CACHE_FILE" 2>/dev/null
 elif [[ -n "$tmp" ]]; then
     rm -f "$tmp" 2>/dev/null   # [NO_CACHE_GARBAGE_V1] degraded name: don't persist garbage

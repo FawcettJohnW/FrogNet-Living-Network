@@ -1,0 +1,7 @@
+========================================================
+2026-10-12 14:36:00 [install] LAN interface from --lan-iface: eth0
+2026-10-12 14:36:00 [FATAL]   D1: eth0 is the uplink (the default route uses it); serving it would delete its connection profile and cut this machine off. interfaces: eth0 eth1 (uplink = the default route's device: eth0). Give another interface with --lan-iface IFACE.
+rc=1
+========================================================
+2026-10-12 14:36:05 [FATAL]   D1: no wired interface to serve the LAN on besides the uplink. interfaces: eth0 (uplink = the default route's device: eth0). Give the interface this node serves with --lan-iface IFACE (it must not be eth0).
+rc=1

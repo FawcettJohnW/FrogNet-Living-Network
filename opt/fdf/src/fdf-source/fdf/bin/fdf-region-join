@@ -1,16 +1,17 @@
 #!/bin/bash
-# fdf-region-join SITE_KEY [RAM_HOST:PORT] [AREA] -- [FDF_REGION_JOIN_V1] make this FrogNet node a member of the FD&F
+# fdf-region-join SITE_KEY RAM_HOST:PORT AREA -- [FDF_REGION_JOIN_V1] make this FrogNet node a member of the FD&F
 # region and switch its tunnel daemon to region mode, in one go:
 #   /opt/fdf/var/site.env   RINA_AREA=<area>  RINA_SITE_KEY=<key>   (fdf-client signs this node's /24 mapping with it;
 #                           the key must be the one map_site holds on the RAM manager, or the region says EPERM)
 #   fdf-join RAM            /opt/fdf/var/join.env (RINA_RAM) + fdf-client.service, started
 #   frognet-tunnel-daemon-v3 restarted: it reads join.env + site.env ([REGION_SWITCH_V2]) and runs region mode
 # Then it waits 15 s and shows what happened: the client's mapping line, the daemon's REGION lines, wg. Nothing hidden.
-# Defaults: RAM 165.232.153.144:51888, area frognet. Run as root. Re-runnable.
+# All three arguments are required (fdf-region-create printed them); there is no built-in region. Run as root.
+# Re-runnable.
 set -u
 [ "$(id -u)" = 0 ] || { echo "fdf-region-join: run as root" >&2; exit 1; }
-KEY=${1:?usage: fdf-region-join SITE_KEY [RAM_HOST:PORT] [AREA]}
-RAM=${2:-165.232.153.144:51888}; AREA=${3:-frognet}
+[ $# -eq 3 ] || { echo "usage: fdf-region-join SITE_KEY RAM_HOST:PORT AREA   (all three required)" >&2; exit 2; }
+KEY=$1; RAM=$2; AREA=$3
 case "$KEY" in *\<*|*\>*) echo "fdf-region-join: '$KEY' looks like a placeholder, not a key" >&2; exit 2 ;; esac
 echo "== $(cat /opt/fdf/BUILD 2>/dev/null | tr '\n' ' ')"
 M=$(uname -m); E=$(od -An -tx1 -j18 -N1 /opt/fdf/bin/fdf-client | tr -d ' ')

@@ -25,15 +25,20 @@ Historical RINA Mode B measurements are in rinab/README.md, marked as such.
 ## Install
 
 One file per machine type. In the FrogNet repo they are in opt/fdf/dist; the build they carry is in /opt/fdf/BUILD
-and on every log line. Droplet first:
+and on every log line. The region's machine first (a droplet, or any machine the members reach, on the internet or
+not), once:
 
-    droplet: cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-frognet fdf-client-frognet fdf-hub
-    Pi:      sudo bash /tmp/fdf-install-aarch64.run <SITE KEY>
-    x86:     sudo bash /tmp/fdf-install-x86_64.run <SITE KEY>
+    region:  cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP
+             (prints the site key once and the line a node joins with; later builds: untar, daemon-reload, restart
+             fdf-ram-AREA fdf-client-AREA fdf-hub -- the region's settings live outside the package and survive)
+    Pi:      sudo bash /tmp/fdf-install-aarch64.run <SITE KEY> <PUBLIC_IP:51888> <AREA>
+    x86:     sudo bash /tmp/fdf-install-x86_64.run <SITE KEY> <PUBLIC_IP:51888> <AREA>
+    or, at FrogNet install:  frognet_install.sh ... --region PUBLIC_IP:51888 --site-key KEY --area AREA
 
 A node's installer unpacks /opt/fdf and the FrogNet region patch, then runs /opt/fdf/bin/fdf-region-join (site.env,
-join.env, fdf-client, the tunnel daemon in region mode) and shows what happened for 15 s. The droplet's first-time
-setup (the site key, hub.env, its units) is hub/DEPLOY-REGION-2026-10-09.md section 1.
+join.env, fdf-client, the tunnel daemon in region mode) and shows what happened for 15 s. All three arguments are
+required (there is no built-in region). fdf-region-create (T4a) does what hub/DEPLOY-REGION-2026-10-09.md section 1
+did by hand: the site key, the RAM manager unit, map_site, hub.env, fdf-hub and the hub's own membership.
 
 Phones: the FrogNet member app, repo opt/fdf/src/frognet-android (docs/ANDROID-HANDOFF.md); the Communicator on
 Android is a screen of that app (docs/COMMUNICATOR-ANDROID-r5.md). Windows: repo opt/fdf/windows/bridge (README.txt).

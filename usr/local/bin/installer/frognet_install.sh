@@ -22,8 +22,13 @@
 # Handles fresh installs AND unclean/cloned boxes. All configuration
 # happens AFTER the world tar is extracted, so nothing gets overwritten.
 #
-# The node comes up LAN-only. Joining a region is done afterwards with
-# FD&F's fdf-region-join (the tunnel daemon then makes its own WireGuard key).
+# Two modes. Without --region the node is LAN-only. With --region it is also a
+# member of an FD&F region: at the end (after phase F, before the reboot) the
+# installer runs the FD&F node installer for this machine's architecture from
+# the payload, opt/fdf/dist/fdf-install-$(uname -m).run, with the site key, the
+# RAM manager's address and the area (the tunnel daemon then makes its own
+# WireGuard key). A region is made with fdf-region-create on the machine that
+# holds it.
 #
 # Usage:
 #   sudo bash frognet_install.sh                    # interactive, from a release
@@ -31,11 +36,38 @@
 #   sudo bash frognet_install.sh \
 #        --name <NODE> \
 #        --ip   <10.X.Y.1> \
+#        [--lan-iface <IFACE>]                      # the interface this node serves
+#        [--region <RAM_HOST:PORT> --site-key <KEY> --area <NAME>]
 #        [--no-ssid-projection]                     # disable AP fallback
+#   sudo bash frognet_install.sh --uninstall [--keep-identity] [--keep-db]
 #
 # Args (all optional; missing values fall through to interactive prompt):
 #   --name <NODE>            Node name. Letters, numbers, _, -.
 #   --ip   <10.X.Y.1>        Gateway IP. Must end in .1.
+#   --lan-iface <IFACE>      The wired interface this node SERVES (its 10.X.Y.1/24,
+#                            dnsmasq, DHCP). Omitted -> the first wired interface
+#                            that is not the uplink. The uplink (the interface the
+#                            default route uses) is never accepted: serving it
+#                            would delete its connection profile and cut the
+#                            machine off (and an SSH session with it). With no
+#                            other wired interface the install stops and says so.
+#   --region <HOST:PORT>     The region's RAM manager, an IPv4 address and port as
+#                            this node reaches it (e.g. 192.0.2.10:51888). Omitted:
+#                            the node is LAN-only.
+#   --site-key <KEY>         The region's site key (fdf-region-create printed it).
+#                            Required with --region; omitted -> prompted (hidden).
+#   --area <NAME>            The region's area name (fdf-region-create's AREA).
+#                            Required with --region; omitted -> prompted.
+#   --uninstall              Remove FrogNet from this machine: everything the reset
+#                            removes (frognet_reset.sh), and also the region
+#                            membership and /opt/fdf, the crontab lines, froguser,
+#                            and this installer. Puts back the name resolution the
+#                            install replaced. Packages installed by apt stay.
+#   --keep-identity          With --uninstall: keep /etc/fnid and the tunnel
+#                            daemon's WireGuard key.
+#   --keep-db                With --uninstall: keep the FrogNet database.
+#   --no-reboot              Do everything, then stop instead of rebooting (the
+#                            node starts its services on the next boot).
 #   --db-pass <PASS>         FrogUser DB password. SHARED pond-wide constant:
 #                            every node must use the SAME value. Omit to be
 #                            prompted (hidden, entered twice). A value on the
@@ -51,16 +83,20 @@
 #                            many minutes on ARM for no gain.
 #   --from-repo              Install from a REPOSITORY CHECKOUT instead of a
 #                            release tarball. Run it from the repo root, where
-#                            etc/ opt/ usr/ var/ are; those four are copied to /
-#                            and everything else in the root (.git, INSTALL.md)
-#                            is left behind. This is the path a stranger who just
+#                            etc/ opt/ usr/ var/ are. What is copied to / is the
+#                            node file set (frognet_node_files in
+#                            usr/local/lib/frognet_world_manifest.sh, the same
+#                            rule the release's world tar is built by); the rest
+#                            of the checkout (.git, docs/, site/, opt/fdf, the
+#                            book) stays behind. This is the path a stranger who just
 #                            cloned the repo takes to a first node: no release
 #                            tarball exists yet, and the only thing that builds
 #                            one snapshots a node that is already running.
-#   --preserve               UPGRADE IN PLACE. Removes NOTHING: writes the new files
-#                            over the existing install, migrates the schema if it
-#                            changed, and keeps the existing databases,
-#                            identity (/etc/fnid), WireGuard keys and config.
+#   --preserve               UPGRADE IN PLACE. Writes the new files over the existing
+#                            install, removes what the new tree retired (C1c),
+#                            migrates the schema if it changed, and keeps the
+#                            existing databases, identity (/etc/fnid, name, IP),
+#                            the tunnel daemon's WireGuard key and config.
 #                            DEFAULT (no flag) on a machine that already has a
 #                            FrogNet install is a FULL RESET: frognet_reset.sh
 #                            wipes install, state, identity and databases first,
@@ -84,10 +120,13 @@
 # Phase F: Finalize (enable services, logs, cron, verify, reboot)
 ###############################################################################
 set -eu
+# [UMASK_IS_OURS_V1 - T4a] what this lays down under /etc, /opt and /usr must not take its modes from the caller's
+# umask (a shell with umask 0000 made /opt/fdf and its bin/ world-writable, in the T4a container).
+umask 022
 
-# [SELF_RELOCATE_V1] frognet_reset.sh removes /usr/local/bin WHOLE, and the
-# installer now lives at /usr/local/bin/installer/frognet_install.sh - so running
-# it from there means the reset deletes the script that is running it, mid-run.
+# [SELF_RELOCATE_V1] frognet_reset.sh removes FrogNet's files from /usr/local/bin,
+# and the installer is one of them (/usr/local/bin/installer/frognet_install.sh) -
+# so running it from there means the reset deletes the script that is running it, mid-run.
 # Copy ourselves to /tmp and re-exec BEFORE anything can remove us, remembering the
 # original directory so frognet_world.tgz is still found beside the original.
 if [[ -z "${FROGNET_INSTALL_RELOCATED:-}" ]]; then
@@ -99,7 +138,7 @@ if [[ -z "${FROGNET_INSTALL_RELOCATED:-}" ]]; then
             chmod +x "$_safe"
             FROGNET_INSTALL_ORIGIN="$(cd "$(dirname "$_self")" && pwd)"
             export FROGNET_INSTALL_ORIGIN FROGNET_INSTALL_RELOCATED=1
-            echo "Relocating installer to $_safe (the reset removes /usr/local/bin)"
+            echo "Relocating installer to $_safe (the reset removes FrogNet's files from /usr/local/bin, this one among them)"
             exec bash "$_safe" "$@"
             ;;
     esac
@@ -122,6 +161,14 @@ REBUILD_VENV_FORCE=0
 WIFI_COUNTRY=""
 WIFI_PSK=""
 AP_IFACE=""
+LAN_IFACE=""
+REGION_RAM=""
+REGION_KEY=""
+REGION_AREA=""
+UNINSTALL=0
+KEEP_IDENTITY=0
+KEEP_DB=0
+NO_REBOOT=0
 
 usage() {
     # The whole header, from the title line to the Phase list: every option.
@@ -148,10 +195,39 @@ while [[ $# -gt 0 ]]; do
         --country=*)         WIFI_COUNTRY="${1#*=}"; shift ;;
         --ap-iface)          AP_IFACE="$2"; shift 2 ;;
         --ap-iface=*)        AP_IFACE="${1#*=}"; shift ;;
+        --lan-iface)         LAN_IFACE="$2"; shift 2 ;;
+        --lan-iface=*)       LAN_IFACE="${1#*=}"; shift ;;
+        --region)            REGION_RAM="$2"; shift 2 ;;
+        --region=*)          REGION_RAM="${1#*=}"; shift ;;
+        --site-key)          REGION_KEY="$2"; shift 2 ;;
+        --site-key=*)        REGION_KEY="${1#*=}"; shift ;;
+        --area)              REGION_AREA="$2"; shift 2 ;;
+        --area=*)            REGION_AREA="${1#*=}"; shift ;;
+        --uninstall)         UNINSTALL=1; shift ;;
+        --keep-identity)     KEEP_IDENTITY=1; shift ;;
+        --keep-db)           KEEP_DB=1; shift ;;
+        --no-reboot)         NO_REBOOT=1; shift ;;
         -h|--help)           usage 0 ;;
         *)                   echo "Unknown arg: $1" >&2; usage 1 ;;
     esac
 done
+
+# [UNINSTALL_V1] --uninstall is the reset plus what only an install adds (cron,
+# froguser, the region membership, /opt/fdf, this installer). frognet_reset.sh
+# owns all of it (its --uninstall), so there is one list of what FrogNet put on
+# the machine. It sits beside this script in a release and in a checkout, and at
+# /usr/local/bin/installer/ on a node (the self-relocation above kept the origin).
+if (( UNINSTALL )); then
+    (( ${EUID:-$(id -u)} == 0 )) || { echo "ERROR: Must run as root" >&2; exit 1; }
+    _R="${SCRIPT_DIR}/frognet_reset.sh"
+    [[ -f "$_R" ]] || _R="${SCRIPT_DIR}/usr/local/bin/installer/frognet_reset.sh"
+    [[ -f "$_R" ]] || { echo "ERROR: --uninstall: frognet_reset.sh not found beside $0 (looked in ${SCRIPT_DIR}/ and ${SCRIPT_DIR}/usr/local/bin/installer/)" >&2; exit 1; }
+    _RA=(--uninstall --yes)
+    (( KEEP_IDENTITY )) && _RA+=(--keep-identity)
+    (( KEEP_DB )) && _RA+=(--keep-db)
+    cd / && exec bash "$_R" "${_RA[@]}"
+fi
+(( KEEP_IDENTITY || KEEP_DB )) && { echo "ERROR: --keep-identity / --keep-db go with --uninstall (an install keeps identity with --preserve)" >&2; exit 1; }
 
 # Validate args we did receive (defer interactive collection to phase E1).
 if [[ -n "$ARG_IP" ]]; then
@@ -161,6 +237,31 @@ fi
 if [[ -n "$ARG_NAME" ]]; then
     [[ "$ARG_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || {
         echo "ERROR: --name must be letters/numbers/_/- (got: $ARG_NAME)" >&2; exit 1; }
+fi
+if [[ -n "$LAN_IFACE" ]]; then
+    [[ -e "/sys/class/net/${LAN_IFACE}" ]] || {
+        echo "ERROR: --lan-iface ${LAN_IFACE}: no such interface (this machine has: $(ls /sys/class/net | grep -v '^lo$' | tr '\n' ' '))" >&2; exit 1; }
+fi
+# [REGION_FROM_THE_INSTALLER_V1] --region: the FD&F node installer for this
+# architecture must be in the payload, and the key and area must be known, BEFORE
+# phase A - a missing piece found after ten minutes of apt is ten minutes lost.
+# The .run is the one way a node joins a region (the same file John's existing
+# nodes take); there is no second path.
+FDF_RUN=""
+if [[ -n "$REGION_RAM" ]]; then
+    [[ "$REGION_RAM" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]] || {
+        echo "ERROR: --region must be IPV4:PORT, the RAM manager's address as this node reaches it (got: $REGION_RAM)" >&2; exit 1; }
+    if [[ -z "$REGION_AREA" || -z "$REGION_KEY" ]]; then
+        (: <>/dev/tty) 2>/dev/null || {
+            echo "ERROR: --region needs --site-key and --area (no terminal to ask for them on)" >&2; exit 1; }
+        exec 3<>/dev/tty
+        while [[ -z "$REGION_AREA" ]]; do printf '  Region area name (fdf-region-create AREA): ' >&3; IFS= read -r REGION_AREA <&3 || exit 1; done
+        while [[ -z "$REGION_KEY" ]]; do printf '  Region site key (hidden): ' >&3; IFS= read -rs REGION_KEY <&3 || exit 1; printf '\n' >&3; done
+        exec 3>&-
+    fi
+    [[ "$REGION_AREA" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: --area must be letters/numbers/._- (got: $REGION_AREA)" >&2; exit 1; }
+elif [[ -n "$REGION_KEY" || -n "$REGION_AREA" ]]; then
+    echo "ERROR: --site-key / --area go with --region RAM_HOST:PORT" >&2; exit 1
 fi
 
 die_early() { echo "ERROR: $*" >&2; exit 1; }
@@ -216,6 +317,12 @@ if (( FROM_REPO )); then
 else
     [[ -f "$WORLD_TGZ" ]] || { echo "ERROR: frognet_world.tgz not found in $SCRIPT_DIR (pass --from-repo to install from a repository checkout instead)" >&2; exit 1; }
 fi
+# The FD&F node installer is found in the payload root (the checkout, or the
+# release root), at the path it has in the repository.
+if [[ -n "$REGION_RAM" ]]; then
+    FDF_RUN="${SCRIPT_DIR}/opt/fdf/dist/fdf-install-$(uname -m).run"
+    [[ -f "$FDF_RUN" ]] || die_early "--region: $FDF_RUN not found. This machine is $(uname -m); a region member needs the FD&F node installer built for it (opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh puts it in opt/fdf/dist)."
+fi
 
 LOG=/var/log/frognet_install.log
 mkdir -p /var/log
@@ -226,7 +333,8 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-log "frognet_install.sh starting on $(hostname) - $(uname -m) - $(date)"
+INSTALL_BUILD="frognet-install-2026-10-12-t4a"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
 # install. The NetworkManager dispatcher hooks written in D7 fire runMerge on any
@@ -302,9 +410,101 @@ collect_db_pass
 [[ -n "$DB_PASS" ]] || die "internal: DB_PASS empty after collection"
 
 
+phase "D1: Detect interfaces (before anything is installed: a wrong LAN choice stops here)"
+# [LAN_IS_NEVER_THE_UPLINK_V1 - T4a] The served LAN interface (eth0Name: its
+# 10.X.Y.1/24, dnsmasq, DHCP) must never be the uplink - the interface the default
+# route uses. setup_lillypad step 2 deletes every NetworkManager profile bound to the
+# served interface, so serving the uplink deletes the uplink's profile and the
+# machine (and the operator's SSH) is cut off at the next reboot. It used to default
+# to "eth0" when nothing else was found, which on a one-NIC machine IS the uplink.
+# Now: --lan-iface if given, else the first wired interface that is not the uplink;
+# the uplink is refused either way, and no candidate stops the install, naming the
+# interfaces and the option to give.
+_UPLINK_DEV="$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
+_wired_ifaces() {
+    for dev in $(ip -o link show | awk -F': ' '{print $2}' | cut -d'@' -f1 | sort); do
+        [[ "$dev" == lo || "$dev" == veth* || "$dev" == docker* || "$dev" == br-* || "$dev" == virbr* || "$dev" == wl* || "$dev" == wg* || "$dev" == frognet* ]] && continue
+        echo "$dev"
+    done
+}
+_detect_eth0() {
+    local dev
+    for dev in $(_wired_ifaces); do
+        [[ -n "$_UPLINK_DEV" && "$dev" == "$_UPLINK_DEV" ]] && continue
+        echo "$dev"; return
+    done
+}
+_detect_wlan() {
+    local idx=0
+    for dev in $(ip -o link show | awk -F': ' '{print $2}' | cut -d'@' -f1 | sort); do
+        [[ "$dev" == wl* ]] || continue
+        [[ $idx -eq $1 ]] && { echo "$dev"; return; }
+        idx=$((idx + 1))
+    done
+}
+_PRESERVED_LAN=""
+[[ "$PRESERVE" -eq 1 && -f /etc/frognet/interfaces_override.conf ]] && \
+    _PRESERVED_LAN="$(sed -n 's/^eth0Name="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/frognet/interfaces_override.conf | head -1)"
+if [[ -n "$LAN_IFACE" ]]; then
+    ETH0_IF="$LAN_IFACE"
+    log "LAN interface from --lan-iface: $ETH0_IF"
+elif [[ -n "$_PRESERVED_LAN" ]]; then
+    # [PRESERVE_KNOWS_ITSELF_V1] an upgrade keeps the interface the node already serves.
+    ETH0_IF="$_PRESERVED_LAN"
+    log "--preserve: LAN interface $ETH0_IF from /etc/frognet/interfaces_override.conf"
+else
+    ETH0_IF="$(_detect_eth0 || true)"
+fi
+_ifs_line="interfaces: $(_wired_ifaces | tr '\n' ' ')(uplink = the default route's device: ${_UPLINK_DEV:-none})"
+[[ -n "$ETH0_IF" ]] || die "D1: no wired interface to serve the LAN on besides the uplink. ${_ifs_line}. Give the interface this node serves with --lan-iface IFACE (it must not be ${_UPLINK_DEV:-the uplink})."
+[[ -z "$_UPLINK_DEV" || "$ETH0_IF" != "$_UPLINK_DEV" ]] || die "D1: ${ETH0_IF} is the uplink (the default route uses it); serving it would delete its connection profile and cut this machine off. ${_ifs_line}. Give another interface with --lan-iface IFACE."
+WLAN0_IF="$(_detect_wlan 0 || true)"; WLAN0_IF="${WLAN0_IF:-wlan0}"
+WLAN1_IF="$(_detect_wlan 1 || true)"; WLAN1_IF="${WLAN1_IF:-wlan1}"
+log "Detected: eth0=$ETH0_IF (served LAN) wlan0=$WLAN0_IF wlan1=$WLAN1_IF uplink=${_UPLINK_DEV:-none}"
+
 ###############################################################################
 #                      PHASE A: INSTALL PACKAGES
 ###############################################################################
+
+# [PRESERVE_KNOWS_ITSELF_V1] --preserve is an UPGRADE of a node that already has
+# an identity, so do not ask for it again.  Both values are already on disk:
+#   node name  -> `domain=` in /etc/dnsmasq.d/opts_only.conf, which
+#                 setup_lillypad_v4 (:485) declares the SINGLE SOURCE OF TRUTH
+#                 for the node name -- every other dnsmasq conf has its domain=
+#                 stripped precisely so this one cannot be contradicted.
+#   gateway IP -> `dhcp-option=option:router,<ip>` in the same file, which is by
+#                 definition this node's .1.
+#
+# Prompting here is not merely redundant, it is dangerous: a typo at this prompt
+# re-IPs or renames a live node, which changes its identity and its whole
+# /24, on what the operator asked for as an in-place upgrade.
+#
+# An explicit --name / --ip still wins: this only fills in what was not given.
+# If the file is missing or malformed we fall through to the normal prompt rather
+# than guessing -- a wrong identity is worse than a question.
+#
+# [PRESERVE_READS_BEFORE_D2_V1 - T4a] Read HERE, before anything is changed: D2 deletes
+# opts_only.conf (stale state for setup_lillypad to rewrite), and this used to be read in
+# E1, after D2 - so --preserve never found it, fell to the name prompt, and a
+# non-interactive upgrade died there with no message (seen upgrading a T0 node, G4).
+if [[ "$PRESERVE" -eq 1 && -f /etc/dnsmasq.d/opts_only.conf ]]; then
+    _PN="$(awk -F= '/^domain=/{print $2; exit}' /etc/dnsmasq.d/opts_only.conf | xargs)"
+    _PI="$(awk -F, '/^dhcp-option=option:router,/{print $2; exit}' /etc/dnsmasq.d/opts_only.conf | xargs)"
+    if [[ -n "$_PN" && "$_PI" =~ ^([0-9]{1,3}\.){3}1$ ]]; then
+        if [[ -z "$ARG_NAME" ]]; then
+            ARG_NAME="$_PN"
+            log "--preserve: node name '$_PN' recovered from opts_only.conf (not prompting)"
+        fi
+        if [[ -z "$ARG_IP" ]]; then
+            ARG_IP="$_PI"
+            log "--preserve: gateway IP $_PI recovered from opts_only.conf (not prompting)"
+        fi
+    else
+        warn "--preserve: could not recover identity from opts_only.conf"
+        warn "            (domain='$_PN' router='$_PI') - falling through to prompt"
+    fi
+fi
+
 
 phase "A0: Reinstall reset"
 # [REINSTALL_RESET_V1] A reinstall must land on a CLEAN machine, not on top of the
@@ -339,8 +539,14 @@ for _c in "${SCRIPT_DIR}/frognet_reset.sh" \
     [[ -f "$_c" ]] && { _RESET_SRC="$_c"; break; }
 done
 [[ -n "$_RESET_SRC" ]] || _RESET_SRC="${SCRIPT_DIR}/frognet_reset.sh"
+# [OS_BEFORE_FROGNET_V1] C1 records the machine's name resolution only while it is
+# the machine's own: on a clean machine, or after a reset that put it back from an
+# earlier record. On --preserve, or after a reset of an install that had no record,
+# what is on the machine is FrogNet's, and recording it would be recording a lie.
+OSB_RECORDABLE=0
 if [[ ! -e /opt/frognet_semantic && ! -e /etc/frognet ]]; then
     log "No prior FrogNet install detected - already clean"
+    OSB_RECORDABLE=1
 elif [[ "$PRESERVE" -eq 1 ]]; then
     # UPGRADE IN PLACE: nothing is removed. New files are written over the old ones
     # by C1, the schema is migrated in D8, identity and databases are untouched.
@@ -352,10 +558,40 @@ elif [[ -f "$_RESET_SRC" ]]; then
         mv /opt/frognet_semantic/venv "$_VENV_STASH"
         log "  Stashed existing venv - it will be restored after extraction"
     fi
+    [[ -d /var/lib/frognet-install/os-before ]] && OSB_RECORDABLE=1
     ( cd / && bash "$_RESET_SRC" --yes ) || die "frognet_reset.sh failed - refusing to install over a half-wiped machine"
     log "Reset complete - installing onto a clean machine"
 else
     die "Prior install detected but frognet_reset.sh was not found (looked in ${SCRIPT_DIR}/ and ${SCRIPT_DIR}/usr/local/bin/installer/) - the release or checkout is incomplete. Pass --preserve to upgrade in place."
+fi
+
+mkdir -p /var/lib/frognet-install
+phase "A0b: Record the machine before FrogNet"
+# [OS_BEFORE_FROGNET_V1 - T4a] What the install REPLACES in the machine's own name
+# resolution (and the units it enables), recorded once - the first time FrogNet is
+# installed on this machine, and BEFORE phase A (apt enables what it installs) -
+# so a reset or an uninstall puts it back the way it was (D2 masks systemd-resolved
+# and points resolv.conf at dnsmasq; D7 rewrites NetworkManager.conf). A reinstall
+# finds the record and leaves it alone: it describes the machine before FrogNet.
+_OSB=/var/lib/frognet-install/os-before
+OSB_NEW=0
+if [[ -d "$_OSB" ]]; then
+    log "  the machine's name resolution before FrogNet is recorded in $_OSB"
+elif (( OSB_RECORDABLE )); then
+    mkdir -p "$_OSB.tmp"
+    if [[ -e /etc/resolv.conf || -L /etc/resolv.conf ]]; then cp -P /etc/resolv.conf "$_OSB.tmp/resolv.conf"; fi
+    [[ -f /etc/NetworkManager/NetworkManager.conf ]] && cp -p /etc/NetworkManager/NetworkManager.conf "$_OSB.tmp/NetworkManager.conf"
+    # hostname and hosts (E2 rewrites both), fstab (frognet_system_tune.sh adds tmpfs lines)
+    for _f in hostname hosts fstab; do [[ -f "/etc/$_f" ]] && cp -p "/etc/$_f" "$_OSB.tmp/$_f"; done
+    # the units this install enables, starts or masks (frognet_reset.sh puts them back)
+    for _u in systemd-resolved dnsmasq apache2 mariadb hostapd ifplugd unbound netfilter-persistent; do
+        printf '%s\n' "$(systemctl is-enabled "$_u" 2>/dev/null || true)" > "$_OSB.tmp/$_u.enabled"
+        printf '%s\n' "$(systemctl is-active "$_u" 2>/dev/null || true)" > "$_OSB.tmp/$_u.active"
+    done
+    mv "$_OSB.tmp" "$_OSB"; OSB_NEW=1
+    log "  recorded the machine's name resolution before FrogNet in $_OSB (resolv.conf, NetworkManager.conf, systemd-resolved: $(cat "$_OSB/systemd-resolved.enabled")/$(cat "$_OSB/systemd-resolved.active"))"
+else
+    warn "  no record of this machine's name resolution before FrogNet (it was installed before T4a): what is here now is FrogNet's, so it is not recorded; a later reset or uninstall will say it cannot put it back"
 fi
 
 phase "A1: Package index"
@@ -398,9 +634,16 @@ APT_PACKAGES=(
     # silently gates only the twenty built-in topologies.
     python3-yaml
     build-essential gcc g++ make pkg-config libffi-dev libssl-dev
+    # [PIP_BUILD_DEPS_V1] mysqlclient and NetfilterQueue publish no wheel for
+    # Linux: pip compiles them, and the compile needs these headers (found on a
+    # fresh Ubuntu 24.04, T4a). Without them A3 and C2 fail on those two.
+    libmariadb-dev libnetfilter-queue-dev
     iproute2 iputils-ping net-tools curl wget nmap traceroute dnsutils netcat-openbsd
     gpsd gpsd-clients
-    ax25-tools ax25-apps
+    # [HAM_OUT_V1] ax25-tools / ax25-apps are not installed (the ham subsystem
+    # does not ship). file: C2's venv arch check. uuid-runtime: uuidgen
+    # (frognet-node-guid.sh, registerFrogNetHost.bash, the reporters).
+    file uuid-runtime
     jq qrencode sqlite3 cron logrotate rsync git htop tmux vim less unzip
     ca-certificates gnupg lsb-release openssl libssl-dev
     apt-transport-https software-properties-common
@@ -419,7 +662,7 @@ for pkg in "${APT_PACKAGES[@]}"; do
     INSTALL_LIST+=("$pkg")
 done
 log "APT: ${_already} already installed, ${#INSTALL_LIST[@]} to install"
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mariadb-server mariadb-client || true
+DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mariadb-server mariadb-client
 INSTALL_NO_MARIA=()
 for pkg in "${INSTALL_LIST[@]}"; do
     [[ "$pkg" == "mariadb-server" || "$pkg" == "mariadb-client" ]] && continue
@@ -437,46 +680,53 @@ phase "A3: pip packages"
 PIP_PACKAGES=(
     mysql-connector-python mysqlclient NetfilterQueue
     aiohttp lz4 msgpack orjson cbor2 psutil
-    gevent gunicorn Flask Werkzeug
+    gevent gunicorn
     gpsdclient paho-mqtt requests
     python-dotenv simplejson ujson PyYAML
-    cryptography pyOpenSSL httpx
+    cryptography httpx
 )
+# [ONLY_WHAT_A_NODE_IMPORTS_V1 - T4a] Flask, Werkzeug and pyOpenSSL are not in this list:
+# nothing a node runs imports them (the only `import flask` is simulation/
+# sotf_browser_server.py, a development tool; nothing imports OpenSSL), and on a fresh
+# Ubuntu 24.04 pip cannot install them into the system python at all - they need newer
+# blinker / cryptography than the Debian-owned copies apt put there, and pip refuses to
+# uninstall those ("Cannot uninstall blinker 1.7.0, RECORD file not found ... installed
+# by debian"). Seen in the T4a clean-install container.
 # [SKIP_SATISFIED_V1] pip re-resolves and re-downloads metadata for every package
 # on every run; skip the ones already present.
-_pipskip=0
+#
+# [SYSTEM_PIP_IS_WHAT_RUNS_V1] These go into the SYSTEM python, and that is what
+# the services run on: frognet-proxy, -daemon, -tunnel-daemon-v3, the elector and
+# the safeboot all ExecStart /usr/bin/python3 (not the venv). A failure here is a
+# node whose services cannot import, so it stops the install, naming the
+# packages - it used to warn and walk on (T0 audit: mysqlclient and
+# NetfilterQueue failed to build on a fresh box and the install carried on).
+_pipskip=0; _pipfail=()
 for pkg in "${PIP_PACKAGES[@]}"; do
     if pip3 show "$pkg" >/dev/null 2>&1; then _pipskip=$((_pipskip+1)); continue; fi
-    pip3 install --break-system-packages --quiet "$pkg" \
-        && log "  pip: $pkg" || warn "  pip FAILED: $pkg"
+    if pip3 install --break-system-packages --quiet "$pkg"; then log "  pip: $pkg"; else warn "  pip FAILED: $pkg"; _pipfail+=("$pkg"); fi
 done
 log "  pip: ${_pipskip} already present, skipped"
+(( ${#_pipfail[@]} == 0 )) || die "pip failed for ${#_pipfail[@]} package(s) the services import: ${_pipfail[*]} (the output above says why; usually a missing -dev package). Fix it and re-run."
 log "pip packages installed"
 
 ###############################################################################
 #                 PHASE B: PRE-EXTRACTION SETUP
 ###############################################################################
 
-phase "B1: sysctl"
-# Forwarding settings go in a SEPARATE file (90-*) so that
-# frognet-system-tune.sh can regenerate 99-frognet.conf without
-# overwriting them.
-cat > /etc/sysctl.d/90-frognet-forwarding.conf <<'SYSCTL'
-# CRITICAL: Do not merge into 99-frognet.conf - that file is
-# regenerated by frognet-system-tune.sh and would lose these.
-net.ipv4.ip_forward = 1
-net.ipv4.conf.all.forwarding = 1
-net.ipv4.conf.all.rp_filter = 0
-net.ipv4.conf.default.rp_filter = 0
-SYSCTL
-sysctl -p /etc/sysctl.d/90-frognet-forwarding.conf
-# Belt-and-suspenders: force procfs directly in case sysctl -p silently failed
-echo 1 > /proc/sys/net/ipv4/ip_forward
-echo 0 > /proc/sys/net/ipv4/conf/all/rp_filter
-echo 0 > /proc/sys/net/ipv4/conf/default/rp_filter
-log "sysctl configured (ip_forward=$(cat /proc/sys/net/ipv4/ip_forward))"
+# B1 (sysctl) is applied in C1a, from the tree's own etc/sysctl.d/90-frognet-forwarding.conf, once C1 has laid it
+# down. [TREE_FILES_ARE_THE_FILES_V1] It used to write its own older copy here, which C1 then overwrote.
 
 phase "B2: iptables scaffold"
+# [OS_BEFORE_FROGNET_V1 - T4a] The machine's own packet-filter rules, recorded before
+# FrogNet's replace them (B2, E6), in the same record - here, after A2, because a minimal
+# machine has no iptables-save before A2 installs it. A resolver can depend on them (a
+# container's 127.0.0.11 is a NAT rule; ufw is rules), so the reset puts them back.
+if (( OSB_NEW )); then
+    iptables-save  > "$_OSB/iptables.v4" || die "iptables-save failed - cannot record the machine's rules before replacing them"
+    ip6tables-save > "$_OSB/iptables.v6" || die "ip6tables-save failed - cannot record the machine's rules before replacing them"
+    log "  recorded the machine's packet-filter rules before FrogNet ($(grep -c '^-A' "$_OSB/iptables.v4") v4 / $(grep -c '^-A' "$_OSB/iptables.v6") v6 rules)"
+fi
 mkdir -p /etc/iptables
 cat > /etc/iptables/rules.v4 <<'IPTR'
 *filter
@@ -539,25 +789,27 @@ if (( FROM_REPO )); then
     # nothing to unpack. This is the ONLY phase that differs between a release
     # install and a checkout install.
     #
-    # Copy the four payload roots BY NAME. Copying $SCRIPT_DIR wholesale would take
-    # .git, README.md, INSTALL.md and anything else a contributor left in the root
-    # onto the box -- a repository is not a filesystem image, it merely contains one.
-    log "Installing from repository checkout $SCRIPT_DIR -> /"
-    _dest_is_src=0
-    for _d in etc opt usr var; do
-        # Do not copy a directory onto itself. If someone clones INTO / -- or reruns
-        # this from an installed tree -- cp -a src/. src/ silently churns every file
-        # it is asked to preserve. Detect it and say so instead.
-        if [[ "$(readlink -f "${SCRIPT_DIR}/${_d}")" == "$(readlink -f "/${_d}")" ]]; then
-            _dest_is_src=1
-            continue
-        fi
-        log "  copying ${_d}/ ..."
-        cp -a "${SCRIPT_DIR}/${_d}/." "/${_d}/"
-    done
-    if (( _dest_is_src )); then
-        log "  one or more payload roots ARE their destination - checkout is already in place, nothing copied for those"
-    fi
+    # [NODE_FILE_SET_V1 - T4a] Copy the NODE FILE SET, not the four roots. A repository is
+    # not a filesystem image, it merely contains one, and it also contains what no node
+    # runs: opt/fdf (the FD&F sources, Android tree, rlite tarball, the dist files, the
+    # Windows bundle: ~250 MB), the book, the ham scripts the release never ships. The
+    # rule is frognet_node_files in usr/local/lib/frognet_world_manifest.sh (taken from
+    # THIS checkout), the same paths and excludes frognet_build_release.sh builds the
+    # world tar with. A node in a region gets /opt/fdf from the FD&F node installer
+    # (phase R), which is the one way /opt/fdf reaches a node.
+    log "Installing from repository checkout $SCRIPT_DIR -> / (the node file set)"
+    [[ "$(readlink -f "$SCRIPT_DIR")" != "/" ]] || die "--from-repo: the checkout is / itself"
+    _MAN="${SCRIPT_DIR}/usr/local/lib/frognet_world_manifest.sh"
+    [[ -r "$_MAN" ]] || die "--from-repo: $_MAN not found - the checkout has no node file set"
+    _NODE_LIST="$(mktemp /tmp/frognet_node_files.XXXXXX)"
+    ( . "$_MAN"; frognet_check_manifest "$SCRIPT_DIR" 2>/dev/null; frognet_node_files "$SCRIPT_DIR" ) > "$_NODE_LIST" \
+        || die "--from-repo: could not list the node file set from $SCRIPT_DIR"
+    [[ -s "$_NODE_LIST" ]] || die "--from-repo: the node file set under $SCRIPT_DIR is empty"
+    # Files only (no directory entries: an existing /etc or /usr/local/bin keeps its own
+    # mode and owner), owned by root whoever cloned the repository.
+    tar -C "$SCRIPT_DIR" --owner=0 --group=0 --no-recursion -cf - -T "$_NODE_LIST" | tar -C / -xpf - \
+        || die "--from-repo: copying the node file set failed"
+    log "  copied $(wc -l < "$_NODE_LIST") files"
 else
     log "Extracting $WORLD_TGZ -> / ($(du -h "$WORLD_TGZ" | cut -f1))"
     # [EXTRACT_PROGRESS_V1] tar without -v prints NOTHING, so a multi-minute extraction
@@ -566,7 +818,17 @@ else
     # heartbeat with a bounded number of lines.
     tar --ignore-zeros -xzf "$WORLD_TGZ" -C / \
         --checkpoint=2000 --checkpoint-action=echo="  ... extracted %u records"
+    _NODE_LIST="$(mktemp /tmp/frognet_node_files.XXXXXX)"
+    tar --ignore-zeros -tzf "$WORLD_TGZ" | grep -v '/$' | sed 's|^\./||' > "$_NODE_LIST"
 fi
+# [INSTALL_RECORD_V1 - T4a] What this install laid down, file by file, so frognet_reset.sh
+# removes exactly FrogNet's files from the directories FrogNet shares with the machine
+# (/usr/local/bin, /usr/local/sbin, /usr/local/lib) and nothing else there. Kept in
+# /var/lib/frognet-install/ (FrogNet's; --uninstall removes it).
+mkdir -p /var/lib/frognet-install
+sort -u "$_NODE_LIST" > /var/lib/frognet-install/files
+rm -f "$_NODE_LIST"
+log "  install record: $(wc -l < /var/lib/frognet-install/files) files in /var/lib/frognet-install/files"
 chmod +x /usr/local/bin/* 2>/dev/null || true
 chmod +x /usr/local/sbin/* 2>/dev/null || true
 
@@ -623,6 +885,15 @@ if [[ -d "${_VENV_STASH:-/nonexistent}" ]]; then
     log "Restored carried venv (C2 will arch-check it)"
 fi
 log "Extraction complete"
+
+phase "C1a: sysctl (the tree's 90-frognet-forwarding.conf)"
+# [TREE_FILES_ARE_THE_FILES_V1 - T4a] Forwarding and rp_filter live in the tree's own
+# etc/sysctl.d/90-frognet-forwarding.conf (a separate file, so frognet-system-tune.sh can
+# regenerate 99-frognet.conf without losing them); C1 laid it down. Apply THAT file.
+_SYSCTL=/etc/sysctl.d/90-frognet-forwarding.conf
+[[ -f "$_SYSCTL" ]] || die "$_SYSCTL missing after C1 - the payload has no forwarding settings"
+sysctl -p "$_SYSCTL" || die "sysctl -p $_SYSCTL failed"
+log "sysctl applied from $_SYSCTL (ip_forward=$(sysctl -n net.ipv4.ip_forward))"
 
 # [NODE_GUID_V1] Allocate the node's permanent identity GUID once, at install.
 # /etc/fnid is outside /etc/frognet so a reinstall that wipes /etc/frognet does
@@ -886,32 +1157,6 @@ chmod +x /usr/local/bin/runMerge.bash 2>/dev/null || true
 #       PHASE D: CLEAN + CONFIGURE (post-tar - tar may have overwritten)
 ###############################################################################
 
-phase "D1: Detect interfaces"
-_detect_eth0() {
-    # The uplink (default-route device) must NEVER be picked: D7 marks whatever
-    # this returns as NM-unmanaged and restarts NM, so returning the uplink strands
-    # the box with no network. Skip it and let a real served wired iface win.
-    local _uplink
-    _uplink="$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
-    for dev in $(ip -o link show | awk -F': ' '{print $2}' | cut -d'@' -f1 | sort); do
-        [[ "$dev" == lo || "$dev" == veth* || "$dev" == docker* || "$dev" == br-* || "$dev" == virbr* || "$dev" == wl* || "$dev" == wg* ]] && continue
-        [[ -n "$_uplink" && "$dev" == "$_uplink" ]] && continue
-        echo "$dev"; return
-    done
-}
-_detect_wlan() {
-    local idx=0
-    for dev in $(ip -o link show | awk -F': ' '{print $2}' | cut -d'@' -f1 | sort); do
-        [[ "$dev" == wl* ]] || continue
-        [[ $idx -eq $1 ]] && { echo "$dev"; return; }
-        idx=$((idx + 1))
-    done
-}
-ETH0_IF="$(_detect_eth0 || true)"; ETH0_IF="${ETH0_IF:-eth0}"
-WLAN0_IF="$(_detect_wlan 0 || true)"; WLAN0_IF="${WLAN0_IF:-wlan0}"
-WLAN1_IF="$(_detect_wlan 1 || true)"; WLAN1_IF="${WLAN1_IF:-wlan1}"
-log "Detected: eth0=$ETH0_IF wlan0=$WLAN0_IF wlan1=$WLAN1_IF"
-
 phase "D2: Clean stale state"
 systemctl stop dnsmasq 2>/dev/null || true
 kill -9 $(pgrep dnsmasq) 2>/dev/null || true
@@ -923,7 +1168,7 @@ systemctl mask systemd-resolved 2>/dev/null || true
 systemctl stop unbound 2>/dev/null || true
 rm -f /etc/dnsmasq.d/opts_only.conf /etc/dnsmasq.d/frognet_forwarders_auto.conf /etc/dnsmasq.d/frognet_databasehost.conf
 rm -f /etc/sentinels/{frognet_hosts,frognet_hosts_out,frognet_resolv,frog_resolv.conf}
-rm -f /etc/sentinels/{expected_routes,transit_upstream_seeds,mergePending,runAgain,forwarded,new_resolv.conf}
+rm -f /etc/sentinels/{expected_routes,transit_upstream_seeds,mergePending,runAgain,forwarded,new_resolv.conf,getFrogNet.cache}
 rm -f /etc/frognet/gateways.conf /etc/database_ip /var/lib/misc/dnsmasq.leases
 rm -f /etc/resolv.conf; echo "nameserver 127.0.0.1" > /etc/resolv.conf
 log "Stale state cleaned"
@@ -965,19 +1210,17 @@ TOTAL_MB=$(free -m | awk '/^Mem:/{print $2}')
 POOL_MB=$((TOTAL_MB / 2))
 (( POOL_MB > 1024 )) && POOL_MB=1024
 (( POOL_MB < 128 )) && POOL_MB=128
+# [TREE_FILES_ARE_THE_FILES_V1 - T4a] The FrogNet MariaDB settings are the tree's own
+# etc/mysql/mariadb.conf.d/99-frognet.cnf and 99-frognet-perf.cnf (C1 laid them down);
+# this phase used to write its own copy of 99-frognet.cnf over the first. It only sizes
+# the buffer pool for this machine's RAM, in place, in every file that sets it.
+[[ -f /etc/mysql/mariadb.conf.d/99-frognet.cnf ]] || die "/etc/mysql/mariadb.conf.d/99-frognet.cnf missing after C1 - the payload has no MariaDB settings"
 for f in $(grep -rl 'innodb_buffer_pool_size' /etc/mysql/ 2>/dev/null); do
     sed -i "s/innodb_buffer_pool_size\s*=.*/innodb_buffer_pool_size = ${POOL_MB}M/" "$f"
 done
 for f in $(grep -rl 'innodb_buffer_pool_size_max' /etc/mysql/ 2>/dev/null); do
     sed -i "s/innodb_buffer_pool_size_max\s*=.*/innodb_buffer_pool_size_max = ${POOL_MB}M/" "$f"
 done
-cat > /etc/mysql/mariadb.conf.d/99-frognet.cnf <<MYCNF
-[mysqld]
-max_connections = 300
-wait_timeout = 300
-interactive_timeout = 300
-innodb_buffer_pool_size = ${POOL_MB}M
-MYCNF
 systemctl enable mariadb; systemctl start mariadb
 for i in $(seq 1 15); do mysql -u root -e "SELECT 1" >/dev/null 2>&1 && break || sleep 1; done
 mysql -u root <<'SQL'
@@ -1034,62 +1277,13 @@ a2disconf other-vhosts-access-log 2>/dev/null || true
 
 a2dissite 000-default 2>/dev/null || true
 rm -f /etc/apache2/sites-enabled/000-default.conf
-cat > /etc/apache2/sites-available/000-default.conf <<'VHOST'
-<VirtualHost *:8080>
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html
-    ErrorLog syslog:local1
-    CustomLog "|/usr/bin/logger -t apache2-access -p local1.info" combined
-    ProxyPass        /semantic/  http://127.0.0.1:9100/semantic/
-    ProxyPassReverse /semantic/  http://127.0.0.1:9100/semantic/
-</VirtualHost>
-VHOST
-cat > /etc/apache2/sites-available/admin-site.conf <<'VHOST'
-<VirtualHost *:80>
-    ServerName FrogNetAdmin.NODENAME_PLACEHOLDER
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/www_admin/public_html
-    LogLevel warn
-    ErrorLog syslog:local1
-    CustomLog "|/usr/bin/logger -t apache2-access -p local1.info" combined
-</VirtualHost>
-VHOST
-cat > /etc/apache2/sites-available/databasehost.conf <<'VHOST'
-<VirtualHost *:80>
-    ServerName databasehost.frognet
-    DocumentRoot /var/www/html
-    <Directory /var/www/html>
-        Options Indexes FollowSymLinks
-        AllowOverride All
-        Require all granted
-    </Directory>
-</VirtualHost>
-VHOST
-cat > /etc/apache2/sites-available/frognet-ssl.conf <<'VHOST'
-<IfModule mod_ssl.c>
-    <VirtualHost *:8443>
-        ServerName frognethost.frognet
-        DocumentRoot /var/www/html
-        SSLEngine on
-        SSLCertificateFile      /etc/ssl/frognet-universal.crt
-        SSLCertificateKeyFile   /etc/ssl/frognet-universal.key
-        SSLOptions +StrictRequire
-        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
-        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
-    </VirtualHost>
-    <VirtualHost *:443>
-        ServerName databasehost.frognet
-        DocumentRoot /var/www/html
-        SSLEngine on
-        SSLCertificateFile      /etc/ssl/localCA/databasehost.frognet.crt
-        SSLCertificateKeyFile   /etc/ssl/localCA/databasehost.frognet.key
-        SSLOptions +StrictRequire
-        SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
-        Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains" env=HTTPS
-    </VirtualHost>
-</IfModule>
-VHOST
-a2ensite 000-default admin-site databasehost frognet-ssl 2>/dev/null || true
+# [TREE_FILES_ARE_THE_FILES_V1 - T4a] The four vhosts are the tree's own files in
+# etc/apache2/sites-available (C1 laid them down); this phase used to write its own copies
+# over them. (They log to the journal, [APACHE_LOG_TO_JOURNAL_V1]; E4 names admin-site.)
+for _v in 000-default admin-site databasehost frognet-ssl; do
+    [[ -f "/etc/apache2/sites-available/${_v}.conf" ]] || die "/etc/apache2/sites-available/${_v}.conf missing after C1"
+done
+a2ensite 000-default admin-site databasehost frognet-ssl
 systemctl enable apache2
 log "Apache configured (not started - SSL certs come later)"
 
@@ -1170,11 +1364,8 @@ cat > /etc/NetworkManager/conf.d/no-resolved.conf <<'EOF'
 [main]
 dns=none
 EOF
-# Only mark a real, non-uplink wired iface unmanaged. Marking the default-route
-# device unmanaged and then restarting NM (below) is exactly what drops the box's
-# network with no recovery, so refuse it and leave the uplink managed.
-_UPLINK_DEV="$(ip route show default 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}')"
-if [[ -n "$ETH0_IF" && "$ETH0_IF" != "$_UPLINK_DEV" ]]; then
+# Mark the served LAN interface unmanaged (D1 has refused the uplink, so this can
+# never be the default-route device).
 cat > /etc/NetworkManager/conf.d/10-frognet-unmanaged.conf <<NMCONF
 [keyfile]
 unmanaged-devices=interface-name:${ETH0_IF}
@@ -1183,45 +1374,21 @@ cat > /etc/NetworkManager/conf.d/99-frognet-unmanaged.conf <<NMCONF
 [keyfile]
 unmanaged-devices=interface-name:${ETH0_IF}
 NMCONF
-else
-warn "  D7: NOT marking '${ETH0_IF:-<none>}' unmanaged - it is the uplink (default route via ${_UPLINK_DEV:-?}). Leaving it managed so the box keeps its network."
-rm -f /etc/NetworkManager/conf.d/10-frognet-unmanaged.conf /etc/NetworkManager/conf.d/99-frognet-unmanaged.conf 2>/dev/null || true
-fi
 cat > /etc/NetworkManager/conf.d/99-wifi-powersave.conf <<'NMCONF'
 [connection]
 wifi.powersave = 2
 NMCONF
-cat > /etc/NetworkManager/dispatcher.d/90-frognet-merge <<'DISPATCH'
-#!/bin/bash
-IFACE="${1:-}"; STATE="${2:-}"
-case "$STATE" in up|down) ;; *) exit 0 ;; esac
-[[ "$IFACE" == "l0" ]] && exit 0
-SENT_DIR="/etc/sentinels"; STATE_FILE="${SENT_DIR}/nm_upstream_state.json"; mkdir -p "$SENT_DIR"
-. /usr/local/bin/mapInterfaces 2>/dev/null || true
-iface_ipv4() { ip -4 -o addr show dev "$1" 2>/dev/null | awk '{print $4}' | head -n1 | cut -d/ -f1; }
-ip_base3()   { local ip="$1"; [[ -n "$ip" ]] || { echo ""; return; }; IFS=. read -r a b c _ <<<"$ip" || true; [[ -n "${a:-}" && -n "${b:-}" && -n "${c:-}" ]] || { echo ""; return; }; echo "${a}.${b}.${c}"; }
-default_route_line() { ip route show default 2>/dev/null | head -n1 || true; }
-default_via() { awk '{for(i=1;i<=NF;i++) if($i=="via"){print $(i+1); exit}}' <<<"${1:-}"; }
-default_dev() { awk '{for(i=1;i<=NF;i++) if($i=="dev"){print $(i+1); exit}}' <<<"${1:-}"; }
-W0_IP="$(iface_ipv4 "${wlan0Name:-wlan0}" || true)"
-W1_IP="$(iface_ipv4 "${wlan1Name:-wlan1}" || true)"
-W0_BASE="$( [[ -n "${W0_IP:-}" && "$W0_IP" == 10.* ]] && ip_base3 "$W0_IP" || echo "" )"
-W1_BASE="$( [[ -n "${W1_IP:-}" && "$W1_IP" == 10.* ]] && ip_base3 "$W1_IP" || echo "" )"
-DEF_LINE="$(default_route_line)"; DEF_VIA="$(default_via "$DEF_LINE")"; DEF_DEV="$(default_dev "$DEF_LINE")"
-CUR_SIG="w0=${W0_IP:-}|w1=${W1_IP:-}|defvia=${DEF_VIA:-}|defdev=${DEF_DEV:-}|w0b=${W0_BASE:-}|w1b=${W1_BASE:-}"
-tmp="${STATE_FILE}.tmp"; printf '%s\n' "$CUR_SIG" > "$tmp"; mv -f "$tmp" "$STATE_FILE"
-/usr/local/bin/runMerge.bash &
-DISPATCH
-cat > /etc/NetworkManager/dispatcher.d/99-ifup <<'DISPATCH'
-#!/bin/bash
-INTERFACE="${1:-}"; EVENT="${2:-}"
-[[ "$INTERFACE" == "l0" ]] && exit 0
-[[ "$EVENT" == "connectivity-change" ]] && exit 0
-[[ -z "$INTERFACE" ]] && exit 4
-exec /usr/local/bin/runMerge.bash &
-DISPATCH
-chmod +x /etc/NetworkManager/dispatcher.d/90-frognet-merge \
-         /etc/NetworkManager/dispatcher.d/99-ifup
+# [TREE_FILES_ARE_THE_FILES_V1 - T4a] The merge hook is the tree's own
+# etc/NetworkManager/dispatcher.d/90-frognet-merge (C1 laid it down): it merges only on a
+# real routing delta and goes through the merge watcher's accumulator. This phase used to
+# write an older copy over it (the unconditional `runMerge.bash &`), plus a second hook,
+# 99-ifup, that ran runMerge again on the same event - two merges per interface event.
+# One hook now; any 99-ifup a prior install left is removed.
+_HOOK=/etc/NetworkManager/dispatcher.d/90-frognet-merge
+[[ -f "$_HOOK" ]] || die "$_HOOK missing after C1 - the payload has no merge hook"
+chmod 755 "$_HOOK"
+rm -f /etc/NetworkManager/dispatcher.d/99-ifup
+log "  merge hook: $_HOOK (the tree's); 99-ifup removed"
 # [NO_RESTART_BEFORE_REBOOT_V1] Do NOT restart NetworkManager here. The install
 # ends in an unconditional reboot (systemctl reboot), so a restart buys nothing -
 # and restarting NM drops the operator's SSH session mid-install, which is how a
@@ -1346,58 +1513,13 @@ fi
 ###############################################################################
 
 phase "E1: Node identity"
-declare -A KNOWN_NODES=(
-    [BlackBox]=10.101.10.1    [IronBox]=10.101.20.1
-    [SilverBox]=10.101.30.1   [HardBox]=10.101.40.1
-    [TealBox]=10.101.210.1    [NYCBox]=10.101.60.1
-    [NYC2Box]=10.101.61.1     [NYC4Box]=10.101.64.1
-    [NYC5Box]=10.101.65.1     [AMSbox]=10.101.70.1
-    [BABox]=10.101.80.1
-)
-
-# [PRESERVE_KNOWS_ITSELF_V1] --preserve is an UPGRADE of a node that already has
-# an identity, so do not ask for it again.  Both values are already on disk:
-#   node name  -> `domain=` in /etc/dnsmasq.d/opts_only.conf, which
-#                 setup_lillypad_v4 (:485) declares the SINGLE SOURCE OF TRUTH
-#                 for the node name -- every other dnsmasq conf has its domain=
-#                 stripped precisely so this one cannot be contradicted.
-#   gateway IP -> `dhcp-option=option:router,<ip>` in the same file, which is by
-#                 definition this node's .1.
-#
-# Prompting here is not merely redundant, it is dangerous: a typo at this prompt
-# re-IPs or renames a live node, which changes its identity and its whole
-# /24, on what the operator asked for as an in-place upgrade.
-#
-# An explicit --name / --ip still wins: this only fills in what was not given.
-# If the file is missing or malformed we fall through to the normal prompt rather
-# than guessing -- a wrong identity is worse than a question.
-if [[ "$PRESERVE" -eq 1 && -f /etc/dnsmasq.d/opts_only.conf ]]; then
-    _PN="$(awk -F= '/^domain=/{print $2; exit}' /etc/dnsmasq.d/opts_only.conf | xargs)"
-    _PI="$(awk -F, '/^dhcp-option=option:router,/{print $2; exit}' /etc/dnsmasq.d/opts_only.conf | xargs)"
-    if [[ -n "$_PN" && "$_PI" =~ ^([0-9]{1,3}\.){3}1$ ]]; then
-        if [[ -z "$ARG_NAME" ]]; then
-            ARG_NAME="$_PN"
-            log "--preserve: node name '$_PN' recovered from opts_only.conf (not prompting)"
-        fi
-        if [[ -z "$ARG_IP" ]]; then
-            ARG_IP="$_PI"
-            log "--preserve: gateway IP $_PI recovered from opts_only.conf (not prompting)"
-        fi
-    else
-        warn "--preserve: could not recover identity from opts_only.conf"
-        warn "            (domain='$_PN' router='$_PI') - falling through to prompt"
-    fi
-fi
 
 # Use args if supplied; otherwise prompt.
 if [[ -n "$ARG_NAME" ]]; then
     NODE_NAME="$ARG_NAME"
     log "Using --name: $NODE_NAME"
 else
-    echo; echo "  Known nodes:"
-    for name in $(echo "${!KNOWN_NODES[@]}" | tr ' ' '\n' | sort); do
-        printf "    %-12s  %s\n" "$name" "${KNOWN_NODES[$name]}"
-    done; echo
+    [[ -t 0 ]] || die "E1: no node name (--name not given$( ((PRESERVE)) && echo ', and --preserve found none in /etc/dnsmasq.d/opts_only.conf' )) and no terminal to ask on"
     while true; do
         read -rp "  Node name: " NODE_NAME; NODE_NAME="$(echo "$NODE_NAME" | xargs)"
         [[ -n "$NODE_NAME" ]] && break; echo "  Name cannot be empty."
@@ -1408,16 +1530,10 @@ if [[ -n "$ARG_IP" ]]; then
     NODE_IP="$ARG_IP"
     log "Using --ip: $NODE_IP"
 else
-    SUGGESTED_IP="${KNOWN_NODES[$NODE_NAME]:-}"
+    [[ -t 0 ]] || die "E1: no gateway IP (--ip not given) and no terminal to ask on"
     while true; do
-        if [[ -n "$SUGGESTED_IP" ]]; then
-            read -rp "  Gateway IP [$SUGGESTED_IP]: " INPUT_IP
-            NODE_IP="${INPUT_IP:-$SUGGESTED_IP}"; NODE_IP="$(echo "$NODE_IP" | xargs)"
-        else
-            read -rp "  Gateway IP (e.g. 10.101.50.1): " NODE_IP; NODE_IP="$(echo "$NODE_IP" | xargs)"
-        fi
-        [[ "$NODE_IP" =~ \.1$ ]] || { echo "  Must end in .1"; SUGGESTED_IP=""; continue; }
-        [[ "$NODE_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "  Invalid IP"; SUGGESTED_IP=""; continue; }
+        read -rp "  Gateway IP (10.X.Y.1, this node's /24): " NODE_IP; NODE_IP="$(echo "$NODE_IP" | xargs)"
+        [[ "$NODE_IP" =~ ^10\.[0-9]+\.[0-9]+\.1$ ]] || { echo "  Must look like 10.X.Y.1"; continue; }
         break
     done
 fi
@@ -1640,14 +1756,19 @@ fi
 
 phase "E5: SSL certificates"
 mkdir -p /etc/ssl/localCA
-if [[ ! -f /etc/ssl/frognet-universal.crt ]]; then
+# [EACH_NODE_MAKES_ITS_CERT_V1 - T4a] The pair is made when the KEY is missing, not the
+# certificate: a certificate without its key is of no use (Apache refuses to start on
+# it). --from-repo used to ship etc/ssl/frognet-universal.crt without a key, so this
+# check (on the .crt) skipped, and Apache had a cert and no key. Nothing ships either
+# half now (the manifest's NEVER_SHIP); every node makes its own pair, here, once.
+if [[ ! -f /etc/ssl/frognet-universal.key ]]; then
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout /etc/ssl/frognet-universal.key -out /etc/ssl/frognet-universal.crt \
         -subj "/CN=frognethost.frognet/O=FrogNet/C=US" \
         -addext "subjectAltName=DNS:frognethost.frognet,DNS:*.frognet,DNS:FrogNetHost.${NODE_NAME}" 2>/dev/null
     chmod 600 /etc/ssl/frognet-universal.key
 fi
-if [[ ! -f /etc/ssl/localCA/databasehost.frognet.crt ]]; then
+if [[ ! -f /etc/ssl/localCA/databasehost.frognet.key ]]; then
     openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
         -keyout /etc/ssl/localCA/databasehost.frognet.key -out /etc/ssl/localCA/databasehost.frognet.crt \
         -subj "/CN=databasehost.frognet/O=FrogNet/C=US" 2>/dev/null
@@ -1919,12 +2040,14 @@ else
 fi
 
 phase "F2: Log management"
-cat > /etc/logrotate.d/frognet <<'LR'
-/var/log/frognet/*.log { daily missingok rotate 7 compress delaycompress notifempty copytruncate su root root }
-LR
-cat > /etc/logrotate.d/mysql-server <<'LR'
-/var/log/mysql/*.log { daily missingok rotate 7 compress delaycompress notifempty copytruncate su root adm }
-LR
+# [TREE_FILES_ARE_THE_FILES_V1 - T4a] /etc/logrotate.d/frognet is the tree's file (C1).
+# The mysql-server rule this phase also wrote is gone: /var/log/mysql/*.log overlapped
+# the distribution's own mariadb rule, and logrotate refuses a log named by two rules.
+[[ -f /etc/logrotate.d/frognet ]] || die "/etc/logrotate.d/frognet missing after C1"
+# (a prior install's copy is removed - only if no package owns that name)
+if [[ -f /etc/logrotate.d/mysql-server ]] && ! dpkg -S /etc/logrotate.d/mysql-server >/dev/null 2>&1; then
+    rm -f /etc/logrotate.d/mysql-server; log "  removed a prior install's /etc/logrotate.d/mysql-server"
+fi
 mkdir -p /etc/systemd/journald.conf.d
 cat > /etc/systemd/journald.conf.d/frognet.conf <<'J'
 [Journal]
@@ -1946,7 +2069,11 @@ phase "F3: Crontab"
 ) | sort -u | crontab -
 
 phase "F4: froguser"
-id froguser >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash froguser
+# [UNINSTALL_V1] recorded when the install makes it, so --uninstall removes only a froguser FrogNet made
+if ! id froguser >/dev/null 2>&1; then
+    useradd --system --create-home --shell /bin/bash froguser
+    : > /var/lib/frognet-install/froguser-created
+fi
 
 phase "F5: Cleanup"
 rm -f /frognet_db.sql
@@ -1966,12 +2093,19 @@ chk "hostname"               test "$(cat /etc/hostname 2>/dev/null)" = "$FQDN"
 # the operator's SSH. They are verified enabled instead.
 chk "mariadb running"        systemctl is-active  --quiet mariadb
 chk "apache2 enabled"        systemctl is-enabled --quiet apache2
+# [F6_STARTS_WHAT_IT_CHECKS_V1 - T4a] The echo check below asks Apache, and D2 stopped
+# Apache. It used to curl it stopped (and on port 80, which is frognet-proxy's, also not
+# running before the reboot), so it could never pass. Start Apache now - it has its
+# vhosts and both certificate pairs (E5) - and ask it on its own port, 8080. Starting a
+# web server does not touch the network the operator's SSH rides on.
+chk "apache2 started"        systemctl start apache2
+chk "apache2 running"        systemctl is-active  --quiet apache2
 chk "dnsmasq enabled"        systemctl is-enabled --quiet dnsmasq
 chk "frognet-proxy enabled"  systemctl is-enabled --quiet frognet-proxy
 chk "frognet-daemon enabled" systemctl is-enabled --quiet frognet-daemon
 chk "resolved off"           test "$(systemctl is-active systemd-resolved 2>/dev/null)" != "active"
 chk "FrogNet DB"             mysql -u root -e "USE FrogNet"
-chk "FrogUser auth"          mysql -u FrogUser -p"${DB_PASS}" FrogNet -e "SELECT 1"
+chk "FrogUser auth"          env MYSQL_PWD="${DB_PASS}" mysql -u FrogUser FrogNet -e "SELECT 1"
 chk "interfaces_override"    test -f /etc/frognet/interfaces_override.conf
 chk "ip_forward"             test "$(sysctl -n net.ipv4.ip_forward)" = "1"
 chk "ssl cert"               test -f /etc/ssl/frognet-universal.crt
@@ -1984,7 +2118,12 @@ chk "gateways.conf"          grep -q "$NODE_NAME" /etc/frognet/gateways.conf
 chk "dnsmasq node"           grep -q "$NODE_NAME" /etc/dnsmasq.d/opts_only.conf
 chk "proxy enabled"          systemctl is-enabled --quiet frognet-proxy
 chk "daemon enabled"         systemctl is-enabled --quiet frognet-daemon
-ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1/frognet_echo.php 2>&1)" && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-fail}"
+chk "merge hook (one)"       test -x /etc/NetworkManager/dispatcher.d/90-frognet-merge -a ! -e /etc/NetworkManager/dispatcher.d/99-ifup
+chk "ssl key"                test -f /etc/ssl/frognet-universal.key
+chk "LAN is not the uplink"  test "$ETH0_IF" != "${_UPLINK_DEV:-}"
+# the echo is this node's line: "<name>,<.1>,<upstream>,<upstream>" - an empty 200 is a failure
+ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},"* ]] \
+    && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},...)"
 echo
 [[ $FAIL -eq 0 ]] && echo "  All checks passed." || echo "  $FAIL check(s) failed."
 
@@ -1992,10 +2131,33 @@ phase "F7: System tuning"
 TUNE="/usr/local/bin/frognet_system_tune.sh"
 [[ -x "$TUNE" ]] && bash "$TUNE" || warn "frognet_system_tune.sh not found"
 
+phase "R: Region ($( [[ -n "$REGION_RAM" ]] && echo "join $REGION_AREA at $REGION_RAM" || echo "none: LAN-only" ))"
+# [REGION_FROM_THE_INSTALLER_V1 - T4a] With --region, this machine joins the region the
+# one way any FrogNet node does: the FD&F node installer for its architecture
+# (opt/fdf/dist/fdf-install-$(uname -m).run, checked before phase A), given the site key,
+# the RAM manager's address and the area. It lays down /opt/fdf, runs fdf-region-join
+# (site.env, join.env, fdf-client + fdf-facts, the tunnel daemon restarted into region
+# mode, which makes its WireGuard key) and shows what happened. Without --region the
+# node is LAN-only: no /opt/fdf, no WireGuard, FrogNet discovery and the election.
+if [[ -z "$REGION_RAM" ]]; then
+    log "LAN-only node (no --region): nothing to join"
+elif (( FAIL > 0 )); then
+    warn "F6 found $FAIL failure(s): NOT joining the region on a node that did not verify. Fix them and re-run the installer (with --preserve) and --region."
+else
+    log "Joining region: $FDF_RUN <key ${#REGION_KEY} chars> $REGION_RAM $REGION_AREA"
+    bash "$FDF_RUN" "$REGION_KEY" "$REGION_RAM" "$REGION_AREA" \
+        || die "the FD&F node installer failed (output above): FrogNet is installed, the join of $REGION_AREA did not complete. Re-run it when the cause is fixed (it is re-runnable): sudo bash $FDF_RUN <SITE KEY> $REGION_RAM $REGION_AREA   (or leave: /opt/fdf/bin/fdf-leave)"
+    log "Region: joined $REGION_AREA at $REGION_RAM ($(sed -n 's/^build=//p' /opt/fdf/BUILD 2>/dev/null))"
+fi
+
 phase "F8: Reboot"
 if [[ $FAIL -gt 0 ]]; then
+    if (( NO_REBOOT )); then echo "  $FAIL check(s) failed - not rebooting (--no-reboot)."; exit 1; fi
     read -rp "  $FAIL failure(s). Reboot anyway? [y/N] " R
     [[ "$R" =~ ^[Yy]$ ]] || { echo "Reboot skipped."; exit 0; }
+elif (( NO_REBOOT )); then
+    echo "  $NODE_NAME ($NODE_IP) on $ETH0_IF installed. --no-reboot: reboot to start it."
+    log "Install complete (--no-reboot)."; exit 0
 else
     echo "  $NODE_NAME ($NODE_IP) on $ETH0_IF ready."
     echo "  Rebooting in 10s - Ctrl-C to cancel."; sleep 10

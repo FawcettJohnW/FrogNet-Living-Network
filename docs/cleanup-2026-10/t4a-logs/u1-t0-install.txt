@@ -1,0 +1,886 @@
+2026-10-12 14:46:03 [install] frognet_install.sh starting on u1 - x86_64 - Mon Oct 12 14:46:03 UTC 2026
+2026-10-12 14:46:03 [install] merge lock held for the duration of the install (runMerge will defer)
+2026-10-12 14:46:03 [install] DB password taken from --db-pass (6 chars)
+
+========================================================
+  STEP A0: Reinstall reset
+========================================================
+2026-10-12 14:46:03 [install] No prior FrogNet install detected - already clean
+
+========================================================
+  STEP A1: Package index
+========================================================
+Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-security InRelease
+Get:4 http://archive.ubuntu.com/ubuntu noble/main amd64 Components [464 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble/universe amd64 Components [3871 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [181 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [388 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+Get:9 http://archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.4 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.2 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+Fetched 5028 kB in 2s (2418 kB/s)
+Reading package lists...
+2026-10-12 14:46:09 [install] Package index refreshed
+
+========================================================
+  STEP A2: APT packages
+========================================================
+2026-10-12 14:46:14 [install] APT: 69 already installed, 0 to install
+Reading package lists...
+Building dependency tree...
+Reading state information...
+mariadb-server is already the newest version (1:10.11.14-0ubuntu0.24.04.1).
+mariadb-client is already the newest version (1:10.11.14-0ubuntu0.24.04.1).
+0 upgraded, 0 newly installed, 0 to remove and 66 not upgraded.
+2026-10-12 14:46:15 [install]   All APT packages already present - nothing to do
+2026-10-12 14:46:15 [install] APT packages installed
+
+========================================================
+  STEP A3: pip packages
+========================================================
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:46:19 [install]   pip: mysql-connector-python
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:46:26 [install]   pip: mysqlclient
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:46:45 [install]   pip: NetfilterQueue
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:46:54 [install]   pip: aiohttp
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:46:58 [install]   pip: msgpack
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:03 [install]   pip: orjson
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:06 [install]   pip: cbor2
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:10 [install]   pip: psutil
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:23 [install]   pip: gevent
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:27 [install]   pip: gunicorn
+ERROR: Cannot uninstall blinker 1.7.0, RECORD file not found. Hint: The package was installed by debian.
+2026-10-12 14:47:43 [WARN]      pip FAILED: Flask
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:45 [install]   pip: Werkzeug
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:52 [install]   pip: gpsdclient
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:47:54 [install]   pip: paho-mqtt
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:48:00 [install]   pip: requests
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:48:03 [install]   pip: python-dotenv
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:48:06 [install]   pip: simplejson
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:48:09 [install]   pip: ujson
+ERROR: Cannot uninstall cryptography 41.0.7, RECORD file not found. Hint: The package was installed by debian.
+2026-10-12 14:48:36 [WARN]      pip FAILED: pyOpenSSL
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv
+2026-10-12 14:48:42 [install]   pip: httpx
+2026-10-12 14:48:42 [install]   pip: 3 already present, skipped
+2026-10-12 14:48:42 [install] pip packages installed
+
+========================================================
+  STEP B1: sysctl
+========================================================
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+2026-10-12 14:48:42 [install] sysctl configured (ip_forward=1)
+
+========================================================
+  STEP B2: iptables scaffold
+========================================================
+
+========================================================
+  STEP B3: Directories
+========================================================
+2026-10-12 14:48:43 [install] Directories created
+
+========================================================
+  STEP B4: Sudoers
+========================================================
+2026-10-12 14:48:43 [install] Sudoers fragment installed
+
+========================================================
+  STEP C1: Lay down the world (tar, or --from-repo checkout)
+========================================================
+2026-10-12 14:48:43 [install] Installing from repository checkout /root/FrogNet -> /
+2026-10-12 14:48:43 [install]   copying etc/ ...
+2026-10-12 14:48:43 [install]   copying opt/ ...
+2026-10-12 14:48:45 [install]   copying usr/ ...
+2026-10-12 14:48:45 [install]   copying var/ ...
+2026-10-12 14:48:45 [install]   /usr/local/bin/installer/frognet_install.sh already in place (laid down by C1)
+2026-10-12 14:48:45 [install]   /usr/local/bin/installer/frognet_reset.sh already in place (laid down by C1)
+2026-10-12 14:48:45 [install] Clearing stale Python bytecode under /opt/frognet_semantic
+2026-10-12 14:48:45 [install] Extraction complete
+2026-10-12 14:48:45 [install] Node GUID at /etc/fnid: 34bfee74785d19d5032643959511a940
+
+========================================================
+  STEP C1b: DB secret injection
+========================================================
+    injected (1 site(s)) /var/www/html/config.php
+    injected (1 site(s)) /opt/frognet_semantic/DB_CONFIG.json
+2026-10-12 14:48:45 [install] DB secret injected into 2 declared file(s)
+
+========================================================
+  STEP C1c: Config consolidation
+========================================================
+[conf-consolidate] already consolidated - no broker.conf or pond.conf present
+
+========================================================
+  STEP C2: Python venv
+========================================================
+2026-10-12 14:48:45 [install] Rebuilding venv for x86_64 (23 packages; ARM wheels may compile, minutes each)
+2026-10-12 14:48:45 [install]   Removing old venv: /opt/frognet_semantic/venv
+2026-10-12 14:48:45 [install]   Creating venv (python3 -m venv)...
+2026-10-12 14:48:51 [install]   Upgrading pip in venv...
+Requirement already satisfied: pip in /opt/frognet_semantic/venv/lib/python3.12/site-packages (24.0)
+Collecting pip
+  Downloading pip-26.2.1-py3-none-any.whl.metadata (4.6 kB)
+Downloading pip-26.2.1-py3-none-any.whl (1.8 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 5.1 MB/s eta 0:00:00
+Installing collected packages: pip
+  Attempting uninstall: pip
+    Found existing installation: pip 24.0
+    Uninstalling pip-24.0:
+      Successfully uninstalled pip-24.0
+Successfully installed pip-26.2.1
+2026-10-12 14:48:57 [install]   [1/23] pip install mysql-connector-python ...
+Collecting mysql-connector-python
+  Using cached mysql_connector_python-26.7.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Using cached mysql_connector_python-26.7.0-cp312-cp312-manylinux_2_28_x86_64.whl (21.7 MB)
+Installing collected packages: mysql-connector-python
+Successfully installed mysql-connector-python-26.7.0
+2026-10-12 14:48:59 [install]   [1/23] OK: mysql-connector-python
+2026-10-12 14:48:59 [install]   [2/23] pip install mysqlclient ...
+Collecting mysqlclient
+  Using cached mysqlclient-2.3.0-cp312-cp312-linux_x86_64.whl
+Installing collected packages: mysqlclient
+Successfully installed mysqlclient-2.3.0
+2026-10-12 14:49:00 [install]   [2/23] OK: mysqlclient
+2026-10-12 14:49:00 [install]   [3/23] pip install NetfilterQueue ...
+Collecting NetfilterQueue
+  Using cached netfilterqueue-1.1.0-cp312-cp312-linux_x86_64.whl
+Installing collected packages: NetfilterQueue
+Successfully installed NetfilterQueue-1.1.0
+2026-10-12 14:49:01 [install]   [3/23] OK: NetfilterQueue
+2026-10-12 14:49:01 [install]   [4/23] pip install aiohttp ...
+Collecting aiohttp
+  Using cached aiohttp-3.14.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.3 kB)
+Collecting aiohappyeyeballs>=2.5.0 (from aiohttp)
+  Using cached aiohappyeyeballs-2.7.1-py3-none-any.whl.metadata (5.9 kB)
+Collecting aiosignal>=1.4.0 (from aiohttp)
+  Using cached aiosignal-1.4.0-py3-none-any.whl.metadata (3.7 kB)
+Collecting attrs>=17.3.0 (from aiohttp)
+  Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting frozenlist>=1.1.1 (from aiohttp)
+  Using cached frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (20 kB)
+Collecting multidict<8.0,>=4.5 (from aiohttp)
+  Using cached multidict-7.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (6.2 kB)
+Collecting propcache>=0.2.0 (from aiohttp)
+  Using cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (25 kB)
+Collecting typing_extensions>=4.4 (from aiohttp)
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting yarl<2.0,>=1.25.1 (from aiohttp)
+  Using cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (111 kB)
+Collecting idna>=2.0 (from yarl<2.0,>=1.25.1->aiohttp)
+  Using cached idna-3.20-py3-none-any.whl.metadata (7.2 kB)
+Using cached aiohttp-3.14.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (1.9 MB)
+Using cached multidict-7.1.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (483 kB)
+Using cached yarl-1.25.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (117 kB)
+Using cached aiohappyeyeballs-2.7.1-py3-none-any.whl (15 kB)
+Using cached aiosignal-1.4.0-py3-none-any.whl (7.5 kB)
+Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+Using cached frozenlist-1.8.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (242 kB)
+Using cached idna-3.20-py3-none-any.whl (69 kB)
+Using cached propcache-0.5.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (250 kB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Installing collected packages: typing_extensions, propcache, multidict, idna, frozenlist, attrs, aiohappyeyeballs, yarl, aiosignal, aiohttp
+Successfully installed aiohappyeyeballs-2.7.1 aiohttp-3.14.5 aiosignal-1.4.0 attrs-26.1.0 frozenlist-1.8.0 idna-3.20 multidict-7.1.0 propcache-0.5.4 typing_extensions-4.16.0 yarl-1.25.1
+2026-10-12 14:49:05 [install]   [4/23] OK: aiohttp
+2026-10-12 14:49:06 [install]   [5/23] pip install lz4 ...
+Collecting lz4
+  Downloading lz4-4.4.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (3.8 kB)
+Downloading lz4-4.4.5-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (1.4 MB)
+Installing collected packages: lz4
+Successfully installed lz4-4.4.5
+2026-10-12 14:49:08 [install]   [5/23] OK: lz4
+2026-10-12 14:49:09 [install]   [6/23] pip install msgpack ...
+Collecting msgpack
+  Using cached msgpack-1.2.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.3 kB)
+Using cached msgpack-1.2.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (472 kB)
+Installing collected packages: msgpack
+Successfully installed msgpack-1.2.3
+2026-10-12 14:49:09 [install]   [6/23] OK: msgpack
+2026-10-12 14:49:10 [install]   [7/23] pip install orjson ...
+Collecting orjson
+  Using cached orjson-3.13.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (42 kB)
+Using cached orjson-3.13.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (130 kB)
+Installing collected packages: orjson
+Successfully installed orjson-3.13.0
+2026-10-12 14:49:11 [install]   [7/23] OK: orjson
+2026-10-12 14:49:11 [install]   [8/23] pip install cbor2 ...
+Collecting cbor2
+  Using cached cbor2-6.1.5-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (5.5 kB)
+Using cached cbor2-6.1.5-cp312-cp312-manylinux_2_28_x86_64.whl (463 kB)
+Installing collected packages: cbor2
+Successfully installed cbor2-6.1.5
+2026-10-12 14:49:12 [install]   [8/23] OK: cbor2
+2026-10-12 14:49:12 [install]   [9/23] pip install psutil ...
+Collecting psutil
+  Using cached psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl.metadata (22 kB)
+Using cached psutil-7.2.2-cp36-abi3-manylinux2010_x86_64.manylinux_2_12_x86_64.manylinux_2_28_x86_64.whl (155 kB)
+Installing collected packages: psutil
+Successfully installed psutil-7.2.2
+2026-10-12 14:49:13 [install]   [9/23] OK: psutil
+2026-10-12 14:49:13 [install]   [10/23] pip install gevent ...
+Collecting gevent
+  Using cached gevent-26.9.0-cp312-cp312-manylinux_2_28_x86_64.whl.metadata (14 kB)
+Collecting greenlet>=3.2.2 (from gevent)
+  Using cached greenlet-3.5.6-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (3.8 kB)
+Collecting zope.event (from gevent)
+  Using cached zope_event-6.2-py3-none-any.whl.metadata (5.4 kB)
+Collecting zope.interface (from gevent)
+  Using cached zope_interface-8.6-cp312-cp312-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (47 kB)
+Using cached gevent-26.9.0-cp312-cp312-manylinux_2_28_x86_64.whl (2.2 MB)
+Using cached greenlet-3.5.6-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (621 kB)
+Using cached zope_event-6.2-py3-none-any.whl (6.5 kB)
+Using cached zope_interface-8.6-cp312-cp312-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (270 kB)
+Installing collected packages: zope.interface, zope.event, greenlet, gevent
+Successfully installed gevent-26.9.0 greenlet-3.5.6 zope.event-6.2 zope.interface-8.6
+2026-10-12 14:49:16 [install]   [10/23] OK: gevent
+2026-10-12 14:49:16 [install]   [11/23] pip install gunicorn ...
+Collecting gunicorn
+  Using cached gunicorn-26.2.0-py3-none-any.whl.metadata (5.5 kB)
+Using cached gunicorn-26.2.0-py3-none-any.whl (228 kB)
+Installing collected packages: gunicorn
+Successfully installed gunicorn-26.2.0
+2026-10-12 14:49:17 [install]   [11/23] OK: gunicorn
+2026-10-12 14:49:17 [install]   [12/23] pip install Flask ...
+Collecting Flask
+  Using cached flask-3.1.3-py3-none-any.whl.metadata (3.2 kB)
+Collecting blinker>=1.9.0 (from Flask)
+  Using cached blinker-1.9.0-py3-none-any.whl.metadata (1.6 kB)
+Collecting click>=8.1.3 (from Flask)
+  Using cached click-8.5.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting itsdangerous>=2.2.0 (from Flask)
+  Using cached itsdangerous-2.2.0-py3-none-any.whl.metadata (1.9 kB)
+Collecting jinja2>=3.1.2 (from Flask)
+  Using cached jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting markupsafe>=2.1.1 (from Flask)
+  Using cached markupsafe-3.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting werkzeug>=3.1.0 (from Flask)
+  Using cached werkzeug-3.1.9-py3-none-any.whl.metadata (4.1 kB)
+Using cached flask-3.1.3-py3-none-any.whl (103 kB)
+Using cached blinker-1.9.0-py3-none-any.whl (8.5 kB)
+Using cached click-8.5.0-py3-none-any.whl (125 kB)
+Using cached itsdangerous-2.2.0-py3-none-any.whl (16 kB)
+Using cached jinja2-3.1.6-py3-none-any.whl (134 kB)
+Using cached markupsafe-3.0.4-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+Using cached werkzeug-3.1.9-py3-none-any.whl (228 kB)
+Installing collected packages: markupsafe, itsdangerous, click, blinker, werkzeug, jinja2, Flask
+Successfully installed Flask-3.1.3 blinker-1.9.0 click-8.5.0 itsdangerous-2.2.0 jinja2-3.1.6 markupsafe-3.0.4 werkzeug-3.1.9
+2026-10-12 14:49:19 [install]   [12/23] OK: Flask
+2026-10-12 14:49:20 [install]   [13/23] Werkzeug already present - skipping
+2026-10-12 14:49:20 [install]   [14/23] pip install gpsdclient ...
+Collecting gpsdclient
+  Using cached gpsdclient-1.3.2-py3-none-any.whl.metadata (7.2 kB)
+Using cached gpsdclient-1.3.2-py3-none-any.whl (7.9 kB)
+Installing collected packages: gpsdclient
+Successfully installed gpsdclient-1.3.2
+2026-10-12 14:49:21 [install]   [14/23] OK: gpsdclient
+2026-10-12 14:49:21 [install]   [15/23] pip install paho-mqtt ...
+Collecting paho-mqtt
+  Using cached paho_mqtt-2.1.0-py3-none-any.whl.metadata (23 kB)
+Using cached paho_mqtt-2.1.0-py3-none-any.whl (67 kB)
+Installing collected packages: paho-mqtt
+Successfully installed paho-mqtt-2.1.0
+2026-10-12 14:49:22 [install]   [15/23] OK: paho-mqtt
+2026-10-12 14:49:22 [install]   [16/23] pip install requests ...
+Collecting requests
+  Using cached requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting charset_normalizer<4,>=2 (from requests)
+  Using cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (46 kB)
+Requirement already satisfied: idna<4,>=2.5 in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from requests) (3.20)
+Collecting urllib3<3,>=1.26 (from requests)
+  Using cached urllib3-2.8.0-py3-none-any.whl.metadata (7.4 kB)
+Collecting certifi>=2023.5.7 (from requests)
+  Using cached certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Using cached requests-2.34.2-py3-none-any.whl (73 kB)
+Using cached charset_normalizer-3.5.2-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (257 kB)
+Using cached urllib3-2.8.0-py3-none-any.whl (135 kB)
+Using cached certifi-2026.7.22-py3-none-any.whl (136 kB)
+Installing collected packages: urllib3, charset_normalizer, certifi, requests
+Successfully installed certifi-2026.7.22 charset_normalizer-3.5.2 requests-2.34.2 urllib3-2.8.0
+2026-10-12 14:49:23 [install]   [16/23] OK: requests
+2026-10-12 14:49:23 [install]   [17/23] pip install python-dotenv ...
+Collecting python-dotenv
+  Using cached python_dotenv-1.2.4-py3-none-any.whl.metadata (29 kB)
+Using cached python_dotenv-1.2.4-py3-none-any.whl (23 kB)
+Installing collected packages: python-dotenv
+Successfully installed python-dotenv-1.2.4
+2026-10-12 14:49:24 [install]   [17/23] OK: python-dotenv
+2026-10-12 14:49:25 [install]   [18/23] pip install simplejson ...
+Collecting simplejson
+  Using cached simplejson-4.2.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (3.8 kB)
+Using cached simplejson-4.2.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (198 kB)
+Installing collected packages: simplejson
+Successfully installed simplejson-4.2.0
+2026-10-12 14:49:25 [install]   [18/23] OK: simplejson
+2026-10-12 14:49:26 [install]   [19/23] pip install ujson ...
+Collecting ujson
+  Using cached ujson-6.0.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (10.0 kB)
+Using cached ujson-6.0.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (56 kB)
+Installing collected packages: ujson
+Successfully installed ujson-6.0.0
+2026-10-12 14:49:27 [install]   [19/23] OK: ujson
+2026-10-12 14:49:27 [install]   [20/23] pip install PyYAML ...
+Collecting PyYAML
+  Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+Installing collected packages: PyYAML
+Successfully installed PyYAML-6.0.3
+2026-10-12 14:49:29 [install]   [20/23] OK: PyYAML
+2026-10-12 14:49:29 [install]   [21/23] pip install cryptography ...
+Collecting cryptography
+  Using cached cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (4.4 kB)
+Collecting cffi>=2.0.0 (from cryptography)
+  Using cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.5 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography)
+  Using cached pycparser-3.11-py3-none-any.whl.metadata (8.2 kB)
+Using cached cryptography-50.0.2-cp311-abi3-manylinux_2_34_x86_64.whl (4.8 MB)
+Using cached cffi-2.1.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (221 kB)
+Using cached pycparser-3.11-py3-none-any.whl (51 kB)
+Installing collected packages: pycparser, cffi, cryptography
+Successfully installed cffi-2.1.1 cryptography-50.0.2 pycparser-3.11
+2026-10-12 14:49:31 [install]   [21/23] OK: cryptography
+2026-10-12 14:49:31 [install]   [22/23] pip install pyOpenSSL ...
+Collecting pyOpenSSL
+  Using cached pyopenssl-26.4.0-py3-none-any.whl.metadata (22 kB)
+Requirement already satisfied: cryptography<51,>=49.0.0 in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from pyOpenSSL) (50.0.2)
+Requirement already satisfied: typing-extensions>=4.9 in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from pyOpenSSL) (4.16.0)
+Requirement already satisfied: cffi>=2.0.0 in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from cryptography<51,>=49.0.0->pyOpenSSL) (2.1.1)
+Requirement already satisfied: pycparser in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from cffi>=2.0.0->cryptography<51,>=49.0.0->pyOpenSSL) (3.11)
+Using cached pyopenssl-26.4.0-py3-none-any.whl (56 kB)
+Installing collected packages: pyOpenSSL
+Successfully installed pyOpenSSL-26.4.0
+2026-10-12 14:49:32 [install]   [22/23] OK: pyOpenSSL
+2026-10-12 14:49:32 [install]   [23/23] pip install httpx ...
+Collecting httpx
+  Using cached httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+Collecting anyio (from httpx)
+  Using cached anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)
+Requirement already satisfied: certifi in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from httpx) (2026.7.22)
+Collecting httpcore==1.* (from httpx)
+  Using cached httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+Requirement already satisfied: idna in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from httpx) (3.20)
+Collecting h11>=0.16 (from httpcore==1.*->httpx)
+  Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Requirement already satisfied: typing_extensions>=4.16.0 in /opt/frognet_semantic/venv/lib/python3.12/site-packages (from anyio->httpx) (4.16.0)
+Using cached httpx-0.28.1-py3-none-any.whl (73 kB)
+Using cached httpcore-1.0.9-py3-none-any.whl (78 kB)
+Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+Using cached anyio-4.15.1-py3-none-any.whl (132 kB)
+Installing collected packages: h11, anyio, httpcore, httpx
+Successfully installed anyio-4.15.1 h11-0.16.0 httpcore-1.0.9 httpx-0.28.1
+2026-10-12 14:49:33 [install]   [23/23] OK: httpx
+2026-10-12 14:49:33 [install] Venv complete (23 packages)
+
+========================================================
+  STEP C3: Pre-activation simulator gate (real code on real hardware)
+========================================================
+2026-10-12 14:49:34 [install]   Running pre-activation simulator on real code (log: /var/log/frognet_preactivation_sim.log) ...
+2026-10-12 14:49:49 [install]   [PASS] discovery selfcheck (all suites)
+2026-10-12 14:49:49 [install]   [SKIP] discovery lifecycle E2E (development gate; not valid mid-install)
+2026-10-12 14:49:49 [install]   Pre-activation simulator gate PASSED - real code cleared for activation.
+
+========================================================
+  STEP D1: Detect interfaces
+========================================================
+2026-10-12 14:49:49 [install] Detected: eth0=eth1 wlan0=wlan0 wlan1=wlan1
+
+========================================================
+  STEP D2: Clean stale state
+========================================================
+2026-10-12 14:49:50 [install] Stale state cleaned
+
+========================================================
+  STEP D3: Interface overrides
+========================================================
+2026-10-12 14:49:50 [install] Interface overrides written
+
+========================================================
+  STEP D4: MariaDB
+========================================================
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable mariadb
+2026-10-12 14:49:51 [install] MariaDB configured (pool=1024M, RAM=8029M)
+
+========================================================
+  STEP D5: Apache
+========================================================
+Enabling module rewrite.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Enabling module proxy.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Considering dependency proxy for proxy_http:
+Module proxy already enabled
+Enabling module proxy_http.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Considering dependency proxy for proxy_fcgi:
+Module proxy already enabled
+Enabling module proxy_fcgi.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Module setenvif already enabled
+Enabling module headers.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Considering dependency mime for ssl:
+Module mime already enabled
+Considering dependency socache_shmcb for ssl:
+Enabling module socache_shmcb.
+Enabling module ssl.
+See /usr/share/doc/apache2/README.Debian.gz on how to configure SSL and create self-signed certificates.
+To activate the new configuration, you need to run:
+  systemctl restart apache2
+Considering dependency filter for deflate:
+Module filter already enabled
+Module deflate already enabled
+Module status already enabled
+Considering dependency mpm_prefork for php8.3:
+Considering conflict mpm_event for mpm_prefork:
+Considering conflict mpm_worker for mpm_prefork:
+Module mpm_prefork already enabled
+Considering conflict php5 for php8.3:
+Module php8.3 already enabled
+2026-10-12 14:49:52 [install] PHP 8.3 (mod_php, all FPM disabled)
+Conf other-vhosts-access-log disabled.
+To activate the new configuration, you need to run:
+  systemctl reload apache2
+Site 000-default disabled.
+To activate the new configuration, you need to run:
+  systemctl reload apache2
+Enabling site 000-default.
+Enabling site admin-site.
+Enabling site databasehost.
+Enabling site frognet-ssl.
+To activate the new configuration, you need to run:
+  systemctl reload apache2
+Synchronizing state of apache2.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable apache2
+2026-10-12 14:49:53 [install] Apache configured (not started - SSL certs come later)
+
+========================================================
+  STEP D6: dnsmasq skeleton
+========================================================
+=== u1 ===
+Synchronizing state of unbound.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable unbound
+Removed "/etc/systemd/system/multi-user.target.wants/unbound.service".
+Done on u1
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable dnsmasq
+2026-10-12 14:49:54 [install] dnsmasq skeleton configured
+
+========================================================
+  STEP D7: NetworkManager
+========================================================
+2026-10-12 14:49:54 [install] NetworkManager configured (applies on reboot; not restarted to preserve SSH)
+
+========================================================
+  STEP D8: Schema + data + FrogUser
+========================================================
+2026-10-12 14:49:54 [install] Loading schema (/var/www/html/Create_Database.sql)...
+2026-10-12 14:49:54 [install] Schema loaded
+2026-10-12 14:49:54 [install] Applying schema migrations (/var/www/html/schema_fixups.sql)...
+width_check
+ok
+2026-10-12 14:49:55 [install] Schema migrations applied
+2026-10-12 14:49:55 [install] --from-repo: new node, tables start empty (no database dump - a checkout is not a node clone)
+2026-10-12 14:49:55 [install] Setting FrogUser password...
+2026-10-12 14:49:55 [install] FrogUser auth verified
+2026-10-12 14:49:55 [install] DB_CONFIG.json password matches the installed grant
+
+========================================================
+  STEP E1: Node identity
+========================================================
+2026-10-12 14:49:55 [install] Using --name: U1
+2026-10-12 14:49:55 [install] Using --ip: 10.63.63.1
+2026-10-12 14:49:55 [WARN]      10.63.63.1 responded to ping - proceeding anyway (--ip was given)
+2026-10-12 14:49:55 [install] SSID_PROJECTION=0  AP_IFACE=wlan0  WIFI_COUNTRY=US
+
+  +------------------------------------+
+  |  Name:      U1                     |
+  |  IP:        10.63.63.1             |
+  |  Interface: eth1                   |
+  |  Broker:    192.0.2.1:8443         |
+  |  SSID proj: disabled               |
+  +------------------------------------+
+
+2026-10-12 14:49:55 [install] Non-interactive identity: skipping confirm prompt
+2026-10-12 14:49:55 [install] Identity: U1 10.63.63.1 eth1
+2026-10-12 14:49:55 [install] Gateway: broker host supplied on the command line (192.0.2.1)
+
+========================================================
+  STEP E2: Hostname
+========================================================
+2026-10-12 14:49:55 [install] Hostname: FrogNetHost.U1
+
+========================================================
+  STEP E3: setup_lillypad (v4) + WireGuard credentials
+========================================================
+2026-10-12 14:49:55 [install] Using machine IP: 10.63.63.1
+2026-10-12 14:49:55 [install] Broker URL from args: http://192.0.2.1:8443
+2026-10-12 14:49:55 [install] Joining pond: testpond
+[setup_lillypad] 14:49:55 Resolved eth0 interface: eth1
+[setup_lillypad] 14:49:55 Interface eth1 is present
+[setup_lillypad] 14:49:55 Identity transition: OLD_NAME='none' NEW='U1' OLD_SSID='none' projection=on
+[setup_lillypad] 14:49:55 Configuring FrogNet gateway: U1
+[setup_lillypad] 14:49:55   Gateway IP: 10.63.63.1
+[setup_lillypad] 14:49:55   Admin IP:   10.63.63.2
+[setup_lillypad] 14:49:55   Subnet: 10.63.63.0/24
+[setup_lillypad] 14:49:55   DHCP range: 10.63.63.3 - 10.63.63.254
+[setup_lillypad] 14:49:55 Step 1: Stopping interfering services...
+[setup_lillypad] 14:49:55   [--norestart] NOT restarting NetworkManager (would drop the install SSH; applies on reboot)
+[setup_lillypad] 14:49:55 Step 1b: Purging stale config from prior identity...
+[setup_lillypad] 14:49:55 Step 1b: Purge complete
+[setup_lillypad] 14:49:55 Step 1c: Reconciling cloned image to this machine...
+[setup_lillypad] 14:49:57   Syncing FrogUser password from config.php / DB_CONFIG.json...
+[setup_lillypad] 14:49:57   FrogUser password sync OK (socket and 127.0.0.1)
+Considering dependency mpm_prefork for php8.3:
+Considering conflict mpm_event for mpm_prefork:
+Considering conflict mpm_worker for mpm_prefork:
+Module mpm_prefork already enabled
+Considering conflict php5 for php8.3:
+Module php8.3 already enabled
+[setup_lillypad] 14:49:57   Enabled Apache module: php8.3
+[setup_lillypad] 14:49:57   [--norestart] not restarting: apache2 (applies on reboot)
+[setup_lillypad] 14:49:57   [--norestart] not restarting: frognet-proxy frognet-daemon (applies on reboot)
+[setup_lillypad] 14:49:57 Step 1c: Reconciliation complete
+[setup_lillypad] 14:49:57 Step 2: Cleaning up NetworkManager connections...
+[setup_lillypad] 14:49:57 Step 3: Preparing eth1...
+[setup_lillypad] 14:49:58   [--norestart] NOT flushing/re-addressing eth1 (would drop the install SSH; NM profile applies on reboot)
+[setup_lillypad] 14:49:58   Current eth1 IP: 10.63.63.1/24
+[setup_lillypad] 14:49:58 Step 5: Creating NetworkManager connection...
+Connection 'U1' (a7c98e58-918d-4bfc-8581-d653173a0986) successfully added.
+[setup_lillypad] 14:49:58 Step 6/7: [--norestart] connection profile saved; NOT activated live (applies on reboot)
+[setup_lillypad] 14:49:58   eth1 primary IP: 10.63.63.1
+[setup_lillypad] 14:49:58 Step 8: Setting hostname...
+[setup_lillypad] 14:49:58 Step 9: Configuring dnsmasq...
+[setup_lillypad] 14:49:58   dnsmasq: LAN device eth1 resolved from GATEWAY_IP=10.63.63.1
+[setup_lillypad] 14:49:58   dnsmasq: DHCP scoped to eth1 (LAN-projecting device)
+[setup_lillypad] 14:49:58   [--norestart] not restarting dnsmasq (applies on reboot)
+[setup_lillypad] 14:49:58 Step 9b: Reconciling projected SSID (mode=on, old='none')...
+[setup_lillypad] 14:49:58 Step 10: Creating config files...
+[setup_lillypad] 14:49:58 Step 11: Creating boot-time fixup service...
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-eth0-fixup.service → /etc/systemd/system/frognet-eth0-fixup.service.
+[setup_lillypad] 14:49:59 Step 12: Configuring transit to skip eth1...
+[setup_lillypad] 14:49:59 Step 13: Restarting services...
+[setup_lillypad] 14:49:59   [--norestart] not restarting: apache2 (applies on reboot)
+[setup_lillypad] 14:49:59   [--norestart] not restarting: dnsmasq (applies on reboot)
+[setup_lillypad] 14:49:59   [--norestart] not restarting: frognet-proxy (applies on reboot)
+[setup_lillypad] 14:49:59   [--norestart] not restarting: frognet-daemon (applies on reboot)
+[setup_lillypad] 14:50:08 
+[setup_lillypad] 14:50:08 ============================================
+[setup_lillypad] 14:50:08 Step N: Writing /etc/frognet/tunnel.conf...
+[setup_lillypad] 14:50:08   Updated existing /etc/frognet/tunnel.conf (BROKER_URL set, other fields preserved)
+[setup_lillypad] 14:50:08   BROKER_URL=http://192.0.2.1:8443
+[setup_lillypad] 14:50:08   Wrote /etc/frognet/tunnel.conf (BROKER_URL + pond=testpond) for tunnel-setup-v3
+[setup_lillypad] 14:50:08 Setup complete!
+[setup_lillypad] 14:50:08 
+[setup_lillypad] 14:50:08 eth1 configuration:
+3: eth1@if550: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
+    inet 10.63.63.1/24 brd 10.63.63.255 scope global eth1
+[setup_lillypad] 14:50:08 
+[setup_lillypad] 14:50:08 getEth0Address returns:
+10.63.63.1
+[setup_lillypad] 14:50:08 
+[setup_lillypad] 14:50:08 Service health:
+[setup_lillypad] 14:50:08   mariadb: active
+[setup_lillypad] 14:50:08   apache2: failed
+not found
+[setup_lillypad] 14:50:08   dnsmasq: inactive
+not found
+[setup_lillypad] 14:50:09   frognet-proxy: inactive
+not found
+[setup_lillypad] 14:50:09   frognet-daemon: inactive
+not found
+[setup_lillypad] 14:50:09 
+[setup_lillypad] 14:50:09 FrogUser auth:
+[setup_lillypad] 14:50:09   OK
+[setup_lillypad] 14:50:09 
+[setup_lillypad] 14:50:09 frognet_echo:
+[setup_lillypad] 14:50:09   curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Couldn't connect to server
+[setup_lillypad] 14:50:09 ============================================
+2026-10-12 14:50:09 [install] setup_lillypad (v4) complete (config applied; interface + services come up on reboot)
+[tunnel_setup] 2026-10-12T14:50:09Z Direct upstream detected (non-10.x default route present) - proceeding with broker registration.
+[tunnel_setup] 2026-10-12T14:50:09Z Broker: http://192.0.2.1:8443
+[tunnel_setup] 2026-10-12T14:50:09Z Generating WireGuard keypair
+[tunnel_setup] 2026-10-12T14:50:09Z Public key: OKOLJhYbd/ffDYSk0w+GPf+BScDhKbTBs+ZbR+P6NWk=
+[tunnel_setup] 2026-10-12T14:50:09Z Node: U1  Subnet: 10.63.63.0/24
+[tunnel_setup] 2026-10-12T14:50:09Z Pond: testpond
+[tunnel_setup] 2026-10-12T14:50:09Z Registering with broker...
+[tunnel_setup] 2026-10-12T14:50:09Z ERROR: Registration failed
+[tunnel_setup] 2026-10-12T14:50:09Z Response: 
+2026-10-12 14:50:09 [WARN]    broker enrolment did not complete (broker unreachable?) - deferring
+2026-10-12 14:50:09 [install] Broker configured - enrolment deferred to the next merge (network-event driven)
+
+========================================================
+  STEP E4: Apache admin-site
+========================================================
+
+========================================================
+  STEP E5: SSL certificates
+========================================================
+2026-10-12 14:50:09 [install] SSL + Apache configured (applies on reboot)
+
+========================================================
+  STEP E6: iptables
+========================================================
+
+========================================================
+  STEP E6a: WiFi AP prerequisites
+========================================================
+2026-10-12 14:50:10 [install]   Installed /etc/hostapd/hostapd.conf.template from release
+  iw: nl80211 not found.
+2026-10-12 14:50:10 [install]   iw reg set US
+2026-10-12 14:50:10 [install]   Wrote /etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf (unmanaged: wlan0)
+
+========================================================
+  STEP E7: SSID projection (WiFi AP fallback)
+========================================================
+2026-10-12 14:50:10 [install] SSID projection: DISABLED  iface=wlan0  country=US
+2026-10-12 14:50:10 [install]   hostapd masked
+  helper: 2026-10-12 14:50:10 === FrogNet network mode detection ===
+  helper: 2026-10-12 14:50:10 Node subnet: 10.63.63.0/24, identity: 10.63.63.1, admin: 10.63.63.2
+  helper: 2026-10-12 14:50:10 Node name: U1
+  helper: 2026-10-12 14:50:10 Roles: eth0Name=eth1  AP_IFACE=wlan0  country=US
+  helper: 2026-10-12 14:50:10 Detected mode: wired  (SSID_PROJECTION=0)
+  helper: 2026-10-12 14:50:10 Runtime mode: true
+  helper: 2026-10-12 14:50:10 Wired mode: eth0 carries identity
+  helper: 2026-10-12 14:50:10 Identity 10.63.63.1 already on eth1
+  helper: 2026-10-12 14:50:10 Assigned 10.63.63.2/24 to eth1
+  helper: 2026-10-12 14:50:10 Returning wlan0 to NetworkManager
+  helper: nmcli: Error: Device 'wlan0' not found.
+  helper: 2026-10-12 14:50:10 eth0Name set to eth1
+  helper: 2026-10-12 14:50:10 dnsmasq restarted
+  helper: 2026-10-12 14:50:10 Triggering discovery...
+  helper: 2026-10-12 14:50:10 === FrogNet network mode configuration complete ===
+  helper: {"ok":true,"enabled":false,"state":"off"}
+  helper: [2026-10-12T14:50:11.056] runMerge INFO pid=30391 STAGE=enter pid=30391 merge_id=20261012T145011-30391 debug_dir=/run/frognet/debug/20261012T145011-30391
+  helper: [2026-10-12T14:50:11.059] runMerge INFO pid=30391 ENTER depth=0 argv_count=0 pybin=/opt/frognet_semantic/venv/bin/python3
+  helper: [2026-10-12T14:50:11.065] runMerge WARN pid=30391 BAIL reason=lock_held depth=0
+  helper: [2026-10-12T14:50:11.082] runMerge INFO pid=30391 runAgain_touched reason=for_running_instance
+
+========================================================
+  STEP E8: Link watcher (ifplugd -> frognet-netstart)
+========================================================
+2026-10-12 14:50:11 [install]   installed /etc/ifplugd/action.d/frognet
+2026-10-12 14:50:11 [install]   configured /etc/default/ifplugd to watch eth1
+
+========================================================
+  STEP F0: Cache nuke
+========================================================
+=== FrogNet Cache Nuke on FrogNetHost.U1 ===
+2026-10-12 14:50:11
+
+[1/5] Stopping frognet-proxy and frognet-daemon...
+  Done.
+
+[2/5] Truncating SemCacheProxy table...
+--------------
+TRUNCATE TABLE SemCacheProxy
+--------------
+
+ERROR 1146 (42S02) at line 1: Table 'FrogNet.SemCacheProxy' doesn't exist
+  SemCacheProxy table does not exist (OK)
+  SemCacheProxy rows after truncate: N/A
+
+[3/5] Truncating SemCacheDaemon table...
+--------------
+TRUNCATE TABLE SemCacheDaemon
+--------------
+
+ERROR 1146 (42S02) at line 1: Table 'FrogNet.SemCacheDaemon' doesn't exist
+  SemCacheDaemon table does not exist (OK)
+  SemCacheDaemon rows after truncate: N/A
+
+[4/5] Cleaning temp and diag files...
+  Removed /tmp/frognet_proxy_diag.tsv
+  Removed /tmp/frognet_daemon_diag.tsv
+  Removed /tmp/frognet_*.log
+  Done.
+
+[5/5] Restarting frognet-daemon and frognet-proxy...
+  frognet-daemon: active
+  frognet-proxy:  active
+
+=== Cache nuke complete on FrogNetHost.U1 ===
+All requests will now be REQ_FULL until caches rebuild.
+
+2026-10-12 14:50:14 [install] Cache nuke complete
+
+========================================================
+  STEP F1: Enable services
+========================================================
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-proxy.service → /etc/systemd/system/frognet-proxy.service.
+2026-10-12 14:50:15 [install]   enabled: frognet-proxy
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-daemon.service → /etc/systemd/system/frognet-daemon.service.
+2026-10-12 14:50:15 [install]   enabled: frognet-daemon
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-merge-watcher.service → /etc/systemd/system/frognet-merge-watcher.service.
+2026-10-12 14:50:15 [install]   enabled: frognet-merge-watcher
+2026-10-12 14:50:16 [install]   enabled: frognet-eth0-fixup
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-sysperf.service → /etc/systemd/system/frognet-sysperf.service.
+2026-10-12 14:50:16 [install]   enabled: frognet-sysperf
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-tunnel-setup.service → /etc/systemd/system/frognet-tunnel-setup.service.
+2026-10-12 14:50:16 [install]   enabled: frognet-tunnel-setup
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-tunnel-daemon-v3.service → /etc/systemd/system/frognet-tunnel-daemon-v3.service.
+2026-10-12 14:50:16 [install]   enabled: frognet-tunnel-daemon-v3
+The unit files have no installation config (WantedBy=, RequiredBy=, UpheldBy=,
+Also=, or Alias= settings in the [Install] section, and DefaultInstance= for
+template units). This means they are not meant to be enabled or disabled using systemctl.
+ 
+Possible reasons for having these kinds of units are:
+• A unit may be statically enabled by being symlinked from another unit's
+  .wants/, .requires/, or .upholds/ directory.
+• A unit's purpose may be to act as a helper for some other unit which has
+  a requirement dependency on it.
+• A unit may be started when needed via activation (socket, path, timer,
+  D-Bus, udev, scripted systemctl call, ...).
+• In case of template units, the unit is meant to be enabled with some
+  instance name specified.
+2026-10-12 14:50:16 [install]   enabled: frognet-pond-bootstrap
+Synchronizing state of apache2.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable apache2
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable mariadb
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable dnsmasq
+Synchronizing state of cron.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable cron
+2026-10-12 14:50:20 [install]   enabled: frognet-dbhost-advertise.timer
+2026-10-12 14:50:21 [install]   enabled: frognet-mediahost-advertise.timer
+[advertisers] enabled frognet-dbhost-advertise.timer
+[advertisers] enabled frognet-mediahost-advertise.timer
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+ModuleNotFoundError: No module named 'frognet_tuples'
+Traceback (most recent call last):
+  File "<stdin>", line 8, in <module>
+ModuleNotFoundError: No module named 'frognet_tuples'
+[advertisers] DONE — db + media registration enabled (start at boot, every 60s).
+2026-10-12 14:50:22 [install]   candidate registration set up (db + media advertisers)
+
+========================================================
+  STEP F2: Log management
+========================================================
+
+========================================================
+  STEP F3: Crontab
+========================================================
+
+========================================================
+  STEP F4: froguser
+========================================================
+
+========================================================
+  STEP F5: Cleanup
+========================================================
+
+========================================================
+  STEP F6: Verify
+========================================================
+  +  hostname
+  +  mariadb running
+  +  apache2 enabled
+  +  dnsmasq enabled
+  +  frognet-proxy enabled
+  +  frognet-daemon enabled
+  +  resolved off
+  +  FrogNet DB
+  +  FrogNetFamily DB
+  +  FrogUser auth
+  +  interfaces_override
+  +  ip_forward
+  +  ssl cert
+  +  sudoers
+  +  sudoers valid
+  +  qrencode
+  +  merge controller present
+  +  connectivity hook present
+  +  ssid_projection.conf
+  +  gateways.conf
+  +  dnsmasq node
+  +  proxy enabled
+  +  daemon enabled
+  x  echo: curl: (22) The requested URL returned error: 502
+
+  1 check(s) failed.
+
+========================================================
+  STEP F7: System tuning
+========================================================
+[frognet_system_tune][2026-10-12 14:50:23] Discovering hardware...
+[frognet_system_tune][2026-10-12 14:50:23] RAM: 8029MB (tier=8G) CPUs: 2 SD_CARD: 0
+[frognet_system_tune][2026-10-12 14:50:23] Tuning: MySQL max_conn=500 innodb_bp=2G Apache max_workers=256 daemon_pool=256 daemon_db_pool=228
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/apache2/mods-available/mpm_prefork.conf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/sysctl.d/99-frognet.conf
+sysctl: setting key "net.netfilter.nf_conntrack_max": Operation not permitted
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_established = 300
+net.core.somaxconn = 1024
+sysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory
+net.ipv4.tcp_max_syn_backlog = 1024
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 60999
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 5
+fs.file-max = 100000
+sysctl: setting key "net.core.rmem_max": Operation not permitted
+sysctl: setting key "net.core.wmem_max": Operation not permitted
+sysctl: setting key "net.core.rmem_default": Operation not permitted
+sysctl: setting key "net.core.wmem_default": Operation not permitted
+[frognet_system_tune][2026-10-12 14:50:23] WARNING: sysctl apply had errors (conntrack module may not be loaded yet)
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+[frognet_system_tune][2026-10-12 14:50:23] Applied sysctl settings
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/security/limits.d/99-frognet.conf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/systemd/system/frognet-proxy.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/systemd/system/frognet-daemon.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/systemd/system/frognet-tunnel-daemon.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 14:50:23] Wrote /etc/systemd/system/aiconnect.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 14:50:23] Reloaded systemd
+[frognet_system_tune][2026-10-12 14:50:23] Added /tmp tmpfs to fstab (size=256m)
+[frognet_system_tune][2026-10-12 14:50:23] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-10-12 14:50:23] FrogNet System Tune Complete
+[frognet_system_tune][2026-10-12 14:50:23]   Hardware:  8029MB RAM, 2 cores, tier=8G
+[frognet_system_tune][2026-10-12 14:50:23]   SD Card:   0
+[frognet_system_tune][2026-10-12 14:50:23]   MariaDB:   max_conn=500 innodb_bp=2G log_flush=2
+[frognet_system_tune][2026-10-12 14:50:23]   Apache:    max_workers=256 max_child=1000
+[frognet_system_tune][2026-10-12 14:50:23]   Daemon:    pool=256 db_pool=228 (env via systemd override)
+[frognet_system_tune][2026-10-12 14:50:23]   Kernel:    conntrack=65536 fd=65536
+[frognet_system_tune][2026-10-12 14:50:23]   tmpfs:     /tmp=256m /var/log=no
+[frognet_system_tune][2026-10-12 14:50:23] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-10-12 14:50:23] Changes applied.  Restart services to take effect:
+[frognet_system_tune][2026-10-12 14:50:23]   systemctl restart mariadb apache2 frognet-proxy frognet-daemon frognet-tunnel-daemon
+
+========================================================
+  STEP F8: Reboot
+========================================================
+Reboot skipped.
+EXIT 0

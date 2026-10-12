@@ -338,9 +338,14 @@ FROGNET_NEVER_SHIP=(
     'etc/frognet/*.pem'
 
     # TLS. The directory ships for its structure; the material does not.
+    # [EACH_NODE_MAKES_ITS_CERT_V1 - T4a] Nor the certificate: a certificate whose key does not ship is of no use to
+    # the node that gets it (Apache will not start on a cert without its key), so the installer's E5 makes the pair
+    # on every node that has no key, and nothing ships either half.
     'etc/ssl/private'
     'etc/ssl/*.key'
     'etc/ssl/*.pem'
+    'etc/ssl/*.crt'
+    'etc/ssl/*.csr'
 
     # Timestamped runtime backups of any of the above. Suffix-anchored ON
     # PURPOSE: a blanket '*backup*' would delete
@@ -358,6 +363,64 @@ FROGNET_NEVER_SHIP=(
     # (and C1b dies if any token survives). See the tokenize step in
     # full_tar.bash. [SHIP_THE_CODE_TOKENIZE_THE_SECRET_V1]
 )
+
+# -----------------------------------------------------------------------------
+# [NODE_FILE_SET_V1 - T4a] What a NODE is made of is FROGNET_WORLD_PATHS minus FROGNET_NEVER_SHIP minus this list: things
+# the tree (and a build host) carries that no node runs. frognet_node_files below applies all three, and both ways a
+# node is laid down use it: frognet_install.sh --from-repo copies exactly its output, and frognet_build_release.sh
+# builds the world tar from the same paths with the same excludes. full_tar.bash (the repository itself) does NOT
+# apply this list: the repository keeps the book and the retired names' history; a node does not get them.
+# The patterns are tar --exclude patterns (matched against the path relative to /; '*' spans '/').
+# -----------------------------------------------------------------------------
+FROGNET_NODE_EXCLUDE=(
+    # The book and its build (Magnum Croakus): read, not run.
+    opt/frognet_semantic/docs
+    # [HAM_OUT_V1] the amateur/AX.25 subsystem does not ship (FCC Part 97.113(a)(4)); frognet_radio_init.sh is its
+    # orphan ham0 driver.
+    'usr/local/bin/ham_*.sh'
+    usr/local/bin/frognet_radio_init.sh
+    # [RETIRED_VERSIONS_V1] only setup_lillypad_v4.bash runs; a build host that still has older ones must not ship them.
+    usr/local/bin/setup_lillypad.bash
+    usr/local/bin/setup_lillypad_v3.bash
+    opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash
+    opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash
+    usr/local/bin/frognet-tunnel-daemon.py
+    # [NO_STAGING_DIRS_UNDER_OPT_V1] stray staging mirrors and the runtime dirs' contents.
+    opt/frognet_semantic/etc
+    opt/frognet_semantic/bin
+    opt/frognet_semantic/usr
+    opt/frognet_semantic/var
+    'opt/frognet_semantic/blob_cache/*'
+    'opt/frognet_semantic/logs/*'
+    # [SHIP_NO_BYTECODE] (a top-level __pycache__ is not matched by '**/').
+    '*/__pycache__'
+    '*.pyc'
+    'opt/frognet_semantic/*.old'
+    opt/frognet_semantic/_v1
+    # Per-node state a build host has and a node makes for itself.
+    etc/NetworkManager/system-connections
+    etc/dnsmasq.d/forward_to_unbound.conf
+    etc/frognet/db.env
+    'etc/wireguard/*.conf'
+    'etc/frognet/tunnel.conf.bak.*'
+)
+
+# frognet_node_files ROOT -- print the node file set under ROOT, one path per line, relative to ROOT, files and
+# symlinks only (no directory entries: laying them down must not reset the mode or owner of /etc, /usr/local/bin or any
+# other existing directory). ROOT is / on a build host, the checkout on --from-repo. The excludes are applied by GNU
+# tar itself (it lists without reading file data when the archive is /dev/null), so they mean exactly what they mean in
+# frognet_build_release.sh's world tar. A WORLD_PATHS entry absent under ROOT is reported by frognet_check_manifest.
+frognet_node_files() {
+    local _root="${1:?frognet_node_files ROOT}" _p _x
+    local _paths=() _ex=()
+    for _p in "${FROGNET_WORLD_PATHS[@]}"; do [ -e "${_root%/}/$_p" ] && _paths+=( "$_p" ); done
+    for _p in "${_root%/}"/usr/local/lib/frognet*; do           # [LIB_MANIFEST_AUTODISCOVER_V1], under ROOT
+        [ -e "$_p" ] || continue; _p="${_p#"${_root%/}"/}"
+        case " ${_paths[*]} " in *" $_p "*) ;; *) _paths+=( "$_p" ) ;; esac
+    done
+    for _x in "${FROGNET_NEVER_SHIP[@]}" "${FROGNET_NODE_EXCLUDE[@]}"; do _ex+=( "--exclude=$_x" ); done
+    tar -C "$_root" "${_ex[@]}" -cvf /dev/null "${_paths[@]}" | grep -v '/$'
+}
 
 # -----------------------------------------------------------------------------
 # frognet_check_manifest <root>

@@ -9,6 +9,7 @@
 # Run as root. Re-runnable.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "fdf-leave: run as root" >&2; exit 1; }
+echo "== fdf-leave, $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
 for u in fdf-term-serve fdf-client fdf-facts; do
     if [ -e /etc/systemd/system/$u.service ]; then
         systemctl disable --now $u.service

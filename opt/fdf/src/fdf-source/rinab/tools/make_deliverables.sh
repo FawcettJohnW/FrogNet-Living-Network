@@ -2,11 +2,14 @@
 # make_deliverables.sh -- [ONE_TARBALL_PER_MACHINE_V1] the three r-builds from this tree, every time, all three:
 #   fdf-install-aarch64.run   Pi nodes      /opt/fdf (aarch64 binaries) + the FrogNet region patch, behind header.sh
 #   fdf-install-x86_64.run    x86 nodes     /opt/fdf (x86 static binaries) + the FrogNet region patch, behind header.sh
-#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + its three systemd units
+#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + fdf-hub.service; the
+#                                           machine's region (site key, hub.env, its RAM manager and member units) is
+#                                           then made by /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP, once, there
 # Each carries /opt/fdf/BUILD (package=, build=, built=, for=). Tarred from / (paths are absolute-from-root).
-# Never shipped: /opt/fdf/var (the machine's own state: join.env, site.env, facts.json, area.perm) and
-# /opt/fdf/hub/hub.env (the droplet's own hub settings: the package copy says 127.0.0.1:8840 / 50820, the droplet runs
-# 51888 / 50889 -- shipping it would move the hub's port under its members). No __pycache__.
+# Never shipped: /opt/fdf/var (the machine's own state: join.env, site.env, area.env, facts.json, area.perm, the site
+# key) and /opt/fdf/hub/hub.env (the region holder's hub settings, made by fdf-region-create -- shipping one would move
+# the hub's port under its members). /opt/fdf/fdf.env ships and holds no operator setting (it sources var/area.env), so
+# an update cannot overwrite one [OPERATOR_SETTINGS_SURVIVE_AN_UPDATE_V1]. No __pycache__.
 # The FrogNet side of the node bundle (the "FrogNet region patch") is taken from the repo tree itself -- REPO, the
 # directory holding opt/frognet_semantic, usr, etc and var -- never from a copy of it [MIRROR_IS_THE_TREE_V1]. The files
 # it carries are listed here, explicitly (FROGNET_FILES); a file not listed is not shipped, a listed one missing stops
@@ -84,17 +87,17 @@ tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | 
 # ---- x86 node
 R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
 mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-x86_64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
-frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf: AI-Host" "$R"
+frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
 tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64.run"
 # ---- arm64 node
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
 mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-arm64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
-frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi): Seattle7, Seattle3B, Seattle5, HappyDog, New-York-2" "$R"
+frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
 tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64.run"
 # ---- droplet
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
-build_file fdf-droplet.tgz "droplet 165.232.153.144: RAM manager 51888 + hub 50889" "$R"
+build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
 tarit "$R" > "$OUT/fdf-droplet.tgz"
 chmod +x "$OUT"/*.run
 for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done

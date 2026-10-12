@@ -1,0 +1,7 @@
+  STEP A3: pip packages
+2026-10-12 14:44:30 [WARN]      pip FAILED: mysql-connector-python
+2026-10-12 14:44:39 [WARN]      pip FAILED: mysqlclient
+2026-10-12 14:44:48 [WARN]      pip FAILED: NetfilterQueue
+2026-10-12 14:44:58 [WARN]      pip FAILED: aiohttp
+2026-10-12 14:45:58 [FATAL]   pip failed for 4 package(s) the services import: mysql-connector-python mysqlclient NetfilterQueue aiohttp (the output above says why; usually a missing -dev package). Fix it and re-run.
+EXIT 1

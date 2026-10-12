@@ -1,0 +1,14 @@
+-rw-rw-r-- 1 root root 1485 Oct 12 11:43 /etc/ssl/frognet-universal.cnf
+-rw-rw-r-- 1 root root 2009 Oct 12 11:43 /etc/ssl/frognet-universal.crt
+-rw-rw-r-- 1 root root 1825 Oct 12 11:43 /etc/ssl/frognet-universal.csr
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using 172.30.0.31. Set the 'ServerName' directive globally to suppress this message
+AH00526: Syntax error on line 23 of /etc/apache2/sites-enabled/000-default.conf:
+AH00526: Syntax error on line 7 of /etc/apache2/sites-enabled/frognet-ssl.conf:
+SSLCertificateKeyFile: file '/etc/ssl/frognet-universal.key' does not exist or is empty
+90-frognet-merge
+91-frognet-connectivity
+99-ifup
+no-wait.d
+pre-down.d
+pre-up.d
+19
