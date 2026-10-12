@@ -19,6 +19,21 @@ The script finds Visual Studio, has vcpkg build the libraries listed in `vcpkg.j
 LZ4, OpenSSL), builds the two programs, and assembles `dist\` with every DLL and Qt plugin. **The first run compiles
 Qt and FFmpeg from source: one to two hours, once**; later runs take a minute. `dist\` runs on any Windows machine.
 
+**Updating.** Always the whole tree, never a few files laid over an old one (2026-10-10: an r3 overlay of 8 files on an
+older `F:\Temp\comms` failed to configure -- its CMakeLists.txt named `src/pyabi/comms_tuples.cpp` and
+`tools/room_probe.cpp`, which that tree did not have). The archive's paths start with `comms\`, so extract it from the
+folder ABOVE `comms` (from inside, it makes `comms\comms\` and the old tree is unchanged). `vcpkg-*` and `build-msvc`
+are not in the archive: they stay, and the rebuild takes minutes.
+
+```
+cd F:\Temp
+tar -xf $HOME\Downloads\communicator-r3-full.zip
+cd comms
+powershell -ExecutionPolicy Bypass -File .\build-windows.ps1
+```
+
+What runs says itself: the first console line is `[app] build comms-app-2026-10-10-r3`, and the window title carries it.
+
 ## Run
 
 ```
@@ -42,3 +57,5 @@ Leave out `--mic`/`--speaker` for the Windows defaults. Windows Firewall may ask
   before each frame cannot run there; the socket's "would block" decides, and the send buffer is 64 KiB
   ([THE_GUARD_MUST_WORK_WHERE_THE_CLIENT_RUNS_V1]).
 - `build-windows.sh` (MSYS2) is the alternative to Visual Studio.
+- 2026-10-10: `build-windows.ps1` runs on John's machine with MSVC (Visual Studio 2022 Community 14.39; vcpkg: Qt 6.11.2,
+  FFmpeg 9.0.2, libvpx 1.16.0, opus 1.6.1, portaudio 19.7); after the full r3 tree he reported it good.

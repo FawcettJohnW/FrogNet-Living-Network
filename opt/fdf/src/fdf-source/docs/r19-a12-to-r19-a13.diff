@@ -1,0 +1,597 @@
+--- /dev/null
++++ b/docs/MERGE-r19-a13.md
+@@ -0,0 +1,134 @@
++# r19-a13 — two colliding ponds at once; two daemon fixes the test found
++
++Build `fdf-2026-10-10-r19-a13` (on r19-a12, below). Member app `fdf-kt-2026-10-10-a10` (unchanged). Communicator
++unchanged. Tarballs: `fdf-install-x86_64.run`, `fdf-install-aarch64.run`, `fdf-droplet.tgz`, the source.
++
++## What changed since a12
++
++| tag | where | what |
++|---|---|---|
++| — | rinab/tools/netns-reach-test.sh stage 2d | **Two remote ponds with the same /24, reached at once.** Pond F's g serves 10.7.7.0/24 like B's c and A's a. n reaches B and F simultaneously: each gets its own alias (B 100.64.0.0/24, F 100.64.2.0/24) and its own private side (100.127.255.1 / .2); 10.7.7.1, 100.64.0.1 and 100.64.2.1 answer a, c and g; g and c each saw n as its own address there; resolve gives each its alias; F re-planned twice (g leaves, g returns) without moving B's aliases; F's reach removed, B's untouched. |
++| `APPLIED_IS_THE_KERNEL_V1` | internet_tunnels_v3/graph_apply.py | **Found by 2d, older than reach (r19):** when a node's own session ended, its daemon took the hub tunnel down (the kernel drops every route on wg0 with it) while holding those routes in hold-down -- and on the node's return it still "had" them, so it never routed them again: here g never answered n after its session came back, and a real node would lose its hub routes to phones and other nodes' /24s after a single dropped session. Now every pass forgets a remembered route the kernel no longer holds, and installs it again if still wanted. In the same test g answered **1,759 ms** after its fdf-client restarted (before: never). graph_apply oracle: new kernel-lost checks fail on the old code, pass now. |
++| `ELECT_NODES_ONLY_V1` | discovery/elect.py | **Found in the same logs, older than reach (r19-a9):** the election's pool was every alive host ending in `.1`, and the first phone in every pond is `10.252.0.1` -- so **the phone was elected the CONTROL host** (every region-loop run since a9; your phone had that address). Leaves and reaching participants are now excluded by role, from the region's facts; they are still named, by a plain `<ip> <name>` line added after the election (never a FrogNetHost line, never a FrogNetAdmin `.2` -- that would be another phone's address). Election sim: new checks fail on the old code, pass now. |
++
++## Proof (netns, this build)
++
++netns-reach-test **47/47** (docs/run-reach-2026-10-10.log); region-loop **20/20** (the leaf named, control never the
++phone: control=10.3.3.1 / 10.7.7.1 / 10.9.9.1 in every daemon log); ponds-daemon 21/21; graph and hub as listed in the
++worklog; oracles: graph_apply (kernel-lost), dbhost_switch_sim (leaf not elected, still named), fdf_graph, hub, region,
++region backends, gen — all pass.
++
++---
++
++# r19-a12 — identities in tuples, a network's own config, reach into other ponds, every network on one screen
++
++Build `fdf-2026-10-10-r19-a12` (on r19-a11). Member app `fdf-kt-2026-10-10-a10`. Communicator unchanged (comms-app r3,
++comms-android r4). Tarballs: `fdf-install-x86_64.run`, `fdf-install-aarch64.run`, `fdf-droplet.tgz`, the source.
++
++John, 2026-10-10 evening: other networks are not forbidden — reach them through their RAM manager, as far as **that
++network's own configuration** allows; map them 1:1 when their addresses collide with yours, **only if the RAM is set
++up that way**; **a failed reach closes the session**; no fallbacks; and make frognet_monitor and fln_dashboard
++multi-network aware. Per-pond address indexes were considered and dropped (John: "No index; NETMAP only").
++
++## What changed
++
++| tag | where | what |
++|---|---|---|
++| `IDENTITY_IN_TUPLES_V1` | rina_region.cpp `resolve`; fdf_where.cpp; fdf-comms.sh; Member.kt `resolve`/`endpoint`; MemberService; member-cli | A where cell names a machine by identity, `w:<guid>:<port>` (`fdf-where comms ram=self:8800`), never by address. Each reader resolves it **in its own scope**: the region's new `resolve` op gives a node's .1, a leaf's (or a reacher's) /32; a member that is not alive is `ENOENT` (gone is gone). A cell written with an address is not taken (`not an identity endpoint`). |
++| `NET_CONFIG_IS_A_TUPLE_V1` | rina_region.cpp `publish_net_config` | Every RAM manager publishes `(pond, config, net)` at start, from `/opt/fdf/etc/net.json` (`RINA_NET_CONFIG`): `reach` none / listed / all, `map` allowed / refused, plus its overlay ranges (`hub`, `edges`, `leaves` — the same in every pond). No file: reach none, map refused, and it says so. A bad value: nothing published, and it says why. |
++| `NET_CONFIG_IS_THE_RAM_MANAGERS_V1` | tools/apply_net_config.py (build.sh) | The network API can read that cell but neither write nor remove it (403, said). Every network write goes through one `api()`, so FNW1 and HTTP are both covered. |
++| `REACH_IS_A_LEAF_HERE_V1` | rina_region.cpp, fdf-hub, fdf_graph.py | A participant that asks to reach (`"reach":true`, its WireGuard pubkey) is given a /32 by that pond's region, peered by its hub and routed by its nodes exactly as a leaf is. A participant that only reads gets none of it. |
++| `REACH_V1` | fdf/bin/fdf-reach (new); fdf_client.cpp; graph_apply.py; fdf-pond-add | `fdf-client@<area>` with `FDF_REACH=1` runs `fdf-reach apply` on every region event of that pond: config → what may be reached → what collides with this machine's own scope → aliases (only if map allowed) → applied on its OWN interface `rch-<h>`, table, rules and chains. Refused = everything taken down, the reason logged and written to `reach/<area>.refused`, **the session ends (exit 4) and systemd does not restart it**. Session ends for any reason → the reach goes with it (SIGTERM handler, every exit path, `ExecStopPost`). The daemon re-plans every reach when the forward pond's routes change. |
++| `REACH_SELF_ALIAS_V1` | fdf-reach | This machine's address in the other network is never put on an interface (every pond's leaves are 10.252/16: the forward pond may give the same address to its own phone). The interface holds a private /32 (100.127.255.x); SNAT to the given address on the way out, DNAT back on the way in. |
++| `PONDS_ARE_LISTED_V1` | getPonds.php (new); frognet_monitor_py/draw_ponds.py (new) + main_loop/discovery; fln_dashboard32.html; fdf-client, fdf-pond-add (`ponds/<area>.ram`) | Every network this machine is in, read live from each pond's RAM manager: forward or participant, this machine's role there, the pond's config, its members (alive, address there, its alias here), the reach or why it was refused. The monitor draws a **Networks** section under the peer table; the dashboard a **Networks** panel at the top of the sidebar. |
++| `STATIC_CLIENTS_V1` | tools/build_static_clients.sh (new); build_static_host.sh | `build/static` (the node/droplet binaries and what the netns tests run) is now built by a script; until today it was compiled by hand, and the static rina-host there was stale. |
++| — | fdf_client.cpp (Windows) | The Windows client had not compiled since PONDS_V1 (`is_forward` undeclared); a Windows member is in one pond, its forward. Builds again. |
++
++## Using it
++
++**On a network's RAM manager** (the droplet, or a Pi that hosts a pond), to let others reach it — `/opt/fdf/etc/net.json`:
++
++```
++{"reach":"all","map":"allowed"}
++```
++
++`reach`: `none` (others may read its RAM only — the default), `listed` (only the endpoints its where cells name), `all`
++(every /24 its members serve and every /32 it gave). `map`: `allowed` lets a machine whose own addresses collide reach
++it through a 1:1 alias; `refused` makes that machine's reach fail. Restart the RAM manager; its log line
++`[NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {...}` says what it published.
++
++**On a node**, to reach a pond it takes part in:
++
++```
++/opt/fdf/bin/fdf-pond-add <RAM host:port> <area> <site key> reach
++/opt/fdf/bin/fdf-ponds
++/opt/fdf/bin/fdf-reach resolve <area> w:<guid>:<port>
++```
++
++`fdf-ponds` shows each pond and its reach (`reach: all as 10.252.0.1 there; 10.7.7.0/24 10.8.8.0/24 100.64.0.0/24=10.7.7.0/24`)
++or `reach REFUSED` (journalctl -u fdf-client@<area> says why). `fdf-reach resolve` gives an identity endpoint of that
++pond as host:port usable from this machine — the alias when its network collides with this one.
++
++What a reach puts on the node (all of it named from the area, all of it removed by `fdf-reach down`): interface
++`rch-<h>` (not `wg*`: the daemon's orphan scan owns those), routing table 20000+, rules at priority 9000+ (`to` each
++reached prefix, `fwmark` for aliases, `from` its private address), iptables chains `FDFR<h>` (mangle mark, nat NETMAP,
++nat DNAT) and `FDFRS<h>` (nat SNAT), and `/opt/fdf/var/reach/<area>.json`. **The main routing table is never written**:
++the forward pond's daemon owns it, so the two never fight over a route.
++
++## Proof (netns, this build)
++
++`tools/netns-reach-test.sh` — ponds A (no config), B (reach all, map allowed), C (reach all, map refused), D (no
++config); A's node a and B's node c both serve 10.7.7.0/24; A's phone and n's address in B are both 10.252.0.1.
++**RESULT PASS 35/35** (docs/run-reach-2026-10-10.log):
++
++- n's reach into B applied **361–411 ms** after its fdf-client@pondB started; c's 10.7.7.0/24 aliased 100.64.0.0/24
++- n → 10.8.8.1 answers **b** (B); n → 10.7.7.1 answers **a** (A keeps it); n → 100.64.0.1 answers **c** (B's 10.7.7.1), and c saw n as 10.252.0.1
++- b → 10.252.0.1 (n's address in B) answers **n**; n holds no address 10.252.0.1, and A's phone at 10.252.0.1 still answers n
++- `fdf-reach resolve`: w:g-b:8080 → 10.8.8.1:8080, w:g-c:8080 → 100.64.0.1:8080; n's main table unchanged
++- A changes under the reach (e joins A serving b's 10.8.8.0/24): the daemon re-planned in **848–938 ms**; 10.8.8.1 now answers e, b answers at its new alias 100.64.1.1, c keeps 100.64.0.1
++- getPonds.php on n and the monitor's Networks section show both ponds, B's members, c at its alias
++- B brought forward while n reaches it: the reach goes (the daemon routes B now), fdf-client@pondB keeps its session, nothing refused; A forward again: the reach is applied again and c answers at its alias
++- n's session to B ends: interface, rules, chains, state file all gone; the alias answers nothing
++- C: `REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.7.7.0/24 (a in pondA), and pondC's config says map refused` — the session closed, n not in C's participants, nothing left on n
++- D: `REACH REFUSED into pondD: pondD's config says reach 'none'`; a member's write of a config: 403
++
++Regression, same build: region-loop (Communicator on a node, the phone's Kotlin member and Java core, by identity:
++`z ram=w:g-z:8800 -> 10.3.3.1:8800`) 20/20; ponds-daemon 21/21; hub 25/25; graph 17/17; latency done; the Kotlin
++member's leaf-tunnel 10/10, placement 18/18, two-ponds 14/14, member-death as before (19 ms clean, ~4 s silent);
++oracles: fdf_graph (new 11, 11c), hub (new 9, 9c), graph_apply, region, region backends, gen — all pass; the net
++config test over FNW1 (published, read-only to members) PASS; app sources type-check against Android API 34;
++fdf-client.exe builds. Dashboard rendered in Chromium with getPonds.php's real answer, no page errors
++(docs/dashboard-networks-2026-10-10.png).
++
++## Reviewed
++
++An independent review of fdf-reach, fdf-client's reach code, the region ops, the config patch and getPonds.php found
++eight defects and two minor ones; a second pass on the fixes found one new and one older one. All closed in this
++build:
++- the address another network's region gives went into a shell command (popen) -- now execv with an argv; area names
++  and addresses are validated
++- the daemon's replan and an fdf-client's apply could interleave on one area and be taken for a refusal (session ended
++  for good) -- one lock for every apply/down/replan on the machine (`REACH_ONE_AT_A_TIME_V1`), which also makes alias
++  and private-address allocation race-free
++- two participant ponds colliding with EACH OTHER were not detected -- the scope now includes every other reach
++- "not yet" left a stale reach up -- taken down until it is
++- a transient failure (a RAM manager's 4 s timeout, a failing command) counted as a refusal -- now exit 6: logged,
++  tried again on the next event, never a refusal; replan carries on with the other areas
++- the daemon's 30 s kill of replan could leave half-built state -- replan runs beside the daemon's loop, never killed
++- after a "not now", fdf-client forgot a reach that was still up; and replan could refuse the FORWARD pond after a
++  switch (ending its session for good) -- the forward pond is never reached and never refused
++
++## Not done / limits
++
++- **The phone does not reach.** Android's VPN interface does no NAT, so a phone can't hold a private address and map
++  collisions; the app never asks for reach (a participant pond is read-only there). Its Communicator finds servers by
++  identity as before.
++- **No per-pond index** (John's call): every pond's leaves are 10.252/16 and its hub 10.253.253.254, so another pond's
++  leaves always collide with yours — reaching them needs `map allowed`. Hubs are never reach destinations.
++- **Aliases come from 100.64.0.0/10.** A node whose own uplink is carrier-grade NAT in that range: the blocks it
++  routes are skipped; if none is free the reach is refused, saying so.
++- **Not on hardware yet**: kernel WireGuard for `rch-*` (netns used wireguard-go, as wg-quick does there), NETMAP on
++  the Pi kernels (iptables-nft's xt compat), the dashboard on a node's Apache.
++- The intermittent region-loop non-convergence (2/59 earlier) happened once more today, in the first run (which also
++  ran a stale static rina-host); the two runs on this build converged. Cause still not found; DIAG-CONVERGE stays in
++  (that run's dump is in /tmp/claude-0/runs/loop1.log on the build machine, not kept).
+--- a/docs/WORKLOG-PONDS.md
++++ b/docs/WORKLOG-PONDS.md
+@@ -125,3 +125,12 @@
+     ended sessions, participant-vs-participant collisions, transient errors taken as refusals, the forward pond refusable
+     after a switch, ...) -- all fixed (MERGE-r19-a12.md "Reviewed"; REACH_ONE_AT_A_TIME_V1).
+   - netns-reach-test 35/35; region-loop 20/20; ponds-daemon 21/21; hub 25/25; graph 17/17; Kotlin member tests; oracles.
++- r19-a13 (2026-10-11): two colliding remote ponds reached at once (netns-reach-test 2d: B and F both serve 10.7.7.0/24,
++  as A does; own aliases, own private sides, each answers, re-plans and removal of one leave the other untouched).
++  The test found two older daemon bugs, both fixed with oracle checks that fail on the old code:
++  - `[APPLIED_IS_THE_KERNEL_V1]` a node whose own session ended lost its hub routes for good (wg0 torn down took them
++    from the kernel; the applier still "held" them). Now reconciled with the kernel every pass: g answered 1,759 ms after
++    its session came back (before: never).
++  - `[ELECT_NODES_ONLY_V1]` the phone (10.252.0.1, ends in .1) was elected the CONTROL host. Leaves and reachers are no
++    longer candidates; they are named by a plain line.
++  - reach 47/47, region-loop 20/20, ponds-daemon 21/21, oracles + election sim pass. MERGE-r19-a13.md.
+--- a/docs/run-reach-2026-10-10.log
++++ b/docs/run-reach-2026-10-10.log
+@@ -1,19 +1,19 @@
+     ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/ha/net.json: reach none, map refused
+-    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
+-    hb: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"allowed","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
+-    hc: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a13"}
++    hb: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"allowed","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a13"}
++    hc: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a13"}
+     hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/hd/net.json: reach none, map refused
+-    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a13"}
+ === (1) the networks (after 1 s)
+ PASS  pond A: n and a route each other; pond B: b and c route each other (c serves 10.7.7.0/24, as a does in A)
+ PASS  pond A's leaf has 10.252.0.1/32 (given by A); n routes it on wg0
+ PASS  n -> A's leaf 10.252.0.1
+ === (2) n reaches pond B (reach all, map allowed)
+-PASS  n's fdf-client@pondB applied the reach (354 ms after it started): reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
++PASS  n's fdf-client@pondB applied the reach (473 ms after it started): reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a13]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
+     fdf-client: the region gave this machine 10.252.0.1/32 here, to reach this network [REACH_V1]
+-    fdf-client: build fdf-2026-10-10-r19-a12; region at 198.18.0.2:8840 is build fdf-2026-10-10-r19-a12
++    fdf-client: build fdf-2026-10-10-r19-a13; region at 198.18.0.2:8840 is build fdf-2026-10-10-r19-a13
+     fdf-client: n joined the region at 198.18.0.2:8840, announced ["10.3.3.1","10.253.3.3","198.18.0.3"] with facts as a PARTICIPANT (not the forward pond)
+-    fdf-client: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
++    fdf-client: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a13]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
+ PASS  n -> 10.8.8.1:8080 answers b (pond B, no collision): b 10.252.0.1
+ PASS  n -> 10.7.7.1:8080 answers a (its forward pond keeps 10.7.7.0/24): a 10.3.3.1
+ PASS  n -> 100.64.0.1:8080 answers c (pond B's 10.7.7.1, aliased 1:1), and c saw n as 10.252.0.1, n's address in B: c 10.252.0.1
+@@ -33,8 +33,7 @@
+     |      vm           hub      ONLINE  
+ PASS  the monitor's Networks section shows pond B's members, c at its alias
+ === (2b) pond A changes under the reach: e joins A serving 10.8.8.0/24, b's /24 in B
+-tools/netns-reach-test.sh: line 165: /tmp/claude-0/netns-reach/e/leases: No such file or directory
+-PASS  n's daemon re-planned the reach when A's routes changed (990 ms after e started): REACH: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24 (changed)
++PASS  n's daemon re-planned the reach when A's routes changed (1119 ms after e started): REACH: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a13]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24 (changed)
+ PASS  n -> 10.8.8.1 now answers e (A's, its forward pond): e 10.3.3.1
+ PASS  b is reached at its alias: resolve w:g-b:8080 -> 100.64.1.1:8080 answers b 10.252.0.1
+ PASS  c keeps its alias 100.64.0.1: c 10.252.0.1
+@@ -44,6 +43,20 @@
+ PASS  n routes B's 10.8.8.0/24 as B's node now
+ PASS  A forward again: the reach into B is applied again
+ PASS  c answers at its alias again: c 10.252.0.1
++=== (2d) two colliding ponds reached AT ONCE: B's c and F's g both serve 10.7.7.0/24 (as A's a does)
++PASS  n reaches F too: reach into pondF (all, map allowed) on rch-cdc4059a as 10.252.0.1 there (100.127.255.2 here) via hub vm [fdf-2026-10-10-r19-a13]: 10.7.7.0/24; aliased 100.64.2.0/24 -> 10.7.7.0/24
++PASS  each pond's 10.7.7.0/24 has its own alias (B: 100.64.0.0/24, F: 100.64.2.0/24) and each reach its own side here (B: 100.127.255.1, F: 100.127.255.2)
++PASS  n -> 100.64.2.1 answers g (F's 10.7.7.1), which saw n as 10.252.0.1, n's address in F: g 10.252.0.1
++PASS  n -> 100.64.0.1 answers c (B's 10.7.7.1), which saw n as 10.252.0.1: c 10.252.0.1
++PASS  n -> 10.7.7.1 answers a (A, the forward pond): three networks, one /24, each reached: a 10.3.3.1
++PASS  g -> 10.252.0.1 (n's address in F) answers n: n 10.7.7.1
++PASS  resolve on n: w:g-g:8080 in F -> 100.64.2.1:8080 (F's alias), w:g-c:8080 in B -> 100.64.0.1:8080
++PASS  g left F: F's reach re-planned without 10.7.7.0/24; B's aliases unchanged ({"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}) and c still answers at 100.64.0.1
++    g answered at 100.64.2.1 506 ms after its fdf-client started again; F's reach: reach into pondF (all, map allowed) on rch-cdc4059a as 10.252.0.1 there (100.127.255.2 here) via hub vm [fdf-2026-10-10-r19-a13]: 10.7.7.0/2
++PASS  g back in F: F's reach re-planned, g answers at 100.64.2.1 again; B's aliases still {"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}
++PASS  n's session to F ended: its interface rch-cdc4059a is gone
++PASS  F's state is gone and 100.64.2.1 answers nothing
++PASS  B's reach is untouched: c at 100.64.0.1, its aliases {"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}
+ === (3) gone is gone: n's session to pond B ends
+ PASS  its interface rch-f198f382 is gone
+ PASS  its rules are gone (0)
+--- a/docs/run-region-loop-identity-2026-10-10.log
++++ b/docs/run-region-loop-identity-2026-10-10.log
+@@ -3,36 +3,36 @@
+ PASS  y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)
+ PASS  both daemons in the region loop
+ === 6 changes on y (10.9.9.1/24 added / removed); per change: the timed line on a and z, and change -> that line
+-  #1 a: change -> timed line 56 ms | world=1ms (participants+mappings, one read) +0ms bringup=11ms apply=6ms (probes=0/0ms routes=1/2ms) publish=5ms total=23ms
+-  #1 z: change -> timed line 73 ms | world=2ms (participants+mappings, one read) +0ms bringup=13ms apply=12ms (probes=0/0ms routes=1/7ms) publish=5ms total=40ms
+-  #2 a: change -> timed line 77 ms | world=2ms (participants+mappings, one read) +0ms bringup=12ms apply=1ms (probes=0/0ms routes=0/0ms) publish=0ms total=15ms
+-  #2 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=16ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=20ms
+-  #3 a: change -> timed line 79 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=1ms (probes=0/0ms routes=0/0ms) publish=1ms total=18ms
+-  #3 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=15ms apply=3ms (probes=0/0ms routes=0/0ms) publish=0ms total=20ms
+-  #4 a: change -> timed line 74 ms | world=2ms (participants+mappings, one read) +0ms bringup=7ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=12ms
+-  #4 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=17ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=21ms
+-  #5 a: change -> timed line 84 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=4ms (probes=0/0ms routes=0/0ms) publish=0ms total=24ms
+-  #5 z: change -> timed line 73 ms | world=2ms (participants+mappings, one read) +0ms bringup=8ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=13ms
+-  #6 a: change -> timed line 80 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=2ms (probes=0/0ms routes=0/0ms) publish=2ms total=18ms
+-  #6 z: change -> timed line 76 ms | world=0ms (participants+mappings, one read) +0ms bringup=14ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=16ms
+-  median a (n=6): change->line 78 ms | world=1 bringup=12 apply=2 publish=0 total=18 ms
+-  median z (n=6): change->line 78 ms | world=1 bringup=14 apply=2 publish=0 total=20 ms
++  #1 a: change -> timed line 58 ms | world=1ms (participants+mappings, one read) +0ms bringup=14ms apply=9ms (probes=0/0ms routes=1/2ms) publish=2ms total=27ms
++  #1 z: change -> timed line 91 ms | world=5ms (participants+mappings, one read) +0ms bringup=17ms apply=28ms (probes=0/0ms routes=1/11ms) publish=7ms total=58ms
++  #2 a: change -> timed line 93 ms | world=6ms (participants+mappings, one read) +0ms bringup=17ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=31ms
++  #2 z: change -> timed line 95 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=11ms (probes=0/0ms routes=0/0ms) publish=1ms total=31ms
++  #3 a: change -> timed line 96 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=5ms (probes=0/0ms routes=0/0ms) publish=1ms total=27ms
++  #3 z: change -> timed line 92 ms | world=2ms (participants+mappings, one read) +1ms bringup=12ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=22ms
++  #4 a: change -> timed line 107 ms | world=7ms (participants+mappings, one read) +0ms bringup=23ms apply=12ms (probes=0/0ms routes=0/0ms) publish=0ms total=44ms
++  #4 z: change -> timed line 89 ms | world=2ms (participants+mappings, one read) +0ms bringup=15ms apply=9ms (probes=0/0ms routes=0/0ms) publish=0ms total=27ms
++  #5 a: change -> timed line 98 ms | world=6ms (participants+mappings, one read) +0ms bringup=20ms apply=6ms (probes=0/0ms routes=0/0ms) publish=1ms total=35ms
++  #5 z: change -> timed line 98 ms | world=9ms (participants+mappings, one read) +0ms bringup=16ms apply=9ms (probes=0/0ms routes=0/0ms) publish=0ms total=35ms
++  #6 a: change -> timed line 102 ms | world=1ms (participants+mappings, one read) +0ms bringup=19ms apply=6ms (probes=0/0ms routes=0/0ms) publish=1ms total=28ms
++  #6 z: change -> timed line 107 ms | world=1ms (participants+mappings, one read) +0ms bringup=22ms apply=12ms (probes=0/0ms routes=0/0ms) publish=0ms total=36ms
++  median a (n=6): change->line 97 ms | world=3 bringup=18 apply=6 publish=1 total=29 ms
++  median z (n=6): change->line 93 ms | world=2 bringup=16 apply=10 publish=0 total=33 ms
+ --- per-event region reads on a (one event): 'my-channels' lines logged between two timed lines
+     my-channels computations in one event on a: 1
+-    timed events on a: 23
++    timed events on a: 17
+ PASS  a: region_hosts.json names z, y and a, each echo from its facts ([('10.2.2.1', 'y,10.2.2.1,10.3.3.20,0.0.0.0'), ('10.3.3.1', 'z,10.3.3.1,198.18.0.3,0.0.0.0'), ('10.7.7.1', 'a,10.7.7.1,198.18.0.5,0.0.0.0'), ('10.9.9.1', 'y,10.9.9.1,10.3.3.20,0.0.0.0')])
+ PASS  a: each echo's fields 3-4 are that member's uplink rows: z 198.18.0.3, y its lease 10.3.3.20 on z's LAN [ECHO_UPSTREAM_FROM_THE_ROWS_V1]
+-PASS  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (137 ms after the leaf's fdf-client started)
++PASS  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (226 ms after the leaf's fdf-client started)
+ PASS  a -> the leaf 10.252.0.1 (a's tunnel, the hub, the leaf's tunnel)
+ PASS  y -> the leaf (y's default to z, z's tunnel, the hub)
+ PASS  a's /etc/hosts names the leaf
+ PASS  a: region_hosts.json (getHosts.php) lists the leaf role=leaf alive=true: the monitor's DEVICE ONLINE row [DEVICE_ROW_V1]
+-PASS  z said where its Communicator is BY IDENTITY: (pond, where, w:g-z) comms ram w:g-z:8800, media w:g-z:8994 (207 ms after fdf-comms started) [IDENTITY_IN_TUPLES_V1]
+-PASS  resolve: w:g-z -> 10.3.3.1 (its .1), w:g-phone -> 10.252.0.1 (its given /32), w:g-nobody -> ENOENT: {"ok":true,"server":"fdf-2026-10-10-r19-a11","resolved":{"w:g-z":{"addr":"10.3.3.1","name":"z","role":"node"},"w:g-phone":{"addr":"10.252.0.1","name":"phone","role":"leaf"},"w:g-nobody":{"error":"ENOENT","why":"no alive member w:g-nobody in this pond"}}}
++PASS  z said where its Communicator is BY IDENTITY: (pond, where, w:g-z) comms ram w:g-z:8800, media w:g-z:8994 (268 ms after fdf-comms started) [IDENTITY_IN_TUPLES_V1]
++PASS  resolve: w:g-z -> 10.3.3.1 (its .1), w:g-phone -> 10.252.0.1 (its given /32), w:g-nobody -> ENOENT: {"ok":true,"server":"fdf-2026-10-10-r19-a12","resolved":{"w:g-z":{"addr":"10.3.3.1","name":"z","role":"node"},"w:g-phone":{"addr":"10.252.0.1","name":"phone","role":"leaf"},"w:g-nobody":{"error":"ENOENT","why":"no alive member w:g-nobody in this pond"}}}
+ PASS  the leaf found it there (10.3.3.1:8800 / 10.3.3.1:8994) and streamed to it through its tunnel and the hub: sent 119 frames (0 dropped), 250 audio
+ PASS  z's media server took the leaf's video and audio planes
+ PASS  the phone's Kotlin member found it: services: comms in this pond: z ram=w:g-z:8800 -> 10.3.3.1:8800 media=w:g-z:8994 -> 10.3.3.1:8994
+-PASS  the phone's Java core watched a's feed through z's media server: WATCHING 8d2d0cf65124 at 10.3.3.1:8994 VIDEO Chapel frames=109 keyframe_size=854x480 AUDIO Chapel packets=251 
++PASS  the phone's Java core watched a's feed through z's media server: WATCHING 1cb312556d2c at 10.3.3.1:8994 VIDEO Chapel frames=91 keyframe_size=854x480 AUDIO Chapel packets=251 
+ PASS  z's session ended: its where cell is gone with it (gone is gone)
+ PASS  z back: fdf-comms wrote it again on the event that showed z (3 rewrite)
+ PASS  y's session ended: its announcement is gone, and no dead row is listed ([('z', True), ('a', True), ('phone-kt', True), ('phone', True), ('vm', True)])
+--- a/fdf/bin/fdf-facts
++++ b/fdf/bin/fdf-facts
+@@ -15,7 +15,7 @@
+         fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
+                              change (inotify via a 1 s poll of its mtime -- dnsmasq rewrites it in place), debounced 1 s
+         fdf-facts --show     print the rows, write nothing
+-Nothing here reads the region; this is the writer only. Build fdf-2026-10-10-r19-a12.
++Nothing here reads the region; this is the writer only. Build fdf-2026-10-10-r19-a13.
+ """
+ import json
+ import os
+@@ -25,7 +25,7 @@
+ import sys
+ import time
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"
++BUILD_TAG = "fdf-2026-10-10-r19-a13"
+ FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
+ LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
+ PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Internet
+--- a/fdf/bin/fdf-hub
++++ b/fdf/bin/fdf-hub
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a13"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+--- a/fdf/bin/fdf-reach
++++ b/fdf/bin/fdf-reach
+@@ -36,7 +36,7 @@
+ KEY = os.environ.get("FDF_WG_KEY", "/var/lib/frognet-tunnel/node_private.key")   # the daemon's key (config.STATE_DIR)
+ FACTS = os.environ.get("FDF_FACTS", VAR + "/facts.json")
+ ALIASES = ipaddress.ip_network("100.64.0.0/10")
+-BUILD = "fdf-2026-10-10-r19-a12"
++BUILD = "fdf-2026-10-10-r19-a13"
+ 
+ 
+ class Refused(Exception): pass                         # the network's config does not allow it: the session ends
+--- a/fdf/lib/python/fdf_graph.py
++++ b/fdf/lib/python/fdf_graph.py
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"
++BUILD_TAG = "fdf-2026-10-10-r19-a13"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+--- a/frognet/opt/fdf/lib/python/fdf_graph.py
++++ b/frognet/opt/fdf/lib/python/fdf_graph.py
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"
++BUILD_TAG = "fdf-2026-10-10-r19-a13"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+--- a/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py
++++ b/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py
+@@ -128,6 +128,23 @@
+ db6, _ = agree(res, 0)
+ check("member without a capability fact: ignored, still unanimous", db6 == "10.251.251.1" and "Newbie" in res, res)
+ 
++# ---- [ELECT_NODES_ONLY_V1] a phone (leaf) at 10.252.0.1 -- the first leaf in every pond, ending in .1 -- and a reaching
++#      participant at 10.252.0.3 are in the daemon's alive hosts (its plan names them), but they are not nodes: neither is
++#      the control host nor a candidate. (Before: the phone was elected control on every node that saw it.)
++parts = copy.deepcopy(FLEET)
++parts.append({"name": "phone", "alive": True, "facts": {"role": "leaf", "name": "phone", "pubkey": "p", "addr": "10.252.0.1/32"}})
++parts.append({"name": "visitor", "alive": True, "facts": {"role": "participant", "name": "visitor", "reach": True, "pubkey": "v", "addr": "10.252.0.3/32"}})
++alive = [(p["facts"]["addrs"][0]["ip"], p["name"]) for p in parts if p["alive"] and p["facts"].get("role") == "node"] + [("10.252.0.1", "phone")]
++me = next(p for p in parts if p["facts"].get("role") == "node" and p["alive"])["facts"]["addrs"][0]["ip"]
++lines = []
++r = elect_now(logger=lines.append, alive_hosts=alive, participants=[HUB] + parts, self_ip=me,
++              hosts_path=os.path.join(tempfile.mkdtemp(prefix="hosts-leaf-"), "hosts"), apply=False)
++ctl = next((l for l in lines if l.startswith("ELECT: control=")), "")
++pool = next((l for l in lines if l.startswith("ELECT: pool=")), "")
++check("a leaf at 10.252.0.1 is not the control host", "control=10.252.0.1" not in ctl, ctl)
++check("nor in the pool, nor elected", "10.252.0.1" not in pool and r["databasehost"] != "10.252.0.1" and r["mediahost"] != "10.252.0.1", (pool, r["databasehost"], r["mediahost"]))
++check("but it is named: '10.252.0.1 phone', and no FrogNetAdmin line claims 10.252.0.2", "10.252.0.1 phone" in r["etc_hosts"] and not any(l.startswith("10.252.0.2 ") for l in r["etc_hosts"]), [l for l in r["etc_hosts"] if l.startswith("10.252.")])
++
+ check("the store was never read (calls to T.get counted)", not STORE_READS, STORE_READS[:3])
+ 
+ print("\nRESULT " + ("PASS" if not FAIL else "FAIL %d" % FAIL))
+--- a/frognet/opt/frognet_semantic/discovery/elect.py
++++ b/frognet/opt/frognet_semantic/discovery/elect.py
+@@ -10,6 +10,7 @@
+ the dnsmasq forwarders written only if changed -> dnsmasq restarted only on content change. Every node reaches the
+ same answer from the same hosts block and the same store.
+ """
++import re
+ import os
+ import subprocess
+ 
+@@ -68,6 +69,21 @@
+                     rows.append((f[0], f[1]))
+         except OSError:
+             pass
++    # [ELECT_NODES_ONLY_V1] the pool is the region's NODES: a leaf's /32 (a phone) and a reaching participant's /32 are
++    # given addresses, and the first one in every pond is 10.252.0.1 -- it ends in .1 and passed the node test below.
++    # Found 2026-10-11 (netns region-loop and reach logs): the phone at 10.252.0.1 was elected the CONTROL host, and was
++    # a databasehost/mediahost candidate. Excluded by role, from the region's own facts.
++    # They are still NAMED (the leaf row's promise, LEAF_ROW_FROM_ADDR_V1): one plain "<ip> <name>" line each, added
++    # after control and the services are chosen -- never a FrogNetHost line, never with a FrogNetAdmin .2 (which is
++    # another leaf's address).
++    given = {}
++    for p in participants or []:
++        f = p.get("facts") or {}
++        if f.get("role") in ("leaf", "participant") and f.get("addr"):
++            given[str(f["addr"]).split("/")[0]] = re.sub(r"[^A-Za-z0-9._-]", "-", str(p.get("name") or f.get("name") or ""))
++    named_given = sorted((ip, given[ip]) for ip, _nm in rows if ip in given and given[ip])
++    if given:
++        rows = [(ip, nm) for ip, nm in rows if ip not in given]
+     for ip, nm in rows:
+         if ip.endswith(".1") and ip != self_ip:
+             nm = nm.split(".", 1)[1] if nm.startswith("FrogNetHost.") else nm
+@@ -85,6 +101,7 @@
+     lan = {a.rsplit(".", 1)[0] + ".0/24" for a in local_ips}
+     role_lines = service_host_lines(dbhost=ctl, logger=logger, etc_hosts=etc, self_ip=self_ip, lan_subnets=lan, local_ips=set(local_ips))
+     etc = commit_service_lines(etc, role_lines, set(roles), ctl, logger=logger)
++    etc = etc + ["%s %s" % (ip, nm) for ip, nm in named_given]     # [ELECT_NODES_ONLY_V1] leaves and reachers: named, never chosen
+     changed = _write_if_changed(hosts_path, "\n".join(etc) + "\n", logger)
+     if apply:
+         try:
+--- a/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
++++ b/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+@@ -196,6 +196,7 @@
+         # agreeing on (ip, mac), written by both ends. The frognet_echo.php probe to its .1 through the next hop (3 s
+         # ceiling, per newly admitted route) asked the network what RAM already says. Not run: every planned route is
+         # admitted. Hub routes stay gated on the hub link's handshake (the kernel's, local).
++        plan_wanted = set(want_routes)                    # [APPLIED_IS_THE_KERNEL_V1] before admission filters it
+         for r in sorted(want_routes):
+             if r not in self.applied_routes:
+                 self.admitted[r] = True
+@@ -204,6 +205,25 @@
+         refused_nets = {dest for dest, _v, _d in changed["routes_refused"]}
+         want_hosts = {ip: n for ip, n in want_hosts.items() if ip.rsplit(".", 1)[0] + ".0/24" not in refused_nets}
+ 
++        # [APPLIED_IS_THE_KERNEL_V1] what this applier installed is what the KERNEL still holds, not what it remembers:
++        # a route goes from the kernel by itself when its interface goes (the hub channel torn down with this node's
++        # session and built again on its return), and a remembered one is never re-installed -- found 2026-10-10
++        # (netns-reach-test 2d): g's session ended and came back; g kept "holding" its hub route to a leaf's /32 that the
++        # kernel had dropped with wg0, and never routed that leaf again. Each pass: a remembered route the kernel no
++        # longer has is forgotten here, so a wanted one is installed again below, now.
++        try:
++            import ipaddress as _ia
++            def _n(r): return (str(_ia.ip_network(r[0], strict=False)), r[1], r[2])
++            kernel = {_n(r) for r in self.w.routes()}
++            lost = {r for r in self.applied_routes if _n(r) not in kernel}
++        except ValueError:
++            lost = set()
++        if lost:
++            self.w.say("GRAPH kernel no longer holds %s (its interface went): forgotten, re-installed now if still wanted" % sorted(lost))
++            self.applied_routes -= lost
++            for r in lost: self.admitted.pop(r, None); self.missing_since.pop(("route", r), None)
++            want_routes = {r for r in want_routes if r not in lost} | {r for r in lost if r in plan_wanted}
++            for r in lost & plan_wanted: self.admitted[r] = True
+         # ---- install what is new
+         for r in sorted(want_routes - self.applied_routes):
+             if self.w.route_replace(*r):
+--- a/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
++++ b/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
+@@ -39,7 +39,7 @@
+ from . import config
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a13"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_MASK = 16
+ ALLOWED = "10.0.0.0/8"
+ 
+--- a/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
++++ b/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
+@@ -160,6 +160,18 @@
+ c = ap5.apply(T1)
+ check("a back: reported as came", c["came"], [("a", "10.7.7.1")])
+ 
++# ---- [APPLIED_IS_THE_KERNEL_V1] a route the kernel dropped by itself (its interface went: the hub channel torn down
++#      with this node's session and built again) is installed again on the next pass, not "remembered" as present
++w6 = Fake(); ap6 = Applier(w6, "z", hosts_sentinel="/sent/h6")
++ap6.apply(T1)
++hub6 = {r for r in w6.kernel if r[1] == "" and r[2] == "wg0"}
++check("kernel-lost: there are hub routes to lose", bool(hub6), True)
++w6.kernel -= hub6                                           # wg0 deleted and recreated: the kernel took its routes with it
++c = ap6.apply(T1)
++check("kernel-lost: every one is installed again on the next pass", (hub6 <= w6.kernel, sorted(hub6) == sorted(r for r in c["routes_added"] if r in hub6)), (True, True))
++check("kernel-lost: said", any("kernel no longer holds" in m for m in w6.said), True)
++c = ap6.apply(T1)
++check("kernel-lost control: nothing lost, nothing re-installed", c["routes_added"], [])
+ 
+ # ---- [GEN_V1] the counter moves on impact only
+ from internet_tunnels_v3 import gen as _gen
+--- a/rinab/src/fdf_version.hpp
++++ b/rinab/src/fdf_version.hpp
+@@ -1,4 +1,4 @@
+ // fdf_version.hpp -- [FDF_VERSION_V1] one build tag, said by every program at start and answered by the region
+ // ({"op":"version"}, and as "server" in every participants reply), so nobody has to run a command to know what runs.
+ #pragma once
+-#define FDF_BUILD_TAG "fdf-2026-10-10-r19-a12"
++#define FDF_BUILD_TAG "fdf-2026-10-10-r19-a13"
+--- a/rinab/tools/fdf-hub
++++ b/rinab/tools/fdf-hub
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a13"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+--- a/rinab/tools/netns-reach-test.sh
++++ b/rinab/tools/netns-reach-test.sh
+@@ -12,18 +12,20 @@
+ #   d  198.18.0.8  node in C, serves 10.7.7.0/24
+ #   n  198.18.0.3  node, forward in A, serves 10.3.3.0/24; participant in B, C and D with FDF_REACH=1
+ #   e  198.18.0.11 joins A LATER serving 10.8.8.0/24 (b's /24 in B): n's reach must re-plan and alias it
++#   hf 198.18.0.12 pond F: rina-host (net.json reach all, map allowed), fdf-hub
++#   g  198.18.0.13 node in F, serves 10.7.7.0/24 -- the THIRD network with that /24 (A's a, B's c): n reaches B and F at once
+ #   lf 198.18.0.10 a leaf (the phone) in A: A gives it 10.252.0.1 -- the address B gives n [REACH_SELF_ALIAS_V1]
+ # usage: tools/netns-reach-test.sh [RINAB_DIR]
+ set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
+ PK=${PKG_FDF:-$H/../../pkg-full/opt/fdf}; FDFPY=$H/../../repo/opt/fdf/lib/python
+-T=${T:-/tmp/claude-0/netns-reach}; rm -rf $T; mkdir -p $T/ha $T/hb $T/hc $T/hd $T/a $T/b $T/c $T/d $T/n $T/bin
++T=${T:-/tmp/claude-0/netns-reach}; rm -rf $T; mkdir -p $T/ha $T/hb $T/hc $T/hd $T/hf $T/a $T/b $T/c $T/d $T/g $T/e $T/n $T/bin
+ export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+ export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
+ API=/FawcettInnovations.RINA.ram_interface.php
+-RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840; RAMC=198.18.0.4:8840; RAMD=198.18.0.9:8840
++RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840; RAMC=198.18.0.4:8840; RAMD=198.18.0.9:8840; RAMF=198.18.0.12:8840
+ FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
+ ms() { date +%s%3N; }
+-NSS="ha hb hc hd n a b c d lf e"
++NSS="ha hb hc hd hf n a b c d lf e g"
+ cleanup() { for n in $NSS; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
+             for n in $NSS; do ip netns pids $n 2>/dev/null | xargs -r kill -9 2>/dev/null; ip netns del $n 2>/dev/null; done
+             ip link del br-inet 2>/dev/null; }
+@@ -49,7 +51,7 @@
+ EOF
+ # ---- the Internet
+ ip link add br-inet type bridge && ip link set br-inet up
+-for x in "ha 1" "hb 2" "hc 4" "hd 9" "n 3" "a 5" "b 6" "c 7" "d 8" "lf 10" "e 11"; do set -- $x; ip netns add $1; ip netns exec $1 ip link set lo up
++for x in "ha 1" "hb 2" "hc 4" "hd 9" "n 3" "a 5" "b 6" "c 7" "d 8" "lf 10" "e 11" "hf 12" "g 13"; do set -- $x; ip netns add $1; ip netns exec $1 ip link set lo up
+   ip link add v-$1 type veth peer name v-$1-b; ip link set v-$1 netns $1; ip link set v-$1-b master br-inet up
+   ip netns exec $1 ip addr add 198.18.0.$2/24 dev v-$1; ip netns exec $1 ip link set v-$1 up; done
+ # ---- ponds: a RAM manager (with its net.json, or none), its map site, and (hub=1) its hub
+@@ -67,9 +69,10 @@
+ pond hb $RAMB pondB keyB 51821 '{"reach":"all","map":"allowed"}' 1
+ pond hc $RAMC pondC keyC 51822 '{"reach":"all","map":"refused"}' 1
+ pond hd $RAMD pondD keyD 51823 "" 0
++pond hf $RAMF pondF keyF 51824 '{"reach":"all","map":"allowed"}' 1
+ for h in ha hb hc hd; do grep NET_CONFIG $T/$h/host.log | sed "s/^/    $h: /"; done
+ # ---- served /24s, default routes, echo servers that say who they are
+-for x in "n 10.3.3.1" "a 10.7.7.1" "b 10.8.8.1" "c 10.7.7.1" "d 10.7.7.1"; do set -- $x
++for x in "n 10.3.3.1" "a 10.7.7.1" "b 10.8.8.1" "c 10.7.7.1" "d 10.7.7.1" "g 10.7.7.1"; do set -- $x
+   ip netns exec $1 ip link add lan0 type veth peer name lan0p; ip netns exec $1 ip link set lan0 up; ip netns exec $1 ip link set lan0p up
+   ip netns exec $1 ip addr add $2/24 dev lan0; ip netns exec $1 ip route add default via 198.18.0.1 dev v-$1
+   ip netns exec $1 sysctl -q -w net.ipv4.ip_forward=1; ip netns exec $1 python3 $T/echo.py $1 > /dev/null 2>&1 &
+@@ -102,8 +105,9 @@
+ fsnode b $RAMB pondB keyB; daemon b; client b $RAMB pondB keyB client.log
+ fsnode c $RAMB pondB keyB; daemon c; client c $RAMB pondB keyB client.log
+ fsnode d $RAMC pondC keyC; daemon d; client d $RAMC pondC keyC client.log
++fsnode g $RAMF pondF keyF; daemon g; client g $RAMF pondF keyF client.log
+ fsnode n $RAMA pondA keyA; F=$T/n/fs/opt-fdf-var; mkdir -p $F/ponds
+-for x in "pondA $RAMA keyA" "pondB $RAMB keyB" "pondC $RAMC keyC" "pondD $RAMD keyD"; do set -- $x
++for x in "pondA $RAMA keyA" "pondB $RAMB keyB" "pondC $RAMC keyC" "pondD $RAMD keyD" "pondF $RAMF keyF"; do set -- $x
+   printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\nFDF_REACH=1\n' $2 $1 $3 > $F/ponds/$1.env; done
+ echo pondA > $F/forward
+ daemon n
+@@ -182,6 +186,51 @@
+ check $okg "A forward again: the reach into B is applied again"
+ for i in $(seq 100); do [ "$(get 100.64.0.1 | awk '{print $1}')" = c ] && break; sleep 0.1; done
+ check $([ "$(get 100.64.0.1 | awk '{print $1}')" = c ] && echo 0 || echo 1) "c answers at its alias again: $(get 100.64.0.1)"
++echo "=== (2d) two colliding ponds reached AT ONCE: B's c and F's g both serve 10.7.7.0/24 (as A's a does)"
++pids_to() { ip netns pids n | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && tr '\0' ' ' < /proc/$p/cmdline | grep -q "$1" && echo $p; done | head -1; }
++ALB0=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["alias"], sort_keys=True))' $F/reach/pondB.json)
++client n $RAMF pondF keyF client-F.log FDF_REACH=1
++okF=1; for i in $(seq 300); do grep -q "reach into pondF (all, map allowed)" $T/n/client-F.log && { okF=0; break; }; sleep 0.05; done
++check $okF "n reaches F too: $(grep -m1 -o 'reach into pondF.*' $T/n/client-F.log)"
++AF=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1]))["alias"]; print(next(k for k,v in a.items() if v=="10.7.7.0/24"))' $F/reach/pondF.json 2>/dev/null)
++AB=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1]))["alias"]; print(next(k for k,v in a.items() if v=="10.7.7.0/24"))' $F/reach/pondB.json 2>/dev/null)
++SB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["self"])' $F/reach/pondB.json); SF=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["self"])' $F/reach/pondF.json 2>/dev/null)
++NF=$(grep -m1 -o "gave this machine [0-9.]*" $T/n/client-F.log | awk '{print $4}')
++check $([ -n "$AF" ] && [ "$AF" != "$AB" ] && [ "$SF" != "$SB" ] && echo 0 || echo 1) "each pond's 10.7.7.0/24 has its own alias (B: $AB, F: $AF) and each reach its own side here (B: $SB, F: $SF)"
++GF=${AF%.0/24}.1; GB=${AB%.0/24}.1
++check $([ "$(get $GF)" = "g $NF" ] && echo 0 || echo 1) "n -> $GF answers g (F's 10.7.7.1), which saw n as $NF, n's address in F: $(get $GF)"
++check $([ "$(get $GB)" = "c $NB" ] && echo 0 || echo 1) "n -> $GB answers c (B's 10.7.7.1), which saw n as $NB: $(get $GB)"
++check $([ "$(get 10.7.7.1 | awk '{print $1}')" = a ] && echo 0 || echo 1) "n -> 10.7.7.1 answers a (A, the forward pond): three networks, one /24, each reached: $(get 10.7.7.1)"
++check $(ip netns exec g curl -s -m 3 "http://$NF:8080/" | grep -q "^n " && echo 0 || echo 1) "g -> $NF (n's address in F) answers n: $(ip netns exec g curl -s -m 3 http://$NF:8080/)"
++RG=$(NSF n $T/bin/fdf-reach resolve pondF w:g-g:8080)
++check $([ "$RG" = "$GF:8080" ] && echo 0 || echo 1) "resolve on n: w:g-g:8080 in F -> $RG (F's alias), w:g-c:8080 in B -> $(NSF n $T/bin/fdf-reach resolve pondB w:g-c:8080)"
++# re-plan F (its member g leaves, then comes back): B's aliases do not move
++GC=$(ip netns pids g | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1); kill $GC
++okq=1; for i in $(seq 300); do python3 -c 'import json,sys; sys.exit(0 if "10.7.7.0/24" not in json.load(open(sys.argv[1]))["routes"] else 1)' $F/reach/pondF.json 2>/dev/null && { okq=0; break; }; sleep 0.05; done
++ALB1=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["alias"], sort_keys=True))' $F/reach/pondB.json)
++check $([ $okq = 0 ] && [ "$ALB1" = "$ALB0" ] && [ "$(get $GB)" = "c $NB" ] && echo 0 || echo 1) "g left F: F's reach re-planned without 10.7.7.0/24; B's aliases unchanged ($ALB1) and c still answers at $GB"
++TG0=$(ms); client g $RAMF pondF keyF client.log
++okr2=1; while [ $(( $(ms) - TG0 )) -lt 90000 ]; do [ "$(ip netns exec n curl -s -m 1 http://$GF:8080/ 2>/dev/null)" = "g $NF" ] && { okr2=0; break; }; sleep 0.2; done; TG1=$(ms)
++echo "    g $([ $okr2 = 0 ] && echo answered || echo DID NOT answer) at $GF $((TG1-TG0)) ms after its fdf-client started again; F's reach: $(cut -d' ' -f2- $T/n/client-F.log | grep -o 'reach into pondF.*' | tail -1 | cut -c1-140)"
++if [ $okr2 != 0 ]; then   # [DIAG-REACH] everything that decides the path g -> n's address in F, at the moment it failed
++  echo "--- g routes";        ip netns exec g ip -4 route | sed 's/^/    /'
++  echo "--- g wg";            ip netns exec g wg show 2>&1 | sed 's/^/    /'
++  echo "--- hubF wg";         ip netns exec hf wg show 2>&1 | sed 's/^/    /'
++  echo "--- n wg (reach)";    ip netns exec n wg show 2>&1 | sed -n '/rch-/,$p' | sed 's/^/    /'
++  echo "--- g -> hub, g -> n_F"; ip netns exec g ping -c1 -W1 10.253.253.254 2>&1 | tail -2 | sed 's/^/    /'; ip netns exec g ping -c1 -W1 -I 10.7.7.1 $NF 2>&1 | tail -2 | sed 's/^/    /'
++  echo "--- F participants";  ip netns exec n curl -s -X POST -d '{"op":"participants"}' "http://$RAMF$API?op=rina" | python3 -c 'import json,sys; [print("    ",p["name"],p["alive"],(p.get("facts") or {}).get("role"),(p.get("facts") or {}).get("addr","")) for p in json.load(sys.stdin)["participants"]]'
++  echo "--- g daemon (last 12)"; tail -12 $T/g/daemon.log | cut -c1-240 | sed 's/^/    /'
++  echo "--- g client";        cut -d' ' -f2- $T/g/client.log | tail -6 | sed 's/^/    /'
++  echo "--- hubF log";        tail -8 $T/hf/hub.log | sed 's/^/    /'
++fi
++ALB2=$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["alias"], sort_keys=True))' $F/reach/pondB.json)
++check $([ $okr2 = 0 ] && [ "$ALB2" = "$ALB0" ] && echo 0 || echo 1) "g back in F: F's reach re-planned, g answers at $GF again; B's aliases still $ALB2"
++# remove F's reach: B's is untouched
++CF=$(pids_to "$RAMF"); IFF=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["names"]["if"])' $F/reach/pondF.json)
++kill $CF; sleep 1.5
++check $(ip netns exec n ip link show $IFF > /dev/null 2>&1 && echo 1 || echo 0) "n's session to F ended: its interface $IFF is gone"
++check $([ ! -e $F/reach/pondF.json ] && [ -z "$(get $GF)" ] && echo 0 || echo 1) "F's state is gone and $GF answers nothing"
++check $([ "$(get $GB)" = "c $NB" ] && [ "$(get 10.8.8.1 | awk '{print $1}')" = e ] && [ "$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))["alias"], sort_keys=True))' $F/reach/pondB.json)" = "$ALB0" ] && echo 0 || echo 1) "B's reach is untouched: c at $GB, its aliases $ALB0"
+ echo "=== (3) gone is gone: n's session to pond B ends"
+ CB=$(ip netns pids n | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && tr '\0' ' ' < /proc/$p/cmdline | grep -q "$RAMB" && echo $p; done | head -1)
+ IFB=$(ip netns exec n ip -o link | grep -o "rch-[0-9a-f]*" | head -1)

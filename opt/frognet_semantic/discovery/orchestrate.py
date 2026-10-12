@@ -63,11 +63,18 @@ def merge(disc, kernel, seeds, upstream_seed, *, local, bringup_peers,
     # sweep clears stale admin aliases from a prior topology so this run's probes
     # are authoritative (a stale lower-metric alias would otherwise hijack the
     # probe target and force a false FAIL_ECHO).
-    disc.r.sweep_probe_routes()
-    disc.descend_downstream(**seeds)
-    disc.descend_upstream(seeds["active_devs"], upstream_seed)
-    disc.promote()
-    disc.r.sweep_probe_routes()
+    if getattr(disc, "no_crawl", False):
+        # [NO_CRAWL_IN_REGION_V1] FD&F owns discovery: who exists, the links, the routes and the names come from
+        # the region's address table (fdf_graph), admitted by the daemon's own probes and installed before this
+        # merge ran. The walk, its probes and its promote/reap do not run; HOSTS_GATE below still gates every name
+        # on an installed route, so a name without a route is still dropped.
+        logger("NO_CRAWL_IN_REGION: hosts and routes are FD&F's plan (bringup_peers=%d); the walk does not run" % len(bringup_peers))
+    else:
+        disc.r.sweep_probe_routes()
+        disc.descend_downstream(**seeds)
+        disc.descend_upstream(seeds["active_devs"], upstream_seed)
+        disc.promote()
+        disc.r.sweep_probe_routes()
 
     # discovery's addHost calls (walk -> addHostAndPropogate). Per-IP name
     # reconciliation + deprecated-name detection in reconcile_added.

@@ -356,24 +356,60 @@ def _resolv_text(k, hn, local_domain):
     from .resolv import build_resolv
     return "\n".join(build_resolv(local_domain, hn, _dns_upstream(k))) + "\n"
 
+def _region_exit_feed(participants, self_identity, logger=print):
+    """[EXIT_FROM_THE_GRAPH_V1] Mode B's inputs on a region, from the members' facts instead of the network.
+    Off a region, choose_exit_hosts pings the next hop toward EVERY known host and curls getDefaultRoute.php on each
+    (--max-time 15, serially) to learn which of them has an exit. On a region that is a fact: fdf_graph ranks the exits
+    from the uplink rows (live = not three missed pings; speed, then the lower .1) and names mine. So the candidate list
+    is that one host, and its answer is "exit present" by construction. The next-hop ping stays (it is this node's own
+    wire). No exit in the graph -> no candidate (gone is gone)."""
+    import os as _o, sys as _s, time as _t
+    fp = _o.environ.get("FDF_PY", "/opt/fdf/lib/python")
+    if fp not in _s.path:
+        _s.path.insert(0, fp)
+    from fdf_graph import Graph
+    from core.region_capability import _dot1_of
+    g = Graph(participants)
+    me = next((p.get("name") for p in participants if p.get("alive") and _dot1_of(p.get("facts") or {}) == self_identity), None)
+    ex = g.exit_of(me) if me else None
+    if not ex or ex == me:
+        logger("EXIT_FROM_THE_GRAPH me=%s exit=%s: no exit host to synthesize toward" % (me, ex))
+        return [], {}
+    ex_ip = next((_dot1_of(p.get("facts") or {}) for p in participants if p.get("name") == ex), "")
+    logger("EXIT_FROM_THE_GRAPH me=%s exit=%s (%s) uplink=%s" % (me, ex, ex_ip, g.uplink.get(ex)))
+    return ([ex_ip] if ex_ip else []), {ex_ip: {"ok": True, "exit_present": True, "ts": int(_t.time()), "ttl_sec": 60}}
+
+
 def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
-                               self_identity=""):
+                               self_identity="", region_parts=None):
     """fixDefaultRoute (Mode A + B + forced) then manageResolv, over the real
     kernel. This is the merge tail bash did and live.main was missing."""
     from .fixdefault import FixDefaultRoute
+    known, getdr, ping = _known_hosts, _get_default_route, RealPing()
+    if region_parts is not None:
+        _ex, _ans = _region_exit_feed(region_parts, self_identity, logger)
+        known, getdr = (lambda: list(_ex)), (lambda h, timeout=15: _ans.get(h))
+        # [ALIVE_IS_THE_SESSION_V1] a next hop that is an address an alive member wrote in its facts (its .1, a lease
+        # it holds, its hub edge) is alive: its session says so. No ICMP for it. A gateway no member wrote (the ISP
+        # router on an uplink) is not in RAM and is still pinged.
+        _member_ips = {r.get("ip") for p in region_parts if p.get("alive")
+                       for r in (p.get("facts") or {}).get("addrs") or [] if r.get("ip")}
+        _icmp = ping
+        def ping(via, dev, _m=_member_ips, _icmp=_icmp):
+            return True if via in _m else _icmp(via, dev)
     fdr = FixDefaultRoute(
         k,
         dev_ip4={d: dev_ip.get(d, "") for d in devs},
         up_devs=_up_devs(),
         connected_prefixes=_connected_prefixes(devs),
-        ping=RealPing(),
+        ping=ping,
         frognet_interfaces=devs,
         local_ips=local_ips,
         forced_line=_forced_line(),
         logger=logger,
         route_get=_route_get,
-        get_default_route=_get_default_route,
-        known_hosts=_known_hosts,
+        get_default_route=getdr,
+        known_hosts=known,
         semantic_cidrs=_semantic_cidrs(),
         write_exit_sentinel=_write_exit_sentinel,
         self_identity=self_identity,
@@ -460,13 +496,27 @@ def build_live(logger=print, self_identity: str = ""):
                 ages[_ip] = _age
         return ages
 
-    disc = Discovery(routes, RealEcho(), RealRtt(), RealGetHosts(), broker,
+    # [REGION_BACKENDS_V1] FROGNET_DISCOVERY_SOURCE=region: who exists comes from the FD&F region's records (one read),
+    # not from the echo/getHosts crawl. Probes (rtt, reflect, verify) stay exactly as they are.
+    import os as _os0
+    from .real_backends import RegionRecords, RegionEcho, RegionGetHosts
+    _src = _os0.environ.get("FROGNET_DISCOVERY_SOURCE", "")
+    if not _src and RegionRecords.ram_from_conf():
+        _src = "region"                        # RINA_RAM= in /etc/frognet/tunnel.conf: the node is on a region
+    if _src == "region":
+        _rec = RegionRecords()
+        _echo, _gethosts = RegionEcho(_rec), RegionGetHosts(_rec, local_ips)
+        logger("DISCOVERY_SOURCE=region ram=" + _rec.ram + " (no crawl: FD&F owns discovery)")
+    else:
+        _echo, _gethosts = RealEcho(), RealGetHosts()
+    disc = Discovery(routes, _echo, RealRtt(), _gethosts, broker,
                      hoststore, local_ips, dev_src, logger=logger,
                      propagator=Propagator(hoststore, logger=logger),
                      reflect=RealReflect(), self_identity=self_identity,
                      verify=RealVerify(), caps=_caps_ages,
                      own_subnet=own_subnet, has_own_uplink=has_own_uplink,
                      uplink_dev=uplink_dev)
+    disc.no_crawl = (_src == "region")                                  # [NO_CRAWL_IN_REGION_V1]
     # [WAVE_PARALLEL_V1] Parallelize the wave-1 probe phase live (overlaps the
     # echo timeouts that dominate merge wall time). Output is proven identical to
     # sequential (test_wave_parallel_equivalence_oracle). Toggle with
@@ -511,6 +561,13 @@ def _reconcile_tunnels(logger=print):
     import os
     if os.environ.get("FROGNET_SKIP_BRINGUP"):
         logger("reconcile_tunnels SKIPPED (FROGNET_SKIP_BRINGUP set)")
+        return 0
+    # [BRINGUP_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub channel is the tunnel daemon's, applied in-process on
+    # every region event. A second python here re-read the region (my-channels: two reads), re-scanned the kernel's wg
+    # interfaces and could tear down or bring up the same channel behind the daemon's back. Not run.
+    from .real_backends import RegionRecords as _RR
+    if os.environ.get("FROGNET_DISCOVERY_SOURCE", "") == "region" or (not os.environ.get("FROGNET_DISCOVERY_SOURCE") and _RR.ram_from_conf()):
+        logger("reconcile_tunnels not run: region mode, the tunnel daemon owns the hub channel [BRINGUP_IS_THE_DAEMONS_IN_REGION_V1]")
         return 0
     env = dict(os.environ)
     env["PYTHONPATH"] = os.environ.get("FROGNET_BRINGUP_PYTHONPATH",
@@ -571,6 +628,12 @@ def main():
     health_states = []
     for iface, subs in active_states_full:
         ch = broker.channel_for_iface(iface)
+        if ch and ch.startswith("hub-"):
+            # [HUB_HEALTH_IS_THE_HANDSHAKE_V1] a region hub channel carries many /24s that belong to other members;
+            # probing "the first one's .2" judges the hub link by a third host (Seattle3B 15:07: wg0 declared dead
+            # because 10.170.170.2 did not pong). The daemon watches the hub handshake; the merge takes that.
+            logger(f"TUNNEL_HEALTH iface={iface} ch={ch}: hub channel, liveness is the WireGuard handshake (daemon); not probed")
+            continue
         if ch and subs:
             health_states.append((iface, ch, subs[0]))
     # [PINGPONG_HEALTH_V1] Gate tunnel liveness on the :9009 ping-pong (reuse the
@@ -595,6 +658,31 @@ def main():
     hs = broker._handshake()
     bringup = [(ch.rsplit("-", 1)[0], v.get("peer_dot_one"))
                for ch, v in hs.items() if v.get("peer_dot_one")]
+    # [NO_CRAWL_IN_REGION_V1] on a region the peers are FD&F's plan, as the daemon applied it (routes installed,
+    # admission passed): /var/lib/frognet/region_hosts, "<ip> <name>" per line. The walk does not run.
+    _region_parts = None                       # [EXIT_FROM_THE_GRAPH_V1] the region's members, read once below
+    if getattr(disc, "no_crawl", False):
+        bringup = []
+        try:                                      # the daemon's file; /var/lib/frognet, because runMerge wipes /etc/sentinels at start
+            import os as _oh
+            for ln in open(_oh.environ.get("FROGNET_REGION_HOSTS", "/var/lib/frognet/region_hosts")):
+                f = ln.split()
+                if len(f) >= 2 and f[0].endswith(".1"):
+                    nm = f[1].split(".", 1)[1] if f[1].startswith("FrogNetHost.") else f[1]
+                    bringup.append((nm, f[0]))
+        except OSError:
+            pass
+        logger("REGION_HOSTS n=%d (FD&F's plan; no walk)" % len(bringup))
+        # [ELECTION_FROM_FACTS_V1] this merge's elections read the members' capability facts from the region, like the
+        # daemon's; the store is not an election input on a region.
+        try:
+            from discovery.real_backends import RegionRecords
+            from core import region_capability as _RC
+            _region_parts = RegionRecords().participants()
+            _n = _RC.set_snapshot(_region_parts, self_identity)
+            logger("ELECT: candidates from the region's facts: %d member(s) with a capability; my LAN (graph links): %s" % (_n, sorted(_RC.lan() or ())))
+        except Exception as _e:
+            raise RuntimeError("region mode: the members' facts could not be read for the election: %s" % _e)
 
     eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
     domain = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip().split(".", 1)
@@ -681,18 +769,24 @@ def main():
     # seconds later. The value has to OUTLIVE the merge -- the whole point is that
     # another node's election reads it afterwards.
     out["computed_wan"] = list(getattr(disc, "computed_wan", []))
-    try:
-        from core import frognet_tuples as _T
-        _scope = _T.node_scope()
-        _T.put("discovery", "reach_plane", _scope,
-               {"wan_subnets": out["computed_wan"],
-                "self_ip": self_identity or eth0_ip},
-               own=False)
-        _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
-        logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
-               + (f" pruned={_pruned} stale pid-keyed row(s)" if _pruned else ""))
-    except Exception as _e:
-        logger(f"REACH_PLANE_TUPLE write failed: {_e}")
+    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the mediahost's LAN bucket is the
+    # graph ([LAN_IS_THE_GRAPH_V1]) and the one reader gather_candidates had was a dead read, now removed. Not written.
+    _region = bool(getattr(disc, "no_crawl", False))
+    if _region:
+        logger("REACH_PLANE_TUPLE not written: region mode, the graph is the LAN/WAN input [REGION_MERGE_WRITES_NO_STORE_V1]")
+    else:
+        try:
+            from core import frognet_tuples as _T
+            _scope = _T.node_scope()
+            _T.put("discovery", "reach_plane", _scope,
+                   {"wan_subnets": out["computed_wan"],
+                    "self_ip": self_identity or eth0_ip},
+                   own=False)
+            _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
+            logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
+                   + (f" pruned={_pruned} stale pid-keyed row(s)" if _pruned else ""))
+        except Exception as _e:
+            logger(f"REACH_PLANE_TUPLE write failed: {_e}")
 
     # [NEIGHBOR_FROGNET_ADDR_V1] Persist {dhcp_next_hop: FrogNet .1} so
     # propogateNotification's neighbor scan sends to a downstream child's FrogNet
@@ -717,35 +811,42 @@ def main():
     # capability (perf inside the blob) to BOTH control + data BEFORE the election
     # reads - so the control holder's SELECT over capability tuples sees fresh perf.
     # Best-effort: a miss self-heals on the confirmation merge a host-change triggers.
-    try:
-        from core.role_publish import publish_all
-        from discovery.hosts import control_host_ip, CONTROL_NAME
-        # Publish THIS node's capability to the SAME fresh control the election below
-        # reads from - the deterministic highest .1 computed from this merge's block -
-        # not the databasehost_control.frognet NAME, which resolves through the prior
-        # merge's /etc/hosts (not committed yet) and so lands this node's perf on the
-        # wrong control, leaving the fresh control's election ranking on stale data.
-        _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
-        _reports = publish_all(control=_ctl, logger=logger)
-        # [PUBLISH_EVIDENCE_V1] Say that it happened, not only that it failed. A silent
-        # success means a merge log cannot answer "did this node re-assert its
-        # capability?", and that is the question every stale-ballot investigation
-        # starts with: a row unrefreshed past FROGNET_BALLOT_MAX_AGE_S is refused by
-        # every other node, so a machine that stops merging quietly stops being
-        # electable anywhere - with nothing in its own log to show for it.
-        _ok = sorted(x for r in _reports for x in [r.get("role")] if r.get("written") and x)
-        _bad = [(r.get("role"), r.get("consistency"), r.get("refused") or r.get("error"))
-                for r in _reports
-                if not r.get("written") or r.get("consistency") != "ok"]
-        import time as _pt
-        _now = int(_pt.time())
-        _ts = {r.get("role"): r.get("ts") for r in _reports if r.get("ts")}
-        _age = {k: (_now - int(v)) for k, v in _ts.items() if v}
-        logger(f"PUBLISH_CAPABILITY control={_ctl} wrote={_ok} "
-               f"ts={_ts} ts_age_at_write={_age}"
-               + (f" NOT_WRITTEN={_bad}" if _bad else ""))
-    except Exception as _e:
-        logger(f"PUBLISH_BEFORE_ELECT failed: {_e}")
+    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode the election's input is facts.capability, which the daemon
+    # probes at start and every 600 s off its loop ([CAPABILITY_IS_A_FACT_V1]); <role>/capability tuples in the store
+    # have no reader. publish_all ran frognet_capability_probe.sh (disk write, fsync, cpu: ~9 s on a Pi) and wrote
+    # them on every merge. Not run in region mode.
+    if _region:
+        logger("PUBLISH_CAPABILITY not run: region mode, capability is the daemon's fact [REGION_MERGE_WRITES_NO_STORE_V1]")
+    else:
+        try:
+            from core.role_publish import publish_all
+            from discovery.hosts import control_host_ip, CONTROL_NAME
+            # Publish THIS node's capability to the SAME fresh control the election below
+            # reads from - the deterministic highest .1 computed from this merge's block -
+            # not the databasehost_control.frognet NAME, which resolves through the prior
+            # merge's /etc/hosts (not committed yet) and so lands this node's perf on the
+            # wrong control, leaving the fresh control's election ranking on stale data.
+            _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
+            _reports = publish_all(control=_ctl, logger=logger)
+            # [PUBLISH_EVIDENCE_V1] Say that it happened, not only that it failed. A silent
+            # success means a merge log cannot answer "did this node re-assert its
+            # capability?", and that is the question every stale-ballot investigation
+            # starts with: a row unrefreshed past FROGNET_BALLOT_MAX_AGE_S is refused by
+            # every other node, so a machine that stops merging quietly stops being
+            # electable anywhere - with nothing in its own log to show for it.
+            _ok = sorted(x for r in _reports for x in [r.get("role")] if r.get("written") and x)
+            _bad = [(r.get("role"), r.get("consistency"), r.get("refused") or r.get("error"))
+                    for r in _reports
+                    if not r.get("written") or r.get("consistency") != "ok"]
+            import time as _pt
+            _now = int(_pt.time())
+            _ts = {r.get("role"): r.get("ts") for r in _reports if r.get("ts")}
+            _age = {k: (_now - int(v)) for k, v in _ts.items() if v}
+            logger(f"PUBLISH_CAPABILITY control={_ctl} wrote={_ok} "
+                   f"ts={_ts} ts_age_at_write={_age}"
+                   + (f" NOT_WRITTEN={_bad}" if _bad else ""))
+        except Exception as _e:
+            logger(f"PUBLISH_BEFORE_ELECT failed: {_e}")
     try:
         from core.frognet_service_hosts import apply_to_etc_hosts
         from discovery.hosts import control_host_ip, CONTROL_NAME
@@ -811,6 +912,17 @@ def main():
     except Exception as _e:
         logger(f"SERVICE_HOSTS skipped: {_e}")
 
+    # [LEAVES_NAMED_BY_EVERY_WRITER_V1] on a region the leaves (phones, PCs) and reaching participants are named here
+    # too, from the same facts the daemon's election names them from -- this merge rewrites /etc/hosts, so without them
+    # it dropped every device until the next region event (2026-10-11, Seattle5)
+    if _region_parts:
+        try:
+            from discovery.elect import leaf_lines
+            _before = len(out.get("etc_hosts", []))
+            out["etc_hosts"] = leaf_lines(out.get("etc_hosts", []), _region_parts)
+            logger("LEAVES named: %d (from the region's facts)" % (len(out["etc_hosts"]) - _before))
+        except Exception as _e:
+            logger("LEAVES not named: %s" % _e)
     _commit_hosts(out, logger=logger)
     _arm_elector(logger=logger)
     _mark_discovered(logger=logger)
@@ -818,7 +930,8 @@ def main():
     # over the real kernel - the steps bash ran after the host merge.
     _run_fixdefault_and_resolv(k, devs, {i.dev: i.ip4() for i in ifaces},
                                local_ips, logger=logger,
-                               self_identity=self_identity)
+                               self_identity=self_identity,
+                               region_parts=_region_parts)
 
     # [RUNAGAIN_ON_REAL_DELTA_V1] Close the window. The fingerprint answers ONE
     # question -- did this pass actually change the routing table -- and that

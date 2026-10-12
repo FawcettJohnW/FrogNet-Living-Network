@@ -231,12 +231,14 @@ def _probe_through(disc, x_ip, dev, via):
     # no reflect backend (sim/degraded): direct measure on .2 so the oracle harness
     # (which has no reflect) is unaffected.
     if disc.r.probe_install(d2, dev, via, src) != 0:
+        _log(f"PROBE_FAIL plane=.2 x={x_ip} target={d2} dev={dev} via={via or '-'} src={src or '-'} reason=probe_install")
         return _fail()
     try:
         r = _measure(disc, d2, dev)
     finally:
         disc.r.probe_delete(d2)
     if r is None:
+        _log(f"PROBE_FAIL plane=.2 x={x_ip} target={d2} dev={dev} via={via or '-'} src={src or '-'} reason=no_answer")   # said, like the reflect path
         return _fail()
     return r
 
@@ -423,7 +425,9 @@ def descend(disc, active_devs, immediate, *, active_states=None, max_workers=64,
         elif isinstance(v, float):
             _emit(disc, ip, ename or _echo_name(disc, ip), dev, v, "IMMEDIATE", log,
                   authoritative=True)
-        elif el and eid1 == ip:
+        elif el and eid1 == ip and getattr(disc.echo, "is_measurement", True):
+            # [REGION_BACKENDS_V1] only when the echo was a PROBE. From the region's records every member "echoes"
+            # (RegionEcho.is_measurement = False), and that says nothing about this tunnel: published != reachable.
             # [IMMEDIATE_ECHO_NO_RTT_V1] A directly-attached immediate that ECHOED its
             # OWN identity (eid1 == ip) is a real host even when we could not measure a
             # float RTT - e.g. the .1 gateway of a subnet we hold a guest LEASE on (our

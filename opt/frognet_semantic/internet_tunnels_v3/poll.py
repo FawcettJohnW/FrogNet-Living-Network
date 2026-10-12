@@ -209,6 +209,12 @@ def _bringup_install_routes(channel_name: str, iface: str,
         # channel's own /24 is the bootstrap exception: it must be
         # in the kernel for tunnel_health_check to reach peer.1 and
         # for wave-1 probes through this iface to even start.
+        # [REGION_HUB_ROUTES_V1] region mode: the channel is "hub-<name>", which has no "<peer>-<prefix>" to parse, so
+        # peer_prefix is empty and every /24 the hub serves would be skipped here as "relayed", forever (the committer
+        # needs a tunnel observation it never gets without a route). The hub's remote_subnets are verified mappings
+        # (signed with the site key), not hints: install each as `dest dev wgN` and say so.
+        # region mode: /24s through the hub are installed by the graph applier ([GRAPH_APPLY_V1]), not here
+        region_hub = False
         if not (peer_prefix and _peer_one_inside_dest(peer_prefix, sn)):
             config.log.info(
                 "BRINGUP_ROUTE_SKIP %s: relayed subnet "
@@ -223,7 +229,7 @@ def _bringup_install_routes(channel_name: str, iface: str,
         # _winning_via for the matching change on the committer side.
         via = ""
         onlink = False
-        shape = "direct"
+        shape = "region-hub" if region_hub else "direct"
 
         ok = ipr.install(InstallRoute(
             dest=sn, dev=iface, via=via,
@@ -233,7 +239,7 @@ def _bringup_install_routes(channel_name: str, iface: str,
         ))
         if ok:
             installed.append(sn)
-            config.log.info(
+            (config.log.warning if region_hub else config.log.info)(
                 "BRINGUP_ROUTE_INSTALL %s dev %s shape=%s",
                 sn, iface, shape)
 
@@ -444,6 +450,9 @@ def _get_opener():
 
 
 def broker_get(path: str, params: dict = None) -> dict:
+    if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
+        from . import region
+        return region.get(path, params)
     url = f"{config.BROKER_URL}{path}"
     if params:
         qs = "&".join(f"{k}={urllib.request.quote(str(v))}"
@@ -497,6 +506,9 @@ def register_with_broker() -> bool:
 
 
 def broker_post(path: str, body: dict) -> dict:
+    if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
+        from . import region
+        return region.post(path, body)
     url = f"{config.BROKER_URL}{path}"
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method="POST",
@@ -785,6 +797,19 @@ def _remove_tunnel_state(tunnel_name: str):
 def _enumerate_kernel_wg_ifaces() -> Dict[str, str]:
     """Return {iface: remote_pubkey} for every live FrogNet-style wgN."""
     out: Dict[str, str] = {}
+    from .wg import _kernel_dump                              # [KERNEL_READ_ONCE_PER_EVENT_V1]
+    d = _kernel_dump()
+    if d is not None:
+        for iface in sorted(d):
+            if not iface.startswith("wg"):
+                continue
+            peers = [pk for pk, _hs in d[iface]]
+            if len(peers) == 1:
+                out[iface] = peers[0]
+            else:
+                config.log.warning("ORPHAN_SCAN: %s has %d peers - not a FrogNet "
+                                   "tunnel, skipping", iface, len(peers))
+        return out
     try:
         r = subprocess.run(["wg", "show", "interfaces"],
                            capture_output=True, text=True, check=False)
@@ -916,6 +941,8 @@ def _bring_up_tunnel(channel: dict) -> bool:
         )
         conf_path.chmod(0o600)
 
+        from .wg import kernel_changed                        # [KERNEL_READ_ONCE_PER_EVENT_V1]
+        kernel_changed()
         r = subprocess.run(["wg-quick", "up", iface],
                            capture_output=True, text=True, check=False)
         if r.returncode != 0:
@@ -937,7 +964,7 @@ def _bring_up_tunnel(channel: dict) -> bool:
                 tunnel_name, iface, age, handshake_wall_ms)
             handshake_ok = True
             break
-        time.sleep(0.5)
+        time.sleep(0.1)                 # [HANDSHAKE_POLL_100MS_V1] the handshake is one RTT; 500 ms steps added up to 500 ms
     if not handshake_ok:
         config.log.error("BRING_UP: %s no handshake after 30s on %s - tearing "
                          "down", tunnel_name, iface)
@@ -1112,7 +1139,7 @@ def poll_once() -> bool:
     needs_bringup  = broker_names - running_chs
     needs_teardown = running_chs - broker_names
 
-    config.log.info(
+    (config.log.warning if getattr(config, "REGION_RAM", "") else config.log.info)(
         "POLL: broker=%d running=%d broker_added=%d broker_removed=%d "
         "needs_bringup=%d needs_teardown=%d digest=%s",
         len(broker_names), len(running_chs),
@@ -1638,7 +1665,7 @@ def _reconcile_bringup_phase() -> bool:
     joined, so sync_interfaces's wave-2 barrier can proceed.
     """
     t0 = time.monotonic()
-    config.log.info("BRINGUP_PHASE: status=enter")
+    (config.log.warning if getattr(config, "REGION_RAM", "") else config.log.info)("BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]")
     changed = False
 
     # [BROKER_AUTHORITATIVE_V1 2026-06-01] Four short-circuits below
@@ -1668,7 +1695,9 @@ def _reconcile_bringup_phase() -> bool:
     # tunnel can actually handshake is proved per-tunnel in _bring_up_tunnel
     # (30s handshake wait, then teardown of that one tunnel) - that is the
     # correct place for "this endpoint can't handshake", not a blanket pre-gate.
-    if not _broker_reachable():
+    # [WORLD_READ_ONCE_PER_EVENT_V1] region mode: the region answered this event's `world` read a moment ago, and the
+    # my-channels fetch below is the same question; asking it twice cost a region read and a duplicate log line.
+    if not getattr(config, "REGION_RAM", "") and not _broker_reachable():
         config.log.info(
             "BRINGUP_PHASE: status=broker_unreachable - "
             "tearing down stale (broker did not answer)")
@@ -1945,7 +1974,7 @@ def _reconcile_bringup_phase() -> bool:
             continue
         to_bring_up.append(ch_name)
 
-    config.log.info(
+    (config.log.warning if getattr(config, "REGION_RAM", "") else config.log.info)(
         "BRINGUP_PHASE: to_bring_up count=%d list=%s already_up=%s "
         "skipped_lan_reachable=%d",
         len(to_bring_up), to_bring_up, sorted(current_local),
@@ -2076,9 +2105,34 @@ def _write_handshake_rtts() -> None:
         config.log.warning("HANDSHAKE_RTTS_WRITE: OSError path=%s err=%s", HANDSHAKE_RTTS_PATH, e)
 
 
+def _publish_region_maps() -> None:
+    """[REGION_V1] map-register our prefixes with the locator set of every hub whose tunnel is up (prio by handshake
+    RTT). Goes through the facts file; fdf-client signs and registers through its own session ([MAP_FROM_FACTS_V1])."""
+    if not getattr(config, "REGION_RAM", ""):
+        return
+    from . import region
+    live = {}
+    for ch_name, info in _active_tunnels.items():
+        if ch_name.startswith("hub-"):
+            live[ch_name[4:]] = info.get("handshake_wall_ms") or None
+    config.live_hubs = live
+    plan_maps = getattr(config, "region_plan_maps", None)
+    if plan_maps is None:
+        # [NO_PLAN_NO_WITHDRAW_V1] this process never ran the graph (runMerge's bring-up-only reconcile): it has no
+        # opinion on what to register and must not write [] over the daemon's registration (seen on Seattle3B 15:06:
+        # "REGION: maps -> []" from the merge, withdrawing the databasehost's own /24 until the daemon's next event).
+        config.log.warning("REGION: maps not computed in this process; registration left as the daemon set it")
+        return
+    try:                                   # [MAPS_FROM_GRAPH_V1] the prefixes are the plan's, kept by the region loop
+        region.publish_plan_maps(plan_maps)
+    except Exception as e:
+        config.log.warning("REGION: publish_plan_maps failed: %s", e)
+
+
 def _signal_bringup_ready() -> None:
     """Write the handshake-RTTs file, then touch the READY sentinel."""
     _write_handshake_rtts()
+    _publish_region_maps()                                    # [REGION_V1]
     try:
         import pathlib
         p = pathlib.Path("/etc/sentinels/tunnel_bringup_ready")
@@ -2118,6 +2172,8 @@ def _reconcile_commit_phase() -> bool:
     dur_ms = int((time.monotonic() - t0) * 1000)
     config.log.info("COMMIT_PHASE: status=exit dur_ms=%d active_tunnels=%d changed=%s",
                     dur_ms, len(_active_tunnels), changed)
+    if getattr(config, "REGION_RAM", ""):
+        _write_view("steady", "merge")                        # [REGION_V1] the world is recomputed: apps may rediscover
     return changed
 
 
@@ -2224,7 +2280,398 @@ def reconcile_commit_only() -> bool:
 # Main loop (unchanged)
 # ---------------------------------------------------------------------------
 
+def _write_view(phase: str, reason: str) -> None:
+    """[REGION_V1] (plan 2.6) the node's own view of the world, for applications holding a read on it: phase recalc the
+    instant the region is lost (before runMerge), steady again when runMerge commits. /var/lib/frognet/view.json."""
+    import json as _j
+    path = os.environ.get("FROGNET_VIEW", "/var/lib/frognet/view.json")
+    try:
+        cur = {}
+        try:
+            with open(path) as f:
+                cur = _j.load(f)
+        except (OSError, ValueError):
+            pass
+        dbhost, lines = "", []
+        try:
+            import hashlib as _h
+            with open("/etc/hosts") as hf:
+                for ln in hf:
+                    t = ln.split()
+                    if len(t) >= 2 and t[0].startswith("10."):
+                        lines.append(" ".join(t))
+                        if "databasehost.frognet" in t[1:]:
+                            dbhost = t[0]
+            hosts_hash = _h.sha256("\n".join(sorted(lines)).encode()).hexdigest()[:16]
+        except OSError:
+            hosts_hash = ""
+        cur.update({"phase": phase, "reason": reason, "gen": int(cur.get("gen", 0)) + (1 if phase == "steady" else 0),
+                    "dbhost": dbhost, "hosts_hash": hosts_hash, "at": time.time()})
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(_j.dumps(cur, sort_keys=True) + "\n")
+        os.replace(tmp, path)
+        config.log.warning("VIEW: phase=%s reason=%s gen=%s", phase, reason, cur["gen"])
+        if getattr(config, "REGION_RAM", "") and phase == "steady":      # and into the region, as this node's fact (fn.view)
+            # [VIEW_FACT_ON_SUBSTANCE_V1] only when the substance (dbhost, hosts_hash) changed -- not gen/at/reason. A
+            # facts write is an announcement, an announcement is a `p` event on every member, and every member's
+            # rebuild wrote its view again: the fleet-wide 200 ms storm seen 13:41.
+            from . import region
+            have = (region.read_facts().get("view") or {})
+            if (have.get("dbhost"), have.get("hosts_hash")) != (cur["dbhost"], cur["hosts_hash"]):
+                region.write_facts({"view": {k: cur[k] for k in ("phase", "dbhost", "hosts_hash")}})
+    except OSError as e:
+        config.log.warning("VIEW: write failed: %s", e)
+
+
+def _service_host_ips() -> set:
+    """The .1 addresses /etc/hosts currently names as a service host (databasehost.frognet, mediahost.frognet, ...)."""
+    out = set()
+    try:
+        for ln in open("/etc/hosts"):
+            f = ln.split()
+            if len(f) >= 2 and f[0].startswith("10.") and any(t.endswith(".frognet") for t in f[1:]):
+                out.add(f[0])
+    except OSError:
+        pass
+    return out
+
+
+def run_region_loop():
+    """[REGION_V1][GRAPH_LOOP_V1] region mode: FD&F owns discovery (PLAN-RAM-DISCOVERY §5). Per region event (p/m,
+    from the held fdf-events session; never a timer):
+      1. the hub channel is reconciled in-process (brought up if missing, torn down if the hub left) -- the
+         tunnel to the hub is this node's locator;
+      2. the applier takes FD&F's plan (fdf_graph over `participants`), admits LAN candidates with one probe each,
+         gates hub routes on the handshake, installs the diff, holds down mere absences, writes region_hosts;
+      3. the mappings this node registers are the plan's (what the hub may forward to it);
+      4. no runMerge for a region event [NO_MERGE_ON_REGION_EVENTS_V1]: the facts carry what the graph needs and this
+         loop applies all of it; the generation counter (`gen` fact) is the audit trail [GEN_V1].
+    When the region is gone: view.json phase=recalc, every region route and name withdrawn now (positive failure),
+    tunnels torn down, no merge [GONE_IS_GONE_V1]; then wait for fdf-events to reconnect and adopt."""
+    from . import region
+    from . import gen as _gen
+    from .graph_apply import Applier, World
+    _ensure_frognet0()
+    config.log.warning("REGION: loop started (RINA_RAM=%s, no poll interval) [ELECT_IN_PROCESS_V1 VIEW_FACT_ON_SUBSTANCE_V1 GEN_V1 NO_MERGE_ON_REGION_EVENTS_V1 WATCH_BEFORE_READ_V1 WORLD_READ_ONCE_PER_EVENT_V1 KERNEL_READ_ONCE_PER_EVENT_V1 HOSTJSON_FROM_THE_REGION_V1 ALIVE_IS_THE_SESSION_V1]; region.py build %s; the region is build %s",
+                    config.REGION_RAM, region.BUILD_TAG, region.version())
+    try:
+        region.post("/api/v4/register", {"pond": config.POND, "pubkey": config.PUBKEY,
+                                         "node_name": config.NODE_NAME, "guid": config.NODE_GUID})
+        config.log.warning("REGION: facts written (%s %s %s)", config.NODE_NAME, region.read_facts().get("subnet"), config.PUBKEY[:12])
+    except Exception as e:
+        config.log.error("REGION: could not write facts: %s", e)
+    try:                                                       # FD&F's writer, once, so the first plan sees this node's rows
+        subprocess.run([os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-facts")], timeout=20, capture_output=True)
+    except Exception as e:
+        config.log.warning("REGION: fdf-facts not run: %s", e)
+    me = region.read_facts().get("name") or config.NODE_NAME
+    applier = Applier(World(config=config, log=config.log), me)
+
+    # [CAPABILITY_IS_A_FACT_V1] this node's capability (frognet_capability_probe.sh: cores, memory, disk, mysql, ffmpeg,
+    # load) is a fact in the region: facts.capability, at start and every FROGNET_CAP_REFRESH_SEC (600). The elections on
+    # every member read it from there. The probe runs off the loop (it is ~1 s on x86, longer on a Pi).
+    def _capability_publisher():
+        import threading as _t
+        every = float(os.environ.get("FROGNET_CAP_REFRESH_SEC", "600"))
+        probe = os.environ.get("FROGNET_CAPABILITY_PROBE", "/usr/local/bin/frognet_capability_probe.sh")
+        while config.running:
+            try:
+                import json as _j
+                out = subprocess.run([probe], capture_output=True, text=True, timeout=60)
+                if out.returncode != 0 or not out.stdout.strip():
+                    raise RuntimeError("rc=%s %s" % (out.returncode, (out.stderr or "").strip()[:160]))
+                blob = _j.loads(out.stdout)
+                cap = blob.get("capability") or blob
+                have = region.read_facts().get("capability") or {}
+                keep = {k: v for k, v in cap.items() if k not in ("loadavg", "temps_c", "mem_available_kb", "disk_free_gb", "ts")}
+                was = {k: v for k, v in have.items() if k not in ("loadavg", "temps_c", "mem_available_kb", "disk_free_gb", "ts")}
+                if keep != was or not have:                 # the slow-moving part changed (or first time): announce it
+                    region.write_facts({"capability": cap, "capability_ts": time.time()})
+                    config.log.warning("REGION: capability published as a fact (mysql=%s cores=%s mem_kb=%s disk=%s ffmpeg=%s)",
+                                       cap.get("mysql_running"), cap.get("cores"), cap.get("mem_total_kb"), cap.get("disk_class"), cap.get("ffmpeg"))
+                else:
+                    config.log.info("REGION: capability unchanged (load/free space not announced)")
+            except Exception as e:
+                config.log.error("REGION: capability probe FAILED: %s (again in %ds)", e, int(every))
+            for _ in range(int(every)):
+                if not config.running:
+                    return
+                time.sleep(1)
+    import threading as _thr0
+    _thr0.Thread(target=_capability_publisher, name="capability", daemon=True).start()
+
+    last_sig = [None]
+
+    def _one(why: str, failures=frozenset()):
+        _t = {"t0": time.monotonic()}                               # [EVENT_TIMED_V1] every phase of the event, in the log
+        def _lap(name):
+            now = time.monotonic(); _t[name] = int((now - _t["t0"]) * 1000)
+        parts, maps = ([], []) if "region" in failures else region.world()        # [WORLD_IN_ONE_READ_V1] one round trip
+        _lap("participants")
+        # [EVENT_SUBSTANCE_GATE_V1] an event that changed nothing we plan from (alive members' facts, the mappings) is
+        # not acted on: a monitor polling the RAM manager opens a session per poll and that is a `p` event for every
+        # member -- 4 rebuilds a second fleet-wide, seen 13:41 and 13:49. One read, one hash, done.
+        import hashlib as _hl, json as _js
+        _lap("mappings")
+        sig = _hl.sha256(_js.dumps([[p.get("name"), p.get("facts")] for p in parts if p.get("alive")] + [sorted(m.get("eid", "") + "|" + m.get("rloc", "") for m in maps)],
+                                   sort_keys=True).encode()).hexdigest()
+        if sig == last_sig[0] and not failures and why != "start":
+            config.log.info("REGION: %s changed nothing (same members, facts and mappings); ignored (world read %dms)", why, _t["participants"])
+            return {}
+        last_sig[0] = sig
+        changed_tunnels = False
+        from . import wg as _wgm
+        # [WORLD_READ_ONCE_PER_EVENT_V1][KERNEL_READ_ONCE_PER_EVENT_V1] bringup and the applier see this event's world
+        # (the one `world` read above) and one WireGuard dump, until something changes the kernel.
+        with region.world_in_hand(parts, maps), _wgm.kernel_read_once():
+            if "region" not in failures:
+                try:
+                    changed_tunnels = _reconcile_bringup_phase()    # hub channel up/down, in-process (no runMerge fork)
+                except Exception as e:
+                    config.log.warning("REGION: bringup after %s failed: %s", why, e)
+            _lap("bringup")
+            # [ME_BY_GUID_V1] the member name the region shows for this node is whatever fdf-client announced (FDF_NAME,
+            # facts.name, or the hostname if it started before the daemon wrote facts.name); the guid is the identity.
+            my_guid = region.read_facts().get("guid") or config.NODE_GUID
+            for p in parts:
+                if p.get("alive") and (p.get("facts") or {}).get("guid") == my_guid and p.get("name") and p["name"] != applier.me:
+                    config.log.warning("REGION: this node is announced as %r (guid %s); planning as that", p["name"], my_guid)
+                    applier.me = p["name"]
+            c = applier.apply(parts, positive_failures=set(failures))
+            _lap("apply")
+        # [CHILD_KEEPS_OWN_MAP_V1] the plan's maps already say what to register: everything behind me when I am the exit,
+        # my own /24s when I am a child with a tunnel, nothing without one. Not gated on hub_active any more.
+        # [LIVE_HUBS_FROM_TUNNELS_V1] the locator set = every hub whose channel is up right now (the old bringup set
+        # this at its end; the in-process reconcile must too, or the maps are signed toward nobody and never land)
+        config.live_hubs = {ch[4:]: (info.get("handshake_wall_ms") or None) for ch, info in _active_tunnels.items() if ch.startswith("hub-")}
+        config.region_plan_maps = c.get("maps", [])
+        # [OWN_MAP_WHILE_TUNNEL_UP_V1] my own /24s are registered whenever a hub channel is up, even if fdf-facts has not
+        # yet written my hub row (Seattle7 16:09:52: gen 3, seven seconds after restart, no hub row yet -> maps=[] ->
+        # withdrew the /24 fdf-client had registered at :45; the region then had no mapping for 10.170.170.0/24).
+        # The rows say what I carry for others; whether I carry myself is decided by the channel being up.
+        if config.live_hubs and c.get("own"):
+            missing = [n for n in c["own"] if n not in config.region_plan_maps]
+            if missing:
+                config.region_plan_maps = sorted(set(config.region_plan_maps) | set(missing))
+                config.log.warning("REGION: own %s kept registered (hub channel up, hub row not in my facts yet)", missing)
+        if c.get("maps_changed") or changed_tunnels or (config.region_plan_maps and not (region.read_facts().get("maps") or [])):
+            region.publish_plan_maps(config.region_plan_maps)
+        # [SERVICE_HOST_LOSS_IS_A_FAILURE_V1] a member going dead is held down for routes and names, but NOT for the
+        # elections: if the member that went is the databasehost or mediahost (/etc/hosts says which .1 that is), the
+        # merge runs NOW -- lose comms with the databasehost -> switch to local, elect the replacement. A member coming
+        # back also runs the merge, so the election can consider it again.
+        # [ELECT_IN_PROCESS_V1] no runMerge for the election: the daemon has the only input that changed (who is
+        # alive). A dead service host is elected around at once; a member coming back is re-considered at once; the
+        # app sees the new databasehost in view.json within the second. runMerge still runs after an applied plan for
+        # what it alone does (capability publish, the rest), off the critical path.
+        service_ips = _service_host_ips()
+        lost_services = [(h, ip) for h, ip in c.get("went", []) if ip in service_ips]
+        # [ELECTION_FROM_FACTS_V1] a member's capability fact changing (it published, mysql came up, load moved) is an
+        # election input changing: re-elect, deterministically, from the facts. No store, nothing to abstain on.
+        cap_sig = _hl.sha256(_js.dumps(sorted((p.get("name", ""), (p.get("facts") or {}).get("capability")) for p in parts if p.get("alive")),
+                                       sort_keys=True, default=str).encode()).hexdigest()
+        cap_changed = cap_sig != _elect_state.get("cap_sig")
+        _elect_state["cap_sig"] = cap_sig
+        if lost_services or c.get("came") or c.get("hosts_written") or cap_changed:
+            if lost_services:
+                _write_view("recalc", "lost:" + ",".join(h for h, _ in lost_services))
+                config.log.warning("REGION: service host(s) gone %s - electing now, in-process", lost_services)
+            # [ELECTION_OFF_THE_LOOP_V1] the election reads the store (a dozen GETs, 20 s timeout each). With the
+            # databasehost's store hung (Seattle3B, three times on 2026-10-09) that stalled THIS loop for minutes per
+            # event -- no routes applied, no mappings published, on every node, worst on 3B itself. The election now runs
+            # on its own thread, one at a time, always with the newest alive set; the loop goes on applying routes.
+            _elect_async(why + (" (capability changed)" if cap_changed and not (lost_services or c.get("came") or c.get("hosts_written")) else ""), c.get("alive_hosts"), parts)
+        if c.get("applied"):
+            _write_view("steady", "graph:" + why)
+        if changed_tunnels and not c.get("impact"):
+            try:
+                _gen.bump("hub_channel_changed", "daemon", log=config.log.warning)
+            except Exception as e:
+                config.log.warning("GEN: bump failed: %s", e)
+        # [GEN_V1][NO_MERGE_ON_REGION_EVENTS_V1] no runMerge is forked for a region event any more: the facts carry
+        # what the graph needs and this loop applied it (routes, default, hosts, names, elections, maps, hub channel).
+        # runMerge is for the LAN side -- boot and interface events (NetworkManager dispatcher) -- where the inputs are
+        # local. The generation counter is the audit trail: world_gen = sum of every alive member's `gen`, read from
+        # the region (the shared database; nothing is sent over a tunnel), so the log says who changed what and that
+        # everyone saw it.
+        _lap("publish")
+        _world_gen(parts, why)
+        _lap("total")
+        config.log.warning("REGION: %s timed: world=%dms (participants+mappings, one read) +%dms bringup=%dms apply=%dms (probes=%d/%dms routes=%d/%dms) publish=%dms total=%dms",
+                           why, _t["participants"], _t["mappings"] - _t["participants"], _t["bringup"] - _t["mappings"], _t["apply"] - _t["bringup"],
+                           c.get("probes", 0), c.get("probes_ms", 0), c.get("route_cmds", 0), c.get("route_cmds_ms", 0),
+                           _t["publish"] - _t["apply"], _t["total"])
+        return c
+
+    _gen_state = {"last_world": None}
+
+    def _world_gen(parts, why):
+        try:
+            w = _gen.world(parts)
+            w["members"][applier.me] = _gen.read()            # mine is authoritative locally (the announce may lag an event)
+            w["world"] = sum(w["members"].values())
+            _gen.write_world(w)
+            prev = _gen_state["last_world"]
+            if prev is not None and prev["world"] != w["world"]:
+                moved = ["%s %d->%d" % (n, prev["members"].get(n, 0), g) for n, g in sorted(w["members"].items()) if prev["members"].get(n, 0) != g]
+                config.log.warning("REGION: world gen %d -> %d (%s) after %s", prev["world"], w["world"], ", ".join(moved), why)
+            _gen_state["last_world"] = w
+            config.log.info("REGION: gen mine=%d world=%d members=%s", w["members"].get(applier.me, 0), w["world"],
+                            " ".join("%s=%d" % kv for kv in sorted(w["members"].items())))
+        except Exception as e:
+            config.log.warning("REGION: gen bookkeeping failed after %s: %s", why, e)
+
+    import threading as _thr
+    _elect_lock = _thr.Lock(); _elect_pending = {}                          # pending: {"why":..., "alive":...}, newest wins
+
+    _elect_state = {"running": False}
+
+    def _elect_run():
+        while True:
+            with _elect_lock:
+                job = dict(_elect_pending); _elect_pending.clear()
+                if not job:
+                    _elect_state["running"] = False
+                    return
+            t0 = time.monotonic()
+            try:
+                import sys as _sys
+                _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))      # /opt/frognet_semantic
+                if _root not in _sys.path:
+                    _sys.path.insert(0, _root)
+                from discovery.elect import elect_now
+                r = elect_now(logger=lambda m: config.log.warning("REGION: %s", m), alive_hosts=job["alive"], participants=job["parts"])
+                if (r or {}).get("hosts_changed"):
+                    _gen.bump("service_host_changed", "elect", log=config.log.warning)      # [GEN_V1]
+                _write_view("steady", "elect:" + job["why"])
+                config.log.warning("REGION: election after %s done in %.1fs (off the loop)", job["why"], time.monotonic() - t0)
+            except Exception as e:
+                # [NO_FALLBACK_V1] no runMerge in its place: the failure is said, the next event re-runs the election.
+                config.log.error("REGION: election after %s FAILED after %.1fs: %s (re-run on the next event)", job["why"], time.monotonic() - t0, e)
+
+    def _elect_async(why, alive, parts):
+        with _elect_lock:
+            _elect_pending.clear(); _elect_pending.update({"why": why, "alive": alive, "parts": parts})
+            if _elect_state["running"]:
+                config.log.warning("REGION: election after %s queued behind the one running (newest alive set wins)", why)
+                return
+            _elect_state["running"] = True
+            _thr.Thread(target=_elect_run, name="region-elect", daemon=True).start()
+
+    # [FORWARD_SWITCH_IN_PLACE_V1] (PLAN-PONDS §3.2) `fdf-forward <area>` writes forward.want; this thread wakes on it
+    # (inotify, nothing polls) and, for a different pond with a ponds/<area>.env, ends the held event session: the loop
+    # below runs its loss path for the old pond and then makes the switch, with no wait (a switch is not a retry).
+    switch = {"to": None}
+    def _forward_watch():
+        import ctypes, ctypes.util, select, struct
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+        ifd = libc.inotify_init1(0o2000000)
+        if ifd < 0 or libc.inotify_add_watch(ifd, region.FDF_VAR.encode(), 0x8 | 0x80 | 0x100) < 0:   # CLOSE_WRITE MOVED_TO CREATE
+            config.log.warning("REGION: forward watch could not start on %s (errno %d): fdf-forward will not switch this daemon", region.FDF_VAR, ctypes.get_errno())
+            return
+        while config.running:
+            select.select([ifd], [], [])
+            buf = os.read(ifd, 4096); off = 0; mine = False
+            while off < len(buf):
+                _wd, _mask, _ck, ln = struct.unpack_from("iIII", buf, off); name = buf[off + 16: off + 16 + ln].rstrip(b"\0")
+                mine = mine or name == b"forward.want"; off += 16 + ln
+            if not mine:
+                continue
+            want = region.read_word("forward.want")
+            if not want or want == (region.read_word("forward") or config.REGION_AREA):
+                continue
+            env = region.pond_env(want)
+            if not env.get("RINA_RAM"):
+                config.log.warning("REGION: forward %s refused: no RINA_RAM in %s/ponds/%s.env (fdf-pond-add it first)", want, region.FDF_VAR, want)
+                continue
+            switch["to"] = (want, env)
+            config.log.warning("REGION: forward %s -> %s requested; ending the session to %s", config.REGION_AREA, want, config.REGION_RAM)
+            region.end_events()
+    _thr.Thread(target=_forward_watch, name="region-forward", daemon=True).start()
+
+    def _do_switch():
+        area, env = switch["to"]; switch["to"] = None; old = config.REGION_AREA; t0 = time.monotonic()
+        # the old pond's fdf-client is still forward: clearing the maps withdraws this node's mappings there, and the new
+        # pond's fdf-client will find none when it turns forward (the daemon publishes the new pond's own, after its plan)
+        region.write_facts({"maps": []})
+        config.REGION_RAM = env["RINA_RAM"]; config.REGION_AREA = env.get("RINA_AREA", area)
+        open(os.path.join(region.FDF_VAR, "join.env.tmp"), "w").write("export RINA_RAM=%s\n" % config.REGION_RAM)
+        os.replace(os.path.join(region.FDF_VAR, "join.env.tmp"), os.path.join(region.FDF_VAR, "join.env"))
+        se = os.path.join(region.FDF_VAR, "site.env")
+        open(se + ".tmp", "w").write("RINA_AREA=%s\nRINA_SITE_KEY=%s\n" % (config.REGION_AREA, env.get("RINA_SITE_KEY", "")))
+        os.chmod(se + ".tmp", 0o600); os.replace(se + ".tmp", se)
+        region.write_word("forward", area)                         # every fdf-client@<area> follows this word
+        config.log.warning("REGION: forward %s -> %s (RINA_RAM=%s): old pond withdrawn, maps cleared, `forward` written in %d ms; joining now",
+                           old, area, config.REGION_RAM, int((time.monotonic() - t0) * 1000))
+
+    was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
+    backoff = 5
+    while config.running:
+        up = False
+        evs = None
+        try:
+            # [WATCH_BEFORE_READ_V1] the watch first, then the read. It was the other way round: `_one("start")` read the
+            # world, then brought up the hub tunnel (5 s in the netns test), and only then did fdf-events register --
+            # every join, announce and mapping in between was never delivered. Both daemons in
+            # tools/netns-region-loop-test.sh sat 61 s with a/y missing from their plan, until an unrelated change.
+            # Now a change after the watch is queued (fdf-events' pipe) while the read runs, and is applied next.
+            evs = region.events()
+            first = next(evs, "gone")
+            if first != "ready":
+                raise RuntimeError("fdf-events registered no watch (%s)" % first)
+            with region.facts_batch():                              # [ONE_WRITE_PER_EVENT_V1]
+                _one("start")
+            up = True
+        except Exception as e:
+            if evs is not None:
+                evs.close()
+            config.log.warning("REGION: not reachable (%s); %s", e,
+                               "will keep trying every %ds, quietly" % backoff if not was_up else "was up: treating as lost")
+        if up:
+            was_up = True
+            backoff = 5
+            for ev in evs:
+                if not config.running:
+                    return
+                if ev == "gone":
+                    break
+                try:
+                    with region.facts_batch():                      # [ONE_WRITE_PER_EVENT_V1]
+                        _one("event " + ev)
+                except Exception as e:
+                    config.log.warning("REGION: apply after event %s failed: %s", ev, e)
+        if was_up:                      # up -> down: withdraw, tear down, one merge from the LAN; then wait to come back
+            was_up = False
+            _write_view("recalc", "lost:region")
+            try:
+                applier.apply([], positive_failures={"region"})
+            except Exception as e:
+                config.log.warning("REGION: withdraw on loss failed: %s", e)
+            n = _tear_down_all_kernel_wg_ifaces("region lost: no session, no authority to hold tunnels")
+            # [GONE_IS_GONE_V1] no merge in its place: the region's routes, names and tunnels are withdrawn, and that is
+            # the state of the world until the region is back. Nothing is recomputed from elsewhere.
+            config.log.warning("REGION: lost; withdrew its routes and names, tore down %d tunnel(s); waiting for the region", n)
+        if switch["to"]:                # [FORWARD_SWITCH_IN_PLACE_V1] a switch: no wait, the new pond now
+            _do_switch()
+            continue
+        for _ in range(backoff):
+            if not config.running or switch["to"]:
+                break
+            time.sleep(1)
+        if not config.running:
+            return
+        if switch["to"]:
+            _do_switch()
+            continue
+        backoff = 5                     # [REJOIN_EVERY_5S_V1] one HTTP call per try; the doubling to 60 s made a region restart cost up to a minute
+        _write_view("steady", "rejoin:attempt")
+
+
 def run_poll_loop():
+    if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
+        return run_region_loop()
     _ensure_frognet0()
     # [BROKER_AUTHORITATIVE_V1 2026-06-01] No _load_local_state() and
     # no STARTUP_COMMIT special case.  The daemon enters its poll loop

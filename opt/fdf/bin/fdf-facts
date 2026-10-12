@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""fdf-facts -- [FDF_FACTS_V1] FD&F's view of this machine's network, published as facts.addrs (PLAN-RAM-DISCOVERY §1, §5).
+
+Writes into the facts file (FDF_FACTS, default /opt/fdf/var/facts.json; merged, other keys kept) the rows
+    {"iface","ip","value","kind","mac"}
+  own     an address this machine serves (10.x.y.1 on one of its interfaces); value = its FrogNetHost name
+  held    a 10.x address it holds that it does not serve (a lease on someone else's LAN); mac = that interface's
+  given   a lease its dnsmasq handed out (/var/lib/misc/dnsmasq.leases); mac = the client's; value = the client's name
+  uplink  the interface carrying the kernel default route: "uplink <eth|wifi> <rate> [dead]", measured here
+          (rate from /sys speed or iw bitrate; dead when one ping out of that interface fails)
+  hub     a WireGuard interface's address (the region tunnel edge)
+fdf-client announces the file whenever it changes (inotify), so a row change reaches every member as a `p` event.
+
+Modes:  fdf-facts            write once and exit (says what it wrote)
+        fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
+                             change (inotify via a 1 s poll of its mtime -- dnsmasq rewrites it in place), debounced 1 s
+        fdf-facts --show     print the rows, write nothing
+Nothing here reads the region; this is the writer only. Build fdf-2026-10-11-r19-a15.
+"""
+import json
+import os
+import re
+import socket
+import subprocess
+import sys
+import time
+
+BUILD_TAG = "fdf-2026-10-11-r19-a15"
+FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
+LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
+PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Internet
+OVERLAY = ("253", "254")
+
+
+def sh(*cmd):
+    try:
+        return subprocess.check_output(list(cmd), text=True, stderr=subprocess.DEVNULL, timeout=10)
+    except Exception:
+        return ""
+
+
+def read_facts():
+    try:
+        with open(FACTS) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_facts(update):
+    # [FACTS_ONE_WRITER_AT_A_TIME_V1] the same lock and per-writer tmp as region.write_facts (the daemon writes this file too)
+    import fcntl
+    os.makedirs(os.path.dirname(FACTS), exist_ok=True)
+    with open(FACTS + ".lock", "a") as lk:
+        fcntl.flock(lk, fcntl.LOCK_EX)
+        f = read_facts()
+        if all(f.get(k) == v for k, v in update.items()):
+            return False
+        f.update(update)
+        tmp = "%s.tmp.%d" % (FACTS, os.getpid())
+        with open(tmp, "w") as out:
+            out.write(json.dumps(f, sort_keys=True) + "\n")
+        os.replace(tmp, FACTS)
+    return True
+
+
+def my_name():
+    f = read_facts()
+    h = socket.gethostname().strip()                    # [FACTS_FEW_EXECS_V1] what `hostname` prints, without the exec
+    if h.startswith("FrogNetHost."):
+        return h
+    n = os.environ.get("FDF_NAME") or f.get("name") or h.split(".")[0]
+    return "FrogNetHost." + n
+
+
+SYS_NET = os.environ.get("FDF_SYS_NET", "/sys/class/net")
+
+
+def _sys(dev, leaf):
+    try:
+        return open("%s/%s/%s" % (SYS_NET, dev, leaf)).read().strip()
+    except OSError:
+        return ""
+
+
+def ifaces():
+    """{dev: {"mac":..., "addrs":[ip,...], "wireless":bool, "wg":bool}}
+    [FACTS_FEW_EXECS_V1] the links from sysfs (what `ip -o link show` printed: name, link/ether mac, link/none for a
+    WireGuard interface = ARPHRD_ETHER 1 / ARPHRD_NONE 65534 in .../type); one exec left, for the addresses."""
+    out = {}
+    try:
+        devs = sorted(os.listdir(SYS_NET))
+    except OSError:
+        devs = []
+    for dev in devs:
+        typ = _sys(dev, "type")
+        mac = _sys(dev, "address") if typ == "1" else ""
+        out[dev] = {"mac": mac.lower(), "addrs": [], "wireless": os.path.isdir("%s/%s/wireless" % (SYS_NET, dev)),
+                    "wg": typ == "65534" and dev.startswith("wg")}
+    for ln in sh("ip", "-4", "-o", "addr", "show").splitlines():
+        p = ln.split()
+        dev = p[1]
+        if "inet" in p and dev in out:
+            out[dev]["addrs"].append(p[p.index("inet") + 1].split("/")[0])
+    out.pop("lo", None)
+    return out
+
+
+PROC_ROUTE = os.environ.get("FDF_PROC_ROUTE", "/proc/net/route")
+
+
+def default_dev():
+    """(dev, via) of the lowest-metric default route, or ("", "").
+    [FACTS_FEW_EXECS_V1] from /proc/net/route (the main table, as `ip -4 route show default` showed it): Destination
+    and Mask 0, Gateway little-endian hex (0 = no via). Called on every write and by the prober every 3 s."""
+    import socket as _s, struct as _st
+    best = None
+    try:
+        lines = open(PROC_ROUTE).read().splitlines()[1:]
+    except OSError:
+        lines = []
+    for ln in lines:
+        p = ln.split()
+        if len(p) < 8 or p[1] != "00000000" or p[7] != "00000000" or not (int(p[3], 16) & 1):      # RTF_UP
+            continue
+        dev, gw, metric = p[0], int(p[2], 16), int(p[6])
+        via = _s.inet_ntoa(_st.pack("<I", gw)) if gw else ""
+        if dev and (best is None or metric < best[0]):
+            best = (metric, dev, via)
+    return (best[1], best[2]) if best else ("", "")
+
+
+def rate_of(dev, wireless):
+    if wireless:
+        m = re.search(r"tx bitrate:\s*([0-9.]+)\s*MBit/s", sh("iw", "dev", dev, "link"))
+        return float(m.group(1)) if m else 0.0
+    try:
+        return float(open("/sys/class/net/%s/speed" % dev).read().strip())
+    except (OSError, ValueError):
+        return 0.0
+
+
+def ping_out(dev):
+    return subprocess.run(["ping", "-c", "1", "-W", "2", "-n", "-I", dev, PING_TARGET], capture_output=True).returncode == 0
+
+
+_UPLINK_FAILS = {}
+_UPLINK_STATE = {}                                   # dev -> alive (the prober thread's verdict; publish() reads it)
+DEAD_AFTER = int(os.environ.get("FDF_UPLINK_DEAD_AFTER", "3"))
+PROBE_EVERY = float(os.environ.get("FDF_UPLINK_PROBE_SEC", "3"))
+
+
+def _uplink_alive(dev):
+    """[UPLINK_OFF_THE_WRITE_V1] in --watch mode the verdict comes from the prober thread (one ping every PROBE_EVERY per
+    uplink); a facts write no longer waits on a ping -- which was an RTT when the uplink answered and DEAD_AFTER x 2 s
+    = 6 s when it did not, on every write. One-shot runs (no thread) still ping inline."""
+    if dev in _UPLINK_STATE:
+        return _UPLINK_STATE[dev]
+    return _uplink_alive_now(dev)
+
+
+def _uplink_prober():
+    while True:
+        dev, _via = default_dev()
+        if dev:
+            before = _UPLINK_STATE.get(dev)
+            now = _uplink_alive_now(dev)
+            _UPLINK_STATE[dev] = now
+            if before is not None and before != now:
+                print("fdf-facts: uplink %s %s" % (dev, "alive" if now else "DEAD (%d misses)" % DEAD_AFTER), flush=True)
+                publish()                                           # the row changed: say so now, not at the next kernel event
+        time.sleep(PROBE_EVERY)
+
+
+def _uplink_alive_now(dev):
+    """[UPLINK_DEAD_IS_THREE_MISSES_V1] one lost ping on wifi is noise; a dead uplink is DEAD_AFTER consecutive misses
+    (three writes, ~3 s apart at the fastest). One answered ping brings it back at once. A flapping flag re-parented a
+    standalone exit (Seattle3B 22:43: dead for one write -> exit became Seattle5 -> its /24 moved, its mapping withdrawn).
+    Up to DEAD_AFTER pings are sent in one call so a single write can still say dead when the link really is."""
+    for _ in range(DEAD_AFTER):
+        if ping_out(dev):
+            _UPLINK_FAILS[dev] = 0
+            return True
+        _UPLINK_FAILS[dev] = _UPLINK_FAILS.get(dev, 0) + 1
+        if _UPLINK_FAILS[dev] >= DEAD_AFTER:
+            return False
+    return _UPLINK_FAILS.get(dev, 0) < DEAD_AFTER
+
+
+def leases_given(served_by_dev):
+    """served_by_dev: {/24 prefix "10.1.1": dev}. Rows for every dnsmasq lease on a /24 this machine serves."""
+    rows = []
+    try:
+        lines = open(LEASES).read().splitlines()
+    except OSError:
+        return rows
+    now = time.time()
+    for ln in lines:
+        p = ln.split()
+        if len(p) < 4 or not p[2].startswith("10."):
+            continue
+        try:
+            expiry = float(p[0])
+        except ValueError:
+            expiry = 0
+        if expiry and expiry < now:
+            continue                                           # expired: not a lease any more
+        prefix = p[2].rsplit(".", 1)[0]
+        dev = served_by_dev.get(prefix)
+        if not dev:
+            continue
+        name = p[3] if p[3] != "*" else p[1]
+        rows.append({"iface": dev, "ip": p[2], "value": name, "kind": "given", "mac": p[1].lower()})
+    return rows
+
+
+def rows():
+    name = my_name()
+    ifs = ifaces()
+    out = []
+    served = {}
+    for dev, i in ifs.items():
+        for ip in i["addrs"]:
+            o = ip.split(".")
+            if i["wg"]:
+                continue                                           # hub rows below, once served is known
+            elif ip.startswith("10.") and o[1] not in OVERLAY and o[3] == "1":
+                out.append({"iface": dev, "ip": ip, "value": name, "kind": "own", "mac": i["mac"]})
+                served[ip.rsplit(".", 1)[0]] = dev
+            elif ip.startswith("10.") and o[1] not in OVERLAY:
+                out.append({"iface": dev, "ip": ip, "value": name.split(".", 1)[-1], "kind": "held", "mac": i["mac"]})
+    # [HUB_ROW_IS_THE_REGION_EDGE_V1] the region tunnel edge of a served 10.A.B.0/24 is exactly 10.253.A.B. Only a wg
+    # interface holding that address is a hub row. FrogNet's broker-mode tunnels (wgN with other 10.253.x addresses,
+    # created and torn down by its own bring-up) are not region edges; counting them made every flap a facts change
+    # and a region-wide replan (Seattle7 with five 10.253.205.x addresses, HappyDog re-registered with the broker 15:31).
+    edges = {"10.253.%s.%s" % tuple(pfx.split(".")[1:3]) for pfx in served}
+    for dev, i in ifs.items():
+        if i["wg"]:
+            for ip in i["addrs"]:
+                if ip in edges:
+                    out.append({"iface": dev, "ip": ip, "value": "", "kind": "hub", "mac": i["mac"]})
+    out += leases_given(served)
+    dev, via = default_dev()
+    if dev and dev in ifs and not ifs[dev]["wg"]:
+        typ = "wifi" if ifs[dev]["wireless"] else "eth"
+        rate = max(0.0, rate_of(dev, ifs[dev]["wireless"]))
+        alive = _uplink_alive(dev)
+        ip = ifs[dev]["addrs"][0] if ifs[dev]["addrs"] else via
+        out.append({"iface": dev, "ip": ip, "value": "uplink %s %g%s" % (typ, rate, "" if alive else " dead"), "kind": "uplink", "mac": ifs[dev]["mac"]})
+    f = read_facts()
+    if f.get("role") == "leaf" and f.get("addr"):
+        out.append({"iface": "wg", "ip": f["addr"].split("/")[0], "value": f.get("name", ""), "kind": "leaf", "mac": ""})
+    out.sort(key=lambda r: (r["kind"], r["iface"], r["ip"]))
+    return out
+
+
+def _damp_uplink(new_rows, old_rows):
+    """[UPLINK_RATE_DAMPED_V1] wifi tx bitrate jitters every few seconds; a row that changes only because the rate moved
+    by less than a quarter keeps the old value, so the region is not re-announced (and every member re-planned) for noise."""
+    old = {(r["kind"], r["iface"]): r for r in old_rows or [] if r.get("kind") == "uplink"}
+    for r in new_rows:
+        if r["kind"] != "uplink":
+            continue
+        o = old.get(("uplink", r["iface"]))
+        if not o:
+            continue
+        try:
+            nv, ov = r["value"].split(), o["value"].split()
+            if nv[1] == ov[1] and nv[3:] == ov[3:]:
+                nr, orr = float(nv[2]), float(ov[2])
+                if orr > 0 and abs(nr - orr) / orr < 0.25:
+                    r["value"] = o["value"]
+        except (IndexError, ValueError):
+            pass
+    return new_rows
+
+
+import threading as _threading
+_PUBLISH_LOCK = _threading.Lock()                    # the watch loop and the uplink prober both publish
+
+
+def publish(say=True):
+    with _PUBLISH_LOCK:
+        r = _damp_uplink(rows(), read_facts().get("addrs"))
+        changed = write_facts({"addrs": r, "addrs_build": BUILD_TAG})
+        if say:
+            kinds = {}
+            for x in r:
+                kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
+            up = [x["value"] for x in r if x["kind"] == "uplink"]
+            print("fdf-facts: %s %d rows %s uplink=%s -> %s" % ("wrote" if changed else "unchanged", len(r), kinds, up, FACTS), flush=True)
+        return changed
+
+
+DEBOUNCE_SEC = float(os.environ.get("FDF_FACTS_DEBOUNCE", "0.05"))
+
+
+def watch():
+    """[FACTS_WAKE_ON_EVENT_V1] block on the kernel (ip monitor's pipe) and on the lease file's directory (inotify) with
+    select(); nothing polls. One write per burst, DEBOUNCE_SEC after the last event. Measured before this: a 1 s poll
+    plus a 1 s debounce made a facts change take 1.6 s of a 1.8 s end-to-end region update (netns-latency-test)."""
+    import select, struct, ctypes, ctypes.util, threading
+    dev0, _ = default_dev()
+    if dev0:
+        _UPLINK_STATE[dev0] = _uplink_alive_now(dev0)                # first verdict before the first write
+    threading.Thread(target=_uplink_prober, name="uplink-prober", daemon=True).start()
+    publish()
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    IN_CLOSE_WRITE, IN_MOVED_TO, IN_CREATE, IN_DELETE, IN_MODIFY = 0x8, 0x80, 0x100, 0x200, 0x2
+    ifd = libc.inotify_init1(0o2000000)                                                         # IN_CLOEXEC
+    ldir, lbase = os.path.split(os.path.abspath(LEASES))
+    os.makedirs(ldir, exist_ok=True)
+    libc.inotify_add_watch(ifd, (ldir or ".").encode(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MODIFY)
+    # [FACTS_IGNORE_OWN_ROUTES_V1] labelled lines; a [ROUTE] line wakes us only if it is a default route -- the one route
+    # rows() reads. Every /24 the daemon installs or withdraws was a wake-up and a full rows() pass that ended
+    # "unchanged" (the brief, §3); on a node applying three routes that is three passes for nothing.
+    def start_mon():
+        m = subprocess.Popen(["ip", "monitor", "label", "address", "route", "link"], stdout=subprocess.PIPE)
+        os.set_blocking(m.stdout.fileno(), False)
+        return m
+    def relevant(line):
+        return not line.startswith(b"[ROUTE]") or b"default" in line
+    mon = start_mon()
+    partial = b""
+    pending = 0.0
+    while True:
+        wait = None if not pending else max(0.0, DEBOUNCE_SEC - (time.monotonic() - pending))
+        r, _, _ = select.select([mon.stdout, ifd], [], [], wait)
+        if mon.stdout in r:
+            try:
+                data = os.read(mon.stdout.fileno(), 65536)
+            except BlockingIOError:
+                data = None
+            if data is None:
+                pass
+            elif data:
+                lines = (partial + data).split(b"\n"); partial = lines.pop()
+                if any(relevant(l) for l in lines if l):
+                    pending = pending or time.monotonic()
+            else:
+                print("fdf-facts: ip monitor exited; restarting it", file=sys.stderr, flush=True)
+                mon = start_mon()
+        if ifd in r:
+            buf = os.read(ifd, 65536); off = 0; mine = False
+            while off < len(buf):
+                _wd, _mask, _cookie, ln = struct.unpack_from("iIII", buf, off)
+                name = buf[off + 16: off + 16 + ln].split(b"\0", 1)[0].decode(errors="replace")
+                if name == lbase:
+                    mine = True
+                off += 16 + ln
+            if mine:
+                pending = pending or time.monotonic()
+        if pending and time.monotonic() - pending >= DEBOUNCE_SEC:
+            pending = 0.0
+            publish()
+
+
+if __name__ == "__main__":
+    print("fdf-facts: build %s facts=%s leases=%s" % (BUILD_TAG, FACTS, LEASES), flush=True)
+    if "--show" in sys.argv:
+        for r in rows():
+            print("%-7s %-6s %-16s %s %s" % (r["kind"], r["iface"], r["ip"], r["value"], r["mac"]))
+    elif "--watch" in sys.argv:
+        watch()
+    else:
+        publish()

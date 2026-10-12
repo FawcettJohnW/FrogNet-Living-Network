@@ -75,6 +75,11 @@ size for a camera or file. Audio: `comms-app --list-devices`, then `--mic N --sp
 
 ## 4. What has and has not been proven here
 
+- r3, 2026-10-10: `build/test_ring RAM_PORT` (a comms-ram on that port started in the same shell) -- a call rings
+  only while its caller offers it; hang-up withdraws the offer; both directions. PASS 9/9. The stamped picture
+  (`#frame HH:MM:SS.mmm` bottom-left, "here" clock in the overlay) seen in an offscreen screenshot of the window
+  watching a feed: 64 ms on one machine. See STATUS.md "r3".
+
 Proven in the build environment (`COMMS-CPP-STATUS.md` lists every test and how to run it): the frame layer, data plane,
 segmentation, bearer and mixer against fnav.py's own code; the media server with fnav.py clients; per-viewer rates
 (pass-through, transcoding per size, measured link, MediaSpeed for one viewer only); the call through the media server

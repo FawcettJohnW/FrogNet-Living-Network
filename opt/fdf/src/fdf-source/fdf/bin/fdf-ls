@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+# fdf-ls [--watch] [--json] [HOST:PORT] -- [FDF_LS_V1] the network's participants as a table: name, alive, OS, cores,
+# memory, IPs, and whether it accepts browser terminal logins (it advertises term.hosts, from fdf-term-serve).
+#   --watch  holds one session (fdf-watch) and prints the table again on every change; Ctrl-C stops it
+#   --json   the raw rows instead of the table
+# The network is HOST:PORT, else RINA_RAM, else what fdf-join wrote.
+import json, os, subprocess, sys
+sys.path.insert(0, "/opt/fdf/lib/python")
+import fdfram
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+
+
+def term_hosts(ram):
+    return {c["variable"] for c in ram.read("term.hosts")}
+
+
+def table(rows, terms, gen=None):
+    rows = sorted(rows, key=lambda p: (not p["alive"], p["hostname"].lower()))
+    out = []
+    if gen is not None:
+        out.append("-- generation %s, %d participant(s)" % (gen, len(rows)))
+    hdr = ("NAME", "ALIVE", "TERM", "OS", "CORES", "MEM", "IPS")
+    lines = [hdr] + [(p["hostname"], "yes" if p["alive"] else "no", "yes" if p["hostname"] in terms else "-",
+                      p.get("os") or "-", str(p.get("cores", "")),
+                      "%.1fG" % (p.get("mem_total_kb", 0) / 1048576.0), ",".join(p.get("ips", [])))
+                     for p in rows]
+    w = [max(len(l[i]) for l in lines) for i in range(len(hdr))]
+    for l in lines:
+        out.append("  ".join(c.ljust(w[i]) for i, c in enumerate(l)).rstrip())
+    return "\n".join(out)
+
+
+def one_shot(ram, as_json):
+    rows = [{"hostname": p["name"], "alive": p["alive"], "ips": p["ips"], "ns": p["ns"],
+             "os": p["cap"].get("os", ""), "cores": p["cap"].get("cores", 0),
+             "mem_total_kb": p["cap"].get("mem_total_kb", 0)} for p in ram.participants()]
+    print(json.dumps(rows, indent=1) if as_json else table(rows, term_hosts(ram)))
+
+
+def watch(ram, as_json):
+    env = dict(os.environ, RINA_RAM=ram.hostport)
+    p = subprocess.Popen([os.path.join(BIN, "fdf-watch"), ram.hostport], stdout=subprocess.PIPE, env=env, text=True)
+    for line in p.stdout:
+        d = json.loads(line)
+        print(line.rstrip() if as_json else table(d["participants"], term_hosts(ram), d["gen"]), flush=True)
+    return p.wait()
+
+
+def main():
+    args = sys.argv[1:]
+    w, j = "--watch" in args, "--json" in args
+    rest = [a for a in args if not a.startswith("--")]
+    try:
+        ram = fdfram.Ram(rest[0] if rest else None)
+        if w:
+            return watch(ram, j)
+        one_shot(ram, j)
+    except fdfram.RamError as e:
+        print("fdf-ls: %s" % e, file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
+
+
+sys.exit(main())

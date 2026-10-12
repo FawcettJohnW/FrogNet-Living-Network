@@ -33,7 +33,8 @@ import time
 
 from .config import (MODE_DASHBOARD, MODE_SENSORS, MODE_JSON,
                      REFRESH_SEC, DB_REFRESH_SEC)
-from .discovery import discover_hosts
+from .discovery import discover_hosts, discover_ponds
+from .draw_ponds import draw_ponds
 from .draw_dashboard import (draw_title, draw_peer_header, format_peer_cols,
                              draw_peer_row, draw_local_row, draw_internet,
                              draw_engine, draw_footer)
@@ -43,12 +44,14 @@ from .formatting import num, pretty_json
 from .identity import (LOCAL_LOWER, LOCAL_IP, databasehost_ip,
                        databasehost_control_ip)
 from .merge import start_merge
+from . import discovery as _discovery
 from .probes import probe_all
 from .sensors import (fetch_engine_json, fetch_daemon_json, fetch_peer_sensors,
                       fetch_link_quality_json,
                       fetch_sensors_for_host, fetch_sensor_detail)
 from .state import AppState
 from .ui_helpers import init_colors
+from .config import CP_GREEN, CP_RED, CP_CYAN
 
 
 # ---- Background I/O workers ----
@@ -56,7 +59,9 @@ from .ui_helpers import init_colors
 def _bg_probe_cycle(st):
     """Run discovery + probes in background.  Writes results atomically."""
     hosts = discover_hosts()
+    ponds = discover_ponds()                       # [PONDS_ARE_LISTED_V1]
     results = probe_all(hosts)
+    st.ponds = ponds
     # Atomic swap — main loop reads these; single assignment = safe
     st.hosts = hosts
     st.results = results
@@ -148,6 +153,13 @@ def main(stdscr):
                 row = draw_local_row(stdscr, row, name, engine=st.engine,
                                      selected=selected, is_dbhost=_is_db,
                                      is_control=_is_ctl)
+            elif _discovery.ROLES.get(ip) == "leaf":
+                # [DEVICE_ROW_V1] a device over the hub tunnel: name, DEVICE, then ONLINE / DOWN from its region
+                # session (getHosts.php "alive"), the rest blank -- it runs no FrogNet stack to probe or measure
+                _up = _discovery.ALIVE.get(ip, False)
+                row = draw_peer_row(stdscr, row, (name, "DEVICE", "ONLINE" if _up else "DOWN", "", "", "", "", "", ""),
+                                    (0, CP_CYAN, CP_GREEN if _up else CP_RED, 0, 0, 0, 0, 0, 0),
+                                    selected=selected, is_dbhost=False, is_control=False)
             else:
                 r = st.results.get(ip, {})
                 echo = r.get("echo", ("FAIL", 0))
@@ -218,6 +230,7 @@ def main(stdscr):
                                     selected=selected, is_dbhost=_is_db,
                                     is_control=_is_ctl)
 
+        row = draw_ponds(stdscr, row, getattr(st, "ponds", None))   # [PONDS_ARE_LISTED_V1] every network, not only the forward one
         row += 1
         inet = st.results.get("__internet__", {}).get("result", ("FAIL", 0))
         row = draw_internet(stdscr, row, inet)

@@ -83,11 +83,14 @@ LOCKFILE="/var/run/runMerge.lock"
 exec 9>"$LOCKFILE" || { flog_error "lock_open_failed" "lockfile=$LOCKFILE"; exit 1; }
 if ! flock -n 9; then
     flog_warn "BAIL" "reason=lock_held" "depth=$FROGNET_MERGE_DEPTH"
-    mkdir -p /etc/sentinels; : > /etc/sentinels/runAgain
+    mkdir -p /etc/sentinels; echo "${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" >> /etc/sentinels/runAgain
     flog_info "runAgain_touched" "reason=for_running_instance"
     exit 0
 fi
 flog_info "lock_acquired" "lockfile=$LOCKFILE"
+# [MERGE_SAYS_WHO_V1] who asked for this merge: the daemon sets FROGNET_MERGE_WHY, the NetworkManager dispatcher and
+# the merge watcher set theirs; anything else is a shell (manual), named by its parent.
+flog_info "invoked_by" "who=${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" "gen=$(cat /var/lib/frognet/gen 2>/dev/null | tr -d '\n' || echo none)"
 
 # [TUNNEL_AUTOSWITCH_V1] Automatic Internet<->LAN tunnel switch, at the top of
 # every merge. Replaces frognet_internet_watch.sh and the manual make-gateway /
@@ -110,7 +113,18 @@ flog_info "lock_acquired" "lockfile=$LOCKFILE"
 #
 # Idempotent by construction: only the two transition quadrants act. Cheap on the
 # common no-change pass (one broker probe + one iface check).
+# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env (fdf-join) or tunnel.conf.
+_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
+flog_info "mode" "region=$_REGION"
+
 flog_stage tunnel_autoswitch
+if [[ "$_REGION" -eq 1 ]]; then
+# [AUTOSWITCH_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub tunnel is the tunnel daemon's: it brings the channel up
+# on every region event and, when the region is gone, tears it down itself ([GONE_IS_GONE_V1]). This stage asked the
+# same question again from a second python (broker-reachable = region.my_channels = two region reads) and could act
+# on its answer (nuke or bring-up) behind the daemon's back. Not run.
+flog_info "autoswitch" "action=none" "reason=region_mode_the_daemon_owns_the_hub_channel"
+else
 _PYBIN_AS="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
 [[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
 
@@ -137,6 +151,7 @@ elif [[ "$_AS_ONLINE" -eq 1 && "$_AS_TUNNELS" -eq 0 ]]; then
 else
     flog_info "autoswitch" "action=none" "reason=steady_state"
 fi
+fi
 flog_stage_end tunnel_autoswitch "rc=$?"
 
 flog_stage setup_iptables
@@ -144,7 +159,34 @@ flog_stage setup_iptables
 flog_stage_end setup_iptables "rc=$?"
 
 SENT_DIR="/etc/sentinels"
-rm -rf /etc/sentinels/*
+# [BASELINES_SURVIVE_THE_WIPE_V1] The wipe stays -- a merge inherits no per-pass
+# state -- but these files are not per-pass state. Each is the record a later
+# step compares against, and wiping it made every comparison see "nothing before":
+#
+#   frognet_hosts        _commit_hosts' fh_old -> _topology_changed always true ->
+#                        sync_required reason=hosts_changed, chain_dirty=1 and a
+#                        propogateNotification on every pass on every node
+#   dnsmasq_content_key  _apply_dnsmasq's record of what dnsmasq serves ->
+#                        DNSMASQ_NO_SENTINEL ... restarting on every merge
+#   dnsmasq_upstream.conf dnsmasq's resolv-file (it polls it): no upstream servers
+#                        from the wipe until live.py rewrites it
+#   old_host_json, old_hosts_meta, echo_cache
+#                        makeHostJson.bash's cache -> `rebuild` re-curled
+#                        frognet_echo.php on every peer, serially (27 s Seattle7,
+#                        16 s HappyDog, each "echo": "" costing its timeout)
+#   getHosts.cache.json, getHosts.cache.meta
+#                        getHosts.php's cache keyed on old_host_json
+#
+# Everything else in the directory is removed exactly as before.
+_SENT_KEEP=" frognet_hosts dnsmasq_content_key dnsmasq_upstream.conf old_host_json old_hosts_meta echo_cache getHosts.cache.json getHosts.cache.meta "
+_kept=""; _wiped=0
+for _f in /etc/sentinels/* /etc/sentinels/.[!.]*; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    _b="${_f##*/}"
+    if [[ "$_SENT_KEEP" == *" $_b "* ]]; then _kept="$_kept $_b"; continue; fi
+    rm -rf "$_f"; _wiped=$((_wiped+1))
+done
+flog_info "sentinels_wiped" "removed=$_wiped" "kept=[${_kept# }]"
 rm -rf /tmp/frognet*
 
 # [WIPE_THEN_REOPEN_V1] The wipe below is deliberate: a merge inherits nothing
@@ -189,7 +231,13 @@ cleanup() { rc=$?; flog_info "cleanup" "rc=$rc"; rm -f "$MERGE_PENDING"; flog_in
 trap cleanup EXIT INT TERM
 
 flog_stage flush_discovery_cache
-/usr/local/bin/frognet_discovery_cache.sh flush 2>/dev/null || true
+# [NO_CRAWL_CACHE_IN_REGION_V1] TransitPeerCache (a MySQL table on the databasehost) is the crawl's cache; the crawl
+# does not run on a region, so emptying it every merge was a store round trip for nothing.
+if [[ "$_REGION" -eq 1 ]]; then
+    flog_info "flush_discovery_cache" "decision=skip" "reason=region_mode_no_crawl"
+else
+    /usr/local/bin/frognet_discovery_cache.sh flush 2>/dev/null || true
+fi
 flog_stage_end flush_discovery_cache "rc=$?"
 
 # [FLUSH_HAS_A_CALLER_V1] The not_frognet negative cache is merge-scoped and
@@ -280,7 +328,15 @@ if [[ "$_sr" -eq 1 ]]; then _dirty=1; fi
 flog_info "converge_decision" "changed_this_pass=$_sr" "runAgain=$_ra" "merge_rc=$merge_rc" \
           "depth=$FROGNET_MERGE_DEPTH" "cap=$MAX_MERGE_DEPTH" "chain_dirty=$_dirty"
 
-/usr/local/bin/makeHostJson.bash rebuild
+# [HOSTJSON_FROM_THE_REGION_V1] In region mode the host list is the region's: the tunnel daemon writes
+# /var/lib/frognet/region_hosts.json (ip, name, echo from each member's facts) with region_hosts, on every event, and
+# getHosts.php serves that file. makeHostJson.bash -- /etc/hosts plus a frognet_echo.php curl to every peer with no
+# echo, --max-time 45, the merge waiting on the slowest -- does not run. Broker mode is unchanged.
+if [[ "$_REGION" -eq 1 ]]; then
+    flog_info "makeHostJson" "decision=skip" "reason=region_mode_hosts_are_the_daemons_region_hosts_json"
+else
+    /usr/local/bin/makeHostJson.bash rebuild
+fi
 # [RUNAGAIN_ON_MUTATION_V1] A merge that changed a /24 sets runAgain (Python
 # converge_decision -> $RUN_AGAIN). The mesh rarely converges in one pass — this
 # node's /24 changes are what peers react to, and their reactions change what
@@ -291,7 +347,8 @@ if [[ "$_ra" -eq 1 ]]; then
     if [[ "$FROGNET_MERGE_DEPTH" -lt "$MAX_MERGE_DEPTH" ]]; then
         _next=$(( FROGNET_MERGE_DEPTH + 1 ))
         flog_info "runAgain_reinvoke" "next_depth=$_next" "cap=$MAX_MERGE_DEPTH" \
-                  "chain_dirty=$_dirty" "reason=changed_24_not_yet_converged"
+                  "chain_dirty=$_dirty" "reason=external_during_pass" \
+                  "runAgain_from=$(sort -u "$RUN_AGAIN" 2>/dev/null | paste -sd, -)"
         # release the lock (close fd 9) before re-invoking so the child acquires it
         rm -f "$MERGE_PENDING" 2>/dev/null || true
         exec 9>&-
@@ -308,8 +365,12 @@ fi
 # something. Neighbor-scoped (direct LAN next-hops + WG tunnel peers); each
 # receiver re-propagates; dedup by event id.
 if [[ "$_dirty" -eq 1 ]]; then
-    flog_info "PROP" "converged=YES" "chain_dirty=1" "action=propogateNotification"
-    /usr/local/bin/propogateNotification
+    if [[ "$_REGION" -eq 1 ]]; then
+        flog_info "PROP" "converged=YES" "chain_dirty=1" "action=none" "reason=region_mode_the_facts_write_is_the_notification"
+    else
+        flog_info "PROP" "converged=YES" "chain_dirty=1" "action=propogateNotification"
+        /usr/local/bin/propogateNotification
+    fi
 else
     flog_info "PROP" "converged=YES" "chain_dirty=0" "reason=no_change_in_merge_chain"
 fi
@@ -326,7 +387,8 @@ fi
 # Cheap in the common case: one file test. frognet-pond-bootstrap.sh writes the
 # sentinel only once enrolment completed AND the tunnel daemon is running, so
 # this stops firing on its own. Backgrounded so a slow broker never stalls a merge.
-if [[ ! -f /etc/frognet/pond_bootstrap_done \
+# [NO_BROKER_ENROLMENT_IN_REGION_V1] enrolment with the broker means nothing on a region (membership is the session).
+if [[ "$_REGION" -eq 0 && ! -f /etc/frognet/pond_bootstrap_done \
       && -x /usr/local/bin/frognet-pond-bootstrap.sh ]] \
    && grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null; then
     flog_info "BROKER_SETUP" "state=pending" "action=retry_pond_bootstrap"

@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-hub -- [FDF_HUB_V1] (PLAN-FROGNET-ON-FDF Stage 1) the WireGuard concentrator for one FD&F region.
+
+Replaces frognet_broker_v4 for a region: ONE wg interface per region, one peer per live member, derived entirely from
+the region's records. Nothing is configured per member; nothing polls.
+
+  membership  : the region's participants (announce rows, alive = session up), with each member's own facts
+                ({role, name, guid, subnet, pubkey, transit:[...]}, [IPCP_FACTS_V1]). Enrollment is the session.
+  prefixes    : installed ONLY from VERIFIED mappings (map_list: rows produced by the region's signed map_register,
+                [MAP_PREFIX_LOCATOR_SET_V1]) whose locator set names THIS hub, AND which the member's facts claim.
+                Facts say who; mappings say what. (security contracts 2, 3 of the plan)
+  ownership   : one owner per /24 per region: the ALIVE claimant with the lowest announce id wins; later claimants are
+                refused and logged with both guids (0.5). Owned always beats transit; a transit /24 goes to the first
+                claimant while nobody owns it (1.2). WireGuard moves an overlapping AllowedIPs prefix to the LAST peer
+                set, silently -- so this program keeps its own prefix->peer table and applies `wg set` from THAT.
+  addresses   : member 10.A.B.0/24 -> edge 10.253.A.B/32 on the region's interface; hub 10.253.253.254/16 (0.4).
+  events      : fdf-events (one held FNWP session) prints "p"/"m" lines; each line is one reconcile. Adopt-on-start:
+                the first reconcile reads the kernel and brings it to the records, never tears down first (1.5).
+  itself      : the hub's own membership is an ordinary fdf-client with FDF_FACTS = {"role":"hub","name":...,
+                "pubkey":...,"endpoint":"ip:port","addr":"10.253.253.254"}; this program writes that file (--facts).
+
+usage: fdf-hub --area NAME --iface wg-NAME --endpoint IP:PORT [--key FILE] [--listen PORT] [--facts FILE] [--dry-run]
+env:   RINA_RAM=host:port (where the region is), FDF_BIN (fdf-events/fdf-participants/ram: default /opt/fdf/bin)
+"""
+import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urllib.request
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+
+API = "/FawcettInnovations.RINA.ram_interface.php"
+BUILD_TAG = "fdf-2026-10-11-r19-a15"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+HUB_ADDR = "10.253.253.254"
+HUB_MASK = 16
+
+def log(msg):
+    sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "[FDF-HUB] " + msg + "\n"); sys.stderr.flush()
+
+# ---------------------------------------------------------------- the region (HTTP front for reads; fdf-events for change)
+class Region:
+    def __init__(self, ram):
+        self.url = "http://" + ram + API + "?op=rina"
+    def call(self, body):
+        req = urllib.request.Request(self.url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:                 # the region's own reason, one line, no traceback
+            raise RuntimeError("the region at %s refused op %s: HTTP %d %s" % (self.url.split("/")[2], body.get("op"), e.code, e.read().decode(errors="replace")[:160]))
+    def participants(self):
+        return self.call({"op": "participants"}).get("participants", [])
+    def mappings(self, site):
+        return self.call({"op": "map_list", "site": site}).get("mappings", [])
+    def world(self, site):
+        """[WORLD_IN_ONE_READ_V1] (participants, mappings) in one round trip (region r14+; an older region is an error)."""
+        w = self.call({"op": "world", "site": site})
+        if not w.get("ok"):
+            raise RuntimeError("the region has no `world` op (%s): its build %s is older than this hub" % (w.get("error"), w.get("server", "?")))
+        return w.get("participants", []), w.get("mappings", [])
+
+# ---------------------------------------------------------------- the kernel (real: wg + ip; fake: in memory, for the oracle)
+class RealKernel:
+    def __init__(self, iface, dry): self.iface, self.dry = iface, dry
+    def run(self, *cmd, check=True, out=False):
+        if self.dry and not out: log("DRY " + " ".join(cmd)); return ""
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if check and r.returncode != 0: raise RuntimeError(" ".join(cmd) + ": " + r.stderr.strip())
+        return r.stdout
+    def ensure_iface(self, privkey_file, listen):
+        if self.run("ip", "-o", "link", "show", "dev", self.iface, check=False, out=True).strip() == "":
+            # the kernel's WireGuard; where there is none (a container, a sandbox), wireguard-go (userspace) makes the
+            # same interface and `wg` drives it the same way. FDF_WG_USERSPACE=1 forces the latter.
+            r = subprocess.run(["ip", "link", "add", self.iface, "type", "wireguard"], capture_output=True, text=True) \
+                if os.environ.get("FDF_WG_USERSPACE", "") != "1" else None
+            if r is None or r.returncode != 0:
+                self.run("wireguard-go", self.iface)
+                log("wg: userspace (wireguard-go) interface %s" % self.iface)
+            self.run("ip", "address", "add", HUB_ADDR + "/" + str(HUB_MASK), "dev", self.iface)
+            self.run("ip", "link", "set", self.iface, "up")
+        # EVERY start, not only at creation: hub.env's port/key must be what the interface uses, or the endpoint the
+        # hub advertises points at a closed port (2026-10-09: created on 50820, hub.env changed to 50889, no handshakes).
+        self.run("wg", "set", self.iface, "listen-port", str(listen), "private-key", privkey_file)
+        have = self.run("wg", "show", self.iface, "listen-port", out=True).strip()
+        if have != str(listen): raise RuntimeError("%s listens on %s, hub.env says %s" % (self.iface, have, listen))
+        log("wg: %s listening on %s" % (self.iface, have))
+        self.run("sysctl", "-q", "-w", "net.ipv4.ip_forward=1", check=False)
+    def pubkey(self, privkey_file):
+        return subprocess.run(["wg", "pubkey"], input=open(privkey_file).read(), capture_output=True, text=True).stdout.strip()
+    def peers(self):                            # {pubkey: {"allowed": set, "hs": latest handshake epoch (0 = never)}}
+        out = {}
+        for ln in self.run("wg", "show", self.iface, "dump", out=True).splitlines()[1:]:
+            f = ln.split("\t")
+            if len(f) >= 5: out[f[0]] = {"allowed": set(a for a in f[3].split(",") if a and a != "(none)"), "hs": int(f[4] or 0)}
+        return out
+    def set_peer(self, pub, allowed):
+        self.run("wg", "set", self.iface, "peer", pub, "allowed-ips", ",".join(sorted(allowed)) if allowed else "")
+    def del_peer(self, pub):
+        self.run("wg", "set", self.iface, "peer", pub, "remove")
+    def routes(self):                           # {prefix: via} on this iface
+        out = {}
+        for ln in self.run("ip", "-o", "route", "show", "dev", self.iface, out=True).splitlines():
+            p = ln.split()
+            if p and "/" in p[0] and "proto" not in p[:3]: out[p[0]] = p[p.index("via") + 1] if "via" in p else ""   # via, or on-link ("")
+        return out
+    def add_route(self, prefix, via):
+        if via: self.run("ip", "route", "replace", prefix, "via", via, "dev", self.iface)
+        else: self.run("ip", "route", "replace", prefix, "dev", self.iface)          # on-link (a leaf's /32)
+    def del_route(self, prefix): self.run("ip", "route", "del", prefix, "dev", self.iface, check=False)
+
+class FakeKernel:
+    """The oracle's kernel: what the hub would have told wg and ip, kept as state. Mirrors WireGuard's one trap on
+    purpose: an AllowedIPs prefix set on a peer is REMOVED from any other peer that had it (cryptokey routing)."""
+    def __init__(self): self.p, self.hs, self.r, self.log = {}, {}, {}, []
+    def ensure_iface(self, k, l): self.log.append("iface")
+    def pubkey(self, f): return "HUBPUB"
+    def peers(self): return {k: {"allowed": set(v), "hs": self.hs.get(k, 0)} for k, v in self.p.items()}
+    def set_peer(self, pub, allowed):
+        self.log.append(("set", pub, sorted(allowed)))
+        for other in self.p:
+            if other != pub: self.p[other] -= set(allowed)
+        self.p[pub] = set(allowed)
+    def del_peer(self, pub): self.log.append(("del", pub)); self.p.pop(pub, None); self.hs.pop(pub, None)
+    def routes(self): return dict(self.r)
+    def add_route(self, prefix, via): self.log.append(("route", prefix, via)); self.r[prefix] = via
+    def del_route(self, prefix): self.log.append(("unroute", prefix)); self.r.pop(prefix, None)
+
+# ---------------------------------------------------------------- the decision: records -> desired kernel state
+def edge_of(subnet):
+    """10.A.B.0/24 -> 10.253.A.B (0.4). Only /24s inside 10/8 and outside 10.253/16, 10.254/16 qualify."""
+    n = ipaddress.ip_network(subnet, strict=False)
+    o = n.network_address.packed
+    if n.prefixlen != 24 or o[0] != 10 or o[1] in (253, 254): return None
+    return "10.253.%d.%d" % (o[1], o[2])
+
+def desired(participants, mappings, hub_name, prev_owner=None):
+    """Returns (peers: {pubkey: {edge, name, guid, allowed:set, routes:{prefix: edge}}}, owner: {prefix: guid}, notes)."""
+    notes = []
+    members = []
+    for p in participants:
+        f = p.get("facts") or {}
+        # [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network has a /32 here (the region gave it) and is
+        # peered as a leaf is: its /32 on-link, nothing else carried
+        reacher = f.get("role") == "participant" and f.get("reach") is True and f.get("addr")
+        if not p.get("alive") or (f.get("role") not in ("node", "leaf") and not reacher): continue
+        if not f.get("pubkey"): notes.append("no pubkey: %s" % f.get("name")); continue
+        members.append((int(p.get("id", 0)), p, f))
+    members.sort(key=lambda m: m[0])                                  # lowest announce id = first claimant
+    # which prefixes a VERIFIED mapping says this hub reaches
+    reach = {}
+    for m in mappings:
+        for loc in m.get("rloc", "").split(","):
+            parts = loc.split(":")
+            if parts and parts[0] == hub_name: reach[m["eid"]] = True
+    owner, peers = {}, {}
+    # [HUB_PREFIXES_FROM_GRAPH_V1] which /24s a peer may carry = FD&F's plan for that member (fdf_graph: its own
+    # served /24s plus those of every host whose exit it is), AND a verified mapping naming this hub. Facts say who;
+    # the graph says which prefixes belong behind whom; the signed mapping says the member asked for it. A member
+    # whose exit is another member carries nothing (its hub link is idle): no prefix is ever behind two peers.
+    # A member without rows (no fdf-facts yet) is placed by facts.subnet/transit until its rows arrive; that is the
+    # same rule the graph applies to a row-less member, not a second mechanism.
+    plans = {}
+    from fdf_graph import Graph                 # [NO_FALLBACK_V1] no graph, no hub: an ImportError here is the answer, not a quieter rule
+    g = Graph(participants)
+    for rid, p, f in members:
+        if f.get("role") == "node" and f.get("name") in g.hosts and f.get("addrs"):
+            plans[f.get("name")] = g.plan(f.get("name"))
+    if plans: notes.append("graph: " + g.summary())
+    def _net(x):
+        try: return str(ipaddress.ip_network(x, strict=False))
+        except ValueError: return None
+    with_peer = {f.get("name") for rid, p, f in members if f.get("role") == "node"}
+    # pass 1: every member gets a peer (edge/32); its own /24 is claimed here if it is its own exit (graph) or has no graph
+    for rid, p, f in members:
+        sub = _net(f.get("subnet") if f.get("role") == "node" else f.get("addr"))
+        if not sub: notes.append("no subnet/addr: %s" % f.get("name")); continue
+        edge = edge_of(sub) if f.get("role") == "node" else sub.split("/")[0]
+        if not edge: notes.append("no edge for %s (%s)" % (sub, f.get("name"))); continue
+        plan = plans.get(f.get("name"))
+        # [EXIT_CARRIES_OR_SELF_V1] the child's /24 goes behind its exit only if that exit is a peer HERE, NOW, whose
+        # own plan carries it; otherwise the child's own link carries it. Decided from this event's records only.
+        exit_plan = plans.get(plan["exit"]) if plan and plan["exit"] else None
+        exit_carries = bool(exit_plan and exit_plan["hub_active"] and plan["exit"] in with_peer and sub in {_net(x) for x in exit_plan["maps"]})
+        claims_own = plan is None or plan["hub_active"] or not plan["exit"] or not exit_carries
+        if claims_own and sub in owner:
+            notes.append("REFUSED %s claimed by %s (guid %s, id %d): owned by %s" % (sub, f.get("name"), f.get("guid"), rid, owner[sub])); continue
+        peers[f["pubkey"]] = {"edge": edge, "name": f.get("name"), "guid": f.get("guid"), "subnet": sub,
+                              "allowed": {edge + "/32"}, "routes": ({} if f.get("role") == "node" else {sub: ""})}   # a leaf's /32: on-link
+        if f.get("role") != "node":
+            owner[sub] = f.get("guid") or f.get("name"); continue
+        if not claims_own:
+            notes.append("%s: exit is %s; its hub link is idle, it carries nothing" % (f.get("name"), plan["exit"])); continue
+        if plan is not None and plan["exit"] and not plan["hub_active"]:
+            notes.append("%s: exit is %s but that exit carries nothing here now; its own link carries %s" % (f.get("name"), plan["exit"], sub))
+        owner[sub] = f.get("guid") or f.get("name")
+        if sub in reach: peers[f["pubkey"]]["allowed"].add(sub); peers[f["pubkey"]]["routes"][sub] = edge
+        else: notes.append("no verified mapping names this hub for %s (%s): peer without its /24" % (sub, f.get("name")))
+    # pass 2: the rest of what each peer carries: the plan's maps (hosts whose exit it is) or, with no graph, its
+    # transit list -- first claimant, only while unowned, only with a verified mapping
+    for rid, p, f in members:
+        if f["pubkey"] not in peers or f.get("role") != "node": continue
+        plan = plans.get(f.get("name"))
+        more = list(plan["maps"]) if plan is not None else list(f.get("transit") or [])
+        for t in more:
+            t = _net(t)
+            if not t or t == peers[f["pubkey"]]["subnet"]: continue
+            if t in owner:
+                if owner[t] != (f.get("guid") or f.get("name")): notes.append("%s by %s ignored: already behind %s" % (t, f.get("name"), owner[t]))
+                continue
+            if t not in reach: notes.append("%s by %s: no verified mapping names this hub" % (t, f.get("name"))); continue
+            owner[t] = f.get("guid") or f.get("name")
+            peers[f["pubkey"]]["allowed"].add(t); peers[f["pubkey"]]["routes"][t] = peers[f["pubkey"]]["edge"]
+    return peers, owner, notes
+
+def reconcile(kernel, want, now=None):
+    """Bring the kernel to `want` with the fewest commands; adopt what is already right (no tear-down first).
+    [HUB_HAS_NO_MEMORY_V1] the wanted set is computed from this event's records alone. A member that is not in
+    them has no peer: deleted now, not parked. One that comes back -- same place or somewhere else -- gets a peer
+    from its facts as they are then. Addresses and connections are dynamic; nothing here remembers the past."""
+    have = kernel.peers(); changed = 0
+    for pub, h in list(have.items()):
+        if pub in want: continue
+        kernel.del_peer(pub); changed += 1; log("deleted peer %s (not a member now)" % pub[:12])
+    for pub, w in want.items():
+        if have.get(pub, {}).get("allowed") != w["allowed"]: kernel.set_peer(pub, w["allowed"]); changed += 1
+    want_routes = {}
+    for w in want.values(): want_routes.update(w["routes"])
+    have_routes = kernel.routes()
+    for prefix in list(have_routes):
+        if prefix not in want_routes: kernel.del_route(prefix); changed += 1
+    for prefix, via in want_routes.items():
+        if have_routes.get(prefix) != via: kernel.add_route(prefix, via); changed += 1
+    return changed
+
+# ---------------------------------------------------------------- main loop
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--area", required=True, help="the region's name (the LISP site that signs mappings)")
+    ap.add_argument("--iface", help="wg interface (default wg-<area>)")
+    ap.add_argument("--endpoint", required=True, help="public ip:port members connect to")
+    ap.add_argument("--key", default="/etc/wireguard/fdf-hub.key", help="the hub's wg private key file (made if absent)")
+    ap.add_argument("--listen", type=int, default=50820)
+    ap.add_argument("--facts", default="/opt/fdf/var/facts.json", help="where this hub's own facts go (its fdf-client announces them)")
+    ap.add_argument("--name", default=os.uname().nodename, help="this hub's name in locator sets")
+    ap.add_argument("--subnet", default="", help="the hub machine's own FrogNet /24 (a hub that is also a node): members route it via the hub")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+    if not ram: sys.exit("fdf-hub: RINA_RAM=host:port is not set")
+    iface = a.iface or ("wg-" + a.area.replace(".", "-"))
+    k = FakeKernel() if a.dry_run else RealKernel(iface, False)      # --dry-run: the oracle's kernel, every command logged
+    if not os.path.exists(a.key) and not a.dry_run:
+        os.makedirs(os.path.dirname(a.key), exist_ok=True)
+        open(a.key, "w").write(subprocess.run(["wg", "genkey"], capture_output=True, text=True).stdout); os.chmod(a.key, 0o600)
+    k.ensure_iface(a.key, a.listen)
+    pub = k.pubkey(a.key) if not a.dry_run else "DRYRUNPUB"
+    facts = {"role": "hub", "name": a.name, "pubkey": pub, "endpoint": a.endpoint, "addr": HUB_ADDR, "area": a.area}
+    if a.subnet: facts["subnet"] = str(ipaddress.ip_network(a.subnet, strict=False))
+    tmp = a.facts + ".tmp"; os.makedirs(os.path.dirname(a.facts), exist_ok=True)
+    open(tmp, "w").write(json.dumps(facts) + "\n"); os.replace(tmp, a.facts)     # the hub's fdf-client re-announces it
+    log("hub %s on %s, endpoint %s, pubkey %s; facts -> %s" % (a.name, iface, a.endpoint, pub[:12], a.facts))
+    region = Region(ram)
+    try: rv = region.call({"op": "version"}).get("server", "(older than fdf-2026-10-09-r16)")
+    except Exception as e: rv = "(no answer: %s)" % e
+    log("build %s; region at %s is build %s" % (BUILD_TAG, ram, rv))
+    ev = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1)
+    # [WATCH_BEFORE_READ_V1] the start read happens after fdf-events says its watches are registered: a change between
+    # the read and the watch would otherwise never be delivered (the hub's peers stale until some unrelated event).
+    first = ev.stdout.readline().strip()
+    if first != "ready":
+        log("fdf-events registered no watch (%r); the region is not reachable" % first); sys.exit(1)
+    seen_notes = set()
+    def once(why):
+        parts, maps = region.world(a.area)                 # [WORLD_IN_ONE_READ_V1]
+        want, owner, notes = desired(parts, maps, a.name)
+        for n in notes:
+            if n not in seen_notes: log(n); seen_notes.add(n)
+        for n in list(seen_notes):
+            if n not in notes: seen_notes.discard(n)
+        changed = reconcile(k, want)
+        # [HUB_SAYS_ITS_PEERS_V1] the peers this hub now holds, in its own facts, AFTER the kernel has them: a member
+        # brings its tunnel up on the event that shows its key here, so its first handshake never reaches a hub that
+        # does not know it yet (the first-handshake race: 5,129 ms one run in three before this). Written only when the
+        # set changes; the hub's own re-announcement comes back as a `p` with the same set, so it writes nothing then.
+        peers = sorted(want)
+        if facts.get("peers") != peers:
+            facts["peers"] = peers
+            tmp = a.facts + ".tmp"; open(tmp, "w").write(json.dumps(facts) + "\n"); os.replace(tmp, a.facts)
+            log("facts: peers=%d announced" % len(peers))
+        if a.dry_run:
+            for e in k.log: log("DRY " + str(e))
+            k.log.clear()
+        log("%s: members=%d mappings=%d peers=%d prefixes=%d changes=%d build=%s" % (why, len(parts), len(maps), len(want), len(owner), changed, BUILD_TAG))
+    try:
+        once("start (adopt)")
+    except Exception as e:
+        log("cannot read the region: %s" % e); log("is RINA_RAM in /opt/fdf/hub/hub.env the region's RAM manager (build fdf-2026-10-09-r16 or later)?"); sys.exit(1)
+    for line in ev.stdout:
+        line = line.strip()
+        if line == "ready": continue
+        if line == "gone": break
+        try:
+            once("event " + line)
+        except Exception as e:
+            log("event %s: %s (kernel left as it is)" % (line, e))
+    log("the region is gone (fdf-events ended); leaving the kernel as it is"); sys.exit(1)
+
+if __name__ == "__main__": main()

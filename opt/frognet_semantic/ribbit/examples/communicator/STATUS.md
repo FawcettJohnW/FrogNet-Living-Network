@@ -139,3 +139,42 @@ until every decoded frame went through a resampler to 16 kHz.
 - test_room under deliberate load: its fixed 7 s read a stale pre-cap picture once (a capped viewer's picture changes
   with its transcoded stream's first keyframe; the server never sends a capped viewer the uncapped stream). Now waits
   up to 20 s and checks pass-through against what the sender actually sends: 6/6 PASS alongside the interop test.
+
+## r3 (2026-10-10): ringing, hang-up, the stamped picture, build tags -- `comms-app-2026-10-10-r3`
+
+John, on the Windows app: "thinks it always has a call from the phone". Root cause, two parts:
+- **The invitation was treated as the call.** An invitation is a CallsInvitations row the caller writes own=false at
+  `user:<callee>`; nobody removes it and it reads fresh for 120 s. The window showed Answer for any invitation it had
+  not seen and hid it only when a call started -- so a call the caller gave up on stayed "ringing" forever.
+  `[RINGS_ONLY_WHILE_OFFERED_V1]` Room::ringing(): an invitation rings only while it is <= 60 s old AND its caller
+  still offers that session in CallsAnnounce. The window re-checks every tick (1 s) and hides Answer when it stops.
+  The phone had the same hole once it started ringing (it rang until tapped); it now applies the same rule each tick.
+- **The desktop never withdrew its own offers.** There was no leave_call in the C++ Room: hang_up stopped the call but
+  every session the window ever started stayed in its announce row (refresh_calls rewrote it every 5 s).
+  `[LEAVE_WITHDRAWS_THE_OFFER_V1]` Room::leave_call (as the Java Room's leaveCall) on hang-up: the session leaves
+  offered_ and joined_, and both rows are rewritten without it.
+- Proof: `tests/test_ring RAM_PORT` on a real comms-ram -- nothing rings before a call; the callee rings while the
+  caller offers; the caller hangs up before the answer -> it stops ringing although the invitation row is still there;
+  the next call rings, and only it; the reverse direction; a hung-up session is no longer offered. PASS 9/9.
+  test_call, test_call_audio, test_room: PASS unchanged. Phone: the Android suite (vectors, core, Robolectric app
+  flow) PASS. John, 2026-10-10: on a physical phone the Communicator "was responsive and worked properly".
+
+`[STAMP_THE_PICTURE_V1]` (John: "having a counting number there would be useful", after a call that started far
+behind and caught up slowly on the emulator). Each desktop sender burns `#<frame> HH:MM:SS.mmm` -- its frame count and
+its wall clock at capture -- into the bottom-left of the picture before encoding (src/comms/stamp.hpp; 5x7 digits,
+6 px a dot at 720p). It is part of the picture, so it survives comms-media's transcode and every hop. The viewer shows
+its own clock: the window as the first line of the stats overlay ("here HH:MM:SS.mmm", read at paint, 25 Hz), the
+phone as a "here" line under the caller's name (30 Hz). Lag = here - stamped, read off the screen (one clock when the
+emulator runs on the Windows machine; otherwise as good as the two clocks agree). Measured here, feed -> comms-media
+-> window on one machine: 64 ms. `COMMS_STAMP=0` turns it off. The phone's own sender does not stamp (its picture is
+GL-rendered into the encoder's surface).
+
+Build tags (the software says what runs): comms-app and comms-feed print `[app] build comms-app-2026-10-10-r3` /
+`[feed] build ...` first, and the window title carries it. The phone: `comms-android-2026-10-10-r4` (r3 + it logs which
+camera it opened and its facing) in the member app `fdf-kt-2026-10-10-a9`.
+
+Open: the emulator call's start-up lag is not explained -- no frame carried a time, so nothing could tell how far behind
+it was. The places it can sit: the sender's capture and encoder, its socket send buffer (on Windows not measurable,
+see WINDOWS.md) and the tunnel, comms-media's per-viewer queue, the viewer's socket, the viewer's DelayLine (bounded
+at 4000 frames, never sheds), the decoder. Next if it recurs: the stamp's numbers at the start and once caught up,
+then `[DIAG-LAG]` depth and age at each of those queues.

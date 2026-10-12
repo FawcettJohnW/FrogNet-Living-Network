@@ -12,6 +12,7 @@
 // Left: the lobby (people and unattended feeds). Centre: the call -- remote video with live stats, self-view,
 // controls, the two link sliders -- bandwidth (this participant's link, both directions) and jitter -- the stats strip. Right: chat with the call.
 #include "comms/call.hpp"
+#include "comms/stamp.hpp"
 #include "fnav/bearer.hpp"
 #include "comms/devices.hpp"
 #include "comms/room.hpp"
@@ -172,11 +173,13 @@ protected:
             g.drawText(rect(), Qt::AlignCenter, who.isEmpty() ? "Not in a call" : "Waiting for " + who + "'s picture");
         }
         if (!overlay.isEmpty()) {                            // live per-stream stats
+            // [STAMP_THE_PICTURE_V1] this machine's clock, read at paint: minus the clock stamped in the picture = the lag
+            const QString ov = "here " + QString::fromStdString(comms::wall_clock_ms()) + "\n" + overlay;
             QFont f("Monospace"); f.setStyleHint(QFont::Monospace); f.setPointSize(9); g.setFont(f);
-            QRect tr = g.fontMetrics().boundingRect(QRect(0, 0, 400, 200), Qt::AlignLeft, overlay).adjusted(-8, -6, 8, 6);
+            QRect tr = g.fontMetrics().boundingRect(QRect(0, 0, 400, 200), Qt::AlignLeft, ov).adjusted(-8, -6, 8, 6);
             tr.moveTo(10, 10);
             g.setPen(Qt::NoPen); g.setBrush(QColor(0, 0, 0, 150)); g.drawRoundedRect(tr, 6, 6);
-            g.setPen(QColor(225, 230, 235)); g.drawText(tr.adjusted(8, 6, -8, -6), Qt::AlignLeft, overlay);
+            g.setPen(QColor(225, 230, 235)); g.drawText(tr.adjusted(8, 6, -8, -6), Qt::AlignLeft, ov);
         }
         if (!self.isNull()) {                                // self-view
             int w = std::max(120, width() / 5), h = w * self.height() / std::max(1, self.width());
@@ -382,7 +385,7 @@ public:
     ~Window() override { hang_up(); delete diag_; }
 
     void build() {
-        setWindowTitle("FrogNet Communicator");
+        setWindowTitle(QString("FrogNet Communicator  ·  ") + comms::COMMS_APP_BUILD);
         setStyleSheet(
             "QWidget{background:#f6f7f9;color:#1d2024;font-size:13px}"
             "QFrame#bar{background:#ffffff;border-bottom:1px solid #dfe2e6}"
@@ -537,7 +540,7 @@ public:
         return false;
     }
 
-    void answer() { if (pending_.session.size()) start_call(pending_.session, pending_.media_host, pending_.media_port, pending_.offered_by); }
+    void answer() { if (pending_.session.size()) { Offer o = pending_; pending_ = Offer{}; start_call(o.session, o.media_host, o.media_port, o.offered_by); } }
 
     // half a second: one Sample, rates from counter differences; no call = a gap ([DIAG_IS_UNGATED_V1])
     void sample() {
@@ -604,6 +607,7 @@ public:
         if (view_ && view_->isFullScreen()) toggle_fullscreen();
         if (!call_) return;
         call_->stop(); call_.reset();
+        try { room_->leave_call(session_); } catch (const std::exception& e) { std::cerr << "[room] after the call: " << e.what() << "\n"; }
         session_.clear(); with_.clear();
         room_->announce("online");
         hang_->setEnabled(false); say_->setEnabled(false); say_->setPlaceholderText("Start a call to chat");
@@ -641,12 +645,26 @@ public:
         catch (const std::exception& e) { status_->setText(QString("RAM unreachable: ") + e.what()); return; }
         if (changed || ++age_redraw_ >= 5) { age_redraw_ = 0; redraw_lobby(ros); }
         // incoming calls
+        // [RINGS_ONLY_WHILE_OFFERED_V1] the Answer button shows only while the call rings (Room::ringing: invited <= 60 s
+        // ago and the caller still offers it), checked every tick, so it goes when the caller hangs up or goes away.
         if (!call_) {
-            for (auto& o : room_->invitations())
-                if (!answered_.count(o.session)) {
-                    pending_ = o; answered_.insert(o.session);
-                    answer_->setText("Answer " + QString::fromStdString(o.offered_by)); answer_->show();
+            std::vector<Offer> rg = room_->ringing();
+            if (!pending_.session.empty()) {
+                bool still = false;
+                for (auto& o : rg) if (o.session == pending_.session) still = true;
+                if (!still) {
+                    std::cerr << "[app] " << pending_.offered_by << " is no longer calling (session " << pending_.session << ")\n";
+                    pending_ = Offer{}; answer_->hide();
                 }
+            }
+            if (pending_.session.empty())
+                for (auto& o : rg)
+                    if (!answered_.count(o.session)) {
+                        pending_ = o; answered_.insert(o.session);
+                        std::cerr << "[app] " << o.offered_by << " is calling (session " << o.session << ", invited " << int(o.age_s) << " s ago)\n";
+                        answer_->setText("Answer " + QString::fromStdString(o.offered_by)); answer_->show();
+                        break;
+                    }
         }
         if (call_ && changed) read_chat();
         update_tiles();
@@ -826,6 +844,7 @@ static int run_main(int argc, char** argv) {
 // [A_FAILURE_SAYS_WHAT_FAILED_V1] an unreachable memory or media server, a camera that will not open: the cause, once,
 // and a clean exit -- never "terminate called ... Aborted".
 int main(int argc, char** argv) {
+    std::fprintf(stderr, "[app] build %s\n", comms::COMMS_APP_BUILD);
     try { return run_main(argc, argv); }
     catch (const std::exception& e) { std::fprintf(stderr, "comms-app: %s\n", e.what()); return 1; }
 }

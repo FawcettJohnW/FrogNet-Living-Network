@@ -36,6 +36,60 @@ from . import config
 _wg_up_lock = threading.RLock()
 
 
+# [KERNEL_READ_ONCE_PER_EVENT_V1] One `wg show all dump` per region event, not one `wg` process per question.
+# Measured in tools/netns-region-loop-test.sh (strace -f -e execve on a's daemon, one event): `wg show interfaces` x2,
+# `wg show wg0 peers` x2, `wg show wg0` x2 (handshake age: bringup, then the applier's hub_alive) -- six fork+execs,
+# ~35 ms of the 45 ms event on x86; more on a Pi. Inside `kernel_read_once()` the first question reads the dump and
+# every later one answers from it. The first thing that CHANGES WireGuard (wg-quick up/down, wg set) calls
+# kernel_changed(): from then on, for the rest of the event, every read is live again (a polling loop waiting for a
+# handshake must see the kernel, not the snapshot). Outside kernel_read_once() nothing is cached, ever.
+# Process-wide, not per thread: the bring-up workers run on their own threads, and their change must end the event
+# loop's snapshot too (the applier's hub_alive after a bring-up must see the new interface).
+class _KS:
+    on = False
+    dump = None
+_ks = _KS()
+
+
+class kernel_read_once:
+    def __enter__(self):
+        _ks.on, _ks.dump = True, None
+        return self
+
+    def __exit__(self, *a):
+        _ks.on, _ks.dump = False, None
+        return False
+
+
+def kernel_changed() -> None:
+    """Called before anything that changes WireGuard: the snapshot is dropped and not retaken this event."""
+    _ks.on, _ks.dump = False, None
+
+
+def _kernel_dump():
+    """{iface: [(peer_pubkey, latest_handshake_epoch), ...]} from one `wg show all dump`, or None when no snapshot is
+    in force (the caller then asks the kernel itself, as it always did)."""
+    if not getattr(_ks, "on", False):
+        return None
+    if _ks.dump is None:
+        d = {}
+        r = subprocess.run(["wg", "show", "all", "dump"], capture_output=True, text=True, check=False)
+        if r.returncode != 0:
+            config.log.warning("KERNEL_READ: wg show all dump rc=%d: %s", r.returncode, (r.stderr or "").strip()[:200])
+        for ln in (r.stdout or "").splitlines():
+            f = ln.split("\t")
+            if len(f) == 5:                                   # interface line: iface priv pub port fwmark
+                d.setdefault(f[0], [])
+            elif len(f) == 9:                                 # peer line: iface pub psk endpoint allowed hs rx tx keepalive
+                try:
+                    hs = int(f[5])
+                except ValueError:
+                    hs = 0
+                d.setdefault(f[0], []).append((f[1], hs))
+        _ks.dump = d
+    return _ks.dump
+
+
 def find_next_wg_iface() -> str:
     trace_enter('wg.find_next_wg_iface')
     for n in range(32):
@@ -48,6 +102,7 @@ def find_next_wg_iface() -> str:
 
 def teardown_wg_iface(iface: str):
     trace_enter('wg.teardown_wg_iface', iface=repr(iface))
+    kernel_changed()
     config.dbg(f"_teardown_wg_iface: {iface}")
     conf_path = config.CONF_DIR / f"{iface}.conf"
     try:
@@ -110,6 +165,7 @@ def refresh_handshake(iface: str, wait_sec: int) -> Optional[float]:
     """
     # Capture peer pubkey + current keepalive so we can restore.
     trace_enter('wg.refresh_handshake', iface=repr(iface), wait_sec=repr(wait_sec))
+    kernel_changed()
     try:
         r = subprocess.run(["wg", "show", iface, "dump"],
                            capture_output=True, text=True, check=False)
@@ -197,6 +253,10 @@ def refresh_handshake(iface: str, wait_sec: int) -> Optional[float]:
 
 def wg_handshake_age(iface: str) -> Optional[float]:
     trace_enter('wg.wg_handshake_age', iface=repr(iface))
+    d = _kernel_dump()                                        # [KERNEL_READ_ONCE_PER_EVENT_V1]
+    if d is not None:
+        hs = [h for _pk, h in d.get(iface, []) if h > 0]     # `wg show` prints no "latest handshake" for a peer with none
+        return max(0.0, time.time() - max(hs)) if hs else None
     try:
         wg = subprocess.run(["wg", "show", iface],
                             capture_output=True, text=True, check=False)

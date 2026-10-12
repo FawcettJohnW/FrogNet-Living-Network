@@ -92,7 +92,26 @@ def _read_last_merge():
         return 0
 
 
+def region_mode():
+    """[ELECTION_FROM_FACTS_V1] on a region (RINA_RAM= in join.env or tunnel.conf) the daemon elects from the members'
+    facts on every membership event; this store-reading elector would fight it. It has nothing to do there."""
+    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        try:
+            for ln in open(path):
+                ln = ln.strip()
+                if ln.startswith("export "):
+                    ln = ln[7:]
+                if ln.startswith("RINA_RAM=") and ln.split("=", 1)[1].strip().strip('"'):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
 def main():
+    if region_mode():
+        print("[DBHOST-ELECT] region mode: the daemon elects from the region's facts; nothing to do here", flush=True)
+        return 0
     # paths for the live election + my FrogNet identity
     sys.path.insert(0, "/opt/frognet_semantic")
     sys.path.insert(0, "/opt/frognet_semantic/ribbit/examples/communicator")

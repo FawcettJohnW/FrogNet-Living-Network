@@ -262,6 +262,37 @@ def _reload_locked():
 NF_RETRY_AFTER_S = float(os.environ.get("FROGNET_NF_RETRY_AFTER_S", "60"))
 
 
+# [MEMBER_IS_NOT_MARKED_V1] On an FD&F region "is this host a FrogNet node, and is it there?" is answered by RAM: the
+# tunnel daemon writes the hosts this node routes to -- alive members, each by its session -- to
+# /var/lib/frognet/region_hosts.json on every region event. Such a host is never marked: a refused dial to a member
+# is a member restarting its daemon (the 2026-08-08 Seattle3 databasehost case), not evidence it is not FrogNet.
+# Hosts no member names (a laptop, a database box) are learned exactly as before. The file is re-read when its mtime
+# moves, looked at no more than once a second.
+_REGION_HOSTS = os.environ.get("FROGNET_REGION_HOSTS_JSON", "/var/lib/frognet/region_hosts.json")
+_members = {"ips": frozenset(), "mtime": None, "looked": 0.0}
+
+
+def _is_region_member(ip):
+    now = time.monotonic()
+    if now - _members["looked"] >= 1.0:
+        _members["looked"] = now
+        try:
+            mt = os.stat(_REGION_HOSTS).st_mtime
+        except OSError:
+            mt = None
+        if mt != _members["mtime"]:
+            ips = frozenset()
+            if mt is not None:
+                try:
+                    import json as _json
+                    with open(_REGION_HOSTS) as f:
+                        ips = frozenset(h.get("ip") for h in _json.load(f) if isinstance(h, dict) and h.get("ip"))
+                except (OSError, ValueError):
+                    ips = frozenset()
+            _members["ips"], _members["mtime"] = ips, mt
+    return ip in _members["ips"]
+
+
 def is_marked(ip):
     """True if ip is a known non-FrogNet AND the mark has not aged into a retry.
 
@@ -269,6 +300,8 @@ def is_marked(ip):
     gets exactly one fresh probe rather than a permanent no.
     """
     if not ip:
+        return False
+    if _is_region_member(ip):                         # [MEMBER_IS_NOT_MARKED_V1]
         return False
     with _lock:
         _reload_locked()
@@ -293,6 +326,8 @@ def mark(ip, reason=""):
     Returns True if cached (or already cached), False only for an empty ip.
     [ONE_STATE_V1] No role is exempt -- see the note above _is_client_range."""
     if not ip:
+        return False
+    if _is_region_member(ip):                         # [MEMBER_IS_NOT_MARKED_V1] RAM says it is a live member
         return False
     with _lock:
         _reload_locked()

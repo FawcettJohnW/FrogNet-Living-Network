@@ -58,6 +58,13 @@ fi
 date > "$SEEN_FILE"
 flog_info "DEDUP" "decision=first_time" "seen_file=$SEEN_FILE"
 
+# [REGION_V1] On an FD&F region there is no peer fan-out: the merge's commit rewrote this node's facts, the region
+# told every member (their held reads returned), and each ran its own merge. Nothing to curl.
+if grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf; then
+    flog_info "REGION" "decision=skip" "reason=region_mode_propagation_is_the_facts_write"
+    exit 0
+fi
+
 OUR_ETH0="$(/usr/local/bin/getEth0Address || echo "")"
 HOSTS_FILE="/etc/hosts"
 CURL="/usr/bin/curl"

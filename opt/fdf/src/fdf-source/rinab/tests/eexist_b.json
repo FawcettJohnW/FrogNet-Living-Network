@@ -1,0 +1,1 @@
+{"role":"node","name":"B","guid":"b","subnet":"10.9.9.0/24","pubkey":"y","addrs":[{"iface":"wlan0","ip":"10.9.9.1","value":"FrogNetHost.B","kind":"own","mac":"bb"}]}

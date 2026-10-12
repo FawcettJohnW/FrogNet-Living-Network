@@ -16,6 +16,7 @@ extern "C" {
 //   --bandwidth / --jitter: the feed's own link (demo conditions, as the window's sliders): its upload is paced to BPS
 //   and every frame it sends waits a random 0..MS.   (--mic -1: the default microphone)
 //   --video loops a file; --camera is /dev/videoN (Linux) or "video=<name>" (Windows); --mic uses a real microphone.
+#include "comms/stamp.hpp"
 #include "comms/call.hpp"
 #include "comms/devices.hpp"
 #include <iostream>
@@ -79,6 +80,7 @@ static int run_main(int argc, char** argv) {
 // [A_FAILURE_SAYS_WHAT_FAILED_V1] an unreachable memory or media server, a camera that will not open: the cause, once,
 // and a clean exit -- never "terminate called ... Aborted".
 int main(int argc, char** argv) {
+    std::fprintf(stderr, "[feed] build %s\n", comms::COMMS_APP_BUILD);
     try { return run_main(argc, argv); }
     catch (const std::exception& e) { std::fprintf(stderr, "comms-feed: %s\n", e.what()); return 1; }
 }

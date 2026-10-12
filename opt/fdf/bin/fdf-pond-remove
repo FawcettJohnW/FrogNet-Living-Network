@@ -1,0 +1,11 @@
+#!/bin/bash
+# fdf-pond-remove AREA -- [PONDS_V1] this machine stops taking part in pond AREA: its fdf-client@AREA session ends (one
+# `p` there), ponds/AREA.env goes. Refused for the forward pond: bring another forward first (fdf-forward).
+set -u
+[ "$(id -u)" = 0 ] || { echo "fdf-pond-remove: run as root" >&2; exit 1; }
+AREA=${1:?usage: fdf-pond-remove AREA}; V=${FDF_VAR:-/opt/fdf/var}
+[ -f "$V/ponds/$AREA.env" ] || { echo "fdf-pond-remove: no pond $AREA here" >&2; exit 1; }
+[ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] && { echo "fdf-pond-remove: $AREA is the forward pond; fdf-forward another one first" >&2; exit 1; }
+systemctl disable --now "fdf-client@$AREA.service" 2>/dev/null || true
+rm -f "$V/ponds/$AREA.env" "$V/attention/$AREA.json"
+echo "== $AREA removed; ponds left: $(ls "$V/ponds" | sed 's/\.env$//' | tr '\n' ' ')"

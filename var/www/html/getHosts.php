@@ -39,7 +39,19 @@
 
 header('Content-Type: application/json');
 
-$json = shell_exec('/usr/local/bin/makeHostJson.bash 2>/dev/null');
+// [HOSTJSON_FROM_THE_REGION_V1] On an FD&F region the host list is the region's: the tunnel daemon writes
+// /var/lib/frognet/region_hosts.json ([{ip, hostname, echo}], this node's applied plan, each echo rebuilt from that
+// member's facts) on every region event. No makeHostJson.bash, no curl to any peer. Absent file = no hosts yet.
+$region = false;
+foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+    $t = @file_get_contents($f);
+    if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
+}
+if ($region) {
+    $json = @file_get_contents('/var/lib/frognet/region_hosts.json');
+} else {
+    $json = shell_exec('/usr/local/bin/makeHostJson.bash 2>/dev/null');
+}
 
 if ($json === null || trim($json) === '') {
     echo '[]';
@@ -85,9 +97,13 @@ if (is_array($raw)) {
 
         $seen[$ip] = true;
         $hosts[] = [
-            'ip'   => $ip,
-            'name' => $name,
-            'echo' => $echo,
+            'ip'    => $ip,
+            'name'  => $name,
+            'echo'  => $echo,
+            // [DEVICE_ROW_V1] from region_hosts.json: the member's role (leaf = a device over the hub tunnel) and
+            // whether its region session is up this event; absent off a region
+            'role'  => (string)($entry['role'] ?? ''),
+            'alive' => (bool)($entry['alive'] ?? false),
         ];
     }
 }

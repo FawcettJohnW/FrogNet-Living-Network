@@ -79,7 +79,8 @@ def _live_roles(handlers: Dict[str, object], dbhost: str) -> List[str]:
     for name, h in handlers.items():
         ctype = getattr(h, "CANDIDATE_TYPE", None)
         present = False
-        if ctype:
+        from core import region_capability as _RC
+        if ctype and not _RC.active():                  # [ELECTION_FROM_FACTS_V1] region mode: nothing in a store decides liveness
             try:
                 present = bool(T.get(ctype, "Candidate", dbhost=dbhost))
             except Exception:
@@ -232,6 +233,17 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
             log(f"SERVICE_CAND role={role} ip={_ip} UNPUBLISHED "
                 f"(no {role}/capability row on {dbhost}; entering the pool by "
                 f"definition -- every FrogNetHost is a candidate)")
+        # [POOL_IS_THE_LIVE_BLOCK_V1] and ONLY the live .1s are candidates: a capability row whose writer is not in the
+        # converged hosts block is a ballot from a machine that is not here (gone, or never in this pond). It used to
+        # stay in the pool on the strength of its row's age alone, so a databasehost that had just died could win its
+        # own replacement election from its last row (Seattle3B, 2026-10-09 13:33). The block is the membership.
+        if etc_hosts:
+            _live = set(_alive_ones(etc_hosts))
+            _dropped = [c.get("lan_ip") for c in hosts_list if c.get("lan_ip") not in _live]
+            if _dropped:
+                log(f"SERVICE_CAND role={role} dropped={sorted(x for x in _dropped if x)} reason=not_in_live_hosts_block")
+            hosts_list = [c for c in hosts_list if c.get("lan_ip") in _live]
+            lan_list = [c for c in lan_list if c.get("lan_ip") in _live]
 
         lan_ips = {c.get("lan_ip") for c in lan_list}
         bad = set()

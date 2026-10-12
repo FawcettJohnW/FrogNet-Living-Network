@@ -68,11 +68,11 @@ _fire() {
     if flock -n 9; then
         flock -u 9; exec 9>&-
         echo "[MERGE-ACCUM] fire decision=fork reason=lock_free" >&2
-        /usr/local/bin/runMerge.bash &        # background: keep coalescing the next window
+        FROGNET_MERGE_WHY=watcher:poke /usr/local/bin/runMerge.bash &        # background: keep coalescing the next window
     else
         exec 9>&-
         mkdir -p "$(dirname "$RUN_AGAIN")"
-        : > "$RUN_AGAIN"
+        echo "watcher:poke" >> "$RUN_AGAIN"
         echo "[MERGE-ACCUM] fire decision=set_runAgain reason=merge_running" >&2
     fi
 }

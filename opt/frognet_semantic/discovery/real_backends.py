@@ -496,3 +496,108 @@ class RealReflect:
         if "REFLECT_LOOP" in body or "MAXHOPS" in body:
             return "LOOP"
         return None
+
+
+# ---------------------------------------------------------------------------
+# [REGION_BACKENDS_V1] (PLAN-FROGNET-ON-FDF Stage 3) the gather from the FD&F region instead of the crawl.
+#
+# What the crawl asked over HTTP ("who are you" = frognet_echo.php, "whom do you know" = getHosts.php) the region
+# already holds: every member's own facts, written by the member through its session ([IPCP_FACTS_V1]). So:
+#   RegionEcho.echo_probe(pip)      -> "name,<.1>,<upstream1>,<upstream2>" (region_echo) for the member whose .1/.2 (or leaf addr) is pip,
+#                                      from the records, no packet. Unknown address -> "" (not a member: no echo).
+#   RegionGetHosts.get_hosts(h, p)  -> every alive member's (.1, name) except ourselves: the whole member set in one
+#                                      level, plus that member's own `hosts` (non-member hosts behind it).
+# ONE read of the participants per merge (cached on first use; a merge is fresh). Path measurement (frognet_alive,
+# reflect, :9009) is untouched: the region says who exists, the probes say what is reachable.
+# Selected by FROGNET_DISCOVERY_SOURCE=region (live.py); RINA_RAM names the region.
+# ---------------------------------------------------------------------------
+class RegionRecords:
+    API = "/FawcettInnovations.RINA.ram_interface.php"
+
+    @staticmethod
+    def ram_from_conf(path="/etc/frognet/tunnel.conf"):
+        """RINA_RAM=host:port: from /opt/fdf/var/join.env (written by fdf-join: THE switch, [REGION_SWITCH_V2]) or the
+        tunnel daemon's conf. The same rule as internet_tunnels_v3/config.py, so runMerge needs no environment."""
+        for p in ("/opt/fdf/var/join.env", path):
+            try:
+                with open(p) as f:
+                    for ln in f:
+                        ln = ln.strip()
+                        if ln.startswith("export "):
+                            ln = ln[7:].strip()
+                        if ln.startswith("RINA_RAM="):
+                            return ln.split("=", 1)[1].strip().strip('"')
+            except OSError:
+                pass
+        return ""
+
+    def __init__(self, ram=None, participants=None):
+        self.ram = ram or os.environ.get("RINA_RAM", "") or self.ram_from_conf()
+        self._parts = participants          # injected (oracle) or fetched once
+
+    def participants(self):
+        if self._parts is None:
+            import json
+            import urllib.request
+            url = "http://" + self.ram + self.API + "?op=rina"
+            req = urllib.request.Request(url, data=b'{"op":"participants"}', headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                self._parts = json.loads(r.read().decode()).get("participants", [])
+        return self._parts
+
+    def members(self):
+        """[(dot1, name, facts)] for every ALIVE node member with a /24; leaves as (addr, name, facts)."""
+        out = []
+        for p in self.participants():
+            f = p.get("facts") or {}
+            if not p.get("alive") or not f.get("name"):
+                continue
+            if f.get("role") == "node" and f.get("subnet"):
+                base = f["subnet"].split("/")[0].rsplit(".", 1)[0]
+                out.append((base + ".1", f["name"], f))
+            elif f.get("role") == "leaf" and f.get("addr"):
+                out.append((f["addr"].split("/")[0], f["name"], f))
+        return out
+
+
+def region_echo(f, dot1):
+    """[ECHO_UPSTREAM_FROM_THE_ROWS_V1] the echo getFrogNet.bash printed, from the member's facts:
+    "<name>,<.1>,<first upstream ip>,<second upstream ip>" -- the upstreams are the facts' `uplink` rows (fdf-facts
+    writes one per upstream device, in device order), "0.0.0.0" where there is none (getWlan0IP / getWlan1IP's answer).
+    The same rule in frognet_echo.php and graph_apply's region_hosts.json; nothing writes a separate echo field."""
+    ups = [str(r.get("ip", "")) for r in f.get("addrs") or [] if r.get("kind") == "uplink" and r.get("ip")]
+    ups += ["0.0.0.0", "0.0.0.0"]
+    return "%s,%s,%s,%s" % (f.get("name", ""), dot1, ups[0], ups[1])
+
+
+class RegionEcho:
+    is_measurement = False      # an answer from the records is not a packet that came back: never reachability evidence
+
+    def __init__(self, records: RegionRecords):
+        self.rec = records
+
+    def echo_probe(self, pip):
+        want = pip.rsplit(".", 1)[0]
+        for dot1, name, f in self.rec.members():
+            if f.get("role") == "node" and dot1.rsplit(".", 1)[0] == want and pip.rsplit(".", 1)[1] in ("1", "2"):
+                return region_echo(dict(f, name=name), dot1)
+            if f.get("role") == "leaf" and dot1 == pip:
+                return region_echo(dict(f, name=name), dot1)
+        return ""
+
+
+class RegionGetHosts:
+    def __init__(self, records: RegionRecords, local_ips=()):
+        self.rec, self.local = records, set(local_ips)
+
+    def get_hosts(self, host_path, pip):
+        rows = []
+        for dot1, name, f in self.rec.members():
+            if dot1 in self.local:
+                continue
+            rows.append((dot1, name))
+            if dot1.rsplit(".", 1)[0] == host_path.rsplit(".", 1)[0]:        # the asked member's own non-member hosts
+                for h in f.get("hosts") or []:
+                    if isinstance(h, (list, tuple)) and len(h) >= 2:
+                        rows.append((h[0], h[1]))
+        return rows

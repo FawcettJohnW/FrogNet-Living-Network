@@ -1,0 +1,61 @@
+#!/bin/bash
+# fdf-pond-add RAM_HOST:PORT AREA SITE_KEY [reach] -- [PONDS_V1] (PLAN-PONDS §3.3) this machine takes part in one more pond.
+#   reach: [REACH_V1] while a participant there, also REACH that network as its (pond, config, net) allows (fdf-reach;
+#          FDF_REACH=1 in the pond's env). Refused by the network = this pond's session ends and is not restarted.
+#   /opt/fdf/var/ponds/AREA.env    RINA_RAM, RINA_AREA, RINA_SITE_KEY (the pond's own key; used only while it is forward)
+#   fdf-client@AREA.service        one session to that pond's RAM manager, held all the time: presence, the pond's shared
+#                                  memory, its attention notices. A participant unless it is the forward pond
+#                                  (/opt/fdf/var/forward; fdf-forward AREA brings it forward).
+# The first time on a node joined with fdf-region-join (one fdf-client.service): that pond becomes ponds/<its area>.env
+# and fdf-client@<its area>, and the forward pond, before the new one is added. Nothing goes into /usr/local/bin.
+set -eu
+[ "$(id -u)" = 0 ] || { echo "fdf-pond-add: run as root" >&2; exit 1; }
+U="usage: fdf-pond-add RAM_HOST:PORT AREA SITE_KEY [reach]"
+RAM=${1:?$U}; AREA=${2:?$U}; KEY=${3:?$U}; REACH=${4:-}
+[ -z "$REACH" ] || [ "$REACH" = reach ] || { echo "$U" >&2; exit 2; }
+[[ "${RAM%:*}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "fdf-pond-add: ${RAM%:*} is not an IPv4 address (the static fdf-client takes an address)" >&2; exit 2; }
+[[ "$AREA" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "fdf-pond-add: area '$AREA': letters, digits, . _ - only" >&2; exit 2; }
+V=${FDF_VAR:-/opt/fdf/var}; mkdir -p "$V/ponds"
+pond_env() { umask 077; printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\n' "$1" "$2" "$3" > "$V/ponds/$2.env"
+             [ "${4:-}" = reach ] && printf 'FDF_REACH=1\n' >> "$V/ponds/$2.env"
+             (umask 022; printf '%s\n' "$1" > "$V/ponds/$2.ram"); return 0; }   # [PONDS_ARE_LISTED_V1] no key: for getPonds.php
+cat > /etc/systemd/system/fdf-client@.service <<'EOF'
+[Unit]
+Description=FD&F membership in pond %i: this machine's session to that pond's RAM manager [PONDS_V1]
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# forward (/opt/fdf/var/forward = %i): this machine's facts.json and its mappings; otherwise a participant
+# ({"role":"participant"}: presence, shared memory, attention notices; nothing routed). [FORWARD_IS_A_FACT_V1]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+Environment=FDF_FORWARD_FILE=/opt/fdf/var/forward
+Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
+EnvironmentFile=/opt/fdf/var/ponds/%i.env
+Environment=FDF_BIN=/opt/fdf/bin
+ExecStart=/opt/fdf/bin/fdf-client ${RINA_RAM}
+# [REACH_V1] exit 4 = the network refused this machine's reach: the session is over and stays over (no fallbacks);
+# whatever the exit, the reach goes with the session (fdf-reach down is a no-op when there was none)
+ExecStopPost=/opt/fdf/bin/fdf-reach down %i
+Restart=always
+RestartPreventExitStatus=4
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+# a node joined the r16 way: its pond becomes the first entry, and the forward one
+if [ ! -f "$V/forward" ] && [ -f "$V/join.env" ] && [ -f "$V/site.env" ]; then
+  . "$V/join.env"; OLD_RAM=$RINA_RAM; OLD_AREA=$(sed -n 's/^RINA_AREA=//p' "$V/site.env"); OLD_KEY=$(sed -n 's/^RINA_SITE_KEY=//p' "$V/site.env")
+  pond_env "$OLD_RAM" "$OLD_AREA" "$OLD_KEY"; printf '%s\n' "$OLD_AREA" > "$V/forward"
+  systemctl daemon-reload; systemctl disable --now fdf-client.service 2>/dev/null || true
+  systemctl enable --now "fdf-client@$OLD_AREA.service"
+  echo "== $OLD_AREA ($OLD_RAM): now ponds/$OLD_AREA.env and fdf-client@$OLD_AREA, the forward pond"
+fi
+[ "$AREA" = "$(cat "$V/forward" 2>/dev/null)" ] && { echo "fdf-pond-add: $AREA is already this machine's forward pond"; exit 0; }
+pond_env "$RAM" "$AREA" "$KEY" "$REACH"
+[ -f "$V/forward" ] || printf '%s\n' "$AREA" > "$V/forward"       # the first pond on a machine that had none is forward
+systemctl daemon-reload; systemctl enable "fdf-client@$AREA.service"; systemctl restart "fdf-client@$AREA.service"
+sleep 2
+echo "== $AREA ($RAM) added${REACH:+, reaching it}; forward is $(cat "$V/forward")"
+journalctl -u "fdf-client@$AREA" -n 4 --no-pager -o cat

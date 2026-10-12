@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FD&amp;F chat</title>
+<!-- [FDF_CHAT_V1] (plan item 7) a chat page that talks only through the shared space: a message goes in as
+     chat.inbox.<you> (chat_send.php); the chat service moves it to the room; the room is read with a held read
+     (chat_wait.php). The page reads only its own server; no machine is reached directly. -->
+<style>
+  :root { --bg:#f6f7f9; --fg:#1c2330; --muted:#5d6878; --card:#fff; --line:#dde2ea; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6e9ee; --muted:#98a2b3; --card:#1a2029; --line:#2a323e; --bad:#ff6b5e; } }
+  body { margin:0; font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); }
+  h1 { font-size:18px; margin:0; }
+  main { max-width:720px; margin:0 auto; padding:16px 20px; }
+  #log { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:240px; max-height:60vh; overflow-y:auto; }
+  .m { padding:4px 0; border-bottom:1px solid var(--line); } .m:last-child { border-bottom:0; }
+  .who { font-weight:600; margin-right:6px; } .n { color:var(--muted); font-size:12px; margin-right:6px; }
+  form { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  input { font:inherit; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--card); color:var(--fg); }
+  #from { width:9em; } #text { flex:1; min-width:12em; }
+  button { font:inherit; padding:8px 14px; border:0; border-radius:6px; background:#2457c5; color:#fff; cursor:pointer; }
+  #err { color:var(--bad); margin-top:8px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header><h1>FD&amp;F chat</h1></header>
+<main>
+  <div id="log"></div>
+  <form id="f">
+    <input id="from" placeholder="your name" required pattern="[A-Za-z0-9_.\-]{1,40}">
+    <input id="text" placeholder="message" required>
+    <button>Send</button>
+  </form>
+  <div id="err"></div>
+</main>
+<script>
+const log = document.getElementById("log"), err = document.getElementById("err");
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[c]); }
+document.getElementById("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  const body = new URLSearchParams({ from: document.getElementById("from").value, text: document.getElementById("text").value });
+  const r = await fetch("chat_send.php", { method: "POST", body });
+  if (!r.ok) { err.textContent = "send: HTTP " + r.status + " " + await r.text(); return; }
+  err.textContent = ""; document.getElementById("text").value = "";
+});
+(async () => {
+  let after = 0;
+  for (;;) {                                            // each call returns when the room has something newer (or at Ribbit's max wait)
+    try {
+      const r = await fetch("chat_wait.php?after=" + after, { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status + " " + await r.text());
+      const j = await r.json();
+      for (const c of j.rows.sort((a, b) => a.id - b.id)) {
+        after = Math.max(after, c.id);
+        log.insertAdjacentHTML("beforeend", `<div class="m"><span class="n">#${esc(c.instance)}</span><span class="who">${esc(c.bag.from)}</span>${esc(c.bag.text)}</div>`);
+        log.scrollTop = log.scrollHeight;
+      }
+    } catch (e) { err.textContent = "room: " + e.message; return; }
+  }
+})();
+</script>
+</body>
+</html>

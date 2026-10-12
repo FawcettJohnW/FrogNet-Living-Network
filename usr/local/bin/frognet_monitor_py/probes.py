@@ -86,8 +86,9 @@ def probe_all(hosts: List[Tuple[str, str]]) -> Dict[str, Dict]:
     def _inet():
         results["__internet__"] = {"result": probe_internet()}
 
+    from .discovery import ROLES                   # [DEVICE_ROW_V1] a device runs no frognet_echo.php: not probed
     remote_hosts = [(ip, name) for ip, name in hosts
-                    if name.lower() != LOCAL_LOWER and ip != LOCAL_IP]
+                    if name.lower() != LOCAL_LOWER and ip != LOCAL_IP and ROLES.get(ip) != "leaf"]
 
     # Internet canary fires immediately
     ti = threading.Thread(target=_inet, daemon=True)

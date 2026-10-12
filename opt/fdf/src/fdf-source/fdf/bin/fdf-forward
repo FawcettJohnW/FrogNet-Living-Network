@@ -1,0 +1,22 @@
+#!/bin/bash
+# fdf-forward AREA -- [FORWARD_SWITCH_IN_PLACE_V1] (PLAN-PONDS §3.2-3) bring pond AREA forward: its graph becomes this
+# machine's routes, names and tunnel; the pond that was forward becomes a participant (session, presence and its notices
+# kept). On a FrogNet node the tunnel daemon makes the switch (forward.want -> its maps cleared, the old pond withdrawn,
+# `forward` written, the new pond joined, no restart); this waits for it and shows the daemon's line. Without the daemon
+# (a machine that only takes part) `forward` is written directly: each fdf-client@<area> follows it.
+set -u
+[ "$(id -u)" = 0 ] || { echo "fdf-forward: run as root" >&2; exit 1; }
+AREA=${1:?usage: fdf-forward AREA   (fdf-ponds lists them)}
+V=${FDF_VAR:-/opt/fdf/var}
+[ -f "$V/ponds/$AREA.env" ] || { echo "fdf-forward: no pond $AREA here (fdf-pond-add it first)" >&2; exit 1; }
+[ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] && { echo "fdf-forward: $AREA is already forward"; exit 0; }
+T0=$(date '+%Y-%m-%d %H:%M:%S')
+if systemctl is-active -q frognet-tunnel-daemon-v3 2>/dev/null; then
+  printf '%s\n' "$AREA" > "$V/forward.want.tmp" && mv "$V/forward.want.tmp" "$V/forward.want"
+  for i in $(seq 1 100); do [ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] && break; sleep 0.1; done
+  journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep "REGION: forward" | tail -2
+  [ "$(cat "$V/forward" 2>/dev/null)" = "$AREA" ] || { echo "fdf-forward: the daemon has not switched to $AREA in 10 s (its log says why)" >&2; exit 1; }
+else
+  printf '%s\n' "$AREA" > "$V/forward.tmp" && mv "$V/forward.tmp" "$V/forward"
+fi
+echo "== forward: $AREA"

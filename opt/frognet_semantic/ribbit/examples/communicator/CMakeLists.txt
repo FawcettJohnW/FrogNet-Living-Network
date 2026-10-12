@@ -119,6 +119,8 @@ endif()
 if(NOT WIN32)                                           # server side / server tests: Linux
   add_executable(test_room tests/test_room.cpp)
   target_link_libraries(test_room media_server)
+  add_executable(test_ring tests/test_ring.cpp)
+  target_link_libraries(test_ring media_server)
 endif()
 add_executable(comms-feed src/feed/main.cpp)
 target_link_libraries(comms-feed comms)

@@ -98,5 +98,5 @@ if [[ -d "$REQ_DIR" ]] && systemctl is-active --quiet frognet-merge-watcher 2>/d
    && : > "${REQ_DIR}/nm-${IFACE}-${STATE}-$$" 2>/dev/null; then
     exit 0
 fi
-/usr/local/bin/runMerge.bash &
+FROGNET_MERGE_WHY="nm:${1:-?}-${2:-?}" /usr/local/bin/runMerge.bash &
 exit 0

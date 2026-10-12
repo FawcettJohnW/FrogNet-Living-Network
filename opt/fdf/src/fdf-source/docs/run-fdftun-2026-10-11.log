@@ -1,0 +1,28 @@
+PASS  fdf-tun up: {"build":"fdf-tun-2026-10-11-b6","ok":true,"tun":"tunp"}
+PASS  set: forward F + islands A and B accepted: {"ok":true}
+PASS  10.7.7.1 -> sF (the forward pond): sF 10.252.0.1
+PASS  100.64.0.1 -> sA (island A's 10.7.7.1, aliased): sA 10.252.0.1
+PASS  100.64.1.1 -> sB (island B's 10.7.7.1, aliased): sB 10.252.0.1
+PASS  sA -> 10.252.0.1 (the phone's address in A) answers phone, which saw sA as 100.64.0.1: phone 100.64.0.1
+PASS  sF -> 10.252.0.1 (the phone's address in F, the forward pond) answers phone, which saw sF as 10.7.7.1: phone 10.7.7.1
+PASS  sB -> 10.252.0.1 answers phone, which saw sB as 100.64.1.1: phone 100.64.1.1
+PASS  concurrent: 600 requests in 3 parallel streams, every answer from its own network (sF:200 sA:200 sB:200 )
+PASS  3 MB from island B through its alias, byte for byte
+PASS  status: a handshake on all three devices
+PASS  B removed: 100.64.1.1 answers nothing; A and F still answer
+PASS  A re-planned (a route added, same hub): its session kept (handshake 10 s ago), sA answers
+PASS  a bad set is refused and changes nothing: {"error":"island X: not a WireGuard key: \"nope\"","ok":false}
+PASS  two islands' aliases overlapping: refused, nothing changed: {"error":"islands A and B: 100.64.0.0/24 overlaps 100.64.0.0/23","ok":false}
+PASS  stdin closed: fdf-tun gone, its TUN with it (fdf-tun: stdin closed: the member is gone, so is every scope)
+PASS  --fd-socket: listened, took the app's TUN fd: {"build":"fdf-tun-2026-10-11-b6","ok":true,"tun":"tunq"}
+PASS  the first protect answered late: the set fails, saying why: {"error":"forward: listen udp4 :0: the app did not protect socket 7 within 5 s","ok":false}
+PASS  the same set again: up (the failed Up was retried), the late answer dropped, sF answers through the app's TUN: sF 10.252.0.1
+    fdf-tun: set refused: forward: listen udp4 :0: the app did not protect socket 7 within 5 s
+    fdf-tun: protect: a late answer "ok 1" dropped (waiting for "ok 2")
+PASS  --fd-socket: stdin closed, fdf-tun gone (the TUN with it once the app closes its side)
+RESULT PASS
+tools/netns-fdftun-test.sh: line 14:  6176 Killed                  ip netns exec p python3 $T/echo.py phone > /dev/null 2>&1
+tools/netns-fdftun-test.sh: line 14:  6063 Killed                  ip netns exec s$h python3 $T/echo.py s$h > /dev/null 2>&1
+tools/netns-fdftun-test.sh: line 14:  6099 Killed                  ip netns exec s$h python3 $T/echo.py s$h > /dev/null 2>&1
+tools/netns-fdftun-test.sh: line 77:  7464 Killed                  ip netns exec sB python3 -m http.server 8081 > /dev/null 2>&1
+tools/netns-fdftun-test.sh: line 14:  6136 Killed                  ip netns exec s$h python3 $T/echo.py s$h > /dev/null 2>&1

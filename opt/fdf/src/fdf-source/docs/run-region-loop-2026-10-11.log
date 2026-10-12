@@ -1,0 +1,39 @@
+PASS  hub up on 51820
+PASS  converged: z has a's /24 and y's (via y's lease); a has z's and y's (after 1 s)
+PASS  y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)
+PASS  both daemons in the region loop
+=== 6 changes on y (10.9.9.1/24 added / removed); per change: the timed line on a and z, and change -> that line
+  #1 a: change -> timed line 84 ms | world=2ms (participants+mappings, one read) +0ms bringup=13ms apply=23ms (probes=0/0ms routes=1/7ms) publish=4ms total=46ms
+  #1 z: change -> timed line 61 ms | world=1ms (participants+mappings, one read) +0ms bringup=9ms apply=10ms (probes=0/0ms routes=1/2ms) publish=2ms total=23ms
+  #2 a: change -> timed line 87 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=5ms (probes=0/0ms routes=0/0ms) publish=1ms total=25ms
+  #2 z: change -> timed line 92 ms | world=4ms (participants+mappings, one read) +0ms bringup=20ms apply=5ms (probes=0/0ms routes=0/0ms) publish=1ms total=30ms
+  #3 a: change -> timed line 90 ms | world=3ms (participants+mappings, one read) +0ms bringup=17ms apply=5ms (probes=0/0ms routes=0/0ms) publish=0ms total=26ms
+  #3 z: change -> timed line 93 ms | world=10ms (participants+mappings, one read) +0ms bringup=12ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=29ms
+  #4 a: change -> timed line 106 ms | world=4ms (participants+mappings, one read) +0ms bringup=22ms apply=13ms (probes=0/0ms routes=0/0ms) publish=1ms total=41ms
+  #4 z: change -> timed line 84 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=7ms (probes=0/0ms routes=0/0ms) publish=0ms total=22ms
+  #5 a: change -> timed line 83 ms | world=1ms (participants+mappings, one read) +0ms bringup=16ms apply=4ms (probes=0/0ms routes=0/0ms) publish=0ms total=22ms
+  #5 z: change -> timed line 82 ms | world=1ms (participants+mappings, one read) +0ms bringup=15ms apply=4ms (probes=0/0ms routes=0/0ms) publish=1ms total=21ms
+  #6 a: change -> timed line 84 ms | world=2ms (participants+mappings, one read) +0ms bringup=15ms apply=4ms (probes=0/0ms routes=0/0ms) publish=0ms total=22ms
+  #6 z: change -> timed line 86 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=5ms (probes=0/0ms routes=0/0ms) publish=0ms total=24ms
+  median a (n=6): change->line 85 ms | world=2 bringup=16 apply=5 publish=0 total=25 ms
+  median z (n=6): change->line 85 ms | world=1 bringup=14 apply=5 publish=0 total=23 ms
+--- per-event region reads on a (one event): 'my-channels' lines logged between two timed lines
+    my-channels computations in one event on a: 1
+    timed events on a: 16
+PASS  a: region_hosts.json names z, y and a, each echo from its facts ([('10.2.2.1', 'y,10.2.2.1,10.3.3.20,0.0.0.0'), ('10.3.3.1', 'z,10.3.3.1,198.18.0.3,0.0.0.0'), ('10.7.7.1', 'a,10.7.7.1,198.18.0.5,0.0.0.0'), ('10.9.9.1', 'y,10.9.9.1,10.3.3.20,0.0.0.0')])
+PASS  a: each echo's fields 3-4 are that member's uplink rows: z 198.18.0.3, y its lease 10.3.3.20 on z's LAN [ECHO_UPSTREAM_FROM_THE_ROWS_V1]
+PASS  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (156 ms after the leaf's fdf-client started)
+PASS  a -> the leaf 10.252.0.1 (a's tunnel, the hub, the leaf's tunnel)
+PASS  y -> the leaf (y's default to z, z's tunnel, the hub)
+PASS  a's /etc/hosts names the leaf
+PASS  a: region_hosts.json (getHosts.php) lists the leaf role=leaf alive=true: the monitor's DEVICE ONLINE row [DEVICE_ROW_V1]
+PASS  z said where its Communicator is BY IDENTITY: (pond, where, w:g-z) comms ram w:g-z:8800, media w:g-z:8994 (275 ms after fdf-comms started) [IDENTITY_IN_TUPLES_V1]
+PASS  resolve: w:g-z -> 10.3.3.1 (its .1), w:g-phone -> 10.252.0.1 (its given /32), w:g-nobody -> ENOENT: {"ok":true,"server":"fdf-2026-10-11-r19-a14","resolved":{"w:g-z":{"addr":"10.3.3.1","name":"z","role":"node"},"w:g-phone":{"addr":"10.252.0.1","name":"phone","role":"leaf"},"w:g-nobody":{"error":"ENOENT","why":"no alive member w:g-nobody in this pond"}}}
+PASS  the leaf found it there (10.3.3.1:8800 / 10.3.3.1:8994) and streamed to it through its tunnel and the hub: sent 119 frames (0 dropped), 250 audio
+PASS  z's media server took the leaf's video and audio planes
+PASS  the phone's Kotlin member found it: services: comms in this pond: z ram=w:g-z:8800 -> 10.3.3.1:8800 media=w:g-z:8994 -> 10.3.3.1:8994
+PASS  the phone's Java core watched a's feed through z's media server: WATCHING 1b98d160253e at 10.3.3.1:8994 VIDEO Chapel frames=89 keyframe_size=854x480 AUDIO Chapel packets=250 
+PASS  z's session ended: its where cell is gone with it (gone is gone)
+PASS  z back: fdf-comms wrote it again on the event that showed z (2 rewrite)
+PASS  y's session ended: its announcement is gone, and no dead row is listed ([('z', True), ('a', True), ('phone-kt', True), ('phone', True), ('vm', True)])
+RESULT PASS

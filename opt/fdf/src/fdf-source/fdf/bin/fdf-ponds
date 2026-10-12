@@ -1,0 +1,15 @@
+#!/bin/bash
+# fdf-ponds -- [PONDS_V1] the ponds this machine takes part in: which is forward, each session's state, the notice
+# waiting in each (from /opt/fdf/var/attention/<area>.json, written by fdf-client@<area>).
+V=${FDF_VAR:-/opt/fdf/var}; F=$(cat "$V/forward" 2>/dev/null)
+[ -d "$V/ponds" ] || { echo "no ponds here (fdf-pond-add)"; exit 0; }
+for e in "$V"/ponds/*.env; do
+  a=$(basename "$e" .env); ram=$(sed -n 's/^RINA_RAM=//p' "$e")
+  st=$(systemctl is-active "fdf-client@$a" 2>/dev/null)
+  n=""; [ -f "$V/attention/$a.json" ] && n=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('ATTENTION: %s (from %s)' % (d['why'], d['from']))" "$V/attention/$a.json" 2>/dev/null)
+  r=""; grep -q '^FDF_REACH=1' "$e" && r="reach: none yet"                                        # [REACH_V1]
+  [ -f "$V/reach/$a.json" ] && r=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('reach: %s as %s there; %s%s' % (d['reach'], d['addr'], ' '.join(d['routes']), ''.join(' %s=%s' % (k, v) for k, v in sorted(d['alias'].items()))))" "$V/reach/$a.json" 2>/dev/null)
+  [ -f "$V/reach/$a.refused" ] && r="reach REFUSED (journalctl -u fdf-client@$a says why)"
+  printf '%s %-14s %-22s %-8s %s %s\n' "$([ "$a" = "$F" ] && echo '*' || echo ' ')" "$a" "$ram" "$st" "$r" "$n"
+done
+echo "(* = forward; fdf-forward AREA brings another forward)"

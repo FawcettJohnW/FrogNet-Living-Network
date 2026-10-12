@@ -30,7 +30,7 @@ constexpr const char* SERVICE = "communicator";
 
 struct Member { std::string me_id, name, status, caps, addr; double age_s = 0; };
 struct Line { std::string from_id, from_name, text; long long ts_ms = 0; };
-struct Offer { std::string session, media_host, offered_by; int media_port = 0; };   // a call someone is offering
+struct Offer { std::string session, media_host, offered_by; int media_port = 0; double age_s = 0; };   // age_s: of the row it came from   // a call someone is offering
 
 class Room {
 public:
@@ -47,8 +47,10 @@ public:
     void offer_call(const std::string& session, const std::string& media_host, int media_port);
     void join_call(const std::string& session, const std::string& media_host, int media_port);
     void invite(const std::string& who, const std::string& session, const std::string& media_host, int media_port);
+    void leave_call(const std::string& session);         // [LEAVE_WITHDRAWS_THE_OFFER_V1] stop offering / being in it
     std::vector<Offer> offers();                         // every call offered anywhere, fresh
     std::vector<Offer> invitations();                    // calls this participant is invited to
+    std::vector<Offer> ringing();                        // [RINGS_ONLY_WHILE_OFFERED_V1] invitations <= 60 s old whose session is still offered
     void refresh_calls();                                // rewrite this participant's call rows (heartbeat)
     std::vector<std::string> calls_of(const std::string& user);   // the sessions `user` says it is on (CallsJoined)
     const std::string& me_id() const { return me_id_; }

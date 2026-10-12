@@ -302,6 +302,15 @@
 
 <div class="layout">
   <aside>
+    <!-- [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php, live from each pond's RAM manager).
+         The map is the FORWARD pond's (it routes); the others are listed here with what this machine reaches there. -->
+    <div class="section" id="pondSection">
+      <div class="section-hdr">
+        <h2>Networks</h2>
+        <span class="count" id="pondCount"></span>
+      </div>
+      <div id="pondTiles"><div class="linkmeta">Loading networks…</div></div>
+    </div>
     <div class="section" id="engineSection">
       <div class="section-hdr"><h2>Semantic Engine</h2></div>
       <div id="engineTiles"><div class="linkmeta">Loading engine metrics…</div></div>
@@ -2149,12 +2158,74 @@ function renderLinkTiles(){
  * Polling
  **********************************************************************/
 let REFRESH_INFLIGHT=false;
+/**********************************************************************
+ * [PONDS_ARE_LISTED_V1] Networks: every pond this machine is in. One tile per pond: forward or participant, this
+ * machine's role there, the pond's published config, what this machine reaches there (and each 1:1 alias) or why
+ * that was refused; a participant pond's members as tags (the forward pond's members are the map). Text only through
+ * textContent: names come from other machines.
+ **********************************************************************/
+function aliasHere(ip, alias){
+  if(!isV4(ip) || !alias) return "";
+  const n=s=>s.split(".").reduce((a,o)=>a*256+Number(o),0), q=x=>[x>>>24&255,x>>>16&255,x>>>8&255,x&255].join(".");
+  for(const [al,real] of Object.entries(alias)){
+    const [rb,rl]=real.split("/"), [ab]=al.split("/"), size=2**(32-Number(rl)), off=n(ip)-n(rb);
+    if(off>=0 && off<size) return q(n(ab)+off);
+  }
+  return "";
+}
+async function renderPonds(){
+  const el=document.getElementById("pondTiles"); if(!el) return;
+  let d;
+  try{ d=await jget("/getPonds.php"); }
+  catch(e){ el.innerHTML=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
+            m.textContent="getPonds.php: "+(e.message||String(e)); t.append(m); el.append(t); return; }
+  const ponds=(d&&d.ponds)||[];
+  document.getElementById("pondCount").textContent=ponds.length?String(ponds.length):"";
+  el.innerHTML="";
+  if(!ponds.length){ const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
+                     m.textContent="This machine is in no pond."; t.append(m); el.append(t); return; }
+  for(const p of ponds){
+    const t=document.createElement("div"); t.className="tile";
+    const row=document.createElement("div"); row.className="row";
+    const dot=document.createElement("div"); dot.className="dot";
+    dot.style.background = p.error||p.refused ? getCss("--bad") : (p.forward||p.reach) ? getCss("--good") : getCss("--unknown");
+    const name=document.createElement("div"); name.className="name"; name.textContent=p.area+(p.forward?"  (forward)":"");
+    const role=document.createElement("div"); role.className="ip"; role.textContent=(p.me&&p.me.role)||"";
+    row.append(dot,name,role); t.append(row);
+    const meta=document.createElement("div"); meta.className="linkmeta";
+    const alive=(p.members||[]).filter(m=>m.alive).length;
+    if(p.error) meta.textContent=p.error;
+    else if(p.refused) meta.textContent="reach REFUSED: "+p.refused;
+    else if(p.reach){
+      const al=Object.entries(p.reach.alias||{});
+      meta.textContent=`${alive} members · reach ${p.reach.reach} as ${p.reach.as}`+(al.length?" · "+al.map(([a,r])=>`${r}→${a}`).join(" "):"");
+    } else meta.textContent=`${alive} members · `+(p.config?`config: reach ${p.config.reach}, map ${p.config.map}`:"publishes no config");
+    t.append(meta);
+    if(!p.forward && !p.error){
+      const mini=document.createElement("div"); mini.className="mini";
+      for(const m of (p.members||[])){
+        if(m.me || m.role==="hub") continue;
+        const here=p.reach?aliasHere(m.ip,p.reach.alias):"";
+        const tag=document.createElement("div"); tag.className="tag";
+        tag.style.borderColor = m.alive ? getCss("--good") : getCss("--bad");
+        const b=document.createElement("strong"); b.textContent=m.name;
+        tag.append(b, document.createTextNode(" "+(m.alive?"":"down ")+(m.ip||"")+(here?" → "+here:"")));
+        tag.title=`${m.name} · ${m.role} · ${m.alive?"online":"down"} in ${p.area}`+(here?` · reached here at ${here}`:"");
+        mini.append(tag);
+      }
+      t.append(mini);
+    }
+    el.append(t);
+  }
+}
+
 async function tick(){
   if(REFRESH_INFLIGHT) return;
   REFRESH_INFLIGHT=true;
   try{await buildFromSources();}
   catch(err){console.error(err); document.getElementById("status").textContent=`Error: ${err.message||String(err)}`;}
   finally{REFRESH_INFLIGHT=false;}
+  renderPonds().catch(e=>console.warn("networks:",e));            // [PONDS_ARE_LISTED_V1] its own failure is its own
 }
 
 let timer=null;

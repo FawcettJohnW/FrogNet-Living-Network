@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- the Communicator (net.frognet.communicator): camera, microphone, call audio routing, the screen kept on in a call -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <application android:label="FrogNet Member" android:allowBackup="false">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- [COMMS_FROM_THE_POND_V1] the Communicator, opened by MainActivity with the forward pond's comms servers -->
+        <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"
+            android:label="FrogNet Communicator" android:launchMode="singleTask" android:resizeableActivity="true"
+            android:theme="@android:style/Theme.Material.NoActionBar" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize" />
+        <!-- [BRIDGE_V1] the one TUN: fdf-tun (libfdftun.so) carries the forward pond and every reached pond on it -->
+        <service android:name=".BridgeVpn" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+        </service>
+        <!-- the membership: one FNWP session held while this runs; its end is the member leaving the region -->
+        <service android:name=".MemberService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
+        </service>
+    </application>
+</manifest>

@@ -258,7 +258,9 @@ def _capability_index(role_gate, role="databasehost", dbhost="databasehost_contr
     # databasehost.frognet split (e.g. floor picked a stale .1 the service dropped).
     _max_age = int(_os.environ.get("FROGNET_BALLOT_MAX_AGE_S", "1800"))
     try:
-        for r in T.get(role, "capability", dbhost=dbhost):
+        from core import region_capability as _RC          # [ELECTION_FROM_FACTS_V1]
+        _src = _RC.rows(role)
+        for r in (_src if _src is not None else T.get(role, "capability", dbhost=dbhost)):
             blob = r.get("value", {}) or {}
             cap = blob.get("capability") or blob
             ip = cap.get("lan_ip") or r.get("addr", "")

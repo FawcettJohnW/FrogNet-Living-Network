@@ -1,0 +1,24 @@
+#!/bin/bash
+# fdf-leave -- [FDF_JOIN_V1] undo fdf-join: stop and remove fdf-client.service (and fdf-term-serve.service, which needs
+# the membership), and remove /opt/fdf/var/join.env. Run as root.
+set -eu
+[ "$(id -u)" = 0 ] || { echo "fdf-leave: run as root" >&2; exit 1; }
+for u in fdf-term-serve fdf-client; do
+    if [ -e /etc/systemd/system/$u.service ]; then
+        systemctl disable --now $u.service
+        rm -f /etc/systemd/system/$u.service
+        echo "removed $u.service"
+    fi
+done
+# [PONDS_V1] every pond's session (fdf-client@<area>), the pond list and the forward word go too
+for u in $(systemctl list-units --all --plain --no-legend 'fdf-client@*.service' 2>/dev/null | awk '{print $1}'); do
+    systemctl disable --now "$u" && echo "stopped $u"; done
+rm -f /etc/systemd/system/fdf-client@.service; rm -rf /opt/fdf/var/ponds /opt/fdf/var/attention; rm -f /opt/fdf/var/forward /opt/fdf/var/forward.want
+systemctl daemon-reload
+rm -f /opt/fdf/var/join.env
+# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join stopped.
+for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+    [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
+    systemctl enable --now "$u" && echo "re-enabled $u"
+done
+echo "left the network (removed /opt/fdf/var/join.env)"

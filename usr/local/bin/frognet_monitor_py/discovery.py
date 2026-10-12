@@ -88,13 +88,25 @@ def parse_etc_hosts_content(content: str) -> List[Tuple[str, str]]:
     return hosts
 
 
+# [DEVICE_ROW_V1] ip -> role, from getHosts.php (region mode: the daemon's region_hosts.json, i.e. the region's alive
+# members, plus those in their hold-down). A "leaf" is a device (a phone, a laptop) reached over the hub tunnel: its
+# session in the region IS its aliveness ([ALIVE_IS_THE_SESSION_V1], getHosts.php "alive") and it runs no FrogNet stack,
+# so it is not echo-probed; its row reads <name> DEVICE ONLINE|DOWN.
+ROLES: dict = {}
+ALIVE: dict = {}                                    # ip -> its member's region session is up (getHosts.php "alive")
+
+
 def discover_hosts() -> List[Tuple[str, str]]:
     """Return [(ip, name), ...] from getHosts.php or /etc/hosts fallback."""
+    global ROLES, ALIVE
     try:
         data = api_request("http://127.0.0.1/getHosts.php", timeout=5)
+        ROLES = {h["ip"]: h.get("role", "") for h in data if "ip" in h}
+        ALIVE = {h["ip"]: bool(h.get("alive")) for h in data if "ip" in h}
         return [(h["ip"], h.get("name", h["ip"])) for h in data if "ip" in h]
     except Exception as e:
         trace(f"[DISCOVER] getHosts.php failed: {e}, falling back to /etc/hosts")
+        ROLES, ALIVE = {}, {}                      # [DEVICE_ROW_V1] /etc/hosts says no role: none shown, none stale
 
     try:
         with open("/etc/hosts") as f:
@@ -102,3 +114,14 @@ def discover_hosts() -> List[Tuple[str, str]]:
     except OSError as e:
         trace(f"[DISCOVER] /etc/hosts fallback failed: {e}")
         return []
+
+
+# [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php: read live from each pond's RAM manager).
+# The peer table is the forward pond's; draw_ponds shows the rest. A failed read is said, not replaced.
+def discover_ponds():
+    try:
+        return api_request("http://127.0.0.1/getPonds.php", timeout=5)
+    except Exception as e:
+        trace(f"[DISCOVER] getPonds.php failed: {e}")
+        return {"ponds": [], "error": str(e)}
+

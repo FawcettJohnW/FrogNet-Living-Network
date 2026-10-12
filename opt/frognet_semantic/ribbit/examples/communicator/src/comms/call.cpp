@@ -1,5 +1,6 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
+#include "comms/stamp.hpp"
 #include "call.hpp"
 #include <condition_variable>
 #include "media/transcode.hpp"
@@ -222,6 +223,7 @@ void Call::video_tx() {
     std::mt19937 rng(7);
     double bucket = 0, bucket_t = now_s();
     std::deque<double> sent_times;                         // frames actually sent in the last second: fps_sent
+    const bool stamp = stamp_enabled(); uint64_t stamped = 0;   // [STAMP_THE_PICTURE_V1] the frame count burned in
     // [SOURCE_CANNOT_SUSTAIN_V1] production signals only once there IS production at this rung: 15 frames and 2 s
     // (fnav WARMUP_FRAMES, WARMUP_S). A cold start, or a rung just changed, reads 0 fps -- not a verdict.
     const int WARMUP_FRAMES = 15; const double WARMUP_S = 2.0;
@@ -245,6 +247,7 @@ void Call::video_tx() {
             auto deadline = Clock::now() + std::chrono::microseconds(1000000 / fps_);   // [NO_CATCH_UP_BURST_V1]
             av_frame_make_writable(pic);
             src_->next(pic);
+            if (stamp) stamp_picture(pic, ++stamped);                         // [STAMP_THE_PICTURE_V1]
             { std::lock_guard<std::mutex> g(pmu_); copy_picture(pic, self_); }   // the self-view
             int size;
             if (shed) size = -1;                             // audio only

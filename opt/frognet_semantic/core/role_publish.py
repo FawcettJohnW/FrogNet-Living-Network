@@ -33,6 +33,21 @@ from .role_registry import ROLE_HANDLERS
 from .unrest_handler import CAPABILITY_PROBE, UnRESTHandler
 
 
+def _region_mode() -> bool:
+    """RINA_RAM in /opt/fdf/var/join.env (fdf-join, the switch) or /etc/frognet/tunnel.conf -- the daemon's rule."""
+    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        try:
+            for ln in open(path):
+                ln = ln.strip()
+                if ln.startswith("export "):
+                    ln = ln[7:].strip()
+                if ln.startswith("RINA_RAM=") and ln.split("=", 1)[1].strip().strip('"'):
+                    return True
+        except OSError:
+            pass
+    return False
+
+
 def publish_all(blob: Optional[Dict[str, Any]] = None,
                 probe: str = CAPABILITY_PROBE,
                 control: Optional[str] = None,
@@ -42,6 +57,14 @@ def publish_all(blob: Optional[Dict[str, Any]] = None,
     `control`, when given, overrides the CONTROL_DBHOST name so the caller can publish
     to the SAME freshly-resolved control IP the merge-end election reads from (the name
     lags a merge until /etc/hosts is committed)."""
+    # [CAPABILITY_TUPLES_OFF_IN_REGION_V1] On an FD&F region the elections read facts.capability (the tunnel daemon
+    # probes and announces it, [CAPABILITY_IS_A_FACT_V1]); <role>/capability tuples in the store have no reader there.
+    # This one call is every publisher -- the merge, the frognet-daemon at boot and on every databasehost float, the
+    # proxy at boot, the communicator -- so it stops here: no probe (cpu bench + disk write/fsync, ~9 s on a Pi), no
+    # control+data write per role (each up to the store timeout when the databasehost is down or is this node).
+    if _region_mode():
+        logger("PUBLISH_ALL not run: region mode, capability is the tunnel daemon's fact [CAPABILITY_TUPLES_OFF_IN_REGION_V1]")
+        return []
     if blob is None:
         blob = UnRESTHandler._probe_capability(probe, logger)
     reports: List[Dict[str, Any]] = []

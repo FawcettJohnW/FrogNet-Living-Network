@@ -216,7 +216,11 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
     from the blob's own fresh loadavg/temps (self-contained - no second read). The only
     I/O is reading tuples; never probes a node. Returns (hosts_list, lan_list)."""
     role = getattr(handler, "ROLE_NAME", None) or getattr(handler, "role", "")
-    wan = _wan_subnets(dbhost)
+    # [NO_DEAD_STORE_READ_V1] `wan = _wan_subnets(dbhost)` stood here: a reach_plane read from the store on
+    # databasehost_control, once per role per election, whose result nothing below used. In region mode it was the
+    # one store read left on the election path -- against the databasehost, which is the host that has just died
+    # when a switchover is due -- and its except clause swallowed the simulator's "store was read" assertion, so
+    # dbhost_switch_sim.py passed while the read happened. Removed, not guarded.
     lan_set = set(lan_subnets) if lan_subnets is not None else None
     _lan_memo: Dict[str, bool] = {}             # one trace per candidate per merge
     hosts_list: List[Dict] = []
@@ -231,7 +235,9 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
         # two nodes pick DIFFERENT rows for the same IP and score them differently, so
         # the winner splits even with a load-free score. Keep the NEWEST-ts row per IP:
         # a deterministic choice every node makes identically off the same DB.
-        for r in T.get(role, "capability", dbhost=dbhost, fresh_s=0):
+        from core import region_capability as _RC          # [ELECTION_FROM_FACTS_V1] region mode: the members' facts
+        _src = _RC.rows(role)
+        for r in (_src if _src is not None else T.get(role, "capability", dbhost=dbhost, fresh_s=0)):
             blob = r.get("value", {}) or {}
             cap = blob.get("capability") or blob      # tolerate {capability:{...}} or flat
             ip = cap.get("lan_ip") or r.get("addr", "")
@@ -318,7 +324,8 @@ def gather_candidates(handler, dbhost: str = "databasehost_control.frognet",
             # [LAN_IS_UNTUNNELLED_V1] Ask the path. Traced once per candidate per
             # merge and memoised, because this runs inside the merge.
             if ip not in _lan_memo:
-                _lan_memo[ip] = is_on_lan(ip, local_ips=local_ips)
+                _rl = _RC.lan()                   # [LAN_IS_THE_GRAPH_V1] region mode: the graph says who is on my LAN
+                _lan_memo[ip] = (ip in _rl or ip in (local_ips or ())) if _rl is not None else is_on_lan(ip, local_ips=local_ips)
             is_lan = _lan_memo[ip]
             if is_lan:
                 lan_list.append(c)

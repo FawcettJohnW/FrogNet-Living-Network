@@ -1,0 +1,14 @@
+[Unit]
+Description=FD&F RAM manager (rina-host) for the frognet region, TCP 51888
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=RINA_REGION_FILE=/opt/fdf/var/area-frognet.perm
+Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
+ExecStart=/opt/fdf/bin/rina-host --listen 0.0.0.0:51888 --api /FawcettInnovations.RINA.ram_interface.php
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

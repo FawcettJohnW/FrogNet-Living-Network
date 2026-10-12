@@ -1,0 +1,2090 @@
+--- a/docs/ANDROID-HANDOFF.md
++++ b/docs/ANDROID-HANDOFF.md
+@@ -1,4 +1,4 @@
+-# HANDOFF — an FD&F member on Android (fdf-kt-2026-10-10-a9, with the Communicator r4; against region fdf-2026-10-10-r19-a11 = r19 + this thread)
++# HANDOFF — an FD&F member on Android (fdf-kt-2026-10-10-a10, with the Communicator r4; against region fdf-2026-10-10-r19-a12 = r19 + this thread)
+ 
+ ## The one-line version
+ 
+@@ -9,6 +9,17 @@
+ with fdf-client: same rows, same refusals, same liveness numbers, tunnel up and pinging both ways. The APK itself was not
+ built here (no Android SDK reachable); its sources type-check against the Android API 34 framework.
+ 
++## a10 on r19-a12 (2026-10-10 night): servers found by identity
++
++- `[IDENTITY_IN_TUPLES_V1]` the where cell now says `{"comms":{"ram":"w:<guid>:8800","media":"w:<guid>:8994"}}`;
++  `Member.endpoint` resolves each through the region's `resolve` op to host:port in this pond (`Member.resolve` for
++  several). The Communicator button opens with those; a cell written with an address (an older node) is not taken and
++  the log says why. Proven in region-loop: `z ram=w:g-z:8800 -> 10.3.3.1:8800 media=w:g-z:8994 -> 10.3.3.1:8994`.
++- The phone does **not** reach other ponds (REACH_V1 is a node's: it needs NAT, which Android's VPN interface does not
++  do). A participant pond on the phone is presence, shared memory and notices, as before.
++- Build: a10 member + app; the app sources type-check against Android API 34; leaf-tunnel 10/10, placement 18/18,
++  two-ponds 14/14, member-death as before.
++
+ ## a8 + Communicator r3 (2026-10-10 afternoon): on John's hardware
+ 
+ - **Physical phone:** the member app's Communicator "was responsive and worked properly" (John). The emulator ran
+@@ -84,7 +95,7 @@
+ 
+ (loss by iptables random drop, no delay: this kernel has no netem.)
+ 
+-## Files (one tarball: `frognet-android-a9.tgz`)
++## Files (one tarball: `frognet-android-a10.tgz`)
+ 
+ ```
+ frognet-android/
+--- /dev/null
++++ b/docs/MERGE-r19-a12.md
+@@ -0,0 +1,112 @@
++# r19-a12 — identities in tuples, a network's own config, reach into other ponds, every network on one screen
++
++Build `fdf-2026-10-10-r19-a12` (on r19-a11). Member app `fdf-kt-2026-10-10-a10`. Communicator unchanged (comms-app r3,
++comms-android r4). Tarballs: `fdf-install-x86_64.run`, `fdf-install-aarch64.run`, `fdf-droplet.tgz`, the source.
++
++John, 2026-10-10 evening: other networks are not forbidden — reach them through their RAM manager, as far as **that
++network's own configuration** allows; map them 1:1 when their addresses collide with yours, **only if the RAM is set
++up that way**; **a failed reach closes the session**; no fallbacks; and make frognet_monitor and fln_dashboard
++multi-network aware. Per-pond address indexes were considered and dropped (John: "No index; NETMAP only").
++
++## What changed
++
++| tag | where | what |
++|---|---|---|
++| `IDENTITY_IN_TUPLES_V1` | rina_region.cpp `resolve`; fdf_where.cpp; fdf-comms.sh; Member.kt `resolve`/`endpoint`; MemberService; member-cli | A where cell names a machine by identity, `w:<guid>:<port>` (`fdf-where comms ram=self:8800`), never by address. Each reader resolves it **in its own scope**: the region's new `resolve` op gives a node's .1, a leaf's (or a reacher's) /32; a member that is not alive is `ENOENT` (gone is gone). A cell written with an address is not taken (`not an identity endpoint`). |
++| `NET_CONFIG_IS_A_TUPLE_V1` | rina_region.cpp `publish_net_config` | Every RAM manager publishes `(pond, config, net)` at start, from `/opt/fdf/etc/net.json` (`RINA_NET_CONFIG`): `reach` none / listed / all, `map` allowed / refused, plus its overlay ranges (`hub`, `edges`, `leaves` — the same in every pond). No file: reach none, map refused, and it says so. A bad value: nothing published, and it says why. |
++| `NET_CONFIG_IS_THE_RAM_MANAGERS_V1` | tools/apply_net_config.py (build.sh) | The network API can read that cell but neither write nor remove it (403, said). Every network write goes through one `api()`, so FNW1 and HTTP are both covered. |
++| `REACH_IS_A_LEAF_HERE_V1` | rina_region.cpp, fdf-hub, fdf_graph.py | A participant that asks to reach (`"reach":true`, its WireGuard pubkey) is given a /32 by that pond's region, peered by its hub and routed by its nodes exactly as a leaf is. A participant that only reads gets none of it. |
++| `REACH_V1` | fdf/bin/fdf-reach (new); fdf_client.cpp; graph_apply.py; fdf-pond-add | `fdf-client@<area>` with `FDF_REACH=1` runs `fdf-reach apply` on every region event of that pond: config → what may be reached → what collides with this machine's own scope → aliases (only if map allowed) → applied on its OWN interface `rch-<h>`, table, rules and chains. Refused = everything taken down, the reason logged and written to `reach/<area>.refused`, **the session ends (exit 4) and systemd does not restart it**. Session ends for any reason → the reach goes with it (SIGTERM handler, every exit path, `ExecStopPost`). The daemon re-plans every reach when the forward pond's routes change. |
++| `REACH_SELF_ALIAS_V1` | fdf-reach | This machine's address in the other network is never put on an interface (every pond's leaves are 10.252/16: the forward pond may give the same address to its own phone). The interface holds a private /32 (100.127.255.x); SNAT to the given address on the way out, DNAT back on the way in. |
++| `PONDS_ARE_LISTED_V1` | getPonds.php (new); frognet_monitor_py/draw_ponds.py (new) + main_loop/discovery; fln_dashboard32.html; fdf-client, fdf-pond-add (`ponds/<area>.ram`) | Every network this machine is in, read live from each pond's RAM manager: forward or participant, this machine's role there, the pond's config, its members (alive, address there, its alias here), the reach or why it was refused. The monitor draws a **Networks** section under the peer table; the dashboard a **Networks** panel at the top of the sidebar. |
++| `STATIC_CLIENTS_V1` | tools/build_static_clients.sh (new); build_static_host.sh | `build/static` (the node/droplet binaries and what the netns tests run) is now built by a script; until today it was compiled by hand, and the static rina-host there was stale. |
++| — | fdf_client.cpp (Windows) | The Windows client had not compiled since PONDS_V1 (`is_forward` undeclared); a Windows member is in one pond, its forward. Builds again. |
++
++## Using it
++
++**On a network's RAM manager** (the droplet, or a Pi that hosts a pond), to let others reach it — `/opt/fdf/etc/net.json`:
++
++```
++{"reach":"all","map":"allowed"}
++```
++
++`reach`: `none` (others may read its RAM only — the default), `listed` (only the endpoints its where cells name), `all`
++(every /24 its members serve and every /32 it gave). `map`: `allowed` lets a machine whose own addresses collide reach
++it through a 1:1 alias; `refused` makes that machine's reach fail. Restart the RAM manager; its log line
++`[NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {...}` says what it published.
++
++**On a node**, to reach a pond it takes part in:
++
++```
++/opt/fdf/bin/fdf-pond-add <RAM host:port> <area> <site key> reach
++/opt/fdf/bin/fdf-ponds
++/opt/fdf/bin/fdf-reach resolve <area> w:<guid>:<port>
++```
++
++`fdf-ponds` shows each pond and its reach (`reach: all as 10.252.0.1 there; 10.7.7.0/24 10.8.8.0/24 100.64.0.0/24=10.7.7.0/24`)
++or `reach REFUSED` (journalctl -u fdf-client@<area> says why). `fdf-reach resolve` gives an identity endpoint of that
++pond as host:port usable from this machine — the alias when its network collides with this one.
++
++What a reach puts on the node (all of it named from the area, all of it removed by `fdf-reach down`): interface
++`rch-<h>` (not `wg*`: the daemon's orphan scan owns those), routing table 20000+, rules at priority 9000+ (`to` each
++reached prefix, `fwmark` for aliases, `from` its private address), iptables chains `FDFR<h>` (mangle mark, nat NETMAP,
++nat DNAT) and `FDFRS<h>` (nat SNAT), and `/opt/fdf/var/reach/<area>.json`. **The main routing table is never written**:
++the forward pond's daemon owns it, so the two never fight over a route.
++
++## Proof (netns, this build)
++
++`tools/netns-reach-test.sh` — ponds A (no config), B (reach all, map allowed), C (reach all, map refused), D (no
++config); A's node a and B's node c both serve 10.7.7.0/24; A's phone and n's address in B are both 10.252.0.1.
++**RESULT PASS 35/35** (docs/run-reach-2026-10-10.log):
++
++- n's reach into B applied **361–411 ms** after its fdf-client@pondB started; c's 10.7.7.0/24 aliased 100.64.0.0/24
++- n → 10.8.8.1 answers **b** (B); n → 10.7.7.1 answers **a** (A keeps it); n → 100.64.0.1 answers **c** (B's 10.7.7.1), and c saw n as 10.252.0.1
++- b → 10.252.0.1 (n's address in B) answers **n**; n holds no address 10.252.0.1, and A's phone at 10.252.0.1 still answers n
++- `fdf-reach resolve`: w:g-b:8080 → 10.8.8.1:8080, w:g-c:8080 → 100.64.0.1:8080; n's main table unchanged
++- A changes under the reach (e joins A serving b's 10.8.8.0/24): the daemon re-planned in **848–938 ms**; 10.8.8.1 now answers e, b answers at its new alias 100.64.1.1, c keeps 100.64.0.1
++- getPonds.php on n and the monitor's Networks section show both ponds, B's members, c at its alias
++- B brought forward while n reaches it: the reach goes (the daemon routes B now), fdf-client@pondB keeps its session, nothing refused; A forward again: the reach is applied again and c answers at its alias
++- n's session to B ends: interface, rules, chains, state file all gone; the alias answers nothing
++- C: `REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.7.7.0/24 (a in pondA), and pondC's config says map refused` — the session closed, n not in C's participants, nothing left on n
++- D: `REACH REFUSED into pondD: pondD's config says reach 'none'`; a member's write of a config: 403
++
++Regression, same build: region-loop (Communicator on a node, the phone's Kotlin member and Java core, by identity:
++`z ram=w:g-z:8800 -> 10.3.3.1:8800`) 20/20; ponds-daemon 21/21; hub 25/25; graph 17/17; latency done; the Kotlin
++member's leaf-tunnel 10/10, placement 18/18, two-ponds 14/14, member-death as before (19 ms clean, ~4 s silent);
++oracles: fdf_graph (new 11, 11c), hub (new 9, 9c), graph_apply, region, region backends, gen — all pass; the net
++config test over FNW1 (published, read-only to members) PASS; app sources type-check against Android API 34;
++fdf-client.exe builds. Dashboard rendered in Chromium with getPonds.php's real answer, no page errors
++(docs/dashboard-networks-2026-10-10.png).
++
++## Reviewed
++
++An independent review of fdf-reach, fdf-client's reach code, the region ops, the config patch and getPonds.php found
++eight defects and two minor ones; a second pass on the fixes found one new and one older one. All closed in this
++build:
++- the address another network's region gives went into a shell command (popen) -- now execv with an argv; area names
++  and addresses are validated
++- the daemon's replan and an fdf-client's apply could interleave on one area and be taken for a refusal (session ended
++  for good) -- one lock for every apply/down/replan on the machine (`REACH_ONE_AT_A_TIME_V1`), which also makes alias
++  and private-address allocation race-free
++- two participant ponds colliding with EACH OTHER were not detected -- the scope now includes every other reach
++- "not yet" left a stale reach up -- taken down until it is
++- a transient failure (a RAM manager's 4 s timeout, a failing command) counted as a refusal -- now exit 6: logged,
++  tried again on the next event, never a refusal; replan carries on with the other areas
++- the daemon's 30 s kill of replan could leave half-built state -- replan runs beside the daemon's loop, never killed
++- after a "not now", fdf-client forgot a reach that was still up; and replan could refuse the FORWARD pond after a
++  switch (ending its session for good) -- the forward pond is never reached and never refused
++
++## Not done / limits
++
++- **The phone does not reach.** Android's VPN interface does no NAT, so a phone can't hold a private address and map
++  collisions; the app never asks for reach (a participant pond is read-only there). Its Communicator finds servers by
++  identity as before.
++- **No per-pond index** (John's call): every pond's leaves are 10.252/16 and its hub 10.253.253.254, so another pond's
++  leaves always collide with yours — reaching them needs `map allowed`. Hubs are never reach destinations.
++- **Aliases come from 100.64.0.0/10.** A node whose own uplink is carrier-grade NAT in that range: the blocks it
++  routes are skipped; if none is free the reach is refused, saying so.
++- **Not on hardware yet**: kernel WireGuard for `rch-*` (netns used wireguard-go, as wg-quick does there), NETMAP on
++  the Pi kernels (iptables-nft's xt compat), the dashboard on a node's Apache.
++- The intermittent region-loop non-convergence (2/59 earlier) happened once more today, in the first run (which also
++  ran a stale static rina-host); the two runs on this build converged. Cause still not found; DIAG-CONVERGE stays in
++  (that run's dump is in /tmp/claude-0/runs/loop1.log on the build machine, not kept).
+--- a/docs/PLAN-PONDS.md
++++ b/docs/PLAN-PONDS.md
+@@ -16,7 +16,11 @@
+ | shared memory (apps, chat, presence) | yes | yes |
+ | attention notices | not needed (already here) | held read; shown when one arrives |
+ 
+-Every network's /24 is assigned once system-wide, so nothing collides when a pond is brought forward. Only one pond
++~~Every network's /24 is assigned once system-wide~~ — corrected 2026-10-10 (r19-a12): nothing enforces that. A node's
++/24 is where FrogNet's setup put its .1; a region refuses a duplicate only among its own live members
++(PREFIX_OVERLAP_REFUSED_V1), and every pond's leaves (10.252/16) and hub (10.253.253.254) are the same ranges. Two
++networks may collide; a machine reaching one from the other aliases what collides, as that network's config allows
++(MERGE-r19-a12.md, REACH_V1). Bringing a pond forward replaces the other pond's routes, so it is unaffected. Only one pond
+ is forward, so only one hub tunnel (10.253/16) exists at a time.
+ 
+ ## 2. Files on a node (/opt/fdf/var)
+--- a/docs/WORKLOG-PONDS.md
++++ b/docs/WORKLOG-PONDS.md
+@@ -108,3 +108,20 @@
+     `fdf-kt-2026-10-10-a9`.
+   - Delivery: the Windows app is rebuilt from the WHOLE Communicator tree (communicator-r3-full.zip, extracted above
+     `comms\`); an 8-file overlay on John's older tree failed to configure (missing src/pyabi, tools/room_probe.cpp).
++- r19-a12 (2026-10-10 night): other networks, reached as they allow -- MERGE-r19-a12.md has the detail.
++  - `[IDENTITY_IN_TUPLES_V1]` where cells carry `w:<guid>:<port>`; the region's `resolve` gives the address in the
++    reader's scope (node .1, leaf/reacher /32, ENOENT when gone). fdf-where `self:<port>`; Member.endpoint on the phone.
++  - `[NET_CONFIG_IS_A_TUPLE_V1]` `(pond, config, net)` from the RAM manager's net.json (reach none|listed|all, map
++    allowed|refused); members can't write or remove it (`[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`). No index (John).
++  - `[REACH_V1]` fdf-reach + fdf-client@<area> FDF_REACH=1: own interface rch-<h>, own table/rules/chains, 1:1 NETMAP
++    aliases from 100.64/10 only if map allowed; refused = down + session ends (exit 4, not restarted); the daemon re-plans
++    when the forward pond's routes change. `[REACH_SELF_ALIAS_V1]` the given address is never local (A's phone and n's
++    B address were both 10.252.0.1 in the test). Found on the way: a `wgr-*` interface was torn down by the daemon's
++    orphan scan (it owns every `wg*` with one peer) -> named `rch-*`.
++  - `[PONDS_ARE_LISTED_V1]` getPonds.php; the monitor's Networks section; the dashboard's Networks panel.
++  - Build hygiene: tools/build_static_clients.sh (build/static was hand-built; its rina-host was stale), static host into
++    build/static, the Windows fdf-client compiles again (broken since PONDS_V1).
++  - Reviewed independently: 10 defects found (shell injection from another network's answer, an apply/replan race that
++    ended sessions, participant-vs-participant collisions, transient errors taken as refusals, the forward pond refusable
++    after a switch, ...) -- all fixed (MERGE-r19-a12.md "Reviewed"; REACH_ONE_AT_A_TIME_V1).
++  - netns-reach-test 35/35; region-loop 20/20; ponds-daemon 21/21; hub 25/25; graph 17/17; Kotlin member tests; oracles.
+Binary new: docs/dashboard-networks-2026-10-10.png
+Binary new: docs/dashboard-networks-panel-2026-10-10.png
+--- /dev/null
++++ b/docs/run-reach-2026-10-10.log
+@@ -0,0 +1,62 @@
++    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/ha/net.json: reach none, map refused
++    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++    hb: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"allowed","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++    hc: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/hd/net.json: reach none, map refused
++    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-10-r19-a12"}
++=== (1) the networks (after 1 s)
++PASS  pond A: n and a route each other; pond B: b and c route each other (c serves 10.7.7.0/24, as a does in A)
++PASS  pond A's leaf has 10.252.0.1/32 (given by A); n routes it on wg0
++PASS  n -> A's leaf 10.252.0.1
++=== (2) n reaches pond B (reach all, map allowed)
++PASS  n's fdf-client@pondB applied the reach (354 ms after it started): reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
++    fdf-client: the region gave this machine 10.252.0.1/32 here, to reach this network [REACH_V1]
++    fdf-client: build fdf-2026-10-10-r19-a12; region at 198.18.0.2:8840 is build fdf-2026-10-10-r19-a12
++    fdf-client: n joined the region at 198.18.0.2:8840, announced ["10.3.3.1","10.253.3.3","198.18.0.3"] with facts as a PARTICIPANT (not the forward pond)
++    fdf-client: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
++PASS  n -> 10.8.8.1:8080 answers b (pond B, no collision): b 10.252.0.1
++PASS  n -> 10.7.7.1:8080 answers a (its forward pond keeps 10.7.7.0/24): a 10.3.3.1
++PASS  n -> 100.64.0.1:8080 answers c (pond B's 10.7.7.1, aliased 1:1), and c saw n as 10.252.0.1, n's address in B: c 10.252.0.1
++PASS  b -> 10.252.0.1:8080 (n's address in B) answers n: n 10.8.8.1
++PASS  B gave n 10.252.0.1 -- the address A gave its leaf (10.252.0.1): the same address, two networks
++PASS  n holds no address 10.252.0.1 (it holds 100.127.255.1/32 on its reach interface) [REACH_SELF_ALIAS_V1]
++PASS  n -> A's leaf 10.252.0.1 still answers (A's, not n's own)
++PASS  resolve on n: w:g-b:8080 -> 10.8.8.1:8080, w:g-c:8080 -> 100.64.0.1:8080 (the alias) [IDENTITY_IN_TUPLES_V1]
++PASS  n's main routing table is unchanged by the reach (pond A's daemon owns it)
++=== (2a) every network on one screen: getPonds.php, the monitor's Networks section [PONDS_ARE_LISTED_V1]
++PASS  getPonds.php on n: A forward (n a node), B participant (n a reacher, its alias, B's config, b and c alive), A's config reach none
++    | Networks
++    |  * pondA      forward      node       4 members  config reach none, map refused
++    |    pondB      participant  reacher    4 members  reach all as 10.252.0.1 (aliased 1)
++    |      b            node     ONLINE  10.8.8.1
++    |      c            node     ONLINE  10.7.7.1 -> 100.64.0.1
++    |      vm           hub      ONLINE  
++PASS  the monitor's Networks section shows pond B's members, c at its alias
++=== (2b) pond A changes under the reach: e joins A serving 10.8.8.0/24, b's /24 in B
++tools/netns-reach-test.sh: line 165: /tmp/claude-0/netns-reach/e/leases: No such file or directory
++PASS  n's daemon re-planned the reach when A's routes changed (990 ms after e started): REACH: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-10-r19-a12]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24 (changed)
++PASS  n -> 10.8.8.1 now answers e (A's, its forward pond): e 10.3.3.1
++PASS  b is reached at its alias: resolve w:g-b:8080 -> 100.64.1.1:8080 answers b 10.252.0.1
++PASS  c keeps its alias 100.64.0.1: c 10.252.0.1
++=== (2c) bring pond B forward while n reaches it, then A again
++PASS  B forward: the reach into B is gone (the daemon routes B now)
++PASS  fdf-client@pondB still holds its session, nothing refused (the forward pond is never refused)
++PASS  n routes B's 10.8.8.0/24 as B's node now
++PASS  A forward again: the reach into B is applied again
++PASS  c answers at its alias again: c 10.252.0.1
++=== (3) gone is gone: n's session to pond B ends
++PASS  its interface rch-f198f382 is gone
++PASS  its rules are gone (0)
++PASS  its NETMAP/SNAT chains are gone
++PASS  its state file is gone
++PASS  100.64.0.1 answers nothing now
++=== (4) pond C: reach all, but map REFUSED -- and C's 10.7.7.0/24 collides with A's
++PASS  refused, saying why: REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.7.7.0/24 (a in pondA), and pondC's config says map refused -- a failed reach closes this session
++PASS  the session to pond C is closed (a failed reach closes it)
++PASS  n is not in pond C's participants
++PASS  nothing of it was left on n
++=== (5) pond D: no net.json -- reach none
++PASS  refused, saying why: REACH REFUSED into pondD: pondD's config says reach 'none': it is not reachable -- a failed reach closes this session
++=== (6) a member may not rewrite a network's config
++PASS  pond C refused the write: {"ok":false,"error":"(pond, config) is the RAM manager's: it is written from its net.json, never over the network"}
++RESULT PASS
+--- /dev/null
++++ b/docs/run-region-loop-identity-2026-10-10.log
+@@ -0,0 +1,39 @@
++PASS  hub up on 51820
++PASS  converged: z has a's /24 and y's (via y's lease); a has z's and y's (after 1 s)
++PASS  y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)
++PASS  both daemons in the region loop
++=== 6 changes on y (10.9.9.1/24 added / removed); per change: the timed line on a and z, and change -> that line
++  #1 a: change -> timed line 56 ms | world=1ms (participants+mappings, one read) +0ms bringup=11ms apply=6ms (probes=0/0ms routes=1/2ms) publish=5ms total=23ms
++  #1 z: change -> timed line 73 ms | world=2ms (participants+mappings, one read) +0ms bringup=13ms apply=12ms (probes=0/0ms routes=1/7ms) publish=5ms total=40ms
++  #2 a: change -> timed line 77 ms | world=2ms (participants+mappings, one read) +0ms bringup=12ms apply=1ms (probes=0/0ms routes=0/0ms) publish=0ms total=15ms
++  #2 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=16ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=20ms
++  #3 a: change -> timed line 79 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=1ms (probes=0/0ms routes=0/0ms) publish=1ms total=18ms
++  #3 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=15ms apply=3ms (probes=0/0ms routes=0/0ms) publish=0ms total=20ms
++  #4 a: change -> timed line 74 ms | world=2ms (participants+mappings, one read) +0ms bringup=7ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=12ms
++  #4 z: change -> timed line 81 ms | world=1ms (participants+mappings, one read) +0ms bringup=17ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=21ms
++  #5 a: change -> timed line 84 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=4ms (probes=0/0ms routes=0/0ms) publish=0ms total=24ms
++  #5 z: change -> timed line 73 ms | world=2ms (participants+mappings, one read) +0ms bringup=8ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=13ms
++  #6 a: change -> timed line 80 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=2ms (probes=0/0ms routes=0/0ms) publish=2ms total=18ms
++  #6 z: change -> timed line 76 ms | world=0ms (participants+mappings, one read) +0ms bringup=14ms apply=2ms (probes=0/0ms routes=0/0ms) publish=0ms total=16ms
++  median a (n=6): change->line 78 ms | world=1 bringup=12 apply=2 publish=0 total=18 ms
++  median z (n=6): change->line 78 ms | world=1 bringup=14 apply=2 publish=0 total=20 ms
++--- per-event region reads on a (one event): 'my-channels' lines logged between two timed lines
++    my-channels computations in one event on a: 1
++    timed events on a: 23
++PASS  a: region_hosts.json names z, y and a, each echo from its facts ([('10.2.2.1', 'y,10.2.2.1,10.3.3.20,0.0.0.0'), ('10.3.3.1', 'z,10.3.3.1,198.18.0.3,0.0.0.0'), ('10.7.7.1', 'a,10.7.7.1,198.18.0.5,0.0.0.0'), ('10.9.9.1', 'y,10.9.9.1,10.3.3.20,0.0.0.0')])
++PASS  a: each echo's fields 3-4 are that member's uplink rows: z 198.18.0.3, y its lease 10.3.3.20 on z's LAN [ECHO_UPSTREAM_FROM_THE_ROWS_V1]
++PASS  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (137 ms after the leaf's fdf-client started)
++PASS  a -> the leaf 10.252.0.1 (a's tunnel, the hub, the leaf's tunnel)
++PASS  y -> the leaf (y's default to z, z's tunnel, the hub)
++PASS  a's /etc/hosts names the leaf
++PASS  a: region_hosts.json (getHosts.php) lists the leaf role=leaf alive=true: the monitor's DEVICE ONLINE row [DEVICE_ROW_V1]
++PASS  z said where its Communicator is BY IDENTITY: (pond, where, w:g-z) comms ram w:g-z:8800, media w:g-z:8994 (207 ms after fdf-comms started) [IDENTITY_IN_TUPLES_V1]
++PASS  resolve: w:g-z -> 10.3.3.1 (its .1), w:g-phone -> 10.252.0.1 (its given /32), w:g-nobody -> ENOENT: {"ok":true,"server":"fdf-2026-10-10-r19-a11","resolved":{"w:g-z":{"addr":"10.3.3.1","name":"z","role":"node"},"w:g-phone":{"addr":"10.252.0.1","name":"phone","role":"leaf"},"w:g-nobody":{"error":"ENOENT","why":"no alive member w:g-nobody in this pond"}}}
++PASS  the leaf found it there (10.3.3.1:8800 / 10.3.3.1:8994) and streamed to it through its tunnel and the hub: sent 119 frames (0 dropped), 250 audio
++PASS  z's media server took the leaf's video and audio planes
++PASS  the phone's Kotlin member found it: services: comms in this pond: z ram=w:g-z:8800 -> 10.3.3.1:8800 media=w:g-z:8994 -> 10.3.3.1:8994
++PASS  the phone's Java core watched a's feed through z's media server: WATCHING 8d2d0cf65124 at 10.3.3.1:8994 VIDEO Chapel frames=109 keyframe_size=854x480 AUDIO Chapel packets=251 
++PASS  z's session ended: its where cell is gone with it (gone is gone)
++PASS  z back: fdf-comms wrote it again on the event that showed z (3 rewrite)
++PASS  y's session ended: its announcement is gone, and no dead row is listed ([('z', True), ('a', True), ('phone-kt', True), ('phone', True), ('vm', True)])
++RESULT PASS
+--- a/fdf/bin/fdf-comms.sh
++++ b/fdf/bin/fdf-comms.sh
+@@ -5,8 +5,9 @@
+ # Foreground; both print to this terminal; Ctrl-C stops both. Open TCP 8800 and 8994 to the players.
+ #
+ # [COMMS_ON_A_NODE_V1] On a FrogNet node (its facts.json has its own .1), the two servers are the network's own: no cloud
+-# service. The node says where they are in its pond's memory -- (pond, where, w:<guid>) {"comms":{"ram","media"}} at its
+-# .1 (fdf-where) -- so the phone's Communicator and every member find them with nothing typed. The cell is the node's:
++# service. The node says where they are in its pond's memory -- (pond, where, w:<guid>) {"comms":{"ram":"w:<guid>:8800",
++# "media":"w:<guid>:8994"}} (fdf-where self:<port>; IDENTITY_IN_TUPLES_V1), resolved by each reader to this node's address
++# in the reader's scope -- so the phone's Communicator and every member find them with nothing typed. The cell is the node's:
+ # the region removes it when the node's session ends, and this script writes it again on the event that shows the node
+ # back (fdf-events), and clears it when the servers stop. On the droplet (no .1) nothing changes: fdf-services.sh
+ # publishes the public address as before.
+@@ -31,7 +32,8 @@
+ "$B/comms-media" --listen 0.0.0.0:8994 --ram 127.0.0.1:8800 & M=$!
+ trap 'kill $R $M 2>/dev/null; "$F/fdf-where" comms --clear || true' EXIT
+ for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8994) 2>/dev/null && break; sleep 0.05; done
+-say() { "$F/fdf-where" comms ram="$DOT1:8800" media="$DOT1:8994"; }
++# [IDENTITY_IN_TUPLES_V1] the cell names this node by identity (w:<guid>:<port>); each reader resolves it in its own scope
++say() { "$F/fdf-where" comms ram=self:8800 media=self:8994; }
+ say || echo "fdf-comms: could not write where the Communicator is (the next region event retries)"
+ echo "fdf-comms: the Communicator on this node at $DOT1:8800 / $DOT1:8994, said in the pond at $RINA_RAM"
+ # the region removes the cell with this node's session; on each event, if it is gone and the servers run, write it again
+--- a/fdf/bin/fdf-facts
++++ b/fdf/bin/fdf-facts
+@@ -15,7 +15,7 @@
+         fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
+                              change (inotify via a 1 s poll of its mtime -- dnsmasq rewrites it in place), debounced 1 s
+         fdf-facts --show     print the rows, write nothing
+-Nothing here reads the region; this is the writer only. Build fdf-2026-10-10-r19-a11.
++Nothing here reads the region; this is the writer only. Build fdf-2026-10-10-r19-a12.
+ """
+ import json
+ import os
+@@ -25,7 +25,7 @@
+ import sys
+ import time
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"
++BUILD_TAG = "fdf-2026-10-10-r19-a12"
+ FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
+ LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
+ PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Internet
+--- a/fdf/bin/fdf-hub
++++ b/fdf/bin/fdf-hub
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+@@ -139,7 +139,10 @@
+     members = []
+     for p in participants:
+         f = p.get("facts") or {}
+-        if not p.get("alive") or f.get("role") not in ("node", "leaf"): continue
++        # [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network has a /32 here (the region gave it) and is
++        # peered as a leaf is: its /32 on-link, nothing else carried
++        reacher = f.get("role") == "participant" and f.get("reach") is True and f.get("addr")
++        if not p.get("alive") or (f.get("role") not in ("node", "leaf") and not reacher): continue
+         if not f.get("pubkey"): notes.append("no pubkey: %s" % f.get("name")); continue
+         members.append((int(p.get("id", 0)), p, f))
+     members.sort(key=lambda m: m[0])                                  # lowest announce id = first claimant
+--- a/fdf/bin/fdf-pond-add
++++ b/fdf/bin/fdf-pond-add
+@@ -1,5 +1,7 @@
+ #!/bin/bash
+-# fdf-pond-add RAM_HOST:PORT AREA SITE_KEY -- [PONDS_V1] (PLAN-PONDS §3.3) this machine takes part in one more pond.
++# fdf-pond-add RAM_HOST:PORT AREA SITE_KEY [reach] -- [PONDS_V1] (PLAN-PONDS §3.3) this machine takes part in one more pond.
++#   reach: [REACH_V1] while a participant there, also REACH that network as its (pond, config, net) allows (fdf-reach;
++#          FDF_REACH=1 in the pond's env). Refused by the network = this pond's session ends and is not restarted.
+ #   /opt/fdf/var/ponds/AREA.env    RINA_RAM, RINA_AREA, RINA_SITE_KEY (the pond's own key; used only while it is forward)
+ #   fdf-client@AREA.service        one session to that pond's RAM manager, held all the time: presence, the pond's shared
+ #                                  memory, its attention notices. A participant unless it is the forward pond
+@@ -8,11 +10,15 @@
+ # and fdf-client@<its area>, and the forward pond, before the new one is added. Nothing goes into /usr/local/bin.
+ set -eu
+ [ "$(id -u)" = 0 ] || { echo "fdf-pond-add: run as root" >&2; exit 1; }
+-RAM=${1:?usage: fdf-pond-add RAM_HOST:PORT AREA SITE_KEY}; AREA=${2:?usage: fdf-pond-add RAM_HOST:PORT AREA SITE_KEY}; KEY=${3:?usage: fdf-pond-add RAM_HOST:PORT AREA SITE_KEY}
++U="usage: fdf-pond-add RAM_HOST:PORT AREA SITE_KEY [reach]"
++RAM=${1:?$U}; AREA=${2:?$U}; KEY=${3:?$U}; REACH=${4:-}
++[ -z "$REACH" ] || [ "$REACH" = reach ] || { echo "$U" >&2; exit 2; }
+ [[ "${RAM%:*}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "fdf-pond-add: ${RAM%:*} is not an IPv4 address (the static fdf-client takes an address)" >&2; exit 2; }
+ [[ "$AREA" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "fdf-pond-add: area '$AREA': letters, digits, . _ - only" >&2; exit 2; }
+ V=${FDF_VAR:-/opt/fdf/var}; mkdir -p "$V/ponds"
+-pond_env() { umask 077; printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\n' "$1" "$2" "$3" > "$V/ponds/$2.env"; }
++pond_env() { umask 077; printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\n' "$1" "$2" "$3" > "$V/ponds/$2.env"
++             [ "${4:-}" = reach ] && printf 'FDF_REACH=1\n' >> "$V/ponds/$2.env"
++             (umask 022; printf '%s\n' "$1" > "$V/ponds/$2.ram"); return 0; }   # [PONDS_ARE_LISTED_V1] no key: for getPonds.php
+ cat > /etc/systemd/system/fdf-client@.service <<'EOF'
+ [Unit]
+ Description=FD&F membership in pond %i: this machine's session to that pond's RAM manager [PONDS_V1]
+@@ -26,8 +32,13 @@
+ Environment=FDF_FORWARD_FILE=/opt/fdf/var/forward
+ Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
+ EnvironmentFile=/opt/fdf/var/ponds/%i.env
++Environment=FDF_BIN=/opt/fdf/bin
+ ExecStart=/opt/fdf/bin/fdf-client ${RINA_RAM}
++# [REACH_V1] exit 4 = the network refused this machine's reach: the session is over and stays over (no fallbacks);
++# whatever the exit, the reach goes with the session (fdf-reach down is a no-op when there was none)
++ExecStopPost=/opt/fdf/bin/fdf-reach down %i
+ Restart=always
++RestartPreventExitStatus=4
+ RestartSec=2
+ 
+ [Install]
+@@ -42,9 +53,9 @@
+   echo "== $OLD_AREA ($OLD_RAM): now ponds/$OLD_AREA.env and fdf-client@$OLD_AREA, the forward pond"
+ fi
+ [ "$AREA" = "$(cat "$V/forward" 2>/dev/null)" ] && { echo "fdf-pond-add: $AREA is already this machine's forward pond"; exit 0; }
+-pond_env "$RAM" "$AREA" "$KEY"
++pond_env "$RAM" "$AREA" "$KEY" "$REACH"
+ [ -f "$V/forward" ] || printf '%s\n' "$AREA" > "$V/forward"       # the first pond on a machine that had none is forward
+ systemctl daemon-reload; systemctl enable "fdf-client@$AREA.service"; systemctl restart "fdf-client@$AREA.service"
+ sleep 2
+-echo "== $AREA ($RAM) added; forward is $(cat "$V/forward")"
++echo "== $AREA ($RAM) added${REACH:+, reaching it}; forward is $(cat "$V/forward")"
+ journalctl -u "fdf-client@$AREA" -n 4 --no-pager -o cat
+--- a/fdf/bin/fdf-ponds
++++ b/fdf/bin/fdf-ponds
+@@ -7,6 +7,9 @@
+   a=$(basename "$e" .env); ram=$(sed -n 's/^RINA_RAM=//p' "$e")
+   st=$(systemctl is-active "fdf-client@$a" 2>/dev/null)
+   n=""; [ -f "$V/attention/$a.json" ] && n=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('ATTENTION: %s (from %s)' % (d['why'], d['from']))" "$V/attention/$a.json" 2>/dev/null)
+-  printf '%s %-14s %-22s %-8s %s\n' "$([ "$a" = "$F" ] && echo '*' || echo ' ')" "$a" "$ram" "$st" "$n"
++  r=""; grep -q '^FDF_REACH=1' "$e" && r="reach: none yet"                                        # [REACH_V1]
++  [ -f "$V/reach/$a.json" ] && r=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('reach: %s as %s there; %s%s' % (d['reach'], d['addr'], ' '.join(d['routes']), ''.join(' %s=%s' % (k, v) for k, v in sorted(d['alias'].items()))))" "$V/reach/$a.json" 2>/dev/null)
++  [ -f "$V/reach/$a.refused" ] && r="reach REFUSED (journalctl -u fdf-client@$a says why)"
++  printf '%s %-14s %-22s %-8s %s %s\n' "$([ "$a" = "$F" ] && echo '*' || echo ' ')" "$a" "$ram" "$st" "$r" "$n"
+ done
+ echo "(* = forward; fdf-forward AREA brings another forward)"
+--- /dev/null
++++ b/fdf/bin/fdf-reach
+@@ -0,0 +1,397 @@
++#!/usr/bin/env python3
++# Copyright (C) 2016-2026 Fawcett Innovations LLC
++# SPDX-License-Identifier: GPL-2.0-only
++"""fdf-reach -- [REACH_V1] this machine reaching a pond it is a PARTICIPANT in (not its forward pond), as that pond's own
++configuration allows, without touching what the forward pond decides.
++
++  fdf-reach apply  <area> <addr>     plan and apply (run by fdf-client@<area> on every region event of that pond)
++  fdf-reach down   <area> [addr]     take it all down (the session ended, or the pond became forward)
++  fdf-reach replan                    every pond this machine reaches, again (run by the daemon when the forward pond's
++                                      routes change: what collides may have changed)
++  fdf-reach resolve <area> <w:guid:port>   an endpoint named by identity in <area>'s tuples, as host:port usable HERE
++                                      (the alias, when the network collides with this machine's own)
++
++The rules (John 2026-10-10):
++  - Only what the network's (pond, config, net) allows: reach "listed" = the endpoints its where cells name (/32s),
++    "all" = every /24 its members serve and every /32 it gave. No config, or reach "none": REFUSED.
++  - A destination that collides with this machine's own scope (the forward pond's served /24s and overlay ranges,
++    and every route in the main table) is reached through an alias -- a block of 100.64.0.0/10 mapped 1:1 onto it
++    (NETMAP) -- only if the config says map "allowed". Otherwise REFUSED, naming the prefix.
++  - REFUSED = everything taken down and exit 3; fdf-client@<area> then ends its session ("a failed reach closes it").
++    Run by `replan`, a refusal also writes <var>/reach/<area>.refused and SIGTERMs that fdf-client. No fallbacks.
++  - Own objects only: interface rch-<h> (not wg*: the daemon's), routing table T and rules at priority P (from the area's name), iptables
++    chains FDFR<h> (mangle, nat) and FDFRS<h> (nat POSTROUTING). The main table is never written, so the forward
++    pond's daemon and this never fight over a route.
++Exit: 0 applied (or unchanged); 5 not yet (no address given yet, the hub has not peered this key yet -- a reach that
++was up is taken down until it is); 6 could not plan or apply NOW (a pond's RAM manager did not answer, a command
++failed): logged, the reach taken down if it was half-built, tried again on the next event -- never a refusal;
++3 refused (the network's config does not allow it): the session ends.
++[REACH_ONE_AT_A_TIME_V1] Every apply, down and replan on this machine holds one lock (<var>/reach/.lock): the daemon's
++replan and an fdf-client's apply never interleave, and two areas never pick the same alias.
++"""
++import fcntl, hashlib, ipaddress, json, os, re, signal, subprocess, sys, urllib.request
++
++VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
++API = "/FawcettInnovations.RINA.ram_interface.php"
++KEY = os.environ.get("FDF_WG_KEY", "/var/lib/frognet-tunnel/node_private.key")   # the daemon's key (config.STATE_DIR)
++FACTS = os.environ.get("FDF_FACTS", VAR + "/facts.json")
++ALIASES = ipaddress.ip_network("100.64.0.0/10")
++BUILD = "fdf-2026-10-10-r19-a12"
++
++
++class Refused(Exception): pass                         # the network's config does not allow it: the session ends
++class Pending(Exception): pass                         # not yet: the next event tries again
++class NotNow(Exception): pass                          # could not read or apply now: logged, tried again on the next event
++
++AREA_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")         # as fdf-pond-add allows: an area name is never anything else
++
++
++def lock():
++    """[REACH_ONE_AT_A_TIME_V1] held until this process exits"""
++    d = os.path.join(VAR, "reach"); os.makedirs(d, exist_ok=True)
++    f = open(os.path.join(d, ".lock"), "a"); fcntl.flock(f, fcntl.LOCK_EX); return f
++
++
++def names(area):
++    h = hashlib.sha1(area.encode()).hexdigest()[:8]
++    t = 20000 + int(h[:4], 16) % 10000
++    # the interface is rch-<h>, NOT wg*: the daemon's orphan scan owns every wg* / frognet* interface with one peer and
++    # tears down the ones its broker does not name (found 2026-10-10: a wgr-* reach vanished on the next scan)
++    return {"if": "rch-" + h, "table": t, "mark": t, "prio": 9000 + int(h[4:8], 16) % 900, "ch": "FDFR" + h, "chs": "FDFRS" + h}
++
++
++def env_of(area):
++    out = {}
++    try:
++        for ln in open(os.path.join(VAR, "ponds", area + ".env")):
++            ln = ln.strip()
++            if ln.startswith("export "): ln = ln[7:]
++            for tok in ln.split():
++                if "=" in tok: k, v = tok.split("=", 1); out[k] = v.strip("'\"")
++    except OSError: pass
++    return out
++
++
++def ram_of(area):
++    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
++    if not r: raise Refused("no RINA_RAM for %s (%s/ponds/%s.env)" % (area, VAR, area))
++    return r
++
++
++def forward():
++    try: return open(os.path.join(VAR, "forward")).read().strip()
++    except OSError: return ""
++
++
++def http(ram, method, q, body=None):
++    req = urllib.request.Request("http://%s%s%s" % (ram, API, q), data=None if body is None else json.dumps(body).encode(), method=method)
++    try:
++        with urllib.request.urlopen(req, timeout=4) as r: return json.loads(r.read().decode())
++    except (OSError, ValueError) as e:                 # URLError, timeouts, a reset, an unreadable answer: not now
++        raise NotNow("the RAM manager at %s: %s" % (ram, e))
++
++
++def rina(ram, body): return http(ram, "POST", "?op=rina", body)
++
++
++def cells(ram, var, inst=""):
++    j = http(ram, "GET", "?op=read&service=pond&variable=%s%s" % (var, "&instance=" + inst if inst else ""))
++    return j.get("cells") or j.get("rows") or []
++
++
++def run(*a, check=True):
++    r = subprocess.run(list(a), capture_output=True, text=True)
++    if check and r.returncode != 0: raise RuntimeError("%s: %s" % (" ".join(a), (r.stderr or r.stdout).strip()))
++    return r
++
++
++def served(f):
++    """a member's served /24s (as the region's served_prefixes): own .1 rows and its subnet"""
++    out = set()
++    for r in f.get("addrs") or []:
++        ip = r.get("ip", "")
++        if r.get("kind") == "own" and ip.startswith("10.") and ip.endswith(".1"): out.add(ip.rsplit(".", 1)[0] + ".0/24")
++    if f.get("subnet"): out.add(str(ipaddress.ip_network(f["subnet"], strict=False)))
++    return out
++
++
++def my_guid():
++    try: return json.load(open(FACTS)).get("guid", "")
++    except (OSError, ValueError): return ""
++
++
++def my_scope(area):
++    """what this machine already routes or reaches: every main-table route but the default, the forward pond's overlay
++    ranges and served /24s (as its config and its world say), and what every OTHER reach on this machine routes or
++    aliases (two participant ponds may collide with each other, not only with the forward one). A destination
++    overlapping any of these collides. The forward pond unreadable now: NotNow (a collision cannot be ruled out)."""
++    scope = {}
++    exclude_if = names(area)["if"]
++    try: routes = json.loads(run("ip", "-j", "-4", "route", "show", "table", "main").stdout or "[]")
++    except (RuntimeError, ValueError) as e: raise NotNow("reading the main table: %s" % e)
++    for r in routes:
++        d = r.get("dst", "")
++        if d in ("", "default") or r.get("dev") == exclude_if: continue
++        try: scope[str(ipaddress.ip_network(d if "/" in d else d + "/32", strict=False))] = "this machine's route via " + r.get("dev", "?")
++        except ValueError: pass
++    fwd = forward()
++    if fwd:
++        ram = ram_of(fwd)
++        for c in cells(ram, "config", "net"):
++            for k in ("leaves", "edges"):
++                if c["bag"].get(k): scope[c["bag"][k]] = "%s's %s range" % (fwd, k)
++        for p in rina(ram, {"op": "world"}).get("participants", []):
++            if p.get("alive"):
++                for s in served(p.get("facts") or {}): scope[s] = "%s in %s" % (p.get("name"), fwd)
++    for other in reach_areas():
++        if other == area: continue
++        st = load_state(other) or {}
++        aliased = set((st.get("alias") or {}).values())
++        for r in st.get("routes") or []:
++            if r not in aliased: scope[r] = "this machine's reach into %s" % other
++        for a in (st.get("alias") or {}): scope[a] = "this machine's alias for %s" % other
++        if st.get("self"): scope[st["self"] + "/32"] = "this machine's own side of the reach into %s" % other
++    return scope
++
++
++def reach_areas():
++    try: return sorted(fn[:-5] for fn in os.listdir(os.path.join(VAR, "reach")) if fn.endswith(".json") and AREA_RE.match(fn[:-5]))
++    except OSError: return []
++
++
++def load_state(area):
++    try: return json.load(open(os.path.join(VAR, "reach", area + ".json")))
++    except (OSError, ValueError): return None
++
++
++def all_aliases(except_area):
++    used = set()
++    try:
++        for fn in os.listdir(os.path.join(VAR, "reach")):
++            if fn.endswith(".json") and fn[:-5] != except_area:
++                st = load_state(fn[:-5]) or {}
++                used |= set((st.get("alias") or {}).keys())
++    except OSError: pass
++    return used
++
++
++def all_selves(except_area):
++    out = set()
++    try:
++        for fn in os.listdir(os.path.join(VAR, "reach")):
++            if fn.endswith(".json") and fn[:-5] != except_area: out.add((load_state(fn[:-5]) or {}).get("self"))
++    except OSError: pass
++    return out
++
++
++def plan(area, addr):
++    ram = ram_of(area)
++    cfg = cells(ram, "config", "net")
++    if not cfg: raise Refused("%s publishes no network config (pond, config, net): it is not reachable" % area)
++    c = cfg[0]["bag"]
++    if c.get("reach") not in ("listed", "all"): raise Refused("%s's config says reach %r: it is not reachable" % (area, c.get("reach")))
++    mapok = c.get("map") == "allowed"
++    parts = [p for p in rina(ram, {"op": "world"}).get("participants", []) if p.get("alive")]
++    me = "w:" + my_guid()
++    mine = next((p for p in parts if p.get("ns") == me), None)
++    if not mine: raise Pending("this machine (%s) is not an alive member of %s yet" % (me, area))
++    if not addr: addr = ((mine.get("facts") or {}).get("addr") or "")
++    addr = addr.split("/")[0]
++    if not addr: raise Pending("%s has given this machine no address yet" % area)
++    try: ipaddress.IPv4Address(addr)
++    except ValueError: raise NotNow("%s gave this machine %r, which is not an IPv4 address" % (area, addr))
++    pub = (mine.get("facts") or {}).get("pubkey", "")
++    hub = next((p for p in parts if (p.get("facts") or {}).get("role") == "hub"), None)
++    if not hub: raise Pending("%s has no hub" % area)
++    hf = hub["facts"]
++    if pub not in (hf.get("peers") or []): raise Pending("%s's hub %s has not peered this machine's key yet" % (area, hub.get("name")))
++    if not hf.get("pubkey") or not hf.get("endpoint"): raise Pending("%s's hub %s says no pubkey/endpoint yet" % (area, hub.get("name")))
++    dest = {}
++    if c["reach"] == "all":
++        for p in parts:
++            f = p.get("facts") or {}
++            if p.get("ns") == me or f.get("role") == "hub": continue
++            for s in served(f): dest[s] = p.get("name")
++            if f.get("addr") and (f.get("role") == "leaf" or f.get("reach")): dest[f["addr"].split("/")[0] + "/32"] = p.get("name")
++    else:                                                   # listed: the endpoints its where cells name
++        ids = set()
++        for cell in cells(ram, "where"):
++            for svc, b in (cell.get("bag") or {}).items():
++                if isinstance(b, dict):
++                    for v in b.values():
++                        if isinstance(v, str) and v.startswith("w:") and v.rsplit(":", 1)[-1].isdigit(): ids.add(v.rsplit(":", 1)[0])
++        if ids:
++            res = rina(ram, {"op": "resolve", "ids": sorted(ids)}).get("resolved", {})
++            for i, r in res.items():
++                if r.get("addr") and i != me: dest[r["addr"] + "/32"] = r.get("name") or i
++    scope = my_scope(area)
++    old = (load_state(area) or {}).get("alias") or {}
++    used = all_aliases(area)
++    alias, routes = {}, []
++    for d in sorted(dest, key=lambda x: ipaddress.ip_network(x)):
++        dn = ipaddress.ip_network(d)
++        hit = next(((s, why) for s, why in scope.items() if ipaddress.ip_network(s).overlaps(dn)), None)
++        routes.append(d)
++        if not hit: continue
++        if not mapok:
++            raise Refused("%s (%s in %s) collides with %s (%s), and %s's config says map refused" % (d, dest[d], area, hit[0], hit[1], area))
++        a = next((k for k, v in old.items() if v == d and k not in used and k not in alias), None)
++        if not a:
++            for blk in ALIASES.subnets(new_prefix=dn.prefixlen):
++                b = str(blk)
++                if b in used or b in alias or any(ipaddress.ip_network(s).overlaps(blk) for s in scope): continue
++                a = b; break
++        if not a: raise Refused("no free alias block for %s in %s" % (d, ALIASES))
++        alias[a] = d
++    # [REACH_SELF_ALIAS_V1] this machine's address in the other network (addr) is never put on an interface here: the
++    # forward pond may give the same address to one of its own (every pond's leaves are 10.252/16), and a local address
++    # would shadow it. The interface holds a private /32 of the alias space instead; leaving, the source becomes addr
++    # (SNAT); arriving for addr, the destination becomes the private one (DNAT). Nothing here ever holds addr.
++    taken = used | set(alias) | {str(ipaddress.ip_network(s)) for s in scope}
++    self_a = (load_state(area) or {}).get("self")
++    if not self_a or any(ipaddress.ip_network(self_a + "/32").overlaps(ipaddress.ip_network(t)) for t in taken):
++        self_a = next((str(h) for h in ipaddress.ip_network("100.127.255.0/24").hosts()
++                       if not any(ipaddress.ip_network(str(h) + "/32").overlaps(ipaddress.ip_network(t)) for t in taken)
++                       and str(h) not in all_selves(area)), None)
++        if not self_a: raise Refused("no free private address for this machine's side of the reach into %s" % area)
++    return {"area": area, "addr": addr, "self": self_a, "hub": {"name": hub.get("name"), "pubkey": hf.get("pubkey"), "endpoint": hf.get("endpoint")},
++            "routes": routes, "alias": alias, "reach": c["reach"], "map": c.get("map"), "names": names(area)}
++
++
++def up(st):
++    n = st["names"]; IF, T, M, P = n["if"], str(n["table"]), str(n["mark"]), str(n["prio"])
++    impl = os.environ.get("WG_QUICK_USERSPACE_IMPLEMENTATION", "")
++    if impl: run(impl, IF)                                   # the configured userspace implementation, as wg-quick uses it
++    else: run("ip", "link", "add", IF, "type", "wireguard")
++    allowed = ",".join(st["routes"])
++    run("wg", "set", IF, "private-key", KEY, "peer", st["hub"]["pubkey"], "endpoint", st["hub"]["endpoint"],
++        "allowed-ips", allowed, "persistent-keepalive", "25")
++    run("ip", "addr", "add", st["self"] + "/32", "dev", IF)                # [REACH_SELF_ALIAS_V1] never addr itself
++    run("ip", "link", "set", IF, "up")
++    run("sysctl", "-qw", "net.ipv4.conf.%s.rp_filter=2" % IF)   # replies from a colliding source arrive here, not where main routes it
++    for r in st["routes"]: run("ip", "route", "add", r, "dev", IF, "src", st["self"], "table", T)
++    for a in st["alias"]: run("ip", "route", "add", a, "dev", IF, "src", st["self"], "table", T)
++    run("ip", "rule", "add", "from", st["self"], "lookup", T, "priority", P)
++    run("ip", "rule", "add", "fwmark", M, "lookup", T, "priority", P)
++    collided = set(st["alias"].values())
++    for r in st["routes"]:
++        if r not in collided: run("ip", "rule", "add", "to", r, "lookup", T, "priority", P)
++    for a in st["alias"]: run("ip", "rule", "add", "to", a, "lookup", T, "priority", P)
++    ch, chs = n["ch"], n["chs"]
++    run("iptables", "-w", "-t", "mangle", "-N", ch)
++    for hook in ("OUTPUT", "PREROUTING"): run("iptables", "-w", "-t", "mangle", "-A", hook, "-j", ch)
++    for a in st["alias"]: run("iptables", "-w", "-t", "mangle", "-A", ch, "-d", a, "-j", "MARK", "--set-mark", M)
++    run("iptables", "-w", "-t", "nat", "-N", ch)
++    for hook in ("OUTPUT", "PREROUTING"): run("iptables", "-w", "-t", "nat", "-A", hook, "-j", ch)
++    for a, r in st["alias"].items(): run("iptables", "-w", "-t", "nat", "-A", ch, "-d", a, "-j", "NETMAP", "--to", r)
++    run("iptables", "-w", "-t", "nat", "-A", ch, "-i", IF, "-d", st["addr"], "-j", "DNAT", "--to-destination", st["self"])   # arriving for addr
++    run("iptables", "-w", "-t", "nat", "-N", chs)
++    run("iptables", "-w", "-t", "nat", "-A", "POSTROUTING", "-j", chs)
++    run("iptables", "-w", "-t", "nat", "-A", chs, "-o", IF, "-j", "SNAT", "--to-source", st["addr"])
++    os.makedirs(os.path.join(VAR, "reach"), exist_ok=True)
++    tmp = os.path.join(VAR, "reach", st["area"] + ".json.tmp")
++    with open(tmp, "w") as f: json.dump(st, f)
++    os.rename(tmp, os.path.join(VAR, "reach", st["area"] + ".json"))
++
++
++def down(area):
++    """everything of this area's reach, whatever state it was left in (a crash, a SIGKILL): by name, not by memory"""
++    n = names(area); IF, T, P = n["if"], str(n["table"]), str(n["prio"])
++    did = run("ip", "link", "show", IF, check=False).returncode == 0
++    run("ip", "link", "del", IF, check=False)
++    while run("ip", "rule", "del", "priority", P, "table", T, check=False).returncode == 0: did = True
++    run("ip", "route", "flush", "table", T, check=False)
++    for table, hooks, ch in (("mangle", ("OUTPUT", "PREROUTING"), n["ch"]), ("nat", ("OUTPUT", "PREROUTING"), n["ch"]), ("nat", ("POSTROUTING",), n["chs"])):
++        for hook in hooks:
++            while run("iptables", "-w", "-t", table, "-D", hook, "-j", ch, check=False).returncode == 0: did = True
++        run("iptables", "-w", "-t", table, "-F", ch, check=False); run("iptables", "-w", "-t", table, "-X", ch, check=False)
++    try: os.remove(os.path.join(VAR, "reach", area + ".json")); did = True
++    except OSError: pass
++    return did
++
++
++def describe(st):
++    al = ", ".join("%s -> %s" % (a, r) for a, r in sorted(st["alias"].items()))
++    return ("reach into %s (%s, map %s) on %s as %s there (%s here) via hub %s [" + BUILD + "]: %s%s") % (
++        st["area"], st["reach"], st["map"], st["names"]["if"], st["addr"], st["self"], st["hub"]["name"], " ".join(st["routes"]) or "nothing listed",
++        ("; aliased " + al) if al else "")
++
++
++def apply(area, addr):
++    if area == forward():                               # the forward pond is routed by the daemon, never reached: a reach
++        was = down(area)                                # left from before a switch goes, and is never refused (review 2026-10-10)
++        if was: print("reach into %s taken down: it is this machine's forward pond now" % area)
++        return 0
++    try: st = plan(area, addr)
++    except Pending as p:                                # not yet: whatever was up does not stand meanwhile (gone is gone)
++        was = down(area); print("reach into %s: not yet: %s%s" % (area, p, " (taken down until then)" if was else "")); return 5
++    except Refused as r:
++        down(area); print(str(r)); return 3
++    except NotNow as e:                                 # unchanged: what was planned against facts still stands
++        print("reach into %s: could not plan it now (%s): tried again on the next event" % (area, e)); return 6
++    old = load_state(area)
++    if old == st and run("ip", "link", "show", st["names"]["if"], check=False).returncode == 0: return 0
++    down(area)
++    try: up(st)
++    except (RuntimeError, OSError, TypeError) as e:
++        down(area); print("reach into %s: could not apply it (%s): taken down, tried again on the next event" % (area, e)); return 6
++    print(("%s (changed)" if old else "%s") % describe(st)); return 0
++
++
++def replan():
++    rc = 0
++    for area in reach_areas():                          # each area on its own: one that fails does not stop the rest
++        st = load_state(area) or {}
++        try: r = apply(area, st.get("addr", ""))
++        except Exception as e:                          # anything unexpected: said, that area left as it is, the rest go on
++            print("reach into %s: replan failed: %s" % (area, e)); rc = rc or 6; continue
++        if r == 3:
++            reason = "re-planned and refused: the daemon's log says why (REACH: lines)"
++            try: open(os.path.join(VAR, "reach", area + ".refused"), "w").write(reason + "\n")
++            except OSError: pass
++            try: os.kill(int(open(os.path.join(VAR, "reach", area + ".pid")).read().strip()), signal.SIGTERM)
++            except (OSError, ValueError): pass
++            rc = 3
++    return rc
++
++
++def resolve(area, ep):
++    if not ep.startswith("w:") or not ep.rsplit(":", 1)[-1].isdigit():
++        print("%r is not an identity endpoint (w:<guid>:<port>)" % ep); return 3
++    ident, port = ep.rsplit(":", 1)
++    if area == forward() or not area:
++        ram = ram_of(forward()); r = rina(ram, {"op": "resolve", "ids": [ident]})["resolved"][ident]
++        if not r.get("addr"): print("%s has no address in %s: %s %s" % (ident, forward(), r.get("error"), r.get("why"))); return 3
++        print("%s:%s" % (r["addr"], port)); return 0
++    st = load_state(area)
++    if not st: print("this machine does not reach %s (no %s/reach/%s.json)" % (area, VAR, area)); return 3
++    r = rina(ram_of(area), {"op": "resolve", "ids": [ident]})["resolved"][ident]
++    if not r.get("addr"): print("%s has no address in %s: %s %s" % (ident, area, r.get("error"), r.get("why"))); return 3
++    a = ipaddress.ip_address(r["addr"])
++    if not any(a in ipaddress.ip_network(x) for x in st["routes"]):
++        print("%s (%s in %s) is not among what this machine reaches there" % (ident, a, area)); return 3
++    for al, real in st["alias"].items():
++        rn, an = ipaddress.ip_network(real), ipaddress.ip_network(al)
++        if a in rn: print("%s:%s" % (an.network_address + (int(a) - int(rn.network_address)), port)); return 0
++    print("%s:%s" % (a, port)); return 0
++
++
++def main(argv):
++    if len(argv) < 2: print(__doc__); return 2
++    v = argv[1]
++    if len(argv) > 2 and v in ("apply", "down", "resolve") and not AREA_RE.match(argv[2]):
++        print("%r is not an area name (letters, digits, . _ -)" % argv[2]); return 2
++    if v in ("apply", "down", "replan"): _held = lock()   # [REACH_ONE_AT_A_TIME_V1]
++    if v == "apply" and len(argv) >= 3: return apply(argv[2], argv[3] if len(argv) > 3 else "")
++    if v == "down" and len(argv) >= 3:
++        if down(argv[2]): print("reach into %s taken down" % argv[2])
++        return 0
++    if v == "replan": return replan()
++    if v == "resolve" and len(argv) == 4: return resolve(argv[2], argv[3])
++    print(__doc__); return 2
++
++
++if __name__ == "__main__":
++    try: sys.exit(main(sys.argv))
++    except Refused as r: print(str(r)); sys.exit(3)
++    except NotNow as e: print("not now: %s" % e); sys.exit(6)
+--- a/fdf/hub/hub_oracle.py
++++ b/fdf/hub/hub_oracle.py
+@@ -119,4 +119,13 @@
+ want, owner, notes = desired([hub, s5, s7], [M("10.170.170.0/24", "hubA")], "hubA")
+ check("10.170.170.0/24" in want["PUB-s7"]["allowed"] and "10.250.250.0/24" not in want["PUB-s5"]["allowed"], "8d child's own registration is enough; the parent without a mapping gets no /24")
+ 
++# 9 [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network (reach:true, the /32 the region gave it) is peered
++#   as a leaf is; a participant that only reads (no reach) is not peered at all
++r = P(1, "n", "g-n", None, "PUB-n", role="participant", addr="10.252.0.3/32"); r["facts"]["reach"] = True
++want, owner, notes = desired([r], [], "hubA")
++check(want.get("PUB-n", {}).get("allowed") == {"10.252.0.3/32"} and want["PUB-n"]["routes"] == {"10.252.0.3/32": ""}, "9 a reacher: its /32 is allowed-ips and an on-link route, like a leaf")
++q = P(1, "n", "g-n", None, "PUB-n", role="participant", addr="10.252.0.3/32")
++want, owner, notes = desired([q], [], "hubA")
++check("PUB-n" not in want, "9c control: a participant without reach is not peered")
++
+ print("RESULT " + ("FAIL: %d" % fails if fails else "PASS")); sys.exit(1 if fails else 0)
+--- a/fdf/lib/python/fdf_graph.py
++++ b/fdf/lib/python/fdf_graph.py
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"
++BUILD_TAG = "fdf-2026-10-10-r19-a12"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+@@ -69,7 +69,8 @@
+                 continue                                              # the hub is not a routed host
+             self.hosts.add(name)
+             rows = [r for r in (f.get("addrs") or []) if r.get("ip")]
+-            if not rows and f.get("role") == "leaf" and f.get("addr"):
++            reacher = f.get("role") == "participant" and f.get("reach") is True   # [REACH_IS_A_LEAF_HERE_V1] its /32 here
++            if not rows and (f.get("role") == "leaf" or reacher) and f.get("addr"):
+                 # [LEAF_ROW_FROM_ADDR_V1] a leaf with no rows (the phone, a laptop running only fdf-client) is its addr:
+                 # one leaf row, so every node routes its /32 (hub route, or via its exit) and names it. This was nested
+                 # under the subnet test below, which a leaf never passes (no subnet): no leaf ever got a row, no node
+--- a/fdf/lib/python/fdf_graph_oracle.py
++++ b/fdf/lib/python/fdf_graph_oracle.py
+@@ -182,5 +182,12 @@
+   check("10 the leaf is named", [n for ip, n in g10.plan("z")["hosts"] if ip == "10.252.0.1"], ["phone"])
+   check("10c control: a leaf on a member's LAN (no addr) gets no /32", [r for r in Graph(T1 + [{"name": "p2", "alive": True, "facts": {"role": "leaf", "name": "p2", "lan": {"ip": "10.3.3.77"}}}]).plan("z")["hub_routes"] if r.startswith("10.252")], [])
+ 
++  # 11 [REACH_IS_A_LEAF_HERE_V1] a participant REACHING this network (reach:true, the /32 the region gave it) is routed
++  #    as a leaf is; a participant that only reads is routed and named by nobody
++  T11 = T1 + [{"name": "n", "alive": True, "facts": {"role": "participant", "name": "n", "pubkey": "p", "reach": True, "addr": "10.252.0.3/32"}}]
++  check("11 z routes a reacher's /32 on its hub link", "10.252.0.3/32" in Graph(T11).plan("z")["hub_routes"], True)
++  T11c = T1 + [{"name": "n", "alive": True, "facts": {"role": "participant", "name": "n", "guid": "g"}}]
++  check("11c control: a reading participant gets no route", [r for r in Graph(T11c).plan("z")["hub_routes"] if r.startswith("10.252")], [])
++
+   print("\n%s" % ("ALL OK" if not FAIL else "%d FAILED" % FAIL))
+   sys.exit(1 if FAIL else 0)
+--- a/frognet/opt/fdf/lib/python/fdf_graph.py
++++ b/frognet/opt/fdf/lib/python/fdf_graph.py
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"
++BUILD_TAG = "fdf-2026-10-10-r19-a12"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+@@ -69,7 +69,8 @@
+                 continue                                              # the hub is not a routed host
+             self.hosts.add(name)
+             rows = [r for r in (f.get("addrs") or []) if r.get("ip")]
+-            if not rows and f.get("role") == "leaf" and f.get("addr"):
++            reacher = f.get("role") == "participant" and f.get("reach") is True   # [REACH_IS_A_LEAF_HERE_V1] its /32 here
++            if not rows and (f.get("role") == "leaf" or reacher) and f.get("addr"):
+                 # [LEAF_ROW_FROM_ADDR_V1] a leaf with no rows (the phone, a laptop running only fdf-client) is its addr:
+                 # one leaf row, so every node routes its /32 (hub route, or via its exit) and names it. This was nested
+                 # under the subnet test below, which a leaf never passes (no subnet): no leaf ever got a row, no node
+--- a/frognet/opt/fdf/lib/python/fdf_graph_oracle.py
++++ b/frognet/opt/fdf/lib/python/fdf_graph_oracle.py
+@@ -172,5 +172,22 @@
+   check("9 old member's /24 is a hub route for exits", "10.44.44.0/24" in g9.plan("z")["hub_routes"], True)
+   check("9 old member has no links, no exit", (g9.parent.get("Old"), g9.plan("Old")["exit"]), (None, None))
+ 
++  # 10 [LEAF_ROW_FROM_ADDR_V1] a leaf with NO rows, only facts.addr (the phone; a laptop running only fdf-client): every
++  #    hub-linked node routes its /32 on the hub link, a tunnel-less child routes it via its exit, all name it.
++  #    (r19 nested this under the subnet test: no node routed the phone; Seattle5 sent 10.252.0.1 out wlan1.)
++  T10 = T1 + [{"name": "phone", "alive": True, "facts": {"role": "leaf", "name": "phone", "pubkey": "p", "addr": "10.252.0.1/32"}}]
++  g10 = Graph(T10)
++  check("10 z (hub link) routes the leaf's /32 on it", "10.252.0.1/32" in g10.plan("z")["hub_routes"], True)
++  check("10 y (child of z, no tunnel) routes it via z", [r for r in g10.plan("y")["routes"] if r[0] == "10.252.0.1/32"], [("10.252.0.1/32", "10.3.3.1", "wlan1")])
++  check("10 the leaf is named", [n for ip, n in g10.plan("z")["hosts"] if ip == "10.252.0.1"], ["phone"])
++  check("10c control: a leaf on a member's LAN (no addr) gets no /32", [r for r in Graph(T1 + [{"name": "p2", "alive": True, "facts": {"role": "leaf", "name": "p2", "lan": {"ip": "10.3.3.77"}}}]).plan("z")["hub_routes"] if r.startswith("10.252")], [])
++
++  # 11 [REACH_IS_A_LEAF_HERE_V1] a participant REACHING this network (reach:true, the /32 the region gave it) is routed
++  #    as a leaf is; a participant that only reads is routed and named by nobody
++  T11 = T1 + [{"name": "n", "alive": True, "facts": {"role": "participant", "name": "n", "pubkey": "p", "reach": True, "addr": "10.252.0.3/32"}}]
++  check("11 z routes a reacher's /32 on its hub link", "10.252.0.3/32" in Graph(T11).plan("z")["hub_routes"], True)
++  T11c = T1 + [{"name": "n", "alive": True, "facts": {"role": "participant", "name": "n", "guid": "g"}}]
++  check("11c control: a reading participant gets no route", [r for r in Graph(T11c).plan("z")["hub_routes"] if r.startswith("10.252")], [])
++
+   print("\n%s" % ("ALL OK" if not FAIL else "%d FAILED" % FAIL))
+   sys.exit(1 if FAIL else 0)
+--- a/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
++++ b/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+@@ -334,8 +334,29 @@
+             self.w.say("GRAPH admission refused: %s via %s dev %s (no echo through that next hop; retried next event)" % r)
+         for ip, hs in plan["conflicts"]:
+             self.w.say("GRAPH conflict: %s is claimed by %s -- routed by nobody, named by nobody" % (ip, hs))
++        # [REACH_V1] what this machine reaches in the ponds it is a participant in was planned against THIS pond's
++        # routes: when they change, what collides may have changed -- fdf-reach plans every reach again (and ends the
++        # session of one that is now refused: a failed reach closes it)
++        # Run beside this loop, never inside it, and never killed half-way (a slow pond would otherwise hold the daemon or
++        # leave a reach half-built): fdf-reach serialises itself ([REACH_ONE_AT_A_TIME_V1]); its lines land in this log.
++        if (changed["routes_added"] or changed["routes_removed"]) and self._reaching():
++            import subprocess, threading
++            try:
++                pr = subprocess.Popen([os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-reach"), "replan"],
++                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
++                def _said(pr=pr, say=self.w.say):
++                    for ln in pr.stdout: say("REACH: " + ln.rstrip())
++                    pr.wait()
++                threading.Thread(target=_said, daemon=True).start()
++            except OSError as e:
++                self.w.say("REACH: replan failed to run: %s" % e)
+         return changed
+ 
++    def _reaching(self) -> bool:
++        d = os.path.join(os.environ.get("FDF_VAR", "/opt/fdf/var"), "reach")
++        try: return any(f.endswith(".json") for f in os.listdir(d))
++        except OSError: return False
++
+     # ------------------------------------------------------------------ helpers
+     def _hold(self, item, now: float) -> bool:
+         """True while the item is within its hold-down (keep it). Callers force removal on a positive failure."""
+--- a/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
++++ b/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
+@@ -39,7 +39,7 @@
+ from . import config
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_MASK = 16
+ ALLOWED = "10.0.0.0/8"
+ 
+--- a/frognet/usr/local/bin/frognet_monitor_py/discovery.py
++++ b/frognet/usr/local/bin/frognet_monitor_py/discovery.py
+@@ -114,3 +114,14 @@
+     except OSError as e:
+         trace(f"[DISCOVER] /etc/hosts fallback failed: {e}")
+         return []
++
++
++# [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php: read live from each pond's RAM manager).
++# The peer table is the forward pond's; draw_ponds shows the rest. A failed read is said, not replaced.
++def discover_ponds():
++    try:
++        return api_request("http://127.0.0.1/getPonds.php", timeout=5)
++    except Exception as e:
++        trace(f"[DISCOVER] getPonds.php failed: {e}")
++        return {"ponds": [], "error": str(e)}
++
+--- /dev/null
++++ b/frognet/usr/local/bin/frognet_monitor_py/draw_ponds.py
+@@ -0,0 +1,99 @@
++################################################################
++#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
++#                                                              #
++#  SPDX-License-Identifier: GPL-2.0-only                       #
++#                                                              #
++#  This program is free software; you can redistribute it      #
++#  and/or modify it under the terms of the GNU General Public  #
++#  License as published by the Free Software Foundation;       #
++#  version 2 of the License, and no other version.             #
++#                                                              #
++#  This program is distributed in the hope that it will be     #
++#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
++#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
++#  PURPOSE.  See the GNU General Public License for details.   #
++#                                                              #
++#  See COPYRIGHT and LICENSE at the root of this tree.         #
++################################################################
++"""
++frognet_monitor/draw_ponds.py -- [PONDS_ARE_LISTED_V1] the Networks section: every pond this machine is in, from
++getPonds.php (read live from each pond's RAM manager). The peer table above is the FORWARD pond (it routes); this
++section adds the others, so one screen shows every network the machine takes part in:
++
++  Networks
++   * pondA      forward      node       3 members   config reach none, map refused
++     pondB      participant  reacher    4 members   reach all as 10.252.0.1 (aliased 1)
++       b          node      ONLINE   10.8.8.1
++       c          node      ONLINE   10.7.7.1 -> 100.64.0.1
++     pondC      participant  REFUSED: 10.7.7.0/24 collides with ...
++
++A participant pond's members are listed (name, role, ONLINE/DOWN, address there -> its alias here), not probed: this
++machine routes none of them unless it reaches that pond, and then only what the reach says.
++"""
++import curses
++import ipaddress
++
++from .config import CP_GREEN, CP_RED, CP_YELLOW, CP_CYAN, CP_DIM, CP_HEADER
++from .ui_helpers import safe_addstr
++
++
++def _alias_of(ip, alias):
++    """the address an IP of the other network has HERE, through the reach's 1:1 aliases, or ''"""
++    try:
++        a = ipaddress.ip_address(ip)
++    except ValueError:
++        return ""
++    for al, real in (alias or {}).items():
++        rn, an = ipaddress.ip_network(real), ipaddress.ip_network(al)
++        if a in rn:
++            return str(an.network_address + (int(a) - int(rn.network_address)))
++    return ""
++
++
++def pond_lines(data):
++    """[(text, color_pair)] for the section, from getPonds.php's answer. Pure: the tests call it too."""
++    out = []
++    ponds = (data or {}).get("ponds") or []
++    if not ponds:
++        return out
++    out.append(("Networks", CP_HEADER))
++    for p in ponds:
++        mark = "*" if p.get("forward") else " "
++        me = p.get("me") or {}
++        n = len([m for m in p.get("members") or [] if m.get("alive")])
++        head = " %s %-10s %-12s %-9s %2d members " % (mark, p.get("area", "?")[:10], "forward" if p.get("forward") else "participant",
++                                                       (me.get("role") or "-")[:9], n)
++        if p.get("error"):
++            out.append((head + " " + p["error"], CP_RED)); continue
++        if p.get("refused"):
++            out.append((head + " REFUSED: " + p["refused"], CP_RED)); continue
++        r = p.get("reach")
++        if r:
++            al = r.get("alias") or {}
++            out.append((head + " reach %s as %s%s" % (r.get("reach"), r.get("as"), " (aliased %d)" % len(al) if al else ""), CP_GREEN))
++        else:
++            c = p.get("config")
++            out.append((head + (" config reach %s, map %s" % (c.get("reach"), c.get("map")) if c else " publishes no config"),
++                        CP_DIM if not p.get("forward") else 0))
++        if p.get("forward"):
++            continue                                  # its members are the peer table above
++        for m in p.get("members") or []:
++            if m.get("me"):
++                continue
++            ip = m.get("ip") or ""
++            here = _alias_of(ip, (r or {}).get("alias")) if r else ""
++            line = "     %-12s %-8s %-7s %s%s" % (m.get("name", "?")[:12], m.get("role", "")[:8], "ONLINE" if m.get("alive") else "DOWN",
++                                                  ip, (" -> " + here) if here else "")
++            out.append((line, CP_GREEN if m.get("alive") else CP_RED))
++    return out
++
++
++def draw_ponds(win, row, data):
++    lines = pond_lines(data)
++    if not lines:
++        return row
++    row += 1
++    for text, cp in lines:
++        safe_addstr(win, row, 2, text, curses.color_pair(cp) | (curses.A_BOLD if cp == CP_HEADER else 0))
++        row += 1
++    return row
+--- a/frognet/usr/local/bin/frognet_monitor_py/main_loop.py
++++ b/frognet/usr/local/bin/frognet_monitor_py/main_loop.py
+@@ -33,7 +33,8 @@
+ 
+ from .config import (MODE_DASHBOARD, MODE_SENSORS, MODE_JSON,
+                      REFRESH_SEC, DB_REFRESH_SEC)
+-from .discovery import discover_hosts
++from .discovery import discover_hosts, discover_ponds
++from .draw_ponds import draw_ponds
+ from .draw_dashboard import (draw_title, draw_peer_header, format_peer_cols,
+                              draw_peer_row, draw_local_row, draw_internet,
+                              draw_engine, draw_footer)
+@@ -58,7 +59,9 @@
+ def _bg_probe_cycle(st):
+     """Run discovery + probes in background.  Writes results atomically."""
+     hosts = discover_hosts()
++    ponds = discover_ponds()                       # [PONDS_ARE_LISTED_V1]
+     results = probe_all(hosts)
++    st.ponds = ponds
+     # Atomic swap — main loop reads these; single assignment = safe
+     st.hosts = hosts
+     st.results = results
+@@ -227,6 +230,7 @@
+                                     selected=selected, is_dbhost=_is_db,
+                                     is_control=_is_ctl)
+ 
++        row = draw_ponds(stdscr, row, getattr(st, "ponds", None))   # [PONDS_ARE_LISTED_V1] every network, not only the forward one
+         row += 1
+         inet = st.results.get("__internet__", {}).get("result", ("FAIL", 0))
+         row = draw_internet(stdscr, row, inet)
+--- a/frognet/var/www/html/fln_dashboard32.html (FrogNet-Living-Network repo)
++++ b/frognet/var/www/html/fln_dashboard32.html
+@@ -302,6 +302,15 @@
+ 
+ <div class="layout">
+   <aside>
++    <!-- [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php, live from each pond's RAM manager).
++         The map is the FORWARD pond's (it routes); the others are listed here with what this machine reaches there. -->
++    <div class="section" id="pondSection">
++      <div class="section-hdr">
++        <h2>Networks</h2>
++        <span class="count" id="pondCount"></span>
++      </div>
++      <div id="pondTiles"><div class="linkmeta">Loading networks…</div></div>
++    </div>
+     <div class="section" id="engineSection">
+       <div class="section-hdr"><h2>Semantic Engine</h2></div>
+       <div id="engineTiles"><div class="linkmeta">Loading engine metrics…</div></div>
+@@ -2149,12 +2158,74 @@
+  * Polling
+  **********************************************************************/
+ let REFRESH_INFLIGHT=false;
++/**********************************************************************
++ * [PONDS_ARE_LISTED_V1] Networks: every pond this machine is in. One tile per pond: forward or participant, this
++ * machine's role there, the pond's published config, what this machine reaches there (and each 1:1 alias) or why
++ * that was refused; a participant pond's members as tags (the forward pond's members are the map). Text only through
++ * textContent: names come from other machines.
++ **********************************************************************/
++function aliasHere(ip, alias){
++  if(!isV4(ip) || !alias) return "";
++  const n=s=>s.split(".").reduce((a,o)=>a*256+Number(o),0), q=x=>[x>>>24&255,x>>>16&255,x>>>8&255,x&255].join(".");
++  for(const [al,real] of Object.entries(alias)){
++    const [rb,rl]=real.split("/"), [ab]=al.split("/"), size=2**(32-Number(rl)), off=n(ip)-n(rb);
++    if(off>=0 && off<size) return q(n(ab)+off);
++  }
++  return "";
++}
++async function renderPonds(){
++  const el=document.getElementById("pondTiles"); if(!el) return;
++  let d;
++  try{ d=await jget("/getPonds.php"); }
++  catch(e){ el.innerHTML=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
++            m.textContent="getPonds.php: "+(e.message||String(e)); t.append(m); el.append(t); return; }
++  const ponds=(d&&d.ponds)||[];
++  document.getElementById("pondCount").textContent=ponds.length?String(ponds.length):"";
++  el.innerHTML="";
++  if(!ponds.length){ const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
++                     m.textContent="This machine is in no pond."; t.append(m); el.append(t); return; }
++  for(const p of ponds){
++    const t=document.createElement("div"); t.className="tile";
++    const row=document.createElement("div"); row.className="row";
++    const dot=document.createElement("div"); dot.className="dot";
++    dot.style.background = p.error||p.refused ? getCss("--bad") : (p.forward||p.reach) ? getCss("--good") : getCss("--unknown");
++    const name=document.createElement("div"); name.className="name"; name.textContent=p.area+(p.forward?"  (forward)":"");
++    const role=document.createElement("div"); role.className="ip"; role.textContent=(p.me&&p.me.role)||"";
++    row.append(dot,name,role); t.append(row);
++    const meta=document.createElement("div"); meta.className="linkmeta";
++    const alive=(p.members||[]).filter(m=>m.alive).length;
++    if(p.error) meta.textContent=p.error;
++    else if(p.refused) meta.textContent="reach REFUSED: "+p.refused;
++    else if(p.reach){
++      const al=Object.entries(p.reach.alias||{});
++      meta.textContent=`${alive} members · reach ${p.reach.reach} as ${p.reach.as}`+(al.length?" · "+al.map(([a,r])=>`${r}→${a}`).join(" "):"");
++    } else meta.textContent=`${alive} members · `+(p.config?`config: reach ${p.config.reach}, map ${p.config.map}`:"publishes no config");
++    t.append(meta);
++    if(!p.forward && !p.error){
++      const mini=document.createElement("div"); mini.className="mini";
++      for(const m of (p.members||[])){
++        if(m.me || m.role==="hub") continue;
++        const here=p.reach?aliasHere(m.ip,p.reach.alias):"";
++        const tag=document.createElement("div"); tag.className="tag";
++        tag.style.borderColor = m.alive ? getCss("--good") : getCss("--bad");
++        const b=document.createElement("strong"); b.textContent=m.name;
++        tag.append(b, document.createTextNode(" "+(m.alive?"":"down ")+(m.ip||"")+(here?" → "+here:"")));
++        tag.title=`${m.name} · ${m.role} · ${m.alive?"online":"down"} in ${p.area}`+(here?` · reached here at ${here}`:"");
++        mini.append(tag);
++      }
++      t.append(mini);
++    }
++    el.append(t);
++  }
++}
++
+ async function tick(){
+   if(REFRESH_INFLIGHT) return;
+   REFRESH_INFLIGHT=true;
+   try{await buildFromSources();}
+   catch(err){console.error(err); document.getElementById("status").textContent=`Error: ${err.message||String(err)}`;}
+   finally{REFRESH_INFLIGHT=false;}
++  renderPonds().catch(e=>console.warn("networks:",e));            // [PONDS_ARE_LISTED_V1] its own failure is its own
+ }
+ 
+ let timer=null;
+--- /dev/null
++++ b/frognet/var/www/html/getPonds.php
+@@ -0,0 +1,97 @@
++<?php
++/***************************************************************
++ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
++ *                                                             *
++ *  SPDX-License-Identifier: GPL-2.0-only                      *
++ *                                                             *
++ *  This program is free software; you can redistribute it     *
++ *  and/or modify it under the terms of the GNU General Public *
++ *  License as published by the Free Software Foundation;      *
++ *  version 2 of the License, and no other version.            *
++ *                                                             *
++ *  This program is distributed in the hope that it will be    *
++ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
++ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
++ *  PURPOSE.  See the GNU General Public License for details.  *
++ *                                                             *
++ *  See COPYRIGHT and LICENSE at the root of this tree.        *
++ **************************************************************/
++/**
++ * /var/www/html/getPonds.php -- [PONDS_ARE_LISTED_V1] every network (pond) this machine takes part in, read LIVE from
++ * each pond's own RAM manager on every request: which one is forward, each pond's published config
++ * (pond, config, net), its members (name, role, alive, address in that pond), this machine's place in it, and what
++ * this machine reaches there (/opt/fdf/var/reach/<area>.json, fdf-reach) or why that was refused. For the dashboard
++ * and frognet_monitor. Nothing is cached and nothing is guessed: a pond that does not answer says so ("error").
++ *
++ * The ponds come from /opt/fdf/var/ponds/<area>.ram (the RAM manager's address, no key; written by fdf-client and
++ * fdf-pond-add). A node joined the single-pond way (join.env, no ponds/) is one pond, forward.
++ *
++ * GET /getPonds.php -> {"forward":"<area>","me":"w:<guid>","ponds":[{area, ram, forward, error?, config?,
++ *                       me?:{role,alive,addr}, members:[{name,role,alive,ip}], reach?:{...}, refused?}]}
++ */
++header('Content-Type: application/json');
++header('Cache-Control: no-store');
++const API = '/FawcettInnovations.RINA.ram_interface.php';
++$V = '/opt/fdf/var';
++
++function ram_call($ram, $method, $q, $body = null) {
++    $ctx = stream_context_create(['http' => ['method' => $method, 'timeout' => 2, 'ignore_errors' => true,
++        'header' => "Content-Type: application/json\r\n", 'content' => $body === null ? '' : json_encode($body)]]);
++    $t = @file_get_contents('http://' . $ram . API . $q, false, $ctx);
++    if ($t === false) return null;
++    $j = json_decode($t, true);
++    return is_array($j) ? $j : null;
++}
++
++// a member's address in its pond: a node's .1 (the /24 it serves), a leaf's or a reacher's given /32
++function member_ip($f) {
++    $role = $f['role'] ?? '';
++    if ($role === 'leaf' || $role === 'participant') return explode('/', (string)($f['addr'] ?? ''))[0];
++    foreach (($f['addrs'] ?? []) as $r) {
++        $ip = (string)($r['ip'] ?? '');
++        if (($r['kind'] ?? '') === 'own' && strpos($ip, '10.') === 0 && substr($ip, -2) === '.1') return $ip;
++    }
++    if (!empty($f['subnet'])) { $b = explode('/', $f['subnet'])[0]; return substr($b, 0, strrpos($b, '.')) . '.1'; }
++    return '';
++}
++
++$forward = trim((string)@file_get_contents("$V/forward"));
++$facts = json_decode((string)@file_get_contents("$V/facts.json"), true);
++$me = 'w:' . (is_array($facts) ? ($facts['guid'] ?? '') : '');
++
++$ponds = [];
++foreach ((glob("$V/ponds/*.ram") ?: []) as $f) $ponds[basename($f, '.ram')] = trim((string)@file_get_contents($f));
++if (!$ponds) {                                   // one pond, joined before ponds existed: join.env is its RAM manager
++    $t = (string)@file_get_contents("$V/join.env");
++    if (preg_match('/^(export )?RINA_RAM=(\S+)/m', $t, $m)) { $ponds[$forward !== '' ? $forward : 'this network'] = $m[2]; if ($forward === '') $forward = 'this network'; }
++}
++
++$out = [];
++foreach ($ponds as $area => $ram) {
++    $p = ['area' => $area, 'ram' => $ram, 'forward' => $area === $forward, 'members' => []];
++    $w = ram_call($ram, 'POST', '?op=rina', ['op' => 'world']);
++    if (!$w || empty($w['ok'])) { $p['error'] = "its RAM manager at $ram did not answer"; }
++    else {
++        $p['server'] = $w['server'] ?? '';
++        foreach (($w['participants'] ?? []) as $q) {
++            $f = is_array($q['facts'] ?? null) ? $q['facts'] : [];
++            $role = (string)($f['role'] ?? 'node');
++            if ($role === 'participant' && !empty($f['reach'])) $role = 'reacher';
++            $m = ['name' => (string)($q['name'] ?? ''), 'role' => $role, 'alive' => (bool)($q['alive'] ?? false), 'ip' => member_ip($f)];
++            if (($q['ns'] ?? '') === $me) { $m['me'] = true; $p['me'] = ['role' => $role, 'alive' => $m['alive'], 'addr' => $m['ip']]; }
++            $p['members'][] = $m;
++        }
++        usort($p['members'], function ($a, $b) { return strcmp($a['name'], $b['name']); });
++        $c = ram_call($ram, 'GET', '?op=read&service=pond&variable=config&instance=net');
++        $cell = $c['cells'][0]['bag'] ?? ($c['rows'][0]['bag'] ?? null);
++        $p['config'] = is_array($cell) ? ['reach' => $cell['reach'] ?? '', 'map' => $cell['map'] ?? ''] : null;   // null: publishes none
++    }
++    $r = json_decode((string)@file_get_contents("$V/reach/$area.json"), true);
++    if (is_array($r)) $p['reach'] = ['as' => $r['addr'] ?? '', 'here' => $r['self'] ?? '', 'reach' => $r['reach'] ?? '',
++                                     'routes' => $r['routes'] ?? [], 'alias' => $r['alias'] ?? (object)[]];
++    $why = @file_get_contents("$V/reach/$area.refused");
++    if ($why !== false) $p['refused'] = trim($why);
++    $out[] = $p;
++}
++usort($out, function ($a, $b) { return ($b['forward'] <=> $a['forward']) ?: strcmp($a['area'], $b['area']); });
++echo json_encode(['forward' => $forward, 'me' => $me, 'ponds' => $out]);
+--- a/rinab/src/fdf_client.cpp
++++ b/rinab/src/fdf_client.cpp
+@@ -21,6 +21,7 @@
+ #include <string>
+ #include <thread>
+ #include <mutex>
++#include <vector>
+ #ifdef _WIN32
+ #include <winsock2.h>
+ #include <ws2tcpip.h>
+@@ -36,6 +37,9 @@
+ #include <arpa/inet.h>
+ #include <net/if.h>
+ #include <sys/sysinfo.h>
++#include <sys/wait.h>
++#include <signal.h>
++#include <cstring>
+ #include <unistd.h>
+ #endif
+ 
+@@ -102,10 +106,92 @@
+     if (is_forward() || t.empty()) return t;
+     std::string name, guid;
+     try { frogram::Json j = frogram::Json::parse(t); name = j["name"].s; guid = j["guid"].s; } catch (...) {}
+-    return "{\"role\":\"participant\",\"name\":" + frogram::Json::quote(name) + ",\"guid\":" + frogram::Json::quote(guid) + "}";
++    // [REACH_IS_A_LEAF_HERE_V1] a participant that is to REACH this network (FDF_REACH=1, from ponds/<area>.env) says so
++    // with this machine's WireGuard pubkey: the region gives it a /32 in this scope and the pond's hub peers it.
++    std::string pub; try { pub = frogram::Json::parse(t)["pubkey"].s; } catch (...) {}
++    const char* rw = getenv("FDF_REACH"); const bool reach = rw && rw[0] == '1' && !pub.empty();
++    return "{\"role\":\"participant\",\"name\":" + frogram::Json::quote(name) + ",\"guid\":" + frogram::Json::quote(guid) +
++           (reach ? ",\"pubkey\":" + frogram::Json::quote(pub) + ",\"reach\":true" : std::string()) + "}";
++}
++// [REACH_V1] (John 2026-10-10: "a failed reach closes it. No fallbacks") fdf-reach, run on every region event of this
++// pond while this machine is a participant here with FDF_REACH=1: it reads the pond's (pond, config, net), plans what
++// this machine may reach, aliases what collides (only if the network's config says map allowed), and applies it on its
++// own interface, table and chains. Exit 0 = applied, 5 = not yet (no /32 or the hub has not peered this key yet: the
++// next event runs it again), anything else = REFUSED: the reach is taken down and this session ends with it (exit 4,
++// which systemd's fdf-client@ does not restart). A reach that is not wanted (forward, or no FDF_REACH) is taken down.
++static bool reach_wanted() { const char* r = getenv("FDF_REACH"); return r && r[0] == '1' && !is_forward(); }
++static std::mutex reach_mu;
++static std::string reach_addr;                           // the /32 this pond's region gave this machine (announce answer)
++static std::string reach_bin() { const char* b = getenv("FDF_BIN"); return std::string(b && *b ? b : "/opt/fdf/bin") + "/fdf-reach"; }
++// [REACH_V1] fdf-reach is run with an argv, never through a shell: the address comes from ANOTHER network's region
++// and the area from the environment, and neither may become a command (found by review 2026-10-10: popen with quotes).
++static int reach_run(const std::string& verb, const std::string& addr, std::string& out) {
++    const char* a = getenv("RINA_AREA"); const std::string area = a ? a : "", bin = reach_bin();
++    out.clear(); int fd[2]; if (pipe(fd) != 0) { out = "pipe failed"; return 127; }
++    const pid_t p = fork();
++    if (p < 0) { close(fd[0]); close(fd[1]); out = "fork failed"; return 127; }
++    if (p == 0) {
++        dup2(fd[1], 1); dup2(fd[1], 2); close(fd[0]); close(fd[1]);
++        std::vector<char*> av = {const_cast<char*>(bin.c_str()), const_cast<char*>(verb.c_str()), const_cast<char*>(area.c_str()),
++                                 const_cast<char*>(addr.c_str()), nullptr};
++        execv(bin.c_str(), av.data()); _exit(127);
++    }
++    close(fd[1]); char b[512]; ssize_t n; while ((n = read(fd[0], b, sizeof b)) > 0) out.append(b, size_t(n)); close(fd[0]);
++    int st = 0; waitpid(p, &st, 0);
++    while (!out.empty() && out.back() == '\n') out.pop_back();
++    return WIFEXITED(st) ? WEXITSTATUS(st) : 128;
++}
++static char reach_term_msg[1024], reach_bin_c[512], reach_area_c[256], reach_refused_c[512];
++static bool reach_up = false;                            // guarded by reach_mu: a reach was applied and not taken down since
++static void reach_sync() {                              // the one place the reach is brought in line with the facts
++    std::lock_guard<std::mutex> lk(reach_mu); std::string out;
++    const char* a = getenv("RINA_AREA"); const std::string area = a ? a : "";
++    if (!getenv("FDF_REACH")) return;
++    if (!reach_wanted() || reach_addr.empty()) {           // not wanted here (forward), or no address here now: none stands
++        if (reach_up) { reach_run("down", "", out); printf("fdf-client: %s%s\n", out.empty() ? "reach taken down" : out.c_str(),
++                                                          reach_wanted() ? " (the region gives this machine no address here now)" : " (this pond is forward)"); }
++        else if (reach_wanted()) printf("fdf-client: reach into %s: the region has given this machine no address here yet\n", area.c_str());
++        reach_up = false; fflush(stdout); return; }
++    const int rc = reach_run("apply", reach_addr, out);
++    if (rc == 0) { reach_up = true; if (!out.empty()) printf("fdf-client: %s\n", out.c_str()); fflush(stdout); return; }
++    // 5 = not yet: fdf-reach took any reach down. 6 = not now: what was up still stands (reach_up unchanged), so a later
++    // switch to forward or a lost address still takes it down (found by review 2026-10-10)
++    if (rc == 5 || rc == 6) { if (rc == 5) reach_up = false; if (!out.empty()) printf("fdf-client: %s\n", out.c_str()); fflush(stdout); return; }
++    if (rc != 3) { fprintf(stderr, "fdf-client: reach into %s: fdf-reach exited %d: %s -- tried again on the next event\n", area.c_str(), rc, out.c_str()); fflush(stderr); return; }
++    std::string d; reach_run("down", "", d);
++    fprintf(stderr, "fdf-client: REACH REFUSED into %s: %s -- a failed reach closes this session\n", area.c_str(), out.c_str()); fflush(stderr);
++    if (reach_refused_c[0]) { std::ofstream o(reach_refused_c); o << out << "\n"; }     // fdf-ponds says it
++    _exit(4);
++}
++// [REACH_V1] gone is gone: when this session ends the reach goes with it. SIGTERM (systemd stop, a test's kill, or
++// fdf-reach itself after a re-plan refused the reach) runs `fdf-reach down` before exiting -- fork/exec/waitpid, all
++// async-signal-safe, with the arguments prepared at start. If fdf-reach left <area>.refused, the exit is 4 (refused).
++static void reach_on_term(int) {
++    if (reach_bin_c[0]) { pid_t p = fork(); if (p == 0) { char* av[] = {reach_bin_c, (char*)"down", reach_area_c, (char*)"", nullptr}; execv(reach_bin_c, av); _exit(127); }
++                          if (p > 0) { int st; waitpid(p, &st, 0); } }
++    const bool refused = reach_refused_c[0] && access(reach_refused_c, F_OK) == 0;
++    if (refused) { ssize_t w = write(2, reach_term_msg, strlen(reach_term_msg)); (void)w; }
++    _exit(refused ? 4 : 0);
++}
++static void session_over(int code) {                       // [REACH_V1] every path that ends this session takes the reach down
++    if (getenv("FDF_REACH")) { std::string o; reach_run("down", "", o); if (!o.empty()) fprintf(stderr, "fdf-client: %s\n", o.c_str()); }
++    fflush(stderr); fflush(stdout); _exit(code);
++}
++static void reach_arm() {                                  // once, at start, when this client may ever reach
++    if (!getenv("FDF_REACH")) return;
++    const char* a = getenv("RINA_AREA"); const std::string area = a ? a : "";
++    const char* v = getenv("FDF_VAR"); const std::string var = v && *v ? v : "/opt/fdf/var";
++    snprintf(reach_bin_c, sizeof reach_bin_c, "%s", reach_bin().c_str()); snprintf(reach_area_c, sizeof reach_area_c, "%s", area.c_str());
++    snprintf(reach_refused_c, sizeof reach_refused_c, "%s/reach/%s.refused", var.c_str(), area.c_str());
++    snprintf(reach_term_msg, sizeof reach_term_msg, "fdf-client: REACH REFUSED into %s by a re-plan (%s) -- a failed reach closes this session\n", area.c_str(), reach_refused_c);
++    unlink(reach_refused_c);
++    mkdir((var + "/reach").c_str(), 0755);
++    { std::ofstream o(var + "/reach/" + area + ".pid"); o << getpid() << "\n"; }
++    struct sigaction sa{}; sa.sa_handler = reach_on_term; sigaction(SIGTERM, &sa, nullptr); sigaction(SIGINT, &sa, nullptr);
+ }
+ #else
+ static std::string facts_path() { const char* f = getenv("FDF_FACTS"); return f && *f ? f : "facts.json"; }   // Windows: next to the exe, or FDF_FACTS
++static bool is_forward() { return true; }               // [FORWARD_IS_A_FACT_V1] a Windows member is in one pond: it is that pond's (found 2026-10-10: the Windows build had not compiled since PONDS_V1)
+ static std::string read_facts() {                       // read once at start (no inotify, no maps on Windows: a leaf's facts do not change)
+     std::ifstream in(facts_path()); if (!in) return ""; std::stringstream b; b << in.rdbuf(); std::string t = b.str();
+     while (!t.empty() && (t.back() == '\n' || t.back() == ' ' || t.back() == '\r')) t.pop_back();
+@@ -183,6 +269,16 @@
+     const char* e = getenv("RINA_RAM"); const std::string where = argc > 1 ? argv[1] : (e ? e : "");
+     const size_t c = where.rfind(':');
+     if (where.empty() || c == std::string::npos) { fprintf(stderr, "usage: fdf-client <ram-server>:<port>   (or set RINA_RAM)\n"); return 2; }
++#ifndef _WIN32
++    reach_arm();                                                                  // [REACH_V1]
++    // [PONDS_ARE_LISTED_V1] the pond's RAM manager, without its key, for whatever shows this machine's networks
++    // (getPonds.php, the dashboard, the monitor): ponds/<area>.env is 0600 (it holds the site key); this file is not
++    if (const char* a = getenv("RINA_AREA"); a && *a) {
++        const char* v = getenv("FDF_VAR"); const std::string dir = std::string(v && *v ? v : "/opt/fdf/var") + "/ponds";
++        struct stat st; if (stat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
++            const std::string f = dir + "/" + a + ".ram", t = f + ".tmp";
++            { std::ofstream o(t); o << where << "\n"; } chmod(t.c_str(), 0644); rename(t.c_str(), f.c_str()); } }
++#endif
+     // [MEMBER_IDENTITY_V1] every FrogNet node's hostname is "FrogNetHost" (and every container's may be the same), so the
+     // hostname cannot be the member's identity: the name is FDF_NAME, else facts.name, else the hostname; the namespace
+     // (the record key) is facts.guid when there is one, else the name. The announcement's `name` is what tools show.
+@@ -210,7 +306,13 @@
+                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
+             frogram::Json a; try { a = frogram::Json::parse(body); } catch (...) { fprintf(stderr, "fdf-client: unreadable answer to the announcement: %s\n", body.substr(0, 200).c_str()); return 1; }
+             if (a["ok"].b) {   // [LEAF_ADDR_FROM_THE_REGION_V1] a leaf's /32 is the region's to give: said, never chosen here
+-                if (!a["addr"].s.empty()) { printf("fdf-client: the region gave this leaf %s (its WireGuard Address)\n", a["addr"].s.c_str()); fflush(stdout); }
++                if (!a["addr"].s.empty()) {
++#ifndef _WIN32
++                    if (reach_wanted()) { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = a["addr"].s;
++                        printf("fdf-client: the region gave this machine %s here, to reach this network [REACH_V1]\n", a["addr"].s.c_str()); fflush(stdout); }
++                    else
++#endif
++                    { printf("fdf-client: the region gave this leaf %s (its WireGuard Address)\n", a["addr"].s.c_str()); fflush(stdout); } }
+                 break; }
+             if (a["error"].s != "EEXIST") { fprintf(stderr, "fdf-client: the announcement was refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str()); return 1; }
+             fprintf(stderr, "fdf-client: JOIN REFUSED by the region: %s. Not a member until that changes; waiting for the region to change (no retry loop).\n", a["why"].s.c_str());
+@@ -248,8 +350,9 @@
+                   was_fwd = f; }
+                 try { frogram::Json a = announce(s, api, ns, name);
+                       if (a["ok"].b) printf("fdf-client: facts changed, re-announced%s\n", a["addr"].s.empty() ? "" : (" (leaf " + a["addr"].s + ")").c_str()); else fprintf(stderr, "fdf-client: re-announcement refused: %s %s\n", a["error"].s.c_str(), a["why"].s.c_str());
+-                      fflush(stdout); sync_maps(s, api, have_maps); }
+-                catch (const std::exception& x) { fprintf(stderr, "fdf-client: re-announce failed: %s -- ending this session so a fresh one re-announces and re-registers\n", x.what()); fflush(stderr); _exit(1); }
++                      { std::lock_guard<std::mutex> lk(reach_mu); reach_addr = reach_wanted() ? a["addr"].s : std::string(); }   // [REACH_V1]
++                      fflush(stdout); sync_maps(s, api, have_maps); reach_sync(); }
++                catch (const std::exception& x) { fprintf(stderr, "fdf-client: re-announce failed: %s -- ending this session so a fresh one re-announces and re-registers\n", x.what()); session_over(1); }
+             }
+         }).detach();
+         // [ATTENTION_IS_A_TUPLE_V1] (PLAN-PONDS §3.4-5) a notice in this pond is the tuple (pond, attention, <writer ns>);
+@@ -263,7 +366,7 @@
+             for (;;) {
+                 std::vector<frogram::Cell> rows;
+                 try { rows = mem.read("pond", "attention", "", after, after < 0 ? 0 : 600); }
+-                catch (const std::exception& x) { fprintf(stderr, "fdf-client: attention read failed: %s -- ending this session for a fresh one\n", x.what()); fflush(stderr); _exit(1); }
++                catch (const std::exception& x) { fprintf(stderr, "fdf-client: attention read failed: %s -- ending this session for a fresh one\n", x.what()); session_over(1); }
+                 for (auto& c : rows) {
+                     if (int64_t(c.id) > after) after = int64_t(c.id);
+                     if (c.instance == ns || is_forward()) continue;
+@@ -282,14 +385,25 @@
+         // written when the region already holds them, so a steady region sees no event from this.
+         std::thread([&s, api, &have_maps] {
+             const char* e = getenv("FDF_ASSERT_SEC"); const int every = e && atoi(e) > 0 ? atoi(e) : 30;
+-            for (;;) { sleep(every); try { sync_maps(s, api, have_maps, true); } catch (const std::exception& x) { fprintf(stderr, "fdf-client: assert failed: %s -- ending this session for a fresh one\n", x.what()); fflush(stderr); _exit(1); } }
++            for (;;) { sleep(every); try { sync_maps(s, api, have_maps, true); } catch (const std::exception& x) { fprintf(stderr, "fdf-client: assert failed: %s -- ending this session for a fresh one\n", x.what()); session_over(1); } }
+         }).detach();
+ #endif
++#ifndef _WIN32
++        reach_sync();                                                            // [REACH_V1] after the join
++#endif
+         for (unsigned long long at = after;;) {                                    // hold: the session IS this machine's membership
+             const std::string t = s.call_text("POST", api + "?op=rina_block", "{\"op\":\"wait\",\"proc\":" + frogram::Json::quote("agent:" + ns) +
+                                               ",\"after\":" + std::to_string(at) + "}", 3.0e8);
+             for (size_t p = 2; p < t.size();) { const size_t tab = t.find('\t', p), nl = t.find('\n', p); if (tab == std::string::npos || nl == std::string::npos) break;
+                 const unsigned long long n = std::stoull(t.substr(p, tab - p)); if (n > at) at = n; p = nl + 1; }
++#ifndef _WIN32
++            reach_sync();                                                        // [REACH_V1] every region event
++#endif
+         }
+-    } catch (const std::exception& x) { fprintf(stderr, "fdf-client: the session to %s ended: %s\n", where.c_str(), x.what()); return 1; }
++    } catch (const std::exception& x) {
++        fprintf(stderr, "fdf-client: the session to %s ended: %s\n", where.c_str(), x.what());
++#ifndef _WIN32
++        if (getenv("FDF_REACH")) { std::string o; reach_run("down", "", o); if (!o.empty()) fprintf(stderr, "fdf-client: %s\n", o.c_str()); }   // gone is gone
++#endif
++        return 1; }
+ }
+--- a/rinab/src/fdf_version.hpp
++++ b/rinab/src/fdf_version.hpp
+@@ -1,4 +1,4 @@
+ // fdf_version.hpp -- [FDF_VERSION_V1] one build tag, said by every program at start and answered by the region
+ // ({"op":"version"}, and as "server" in every participants reply), so nobody has to run a command to know what runs.
+ #pragma once
+-#define FDF_BUILD_TAG "fdf-2026-10-10-r19-a11"
++#define FDF_BUILD_TAG "fdf-2026-10-10-r19-a12"
+--- a/rinab/src/fdf_where.cpp
++++ b/rinab/src/fdf_where.cpp
+@@ -6,7 +6,8 @@
+ // One cell per member, owned by that member (its ns, as fdf-client announces it), so the region removes it when the
+ // member's session ends -- a service on a machine that is gone is gone. Readers (the phone's Communicator, fdf-monitor)
+ // read (pond, where) and take the services they need; nobody types an address.
+-//   usage: fdf-where <service> key=value [key=value ...]   e.g. fdf-where comms ram=10.250.250.1:8800 media=10.250.250.1:8994
++//   usage: fdf-where <service> key=value [key=value ...]   e.g. fdf-where comms ram=self:8800 media=self:8994
++//          (self:<port> is written as w:<this machine's guid>:<port> -- an identity, resolved by each reader in its scope)
+ //          fdf-where <service> --clear                     this member no longer runs <service>
+ //          fdf-where                                       prints this member's cell
+ //   RINA_RAM = the pond's RAM manager (as fdf-client has it); FDF_FACTS = this machine's facts (name, guid)
+@@ -72,7 +73,13 @@
+             for (int i = 2; i < argc; ++i) {
+                 std::string a = argv[i]; size_t q = a.find('=');
+                 if (q == std::string::npos || q == 0) { fprintf(stderr, "fdf-where: '%s' is not key=value (nothing written)\n", a.c_str()); return 2; }
+-                o += (first ? "" : ",") + frogram::Json::quote(a.substr(0, q)) + ":" + frogram::Json::quote(a.substr(q + 1)); first = false;
++                // [IDENTITY_IN_TUPLES_V1] "self:<port>" is this member's endpoint by identity, w:<guid>:<port>: a reader
++                // resolves the guid to the address it has in the reader's scope (the region's `resolve`), so the cell
++                // means the same machine in every pond that reads it. An address written here means one machine only
++                // where that address is unique.
++                std::string v = a.substr(q + 1);
++                if (v.compare(0, 5, "self:") == 0) v = ns + ":" + v.substr(5);
++                o += (first ? "" : ",") + frogram::Json::quote(a.substr(0, q)) + ":" + frogram::Json::quote(v); first = false;
+             }
+             svc[service] = o + "}";
+         }
+--- a/rinab/src/rina_region.cpp
++++ b/rinab/src/rina_region.cpp
+@@ -364,6 +364,15 @@
+     rmem::Parked* p = sp->take(); if (!p) return;
+     rina_answer(p->cont, wait_answer(m, p->who, sp, p->arg)); delete p;
+ }
++// [PREFIX_OVERLAP_REFUSED_V1] a member's served /24s, as "10.A.B": facts.addrs rows of kind "own" whose ip is 10.x.y.1,
++// and facts.subnet. Shared by the overlap check (announce) and the identity resolver (resolve).
++static std::set<std::string> served_prefixes(const Json& fj) {
++    std::set<std::string> out;
++    for (auto& r : fj["addrs"].a) { const std::string ip = r["ip"].s; if (r["kind"].s == "own" && ip.compare(0, 3, "10.") == 0 && ip.size() > 2 && ip.compare(ip.size() - 2, 2, ".1") == 0) out.insert(ip.substr(0, ip.rfind('.'))); }
++    const std::string sub = fj["subnet"].s; if (!sub.empty() && sub.find('/') != std::string::npos) { const std::string b = sub.substr(0, sub.find('/')); out.insert(b.substr(0, b.rfind('.'))); }
++    return out;
++}
++
+ std::string resident(const std::string& op, const Json& in) {
+     frogram::MemoryApi& m = region_memory();
+     // [AGENT_REASSERTS_V1] (experiment 5b) what a machine owns in the region, as stored, so that it can write it back
+@@ -585,11 +594,7 @@
+         // whose ip is 10.x.y.1, and facts.subnet) may not overlap a LIVE member's. Refused with the holder's name, so
+         // two islands with the same addressing never both route it; the joiner stays out and says so.
+         if (!facts.empty()) {
+-            auto served = [](const Json& fj) {
+-                std::set<std::string> out;
+-                for (auto& r : fj["addrs"].a) { const std::string ip = r["ip"].s; if (r["kind"].s == "own" && ip.compare(0, 3, "10.") == 0 && ip.size() > 2 && ip.compare(ip.size() - 2, 2, ".1") == 0) out.insert(ip.substr(0, ip.rfind('.'))); }
+-                const std::string sub = fj["subnet"].s; if (!sub.empty() && sub.find('/') != std::string::npos) { const std::string b = sub.substr(0, sub.find('/')); out.insert(b.substr(0, b.rfind('.'))); }
+-                return out; };
++            auto served = served_prefixes;
+             std::set<std::string> mine; try { mine = served(Json::parse(facts)); } catch (...) {}
+             if (!mine.empty()) for (auto& r : scan(m, "ann", "")) {
+                 if (r.rest == ns || r.value.empty() || get(m, "node", r.rest).empty()) continue;      // me, or not alive
+@@ -610,7 +615,10 @@
+         std::string given;
+         if (!facts.empty()) {
+             Json fj; try { fj = Json::parse(facts); } catch (...) {}
+-            if (fj["role"].s == "leaf") {
++            // [REACH_IS_A_LEAF_HERE_V1] a participant that asks to reach this network ("reach":true, a WireGuard pubkey)
++            // needs an address in THIS scope, exactly as a leaf does: the same /32 rule, the same session binding.
++            const bool reacher = fj["role"].s == "participant" && fj["reach"].b;
++            if (fj["role"].s == "leaf" || reacher) {
+                 if (fj["addr"].type != Json::Null)
+                     return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"a leaf's address is the region's to give: facts.addr is not the member's to say (leave it out)\"}";
+                 const std::string sid = sess_key(rina_session_id());
+@@ -661,6 +669,31 @@
+         }
+         return out + "]}";
+     }
++    if (op == "resolve") {
++        // [IDENTITY_IN_TUPLES_V1] tuples name machines by identity (w:<guid>), never by address: an address means one
++        // machine only inside one addressing scope, and a tuple is read from others. The resolver gives the address the
++        // identity has IN THIS POND: a node its own .1 (the /24 it serves), a leaf the /32 the region gave it. A member
++        // that is not alive has no address (gone is gone); a participant has none in this pond (no routes here).
++        // in {"ids":["w:<guid>",...]} -> {"resolved":{"w:<guid>":{"addr","name","role"} | {"error","why"}}}
++        std::string out = std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\",\"resolved\":{"; bool f = true;
++        for (auto& idj : in["ids"].a) {
++            const std::string id = idj.s; std::string one;
++            const std::string row = get(m, "ann", id);
++            if (row.empty() || get(m, "node", id).empty()) one = "{\"error\":\"ENOENT\",\"why\":\"no alive member " + id + " in this pond\"}";
++            else {
++                Json a; try { a = Json::parse(row); } catch (...) {}
++                const Json& fj = a["facts"]; const std::string role = fj["role"].s, name = a["name"].s;
++                std::string addr;
++                if (role == "leaf") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }
++                else if (role == "participant") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }   // a reacher's /32
++                else { auto sp = served_prefixes(fj); if (!sp.empty()) addr = *sp.begin() + ".1"; }
++                if (addr.empty()) one = "{\"error\":\"ENOADDR\",\"why\":" + Json::quote(name + " (" + (role.empty() ? std::string("no role") : role) + ") has no address in this pond") + ",\"name\":" + Json::quote(name) + "}";
++                else one = "{\"addr\":" + Json::quote(addr) + ",\"name\":" + Json::quote(name) + ",\"role\":" + Json::quote(role.empty() ? "node" : role) + "}";
++            }
++            out += (f ? "" : ",") + Json::quote(id) + ":" + one; f = false;
++        }
++        return out + "}}";
++    }
+     if (op == "participants") {
+         std::string out = std::string("{\"ok\":true,\"server\":\"") + FDF_BUILD_TAG + "\",\"participants\":["; bool f = true;
+         for (auto& r : scan(m, "ann", "")) {
+@@ -980,13 +1013,52 @@
+               fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] registered '%s' -> %s in the mapping region at %s\n", area, ip.c_str(), mr.c_str()); }
+         catch (const std::exception& e) { fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] at %s: %s\n", mr.c_str(), e.what()); } }
+ }
++// [NET_CONFIG_IS_A_TUPLE_V1] (John 2026-10-10: "a well-known configuration tuple per network") what this network allows
++// an outside member: (pond, config, net), written here at start from net.json (RINA_NET_CONFIG, default
++// /opt/fdf/etc/net.json) and only here -- the network API can neither write nor remove it
++// ([NET_CONFIG_IS_THE_RAM_MANAGERS_V1]). reach: "none" (its RAM only), "listed" (only the addresses its where cells
++// name), "all" (every /24 its members serve); map: "allowed" (a reader whose prefixes collide may alias this network
++// 1:1) or "refused". No file: reach none, map refused, and it says so. A file that does not parse, or a value outside
++// those: nothing is published and it says why -- a reader then finds no config and its reach fails, as it should.
++// hub and leaves are this network's fixed overlay ranges (every pond the same: John 2026-10-10, no index; a reader
++// whose own ranges are the same aliases them), published so readers take them from the network, never from a constant.
++static void publish_net_config() {
++    const char* e = getenv("RINA_NET_CONFIG"); const std::string path = e && *e ? e : "/opt/fdf/etc/net.json";
++    std::string reach = "none", map = "refused", ram, why;
++    if (FILE* f = fopen(path.c_str(), "r")) {
++        std::string t; char b[4096]; size_t n; while ((n = fread(b, 1, sizeof b, f)) > 0) t.append(b, n); fclose(f);
++        Json j; try { j = Json::parse(t); } catch (const std::exception& x) { why = std::string("does not parse: ") + x.what(); }
++        if (why.empty() && j.type != Json::Obj) why = "is not a JSON object";
++        if (why.empty()) {
++            if (j["reach"].type != Json::Null) reach = j["reach"].s;
++            if (j["map"].type != Json::Null) map = j["map"].s;
++            ram = j["ram"].s;
++            if (reach != "none" && reach != "listed" && reach != "all") why = "reach is \"" + reach + "\" (none, listed or all)";
++            else if (map != "allowed" && map != "refused") why = "map is \"" + map + "\" (allowed or refused)";
++        }
++        if (!why.empty()) { fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] %s %s: NO network config published (outsiders' reaches fail)\n", path.c_str(), why.c_str()); return; }
++    } else fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no %s: reach none, map refused\n", path.c_str());
++    const char* area = getenv("RINA_MAP_AREA");
++    const std::string bag = std::string("{\"area\":") + Json::quote(area ? area : "") + ",\"reach\":" + Json::quote(reach) + ",\"map\":" + Json::quote(map) +
++        ",\"hub\":\"10.253.253.254\",\"edges\":\"10.253.0.0/16\",\"leaves\":\"10.252.0.0/16\"" + (ram.empty() ? "" : ",\"ram\":" + Json::quote(ram)) +
++        ",\"server\":\"" + FDF_BUILD_TAG + "\"}";
++    try {
++        frogram::MemoryApi& m = rina_resident_memory();
++        std::vector<uint64_t> old; for (auto& c : m.read("pond", "config", "net")) old.push_back(c.id);
++        const uint64_t id = m.write("pond", "config", "net", bag);
++        for (uint64_t o : old) if (o != id) m.remove(o);
++        fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = %s\n", bag.c_str());
++    } catch (const std::exception& x) { fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] could not write the network config: %s\n", x.what()); }
++}
+ // [HOST_ANNOUNCES_ITSELF_V1] superseded (John, 2026-10-07: no direct propagation between machines). Called by the host
+ // once it is listening; all it does now is register its own LISP mapping ([RAM_MANAGER_REGISTERS_ITSELF_V1]). Members
+ // that lost it learn it is back by waiting on the mapping ([MAP_WATCH_V1]).
+ void rina_host_listening(const std::string& listen_on) {
+     fprintf(stderr, "rina-host: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
+-    if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping")   // the mapping host is not an area's
++    if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping") {   // the mapping host is not an area's
++        publish_net_config();
+         std::thread(register_self, listen_on).detach();
++    }
+ }
+ 
+ // [SESSION_PEER_V1] the server tells the region where each session arrives from, once, at "session up"
+--- a/rinab/tests/hub_oracle.py
++++ b/rinab/tests/hub_oracle.py
+@@ -119,4 +119,13 @@
+ want, owner, notes = desired([hub, s5, s7], [M("10.170.170.0/24", "hubA")], "hubA")
+ check("10.170.170.0/24" in want["PUB-s7"]["allowed"] and "10.250.250.0/24" not in want["PUB-s5"]["allowed"], "8d child's own registration is enough; the parent without a mapping gets no /24")
+ 
++# 9 [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network (reach:true, the /32 the region gave it) is peered
++#   as a leaf is; a participant that only reads (no reach) is not peered at all
++r = P(1, "n", "g-n", None, "PUB-n", role="participant", addr="10.252.0.3/32"); r["facts"]["reach"] = True
++want, owner, notes = desired([r], [], "hubA")
++check(want.get("PUB-n", {}).get("allowed") == {"10.252.0.3/32"} and want["PUB-n"]["routes"] == {"10.252.0.3/32": ""}, "9 a reacher: its /32 is allowed-ips and an on-link route, like a leaf")
++q = P(1, "n", "g-n", None, "PUB-n", role="participant", addr="10.252.0.3/32")
++want, owner, notes = desired([q], [], "hubA")
++check("PUB-n" not in want, "9c control: a participant without reach is not peered")
++
+ print("RESULT " + ("FAIL: %d" % fails if fails else "PASS")); sys.exit(1 if fails else 0)
+--- /dev/null
++++ b/rinab/tests/net_config_test.cpp
+@@ -0,0 +1,35 @@
++// net_config_test RINA_RAM_HOST:PORT EXPECT_REACH EXPECT_MAP -- [NET_CONFIG_IS_A_TUPLE_V1] [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
++// over FNW1, as every member speaks: (pond, config, net) is there with the expected reach and map; a member's write of
++// it is refused; a member's remove of it removes nothing; an ordinary pond cell is still written and removed.
++#include "frogram.hpp"
++#include <cstdio>
++#include <cstdlib>
++#include <string>
++
++static int fails = 0;
++static void check(bool ok, const std::string& w) { printf("%s %s\n", ok ? "ok  " : "FAIL", w.c_str()); if (!ok) ++fails; }
++
++int main(int argc, char** argv) {
++    if (argc != 4) { fprintf(stderr, "usage: net_config_test HOST:PORT EXPECT_REACH EXPECT_MAP\n"); return 2; }
++    const std::string where = argv[1]; const size_t c = where.rfind(':');
++    static const char* API = "/FawcettInnovations.RINA.ram_interface.php";
++    frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), API); frogram::Memory m(s, API);
++    auto cells = m.read("pond", "config", "net");
++    check(cells.size() == 1, "one (pond, config, net) cell: " + std::to_string(cells.size()));
++    if (cells.empty()) return 1;
++    const uint64_t id = cells[0].id;
++    check(cells[0].bag["reach"].s == argv[2], std::string("reach = ") + cells[0].bag["reach"].s);
++    check(cells[0].bag["map"].s == argv[3], std::string("map = ") + cells[0].bag["map"].s);
++    check(cells[0].bag["hub"].s == "10.253.253.254" && cells[0].bag["leaves"].s == "10.252.0.0/16", "hub and leaves published");
++    bool refused = false; std::string why;
++    try { m.write("pond", "config", "net", "{\"reach\":\"all\",\"map\":\"allowed\"}"); } catch (const std::exception& e) { refused = true; why = e.what(); }
++    check(refused, "a member's write of (pond, config) is refused: " + why);
++    m.remove(id);
++    auto after = m.read("pond", "config", "net");
++    check(after.size() == 1 && after[0].id == id && after[0].bag["reach"].s == argv[2], "a member's remove of it removes nothing");
++    const uint64_t w = m.write("pond", "where", "w:net-config-test", "{\"from\":\"t\"}");
++    m.remove(w);
++    check(m.read("pond", "where", "w:net-config-test").empty(), "an ordinary pond cell is still written and removed");
++    printf("%s\n", fails ? "RESULT FAIL" : "RESULT PASS net config: published, read-only to members");
++    return fails ? 1 : 0;
++}
+--- /dev/null
++++ b/rinab/tools/apply_net_config.py
+@@ -0,0 +1,28 @@
++#!/usr/bin/env python3
++"""[NET_CONFIG_IS_THE_RAM_MANAGERS_V1] (pond, config, net) -- the network's well-known configuration (what outsiders may
++reach, whether a colliding reader may map it, its hub and leaf block) -- is written only by the RAM manager itself, from
++its net.json at start (rina_region.cpp). The network API reads it like any cell but may neither write nor remove it: a
++member that could rewrite it could open the network to itself.
++Usage: apply_net_config.py <ram_server.cpp> <ram_memory.hpp>"""
++import sys
++srv, mem = sys.argv[1], sys.argv[2]
++
++s = open(srv).read()
++old = '''        if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
++        out = Reply{200, "{\\"ok\\":true,\\"id\\":" + std::to_string(MEM.write('''
++new = '''        if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
++        if (in["service"].s == "pond" && in["variable"].s == "config") {   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
++            out = bad(403, "(pond, config) is the RAM manager's: it is written from its net.json, never over the network"); return true; }
++        out = Reply{200, "{\\"ok\\":true,\\"id\\":" + std::to_string(MEM.write('''
++if "NET_CONFIG_IS_THE_RAM_MANAGERS_V1" not in s:
++    assert s.count(old) == 1, "write pattern not found in " + srv
++    s = s.replace(old, new); open(srv, "w").write(s)
++
++m = open(mem).read()
++old = '''                if (!private_too && !r->service.empty() && r->service[0] == '#') continue;'''
++new = old + '''
++                if (!private_too && r->service == "pond" && r->variable == "config") continue;   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]'''
++if "NET_CONFIG_IS_THE_RAM_MANAGERS_V1" not in m:
++    assert m.count(old) == 1, "remove pattern not found in " + mem
++    m = m.replace(old, new); open(mem, "w").write(m)
++print("ok")
+--- a/rinab/tools/build.sh
++++ b/rinab/tools/build.sh
+@@ -42,6 +42,7 @@
+ python3 tools/apply_keepalive.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_20S_V1] both ends: silent loss = dead at 20 s
+ python3 tools/apply_keepalive_5s.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_5S_V1] after the 20 s block it replaces
+ python3 tools/apply_session_epoch.py $P/ramsrv/ram_server.cpp
++python3 tools/apply_net_config.py $P/ramsrv/ram_server.cpp $P/ribbit_cpp/ram_memory.hpp   # [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+ tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_rina.cpp
+ $CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp -o build/obj/frogram.o
+ $CXX -std=c++20 $W -Werror -Isrc -Isrc/door -I$P/ribbit_cpp -c src/rina_region.cpp -o build/obj/rina_region.o
+--- a/rinab/tools/build_rlite.sh
++++ b/rinab/tools/build_rlite.sh
+@@ -19,6 +19,7 @@
+ g++ $F tests/client_coalesce.cpp $L -o build/bin/client-coalesce               # [CLIENT_COALESCE_LOCKLESS_V1] proof
+ g++ $F tests/prime_dedupe.cpp $L -o build/bin/prime-dedupe                   # [PRIMED_TEMPLATES_V1] one exemplar per template
+ g++ $F tests/map_prefix.cpp $L -o build/bin/map-prefix                     # [MAP_PREFIX_LOCATOR_SET_V1] proof: prefix + locator set, session-bound, map-notify
++g++ $F tests/net_config_test.cpp $L -o build/bin/net-config-test               # [NET_CONFIG_IS_A_TUPLE_V1] proof: published, read-only to members
+ g++ $F tests/rmem_probe.cpp $L -o build/bin/rmem-probe                     # [RINA_MEMORY_V1] a debugging aid
+ g++ $F -fPIC -shared -I"$U/include" src/librina_region.cpp $P/ribbit_cpp/frogram.cpp -llz4 -lcrypto -lresolv -o build/lib/librina-api.so
+ g++ $F src/rina_node.cpp $L -o build/bin/rlite-uipcps
+--- /dev/null
++++ b/rinab/tools/build_static_clients.sh
+@@ -0,0 +1,15 @@
++#!/bin/bash
++# build_static_clients.sh -- [STATIC_CLIENTS_V1] the x86-64 member programs as fully static binaries in build/static
++# (the node and droplet bundles' /opt/fdf/bin), the same list and flags as build_arm64.sh's. Until 2026-10-10 these
++# were compiled by hand; make_deliverables.sh and the netns tests read build/static. Run after tools/build.sh.
++set -eu; cd "$(dirname "$0")/.."; P=build/platform; L=/usr/lib/x86_64-linux-gnu; mkdir -p build/static
++CXX="g++ -O2 -pthread -D_GNU_SOURCE"
++$CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp -o build/static/frogram.o
++for t in fdf_client:fdf-client fdf_participants:fdf-participants ram_tool:ram fdf_events:fdf-events fdf_attention:fdf-attention fdf_where:fdf-where; do
++  $CXX -std=c++20 -I$P/ribbit_cpp -Isrc src/${t%%:*}.cpp build/static/frogram.o $L/liblz4.a $L/libcrypto.a -lresolv -static -o build/static/${t##*:} 2>&1 \
++    | grep -v "statically linked applications requires at runtime\|in function" || true
++done
++rm -f build/static/frogram.o
++for b in fdf-client fdf-participants ram fdf-events fdf-attention fdf-where; do
++  file build/static/$b | grep -q "statically linked" || { echo "build_static_clients: build/static/$b is not static" >&2; exit 1; }; done
++echo "BUILD OK: build/static/{fdf-client,fdf-participants,ram,fdf-events,fdf-attention,fdf-where} (static x86-64)"
+--- a/rinab/tools/build_static_host.sh
++++ b/rinab/tools/build_static_host.sh
+@@ -6,4 +6,5 @@
+ set -eu; cd "$(dirname "$0")/.."; L=/usr/lib/x86_64-linux-gnu
+ g++ -static -o build/bin/rina-host-static build/obj/ram_server_rina.o build/obj/rina_region.o build/obj/ctl_host.o build/obj/frogram.o \
+     $L/libjemalloc.a $L/liblz4.a $L/libcrypto.a -lresolv -lpthread -ldl 2>&1 | grep -v "statically linked applications requires at runtime\|in function" || true
+-file build/bin/rina-host-static | grep -q "statically linked" && echo "BUILD OK: build/bin/rina-host-static (static)"
++mkdir -p build/static && cp build/bin/rina-host-static build/static/rina-host   # the netns tests run build/static/rina-host
++file build/bin/rina-host-static | grep -q "statically linked" && echo "BUILD OK: build/bin/rina-host-static (static), and build/static/rina-host"
+--- a/rinab/tools/fdf-hub
++++ b/rinab/tools/fdf-hub
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-10-r19-a11"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19-a12"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+@@ -139,7 +139,10 @@
+     members = []
+     for p in participants:
+         f = p.get("facts") or {}
+-        if not p.get("alive") or f.get("role") not in ("node", "leaf"): continue
++        # [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network has a /32 here (the region gave it) and is
++        # peered as a leaf is: its /32 on-link, nothing else carried
++        reacher = f.get("role") == "participant" and f.get("reach") is True and f.get("addr")
++        if not p.get("alive") or (f.get("role") not in ("node", "leaf") and not reacher): continue
+         if not f.get("pubkey"): notes.append("no pubkey: %s" % f.get("name")); continue
+         members.append((int(p.get("id", 0)), p, f))
+     members.sort(key=lambda m: m[0])                                  # lowest announce id = first claimant
+--- /dev/null
++++ b/rinab/tools/netns-reach-test.sh
+@@ -0,0 +1,210 @@
++#!/bin/bash
++# netns-reach-test.sh -- [REACH_V1] [NET_CONFIG_IS_A_TUPLE_V1] [IDENTITY_IN_TUPLES_V1] a node reaching a pond it is a
++# PARTICIPANT in, as that pond's (pond, config, net) allows, with a 1:1 alias for what collides with its own network.
++# Harness: netns-ponds-daemon-test.sh's (the real daemon, fdf-facts, fdf-client per pond, fdf-hub per pond).
++#   ha 198.18.0.1  pond A: rina-host, fdf-hub                       (no net.json: reach none)
++#   hb 198.18.0.2  pond B: rina-host (net.json reach all, map allowed), fdf-hub
++#   hc 198.18.0.4  pond C: rina-host (net.json reach all, map REFUSED), fdf-hub
++#   hd 198.18.0.9  pond D: rina-host, NO net.json                   (reach none)
++#   a  198.18.0.5  node in A, serves 10.7.7.0/24
++#   b  198.18.0.6  node in B, serves 10.8.8.0/24
++#   c  198.18.0.7  node in B, serves 10.7.7.0/24 -- the SAME /24 as a: two networks that collide
++#   d  198.18.0.8  node in C, serves 10.7.7.0/24
++#   n  198.18.0.3  node, forward in A, serves 10.3.3.0/24; participant in B, C and D with FDF_REACH=1
++#   e  198.18.0.11 joins A LATER serving 10.8.8.0/24 (b's /24 in B): n's reach must re-plan and alias it
++#   lf 198.18.0.10 a leaf (the phone) in A: A gives it 10.252.0.1 -- the address B gives n [REACH_SELF_ALIAS_V1]
++# usage: tools/netns-reach-test.sh [RINAB_DIR]
++set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
++PK=${PKG_FDF:-$H/../../pkg-full/opt/fdf}; FDFPY=$H/../../repo/opt/fdf/lib/python
++T=${T:-/tmp/claude-0/netns-reach}; rm -rf $T; mkdir -p $T/ha $T/hb $T/hc $T/hd $T/a $T/b $T/c $T/d $T/n $T/bin
++export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
++export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
++API=/FawcettInnovations.RINA.ram_interface.php
++RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840; RAMC=198.18.0.4:8840; RAMD=198.18.0.9:8840
++FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
++ms() { date +%s%3N; }
++NSS="ha hb hc hd n a b c d lf e"
++cleanup() { for n in $NSS; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
++            for n in $NSS; do ip netns pids $n 2>/dev/null | xargs -r kill -9 2>/dev/null; ip netns del $n 2>/dev/null; done
++            ip link del br-inet 2>/dev/null; }
++trap cleanup EXIT; cleanup
++cp $B/fdf-events $B/fdf-client $B/fdf-attention $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $PK/bin/fdf-reach $T/bin/
++cat > $T/bin/capability-probe <<'EOF'
++#!/bin/sh
++echo '{"cores":4,"cpu_mhz":2000,"cpu_bench_total":12000,"mem_total_kb":8388608,"mem_available_kb":4000000,"disk_class":"ssd","mysql":true,"mysql_running":true,"ffmpeg":true,"libvpx":true,"lan_ip":"","loadavg":{"1":0.1,"5":0.1,"15":0.1},"temps_c":[]}'
++EOF
++chmod +x $T/bin/capability-probe
++cat > $T/stamp.py <<'EOF'
++import sys, time
++for l in sys.stdin:
++    sys.stdout.write("%d %s" % (int(time.time() * 1000), l)); sys.stdout.flush()
++EOF
++cat > $T/echo.py <<'EOF'
++import http.server, sys
++NAME = sys.argv[1]
++class H(http.server.BaseHTTPRequestHandler):           # answers who it is and who asked: "<name> <client ip>"
++    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(("%s %s\n" % (NAME, self.client_address[0])).encode())
++    def log_message(self, *a): pass
++http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
++EOF
++# ---- the Internet
++ip link add br-inet type bridge && ip link set br-inet up
++for x in "ha 1" "hb 2" "hc 4" "hd 9" "n 3" "a 5" "b 6" "c 7" "d 8" "lf 10" "e 11"; do set -- $x; ip netns add $1; ip netns exec $1 ip link set lo up
++  ip link add v-$1 type veth peer name v-$1-b; ip link set v-$1 netns $1; ip link set v-$1-b master br-inet up
++  ip netns exec $1 ip addr add 198.18.0.$2/24 dev v-$1; ip netns exec $1 ip link set v-$1 up; done
++# ---- ponds: a RAM manager (with its net.json, or none), its map site, and (hub=1) its hub
++pond() { local h=$1 ram=$2 area=$3 key=$4 port=$5 netjson=$6 hub=$7
++  [ -n "$netjson" ] && echo "$netjson" > $T/$h/net.json
++  ip netns exec $h env -u RINA_MAP_AREA RINA_NET_CONFIG=$T/$h/net.json RINA_REGION_FILE=$T/$h/area.perm $B/rina-host --listen $ram --api $API > $T/$h/host.log 2>&1 &
++  sleep 1; ip netns exec $h curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$area\",\"key\":\"$key\"}" "http://$ram$API?op=rina" > /dev/null
++  [ "$hub" = 1 ] || return 0
++  ip netns exec $h env RINA_RAM=$ram FDF_FACTS=$T/$h/facts.json $B/fdf-client > $T/$h/client.log 2>&1 &
++  sleep 0.5
++  ip netns exec $h env RINA_RAM=$ram FDF_BIN=$B python3 $H/tools/fdf-hub --area $area --iface wg-$h --endpoint ${ram%:*}:$port --name hub-$area \
++     --key $T/$h/wg.key --listen $port --facts $T/$h/facts.json > $T/$h/hub.log 2>&1 &
++  sleep 2; ip netns exec $h sysctl -q -w net.ipv4.ip_forward=1; }
++pond ha $RAMA pondA keyA 51820 "" 1
++pond hb $RAMB pondB keyB 51821 '{"reach":"all","map":"allowed"}' 1
++pond hc $RAMC pondC keyC 51822 '{"reach":"all","map":"refused"}' 1
++pond hd $RAMD pondD keyD 51823 "" 0
++for h in ha hb hc hd; do grep NET_CONFIG $T/$h/host.log | sed "s/^/    $h: /"; done
++# ---- served /24s, default routes, echo servers that say who they are
++for x in "n 10.3.3.1" "a 10.7.7.1" "b 10.8.8.1" "c 10.7.7.1" "d 10.7.7.1"; do set -- $x
++  ip netns exec $1 ip link add lan0 type veth peer name lan0p; ip netns exec $1 ip link set lan0 up; ip netns exec $1 ip link set lan0p up
++  ip netns exec $1 ip addr add $2/24 dev lan0; ip netns exec $1 ip route add default via 198.18.0.1 dev v-$1
++  ip netns exec $1 sysctl -q -w net.ipv4.ip_forward=1; ip netns exec $1 python3 $T/echo.py $1 > /dev/null 2>&1 &
++  : > $T/$1/leases; done
++BINDS="etc:/etc var-lib-frognet:/var/lib/frognet var-lib-frognet-tunnel:/var/lib/frognet-tunnel run-frognet:/run/frognet
++       run-wireguard:/run/wireguard opt-fdf-var:/opt/fdf/var"
++for b in $BINDS; do mkdir -p ${b#*:}; done
++fsnode() { local n=$1 ram=$2 area=$3 key=$4; local F=$T/$n/fs
++  for b in $BINDS; do mkdir -p $F/${b%%:*}; done
++  cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
++  printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid
++  echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
++  printf '# netns reach test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
++  printf 'export RINA_RAM=%s\n' $ram > $F/opt-fdf-var/join.env; printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' $area $key > $F/opt-fdf-var/site.env
++  (umask 077; wg genkey > $F/var-lib-frognet-tunnel/node_private.key); wg pubkey < $F/var-lib-frognet-tunnel/node_private.key > $F/var-lib-frognet-tunnel/node_public.key; }
++NSF() { local n=$1; shift; local F=$T/$n/fs m=""
++  for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
++  ip netns exec $n env -u RINA_RAM -u RINA_AREA -u RINA_SITE_KEY FDF_UPLINK_PING=198.18.0.1 FDF_BIN=$T/bin \
++     FDF_FACTS=/opt/fdf/var/facts.json FDF_LEASES=$T/$n/leases FDF_PY=$FDFPY FROGNET_CAPABILITY_PROBE=$T/bin/capability-probe \
++     FROGNET_REGION_HOSTS=/var/lib/frognet/region_hosts PYTHONPATH=$FN \
++     sh -c "$m cd $FN && exec \"\$@\"" sh "$@"; }
++daemon() { local n=$1
++  NSF $n python3 -u -m internet_tunnels_v3 2>&1 | python3 -u $T/stamp.py > $T/$n/daemon.log &
++  for i in $(seq 40); do grep -q '"name"' $T/$n/fs/opt-fdf-var/facts.json 2>/dev/null && break; sleep 0.25; done
++  NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 & }
++client() { local n=$1 ram=$2 area=$3 key=$4 log=$5; shift 5     # one pond's session (fdf-client@<area> on a node)
++  NSF $n env RINA_RAM=$ram RINA_AREA=$area RINA_SITE_KEY=$key FDF_FORWARD_FILE=/opt/fdf/var/forward FDF_ATTENTION_DIR=/opt/fdf/var/attention \
++      FDF_NAME=$n "$@" $T/bin/fdf-client $ram 2>&1 | python3 -u $T/stamp.py > $T/$n/$log & }
++fsnode a $RAMA pondA keyA; daemon a; client a $RAMA pondA keyA client.log
++fsnode b $RAMB pondB keyB; daemon b; client b $RAMB pondB keyB client.log
++fsnode c $RAMB pondB keyB; daemon c; client c $RAMB pondB keyB client.log
++fsnode d $RAMC pondC keyC; daemon d; client d $RAMC pondC keyC client.log
++fsnode n $RAMA pondA keyA; F=$T/n/fs/opt-fdf-var; mkdir -p $F/ponds
++for x in "pondA $RAMA keyA" "pondB $RAMB keyB" "pondC $RAMC keyC" "pondD $RAMD keyD"; do set -- $x
++  printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\nFDF_REACH=1\n' $2 $1 $3 > $F/ponds/$1.env; done
++echo pondA > $F/forward
++daemon n
++client n $RAMA pondA keyA client-A.log
++route() { ip netns exec $1 ip -4 route | grep -q "^$2"; }
++ok=1; for i in $(seq 120); do route n 10.7.7.0/24 && route a 10.3.3.0/24 && route b 10.7.7.0/24 && route c 10.8.8.0/24 && { ok=0; break; }; sleep 0.5; done
++echo "=== (1) the networks (after $((i/2)) s)"
++check $ok "pond A: n and a route each other; pond B: b and c route each other (c serves 10.7.7.0/24, as a does in A)"
++# ---- a leaf in A (as netns-region-loop-test.sh's): A gives it 10.252.0.1, which B will give n
++LPUB=$( (umask 077; wg genkey > $T/lf.key); wg pubkey < $T/lf.key)
++ip netns exec lf wireguard-go wg-lf >/dev/null 2>&1; for i in $(seq 100); do ip netns exec lf wg show wg-lf >/dev/null 2>&1 && break; sleep 0.05; done
++ip netns exec lf wg set wg-lf private-key $T/lf.key; ip netns exec lf ip link set wg-lf up
++printf '{"role":"leaf","name":"phone","guid":"g-phone","pubkey":"%s"}\n' "$LPUB" > $T/lf.json
++ip netns exec lf env RINA_RAM=$RAMA FDF_FACTS=$T/lf.json $B/fdf-client > $T/lf-client.log 2>&1 &
++for i in $(seq 100); do grep -q "gave this leaf" $T/lf-client.log && break; sleep 0.05; done
++LADDR=$(grep -m1 -o "gave this leaf [0-9./]*" $T/lf-client.log | awk '{print $4}'); LIP=${LADDR%/32}
++HUBPUB=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pubkey"])' $T/ha/facts.json)
++ip netns exec lf ip addr add $LADDR dev wg-lf; ip netns exec lf ip route add 10.0.0.0/8 dev wg-lf
++for i in $(seq 200); do grep -q "$LPUB" $T/ha/facts.json && break; sleep 0.05; done
++ip netns exec lf wg set wg-lf peer $HUBPUB endpoint 198.18.0.1:51820 allowed-ips 10.0.0.0/8 persistent-keepalive 25
++okl=1; for i in $(seq 200); do route n "$LIP dev wg0" && { okl=0; break; }; sleep 0.05; done
++check $okl "pond A's leaf has $LADDR (given by A); n routes it on wg0"
++check $(ip netns exec n ping -c 2 -W 2 -q -I 10.3.3.1 $LIP > /dev/null 2>&1 && echo 0 || echo 1) "n -> A's leaf $LIP"
++MAIN0=$(ip netns exec n ip -4 route show table main | sort)
++echo "=== (2) n reaches pond B (reach all, map allowed)"
++T0=$(ms); client n $RAMB pondB keyB client-B.log FDF_REACH=1
++okr=1; for i in $(seq 300); do grep -q "reach into pondB (all, map allowed)" $T/n/client-B.log && { okr=0; break; }; sleep 0.05; done; TR=$(ms)
++check $okr "n's fdf-client@pondB applied the reach ($((TR-T0)) ms after it started): $(grep -m1 -o 'reach into pondB.*' $T/n/client-B.log)"
++grep "fdf-client:" $T/n/client-B.log | cut -d' ' -f2- | sed 's/^/    /' | head -8
++NB=$(grep -m1 -o "gave this machine [0-9.]*" $T/n/client-B.log | awk '{print $4}')
++get() { ip netns exec n curl -s -m 3 "http://$1:8080/" 2>/dev/null; }
++check $([ "$(get 10.8.8.1 | awk '{print $1}')" = b ] && echo 0 || echo 1) "n -> 10.8.8.1:8080 answers b (pond B, no collision): $(get 10.8.8.1)"
++check $([ "$(get 10.7.7.1 | awk '{print $1}')" = a ] && echo 0 || echo 1) "n -> 10.7.7.1:8080 answers a (its forward pond keeps 10.7.7.0/24): $(get 10.7.7.1)"
++check $([ "$(get 100.64.0.1)" = "c $NB" ] && echo 0 || echo 1) "n -> 100.64.0.1:8080 answers c (pond B's 10.7.7.1, aliased 1:1), and c saw n as $NB, n's address in B: $(get 100.64.0.1)"
++check $(ip netns exec b curl -s -m 3 "http://$NB:8080/" | grep -q "^n " && echo 0 || echo 1) "b -> $NB:8080 (n's address in B) answers n: $(ip netns exec b curl -s -m 3 http://$NB:8080/)"
++check $([ "$NB" = "$LIP" ] && echo 0 || echo 1) "B gave n $NB -- the address A gave its leaf ($LIP): the same address, two networks"
++check $(ip netns exec n ip -4 addr | grep -q " $NB/" && echo 1 || echo 0) "n holds no address $NB (it holds $(ip netns exec n ip -4 -o addr show dev $(ip netns exec n ip -o link | grep -o 'rch-[0-9a-f]*' | head -1) | awk '{print $4}') on its reach interface) [REACH_SELF_ALIAS_V1]"
++check $(ip netns exec n ping -c 2 -W 2 -q -I 10.3.3.1 $LIP > /dev/null 2>&1 && echo 0 || echo 1) "n -> A's leaf $LIP still answers (A's, not n's own)"
++RB=$(NSF n $T/bin/fdf-reach resolve pondB w:g-b:8080); RC=$(NSF n $T/bin/fdf-reach resolve pondB w:g-c:8080)
++check $([ "$RB" = 10.8.8.1:8080 ] && [ "$RC" = 100.64.0.1:8080 ] && echo 0 || echo 1) "resolve on n: w:g-b:8080 -> $RB, w:g-c:8080 -> $RC (the alias) [IDENTITY_IN_TUPLES_V1]"
++MAIN1=$(ip netns exec n ip -4 route show table main | sort)
++check $([ "$MAIN0" = "$MAIN1" ] && echo 0 || echo 1) "n's main routing table is unchanged by the reach (pond A's daemon owns it)"
++echo "=== (2a) every network on one screen: getPonds.php, the monitor's Networks section [PONDS_ARE_LISTED_V1]"
++WWW=$H/../frognet/var/www/html
++# the monitor as a node has it: the public repo's package with this tree's files over it (FROGNET_REPO = a checkout)
++MON=$T/mon; mkdir -p $MON; cp -r ${FROGNET_REPO:-$H/../../../abuild/fullrepo}/usr/local/bin/frognet_monitor_py $MON/; cp $H/../frognet/usr/local/bin/frognet_monitor_py/*.py $MON/frognet_monitor_py/
++NSF n php $WWW/getPonds.php > $T/ponds.json 2>&1
++check $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p={x["area"]:x for x in d["ponds"]}
++ok = d["forward"]=="pondA" and p["pondA"]["forward"] and p["pondA"]["me"]["role"]=="node" and p["pondB"]["me"]["role"]=="reacher" \
++     and p["pondB"]["reach"]["alias"]=={"100.64.0.0/24":"10.7.7.0/24"} and p["pondB"]["config"]=={"reach":"all","map":"allowed"} \
++     and {m["name"] for m in p["pondB"]["members"] if m["alive"]} >= {"b","c","n"} and p["pondA"]["config"]["reach"]=="none"
++sys.exit(0 if ok else 1)' $T/ponds.json && echo 0 || echo 1) "getPonds.php on n: A forward (n a node), B participant (n a reacher, its alias, B's config, b and c alive), A's config reach none"
++(cd $MON && python3 -c 'import json,sys; sys.path.insert(0,"."); from frognet_monitor_py.draw_ponds import pond_lines; [print("    | "+t) for t,_ in pond_lines(json.load(open(sys.argv[1])))]' $T/ponds.json) 2>&1 | tee $T/monitor-ponds.txt
++check $(grep -q "c .*node .*ONLINE .*10.7.7.1 -> 100.64.0.1" $T/monitor-ponds.txt && grep -q "pondB .*participant .*reacher .*reach all as" $T/monitor-ponds.txt && echo 0 || echo 1) "the monitor's Networks section shows pond B's members, c at its alias"
++echo "=== (2b) pond A changes under the reach: e joins A serving 10.8.8.0/24, b's /24 in B"
++ip netns exec e ip link add lan0 type veth peer name lan0p; ip netns exec e ip link set lan0 up; ip netns exec e ip link set lan0p up
++ip netns exec e ip addr add 10.8.8.1/24 dev lan0; ip netns exec e ip route add default via 198.18.0.1 dev v-e
++ip netns exec e sysctl -q -w net.ipv4.ip_forward=1; ip netns exec e python3 $T/echo.py e > /dev/null 2>&1 &
++: > $T/e/leases; fsnode e $RAMA pondA keyA; TE0=$(ms); daemon e; client e $RAMA pondA keyA client.log
++okp=1; for i in $(seq 400); do grep -q "aliased.*-> 10.8.8.0/24" $T/n/daemon.log && { okp=0; break; }; sleep 0.05; done; TE1=$(ms)
++check $okp "n's daemon re-planned the reach when A's routes changed ($((TE1-TE0)) ms after e started): $(grep -o 'REACH: reach into pondB.*' $T/n/daemon.log | tail -1)"
++A8=$(NSF n $T/bin/fdf-reach resolve pondB w:g-b:8080)
++check $([ "$(get 10.8.8.1 | awk '{print $1}')" = e ] && echo 0 || echo 1) "n -> 10.8.8.1 now answers e (A's, its forward pond): $(get 10.8.8.1)"
++check $([ "$(get ${A8%:*} | awk '{print $1}')" = b ] && echo 0 || echo 1) "b is reached at its alias: resolve w:g-b:8080 -> $A8 answers $(get ${A8%:*})"
++check $([ "$(get 100.64.0.1 | awk '{print $1}')" = c ] && echo 0 || echo 1) "c keeps its alias 100.64.0.1: $(get 100.64.0.1)"
++echo "=== (2c) bring pond B forward while n reaches it, then A again"
++CBP=$(ip netns pids n | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && tr '\0' ' ' < /proc/$p/cmdline | grep -q "$RAMB" && echo $p; done | head -1)
++echo pondB > $F/forward.want.tmp && mv $F/forward.want.tmp $F/forward.want
++okf=1; for i in $(seq 400); do [ "$(cat $F/forward)" = pondB ] && ! ip netns exec n ip -o link | grep -q rch- && { okf=0; break; }; sleep 0.05; done
++check $okf "B forward: the reach into B is gone (the daemon routes B now)"
++sleep 3
++check $(kill -0 $CBP 2>/dev/null && [ ! -e $F/reach/pondB.refused ] && echo 0 || echo 1) "fdf-client@pondB still holds its session, nothing refused (the forward pond is never refused)"
++check $(for i in $(seq 200); do route n 10.8.8.0/24 && { echo 0; exit; }; sleep 0.05; done; echo 1) "n routes B's 10.8.8.0/24 as B's node now"
++echo pondA > $F/forward.want.tmp && mv $F/forward.want.tmp $F/forward.want
++okg=1; for i in $(seq 600); do [ "$(cat $F/forward)" = pondA ] && grep -q "\"area\": \"pondB\"" $F/reach/pondB.json 2>/dev/null && ip netns exec n ip -o link | grep -q rch- && { okg=0; break; }; sleep 0.05; done
++check $okg "A forward again: the reach into B is applied again"
++for i in $(seq 100); do [ "$(get 100.64.0.1 | awk '{print $1}')" = c ] && break; sleep 0.1; done
++check $([ "$(get 100.64.0.1 | awk '{print $1}')" = c ] && echo 0 || echo 1) "c answers at its alias again: $(get 100.64.0.1)"
++echo "=== (3) gone is gone: n's session to pond B ends"
++CB=$(ip netns pids n | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && tr '\0' ' ' < /proc/$p/cmdline | grep -q "$RAMB" && echo $p; done | head -1)
++IFB=$(ip netns exec n ip -o link | grep -o "rch-[0-9a-f]*" | head -1)
++kill $CB; sleep 1.5
++check $(ip netns exec n ip link show $IFB > /dev/null 2>&1 && echo 1 || echo 0) "its interface $IFB is gone"
++check $(ip netns exec n ip rule | grep -q "lookup 2[0-9][0-9][0-9][0-9]" && echo 1 || echo 0) "its rules are gone ($(ip netns exec n ip rule | grep -c 'lookup 2[0-9][0-9][0-9][0-9]'))"
++check $(ip netns exec n iptables -w -t nat -S | grep -q FDFR && echo 1 || echo 0) "its NETMAP/SNAT chains are gone"
++check $([ -e $F/reach/pondB.json ] && echo 1 || echo 0) "its state file is gone"
++check $([ -z "$(get 100.64.0.1)" ] && echo 0 || echo 1) "100.64.0.1 answers nothing now"
++echo "=== (4) pond C: reach all, but map REFUSED -- and C's 10.7.7.0/24 collides with A's"
++client n $RAMC pondC keyC client-C.log FDF_REACH=1
++okc=1; for i in $(seq 300); do grep -q "REACH REFUSED into pondC" $T/n/client-C.log && { okc=0; break; }; sleep 0.05; done
++check $okc "refused, saying why: $(grep -m1 -o 'REACH REFUSED into pondC.*' $T/n/client-C.log)"
++CC=$(ip netns pids n | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && tr '\0' ' ' < /proc/$p/cmdline | grep -q "$RAMC" && echo $p; done | head -1)
++check $([ -z "$CC" ] && echo 0 || echo 1) "the session to pond C is closed (a failed reach closes it)"
++check $(ip netns exec n curl -s -X POST -d '{"op":"participants"}' "http://$RAMC$API?op=rina" | grep -q '"name":"n"' && echo 1 || echo 0) "n is not in pond C's participants"
++check $(ip netns exec n ip -o link | grep -q rch- && echo 1 || echo 0) "nothing of it was left on n"
++echo "=== (5) pond D: no net.json -- reach none"
++client n $RAMD pondD keyD client-D.log FDF_REACH=1
++okd=1; for i in $(seq 200); do grep -q "REACH REFUSED into pondD" $T/n/client-D.log && { okd=0; break; }; sleep 0.05; done
++check $okd "refused, saying why: $(grep -m1 -o 'REACH REFUSED into pondD.*' $T/n/client-D.log)"
++echo "=== (6) a member may not rewrite a network's config"
++W=$(ip netns exec n curl -s -X POST -d '{"service":"pond","variable":"config","instance":"net","bag":{"reach":"all","map":"allowed"}}' "http://$RAMC$API?op=write")
++check $(echo "$W" | grep -q '"ok":false' && echo 0 || echo 1) "pond C refused the write: $W"
++echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
++[ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }
+--- a/rinab/tools/netns-region-loop-test.sh
++++ b/rinab/tools/netns-region-loop-test.sh
+@@ -196,10 +196,16 @@
+ if [ -n "${COMMS_BUILD:-}" ] && [ -x "$COMMS_BUILD/comms-media" ]; then
+   whr() { NS hub curl -s "http://$RAM$API?op=read&service=pond&variable=where"; }
+   TC0=$(ms); NSF z env COMMS_BIN=$COMMS_BUILD bash $PK/bin/fdf-comms.sh > $T/z/comms.log 2>&1 &
+-  okc=1; for i in $(seq 200); do whr | grep -q '"ram":"10.3.3.1:8800"' && { okc=0; break; }; sleep 0.05; done; TC1=$(ms)
+-  check $okc "z said where its Communicator is: (pond, where, w:g-z) comms ram 10.3.3.1:8800, media 10.3.3.1:8994 ($((TC1-TC0)) ms after fdf-comms started)"
+-  RAMC=$(whr | python3 -c 'import sys,json; b=json.load(sys.stdin); r=b.get("rows") or b.get("cells") or []; print(next((c["bag"]["comms"]["ram"] for c in r if "comms" in (c.get("bag") or {})),""))' 2>/dev/null)
+-  MEDC=$(whr | python3 -c 'import sys,json; b=json.load(sys.stdin); r=b.get("rows") or b.get("cells") or []; print(next((c["bag"]["comms"]["media"] for c in r if "comms" in (c.get("bag") or {})),""))' 2>/dev/null)
++  okc=1; for i in $(seq 200); do whr | grep -q '"ram":"w:g-z:8800"' && { okc=0; break; }; sleep 0.05; done; TC1=$(ms)
++  check $okc "z said where its Communicator is BY IDENTITY: (pond, where, w:g-z) comms ram w:g-z:8800, media w:g-z:8994 ($((TC1-TC0)) ms after fdf-comms started) [IDENTITY_IN_TUPLES_V1]"
++  # [IDENTITY_IN_TUPLES_V1] the region's resolver: z's identity is its .1 here, the leaf's its given /32; gone is ENOENT
++  RES=$(NS hub curl -s -X POST -d '{"op":"resolve","ids":["w:g-z","w:g-phone","w:g-nobody"]}' "$U")
++  check $(echo "$RES" | python3 -c 'import sys,json; r=json.load(sys.stdin)["resolved"]; sys.exit(0 if r["w:g-z"].get("addr")=="10.3.3.1" and r["w:g-phone"].get("addr")==sys.argv[1] and r["w:g-nobody"].get("error")=="ENOENT" else 1)' "$LIP" && echo 0 || echo 1) \
++        "resolve: w:g-z -> 10.3.3.1 (its .1), w:g-phone -> $LIP (its given /32), w:g-nobody -> ENOENT: $RES"
++  rsv() { echo "$RES" | python3 -c 'import sys,json; print(json.load(sys.stdin)["resolved"][sys.argv[1]].get("addr",""))' "$1"; }
++  cel() { whr | python3 -c 'import sys,json; b=json.load(sys.stdin); r=b.get("rows") or b.get("cells") or []; print(next((c["bag"]["comms"][sys.argv[1]] for c in r if "comms" in (c.get("bag") or {})),""))' "$1" 2>/dev/null; }
++  RID=$(cel ram); MID=$(cel media)
++  RAMC=$(rsv ${RID%:*}):${RID##*:}; MEDC=$(rsv ${MID%:*}):${MID##*:}
+   ip netns exec lf timeout 10 $COMMS_BUILD/comms-feed --ram "$RAMC" --media "$MEDC" --name phone --synthetic 640x360 --tone 440 --seconds 4 > $T/lf-feed.log 2>&1
+   check $(grep -q "phone is live" $T/lf-feed.log && grep -q "sent [1-9][0-9]* frames" $T/lf-feed.log && echo 0 || echo 1) \
+         "the leaf found it there ($RAMC / $MEDC) and streamed to it through its tunnel and the hub: $(grep -o 'sent [0-9]* frames ([0-9]* dropped), [0-9]* audio' $T/lf-feed.log)"
+@@ -210,8 +216,9 @@
+   if [ -n "${KT_MEMBER:-}" ] && [ -n "${PROBE_JVM:-}" ]; then
+     printf '{"role":"leaf","name":"phone-kt","guid":"g-phone-kt","pubkey":"%s"}\n' "$(wg genkey | wg pubkey)" > $T/lfk.json
+     ip netns exec lf env RINA_RAM=$RAM FDF_FACTS=$T/lfk.json FDF_SERVICES=comms $KT_MEMBER 2>&1 | grep --line-buffered -v JAVA_TOOL > $T/lf-kt.log &
+-    for i in $(seq 200); do grep -q "services: comms in this pond: z ram=10.3.3.1:8800 media=10.3.3.1:8994" $T/lf-kt.log && break; sleep 0.05; done
+-    check $(grep -q "services: comms in this pond: z ram=10.3.3.1:8800 media=10.3.3.1:8994" $T/lf-kt.log && echo 0 || echo 1) \
++    KTW="services: comms in this pond: z ram=w:g-z:8800 -> 10.3.3.1:8800 media=w:g-z:8994 -> 10.3.3.1:8994"
++    for i in $(seq 200); do grep -qF "$KTW" $T/lf-kt.log && break; sleep 0.05; done
++    check $(grep -qF "$KTW" $T/lf-kt.log && echo 0 || echo 1) \
+           "the phone's Kotlin member found it: $(grep -m1 -o 'services: comms in this pond: .*' $T/lf-kt.log)"
+     NSF a env HOME=/tmp timeout 24 $COMMS_BUILD/comms-feed --ram 10.3.3.1:8800 --media 10.3.3.1:8994 --name Chapel --synthetic 1280x720 --tone 440 --seconds 20 > $T/a-feed.log 2>&1 &
+     sleep 2; mkdir -p $T/watch
+@@ -220,10 +227,10 @@
+           "the phone's Java core watched a's feed through z's media server: $(grep -E '^(WATCHING|VIDEO|AUDIO)' $T/lf-watch.log | tr '\n' ' ')"
+   else echo "SKIP  the phone's own code (set KT_MEMBER and PROBE_JVM)"; fi
+   ZC=$(ip netns pids z | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1); kill $ZC
+-  okg=1; for i in $(seq 100); do whr | grep -q '10.3.3.1:8800' || { okg=0; break; }; sleep 0.05; done
++  okg=1; for i in $(seq 100); do whr | grep -q 'w:g-z:8800' || { okg=0; break; }; sleep 0.05; done
+   check $okg "z's session ended: its where cell is gone with it (gone is gone)"
+   NSF z env FDF_NAME=z $T/bin/fdf-client >> $T/z/client.log 2>&1 &
+-  okb=1; for i in $(seq 300); do whr | grep -q '10.3.3.1:8800' && { okb=0; break; }; sleep 0.05; done
++  okb=1; for i in $(seq 300); do whr | grep -q 'w:g-z:8800' && { okb=0; break; }; sleep 0.05; done
+   check $okb "z back: fdf-comms wrote it again on the event that showed z ($(grep -c 'writing it again' $T/z/comms.log) rewrite)"
+ else echo "SKIP  the Communicator on a node (set COMMS_BUILD to the Communicator's build/)"; fi
+ # ---- [ANN_GOES_WITH_THE_SESSION_V1] y's client ends: y's announcement is gone from the region, not left behind dead

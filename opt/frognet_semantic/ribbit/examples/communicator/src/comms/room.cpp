@@ -240,6 +240,14 @@ void Room::invite(const std::string& who, const std::string& session, const std:
     std::map<std::string, std::pair<std::string, int>> calls{{session, {h, p}}};
     write("CallsInvitations", "user:" + who, "{\"user\":" + jstr(who) + ",\"calls\":" + calls_json(calls, name_) + "}", false);
 }
+// [LEAVE_WITHDRAWS_THE_OFFER_V1] a call that is over is no longer offered or joined: the rows are rewritten without it
+// (as the Java Room's leaveCall does), so nobody is invited into a session nobody is in.
+void Room::leave_call(const std::string& session) {
+    bool o, j;
+    { std::lock_guard<std::mutex> g(mu_); o = offered_.erase(session) > 0; j = joined_.erase(session) > 0; }
+    if (o) write_announce();
+    if (j) write_joined();
+}
 void Room::refresh_calls() {
     bool any_offer, any_join;
     { std::lock_guard<std::mutex> g(mu_); any_offer = !offered_.empty(); any_join = !joined_.empty(); }
@@ -275,8 +283,20 @@ std::vector<Offer> Room::invitations() {
         if (const Json* calls = member(t.value, "calls"); calls && calls->type == Json::Obj)
             for (auto& kv : calls->o) {
                 std::string p = field(kv.second, "port");
-                out.push_back(Offer{kv.first, field(kv.second, "host"), field(kv.second, "from"), p.empty() ? 0 : std::stoi(p)});
+                out.push_back(Offer{kv.first, field(kv.second, "host"), field(kv.second, "from"), p.empty() ? 0 : std::stoi(p), t.age_s});
             }
+    }
+    return out;
+}
+
+// [RINGS_ONLY_WHILE_OFFERED_V1] an invitation is a row nobody removes (own=false, read fresh for 120 s), so by itself
+// it is not a call: it rings only while it is at most 60 s old AND its caller still offers that session in
+// CallsAnnounce. A caller who hung up (leave_call) or whose app is gone (its announce row goes stale) offers nothing.
+std::vector<Offer> Room::ringing() {
+    std::vector<Offer> out, off = offers();
+    for (auto& o : invitations()) {
+        if (o.age_s > 60) continue;
+        for (auto& x : off) if (x.session == o.session) { out.push_back(o); break; }
     }
     return out;
 }

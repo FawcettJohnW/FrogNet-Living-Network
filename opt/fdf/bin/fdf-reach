@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+# Copyright (C) 2016-2026 Fawcett Innovations LLC
+# SPDX-License-Identifier: GPL-2.0-only
+"""fdf-reach -- [REACH_V1] this machine reaching a pond it is a PARTICIPANT in (not its forward pond), as that pond's own
+configuration allows, without touching what the forward pond decides.
+
+  fdf-reach apply  <area> <addr>     plan and apply (run by fdf-client@<area> on every region event of that pond)
+  fdf-reach down   <area> [addr]     take it all down (the session ended, or the pond became forward)
+  fdf-reach replan                    every pond this machine reaches, again (run by the daemon when the forward pond's
+                                      routes change: what collides may have changed)
+  fdf-reach resolve <area> <w:guid:port>   an endpoint named by identity in <area>'s tuples, as host:port usable HERE
+                                      (the alias, when the network collides with this machine's own)
+  fdf-reach resolve <w:guid:port>     the same, asking EVERY network this machine is in (the forward pond and each reach):
+                                      exactly one may answer. Two that answer = ambiguous: refused (exit 7), naming each
+                                      ([RESOLVE_AMBIGUOUS_REFUSED_V1]); a network that cannot be asked now = exit 6
+
+The rules (John 2026-10-10):
+  - Only what the network's (pond, config, net) allows: reach "listed" = the endpoints its where cells name (/32s),
+    "all" = every /24 its members serve and every /32 it gave. No config, or reach "none": REFUSED.
+  - A destination that collides with this machine's own scope (the forward pond's served /24s and overlay ranges,
+    and every route in the main table) is reached through an alias -- a block of 100.64.0.0/10 mapped 1:1 onto it
+    (NETMAP) -- only if the config says map "allowed". Otherwise REFUSED, naming the prefix.
+  - REFUSED = everything taken down and exit 3; fdf-client@<area> then ends its session ("a failed reach closes it").
+    Run by `replan`, a refusal also writes <var>/reach/<area>.refused and SIGTERMs that fdf-client. No fallbacks.
+  - Own objects only: interface rch-<h> (not wg*: the daemon's), routing table T and rules at priority P (from the area's name), iptables
+    chains FDFR<h> (mangle, nat) and FDFRS<h> (nat POSTROUTING). The main table is never written, so the forward
+    pond's daemon and this never fight over a route.
+Exit: 0 applied (or unchanged); 5 not yet (no address given yet, the hub has not peered this key yet -- a reach that
+was up is taken down until it is); 6 could not plan or apply NOW (a pond's RAM manager did not answer, a command
+failed): logged, the reach taken down if it was half-built, tried again on the next event -- never a refusal;
+3 refused (the network's config does not allow it): the session ends.
+[ALIAS_QUARANTINE_V1] An alias block, once released (the reach went down: session lost, refused, removed), is
+remembered in <var>/reach/.released with the area, the real prefix and the time. The same area reaching the same
+prefix again gets the same block back, whenever it returns (stable across session loss). Any OTHER use of that block
+waits FDF_ALIAS_QUARANTINE_S (600 s): a connection or a cached answer made through it can never land in a different
+network while it may still be in use.
+[REACH_ONE_AT_A_TIME_V1] Every apply, down and replan on this machine holds one lock (<var>/reach/.lock): the daemon's
+replan and an fdf-client's apply never interleave, and two areas never pick the same alias.
+"""
+import fcntl, hashlib, ipaddress, json, os, re, signal, subprocess, sys, time, urllib.request
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+API = "/FawcettInnovations.RINA.ram_interface.php"
+KEY = os.environ.get("FDF_WG_KEY", "/var/lib/frognet-tunnel/node_private.key")   # the daemon's key (config.STATE_DIR)
+FACTS = os.environ.get("FDF_FACTS", VAR + "/facts.json")
+ALIASES = ipaddress.ip_network("100.64.0.0/10")
+SELVES = ipaddress.ip_network("100.127.255.0/24")       # [REACH_SELF_ALIAS_V1] never an alias block
+QUARANTINE_S = int(os.environ.get("FDF_ALIAS_QUARANTINE_S", "600"))
+BUILD = "fdf-2026-10-11-r19-a15"
+
+
+class Refused(Exception): pass                         # the network's config does not allow it: the session ends
+class Pending(Exception): pass                         # not yet: the next event tries again
+class NotNow(Exception): pass                          # could not read or apply now: logged, tried again on the next event
+
+AREA_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")         # as fdf-pond-add allows: an area name is never anything else
+
+
+def lock():
+    """[REACH_ONE_AT_A_TIME_V1] held until this process exits"""
+    d = os.path.join(VAR, "reach"); os.makedirs(d, exist_ok=True)
+    f = open(os.path.join(d, ".lock"), "a"); fcntl.flock(f, fcntl.LOCK_EX); return f
+
+
+def names(area):
+    h = hashlib.sha1(area.encode()).hexdigest()[:8]
+    t = 20000 + int(h[:4], 16) % 10000
+    # the interface is rch-<h>, NOT wg*: the daemon's orphan scan owns every wg* / frognet* interface with one peer and
+    # tears down the ones its broker does not name (found 2026-10-10: a wgr-* reach vanished on the next scan)
+    return {"if": "rch-" + h, "table": t, "mark": t, "prio": 9000 + int(h[4:8], 16) % 900, "ch": "FDFR" + h, "chs": "FDFRS" + h}
+
+
+def env_of(area):
+    out = {}
+    try:
+        for ln in open(os.path.join(VAR, "ponds", area + ".env")):
+            ln = ln.strip()
+            if ln.startswith("export "): ln = ln[7:]
+            for tok in ln.split():
+                if "=" in tok: k, v = tok.split("=", 1); out[k] = v.strip("'\"")
+    except OSError: pass
+    return out
+
+
+def ram_of(area):
+    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
+    if not r: raise Refused("no RINA_RAM for %s (%s/ponds/%s.env)" % (area, VAR, area))
+    return r
+
+
+def forward():
+    try: return open(os.path.join(VAR, "forward")).read().strip()
+    except OSError: return ""
+
+
+def http(ram, method, q, body=None):
+    req = urllib.request.Request("http://%s%s%s" % (ram, API, q), data=None if body is None else json.dumps(body).encode(), method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=4) as r: return json.loads(r.read().decode())
+    except (OSError, ValueError) as e:                 # URLError, timeouts, a reset, an unreadable answer: not now
+        raise NotNow("the RAM manager at %s: %s" % (ram, e))
+
+
+def rina(ram, body): return http(ram, "POST", "?op=rina", body)
+
+
+def cells(ram, var, inst=""):
+    j = http(ram, "GET", "?op=read&service=pond&variable=%s%s" % (var, "&instance=" + inst if inst else ""))
+    return j.get("cells") or j.get("rows") or []
+
+
+def run(*a, check=True):
+    r = subprocess.run(list(a), capture_output=True, text=True)
+    if check and r.returncode != 0: raise RuntimeError("%s: %s" % (" ".join(a), (r.stderr or r.stdout).strip()))
+    return r
+
+
+def served(f):
+    """a member's served /24s (as the region's served_prefixes): own .1 rows and its subnet"""
+    out = set()
+    for r in f.get("addrs") or []:
+        ip = r.get("ip", "")
+        if r.get("kind") == "own" and ip.startswith("10.") and ip.endswith(".1"): out.add(ip.rsplit(".", 1)[0] + ".0/24")
+    if f.get("subnet"): out.add(str(ipaddress.ip_network(f["subnet"], strict=False)))
+    return out
+
+
+def my_guid():
+    try: return json.load(open(FACTS)).get("guid", "")
+    except (OSError, ValueError): return ""
+
+
+def my_scope(area):
+    """what this machine already routes or reaches: every main-table route but the default, the forward pond's overlay
+    ranges and served /24s (as its config and its world say), and what every OTHER reach on this machine routes or
+    aliases (two participant ponds may collide with each other, not only with the forward one). A destination
+    overlapping any of these collides. The forward pond unreadable now: NotNow (a collision cannot be ruled out)."""
+    scope = {}
+    exclude_if = names(area)["if"]
+    try: routes = json.loads(run("ip", "-j", "-4", "route", "show", "table", "main").stdout or "[]")
+    except (RuntimeError, ValueError) as e: raise NotNow("reading the main table: %s" % e)
+    for r in routes:
+        d = r.get("dst", "")
+        if d in ("", "default") or r.get("dev") == exclude_if: continue
+        try: scope[str(ipaddress.ip_network(d if "/" in d else d + "/32", strict=False))] = "this machine's route via " + r.get("dev", "?")
+        except ValueError: pass
+    fwd = forward()
+    if fwd:
+        ram = ram_of(fwd)
+        for c in cells(ram, "config", "net"):
+            for k in ("leaves", "edges"):
+                if c["bag"].get(k): scope[c["bag"][k]] = "%s's %s range" % (fwd, k)
+        for p in rina(ram, {"op": "world"}).get("participants", []):
+            if p.get("alive"):
+                for s in served(p.get("facts") or {}): scope[s] = "%s in %s" % (p.get("name"), fwd)
+    for other in reach_areas():
+        if other == area: continue
+        st = load_state(other) or {}
+        aliased = set((st.get("alias") or {}).values())
+        for r in st.get("routes") or []:
+            if r not in aliased: scope[r] = "this machine's reach into %s" % other
+        for a in (st.get("alias") or {}): scope[a] = "this machine's alias for %s" % other
+        if st.get("self"): scope[st["self"] + "/32"] = "this machine's own side of the reach into %s" % other
+    return scope
+
+
+def reach_areas():
+    try: return sorted(fn[:-5] for fn in os.listdir(os.path.join(VAR, "reach")) if fn.endswith(".json") and AREA_RE.match(fn[:-5]))
+    except OSError: return []
+
+
+def load_state(area):
+    try: return json.load(open(os.path.join(VAR, "reach", area + ".json")))
+    except (OSError, ValueError): return None
+
+
+def all_aliases(except_area):
+    used = set()
+    try:
+        for fn in os.listdir(os.path.join(VAR, "reach")):
+            if fn.endswith(".json") and fn[:-5] != except_area:
+                st = load_state(fn[:-5]) or {}
+                used |= set((st.get("alias") or {}).keys())
+    except OSError: pass
+    return used
+
+
+def all_selves(except_area):
+    out = set()
+    try:
+        for fn in os.listdir(os.path.join(VAR, "reach")):
+            if fn.endswith(".json") and fn[:-5] != except_area: out.add((load_state(fn[:-5]) or {}).get("self"))
+    except OSError: pass
+    return out
+
+
+def released():
+    """[ALIAS_QUARANTINE_V1] {block: {"area", "real", "t"}}"""
+    try: return json.load(open(os.path.join(VAR, "reach", ".released")))
+    except (OSError, ValueError): return {}
+
+
+def save_released(rel):
+    os.makedirs(os.path.join(VAR, "reach"), exist_ok=True)
+    tmp = os.path.join(VAR, "reach", ".released.tmp")
+    with open(tmp, "w") as f: json.dump(rel, f, sort_keys=True)
+    os.rename(tmp, os.path.join(VAR, "reach", ".released"))
+
+
+def quarantined(block, area, real, rel, now):
+    """block may not be used for (area, real): it overlaps a block another use released less than QUARANTINE_S ago"""
+    bn = ipaddress.ip_network(block)
+    return any((e.get("area"), e.get("real")) != (area, real) and now - e.get("t", 0) < QUARANTINE_S
+               and ipaddress.ip_network(k).overlaps(bn) for k, e in rel.items())
+
+
+def pick_alias(area, d, old, taken, scope, rel, now):
+    """the alias block for d (a real prefix of area): the one it has now; else the one this area had for d before
+    (stable across session loss); else the first block nobody holds, that collides with nothing here, and that no other
+    use released less than QUARANTINE_S ago [ALIAS_QUARANTINE_V1]. None free: Refused."""
+    dn = ipaddress.ip_network(d)
+    def free(b):
+        bn = ipaddress.ip_network(b)
+        return (b not in taken and bn.prefixlen == dn.prefixlen and not bn.overlaps(SELVES)
+                and not (bn.prefixlen == 32 and int(bn.network_address) % 256 in (0, 255))   # a /32 alias is never an .0 or .255 address
+                and not any(ipaddress.ip_network(s).overlaps(bn) for s in scope)
+                and not any(ipaddress.ip_network(t).overlaps(bn) for t in taken))
+    a = next((k for k, v in sorted(old.items()) if v == d and free(k)), None)
+    if not a: a = next((k for k, e in sorted(rel.items()) if (e.get("area"), e.get("real")) == (area, d) and free(k)), None)
+    if not a:
+        for blk in ALIASES.subnets(new_prefix=dn.prefixlen):
+            b = str(blk)
+            if free(b) and not quarantined(b, area, d, rel, now): a = b; break
+    if not a: raise Refused("no free alias block for %s in %s (quarantined: %d)" % (d, ALIASES, sum(1 for b in rel if quarantined(b, area, d, rel, now))))
+    return a
+
+
+def plan(area, addr):
+    ram = ram_of(area)
+    cfg = cells(ram, "config", "net")
+    if not cfg: raise Refused("%s publishes no network config (pond, config, net): it is not reachable" % area)
+    c = cfg[0]["bag"]
+    if c.get("reach") not in ("listed", "all"): raise Refused("%s's config says reach %r: it is not reachable" % (area, c.get("reach")))
+    mapok = c.get("map") == "allowed"
+    parts = [p for p in rina(ram, {"op": "world"}).get("participants", []) if p.get("alive")]
+    me = "w:" + my_guid()
+    mine = next((p for p in parts if p.get("ns") == me), None)
+    if not mine: raise Pending("this machine (%s) is not an alive member of %s yet" % (me, area))
+    if not addr: addr = ((mine.get("facts") or {}).get("addr") or "")
+    addr = addr.split("/")[0]
+    if not addr: raise Pending("%s has given this machine no address yet" % area)
+    try: ipaddress.IPv4Address(addr)
+    except ValueError: raise NotNow("%s gave this machine %r, which is not an IPv4 address" % (area, addr))
+    pub = (mine.get("facts") or {}).get("pubkey", "")
+    hub = next((p for p in parts if (p.get("facts") or {}).get("role") == "hub"), None)
+    if not hub: raise Pending("%s has no hub" % area)
+    hf = hub["facts"]
+    if pub not in (hf.get("peers") or []): raise Pending("%s's hub %s has not peered this machine's key yet" % (area, hub.get("name")))
+    if not hf.get("pubkey") or not hf.get("endpoint"): raise Pending("%s's hub %s says no pubkey/endpoint yet" % (area, hub.get("name")))
+    dest = {}
+    if c["reach"] == "all":
+        for p in parts:
+            f = p.get("facts") or {}
+            if p.get("ns") == me or f.get("role") == "hub": continue
+            for s in served(f): dest[s] = p.get("name")
+            if f.get("addr") and (f.get("role") == "leaf" or f.get("reach")): dest[f["addr"].split("/")[0] + "/32"] = p.get("name")
+    else:                                                   # listed: the endpoints its where cells name
+        ids = set()
+        for cell in cells(ram, "where"):
+            for svc, b in (cell.get("bag") or {}).items():
+                if isinstance(b, dict):
+                    for v in b.values():
+                        if isinstance(v, str) and v.startswith("w:") and v.rsplit(":", 1)[-1].isdigit(): ids.add(v.rsplit(":", 1)[0])
+        if ids:
+            res = rina(ram, {"op": "resolve", "ids": sorted(ids)}).get("resolved", {})
+            for i, r in res.items():
+                if r.get("addr") and i != me: dest[r["addr"] + "/32"] = r.get("name") or i
+    # [COVERED_IS_NOT_A_DESTINATION_V1] a destination inside another (a /32 in a served /24) is reached through the
+    # covering one: an alias of its own would answer from another address than the one connected to
+    dn_all = [ipaddress.ip_network(d) for d in dest]
+    dest = {d: v for d, v in dest.items() if not any(o.prefixlen < ipaddress.ip_network(d).prefixlen and o.overlaps(ipaddress.ip_network(d)) for o in dn_all)}
+    scope = my_scope(area)
+    old = (load_state(area) or {}).get("alias") or {}
+    used = all_aliases(area)
+    rel, now = released(), time.time()
+    alias, routes = {}, []
+    for d in sorted(dest, key=lambda x: ipaddress.ip_network(x)):
+        dn = ipaddress.ip_network(d)
+        hit = next(((s, why) for s, why in scope.items() if ipaddress.ip_network(s).overlaps(dn)), None)
+        routes.append(d)
+        if not hit: continue
+        if not mapok:
+            raise Refused("%s (%s in %s) collides with %s (%s), and %s's config says map refused" % (d, dest[d], area, hit[0], hit[1], area))
+        alias[pick_alias(area, d, old, used | set(alias), scope, rel, now)] = d
+    # [REACH_SELF_ALIAS_V1] this machine's address in the other network (addr) is never put on an interface here: the
+    # forward pond may give the same address to one of its own (every pond's leaves are 10.252/16), and a local address
+    # would shadow it. The interface holds a private /32 of the alias space instead; leaving, the source becomes addr
+    # (SNAT); arriving for addr, the destination becomes the private one (DNAT). Nothing here ever holds addr.
+    taken = used | set(alias) | {str(ipaddress.ip_network(s)) for s in scope}
+    self_a = (load_state(area) or {}).get("self")
+    if not self_a or any(ipaddress.ip_network(self_a + "/32").overlaps(ipaddress.ip_network(t)) for t in taken):
+        self_a = next((str(h) for h in ipaddress.ip_network("100.127.255.0/24").hosts()
+                       if not any(ipaddress.ip_network(str(h) + "/32").overlaps(ipaddress.ip_network(t)) for t in taken)
+                       and str(h) not in all_selves(area)), None)
+        if not self_a: raise Refused("no free private address for this machine's side of the reach into %s" % area)
+    return {"area": area, "addr": addr, "self": self_a, "hub": {"name": hub.get("name"), "pubkey": hf.get("pubkey"), "endpoint": hf.get("endpoint")},
+            "routes": routes, "alias": alias, "reach": c["reach"], "map": c.get("map"), "names": names(area)}
+
+
+def up(st):
+    n = st["names"]; IF, T, M, P = n["if"], str(n["table"]), str(n["mark"]), str(n["prio"])
+    impl = os.environ.get("WG_QUICK_USERSPACE_IMPLEMENTATION", "")
+    if impl: run(impl, IF)                                   # the configured userspace implementation, as wg-quick uses it
+    else: run("ip", "link", "add", IF, "type", "wireguard")
+    allowed = ",".join(st["routes"])
+    run("wg", "set", IF, "private-key", KEY, "peer", st["hub"]["pubkey"], "endpoint", st["hub"]["endpoint"],
+        "allowed-ips", allowed, "persistent-keepalive", "25")
+    run("ip", "addr", "add", st["self"] + "/32", "dev", IF)                # [REACH_SELF_ALIAS_V1] never addr itself
+    run("ip", "link", "set", IF, "up")
+    run("sysctl", "-qw", "net.ipv4.conf.%s.rp_filter=2" % IF)   # replies from a colliding source arrive here, not where main routes it
+    for r in st["routes"]: run("ip", "route", "add", r, "dev", IF, "src", st["self"], "table", T)
+    for a in st["alias"]: run("ip", "route", "add", a, "dev", IF, "src", st["self"], "table", T)
+    run("ip", "rule", "add", "from", st["self"], "lookup", T, "priority", P)
+    run("ip", "rule", "add", "fwmark", M, "lookup", T, "priority", P)
+    collided = set(st["alias"].values())
+    for r in st["routes"]:
+        if r not in collided: run("ip", "rule", "add", "to", r, "lookup", T, "priority", P)
+    for a in st["alias"]: run("ip", "rule", "add", "to", a, "lookup", T, "priority", P)
+    ch, chs = n["ch"], n["chs"]
+    run("iptables", "-w", "-t", "mangle", "-N", ch)
+    for hook in ("OUTPUT", "PREROUTING"): run("iptables", "-w", "-t", "mangle", "-A", hook, "-j", ch)
+    for a in st["alias"]: run("iptables", "-w", "-t", "mangle", "-A", ch, "-d", a, "-j", "MARK", "--set-mark", M)
+    run("iptables", "-w", "-t", "nat", "-N", ch)
+    for hook in ("OUTPUT", "PREROUTING"): run("iptables", "-w", "-t", "nat", "-A", hook, "-j", ch)
+    for a, r in st["alias"].items(): run("iptables", "-w", "-t", "nat", "-A", ch, "-d", a, "-j", "NETMAP", "--to", r)
+    run("iptables", "-w", "-t", "nat", "-A", ch, "-i", IF, "-d", st["addr"], "-j", "DNAT", "--to-destination", st["self"])   # arriving for addr
+    run("iptables", "-w", "-t", "nat", "-N", chs)
+    run("iptables", "-w", "-t", "nat", "-A", "POSTROUTING", "-j", chs)
+    run("iptables", "-w", "-t", "nat", "-A", chs, "-o", IF, "-j", "SNAT", "--to-source", st["addr"])
+    os.makedirs(os.path.join(VAR, "reach"), exist_ok=True)
+    rel = released()                                    # in use now: the ledger forgets these until they are released again
+    if any(a in rel for a in st["alias"]): save_released({k: v for k, v in rel.items() if k not in st["alias"]})
+    tmp = os.path.join(VAR, "reach", st["area"] + ".json.tmp")
+    with open(tmp, "w") as f: json.dump(st, f)
+    os.rename(tmp, os.path.join(VAR, "reach", st["area"] + ".json"))
+
+
+def down(area):
+    """everything of this area's reach, whatever state it was left in (a crash, a SIGKILL): by name, not by memory"""
+    n = names(area); IF, T, P = n["if"], str(n["table"]), str(n["prio"])
+    st = load_state(area) or {}
+    if st.get("alias"):                                 # [ALIAS_QUARANTINE_V1] remembered before the state goes
+        rel, now = released(), time.time()
+        for a, r in st["alias"].items(): rel[a] = {"area": area, "real": r, "t": now}
+        save_released(rel)
+    did = run("ip", "link", "show", IF, check=False).returncode == 0
+    run("ip", "link", "del", IF, check=False)
+    while run("ip", "rule", "del", "priority", P, "table", T, check=False).returncode == 0: did = True
+    run("ip", "route", "flush", "table", T, check=False)
+    for table, hooks, ch in (("mangle", ("OUTPUT", "PREROUTING"), n["ch"]), ("nat", ("OUTPUT", "PREROUTING"), n["ch"]), ("nat", ("POSTROUTING",), n["chs"])):
+        for hook in hooks:
+            while run("iptables", "-w", "-t", table, "-D", hook, "-j", ch, check=False).returncode == 0: did = True
+        run("iptables", "-w", "-t", table, "-F", ch, check=False); run("iptables", "-w", "-t", table, "-X", ch, check=False)
+    try: os.remove(os.path.join(VAR, "reach", area + ".json")); did = True
+    except OSError: pass
+    return did
+
+
+def describe(st):
+    al = ", ".join("%s -> %s" % (a, r) for a, r in sorted(st["alias"].items()))
+    return ("reach into %s (%s, map %s) on %s as %s there (%s here) via hub %s [" + BUILD + "]: %s%s") % (
+        st["area"], st["reach"], st["map"], st["names"]["if"], st["addr"], st["self"], st["hub"]["name"], " ".join(st["routes"]) or "nothing listed",
+        ("; aliased " + al) if al else "")
+
+
+def apply(area, addr):
+    if area == forward():                               # the forward pond is routed by the daemon, never reached: a reach
+        was = down(area)                                # left from before a switch goes, and is never refused (review 2026-10-10)
+        if was: print("reach into %s taken down: it is this machine's forward pond now" % area)
+        return 0
+    try: st = plan(area, addr)
+    except Pending as p:                                # not yet: whatever was up does not stand meanwhile (gone is gone)
+        was = down(area); print("reach into %s: not yet: %s%s" % (area, p, " (taken down until then)" if was else "")); return 5
+    except Refused as r:
+        down(area); print(str(r)); return 3
+    except NotNow as e:                                 # unchanged: what was planned against facts still stands
+        print("reach into %s: could not plan it now (%s): tried again on the next event" % (area, e)); return 6
+    old = load_state(area)
+    if old == st and run("ip", "link", "show", st["names"]["if"], check=False).returncode == 0: return 0
+    down(area)
+    try: up(st)
+    except (RuntimeError, OSError, TypeError) as e:
+        down(area); print("reach into %s: could not apply it (%s): taken down, tried again on the next event" % (area, e)); return 6
+    print(("%s (changed)" if old else "%s") % describe(st)); return 0
+
+
+def replan():
+    rc = 0
+    for area in reach_areas():                          # each area on its own: one that fails does not stop the rest
+        st = load_state(area) or {}
+        try: r = apply(area, st.get("addr", ""))
+        except Exception as e:                          # anything unexpected: said, that area left as it is, the rest go on
+            print("reach into %s: replan failed: %s" % (area, e)); rc = rc or 6; continue
+        if r == 3:
+            reason = "re-planned and refused: the daemon's log says why (REACH: lines)"
+            try: open(os.path.join(VAR, "reach", area + ".refused"), "w").write(reason + "\n")
+            except OSError: pass
+            try: os.kill(int(open(os.path.join(VAR, "reach", area + ".pid")).read().strip()), signal.SIGTERM)
+            except (OSError, ValueError): pass
+            rc = 3
+    return rc
+
+
+def resolve_any(ep):
+    """[RESOLVE_AMBIGUOUS_REFUSED_V1] every network this machine is in is asked; exactly one may answer"""
+    if not ep.startswith("w:") or not ep.rsplit(":", 1)[-1].isdigit():
+        print("%r is not an identity endpoint (w:<guid>:<port>)" % ep); return 3
+    ident, port = ep.rsplit(":", 1)
+    areas = ([forward()] if forward() else []) + [a for a in reach_areas() if a != forward()]
+    if not areas: print("this machine is in no network (no forward pond, no reach)"); return 3
+    answered, why = [], []                              # every network that has an address for it, reached here or not
+    for area in areas:
+        r = rina(ram_of(area), {"op": "resolve", "ids": [ident]}).get("resolved", {}).get(ident) or {}
+        if not r.get("addr"): why.append("%s: %s" % (area, r.get("error") or "no address")); continue
+        answered.append((area, r["addr"], here(area, ident, r["addr"], port)))
+    if len(answered) > 1:
+        print("%s is ambiguous: %s -- name the network (fdf-reach resolve <area> %s)" % (
+            ident, "; ".join("in %s as %s (%s)" % (a, ad, "here " + h if h else "not reached here") for a, ad, h in answered), ep)); return 7
+    if not answered: print("%s has no address here (%s)" % (ident, "; ".join(why))); return 3
+    a, ad, h = answered[0]
+    if not h: print("%s is %s in %s, which is not among what this machine reaches there" % (ident, ad, a)); return 3
+    print(h); return 0
+
+
+def here(area, ident, addr, port):
+    """addr in area, as host:port usable on this machine (None: not reached here)"""
+    if area == forward(): return "%s:%s" % (addr, port)
+    st = load_state(area)
+    if not st: return None
+    a = ipaddress.ip_address(addr)
+    if not any(a in ipaddress.ip_network(x) for x in st["routes"]): return None
+    best = max(((al, real) for al, real in st["alias"].items() if a in ipaddress.ip_network(real)),
+               key=lambda x: ipaddress.ip_network(x[1]).prefixlen, default=None)   # the most specific
+    if best:
+        rn, an = ipaddress.ip_network(best[1]), ipaddress.ip_network(best[0])
+        return "%s:%s" % (an.network_address + (int(a) - int(rn.network_address)), port)
+    return "%s:%s" % (a, port)
+
+
+def resolve(area, ep):
+    if not ep.startswith("w:") or not ep.rsplit(":", 1)[-1].isdigit():
+        print("%r is not an identity endpoint (w:<guid>:<port>)" % ep); return 3
+    ident, port = ep.rsplit(":", 1)
+    if area == forward() or not area:
+        ram = ram_of(forward()); r = rina(ram, {"op": "resolve", "ids": [ident]})["resolved"][ident]
+        if not r.get("addr"): print("%s has no address in %s: %s %s" % (ident, forward(), r.get("error"), r.get("why"))); return 3
+        print("%s:%s" % (r["addr"], port)); return 0
+    st = load_state(area)
+    if not st: print("this machine does not reach %s (no %s/reach/%s.json)" % (area, VAR, area)); return 3
+    r = rina(ram_of(area), {"op": "resolve", "ids": [ident]})["resolved"][ident]
+    if not r.get("addr"): print("%s has no address in %s: %s %s" % (ident, area, r.get("error"), r.get("why"))); return 3
+    h = here(area, ident, r["addr"], port)
+    if not h: print("%s (%s in %s) is not among what this machine reaches there" % (ident, r["addr"], area)); return 3
+    print(h); return 0
+
+
+def main(argv):
+    if len(argv) < 2: print(__doc__); return 2
+    v = argv[1]
+    if len(argv) > 2 and v in ("apply", "down") or len(argv) > 3 and v == "resolve":
+        if not AREA_RE.match(argv[2]):
+            print("%r is not an area name (letters, digits, . _ -)" % argv[2]); return 2
+    if v in ("apply", "down", "replan"): _held = lock()   # [REACH_ONE_AT_A_TIME_V1]
+    if v == "apply" and len(argv) >= 3: return apply(argv[2], argv[3] if len(argv) > 3 else "")
+    if v == "down" and len(argv) >= 3:
+        if down(argv[2]): print("reach into %s taken down" % argv[2])
+        return 0
+    if v == "replan": return replan()
+    if v == "resolve" and len(argv) == 4: return resolve(argv[2], argv[3])
+    if v == "resolve" and len(argv) == 3: return resolve_any(argv[2])
+    print(__doc__); return 2
+
+
+if __name__ == "__main__":
+    try: sys.exit(main(sys.argv))
+    except Refused as r: print(str(r)); sys.exit(3)
+    except NotNow as e: print("not now: %s" % e); sys.exit(6)

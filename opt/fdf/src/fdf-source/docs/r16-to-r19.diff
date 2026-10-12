@@ -1,0 +1,1722 @@
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/deliverables/BUILD.fdf-droplet fdf-source-r16/deliverables/BUILD.fdf-droplet
+--- orig-r16/deliverables/BUILD.fdf-droplet	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/deliverables/BUILD.fdf-droplet	2026-10-10 04:34:33.797583976 -0700
+@@ -1,4 +1,4 @@
+ package=fdf-droplet.tgz
+-build=fdf-2026-10-09-r16
+-built=2026-10-10T07:51Z
++build=fdf-2026-10-10-r19
++built=2026-10-10T11:34Z
+ for=droplet 165.232.153.144: RAM manager 51888 + hub 50889
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/deliverables/BUILD.fdf-node fdf-source-r16/deliverables/BUILD.fdf-node
+--- orig-r16/deliverables/BUILD.fdf-node	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/deliverables/BUILD.fdf-node	2026-10-10 04:34:32.333583889 -0700
+@@ -1,4 +1,4 @@
+ package=fdf-node.tgz
+-build=fdf-2026-10-09-r16
+-built=2026-10-10T07:51Z
+-for=x86_64 node or leaf: 10.250.250.100 AI-Host
++build=fdf-2026-10-10-r19
++built=2026-10-10T11:34Z
++for=x86_64 FrogNet node or leaf: AI-Host
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/deliverables/BUILD.fdf-node-arm64 fdf-source-r16/deliverables/BUILD.fdf-node-arm64
+--- orig-r16/deliverables/BUILD.fdf-node-arm64	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/deliverables/BUILD.fdf-node-arm64	2026-10-10 04:34:33.105583935 -0700
+@@ -1,4 +1,4 @@
+ package=fdf-node-arm64.tgz
+-build=fdf-2026-10-09-r16
+-built=2026-10-10T07:51Z
+-for=aarch64 FrogNet node (Pi): 10.170.170.1 Seattle7, 10.251.251.1 Seattle3B
++build=fdf-2026-10-10-r19
++built=2026-10-10T11:34Z
++for=aarch64 FrogNet node (Pi): Seattle7, Seattle3B, Seattle5, HappyDog, New-York-2
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/docs/HANDOFF-RAM-DISCOVERY-2026-10-09.md fdf-source-r16/docs/HANDOFF-RAM-DISCOVERY-2026-10-09.md
+--- orig-r16/docs/HANDOFF-RAM-DISCOVERY-2026-10-09.md	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/docs/HANDOFF-RAM-DISCOVERY-2026-10-09.md	2026-10-10 04:34:10.883130128 -0700
+@@ -1,4 +1,4 @@
+-# HANDOFF — RAM-driven discovery (build fdf-2026-10-09-r16)
++# HANDOFF — RAM-driven discovery (build fdf-2026-10-10-r19)
+ 
+ What was built on 2026-10-09 after PLAN-RAM-DISCOVERY.md, what it was proven on, what each build fixed, and what to run.
+ 
+@@ -31,6 +31,13 @@
+ 
+ ## What the logs say (no commands needed)
+ 
++- r17 additions: daemon `REGION: loop started (...) [... WATCH_BEFORE_READ_V1 WORLD_READ_ONCE_PER_EVENT_V1
++  KERNEL_READ_ONCE_PER_EVENT_V1]`; `KERNEL_READ: wg show all dump rc=…` only on a failed dump; merge `sentinels_wiped
++  removed=N kept=[…]`, `PUBLISH_CAPABILITY not run: region mode …`, `REACH_PLANE_TUPLE not written: region mode …`,
++  `runAgain_reinvoke … reason=external_during_pass runAgain_from=<nm:…|watcher:poke|manual:…>`; fdf-region-join
++  `== region mode: <unit> stopped and disabled`; fdf-hub exits with `fdf-events registered no watch` when the region
++  does not answer at start.
++
+ - node daemon: `REGION: capability published as a fact (mysql=… cores=… mem_kb=… disk=… ffmpeg=…)` (r16);
+   `REGION: ELECT: candidates from the region's facts: N member(s) with a capability; my LAN (graph links): […]`;
+   `REGION: event p timed: world=…ms bringup=…ms apply=…ms (probes=n/…ms routes=n/…ms) publish=…ms
+@@ -63,6 +70,9 @@
+ | r10 | `OWN_MAP_WHILE_TUNNEL_UP_V1` (own /24 registered whenever a hub channel is up, row or no row) | at daemon start the plan ran before fdf-facts wrote the hub row → `maps=[]` → withdrew itself |
+ | r11 | fdf-client `MAPS_ASSERTED_V1` (reads map_list every 30 s, re-registers what the region lacks; facts-watch thread fails fast) | a mapping vanished from the region with the session up; the client believed it still held it |
+ | r12 | rina-host `MAP_OWNER_IS_NOT_TRANSFERRED_V1` (a mapping held by a live session is refused to another registrant, holder named); `REFUSAL_SAYS_WHY_V1`; daemon `ELECTION_OFF_THE_LOOP_V1` (election on its own thread) | map_register silently transferred ownership; Seattle5 (as Seattle7's old exit) took 10.170.170.0/24 then withdrew it — the mechanism behind every loss of that prefix. The election's 20 s store reads stalled route application |
++| r19 | John: "frognet_echo can be returned from RAM, and the aliveness checks." `ALIVE_IS_THE_SESSION_V1`: the applier sends no admission echo (a planned route's member is alive by its session; its link is a lease pair both ends wrote) -- rule 6's "failed probe" is gone, hub handshake and region loss still withdraw at once; fixDefaultRoute pings no next hop an alive member wrote in its facts (only gateways no member wrote). `MEMBER_IS_NOT_MARKED_V1`: the proxy's not_frognet cache never marks a host in region_hosts.json. `ECHO_FROM_THE_REGION_V1`: frognet_echo.php answers from the node's own facts ("<name>,<.1>,<upstream>,", the RegionEcho form); region_hosts.json uses the same form. | netns-graph-test 17/17; netns-region-loop-test PASS twice (median total 33-45 ms this time against 16-18 in the r18 run: the same code on the steady path, so sandbox variance -- probes were already 0 on steady events); every oracle PASS (graph_apply: "no echo probe is sent"); test_not_frognet_skip_oracle PASS; frognet_echo.php -> "Seattle7,10.170.170.1,,". |
++| r18 | John: "makeHostJson is unnecessary when all the data is in RAM; look for other things like that." Region mode stops re-deriving what the region holds. `HOSTJSON_FROM_THE_REGION_V1`: no makeHostJson.bash (curl per peer, --max-time 45, the merge waiting); the applier writes `/var/lib/frognet/region_hosts.json` (ip, hostname, echo rebuilt from each member's facts) and getHosts.php serves it. `CAPABILITY_TUPLES_OFF_IN_REGION_V1`: `core.role_publish.publish_all` is a logged no-op (it was every capability publisher: merge, frognet-daemon at boot and on each databasehost float, proxy at boot, communicator; each ran the benchmark). `EXIT_FROM_THE_GRAPH_V1`: fixDefaultRoute Mode B takes the graph's exit for this node instead of pinging and curling getDefaultRoute.php on every known host. runMerge: no autoswitch (`AUTOSWITCH_IS_THE_DAEMONS_IN_REGION_V1`), no TransitPeerCache flush, no propogateNotification spawn, no broker enrolment retry; discovery.live: no bring-up-only python (`BRINGUP_IS_THE_DAEMONS_IN_REGION_V1`). fdf-region-join also stops the 120 s pond-bootstrap timer. Deliverables tar files only (`FILES_ONLY_TAR_V1`): extracting at / no longer resets owner/mode of existing directories. | netns-region-loop-test (now also checks region_hosts.json): PASS, median timed total 16 / 18 ms (a / z), converge 6 s; netns-graph-test 17/17; graph_apply_oracle (new json check), test_region_oracle, gen_oracle, test_region_backends_oracle, register_on_404, dbhost_switch_sim 15/15, fdf_graph_oracle, hub_oracle, mapown PASS; getHosts.php region path run in a mount namespace; publish_all region/off-region both exercised; exit feed: child -> its exit, exit -> none, dead uplink -> none. |
++| r17 | Found in the sandbox with the new `tools/netns-region-loop-test.sh` (the REAL daemon's region loop on two nodes in netns, each in its own mount namespace, against the real rina-host + fdf-hub) and by reading the merge path. `WATCH_BEFORE_READ_V1`: the region loop read the world, brought up the hub tunnel (5 s), and only then registered fdf-events' watches — every join/announce/mapping in between was never delivered; fdf-hub had the same order. Now the watch is registered (fdf-events says `ready`) before the start read. `WORLD_READ_ONCE_PER_EVENT_V1` + `KERNEL_READ_ONCE_PER_EVENT_V1`: bringup and the applier answer from the event's one `world` read and one `wg show all dump` until something changes WireGuard (7 execs and 4 extra region reads per event → 2 execs, 0). `NO_DEAD_STORE_READ_V1`: `gather_candidates` read `discovery/reach_plane` from the store on databasehost_control once per role per election and never used it — the last store read on the election path, aimed at the host that has just died; the r16 sim's "store never read" was false (its raise was swallowed); the sim now counts calls. `ANN_GOES_WITH_THE_SESSION_V1` (rina-host): a member's announcement is deleted when its session ends, not left dead (the stale Seattle* duplicates). `FACTS_FEW_EXECS_V1` / `FACTS_IGNORE_OWN_ROUTES_V1`: fdf-facts reads links from sysfs, the default route from /proc/net/route, the hostname from gethostname (one exec left), and a non-default route change no longer wakes it. FrogNet side: `BASELINES_SURVIVE_THE_WIPE_V1` (runMerge keeps frognet_hosts, dnsmasq_content_key, dnsmasq_upstream.conf, old_host_json, old_hosts_meta, echo_cache, getHosts.cache.* across its `/etc/sentinels` wipe: one cause for `hosts_changed`/`chain_dirty=1` every pass, `DNSMASQ_NO_SENTINEL … restarting` every merge, and the per-merge echo re-curl), `REGION_MERGE_WRITES_NO_STORE_V1` (no PUBLISH_CAPABILITY benchmark, no reach_plane tuple in region mode), `RUNAGAIN_SAYS_WHO_V1` (`reason=external_during_pass runAgain_from=…`), `STORE_UNITS_OFF_IN_REGION_V1` (fdf-region-join stops the two 60 s advertise timers, the dbhost-elect timer and the merge watcher; fdf-leave restarts them). | `netns-region-loop-test.sh`, N=6 changes on y, x86 sandbox: converge after start r16 not within 60 s (3 of 3 runs) → r17 1–5 s; y→a ping r16 FAIL → PASS; median timed `total` a/z 39/40 → 22–29 ms; `bringup` 28/32 → 14–21 ms; daemon execs per event 7 → 2; fdf-facts rows() 10.3 → 3.0 ms; dbhost_switch_sim 15/15 (the new "store never read" check FAILs against r16's elector with three reach_plane reads of 10.251.251.1); netns-graph-test 17/17; mapown, hub_oracle, fdf_graph_oracle, graph_apply_oracle, test_region_oracle, gen_oracle, test_region_backends_oracle PASS. |
+ | r16 | databasehost.frognet switchover automatic. `ELECTION_FROM_FACTS_V1`: the election's input is the members' capability FACTS in the region (`core/region_capability.py` answers gather_candidates / _capability_index / _live_roles in the store's row shape from the alive participants), not <role>/capability tuples in a store — which lived on the databasehost, the host that had just died (both roles ABSTAIN, Seattle5 19:00). `CAPABILITY_IS_A_FACT_V1`: the daemon runs frognet_capability_probe.sh at start and every 600 s off the loop and writes facts.capability when the slow-moving part changes (load and free space are not announced and are not election inputs). The daemon re-elects on came/went/hosts and on any member's capability fact changing. `LAN_IS_THE_GRAPH_V1`: the mediahost's on-segment bucket is fdf_graph's links to me, not a traceroute per candidate per election. The 1/min `frognet_dbhost_elector` stands down in region mode (it read the store; it would fight the daemon). `elect_now(participants=, self_ip=, hosts_path=, apply=False)` lets the simulator elect as any node. | sim `discovery/dbhost_switch_sim.py` (five members shaped like the fleet, T.get patched to raise — the store is never read): steady → all five name Seattle3B (37 ms worst); 3B dead → all five switch to the same mysql host in one event (19 ms for all nodes); 3B back → all five name it again; two dead → unanimous; capability change → unanimous; member without a capability fact → ignored; mediahost on-segment from the graph (HappyDog+NY2 agree, Seattle5+Seattle7 agree, 3B alone names itself). netns: a member's death reaches the others as `m` in 14 ms (clean close) and 17.4 s (silent: TCP keepalive 5+3×5 s, John's 20 s). Switchover = that + ~20 ms. |
+ | r15 | discovery made as fast as it goes, measured in `tools/netns-latency-test.sh` (same topology as the graph test; one real change on y — an address added — stamped at every stage until a has replanned). `FACTS_WAKE_ON_EVENT_V1`: fdf-facts --watch blocks on `ip monitor` + inotify with select(), 50 ms debounce (was a 1 s poll + 1 s debounce). `UPLINK_OFF_THE_WRITE_V1`: the uplink ping runs on its own thread every 3 s; a facts write no longer waits an RTT (or 6 s with the uplink dead). `WORLD_IN_ONE_READ_V1`: region op `world` = participants + mappings in one answer; the daemon, the hub and apply_once read it once per event (one region RTT, not two; an older region is an error, not a fallback). `ONE_WRITE_PER_EVENT_V1`: maps, view and gen land in one facts write per event, so one re-announcement and one fleet-wide `p`, not three. `EVENT_TIMED_V1`: `REGION: event p timed: world=…ms bringup=…ms apply=…ms (probes=n/…ms routes=n/…ms) publish=…ms total=…ms` on every event; `GRAPH … rebuild=N gen=M`. `HANDSHAKE_POLL_100MS_V1`, `REJOIN_EVERY_5S_V1` (was doubling to 60 s). fdf-hub's "fdf_graph unavailable → facts rule" fallback removed. | before: change → facts.json 1,594 ms of an end-to-end 1,768 ms; after: 66 ms → 7 ms announce → ~0 ms event fan-out → 5 ms apply in-process (1 route cmd 2 ms); region reads 0.9 ms participants / 0.5 ms mappings in-process on the LAN. End to end in the daemon ≈ 80 ms on a LAN; a WAN member adds the region's RTT twice (announce, world) |
+ | r14 | `GEN_V1` the generation counter (`internet_tunnels_v3/gen.py`): one integer per node, +1 only on an impactful change from a closed list, named in the log, announced as the `gen` fact. `NO_MERGE_ON_REGION_EVENTS_V1`: the region loop forks no runMerge, ever — the facts carry what the graph needs and the loop applies all of it (routes, default, hosts, names, elections, maps, hub channel); runMerge is for boot and interface events (NetworkManager dispatcher). `NO_FALLBACK_V1`: a failed in-process election is logged and re-run on the next event, not handed to runMerge. `GONE_IS_GONE_V1`: region lost = its routes, names and tunnels withdrawn and nothing recomputed from elsewhere. `MERGE_SAYS_WHO_V1` (repo diff only, runMerge.bash is FrogNet's): `invoked_by who=<daemon:…|nm:<iface>-<action>|watcher:poke|manual:<shell>>` at every merge's lock_acquired | merges ran only when a node's own routes moved, so a peer's impactful change never reached anyone's merge; the merge's own change detector was blind (`runMerge.bash:147 rm -rf /etc/sentinels/*` deletes the host-table baseline every pass, so `sync_required reason=hosts_changed` / `chain_dirty=1` on every pass on every node); the notification pokes (`propogateNotification` → merge watcher) are never sent in region mode; the 27 s / 16 s gaps after `converge_decision` are `makeHostJson.bash` curling `frognet_echo.php` on every peer serially with a cache that line 147 just deleted |
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/docs/TRANSITION-OPTIMIZATION.md fdf-source-r16/docs/TRANSITION-OPTIMIZATION.md
+--- orig-r16/docs/TRANSITION-OPTIMIZATION.md	2026-10-10 01:03:18.000000000 -0700
++++ fdf-source-r16/docs/TRANSITION-OPTIMIZATION.md	2026-10-10 04:34:10.892876582 -0700
+@@ -1,4 +1,4 @@
+-# Transition brief — optimization and completeness (as of build fdf-2026-10-09-r16)
++# Transition brief — optimization and completeness (as of build fdf-2026-10-10-r19)
+ 
+ Read `TRANSITION-README.md` first, then `HANDOFF-RAM-DISCOVERY-2026-10-09.md` (the build record r5–r16 with the log
+ vocabulary and the rules). This brief is what to pick up: the state, the numbers, the open items, the cleanup list,
+@@ -23,8 +23,28 @@
+   members' facts (`core/region_capability.py`), never a store; mediahost's LAN bucket from the graph (no traceroute);
+   the 1/min store-reading elector stands down in region mode.
+ 
++- r17 (this thread, 2026-10-10; sandbox-proven, not yet on hardware): watch-before-read (start/rejoin no longer
++  misses changes), one world read and one `wg show all dump` per event, the dead reach_plane store read removed from
++  the election, announcements deleted with their session, fdf-facts down to one exec per write; FrogNet side: runMerge
++  keeps its baselines across the sentinel wipe, the merge writes no store tuples in region mode, the store-only units
++  are stopped on region join. Full record: `docs/WORKLOG-r17.md` and the r17 row of the handoff.
++
+ ## 2. Measurements (side by side)
+ 
++r17 additions (`tools/netns-region-loop-test.sh`, the real daemon on z and a; x86 sandbox, region ~1 ms away):
++
++| what | r16 | r17 |
++|---|---|---|
++| converge after daemon start | not within 60 s (3/3 runs) | 1–5 s (the tunnel's handshake wait) |
++| timed `total` per event, median a/z | 39 / 40 ms | 22–29 ms |
++| `bringup` per event, median a/z | 28 / 32 ms | 14–21 ms |
++| execs per event in the daemon | 7 | 2 |
++| region reads per event | 5 (`world` + 2 participants + 2 map_list) | 1 |
++| fdf-facts rows() | 10.3 ms, 4 execs | 3.0 ms, 1 exec |
++| store reads per election (region mode) | 1 per role (reach_plane, unused) | 0 |
++| dead announcements in `world` | kept for the RAM manager's lifetime | 0 |
++
++
+ | what | before | now | test |
+ |---|---|---|---|
+ | change on y → facts.json written | 1,594 ms | 66 ms | `tools/netns-latency-test.sh` |
+@@ -68,6 +88,31 @@
+ 
+ ## 4. Open items, in the order I would take them
+ 
++r18: in region mode nothing re-derives what the region holds -- makeHostJson replaced by the daemon's
++region_hosts.json (item 1's last open part), capability tuples never published, Mode B's exit from the graph, the merge's
++autoswitch / bring-up / crawl-cache flush / notification spawn / enrolment retry not run. Left that still asks the
++network or the store for something the region could answer: `registerFrogNetHost.bash` (cron, every 15 min) heartbeats
++known_frognets in the store (NetworkName = `hostname`, i.e. "FrogNetHost" on every node: one shared row) for frogs.js
++and gps_dashboard.html -- membership is the region's; the tunnel daemon's capability probe every 600 s still runs the
++full cpu/disk benchmark to announce numbers that do not change.
++
++Status at r17 (details in `docs/WORKLOG-r17.md`):
++- 1 DONE (r17 `BASELINES_SURVIVE_THE_WIPE_V1`). Still open inside it: `makeHostJson.bash rebuild` is forced every merge
++  and re-curls each peer whose echo is empty (its timeout, serially in the deployed version); the cache now survives,
++  so only the peers that never answer cost anything. Needs a decision on `rebuild` in region mode.
++- 2 DONE: same cause as 1 (`dnsmasq_content_key` lived in /etc/sentinels).
++- 3 DONE (region mode: not run). 4 DONE (stopped by fdf-region-join). 5: runAgain label DONE; watcher stopped in
++  region mode; `propogateNotification` already exits in region mode.
++- 6, 7 open (engine; 3B's proxy -- py-spy on the proxy during a 503 burst).
++- 8 open. Note for it: runMerge's autoswitch "online" test is `broker-reachable`, which in region mode is answered by
++  region.my_channels (the region, not the broker) -- removing the broker does not make merges tear tunnels down.
++- 10, 11 (first half), 13, 15 open. 11 second half (leaf row) is in fdf-facts already. 12 DONE
++  (`ANN_GOES_WITH_THE_SESSION_V1`). 14 DONE (`tools/netns-region-loop-test.sh`).
++- New, found this round, open: `region.own_subnet()` "Falls back to config.LOCAL_SUBNET and says so" -- a fallback;
++  `bringup` is still ~15 ms of Python per event with nothing to do (handshake-rtts/grace/broker-state files written
++  every event): candidate for a no-change skip once hardware numbers are in.
++
++
+ **FrogNet side (the merge, now LAN-only), found while examining merge triggering; not changed:**
+ 
+ 1. `runMerge.bash:147 rm -rf /etc/sentinels/*` deletes `frognet_hosts`, `old_host_json`, `echo_cache` every pass →
+@@ -133,6 +178,11 @@
+       -llz4 -lcrypto -lresolv -static -o build/static/${t##*:}; done
+ ```
+ 
++r17: `rinab/platform/ribbit-v0.63/` (the pristine platform build.sh copies and patches) is now in the source tarball
++-- r16's tarball held only the patched output, so build.sh could not run from it. `tools/make_deliverables.sh OUTDIR`
++assembles all three deliverables and refuses if any tag or binary disagrees. It never ships /opt/fdf/var or
++/opt/fdf/hub/hub.env (the package copy says 8840/50820; the droplet runs 51888/50889).
++
+ The deliverables are assembled from `fdf/` (scripts, python) + the binaries into three bundle trees
+ (`fdf-node` x86, `fdf-node-arm64`, `fdf-droplet`), each with `/opt/fdf/BUILD` (`build=fdf-YYYY-MM-DD-rN`,
+ `built=`, `for=`), tarred from `/`; the node installers are `deliverables/header.sh` (with `__ARCH__` substituted)
+@@ -147,6 +197,7 @@
+ |---|---|---|
+ | `rinab/tools/netns-graph-test.sh` | real WireGuard (wireguard-go) in namespaces, y → z → hub → a: rows, graph, admission by echo, hub allowed-ips, both directions ping, hold-down, withdrawal, duplicate /24 refused — 17 checks | root; `bash tools/netns-graph-test.sh` (uses `build/static/*`) |
+ | `rinab/tools/netns-latency-test.sh` | the stage-by-stage timings in §2, and member death → `m` | root |
++| `rinab/tools/netns-region-loop-test.sh` | the REAL daemon (run_region_loop) on z and a, per-node mount namespaces: converge after start, y→a ping, N changes timed by the daemon's own `REGION: event p timed` line, announcement gone with the session | root; `N=6 bash tools/netns-region-loop-test.sh`; needs wg-quick too |
+ | `frognet/.../discovery/dbhost_switch_sim.py` | switchover from facts, 14 checks, store never read | `FDF_PY=fdf/lib/python PYTHONPATH=frognet/opt/frognet_semantic python3 …` (needs John's full `core/` tree beside it for `frognet_tuples`; the repo copy in the tarball is the changed files only) |
+ | `frognet/.../internet_tunnels_v3/tests/graph_apply_oracle.py` | applier: admission, hold-down, withdrawal, membership transitions, gen bumps | `python3` from `opt/frognet_semantic` |
+ | `frognet/.../internet_tunnels_v3/test_region_oracle.py` | region client, my-channels, maps | same |
+@@ -185,7 +236,7 @@
+ 3. a host with a hub link carries and registers its own /24; an exit carries only tunnel-less children
+ 4. the hub remembers nothing
+ 5. a mapping belongs to the live session that registered it; a second claimant is refused with the holder named
+-6. absence is held 60 s; positive failure is withdrawn now
++6. absence is held 60 s; positive failure (hub handshake dead, region gone) is withdrawn now; alive is the session -- no echo or ping for what RAM says (r19)
+ 7. the node's own region traffic is sourced from its .1
+ 8. an uplink is dead after three consecutive missed pings, alive after one answer
+ 9. no merge for a region event; the gen counter is the audit trail
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/docs/TRANSITION-README.md fdf-source-r16/docs/TRANSITION-README.md
+--- orig-r16/docs/TRANSITION-README.md	2026-10-10 01:03:18.000000000 -0700
++++ fdf-source-r16/docs/TRANSITION-README.md	2026-10-10 04:34:10.849496044 -0700
+@@ -1,6 +1,6 @@
+-# FD&F / FrogNet RAM-driven discovery — transition package (build fdf-2026-10-09-r16, 2026-10-10)
++# FD&F / FrogNet RAM-driven discovery — transition package (build fdf-2026-10-10-r19, 2026-10-10)
+ 
+-Everything a new chat needs, in one download: `fdf-source-r16.tgz`. Two transition briefs sit beside it:
++Everything a new chat needs, in one download: `fdf-source-r19.tgz`. Two transition briefs sit beside it:
+ 
+ - `TRANSITION-ANDROID.md` — for the chat that explores implementing the member protocol on Android: what a member
+   *is* on the wire, what it must do, what it may skip, and where the reference implementation lives in the tarball.
+@@ -34,8 +34,8 @@
+ 
+ | file | what |
+ |---|---|
+-| `fdf-source-r16.tgz` | all source (layout below), the FrogNet-side diff, every doc, the tests and simulators |
+-| `fdf-install-aarch64.run`, `fdf-install-x86_64.run`, `fdf-droplet.tgz` | the three r16 deliverables (one per machine type) |
++| `fdf-source-r19.tgz` | all source (layout below), the FrogNet-side diff, every doc, the tests and simulators |
++| `fdf-install-aarch64.run`, `fdf-install-x86_64.run`, `fdf-droplet.tgz` | the three r19 deliverables (one per machine type) |
+ | `HANDOFF-RAM-DISCOVERY-2026-10-09.md` | the build record r5–r16, log vocabulary, rules, not-done |
+ | `PLAN-RAM-DISCOVERY.md` | the design (§1–§7) the builds implement |
+ | `frognet-ram-discovery.diff` | the FrogNet-side change against John's tree (27 files, +2,488/−24) |
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/bin/fdf-facts fdf-source-r16/fdf/bin/fdf-facts
+--- orig-r16/fdf/bin/fdf-facts	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/bin/fdf-facts	2026-10-10 04:25:42.005354820 -0700
+@@ -15,16 +15,17 @@
+         fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
+                              change (inotify via a 1 s poll of its mtime -- dnsmasq rewrites it in place), debounced 1 s
+         fdf-facts --show     print the rows, write nothing
+-Nothing here reads the region; this is the writer only. Build fdf-2026-10-09-r16.
++Nothing here reads the region; this is the writer only. Build fdf-2026-10-10-r19.
+ """
+ import json
+ import os
+ import re
++import socket
+ import subprocess
+ import sys
+ import time
+ 
+-BUILD_TAG = "fdf-2026-10-09-r16"
++BUILD_TAG = "fdf-2026-10-10-r19"
+ FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
+ LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
+ PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Internet
+@@ -61,22 +62,37 @@
+ 
+ def my_name():
+     f = read_facts()
+-    h = sh("hostname").strip()
++    h = socket.gethostname().strip()                    # [FACTS_FEW_EXECS_V1] what `hostname` prints, without the exec
+     if h.startswith("FrogNetHost."):
+         return h
+     n = os.environ.get("FDF_NAME") or f.get("name") or h.split(".")[0]
+     return "FrogNetHost." + n
+ 
+ 
++SYS_NET = os.environ.get("FDF_SYS_NET", "/sys/class/net")
++
++
++def _sys(dev, leaf):
++    try:
++        return open("%s/%s/%s" % (SYS_NET, dev, leaf)).read().strip()
++    except OSError:
++        return ""
++
++
+ def ifaces():
+-    """{dev: {"mac":..., "addrs":[ip,...], "wireless":bool, "wg":bool}}"""
++    """{dev: {"mac":..., "addrs":[ip,...], "wireless":bool, "wg":bool}}
++    [FACTS_FEW_EXECS_V1] the links from sysfs (what `ip -o link show` printed: name, link/ether mac, link/none for a
++    WireGuard interface = ARPHRD_ETHER 1 / ARPHRD_NONE 65534 in .../type); one exec left, for the addresses."""
+     out = {}
+-    for ln in sh("ip", "-o", "link", "show").splitlines():
+-        p = ln.split()
+-        dev = p[1].rstrip(":").split("@")[0]
+-        mac = p[p.index("link/ether") + 1] if "link/ether" in p else ""
+-        out[dev] = {"mac": mac.lower(), "addrs": [], "wireless": os.path.isdir("/sys/class/net/%s/wireless" % dev),
+-                    "wg": "link/none" in p and dev.startswith("wg")}
++    try:
++        devs = sorted(os.listdir(SYS_NET))
++    except OSError:
++        devs = []
++    for dev in devs:
++        typ = _sys(dev, "type")
++        mac = _sys(dev, "address") if typ == "1" else ""
++        out[dev] = {"mac": mac.lower(), "addrs": [], "wireless": os.path.isdir("%s/%s/wireless" % (SYS_NET, dev)),
++                    "wg": typ == "65534" and dev.startswith("wg")}
+     for ln in sh("ip", "-4", "-o", "addr", "show").splitlines():
+         p = ln.split()
+         dev = p[1]
+@@ -86,14 +102,25 @@
+     return out
+ 
+ 
++PROC_ROUTE = os.environ.get("FDF_PROC_ROUTE", "/proc/net/route")
++
++
+ def default_dev():
+-    """(dev, via) of the lowest-metric default route, or ("", "")."""
++    """(dev, via) of the lowest-metric default route, or ("", "").
++    [FACTS_FEW_EXECS_V1] from /proc/net/route (the main table, as `ip -4 route show default` showed it): Destination
++    and Mask 0, Gateway little-endian hex (0 = no via). Called on every write and by the prober every 3 s."""
++    import socket as _s, struct as _st
+     best = None
+-    for ln in sh("ip", "-4", "route", "show", "default").splitlines():
++    try:
++        lines = open(PROC_ROUTE).read().splitlines()[1:]
++    except OSError:
++        lines = []
++    for ln in lines:
+         p = ln.split()
+-        dev = p[p.index("dev") + 1] if "dev" in p else ""
+-        via = p[p.index("via") + 1] if "via" in p else ""
+-        metric = int(p[p.index("metric") + 1]) if "metric" in p else 0
++        if len(p) < 8 or p[1] != "00000000" or p[7] != "00000000" or not (int(p[3], 16) & 1):      # RTF_UP
++            continue
++        dev, gw, metric = p[0], int(p[2], 16), int(p[6])
++        via = _s.inet_ntoa(_st.pack("<I", gw)) if gw else ""
+         if dev and (best is None or metric < best[0]):
+             best = (metric, dev, via)
+     return (best[1], best[2]) if best else ("", "")
+@@ -280,11 +307,17 @@
+     ldir, lbase = os.path.split(os.path.abspath(LEASES))
+     os.makedirs(ldir, exist_ok=True)
+     libc.inotify_add_watch(ifd, (ldir or ".").encode(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MODIFY)
++    # [FACTS_IGNORE_OWN_ROUTES_V1] labelled lines; a [ROUTE] line wakes us only if it is a default route -- the one route
++    # rows() reads. Every /24 the daemon installs or withdraws was a wake-up and a full rows() pass that ended
++    # "unchanged" (the brief, §3); on a node applying three routes that is three passes for nothing.
+     def start_mon():
+-        m = subprocess.Popen(["ip", "monitor", "address", "route", "link"], stdout=subprocess.PIPE)
++        m = subprocess.Popen(["ip", "monitor", "label", "address", "route", "link"], stdout=subprocess.PIPE)
+         os.set_blocking(m.stdout.fileno(), False)
+         return m
++    def relevant(line):
++        return not line.startswith(b"[ROUTE]") or b"default" in line
+     mon = start_mon()
++    partial = b""
+     pending = 0.0
+     while True:
+         wait = None if not pending else max(0.0, DEBOUNCE_SEC - (time.monotonic() - pending))
+@@ -293,9 +326,13 @@
+             try:
+                 data = os.read(mon.stdout.fileno(), 65536)
+             except BlockingIOError:
+-                data = b"x"
+-            if data:
+-                pending = pending or time.monotonic()
++                data = None
++            if data is None:
++                pass
++            elif data:
++                lines = (partial + data).split(b"\n"); partial = lines.pop()
++                if any(relevant(l) for l in lines if l):
++                    pending = pending or time.monotonic()
+             else:
+                 print("fdf-facts: ip monitor exited; restarting it", file=sys.stderr, flush=True)
+                 mon = start_mon()
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/bin/fdf-hub fdf-source-r16/fdf/bin/fdf-hub
+--- orig-r16/fdf/bin/fdf-hub	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/bin/fdf-hub	2026-10-10 04:25:41.993602958 -0700
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-09-r16"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+@@ -261,6 +261,11 @@
+     except Exception as e: rv = "(no answer: %s)" % e
+     log("build %s; region at %s is build %s" % (BUILD_TAG, ram, rv))
+     ev = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1)
++    # [WATCH_BEFORE_READ_V1] the start read happens after fdf-events says its watches are registered: a change between
++    # the read and the watch would otherwise never be delivered (the hub's peers stale until some unrelated event).
++    first = ev.stdout.readline().strip()
++    if first != "ready":
++        log("fdf-events registered no watch (%r); the region is not reachable" % first); sys.exit(1)
+     seen_notes = set()
+     def once(why):
+         parts, maps = region.world(a.area)                 # [WORLD_IN_ONE_READ_V1]
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/bin/fdf-leave fdf-source-r16/fdf/bin/fdf-leave
+--- orig-r16/fdf/bin/fdf-leave	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/bin/fdf-leave	2026-10-10 04:08:46.691728396 -0700
+@@ -12,4 +12,9 @@
+ done
+ systemctl daemon-reload
+ rm -f /opt/fdf/var/join.env
++# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join stopped.
++for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
++    [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
++    systemctl enable --now "$u" && echo "re-enabled $u"
++done
+ echo "left the network (removed /opt/fdf/var/join.env)"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/bin/fdf-region-join fdf-source-r16/fdf/bin/fdf-region-join
+--- orig-r16/fdf/bin/fdf-region-join	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/bin/fdf-region-join	2026-10-10 04:08:46.696628768 -0700
+@@ -25,6 +25,16 @@
+ # facts.json at start, and fdf-client takes its member name from there at ITS start -- so the daemon goes first.
+ mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
+ [ -f /etc/frognet/tunnel.conf ] && [ ! -f /etc/frognet/tunnel.conf.broker ] && cp /etc/frognet/tunnel.conf /etc/frognet/tunnel.conf.broker
++# [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
++# for pokes nobody sends: the 60 s <role>/capability advertisers (each ran frognet_capability_probe.sh -- cpu
++# benchmark, disk write+fsync -- every minute, per role), the 1/min store elector (stands down in region mode), the
++# merge watcher (propogateNotification exits in region mode), the 120 s broker-enrolment retry (membership is the
++# session on a region). The daemon publishes capability as a fact.
++# fdf-leave turns them back on.
++for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
++  [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
++  systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
++done
+ T0=$(date '+%Y-%m-%d %H:%M:%S')
+ systemctl restart frognet-tunnel-daemon-v3
+ for i in $(seq 1 20); do grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null && break; sleep 0.5; done
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/hub/netns-graph-test.sh fdf-source-r16/fdf/hub/netns-graph-test.sh
+--- orig-r16/fdf/hub/netns-graph-test.sh	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/hub/netns-graph-test.sh	2026-10-10 04:23:53.815598302 -0700
+@@ -88,7 +88,7 @@
+ for r in 1 2; do apply z z 10.3.3.0/24; apply a a 10.7.7.0/24; apply y y 10.2.2.0/24; sleep 2; done
+ echo "--- z routes:"; NS z ip route show | sed 's/^/    /'
+ echo "--- y routes:"; NS y ip route show | sed 's/^/    /'
+-check $(NS z ip route show | grep -q "10.2.2.0/24 via 10.3.3.20 dev v-zy" && echo 0 || echo 1) "z: y's /24 via y's lease address (admitted by one echo)"
++check $(NS z ip route show | grep -q "10.2.2.0/24 via 10.3.3.20 dev v-zy" && echo 0 || echo 1) "z: y's /24 via y's lease address (admitted: y is alive in the region, no probe)"
+ check $(NS z ip route show | grep -q "10.7.7.0/24 dev wg-z" && echo 0 || echo 1) "z: a's /24 through the hub"
+ check $(NS y ip route show | grep -q "default via 10.3.3.1 dev v-yz" && echo 0 || echo 1) "y: default route toward its exit z"
+ check $(NS a ip route show | grep -q "10.2.2.0/24 dev wg-a" && NS a ip route show | grep -q "10.3.3.0/24 dev wg-a" && echo 0 || echo 1) "a: z's and y's /24s through the hub"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/fdf/lib/python/fdf_graph.py fdf-source-r16/fdf/lib/python/fdf_graph.py
+--- orig-r16/fdf/lib/python/fdf_graph.py	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/fdf/lib/python/fdf_graph.py	2026-10-10 04:25:41.991294104 -0700
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-09-r16"
++BUILD_TAG = "fdf-2026-10-10-r19"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/fdf/lib/python/fdf_graph.py fdf-source-r16/frognet/opt/fdf/lib/python/fdf_graph.py
+--- orig-r16/frognet/opt/fdf/lib/python/fdf_graph.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/fdf/lib/python/fdf_graph.py	2026-10-10 04:25:42.000819941 -0700
+@@ -23,7 +23,7 @@
+ from collections import deque
+ from typing import Dict, List, Optional, Set, Tuple
+ 
+-BUILD_TAG = "fdf-2026-10-09-r16"
++BUILD_TAG = "fdf-2026-10-10-r19"
+ 
+ OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 broker transit: never a served /24
+ 
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/core/frognet_role_elect.py fdf-source-r16/frognet/opt/frognet_semantic/core/frognet_role_elect.py
+--- orig-r16/frognet/opt/frognet_semantic/core/frognet_role_elect.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/core/frognet_role_elect.py	2026-10-10 01:07:57.776356311 -0700
+@@ -216,7 +216,11 @@
+     from the blob's own fresh loadavg/temps (self-contained - no second read). The only
+     I/O is reading tuples; never probes a node. Returns (hosts_list, lan_list)."""
+     role = getattr(handler, "ROLE_NAME", None) or getattr(handler, "role", "")
+-    wan = _wan_subnets(dbhost)
++    # [NO_DEAD_STORE_READ_V1] `wan = _wan_subnets(dbhost)` stood here: a reach_plane read from the store on
++    # databasehost_control, once per role per election, whose result nothing below used. In region mode it was the
++    # one store read left on the election path -- against the databasehost, which is the host that has just died
++    # when a switchover is due -- and its except clause swallowed the simulator's "store was read" assertion, so
++    # dbhost_switch_sim.py passed while the read happened. Removed, not guarded.
+     lan_set = set(lan_subnets) if lan_subnets is not None else None
+     _lan_memo: Dict[str, bool] = {}             # one trace per candidate per merge
+     hosts_list: List[Dict] = []
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/core/not_frognet.py fdf-source-r16/frognet/opt/frognet_semantic/core/not_frognet.py
+--- orig-r16/frognet/opt/frognet_semantic/core/not_frognet.py	2026-10-10 04:34:41.173584414 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/core/not_frognet.py	2026-10-10 04:25:17.071132886 -0700
+@@ -262,6 +262,37 @@
+ NF_RETRY_AFTER_S = float(os.environ.get("FROGNET_NF_RETRY_AFTER_S", "60"))
+ 
+ 
++# [MEMBER_IS_NOT_MARKED_V1] On an FD&F region "is this host a FrogNet node, and is it there?" is answered by RAM: the
++# tunnel daemon writes the hosts this node routes to -- alive members, each by its session -- to
++# /var/lib/frognet/region_hosts.json on every region event. Such a host is never marked: a refused dial to a member
++# is a member restarting its daemon (the 2026-08-08 Seattle3 databasehost case), not evidence it is not FrogNet.
++# Hosts no member names (a laptop, a database box) are learned exactly as before. The file is re-read when its mtime
++# moves, looked at no more than once a second.
++_REGION_HOSTS = os.environ.get("FROGNET_REGION_HOSTS_JSON", "/var/lib/frognet/region_hosts.json")
++_members = {"ips": frozenset(), "mtime": None, "looked": 0.0}
++
++
++def _is_region_member(ip):
++    now = time.monotonic()
++    if now - _members["looked"] >= 1.0:
++        _members["looked"] = now
++        try:
++            mt = os.stat(_REGION_HOSTS).st_mtime
++        except OSError:
++            mt = None
++        if mt != _members["mtime"]:
++            ips = frozenset()
++            if mt is not None:
++                try:
++                    import json as _json
++                    with open(_REGION_HOSTS) as f:
++                        ips = frozenset(h.get("ip") for h in _json.load(f) if isinstance(h, dict) and h.get("ip"))
++                except (OSError, ValueError):
++                    ips = frozenset()
++            _members["ips"], _members["mtime"] = ips, mt
++    return ip in _members["ips"]
++
++
+ def is_marked(ip):
+     """True if ip is a known non-FrogNet AND the mark has not aged into a retry.
+ 
+@@ -270,6 +301,8 @@
+     """
+     if not ip:
+         return False
++    if _is_region_member(ip):                         # [MEMBER_IS_NOT_MARKED_V1]
++        return False
+     with _lock:
+         _reload_locked()
+         ts = _cache.get(ip)
+@@ -294,6 +327,8 @@
+     [ONE_STATE_V1] No role is exempt -- see the note above _is_client_range."""
+     if not ip:
+         return False
++    if _is_region_member(ip):                         # [MEMBER_IS_NOT_MARKED_V1] RAM says it is a live member
++        return False
+     with _lock:
+         _reload_locked()
+         _now = time.time()
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/core/role_publish.py fdf-source-r16/frognet/opt/frognet_semantic/core/role_publish.py
+--- orig-r16/frognet/opt/frognet_semantic/core/role_publish.py	2026-10-10 04:34:41.173469441 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/core/role_publish.py	2026-10-10 04:06:50.276649089 -0700
+@@ -33,6 +33,21 @@
+ from .unrest_handler import CAPABILITY_PROBE, UnRESTHandler
+ 
+ 
++def _region_mode() -> bool:
++    """RINA_RAM in /opt/fdf/var/join.env (fdf-join, the switch) or /etc/frognet/tunnel.conf -- the daemon's rule."""
++    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
++        try:
++            for ln in open(path):
++                ln = ln.strip()
++                if ln.startswith("export "):
++                    ln = ln[7:].strip()
++                if ln.startswith("RINA_RAM=") and ln.split("=", 1)[1].strip().strip('"'):
++                    return True
++        except OSError:
++            pass
++    return False
++
++
+ def publish_all(blob: Optional[Dict[str, Any]] = None,
+                 probe: str = CAPABILITY_PROBE,
+                 control: Optional[str] = None,
+@@ -42,6 +57,14 @@
+     `control`, when given, overrides the CONTROL_DBHOST name so the caller can publish
+     to the SAME freshly-resolved control IP the merge-end election reads from (the name
+     lags a merge until /etc/hosts is committed)."""
++    # [CAPABILITY_TUPLES_OFF_IN_REGION_V1] On an FD&F region the elections read facts.capability (the tunnel daemon
++    # probes and announces it, [CAPABILITY_IS_A_FACT_V1]); <role>/capability tuples in the store have no reader there.
++    # This one call is every publisher -- the merge, the frognet-daemon at boot and on every databasehost float, the
++    # proxy at boot, the communicator -- so it stops here: no probe (cpu bench + disk write/fsync, ~9 s on a Pi), no
++    # control+data write per role (each up to the store timeout when the databasehost is down or is this node).
++    if _region_mode():
++        logger("PUBLISH_ALL not run: region mode, capability is the tunnel daemon's fact [CAPABILITY_TUPLES_OFF_IN_REGION_V1]")
++        return []
+     if blob is None:
+         blob = UnRESTHandler._probe_capability(probe, logger)
+     reports: List[Dict[str, Any]] = []
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py fdf-source-r16/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py
+--- orig-r16/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py	2026-10-10 01:08:05.798994207 -0700
+@@ -12,7 +12,12 @@
+ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ os.environ["FROGNET_OFFLINE_TUPLES"] = "0"
+ from core import frognet_tuples as T
++# [STORE_READS_COUNTED_V1] counted, not raised: a raise inside a caller's `except Exception` is swallowed and the
++# read goes unseen (gather_candidates' reach_plane read did exactly that through r16). Every call is recorded and
++# the last check asserts there were none.
++STORE_READS = []
+ def _no_store(*a, **k):
++    STORE_READS.append((a, k))
+     raise AssertionError("the store was read during a region election: %s %s" % (a, k))
+ T.get = _no_store                                                  # the store is not an input; prove it
+ from discovery.elect import elect_now
+@@ -123,5 +128,7 @@
+ db6, _ = agree(res, 0)
+ check("member without a capability fact: ignored, still unanimous", db6 == "10.251.251.1" and "Newbie" in res, res)
+ 
++check("the store was never read (calls to T.get counted)", not STORE_READS, STORE_READS[:3])
++
+ print("\nRESULT " + ("PASS" if not FAIL else "FAIL %d" % FAIL))
+ sys.exit(1 if FAIL else 0)
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/discovery/live.py fdf-source-r16/frognet/opt/frognet_semantic/discovery/live.py
+--- orig-r16/frognet/opt/frognet_semantic/discovery/live.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/discovery/live.py	2026-10-10 04:24:45.802714027 -0700
+@@ -356,24 +356,60 @@
+     from .resolv import build_resolv
+     return "\n".join(build_resolv(local_domain, hn, _dns_upstream(k))) + "\n"
+ 
++def _region_exit_feed(participants, self_identity, logger=print):
++    """[EXIT_FROM_THE_GRAPH_V1] Mode B's inputs on a region, from the members' facts instead of the network.
++    Off a region, choose_exit_hosts pings the next hop toward EVERY known host and curls getDefaultRoute.php on each
++    (--max-time 15, serially) to learn which of them has an exit. On a region that is a fact: fdf_graph ranks the exits
++    from the uplink rows (live = not three missed pings; speed, then the lower .1) and names mine. So the candidate list
++    is that one host, and its answer is "exit present" by construction. The next-hop ping stays (it is this node's own
++    wire). No exit in the graph -> no candidate (gone is gone)."""
++    import os as _o, sys as _s, time as _t
++    fp = _o.environ.get("FDF_PY", "/opt/fdf/lib/python")
++    if fp not in _s.path:
++        _s.path.insert(0, fp)
++    from fdf_graph import Graph
++    from core.region_capability import _dot1_of
++    g = Graph(participants)
++    me = next((p.get("name") for p in participants if p.get("alive") and _dot1_of(p.get("facts") or {}) == self_identity), None)
++    ex = g.exit_of(me) if me else None
++    if not ex or ex == me:
++        logger("EXIT_FROM_THE_GRAPH me=%s exit=%s: no exit host to synthesize toward" % (me, ex))
++        return [], {}
++    ex_ip = next((_dot1_of(p.get("facts") or {}) for p in participants if p.get("name") == ex), "")
++    logger("EXIT_FROM_THE_GRAPH me=%s exit=%s (%s) uplink=%s" % (me, ex, ex_ip, g.uplink.get(ex)))
++    return ([ex_ip] if ex_ip else []), {ex_ip: {"ok": True, "exit_present": True, "ts": int(_t.time()), "ttl_sec": 60}}
++
++
+ def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
+-                               self_identity=""):
++                               self_identity="", region_parts=None):
+     """fixDefaultRoute (Mode A + B + forced) then manageResolv, over the real
+     kernel. This is the merge tail bash did and live.main was missing."""
+     from .fixdefault import FixDefaultRoute
++    known, getdr, ping = _known_hosts, _get_default_route, RealPing()
++    if region_parts is not None:
++        _ex, _ans = _region_exit_feed(region_parts, self_identity, logger)
++        known, getdr = (lambda: list(_ex)), (lambda h, timeout=15: _ans.get(h))
++        # [ALIVE_IS_THE_SESSION_V1] a next hop that is an address an alive member wrote in its facts (its .1, a lease
++        # it holds, its hub edge) is alive: its session says so. No ICMP for it. A gateway no member wrote (the ISP
++        # router on an uplink) is not in RAM and is still pinged.
++        _member_ips = {r.get("ip") for p in region_parts if p.get("alive")
++                       for r in (p.get("facts") or {}).get("addrs") or [] if r.get("ip")}
++        _icmp = ping
++        def ping(via, dev, _m=_member_ips, _icmp=_icmp):
++            return True if via in _m else _icmp(via, dev)
+     fdr = FixDefaultRoute(
+         k,
+         dev_ip4={d: dev_ip.get(d, "") for d in devs},
+         up_devs=_up_devs(),
+         connected_prefixes=_connected_prefixes(devs),
+-        ping=RealPing(),
++        ping=ping,
+         frognet_interfaces=devs,
+         local_ips=local_ips,
+         forced_line=_forced_line(),
+         logger=logger,
+         route_get=_route_get,
+-        get_default_route=_get_default_route,
+-        known_hosts=_known_hosts,
++        get_default_route=getdr,
++        known_hosts=known,
+         semantic_cidrs=_semantic_cidrs(),
+         write_exit_sentinel=_write_exit_sentinel,
+         self_identity=self_identity,
+@@ -526,6 +562,13 @@
+     if os.environ.get("FROGNET_SKIP_BRINGUP"):
+         logger("reconcile_tunnels SKIPPED (FROGNET_SKIP_BRINGUP set)")
+         return 0
++    # [BRINGUP_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub channel is the tunnel daemon's, applied in-process on
++    # every region event. A second python here re-read the region (my-channels: two reads), re-scanned the kernel's wg
++    # interfaces and could tear down or bring up the same channel behind the daemon's back. Not run.
++    from .real_backends import RegionRecords as _RR
++    if os.environ.get("FROGNET_DISCOVERY_SOURCE", "") == "region" or (not os.environ.get("FROGNET_DISCOVERY_SOURCE") and _RR.ram_from_conf()):
++        logger("reconcile_tunnels not run: region mode, the tunnel daemon owns the hub channel [BRINGUP_IS_THE_DAEMONS_IN_REGION_V1]")
++        return 0
+     env = dict(os.environ)
+     env["PYTHONPATH"] = os.environ.get("FROGNET_BRINGUP_PYTHONPATH",
+                                        "/opt/frognet_semantic")
+@@ -617,6 +660,7 @@
+                for ch, v in hs.items() if v.get("peer_dot_one")]
+     # [NO_CRAWL_IN_REGION_V1] on a region the peers are FD&F's plan, as the daemon applied it (routes installed,
+     # admission passed): /var/lib/frognet/region_hosts, "<ip> <name>" per line. The walk does not run.
++    _region_parts = None                       # [EXIT_FROM_THE_GRAPH_V1] the region's members, read once below
+     if getattr(disc, "no_crawl", False):
+         bringup = []
+         try:                                      # the daemon's file; /var/lib/frognet, because runMerge wipes /etc/sentinels at start
+@@ -634,7 +678,8 @@
+         try:
+             from discovery.real_backends import RegionRecords
+             from core import region_capability as _RC
+-            _n = _RC.set_snapshot(RegionRecords().participants(), self_identity)
++            _region_parts = RegionRecords().participants()
++            _n = _RC.set_snapshot(_region_parts, self_identity)
+             logger("ELECT: candidates from the region's facts: %d member(s) with a capability; my LAN (graph links): %s" % (_n, sorted(_RC.lan() or ())))
+         except Exception as _e:
+             raise RuntimeError("region mode: the members' facts could not be read for the election: %s" % _e)
+@@ -724,18 +769,24 @@
+     # seconds later. The value has to OUTLIVE the merge -- the whole point is that
+     # another node's election reads it afterwards.
+     out["computed_wan"] = list(getattr(disc, "computed_wan", []))
+-    try:
+-        from core import frognet_tuples as _T
+-        _scope = _T.node_scope()
+-        _T.put("discovery", "reach_plane", _scope,
+-               {"wan_subnets": out["computed_wan"],
+-                "self_ip": self_identity or eth0_ip},
+-               own=False)
+-        _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
+-        logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
+-               + (f" pruned={_pruned} stale pid-keyed row(s)" if _pruned else ""))
+-    except Exception as _e:
+-        logger(f"REACH_PLANE_TUPLE write failed: {_e}")
++    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the mediahost's LAN bucket is the
++    # graph ([LAN_IS_THE_GRAPH_V1]) and the one reader gather_candidates had was a dead read, now removed. Not written.
++    _region = bool(getattr(disc, "no_crawl", False))
++    if _region:
++        logger("REACH_PLANE_TUPLE not written: region mode, the graph is the LAN/WAN input [REGION_MERGE_WRITES_NO_STORE_V1]")
++    else:
++        try:
++            from core import frognet_tuples as _T
++            _scope = _T.node_scope()
++            _T.put("discovery", "reach_plane", _scope,
++                   {"wan_subnets": out["computed_wan"],
++                    "self_ip": self_identity or eth0_ip},
++                   own=False)
++            _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
++            logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
++                   + (f" pruned={_pruned} stale pid-keyed row(s)" if _pruned else ""))
++        except Exception as _e:
++            logger(f"REACH_PLANE_TUPLE write failed: {_e}")
+ 
+     # [NEIGHBOR_FROGNET_ADDR_V1] Persist {dhcp_next_hop: FrogNet .1} so
+     # propogateNotification's neighbor scan sends to a downstream child's FrogNet
+@@ -760,35 +811,42 @@
+     # capability (perf inside the blob) to BOTH control + data BEFORE the election
+     # reads - so the control holder's SELECT over capability tuples sees fresh perf.
+     # Best-effort: a miss self-heals on the confirmation merge a host-change triggers.
+-    try:
+-        from core.role_publish import publish_all
+-        from discovery.hosts import control_host_ip, CONTROL_NAME
+-        # Publish THIS node's capability to the SAME fresh control the election below
+-        # reads from - the deterministic highest .1 computed from this merge's block -
+-        # not the databasehost_control.frognet NAME, which resolves through the prior
+-        # merge's /etc/hosts (not committed yet) and so lands this node's perf on the
+-        # wrong control, leaving the fresh control's election ranking on stale data.
+-        _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
+-        _reports = publish_all(control=_ctl, logger=logger)
+-        # [PUBLISH_EVIDENCE_V1] Say that it happened, not only that it failed. A silent
+-        # success means a merge log cannot answer "did this node re-assert its
+-        # capability?", and that is the question every stale-ballot investigation
+-        # starts with: a row unrefreshed past FROGNET_BALLOT_MAX_AGE_S is refused by
+-        # every other node, so a machine that stops merging quietly stops being
+-        # electable anywhere - with nothing in its own log to show for it.
+-        _ok = sorted(x for r in _reports for x in [r.get("role")] if r.get("written") and x)
+-        _bad = [(r.get("role"), r.get("consistency"), r.get("refused") or r.get("error"))
+-                for r in _reports
+-                if not r.get("written") or r.get("consistency") != "ok"]
+-        import time as _pt
+-        _now = int(_pt.time())
+-        _ts = {r.get("role"): r.get("ts") for r in _reports if r.get("ts")}
+-        _age = {k: (_now - int(v)) for k, v in _ts.items() if v}
+-        logger(f"PUBLISH_CAPABILITY control={_ctl} wrote={_ok} "
+-               f"ts={_ts} ts_age_at_write={_age}"
+-               + (f" NOT_WRITTEN={_bad}" if _bad else ""))
+-    except Exception as _e:
+-        logger(f"PUBLISH_BEFORE_ELECT failed: {_e}")
++    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode the election's input is facts.capability, which the daemon
++    # probes at start and every 600 s off its loop ([CAPABILITY_IS_A_FACT_V1]); <role>/capability tuples in the store
++    # have no reader. publish_all ran frognet_capability_probe.sh (disk write, fsync, cpu: ~9 s on a Pi) and wrote
++    # them on every merge. Not run in region mode.
++    if _region:
++        logger("PUBLISH_CAPABILITY not run: region mode, capability is the daemon's fact [REGION_MERGE_WRITES_NO_STORE_V1]")
++    else:
++        try:
++            from core.role_publish import publish_all
++            from discovery.hosts import control_host_ip, CONTROL_NAME
++            # Publish THIS node's capability to the SAME fresh control the election below
++            # reads from - the deterministic highest .1 computed from this merge's block -
++            # not the databasehost_control.frognet NAME, which resolves through the prior
++            # merge's /etc/hosts (not committed yet) and so lands this node's perf on the
++            # wrong control, leaving the fresh control's election ranking on stale data.
++            _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
++            _reports = publish_all(control=_ctl, logger=logger)
++            # [PUBLISH_EVIDENCE_V1] Say that it happened, not only that it failed. A silent
++            # success means a merge log cannot answer "did this node re-assert its
++            # capability?", and that is the question every stale-ballot investigation
++            # starts with: a row unrefreshed past FROGNET_BALLOT_MAX_AGE_S is refused by
++            # every other node, so a machine that stops merging quietly stops being
++            # electable anywhere - with nothing in its own log to show for it.
++            _ok = sorted(x for r in _reports for x in [r.get("role")] if r.get("written") and x)
++            _bad = [(r.get("role"), r.get("consistency"), r.get("refused") or r.get("error"))
++                    for r in _reports
++                    if not r.get("written") or r.get("consistency") != "ok"]
++            import time as _pt
++            _now = int(_pt.time())
++            _ts = {r.get("role"): r.get("ts") for r in _reports if r.get("ts")}
++            _age = {k: (_now - int(v)) for k, v in _ts.items() if v}
++            logger(f"PUBLISH_CAPABILITY control={_ctl} wrote={_ok} "
++                   f"ts={_ts} ts_age_at_write={_age}"
++                   + (f" NOT_WRITTEN={_bad}" if _bad else ""))
++        except Exception as _e:
++            logger(f"PUBLISH_BEFORE_ELECT failed: {_e}")
+     try:
+         from core.frognet_service_hosts import apply_to_etc_hosts
+         from discovery.hosts import control_host_ip, CONTROL_NAME
+@@ -861,7 +919,8 @@
+     # over the real kernel - the steps bash ran after the host merge.
+     _run_fixdefault_and_resolv(k, devs, {i.dev: i.ip4() for i in ifaces},
+                                local_ips, logger=logger,
+-                               self_identity=self_identity)
++                               self_identity=self_identity,
++                               region_parts=_region_parts)
+ 
+     # [RUNAGAIN_ON_REAL_DELTA_V1] Close the window. The fingerprint answers ONE
+     # question -- did this pass actually change the routing table -- and that
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+--- orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py	2026-10-10 04:24:16.418892084 -0700
+@@ -1,12 +1,12 @@
+ """[GRAPH_APPLY_V1] turn one host's graph plan into the kernel and the files, by diff, with admission and hold-down.
+ 
+-The table proposes, the probe disposes (PLAN-RAM-DISCOVERY, contracts 3 and 5):
+-  - a candidate route is installed only after one echo across that exact next hop succeeds (admission); admission is
+-    for that moment -- it does not make the route permanent. Every rebuild re-probes a candidate whose next hop
+-    changed, and the hub link's handshake age is checked every rebuild; a failure withdraws at once.
++The table decides (PLAN-RAM-DISCOVERY, contracts 3 and 5; [ALIVE_IS_THE_SESSION_V1] r18):
++  - a planned route is installed at once: its member is alive (its session is up) and its link is a held/given lease
++    pair both ends wrote. No echo probe (r5-r17 sent one per newly admitted route; RAM already says it). The hub
++    link's handshake age is checked every rebuild; a dead handshake withdraws the hub routes at once.
+   - a route/name whose row merely vanished from the RAM is kept for HOLD_DOWN_SEC (a session blip is 20 s) and
+-    removed only if still absent then (hold-down). A positive failure (probe failed, hub handshake dead, region
+-    gone) is never held: removed now.
++    removed only if still absent then (hold-down). A positive failure (hub handshake dead, region gone) is never
++    held: removed now.
+   - files are written only when their content differs; dnsmasq is restarted only then; runMerge is requested only
+     when something was applied.
+ 
+@@ -103,18 +103,6 @@
+         import subprocess
+         return self._ip(["ip", "route", "del", "default", "metric", str(ROUTE_METRIC)])
+ 
+-    # ---- admission: one echo to the far .1 through this exact next hop
+-    def probe(self, dest_dot1: str, via: str, dev: str) -> bool:
+-        from .wg import frognet_echo
+-        if not self.route_replace(dest_dot1 + "/32", via, dev, ADMISSION_METRIC):
+-            return False
+-        t0 = time.monotonic()
+-        try:
+-            return frognet_echo(dest_dot1, timeout=3.0) is not None
+-        finally:
+-            self.stats["probes"] += 1; self.stats["probes_ms"] += int((time.monotonic() - t0) * 1000)
+-            self.route_del(dest_dot1 + "/32", via, dev, ADMISSION_METRIC)
+-
+     def hub_alive(self, iface: str) -> bool:
+         from .wg import wg_handshake_age
+         age = wg_handshake_age(iface)
+@@ -152,6 +140,8 @@
+     def __init__(self, world: World, me: str, hosts_sentinel: str = ""):
+         self.w = world
+         self.me = me
++        self.host_facts: Dict[str, dict] = {}                            # .1 -> that member's last facts (hosts json)
++        self.my_dot1 = ""
+         self.hosts_sentinel = hosts_sentinel or os.environ.get("FROGNET_REGION_HOSTS", "/var/lib/frognet/region_hosts")   # NOT /etc/sentinels: runMerge wipes that dir at start
+         self.applied_routes: Set[Tuple[str, str, str]] = set()       # (dest, via, dev) we installed
+         self.applied_default: Optional[Tuple[str, str]] = None
+@@ -200,19 +190,15 @@
+             want_default = None
+         want_hosts: Dict[str, str] = dict(plan["hosts"]) if "region" not in failures else {}
+ 
+-        # ---- admission: LAN candidates whose next hop is new (or previously refused) get one probe
++        # ---- admission  [ALIVE_IS_THE_SESSION_V1] (John 2026-10-10: "frognet_echo can be returned from RAM, and the
++        # aliveness checks"). A LAN route is in the plan only because its member is alive in the region -- its session
++        # is up, which is the liveness the whole system runs on -- and the link to it is a held lease and a given lease
++        # agreeing on (ip, mac), written by both ends. The frognet_echo.php probe to its .1 through the next hop (3 s
++        # ceiling, per newly admitted route) asked the network what RAM already says. Not run: every planned route is
++        # admitted. Hub routes stay gated on the hub link's handshake (the kernel's, local).
+         for r in sorted(want_routes):
+-            dest, via, dev = r
+-            if r in self.applied_routes:
+-                continue
+-            if not via:                                                 # hub routes: the hub link's handshake is the gate
++            if r not in self.applied_routes:
+                 self.admitted[r] = True
+-                continue
+-            dot1 = dest.split("/")[0].rsplit(".", 1)[0] + ".1"
+-            ok = self.w.probe(dot1, via, dev)
+-            self.admitted[r] = ok
+-            if not ok:
+-                changed["routes_refused"].append(r)
+         want_routes = {r for r in want_routes if self.admitted.get(r, False)}
+         # a host whose own .1 was refused gets no name either (HOSTS_GATE kept)
+         refused_nets = {dest for dest, _v, _d in changed["routes_refused"]}
+@@ -276,6 +262,7 @@
+             self.applied_hosts = new_hosts
+             hosts_written = self.w.write_if_changed(self.hosts_sentinel, self._hosts_content(new_hosts))
+         changed["hosts_written"] = hosts_written
++        self._write_hosts_json(new_hosts, participants)
+ 
+         # ---- who changed since the last rebuild (facts hash per live participant): names the source of an event storm
+         import hashlib as _hl, json as _js
+@@ -355,6 +342,37 @@
+         t0 = self.missing_since.setdefault(item, now)
+         return (now - t0) < HOLD_DOWN_SEC
+ 
++    def _write_hosts_json(self, hosts: Dict[str, str], participants: list) -> None:
++        """[HOSTJSON_FROM_THE_REGION_V1] <region_hosts>.json: what makeHostJson.bash built for getHosts.php --
++        [{"ip","hostname","echo"}] -- from the region instead of /etc/hosts plus a frognet_echo.php curl per peer.
++        The hosts are this node's applied plan (region_hosts) plus itself; each echo is that member's line from its
++        facts, the same one RegionEcho and frognet_echo.php answer: "<name>,<.1>,<upstream>,". A held-down host keeps
++        the facts it last had. Written only when the content changes."""
++        import json as _js
++        def dot1s(f):                                       # every /24 a member serves has its own hosts line
++            return [r["ip"] for r in f.get("addrs") or [] if r.get("kind") == "own" and str(r.get("ip", "")).endswith(".1")]
++        for p in participants:
++            if p.get("alive"):
++                f = p.get("facts") or {}
++                ips = dot1s(f)
++                for ip in ips:
++                    self.host_facts[ip] = f
++                if ips and p.get("name") == self.me:
++                    self.my_dot1 = ips[0]
++        rows = dict(hosts)
++        if self.my_dot1 and self.my_dot1 not in rows and participants:
++            mf = self.host_facts.get(self.my_dot1, {})
++            rows[self.my_dot1] = next((r.get("value") for r in mf.get("addrs") or [] if r.get("ip") == self.my_dot1), "") or self.me
++        out = []
++        for ip in sorted(rows, key=lambda s: tuple(int(x) for x in s.split("."))):
++            f = self.host_facts.get(ip, {})
++            name = rows[ip]
++            # the echo exactly as the region answers it everywhere else (discovery.real_backends.RegionEcho):
++            # "<facts.name>,<.1>,<facts.echo.upstream>,"; "" only for a host no member's facts ever named
++            echo = "%s,%s,%s," % (f.get("name") or name, ip, (f.get("echo") or {}).get("upstream", "")) if f else ""
++            out.append({"ip": ip, "hostname": name, "echo": echo})
++        self.w.write_if_changed(self.hosts_sentinel + ".json", _js.dumps(out, indent=1) + "\n")
++
+     def _hosts_content(self, hosts: Dict[str, str]) -> str:
+         """/var/lib/frognet/region_hosts: "<ip> <name>" per line. The merge (discovery.live, region mode) takes these
+         as its peers instead of walking; it builds /etc/hosts and the forwarders from them as always."""
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py
+--- orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py	2026-10-10 04:25:42.019834190 -0700
+@@ -797,6 +797,19 @@
+ def _enumerate_kernel_wg_ifaces() -> Dict[str, str]:
+     """Return {iface: remote_pubkey} for every live FrogNet-style wgN."""
+     out: Dict[str, str] = {}
++    from .wg import _kernel_dump                              # [KERNEL_READ_ONCE_PER_EVENT_V1]
++    d = _kernel_dump()
++    if d is not None:
++        for iface in sorted(d):
++            if not iface.startswith("wg"):
++                continue
++            peers = [pk for pk, _hs in d[iface]]
++            if len(peers) == 1:
++                out[iface] = peers[0]
++            else:
++                config.log.warning("ORPHAN_SCAN: %s has %d peers - not a FrogNet "
++                                   "tunnel, skipping", iface, len(peers))
++        return out
+     try:
+         r = subprocess.run(["wg", "show", "interfaces"],
+                            capture_output=True, text=True, check=False)
+@@ -928,6 +941,8 @@
+         )
+         conf_path.chmod(0o600)
+ 
++        from .wg import kernel_changed                        # [KERNEL_READ_ONCE_PER_EVENT_V1]
++        kernel_changed()
+         r = subprocess.run(["wg-quick", "up", iface],
+                            capture_output=True, text=True, check=False)
+         if r.returncode != 0:
+@@ -1680,7 +1695,9 @@
+     # tunnel can actually handshake is proved per-tunnel in _bring_up_tunnel
+     # (30s handshake wait, then teardown of that one tunnel) - that is the
+     # correct place for "this endpoint can't handshake", not a blanket pre-gate.
+-    if not _broker_reachable():
++    # [WORLD_READ_ONCE_PER_EVENT_V1] region mode: the region answered this event's `world` read a moment ago, and the
++    # my-channels fetch below is the same question; asking it twice cost a region read and a duplicate log line.
++    if not getattr(config, "REGION_RAM", "") and not _broker_reachable():
+         config.log.info(
+             "BRINGUP_PHASE: status=broker_unreachable - "
+             "tearing down stale (broker did not answer)")
+@@ -2337,7 +2354,7 @@
+     from . import gen as _gen
+     from .graph_apply import Applier, World
+     _ensure_frognet0()
+-    config.log.warning("REGION: loop started (RINA_RAM=%s, no poll interval) [ELECT_IN_PROCESS_V1 VIEW_FACT_ON_SUBSTANCE_V1 GEN_V1 NO_MERGE_ON_REGION_EVENTS_V1]; region.py build %s; the region is build %s",
++    config.log.warning("REGION: loop started (RINA_RAM=%s, no poll interval) [ELECT_IN_PROCESS_V1 VIEW_FACT_ON_SUBSTANCE_V1 GEN_V1 NO_MERGE_ON_REGION_EVENTS_V1 WATCH_BEFORE_READ_V1 WORLD_READ_ONCE_PER_EVENT_V1 KERNEL_READ_ONCE_PER_EVENT_V1 HOSTJSON_FROM_THE_REGION_V1 ALIVE_IS_THE_SESSION_V1]; region.py build %s; the region is build %s",
+                     config.REGION_RAM, region.BUILD_TAG, region.version())
+     try:
+         region.post("/api/v4/register", {"pond": config.POND, "pubkey": config.PUBKEY,
+@@ -2405,21 +2422,25 @@
+             return {}
+         last_sig[0] = sig
+         changed_tunnels = False
+-        if "region" not in failures:
+-            try:
+-                changed_tunnels = _reconcile_bringup_phase()        # hub channel up/down, in-process (no runMerge fork)
+-            except Exception as e:
+-                config.log.warning("REGION: bringup after %s failed: %s", why, e)
+-        _lap("bringup")
+-        # [ME_BY_GUID_V1] the member name the region shows for this node is whatever fdf-client announced (FDF_NAME,
+-        # facts.name, or the hostname if it started before the daemon wrote facts.name); the guid is the identity.
+-        my_guid = region.read_facts().get("guid") or config.NODE_GUID
+-        for p in parts:
+-            if p.get("alive") and (p.get("facts") or {}).get("guid") == my_guid and p.get("name") and p["name"] != applier.me:
+-                config.log.warning("REGION: this node is announced as %r (guid %s); planning as that", p["name"], my_guid)
+-                applier.me = p["name"]
+-        c = applier.apply(parts, positive_failures=set(failures))
+-        _lap("apply")
++        from . import wg as _wgm
++        # [WORLD_READ_ONCE_PER_EVENT_V1][KERNEL_READ_ONCE_PER_EVENT_V1] bringup and the applier see this event's world
++        # (the one `world` read above) and one WireGuard dump, until something changes the kernel.
++        with region.world_in_hand(parts, maps), _wgm.kernel_read_once():
++            if "region" not in failures:
++                try:
++                    changed_tunnels = _reconcile_bringup_phase()    # hub channel up/down, in-process (no runMerge fork)
++                except Exception as e:
++                    config.log.warning("REGION: bringup after %s failed: %s", why, e)
++            _lap("bringup")
++            # [ME_BY_GUID_V1] the member name the region shows for this node is whatever fdf-client announced (FDF_NAME,
++            # facts.name, or the hostname if it started before the daemon wrote facts.name); the guid is the identity.
++            my_guid = region.read_facts().get("guid") or config.NODE_GUID
++            for p in parts:
++                if p.get("alive") and (p.get("facts") or {}).get("guid") == my_guid and p.get("name") and p["name"] != applier.me:
++                    config.log.warning("REGION: this node is announced as %r (guid %s); planning as that", p["name"], my_guid)
++                    applier.me = p["name"]
++            c = applier.apply(parts, positive_failures=set(failures))
++            _lap("apply")
+         # [CHILD_KEEPS_OWN_MAP_V1] the plan's maps already say what to register: everything behind me when I am the exit,
+         # my own /24s when I am a child with a tunnel, nothing without one. Not gated on hub_active any more.
+         # [LIVE_HUBS_FROM_TUNNELS_V1] the locator set = every hub whose channel is up right now (the old bringup set
+@@ -2543,17 +2564,29 @@
+     backoff = 5
+     while config.running:
+         up = False
++        evs = None
+         try:
++            # [WATCH_BEFORE_READ_V1] the watch first, then the read. It was the other way round: `_one("start")` read the
++            # world, then brought up the hub tunnel (5 s in the netns test), and only then did fdf-events register --
++            # every join, announce and mapping in between was never delivered. Both daemons in
++            # tools/netns-region-loop-test.sh sat 61 s with a/y missing from their plan, until an unrelated change.
++            # Now a change after the watch is queued (fdf-events' pipe) while the read runs, and is applied next.
++            evs = region.events()
++            first = next(evs, "gone")
++            if first != "ready":
++                raise RuntimeError("fdf-events registered no watch (%s)" % first)
+             with region.facts_batch():                              # [ONE_WRITE_PER_EVENT_V1]
+                 _one("start")
+             up = True
+         except Exception as e:
++            if evs is not None:
++                evs.close()
+             config.log.warning("REGION: not reachable (%s); %s", e,
+                                "will keep trying every %ds, quietly" % backoff if not was_up else "was up: treating as lost")
+         if up:
+             was_up = True
+             backoff = 5
+-            for ev in region.events():
++            for ev in evs:
+                 if not config.running:
+                     return
+                 if ev == "gone":
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
+--- orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py	2026-10-10 04:25:41.997160990 -0700
+@@ -39,7 +39,7 @@
+ from . import config
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-09-r16"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_MASK = 16
+ ALLOWED = "10.0.0.0/8"
+ 
+@@ -150,11 +150,35 @@
+         return "(no answer: %s)" % e
+ 
+ 
++# [WORLD_READ_ONCE_PER_EVENT_V1] the daemon reads the world once per event (`world`); everything else that asks the
++# region inside that event -- my_channels for the hub channel (bringup asked it twice: reachability, then the list),
++# transit_map -- answers from that same read. Four region round trips per event (two participants + two map_list) on
++# top of `world`, each a WAN RTT on a node far from the droplet. Outside world_in_hand() every call goes to the region.
++_held = {"world": None}
++
++
++class world_in_hand:
++    def __init__(self, parts: list, maps: list):
++        self.w = (parts, maps)
++
++    def __enter__(self):
++        _held["world"] = self.w
++        return self
++
++    def __exit__(self, *a):
++        _held["world"] = None
++        return False
++
++
+ def participants() -> list:
++    if _held["world"] is not None:
++        return _held["world"][0]
+     return _call({"op": "participants"}).get("participants", [])
+ 
+ 
+ def mappings() -> list:
++    if _held["world"] is not None:
++        return _held["world"][1]
+     return _call({"op": "map_list", "site": getattr(config, "REGION_AREA", "")}).get("mappings", [])
+ 
+ 
+@@ -311,15 +335,16 @@
+ 
+ # ---------------------------------------------------------------- change notification
+ def events():
+-    """Yields "p", "m" or "gone" as the region reports them. Runs fdf-events; its exit = the region is gone."""
++    """Yields "ready" once fdf-events has registered its watches, then "p", "m" or "gone" as the region reports them.
++    Runs fdf-events; its exit = the region is gone.
++    [WATCH_BEFORE_READ_V1] "ready" is yielded, not swallowed: the caller reads the world only AFTER it, so a change
++    between the read and the watch cannot be missed (it arrives as an event, queued in the pipe while the read runs)."""
+     fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+     env = dict(os.environ, RINA_RAM=config.REGION_RAM)
+     p = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1, env=env)
+     try:
+         for line in p.stdout:
+             line = line.strip()
+-            if line == "ready":
+-                continue
+             yield line
+             if line == "gone":
+                 return
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
+--- orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py	2026-10-10 04:24:26.071124258 -0700
+@@ -52,7 +52,9 @@
+     def write_if_changed(self, path, content):
+         if self.files.get(path) == content:
+             return False
+-        self.files[path] = content; self.writes += 1; return True
++        self.files[path] = content
++        if not path.endswith(".json"): self.writes += 1          # the hosts sentinel; <sentinel>.json is checked by content
++        return True
+     def now(self): return self.t
+     def say(self, msg): self.said.append(msg)
+ 
+@@ -61,13 +63,19 @@
+ w = Fake()
+ ap = Applier(w, "z", hosts_sentinel="/sent/frognet_hosts")
+ c = ap.apply(T1)
+-check("z: LAN routes admitted after one probe each, hub routes without (handshake is their gate)",
++check("z: LAN routes installed at once (their members are alive), hub routes too (handshake is their gate)",
+       sorted(w.kernel), sorted([("10.2.2.0/24", "10.3.3.20", "wlan0"), ("10.1.1.0/24", "10.3.3.20", "wlan0"),
+                                 ("10.7.7.0/24", "", "wg0"), ("10.8.8.0/24", "", "wg0"), ("10.9.9.0/24", "", "wg0")]))
+-check("z: probes went to the far .1 through the exact next hop", sorted(w.probes), sorted([("10.2.2.1", "10.3.3.20", "wlan0"), ("10.1.1.1", "10.3.3.20", "wlan0")]))
++check("z: no echo probe is sent: alive is the session [ALIVE_IS_THE_SESSION_V1]", w.probes, [])
+ check("z: no default (own uplink)", w.default, None)
+ check("z: hosts sentinel written once, ip name per line", (w.writes, w.files["/sent/frognet_hosts"].splitlines()[:2]),
+       (1, ["10.1.1.1 FrogNetHost.x", "10.2.2.1 FrogNetHost.y"]))
++import json as _j
++_hj = _j.loads(w.files.get("/sent/frognet_hosts.json", "[]"))
++check("z: hosts json (getHosts.php's input) = the hosts sentinel's hosts (z included), echo from each member's facts [HOSTJSON_FROM_THE_REGION_V1]",
++      ([h["ip"] for h in _hj], [h["echo"] for h in _hj if h["ip"] in ("10.2.2.1", "10.3.3.1")]),
++      ([l.split()[0] for l in w.files["/sent/frognet_hosts"].splitlines()],
++       ["FrogNetHost.y,10.2.2.1,,", "FrogNetHost.z,10.3.3.1,,"]))   # the fixture facts carry no "name": the hosts name stands in
+ check("z: applied flag", c["applied"], True)
+ check("z: maps for the hub", c["maps"], ["10.1.1.0/24", "10.2.2.0/24", "10.3.3.0/24"])
+ 
+@@ -95,16 +103,15 @@
+ c = ap.apply(T1_no_x)
+ check("4 steady again", c["applied"], False)
+ 
+-# ---------------------------------------------------------------- admission refused: no echo through the next hop
++# ---------------------------------------------------------------- [ALIVE_IS_THE_SESSION_V1] a next hop that would not echo changes nothing
+ w2 = Fake(); w2.probe_ok = False
+ ap2 = Applier(w2, "z", hosts_sentinel="/sent/h")
+ c = ap2.apply(T1)
+-check("admission refused: no LAN route, no LAN name, hub routes still there", (sorted(r for r in w2.kernel if r[1]), [ip for ip in ap2.applied_hosts if ip.startswith("10.1.") or ip.startswith("10.2.")], len([r for r in w2.kernel if not r[1]])),
+-      ([], [], 3))
+-check("admission refused is said", any("admission refused" in m for m in w2.said), True)
++check("no probe: LAN routes and names installed from the region alone, nothing probed",
++      (sorted(r for r in w2.kernel if r[1]), w2.probes),
++      (sorted([("10.2.2.0/24", "10.3.3.20", "wlan0"), ("10.1.1.0/24", "10.3.3.20", "wlan0")]), []))
+ w2.probe_ok = True
+ c = ap2.apply(T1)
+-check("next event re-probes and admits", sorted(r for r in w2.kernel if r[1]), sorted([("10.2.2.0/24", "10.3.3.20", "wlan0"), ("10.1.1.0/24", "10.3.3.20", "wlan0")]))
+ 
+ # ---------------------------------------------------------------- positive failure: hub handshake dead -> hub routes gone NOW, LAN routes untouched
+ w2.hub_ok = False
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py
+--- orig-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py	2026-10-10 04:34:41.169927884 -0700
++++ fdf-source-r16/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py	2026-10-10 01:30:51.862299931 -0700
+@@ -36,6 +36,60 @@
+ _wg_up_lock = threading.RLock()
+ 
+ 
++# [KERNEL_READ_ONCE_PER_EVENT_V1] One `wg show all dump` per region event, not one `wg` process per question.
++# Measured in tools/netns-region-loop-test.sh (strace -f -e execve on a's daemon, one event): `wg show interfaces` x2,
++# `wg show wg0 peers` x2, `wg show wg0` x2 (handshake age: bringup, then the applier's hub_alive) -- six fork+execs,
++# ~35 ms of the 45 ms event on x86; more on a Pi. Inside `kernel_read_once()` the first question reads the dump and
++# every later one answers from it. The first thing that CHANGES WireGuard (wg-quick up/down, wg set) calls
++# kernel_changed(): from then on, for the rest of the event, every read is live again (a polling loop waiting for a
++# handshake must see the kernel, not the snapshot). Outside kernel_read_once() nothing is cached, ever.
++# Process-wide, not per thread: the bring-up workers run on their own threads, and their change must end the event
++# loop's snapshot too (the applier's hub_alive after a bring-up must see the new interface).
++class _KS:
++    on = False
++    dump = None
++_ks = _KS()
++
++
++class kernel_read_once:
++    def __enter__(self):
++        _ks.on, _ks.dump = True, None
++        return self
++
++    def __exit__(self, *a):
++        _ks.on, _ks.dump = False, None
++        return False
++
++
++def kernel_changed() -> None:
++    """Called before anything that changes WireGuard: the snapshot is dropped and not retaken this event."""
++    _ks.on, _ks.dump = False, None
++
++
++def _kernel_dump():
++    """{iface: [(peer_pubkey, latest_handshake_epoch), ...]} from one `wg show all dump`, or None when no snapshot is
++    in force (the caller then asks the kernel itself, as it always did)."""
++    if not getattr(_ks, "on", False):
++        return None
++    if _ks.dump is None:
++        d = {}
++        r = subprocess.run(["wg", "show", "all", "dump"], capture_output=True, text=True, check=False)
++        if r.returncode != 0:
++            config.log.warning("KERNEL_READ: wg show all dump rc=%d: %s", r.returncode, (r.stderr or "").strip()[:200])
++        for ln in (r.stdout or "").splitlines():
++            f = ln.split("\t")
++            if len(f) == 5:                                   # interface line: iface priv pub port fwmark
++                d.setdefault(f[0], [])
++            elif len(f) == 9:                                 # peer line: iface pub psk endpoint allowed hs rx tx keepalive
++                try:
++                    hs = int(f[5])
++                except ValueError:
++                    hs = 0
++                d.setdefault(f[0], []).append((f[1], hs))
++        _ks.dump = d
++    return _ks.dump
++
++
+ def find_next_wg_iface() -> str:
+     trace_enter('wg.find_next_wg_iface')
+     for n in range(32):
+@@ -48,6 +102,7 @@
+ 
+ def teardown_wg_iface(iface: str):
+     trace_enter('wg.teardown_wg_iface', iface=repr(iface))
++    kernel_changed()
+     config.dbg(f"_teardown_wg_iface: {iface}")
+     conf_path = config.CONF_DIR / f"{iface}.conf"
+     try:
+@@ -110,6 +165,7 @@
+     """
+     # Capture peer pubkey + current keepalive so we can restore.
+     trace_enter('wg.refresh_handshake', iface=repr(iface), wait_sec=repr(wait_sec))
++    kernel_changed()
+     try:
+         r = subprocess.run(["wg", "show", iface, "dump"],
+                            capture_output=True, text=True, check=False)
+@@ -197,6 +253,10 @@
+ 
+ def wg_handshake_age(iface: str) -> Optional[float]:
+     trace_enter('wg.wg_handshake_age', iface=repr(iface))
++    d = _kernel_dump()                                        # [KERNEL_READ_ONCE_PER_EVENT_V1]
++    if d is not None:
++        hs = [h for _pk, h in d.get(iface, []) if h > 0]     # `wg show` prints no "latest handshake" for a peer with none
++        return max(0.0, time.time() - max(hs)) if hs else None
+     try:
+         wg = subprocess.run(["wg", "show", iface],
+                             capture_output=True, text=True, check=False)
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/usr/local/bin/frognet-merge-watcher.sh fdf-source-r16/frognet/usr/local/bin/frognet-merge-watcher.sh
+--- orig-r16/frognet/usr/local/bin/frognet-merge-watcher.sh	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/usr/local/bin/frognet-merge-watcher.sh	2026-10-10 01:07:25.234765905 -0700
+@@ -72,7 +72,7 @@
+     else
+         exec 9>&-
+         mkdir -p "$(dirname "$RUN_AGAIN")"
+-        : > "$RUN_AGAIN"
++        echo "watcher:poke" >> "$RUN_AGAIN"
+         echo "[MERGE-ACCUM] fire decision=set_runAgain reason=merge_running" >&2
+     fi
+ }
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/usr/local/bin/runMerge.bash fdf-source-r16/frognet/usr/local/bin/runMerge.bash
+--- orig-r16/frognet/usr/local/bin/runMerge.bash	2026-10-10 01:03:17.000000000 -0700
++++ fdf-source-r16/frognet/usr/local/bin/runMerge.bash	2026-10-10 04:07:08.876078102 -0700
+@@ -83,7 +83,7 @@
+ exec 9>"$LOCKFILE" || { flog_error "lock_open_failed" "lockfile=$LOCKFILE"; exit 1; }
+ if ! flock -n 9; then
+     flog_warn "BAIL" "reason=lock_held" "depth=$FROGNET_MERGE_DEPTH"
+-    mkdir -p /etc/sentinels; : > /etc/sentinels/runAgain
++    mkdir -p /etc/sentinels; echo "${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" >> /etc/sentinels/runAgain
+     flog_info "runAgain_touched" "reason=for_running_instance"
+     exit 0
+ fi
+@@ -113,7 +113,18 @@
+ #
+ # Idempotent by construction: only the two transition quadrants act. Cheap on the
+ # common no-change pass (one broker probe + one iface check).
++# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env (fdf-join) or tunnel.conf.
++_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
++flog_info "mode" "region=$_REGION"
++
+ flog_stage tunnel_autoswitch
++if [[ "$_REGION" -eq 1 ]]; then
++# [AUTOSWITCH_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub tunnel is the tunnel daemon's: it brings the channel up
++# on every region event and, when the region is gone, tears it down itself ([GONE_IS_GONE_V1]). This stage asked the
++# same question again from a second python (broker-reachable = region.my_channels = two region reads) and could act
++# on its answer (nuke or bring-up) behind the daemon's back. Not run.
++flog_info "autoswitch" "action=none" "reason=region_mode_the_daemon_owns_the_hub_channel"
++else
+ _PYBIN_AS="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
+ [[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
+ 
+@@ -140,6 +151,7 @@
+ else
+     flog_info "autoswitch" "action=none" "reason=steady_state"
+ fi
++fi
+ flog_stage_end tunnel_autoswitch "rc=$?"
+ 
+ flog_stage setup_iptables
+@@ -147,7 +159,34 @@
+ flog_stage_end setup_iptables "rc=$?"
+ 
+ SENT_DIR="/etc/sentinels"
+-rm -rf /etc/sentinels/*
++# [BASELINES_SURVIVE_THE_WIPE_V1] The wipe stays -- a merge inherits no per-pass
++# state -- but these files are not per-pass state. Each is the record a later
++# step compares against, and wiping it made every comparison see "nothing before":
++#
++#   frognet_hosts        _commit_hosts' fh_old -> _topology_changed always true ->
++#                        sync_required reason=hosts_changed, chain_dirty=1 and a
++#                        propogateNotification on every pass on every node
++#   dnsmasq_content_key  _apply_dnsmasq's record of what dnsmasq serves ->
++#                        DNSMASQ_NO_SENTINEL ... restarting on every merge
++#   dnsmasq_upstream.conf dnsmasq's resolv-file (it polls it): no upstream servers
++#                        from the wipe until live.py rewrites it
++#   old_host_json, old_hosts_meta, echo_cache
++#                        makeHostJson.bash's cache -> `rebuild` re-curled
++#                        frognet_echo.php on every peer, serially (27 s Seattle7,
++#                        16 s HappyDog, each "echo": "" costing its timeout)
++#   getHosts.cache.json, getHosts.cache.meta
++#                        getHosts.php's cache keyed on old_host_json
++#
++# Everything else in the directory is removed exactly as before.
++_SENT_KEEP=" frognet_hosts dnsmasq_content_key dnsmasq_upstream.conf old_host_json old_hosts_meta echo_cache getHosts.cache.json getHosts.cache.meta "
++_kept=""; _wiped=0
++for _f in /etc/sentinels/* /etc/sentinels/.[!.]*; do
++    [[ -e "$_f" || -L "$_f" ]] || continue
++    _b="${_f##*/}"
++    if [[ "$_SENT_KEEP" == *" $_b "* ]]; then _kept="$_kept $_b"; continue; fi
++    rm -rf "$_f"; _wiped=$((_wiped+1))
++done
++flog_info "sentinels_wiped" "removed=$_wiped" "kept=[${_kept# }]"
+ rm -rf /tmp/frognet*
+ 
+ # [WIPE_THEN_REOPEN_V1] The wipe below is deliberate: a merge inherits nothing
+@@ -192,7 +231,13 @@
+ trap cleanup EXIT INT TERM
+ 
+ flog_stage flush_discovery_cache
+-/usr/local/bin/frognet_discovery_cache.sh flush 2>/dev/null || true
++# [NO_CRAWL_CACHE_IN_REGION_V1] TransitPeerCache (a MySQL table on the databasehost) is the crawl's cache; the crawl
++# does not run on a region, so emptying it every merge was a store round trip for nothing.
++if [[ "$_REGION" -eq 1 ]]; then
++    flog_info "flush_discovery_cache" "decision=skip" "reason=region_mode_no_crawl"
++else
++    /usr/local/bin/frognet_discovery_cache.sh flush 2>/dev/null || true
++fi
+ flog_stage_end flush_discovery_cache "rc=$?"
+ 
+ # [FLUSH_HAS_A_CALLER_V1] The not_frognet negative cache is merge-scoped and
+@@ -283,7 +328,15 @@
+ flog_info "converge_decision" "changed_this_pass=$_sr" "runAgain=$_ra" "merge_rc=$merge_rc" \
+           "depth=$FROGNET_MERGE_DEPTH" "cap=$MAX_MERGE_DEPTH" "chain_dirty=$_dirty"
+ 
+-/usr/local/bin/makeHostJson.bash rebuild
++# [HOSTJSON_FROM_THE_REGION_V1] In region mode the host list is the region's: the tunnel daemon writes
++# /var/lib/frognet/region_hosts.json (ip, name, echo from each member's facts) with region_hosts, on every event, and
++# getHosts.php serves that file. makeHostJson.bash -- /etc/hosts plus a frognet_echo.php curl to every peer with no
++# echo, --max-time 45, the merge waiting on the slowest -- does not run. Broker mode is unchanged.
++if [[ "$_REGION" -eq 1 ]]; then
++    flog_info "makeHostJson" "decision=skip" "reason=region_mode_hosts_are_the_daemons_region_hosts_json"
++else
++    /usr/local/bin/makeHostJson.bash rebuild
++fi
+ # [RUNAGAIN_ON_MUTATION_V1] A merge that changed a /24 sets runAgain (Python
+ # converge_decision -> $RUN_AGAIN). The mesh rarely converges in one pass — this
+ # node's /24 changes are what peers react to, and their reactions change what
+@@ -294,7 +347,8 @@
+     if [[ "$FROGNET_MERGE_DEPTH" -lt "$MAX_MERGE_DEPTH" ]]; then
+         _next=$(( FROGNET_MERGE_DEPTH + 1 ))
+         flog_info "runAgain_reinvoke" "next_depth=$_next" "cap=$MAX_MERGE_DEPTH" \
+-                  "chain_dirty=$_dirty" "reason=changed_24_not_yet_converged"
++                  "chain_dirty=$_dirty" "reason=external_during_pass" \
++                  "runAgain_from=$(sort -u "$RUN_AGAIN" 2>/dev/null | paste -sd, -)"
+         # release the lock (close fd 9) before re-invoking so the child acquires it
+         rm -f "$MERGE_PENDING" 2>/dev/null || true
+         exec 9>&-
+@@ -311,8 +365,12 @@
+ # something. Neighbor-scoped (direct LAN next-hops + WG tunnel peers); each
+ # receiver re-propagates; dedup by event id.
+ if [[ "$_dirty" -eq 1 ]]; then
+-    flog_info "PROP" "converged=YES" "chain_dirty=1" "action=propogateNotification"
+-    /usr/local/bin/propogateNotification
++    if [[ "$_REGION" -eq 1 ]]; then
++        flog_info "PROP" "converged=YES" "chain_dirty=1" "action=none" "reason=region_mode_the_facts_write_is_the_notification"
++    else
++        flog_info "PROP" "converged=YES" "chain_dirty=1" "action=propogateNotification"
++        /usr/local/bin/propogateNotification
++    fi
+ else
+     flog_info "PROP" "converged=YES" "chain_dirty=0" "reason=no_change_in_merge_chain"
+ fi
+@@ -329,7 +387,8 @@
+ # Cheap in the common case: one file test. frognet-pond-bootstrap.sh writes the
+ # sentinel only once enrolment completed AND the tunnel daemon is running, so
+ # this stops firing on its own. Backgrounded so a slow broker never stalls a merge.
+-if [[ ! -f /etc/frognet/pond_bootstrap_done \
++# [NO_BROKER_ENROLMENT_IN_REGION_V1] enrolment with the broker means nothing on a region (membership is the session).
++if [[ "$_REGION" -eq 0 && ! -f /etc/frognet/pond_bootstrap_done \
+       && -x /usr/local/bin/frognet-pond-bootstrap.sh ]] \
+    && grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null; then
+     flog_info "BROKER_SETUP" "state=pending" "action=retry_pond_bootstrap"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/var/www/html/frognet_echo.php fdf-source-r16/frognet/var/www/html/frognet_echo.php
+--- orig-r16/frognet/var/www/html/frognet_echo.php	2026-10-10 04:34:41.184180742 -0700
++++ fdf-source-r16/frognet/var/www/html/frognet_echo.php	2026-10-10 04:24:36.906645004 -0700
+@@ -16,6 +16,24 @@
+  *                                                             *
+  *  See COPYRIGHT and LICENSE at the root of this tree.        *
+  **************************************************************/
+-    echo `/usr/local/bin/getFrogNet.bash`
++    // [ECHO_FROM_THE_REGION_V1] On an FD&F region this node's echo is its own facts (the file fdf-client announces to
++    // the region), in the form every region reader uses (RegionEcho, region_hosts.json): "<name>,<.1>,<upstream>,".
++    // No getFrogNet.bash (four helper scripts, a lock and a cache file). Off a region, unchanged.
++    $region = false;
++    foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
++        $t = @file_get_contents($f);
++        if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
++    }
++    if ($region) {
++        $facts = json_decode((string)@file_get_contents('/opt/fdf/var/facts.json'), true);
++        if (!is_array($facts)) { echo ""; return; }      // no facts yet: no echo (not a member yet)
++        $dot1 = '';
++        foreach (($facts['addrs'] ?? []) as $r) {
++            if (($r['kind'] ?? '') === 'own' && substr((string)($r['ip'] ?? ''), -2) === '.1') { $dot1 = $r['ip']; break; }
++        }
++        echo ($facts['name'] ?? '') . ',' . $dot1 . ',' . (string)(($facts['echo'] ?? [])['upstream'] ?? '') . ',';
++    } else {
++        echo `/usr/local/bin/getFrogNet.bash`;
++    }
+ ?>
+ 
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/frognet/var/www/html/getHosts.php fdf-source-r16/frognet/var/www/html/getHosts.php
+--- orig-r16/frognet/var/www/html/getHosts.php	2026-10-10 04:34:41.182719326 -0700
++++ fdf-source-r16/frognet/var/www/html/getHosts.php	2026-10-10 04:05:39.292599513 -0700
+@@ -39,7 +39,19 @@
+ 
+ header('Content-Type: application/json');
+ 
+-$json = shell_exec('/usr/local/bin/makeHostJson.bash 2>/dev/null');
++// [HOSTJSON_FROM_THE_REGION_V1] On an FD&F region the host list is the region's: the tunnel daemon writes
++// /var/lib/frognet/region_hosts.json ([{ip, hostname, echo}], this node's applied plan, each echo rebuilt from that
++// member's facts) on every region event. No makeHostJson.bash, no curl to any peer. Absent file = no hosts yet.
++$region = false;
++foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
++    $t = @file_get_contents($f);
++    if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
++}
++if ($region) {
++    $json = @file_get_contents('/var/lib/frognet/region_hosts.json');
++} else {
++    $json = shell_exec('/usr/local/bin/makeHostJson.bash 2>/dev/null');
++}
+ 
+ if ($json === null || trim($json) === '') {
+     echo '[]';
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/src/fdf_version.hpp fdf-source-r16/rinab/src/fdf_version.hpp
+--- orig-r16/rinab/src/fdf_version.hpp	2026-10-10 01:03:15.000000000 -0700
++++ fdf-source-r16/rinab/src/fdf_version.hpp	2026-10-10 04:25:42.011083890 -0700
+@@ -1,4 +1,4 @@
+ // fdf_version.hpp -- [FDF_VERSION_V1] one build tag, said by every program at start and answered by the region
+ // ({"op":"version"}, and as "server" in every participants reply), so nobody has to run a command to know what runs.
+ #pragma once
+-#define FDF_BUILD_TAG "fdf-2026-10-09-r16"
++#define FDF_BUILD_TAG "fdf-2026-10-10-r19"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/src/rina_region.cpp fdf-source-r16/rinab/src/rina_region.cpp
+--- orig-r16/rinab/src/rina_region.cpp	2026-10-10 01:03:15.000000000 -0700
++++ fdf-source-r16/rinab/src/rina_region.cpp	2026-10-10 01:38:05.320290201 -0700
+@@ -909,7 +909,12 @@
+             put(m, "pfl:" + p, f.rest, ""); }
+     }
+     else if (who.compare(0, 5, "node:") == 0) { const std::string ns = who.substr(5), cur = get(m, "node", ns);
+-        if (cur.compare(0, 6 + sess_key(sid).size(), "epoch=" + sess_key(sid)) == 0) { put(m, "node", ns, ""); notify_agents(m); } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
++        if (cur.compare(0, 6 + sess_key(sid).size(), "epoch=" + sess_key(sid)) == 0) { put(m, "node", ns, ""); notify_agents(m);
++            // [ANN_GOES_WITH_THE_SESSION_V1] gone is gone: the announcement goes with the machine's session. Every reader
++            // (fdf_graph, graph_apply, fdf-hub, gen, region.py) already skipped a dead one, so nothing plans differently;
++            // what changes is that dead rows no longer pile up for the life of the RAM manager (the stale
++            // FrogNetHost.Seattle* duplicates from before ME_BY_GUID) and ride along on every member's `world` read.
++            put(m, "ann", ns, ""); } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
+     put(m, "sess", sess_key(sid), "");
+     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]
+     for (auto& r : scan(m, "pwatch", "")) if (r.value == sess_key(sid)) put(m, "pwatch", r.rest, "");
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/tools/fdf-hub fdf-source-r16/rinab/tools/fdf-hub
+--- orig-r16/rinab/tools/fdf-hub	2026-10-10 01:03:16.000000000 -0700
++++ fdf-source-r16/rinab/tools/fdf-hub	2026-10-10 04:25:42.001734473 -0700
+@@ -30,7 +30,7 @@
+ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
+ 
+ API = "/FawcettInnovations.RINA.ram_interface.php"
+-BUILD_TAG = "fdf-2026-10-09-r16"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
++BUILD_TAG = "fdf-2026-10-10-r19"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+ HUB_ADDR = "10.253.253.254"
+ HUB_MASK = 16
+ 
+@@ -261,6 +261,11 @@
+     except Exception as e: rv = "(no answer: %s)" % e
+     log("build %s; region at %s is build %s" % (BUILD_TAG, ram, rv))
+     ev = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1)
++    # [WATCH_BEFORE_READ_V1] the start read happens after fdf-events says its watches are registered: a change between
++    # the read and the watch would otherwise never be delivered (the hub's peers stale until some unrelated event).
++    first = ev.stdout.readline().strip()
++    if first != "ready":
++        log("fdf-events registered no watch (%r); the region is not reachable" % first); sys.exit(1)
+     seen_notes = set()
+     def once(why):
+         parts, maps = region.world(a.area)                 # [WORLD_IN_ONE_READ_V1]
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/tools/make_deliverables.sh fdf-source-r16/rinab/tools/make_deliverables.sh
+--- orig-r16/rinab/tools/make_deliverables.sh	1969-12-31 16:00:00.000000000 -0800
++++ fdf-source-r16/rinab/tools/make_deliverables.sh	2026-10-10 04:14:01.596287772 -0700
+@@ -0,0 +1,48 @@
++#!/bin/bash
++# make_deliverables.sh -- [ONE_TARBALL_PER_MACHINE_V1] the three r-builds from this tree, every time, all three:
++#   fdf-install-aarch64.run   Pi nodes      /opt/fdf (aarch64 binaries) + the FrogNet region patch, behind header.sh
++#   fdf-install-x86_64.run    x86 nodes     /opt/fdf (x86 static binaries) + the FrogNet region patch, behind header.sh
++#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + its three systemd units
++# Each carries /opt/fdf/BUILD (package=, build=, built=, for=). Tarred from / (paths are absolute-from-root).
++# Never shipped: /opt/fdf/var (the machine's own state: join.env, site.env, facts.json, area.perm) and
++# /opt/fdf/hub/hub.env (the droplet's own hub settings: the package copy says 127.0.0.1:8840 / 50820, the droplet runs
++# 51888 / 50889 -- shipping it would move the hub's port under its members). No __pycache__.
++# usage: tools/make_deliverables.sh OUTDIR      (after build.sh, build_static_host.sh, build_arm64.sh, the x86 clients)
++set -eu
++H=$(cd "$(dirname "$0")/.." && pwd); TOP=$(cd "$H/.." && pwd); OUT=${1:?usage: make_deliverables.sh OUTDIR}; mkdir -p "$OUT"
++TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$H/src/fdf_version.hpp"); NOW=$(date -u +%Y-%m-%dT%H:%MZ)
++for f in "$TOP/fdf/bin/fdf-facts" "$TOP/fdf/bin/fdf-hub" "$H/tools/fdf-hub" "$TOP/fdf/lib/python/fdf_graph.py" \
++         "$TOP/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py"; do
++  grep -q "BUILD_TAG = \"$TAG\"" "$f" || { echo "make_deliverables: $f does not say BUILD_TAG = \"$TAG\"" >&2; exit 1; }; done
++cmp -s "$TOP/fdf/bin/fdf-hub" "$H/tools/fdf-hub" || { echo "make_deliverables: fdf/bin/fdf-hub and rinab/tools/fdf-hub differ" >&2; exit 1; }
++for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,ram} "$H/build/bin/rina-host-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,ram,rina-host}; do
++  [ -x "$b" ] || { echo "make_deliverables: $b missing (build first)" >&2; exit 1; }
++  [ "${b##*/}" = ram ] || strings "$b" | grep -q "$TAG" || { echo "make_deliverables: $b is not $TAG" >&2; exit 1; }; done
++W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
++fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: rina-host-static -> rina-host)
++  local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
++  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
++  for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
++  chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
++frognet_patch() { local R=$1; (cd "$TOP/frognet" && find opt etc usr var -type f ! -path '*/__pycache__/*' ! -path 'opt/fdf/*' -print0 | \
++                  while IFS= read -r -d '' f; do mkdir -p "$R/$(dirname "$f")"; cp -p "$f" "$R/$f"; done); }
++build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$NOW" "$2" > "$3/opt/fdf/BUILD"; }
++# [FILES_ONLY_TAR_V1] files only, no directory entries: extracting at / must not reset the owner or mode of /etc, /usr,
++# /var/www/html or any other existing directory (a missing one is created).
++tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | tar --owner=0 --group=0 --no-recursion -czf - -T -); }
++# ---- x86 node
++R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
++frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf: AI-Host" "$R"
++tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64.run"
++# ---- arm64 node
++R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants ram rina-host
++frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi): Seattle7, Seattle3B, Seattle5, HappyDog, New-York-2" "$R"
++tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64.run"
++# ---- droplet
++R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
++mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
++build_file fdf-droplet.tgz "droplet 165.232.153.144: RAM manager 51888 + hub 50889" "$R"
++tarit "$R" > "$OUT/fdf-droplet.tgz"
++chmod +x "$OUT"/*.run
++for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
++echo "built $TAG at $NOW"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/tools/netns-graph-test.sh fdf-source-r16/rinab/tools/netns-graph-test.sh
+--- orig-r16/rinab/tools/netns-graph-test.sh	2026-10-10 01:03:15.000000000 -0700
++++ fdf-source-r16/rinab/tools/netns-graph-test.sh	2026-10-10 04:23:53.814005658 -0700
+@@ -88,7 +88,7 @@
+ for r in 1 2; do apply z z 10.3.3.0/24; apply a a 10.7.7.0/24; apply y y 10.2.2.0/24; sleep 2; done
+ echo "--- z routes:"; NS z ip route show | sed 's/^/    /'
+ echo "--- y routes:"; NS y ip route show | sed 's/^/    /'
+-check $(NS z ip route show | grep -q "10.2.2.0/24 via 10.3.3.20 dev v-zy" && echo 0 || echo 1) "z: y's /24 via y's lease address (admitted by one echo)"
++check $(NS z ip route show | grep -q "10.2.2.0/24 via 10.3.3.20 dev v-zy" && echo 0 || echo 1) "z: y's /24 via y's lease address (admitted: y is alive in the region, no probe)"
+ check $(NS z ip route show | grep -q "10.7.7.0/24 dev wg-z" && echo 0 || echo 1) "z: a's /24 through the hub"
+ check $(NS y ip route show | grep -q "default via 10.3.3.1 dev v-yz" && echo 0 || echo 1) "y: default route toward its exit z"
+ check $(NS a ip route show | grep -q "10.2.2.0/24 dev wg-a" && NS a ip route show | grep -q "10.3.3.0/24 dev wg-a" && echo 0 || echo 1) "a: z's and y's /24s through the hub"
+diff -ruN -x build -x ribbit-v0.63 -x __pycache__ -x '*.diff' -x WORKLOG-r17.md orig-r16/rinab/tools/netns-region-loop-test.sh fdf-source-r16/rinab/tools/netns-region-loop-test.sh
+--- orig-r16/rinab/tools/netns-region-loop-test.sh	1969-12-31 16:00:00.000000000 -0800
++++ fdf-source-r16/rinab/tools/netns-region-loop-test.sh	2026-10-10 04:30:51.387138796 -0700
+@@ -0,0 +1,160 @@
++#!/bin/bash
++# netns-region-loop-test.sh -- [REGION_LOOP_NETNS_V1] the REAL tunnel daemon's region loop (run_region_loop: world read,
++# bringup, applier, publish, elections) on z and a, in network namespaces, against the real RAM manager and fdf-hub.
++# Closes the gap apply_once.py leaves (it bypasses `bringup`), so the daemon's own timed line
++#   REGION: event p timed: world=.. bringup=.. apply=.. publish=.. total=..
++# is read here, without hardware. Topology as netns-latency-test.sh, with the "Internet" on 198.18.0.0/24 (not 10.x,
++# so the daemon's own-subnet rule sees only the served /24):
++#   hub 198.18.0.1 (rina-host :8840, fdf-client, fdf-hub wg-hub :51820)
++#   z   198.18.0.3, serves 10.3.3.0/24 on v-zy, gave y the lease 10.3.3.20; daemon + fdf-facts --watch + fdf-client
++#   a   198.18.0.5, serves 10.7.7.0/24;                                     daemon + fdf-facts --watch + fdf-client
++#   y   child of z, serves 10.2.2.0/24, no tunnel;                          fdf-facts --watch + fdf-client
++# Each daemon runs in its own mount namespace: /etc/frognet, /etc/wireguard, /etc/sentinels, /etc/hosts, /etc/fnid,
++# /etc/dnsmasq.d, /var/lib/frognet, /var/lib/frognet-tunnel, /run/frognet, /opt/fdf/var are per-node directories under
++# $T/<node>/fs, bound over the real paths inside that namespace only.
++# Then: N changes on y (an address added, then removed, alternately); for each, the timed line on a and on z, and the
++# end-to-end time from the change to that line. Prints every sample and the median.
++# Needs root, ip, wg, wg-quick, wireguard-go, python3, curl.  usage: tools/netns-region-loop-test.sh [RINAB_DIR]
++#   FROGNET_DIR=<opt/frognet_semantic tree>  (default ../../repo/opt/frognet_semantic)   N=<changes> (default 6)
++set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
++PK=${PKG_FDF:-$H/../../pkg-full/opt/fdf}; FDFPY=$H/../../repo/opt/fdf/lib/python; N=${N:-6}
++T=${T:-/tmp/claude-0/netns-region}; rm -rf $T; mkdir -p $T/hub $T/z $T/a $T/y $T/bin
++export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
++export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
++API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
++FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
++ms() { date +%s%3N; }
++cleanup() { for n in hub z a y; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
++            for n in hub z a y; do ip netns pids $n 2>/dev/null | xargs -r kill -9 2>/dev/null; ip netns del $n 2>/dev/null; done
++            ip link del br-inet 2>/dev/null; }
++trap cleanup EXIT; cleanup
++cp $B/fdf-events $B/fdf-client $T/bin/; cp $PK/bin/fdf-facts $T/bin/
++cat > $T/bin/capability-probe <<'EOF'
++#!/bin/sh
++echo '{"cores":4,"cpu_mhz":2000,"cpu_bench_total":12000,"mem_total_kb":8388608,"mem_available_kb":4000000,"disk_class":"ssd","mysql":true,"mysql_running":true,"ffmpeg":true,"libvpx":true,"lan_ip":"","loadavg":{"1":0.1,"5":0.1,"15":0.1},"temps_c":[]}'
++EOF
++chmod +x $T/bin/capability-probe
++cat > $T/stamp.py <<'EOF'
++import sys, time
++for l in sys.stdin:
++    sys.stdout.write("%d %s" % (int(time.time() * 1000), l)); sys.stdout.flush()
++EOF
++cat > $T/echo.py <<'EOF'
++import http.server
++class H(http.server.BaseHTTPRequestHandler):
++    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"ok\n")
++    def log_message(self, *a): pass
++http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
++EOF
++# ---- the Internet
++ip link add br-inet type bridge && ip link set br-inet up
++i=1; for n in hub z a; do ip netns add $n; ip netns exec $n ip link set lo up
++  ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-inet up
++  ip netns exec $n ip addr add 198.18.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
++NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 "$@"; }
++# ---- the region and the hub
++NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
++sleep 1; NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
++NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
++sleep 0.5
++NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
++   --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json > $T/hub/hub.log 2>&1 &
++sleep 2; NS hub sysctl -q -w net.ipv4.ip_forward=1
++check $([ "$(NS hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub up on 51820"
++# ---- y behind z (z gave y 10.3.3.20), the served /24s on lan0
++ip netns add y; ip netns exec y ip link set lo up
++ip link add v-zy type veth peer name v-yz; ip link set v-zy netns z; ip link set v-yz netns y
++ip netns exec z ip addr add 10.3.3.1/24 dev v-zy; ip netns exec z ip link set v-zy up
++ip netns exec y ip addr add 10.3.3.20/24 dev v-yz; ip netns exec y ip link set v-yz up
++ip netns exec y ip route add default via 10.3.3.1 dev v-yz metric 600
++ip netns exec z iptables -t nat -A POSTROUTING -o v-z -j MASQUERADE 2>/dev/null
++YMAC=$(ip netns exec y cat /sys/class/net/v-yz/address)
++printf '%d %s 10.3.3.20 y *\n' $(( $(date +%s) + 3600 )) "$YMAC" > $T/z/leases; : > $T/a/leases; : > $T/y/leases
++for n in y a; do ip netns exec $n ip link add lan0 type veth peer name lan0p; ip netns exec $n ip link set lan0 up; ip netns exec $n ip link set lan0p up; done
++ip netns exec y ip addr add 10.2.2.1/24 dev lan0; ip netns exec a ip addr add 10.7.7.1/24 dev lan0
++ip netns exec z ip route add default via 198.18.0.1 dev v-z; ip netns exec a ip route add default via 198.18.0.1 dev v-a
++for n in z a y; do ip netns exec $n sysctl -q -w net.ipv4.ip_forward=1; ip netns exec $n python3 $T/echo.py > /dev/null 2>&1 & done
++# ---- a node's private filesystem, bound over the real paths inside its mount namespace only
++# /etc is a whole private copy (the election replaces /etc/hosts by rename, which a bound single file refuses: EBUSY);
++# /run/wireguard is private so `wg show` sees this node's interfaces only (wireguard-go's UAPI sockets live there)
++BINDS="etc:/etc var-lib-frognet:/var/lib/frognet var-lib-frognet-tunnel:/var/lib/frognet-tunnel run-frognet:/run/frognet
++       run-wireguard:/run/wireguard opt-fdf-var:/opt/fdf/var"
++for b in $BINDS; do mkdir -p ${b#*:}; done
++fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
++  for b in $BINDS; do mkdir -p $F/${b%%:*}; done
++  cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
++  printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$NAME" > $F/etc/fnid
++  echo "domain=$NAME" > $F/etc/dnsmasq.d/frognet.conf
++  printf '# netns region-loop test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
++  printf 'export RINA_RAM=%s\n' $RAM > $F/opt-fdf-var/join.env; printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' $SITE $KEY > $F/opt-fdf-var/site.env
++  (umask 077; wg genkey > $F/var-lib-frognet-tunnel/node_private.key); wg pubkey < $F/var-lib-frognet-tunnel/node_private.key > $F/var-lib-frognet-tunnel/node_public.key; }
++# NSF node cmd...: run in the node's netns AND its mount namespace (ip netns exec gives a private one per call)
++NSF() { local n=$1; shift; local F=$T/$n/fs m=""
++  for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
++  ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 FDF_BIN=$T/bin \
++     FDF_FACTS=/opt/fdf/var/facts.json FDF_LEASES=$T/$n/leases FDF_PY=$FDFPY FROGNET_CAPABILITY_PROBE=$T/bin/capability-probe \
++     FROGNET_REGION_HOSTS=/var/lib/frognet/region_hosts PYTHONPATH=$FN \
++     sh -c "$m cd $FN && exec \"\$@\"" sh "$@"; }
++daemon() { local n=$1 NAME=$2
++  fsnode $n $NAME
++  NSF $n python3 -u -m internet_tunnels_v3 2>&1 | python3 -u $T/stamp.py > $T/$n/daemon.log &      # each line: <epoch ms> <line>
++  for i in $(seq 40); do grep -q '"name"' $T/$n/fs/opt-fdf-var/facts.json 2>/dev/null && break; sleep 0.25; done
++  NSF $n env FDF_NAME=$NAME $T/bin/fdf-client > $T/$n/client.log 2>&1 &
++  NSF $n env FDF_NAME=$NAME python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 & }
++daemon z z; daemon a a
++ip netns exec y env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=10.3.3.1 \
++   sh -c "printf '{\"role\":\"node\",\"name\":\"y\",\"guid\":\"g-y\",\"subnet\":\"10.2.2.0/24\",\"pubkey\":\"\",\"transit\":[],\"maps\":[]}\n' > $T/y/facts.json"
++ip netns exec y env RINA_RAM=$RAM FDF_FACTS=$T/y/facts.json FDF_NAME=y $B/fdf-client > $T/y/client.log 2>&1 &
++ip netns exec y env FDF_FACTS=$T/y/facts.json FDF_LEASES=$T/y/leases FDF_NAME=y FDF_UPLINK_PING=10.3.3.1 python3 $PK/bin/fdf-facts --watch > $T/y/facts.log 2>&1 &
++# ---- converge: z routes a's /24 over its hub tunnel and y's over the LAN; a routes z's and y's over its tunnel
++ok=1; for i in $(seq 120); do
++  zr=$(ip netns exec z ip -4 route); ar=$(ip netns exec a ip -4 route)
++  echo "$zr" | grep -q '^10.7.7.0/24' && echo "$zr" | grep -q '^10.2.2.0/24 via 10.3.3.20' && echo "$ar" | grep -q '^10.3.3.0/24' && echo "$ar" | grep -q '^10.2.2.0/24' && { ok=0; break; }
++  sleep 0.5; done
++check $ok "converged: z has a's /24 and y's (via y's lease); a has z's and y's (after $((i/2)) s)"
++[ $ok = 0 ] || { for n in z a; do echo "--- $n routes"; ip netns exec $n ip -4 route | sed 's/^/    /'; echo "--- $n daemon (last 25)"; tail -25 $T/$n/daemon.log | sed 's/^/    /'; done; }
++ip netns exec y ping -c 2 -W 2 -I 10.2.2.1 10.7.7.1 > $T/ping.log 2>&1; check $? "y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)"
++check $(grep -q 'REGION: loop started' $T/z/daemon.log && grep -q 'REGION: loop started' $T/a/daemon.log && echo 0 || echo 1) "both daemons in the region loop"
++sleep 3
++# ---- the measurement: N changes on y, each timed on a and z by the daemon's own line
++ip netns exec y ip link add lan1 type veth peer name lan1p; ip netns exec y ip link set lan1 up; ip netns exec y ip link set lan1p up
++echo "=== $N changes on y (10.9.9.1/24 added / removed); per change: the timed line on a and z, and change -> that line"
++: > $T/samples
++for k in $(seq $N); do
++  la=$(wc -l < $T/a/daemon.log); lz=$(wc -l < $T/z/daemon.log)
++  if [ $((k % 2)) = 1 ]; then T_CHANGE=$(ms); ip netns exec y ip addr add 10.9.9.1/24 dev lan1; else T_CHANGE=$(ms); ip netns exec y ip addr del 10.9.9.1/24 dev lan1; fi
++  for n in a z; do
++    l0=$([ $n = a ] && echo $la || echo $lz); line=""
++    for i in $(seq 100); do line=$(tail -n +$((l0+1)) $T/$n/daemon.log | grep -m1 'REGION: event p timed'); [ -n "$line" ] && break; sleep 0.05; done
++    if [ -z "$line" ]; then echo "  #$k $n: no timed event within 5 s"; continue; fi
++    t=${line%% *}
++    st=$(echo "$line" | sed 's/.*timed: //')
++    echo "  #$k $n: change -> timed line $((t - T_CHANGE)) ms | $st"
++    echo "$n $((t - T_CHANGE)) $(echo "$st" | sed -E 's/.*world=([0-9]+)ms.*bringup=([0-9]+)ms apply=([0-9]+)ms.*publish=([0-9]+)ms total=([0-9]+)ms/\1 \2 \3 \4 \5/')" >> $T/samples
++  done
++  sleep 2
++done
++python3 - $T/samples <<'PY'
++import sys, statistics as st
++rows = [l.split() for l in open(sys.argv[1]) if len(l.split()) == 7]
++for n in ("a", "z"):
++    r = [list(map(int, x[1:])) for x in rows if x[0] == n]
++    if not r: print("  %s: no samples" % n); continue
++    med = [int(st.median(c)) for c in zip(*r)]
++    print("  median %s (n=%d): change->line %d ms | world=%d bringup=%d apply=%d publish=%d total=%d ms" % ((n, len(r)) + tuple(med)))
++PY
++echo "--- per-event region reads on a (one event): 'my-channels' lines logged between two timed lines"
++awk '/REGION: event p timed/{c++} c==2 && /my-channels/{m++} END{print "    my-channels computations in one event on a: " m+0}' $T/a/daemon.log
++grep -c 'REGION: event p timed' $T/a/daemon.log | sed 's/^/    timed events on a: /'
++# ---- [HOSTJSON_FROM_THE_REGION_V1] getHosts.php's input, written by the daemon from the region: a lists z, y and itself
++HJ=$T/a/fs/var-lib-frognet/region_hosts.json
++check $(python3 -c 'import sys,json; h=json.load(open(sys.argv[1])); ips=[x["ip"] for x in h]; sys.exit(0 if {"10.3.3.1","10.2.2.1","10.7.7.1"} <= set(ips) and all(x["echo"].split(",")[1] == x["ip"] for x in h) else 1)' $HJ 2>/dev/null && echo 0 || echo 1) \
++      "a: region_hosts.json names z, y and a, each echo from its facts ($(python3 -c 'import sys,json; print([(x["ip"],x["echo"]) for x in json.load(open(sys.argv[1]))])' $HJ 2>&1 | cut -c1-200))"
++# ---- [ANN_GOES_WITH_THE_SESSION_V1] y's client ends: y's announcement is gone from the region, not left behind dead
++YPID=$(ip netns pids y | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1)
++kill $YPID; sleep 1
++P=$(NS hub curl -s -X POST -d '{"op":"participants"}' "$U")
++check $(echo "$P" | python3 -c 'import sys,json; ps=json.load(sys.stdin)["participants"]; sys.exit(0 if not [p for p in ps if p.get("name")=="y"] and all(p.get("alive") for p in ps) else 1)' && echo 0 || echo 1) \
++      "y's session ended: its announcement is gone, and no dead row is listed ($(echo "$P" | python3 -c 'import sys,json; print([(p["name"],p["alive"]) for p in json.load(sys.stdin)["participants"]])'))"
++echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL: $FAILS")"
++[ -n "${PAUSE:-}" ] && { echo "PAUSE: holding the namespaces ${PAUSE}s (T=$T)"; sleep $PAUSE; }
