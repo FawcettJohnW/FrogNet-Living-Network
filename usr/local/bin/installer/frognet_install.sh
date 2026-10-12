@@ -112,9 +112,9 @@
 #                            Omitted -> detected (wlan0 when present).
 #   -h, --help               Print this text.
 #
-# Phase A: Install packages (apt + pip)
+# Phase A: Install packages (apt; the WireGuard implementation recorded; the venv's package list)
 # Phase B: Pre-extraction setup (dirs, sysctl, iptables scaffold, sudoers)
-# Phase C: Extract world tar + rebuild venv if arch mismatch
+# Phase C: Extract world tar + the venv the services run on
 # Phase D: Clean stale state + configure everything (post-tar)
 # Phase E: Node identity + provision (setup_lillypad_v4, SSL, tuning)
 # Phase F: Finalize (enable services, logs, cron, verify, reboot)
@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-12-t4a"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-12-t4b"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -581,7 +581,7 @@ elif (( OSB_RECORDABLE )); then
     mkdir -p "$_OSB.tmp"
     if [[ -e /etc/resolv.conf || -L /etc/resolv.conf ]]; then cp -P /etc/resolv.conf "$_OSB.tmp/resolv.conf"; fi
     [[ -f /etc/NetworkManager/NetworkManager.conf ]] && cp -p /etc/NetworkManager/NetworkManager.conf "$_OSB.tmp/NetworkManager.conf"
-    # hostname and hosts (E2 rewrites both), fstab (frognet_system_tune.sh adds tmpfs lines)
+    # hostname and hosts (E2 rewrites both), fstab (frognet-system-tune.sh adds tmpfs lines)
     for _f in hostname hosts fstab; do [[ -f "/etc/$_f" ]] && cp -p "/etc/$_f" "$_OSB.tmp/$_f"; done
     # the units this install enables, starts or masks (frognet_reset.sh puts them back)
     for _u in systemd-resolved dnsmasq apache2 mariadb hostapd ifplugd unbound netfilter-persistent; do
@@ -617,15 +617,8 @@ APT_PACKAGES=(
     apache2 apache2-utils libapache2-mod-php
     php php-mysql php-curl php-xml php-mbstring php-gd php-zip php-cli
     wireguard wireguard-tools
-    # [SIM_NEEDS_USERSPACE_WG_V1] wireguard-go is the reference USERSPACE
-    # WireGuard. The simulator's netns tier creates real wg devices; where
-    # wireguard.ko will not load (containers, some cloud kernels) the kernel
-    # path fails with "Unknown device type" and the only visible symptom is a
-    # wall of ROUTE_INSTALL_FAILED ... ENETUNREACH. netns_backend falls back to
-    # wireguard-go, but only if it is installed. Kernel is still tried first on
-    # every host, so this changes nothing on a box with the module.
-    wireguard-go
-    dnsmasq unbound
+    # (wireguard-go: A2b, only where it is this machine's WireGuard [WG_IMPL_RECORDED_V1])
+    dnsmasq
     network-manager
     iptables iptables-persistent netfilter-persistent
     python3 python3-pip python3-dev python3-venv
@@ -676,39 +669,54 @@ fi
 systemctl unmask hostapd 2>/dev/null || true
 log "APT packages installed"
 
-phase "A3: pip packages"
+phase "A2b: WireGuard implementation (chosen once, recorded)"
+# [WG_IMPL_RECORDED_V1 - T4b] One implementation per machine, chosen here by platform and recorded in
+# /etc/frognet/wg.impl; the tunnel daemon (through wg-quick), fdf-hub and the simulator's netns backend use only it.
+# The rule is fdf-wg-impl's (opt/fdf/bin/fdf-wg-impl, its twin for machines without FrogNet): kernel when
+# /sys/module/wireguard exists or `modprobe -n wireguard` finds the module, else wireguard-go. A record already
+# there is kept (an upgrade does not re-decide). wireguard-go is installed only where it is the choice.
+WG_IMPL_FILE=/etc/frognet/wg.impl
+if [[ -s "$WG_IMPL_FILE" ]]; then
+    WG_IMPL="$(cat "$WG_IMPL_FILE")"
+    log "WireGuard: $WG_IMPL (recorded in $WG_IMPL_FILE; kept)"
+else
+    if [[ -e /sys/module/wireguard ]]; then WG_IMPL=kernel; _why="/sys/module/wireguard exists"
+    elif modprobe -n wireguard >/dev/null 2>&1; then WG_IMPL=kernel; _why="modprobe -n wireguard: the module is there for $(uname -r)"
+    else WG_IMPL=wireguard-go; _why="no wireguard module for $(uname -r)"; fi
+    mkdir -p /etc/frognet
+    printf '%s\n' "$WG_IMPL" > "$WG_IMPL_FILE" || die "cannot write $WG_IMPL_FILE"
+    chmod 644 "$WG_IMPL_FILE"
+    log "WireGuard: $WG_IMPL ($_why), recorded in $WG_IMPL_FILE"
+fi
+case "$WG_IMPL" in
+    kernel) ;;
+    wireguard-go)
+        if ! command -v wireguard-go >/dev/null 2>&1; then
+            DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard-go \
+                || die "A2b: wireguard-go is this machine's WireGuard and apt-get install wireguard-go failed"
+        fi ;;
+    *) die "A2b: $WG_IMPL_FILE says '$WG_IMPL': it must be kernel or wireguard-go" ;;
+esac
+
+phase "A3: Python packages (the list C2 puts in the venv)"
+# [SERVICES_ON_THE_VENV_V1 - T4b] FrogNet's Python runs on ONE interpreter: the venv C2 builds,
+# /opt/frognet_semantic/venv/bin/python3 (frognet-proxy, -daemon, -tunnel-daemon-v3, the elector, the safeboot,
+# the merge, C3). Nothing is pip-installed into the system python any more: that put eight console scripts in
+# /usr/local/bin (cbor2, dotenv, gpsdclient, gunicorn, ...) and Ubuntu 24.04 refuses some packages there
+# (Flask/pyOpenSSL over Debian's blinker/cryptography, T4a). The same list was installed twice.
+# lxml: core/html_handler.py and xml_handler.py (the proxy's and the daemon's format registry) import it; the
+# system python had it only because an apt package pulled python3-lxml in.
 PIP_PACKAGES=(
     mysql-connector-python mysqlclient NetfilterQueue
     aiohttp lz4 msgpack orjson cbor2 psutil
     gevent gunicorn
     gpsdclient paho-mqtt requests
     python-dotenv simplejson ujson PyYAML
-    cryptography httpx
+    cryptography httpx lxml
 )
-# [ONLY_WHAT_A_NODE_IMPORTS_V1 - T4a] Flask, Werkzeug and pyOpenSSL are not in this list:
-# nothing a node runs imports them (the only `import flask` is simulation/
-# sotf_browser_server.py, a development tool; nothing imports OpenSSL), and on a fresh
-# Ubuntu 24.04 pip cannot install them into the system python at all - they need newer
-# blinker / cryptography than the Debian-owned copies apt put there, and pip refuses to
-# uninstall those ("Cannot uninstall blinker 1.7.0, RECORD file not found ... installed
-# by debian"). Seen in the T4a clean-install container.
-# [SKIP_SATISFIED_V1] pip re-resolves and re-downloads metadata for every package
-# on every run; skip the ones already present.
-#
-# [SYSTEM_PIP_IS_WHAT_RUNS_V1] These go into the SYSTEM python, and that is what
-# the services run on: frognet-proxy, -daemon, -tunnel-daemon-v3, the elector and
-# the safeboot all ExecStart /usr/bin/python3 (not the venv). A failure here is a
-# node whose services cannot import, so it stops the install, naming the
-# packages - it used to warn and walk on (T0 audit: mysqlclient and
-# NetfilterQueue failed to build on a fresh box and the install carried on).
-_pipskip=0; _pipfail=()
-for pkg in "${PIP_PACKAGES[@]}"; do
-    if pip3 show "$pkg" >/dev/null 2>&1; then _pipskip=$((_pipskip+1)); continue; fi
-    if pip3 install --break-system-packages --quiet "$pkg"; then log "  pip: $pkg"; else warn "  pip FAILED: $pkg"; _pipfail+=("$pkg"); fi
-done
-log "  pip: ${_pipskip} already present, skipped"
-(( ${#_pipfail[@]} == 0 )) || die "pip failed for ${#_pipfail[@]} package(s) the services import: ${_pipfail[*]} (the output above says why; usually a missing -dev package). Fix it and re-run."
-log "pip packages installed"
+# [ONLY_WHAT_A_NODE_IMPORTS_V1 - T4a] Flask, Werkzeug and pyOpenSSL are not in this list: nothing a node runs
+# imports them (the only `import flask` is simulation/sotf_browser_server.py, a development tool).
+log "  ${#PIP_PACKAGES[@]} packages, installed into the venv in C2 (nothing into the system python)"
 
 ###############################################################################
 #                 PHASE B: PRE-EXTRACTION SETUP
@@ -885,6 +893,24 @@ if [[ -d "${_VENV_STASH:-/nonexistent}" ]]; then
     log "Restored carried venv (C2 will arch-check it)"
 fi
 log "Extraction complete"
+# [BASE_BUILD_V1 - T4b] The FrogNet base's release id: the tree's opt/frognet_semantic/BUILD (build=, the tree's one
+# tag), plus, on this machine, the git commit it was installed from (when it was a git checkout) and when. The
+# proxy, the data daemon and the tunnel daemon say it in their first log line.
+BASE_BUILD_FILE=/opt/frognet_semantic/BUILD
+BASE_TAG="$(sed -n 's/^build=//p' "$BASE_BUILD_FILE" 2>/dev/null | head -1)"
+[[ -n "$BASE_TAG" ]] || die "C1: $BASE_BUILD_FILE has no build= line (the tree carries it): this is not a release tree"
+BASE_COMMIT=""
+if (( FROM_REPO )) && git -c safe.directory="$REPO_ROOT" -C "$REPO_ROOT" rev-parse HEAD >/dev/null 2>&1; then
+    BASE_COMMIT="$(git -c safe.directory="$REPO_ROOT" -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
+    [[ -n "$(git -c safe.directory="$REPO_ROOT" -C "$REPO_ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]] \
+        && BASE_COMMIT="${BASE_COMMIT}+changes"
+fi
+{ grep -vE '^(commit|installed)=' "$BASE_BUILD_FILE"
+  [[ -n "$BASE_COMMIT" ]] && echo "commit=$BASE_COMMIT"
+  echo "installed=$(date -u +%Y-%m-%dT%H:%MZ)"; } > "$BASE_BUILD_FILE.tmp" && mv -f "$BASE_BUILD_FILE.tmp" "$BASE_BUILD_FILE" \
+    || die "C1: cannot write $BASE_BUILD_FILE"
+chmod 644 "$BASE_BUILD_FILE"
+log "FrogNet base: build=$BASE_TAG ${BASE_COMMIT:+commit=$BASE_COMMIT}${BASE_COMMIT:-(no git checkout: no commit recorded)}"
 
 phase "C1a: sysctl (the tree's 90-frognet-forwarding.conf)"
 # [TREE_FILES_ARE_THE_FILES_V1 - T4a] Forwarding and rp_filter live in the tree's own
@@ -1050,46 +1076,48 @@ if [[ -f "$VENV_PYTHON" ]]; then
 else
     REBUILD_VENV=1
 fi
+_ntot=${#PIP_PACKAGES[@]}
 if [[ $REBUILD_VENV -eq 1 ]]; then
-    _ntot=${#PIP_PACKAGES[@]}
     log "Rebuilding venv for $SYS_ARCH ($_ntot packages; ARM wheels may compile, minutes each)"
     log "  Removing old venv: $VENV_DIR"
     rm -rf "$VENV_DIR"
     log "  Creating venv (python3 -m venv)..."
-    python3 -m venv "$VENV_DIR"
-    VP="${VENV_DIR}/bin/pip3"
+    python3 -m venv "$VENV_DIR" || die "python3 -m venv $VENV_DIR failed (python3-venv is in A2)"
     log "  Upgrading pip in venv..."
-    "$VP" install --upgrade pip
-    VFAIL=0
-    VFAILED=()
-    _i=0
-    for pkg in "${PIP_PACKAGES[@]}"; do
-        _i=$((_i+1))
-        if "$VP" show "$pkg" >/dev/null 2>&1; then
-            log "  [$_i/$_ntot] $pkg already present - skipping"; continue
-        fi
-        log "  [$_i/$_ntot] pip install $pkg ..."
-        "$VP" install --progress-bar off "$pkg" && log "  [$_i/$_ntot] OK: $pkg" \
-            || { warn "  [$_i/$_ntot] FAILED: $pkg"; VFAIL=$((VFAIL+1)); VFAILED+=( "$pkg" ); }
-    done
-    # [A_BROKEN_VENV_IS_NOT_A_WARNING_V1] This warned and walked on. Observed
-    # 2026-08-29: "Venv: 7 of 23 package(s) failed" scrolled past and the install
-    # continued into C3 and the whole D block. Every package here is imported by
-    # something that runs on the node -- lz4 and msgpack by the wire codec,
-    # mysql-connector by the cache, NetfilterQueue by the proxy data plane,
-    # cryptography by the tunnel daemon. A venv missing seven of them is a node
-    # whose services cannot import, and the operator has no reason to think so:
-    # the phase banner for C3 prints two lines later and says PASSED.
-    #
-    # Names the failures, because "7 failed" does not tell you whether it was
-    # PyYAML or NetfilterQueue.
-    if (( VFAIL > 0 )); then
-        die "venv build failed for $VFAIL of $_ntot package(s): ${VFAILED[*]} - these are imported by the proxy, daemon and tunnel code; a node with them missing cannot start its services. Fix the build failure (usually a missing -dev header or no ARM wheel) and re-run."
-    fi
-    log "Venv complete ($_ntot packages)"
+    "${VENV_DIR}/bin/pip3" install --upgrade pip || die "pip upgrade in the venv failed"
 else
-    log "Venv arch matches - using as-is"
+    log "Venv arch matches ($VENV_DIR); checking its $_ntot packages"
 fi
+# [SERVICES_ON_THE_VENV_V1] Every install (an upgrade too) makes sure each listed package is in the venv: a package
+# added to the list reaches an existing venv, which "arch matches - using as-is" used to skip.
+VP="${VENV_DIR}/bin/pip3"
+VFAIL=0
+VFAILED=()
+_i=0
+for pkg in "${PIP_PACKAGES[@]}"; do
+    _i=$((_i+1))
+    if "$VP" show "$pkg" >/dev/null 2>&1; then
+        log "  [$_i/$_ntot] $pkg already present - skipping"; continue
+    fi
+    log "  [$_i/$_ntot] pip install $pkg ..."
+    "$VP" install --progress-bar off "$pkg" && log "  [$_i/$_ntot] OK: $pkg" \
+        || { warn "  [$_i/$_ntot] FAILED: $pkg"; VFAIL=$((VFAIL+1)); VFAILED+=( "$pkg" ); }
+done
+# [A_BROKEN_VENV_IS_NOT_A_WARNING_V1] This warned and walked on. Observed
+# 2026-08-29: "Venv: 7 of 23 package(s) failed" scrolled past and the install
+# continued into C3 and the whole D block. Every package here is imported by
+# something that runs on the node -- lz4 and msgpack by the wire codec,
+# mysql-connector by the cache, NetfilterQueue by the proxy data plane,
+# cryptography by the tunnel daemon. A venv missing seven of them is a node
+# whose services cannot import, and the operator has no reason to think so:
+# the phase banner for C3 prints two lines later and says PASSED.
+#
+# Names the failures, because "7 failed" does not tell you whether it was
+# PyYAML or NetfilterQueue.
+if (( VFAIL > 0 )); then
+    die "venv build failed for $VFAIL of $_ntot package(s): ${VFAILED[*]} - these are imported by the proxy, daemon and tunnel code; a node with them missing cannot start its services. Fix the build failure (usually a missing -dev header or no ARM wheel) and re-run."
+fi
+log "Venv complete ($_ntot packages)"
 systemctl daemon-reload
 
 phase "C3: Pre-activation simulator gate (real code on real hardware)"
@@ -1103,8 +1131,8 @@ phase "C3: Pre-activation simulator gate (real code on real hardware)"
 # DEFAULT: ON. The ONLY way to skip is an explicit FROGNET_INSTALL_SKIP_SIM=1,
 # and skipping is logged loudly. If the simulator does not pass ALL tests, the
 # installation TERMINATES here (die) and nothing is activated.
-DISC_PY="${VENV_DIR}/bin/python3"
-[[ -x "$DISC_PY" ]] || DISC_PY="/usr/bin/python3"
+DISC_PY="${VENV_DIR}/bin/python3"   # [SERVICES_ON_THE_VENV_V1] the interpreter the services run on, and only it
+[[ -x "$DISC_PY" ]] || die "C3: $DISC_PY missing (C2 builds it)"
 SIM_LOG="/var/log/frognet_preactivation_sim.log"
 if [[ "${FROGNET_INSTALL_SKIP_SIM:-0}" == "1" ]]; then
     warn "  FROGNET_INSTALL_SKIP_SIM=1 - SKIPPING the pre-activation simulator gate."
@@ -1165,7 +1193,6 @@ systemctl stop apache2 2>/dev/null || true
 systemctl stop systemd-resolved 2>/dev/null || true
 systemctl disable systemd-resolved 2>/dev/null || true
 systemctl mask systemd-resolved 2>/dev/null || true
-systemctl stop unbound 2>/dev/null || true
 rm -f /etc/dnsmasq.d/opts_only.conf /etc/dnsmasq.d/frognet_forwarders_auto.conf /etc/dnsmasq.d/frognet_databasehost.conf
 rm -f /etc/sentinels/{frognet_hosts,frognet_hosts_out,frognet_resolv,frog_resolv.conf}
 rm -f /etc/sentinels/{expected_routes,transit_upstream_seeds,mergePending,runAgain,forwarded,new_resolv.conf,getFrogNet.cache}
@@ -1321,9 +1348,8 @@ rm -f /usr/local/sbin/dnsmasq_merge_trigger.sh 2>/dev/null || true
 # [DNSMASQ_NO_UNBOUND_V1] Do NOT write forward_to_unbound.conf.
 #
 # It pointed dnsmasq at a local unbound on 127.0.0.1#5353, but nothing in the
-# install ever brings unbound UP -- fix_unbound_bypass.sh stops and disables it
-# and writes upstream_fallback.conf (Google DNS) as the real config, and the
-# fallback branch below also stops unbound. So this file forwarded DNS to a dead
+# install ever brings unbound UP (it is not installed; one already on the machine is
+# stopped below). So this file forwarded DNS to a dead
 # resolver. On the normal path it was merely overridden by upstream_fallback.conf
 # through alphabetical read order (both set server=, dnsmasq merges them); on any
 # node where the ordering or the fallback differed it would black-hole DNS.
@@ -1342,8 +1368,14 @@ After=network-online.target NetworkManager-wait-online.service
 Restart=on-failure
 RestartSec=2
 UNIT
-FIX_UNBOUND="/usr/local/bin/fix_unbound_bypass.sh"
-[[ -x "$FIX_UNBOUND" ]] && bash "$FIX_UNBOUND" || { systemctl stop unbound 2>/dev/null || true; }
+# [UNBOUND_ONE_STEP_V1] FrogNet does not install unbound (A2 used to, only for this phase to stop it). One that
+# is already on the machine would hold :53 against dnsmasq: it is stopped and disabled, here, once (the record A0b
+# made puts it back on --uninstall). (This was `fix_unbound_bypass.sh || systemctl stop unbound`; the script also
+# restarted dnsmasq, which this phase must not do.)
+if systemctl cat unbound.service >/dev/null 2>&1; then
+    systemctl disable --now unbound && log "unbound was on this machine: stopped and disabled (dnsmasq serves :53)" \
+        || warn "systemctl disable --now unbound failed: dnsmasq will not get :53 while it runs"
+fi
 systemctl enable dnsmasq
 # DO NOT start dnsmasq - no IP on interface yet. setup_lillypad handles it.
 log "dnsmasq skeleton configured"
@@ -1845,24 +1877,11 @@ if [[ -f "$WPA_SUP" ]] && ! grep -qE '^country=' "$WPA_SUP"; then
     sed -i "1i country=${WIFI_COUNTRY}" "$WPA_SUP" 2>/dev/null || true
 fi
 
-# 4) NetworkManager: declare $AP_IFACE unmanaged so NM doesn't grab it
-#    between boot and frognet-netstart firing.  netstart's runtime
-#    nmcli-managed-no is still useful as belt-and-suspenders.
-NM_UNMANAGED=/etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
-mkdir -p /etc/NetworkManager/conf.d
-cat > "$NM_UNMANAGED" <<NMU
-# Generated by frognet_install.sh: $(date)
-# Keep the AP interface out of NetworkManager so hostapd can bind it
-# cleanly at boot.
-[keyfile]
-unmanaged-devices=interface-name:${AP_IFACE}
-NMU
-chmod 644 "$NM_UNMANAGED"
-log "  Wrote $NM_UNMANAGED (unmanaged: $AP_IFACE)"
-# [NO_RESTART_BEFORE_REBOOT_V1] Same reason: this unmanaged-iface config is read
-# when NM starts on the reboot. Reloading/restarting here only risks the SSH
-# session for no gain.
-:  # NetworkManager not poked; config applies on reboot
+# 4) [AP_MANAGED_BY_NETSTART_V1] Whether NetworkManager manages $AP_IFACE is frognet-netstart's decision, made at
+#    every start from the mode: wireless (projecting) -> its NM connections down, `managed no`; wired -> `managed
+#    yes` (the radio may be this node's WiFi link into another LAN). The installer used to also write
+#    conf.d/frognet-unmanaged-ap.conf (unmanaged for good, "belt-and-suspenders"), which contradicted netstart in
+#    wired mode on every NetworkManager start. An upgrade removes that file (frognet_prune_removed.sh).
 
 phase "E7: SSID projection (WiFi AP fallback)"
 # When eth0 has no carrier, frognet-netstart + frognet-netmode normally bring
@@ -1982,7 +2001,7 @@ if [[ -f /etc/systemd/system/frognet-tunnel-daemon.service ]]; then
 fi
 
 CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
-    frognet-eth0-fixup frognet-sysperf frognet-tunnel-daemon-v3)
+    frognet-sysperf frognet-tunnel-daemon-v3)   # (frognet-eth0-fixup gone: [NM_OWNS_THE_LAN_ADDRESS_V1])
 # [NAT64_REMOVED_V1] frognet-nat64 dropped 2026-08-29. Its ExecStart,
 # /usr/local/bin/start_nat64_dns64_jool.bash, is not in the tree and the only
 # other mentions of nat64/jool anywhere were this line and the matching one in
@@ -2064,7 +2083,9 @@ phase "F3: Crontab"
 (
     crontab -l 2>/dev/null | grep -v 'startFrog\|registerFrogNetHost\|runMerge\|runBoth\|frognet-netstart' || true
     echo "@reboot /usr/local/bin/frognet-netstart"
-    echo "@reboot sleep 240 && /usr/local/bin/runMerge.bash"
+    # [BOOT_MERGE_IS_THE_HOOK_V1] No "@reboot sleep 240 && runMerge.bash": the boot merge is the NetworkManager
+    # hook's (90-frognet-merge keeps its route signature in /run, so the first interface event after a boot always
+    # merges). The grep above drops the old line from an upgraded machine's crontab.
     echo "*/15 * * * * /usr/local/bin/registerFrogNetHost.bash"
 ) | sort -u | crontab -
 
@@ -2124,12 +2145,16 @@ chk "LAN is not the uplink"  test "$ETH0_IF" != "${_UPLINK_DEV:-}"
 # the echo is this node's line: "<name>,<.1>,<upstream>,<upstream>" - an empty 200 is a failure
 ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},"* ]] \
     && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},...)"
+echo "  FrogNet base: $(grep -vE '^#' /opt/frognet_semantic/BUILD | tr '\n' ' ')"   # [BASE_BUILD_V1]
 echo
 [[ $FAIL -eq 0 ]] && echo "  All checks passed." || echo "  $FAIL check(s) failed."
 
 phase "F7: System tuning"
-TUNE="/usr/local/bin/frognet_system_tune.sh"
-[[ -x "$TUNE" ]] && bash "$TUNE" || warn "frognet_system_tune.sh not found"
+# [ONE_TUNE_SCRIPT_V1 - T4b] one file, the unit's name (frognet-system-tune.service runs the same one); the
+# cmp-identical frognet_system_tune.sh is gone (an upgrade removes it: frognet_prune_removed.sh).
+TUNE="/usr/local/bin/frognet-system-tune.sh"
+[[ -x "$TUNE" ]] || die "F7: $TUNE missing after C1"
+bash "$TUNE" || warn "F7: $TUNE failed (above); the node runs untuned until it is run again"
 
 phase "R: Region ($( [[ -n "$REGION_RAM" ]] && echo "join $REGION_AREA at $REGION_RAM" || echo "none: LAN-only" ))"
 # [REGION_FROM_THE_INSTALLER_V1 - T4a] With --region, this machine joins the region the

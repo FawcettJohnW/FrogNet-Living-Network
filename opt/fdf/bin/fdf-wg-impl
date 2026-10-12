@@ -1,0 +1,47 @@
+#!/bin/sh
+# fdf-wg-impl [--record] -- [WG_IMPL_RECORDED_V1 - T4b] the ONE WireGuard implementation this machine uses.
+#
+# Chosen once, by platform, and recorded in /etc/frognet/wg.impl as one word:
+#   kernel        the kernel has WireGuard: /sys/module/wireguard exists (loaded or built in), or `modprobe -n
+#                 wireguard` finds the module for the running kernel
+#   wireguard-go  it has not (a container, some cloud and board kernels): the userspace implementation
+# Everything that makes a WireGuard interface reads the record and uses only that: fdf-hub, the FrogNet tunnel
+# daemon (through wg-quick), the simulator's netns backend. A failure with the recorded one is logged and retried on
+# the next event; nothing tries the other. (It used to be "kernel first, wireguard-go when the kernel refuses" in
+# three places, each deciding again on every interface.)
+#
+#   fdf-wg-impl            print the record (exit 1 when there is none)
+#   fdf-wg-impl --record   decide and write it when there is none (an existing record is kept: it was chosen once);
+#                          exit 1 when the choice is wireguard-go and wireguard-go is not installed (said, and recorded)
+# Written by: the FrogNet installer (its own copy of this rule, phase A2b), fdf-region-create, the node .run, and
+# fdf-hub.service's ExecStartPre (so a region holder made before T4b records it once, at its first start after the update).
+# FDF_WG_IMPL=kernel|wireguard-go in the environment is an explicit choice for a test harness (the netns tests set it).
+set -u
+F=/etc/frognet/wg.impl
+case "${1:-}" in
+  "")
+    [ -s "$F" ] || { echo "fdf-wg-impl: no $F (run: fdf-wg-impl --record)" >&2; exit 1; }
+    cat "$F"; exit 0 ;;
+  --record) ;;
+  *) echo "usage: fdf-wg-impl [--record]" >&2; exit 2 ;;
+esac
+if [ -s "$F" ]; then
+  echo "fdf-wg-impl: $(cat "$F") (recorded in $F; kept)"
+  exit 0
+fi
+if [ -e /sys/module/wireguard ]; then
+  impl=kernel; why="/sys/module/wireguard exists"
+elif modprobe -n wireguard >/dev/null 2>&1; then
+  impl=kernel; why="modprobe -n wireguard: the module is there for $(uname -r)"
+else
+  impl=wireguard-go; why="no wireguard module for $(uname -r)"
+fi
+mkdir -p /etc/frognet || { echo "fdf-wg-impl: cannot make /etc/frognet" >&2; exit 1; }
+printf '%s\n' "$impl" > "$F.tmp.$$" && chmod 644 "$F.tmp.$$" && mv -f "$F.tmp.$$" "$F" \
+  || { echo "fdf-wg-impl: cannot write $F" >&2; rm -f "$F.tmp.$$"; exit 1; }
+echo "fdf-wg-impl: $impl ($why), recorded in $F"
+if [ "$impl" = wireguard-go ] && ! command -v wireguard-go >/dev/null 2>&1; then
+  echo "fdf-wg-impl: wireguard-go is the choice and it is not installed: install it (apt-get install wireguard-go)" >&2
+  exit 1
+fi
+exit 0

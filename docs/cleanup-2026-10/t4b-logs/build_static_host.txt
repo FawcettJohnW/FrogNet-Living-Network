@@ -1,0 +1,2 @@
+BUILD OK: build/bin/rina-host-static (static), and build/static/rina-host
+build_static_host rc=0 1s

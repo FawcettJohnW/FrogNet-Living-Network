@@ -30,7 +30,7 @@ import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urlli
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-11-r19-a15"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-12-r20"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_ADDR = "10.253.253.254"
 HUB_MASK = 16
 
@@ -60,6 +60,26 @@ class Region:
         return w.get("participants", []), w.get("mappings", [])
 
 # ---------------------------------------------------------------- the kernel (real: wg + ip; fake: in memory, for the oracle)
+WG_IMPL_FILE = "/etc/frognet/wg.impl"
+
+
+def wg_impl():
+    """[WG_IMPL_RECORDED_V1 - T4b] (impl, where it came from): FDF_WG_IMPL when a test harness sets it explicitly, else
+    the record fdf-wg-impl wrote once at install (/etc/frognet/wg.impl). Only that implementation is used; there is no
+    second one behind it (this was: the kernel's, and wireguard-go whenever `ip link add ... type wireguard` failed)."""
+    v, src = os.environ.get("FDF_WG_IMPL", "").strip(), "FDF_WG_IMPL"
+    if not v:
+        src = WG_IMPL_FILE
+        try:
+            v = open(WG_IMPL_FILE).read().strip()
+        except OSError as e:
+            raise RuntimeError("no WireGuard implementation recorded (%s: %s): run /opt/fdf/bin/fdf-wg-impl --record"
+                               % (WG_IMPL_FILE, e.strerror))
+    if v not in ("kernel", "wireguard-go"):
+        raise RuntimeError("%s says %r: it must be kernel or wireguard-go" % (src, v))
+    return v, src
+
+
 class RealKernel:
     def __init__(self, iface, dry): self.iface, self.dry = iface, dry
     def run(self, *cmd, check=True, out=False):
@@ -69,13 +89,14 @@ class RealKernel:
         return r.stdout
     def ensure_iface(self, privkey_file, listen):
         if self.run("ip", "-o", "link", "show", "dev", self.iface, check=False, out=True).strip() == "":
-            # the kernel's WireGuard; where there is none (a container, a sandbox), wireguard-go (userspace) makes the
-            # same interface and `wg` drives it the same way. FDF_WG_USERSPACE=1 forces the latter.
-            r = subprocess.run(["ip", "link", "add", self.iface, "type", "wireguard"], capture_output=True, text=True) \
-                if os.environ.get("FDF_WG_USERSPACE", "") != "1" else None
-            if r is None or r.returncode != 0:
+            # [WG_IMPL_RECORDED_V1] the one recorded implementation; its failure raises (logged; systemd restarts the
+            # hub, which tries the same one again)
+            impl, src = wg_impl()
+            if impl == "kernel":
+                self.run("ip", "link", "add", self.iface, "type", "wireguard")
+            else:
                 self.run("wireguard-go", self.iface)
-                log("wg: userspace (wireguard-go) interface %s" % self.iface)
+            log("wg: %s interface %s (%s)" % (impl, self.iface, src))
             self.run("ip", "address", "add", HUB_ADDR + "/" + str(HUB_MASK), "dev", self.iface)
             self.run("ip", "link", "set", self.iface, "up")
         # EVERY start, not only at creation: hub.env's port/key must be what the interface uses, or the endpoint the

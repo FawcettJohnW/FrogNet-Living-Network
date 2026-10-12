@@ -15,9 +15,10 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-"""test_resolv_layout_oracle.py - [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1]
+"""test_resolv_layout_oracle.py - [RESOLV_LOCAL_UPSTREAM_V1]
 
-John, 2026-09-26: the merge writes /etc/resolv.conf with ONLY 127.0.0.1, the upstream (if any), and 8.8.8.8.
+The merge writes /etc/resolv.conf with ONLY 127.0.0.1 and the upstream (if any). (John's 2026-09-26 layout also
+ended with 8.8.8.8; T4b took it out: no public resolver behind the upstream, [RESOLV_LOCAL_UPSTREAM_V1].)
 No tunnel peer primaries, no LAN neighbours, not this node's own address, no "# WAN fallback DNS" header.
 "The upstream" is the one the merge already gives dnsmasq (dnsmasq_upstream.conf): exit_host.tsv's next hop, else
 the default route's gateway, never 127.x -- one definition, live._dns_upstream.
@@ -25,7 +26,7 @@ the default route's gateway, never 127.x -- one definition, live._dns_upstream.
 Drives the REAL discovery.live._resolv_text with the merge's own sentinels present -- a tunnel peer
 (tunnel_peers.tsv), a LAN neighbour (frognet_neighbor_via) -- and requires the file byte for byte, for a node
 with an upstream (default route via 192.168.0.1) and for one with none (no default route).
-FAILS on every earlier layout (peers listed; or self listed and no 8.8.8.8); PASSES on this one.
+FAILS on every earlier layout (peers listed; self listed; 8.8.8.8 appended); PASSES on this one.
 """
 import os
 import sys
@@ -50,8 +51,8 @@ search Seattle5 FrogNetHost.Seattle5
 nameserver 127.0.0.1
 
 """
-WANT_UP = HEAD + "nameserver 192.168.0.1\nnameserver 8.8.8.8\n"
-WANT_NONE = HEAD + "nameserver 8.8.8.8\n"
+WANT_UP = HEAD + "nameserver 192.168.0.1\n"
+WANT_NONE = HEAD
 
 
 class K:
@@ -79,7 +80,7 @@ def main():
         ns = [l.split()[1] for l in got.splitlines() if l.startswith("nameserver ")]
         this = got == want
         ok = ok and this
-        print(f"  [{'PASS' if this else 'FAIL'}] {label}: exactly 127.0.0.1, upstream (if any), 8.8.8.8 (written: {ns})")
+        print(f"  [{'PASS' if this else 'FAIL'}] {label}: exactly 127.0.0.1 and the upstream (if any) (written: {ns})")
         if not this:
             import difflib
             print("".join(difflib.unified_diff(want.splitlines(True), got.splitlines(True), "want", "got")))

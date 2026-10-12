@@ -78,6 +78,13 @@ _fire() {
 }
 
 while true; do
+    # [QUEUE_SURVIVES_THE_WIPE_V1 - T4b] the watcher owns its queue directory: make it again if anything removed it
+    # and the seen-set beside it: propogateNotification.php runs as www-data and must create files in both (a seen
+    # directory it could not write made every notification "DUP": T4b G2, h2 told h1 and h1 never merged).
+    for _d in "$REQ_DIR" /run/frognet/seen_notifications; do
+        [[ -d "$_d" && "$(stat -c %a "$_d")" == 1777 ]] && continue
+        mkdir -p "$_d" && chmod 1777 "$_d" && echo "[MERGE-ACCUM] $_d made (1777)" >&2
+    done
     # Idle until the first poke (skip the block if pokes are already queued,
     # e.g. ones that arrived while a previous merge was running).
     if ! _pending; then

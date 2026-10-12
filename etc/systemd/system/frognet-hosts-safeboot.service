@@ -22,6 +22,6 @@ Before=frognet-daemon.service frognet-proxy.service frognet-merge-watcher.servic
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/python3 /usr/local/bin/frognet_hosts_safeboot.py
+ExecStart=/opt/frognet_semantic/venv/bin/python3 /usr/local/bin/frognet_hosts_safeboot.py
 [Install]
 WantedBy=multi-user.target

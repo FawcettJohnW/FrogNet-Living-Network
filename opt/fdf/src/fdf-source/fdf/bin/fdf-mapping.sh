@@ -4,7 +4,8 @@
 # the network's route to 198.18.0.0/15 brings it here), creates the area's site with
 # the area's password (RINA_AREA_PASSWORD in /opt/fdf/fdf.env), and runs the mapping host there in the foreground. Everything prints to this terminal.
 set -eu; . /opt/fdf/fdf.env
-[ -n "$RINA_AREA_PASSWORD" ] || { echo "set RINA_AREA_PASSWORD in /opt/fdf/fdf.env (the area's password; how to make one is there)"; exit 1; }
+[ -n "$RINA_AREA" ] || { echo "set RINA_AREA in /opt/fdf/var/area.env (the area's name; /opt/fdf/fdf.env says how)"; exit 1; }
+[ -n "$RINA_AREA_PASSWORD" ] || { echo "set RINA_AREA_PASSWORD in /opt/fdf/var/area.env (the area's password; how to make one is in /opt/fdf/fdf.env)"; exit 1; }
 API=/FawcettInnovations.RINA.ram_interface.php; mkdir -p /opt/fdf/var
 MR=$(rina-lisp mr-address "$RINA_AREA" | head -1)
 echo "area '$RINA_AREA': mapping system at $MR (computed from the name), on lo"

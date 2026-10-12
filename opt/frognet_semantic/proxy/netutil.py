@@ -116,11 +116,23 @@ def _load_interface_roles() -> Dict[str, str]:
             f"({e.strerror}) - interface roles unknown and will not be guessed"
         ) from e
 
+    # [ROLES_ARE_COMPUTED_V1 - T4b] The roles are what mapInterfaces COMPUTES (by function: the served LAN, the
+    # hostapd radio, a pin that names a real device), so it is sourced, the way every shell consumer reads it. Reading
+    # its text with a regex took the first `export eth0Name=...` literally -- the legacy constant, and since T4b
+    # "${_mi_r[0]:-wlan0}" -- never the machine's own answer.
+    try:
+        r = subprocess.run(["/bin/bash", "-c", '. "$1" >/dev/null 2>&1; printf "%s\\n%s\\n%s\\n" '
+                            '"${eth0Name:-}" "${wlan0Name:-}" "${wlan1Name:-}"', "roles", MAP_INTERFACES_PATH],
+                           capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise InterfaceRolesUnavailable(
+            f"{MAP_INTERFACES_PATH}: could not be sourced ({type(e).__name__}: {e}) - "
+            f"interface roles unknown and will not be guessed") from e
+    vals = (r.stdout.split("\n") + ["", "", ""])[:3]
     roles: Dict[str, str] = {}
     missing = []
-    for key in _ROLE_KEYS:
-        m = re.search(rf'export\s+{key}\s*=\s*"?([^"\n]+)"?', txt)
-        val = m.group(1).strip() if m else ""
+    for key, val in zip(_ROLE_KEYS, vals):
+        val = val.strip()
         if not val:
             missing.append(key)
         else:

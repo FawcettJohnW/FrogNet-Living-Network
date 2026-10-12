@@ -23,6 +23,8 @@ echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
 tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }
 cat /opt/fdf/BUILD
+# [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
+/opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
 echo "== joining the region at $RAM (area $AREA)"
 exec /opt/fdf/bin/fdf-region-join "$KEY" "$RAM" "$AREA"
 __PAYLOAD_BELOW__

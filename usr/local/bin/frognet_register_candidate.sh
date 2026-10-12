@@ -46,7 +46,7 @@ echo "$BLOB" | python3 -c 'import sys,json; json.load(sys.stdin)' >/dev/null 2>&
 # [CORE_TUPLES_V1] core.frognet_tuples from /opt/frognet_semantic, the way the shipped code imports it (the old
 # Communicator bundle dir is retired).
 FROGNET_BLOB="$BLOB" FROGNET_ROLE="$ROLE" \
-PYTHONPATH="/opt/frognet_semantic${PYTHONPATH:+:$PYTHONPATH}" python3 - <<'PY'
+PYTHONPATH="/opt/frognet_semantic${PYTHONPATH:+:$PYTHONPATH}" /opt/frognet_semantic/venv/bin/python3 - <<'PY'
 import os, sys, json
 role = os.environ["FROGNET_ROLE"]
 blob = json.loads(os.environ["FROGNET_BLOB"])

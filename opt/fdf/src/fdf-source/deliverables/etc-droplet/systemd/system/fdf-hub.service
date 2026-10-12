@@ -13,6 +13,8 @@ Type=simple
 EnvironmentFile=-/opt/fdf/hub/hub.env
 Environment=FDF_PY=/opt/fdf/lib/python
 ExecStartPre=/bin/sh -c 'test -s /opt/fdf/hub/hub.env || { echo "fdf-hub: /opt/fdf/hub/hub.env does not exist: this machine holds no region yet. Run: /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP" >&2; exit 1; }'
+# [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation, chosen once and recorded (kept when there is one)
+ExecStartPre=/opt/fdf/bin/fdf-wg-impl --record
 ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area ${FDF_AREA} --endpoint ${FDF_ENDPOINT} --name ${FDF_HUB_NAME} --listen ${FDF_LISTEN} --facts ${FDF_FACTS}
 Restart=always
 RestartSec=2

@@ -138,7 +138,8 @@ public sealed class Client : IDisposable
         return Parsers.ParseEchoLine(body);
     }
 
-    /// <summary>getHosts.php, falling back to /etc/hosts where one exists.</summary>
+    /// <summary>getHosts.php only [MONITOR_HOSTS_ONE_SOURCE_V1 - T4b]: a failed read is an empty table (LastError
+    /// says why) until the next refresh asks again. There used to be an /etc/hosts read behind it.</summary>
     public async Task<List<Parsers.HostEntry>> DiscoverHostsAsync(CancellationToken ct = default)
     {
         var body = await GetAsync("/getHosts.php", null, ct).ConfigureAwait(false);
@@ -158,18 +159,14 @@ public sealed class Client : IDisposable
                         var name = h.TryGetProperty("name", out var n) ? n.GetString() : null;
                         list.Add(new Parsers.HostEntry(ip, string.IsNullOrEmpty(name) ? ip : name));
                     }
-                    if (list.Count > 0) return list;
+                    return list;
                 }
+                LastError ??= "getHosts.php: not a JSON array";
             }
-            catch (JsonException) { /* fall through to the file */ }
+            catch (JsonException ex) { LastError ??= $"getHosts.php: {ex.Message}"; }
         }
-
-        try { return Parsers.ParseEtcHosts(await File.ReadAllTextAsync(HostsFilePath, ct)); }
-        catch (Exception ex)
-        {
-            LastError ??= $"{HostsFilePath}: {ex.GetType().Name}";
-            return new List<Parsers.HostEntry>();
-        }
+        else LastError ??= "getHosts.php: no answer";
+        return new List<Parsers.HostEntry>();
     }
 
     /// <summary>

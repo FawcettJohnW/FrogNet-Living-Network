@@ -1,0 +1,7 @@
+Job for fdf-hub.service failed because the control process exited with error code.
+See "systemctl status fdf-hub.service" and "journalctl -xeu fdf-hub.service" for details.
+fdf-hub: /opt/fdf/hub/hub.env does not exist: this machine holds no region yet. Run: /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP
+fdf-hub.service: Control process exited, code=exited, status=1/FAILURE
+fdf-hub.service: Failed with result 'exit-code'.
+Failed to start fdf-hub.service - FD&F hub: WireGuard concentrator for the region (fdf-hub; settings: /opt/fdf/hub/hub.env from fdf-region-create).
+ls: cannot access '/etc/frognet': No such file or directory

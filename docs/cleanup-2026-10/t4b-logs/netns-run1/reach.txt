@@ -1,0 +1,113 @@
+    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/ha/net.json: reach none, map refused
+    ha: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+    hb: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"allowed","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+    hc: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /tmp/claude-0/netns-reach/hd/net.json: reach none, map refused
+    hd: rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+=== (1) the networks (after 1 s)
+PASS  pond A: n and a route each other; pond B: b and c route each other (c serves 10.7.7.0/24, as a does in A)
+PASS  pond A's leaf has 10.252.0.1/32 (given by A); n routes it on wg0
+PASS  n -> A's leaf 10.252.0.1
+=== (2) n reaches pond B (reach all, map allowed)
+PASS  n's fdf-client@pondB applied the reach (552 ms after it started): reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-12-r20]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
+    fdf-client: the region gave this machine 10.252.0.1/32 here, to reach this network [REACH_V1]
+    fdf-client: build fdf-2026-10-12-r20; region at 198.18.0.2:8840 is build fdf-2026-10-12-r20
+    fdf-client: n joined the region at 198.18.0.2:8840, announced ["10.3.3.1","10.253.3.3","198.18.0.3"] with facts as a PARTICIPANT (not the forward pond)
+    fdf-client: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-12-r20]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24
+PASS  n -> 10.8.8.1:8080 answers b (pond B, no collision): b 10.252.0.1
+PASS  n -> 10.7.7.1:8080 answers a (its forward pond keeps 10.7.7.0/24): a 10.3.3.1
+PASS  n -> 100.64.0.1:8080 answers c (pond B's 10.7.7.1, aliased 1:1), and c saw n as 10.252.0.1, n's address in B: c 10.252.0.1
+PASS  b -> 10.252.0.1:8080 (n's address in B) answers n: n 10.8.8.1
+PASS  B gave n 10.252.0.1 -- the address A gave its leaf (10.252.0.1): the same address, two networks
+PASS  n holds no address 10.252.0.1 (it holds 100.127.255.1/32 on its reach interface) [REACH_SELF_ALIAS_V1]
+PASS  n -> A's leaf 10.252.0.1 still answers (A's, not n's own)
+PASS  resolve on n: w:g-b:8080 -> 10.8.8.1:8080, w:g-c:8080 -> 100.64.0.1:8080 (the alias) [IDENTITY_IN_TUPLES_V1]
+PASS  n's main routing table is unchanged by the reach (pond A's daemon owns it)
+=== (2a) every network on one screen: getPonds.php, the monitor's Networks section [PONDS_ARE_LISTED_V1]
+PASS  getPonds.php on n: A forward (n a node), B participant (n a reacher, its alias, B's config, b and c alive), A's config reach none
+    | Networks
+    |  * pondA      forward      node       4 members  config reach none, map refused
+    |    pondB      participant  reacher    4 members  reach all as 10.252.0.1 (aliased 1)
+    |      b            node     ONLINE  10.8.8.1
+    |      c            node     ONLINE  10.7.7.1 -> 100.64.0.1
+    |      vm           hub      ONLINE  
+PASS  the monitor's Networks section shows pond B's members, c at its alias
+=== (2b) pond A changes under the reach: e joins A serving 10.8.8.0/24, b's /24 in B
+PASS  n's daemon re-planned the reach when A's routes changed (1398 ms after e started): REACH: reach into pondB (all, map allowed) on rch-f198f382 as 10.252.0.1 there (100.127.255.1 here) via hub vm [fdf-2026-10-12-r20]: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24 (changed)
+PASS  n -> 10.8.8.1 now answers e (A's, its forward pond): e 10.3.3.1
+PASS  b is reached at its alias: resolve w:g-b:8080 -> 100.64.1.1:8080 answers b 10.252.0.1
+PASS  c keeps its alias 100.64.0.1: c 10.252.0.1
+=== (2c) bring pond B forward while n reaches it, then A again
+PASS  B forward: the reach into B is gone (the daemon routes B now)
+PASS  fdf-client@pondB still holds its session, nothing refused (the forward pond is never refused)
+PASS  n routes B's 10.8.8.0/24 as B's node now
+PASS  A forward again: the reach into B is applied again
+PASS  c answers at its alias again: c 10.252.0.1
+=== (2d) two colliding ponds reached AT ONCE: B's c and F's g both serve 10.7.7.0/24 (as A's a does)
+PASS  n reaches F too: reach into pondF (all, map allowed) on rch-cdc4059a as 10.252.0.1 there (100.127.255.2 here) via hub vm [fdf-2026-10-12-r20]: 10.7.7.0/24; aliased 100.64.2.0/24 -> 10.7.7.0/24
+PASS  each pond's 10.7.7.0/24 has its own alias (B: 100.64.0.0/24, F: 100.64.2.0/24) and each reach its own side here (B: 100.127.255.1, F: 100.127.255.2)
+PASS  n -> 100.64.2.1 answers g (F's 10.7.7.1), which saw n as 10.252.0.1, n's address in F: g 10.252.0.1
+PASS  n -> 100.64.0.1 answers c (B's 10.7.7.1), which saw n as 10.252.0.1: c 10.252.0.1
+PASS  n -> 10.7.7.1 answers a (A, the forward pond): three networks, one /24, each reached: a 10.3.3.1
+PASS  g -> 10.252.0.1 (n's address in F) answers n: n 10.7.7.1
+PASS  resolve on n: w:g-g:8080 in F -> 100.64.2.1:8080 (F's alias), w:g-c:8080 in B -> 100.64.0.1:8080
+PASS  g left F: F's reach re-planned without 10.7.7.0/24; B's aliases unchanged ({"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}) and c still answers at 100.64.0.1
+    g answered at 100.64.2.1 1731 ms after its fdf-client started again; F's reach: reach into pondF (all, map allowed) on rch-cdc4059a as 10.252.0.1 there (100.127.255.2 here) via hub vm [fdf-2026-10-12-r20]: 10.7.7.0/24; a
+PASS  g back in F: F's reach re-planned, g answers at 100.64.2.1 again; B's aliases still {"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}
+PASS  n's session to F ended: its interface rch-cdc4059a is gone
+PASS  F's state is gone and 100.64.2.1 answers nothing
+PASS  B's reach is untouched: c at 100.64.0.1, its aliases {"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}
+=== (2e) the same network again after a session loss: the same alias [ALIAS_QUARANTINE_V1]
+PASS  F's 100.64.2.0/24 is remembered as released: {"100.64.2.0/24": {"area": "pondF", "real": "10.7.7.0/24", "t": 1791824769.207947}}
+PASS  n reaches F again: F's 10.7.7.0/24 is at 100.64.2.0/24 again, as before the session loss
+PASS  g answers at 100.64.2.1 again: g 10.252.0.1
+=== (2f) resolve by identity alone: every network asked, exactly one may answer [RESOLVE_AMBIGUOUS_REFUSED_V1]
+PASS  w:g-c:8080 -> 100.64.0.1:8080 (B), w:g-a:8080 -> 10.7.7.1:8080 (A, forward), w:g-g:8080 -> 100.64.2.1:8080 (F): three 10.7.7.1s, each named by identity
+PASS  w:g-g in F and (as 10.252.0.2) in B: refused, exit 7: w:g-g is ambiguous: in pondB as 10.252.0.2 (here 100.64.3.1:8080); in pondF as 10.7.7.1 (here 100.64.2.1:8080) -- name the network (fdf-reach resolve <area> w:g-g:8080)
+PASS  named with its network it resolves: resolve pondF w:g-g:8080 -> 100.64.2.1:8080
+PASS  the second g-g gone from B: w:g-g:8080 resolves alone again -> 100.64.2.1:8080
+PASS  F's session ended again: one reach left (B's)
+=== (3) gone is gone: n's session to pond B ends
+PASS  its interface rch-f198f382 is gone
+PASS  its rules are gone (0)
+PASS  its NETMAP/SNAT chains are gone
+PASS  its state file is gone
+PASS  100.64.0.1 answers nothing now
+=== (4) pond C: reach all, but map REFUSED -- and C's 10.7.7.0/24 collides with A's
+PASS  refused, saying why: REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.7.7.0/24 (a in pondA), and pondC's config says map refused -- a failed reach closes this session
+PASS  the session to pond C is closed (a failed reach closes it)
+PASS  n is not in pond C's participants
+PASS  nothing of it was left on n
+=== (5) pond D: no net.json -- reach none
+PASS  refused, saying why: REACH REFUSED into pondD: pondD's config says reach 'none': it is not reachable -- a failed reach closes this session
+=== (6) a member may not rewrite a network's config
+PASS  pond C refused the write: {"ok":false,"error":"(pond, config) is the RAM manager's: it is written from its net.json, never over the network"}
+=== (7) the phone's bridge: the Kotlin member + fdf-tun, forward in A, reaching B and F at once (all three serve 10.7.7.0/24) [BRIDGE_V1]
+PASS  the phone is up in 1808 ms: bridge: build fdf-kt-2026-10-11-a15; fdf-tun fdf-tun-2026-10-11-b11 on TUN fdft0
+    overlaps: none
+PASS  B and F, planned at once: no alias block ever held by both
+    fdf-member-kt: bridge: ponds pondA at 198.18.0.1:8840, pondB at 198.18.0.2:8840, pondF at 198.18.0.12:8840, pondC at 198.18.0.4:8840; forward pondA; Linux, Java 21.0.12.1
+    fdf-member-kt: bridge: build fdf-kt-2026-10-11-a15; fdf-tun fdf-tun-2026-10-11-b11 on TUN fdft0
+    fdf-member-kt: bridge: fdft0 100.127.255.1/32 -> rc=0, up rc=0, route 100.64.0.0/10 -> rc=0
+    fdf-member-kt: bridge: route 10.0.0.0/8 removed -> rc=2 RTNETLINK answers: No such process
+    fdf-member-kt: bridge: a TUN routing 100.64.0.0/10
+    fdf-member-kt: bridge: reach into pondB (all, map allowed) as 10.252.0.1 there via hub hub-pondB: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24
+    fdf-member-kt: bridge: route 10.0.0.0/8 -> rc=0
+    fdf-member-kt: bridge: forward via hub hub-pondA as 10.252.0.2
+    fdf-member-kt: bridge: reach into pondF (all, map allowed) as 10.252.0.1 there via hub hub-pondF: 10.7.7.0/24; aliased 100.64.2.0/24 -> 10.7.7.0/24
+    fdf-member-kt: [pondC] REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.0.0.0/8 (the forward pond's (the phone routes all of 10/8 to it)), and pondC's config says map refused -- this session ends (a fa
+PASS  C (map refused, colliding) refused the phone and its session is closed: REACH REFUSED into pondC: 10.7.7.0/24 (d in pondC) collides with 10.0.0.0/8 (the forward pond's (the phone routes all of 10/8 to it)), and pondC's config says map refused -- this session ends (a faile
+PASS  the phone is not in C's participants
+PASS  phone -> 10.7.7.1 answers a (A, forward), which saw the phone as 10.252.0.2, its address in A: a 10.252.0.2
+PASS  fdf-member-kt ask resolve w:g-c:8080 (what a terminal on Windows runs) -> OK 100.64.0.1:8080
+PASS  ask comms pondB -> OK --ram 100.64.0.1:8080 --media 100.64.0.1:8080   (on c in pondB); its ram answers c
+PASS  by identity: w:g-a -> 10.7.7.1:8080, w:g-c -> 100.64.0.1:8080 answers 'c 10.252.0.1', w:g-g -> 100.64.2.1:8080 answers 'g 10.252.0.1': three 10.7.7.1s at once
+PASS  into the phone: c -> 10.252.0.1 sees 'ph 100.64.0.1', g -> 10.252.0.1 sees 'ph 100.64.2.1', a -> 10.252.0.2 sees 'ph 10.7.7.1'
+PASS  concurrent: 300 requests in 3 streams, each answered by its own network (a:100 c:100 g:100 )
+PASS  w:g-g in B and in F: AMBIGUOUS w:g-g is ambiguous: in pondB as 10.252.0.2 (here 100.64.3.1:8080); in pondF as 10.7.7.1 (here 100.64.2.1:8080) -- name the network
+PASS  the second g-g gone: w:g-g resolves alone again -> OK 100.64.2.1:8080
+PASS  B's session lost: its reach is gone (100.64.0.1:8080 answers nothing); F's untouched (g answers)
+PASS  B back: the same aliases ({"100.64.0.0/24": "10.7.7.0/24", "100.64.1.0/24": "10.8.8.0/24"}), c answers at 100.64.0.1:8080 again
+PASS  the member ended: fdf-tun and its TUN are gone
+RESULT PASS
+EXIT 1

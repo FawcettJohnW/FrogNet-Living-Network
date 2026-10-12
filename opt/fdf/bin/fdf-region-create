@@ -36,9 +36,11 @@ done
 [[ "$ADDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "fdf-region-create: PUBLIC_IP '$ADDR' is not an IPv4 address (members reach this machine at it)" >&2; exit 2; }
 [[ "$RAM_PORT" =~ ^[0-9]+$ && "$HUB_PORT" =~ ^[0-9]+$ ]] || usage
 echo "== fdf-region-create $AREA at $ADDR (RAM manager tcp $RAM_PORT, hub udp $HUB_PORT); $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
-for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events; do
+for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl; do
   [ -x "$f" ] || { echo "fdf-region-create: $f missing: install /opt/fdf first (cd / && tar xvzf - < /tmp/fdf-droplet.tgz)" >&2; exit 1; }; done
 for b in python3 wg ip systemctl; do command -v $b >/dev/null || { echo "fdf-region-create: $b is required and missing (wg: apt-get install wireguard-tools)" >&2; exit 1; }; done
+# [WG_IMPL_RECORDED_V1 - T4b] the hub's WireGuard implementation, chosen here once, by platform, and recorded
+/opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-region-create: no usable WireGuard implementation (above)" >&2; exit 1; }
 HUBENV=/opt/fdf/hub/hub.env
 if [ -e "$HUBENV" ]; then
   echo "fdf-region-create: this machine already holds a region: $HUBENV says $(grep -E '^FDF_AREA=' "$HUBENV"). A machine holds one; its site key is in /opt/fdf/var/site-key-<area>." >&2; exit 1

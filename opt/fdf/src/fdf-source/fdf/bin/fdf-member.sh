@@ -5,6 +5,7 @@
 # the Map-Resolver's address from it. Runs the agent in the foreground: it joins by name, announces itself, and follows
 # the RAM manager if it moves. Everything prints to this terminal. Ctrl-C stops it.
 set -eu; . /opt/fdf/fdf.env
+[ -n "$RINA_AREA" ] || { echo "set RINA_AREA in /opt/fdf/var/area.env (the area's name; /opt/fdf/fdf.env says how)"; exit 1; }
 if [ -n "${RINA_RAM:-}" ]; then                               # [FDF_DIRECT_V1] the RAM server is named outright (a droplet):
     echo "area '$RINA_AREA': RAM server at $RINA_RAM (given directly; no mapping system used)"   # connect straight to it
     exec rlite-uipcps

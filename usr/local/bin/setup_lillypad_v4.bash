@@ -51,7 +51,7 @@ svc_restart() {
     if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
         log "  [--norestart] not restarting: $* (applies on reboot)"
     else
-        systemctl restart "$@" 2>/dev/null || true
+        systemctl restart "$@" || log "  FAILED: systemctl restart $* (see journalctl -u $*)"
     fi
 }
 while [[ $# -gt 0 ]]; do
@@ -88,8 +88,8 @@ else
     ETH0_PRESENT=false
     log "WARNING: Interface '$ETH0' does not exist."
     log "         Continuing without eth0 - dnsmasq and identity will be"
-    log "         configured anyway, and frognet-eth0-fixup will claim"
-    log "         the interface when it appears."
+    log "         configured anyway, and the NetworkManager profile (ifname"
+    log "         $ETH0, autoconnect) takes the interface when it appears."
 fi
 
 # Extract subnet info
@@ -207,7 +207,8 @@ touch /var/log/mysql/slow_query.log
 chown mysql:mysql /var/log/mysql /var/log/mysql/slow_query.log 2>/dev/null || true
 
 # -- MariaDB: start it so we can fix FrogUser --
-systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+# [ONE_DB_UNIT_V1] FrogNet installs MariaDB; its unit is mariadb (there is no "mysql" unit to try after it).
+systemctl start mariadb || die "systemctl start mariadb failed (journalctl -u mariadb)"
 sleep 2
 
 # -- MariaDB: sync FrogUser password from the two credential files --
@@ -308,49 +309,27 @@ while nmcli conn show "$NETWORK_NAME" >/dev/null 2>&1; do
 done
 
 # ============================================================
-# Step 3: Ensure $ETH0 is managed and clean
+# Step 3: Ensure $ETH0 is managed
 # ============================================================
 log "Step 3: Preparing $ETH0..."
 
 # Make sure NetworkManager manages $ETH0
 nmcli dev set "$ETH0" managed yes 2>/dev/null || true
 
+# [NM_OWNS_THE_LAN_ADDRESS_V1] NetworkManager is the one owner of $ETH0's addresses: the profile below is the
+# address. Nothing here flushes the interface or adds addresses with `ip` (it used to: flush, `ip addr add`, then the
+# profile, then "try multiple activation methods", a disconnect/reconnect, and a "forcing IP assignment" flush+add).
 if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    # [SETUP_LILLYPAD_NORESTART_V1] Do NOT flush/re-address the live interface.
-    # On a LAN-only gateway the operator's SSH rides this very device; flushing it
-    # disconnects the install exactly as an NM restart would. The persistent NM
-    # connection is still created below (Step 5) and comes up on the reboot, so the
-    # address is applied then. If the interface already carries the gateway IP
-    # (a --preserve upgrade) nothing is lost; if it does not, it is set on reboot.
-    log "  [--norestart] NOT flushing/re-addressing $ETH0 (would drop the install SSH; NM profile applies on reboot)"
-    ip link set "$ETH0" up 2>/dev/null || true
+    # [SETUP_LILLYPAD_NORESTART_V1] On a LAN-only gateway the operator's SSH may ride this very device; activating
+    # the profile live cuts it. The profile (Step 5) comes up on the reboot. If the interface already carries the
+    # gateway IP (a --preserve upgrade) nothing is lost.
+    log "  [--norestart] $ETH0 is not re-addressed now (the NM profile applies on reboot)"
     CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | head -1)
     log "  Current $ETH0 IP: ${CURRENT_IP:-<unchanged>}"
-else
-    # Flush all IPs from $ETH0
-    ip addr flush dev "$ETH0" 2>/dev/null || true
-
-    # Bring $ETH0 up
-    ip link set "$ETH0" up
-
-    # Wait for device to be ready
-    sleep 1
-
-    # ============================================================
-    # Step 4: Set IP directly first (immediate effect)
-    # ============================================================
-    log "Step 4: Setting IP directly on $ETH0..."
-    ip addr add "${GATEWAY_IP}/24" dev "$ETH0" 2>/dev/null || true
-    ip addr add "${ADMIN_IP}/24" dev "$ETH0" 2>/dev/null || true
-    ip route add "$SUBNET" dev "$ETH0" 2>/dev/null || true
-
-    # Verify immediate result
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | head -1)
-    log "  Current $ETH0 IP: $CURRENT_IP"
 fi
 
 # ============================================================
-# Step 5: Create NetworkManager connection for persistence
+# Step 5: Create NetworkManager connection (the address)
 # ============================================================
 log "Step 5: Creating NetworkManager connection..."
 
@@ -363,52 +342,28 @@ nmcli conn add con-name "$NETWORK_NAME" \
     ipv4.gateway "" \
     connection.autoconnect yes \
     connection.autoconnect-priority 999 \
-    connection.autoconnect-retries 0
+    connection.autoconnect-retries 0 \
+    || die "nmcli could not create the connection $NETWORK_NAME on $ETH0"
 
 # ============================================================
 # Step 6: Activate the connection
 # ============================================================
 if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    # [SETUP_LILLYPAD_NORESTART_V1] The persistent NM connection is created above
-    # (Step 5, autoconnect-priority 999). Do NOT activate it live here: nmcli
-    # conn up / dev disconnect / a forced ip flush all cut an SSH riding on $ETH0.
-    # It activates on the reboot instead.
     log "Step 6/7: [--norestart] connection profile saved; NOT activated live (applies on reboot)"
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-    log "  $ETH0 primary IP: ${CURRENT_IP:-<applies on reboot>}"
 else
     log "Step 6: Activating connection..."
-
-    # Try multiple activation methods
-    if ! nmcli conn up "$NETWORK_NAME" 2>/dev/null; then
-        log "  Direct activation failed, trying with ifname..."
-        nmcli conn up "$NETWORK_NAME" ifname "$ETH0" 2>/dev/null || true
-    fi
-
-    # If still not active, disconnect and reconnect the device
-    if ! nmcli -t -f DEVICE c show --active 2>/dev/null | grep -q "^${ETH0}\$"; then
-        log "  Reconnecting $ETH0..."
-        nmcli dev disconnect "$ETH0" 2>/dev/null || true
-        sleep 1
-        nmcli dev connect "$ETH0" 2>/dev/null || true
-    fi
+    _up_out=$(nmcli conn up "$NETWORK_NAME" 2>&1) \
+        || die "nmcli conn up $NETWORK_NAME failed on $ETH0: $_up_out"
 
     # ============================================================
-    # Step 7: Verify and fix if needed
+    # Step 7: Verify (the profile's addresses are on the device, or it failed)
     # ============================================================
     log "Step 7: Verifying configuration..."
-
     have_gw=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$GATEWAY_IP" || true)
     have_admin=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$ADMIN_IP" || true)
 
-    if [[ -z "$have_gw" || -z "$have_admin" ]]; then
-        log "  WARNING: address set incomplete (gw=$have_gw admin=$have_admin want gw=$GATEWAY_IP admin=$ADMIN_IP)"
-        log "  Forcing IP assignment..."
-        ip addr flush dev "$ETH0"
-        ip addr add "${GATEWAY_IP}/24" dev "$ETH0"
-        ip addr add "${ADMIN_IP}/24" dev "$ETH0"
-        ip link set "$ETH0" up
-    fi
+    [[ -n "$have_gw" && -n "$have_admin" ]] \
+        || die "$NETWORK_NAME is up but $ETH0 lacks its addresses (have gw=${have_gw:-none} admin=${have_admin:-none}; want $GATEWAY_IP $ADMIN_IP): $(ip -4 -o addr show dev "$ETH0" | awk '{print $4}' | tr '\n' ' ')"
 
     CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
     log "  $ETH0 primary IP: $CURRENT_IP"
@@ -428,7 +383,7 @@ echo "$FQDN" > /etc/hostname
 if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
     hostname "$FQDN" 2>/dev/null || true
 else
-    hostnamectl set-hostname "$FQDN" 2>/dev/null || hostname "$FQDN"
+    hostnamectl set-hostname "$FQDN" || die "hostnamectl set-hostname $FQDN failed"
 fi
 
 # Update /etc/hosts
@@ -608,64 +563,12 @@ echo "$GATEWAY_IP" > /etc/database_ip
 echo "nameserver $GATEWAY_IP" > /etc/sentinels/frog_resolv.conf
 
 # ============================================================
-# Step 11: Create boot-time fixup service
+# Step 11: (no boot-time address fixup)
 # ============================================================
-log "Step 11: Creating boot-time fixup service..."
-
-cat > /usr/local/bin/frognet_eth0_fixup.sh << 'FIXUPEOF'
-#!/bin/bash
-# Ensure FrogNet interface has the correct gateway + admin IPs at boot.
-# Runs BEFORE transit boot to claim the interface.
-
-CONF="/etc/frognet/gateways.conf"
-[[ -f "$CONF" ]] || exit 0
-
-source "$CONF"
-[[ -n "$GATEWAY_IP" ]] || exit 0
-
-# Derive admin alias from gateway IP:  10.x.y.1 -> 10.x.y.2
-ADMIN_IP="${GATEWAY_IP%.*}.2"
-
-# Resolve actual interface name
-. /usr/local/bin/mapInterfaces
-DEV="${eth0Name:-eth0}"
-
-# Check if interface already has BOTH correct IPs
-have_gw=$(ip -4 -o addr show dev "$DEV" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$GATEWAY_IP" || true)
-have_admin=$(ip -4 -o addr show dev "$DEV" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$ADMIN_IP" || true)
-[[ -n "$have_gw" && -n "$have_admin" ]] && exit 0
-
-# Force the correct IPs
-ip addr flush dev "$DEV" 2>/dev/null || true
-ip addr add "${GATEWAY_IP}/24" dev "$DEV"
-ip addr add "${ADMIN_IP}/24" dev "$DEV"
-ip link set "$DEV" up
-
-# Try to activate NM connection
-nmcli conn up "$NETWORK_NAME" 2>/dev/null || true
-
-exit 0
-FIXUPEOF
-chmod +x /usr/local/bin/frognet_eth0_fixup.sh
-
-cat > /etc/systemd/system/frognet-eth0-fixup.service << EOF
-[Unit]
-Description=FrogNet Gateway IP Fixup ($ETH0)
-Before=network.target frognet-transit-boot.service
-After=sys-subsystem-net-devices-${ETH0}.device
-Wants=sys-subsystem-net-devices-${ETH0}.device
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable frognet-eth0-fixup.service
+# [NM_OWNS_THE_LAN_ADDRESS_V1] The NetworkManager profile from Step 5 (autoconnect, priority 999) is the one thing
+# that puts the gateway and admin addresses on $ETH0, at boot as now. frognet-eth0-fixup (Before=network.target:
+# flush, `ip addr add` both, then `nmcli conn up` too) was a second owner of the same addresses and is gone; an
+# upgrade removes it (frognet_prune_removed.sh).
 
 # ============================================================
 # Step 12: Update transit boot to skip eth0
@@ -679,7 +582,7 @@ echo "$ETH0" > /etc/frognet/transit_exclude_interfaces
 # Step 13: Restart services
 # ============================================================
 log "Step 13: Restarting services..."
-systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+svc_restart mariadb
 svc_restart apache2
 svc_restart dnsmasq
 svc_restart frognet-proxy
@@ -697,8 +600,7 @@ log ""
 log "$ETH0 configuration:"
 ip addr show "$ETH0" | grep -E "inet |state"
 log ""
-log "getEth0Address returns:"
-/usr/local/bin/getEth0Address 2>/dev/null || echo "$GATEWAY_IP"
+log "getEth0Address returns: $(/usr/local/bin/getEth0Address 2>&1 || echo "FAILED (rc=$?)")"
 log ""
 log "Service health:"
 for svc in mariadb apache2 dnsmasq frognet-proxy frognet-daemon; do

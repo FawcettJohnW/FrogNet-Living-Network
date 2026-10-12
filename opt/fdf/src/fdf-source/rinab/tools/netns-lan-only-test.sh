@@ -56,7 +56,8 @@ NSF() { local n=$1; shift; local F=$T/$n/fs m=""
   [ -n "$PYLIB" ] && m="mount --bind $PYLIB $T/pylib;"
   for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
   for b in $TREE; do m="$m mount --bind ${b%%:*} ${b#*:};"; done
-  ip netns exec $n env -u RINA_RAM -u RINA_AREA PYTHONPATH=$FN:$T/pylib FROGNET_BRINGUP_PYTHONPATH=$FN:$T/pylib PYTHONDONTWRITEBYTECODE=1 \
+  # [SERVICES_ON_THE_VENV_V1 - T4b] a node runs the bring-up on the venv; this harness has none, so it names its python
+  ip netns exec $n env -u RINA_RAM -u RINA_AREA PYTHONPATH=$FN:$T/pylib FROGNET_BRINGUP_PYTHONPATH=$FN:$T/pylib FROGNET_BRINGUP_PY="$(command -v python3)" PYTHONDONTWRITEBYTECODE=1 \
      sh -c "$m cd $FN && exec \"\$@\"" sh "$@"; }
 for n in a b; do
   NSF $n php -S 0.0.0.0:80 -t /var/www/html > $T/$n/php.log 2>&1 &

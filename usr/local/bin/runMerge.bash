@@ -70,8 +70,8 @@ cd / || true
 
 FROGNET_MERGE_DEPTH="${FROGNET_MERGE_DEPTH:-0}"
 MAX_MERGE_DEPTH="${MAX_MERGE_DEPTH:-10}"
-PYBIN="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
-[[ -x "$PYBIN" ]] || PYBIN="/usr/bin/python3"
+PYBIN="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"   # [SERVICES_ON_THE_VENV_V1] one interpreter
+[[ -x "$PYBIN" ]] || { flog_error "ENTER" "status=no_python" "pybin=$PYBIN" "reason=the venv the installer builds is missing; the next event retries"; exit 1; }
 
 flog_info "ENTER" "depth=$FROGNET_MERGE_DEPTH" "argv_count=$#" "pybin=$PYBIN"
 
@@ -148,7 +148,16 @@ rm -rf /tmp/frognet*
 # not break if flog_init's variable names change. If the glob finds nothing the
 # behaviour is exactly what it is today.
 _flog_dir="$(ls -1d /run/frognet/debug/*-$$ 2>/dev/null | head -1)"
-rm -rf /var/run/frognet/*
+# [QUEUE_SURVIVES_THE_WIPE_V1 - T4b] merge_requests is the merge watcher's queue (propogateNotification.php and the
+# NetworkManager hook drop pokes there), seen_notifications is propogateNotification.php's recursion guard (a wave's
+# GUID, so an echo of it is dropped), and tunnel-daemon.pid is the daemon's: none is this pass's state. Wiping
+# merge_requests removed the directory the watcher waits on, so every later neighbour notification was dropped
+# (T4b G2: h2 told h1, h1 never merged) and the watcher spun on a missing directory.
+for _f in /var/run/frognet/* /var/run/frognet/.[!.]*; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid) continue ;; esac
+    rm -rf "$_f"
+done
 [[ -n "$_flog_dir" ]] && mkdir -p "$_flog_dir"
 
 MERGE_PENDING="$SENT_DIR/mergePending"

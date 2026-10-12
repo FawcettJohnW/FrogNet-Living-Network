@@ -394,8 +394,8 @@ phase "E: Build world tarball"
 #
 # discovery selfcheck stays, and it is not weakened: it covers the oracle suite
 # byte-exact plus the proof_plane shapes/churn scenarios.
-_DISC_PY="/opt/frognet_semantic/venv/bin/python3"
-[[ -x "$_DISC_PY" ]] || _DISC_PY="/usr/bin/python3"
+_DISC_PY="/opt/frognet_semantic/venv/bin/python3"   # [SERVICES_ON_THE_VENV_V1] the gate runs on what the node runs
+[[ -x "$_DISC_PY" ]] || { echo "FATAL: $_DISC_PY missing (the installer's C2 builds it)" >&2; exit 1; }
 _GATE_LOG="/var/tmp/frognet_release_build_gate.log"
 : > "$_GATE_LOG"
 _gate_ok=1

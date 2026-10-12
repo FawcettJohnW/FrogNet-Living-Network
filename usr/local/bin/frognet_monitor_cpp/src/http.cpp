@@ -140,18 +140,12 @@ std::vector<HostEntry> Client::discoverHosts() const {
         std::string name = h.atString("name");
         out.push_back(HostEntry{ip, name.empty() ? ip : name});
       }
-      if (!out.empty()) return out;
+      return out;
     }
   }
-  // Fallback to the same file, parsed by the same rules as the Python.
-  FILE* f = std::fopen("/etc/hosts", "r");
-  if (!f) return {};
-  std::string content;
-  char buf[4096];
-  size_t n;
-  while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) content.append(buf, n);
-  std::fclose(f);
-  return parseEtcHosts(content);
+  // [MONITOR_HOSTS_ONE_SOURCE_V1 - T4b] getHosts.php is the one source: a failed read is an empty table until the
+  // next refresh asks again (there used to be an /etc/hosts read behind it; parseEtcHosts stays for the oracles).
+  return {};
 }
 
 Json Client::sensorsForHost(const std::string& domain) const {

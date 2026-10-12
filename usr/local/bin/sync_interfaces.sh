@@ -102,7 +102,7 @@ ALIVE="/usr/local/bin/frognet_alive.bash"
 ADD_HOST="/usr/local/bin/addHostAndPropogate.bash"
 SUBNET="/usr/local/bin/convertToSubnetRange"
 DISCOVERY_CACHE="/usr/local/bin/frognet_discovery_cache.sh"
-PYTHON="/usr/bin/python3"
+PYTHON="/opt/frognet_semantic/venv/bin/python3"   # [SERVICES_ON_THE_VENV_V1]
 LEASES="/var/lib/misc/dnsmasq.leases"
 
 # ---- Paths -----------------------------------------------------------------

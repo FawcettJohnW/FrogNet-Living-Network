@@ -108,7 +108,7 @@ class Client {
   // Identity of the pond reachable at dot_one, via frognet_echo.php.
   Identity echo(const std::string& dot_one, long timeout_sec = 5) const;
 
-  // getHosts.php, falling back to /etc/hosts.
+  // getHosts.php only [MONITOR_HOSTS_ONE_SOURCE_V1]; empty when it does not answer.
   std::vector<HostEntry> discoverHosts() const;
 
   // Every sensor whose name begins "<domain>." — server-side filtered, so only

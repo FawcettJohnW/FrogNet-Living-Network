@@ -97,7 +97,6 @@ FROGNET_WORLD_PATHS=(
     # it is not ours and must not ship; the installer edits whatever is on the box.
     etc/NetworkManager/conf.d/10-frognet-unmanaged.conf
     etc/NetworkManager/conf.d/99-frognet-unmanaged.conf
-    etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
     etc/NetworkManager/dispatcher.d/90-frognet-merge
     etc/ssl
     # [WE_DO_NOT_OWN_THE_DISTRIBUTION_V1] Named files, not the directory. Scoping
@@ -230,7 +229,7 @@ FROGNET_NEVER_SHIP=(
     usr/local/bin/torchrun
     usr/local/bin/ribbit-redis-front
     etc/systemd/system/uptime-kuma.service
-    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet_system_tune.sh from the board's own RAM and
+    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet-system-tune.sh from the board's own RAM and
     # CPU count (innodb_buffer_pool_size, sysctl, service limits): each node's are its own, and a shipped copy would
     # carry Seattle5's sizing onto a smaller board until the next boot.
     etc/mysql/mariadb.conf.d/99-frognet-tune.cnf

@@ -119,15 +119,8 @@ discover_hosts() {
             [[ -n "$ip" && -n "$name" ]] && hosts+=("$ip|$name|frognet")
         done < <(echo "$json" | jq -c '.[]' 2>/dev/null)
     fi
-    if [[ ${#hosts[@]} -eq 0 ]]; then
-        while IFS= read -r line; do
-            local ip name
-            ip=$(echo "$line" | awk '{print $1}')
-            name=$(echo "$line" | awk '{print $2}')
-            # [FROGNET_PLANE_IS_TEN_V1] 10/8 less the reserved 10.253/10.254 planes
-            [[ "$ip" =~ ^10\. && ! "$ip" =~ ^10\.25[34]\. ]] && hosts+=("$ip|$name|frognet")
-        done < <(grep -E '^10\.' /etc/hosts 2>/dev/null | grep -vE '^10\.25[34]\.' | grep -v '^#')
-    fi
+    # [MONITOR_HOSTS_ONE_SOURCE_V1] getHosts.php is the one source; no /etc/hosts read behind it.
+    [[ ${#hosts[@]} -eq 0 ]] && echo "runPingEverything: getHosts.php gave no hosts this cycle" >&2
     hosts+=("google.com|Google (Internet)|internet")
     printf '%s\n' "${hosts[@]}" | sort -t'|' -k2 | uniq
 }

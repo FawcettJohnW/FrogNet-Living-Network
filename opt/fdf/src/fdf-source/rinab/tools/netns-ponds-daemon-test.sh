@@ -11,7 +11,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; S=${S:-6}
 T=${T:-/tmp/claude-0/netns-ponds}; rm -rf $T; mkdir -p $T/ha $T/hb $T/a $T/b $T/n $T/bin
-export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php; KEYA=keyA; KEYB=keyB; RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }

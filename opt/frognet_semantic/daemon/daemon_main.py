@@ -130,6 +130,8 @@ def main() -> None:
 
     resolver = DestinationResolver()
     server = DaemonServer(host=host, port=port, resolver=resolver)
+    from core.build_id import base_build              # [BASE_BUILD_V1]
+    print(f"[Daemon] build {base_build()} listening on {host}:{port}", flush=True)
 
     # No extra behavior here. All semantics live in engine/session + engine/execution.
     server.run()

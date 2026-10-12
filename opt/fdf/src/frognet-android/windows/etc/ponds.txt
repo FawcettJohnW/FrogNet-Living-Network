@@ -1,3 +1,5 @@
 # Every pond this computer is in: <area>=<its RAM manager host:port>, one per line.
 # The first one is the forward pond until var\forward says otherwise (fdf-bridge.cmd forward <area>).
-frognet=165.232.153.144:51888
+# fdf-region-create printed the area and the RAM manager's address. Replace the EXAMPLE line below with yours
+# (e.g. myarea=203.0.113.7:51888); fdf-bridge.cmd refuses to start while the example is still here.
+AREA=RAM-HOST:51888

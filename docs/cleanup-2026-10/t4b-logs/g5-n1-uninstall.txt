@@ -1,0 +1,452 @@
+Relocating installer to /tmp/frognet_install.HG9JKJ (the reset removes FrogNet's files from /usr/local/bin, this one among them)
+FrogNet uninstall (build frognet-reset-2026-10-12-t4a) on FrogNetHost.N1 - Mon Oct 12 18:03:03 UTC 2026
+  dry-run=0  keep-db=0  keep-identity=0  uninstall=1
+
+------------------------------------------------------
+  0. Leave the region (if this node is in one)
+------------------------------------------------------
+18:03:03 [reset] not in a region (no /opt/fdf/var/join.env, no fdf-client.service)
+
+------------------------------------------------------
+  1. Stop + disable FrogNet services
+------------------------------------------------------
+  ->   systemctl stop frognet-daemon.service
+  ->   systemctl stop frognet-dbhost-advertise.service
+Stopping 'frognet-dbhost-advertise.service', but its triggering units are still active:
+frognet-dbhost-advertise.timer
+  ->   systemctl stop frognet-dbhost-elect.service
+Stopping 'frognet-dbhost-elect.service', but its triggering units are still active:
+frognet-dbhost-elect.timer
+  ->   systemctl stop frognet-discovered.service
+  ->   systemctl stop frognet-gps.service
+  ->   systemctl stop frognet-merge-watcher.service
+  ->   systemctl stop frognet-proxy.service
+  ->   systemctl stop frognet-sysperf.service
+  ->   systemctl stop frognet-transit-boot.service
+  ->   systemctl stop frognet-transit-watch.service
+  ->   systemctl stop frognet-tunnel-daemon-v3.service
+  ->   systemctl stop frognet-dbhost-advertise.timer
+  ->   systemctl stop frognet-dbhost-elect.timer
+  ->   systemctl disable frognet-daemon.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-daemon.service".
+  ->   systemctl disable frognet-dashboard.service
+  ->   systemctl disable frognet-dbhost-advertise.service
+The unit files have no installation config (WantedBy=, RequiredBy=, UpheldBy=,
+Also=, or Alias= settings in the [Install] section, and DefaultInstance= for
+template units). This means they are not meant to be enabled or disabled using systemctl.
+ 
+Possible reasons for having these kinds of units are:
+• A unit may be statically enabled by being symlinked from another unit's
+  .wants/, .requires/, or .upholds/ directory.
+• A unit's purpose may be to act as a helper for some other unit which has
+  a requirement dependency on it.
+• A unit may be started when needed via activation (socket, path, timer,
+  D-Bus, udev, scripted systemctl call, ...).
+• In case of template units, the unit is meant to be enabled with some
+  instance name specified.
+  ->   systemctl disable frognet-dbhost-elect.service
+  ->   systemctl disable frognet-discovered.service
+  ->   systemctl disable frognet-gps.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-gps.service".
+  ->   systemctl disable frognet-hosts-safeboot.service
+  ->   systemctl disable frognet-merge-watcher.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-merge-watcher.service".
+  ->   systemctl disable frognet-propogate-notification@.service
+Failed to get triggering units for 'frognet-propogate-notification@.service', ignoring: Invalid argument
+The unit files have no installation config (WantedBy=, RequiredBy=, UpheldBy=,
+Also=, or Alias= settings in the [Install] section, and DefaultInstance= for
+template units). This means they are not meant to be enabled or disabled using systemctl.
+ 
+Possible reasons for having these kinds of units are:
+• A unit may be statically enabled by being symlinked from another unit's
+  .wants/, .requires/, or .upholds/ directory.
+• A unit's purpose may be to act as a helper for some other unit which has
+  a requirement dependency on it.
+• A unit may be started when needed via activation (socket, path, timer,
+  D-Bus, udev, scripted systemctl call, ...).
+• In case of template units, the unit is meant to be enabled with some
+  instance name specified.
+  ->   systemctl disable frognet-proxy.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-proxy.service".
+  ->   systemctl disable frognet-sysperf.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-sysperf.service".
+  ->   systemctl disable frognet-system-tune.service
+  ->   systemctl disable frognet-transit-boot.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-transit-boot.service".
+  ->   systemctl disable frognet-transit-watch.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-transit-watch.service".
+  ->   systemctl disable frognet-tunnel-daemon-v3.service
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-tunnel-daemon-v3.service".
+  ->   systemctl disable frognet-discovered.target
+  ->   systemctl disable frognet-dbhost-advertise.timer
+Removed "/etc/systemd/system/timers.target.wants/frognet-dbhost-advertise.timer".
+  ->   systemctl disable frognet-dbhost-elect.timer
+Removed "/etc/systemd/system/timers.target.wants/frognet-dbhost-elect.timer".
+  ->   systemctl stop frognet-tunnel-daemon-v3
+  ->   systemctl disable frognet-tunnel-daemon-v3
+
+------------------------------------------------------
+  2. Drop FrogNet databases
+------------------------------------------------------
+  ->   systemctl start mariadb
+  ->   mysql -u root -e DROP DATABASE IF EXISTS FrogNet; DROP USER IF EXISTS 'FrogUser'@'localhost'; DROP USER IF EXISTS 'FrogUser'@'%'; FLUSH PRIVILEGES;
+18:03:11 [reset] databases dropped in 1s
+
+------------------------------------------------------
+  3. Remove FrogNet-owned directories (whole)
+------------------------------------------------------
+  ->   rm -rf -- /opt/frognet_semantic
+  ->   rm -f -- /usr/local/bin/AI_README.md
+  ->   rm -f -- /usr/local/bin/PropogateHost
+  ->   rm -f -- /usr/local/bin/addHost.bash
+  ->   rm -f -- /usr/local/bin/addHostAndPropogate.bash
+  ->   rm -f -- /usr/local/bin/check_remote_is_sem.bash
+  ->   rm -f -- /usr/local/bin/check_routes.sh
+  ->   rm -f -- /usr/local/bin/check_sem_health.py
+  ->   rm -f -- /usr/local/bin/clear_pycache
+  ->   rm -f -- /usr/local/bin/clear_tables.sh
+  ->   rm -f -- /usr/local/bin/convertToShortIP
+  ->   rm -f -- /usr/local/bin/convertToSubnetRange
+  ->   rm -f -- /usr/local/bin/create_database.sql
+  ->   rm -f -- /usr/local/bin/debugTag
+  ->   rm -f -- /usr/local/bin/demo_phase_1.bash
+  ->   rm -f -- /usr/local/bin/demo_phase_2.bash
+  ->   rm -f -- /usr/local/bin/dhcp_tracking.bash
+  ->   rm -f -- /usr/local/bin/dhcp_tracking.sh
+  ->   rm -f -- /usr/local/bin/discovery_pending.sh
+  ->   rm -f -- /usr/local/bin/discovery_slow_worker.sh
+  ->   rm -f -- /usr/local/bin/emit_routes_snapshot.sh
+  ->   rm -f -- /usr/local/bin/fixDefaultRoute
+  ->   rm -f -- /usr/local/bin/fix_powersave.sh
+  ->   rm -f -- /usr/local/bin/fix_unbound_bypass.sh
+  ->   rm -f -- /usr/local/bin/forceRun.bash
+  ->   rm -f -- /usr/local/bin/frognet-merge-watcher.sh
+  ->   rm -f -- /usr/local/bin/frognet-netmode
+  ->   rm -f -- /usr/local/bin/frognet-netstart
+  ->   rm -f -- /usr/local/bin/frognet-node-guid.sh
+  ->   rm -f -- /usr/local/bin/frognet-roam
+  ->   rm -f -- /usr/local/bin/frognet-soft-standalone
+  ->   rm -f -- /usr/local/bin/frognet-ssid-projection
+  ->   rm -f -- /usr/local/bin/frognet-system-tune.sh
+  ->   rm -f -- /usr/local/bin/frognet-wg-cleanup
+  ->   rm -f -- /usr/local/bin/frognet_alive.bash
+  ->   rm -f -- /usr/local/bin/frognet_apply_license.py
+  ->   rm -f -- /usr/local/bin/frognet_backup_world.bash
+  ->   rm -f -- /usr/local/bin/frognet_bootstrap.sh
+  ->   rm -f -- /usr/local/bin/frognet_build_release.sh
+  ->   rm -f -- /usr/local/bin/frognet_cache_nuke.bash
+  ->   rm -f -- /usr/local/bin/frognet_capability_probe.sh
+  ->   rm -f -- /usr/local/bin/frognet_collect_state.sh
+  ->   rm -f -- /usr/local/bin/frognet_common.sh
+  ->   rm -f -- /usr/local/bin/frognet_curl_via.sh
+  ->   rm -f -- /usr/local/bin/frognet_db_credential_sync.sh
+  ->   rm -f -- /usr/local/bin/frognet_dbhost_elector.py
+  ->   rm -f -- /usr/local/bin/frognet_demo_traffic.py
+  ->   rm -f -- /usr/local/bin/frognet_dhcp_scope.sh
+  ->   rm -f -- /usr/local/bin/frognet_diag.sh
+  ->   rm -f -- /usr/local/bin/frognet_discovery_cache.sh
+  ->   rm -f -- /usr/local/bin/frognet_down_clean.sh
+  ->   rm -f -- /usr/local/bin/frognet_echo_cached.bash
+  ->   rm -f -- /usr/local/bin/frognet_enable_on_boot.sh
+  ->   rm -f -- /usr/local/bin/frognet_fix_db.sh
+  ->   rm -f -- /usr/local/bin/frognet_fixup.sh
+  ->   rm -f -- /usr/local/bin/frognet_hosts_safeboot.py
+  ->   rm -f -- /usr/local/bin/frognet_license_gaps.sh
+  ->   rm -f -- /usr/local/bin/frognet_link_autoconfig.sh
+  ->   rm -f -- /usr/local/bin/frognet_make_build_tar.sh
+  ->   rm -f -- /usr/local/bin/frognet_metrics_emit.sh
+  ->   rm -f -- /usr/local/bin/frognet_monitor
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/CMakeLists.txt
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/README.md
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/include/dashboard.h
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/include/frognet.h
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/dashboard.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/frognet.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/http.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/json.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/main_headless.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/main_tui.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/src/parsers.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/tests/dashboard_oracle.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cpp/tests/parser_oracle.cpp
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Cards.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Client.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Dashboard.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Demo.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/FrogNetMonitor.csproj
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Model.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Parsers.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/Program.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/README.md
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/SelfTest.cs
+  ->   rm -f -- /usr/local/bin/frognet_monitor_cs/nuget.config
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/__init__.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/__main__.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/config.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/discovery.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/draw_dashboard.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/draw_overlay.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/draw_ponds.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/formatting.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/identity.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/main_loop.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/merge.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/probes.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/sensors.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/state.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/test_merge_oracle.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/test_parser_vectors_oracle.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/trace.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_py/ui_helpers.py
+  ->   rm -f -- /usr/local/bin/frognet_monitor_shared/parser_vectors.json
+  ->   rm -f -- /usr/local/bin/frognet_nm_unmanage_if.sh
+  ->   rm -f -- /usr/local/bin/frognet_postinstall_20260912.sh
+  ->   rm -f -- /usr/local/bin/frognet_prune_removed.sh
+  ->   rm -f -- /usr/local/bin/frognet_register_candidate.sh
+  ->   rm -f -- /usr/local/bin/frognet_release_wlan0
+  ->   rm -f -- /usr/local/bin/frognet_routing_topology.py
+  ->   rm -f -- /usr/local/bin/frognet_set_transit_baud.sh
+  ->   rm -f -- /usr/local/bin/frognet_setup_advertisers.sh
+  ->   rm -f -- /usr/local/bin/frognet_setup_helper.bash
+  ->   rm -f -- /usr/local/bin/frognet_setup_v4_helper.bash
+  ->   rm -f -- /usr/local/bin/frognet_tc_apply.sh
+  ->   rm -f -- /usr/local/bin/frognet_tc_clear.sh
+  ->   rm -f -- /usr/local/bin/frognet_transit_boot.sh
+  ->   rm -f -- /usr/local/bin/frognet_transit_profile.sh
+  ->   rm -f -- /usr/local/bin/frognet_transit_watch.sh
+  ->   rm -f -- /usr/local/bin/frognet_tunnel_check.sh
+  ->   rm -f -- /usr/local/bin/frognet_up_clean.sh
+  ->   rm -f -- /usr/local/bin/full_tar.bash
+  ->   rm -f -- /usr/local/bin/getEth0Address
+  ->   rm -f -- /usr/local/bin/getFrogNet.bash
+  ->   rm -f -- /usr/local/bin/getHosts_cached.bash
+  ->   rm -f -- /usr/local/bin/getInterfaceIP
+  ->   rm -f -- /usr/local/bin/getOurDomain
+  ->   rm -f -- /usr/local/bin/getWlan0IP
+  ->   rm -f -- /usr/local/bin/getWlan1IP
+  ->   rm -f -- /usr/local/bin/get_gps_data.bash
+  ->   rm -f -- /usr/local/bin/gpsd_reporter.bash
+  ->   rm -f -- /usr/local/bin/install_databasehost.sh
+  ->   rm -f -- /usr/local/bin/installer/frognet_install.sh
+  ->   rm -f -- /usr/local/bin/installer/frognet_reset.sh
+  ->   rm -f -- /usr/local/bin/isMergeProcRunning.bash
+  ->   rm -f -- /usr/local/bin/joinLan
+  ->   rm -f -- /usr/local/bin/joinWan
+  ->   rm -f -- /usr/local/bin/lab_testing_baseline.bash
+  ->   rm -f -- /usr/local/bin/makeHostJson.bash
+  ->   rm -f -- /usr/local/bin/make_tar.bash
+  ->   rm -f -- /usr/local/bin/manageResolv.bash
+  ->   rm -f -- /usr/local/bin/mapInterfaces
+  ->   rm -f -- /usr/local/bin/mergeHostsAndResolv.bash
+  ->   rm -f -- /usr/local/bin/metric_upsert.sh
+  ->   rm -f -- /usr/local/bin/no_mask_scan.py
+  ->   rm -f -- /usr/local/bin/pipe_workload.py
+  ->   rm -f -- /usr/local/bin/process_host.sh
+  ->   rm -f -- /usr/local/bin/propogateMergeGuid.bash
+  ->   rm -f -- /usr/local/bin/propogateNotification
+  ->   rm -f -- /usr/local/bin/propogateNotificationInternal
+  ->   rm -f -- /usr/local/bin/prune_stale_routes.bash
+  ->   rm -f -- /usr/local/bin/radio_link.sh
+  ->   rm -f -- /usr/local/bin/real_demo_baseline.bash
+  ->   rm -f -- /usr/local/bin/rebuild_dns_forwarders
+  ->   rm -f -- /usr/local/bin/registerFrogNetHost.bash
+  ->   rm -f -- /usr/local/bin/routeMetrics.sh
+  ->   rm -f -- /usr/local/bin/runMerge.bash
+  ->   rm -f -- /usr/local/bin/runPingEverything
+  ->   rm -f -- /usr/local/bin/selectNewDatabaseHost
+  ->   rm -f -- /usr/local/bin/sem_is_ip_semantic.bash
+  ->   rm -f -- /usr/local/bin/semantic_cache_schema.sql
+  ->   rm -f -- /usr/local/bin/semantic_monitor.sh
+  ->   rm -f -- /usr/local/bin/semantic_payload_sweep.sh
+  ->   rm -f -- /usr/local/bin/set_node_id.bash
+  ->   rm -f -- /usr/local/bin/setup_astrix.sh
+  ->   rm -f -- /usr/local/bin/setup_lillypad_v4.bash
+  ->   rm -f -- /usr/local/bin/setup_worker.bash
+  ->   rm -f -- /usr/local/bin/simulate_radio.bash
+  ->   rm -f -- /usr/local/bin/simulate_satellite.bash
+  ->   rm -f -- /usr/local/bin/sleepAndRun
+  ->   rm -f -- /usr/local/bin/start_daemon
+  ->   rm -f -- /usr/local/bin/start_proxy
+  ->   rm -f -- /usr/local/bin/sync_interfaces.sh
+  ->   rm -f -- /usr/local/bin/sysperf_outputter.bash
+  ->   rm -f -- /usr/local/bin/sysperf_reporter.bash
+  ->   rm -f -- /usr/local/bin/tarsite.bash
+  ->   rm -f -- /usr/local/lib/frognet/conf.sh
+  ->   rm -f -- /usr/local/lib/frognet_log.sh
+  ->   rm -f -- /usr/local/lib/frognet_trace.sh
+  ->   rm -f -- /usr/local/lib/frognet_world_manifest.sh
+  ->   rm -f -- /usr/local/share/frognet/AI_READ_FIRST.md
+  ->   rm -f -- /usr/local/share/frognet/CLAIMS.md
+  ->   rm -f -- /usr/local/share/frognet/COPYRIGHT
+  ->   rm -f -- /usr/local/share/frognet/LICENSE
+  ->   rm -f -- /usr/local/share/frognet/MERGECHURN-20260912.md
+  ->   rm -f -- /usr/local/share/frognet/README.md
+  ->   rmdir -- /usr/local/share/frognet
+  ->   rmdir -- /usr/local/lib/frognet
+  ->   rmdir -- /usr/local/bin/installer
+  ->   rmdir -- /usr/local/bin/frognet_monitor_shared
+  ->   rmdir -- /usr/local/bin/frognet_monitor_py
+  ->   rmdir -- /usr/local/bin/frognet_monitor_cs
+  ->   rmdir -- /usr/local/bin/frognet_monitor_cpp/tests
+  ->   rmdir -- /usr/local/bin/frognet_monitor_cpp/src
+  ->   rmdir -- /usr/local/bin/frognet_monitor_cpp/include
+  ->   rmdir -- /usr/local/bin/frognet_monitor_cpp
+18:03:12 [reset] removed 185 recorded FrogNet file(s) from /usr/local/{bin,sbin,lib,share}
+  ->   rm -rf -- /var/lib/frognet-install/files
+  ->   rm -rf -- /etc/frognet
+  ->   rm -rf -- /etc/sentinels
+  ->   rm -rf -- /var/lib/frognet-tunnel
+  ->   rm -rf -- /run/frognet
+  ->   rm -rf -- /var/log/frognet
+  ->   rm -rf -- /etc/setup_iptables
+  ->   rm -rf -- /etc/database_ip
+  ->   rm -rf -- /var/lib/misc/dnsmasq.leases
+
+------------------------------------------------------
+  4. Node identity
+------------------------------------------------------
+  ->   rm -rf -- /etc/fnid
+  ->   rm -rf -- /etc/wireguard
+
+------------------------------------------------------
+  5. systemd unit files + dangling enable-symlinks
+------------------------------------------------------
+  ->   rm -rf -- /etc/systemd/system/frognet-propogate-notification@.service
+  ->   rm -rf -- /etc/systemd/system/frognet-sysperf.service
+  ->   rm -rf -- /etc/systemd/system/frognet-proxy.service
+  ->   rm -rf -- /etc/systemd/system/frognet-transit-boot.service
+  ->   rm -rf -- /etc/systemd/system/frognet-daemon.service
+  ->   rm -rf -- /etc/systemd/system/frognet-dashboard.service
+  ->   rm -rf -- /etc/systemd/system/frognet-system-tune.service
+  ->   rm -rf -- /etc/systemd/system/frognet-tunnel-daemon-v3.service
+  ->   rm -rf -- /etc/systemd/system/frognet-discovered.service
+  ->   rm -rf -- /etc/systemd/system/frognet-gps.service
+  ->   rm -rf -- /etc/systemd/system/frognet-merge-watcher.service
+  ->   rm -rf -- /etc/systemd/system/frognet-dbhost-elect.service
+  ->   rm -rf -- /etc/systemd/system/frognet-transit-watch.service
+  ->   rm -rf -- /etc/systemd/system/frognet-hosts-safeboot.service
+  ->   rm -rf -- /etc/systemd/system/frognet-dbhost-advertise.service
+  ->   rm -rf -- /etc/systemd/system/frognet-dbhost-advertise.timer
+  ->   rm -rf -- /etc/systemd/system/frognet-dbhost-elect.timer
+  ->   rm -rf -- /etc/systemd/system/frognet-discovered.target
+  ->   rm -rf -- /etc/systemd/system/frognet-daemon.service.d
+  ->   rm -rf -- /etc/systemd/system/frognet-proxy.service.d
+  ->   rm -rf -- /etc/systemd/system/frognet-tunnel-daemon-v3.service.d
+  ->   rm -rf -- /etc/systemd/system/dnsmasq.service.d/override.conf
+  ->   systemctl daemon-reload
+  ->   systemctl reset-failed
+
+------------------------------------------------------
+  6. FrogNet files inside SHARED OS directories (files only, not the dirs)
+------------------------------------------------------
+  ->   rm -rf -- /etc/dnsmasq.d/frognet_dhcp_event.conf
+  ->   rm -rf -- /etc/dnsmasq.d/frognet_forwarders_auto.conf
+  ->   rm -rf -- /etc/dnsmasq.d/opts_only.conf
+  ->   rm -rf -- /etc/dnsmasq.d/upstream_fallback.conf
+  ->   rm -rf -- /etc/NetworkManager/conf.d/99-frognet-unmanaged.conf
+  ->   rm -rf -- /etc/NetworkManager/conf.d/10-frognet-unmanaged.conf
+  ->   rm -rf -- /etc/NetworkManager/conf.d/no-resolved.conf
+  ->   rm -rf -- /etc/NetworkManager/conf.d/99-wifi-powersave.conf
+  ->   rm -rf -- /etc/NetworkManager/dispatcher.d/90-frognet-merge
+  ->   rm -rf -- /etc/apache2/sites-available/000-default.conf
+  ->   rm -rf -- /etc/apache2/sites-available/admin-site.conf
+  ->   rm -rf -- /etc/apache2/sites-available/databasehost.conf
+  ->   rm -rf -- /etc/apache2/sites-available/frognet-ssl.conf
+  ->   rm -rf -- /etc/apache2/sites-enabled/000-default.conf
+  ->   rm -rf -- /etc/apache2/sites-enabled/admin-site.conf
+  ->   rm -rf -- /etc/apache2/sites-enabled/databasehost.conf
+  ->   rm -rf -- /etc/apache2/sites-enabled/frognet-ssl.conf
+  ->   rm -rf -- /etc/sysctl.d/99-frognet.conf
+  ->   rm -rf -- /etc/sysctl.d/90-frognet-forwarding.conf
+  ->   rm -rf -- /etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
+  ->   rm -rf -- /etc/mysql/mariadb.conf.d/99-frognet-perf.cnf
+  ->   rm -rf -- /etc/mysql/mariadb.conf.d/99-frognet.cnf
+  ->   rm -rf -- /etc/ssl/frognet-universal.crt
+  ->   rm -rf -- /etc/ssl/frognet-universal.key
+  ->   rm -rf -- /etc/ssl/frognet-universal.cnf
+  ->   rm -rf -- /etc/ssl/localCA
+  ->   rm -rf -- /etc/security/limits.d/99-frognet.conf
+  ->   rm -rf -- /etc/sudoers.d/frognet-setup
+  ->   rm -rf -- /etc/iptables/rules.v4
+  ->   rm -rf -- /etc/logrotate.d/frognet
+  ->   rm -rf -- /etc/ifplugd/action.d/frognet
+  ->   rm -rf -- /etc/hostapd/hostapd.conf.template
+  ->   rm -rf -- /etc/systemd/journald.conf.d/frognet.conf
+
+------------------------------------------------------
+  7. Webroot
+------------------------------------------------------
+  ->   rm -rf -- /var/www/html
+  ->   rm -rf -- /var/www/www_admin
+
+------------------------------------------------------
+  8. Put back the machine's own name resolution, hostname and services
+------------------------------------------------------
+  ->   rm -f /etc/resolv.conf
+  ->   cp -P /var/lib/frognet-install/os-before/resolv.conf /etc/resolv.conf
+18:03:13 [reset] packet-filter rules (IPv4): the machine's again (from /var/lib/frognet-install/os-before/iptables.v4)
+18:03:13 [reset] packet-filter rules (IPv6): the machine's again (from /var/lib/frognet-install/os-before/iptables.v6)
+  ->   cp -p /var/lib/frognet-install/os-before/hostname /etc/hostname
+  ->   cp -p /var/lib/frognet-install/os-before/hosts /etc/hosts
+  ->   cp -p /var/lib/frognet-install/os-before/fstab /etc/fstab
+  ->   systemctl unmask systemd-resolved
+Removed "/etc/systemd/system/systemd-resolved.service".
+18:03:13 [reset] systemd-resolved: not on this machine (was: not-found) - nothing more to put back
+  ->   systemctl disable dnsmasq
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable dnsmasq
+Removed "/etc/systemd/system/multi-user.target.wants/dnsmasq.service".
+  ->   systemctl stop dnsmasq
+18:03:14 [reset] dnsmasq: put back to not-found/inactive
+  ->   systemctl disable apache2
+Synchronizing state of apache2.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable apache2
+Removed "/etc/systemd/system/multi-user.target.wants/apache2.service".
+  ->   systemctl stop apache2
+18:03:15 [reset] apache2: put back to not-found/inactive
+  ->   systemctl disable mariadb
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable mariadb
+Removed "/etc/systemd/system/multi-user.target.wants/mariadb.service".
+  ->   systemctl stop mariadb
+18:03:16 [reset] mariadb: put back to not-found/inactive
+  ->   systemctl unmask hostapd
+Removed "/etc/systemd/system/hostapd.service".
+  ->   systemctl disable hostapd
+Synchronizing state of hostapd.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable hostapd
+Removed "/etc/systemd/system/multi-user.target.wants/hostapd.service".
+  ->   systemctl stop hostapd
+18:03:17 [reset] hostapd: put back to not-found/inactive
+  ->   systemctl disable ifplugd
+ifplugd.service is not a native service, redirecting to systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable ifplugd
+  ->   systemctl stop ifplugd
+18:03:18 [reset] ifplugd: put back to not-found/inactive
+18:03:18 [reset] unbound: not on this machine (was: not-found) - nothing more to put back
+  ->   systemctl disable netfilter-persistent
+Synchronizing state of netfilter-persistent.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable netfilter-persistent
+Removed "/etc/systemd/system/multi-user.target.wants/netfilter-persistent.service".
+Removed "/etc/systemd/system/ip6tables.service".
+Removed "/etc/systemd/system/iptables.service".
+  ->   systemctl stop netfilter-persistent
+18:03:18 [reset] netfilter-persistent: put back to not-found/inactive
+18:03:18 [reset] name resolution: /etc/resolv.conf is the machine's own again (# Generated by Docker Engine. # This file can be edited; Doc)
+
+------------------------------------------------------
+  9. Uninstall: what only an install adds
+------------------------------------------------------
+18:03:18 [reset] crontab: FrogNet lines removed
+  ->   userdel -r froguser
+userdel: froguser mail spool (/var/mail/froguser) not found
+  ->   rm -rf -- /opt/fdf
+  ->   systemctl daemon-reload
+  ->   rm -rf -- /etc/systemd/system/dnsmasq.service.d
+  ->   rm -rf -- /var/lib/frognet
+  ->   rm -rf -- /var/lib/frognet-install
+
+======================================================
+  FrogNet uninstall complete. Log: /var/tmp/frognet_reset.log
+======================================================
+EXIT 0

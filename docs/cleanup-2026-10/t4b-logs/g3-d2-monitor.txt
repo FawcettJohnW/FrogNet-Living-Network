@@ -1,0 +1,8 @@
+NAME       ALIVE  TERM  OS     CORES  MEM   IPS
+N1         yes    -     linux  2      7.8G  10.81.81.1,10.81.81.2,172.30.0.51,10.253.81.81
+N2         yes    -     linux  2      7.8G  10.82.82.1,10.82.82.2,172.30.0.52,10.253.82.82
+regionbox  yes    -     linux  2      7.8G  172.30.0.10,10.253.253.254
+peer: ZS1e2u8Y0d4UFcNJV9IlsSzY6eGwAxox2xphEc4bKjM=
+  allowed ips: 10.253.81.81/32, 10.81.81.0/24
+peer: g3/ejc7o0GJemi9tGuRGTSWCJ7mYG24X6INHdJzqRyY=
+  allowed ips: 10.253.82.82/32, 10.82.82.0/24

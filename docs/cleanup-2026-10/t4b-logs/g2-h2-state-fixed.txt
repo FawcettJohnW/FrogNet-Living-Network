@@ -1,0 +1,29 @@
+hostname: FrogNetHost.H2   build lines:
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4b (mode lan-only) base fdf-2026-10-12-r20
+  [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+  reconcile: 2026-10-12 17:41:48,398 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: tunnel.conf RINA_RAM=None; env RINA_RAM=None; /opt/fdf/var/join.env=missing (No such file or directory); /opt/fdf/var/site.env=missing (No such file or directory)' -> RINA_RAM='' RINA_AREA=''
+  mariadb                        enabled/active
+  apache2                        enabled/active
+  dnsmasq                        enabled/active
+  NetworkManager                 enabled/active
+  cron                           enabled/active
+  frognet-proxy                  enabled/active
+  frognet-daemon                 enabled/active
+  frognet-merge-watcher          enabled/active
+  frognet-tunnel-daemon-v3       enabled/active
+  frognet-eth0-fixup             not-found/inactive
+  frognet-sysperf                enabled/active
+  frognet-dbhost-advertise.timer enabled/active
+  frognet-dbhost-elect.timer     disabled/inactive
+  fdf-client                     not-found/inactive
+  fdf-facts                      not-found/inactive
+failed units: 
+merge: /etc/sentinels/discovered
+discovered last: [2026-10-12T17:41:53.007] runMerge INFO pid=356 completed
+databasehost: 10.72.72.1 / 10.72.72.1
+getHosts.php: [{"ip":"10.72.72.1","name":"H2","echo":"FrogNetHost.H2,10.72.72.1,172.30.0.42,10.71.71.20","role":"","alive":false},{"ip":"10.71.71.1","name":"H1","echo":"H1,10.71.71.1,172.30.0.41,0.0.0.0","role":"","alive":false}]
+echo (:8080): H2,10.72.72.1,172.30.0.42,10.71.71.20
+echo (:80, the proxy): H2,10.72.72.1,172.30.0.42,10.71.71.20
+wg interfaces: 
+routes: 10.71.71.0/24 dev eth1 scope link src 10.72.72.1 metric 22 ;10.71.71.0/24 dev eth1 proto kernel scope link src 10.71.71.20 metric 103 ;10.72.72.0/24 dev eth2 proto kernel scope link src 10.72.72.1 ;
+resolv.conf:  options timeout:1 attempts:1  search H2 FrogNetHost.H2  nameserver 127.0.0.1  nameserver 172.30.0.1 

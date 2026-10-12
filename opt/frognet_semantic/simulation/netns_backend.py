@@ -186,21 +186,23 @@ class NetnsProvisioner:
             kb_priv, kb_pub = self._genkey(nb, ib)
             ends = ((na, ia, ipa, pa, ka_priv, kb_pub, pb),
                     (nb, ib, ipb, pb, kb_priv, ka_pub, pa))
+            impl = self._wg_impl()
             for (node, iface, ip, port, priv, peer_pub, peer_port) in ends:
                 ns = self._ns(node)
-                self._r("ip", "netns", "exec", ns, "ip", "link", "add", iface,
-                        "type", "wireguard", quiet=True)
-                if not self._iface_exists(ns, iface):
-                    # [WG_USERSPACE_FALLBACK_V1] `ip link add ... type
-                    # wireguard` needs wireguard.ko on the host. Without it the
-                    # only symptom downstream is a wall of ROUTE_INSTALL_FAILED
-                    # ... ENETUNREACH, because the iface the routes point at was
-                    # never created. wireguard-go is the reference USERSPACE
-                    # implementation: same protocol, same keys, same `wg set`.
+                if impl == "kernel":
+                    self._r("ip", "netns", "exec", ns, "ip", "link", "add", iface,
+                            "type", "wireguard")
+                    if self.runner.is_real() and not self._iface_exists(ns, iface):
+                        raise RuntimeError(
+                            f"{node}: `ip link add {iface} type wireguard` failed and the recorded "
+                            f"implementation is kernel (no userspace is tried) [WG_IMPL_RECORDED_V1]")
+                else:
+                    # [WG_IMPL_RECORDED_V1 - T4b] (was [WG_USERSPACE_FALLBACK_V1]: kernel first, wireguard-go when the
+                    # kernel refused.) The implementation is the recorded one only: here wireguard-go, the reference
+                    # USERSPACE implementation: same protocol, same keys, same `wg set`.
                     # Tunnels here are simulated either way -- endpoints are
                     # 127.0.0.1 loopback ports, not a real internet path -- so
-                    # this costs no fidelity the tier ever claimed. Kernel first,
-                    # always; userspace only when the kernel refuses.
+                    # this costs no fidelity the tier ever claimed.
                     #
                     # THREE things this has to get right, each found the hard way:
                     #
@@ -232,10 +234,8 @@ class NetnsProvisioner:
                             "wireguard-go", tmpif)
                     if not self._iface_exists(None, tmpif, tries=25):
                         raise RuntimeError(
-                            f"{node}: could not create {iface} -- no wireguard "
-                            f"kernel module and wireguard-go did not start. "
-                            f"Install wireguard-go, or run on a host with "
-                            f"wireguard.ko.")
+                            f"{node}: could not create {iface}: wireguard-go (the "
+                            f"recorded implementation) did not start. Is it installed?")
                     self._r("wg", "set", tmpif, "private-key",
                             self._keyfile(node, iface), "listen-port", str(port))
                     self._r("wg", "set", tmpif, "peer", peer_pub,
@@ -244,7 +244,7 @@ class NetnsProvisioner:
                     self._r("ip", "link", "set", tmpif, "netns", ns)
                     self._r("ip", "netns", "exec", ns, "ip", "link", "set",
                             tmpif, "name", iface)
-                else:
+                if impl == "kernel":
                     self._r("ip", "netns", "exec", ns, "wg", "set", iface,
                             "private-key", self._keyfile(node, iface),
                             "listen-port", str(port))
@@ -256,6 +256,26 @@ class NetnsProvisioner:
                 self._r("ip", "netns", "exec", ns, "ip", "link", "set", iface,
                         "up")
         return self.runner
+
+    def _wg_impl(self):
+        """[WG_IMPL_RECORDED_V1 - T4b] the harness's explicit choice (FDF_WG_IMPL=kernel|wireguard-go), else the
+        machine's record (/etc/frognet/wg.impl). Executing with neither is an error that says so. A dry-run plan with
+        neither is drawn for kernel and says so (nothing runs it)."""
+        v = os.environ.get("FDF_WG_IMPL", "").strip()
+        if not v:
+            try:
+                v = open("/etc/frognet/wg.impl").read().strip()
+            except OSError:
+                v = ""
+        if v in ("kernel", "wireguard-go"):
+            return v
+        if self.runner.is_real():
+            raise RuntimeError("no WireGuard implementation chosen: set FDF_WG_IMPL=kernel|wireguard-go or record "
+                               "/etc/frognet/wg.impl (fdf-wg-impl --record) [WG_IMPL_RECORDED_V1]")
+        if not getattr(self, "_wg_impl_said", False):
+            print("        (no WireGuard implementation recorded: the dry-run plan is drawn for kernel)")
+            self._wg_impl_said = True
+        return "kernel"
 
     def _iface_exists(self, ns, iface, tries=1):
         """True once `iface` exists (in `ns`, or in root when ns is None).

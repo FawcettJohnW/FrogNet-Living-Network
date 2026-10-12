@@ -17,4 +17,4 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 cd /usr/local/bin
-python3 -m frognet_monitor_py .
+/opt/frognet_semantic/venv/bin/python3 -m frognet_monitor_py .

@@ -275,7 +275,7 @@ def _default_gateway(k):
 
 
 def _dns_upstream(k):
-    """[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] THE DNS upstream -- one definition, used for both
+    """[RESOLV_LOCAL_UPSTREAM_V1] THE DNS upstream -- one definition, used for both
     dnsmasq_upstream.conf and /etc/resolv.conf so the two can never name different ones.
     Field 2 of exit_host.tsv (the gateway the default route points at, [DNS_NEXTHOP_ONLY_V1]);
     before the first merge writes that sentinel, the default route's gateway, which is the
@@ -322,8 +322,8 @@ def _write_dnsmasq_upstream(k, logger=print):
 
 def _resolv_text(k, hn, local_domain):
     """The /etc/resolv.conf this node writes at the merge tail, as text.
-    [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] John 2026-09-26: ONLY 127.0.0.1, the upstream (if any),
-    and 8.8.8.8. Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
+    [RESOLV_LOCAL_UPSTREAM_V1] ONLY 127.0.0.1 and the upstream (if any); the 8.8.8.8 that John's 2026-09-26
+    layout ended with went in T4b (no public resolver behind the upstream). Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
     peers or LAN neighbours ([PEER_PRIMARY_IS_A_RESOLVER_V1], [LAN_NEIGHBOR_IS_A_RESOLVER_V1]
     retired): other ponds' names are dnsmasq's job (frognet_forwarders_auto.conf)."""
     from .resolv import build_resolv
@@ -388,7 +388,7 @@ def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
         self_identity=self_identity,
     )
     fdr.run()
-    # manageResolv: [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, upstream (if any), 8.8.8.8.
+    # manageResolv: [RESOLV_LOCAL_UPSTREAM_V1] 127.0.0.1, upstream (if any).
     hn = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     content = _resolv_text(k, hn, _local_domain())
     _write_if_changed("/etc/resolv.conf", content, logger)
@@ -546,7 +546,7 @@ def _reconcile_tunnels(logger=print):
     env = dict(os.environ)
     env["PYTHONPATH"] = os.environ.get("FROGNET_BRINGUP_PYTHONPATH",
                                        "/opt/frognet_semantic")
-    py = os.environ.get("FROGNET_BRINGUP_PY", "/usr/bin/python3")
+    py = os.environ.get("FROGNET_BRINGUP_PY", "/opt/frognet_semantic/venv/bin/python3")   # [SERVICES_ON_THE_VENV_V1]
     logger("reconcile_tunnels START (internet_tunnels_v3 bring-up-only)")
     try:
         r = subprocess.run([py, "-m", "internet_tunnels_v3", "bring-up-only"],
@@ -576,23 +576,11 @@ def main():
     # (the hostapd interface), regardless of which interface it currently
     # egresses through. On a leaf that reaches the mesh over a borrowed lease,
     # the egress iface address is NOT this, so routes must pin it as src.
-    self_identity = ""
-    _frognet_devs = cls.get("FROGNET_FROGNET_DEVS", "").split()
-    if _frognet_devs:
-        # [SELF_IDENTITY_SKIP_RESERVED_V1] Identity is the node's OWN /24 .1
-        # (e.g. 10.160.160.1), never a pool address. A chorus dev (frognet0,
-        # 10.254.x) or transit dev (10.253.x) must NOT source the identity: if it
-        # does, the node adopts a 10.254.x self-identity. Take the first frognet
-        # dev whose address is a real node /24, skipping the reserved pools.
-        for _dev in _frognet_devs:
-            _iip = next((i.ip4() for i in ifaces if i.dev == _dev), "")
-            if not _iip:
-                continue
-            if _iip.startswith("10.253.") or _iip.startswith("10.254."):
-                logger(f"SELF_IDENTITY_SKIP dev={_dev} ip={_iip} reason=reserved_pool")
-                continue
-            self_identity = ".".join(_iip.split(".")[:3]) + ".1"
-            break
+    # [UPLINK_BY_FUNCTION_V1 - T4b] the served .1, by function (mapinterfaces.served_identity), not the first dev
+    # with a 10.x/24 in name order (which, with the upstream lease on eth1 and the LAN on eth2, was the neighbour's .1).
+    from .mapinterfaces import served_identity
+    self_identity = served_identity(ifaces)
+    logger(f"SELF_IDENTITY {self_identity or '<none: no interface carries a served 10.A.B.1>'}")
 
     disc, k, tunnels, local_ips = build_live(logger, self_identity=self_identity)
 
@@ -658,7 +646,7 @@ def main():
         except Exception as _e:
             raise RuntimeError("region mode: the members' facts could not be read for the election: %s" % _e)
 
-    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+    # (no "eth0" address stands in for an identity [UPLINK_BY_FUNCTION_V1]: the identity is the served .1 or none)
     domain = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip().split(".", 1)
     domain = domain[1] if len(domain) > 1 else ""
 
@@ -685,7 +673,7 @@ def main():
     logger(f"TABLE_FINGERPRINT phase=before routes={len(_tbl_before)}")
 
     out = run_merge(disc, k, seeds, upstream_seed,
-                    local=(self_identity or eth0_ip, domain), bringup_peers=bringup,
+                    local=(self_identity, domain), bringup_peers=bringup,
                     prior_names=prior_names,
                     concurrent_attempt=False, logger=logger)
     # [SYNC_ON_ROUTE_MUTATION_V1] carry whether the committed route table changed
@@ -742,7 +730,7 @@ def main():
             _scope = _T.node_scope()
             _T.put("discovery", "reach_plane", _scope,
                    {"wan_subnets": out["computed_wan"],
-                    "self_ip": self_identity or eth0_ip},
+                    "self_ip": self_identity},
                    own=False)
             _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
             logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
@@ -851,7 +839,7 @@ def main():
         # definition, whether or not its capability row landed this pass.
         _role_lines = service_host_lines(dbhost=_ctl, logger=logger,
                                          etc_hosts=out.get("etc_hosts", []),
-                                         self_ip=(self_identity or eth0_ip))
+                                         self_ip=self_identity)
         out["etc_hosts"] = commit_service_lines(out.get("etc_hosts", []), _role_lines,
                                                 _ready_roles, _ctl, logger=logger)
         logger(f"SERVICE_BARRIERS ready={sorted(_ready_roles)} "

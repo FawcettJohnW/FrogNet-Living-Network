@@ -1,4 +1,4 @@
-L=/home/claude/clean/docs/cleanup-2026-10/t4a-logs
+L=${L:-/home/claude/clean/docs/cleanup-2026-10/t4a-logs}
 cd /home/claude/clean/opt/fdf/src/fdf-source/rinab
 # dockerd on this host (the containers) loads br_netfilter and sets FORWARD to DROP, so frames between the harness's
 # namespaces over its own bridges hit DROP. While the harness runs, bridged frames are accepted (DOCKER-USER), then

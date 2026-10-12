@@ -1,0 +1,2 @@
+BUILD OK: build/static/{fdf-client,fdf-participants,ram,fdf-events,fdf-attention,fdf-where} (static x86-64)
+build_static_clients rc=0 43s

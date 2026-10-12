@@ -67,26 +67,16 @@ echo "[dbhost] payload: $SRC"
 # 1. packages
 echo "[dbhost] installing mariadb + php + apache ..."
 export DEBIAN_FRONTEND=noninteractive
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -qq
-  # php-mysqli is not an installable package name on modern apt; php-mysql provides
-  # the mysqli + pdo_mysql extensions. Fall back to the versioned package if the
-  # metapackage is unavailable.
-  if ! apt-get install -y -qq mariadb-server php php-mysql libapache2-mod-php apache2 jq curl >/dev/null 2>&1; then
-    PHPV="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true)"
-    apt-get install -y -qq mariadb-server php libapache2-mod-php apache2 jq curl >/dev/null || true
-    if [ -n "$PHPV" ]; then
-      apt-get install -y -qq "php${PHPV}-mysql" >/dev/null 2>&1 || apt-get install -y -qq php-mysql >/dev/null 2>&1 || true
-    else
-      apt-get install -y -qq php-mysql >/dev/null 2>&1 || true
-    fi
-  fi
-  command -v php >/dev/null 2>&1 && php -m 2>/dev/null | grep -qi mysqli \
-    || echo "[dbhost] WARN: php mysqli extension not detected; api.php DB access may fail" >&2
-else
-  echo "[dbhost] non-apt system: install mariadb-server, php, php-mysql, apache2 yourself, then re-run with packages present" >&2
-fi
-systemctl enable --now mariadb >/dev/null 2>&1 || systemctl enable --now mysql >/dev/null 2>&1 || true
+# [ONE_PACKAGE_LIST_V1] One list. php-mysql is the metapackage that provides mysqli + pdo_mysql on every
+# Debian/Ubuntu/Raspberry Pi OS release this runs on; a failure stops here with apt's own message (it used to try
+# the list, then a shorter list, then php<ver>-mysql, then php-mysql again, each `|| true`).
+command -v apt-get >/dev/null 2>&1 \
+  || { echo "[dbhost] non-apt system: install mariadb-server, php, php-mysql, libapache2-mod-php, apache2, jq, curl, then re-run" >&2; exit 1; }
+apt-get update -qq || { echo "[dbhost] apt-get update failed" >&2; exit 1; }
+apt-get install -y -qq mariadb-server php php-mysql libapache2-mod-php apache2 jq curl \
+  || { echo "[dbhost] apt-get install failed (above); nothing else is tried" >&2; exit 1; }
+php -m 2>/dev/null | grep -qi mysqli || { echo "[dbhost] php has no mysqli extension after installing php-mysql" >&2; exit 1; }
+systemctl enable --now mariadb || { echo "[dbhost] systemctl enable --now mariadb failed (journalctl -u mariadb)" >&2; exit 1; }
 
 # 2. schema + user
 # [NO_HARDCODED_CREDENTIAL_V1] DB_PASS defaulted to a live pond password when

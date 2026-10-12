@@ -42,7 +42,7 @@ Environment=FROGNET_SEMANTIC=1
 Environment=FROGNET_TELEMETRY=ON
 Environment=FROGNET_TELEMETRY_INTERVAL=60.0
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/python3 -m proxy.proxy_main --listen 0.0.0.0:80
+ExecStart=/opt/frognet_semantic/venv/bin/python3 -m proxy.proxy_main --listen 0.0.0.0:80
 Restart=always
 RestartSec=1
 

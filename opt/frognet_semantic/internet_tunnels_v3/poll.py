@@ -552,9 +552,14 @@ def _bring_up_tunnel(channel: dict) -> bool:
         conf_path.chmod(0o600)
 
         from .wg import kernel_changed                        # [KERNEL_READ_ONCE_PER_EVENT_V1]
+        env = config.wg_quick_env()                           # [WG_IMPL_RECORDED_V1]
+        if env is None:
+            config.log.error("BRING_UP: %s not brought up: no recorded WireGuard implementation (next poll retries)", iface)
+            conf_path.unlink(missing_ok=True)
+            return False
         kernel_changed()
         r = subprocess.run(["wg-quick", "up", iface],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True, check=False, env=env)
         if r.returncode != 0:
             config.log.error("BRING_UP: wg-quick up %s FAILED: %s",
                              iface, r.stderr.strip())

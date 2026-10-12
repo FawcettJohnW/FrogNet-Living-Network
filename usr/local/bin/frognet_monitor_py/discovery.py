@@ -66,9 +66,8 @@ def parse_etc_hosts_content(content: str) -> List[Tuple[str, str]]:
     alias on the line (the name returned is the part after
     `FrogNetHost.`).
 
-    Pure function: takes the file content as input, no I/O.  Both
-    discover_hosts() (production) and frognet_sim.py (tests) call this
-    with the same parser.
+    Pure function: takes the file content as input, no I/O.  frognet_sim.py (tests) and the parser-vector oracle
+    call it; discover_hosts() reads getHosts.php only [MONITOR_HOSTS_ONE_SOURCE_V1].
     """
     hosts: List[Tuple[str, str]] = []
     for line in content.splitlines():
@@ -97,23 +96,19 @@ ALIVE: dict = {}                                    # ip -> its member's region 
 
 
 def discover_hosts() -> List[Tuple[str, str]]:
-    """Return [(ip, name), ...] from getHosts.php or /etc/hosts fallback."""
+    """Return [(ip, name), ...] from getHosts.php, the one source of the peer list. [MONITOR_HOSTS_ONE_SOURCE_V1]
+    A failed read is traced and the table is empty until the next cycle asks again (there used to be an /etc/hosts
+    read behind it; parse_etc_hosts_content stays for the simulator and the parser-vector oracle)."""
     global ROLES, ALIVE
     try:
         data = api_request("http://127.0.0.1/getHosts.php", timeout=5)
-        ROLES = {h["ip"]: h.get("role", "") for h in data if "ip" in h}
-        ALIVE = {h["ip"]: bool(h.get("alive")) for h in data if "ip" in h}
-        return [(h["ip"], h.get("name", h["ip"])) for h in data if "ip" in h]
     except Exception as e:
-        trace(f"[DISCOVER] getHosts.php failed: {e}, falling back to /etc/hosts")
-        ROLES, ALIVE = {}, {}                      # [DEVICE_ROW_V1] /etc/hosts says no role: none shown, none stale
-
-    try:
-        with open("/etc/hosts") as f:
-            return parse_etc_hosts_content(f.read())
-    except OSError as e:
-        trace(f"[DISCOVER] /etc/hosts fallback failed: {e}")
+        trace(f"[DISCOVER] getHosts.php failed: {e} - no peer list this cycle")
+        ROLES, ALIVE = {}, {}
         return []
+    ROLES = {h["ip"]: h.get("role", "") for h in data if "ip" in h}
+    ALIVE = {h["ip"]: bool(h.get("alive")) for h in data if "ip" in h}
+    return [(h["ip"], h.get("name", h["ip"])) for h in data if "ip" in h]
 
 
 # [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php: read live from each pond's RAM manager).

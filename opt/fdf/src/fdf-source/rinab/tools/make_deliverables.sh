@@ -22,6 +22,7 @@ for d in opt/frognet_semantic usr/local/bin etc var/www/html; do
   [ -d "$REPO/$d" ] || { echo "make_deliverables: $REPO/$d missing: $REPO is not the FrogNet repo top" >&2; exit 1; }; done
 FROGNET_FILES=(
   etc/NetworkManager/dispatcher.d/90-frognet-merge
+  opt/frognet_semantic/core/build_id.py
   opt/frognet_semantic/core/frognet_role_elect.py
   opt/frognet_semantic/core/frognet_service_hosts.py
   opt/frognet_semantic/core/not_frognet.py
@@ -33,8 +34,10 @@ FROGNET_FILES=(
   opt/frognet_semantic/discovery/elect.py
   opt/frognet_semantic/discovery/hosts.py
   opt/frognet_semantic/discovery/live.py
+  opt/frognet_semantic/discovery/mapinterfaces.py
   opt/frognet_semantic/discovery/orchestrate.py
   opt/frognet_semantic/discovery/real_backends.py
+  opt/frognet_semantic/discovery/resolv.py
   opt/frognet_semantic/discovery/sources.py
   opt/frognet_semantic/discovery/test_region_backends_oracle.py
   opt/frognet_semantic/internet_tunnels_v3/__main__.py

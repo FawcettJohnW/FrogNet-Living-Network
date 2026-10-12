@@ -45,7 +45,7 @@ Environment=FROGNET_DAEMON_FRAME_TIMEOUT=0.5
 Environment=FROGNET_TELEMETRY_INTERVAL=60.0
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=FROGNET_METRICS_INTERVAL=60.0
-ExecStart=/usr/bin/python3 /opt/frognet_semantic/daemon/daemon_main.py --listen 0.0.0.0:9009
+ExecStart=/opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/daemon/daemon_main.py --listen 0.0.0.0:9009
 Restart=always
 RestartSec=1
 

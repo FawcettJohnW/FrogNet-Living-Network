@@ -330,10 +330,15 @@ class RealVerify:
                 # but never silent.
                 _LOG.warning(f"[PINGPONG] BINDTODEVICE FAILED dev={dev} err={_bind_e} "
                     f"- probe rides installed route, not the candidate")
+            ret_ip = _get_alive_return_ip(dev)
+            if ret_ip is None:      # [RETURN_IP_DEV_ONLY_V1]
+                self._last_fail = f"no 10.x on dev={dev}"
+                _LOG.warning(f"[PINGPONG] not probed {dest1}: dev={dev} has no 10.x return address")
+                return None
             sock.settimeout(self.ct)
             sock.connect((dest1, self.port))
             sock.settimeout(self.ft)
-            self._send_frame(sock, wrap_hello(_get_alive_return_ip(dev)))
+            self._send_frame(sock, wrap_hello(ret_ip))
             t_send = time.monotonic_ns()
             self._send_frame(sock, wrap_rtt_ping(ping_id=1,
                                                  proxy_t_send_ns=t_send,
@@ -393,7 +398,7 @@ class RealVerify:
 
 
 def _get_alive_return_ip(dev=None):
-    """Return the 10.x the far daemon should treat as our return path.
+    """Return the 10.x the far daemon should treat as our return path: the address on `dev`.
 
     [PINGPONG_RETURN_DEV_V1] It MUST be the address that egresses `dev`. The
     probe is SO_BINDTODEVICE-pinned to `dev`, so a direct-tunnel probe has to
@@ -402,37 +407,25 @@ def _get_alive_return_ip(dev=None):
     hairpin the daemon's [LOOP_DETECT_9009_V1] then (correctly) flags RTT_LOOP -
     a false loop on what is actually a direct call. With the dev's own address
     the return leg rides the same /30, so a direct probe never loops.
-    Fall back to the hostname identity only when no dev is given or the dev has
-    no 10.x (e.g. an un-pinned probe)."""
-    import socket as _s
-    if dev:
-        try:
-            out = subprocess.check_output(
-                ["ip", "-4", "-o", "addr", "show", "dev", dev], text=True)
-            for line in out.splitlines():
-                parts = line.split()
-                if len(parts) >= 4 and parts[2] == "inet":
-                    ip = parts[3].split("/")[0]
-                    if ip.startswith("10."):
-                        return ip
-        except (OSError, subprocess.SubprocessError):
-            pass
-    # [HOSTS_ONLY_V1] No resolver, not even for our own name. Every FrogNet node's
-    # hostname is "FrogNetHost", so asking the resolver what that means is asking a
-    # question with a different answer on every box -- and on a node whose resolv.conf
-    # starts `nameserver 127.0.0.1`, an answer that need not match /etc/hosts. The `ip`
-    # command above is the real source; if it did not answer, /etc/hosts is the only
-    # other place to look.
+
+    [RETURN_IP_DEV_ONLY_V1] One source: `ip -4 addr show dev DEV`. A dev with no 10.x (or no dev) has no FrogNet
+    return path, so None: the caller does not probe, says why, and the next merge asks again. (It used to fall back
+    to the /etc/hosts identity and then 0.0.0.0 - an address the far end cannot answer on that dev.)"""
+    if not dev:
+        return None
     try:
-        from core.hosts_only import try_resolve
-        import socket as _sk
-        for _n in (_sk.gethostname(), "FrogNetHost"):
-            _ip = try_resolve(_n)
-            if _ip and _ip.startswith("10."):
-                return _ip
-    except Exception:
-        pass
-    return "0.0.0.0"
+        out = subprocess.check_output(
+            ["ip", "-4", "-o", "addr", "show", "dev", dev], text=True)
+    except (OSError, subprocess.SubprocessError) as _e:
+        _LOG.warning(f"[PINGPONG] cannot read the address of dev={dev}: {_e}")
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "inet":
+            ip = parts[3].split("/")[0]
+            if ip.startswith("10."):
+                return ip
+    return None
 
 
 class RealReflect:

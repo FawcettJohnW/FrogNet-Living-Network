@@ -11,7 +11,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python
 T=${T:-/tmp/claude-0/netns-graph}; rm -rf $T; mkdir -p $T/hub $T/z $T/a $T/y $T/dup
-export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; U="http://10.77.0.1:8840$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 cleanup() { for n in hub z a y dup; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.3

@@ -1,0 +1,7 @@
+hub.env+wg.impl+site key before/after update: identical
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+2026-10-12 18:02:39 [FDF-HUB] wg: wireguard-go interface wg-test (/etc/frognet/wg.impl)
+2026-10-12 18:02:39 [FDF-HUB] wg: wg-test listening on 50889
+active
+active
+active

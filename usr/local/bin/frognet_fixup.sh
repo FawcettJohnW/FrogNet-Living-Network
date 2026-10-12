@@ -227,7 +227,7 @@ if [[ -n "$CURRENT_POOL" && -n "$TOTAL_MB" ]]; then
     fi
 fi
 
-systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+systemctl start mariadb || { log "FAILED: systemctl start mariadb (journalctl -u mariadb)"; exit 1; }   # [ONE_DB_UNIT_V1]
 sleep 2
 
 if ! systemctl is-active --quiet mariadb 2>/dev/null; then
@@ -454,43 +454,8 @@ echo "nameserver $GATEWAY_IP" > /etc/sentinels/frog_resolv.conf
 
 log "Config files written"
 
-# Fix boot-time fixup script to use mapInterfaces
-cat > /usr/local/bin/frognet_eth0_fixup.sh <<'FIXUPEOF'
-#!/bin/bash
-CONF="/etc/frognet/gateways.conf"
-[[ -f "$CONF" ]] || exit 0
-source "$CONF"
-[[ -n "$GATEWAY_IP" ]] || exit 0
-. /usr/local/bin/mapInterfaces
-DEV="${eth0Name:-eth0}"
-CURRENT=$(ip -4 -o addr show dev "$DEV" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-[[ "$CURRENT" == "$GATEWAY_IP" ]] && exit 0
-ip addr flush dev "$DEV" 2>/dev/null || true
-ip addr add "${GATEWAY_IP}/24" dev "$DEV"
-ip link set "$DEV" up
-nmcli conn up "$NETWORK_NAME" 2>/dev/null || true
-exit 0
-FIXUPEOF
-chmod +x /usr/local/bin/frognet_eth0_fixup.sh
-
-# Fix systemd unit for boot fixup
-cat > /etc/systemd/system/frognet-eth0-fixup.service <<UNITEOF
-[Unit]
-Description=FrogNet Gateway IP Fixup ($ETH0)
-Before=network.target frognet-transit-boot.service
-After=sys-subsystem-net-devices-${ETH0}.device
-Wants=sys-subsystem-net-devices-${ETH0}.device
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-UNITEOF
-systemctl daemon-reload
-systemctl enable frognet-eth0-fixup 2>/dev/null || true
+# [NM_OWNS_THE_LAN_ADDRESS_V1] No boot-time address fixup: the NetworkManager profile (Step above, autoconnect) is
+# the one owner of the LAN addresses. frognet-eth0-fixup, a second owner, is gone (frognet_prune_removed.sh).
 
 # /etc/hosts
 grep -q "$FQDN" /etc/hosts 2>/dev/null || echo "$GATEWAY_IP $FQDN FrogNetHost" >> /etc/hosts
@@ -516,7 +481,7 @@ done
 # [NAT64_REMOVED_V1] frognet-nat64 dropped 2026-08-29 - its script is not in
 # the tree; see frognet_install.sh OPT_SERVICES.
 # [CONNECTIVITY_UI_REMOVED_V1] see frognet_install.sh OPT_SERVICES.
-for svc in frognet-eth0-fixup frognet-sysperf \
+for svc in frognet-sysperf \
            frognet-gps \
            frognet-transit-boot frognet-transit-watch; do
     if [[ -f "/etc/systemd/system/${svc}.service" ]]; then

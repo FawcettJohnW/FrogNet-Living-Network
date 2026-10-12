@@ -34,7 +34,7 @@
 #
 # Run it on the node AFTER untarring the current tree, then re-run the simulator.
 # The installer's C1c upgrade step and frognet_build_release.sh run `--apply --only T3`
-# on every install / build: that section is the one list of what T3 retired.
+# on every install / build: that section is the one list of what T3 (and T4b, at its end) retired.
 #
 # Exit status: 0, or 1 if any removal failed (each failure is logged; the next run
 # retries it).
@@ -163,6 +163,18 @@ gone "opt/frognet_semantic/discovery/test_vouch_transit_gate_oracle.py"
 gone "opt/frognet_semantic/discovery/sim/broker_world.py"
 gone "opt/frognet_semantic/simulation/broker_topology.py"
 gone "opt/frognet_semantic/simulation/test_transit_closure_repro.py"
+echo "-- [T4b 2026-10-12] second mechanisms retired (one owner each)"
+# frognet-eth0-fixup: a boot-time second owner of the LAN addresses (NetworkManager's profile is the one)
+units_off frognet-eth0-fixup.service
+gone "etc/systemd/system/frognet-eth0-fixup.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-eth0-fixup.service"
+gone "usr/local/bin/frognet_eth0_fixup.sh"
+# the installer's permanent "unmanaged" for the AP radio (frognet-netstart decides it per mode)
+gone "etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf"
+# the cmp-identical second copy of the tuning script (frognet-system-tune.sh is the one)
+gone "usr/local/bin/frognet_system_tune.sh"
+# the merge hook's route signature moved to /run (gone at every boot: the boot merge is the hook's)
+gone "etc/sentinels/nm_dispatch_sig"
 if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi
 }
 

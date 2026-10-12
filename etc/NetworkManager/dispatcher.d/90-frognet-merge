@@ -47,10 +47,11 @@ case "$STATE" in up|down) ;; *) exit 0 ;; esac
 # to the unconditional merge below with everything else.
 [[ "$IFACE" == "lo" ]] && exit 0
 
-SENT_DIR="/etc/sentinels"
-STATE_FILE="${SENT_DIR}/nm_dispatch_sig"
+# [BOOT_MERGE_IS_THE_HOOK_V1] The signature lives in /run: gone at every boot, so the first interface event after
+# a boot always merges (the installer's "@reboot sleep 240 && runMerge.bash" cron, a second boot trigger, is gone).
+STATE_FILE="/run/frognet/nm_dispatch_sig"
 REQ_DIR="/run/frognet/merge_requests"
-mkdir -p "$SENT_DIR" 2>/dev/null || true
+mkdir -p /run/frognet 2>/dev/null || true
 
 route_signature() {
     # FrogNet /24s: dest, via and dev only -- the fields that decide where

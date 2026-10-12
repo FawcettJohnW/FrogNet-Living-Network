@@ -128,7 +128,7 @@ flog_stage_end local_identity
 # the time sync_interfaces probes, every wg iface either exists
 # (the region said so) or doesn't.  No BRINGUP_READY barrier needed.
 flog_stage reconcile_tunnels
-PYTHONPATH=/opt/frognet_semantic /usr/bin/python3 -m internet_tunnels_v3 bring-up-only 2>&1 \
+PYTHONPATH=/opt/frognet_semantic /opt/frognet_semantic/venv/bin/python3 -m internet_tunnels_v3 bring-up-only 2>&1 \
   | while IFS= read -r line; do flog_info "reconcile: $line"; done
 _rc=${PIPESTATUS[0]}
 flog_info "reconcile_rc" "rc=$_rc"

@@ -1,0 +1,27 @@
+fnid: 8ad372ffdda09d8eb87471c2af424374
+opts_only: domain=U1 dhcp-option=option:router,10.63.63.1 
+eth1: 10.63.63.1/24 10.63.63.2/24 
+key md5: 936ebf74fae23e121395378e0200a5b6  -
+tunnel.conf: 
+90-frognet-merge lines: 103
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4b (mode lan-only) base fdf-2026-10-12-r20
+  frognet-eth0-fixup             not-found/inactive
+failed units: 
+merge: /etc/sentinels/discovered
+getHosts.php: [{"ip":"10.63.63.1","name":"U1","echo":"FrogNetHost.U1,10.63.63.1,172.30.0.61,0.0.0.0","role":"","alive":false}]
+echo (:8080): U1,10.63.63.1,172.30.0.61,0.0.0.0
+echo (:80, the proxy): U1,10.63.63.1,172.30.0.61,0.0.0.0
+
+*/15 * * * * /usr/local/bin/registerFrogNetHost.bash
+@reboot /usr/local/bin/frognet-netstart
+10-frognet-unmanaged.conf
+99-frognet-unmanaged.conf
+99-wifi-powersave.conf
+default-wifi-powersave-on.conf
+no-resolved.conf
+ls: cannot access '/usr/local/bin/frognet_system_tune.sh': No such file or directory
+ls: cannot access '/usr/local/bin/frognet_eth0_fixup.sh': No such file or directory
+ls: cannot access '/etc/systemd/system/frognet-eth0-fixup.service': No such file or directory
+wireguard-go
+build=fdf-2026-10-12-r20
+installed=2026-10-12T18:17Z

@@ -415,12 +415,10 @@ do_restore() {
     if have mysql; then
       # Check if MySQL/MariaDB is running; start it if not
       if have systemctl; then
-        if ! systemctl is-active --quiet mysql.service && \
-           ! systemctl is-active --quiet mariadb.service; then
-          log "Starting MySQL service for database restore"
-          systemctl start mysql.service 2>&1 || \
-            systemctl start mariadb.service 2>&1 || \
-            warn "Could not start MySQL — database restore may fail"
+        # [ONE_DB_UNIT_V1] FrogNet installs MariaDB: one unit.
+        if ! systemctl is-active --quiet mariadb.service; then
+          log "Starting mariadb for database restore"
+          systemctl start mariadb.service 2>&1 || warn "systemctl start mariadb failed — the restore below will say so"
         fi
       fi
 

@@ -59,8 +59,9 @@ def _run_daemon():
     config.PID_FILE.write_text(str(os.getpid()))
 
     # [BUILD_IN_THE_LOG_V1] what is running, in its own log
-    config.log.warning("Starting frognet-tunnel-daemon v%s build %s (mode %s)",
-                       config.VERSION, config.BUILD, config.MODE)
+    from core.build_id import base_build              # [BASE_BUILD_V1] the FrogNet base this daemon belongs to
+    config.log.warning("Starting frognet-tunnel-daemon v%s build %s (mode %s) base %s",
+                       config.VERSION, config.BUILD, config.MODE, base_build())
 
     startup_reconcile()
 

@@ -980,8 +980,9 @@ def run_proxy(listen: str, upstream_host: str, upstream_port: int, daemon_port: 
     FrogNetProxyHandler._daemon_port = int(daemon_port)
     FrogNetProxyHandler._eligible_ifaces = set(eligible_ifaces)
 
+    from core.build_id import base_build          # [BASE_BUILD_V1] the base's release id, not a fixed stamp
     print(
-        f"[Proxy] BUILD=2026-03-24-v1 listening on {listen} upstream={upstream_host}:{upstream_port} "
+        f"[Proxy] build {base_build()} listening on {listen} upstream={upstream_host}:{upstream_port} "
         f"daemon_port={daemon_port} eligible={sorted(eligible_ifaces)}",
         flush=True,
     )

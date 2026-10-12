@@ -1,0 +1,42 @@
+apply_same_miss: applied
+no answer hash applied
+engine exact shortcuts applied
+alloc once applied
+template precompute applied
+fire keys applied
+ebr readers applied
+apply_coalesce: applied
+apply_wire_order: applied
+client lockless applied
+ok
+client applier applied
+primed templates applied
+client coalesce lockless applied
+client landing lockless applied
+call text applied
+[FUTEX_PORTABLE_V1] applied (5 untimed waits through the shim)
+client known shape applied
+engine once applied
+session hook applied
+host fan-out applied
+engine lockless applied
+decode alloc applied
+same as last applied
+session order applied
+host coalesce applied
+deferred answer applied
+work moves applied
+host announce applied
+session peer applied
+[HTTP_FRONT_V1] applied
+[WINDOWS_PORTABLE_V1] applied
+[KEEPALIVE_20S_V1] applied to build/platform/ribbit_cpp/frogram.cpp
+[KEEPALIVE_20S_V1] applied to build/platform/ramsrv/ram_server.cpp
+[RECV_SAYS_WHY_V1] applied to build/platform/ribbit_cpp/frogram.cpp
+[KEEPALIVE_5S_V1] applied to build/platform/ribbit_cpp/frogram.cpp
+[KEEPALIVE_5S_V1] applied to build/platform/ramsrv/ram_server.cpp
+ok: 6 sites -> s->epoch
+ok
+host allocator: jemalloc (/lib/x86_64-linux-gnu/libjemalloc.so.2)
+BUILD OK: build/rina-host (and build/bin/rina-host)
+rc=0 103s

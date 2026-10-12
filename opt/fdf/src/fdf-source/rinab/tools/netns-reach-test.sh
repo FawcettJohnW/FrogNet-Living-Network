@@ -21,7 +21,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python
 T=${T:-/tmp/claude-0/netns-reach}; rm -rf $T; mkdir -p $T/ha $T/hb $T/hc $T/hd $T/hf $T/a $T/b $T/c $T/d $T/g $T/e $T/n $T/ph $T/bin
-export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php
 RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840; RAMC=198.18.0.4:8840; RAMD=198.18.0.9:8840; RAMF=198.18.0.12:8840

@@ -1,0 +1,14 @@
+before N1->N2 2 received, N2->N1 2 received
+disconnected d2 11:00:27
++3s N1->N2 0 received, N2->N1 0 received
+reconnected 11:01:22
++20s N1->N2 2 received, N2->N1 2 received
++40s N1->N2 2 received, N2->N1 2 received
++60s N1->N2 2 received, N2->N1 2 received
+NAME       ALIVE  TERM  OS     CORES  MEM   IPS
+N1         yes    -     linux  2      7.8G  10.81.81.1,10.81.81.2,172.30.0.51,10.253.81.81
+N2         yes    -     linux  2      7.8G  10.82.82.1,10.82.82.2,172.30.0.52,10.253.82.82
+regionbox  yes    -     linux  2      7.8G  10.253.253.254,172.30.0.10
+10.81.81.0/24 via 10.253.81.81 dev wg-test 
+10.82.82.0/24 via 10.253.82.82 dev wg-test 
+10.253.0.0/16 dev wg-test proto kernel scope link src 10.253.253.254 

@@ -47,7 +47,7 @@ from pathlib import Path
 
 VERSION = "3.0.0"
 # [BUILD_IN_THE_LOG_V1] said by the daemon at start, in both modes, so its log names what is deployed
-BUILD = "frognet-tunnel-2026-10-12-t3a"
+BUILD = "frognet-tunnel-2026-10-12-t4b"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -69,6 +69,44 @@ CONF_DIR   = Path("/etc/wireguard")
 STATE_DIR  = Path("/var/lib/frognet-tunnel")
 ACTIVE_DIR = STATE_DIR / "active"
 PID_FILE   = Path("/run/frognet/tunnel-daemon.pid")
+WG_IMPL_FILE = Path("/etc/frognet/wg.impl")
+
+
+def wg_impl():
+    """[WG_IMPL_RECORDED_V1 - T4b] The ONE WireGuard implementation of this machine: FDF_WG_IMPL when a test harness
+    sets it explicitly, else /etc/frognet/wg.impl (written once at install: the installer's A2b, the node .run, by
+    fdf-wg-impl's rule). Returns "kernel" | "wireguard-go", or None with the reason logged (a bring-up then fails and
+    the next poll retries it)."""
+    v, src = os.environ.get("FDF_WG_IMPL", "").strip(), "FDF_WG_IMPL"
+    if not v:
+        src = str(WG_IMPL_FILE)
+        try:
+            v = WG_IMPL_FILE.read_text().strip()
+        except OSError as e:
+            log.error("WG_IMPL: none recorded (%s: %s) - run the installer (or /opt/fdf/bin/fdf-wg-impl --record)",
+                      WG_IMPL_FILE, e.strerror)
+            return None
+    if v not in ("kernel", "wireguard-go"):
+        log.error("WG_IMPL: %s says %r - it must be kernel or wireguard-go", src, v)
+        return None
+    return v
+
+
+def wg_quick_env():
+    """The environment wg-quick runs in, so it makes the interface with the recorded implementation only.
+    wg-quick tries `ip link add ... type wireguard` and, when that fails, starts $WG_QUICK_USERSPACE_IMPLEMENTATION
+    if that command exists. kernel: it is set to a name no command has, so a kernel failure is the failure (said in
+    wg-quick's stderr, which the bring-up logs). wireguard-go: the record says this kernel has no WireGuard, so the
+    kernel attempt fails and wireguard-go makes the interface. None when there is no record."""
+    impl = wg_impl()
+    if impl is None:
+        return None
+    env = dict(os.environ)
+    env["WG_QUICK_USERSPACE_IMPLEMENTATION"] = (
+        "frognet-wg-impl-is-kernel-no-userspace" if impl == "kernel" else "wireguard-go")
+    if impl == "wireguard-go":
+        env["WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD"] = "1"
+    return env
 
 # ---------------------------------------------------------------------------
 # Tunable constants (env-overridable)
