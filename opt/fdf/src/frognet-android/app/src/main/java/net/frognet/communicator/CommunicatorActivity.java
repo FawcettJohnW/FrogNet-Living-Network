@@ -151,6 +151,7 @@ public class CommunicatorActivity extends Activity {
     public void onConfigurationChanged(Configuration c) {
         super.onConfigurationChanged(c);
         if (camera != null) camera.setDisplayRotation(displayDeg());
+        placeSelf();
         ui.postDelayed(new Runnable() { public void run() { if (remote != null) remote.fit(); } }, 200);
     }
 
@@ -184,6 +185,8 @@ public class CommunicatorActivity extends Activity {
 
     private void show(View v) {
         for (View x : new View[]{setupV, lobbyV, callV, diagV}) x.setVisibility(x == v ? View.VISIBLE : View.GONE);
+        immersive(v == callV);
+        if (v == callV) showChrome(); else ui.removeCallbacks(hideChrome);
         if (v == diagV) refreshDiag();
     }
 
@@ -341,6 +344,7 @@ public class CommunicatorActivity extends Activity {
         final boolean cam = has(Manifest.permission.CAMERA), mic = has(Manifest.permission.RECORD_AUDIO);
         if (!cam || !mic) requestPermissions(new String[]{Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO}, 1);
         remote = new RemoteVideo(remoteTV);
+        remote.fill = prefs.getBoolean("fill", true);
         if (remoteTV.isAvailable()) remote.setSurface(remoteTV.getSurfaceTexture());
         remote.start(who.startsWith("*") ? who.substring(1) : who);
         ops.execute(new Runnable() { public void run() {
@@ -510,6 +514,7 @@ public class CommunicatorActivity extends Activity {
         chatScroll.post(new Runnable() { public void run() { chatScroll.fullScroll(View.FOCUS_DOWN); } });
         if (news && chatPanel.getVisibility() != View.VISIBLE) {
             chatPanel.setVisibility(View.VISIBLE);
+            showChrome();
             Diag.log("[chat] " + lines.get(lines.size() - 1).fromName + ": " + lines.get(lines.size() - 1).text);
         }
     }
@@ -568,7 +573,7 @@ public class CommunicatorActivity extends Activity {
 
     private void updateButtons() {
         micB.setText(audio.muted() ? "Unmute" : "Mute");
-        camB.setText(camera != null ? "Camera off" : "Camera on");
+        camB.setText(camera != null ? "Cam off" : "Cam on");
         spkB.setText(audio.speaker() ? "Earpiece" : "Speaker");
     }
 
@@ -664,10 +669,18 @@ public class CommunicatorActivity extends Activity {
             }
             public void onSurfaceTextureUpdated(SurfaceTexture s) { }
         });
-        remoteTV.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            statsPanel.setVisibility(statsPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-        } });
-        remoteTV.setOnLongClickListener(new View.OnLongClickListener() { public boolean onLongClick(View v) { if (remote != null) remote.cycle(); return true; } });
+        // tap: the controls; double tap: fill the screen <-> the whole picture; long press: the next source (a group call)
+        final android.view.GestureDetector gd = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
+            public boolean onDown(android.view.MotionEvent e) { return true; }
+            public boolean onSingleTapConfirmed(android.view.MotionEvent e) { toggleChrome(); return true; }
+            public boolean onDoubleTap(android.view.MotionEvent e) {
+                RemoteVideo rv = remote;
+                if (rv != null) { rv.fill = !rv.fill; rv.fit(); prefs.edit().putBoolean("fill", rv.fill).apply(); }
+                return true;
+            }
+            public void onLongPress(android.view.MotionEvent e) { if (remote != null) remote.cycle(); }
+        });
+        remoteTV.setOnTouchListener(new View.OnTouchListener() { public boolean onTouch(View v, android.view.MotionEvent e) { return gd.onTouchEvent(e); } });
         f.addView(remoteTV, new FrameLayout.LayoutParams(-1, -1));
         selfTV = new TextureView(this);
         selfTV.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
@@ -679,15 +692,46 @@ public class CommunicatorActivity extends Activity {
             }
             public void onSurfaceTextureUpdated(SurfaceTexture s) { }
         });
-        selfTV.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            if (camera != null) { camera.switchCamera(); prefs.edit().putBoolean("front", !camera.front()).apply(); }
-        } });
-        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(dp(112), dp(150), Gravity.TOP | Gravity.END);
-        sp.topMargin = dp(56); sp.rightMargin = dp(12);
-        f.addView(selfTV, sp);
+        selfBox = new FrameLayout(this);
+        selfBox.setPadding(dp(2), dp(2), dp(2), dp(2));
+        selfBox.setBackground(round(0xCCFFFFFF, 10));
+        selfBox.addView(selfTV, new FrameLayout.LayoutParams(-1, -1));
+        selfBox.setOnTouchListener(new View.OnTouchListener() {
+            float x0, y0; boolean moved;
+            public boolean onTouch(View v, android.view.MotionEvent e) {
+                switch (e.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN: x0 = e.getRawX(); y0 = e.getRawY(); moved = false; return true;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        float dx = e.getRawX() - x0, dy = e.getRawY() - y0;
+                        if (Math.abs(dx) + Math.abs(dy) > dp(8)) moved = true;
+                        v.setTranslationX(dx); v.setTranslationY(dy);
+                        return true;
+                    case android.view.MotionEvent.ACTION_UP:
+                        if (!moved) {                                   // a tap: the other camera
+                            if (camera != null) { camera.switchCamera(); prefs.edit().putBoolean("front", !camera.front()).apply(); }
+                        } else {                                        // a drag: to the nearest corner
+                            View parent = (View) v.getParent();
+                            float cx = v.getLeft() + v.getTranslationX() + v.getWidth() / 2f, cy = v.getTop() + v.getTranslationY() + v.getHeight() / 2f;
+                            selfCorner = (cx < parent.getWidth() / 2f ? Gravity.START : Gravity.END) | (cy < parent.getHeight() / 2f ? Gravity.TOP : Gravity.BOTTOM);
+                            prefs.edit().putInt("corner", selfCorner).apply();
+                        }
+                        v.setTranslationX(0); v.setTranslationY(0);
+                        placeSelf();
+                        return true;
+                    case android.view.MotionEvent.ACTION_CANCEL:
+                        v.setTranslationX(0); v.setTranslationY(0); return true;
+                }
+                return false;
+            }
+        });
+        selfCorner = prefs.getInt("corner", Gravity.TOP | Gravity.END);
+        f.addView(selfBox, new FrameLayout.LayoutParams(dp(112), dp(150)));
+        placeSelf();
         peerT = text("", 18, Color.WHITE, true);
         peerT.setShadowLayer(6, 0, 0, Color.BLACK);
         peerT.setPadding(dp(16), dp(14), dp(16), dp(8));
+        peerT.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x99000000, 0x00000000}));
         f.addView(peerT, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
         // [STAMP_THE_PICTURE_V1] this phone's clock, to the millisecond: a desktop sender burns its frame number and
         // clock into the picture's bottom-left corner, so the lag is this minus that, read off the screen
@@ -720,7 +764,7 @@ public class CommunicatorActivity extends Activity {
         diag.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { show(diagV); } });
         statsPanel.addView(diag, new LinearLayout.LayoutParams(-2, dp(36)));
         FrameLayout.LayoutParams stp = new FrameLayout.LayoutParams(-1, -2, Gravity.TOP);
-        stp.topMargin = dp(52); stp.leftMargin = dp(12); stp.rightMargin = dp(136);
+        stp.topMargin = dp(52); stp.leftMargin = dp(12); stp.rightMargin = dp(12);
         statsPanel.setVisibility(View.GONE);
         f.addView(statsPanel, stp);
         // chat
@@ -752,10 +796,13 @@ public class CommunicatorActivity extends Activity {
         f.addView(chatPanel, cp);
         // controls
         LinearLayout bar = new LinearLayout(this);
+        callBar = bar;
         bar.setGravity(Gravity.CENTER);
-        bar.setPadding(dp(8), dp(12), dp(8), dp(20));
+        bar.setPadding(dp(8), dp(20), dp(8), dp(20));
+        bar.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{0x99000000, 0x00000000}));
         micB = ctl("Mute", new View.OnClickListener() { public void onClick(View v) { audio.setMuted(!audio.muted()); updateButtons(); } });
-        camB = ctl("Camera off", new View.OnClickListener() { public void onClick(View v) {
+        camB = ctl("Cam off", new View.OnClickListener() { public void onClick(View v) {
             CallCore c = core;
             if (camera != null) {
                 final CameraGl g = camera; camera = null; orient.disable(); Diag.log("[camera] off");
@@ -767,16 +814,92 @@ public class CommunicatorActivity extends Activity {
         spkB = ctl("Earpiece", new View.OnClickListener() { public void onClick(View v) { audio.setSpeaker(!audio.speaker()); updateButtons(); } });
         Button chat = ctl("Chat", new View.OnClickListener() { public void onClick(View v) {
             chatPanel.setVisibility(chatPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            showChrome();
+        } });
+        Button stats = ctl("Stats", new View.OnClickListener() { public void onClick(View v) {
+            statsPanel.setVisibility(statsPanel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            showChrome();
         } });
         Button end = button("End", RED, Color.WHITE);
         end.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { hangUp(null); } });
-        for (Button b : new Button[]{micB, camB, spkB, chat}) {
+        for (Button b : new Button[]{micB, camB, spkB, chat, stats}) {
             LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, dp(48), 1); bp.rightMargin = dp(6);
             bar.addView(b, bp);
         }
         bar.addView(end, new LinearLayout.LayoutParams(0, dp(48), 1));
         f.addView(bar, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
         return f;
+    }
+
+    // ---- the call screen: the far end fills it; the controls come and go; your camera is an inset --------------------
+    private FrameLayout selfBox;
+    private LinearLayout callBar;
+    private int selfCorner;
+    private final Runnable hideChrome = new Runnable() { public void run() {
+        RemoteVideo rv = remote;
+        boolean busy = chatPanel.getVisibility() == View.VISIBLE || statsPanel.getVisibility() == View.VISIBLE;
+        if (busy || rv == null || rv.picW == 0) { ui.postDelayed(this, 4000); return; }   // nothing to look at yet: keep them
+        fadeChrome(false);
+    } };
+
+    private void fadeChrome(boolean on) {
+        for (View v : new View[]{peerT, callBar}) {
+            v.animate().cancel();
+            if (on) { v.setVisibility(View.VISIBLE); v.animate().alpha(1f).setDuration(150).start(); }
+            else {
+                final View w = v;
+                v.animate().alpha(0f).setDuration(300).withEndAction(new Runnable() { public void run() { w.setVisibility(View.GONE); } }).start();
+            }
+        }
+    }
+
+    private void showChrome() {
+        fadeChrome(true);
+        ui.removeCallbacks(hideChrome);
+        ui.postDelayed(hideChrome, 4000);
+    }
+
+    private void toggleChrome() {
+        if (callBar.getVisibility() == View.VISIBLE && callBar.getAlpha() > 0.5f) {
+            ui.removeCallbacks(hideChrome);
+            chatPanel.setVisibility(View.GONE); statsPanel.setVisibility(View.GONE);
+            fadeChrome(false);
+        } else showChrome();
+    }
+
+    /** The inset: a 3:4 window (4:3 held sideways), in its corner, clear of the system's gesture edges. */
+    private void placeSelf() {
+        boolean land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) selfBox.getLayoutParams();
+        p.width = dp(land ? 150 : 112); p.height = dp(land ? 112 : 150);
+        p.gravity = selfCorner;
+        p.leftMargin = p.rightMargin = dp(14);
+        p.topMargin = p.bottomMargin = dp(18);
+        selfBox.setLayoutParams(p);
+    }
+
+    /** During a call the far end gets the whole display: no status or navigation bar (a swipe from the edge shows
+     *  them for a moment), into the camera cutout. */
+    private void immersive(boolean on) {
+        android.view.Window w = getWindow();
+        WindowManager.LayoutParams lp = w.getAttributes();
+        lp.layoutInDisplayCutoutMode = on ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
+        w.setAttributes(lp);
+        if (Build.VERSION.SDK_INT >= 30) {
+            w.setDecorFitsSystemWindows(!on);
+            android.view.WindowInsetsController c = w.getInsetsController();
+            if (c != null) {
+                if (on) {
+                    c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    c.hide(android.view.WindowInsets.Type.systemBars());
+                } else c.show(android.view.WindowInsets.Type.systemBars());
+            }
+        } else {
+            w.getDecorView().setSystemUiVisibility(on ? (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                    | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE) : 0);
+        }
     }
 
     private View buildDiag() {

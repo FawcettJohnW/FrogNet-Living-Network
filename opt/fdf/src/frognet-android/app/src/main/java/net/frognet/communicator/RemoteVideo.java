@@ -223,11 +223,14 @@ final class RemoteVideo {
         ui.post(new Runnable() { public void run() { fit(); } });
     }
 
-    /** Keeps the picture's shape: scaled to fit the view, centred, black around it. */
+    /** true: the picture fills the screen (centred, the overflow cropped); false: the whole picture, black around it.
+     *  Either way its shape is kept. */
+    volatile boolean fill = true;
+
     void fit() {
         int vw = view.getWidth(), vh = view.getHeight();
         if (vw == 0 || vh == 0 || picW == 0 || picH == 0) return;
-        float s = Math.min((float) vw / picW, (float) vh / picH);
+        float s = fill ? Math.max((float) vw / picW, (float) vh / picH) : Math.min((float) vw / picW, (float) vh / picH);
         Matrix m = new Matrix();
         m.setScale(picW * s / vw, picH * s / vh, vw / 2f, vh / 2f);
         view.setTransform(m);

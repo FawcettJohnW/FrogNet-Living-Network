@@ -102,8 +102,7 @@ public class AppFlowTest {
         ans.performClick();
         run(1500);
         boolean up = waitFor(a, "End", 10000);
-        android.view.TextureView pic = find(a.getWindow().getDecorView(), android.view.TextureView.class, null);
-        pic.performClick();                                   // a tap on the picture shows the stats panel
+        find(a.getWindow().getDecorView(), Button.class, "Stats").performClick();   // the stats panel
         boolean incall = up && waitFor(a, "receiving", 10000);
         say("in the call: " + screen(a));
         assertTrue("the call screen is up", incall);
