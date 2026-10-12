@@ -1,7 +1,7 @@
 # T0 baseline — before any cleanup (2026-10-12)
 
 Tree: repo e889208 + frognet-2026-10-11 overlay + Croakus 10-11 + the README fixes (git commit 42465dd here).
-Run in the sandbox with /opt/frognet_semantic pointing at this tree. Logs: t0/*.log beside this file in the delivery.
+Run in the sandbox with /opt/frognet_semantic pointing at this tree. Logs: t0-logs/ beside this file.
 
 | gate | result | notes |
 |---|---|---|
