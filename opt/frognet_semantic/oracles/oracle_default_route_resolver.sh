@@ -210,8 +210,8 @@ else
 fi
 
 echo "=== the python path (discovery/live.py) ==="
-# runMerge only calls manageResolv.bash when LEGACY_TAIL=1; the live path is
-# live.py. Both must obey the same rule, or fixing the bash fixes nothing.
+# runMerge's path is live.py; manageResolv.bash is still run by
+# mergeHostsAndResolv.bash. Both must obey the same rule, or fixing one fixes nothing.
 LIVE="${FROGNET_LIVE_PY:-/opt/frognet_semantic/discovery/live.py}"
 if [ ! -f "$LIVE" ]; then
     echo "  SKIP live.py not found at $LIVE (set FROGNET_LIVE_PY)"

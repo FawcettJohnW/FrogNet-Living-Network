@@ -55,7 +55,7 @@ Fields and their meanings:
   source      free-form label, e.g. "sync_wave1", "sync_wave2",
               "reconcile".  Informational.
 
-  ch_name     for kind="tunnel", the broker channel name so the
+  ch_name     for kind="tunnel", the channel name so the
               committer knows which channel a winning tunnel belongs
               to.  Empty for LAN/transit.
 
@@ -189,7 +189,7 @@ def truncate(path: str) -> None:
 # `dest` failed terminally (every attempt rejected - empty body, HTTP
 # 503, or curl error).  Failures drive committer route removal for
 # dests with no winning observation this run - including routes
-# bringup installed from a broker-advertised remote_subnet that the
+# bringup installed from a channel's advertised remote_subnet that the
 # peer cannot actually forward.
 #
 # Lifecycle is identical to Observation: append-only across waves of

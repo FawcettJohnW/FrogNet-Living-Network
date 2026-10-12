@@ -1221,8 +1221,8 @@ function drawRoundedRect(x,y,w,h,r){
  * describe the same transport: if one direction is healthy, the other
  * is too.  Merge so the graph shows one line per physical link.
  *
- * EXTERNAL (Broker uplink) edges are NOT merged — they're inherently
- * one-directional (host → Broker) and should stay that way.
+ * EXTERNAL (uplink) edges are NOT merged — they're inherently
+ * one-directional and should stay that way.
  *
  * Merge rules:
  *   kind:         SEMANTIC wins over FAST — if either side has BLDC-1

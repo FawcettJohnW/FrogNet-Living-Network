@@ -1,5 +1,9 @@
 # FROGNET_PRIMER — Consolidated Identity + Health Payload (2026-06-19)
 
+> **2026-10: the broker parts below are history.** The broker, its registration and
+> its deploy order were removed (docs/cleanup-2026-10/T3a.md, T3b.md). A node is
+> LAN-only or in an FD&F region; do not follow the broker steps here.
+
 This payload carries EVERY code change from the 2026-06-19 session in one tree.
 Three independent fixes, each proven on the simulator against real code. Extract
 with `tar -xzf <payload> -C /`. Back up the broker DB before restarting the

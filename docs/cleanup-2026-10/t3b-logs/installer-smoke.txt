@@ -1,0 +1,147 @@
+### bash usr/local/bin/installer/frognet_install.sh --help
+# frognet_install.sh - FrogNet node installer (LAN-only or region; SSID projection)
+#
+# Handles fresh installs AND unclean/cloned boxes. All configuration
+# happens AFTER the world tar is extracted, so nothing gets overwritten.
+#
+# The node comes up LAN-only. Joining a region is done afterwards with
+# FD&F's fdf-region-join (the tunnel daemon then makes its own WireGuard key).
+#
+# Usage:
+#   sudo bash frognet_install.sh                    # interactive, from a release
+#   sudo bash frognet_install.sh --from-repo        # from a repository checkout
+#   sudo bash frognet_install.sh \
+#        --name <NODE> \
+#        --ip   <10.X.Y.1> \
+#        [--no-ssid-projection]                     # disable AP fallback
+#
+# Args (all optional; missing values fall through to interactive prompt):
+#   --name <NODE>            Node name. Letters, numbers, _, -.
+#   --ip   <10.X.Y.1>        Gateway IP. Must end in .1.
+#   --db-pass <PASS>         FrogUser DB password. SHARED pond-wide constant:
+#                            every node must use the SAME value. Omit to be
+#                            prompted (hidden, entered twice). A value on the
+#                            command line is visible in `ps` to local users
+#                            while the installer runs; prefer the prompt.
+#   --wifi-psk <PSK>         WPA2 passphrase for the projected SSID (8-63 chars).
+#                            Pond-shared: every node in a pond uses the SAME one.
+#                            Omitted -> taken from an existing /etc/frognet/wifi.env,
+#                            else prompted for. Never defaulted.
+#   --rebuild-venv           Force a full venv rebuild. Default is to CARRY the
+#                            existing venv across a reset - it is arch-specific
+#                            build output, not state, and rebuilding it costs
+#                            many minutes on ARM for no gain.
+#   --from-repo              Install from a REPOSITORY CHECKOUT instead of a
+#                            release tarball. Run it from the repo root, where
+#                            etc/ opt/ usr/ var/ are; those four are copied to /
+#                            and everything else in the root (.git, INSTALL.md)
+#                            is left behind. This is the path a stranger who just
+#                            cloned the repo takes to a first node: no release
+#                            tarball exists yet, and the only thing that builds
+#                            one snapshots a node that is already running.
+#   --preserve               UPGRADE IN PLACE. Removes NOTHING: writes the new files
+#                            over the existing install, migrates the schema if it
+#                            changed, and keeps the existing databases,
+#                            identity (/etc/fnid), WireGuard keys and config.
+#                            DEFAULT (no flag) on a machine that already has a
+#                            FrogNet install is a FULL RESET: frognet_reset.sh
+#                            wipes install, state, identity and databases first,
+#                            so the box comes up exactly like a clean machine.
+#   --no-ssid-projection     Disable WiFi AP fallback when eth0 has no link.
+#                            Default: ON - when eth0 has no cable and the device
+#                            has a wlan0, hostapd projects the node SSID.
+#   --ssid-projection        Force the WiFi AP fallback on (the default; given
+#                            explicitly, E7 does not ask).
+#   --country <CC>           WiFi regulatory country (two letters, e.g. US).
+#                            Omitted -> asked in E1 (default US).
+#   --ap-iface <IFACE>       The wireless interface hostapd projects the SSID on.
+#                            Omitted -> detected (wlan0 when present).
+#   -h, --help               Print this text.
+#
+# Phase A: Install packages (apt + pip)
+# Phase B: Pre-extraction setup (dirs, sysctl, iptables scaffold, sudoers)
+# Phase C: Extract world tar + rebuild venv if arch mismatch
+# Phase D: Clean stale state + configure everything (post-tar)
+# Phase E: Node identity + provision (setup_lillypad_v4, SSL, tuning)
+# Phase F: Finalize (enable services, logs, cron, verify, reboot)
+rc=0
+
+### options parsed by the case statement vs options in --help
+  in help: --ap-iface
+  in help: --country
+  in help: --db-pass
+  in help: --from-repo
+  in help: --ip
+  in help: --name
+  in help: --no-ssid-projection
+  in help: --preserve
+  in help: --rebuild-venv
+  in help: --ssid-projection
+  in help: --wifi-psk
+
+### every path the installer names under /usr/local/{bin,sbin,lib}, /opt/{frognet_semantic,fdf}, /etc/{systemd/system,NetworkManager,frognet}, /var/www/html: exists in the tree, or the installer creates it
+  NOT-IN-TREE /etc/NetworkManager/NetworkManager.conf
+  NOT-IN-TREE /etc/NetworkManager/conf.d
+  NOT-IN-TREE /etc/NetworkManager/conf.d/10-frognet-unmanaged.conf
+  NOT-IN-TREE /etc/NetworkManager/conf.d/99-frognet-unmanaged.conf
+  NOT-IN-TREE /etc/NetworkManager/conf.d/99-wifi-powersave.conf
+  NOT-IN-TREE /etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
+  NOT-IN-TREE /etc/NetworkManager/conf.d/no-resolved.conf
+  tree     /etc/NetworkManager/dispatcher.d/90-frognet-merge
+  NOT-IN-TREE /etc/NetworkManager/dispatcher.d/99-ifup
+  NOT-IN-TREE /etc/frognet/gateways.conf
+  NOT-IN-TREE /etc/frognet/interfaces_override.conf
+  NOT-IN-TREE /etc/frognet/sem_cache_secret
+  NOT-IN-TREE /etc/frognet/semantic_hosts
+  NOT-IN-TREE /etc/frognet/simulator_underlay
+  NOT-IN-TREE /etc/frognet/ssid_projection.conf
+  tree     /etc/frognet/transit.conf
+  NOT-IN-TREE /etc/frognet/transit_exclude_interfaces
+  NOT-IN-TREE /etc/frognet/wifi.env
+  tree     /etc/systemd/system/dnsmasq.service.d
+  tree     /etc/systemd/system/dnsmasq.service.d/override.conf
+  NOT-IN-TREE /etc/systemd/system/frognet-tunnel-daemon.service
+  tree     /opt/frognet_semantic/DB_CONFIG.json
+  tree     /opt/frognet_semantic/blob_cache
+  tree     /opt/frognet_semantic/internet_tunnels_v3/hostapd.conf.template
+  NOT-IN-TREE /opt/frognet_semantic/venv
+  NOT-IN-TREE /opt/frognet_semantic/venv/bin/python3
+  tree     /usr/local/bin/dhcp_tracking.bash
+  tree     /usr/local/bin/fix_unbound_bypass.sh
+  tree     /usr/local/bin/frognet-netstart
+  tree     /usr/local/bin/frognet-node-guid.sh
+  tree     /usr/local/bin/frognet_cache_nuke.bash
+  tree     /usr/local/bin/frognet_prune_removed.sh
+  tree     /usr/local/bin/frognet_setup_advertisers.sh
+  tree     /usr/local/bin/frognet_setup_helper.bash
+  tree     /usr/local/bin/frognet_setup_v4_helper.bash
+  tree     /usr/local/bin/frognet_system_tune.sh
+  NOT-IN-TREE /usr/local/bin/hostapd.conf.template
+  tree     /usr/local/bin/installer
+  tree     /usr/local/bin/installer/
+  NOT-IN-TREE /usr/local/bin/installer/etc
+  tree     /usr/local/bin/installer/frognet_install.sh
+  tree     /usr/local/bin/installer/frognet_reset.sh
+  tree     /usr/local/bin/mapInterfaces
+  tree     /usr/local/bin/registerFrogNetHost.bash
+  tree     /usr/local/bin/runMerge.bash
+  tree     /usr/local/bin/setup_lillypad_v4.bash
+  NOT-IN-TREE /usr/local/bin/start_nat64_dns64_jool.bash
+  NOT-IN-TREE /usr/local/sbin/dnsmasq_merge_trigger.sh
+  tree     /var/www/html/Create_Database.sql
+  tree     /var/www/html/config.php
+  tree     /var/www/html/schema_fixups.sql
+  NOT-IN-TREE explained (each read from the installer line that names it):
+    /etc/NetworkManager/... conf.d/*, dispatcher.d/99-ifup, NetworkManager.conf   written by D7 (cat > / heredoc)
+    /etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf                         written by E6a via $NM_UNMANAGED
+    /etc/frognet/{interfaces_override.conf,transit_exclude_interfaces,sem_cache_secret,semantic_hosts,simulator_underlay,wifi.env,ssid_projection.conf}   written by D3 / E1 / E7
+    /etc/frognet/gateways.conf             removed in D2, written by setup_lillypad_v4.bash (E3), checked in F6
+    /etc/systemd/system/frognet-tunnel-daemon.service   the retired v2 unit: only tested for (-f) and disabled if present
+    /opt/frognet_semantic/venv(/bin/python3)            C2 builds it; A0 tests -x before carrying it
+    /usr/local/bin/hostapd.conf.template                a comment (the template is opt/frognet_semantic/internet_tunnels_v3/hostapd.conf.template, in the tree)
+    /usr/local/bin/installer/etc                        a comment (an old error message)
+    /usr/local/bin/start_nat64_dns64_jool.bash          a comment ([NAT64_REMOVED_V1])
+    /usr/local/sbin/dnsmasq_merge_trigger.sh            rm -f of a retired file
+
+### no path the installer names is a file T3b deleted
+  (none above = none)

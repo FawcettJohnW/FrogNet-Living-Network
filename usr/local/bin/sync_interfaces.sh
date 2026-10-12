@@ -183,7 +183,7 @@ channel_for_iface() {
     done
     echo ""
 }
-broker_for_peer_ip() {
+tunnel_for_peer_ip() {
     local ip="$1" net
     [[ -n "$ip" && -f "$HANDSHAKE_RTTS_PATH" ]] || return 1
     net="$("$SUBNET" "$ip" 2>/dev/null || true)"
@@ -470,17 +470,17 @@ walk() {
         probe_delete "$pip"; return
     fi
 
-    # [BROKER_AUTHORITY] broker is authoritative for identity over a peer
-    # self-report (rename/migration).
+    # [TUNNEL_CHANNEL_MAP_V1] a peer at the far end of one of this node's own
+    # channels (handshake_rtts.json) is named by that channel, over its self-report.
     local dest1 b_ch b_sub b_one
     dest1="$(net_dot "$host_path" 1)"
-    IFS=$'\t' read -r b_ch b_sub b_one < <(broker_for_peer_ip "$dest1") || true
+    IFS=$'\t' read -r b_ch b_sub b_one < <(tunnel_for_peer_ip "$dest1") || true
     if [[ -n "$b_sub" && -n "$b_one" ]] && is_ip "$b_one" && is_10x "$b_one"; then
         host_path="$b_one"; host="${b_ch%-*.*.*}"
         if [[ "$dev" == wg* ]]; then
             local iface_ch; iface_ch="$(channel_for_iface "$dev")"
             if [[ -n "$iface_ch" && "$iface_ch" != "$b_ch" ]]; then
-                flog_warn "WALK_REJECT" "dev=$dev ip=$ip dev_channel=$iface_ch broker_channel=$b_ch reason=wg_channel_mismatch"
+                flog_warn "WALK_REJECT" "dev=$dev ip=$ip dev_channel=$iface_ch peer_channel=$b_ch reason=wg_channel_mismatch"
                 probe_delete "$pip"; return
             fi
         fi
@@ -574,65 +574,6 @@ promote() {
 }
 
 # =============================================================================
-#  push_transits_to_broker - register the LAN /24s we PROVED reachable this
-#  run.  Restores the walk-driven transit feed dropped by the V2 lease-only
-#  rewrite of discover_transit_subnets: every kind=lan candidate in CAND is a
-#  /24 we relay to, so the broker must install namespace forwarding for it or
-#  tunneled peers can't reach LANs behind us.  Successful echo IS the proof -
-#  same signal promote() trusts to install the route.
-#
-#  Best-effort: failures log and continue, never fail the merge.  Idempotent
-#  on the broker (returns "unchanged" when the set already matches).
-#  CAND line layout: rtt|via|dev|onlink|src|kind|host  (kind is field 6).
-# =============================================================================
-push_transits_to_broker() {
-    local dest minrtt
-    local -a transit=()
-    local rttmap=""                      # "cidr":rtt,...  (additive RTT hints)
-    for dest in "${!CAND[@]}"; do
-        # Min RTT among this /24's kind=lan candidates; empty if none are lan.
-        # Lowest wins so a consumer can prefer the nearest relay when more than
-        # one node advertises the same transit /24.
-        minrtt="$(printf '%s' "${CAND[$dest]}" | $GREP -v '^$' \
-            | $AWK -F'|' '$6=="lan"{ if (m=="" || $1<m) m=$1 } END{ if (m!="") print m }')"
-        [[ -n "$minrtt" ]] || continue   # not a LAN-relay target
-        transit+=("$dest")
-        rttmap+="\"$dest\":$minrtt,"
-    done
-    if (( ${#transit[@]} == 0 )); then
-        flog_info "TRANSIT_PUSH" "transits=[] reason=no_lan_candidates"
-        return
-    fi
-    rttmap="${rttmap%,}"
-
-    # Broker identity.  NB(JOHN): the new sync_interfaces sources neither of
-    # these today - this mirrors the old push_transits_to_broker.  Confirm
-    # against the live tree: (1) tunnel.conf path + that it defines BROKER_URL,
-    # (2) that wg0's pubkey is the node's broker identity (matches config.PUBKEY
-    # the daemon registers with). If the daemon uses a different key/URL source,
-    # point these two lines at it instead.
-    local conf=/etc/frognet/tunnel.conf
-    [[ -r "$conf" ]] && . "$conf"
-    local pubkey; pubkey="$(wg show wg0 public-key 2>/dev/null)"
-    if [[ -z "${BROKER_URL:-}" || -z "$pubkey" ]]; then
-        flog_warn "TRANSIT_PUSH" \
-            "skipped reason=missing_broker_url_or_pubkey transits=[${transit[*]}]"
-        return
-    fi
-
-    local csv="" s
-    for s in $(printf '%s\n' "${transit[@]}" | $SORT -u); do csv+="\"$s\","; done
-    csv="${csv%,}"
-    # transit_subnets stays a bare string list (existing contract); RTTs ride
-    # along additively in transit_rtts so current consumers don't break.
-    local body="{\"pubkey\":\"$pubkey\",\"transit_subnets\":[$csv],\"transit_rtts\":{$rttmap}}"
-    local resp
-    resp="$($CURL -sk --max-time 15 -X POST -H 'Content-Type: application/json' \
-                  -d "$body" "${BROKER_URL}/api/v4/update-subnets" 2>/dev/null)"
-    flog_info "TRANSIT_PUSH" "transits=[$csv] rtts={$rttmap} resp=${resp:-none}"
-}
-
-# =============================================================================
 #  MAIN
 # =============================================================================
 flog_stage bringup_barrier
@@ -722,9 +663,6 @@ log "SEEDS_END candidates_for=${#CAND[@]}"
 # ---- promote winners; the ONLY place /24s are written ----
 promote
 rt_snapshot post_promote
-
-# Register LAN /24s we proved reachable this run (walk-driven transit feed).
-push_transits_to_broker
 
 flog_info "DISCOVERY_DONE"
 exit 0

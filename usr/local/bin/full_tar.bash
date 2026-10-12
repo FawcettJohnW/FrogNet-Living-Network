@@ -28,9 +28,8 @@
 # it was there for a real reason: without any exclusions this tree is 675 MB.
 # But excluding by extension cut the wrong things:
 #
-#   --exclude='*.tgz'   took the BROKER, which ships as a bundle. The tarball
-#                       had an empty broker directory, so a clone could build a
-#                       LAN pond and never cross the internet.
+#   --exclude='*.tgz'   took source that ships as a bundle, leaving an empty
+#                       directory where it belonged.
 #   --exclude='*.png'   took the web root's assets. The shipped var/www/html
 #     '*.svg' '*.ico'   had zero images in it.
 #
@@ -84,7 +83,7 @@ frognet_check_manifest /
 #
 # Each of these is regenerable, vendored, or media. If you add to this list,
 # add the reason -- a future reader has to be able to tell "this is somebody
-# else's repo" from "this is the broker and we lost it".
+# else's repo" from "this is ours and we lost it".
 # ---------------------------------------------------------------------------
 NOT_SOURCE=(
     # Third-party conformance corpora. fetch_corpora.sh clones all three.

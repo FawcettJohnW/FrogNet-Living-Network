@@ -35,10 +35,9 @@ If something routes through an interface -> via.
 
 Helper functions under test (verbatim transcriptions of the patched code):
   - identity._get_local_ip               (frognet_monitor_py/identity.py)
-  - tunnel-daemon subnet derivation       (frognet-tunnel-daemon.py load_config)
-  - tunnel-daemon _parse_channel_name     (frognet-tunnel-daemon.py)
+  - tunnel-daemon subnet derivation       (internet_tunnels_v3/names.py parse_local_subnet)
+  - tunnel-daemon channel-name parse      (internet_tunnels_v3/names.py parse_channel_name)
   - discovery /etc/hosts fallback         (frognet_monitor_py/discovery.py)
-  - tunnel-daemon local_subnets_from_routes (frognet-tunnel-daemon.py)
 """
 
 import glob

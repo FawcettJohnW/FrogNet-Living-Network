@@ -22,11 +22,11 @@ This replaces the hand-scripted per-call answers in sim/topology.py with a singl
 model of the network from which the discovery sources are DERIVED:
 
   - nodes: subnet, echo identity, dead flag, LAN relay addr
-  - direct channels (broker/handshake): dev <-> node, with a transit /30 src
+  - direct channels (tunnels/handshake): dev <-> node, with a transit /30 src
   - vouching graph (getHosts): node -> peers it forwards for
   - link latencies (rtt) per (observing dev, target node)
 
-From that, for any OBSERVER node, make_sources() yields echo/rtt/getHosts/broker
+From that, for any OBSERVER node, make_sources() yields echo/rtt/getHosts/tunnels
 backends whose answers follow the fabric - so a probe's echo "carries" only when
 the observer can actually reach the target over the probed dev, exactly the
 property a system sim needs.
@@ -125,7 +125,7 @@ class Fabric:
                 # otherwise the owner must be reachable on SOME dev. For the
                 # walk, the prober installed the /32 on a specific dev, but the
                 # echo body is the owner's identity regardless of which dev - the
-                # broker-authority check (not echo) rejects wrong-channel peers.
+                # tunnel-channel check (not echo) rejects wrong-channel peers.
                 if owner.dead:
                     return owner.echo_csv()       # 200 + blank self_ip
                 return owner.echo_csv()
@@ -145,7 +145,7 @@ class Fabric:
                 owner = fab._owner_of(host_path)
                 return list(fab.vouch.get(owner.name, [])) if owner else []
 
-        class _Broker:
+        class _Tunnels:
             def tunnel_for_peer_ip(self, dest1):
                 for dev, (nn, _src, chname) in fab.channels.items():
                     if fab.nodes[nn].one == dest1:
@@ -155,17 +155,17 @@ class Fabric:
                 ch = fab.channels.get(dev)
                 return ch[2] if ch else ""
 
-        return _Echo(), _Rtt(), _GetHosts(), _Broker()
+        return _Echo(), _Rtt(), _GetHosts(), _Tunnels()
 
     # ---- build a Discovery for an observer ---------------------------------
     def discovery_for(self, observer_name, *, enter_seed, local_ips, dev_src,
                       dead_ifaces=(), logger=lambda s: None, propagate=False):
         k = FakeKernel(); k.seed(*enter_seed)
         routes = Routes(k, logger=logger, clock=lambda: 0.0)
-        echo, rtt, gh, broker = self.make_sources(observer_name)
+        echo, rtt, gh, tunnels = self.make_sources(observer_name)
         hs = HostStore()
         prop = Propagator(hs, logger=logger) if propagate else None
-        disc = Discovery(routes, echo, rtt, gh, broker, hs, local_ips, dev_src,
+        disc = Discovery(routes, echo, rtt, gh, tunnels, hs, local_ips, dev_src,
                          logger=logger, propagator=prop)
         disc.DEAD_IFACES = set(dead_ifaces)
         return disc, k

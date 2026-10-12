@@ -1,0 +1,53 @@
+bash -n OK     etc/NetworkManager/dispatcher.d/90-frognet-merge
+py_compile OK  opt/fdf/bin/fdf-reach
+py_compile OK  opt/fdf/lib/python/fdf_graph.py
+py_compile OK  opt/fdf/src/fdf-source/fdf/bin/fdf-reach
+py_compile OK  opt/fdf/src/fdf-source/fdf/lib/python/fdf_graph.py
+py_compile OK  opt/frognet_semantic/core/region_capability.py
+py_compile OK  opt/frognet_semantic/discovery/descend.py
+py_compile OK  opt/frognet_semantic/discovery/hosts.py
+py_compile OK  opt/frognet_semantic/discovery/live.py
+py_compile OK  opt/frognet_semantic/discovery/orchestrate.py
+py_compile OK  opt/frognet_semantic/discovery/sim/conf_lib_check.py
+py_compile OK  opt/frognet_semantic/discovery/sim/fabric.py
+py_compile OK  opt/frognet_semantic/discovery/sim/host_reset_check.py
+py_compile OK  opt/frognet_semantic/discovery/sim/kernel_check.py
+py_compile OK  opt/frognet_semantic/discovery/sim/lifecycle.py
+py_compile OK  opt/frognet_semantic/discovery/sim/proof_plane.py
+py_compile OK  opt/frognet_semantic/discovery/sim/shapes.py
+py_compile OK  opt/frognet_semantic/discovery/sim/system.py
+py_compile OK  opt/frognet_semantic/discovery/sim/topology.py
+py_compile OK  opt/frognet_semantic/frognet_route/__init__.py
+py_compile OK  opt/frognet_semantic/frognet_route/observation.py
+py_compile OK  opt/frognet_semantic/frognet_route/planner.py
+py_compile OK  opt/frognet_semantic/internet_tunnels_v3/config.py
+py_compile OK  opt/frognet_semantic/internet_tunnels_v3/names.py
+py_compile OK  opt/frognet_semantic/internet_tunnels_v3/poll.py
+py_compile OK  opt/frognet_semantic/internet_tunnels_v3/region.py
+bash -n OK     opt/frognet_semantic/oracles/oracle_default_route_resolver.sh
+py_compile OK  opt/frognet_semantic/proxy/constants.py
+py_compile OK  opt/frognet_semantic/simulation/folded_seattle_chain_routes.py
+py_compile OK  opt/frognet_semantic/simulation/frognet_sim.py
+py_compile OK  opt/frognet_semantic/simulation/live_failures.py
+py_compile OK  opt/frognet_semantic/simulation/run_all.py
+py_compile OK  opt/frognet_semantic/simulation/sim_control_plane.py
+py_compile OK  opt/frognet_semantic/tests/frogsim/derive_node.py
+bash -n OK     usr/local/bin/frognet-node-guid.sh
+bash -n OK     usr/local/bin/frognet-wg-cleanup
+bash -n OK     usr/local/bin/frognet_build_release.sh
+bash -n OK     usr/local/bin/frognet_make_build_tar.sh
+bash -n OK     usr/local/bin/frognet_postinstall_20260912.sh
+bash -n OK     usr/local/bin/frognet_prune_removed.sh
+bash -n OK     usr/local/bin/frognet_setup_v4_helper.bash
+bash -n OK     usr/local/bin/full_tar.bash
+bash -n OK     usr/local/bin/installer/frognet_install.sh
+bash -n OK     usr/local/bin/make_tar.bash
+bash -n OK     usr/local/bin/mapInterfaces
+bash -n OK     usr/local/bin/mergeHostsAndResolv.bash
+bash -n OK     usr/local/bin/runMerge.bash
+bash -n OK     usr/local/bin/setup_lillypad_v4.bash
+bash -n OK     usr/local/bin/sync_interfaces.sh
+bash -n OK     usr/local/lib/frognet/conf.sh
+bash -n OK     usr/local/lib/frognet_world_manifest.sh
+No syntax errors detected in var/www/html/frognet_setup_v4_api.php
+bash -n OK     docs/cleanup-2026-10/static-no-broker.sh

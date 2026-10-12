@@ -156,7 +156,7 @@ def merge(disc, kernel, seeds, upstream_seed, *, local, bringup_peers,
         logger(f"TUNNEL_PEERS write failed: {_e!r}")
 
     # [HOSTS_DEDUP_V1] With the merge as the single authoritative writer, also
-    # collapse identical lines: a bringup peer (broker handshake) and the same
+    # collapse identical lines: a bringup peer (tunnel handshake) and the same
     # peer discovered in the walk both produce the same host line. Order-
     # preserving so the assembled block stays stable across passes.
     seen_ln: set = set()

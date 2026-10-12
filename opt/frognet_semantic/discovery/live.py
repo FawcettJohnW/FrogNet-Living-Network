@@ -692,9 +692,8 @@ def main():
     # this merge through to the sync trigger; routing deltas, not host-table
     # deltas, are what neighbors must be told about.
     out["route_table_mutated"] = bool(getattr(disc.r, "route_table_mutated", False))
-    # [TRANSIT_FROM_WINNERS_V1] the transit set promote() derived from the winners, in the merge's result. (It was also
-    # written to /etc/sentinels/transit_subnets.tsv for the tunnel daemon to post to the broker; the broker is gone and
-    # nothing else read that file.)
+    # [TRANSIT_FROM_WINNERS_V1] the transit set promote() derived from the winners, in the merge's result. (The
+    # transit_subnets.tsv sentinel it once also wrote had one reader, removed in T3a.)
     out["computed_transit"] = list(getattr(disc, "computed_transit", []))
 
     # [REACH_PLANE_TUPLE_V1] Persist this node's loopback-validated WAN plane to a

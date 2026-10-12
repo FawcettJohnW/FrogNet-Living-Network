@@ -227,6 +227,14 @@ truncate -s 0 /var/lib/misc/dnsmasq.leases 2>/dev/null || true
 log "NetworkManager leases..."
 find /var/lib/NetworkManager/ -name '*.lease' -delete 2>/dev/null || true
 
+log "Retired state (frognet_prune_removed.sh T3: the old tunnel.conf keys and their files)..."
+# The build host is a node: the same removal its own install runs (installer C1c), so
+# nothing the T3 cleanup retired can reach the world tar. One list, in one script.
+if ! /usr/local/bin/frognet_prune_removed.sh --apply --only T3; then
+    warn "frognet_prune_removed.sh --only T3 failed on the build host - not building a world tar that may carry retired credentials"
+    exit 1
+fi
+
 log "Purge complete"
 
 ###############################################################################
@@ -278,23 +286,9 @@ mysqldump \
 log "  $(wc -l < "$DB_DUMP") lines, $(du -h "$DB_DUMP" | cut -f1)"
 
 ###############################################################################
-# D2. Deploy v3 scripts to /usr/local/bin
+# D2. Tunnel daemon unit: the image enables v3 only
 ###############################################################################
-phase "D2: Deploy v3 edge scripts"
-
-V3_PKG="/opt/frognet_semantic/internet_tunnels_v3"
-if [[ -d "$V3_PKG" ]]; then
-    # setup_lillypad_v3.bash deployment RETIRED - only setup_lillypad_v4.bash is
-    # supported now (it ships via the world-tar glob of usr/local/bin). Do NOT
-    # re-add a v3 deploy here. frognet-tunnel-setup-v3.sh likewise ships via the
-    # glob (underscore version retired).
-    if [[ -f "${V3_PKG}/frognet_chorus.php" ]]; then
-        cp "${V3_PKG}/frognet_chorus.php" "/var/www/html/frognet_chorus.php"
-        log "  Deployed frognet_chorus.php -> /var/www/html/"
-    fi
-else
-    warn "internet_tunnels_v3 not found - v3 edge assets not deployed"
-fi
+phase "D2: Tunnel daemon unit"
 
 # Disable v2 tunnel daemon in the image (keep unit file for rollback)
 if [[ -f /etc/systemd/system/frognet-tunnel-daemon.service ]]; then
@@ -399,7 +393,7 @@ phase "E: Build world tarball"
 #     cd /opt/frognet_semantic && PYTHONPATH=. python3 -m discovery.sim.lifecycle
 #
 # discovery selfcheck stays, and it is not weakened: it covers the oracle suite
-# byte-exact plus the proof_plane shapes/churn/broker scenarios.
+# byte-exact plus the proof_plane shapes/churn scenarios.
 _DISC_PY="/opt/frognet_semantic/venv/bin/python3"
 [[ -x "$_DISC_PY" ]] || _DISC_PY="/usr/bin/python3"
 _GATE_LOG="/var/tmp/frognet_release_build_gate.log"
@@ -537,16 +531,14 @@ tar -czf "$WORLD_TGZ" \
     `# ax25-apps removed from the installer apt list separately.` \
     --exclude='usr/local/bin/ham_*.sh' \
     --exclude='usr/local/bin/frognet_radio_init.sh' \
-    `# [RETIRED_VERSIONS_V1] Keep only setup_lillypad_v4.bash and` \
-    `# frognet-tunnel-setup-v3.sh. Drop the older versions so a build host that` \
-    `# still has them on disk cannot re-ship them.` \
+    `# [RETIRED_VERSIONS_V1] Keep only setup_lillypad_v4.bash. Drop the older` \
+    `# versions so a build host that still has them on disk cannot re-ship them.` \
     --exclude='usr/local/bin/setup_lillypad.bash' \
     --exclude='usr/local/bin/setup_lillypad_v3.bash' \
     --exclude='opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash' \
     --exclude='opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash' \
     --exclude='usr/local/bin/frognet-tunnel-daemon.py' \
     --exclude='usr/local/bin/ham_concentrator_up.sh' \
-    --exclude='usr/local/bin/frognet-tunnel-setup.sh' \
     `# [NO_STAGING_DIRS_UNDER_OPT_V1] /opt/frognet_semantic is Python source only.` \
     `# etc/bin/usr/var have no business there - they are stray staging mirrors` \
     `# (e.g. a full duplicate of etc/frognet_bundles). Nothing references them.` \
@@ -581,7 +573,6 @@ tar -czf "$WORLD_TGZ" \
     --exclude='etc/frognet/tunnel.conf.bak.*' \
     --exclude='etc/frognet/wifi.env' \
     --exclude='etc/frognet/sem_cache_secret' \
-    --exclude='etc/frognet/broker.conf' \
     `# [DNSMASQ_IDENTITY_OUT_V1] opts_only.conf is per-node: setup_lillypad` \
     `# writes domain=<node> and this node's dhcp-range into it. Building from a` \
     `# live node would otherwise ship one node's DHCP scope and domain to every` \
@@ -591,7 +582,6 @@ tar -czf "$WORLD_TGZ" \
     `# installer no longer writes it, but a live build host may still carry one.` \
     --exclude='etc/dnsmasq.d/forward_to_unbound.conf' \
     --exclude='etc/frognet/gateways.conf' \
-    --exclude='etc/frognet/pond.conf' \
     --exclude='etc/frognet/active_interface' \
     --exclude='etc/frognet/interfaces_override.conf' \
     --exclude='etc/frognet/transit_exclude_interfaces' \

@@ -214,7 +214,7 @@ done < <(ip route show | grep 'dev wg' | grep -E '^10\.' | grep -vE '^10\.25[34]
 # A scope-link route like "10.x.y.0/24 dev wgN scope link" is wrong when
 # a via route like "10.x.y.0/24 via 10.x.y.1 dev wgN metric 22" exists.
 # The scope-link tells the kernel the subnet is directly attached (it's not —
-# it's behind a broker relay), and it shadows the correct via route.
+# it's behind a relay node), and it shadows the correct via route.
 while IFS= read -r route_line; do
     [[ -n "$route_line" ]] || continue
     # Only look at scope-link routes

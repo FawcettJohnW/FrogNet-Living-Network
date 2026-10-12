@@ -238,7 +238,7 @@ def my_channels() -> dict:
     reach = _reach(maps)
     channels = []
     if edge:
-        mine = {str(ipaddress.ip_network(my_sub, strict=False))} | set(me.get("transit") or [])
+        mine = {str(ipaddress.ip_network(my_sub, strict=False))}
         for h in _hubs(parts):
             # [HUB_SAYS_ITS_PEERS_V1] a channel to a hub only once that hub says it holds my key: before that my first
             # handshake would reach a hub that drops it, and WireGuard retries only at its 5 s rekey

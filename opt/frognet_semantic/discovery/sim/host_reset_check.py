@@ -192,7 +192,7 @@ def run():
     stub = _StubTuples()
     saved = (UH._tuples, RP._region_mode)
     UH._tuples = lambda: stub
-    RP._region_mode = lambda: False                  # broker mode: the store is the election input
+    RP._region_mode = lambda: False                  # LAN-only: the store is the election input
     try:
         reps = RP.publish_all(blob={"lan_ip": "10.250.250.1", "cores": 4}, control="10.250.250.1",
                               logger=lambda s: None)

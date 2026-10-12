@@ -29,7 +29,7 @@ for that node against a real kernel - either:
     then print the resulting real table. This MUTATES the box's routing (root,
     destructive) - run only on a disposable/test node, ideally in a netns.
 
-The peer sources (echo/rtt/getHosts/broker) here are derived from the declared
+The peer sources (echo/rtt/getHosts/tunnels) here are derived from the declared
 topology, so this validates the route-mutation argv against a real kernel - does
 `ip route replace ... metric 22 onlink` actually parse/apply - not the live
 network backends. Full live discovery is live.py.

@@ -17,46 +17,25 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 ##############################################################
-# setup_lillypad_v4.bash - FrogNet Gateway Setup (v4)
+# setup_lillypad_v4.bash - FrogNet node LAN setup (v4)
 #
-# Same LAN setup as v2, plus writes /etc/frognet/tunnel.conf
-# so the tunnel daemon knows where the broker is.
+# The LAN side of a node: identity, dnsmasq, NetworkManager, gateways.conf.
+# It writes no tunnel config: the node comes up LAN-only, and a region is
+# joined afterwards with fdf-region-join (/opt/fdf/var/join.env).
 #
 # Usage:
-#   sudo bash setup_lillypad_v4.bash <NetworkName> <GatewayIP> [BROKER_URL] \\
-#        [--pond <PondName>]
+#   sudo bash setup_lillypad_v4.bash <NetworkName> <GatewayIP> [--norestart]
 #
-#   --pond <PondName>   The pond this node JOINS - the group of nodes sharing a
-#                       broker namespace. REQUIRED whenever BROKER_URL is given.
-#                       It is NOT the node/domain name and has no default.
-#
-# Examples:
+# Example:
 #   sudo bash setup_lillypad_v4.bash HardBox 10.101.100.1
-#   sudo bash setup_lillypad_v4.bash HardBox 10.101.100.1 \
-#        https://streamingfrog.com/frognet-broker-v4
-#
-# BROKER_URL is the full URL the tunnel daemon will hit.  Path
-# prefix is required for v4 (e.g. /frognet-broker-v4).  The
-# daemon appends /api/v4/... itself.
-#
-# If BROKER_URL is omitted, tunnel.conf is created with an empty
-# BROKER_URL - broker registration is deferred until tunnel.conf
-# is filled in by hand or by a later run of this script.
 ##############################################################
 
-# [NO_SET_X_V1] `set -x` traced every command, and this script handles the broker
-# URL and the pond credentials - a trace is where secrets leak into logs and
-# terminals. Same rule frognet_reset.sh states in its header: never trace.
+# [NO_SET_X_V1] `set -x` traced every command; a trace is where secrets leak
+# into logs and terminals. Same rule frognet_reset.sh states in its header: never trace.
 
 log() { echo "[setup_lillypad] $(date '+%H:%M:%S') $*"; }
 die() { log "FATAL: $*"; exit 1; }
 
-# [POND_IS_NOT_THE_DOMAIN_V1] POND_NAME used to default to NETWORK_NAME. A pond is a
-# GROUP OF NODES that share a broker namespace; NETWORK_NAME is THIS node's domain.
-# Defaulting one to the other put every node in its own single-member pond named
-# after itself, so nodes joining "the same" pond never met. There is no sane default
-# for a pond you are joining - it must be given, as --pond.
-POND_NAME_ARG=""
 _POS=()
 # [SETUP_LILLYPAD_NORESTART_V1] --norestart: write all config (files + the
 # persistent NM connection profile) but do NOT bounce services or re-address the
@@ -77,8 +56,6 @@ svc_restart() {
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --pond)   POND_NAME_ARG="${2:-}"; shift 2 ;;
-        --pond=*) POND_NAME_ARG="${1#*=}"; shift ;;
         --norestart) NO_RESTART=1; shift ;;
         --)       shift; while [[ $# -gt 0 ]]; do _POS+=("$1"); shift; done ;;
         -*)       die "Unknown option: $1" ;;
@@ -93,15 +70,7 @@ GATEWAY_IP="${_POS[1]:-}"
 [[ -n "$GATEWAY_IP" ]] || die "Usage: $0 <NetworkName> <GatewayIP>"
 [[ "$GATEWAY_IP" =~ ^10\.[0-9]+\.[0-9]+\.1$ ]] || die "Gateway IP must be 10.x.x.1 format"
 
-# Optional third arg: full URL to the v4 broker. (Was incorrectly read from $4 -
-# the caller passes it as $3: setup_lillypad_v4.bash <NetworkName> <GatewayIP> <URL>.
-# The $4 bug silently dropped the broker URL, leaving an empty tunnel.conf/broker.conf
-# so the tunnel daemon never registered.)
-BROKER_URL="${_POS[2]:-}"
-if [[ -n "$BROKER_URL" ]]; then
-    [[ "$BROKER_URL" =~ ^https?://[^/[:space:]]+(/.*)?$ ]] || \
-        die "BROKER_URL must be a full URL (e.g. https://streamingfrog.com/frognet-broker-v4)"
-fi
+[[ ${#_POS[@]} -le 2 ]] || die "Unexpected argument: ${_POS[2]} (usage: $0 <NetworkName> <GatewayIP> [--norestart])"
 
 # ============================================================
 # Resolve actual interface name via mapInterfaces
@@ -509,7 +478,7 @@ EOF
 # uplink at all still serves its own LAN and must still scope DHCP to it.
 #
 # This MUST be written HERE and not left to frognet_fixup.sh: this script
-# rm -f's opts_only.conf and rewrites it, so every enrolment / pond change /
+# rm -f's opts_only.conf and rewrites it, so every rename /
 # reinstall silently drops the exclusions until fixup happens to run again.
 SERVED_IF="$(ip -4 -o addr show 2>/dev/null | awk -v g="$GATEWAY_IP" '$4 ~ ("^" g "/") {print $2; exit}')"
 if [[ -n "$SERVED_IF" ]]; then
@@ -531,8 +500,8 @@ if [[ -z "$SERVED_IF" || ! -d "/sys/class/net/$SERVED_IF" ]]; then
 fi
 log "  dnsmasq: DHCP scoped to $SERVED_IF (LAN-projecting device)"
 # [DHCP_EXCLUDE_FUTURE_IFACES_V1] The loop below can only exclude interfaces
-# that EXIST right now. Tunnels are created later, by the tunnel daemon, one per
-# broker channel -- so a node that grows a wg iface after this runs serves DHCP
+# that EXIST right now. Tunnels are created later, by the tunnel daemon (a
+# region's hub link) -- so a node that grows a wg iface after this runs serves DHCP
 # across that tunnel, handing addresses out of THIS node's LAN pool to hosts on
 # the far side of the mesh. The shipped opts_only.conf stops at wg4 for exactly
 # this reason: it was written when the node had four tunnels.
@@ -723,63 +692,6 @@ systemctl start frognet-transit-watch 2>/dev/null || true
 # ============================================================
 log ""
 log "============================================"
-# ============================================================
-# Step N: Write /etc/frognet/tunnel.conf for the tunnel daemon
-# ============================================================
-log "Step N: Writing /etc/frognet/tunnel.conf..."
-
-mkdir -p /etc/frognet
-
-if [[ -f /etc/frognet/tunnel.conf ]]; then
-    cp -p /etc/frognet/tunnel.conf "/etc/frognet/tunnel.conf.bak.$(date +%Y%m%d-%H%M%S)"
-    if grep -q '^BROKER_URL=' /etc/frognet/tunnel.conf; then
-        sed -i "s|^BROKER_URL=.*|BROKER_URL=${BROKER_URL}|" /etc/frognet/tunnel.conf
-    else
-        echo "BROKER_URL=${BROKER_URL}" >> /etc/frognet/tunnel.conf
-    fi
-    log "  Updated existing /etc/frognet/tunnel.conf (BROKER_URL set, other fields preserved)"
-else
-    cat > /etc/frognet/tunnel.conf <<TCONF
-BROKER_URL=${BROKER_URL}
-PASSCODE=
-GROUP_TOKEN=
-GROUP_NAME=
-MAX_TUNNELS=5000
-TCONF
-    chmod 600 /etc/frognet/tunnel.conf
-    log "  Wrote new /etc/frognet/tunnel.conf"
-fi
-
-if [[ -n "$BROKER_URL" ]]; then
-    log "  BROKER_URL=$BROKER_URL"
-else
-    log "  BROKER_URL=<empty> - fill in /etc/frognet/tunnel.conf before starting tunnel daemon"
-fi
-
-# ============================================================
-# Step N2: Write /etc/frognet/broker.conf - THIS is the file
-# frognet-tunnel-setup-v3.sh reads to register with the broker. v4 previously wrote
-# only tunnel.conf (read by the tunnel DAEMON), so tunnel-setup found no broker config
-# and never registered -> no tunnels. v3 wrote broker.conf; restore that.
-# ============================================================
-if [[ -n "$BROKER_URL" ]]; then
-    # A broker means this node JOINS A POND. Without the pond name we would be
-    # guessing which group it belongs to - refuse rather than invent one.
-    [[ -n "$POND_NAME_ARG" ]] || \
-        die "BROKER_URL given but no POND_NAME (4th arg) - a pond name is required to join a pond"
-    # [ONE_CONF_V1] One config file. This `cat >` was safe only while
-    # broker.conf held two keys nobody else owned; aimed at the merged file it
-    # would truncate GROUP_TOKEN, PASSCODE, MAX_TUNNELS and NODE_GUID -- the
-    # node's membership card. Set keys individually instead.
-    . "${FROGNET_CONF_LIB:-/usr/local/lib/frognet/conf.sh}"
-    fn_conf_backup >/dev/null
-    fn_conf_set BROKER_URL "$BROKER_URL"
-    fn_pond_set "$POND_NAME_ARG"
-    log "  Wrote $FROGNET_CONF (BROKER_URL + pond=${POND_NAME_ARG}) for tunnel-setup-v3"
-else
-    log "  No BROKER_URL - broker fields NOT written; tunnel-setup stays offline until configured"
-fi
-
 log "Setup complete!"
 log ""
 log "$ETH0 configuration:"

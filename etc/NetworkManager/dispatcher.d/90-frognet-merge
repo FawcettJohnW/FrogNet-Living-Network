@@ -29,7 +29,7 @@
 # no comparison, so `runMerge.bash &` ran unconditionally on every up and every
 # down. Only wg0 is unmanaged (99-frognet-unmanaged.conf), so every wg1+ tunnel
 # transition dispatched its own merge, on top of the one frognet-tunnel-daemon
-# already fires from _post_tunnel, on top of anything the broker reconcile did.
+# already fires from _post_tunnel.
 #
 # The signature is the thing the merge exists to maintain: the FrogNet /24
 # routes and the default route. Scratch /32s (the walk's metric-6 probes and

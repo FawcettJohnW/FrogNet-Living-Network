@@ -4,8 +4,9 @@
 > This note describes the migration that introduced `frognet-guid` and a
 > `NODE_GUID=` line in `/etc/frognet/tunnel.conf`. That approach was replaced:
 > identity now lives at `/etc/fnid`, allocated by `frognet-node-guid.sh --ensure`,
-> and read directly by `internet_tunnels_v3/config.py` and
-> `frognet-tunnel-setup-v3.sh`. `frognet-guid` has been removed.
+> and read directly by `internet_tunnels_v3/config.py` (announced in the region as
+> facts.guid). `frognet-guid`, `frognet-tunnel-setup-v3.sh` and the broker have
+> been removed (2026-10).
 > Step 2 of the deploy order below would put identity in the directory a
 > reinstall wipes, which is the failure the current design exists to prevent.
 

@@ -25,12 +25,10 @@
 # Parallelism model:
 #
 #   local identity + hosts preamble (serial)
-#   tunnel reconcile (synchronous, broker-authoritative)
-#     fetches broker list; if reachable, reconciles kernel wg ifaces
-#     to match the response exactly (bring up missing, tear down
-#     absent); if unreachable, tears down all wg ifaces; if node has
-#     no own WAN uplink, tears down all wg ifaces.  Writes
-#     /var/lib/frognet-tunnel/handshake_rtts.json.
+#   tunnel reconcile (synchronous: the tunnel daemon's bring-up-only)
+#     region: reconciles kernel wg ifaces to the region's hub channels
+#     (bring up missing, tear down absent); LAN-only: tears down every
+#     wg iface.  Writes /var/lib/frognet-tunnel/handshake_rtts.json.
 #   sync_interfaces.sh (foreground)
 #     wave 1 (LAN), reconcile (LAN-vs-WG RTT comparison + seeding
 #     wave 2 with winning channels' peer .1s), wave 2 (probes
@@ -40,10 +38,10 @@
 #   /etc/hosts staging (with stable header — no timestamp)
 #   dnsmasq forwarders staging
 #   manageResolv (waits on fixDefaultRoute)
-#   (the tunnel commit-only stage is gone with the broker [NO_BROKER_V1])
+#   (the tunnel commit-only stage is gone [NO_BROKER_V1])
 #   propogateNotification if sync_required + emit_routes_snapshot
 #
-# [BROKER_AUTHORITATIVE_V1 2026-06-01] BRINGUP_READY/BRINGUP_DONE
+# [2026-06-01] BRINGUP_READY/BRINGUP_DONE
 # sentinels and the background bring-up-only fork are removed.
 # Variables and cleanup remain only as harmless legacy: existing
 # sentinel files (from older builds) are removed at startup, and
@@ -119,22 +117,16 @@ fi
 flog_stage_end local_identity
 
 # ------------------------------------------------------------
-# Tunnel reconcile (synchronous, broker-authoritative)
+# Tunnel reconcile (synchronous)
 # ------------------------------------------------------------
-# [BROKER_AUTHORITATIVE_V1 2026-06-01] Replaced background
-# `bring-up-only` fork with a synchronous broker-reconcile call.
-# Rules:
-#   - Broker response IS the target state.  Kernel wg ifaces are
-#     reconciled to match exactly: bring up missing, tear down
-#     absent.
-#   - Broker unreachable → tear down every wg iface and proceed.
-#     No cached state is used.
-#   - Node without own WAN uplink → target set is empty, all wg
-#     ifaces torn down.
+# [2026-06-01] Replaced the background `bring-up-only` fork with a
+# synchronous call. Rules (internet_tunnels_v3 _reconcile_bringup_phase):
+#   - region: the hub channels ARE the target state.  Kernel wg ifaces
+#     are reconciled to match exactly: bring up missing, tear down absent.
+#   - LAN-only (no region): every wg iface torn down.
 # This runs to completion BEFORE sync_interfaces starts, so by
 # the time sync_interfaces probes, every wg iface either exists
-# (broker said so) or doesn't (it didn't, or no broker).  No
-# BRINGUP_READY barrier needed.
+# (the region said so) or doesn't.  No BRINGUP_READY barrier needed.
 flog_stage reconcile_tunnels
 PYTHONPATH=/opt/frognet_semantic /usr/bin/python3 -m internet_tunnels_v3 bring-up-only 2>&1 \
   | while IFS= read -r line; do flog_info "reconcile: $line"; done
@@ -294,8 +286,8 @@ if [[ -n "$_mhj_pid" ]]; then
 fi
 flog_stage_end post_discovery_parallel
 
-# [NO_BROKER_V1] The tunnel commit-only stage (channel_map, the committer's broker-channel teardown) was here; it went
-# with the broker. The route snapshot below is what this merge left.
+# [NO_BROKER_V1] The tunnel commit-only stage (channel_map and its teardown list) was here; it is gone (T3a).
+# The route snapshot below is what this merge left.
 flog_dump_cmd "post_commit_routes" ip -4 route show
 flog_dump "post_commit_observations" "/etc/sentinels/discovery_observations.tsv"
 flog_dump "post_commit_snapshot" "/etc/sentinels/route_snapshot.tsv"

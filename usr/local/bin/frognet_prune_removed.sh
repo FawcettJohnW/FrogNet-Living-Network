@@ -28,27 +28,160 @@
 # guess: the list is the set difference between a node snapshot and the current
 # tree, and every one of the 447 files matched a rule.
 #
-#   ./frognet_prune_removed.sh            # DRY RUN - prints, changes nothing
-#   ./frognet_prune_removed.sh --apply    # actually delete
+#   ./frognet_prune_removed.sh                      # DRY RUN - prints, changes nothing
+#   ./frognet_prune_removed.sh --apply              # actually delete
+#   ./frognet_prune_removed.sh --apply --only T3    # the T3 section only
 #
 # Run it on the node AFTER untarring the current tree, then re-run the simulator.
+# The installer's C1c upgrade step and frognet_build_release.sh run `--apply --only T3`
+# on every install / build: that section is the one list of what T3 retired.
+#
+# Exit status: 0, or 1 if any removal failed (each failure is logged; the next run
+# retries it).
 
 set -u
-APPLY=0
-[ "${1:-}" = "--apply" ] && APPLY=1
+APPLY=0; ONLY=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --apply) APPLY=1; shift ;;
+        --only)  ONLY="${2:-}"; shift 2 ;;
+        *) echo "usage: $0 [--apply] [--only T3]" >&2; exit 2 ;;
+    esac
+done
+case "$ONLY" in ""|T3) ;; *) echo "--only: the one section it selects is T3 (got: $ONLY)" >&2; exit 2 ;; esac
 [ "$APPLY" -eq 0 ] && echo "DRY RUN - nothing will be deleted. Pass --apply to do it." && echo
+# FROGNET_PRUNE_ROOT: run against a tree other than / (the oracle's scratch root). Empty = the node.
+R="${FROGNET_PRUNE_ROOT:-}"
 
-n=0; miss=0
+n=0; miss=0; fail=0
 gone() {   # gone <path> <why>
-    local p="/$1"
+    local p="$R/$1"
     if [ -e "$p" ] || [ -L "$p" ]; then
         echo "  rm   $p"
-        [ "$APPLY" -eq 1 ] && rm -rf -- "$p"
+        if [ "$APPLY" -eq 1 ]; then
+            rm -rf -- "$p" || { echo "  FAILED rm $p (retried on the next run)" >&2; fail=$((fail+1)); }
+        fi
         n=$((n+1))
     else
         miss=$((miss+1))
     fi
 }
+gone_glob() {   # gone_glob <dir> <pattern>: every match of <pattern> in <dir> (one level)
+    local f
+    for f in "$R/$1"/$2; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        gone "${f#"$R"/}"
+    done
+}
+units_off() {   # stop + disable units while systemd still knows them by name
+    if [ -n "$R" ]; then
+        echo "  (root $R: systemctl not run for $*)"
+    elif [ "$APPLY" -eq 1 ]; then
+        echo "  systemctl disable --now $*"
+        systemctl disable --now "$@" 2>/dev/null
+    else
+        echo "  systemctl disable --now $*"
+    fi
+}
+
+t3_section() {
+echo "-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region"
+# Units first, while their files still exist.
+units_off frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer \
+    frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service \
+    frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service
+# The old tunnel.conf keys. The daemon reads RINA_RAM and RINA_AREA only (internet_tunnels_v3/config.py CONF_KEYS)
+# and names any other key once, ignored; these are the ones the removed tools wrote. Key-wise: RINA_RAM stays.
+_tc="$R/etc/frognet/tunnel.conf"
+if [ -f "$_tc" ]; then
+    FROGNET_CONF="$_tc"
+    . "$R/usr/local/lib/frognet/conf.sh" || { echo "  FAILED: cannot source $R/usr/local/lib/frognet/conf.sh" >&2; fail=$((fail+1)); }
+    for _k in BROKER_URL GROUP_TOKEN GROUP_NAME PASSCODE POND_NAME POND_PASSWORD CHORUSES MAX_TUNNELS NODE_GUID; do
+        grep -q "^${_k}=" "$_tc" || continue
+        echo "  unset $_k in $_tc"
+        n=$((n+1))
+        [ "$APPLY" -eq 1 ] || continue
+        fn_conf_unset "$_k" || { echo "  FAILED unset $_k in $_tc (retried on the next run)" >&2; fail=$((fail+1)); }
+    done
+fi
+# Their files: the two old config files, and every backup of them or of tunnel.conf (they carry GROUP_TOKEN / PASSCODE).
+gone "etc/frognet/broker.conf"
+gone "etc/frognet/pond.conf"
+gone "etc/frognet/tunnel.conf.broker"
+gone_glob "etc/frognet" 'broker.conf.*'
+gone_glob "etc/frognet" 'pond.conf.*'
+gone_glob "etc/frognet" 'tunnel.conf.bak.*'
+gone_glob "etc/frognet" 'tunnel.conf.20*'
+# State nothing writes or reads any more.
+gone "etc/frognet/pond_bootstrap_done"
+gone "var/lib/frognet-tunnel/last_broker_state.json"
+gone "var/lib/frognet-tunnel/broker_channels.json"
+gone "var/lib/frognet-tunnel/channel_map.json"
+gone "etc/sentinels/transit_subnets.tsv"
+gone "etc/sentinels/internet_state"
+gone "etc/sentinels/internet_state.lock"
+# Units and hooks.
+gone "etc/systemd/system/frognet-tunnel-setup.service"
+gone "etc/systemd/system/frognet-pond-bootstrap.service"
+gone "etc/systemd/system/frognet-pond-bootstrap.timer"
+gone "etc/systemd/system/frognet-broker-v4.service"
+gone "etc/systemd/system/frognet-broker-v4.service.d"
+gone "etc/systemd/system/frognet-broker-v3.service"
+gone "etc/systemd/system/frognet-broker-v3.service.d"
+gone "etc/systemd/system/frognet-metering.service"
+gone "etc/systemd/system/frognet-mediahost.service"
+gone "etc/systemd/system/frognet-mediahost-advertise.service"
+gone "etc/systemd/system/frognet-mediahost-advertise.timer"
+gone "etc/systemd/system/frognet-reaper.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-tunnel-setup.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-broker-v4.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-mediahost.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-reaper.service"
+gone "etc/systemd/system/timers.target.wants/frognet-pond-bootstrap.timer"
+gone "etc/systemd/system/timers.target.wants/frognet-mediahost-advertise.timer"
+gone "etc/NetworkManager/dispatcher.d/91-frognet-connectivity"
+# The scripts and pages (T3b), the broker tree, and the T3a test files.
+gone "usr/local/bin/change_pond.bash"
+gone "usr/local/bin/frognet-broker-admin.sh"
+gone "usr/local/bin/frognet-conf-consolidate.sh"
+gone "usr/local/bin/frognet-config-v4"
+gone "usr/local/bin/frognet-guid"
+gone "usr/local/bin/frognet-make-gateway.sh"
+gone "usr/local/bin/frognet-make-lanonly.sh"
+gone "usr/local/bin/frognet-pond-bootstrap.sh"
+gone "usr/local/bin/frognet-tunnel-setup-v3.sh"
+gone "usr/local/bin/frognet-unmake-gateway.sh"
+gone "usr/local/bin/frognet_internet_watch.sh"
+gone "usr/local/bin/frognet_nuke_tunnels"
+gone "var/www/html/frognet_chorus.php"
+gone "var/www/html/pond_admin.html"
+gone "opt/frognet_semantic/broker"
+gone "opt/frognet_semantic/internet_tunnels_v3/frognet_chorus.php"
+gone "opt/frognet_semantic/internet_tunnels_v3/test_register_on_404_oracle.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/test_transit_from_routes.py"
+gone "opt/frognet_semantic/discovery/test_vouch_transit_gate_oracle.py"
+gone "opt/frognet_semantic/discovery/sim/broker_world.py"
+gone "opt/frognet_semantic/simulation/broker_topology.py"
+gone "opt/frognet_semantic/simulation/test_transit_closure_repro.py"
+if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi
+}
+
+summary() {
+    echo
+    if [ "$APPLY" -eq 1 ]; then
+        echo "deleted $n path(s); $miss already absent; $fail failed."
+    else
+        echo "$n path(s) would be deleted; $miss already absent."
+        echo "Re-run with --apply."
+    fi
+    [ "$fail" -eq 0 ]
+}
+
+if [ "$ONLY" = "T3" ]; then
+    t3_section
+    summary
+    exit $?
+fi
 
 
 echo "-- timestamped runtime backups carrying GROUP_TOKEN"
@@ -351,6 +484,7 @@ gone "usr/local/bin/runCaptureHeadless"
 gone "usr/local/bin/runClient"
 gone "usr/local/bin/runServerHeadless"
 gone "usr/local/share/frognet/docs/SOTF_MEDIA_README.md"
+t3_section
 echo
 echo "-- python bytecode (regenerated on next import)"
 for d in /opt/frognet_semantic /usr/local/bin; do
@@ -373,11 +507,5 @@ else
     echo "  systemctl disable --now frognet-nat64 ; systemctl daemon-reload"
 fi
 
-echo
-if [ "$APPLY" -eq 1 ]; then
-    echo "deleted $n path(s); $miss already absent."
-else
-    echo "$n path(s) would be deleted; $miss already absent."
-    echo "Re-run with --apply."
-fi
-
+summary
+exit $?

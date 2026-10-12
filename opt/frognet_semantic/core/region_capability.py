@@ -28,7 +28,7 @@ databasehost.frognet left pointing at a dead host. The switchover was not automa
 Here: `set_snapshot(participants)` is called by the elector with the region's alive members (the daemon's view at
 this event); `rows(role)` then answers in the shape the readers expect from the store (value/addr/ts_env/name/age_s),
 so gather_candidates, _capability_index and _live_roles work unchanged over the region. Region mode always sets the
-snapshot; broker mode (no region) never does and reads the store as before. That is the mode, not a fallback.
+snapshot; LAN-only (no region) never does and reads the store as before. That is the mode, not a fallback.
 """
 from __future__ import annotations
 import threading
@@ -47,7 +47,7 @@ def _dot1_of(facts: dict) -> str:
 
 
 def set_snapshot(participants: Optional[list]) -> int:
-    """participants: the region's list (name, alive, facts). None clears (broker mode). Returns how many rows."""
+    """participants: the region's list (name, alive, facts). None clears (LAN-only). Returns how many rows."""
     if participants is None:
         _snap.rows = None
         return 0
@@ -74,6 +74,6 @@ def active() -> bool:
 
 
 def rows(role: str) -> Optional[List[Dict]]:
-    """The capability rows for a role, from the snapshot; None when no snapshot is set (broker mode)."""
+    """The capability rows for a role, from the snapshot; None when no snapshot is set (LAN-only)."""
     r = getattr(_snap, "rows", None)
     return None if r is None else [dict(x, name="%s:%s" % (x["name"], role)) for x in r]

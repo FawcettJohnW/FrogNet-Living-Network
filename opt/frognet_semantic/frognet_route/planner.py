@@ -37,8 +37,8 @@ The planner does nothing the operator didn't authorize:
   * No removal for a dest where no observation succeeded.  If we don't
     know a path, we don't touch whatever's there.
   * Tunnel teardown: an active channel that won no /24 is listed in
-    tear_down_tunnels.  (The broker channel list that once overrode this,
-    [BROKER_TEARDOWN_V1], went with the broker [NO_BROKER_V1]: on a region
+    tear_down_tunnels.  (The channel list that once overrode this,
+    [BROKER_TEARDOWN_V1], is gone [NO_BROKER_V1]: on a region
     the tunnel daemon owns hub-link existence and does not call the
     committer; LAN-only has no tunnels.)
 
@@ -772,8 +772,8 @@ def plan(
     # --- 4. Decide tunnel teardowns ------------------------------------
     #
     # An active channel that won no /24 this merge is torn down.
-    # [NO_BROKER_V1] the broker channel list that overrode this
-    # ([BROKER_TEARDOWN_V1]: tear down only active-minus-broker) is gone.
+    # [NO_BROKER_V1] the old channel list that overrode this
+    # ([BROKER_TEARDOWN_V1]: tear down only active-minus-listed) is gone.
     active_set = set(active_tunnel_channels)
     winning_channels: set[str] = set()
     for win in winners.values():

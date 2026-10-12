@@ -316,9 +316,8 @@ opt/frognet_semantic/     the engine
   core/                   memory, codec, wire identity, handlers, sizing
   discovery/              the walk, routing, election, oracles (81 of them)
   proxy/  daemon/         the semantic proxy and daemon, FNWP-1 on :9009
-  internet_tunnels_v3/    broker registration, WireGuard peering
+  internet_tunnels_v3/    the tunnel daemon: region (FD&F hub link, WireGuard) or LAN-only
   simulation/             the harness
-  broker/                 full_broker.tgz, the broker ships as an archive
 opt/frognet_semantic/ribbit/  Ribbit: platform, default API, docs, and the examples (chat,
                           lispers.net, pytorch, communicator, redis); the Communicator
                           a node runs is examples/communicator

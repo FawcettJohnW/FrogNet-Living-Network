@@ -27,7 +27,7 @@ gone.  This package is the one authority.
 
 The pipeline per merge pass:
 
-  1. tunnel bring-up phase (in poll.py, UNCHANGED) brings every broker
+  1. tunnel bring-up phase (in poll.py, UNCHANGED) brings every
      channel's wgN up.  Interfaces present => sync_interfaces can probe
      them alongside LAN paths as peers.
 
@@ -47,7 +47,7 @@ The pipeline per merge pass:
 
   3. poll.py reconcile tail (SIMPLIFIED): after sync_interfaces,
      synthesize Observations for any tunnels that weren't observed in
-     sync_interfaces' waves (broker-only peers), feed them to the
+     sync_interfaces' waves (tunnel-only peers), feed them to the
      committer, act on its tear_down_tunnels result.
 
 The three rules this package enforces that the old code did not:

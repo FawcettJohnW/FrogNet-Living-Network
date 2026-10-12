@@ -29,7 +29,7 @@ so the eventual code change can be verified against it instead of against my mod
 
 Topology (arrow = "is a DHCP guest on the AP of"; gateway holds the wg tunnels):
 
-    Seattle2 -> Seattle3 -> Seattle6 -> Seattle5 == wg(broker-relayed) ==> NY/etc
+    Seattle2 -> Seattle3 -> Seattle6 -> Seattle5 == wg(relayed) ==> NY/etc
     10.120.120  10.130.130  10.160.160  10.250.250
 
 THE RULE the working tables prove (this is what to implement):

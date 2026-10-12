@@ -109,7 +109,7 @@ _dev_upstream_ips() {
     | while read -r ip; do
         [[ -z "$ip" ]] && continue
         # Exclude addresses that aren't real upstream identities:
-        #   10.253.0.0/16 (entire broker-reserved transit range —
+        #   10.253.0.0/16 (entire reserved transit range —
         #   wg /30s live here, e.g. 10.253.201.x, 10.253.202.x, not
         #   just 10.253.253.x); 10.254.0.0/16 (pond addresses,
         #   frognet0 intra-FrogNet); .1 we serve (downstream); sim

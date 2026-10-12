@@ -268,7 +268,7 @@ class System:
                         if sysref.node[n2].subnet3 in sysref.known[owner.name]
                         and sysref.node[n2].subnet3 != owner.subnet3]
 
-        class _Broker:
+        class _Tunnels:
             def tunnel_for_peer_ip(self, dest1):
                 # only DIRECT tunnel peers are uplink-parents (authority)
                 if dest1 in direct_tunnel_ones:
@@ -281,7 +281,7 @@ class System:
                 p = dev_peer.get(dev)
                 return f"{p}-{sysref.node[p].subnet3}" if p else ""
 
-        return _Echo(), _Rtt(), _GetHosts(), _Broker()
+        return _Echo(), _Rtt(), _GetHosts(), _Tunnels()
 
     # ---- per-observer merge inputs ----------------------------------------
     def _inputs(self, observer):
@@ -340,8 +340,8 @@ class System:
         enter, seeds, dev_src, local_ips, bringup, dead = self._inputs(observer)
         k = FakeKernel(); k.seed(*enter)
         routes = Routes(k, logger=logger, clock=lambda: 0.0)
-        echo, rtt, gh, broker = self._sources(observer)
-        disc = Discovery(routes, echo, rtt, gh, broker, HostStore(),
+        echo, rtt, gh, tunnels = self._sources(observer)
+        disc = Discovery(routes, echo, rtt, gh, tunnels, HostStore(),
                          local_ips, dev_src, logger=logger,
                          self_identity=self.node[observer].one,
                          own_subnet=self.node[observer].cidr)
@@ -408,8 +408,8 @@ class System:
         if seed_synthetic and hasattr(kernel, "seed"):
             kernel.seed(*enter)
         routes = Routes(kernel, logger=logger, clock=lambda: 0.0)
-        echo, rtt, gh, broker = self._sources(observer)
-        disc = Discovery(routes, echo, rtt, gh, broker, HostStore(),
+        echo, rtt, gh, tunnels = self._sources(observer)
+        disc = Discovery(routes, echo, rtt, gh, tunnels, HostStore(),
                          local_ips, dev_src, logger=logger,
                          self_identity=self.node[observer].one,
                          own_subnet=self.node[observer].cidr)

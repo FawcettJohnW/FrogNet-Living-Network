@@ -27,8 +27,6 @@ Runs every tier and gates on all-green. Tiers, in order of increasing fidelity:
                         modeled). Pure model; fastest pre-flight.
   TIER 2  real-engine   live_engine.main()      - M1: REAL planner.plan() +
                         committer.commit_final() over the 23 topologies.
-  TIER 3  broker        broker_topology.main()  - M3: REAL frognet_broker_v4
-                        decides the pond; real planner+committer validate it.
   TIER 4  real-kernel   live_engine (real)      - M2: same converge over real
                         `ip`/`wg` in netns. BOX-ONLY (Linux + root). Skipped in
                         the container; enable with FROGNET_SIM_BACKEND=real.
@@ -36,7 +34,7 @@ Runs every tier and gates on all-green. Tiers, in order of increasing fidelity:
                         netns mesh.                pushing real traffic. BOX-ONLY;
                         not yet wired (needs the proxy/daemon tree on the box).
 
-Container runs TIERS 1-3 (fully validated) plus TIER 4 as a dry-run plan.
+Container runs TIERS 1-2 (fully validated) plus TIER 4 as a dry-run plan.
 A box run flips TIER 4 to execute and adds TIER 5.
 
 Feedback: TIER 4/5 emit measured RTTs and any failures; capture them to
@@ -407,7 +405,6 @@ def main():
 
     import frognet_sim
     import live_engine
-    import broker_topology
 
     # [FEEDBACK_LOOP_V1] Fold any hardware-measured RTTs into the model BEFORE the
     # model tier runs, so timing-dependent decisions reflect the real network.
@@ -428,9 +425,6 @@ def main():
     print("\nTIER 2b - failure modes through real planner+committer")
     import live_failures
     results.append(_run_tier("failure modes (reroute/black-hole/partition)", live_failures.main))
-
-    print("\nTIER 3 - real broker in the loop (M3)")
-    results.append(_run_tier("broker-decided ponds", broker_topology.main))
 
     print("\nTIER R - regression vs learned baselines + failure-scenario replay")
     import regression_baselines as RB

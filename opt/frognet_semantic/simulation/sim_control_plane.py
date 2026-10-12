@@ -35,7 +35,7 @@ None of that is modeled by the route sim. This module supplies the missing
 layers as light models that issue real callbacks, and drives the ACTUAL
 poll._reconcile_bringup_phase() through them - only the I/O leaves (wg show,
 the region's hub-channel read, ip link del) are faked, the decision ladder and
-the teardown functions are the installed code. The "broker" here is the sim of
+the teardown functions are the installed code. SimRegion here is the sim of
 region.my_channels: the hub channels this node should hold.
 
 Run: PYTHONPATH=<tree>/opt/frognet_semantic python3 -m simulation.sim_control_plane
@@ -96,8 +96,8 @@ class SimKernel:
             ob(event, iface)
 
 
-# ------------------------- sim broker -------------------------------
-class SimBroker:
+# ------------------------- sim region -------------------------------
+class SimRegion:
     """Returns the channel list this node should hold. Can be made to
     raise (transient unreachable) or to omit a channel (positive
     authority that a tunnel should go away)."""
@@ -119,7 +119,7 @@ class SimBroker:
 class ControlPlane:
     def __init__(self):
         self.kernel = SimKernel()
-        self.broker = SimBroker()
+        self.region = SimRegion()
         self.lock_held = False
         # observability counters
         self.nm_removed = 0
@@ -189,14 +189,14 @@ def install_patches(cp):
     save(config, "PUBKEY")
     save(config, "PRIVKEY")
 
-    region.my_channels = lambda: cp.broker.my_channels()
+    region.my_channels = lambda: cp.region.my_channels()
     poll._enumerate_kernel_wg_ifaces = lambda: cp.kernel.enum()
     poll.teardown_wg_iface = lambda iface: cp.kernel.delete(iface)
     poll.wg_handshake_age = lambda iface: cp.kernel.handshake_age(iface)
     poll._signal_bringup_ready = lambda: None
     # Bring-up is the I/O leaf (allocates wgN, runs wg-quick up). The
     # teardown ladder is what's under test, so bring-up is a sim no-op:
-    # a channel the broker authorizes is modeled as already present in
+    # a channel the region authorizes is modeled as already present in
     # the sim kernel, so a "bring up" is a successful no-op.
     poll._bring_up_tunnel = lambda channel: True
     wg.refresh_handshake = lambda iface, wait_sec: 1.0   # always fresh
@@ -216,15 +216,15 @@ def install_patches(cp):
 
 # ----------------------------- scenarios ----------------------------
 def _fresh_three(cp):
-    """wg0/wg1/wg2 up, freshly handshaking, all broker-authorized."""
+    """wg0/wg1/wg2 up, freshly handshaking, all region-authorized."""
     cp.kernel.ifaces.clear()
-    cp.broker.channels.clear()
-    cp.broker.unreachable = False
+    cp.region.channels.clear()
+    cp.region.unreachable = False
     for i, (iface, sub) in enumerate([("wg0", "10.102.60"),
                                       ("wg1", "10.179.179"),
                                       ("wg2", "10.130.130")]):
         pk = f"PUB{i}="
-        cp.broker.channels[f"ch-{sub}"] = pk      # broker first...
+        cp.region.channels[f"ch-{sub}"] = pk      # region first...
         cp.kernel.seed(iface, pk, hs_age=3.0)     # ...then seed iface silently (3s = live)
     # clear counters after setup adds
     cp.nm_added = cp.nm_removed = cp.merge_bails = cp.merges_run = 0
@@ -233,7 +233,7 @@ def _fresh_three(cp):
 
 
 def scenario_baseline_quiet():
-    print("baseline: established+handshaking tunnels, healthy broker -> quiet")
+    print("baseline: established+handshaking tunnels, healthy region -> quiet")
     cp = ControlPlane(); restore = install_patches(cp)
     try:
         _fresh_three(cp)
@@ -246,12 +246,12 @@ def scenario_baseline_quiet():
         restore()
 
 
-def scenario_transient_broker_unreachable():
+def scenario_transient_region_unreachable():
     print("transient: one hub-channel read throws during a merge")
     cp = ControlPlane(); restore = install_patches(cp)
     try:
         _fresh_three(cp)
-        cp.broker.unreachable = True
+        cp.region.unreachable = True
         cp.run_merge(trigger="timer")
         check("live tunnels SURVIVE a transient hub-channel read failure",
               set(cp.kernel.ifaces) == {"wg0", "wg1", "wg2"},
@@ -271,7 +271,7 @@ def scenario_reproduce_2134():
         prefix = poll._tear_down_stale_only
         poll._tear_down_stale_only = poll._tear_down_all_kernel_wg_ifaces
         try:
-            cp.broker.unreachable = True    # one failed hub-channel read
+            cp.region.unreachable = True    # one failed hub-channel read
             cp.run_merge(trigger="timer")
         finally:
             poll._tear_down_stale_only = prefix
@@ -286,13 +286,13 @@ def scenario_reproduce_2134():
 
 
 def scenario_authority_preserved():
-    print("authority: broker positively drops wg1 -> wg1 (and only wg1) torn down")
+    print("authority: the region positively drops wg1 -> wg1 (and only wg1) torn down")
     cp = ControlPlane(); restore = install_patches(cp)
     try:
         _fresh_three(cp)
-        del cp.broker.channels["ch-10.179.179"]   # broker no longer authorizes wg1
+        del cp.region.channels["ch-10.179.179"]   # the region no longer authorizes wg1
         cp.run_merge(trigger="timer")
-        check("broker-dropped wg1 IS torn down (authority honored)",
+        check("region-dropped wg1 IS torn down (authority honored)",
               "wg1" not in cp.kernel.ifaces, f"kernel={sorted(cp.kernel.ifaces)}")
         check("wg0/wg2 kept", {"wg0", "wg2"} <= set(cp.kernel.ifaces),
               f"kernel={sorted(cp.kernel.ifaces)}")
@@ -434,7 +434,7 @@ def scenario_gossip_triggered_merge_is_teardown_safe():
         # A propogateNotification arrived and forked runMerge; during that
         # merge one hub-channel read fails. Same merge path as a timer merge,
         # so the TRANSIENT_GUARD_V1 fix must cover it too.
-        cp.broker.unreachable = True
+        cp.region.unreachable = True
         cp.run_merge(trigger="apache:propogateNotification")
         check("gossip-triggered merge kept live tunnels under transient failure",
               set(cp.kernel.ifaces) == {"wg0", "wg1", "wg2"},
@@ -449,7 +449,7 @@ def main():
     print("=== control-plane sim: NM + dnsmasq + Apache callbacks over REAL bringup ===\n")
     FAILS.clear()
     scenario_baseline_quiet()
-    scenario_transient_broker_unreachable()
+    scenario_transient_region_unreachable()
     scenario_reproduce_2134()
     scenario_authority_preserved()
     scenario_dnsmasq_callback()
@@ -461,9 +461,9 @@ def main():
         print(f"CONTROL-PLANE SIM FAILURES: {FAILS}")
         return 1
     print("ALL CONTROL-PLANE SCENARIOS PASS\n"
-          "  - transient no_internet / broker_unreachable no longer nuke live tunnels\n"
+          "  - a transient hub-channel read failure no longer nukes live tunnels\n"
           "  - pre-fix path reproduces the 21:34 teardown + NM lock_held storm\n"
-          "  - positive broker omission still tears down (authority preserved)\n"
+          "  - positive region omission still tears down (authority preserved)\n"
           "  - dnsmasq + NetworkManager callbacks drive the real reconcile\n"
           "  - Apache propogateNotification gossip is neighbor-scoped, reaches the\n"
           "    whole mesh, terminates by dedup, and its merges are teardown-safe")

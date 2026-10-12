@@ -32,7 +32,7 @@
 # frognet_check_manifest below, which refuses.
 #
 # Cut by PATH, never by extension. The original full_tar used
-# --exclude='*.tgz', which took the BROKER (it ships as a bundle), and
+# --exclude='*.tgz', which took source that ships as a bundle, and
 # --exclude='*.png|*.svg|*.ico', which took the web root's assets - the shipped
 # var/www/html had zero images in it.
 # =============================================================================
@@ -50,12 +50,11 @@ FROGNET_WORLD_PATHS=(
     # [DEPS_ARE_INSTALLED_NOT_SHIPPED_V1]
     #
     # These are the REQUIRED ones - absent, frognet_check_manifest fails the build.
-    # usr/local/lib/frognet/ holds conf.sh, which frognet-conf-consolidate.sh,
-    # frognet-make-lanonly.sh and frognet-unmake-gateway.sh all source and none of
-    # them can run without. It was never packaged: the previous list named
-    # frognet_trace.sh and frognet_log.sh individually and stopped there, so
+    # usr/local/lib/frognet/ holds conf.sh, which frognet_prune_removed.sh's T3
+    # section (installer phase C1c) sources. It was once never packaged: the list
+    # named frognet_trace.sh and frognet_log.sh individually and stopped there, so
     # install phase C1c died with "FATAL: /usr/local/lib/frognet/conf.sh not found"
-    # on BrokerHost 2026-08-29. Anything else matching frognet* is picked up by the
+    # (2026-08-29). Anything else matching frognet* is picked up by the
     # autodiscovery below.
     usr/local/lib/frognet
     usr/local/lib/frognet_trace.sh
@@ -100,7 +99,6 @@ FROGNET_WORLD_PATHS=(
     etc/NetworkManager/conf.d/99-frognet-unmanaged.conf
     etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
     etc/NetworkManager/dispatcher.d/90-frognet-merge
-    etc/NetworkManager/dispatcher.d/91-frognet-connectivity
     etc/ssl
     # [WE_DO_NOT_OWN_THE_DISTRIBUTION_V1] Named files, not the directory. Scoping
     # to etc/sysctl.d shipped Debian's and the Raspberry Pi foundation's stock
@@ -202,14 +200,12 @@ FROGNET_THIRD_PARTY=(
     # Dino Farinacci's lispers.net, Apache-2.0, vendored unmodified as the frozen oracle the lispers example is tested
     # against. It carries its own LICENSE and NOTICE; ours must never be stamped on it. Not shipped: see NEVER_SHIP.
     opt/frognet_semantic/ribbit/examples/lispers.net/third_party
-    # React and Babel (MIT), vendored by the broker's web UI. Never stamped with ours.
-    opt/frognet_semantic/broker/var/www/html/assets/vendor
 )
 
 FROGNET_NEVER_SHIP=(
     # [NODE_LOCAL_NEVER_SHIPS_V1 - 2026-10-02] On a node, used there, never FrogNet source: pip's console-script
     # launchers (pip writes them on install), the Redis front binary the Redis build installs for that machine's
-    # architecture, a third-party service unit, and the broker's state copies. full_tar from Seattle5 is the snapshot
+    # architecture and a third-party service unit. full_tar from Seattle5 is the snapshot
     # that becomes every node and the repository, so these are kept out of it here rather than deleted from the node.
     usr/local/bin/bottle
     usr/local/bin/bottle.py
@@ -234,14 +230,12 @@ FROGNET_NEVER_SHIP=(
     usr/local/bin/torchrun
     usr/local/bin/ribbit-redis-front
     etc/systemd/system/uptime-kuma.service
-    'opt/frognet_semantic/broker/opt/frognet_broker_v4/*.db'
     # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet_system_tune.sh from the board's own RAM and
     # CPU count (innodb_buffer_pool_size, sysctl, service limits): each node's are its own, and a shipped copy would
     # carry Seattle5's sizing onto a smaller board until the next boot.
     etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
     etc/sysctl.d/99-frognet.conf
     'etc/systemd/system/*.service.d/99-frognet-tune.conf'
-    opt/frognet_semantic/broker/opt/frognet_broker_v4/files.zip
     # [NODE_IDENTITY_NEVER_SHIPS_V1 - 2026-10-01] Files every node generates for itself. A tree built on one node
     # carried them, and laying it over another node made that node Seattle5: dnsmasq served Seattle5's domain and
     # DHCP range, and `frognet_install.sh --preserve` then "recovered" the name Seattle5 from opts_only.conf.
@@ -249,7 +243,6 @@ FROGNET_NEVER_SHIP=(
     etc/dnsmasq.d/opts_only.conf
     etc/frognet/node-id
     etc/frognet/ssid_projection.conf
-    'etc/frognet/broker.conf.superseded.*'
     'etc/NetworkManager/conf.d/*'
     'etc/iptables/rules.v*'
     etc/ssl/localCA
@@ -297,11 +290,9 @@ FROGNET_NEVER_SHIP=(
     # Shipping it gives every cloned node the same identity.
     'etc/fnid'
 
-    # Pond membership and broker credentials. tunnel.conf holds GROUP_TOKEN,
-    # PASSCODE and the broker URL; broker.conf the broker's own. A node redeems
-    # its own at join.
+    # This node's region (RINA_RAM / RINA_AREA, when it has one) and its WiFi
+    # passphrase. Each node's own.
     'etc/frognet/tunnel.conf'
-    'etc/frognet/broker.conf'
     'etc/frognet/wifi.env'
 
     # Per-node RUNTIME STATE under etc/frognet. The DIRECTORY ships (the installer
@@ -309,16 +300,11 @@ FROGNET_NEVER_SHIP=(
     # a build candidate:
     #   gateways.conf  held NETWORK_NAME=Seattle5 and GATEWAY_IP=10.250.250.1 -
     #                  another node's pond identity, generated by setup_lillypad
-    #   pond_bootstrap_done  is a SENTINEL. Shipping it makes a freshly installed
-    #                  node believe deferred tunnel setup already ran, so
-    #                  runMerge never calls frognet-pond-bootstrap.sh. A zero-byte
-    #                  file that silently disables a boot step.
     #   active_interface / interfaces_override.conf  are AUTO-GENERATED from the
     #                  build host's NICs; D3 writes them for the target.
     'etc/frognet/gateways.conf'
     'etc/frognet/active_interface'
     'etc/frognet/interfaces_override.conf'
-    'etc/frognet/pond_bootstrap_done'
     'etc/frognet/semantic_hosts'
     'etc/frognet/simulator_underlay'
     'etc/frognet/transit_exclude_interfaces'

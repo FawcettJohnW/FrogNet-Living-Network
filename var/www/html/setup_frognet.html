@@ -74,9 +74,6 @@
   }
   input.ip   { width: 11em; font-variant-numeric: tabular-nums; }
   input.name { width: 16em; }
-  input.host { width: 18em; }
-  input.port { width: 6em; font-variant-numeric: tabular-nums; }
-  input.pond { width: 14em; }
   input:focus { outline: none; border-color: var(--moss); background: #fff; }
   input[type=checkbox] { transform: translateY(2px); margin-right: .35em; }
   button { font-family: 'Lora', Georgia, serif; font-size: .96em; font-weight: 500; padding: .42em .9em; cursor: pointer; background: var(--moss); color: #fff; border: 1px solid var(--moss-dk); border-radius: 5px; transition: background .15s, transform .05s; display: inline-flex; align-items: center; gap: .35em; }
@@ -115,7 +112,6 @@
   .group-head { font-family: 'Caveat', cursive; font-size: 1.3em; color: var(--bank); margin: .9em 0 .25em; }
   .footnote { text-align: center; font-family: 'Caveat', cursive; color: var(--ink-soft); font-size: 1.15em; margin: 2em 0 0; }
   .change-panel { margin-top: .4em; padding: .6em .8em; background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; }
-  .broker-fields.hidden { display: none; }
   .post-applied { text-align: center; }
   .post-applied .url { font-family: 'Fraunces', Georgia, serif; word-break: break-all; padding: .5em .8em; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; display: inline-block; margin: .5em auto; }
   .post-applied img { max-width: 220px; margin-top: .8em; border-radius: 6px; }
@@ -139,7 +135,7 @@
   </svg>
   <p class="tag">Welcome to the</p>
   <h1>FrogNet Living Network</h1>
-  <p class="lede">This is your node's home page &mdash; the lily pad you sit on in the wider pond. Give your pad a name, set its address, choose a pond to swim in, and watch which other waters you can reach.</p>
+  <p class="lede">This is your node's home page &mdash; the lily pad you sit on in the wider pond. Give your pad a name, set its address, and watch which other waters you can reach.</p>
   <div class="hostname" id="hostname-tag"></div>
 </header>
 
@@ -180,36 +176,6 @@
   </details>
 </section>
 
-<section class="card" id="card-broker">
-  <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="14" rx="9" ry="5"/><path d="M3 14c0 3 4 6 9 6s9-3 9-6"/><path d="M9 11.5c1-1 2-1 3 0"/></svg>The Pond <span class="help" tabindex="0">?<span class="help-bubble">A Pond is a group of FrogNet nodes that route through a shared broker. Skip if you're a local-only node.</span></span></h2>
-  <p class="blurb">Where this pad joins the wider waters. Saved here, takes effect at next reboot.</p>
-  <div class="row">
-    <div class="label"><label for="b-enable" style="cursor:pointer; display:inline-flex; align-items:center;"><input type="checkbox" id="b-enable">Use a broker</label></div>
-  </div>
-  <div id="broker-fields" class="broker-fields hidden">
-    <div class="row">
-      <div class="label">Broker host <span class="help" tabindex="0">?<span class="help-bubble">DNS name or IP of the broker. Default port for v4 is 443.</span></span></div>
-      <input type="text" id="b-host" class="host" placeholder="streamingfrog.com" autocomplete="off">
-    </div>
-    <div class="row">
-      <div class="label">Port</div>
-      <input type="number" id="b-port" class="port" value="443">
-    </div>
-    <div class="row">
-      <div class="label">Pond name</div>
-      <input type="text" id="b-pond" class="pond" placeholder="e.g. ratpond" autocomplete="off">
-    </div>
-    <div class="row">
-      <div class="label">Pond password <span class="help" tabindex="0">?<span class="help-bubble">Only if the pond requires one. Leave blank to keep the password already on this node.</span></span></div>
-      <input type="password" id="b-pw" autocomplete="off" placeholder="(unchanged)">
-    </div>
-    <div class="row">
-      <div class="label">Choruses <span class="help" tabindex="0">?<span class="help-bubble">Comma-separated. Joins additional choruses beyond <code>entire_pond</code>.</span></span></div>
-      <input type="text" id="b-choruses" placeholder="e.g. office, home" autocomplete="off">
-    </div>
-  </div>
-</section>
-
 <section class="card" id="card-connected">
   <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17a4 4 0 1 0 0-8h-1"/><path d="M15 7a4 4 0 1 1 0 8h-1"/><line x1="8" y1="13" x2="16" y2="11"/></svg>Where you are connected</h2>
   <p class="blurb">Each line is something your node could be talking on right now.</p>
@@ -230,9 +196,9 @@
 
 <section class="card" id="card-apply">
   <h2><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><polyline points="21 4 21 12 13 12"/></svg>Apply &amp; reboot</h2>
-  <p class="blurb">Identity above takes effect when you press Apply identity. Pond settings are saved and take effect on reboot.</p>
+  <p class="blurb">Identity above takes effect when you press Apply identity, or here, with a reboot.</p>
   <div class="row" style="border:none">
-    <button id="apply-all-btn" type="button" class="big">Save pond settings &amp; reboot</button>
+    <button id="apply-all-btn" type="button" class="big">Save &amp; reboot</button>
     <span id="apply-status" class="value" style="font-style:italic; font-size:.92em"></span>
   </div>
 </section>
@@ -305,26 +271,6 @@ async function loadState() {
     $('ifaces-list').innerHTML = '<div class="empty">Could not load state: ' + escHtml(e.message) + '</div>';
   }
 }
-
-async function loadBroker() {
-  try {
-    const b = await call('broker-state');
-    if (b && b.enabled) {
-      $('b-enable').checked = true;
-      toggleBroker();
-      $('b-host').value     = b.host || '';
-      $('b-port').value     = b.port || '443';
-      $('b-pond').value     = b.pond || '';
-      $('b-choruses').value = (b.choruses || []).join(', ');
-      $('b-pw').placeholder = b.pond_password_set ? '(unchanged)' : '';
-    }
-  } catch (e) { console.warn('broker-state:', e.message); }
-}
-
-function toggleBroker() {
-  $('broker-fields').classList.toggle('hidden', !$('b-enable').checked);
-}
-$('b-enable').addEventListener('change', toggleBroker);
 
 async function loadSsidProjection() {
   const cb = $('ssid-toggle');
@@ -580,37 +526,20 @@ $('apply-all-btn').onclick = async () => {
   const ip   = $('id-ip').value.trim();
   if (!name || !ip) { setStatus('Identity (name + IP) is required before reboot.', false); return; }
   if (!/^10\.\d+\.\d+\.1$/.test(ip)) { setStatus('IP must look like 10.X.Y.1', false); return; }
-  const useBroker = $('b-enable').checked;
-  let host, port, pond, pw, csv;
-  if (useBroker) {
-    host = $('b-host').value.trim();
-    port = $('b-port').value.trim() || '443';
-    pond = $('b-pond').value.trim();
-    pw   = $('b-pw').value;
-    csv  = $('b-choruses').value.trim();
-    if (!host || !pond) { setStatus('Broker host and pond name are required when "Use a broker" is checked.', false); return; }
-  }
-  if (!confirm('Save pond settings and reboot now?\n\nThis page will become unreachable until the host comes back up.')) return;
+  if (!confirm('Save and reboot now?\n\nThis page will become unreachable until the host comes back up.')) return;
   const btn = $('apply-all-btn');
   btn.disabled = true; btn.textContent = 'Working\u2026';
   status.textContent = 'Applying identity\u2026';
   try { await call('apply-identity', {method:'POST', body:{name, ip}}); }
-  catch (e) { setStatus('Identity apply failed: ' + e.message, false); btn.disabled = false; btn.textContent = 'Save pond settings & reboot'; return; }
-  if (useBroker) {
-    status.textContent = 'Saving pond settings\u2026';
-    try { await call('apply-broker', {method:'POST', body:{host, port, pond, pond_password: pw, choruses: csv}}); }
-    catch (e) { setStatus('Broker apply failed: ' + e.message, false); btn.disabled = false; btn.textContent = 'Save pond settings & reboot'; return; }
-  } else {
-    try { await call('clear-broker', {method:'POST'}); } catch (e) { console.warn('clear-broker:', e.message); }
-  }
+  catch (e) { setStatus('Identity apply failed: ' + e.message, false); btn.disabled = false; btn.textContent = 'Save & reboot'; return; }
   await showPostApply(name, ip);
   status.textContent = 'Scheduling reboot\u2026';
   try { await call('reboot', {method:'POST'}); setStatus('Reboot scheduled. This page will go silent in a few seconds.', true); }
-  catch (e) { setStatus("Couldn't schedule reboot: " + e.message, false); btn.disabled = false; btn.textContent = 'Save pond settings & reboot'; }
+  catch (e) { setStatus("Couldn't schedule reboot: " + e.message, false); btn.disabled = false; btn.textContent = 'Save & reboot'; }
 };
 
 async function showPostApply(name, ip) {
-  ['card-identity','card-broker','card-connected','card-wifi','card-other','card-apply'].forEach(id => $(id).classList.add('hidden'));
+  ['card-identity','card-connected','card-wifi','card-other','card-apply'].forEach(id => $(id).classList.add('hidden'));
   const url = 'http://' + ip + '/setup_frognet.html';
   $('post-name').textContent = name;
   $('post-ip').textContent   = ip;
@@ -629,7 +558,7 @@ $('rescan-btn').onclick = () => loadWifi();
 
 async function refreshAll() {
   await loadState();
-  await Promise.all([loadBroker(), loadWifi(), loadSsidProjection()]);
+  await Promise.all([loadWifi(), loadSsidProjection()]);
 }
 refreshAll();
 </script>

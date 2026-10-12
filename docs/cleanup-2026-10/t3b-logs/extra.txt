@@ -1,0 +1,44 @@
+### internet_tunnels_v3/test_region_oracle.py
+PASS  5c control: hub without a tunnel is not a locator
+2026-10-12 07:02:39,598 [v3.0.0] frognet.tunnel-daemon WARNING REGION: maps -> []
+PASS  5 no tunnels -> no mappings (fdf-client withdraws them)
+RESULT PASS
+rc=0
+### internet_tunnels_v3/tests/graph_apply_oracle.py
+ok    gen: GEN line says why and by
+ok    gen: announced as the gen fact
+
+ALL OK
+rc=0
+### oracles/oracle_routing_topology.py
+  ok    build() refuses without an identity
+
+35 passed, 0 failed
+PASS - [LEASE_IS_NOT_A_NODE_V1]
+rc=0
+### simulation/live_prober_removal.py
+--- legitimate removal still fires (channel gone) ---
+  [PASS] 10.28.28.0/24 (channel gone) IS still removed on failure
+
+ALL PASS: prover-only failure preserved; genuine path-loss still removed.
+rc=0
+### simulation/sim_tunnel_health.py
+  - genuinely dead -> grace_hold then teardown_dead after 2 cycles
+  - transient stale -> refreshed in place, no teardown
+  - no-iface -> immediate teardown (grace N/A)
+  - echo filter (real) excludes dead tunnels from routes/hosts per merge
+rc=0
+### simulation/sim_control_plane.py
+  [PASS] gossip-triggered merge kept live tunnels under transient failure
+  [PASS] no fleet-wide teardown cascade seeded (0 NM removals)
+
+CONTROL-PLANE SIM FAILURES: ['N1 (degree 1) targets exactly its 1 neighbor, not all 6', 'N4 (degree 3) targets exactly its 3 neighbors', 'every node received/merged on the event (mesh-wide reach)', 'each node merged exactly once (dedup prevents re-merge storm)', 'the echo of each edge is absorbed by dedup']
+rc=1
+### oracle_default_route_resolver.sh (tree manageResolv.bash, tree live.py)
+  ok: live.py writes the dnsmasq upstream file
+
+RESULT: FAIL (9)
+### frognet-node-guid.sh scratch run
+ensure rc=0 444
+frognet-node-guid: rotated GUID ef656f524ea02d6bb0c1156301f4e5dd -> 08008dee1fe073fd0d45ba548763c184
+regenerate rc=0

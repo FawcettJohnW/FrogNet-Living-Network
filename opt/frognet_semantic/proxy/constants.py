@@ -56,7 +56,7 @@ def decide_semantic_mode() -> int:
 DAEMON_PORT_DEFAULT = int(os.environ.get("FROGNET_DAEMON_PORT", "9009"))
 
 # [REFLECT_PROBE_V1] Reflect-vhost port (loop/reflection detector). User-
-# exposed and env-overridable, like the daemon port and broker endpoint.
+# exposed and env-overridable, like the daemon port.
 REFLECT_PORT_DEFAULT = int(os.environ.get("FROGNET_REFLECT_PORT", "18432"))
 
 DEMO_RUN_ID_HEADER = "X-FrogNet-RunID"

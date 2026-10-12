@@ -19,19 +19,18 @@
 sim/conf_lib_check.py - [ONE_CONF_V1] the conf library exists and honours its
 contract.
 
-/usr/local/lib/frognet/conf.sh is sourced by eight scripts and by installer phase
-C1c. It was never packaged - the world manifest named frognet_trace.sh and
-frognet_log.sh individually - so a clean install died with
-"FATAL: /usr/local/lib/frognet/conf.sh not found" (BrokerHost 2026-08-29).
+/usr/local/lib/frognet/conf.sh holds fn_conf_unset, which frognet_prune_removed.sh's
+T3 section (the installer's C1c upgrade step) uses to take the retired keys out of
+/etc/frognet/tunnel.conf. It was once not packaged, so a clean install died with
+"FATAL: /usr/local/lib/frognet/conf.sh not found" (2026-08-29).
 
 This drives the REAL library against a scratch config. The property that matters
-is key-wise editing: frognet_setup_v4_helper.bash and change_pond.bash both state
-that rewriting the file wholesale would take GROUP_TOKEN, PASSCODE, MAX_TUNNELS
-and NODE_GUID with it. So the test is not "does it write a key" but "does
-everything else survive".
+is key-wise editing: the file may also hold RINA_RAM and RINA_AREA, which the tunnel
+daemon reads, so removing other keys must leave every other line - and the file's
+mode - exactly as it was.
 """
 from __future__ import annotations
-import os, re, subprocess, tempfile
+import os, re, stat, subprocess, tempfile
 
 FAILS = []
 
@@ -62,80 +61,47 @@ def _lib():
 def run():
     lib = _lib()
     check("[EXISTS] /usr/local/lib/frognet/conf.sh ships",
-          [] if lib else ["conf.sh not found - eight scripts source it and installer C1c dies without it"])
+          [] if lib else ["conf.sh not found - the T3 upgrade step sources it"])
     if not lib:
         return
 
-    # Every function the callers name must be defined.
     text = open(lib, encoding="utf-8", errors="replace").read()
-    missing = [f for f in ("fn_conf_get", "fn_conf_set", "fn_conf_unset",
-                           "fn_conf_backup", "fn_pond_set")
-               if not re.search(rf"^{f}\s*\(\)", text, re.M)]
-    check("[CONTRACT] every fn_conf_* / fn_pond_set the callers use is defined",
-          [f"conf.sh does not define {m}" for m in missing])
+    check("[CONTRACT] fn_conf_unset is defined",
+          [] if re.search(r"^fn_conf_unset\s*\(\)", text, re.M) else ["conf.sh does not define fn_conf_unset"])
     check("[DEFAULT] FROGNET_CONF defaults to the node config",
-          [] if "/etc/frognet/tunnel.conf" in text else
-          ["FROGNET_CONF has no default; frognet-conf-consolidate.sh takes dirname of it"])
+          [] if "/etc/frognet/tunnel.conf" in text else ["FROGNET_CONF has no default"])
 
     with tempfile.TemporaryDirectory() as d:
         conf = os.path.join(d, "tunnel.conf")
+        with open(conf, "w") as f:
+            f.write("# a comment\nOLD_A=1\nRINA_RAM=10.77.0.1:8840\nOLD_B=two=parts\nRINA_AREA=site1\nOLD_A=again\n")
+        os.chmod(conf, 0o600)
         script = f'''
 set -e
 export FROGNET_CONF="{conf}"
 . "{lib}"
-fn_conf_set GROUP_TOKEN membership
-fn_conf_set PASSCODE secretpass
-fn_conf_set MAX_TUNNELS 8
-fn_conf_set BROKER_URL https://old/x
-fn_pond_set hometown
-echo "GET:$(fn_conf_get BROKER_URL)"
-echo "ABSENT:[$(fn_conf_get NO_SUCH_KEY)]"
-echo "BACKUP:$(fn_conf_backup)"
-fn_conf_set BROKER_URL https://new/y
-echo "RESET:$(fn_conf_get BROKER_URL)"
-for k in BROKER_URL POND_NAME GROUP_NAME POND_PASSWORD CHORUSES; do fn_conf_unset "$k"; done
-echo "SURVIVED:$(fn_conf_get GROUP_TOKEN)/$(fn_conf_get PASSCODE)/$(fn_conf_get MAX_TUNNELS)"
+fn_conf_unset OLD_A
+fn_conf_unset OLD_B
+fn_conf_unset NO_SUCH_KEY
+echo DONE
 '''
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
-        out = r.stdout
         probs = []
-        if r.returncode != 0:
+        if r.returncode != 0 or "DONE" not in r.stdout:
             probs.append(f"conf.sh driver exited {r.returncode}: {r.stderr.strip()[:200]}")
-        if "GET:https://old/x" not in out:
-            probs.append("fn_conf_get did not read back what fn_conf_set wrote")
-        if "ABSENT:[]" not in out:
-            probs.append("an absent key must read as empty, not as an invented value")
-        if "RESET:https://new/y" not in out:
-            probs.append("fn_conf_set did not REPLACE an existing key")
-        check("[ROUNDTRIP] set / get / replace", probs)
+        left = open(conf).read()
+        if left != "# a comment\nRINA_RAM=10.77.0.1:8840\nRINA_AREA=site1\n":
+            probs.append(f"fn_conf_unset must remove exactly the named keys (every line of them) and nothing else; left {left!r}")
+        if stat.S_IMODE(os.stat(conf).st_mode) != 0o600:
+            probs.append(f"mode changed to {oct(stat.S_IMODE(os.stat(conf).st_mode))}")
+        check("[KEY_WISE] unsetting keys leaves RINA_RAM / RINA_AREA, the comment and mode 600 intact", probs)
 
         probs = []
-        if "SURVIVED:membership/secretpass/8" not in out:
-            probs.append("unsetting the broker keys destroyed membership material - "
-                         "fn_conf_unset must be key-wise, never a rewrite of the file "
-                         f"(got: {[l for l in out.splitlines() if l.startswith('SURVIVED')]})")
-        check("[KEY_WISE] clearing the broker leaves GROUP_TOKEN / PASSCODE / MAX_TUNNELS intact", probs)
-
-        probs = []
-        bak = next((l.split(":", 1)[1] for l in out.splitlines() if l.startswith("BACKUP:")), "")
-        if not bak or not os.path.exists(bak):
-            probs.append("fn_conf_backup did not write a file and print its path")
-        elif not re.search(r"\.conf\.20\d{6}T\d{6}Z$", bak):
-            probs.append(f"backup name {os.path.basename(bak)} does not match the "
-                         "'*.conf.20*' FROGNET_NEVER_SHIP pattern - a backup carrying "
-                         "GROUP_TOKEN would reach the public repo")
-        check("[BACKUP] a backup is written, named so it can never ship", probs)
-
-        probs = []
-        pond = subprocess.run(["bash", "-c",
-                               f'export FROGNET_CONF="{conf}"; . "{lib}"; '
-                               f'fn_conf_set POND_NAME ""; fn_conf_set GROUP_NAME ""; '
-                               f'fn_pond_set pondx; echo "$(fn_conf_get POND_NAME)/$(fn_conf_get GROUP_NAME)"'],
-                              capture_output=True, text=True)
-        if "pondx/pondx" not in pond.stdout:
-            probs.append("fn_pond_set must write BOTH POND_NAME and GROUP_NAME "
-                         "(frognet-conf-consolidate.sh's merge rule) so they cannot drift")
-        check("[POND] fn_pond_set writes POND_NAME and GROUP_NAME together", probs)
+        r = subprocess.run(["bash", "-c", f'export FROGNET_CONF="{d}/absent.conf"; . "{lib}"; fn_conf_unset OLD_A; echo rc=$?'],
+                           capture_output=True, text=True)
+        if "rc=0" not in r.stdout or os.path.exists(os.path.join(d, "absent.conf")):
+            probs.append("an absent file is the requested state already: rc 0, and no file is created")
+        check("[ABSENT] no tunnel.conf: nothing to do, nothing created", probs)
 
 
 def main():

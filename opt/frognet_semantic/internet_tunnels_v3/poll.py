@@ -236,73 +236,6 @@ def _peer_one_inside_dest(peer_prefix: str, dest_cidr: str) -> bool:
         return False
 
 
-def _onlink_required(dev: str, via: str) -> bool:
-    """[SMART_ONLINK_V1] Decide whether `dest via <via> dev <dev>`
-    needs the `onlink` keyword.
-
-    Onlink is needed only when no existing route on <dev> covers
-    <via>.  When the channel's own /24 is already up on a wg
-    interface (e.g. 10.160.160.0/24 dev wg2 scope link) and we're
-    installing a transitive /24 with via=10.160.160.1 dev wg2, the
-    kernel resolves the via through the existing /24 via recursive
-    lookup - onlink is unnecessary and actively harmful for
-    downstream destinations (it tells the kernel to skip the
-    recursive lookup, breaking forwarding for any address that
-    needs the relay node's own routing decisions).
-
-    Returns True only when no existing non-via route on <dev>
-    covers <via>.  Failing safely closed: if `ip route show dev
-    <dev>` errors, return True so the install still succeeds via
-    onlink - same as the previous unconditional behavior."""
-    if not via:
-        return False
-    try:
-        ip_int = _ip_to_int(via)
-    except ValueError:
-        return True
-    try:
-        out = subprocess.run(
-            ["ip", "-o", "-4", "route", "show", "dev", dev],
-            capture_output=True, text=True, check=False, timeout=2,
-        )
-    except (subprocess.SubprocessError, OSError):
-        return True
-    if out.returncode != 0:
-        return True
-    for line in out.stdout.splitlines():
-        line = line.strip()
-        if not line or " via " in line:
-            continue
-        dest = line.split(None, 1)[0]
-        if "/" in dest:
-            net_s, plen_s = dest.split("/", 1)
-            try:
-                plen = int(plen_s)
-            except ValueError:
-                continue
-        else:
-            net_s = dest
-            plen = 32
-        try:
-            net_int = _ip_to_int(net_s)
-        except ValueError:
-            continue
-        mask = (0xFFFFFFFF << (32 - plen)) & 0xFFFFFFFF if plen else 0
-        if (ip_int & mask) == (net_int & mask):
-            return False  # covered, no onlink needed
-    return True
-
-
-def _ip_to_int(ip: str) -> int:
-    parts = ip.split(".")
-    if len(parts) != 4:
-        raise ValueError(f"bad ip: {ip!r}")
-    nums = [int(p) for p in parts]
-    if any(n < 0 or n > 255 for n in nums):
-        raise ValueError(f"bad ip: {ip!r}")
-    return (nums[0] << 24) | (nums[1] << 16) | (nums[2] << 8) | nums[3]
-
-
 def _ensure_frognet0():
     r = subprocess.run(["ip", "link", "show", FROGNET_IFACE],
                        capture_output=True, check=False)
@@ -312,20 +245,6 @@ def _ensure_frognet0():
         subprocess.run(["ip", "link", "set", FROGNET_IFACE, "up"], check=False)
         config.log.info("Created %s virtual interface", FROGNET_IFACE)
 
-
-
-# ---------------------------------------------------------------------------
-# Subnet helper
-# ---------------------------------------------------------------------------
-
-def _probe_ip_for_subnet(subnet: str) -> str:
-    """'10.102.60.0/24' -> '10.102.60.2'.  Probe alias, not the gateway."""
-    if "/" not in subnet:
-        return ""
-    parts = subnet.split("/", 1)[0].split(".")
-    if len(parts) != 4:
-        return ""
-    return f"{parts[0]}.{parts[1]}.{parts[2]}.2"
 
 
 # ---------------------------------------------------------------------------
@@ -1747,6 +1666,6 @@ def run_daemon_loop():
 
 
 def shutdown_all():
-    """Graceful exit: leave tunnels alone.  bulk_teardown = nuke_tunnels."""
+    """Graceful exit: leave tunnels alone."""
     config.log.info("SHUTDOWN: leaving %d tunnels in place",
                     len(_active_tunnels))

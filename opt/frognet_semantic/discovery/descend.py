@@ -321,7 +321,7 @@ def descend(disc, active_devs, immediate, *, active_states=None, max_workers=64,
             logger=None):
     """immediate: [(ip, dev)] - the real downstream + upstream connections, each
     with the interface it is connected on. active_states: [(iface, [remote /24s])]
-    - the broker's authoritative table of which /24s are reachable through each
+    - the tunnel daemon's table of which /24s are reachable through each
     tunnel. Returns number of candidates emitted. Populates disc.CAND; promote()
     installs."""
     active_states = active_states or []

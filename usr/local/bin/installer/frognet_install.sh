@@ -17,10 +17,13 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 ###############################################################################
-# frognet_install.sh - FrogNet node installer (v4 - broker + SSID-projection)
+# frognet_install.sh - FrogNet node installer (LAN-only or region; SSID projection)
 #
 # Handles fresh installs AND unclean/cloned boxes. All configuration
 # happens AFTER the world tar is extracted, so nothing gets overwritten.
+#
+# The node comes up LAN-only. Joining a region is done afterwards with
+# FD&F's fdf-region-join (the tunnel daemon then makes its own WireGuard key).
 #
 # Usage:
 #   sudo bash frognet_install.sh                    # interactive, from a release
@@ -28,29 +31,16 @@
 #   sudo bash frognet_install.sh \
 #        --name <NODE> \
 #        --ip   <10.X.Y.1> \
-#        --broker-host <HOST> \
-#        --broker-port <PORT> \
 #        [--no-ssid-projection]                     # disable AP fallback
 #
 # Args (all optional; missing values fall through to interactive prompt):
 #   --name <NODE>            Node name. Letters, numbers, _, -.
 #   --ip   <10.X.Y.1>        Gateway IP. Must end in .1.
-#   --broker-host <HOST>     Broker DNS name or IP.
-#                            Empty -> no broker; configure later via setup_frognet.html.
-#   --broker-port <PORT>     Broker port.
-#   --broker-scheme <http|https>
-#                            Scheme for the broker URL (default https). A broker's
-#                            own port is plain HTTP unless its installer was given
-#                            a TLS cert, in which case pass --broker-scheme http.
 #   --db-pass <PASS>         FrogUser DB password. SHARED pond-wide constant:
 #                            every node must use the SAME value. Omit to be
 #                            prompted (hidden, entered twice). A value on the
 #                            command line is visible in `ps` to local users
 #                            while the installer runs; prefer the prompt.
-#   --pond <name>            Pond to JOIN (the group sharing a broker namespace).
-#                            Required whenever a broker is configured. This is NOT
-#                            the node/domain name - do not pass the node name here.
-#                            Omitted -> taken from an existing broker.conf, else asked.
 #   --wifi-psk <PSK>         WPA2 passphrase for the projected SSID (8-63 chars).
 #                            Pond-shared: every node in a pond uses the SAME one.
 #                            Omitted -> taken from an existing /etc/frognet/wifi.env,
@@ -78,6 +68,13 @@
 #   --no-ssid-projection     Disable WiFi AP fallback when eth0 has no link.
 #                            Default: ON - when eth0 has no cable and the device
 #                            has a wlan0, hostapd projects the node SSID.
+#   --ssid-projection        Force the WiFi AP fallback on (the default; given
+#                            explicitly, E7 does not ask).
+#   --country <CC>           WiFi regulatory country (two letters, e.g. US).
+#                            Omitted -> asked in E1 (default US).
+#   --ap-iface <IFACE>       The wireless interface hostapd projects the SSID on.
+#                            Omitted -> detected (wlan0 when present).
+#   -h, --help               Print this text.
 #
 # Phase A: Install packages (apt + pip)
 # Phase B: Pre-extraction setup (dirs, sysctl, iptables scaffold, sudoers)
@@ -115,9 +112,6 @@ WORLD_TGZ="${SCRIPT_DIR}/frognet_world.tgz"
 ###############################################################################
 ARG_NAME=""
 ARG_IP=""
-ARG_BROKER_HOST=""
-ARG_BROKER_PORT=""
-ARG_BROKER_SCHEME="https"
 ARG_DB_PASS=""
 ARG_DB_PASS_SET=0
 SSID_PROJECTION=1
@@ -127,11 +121,11 @@ FROM_REPO=0
 REBUILD_VENV_FORCE=0
 WIFI_COUNTRY=""
 WIFI_PSK=""
-ARG_POND=""
 AP_IFACE=""
 
 usage() {
-    sed -n '2,43p' "$0"
+    # The whole header, from the title line to the Phase list: every option.
+    sed -n '/^# frognet_install.sh - /,/^# Phase F:/p' "$0"
     exit "${1:-0}"
 }
 
@@ -141,18 +135,10 @@ while [[ $# -gt 0 ]]; do
         --name=*)            ARG_NAME="${1#*=}";   shift   ;;
         --ip)                ARG_IP="$2";          shift 2 ;;
         --ip=*)              ARG_IP="${1#*=}";     shift   ;;
-        --broker-host)       ARG_BROKER_HOST="$2"; shift 2 ;;
-        --broker-host=*)     ARG_BROKER_HOST="${1#*=}";   shift ;;
-        --broker-port)       ARG_BROKER_PORT="$2"; shift 2 ;;
-        --broker-port=*)     ARG_BROKER_PORT="${1#*=}";   shift ;;
-        --broker-scheme)     ARG_BROKER_SCHEME="$2"; shift 2 ;;
-        --broker-scheme=*)   ARG_BROKER_SCHEME="${1#*=}"; shift ;;
         --db-pass)           ARG_DB_PASS="$2"; ARG_DB_PASS_SET=1; shift 2 ;;
         --db-pass=*)         ARG_DB_PASS="${1#*=}"; ARG_DB_PASS_SET=1; shift ;;
         --preserve)          PRESERVE=1; shift ;;
         --from-repo)         FROM_REPO=1; shift ;;
-        --pond)              ARG_POND="$2"; shift 2 ;;
-        --pond=*)            ARG_POND="${1#*=}"; shift ;;
         --wifi-psk)          WIFI_PSK="$2"; shift 2 ;;
         --wifi-psk=*)        WIFI_PSK="${1#*=}"; shift ;;
         --rebuild-venv)      REBUILD_VENV_FORCE=1; shift ;;
@@ -175,13 +161,6 @@ fi
 if [[ -n "$ARG_NAME" ]]; then
     [[ "$ARG_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || {
         echo "ERROR: --name must be letters/numbers/_/- (got: $ARG_NAME)" >&2; exit 1; }
-fi
-if [[ -n "$ARG_BROKER_HOST" && -z "$ARG_BROKER_PORT" ]]; then
-    ARG_BROKER_PORT="443"
-fi
-if [[ -n "$ARG_BROKER_PORT" ]]; then
-    [[ "$ARG_BROKER_PORT" =~ ^[0-9]+$ ]] || {
-        echo "ERROR: --broker-port must be numeric (got: $ARG_BROKER_PORT)" >&2; exit 1; }
 fi
 
 die_early() { echo "ERROR: $*" >&2; exit 1; }
@@ -538,7 +517,7 @@ log "Directories created"
 
 phase "B4: Sudoers"
 # www-data needs to invoke the FrogNet setup helpers as root so
-# setup_frognet.html can apply identity and broker settings.  Without
+# setup_frognet.html can apply identity, WiFi and SSID settings.  Without
 # this fragment, every action in the setup page returns a 401.
 cat > /etc/sudoers.d/frognet-setup <<'SUDOERS'
 www-data ALL=(root) NOPASSWD: /usr/local/bin/frognet_setup_helper.bash
@@ -647,9 +626,9 @@ log "Extraction complete"
 
 # [NODE_GUID_V1] Allocate the node's permanent identity GUID once, at install.
 # /etc/fnid is outside /etc/frognet so a reinstall that wipes /etc/frognet does
-# NOT whack it. Generate-if-absent; never regenerated; mode 0444. Sent to the
-# broker as the "mac" identity by frognet-tunnel-setup-v3.sh. Identity is
-# essential: fail LOUDLY if it can't be allocated (no masking).
+# NOT whack it. Generate-if-absent; never regenerated; mode 0444. The tunnel
+# daemon announces it in the region (facts.guid); rinab's machine id reads it.
+# Identity is essential: fail LOUDLY if it can't be allocated (no masking).
 [[ -x /usr/local/bin/frognet-node-guid.sh ]] || die "frognet-node-guid.sh missing - cannot allocate node identity"
 /usr/local/bin/frognet-node-guid.sh --ensure
 NODE_GUID="$(/usr/local/bin/frognet-node-guid.sh)"
@@ -768,20 +747,22 @@ if [[ -n "$_leaks" ]]; then
 fi
 log "DB secret injected into ${#SECRET_INJECT_FILES[@]} declared file(s)"
 
-phase "C1c: Config consolidation"
+phase "C1c: Upgrade (what T3 retired)"
 ###############################################################################
-# [ONE_CONF_V1] Fold broker.conf and pond.conf into tunnel.conf.
-#
-# Must run AFTER C1 (which lays down conf.sh and the consolidator) and BEFORE
-# anything reads node config -- every patched consumer now reads tunnel.conf
-# only, so an un-migrated node would still have POND_PASSWORD and CHORUSES
-# stranded in a pond.conf nothing opens. Idempotent: a no-op on a node that has
-# already been consolidated, so re-running the installer is safe.
+# Runs on EVERY install, --preserve included, after C1 laid the tree down (it
+# brings frognet_prune_removed.sh and conf.sh). Its T3 section is the one list:
+# the old tunnel.conf keys (RINA_RAM / RINA_AREA, which the daemon reads, stay),
+# the two retired config files and every backup of them or of tunnel.conf, the
+# retired units (tunnel setup, pond bootstrap + timer, the old coordinator,
+# mediahost, reaper), their sentinels and the daemon's old state files,
+# and the scripts the tree no longer has. Each removal is logged. A failure is
+# logged and the install goes on; the next install (or a manual run of the same
+# command) retries it.
 ###############################################################################
-if [[ -x /usr/local/bin/frognet-conf-consolidate.sh ]]; then
-    /usr/local/bin/frognet-conf-consolidate.sh || die "config consolidation failed"
+if /usr/local/bin/frognet_prune_removed.sh --apply --only T3; then
+    log "C1c: retired state removed"
 else
-    warn "frognet-conf-consolidate.sh not present - skipping consolidation"
+    warn "C1c: some retired state could not be removed (listed above); the next install retries it"
 fi
 
 phase "C2: Python venv"
@@ -843,9 +824,9 @@ systemctl daemon-reload
 phase "C3: Pre-activation simulator gate (real code on real hardware)"
 # RC-1 GATE. Before any FrogNet merge/proxy/daemon service is enabled (phase F1),
 # run the simulator against the REAL code just installed on THIS box. The
-# simulator drives the actual ported discovery/orchestration/broker - same code
-# that will run live - through byte-exact oracle proofs and a full startup->
-# shutdown lifecycle (including the real broker). This is the last gate before
+# simulator drives the actual ported discovery/orchestration - same code
+# that will run live - through byte-exact oracle proofs and the proof plane's
+# shapes and churn. This is the last gate before
 # the real code goes active.
 #
 # DEFAULT: ON. The ONLY way to skip is an explicit FROGNET_INSTALL_SKIP_SIM=1,
@@ -861,7 +842,7 @@ else
     log "  Running pre-activation simulator on real code (log: $SIM_LOG) ..."
     : > "$SIM_LOG"
     _sim_ok=1
-    # (1) full proof suite (oracle byte-exact + proof_plane shapes/churn/broker)
+    # (1) full proof suite (oracle byte-exact + proof_plane shapes/churn)
     # PYTHONUTF8/PYTHONIOENCODING: the sim writes to a redirected file, so Python
     # derives stdout encoding from the install-time locale. Under C/POSIX that is
     # latin-1/ascii and a single non-ASCII char (e.g. an em-dash in a diagnostic)
@@ -959,15 +940,6 @@ echo "$ETH0_IF" > /etc/frognet/transit_exclude_interfaces
 [[ -f /etc/frognet/semantic_hosts ]] || touch /etc/frognet/semantic_hosts
 [[ -f /etc/frognet/simulator_underlay ]] || touch /etc/frognet/simulator_underlay
 [[ -f /etc/frognet/sem_cache_secret ]] || { openssl rand -hex 32 > /etc/frognet/sem_cache_secret; chmod 600 /etc/frognet/sem_cache_secret; }
-[[ -f /etc/frognet/tunnel.conf ]] || {
-    cat > /etc/frognet/tunnel.conf <<'TUNCONF'
-# Populated by setup_frognet.html -> cmd_apply_broker, or by
-# setup_lillypad_v4.bash when given a BROKER_URL argument.
-BROKER_URL=
-GROUP_NAME=
-TUNCONF
-    chmod 600 /etc/frognet/tunnel.conf
-}
 # [WIFI_PSK_REQUIRED_V1] wifi.env used to be seeded with FROGNET_WIFI_PSK=CHANGEME.
 # frognet-netstart then died at FIRST BOOT with "FROGNET_WIFI_PSK not set ... cannot
 # build WPA2 hostapd.conf" - the AP never came up, so the identity interface never
@@ -1240,23 +1212,6 @@ CUR_SIG="w0=${W0_IP:-}|w1=${W1_IP:-}|defvia=${DEF_VIA:-}|defdev=${DEF_DEV:-}|w0b
 tmp="${STATE_FILE}.tmp"; printf '%s\n' "$CUR_SIG" > "$tmp"; mv -f "$tmp" "$STATE_FILE"
 /usr/local/bin/runMerge.bash &
 DISPATCH
-# [DEFERRED_BROKER_SETUP_V1] connectivity-change is the event that matters for a
-# gateway waiting on its broker: the link is already up, so neither up/down hook
-# fires again, but NM signals when the box actually gains (or loses) internet.
-# 99-ifup deliberately drops it -- NM passes no interface for this event and that
-# script exits 4 on an empty one -- so nothing acted on it at all. This hook takes
-# only that event and asks for a merge, which is where the enrolment retry lives.
-cat > /etc/NetworkManager/dispatcher.d/91-frognet-connectivity <<'DISPATCH'
-#!/bin/bash
-# $1 = interface (empty for connectivity-change), $2 = event
-[[ "${2:-}" == "connectivity-change" ]] || exit 0
-# Only bother when something is actually waiting on the broker.
-[[ -f /etc/frognet/pond_bootstrap_done ]] && exit 0
-grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null || exit 0
-logger -t frognet-connectivity "connectivity-change - requesting merge for pending broker enrolment"
-/usr/local/bin/runMerge.bash &
-DISPATCH
-
 cat > /etc/NetworkManager/dispatcher.d/99-ifup <<'DISPATCH'
 #!/bin/bash
 INTERFACE="${1:-}"; EVENT="${2:-}"
@@ -1266,7 +1221,6 @@ INTERFACE="${1:-}"; EVENT="${2:-}"
 exec /usr/local/bin/runMerge.bash &
 DISPATCH
 chmod +x /etc/NetworkManager/dispatcher.d/90-frognet-merge \
-         /etc/NetworkManager/dispatcher.d/91-frognet-connectivity \
          /etc/NetworkManager/dispatcher.d/99-ifup
 # [NO_RESTART_BEFORE_REBOOT_V1] Do NOT restart NetworkManager here. The install
 # ends in an unconditional reboot (systemctl reboot), so a restart buys nothing -
@@ -1411,7 +1365,7 @@ declare -A KNOWN_NODES=(
 #                 definition this node's .1.
 #
 # Prompting here is not merely redundant, it is dangerous: a typo at this prompt
-# re-IPs or renames a live node, which changes its broker identity and its whole
+# re-IPs or renames a live node, which changes its identity and its whole
 # /24, on what the operator asked for as an in-place upgrade.
 #
 # An explicit --name / --ip still wins: this only fills in what was not given.
@@ -1627,9 +1581,6 @@ echo "  +------------------------------------+"
 printf "  |  Name:      %-23s|\n" "$NODE_NAME"
 printf "  |  IP:        %-23s|\n" "$NODE_IP"
 printf "  |  Interface: %-23s|\n" "$ETH0_IF"
-if [[ -n "$ARG_BROKER_HOST" ]]; then
-printf "  |  Broker:    %-23s|\n" "${ARG_BROKER_HOST}:${ARG_BROKER_PORT}"
-fi
 printf "  |  SSID proj: %-23s|\n" "$([[ $SSID_PROJECTION -eq 1 ]] && echo enabled || echo disabled)"
 echo  "  +------------------------------------+"
 echo
@@ -1640,50 +1591,6 @@ else
     read -rp "  Confirm? [y/N] " CONFIRM; [[ "$CONFIRM" =~ ^[Yy]$ ]] || die "Aborted"
 fi
 log "Identity: $NODE_NAME $NODE_IP $ETH0_IF"
-
-# ---------------------------------------------------------------------------
-# [DEFERRED_BROKER_SETUP_V1] Gateway role + broker enrolment
-#
-# Asked here, after the node has its name and address and before E3 runs
-# setup_lillypad -- which is what actually writes BROKER_URL.
-#
-# Being a gateway is a property of the machine's uplink, not of this answer: the
-# tunnel daemon decides WAN vs LAN mode every merge from three live conditions
-# (a non-10 upstream, broker config present, broker routable). What we do here is
-# supply the middle one. Answering yes on a node with no upstream is harmless --
-# it simply stays LAN-only until an uplink appears.
-#
-# We deliberately configure even when the broker cannot be reached right now.
-# A fresh gateway usually cannot: DNS may not be up, the uplink may not be
-# plumbed, the broker may be down or not yet migrated. Writing the config and
-# leaving enrolment pending means the node completes itself later without a
-# second visit -- retried on every runMerge (i.e. on every network change, which
-# is when reachability is most likely to have changed) and by the 2-minute
-# dispatcher hooks -- there is no timer.
-# ---------------------------------------------------------------------------
-if [[ -z "$ARG_BROKER_HOST" ]]; then
-    echo
-    echo "  Is this node an internet gateway - should it reach a broker and build"
-    echo "  WireGuard tunnels to other ponds?  A LAN-only node answers no."
-    read -rp "  Gateway? [y/N]: " _gw
-    if [[ "$_gw" =~ ^[Yy] ]]; then
-        while [[ -z "$ARG_BROKER_HOST" ]]; do
-            read -rp "  Broker host (DNS name or IP): " ARG_BROKER_HOST
-            ARG_BROKER_HOST="$(echo "$ARG_BROKER_HOST" | xargs)"
-        done
-        while [[ -z "${_bp:-}" ]]; do
-            read -rp "  Broker port: " _bp
-        done
-        ARG_BROKER_PORT="$_bp"
-        read -rp "  Scheme http/https [http]: " _bs
-        ARG_BROKER_SCHEME="${_bs:-http}"
-        log "Gateway: broker ${ARG_BROKER_SCHEME}://${ARG_BROKER_HOST}:${ARG_BROKER_PORT}"
-    else
-        log "LAN-only node - no broker will be configured"
-    fi
-else
-    log "Gateway: broker host supplied on the command line ($ARG_BROKER_HOST)"
-fi
 
 phase "E2: Hostname"
 FQDN="FrogNetHost.${NODE_NAME}"
@@ -1703,7 +1610,7 @@ if grep -q "127.0.1.1" /etc/hosts; then sed -i "s/^127\.0\.1\.1.*/127.0.1.1   $F
 else echo "127.0.1.1   $FQDN" >> /etc/hosts; fi
 log "Hostname: $FQDN"
 
-phase "E3: setup_lillypad (v4) + WireGuard credentials"
+phase "E3: setup_lillypad (v4)"
 SETUP="/usr/local/bin/setup_lillypad_v4.bash"
 [[ -x "$SETUP" ]] || die "$SETUP not found"
 
@@ -1712,104 +1619,17 @@ SETUP="/usr/local/bin/setup_lillypad_v4.bash"
 MACHINE_IP="$NODE_IP"
 log "Using machine IP: $MACHINE_IP"
 
-# Broker URL precedence: args > existing tunnel.conf > none
-INHERITED_BROKER_URL=""
-if [[ -f /etc/frognet/tunnel.conf ]]; then
-    INHERITED_BROKER_URL="$(grep -E '^BROKER_URL=' /etc/frognet/tunnel.conf \
-                            | head -1 | cut -d= -f2-)"
-fi
-
-CHOSEN_BROKER_URL=""
-if [[ -n "$ARG_BROKER_HOST" ]]; then
-    # Build URL: scheme://host[:port]<path>.  Omit :port when 443.
-    hp="$ARG_BROKER_HOST"
-    [[ -n "$ARG_BROKER_PORT" && "$ARG_BROKER_PORT" != "443" ]] && hp="${ARG_BROKER_HOST}:${ARG_BROKER_PORT}"
-    case "$ARG_BROKER_SCHEME" in
-        http|https) ;;
-        *) die "--broker-scheme must be http or https (got: $ARG_BROKER_SCHEME)" ;;
-    esac
-    # [ONE_BROKER_URL_SHAPE_V1] scheme://host:port, no path. The broker serves
-    # /api/v4/... at the root of its own port; --broker-path existed for a
-    # deployment that lived under a /frognet-broker-v4 prefix on someone's 443,
-    # and its own installer keeps serving that prefix via
-    # FROGNET_BROKER_LEGACY_PREFIX, so nothing needs the node to send it.
-    #
-    # Removed 2026-09-01. It was also a disagreement between two entry points: the
-    # command-line default was "/frognet-broker-v4" while the interactive prompt
-    # defaulted to blank, so the same operator got a different broker URL
-    # depending on which way they answered.
-    CHOSEN_BROKER_URL="${ARG_BROKER_SCHEME}://${hp}"
-    log "Broker URL from args: $CHOSEN_BROKER_URL"
-elif [[ -n "$INHERITED_BROKER_URL" ]]; then
-    CHOSEN_BROKER_URL="$INHERITED_BROKER_URL"
-    log "Inheriting BROKER_URL from existing tunnel.conf: $CHOSEN_BROKER_URL"
-else
-    log "No BROKER_URL - broker will be configured later via setup_frognet.html"
-fi
-
-if [[ -n "$CHOSEN_BROKER_URL" ]]; then
-    # [POND_IS_NOT_THE_DOMAIN_V1] A broker means this node JOINS A POND - a group of
-    # nodes sharing a broker namespace. It is NOT the node/domain name, and it used
-    # to be silently set to it, which put every node in its own single-member pond.
-    # Obtain it: existing broker.conf first (reinstall keeps its pond), then --pond,
-    # then ask. No default.
-    if [[ -z "$ARG_POND" && -f /etc/frognet/broker.conf ]]; then
-        ARG_POND="$(sed -n 's/^POND_NAME=//p' /etc/frognet/broker.conf | head -1)"
-        [[ -n "$ARG_POND" ]] && log "Pond from existing broker.conf: $ARG_POND"
-    fi
-    while [[ -z "$ARG_POND" ]]; do
-        echo
-        echo "  This node will register with broker $CHOSEN_BROKER_URL."
-        echo "  Enter the POND to join - the group name shared by its nodes."
-        echo "  This is NOT the node name ($NODE_NAME)."
-        read -rp "  Pond name: " ARG_POND
-    done
-    log "Joining pond: $ARG_POND"
-    # [SETUP_LILLYPAD_NORESTART_V1] --norestart: setup_lillypad writes all config
-    # and the persistent NM connection profile but does not bounce services or
-    # re-address the live interface. The installer reboots at the end, so live
-    # activation is unnecessary -- and on a LAN-only gateway the operator's SSH
-    # rides the very interface setup_lillypad reconfigures, so activating it live
-    # drops the install. Everything applies cleanly on the reboot.
-    bash "$SETUP" "$NODE_NAME" "$MACHINE_IP" "$CHOSEN_BROKER_URL" --pond "$ARG_POND" --norestart
-else
-    bash "$SETUP" "$NODE_NAME" "$MACHINE_IP" --norestart
-fi
+# [SETUP_LILLYPAD_NORESTART_V1] --norestart: setup_lillypad writes all config
+# and the persistent NM connection profile but does not bounce services or
+# re-address the live interface. The installer reboots at the end, so live
+# activation is unnecessary -- and on a LAN-only gateway the operator's SSH
+# rides the very interface setup_lillypad reconfigures, so activating it live
+# drops the install. Everything applies cleanly on the reboot.
+bash "$SETUP" "$NODE_NAME" "$MACHINE_IP" --norestart
 log "setup_lillypad (v4) complete (config applied; interface + services come up on reboot)"
-
-# Generate WireGuard credentials via v3 tunnel setup
-TUNNEL_SETUP="/usr/local/bin/frognet-tunnel-setup-v3.sh"   # dash = canonical (underscore version retired)
-[[ -x "$TUNNEL_SETUP" ]] || die "$TUNNEL_SETUP not found"
-
-# [DEFERRED_BROKER_SETUP_V1] An unreachable broker must NOT abort the install.
-# This used to be a bare `bash "$TUNNEL_SETUP"` under `set -e`, so a gateway
-# installed before its uplink was plumbed -- or while the broker was down or
-# mid-migration -- failed here, after the world was already extracted. Configure
-# everything we can now, and leave enrolment to complete itself later.
-if bash "$TUNNEL_SETUP"; then
-    log "WireGuard credentials created; broker enrolment attempted"
-else
-    warn "broker enrolment did not complete (broker unreachable?) - deferring"
-fi
-
-# Arm the deferred completion whenever a broker is configured. Clearing the
-# sentinel is deliberate: after an upgrade the enrolment should be re-verified,
-# and frognet-pond-bootstrap.sh re-writes it as soon as it confirms the tunnel
-# daemon is up. runMerge retries on every network change; the timer is the
-# backstop for a node that is otherwise idle.
-if grep -q '^BROKER_URL=..*' "${FROGNET_CONF:-/etc/frognet/tunnel.conf}" 2>/dev/null; then
-    rm -f /etc/frognet/pond_bootstrap_done
-    # No timer. Enrolment is retried by runMerge, and a merge is what a network
-    # change already produces: the dnsmasq dhcp-script on lease events, and the
-    # NetworkManager dispatcher hooks on interface up/down and connectivity
-    # change. Polling every two minutes would only ask the same question the
-    # events already answer, and would keep asking on a node that will never
-    # have an uplink. The timer unit is left disabled.
-    systemctl disable --now frognet-pond-bootstrap.timer 2>/dev/null || true
-    log "Broker configured - enrolment deferred to the next merge (network-event driven)"
-else
-    log "No broker configured - LAN-only; deferred enrolment not armed"
-fi
+# No WireGuard key is made here: the tunnel daemon makes and owns
+# /var/lib/frognet-tunnel/node_private.key when the node is on a region
+# [DAEMON_OWNS_ITS_KEY_V1]. A LAN-only node needs none.
 
 phase "E4: Apache admin-site"
 ADMIN_CONF="/etc/apache2/sites-available/admin-site.conf"
@@ -2041,8 +1861,7 @@ if [[ -f /etc/systemd/system/frognet-tunnel-daemon.service ]]; then
 fi
 
 CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
-    frognet-eth0-fixup frognet-sysperf frognet-tunnel-setup frognet-tunnel-daemon-v3
-    frognet-pond-bootstrap)
+    frognet-eth0-fixup frognet-sysperf frognet-tunnel-daemon-v3)
 # [NAT64_REMOVED_V1] frognet-nat64 dropped 2026-08-29. Its ExecStart,
 # /usr/local/bin/start_nat64_dns64_jool.bash, is not in the tree and the only
 # other mentions of nat64/jool anywhere were this line and the matching one in
@@ -2057,11 +1876,7 @@ CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
 # were removed with them: nothing referenced 8877, and the watchdog's only
 # caller was propagateNotification.php, itself a superseded generation of an
 # endpoint nothing calls.
-#
-# NOT removed: /etc/NetworkManager/dispatcher.d/91-frognet-connectivity. That
-# hook is the connectivity-change -> merge path, written in D7, asserted in F6,
-# and depended on by runMerge and frognet-pond-bootstrap. Different thing that
-# happens to share a word.
+
 OPT_SERVICES=(frognet-gps frognet-transit-boot frognet-transit-watch)
 # [A_MISSING_UNIT_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] MISSING used to be counted
 # here and then never read again -- set to 0, incremented in the loop, and
@@ -2085,12 +1900,6 @@ fi
 for svc in "${OPT_SERVICES[@]}"; do
     [[ -f "/etc/systemd/system/${svc}.service" ]] && systemctl enable "$svc" 2>/dev/null || true
 done
-# [DEFERRED_BROKER_SETUP_V1] The pond-bootstrap timer is NOT enabled. Enrolment
-# is retried from the tail of runMerge, and a merge is what a network change
-# already produces (dnsmasq dhcp-script, and the NetworkManager up/down and
-# connectivity-change dispatcher hooks). Enabling the timer here would have
-# silently re-armed the polling that E3 just turned off.
-systemctl disable --now frognet-pond-bootstrap.timer 2>/dev/null || true
 systemctl enable apache2 mariadb dnsmasq NetworkManager cron
 
 # Candidate registration: every FrogNet host advertises databasehost capability on a
@@ -2169,12 +1978,7 @@ chk "ssl cert"               test -f /etc/ssl/frognet-universal.crt
 chk "sudoers"                test -f /etc/sudoers.d/frognet-setup
 chk "sudoers valid"          visudo -cf /etc/sudoers.d/frognet-setup
 chk "qrencode"               command -v qrencode
-# [DEFERRED_BROKER_SETUP_V1] Was: "pond-bootstrap enabled" -- it asserted the
-# timer was enabled, so it would now fail by design. What matters is that the
-# event path exists: the merge controller and the dispatcher hook that fires
-# when the box gains connectivity.
 chk "merge controller present"  test -x /usr/local/bin/runMerge.bash
-chk "connectivity hook present" test -x /etc/NetworkManager/dispatcher.d/91-frognet-connectivity
 chk "ssid_projection.conf"   test -f /etc/frognet/ssid_projection.conf
 chk "gateways.conf"          grep -q "$NODE_NAME" /etc/frognet/gateways.conf
 chk "dnsmasq node"           grep -q "$NODE_NAME" /etc/dnsmasq.d/opts_only.conf

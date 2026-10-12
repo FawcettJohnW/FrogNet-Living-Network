@@ -33,7 +33,7 @@ log() { echo "[postinstall] $*"; }
 # Superseded by frognet-tunnel-daemon-v3. It hardcoded 10.101.* for identity
 # detection, so it could not start on any current node anyway. The bare-name
 # unit never shipped -- only a .service.d drop-in dir for it -- which is what
-# let frognet-pond-bootstrap.sh "start" a unit that does not exist, fail
+# let the (since removed) pond bootstrap "start" a unit that does not exist, fail
 # is-active, never write its sentinel, and retry every merge and every 120s
 # timer tick forever.
 # ---------------------------------------------------------------------------
@@ -231,14 +231,6 @@ systemctl restart frognet-daemon 2>/dev/null || true
 # ---------------------------------------------------------------------------
 echo
 log "--- state worth a look, not changed by this script ---"
-if [[ -f /etc/frognet/pond_bootstrap_done ]]; then
-    log "  pond_bootstrap_done: present (runMerge will not call the bootstrap)"
-else
-    log "  pond_bootstrap_done: MISSING - the bootstrap still runs every merge"
-    log "    it no longer restarts the tunnel daemon, and it now writes the"
-    log "    sentinel once enrolment completes, so this should clear itself"
-    log "    on the next pass. If it does not: journalctl -u frognet-pond-bootstrap"
-fi
 if grep -q '^no-resolv' /etc/dnsmasq.d/*.conf 2>/dev/null; then
     log "  WARNING: no-resolv is still set somewhere in /etc/dnsmasq.d -"
     log "    resolv-file is being ignored and external DNS is not going to the"

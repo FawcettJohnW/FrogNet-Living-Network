@@ -24,11 +24,9 @@
 # Python port:  bring-up + discovery + promote + /etc/hosts commit are done by
 #   PYTHONPATH=/opt/frognet_semantic <venv>/python3 -m discovery.live
 #
-# RC-1: the python merge now covers the FULL tail — fixDefaultRoute (Mode A/B +
+# RC-1: the python merge covers the FULL tail — fixDefaultRoute (Mode A/B +
 # forced override) and manageResolv (resolv.conf) are ported and run inside
-# `discovery.live`. The bash legacy tail is therefore OFF by default
-# (FROGNET_MERGE_LEGACY_TAIL=0); set it to 1 only as an escape hatch to re-run
-# the old bash fixDefaultRoute/manageResolv alongside the python merge.
+# `discovery.live`. One mechanism: the bash tail is not run beside it.
 #
 # Cutover gate: this replaces sync_interfaces.sh/mergeHostsAndResolv.bash as the
 # merge path. The deciding pre-bare-metal test remains the on-box differential
@@ -74,7 +72,6 @@ FROGNET_MERGE_DEPTH="${FROGNET_MERGE_DEPTH:-0}"
 MAX_MERGE_DEPTH="${MAX_MERGE_DEPTH:-10}"
 PYBIN="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
 [[ -x "$PYBIN" ]] || PYBIN="/usr/bin/python3"
-LEGACY_TAIL="${FROGNET_MERGE_LEGACY_TAIL:-0}"
 
 flog_info "ENTER" "depth=$FROGNET_MERGE_DEPTH" "argv_count=$#" "pybin=$PYBIN"
 
@@ -240,16 +237,6 @@ flog_stage discovery_merge_py
 ( cd /opt/frognet_semantic && PYTHONPATH=/opt/frognet_semantic "$PYBIN" -m discovery.live )
 merge_rc=$?
 flog_stage_end discovery_merge_py "rc=$merge_rc"
-
-# ---- legacy tail not yet ported: default route + dnsmasq forwarders ------
-if [[ "$LEGACY_TAIL" == "1" ]]; then
-    flog_stage legacy_fixDefaultRoute
-    [[ -x /usr/local/bin/fixDefaultRoute ]] && /usr/local/bin/fixDefaultRoute
-    flog_stage_end legacy_fixDefaultRoute "rc=$?"
-    flog_stage legacy_manageResolv
-    [[ -x /usr/local/bin/manageResolv.bash ]] && /usr/local/bin/manageResolv.bash
-    flog_stage_end legacy_manageResolv "rc=$?"
-fi
 
 flog_dump_cmd "post_merge_routes" ip -4 route show
 flog_dump_cmd "post_merge_hosts"  cat /etc/hosts

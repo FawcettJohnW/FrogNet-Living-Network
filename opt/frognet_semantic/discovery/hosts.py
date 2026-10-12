@@ -93,7 +93,7 @@ def reconcile_added(added, prior_names=None, logger=lambda s: None):
 
     added       = list of (host, host_path, dev, authoritative) the walk recorded.
                   authoritative=True is the name a node returned for ITSELF via
-                  echo (or the broker override) - the source of truth.
+                  echo (or the tunnel channel map override) - the source of truth.
                   authoritative=False is a relayed vouch name (a neighbor's
                   getHosts entry, which may be the generic "FrogNetHost").
     prior_names = {host_path(.1): domain} parsed from the current /etc/hosts.

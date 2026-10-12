@@ -66,7 +66,7 @@ def names(area):
     h = hashlib.sha1(area.encode()).hexdigest()[:8]
     t = 20000 + int(h[:4], 16) % 10000
     # the interface is rch-<h>, NOT wg*: the daemon's orphan scan owns every wg* / frognet* interface with one peer and
-    # tears down the ones its broker does not name (found 2026-10-10: a wgr-* reach vanished on the next scan)
+    # tears down the ones its region does not name (found 2026-10-10: a wgr-* reach vanished on the next scan)
     return {"if": "rch-" + h, "table": t, "mark": t, "prio": 9000 + int(h[4:8], 16) % 900, "ch": "FDFR" + h, "chs": "FDFRS" + h}
 
 

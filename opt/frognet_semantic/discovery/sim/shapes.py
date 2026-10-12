@@ -18,12 +18,11 @@
 """
 shapes.py - topology-shape builders over the WG tunnel graph + multi-LAN-over-
 Internet. Each returns a TopologySpec the System runs the REAL ported discovery
-against. Shapes are tunnel arrangements (real WG pairings the broker would hand
-out); intra-LAN uses the proven guest pattern.
+against. Shapes are tunnel arrangements (real WG pairings); intra-LAN uses the
+proven guest pattern.
 
-NOTE: multi-`.1`-host L2 segments and LAN-broker short-circuit pathways are NOT
-modeled here - they need the real LAN-broker contract / a real multi-host-LAN
-log to ground without inventing. Shapes ride the tunnel graph, which is real.
+NOTE: multi-`.1`-host L2 segments are NOT modeled here - they need a real
+multi-host-LAN log to ground without inventing. Shapes ride the tunnel graph, which is real.
 """
 from .system import TopologySpec, NodeSpec
 
@@ -73,7 +72,7 @@ def snowflake(branches, leaves_per):
 
 def two_lan_over_internet():
     """Two LANs, each a gateway (Internet + StreamingFrog) plus a LAN guest with
-    no broker of its own (its routes ride the LAN). Gateways tunneled across the
+    no tunnel of its own (its routes ride the LAN). Gateways tunneled across the
     Internet (StreamingFrog pairing). Cross-LAN reachability is the test:
     a guest in LAN-1 must reach a guest in LAN-2."""
     nodes = [

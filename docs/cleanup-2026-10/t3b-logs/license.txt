@@ -1,0 +1,27 @@
+=== licensing: GPL-2.0-only, everywhere ===
+  [PASS] the license applier ships
+  [PASS] LICENSE holds GPLv2 verbatim and COPYRIGHT states the grant
+  [PASS] the walk is bounded by the world manifest
+  [FAIL] every source file carries the GPL-2.0-only notice (42 without)
+         by directory:
+              19  opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11
+              12  opt/frognet_semantic/ribbit/examples/communicator/third_party/ribbit/cpp/include
+               3  etc/systemd/system
+               3  opt/frognet_semantic/internet_tunnels_v3
+               2  opt/frognet_semantic/internet_tunnels_v3/tests
+               2  opt/frognet_semantic/docs/magnum_croakus
+               1  opt/frognet_semantic/ribbit/examples/communicator
+         by extension:
+           py:24  hpp:12  service:3  html:2  sh:1
+         first few:
+           - etc/systemd/system/fdf-client-frognet.service
+           - etc/systemd/system/fdf-ram-frognet.service
+           - etc/systemd/system/fdf-hub.service
+           - opt/frognet_semantic/ribbit/examples/communicator/build-servers-static.sh
+           - opt/frognet_semantic/ribbit/examples/communicator/third_party/ribbit/cpp/include/ram_memory.hpp
+           - opt/frognet_semantic/ribbit/examples/communicator/third_party/ribbit/cpp/include/pyuni_tables.hpp
+  [PASS] no file grants 'any later version'
+  [PASS] no Apache-2.0 code has been vendored in under the GPLv2-only umbrella
+  [PASS] every FROGNET_THIRD_PARTY path exists
+
+LICENSE CHECKS FAILED: 42

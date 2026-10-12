@@ -37,7 +37,7 @@
 #
 #   --dry-run        Print every action, change nothing.
 #   --keep-db        Do NOT drop the FrogNet database + FrogUser.
-#   --keep-identity  Keep /etc/fnid (node GUID) and /etc/wireguard (WG keys).
+#   --keep-identity  Keep /etc/fnid (node GUID), /etc/wireguard and /var/lib/frognet-tunnel/node_*.key (WG key).
 #                    Use this to REINSTALL the same node; omit for a true clone-
 #                    safe wipe (fresh GUID on next install).
 #   --yes, -y        Skip the confirmation prompt.
@@ -161,7 +161,18 @@ nuke /usr/local/lib/frognet_trace.sh /usr/local/lib/frognet_log.sh
 nuke /etc/frognet_bundles
 nuke /etc/frognet
 nuke /etc/sentinels
-nuke /var/lib/frognet-tunnel
+# [KEY_IS_IDENTITY_V1 - 2026-10-12] the tunnel daemon's WireGuard key lives here (node_private.key /
+# node_public.key; the daemon makes it, T3a). With --keep-identity it stays, so a reinstalled node announces the
+# same key; everything else in the directory is daemon state and goes.
+if [[ $KEEP_ID -eq 1 && -d /var/lib/frognet-tunnel ]]; then
+    for p in /var/lib/frognet-tunnel/* /var/lib/frognet-tunnel/.[!.]*; do
+        [[ -e "$p" ]] || continue
+        case "${p##*/}" in node_private.key|node_public.key) continue ;; esac
+        nuke "$p"
+    done
+else
+    nuke /var/lib/frognet-tunnel
+fi
 nuke /run/frognet
 nuke /var/log/frognet
 nuke /etc/setup_iptables /etc/database_ip
@@ -171,7 +182,7 @@ nuke /var/lib/misc/dnsmasq.leases
 phase "4. Node identity"
 ###############################################################################
 if [[ $KEEP_ID -eq 1 ]]; then
-    log "keep-identity set - keeping /etc/fnid (GUID) and /etc/wireguard (WG keys)"
+    log "keep-identity set - keeping /etc/fnid (GUID), /etc/wireguard and the daemon's key in /var/lib/frognet-tunnel"
 else
     nuke /etc/fnid            # the node GUID - lives OUTSIDE /etc/frognet
     nuke /etc/wireguard       # WireGuard private keys = identity

@@ -88,7 +88,7 @@ PID_FILE   = Path("/run/frognet/tunnel-daemon.pid")
 # WireGuard's PersistentKeepalive (peer.py:620) is 25s; rekey interval
 # is 120s.  Under normal traffic handshake age stays well under 180s.
 # But a quiet tunnel with no probe traffic between merges, or any
-# transient broker/NAT hiccup that costs two keepalive intervals,
+# transient NAT hiccup that costs two keepalive intervals,
 # crosses 180s easily and triggers a purge of a tunnel that is in
 # fact fine and only needs a re-handshake.
 #
@@ -117,15 +117,7 @@ REFRESH_HANDSHAKE_WAIT_SEC = int(os.environ.get("FROGNET_TUNNEL_REFRESH_WAIT_SEC
 # of death, and a needless teardown costs a full rebuild + route churn.
 HANDSHAKE_GRACE_CYCLES     = int(os.environ.get("FROGNET_TUNNEL_HANDSHAKE_GRACE_CYCLES", "2"))
 GRACE_STATE_PATH           = str(STATE_DIR / "handshake_grace.json")
-GATEWAY_GRACE_SEC          = int(os.environ.get("FROGNET_TUNNEL_GW_GRACE_SEC",       "120"))
-GATEWAY_CHECK_INTERVAL_SEC = int(os.environ.get("FROGNET_TUNNEL_GW_CHECK_SEC",        "60"))
-GATEWAY_FAIL_THRESHOLD     = int(os.environ.get("FROGNET_TUNNEL_GW_FAIL_THRESH",       "3"))
 ECHO_TIMEOUT_SEC           = float(os.environ.get("FROGNET_ECHO_TIMEOUT_SEC",        "60.0"))
-ECHO_SETTLE_SEC            = int(os.environ.get("FROGNET_ECHO_SETTLE_SEC",            "5"))
-RECONNECT_BASE_SEC         = 5
-RECONNECT_MAX_SEC          = 120
-MERGE_SETTLE_SEC           = float(os.environ.get("FROGNET_MERGE_SETTLE_SEC",        "10.0"))
-METRICS_INTERVAL_SEC       = int(os.environ.get("FROGNET_METRICS_INTERVAL_SEC",      "60"))
 
 # ---------------------------------------------------------------------------
 # Node identity - populated by load_config()
