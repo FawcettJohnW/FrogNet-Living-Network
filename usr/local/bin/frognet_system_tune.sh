@@ -302,7 +302,11 @@ froguser hard nofile $FD_LIMIT
 # holding one descriptor per concurrent sender, so the workload's descriptor
 # ceiling was an eighth of what /etc/security/limits.d gave the shell that
 # launched the producer. The constrained side was the one nobody tuned.
-for SVC in frognet-proxy frognet-daemon frognet-tunnel-daemon aiconnect; do
+# [TUNE_ONLY_UNITS_THAT_EXIST_V1 - 2026-10-12] frognet-tunnel-daemon is the retired v2 name; the daemon is
+# frognet-tunnel-daemon-v3. A drop-in is written only for a unit that is installed: a drop-in directory with no unit
+# is the state frognet_postinstall_20260912.sh removes (aiconnect is installed only with its own product).
+for SVC in frognet-proxy frognet-daemon frognet-tunnel-daemon-v3 aiconnect; do
+    [[ -f "/etc/systemd/system/${SVC}.service" || -f "/lib/systemd/system/${SVC}.service" ]] || continue
     OVERRIDE_DIR="/etc/systemd/system/${SVC}.service.d"
     OVERRIDE_FILE="${OVERRIDE_DIR}/99-frognet-tune.conf"
     # Only the daemon carries the worker-pool env; proxy/tunnel-daemon get
@@ -384,5 +388,5 @@ if [[ $DRYRUN -eq 1 ]]; then
     log "DRY-RUN mode — no changes applied.  Run without --dry-run to apply."
 else
     log "Changes applied.  Restart services to take effect:"
-    log "  systemctl restart mariadb apache2 frognet-proxy frognet-daemon frognet-tunnel-daemon"
+    log "  systemctl restart mariadb apache2 frognet-proxy frognet-daemon frognet-tunnel-daemon-v3"
 fi

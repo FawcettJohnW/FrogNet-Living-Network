@@ -87,7 +87,7 @@ fdf-source-r16/
 | | frognet-tunnel-daemon-v3 (poll.py region loop + applier + elections) | `frognet-tunnel-daemon-v3` |
 | | fdf-events (spawned by the daemon: the region's p/m events, held long-poll) | child of the daemon |
 
-Site key `f5041fd43f0706044036487fc24ed702c0be4e1fb96cd88442586b24bf40867a`, area `frognet`. Install on a node:
+Site key `<the frognet site key: on the droplet, not in the tree>`, area `frognet`. Install on a node:
 `sudo bash /tmp/fdf-install-aarch64.run <SITE KEY>`; droplet: `cd / && tar xzf - < /tmp/fdf-droplet.tgz &&
 systemctl daemon-reload && systemctl restart fdf-ram-frognet fdf-client-frognet fdf-hub`.
 

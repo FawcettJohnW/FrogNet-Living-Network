@@ -519,7 +519,7 @@ done
 # [NAT64_REMOVED_V1] frognet-nat64 dropped 2026-08-29 - its script is not in
 # the tree; see frognet_install.sh OPT_SERVICES.
 # [CONNECTIVITY_UI_REMOVED_V1] see frognet_install.sh OPT_SERVICES.
-for svc in frognet-eth0-fixup frognet-sysperf frognet-tunnel-daemon \
+for svc in frognet-eth0-fixup frognet-sysperf \
            frognet-gps \
            frognet-transit-boot frognet-transit-watch; do
     if [[ -f "/etc/systemd/system/${svc}.service" ]]; then

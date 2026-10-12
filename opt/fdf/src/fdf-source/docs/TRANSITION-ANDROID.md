@@ -65,7 +65,7 @@ else the name (`[MEMBER_IDENTITY_V1]`; every FrogNet node's hostname is "FrogNet
 | `version` | `{"op":"version"}` | `{"ok":true,"server":"fdf-2026-10-09-r16"}` |
 | `hello`, `fork` | | program-level session ops; not needed by a member |
 
-Site key for the area `frognet` is in the README. The key is held by the region (`map_site`) and used only to verify
+The site key for the area `frognet` is kept on the droplet, not in the tree. The key is held by the region (`map_site`) and used only to verify
 `auth`; a member never sends it.
 
 ## 4. The facts a member announces
