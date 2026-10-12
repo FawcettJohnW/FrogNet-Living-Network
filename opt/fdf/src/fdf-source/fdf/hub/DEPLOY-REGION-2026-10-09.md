@@ -1,5 +1,48 @@
 # DEPLOY: the first region on the existing FrogNet (2026-10-09, revised: RAM manager + hub on the droplet)
 
+## Current install (2026-10-11, build fdf-2026-10-11-r19-a15): read this first
+
+The sections below are the 10-09 deployment as it was done (separate tarballs, units written by hand). The files are
+now one per machine type, in the repo's opt/fdf/dist, and the droplet's three units ship in fdf-droplet.tgz.
+
+The droplet, the first time:
+
+    cd / && tar xvzf - < /tmp/fdf-droplet.tgz          # /opt/fdf + fdf-ram-frognet, fdf-client-frognet, fdf-hub units
+    apt-get install -y wireguard-tools
+    systemctl daemon-reload && systemctl enable --now fdf-ram-frognet
+    curl -s -X POST -d '{"op":"map_site","name":"frognet","key":"<SITE KEY>"}' \
+      "http://127.0.0.1:51888/FawcettInnovations.RINA.ram_interface.php?op=rina"       # -> {"ok":true}
+    cat > /opt/fdf/hub/hub.env <<'EOF2'
+    RINA_RAM=127.0.0.1:51888
+    FDF_AREA=frognet
+    FDF_HUB_NAME=StreamingFrog
+    FDF_ENDPOINT=165.232.153.144:50889
+    FDF_LISTEN=50889
+    FDF_FACTS=/opt/fdf/var/facts-frognet.json
+    FDF_BIN=/opt/fdf/bin
+    EOF2
+    systemctl enable --now fdf-client-frognet fdf-hub
+    ufw allow 51888/tcp
+    ufw allow 50889/udp
+    ufw route allow in on wg-frognet out on wg-frognet
+
+(fdf-hub.service passes `--facts ${FDF_FACTS}`: hub.env must name it, the same file fdf-client-frognet announces.
+The tarball never carries hub.env.)
+
+The droplet, every later build:
+
+    cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-frognet fdf-client-frognet fdf-hub
+
+A node (Pi or x86), first time and every build:
+
+    sudo bash /tmp/fdf-install-aarch64.run <SITE KEY>      # x86: fdf-install-x86_64.run
+
+It unpacks /opt/fdf and the FrogNet region patch, runs /opt/fdf/bin/fdf-region-join (site.env, join.env,
+fdf-client, the tunnel daemon restarted in region mode) and shows the result for 15 s.
+
+A Windows machine: the bridge, repo opt/fdf/windows/bridge (README.txt), in place of section 3. A phone: the FrogNet
+member app, repo opt/fdf/src/frognet-android. Neither types an address: the region gives a leaf its /32.
+
 Machines:
 
 | Machine | Role | What it gets |
@@ -88,6 +131,7 @@ The hub:
     FDF_HUB_NAME=StreamingFrog
     FDF_ENDPOINT=165.232.153.144:50889
     FDF_LISTEN=50889
+    FDF_FACTS=/opt/fdf/var/facts-frognet.json
     FDF_BIN=/opt/fdf/bin
     EOF
     sed -i 's|--listen ${FDF_LISTEN}|--listen ${FDF_LISTEN} --facts /opt/fdf/var/facts-frognet.json|; s|After=network-online.target fdf-client.service|After=network-online.target fdf-client-frognet.service|' /etc/systemd/system/fdf-hub.service

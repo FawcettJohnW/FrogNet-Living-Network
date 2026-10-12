@@ -5,7 +5,7 @@ mappings naming this hub. Nothing polls: `fdf-events` holds one session and repo
 
 ## On the droplet (Ubuntu 22.04, as root)
 
-    cd / && tar xvzf - < /tmp/fdf-node.tgz; cd / && tar xvzf - < /tmp/fdf-region-update.tgz
+    cd / && tar xvzf - < /tmp/fdf-droplet.tgz      # repo opt/fdf/dist; first-time setup: DEPLOY-REGION-2026-10-09.md section 1
     apt-get install -y wireguard-tools            # wg, wg-quick (kernel module is in 22.04's kernel)
     # the region's site key (every node that registers mappings signs with it; set it ONCE in the region):
     curl -s -X POST -d '{"op":"map_site","name":"frognet","key":"<site key>"}' \
@@ -21,16 +21,9 @@ Oracle (no wg needed): `python3 /opt/fdf/hub/hub_oracle.py` (15 checks, with con
 
 ## On a FrogNet node (region mode of the tunnel daemon)
 
-    cd / && tar xvzf - < /tmp/fdf-node.tgz; cd / && tar xvzf - < /tmp/fdf-region-update.tgz            # (+ fdf-arm64.tgz on a Pi)
-    cd / && tar xvzf - < /tmp/frognet-region-patch.tgz # discovery + internet_tunnels_v3 changes
-    echo 'RINA_RAM=165.232.153.144:8840' > /opt/fdf/var/join.env
-    printf 'RINA_AREA=frognet\nRINA_SITE_KEY=<site key>\n' > /opt/fdf/var/site.env
-    systemctl daemon-reload && systemctl enable --now fdf-client
-    # tunnel daemon on the region: add to /etc/frognet/tunnel.conf
-    #   RINA_RAM=165.232.153.144:8840
-    #   RINA_AREA=frognet
-    # discovery gather from the region: export FROGNET_DISCOVERY_SOURCE=region (where runMerge's environment is set)
-    systemctl restart frognet-tunnel-daemon-v3
+    sudo bash /tmp/fdf-install-aarch64.run <site key>     # Pi; x86: fdf-install-x86_64.run (repo opt/fdf/dist)
+    # = /opt/fdf + the FrogNet region patch, then /opt/fdf/bin/fdf-region-join: site.env, join.env, fdf-client,
+    #   frognet-tunnel-daemon-v3 restarted in region mode (RAM 165.232.153.144:51888, area frognet by default)
     cat /var/lib/frognet/view.json                   # phase, gen, dbhost, hosts_hash
 
 Facts file: /opt/fdf/var/facts.json is written by the daemon (register, transit, maps); fdf-client announces it

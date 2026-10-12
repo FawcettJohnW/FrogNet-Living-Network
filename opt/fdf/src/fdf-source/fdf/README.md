@@ -3,17 +3,33 @@
 Everything installs under /opt/fdf; nothing goes into /usr/local/bin. Run as root (the RAM manager machine adds an
 address to an interface; members add one route).
 
-## Install (every machine)
+## Install
 
-    cd / && tar xvzf - < /tmp/fdf-node.tgz
+One file per machine type. In the FrogNet repo they are in opt/fdf/dist; the build they carry is in /opt/fdf/BUILD
+and on every log line. Droplet first:
 
-The binaries in /opt/fdf/bin were built on Ubuntu 24.04 (they need libssl3, liblz4-1, libjemalloc2, libstdc++).
-On a machine where they do not run, build from source with that machine's own compiler:
+    droplet: cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-frognet fdf-client-frognet fdf-hub
+    Pi:      sudo bash /tmp/fdf-install-aarch64.run <SITE KEY>
+    x86:     sudo bash /tmp/fdf-install-x86_64.run <SITE KEY>
 
-    mkdir -p /opt/fdf/build && cd /opt/fdf/build
-    tar xzf /opt/fdf/src/fdf-rinab-src.tgz && tar xzf /opt/fdf/src/rlite-6ac276b.tgz
-    cd rinab && tools/build.sh && tools/build_rlite.sh /opt/fdf/build/rlite-6ac276b
-    cp build/bin/* /opt/fdf/bin/ && cp build/lib/librina-api.so /opt/fdf/lib/
+A node's installer unpacks /opt/fdf and the FrogNet region patch, then runs /opt/fdf/bin/fdf-region-join (site.env,
+join.env, fdf-client, the tunnel daemon in region mode) and shows what happened for 15 s. The droplet's first-time
+setup (the site key, hub.env, its units) is hub/DEPLOY-REGION-2026-10-09.md section 1.
+
+Phones: the FrogNet member app, repo opt/fdf/src/frognet-android (docs/ANDROID-HANDOFF.md); the Communicator on
+Android is a screen of that app (docs/COMMUNICATOR-ANDROID-r5.md). Windows: repo opt/fdf/windows/bridge (README.txt).
+
+## Build from source
+
+The source of everything above is repo opt/fdf/src/fdf-source (rinab, fdf, the FrogNet patch, docs). It needs g++
+(C++20), lz4, openssl, jemalloc, and aarch64-linux-gnu-g++ for the Pi binaries:
+
+    cd opt/fdf/src/fdf-source/rinab
+    bash tools/build.sh && bash tools/build_static_host.sh && bash tools/build_arm64.sh
+    # the x86 static clients: docs/TRANSITION-OPTIMIZATION.md section 5
+    bash tools/make_deliverables.sh <outdir>      # the three files above; refuses on any tag or binary mismatch
+
+## Area name and password (the direct and mapping set-ups below)
 
 The area's name is set once, in /opt/fdf/fdf.env (RINA_AREA; default rina-area.test). Every machine in the area
 uses the same name.
@@ -30,7 +46,8 @@ the mapping machine and on any machine that may serve as the RAM manager (not on
     /opt/fdf/bin/fdf-services.sh status    # who is listening on each port
     /opt/fdf/bin/fdf-services.sh stop
 
-Output stays on the terminal that started them. COMMS_BIN defaults to /opt/communicator/build. A port already held by
+Output stays on the terminal that started them. COMMS_BIN defaults to /opt/communicator/build; the package's own comms-ram and comms-media are in
+/opt/fdf/comms (COMMS_BIN=/opt/fdf/comms). A port already held by
 something else is said, with the program holding it, and that service is not started.
 
 ## Direct: one RAM server everyone is told about (e.g. a droplet)
@@ -113,6 +130,9 @@ Each player's game needs to know where comms-app is (default: comms-app / comms-
 
 ## Windows: the FD&F client, and the kart demo
 
+The Windows bridge (this computer in every pond at once, its own WireGuard) is repo opt/fdf/windows/bridge; see its
+README.txt. The rest of this section is the older client folder.
+
 Copy the folder /opt/fdf/windows to the Windows machine. It needs nothing installed for the client (fdf-client.exe is
 one static program, no DLLs); the kart demo needs Python 3 and pygame (pip install pygame).
 
@@ -180,4 +200,4 @@ Tuples: input `term/<target>/<session>.<k>`, output `termout/<session>/<k>`, adv
 
 ## What the sandbox proved
 
-The checks behind each step are in /opt/fdf/src/fdf-rinab-src.tgz: experiments/RESULTS.md and tools/*-check.sh.
+The checks behind each step are in repo opt/fdf/src/fdf-source/rinab: experiments/RESULTS.md and tools/*-check.sh.

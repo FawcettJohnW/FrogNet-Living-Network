@@ -1,4 +1,4 @@
-# HANDOFF — an FD&F member on Android (fdf-kt-2026-10-11-a11 + fdf-tun b6, with the Communicator r4; against region fdf-2026-10-11-r19-a14 = r19 + this thread)
+# HANDOFF — an FD&F member on Android (fdf-kt-2026-10-11-a11 + fdf-tun b6, with the Communicator r4 -- now r5, see COMMUNICATOR-ANDROID-r5.md; against region fdf-2026-10-11-r19-a14 = r19 + this thread)
 
 ## The one-line version
 

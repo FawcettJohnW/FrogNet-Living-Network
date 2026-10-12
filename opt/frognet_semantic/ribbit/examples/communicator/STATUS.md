@@ -170,8 +170,9 @@ emulator runs on the Windows machine; otherwise as good as the two clocks agree)
 GL-rendered into the encoder's surface).
 
 Build tags (the software says what runs): comms-app and comms-feed print `[app] build comms-app-2026-10-10-r3` /
-`[feed] build ...` first, and the window title carries it. The phone: `comms-android-2026-10-10-r4` (r3 + it logs which
-camera it opened and its facing) in the member app `fdf-kt-2026-10-10-a9`.
+`[feed] build ...` first, and the window title carries it. The phone: `comms-android-2026-10-11-r5` (r4's camera
+logging + r2's call screen: full screen, draggable inset, fading controls, fill/fit), a screen of the FrogNet member
+app (repo opt/fdf/src/frognet-android, docs/COMMUNICATOR-ANDROID-r5.md); there is no separate Android Communicator.
 
 Open: the emulator call's start-up lag is not explained -- no frame carried a time, so nothing could tell how far behind
 it was. The places it can sit: the sender's capture and encoder, its socket send buffer (on Windows not measurable,
