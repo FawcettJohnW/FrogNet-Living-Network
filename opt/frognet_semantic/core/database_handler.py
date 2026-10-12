@@ -18,10 +18,9 @@
 ################################################################
 # core/database_handler.py
 #
-# Database-host role handler - carries the databasehost.frognet election CRITERIA,
-# living on a handler the same way SotFMediaHandler carries the media criteria.
+# Database-host role handler - carries the databasehost.frognet election CRITERIA.
 #
-# evaluate(lan_list) is PURE: given the LAN candidate list (already gathered from
+# evaluate(hosts_list) is PURE: given the candidate list (already gathered from
 # capability memory by the election machinery), return the candidate that best meets
 # the database role's requirements. No I/O, no probes, no spawning.
 #
@@ -174,11 +173,10 @@ class DatabaseRoleHandler(UnRESTHandler):
         # transient loadavg must not move it. RAM/disk/CPU/free-space only.
         return ceiling
 
-    def evaluate(self, hosts_list, lan_list):
-        """Database host is elected over the ENTIRE (WAN-inclusive) hosts_list, NOT the
-        LAN list: the DB is the pond's authority, so the best box wins pond-wide -
-        including remote sites reached over the WireGuard overlay (dev wgx) - not just
-        this LAN. lan_list is accepted for signature uniformity and ignored here.
+    def evaluate(self, hosts_list):
+        """Database host is elected over the ENTIRE (WAN-inclusive) hosts_list: the DB
+        is the pond's authority, so the best box wins pond-wide - including remote
+        sites reached over the WireGuard overlay (dev wgx) - not just this LAN.
         Pure: score each, drop ineligible, pick best, tiebreak by highest IP."""
         best = None
         for cand in hosts_list or []:

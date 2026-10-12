@@ -17,7 +17,7 @@ rm -f /etc/systemd/system/fdf-client@.service; rm -rf /opt/fdf/var/ponds /opt/fd
 systemctl daemon-reload
 rm -f /opt/fdf/var/join.env
 # [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join stopped.
-for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
     [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
     systemctl enable --now "$u" && echo "re-enabled $u"
 done

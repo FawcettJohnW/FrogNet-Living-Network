@@ -25,9 +25,6 @@ Python, mostly shell.
   `dhcp-script` synchronously and waits. `exec`ing `runMerge` held that slot for
   the whole merge and stalled DHCP for every other client on the segment. It uses
   `setsid` — a bare `&` is not enough, because dnsmasq may reap the process group.
-- **`probe_orig.sh` is not deadwood.** It is the pre-fix probe kept as the failing
-  control for `oracle_avcap_cache.sh`. Deleting it makes that oracle
-  unfalsifiable.
 - **`frognet_build_release.sh` uses an explicit `WORLD_PATHS` manifest**, not a
   glob. If you ever change that to a glob, exclude the four repository documents
   at `/` or they will land on every node.

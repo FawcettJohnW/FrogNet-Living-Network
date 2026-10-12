@@ -522,8 +522,6 @@ def main():
                              ["simulation/sotf_video_stream_test.py", "--mode", "1",
                               "--gen-duration", "1.0", "--gen-fps", "8"],
                              optional_tool="ffmpeg"))
-    results.append(_run_proc("SotF media planes (drop/instrumentation + ladder over sim)",
-                             ["simulation/test_media_planes.py"]))
     if _wants_real():
         results.append(_run_mode2_real())
         _si = _shape_iface_arg()

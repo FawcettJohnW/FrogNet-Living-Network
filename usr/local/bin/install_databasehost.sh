@@ -116,20 +116,13 @@ else
 fi
 
 echo "[dbhost] ensuring account $DB_USER@localhost ..."
-# [DBHOST_FAMILY_DB_V1] Create_Database.sql builds FrogNet only; the installer's D4
-# always created FrogNetFamily alongside it (the Communicator's games/calendar/chat
-# store). Granting a database that does not exist is a silent no-op, so create it
-# here or the Communicator fails at first write on a freshly-built databasehost.
-mysql -e "CREATE DATABASE IF NOT EXISTS \`FrogNetFamily\`
-          CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
 # [DBHOST_REMOTE_GRANT_V1] The '%' host is NOT optional and its absence is why the
 # installer grew its own divergent copy of this block. databasehost.frognet is a
 # FLOATING role: every other node in the pond connects to whichever machine holds it
 # ACROSS 10/8 - monitors, api.php clients, the proxy/daemon metrics writers. Granting
 # only localhost/127.0.0.1 makes this machine eligible for the role but unusable in
-# it: local queries work, every remote node gets access-denied. Also grant the
-# FrogNetFamily DB, which the Communicator (games/calendar/chat) uses.
+# it: local queries work, every remote node gets access-denied.
 mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
           CREATE USER IF NOT EXISTS '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';
           CREATE USER IF NOT EXISTS '$DB_USER'@'%'         IDENTIFIED BY '$DB_PASS';
@@ -139,9 +132,6 @@ mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PA
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'127.0.0.1';
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'localhost';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'127.0.0.1';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'%';
           FLUSH PRIVILEGES;"
 
 # 3. php web set

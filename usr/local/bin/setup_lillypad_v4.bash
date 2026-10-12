@@ -267,9 +267,6 @@ CREATE USER 'FrogUser'@'%' IDENTIFIED BY '${FROG_PASS}';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'localhost';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'127.0.0.1';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'%';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'localhost';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'127.0.0.1';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'%';
 FLUSH PRIVILEGES;
 SQLEOF
 # Verify both ways in: the socket (localhost) and TCP to 127.0.0.1, which is how api.php and the Python readers connect

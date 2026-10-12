@@ -28,7 +28,7 @@ _HERE = os.path.abspath(__file__)
 _FS = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))     # opt/frognet_semantic
 _WORK = os.path.dirname(os.path.dirname(_FS))                      # work
 sys.path.insert(0, os.path.join(_WORK, "usr", "local", "bin"))
-sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
+sys.path.insert(0, _FS)            # [CORE_IMPORTS_V1] core.*, as shipped; the old Communicator bundle dir is retired
 
 from frognet_hosts_safeboot import neutralize
 
@@ -44,17 +44,17 @@ def run():
     # 1. stale remote -> localhost; control + others untouched
     probs = []
     lines = ["127.0.0.1 localhost", "10.5.5.5 databasehost.frognet",
-             "10.250.250.1 databasehost_control.frognet", "10.250.250.1 mediahost.frognet"]
+             "10.250.250.1 databasehost_control.frognet", "10.250.250.1 kitchen.frognet"]
     n = neutralize(lines)
     if "127.0.0.1 databasehost.frognet" not in n:
         probs.append("databasehost not pointed at localhost")
     if any("10.5.5.5" in l and "databasehost.frognet" in l for l in n):
         probs.append("stale remote databasehost survived")
-    if "10.250.250.1 databasehost_control.frognet" not in n or "10.250.250.1 mediahost.frognet" not in n:
-        probs.append("control/mediahost lines must be untouched")
+    if "10.250.250.1 databasehost_control.frognet" not in n or "10.250.250.1 kitchen.frognet" not in n:
+        probs.append("control/other .frognet lines must be untouched")
     if "127.0.0.1 localhost" not in n:
         probs.append("unrelated localhost line clobbered")
-    check("[STALE] stale remote databasehost.frognet -> localhost; control/media/others intact", probs)
+    check("[STALE] stale remote databasehost.frognet -> localhost; control/others intact", probs)
 
     # 2. absent -> added
     probs = []
@@ -82,15 +82,15 @@ def run():
     #    name); with NO winner the placeholder correctly stays (localhost = self-fallback).
     probs = []
     try:
-        import frognet_service_hosts as FSH
+        from core import frognet_service_hosts as FSH
         placeholder = ["127.0.0.1 databasehost.frognet",
                        "10.250.250.1 databasehost_control.frognet"]
         orig = FSH.service_host_lines
         try:
             # [SIGNATURE_SYNC] The stub takes **kw rather than enumerating the
             # keywords. It was pinned to dbhost/logger/reachable_subnets/
-            # self_ip/lan_subnets; service_host_lines has since grown local_ips
-            # and etc_hosts, and the call blew up with "unexpected keyword
+            # self_ip/lan_subnets; service_host_lines has since changed its
+            # keywords (etc_hosts in, lan_subnets/local_ips out), and the call blew up with "unexpected keyword
             # argument 'etc_hosts'". Nothing in this check cares what the caller
             # passes -- only what comes back -- so enumerating the parameters
             # bought nothing and guaranteed this breaks again on the next one.

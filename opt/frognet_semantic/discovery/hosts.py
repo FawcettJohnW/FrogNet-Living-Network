@@ -305,13 +305,7 @@ def role_barrier_ready(etc_hosts, role="databasehost",
     ROLE, from every live machine. Decide over a partial pool and nodes that merged at
     different moments pick different winners.
 
-    The barrier used to exist only for databasehost, and it gated the whole election
-    loop -- so mediahost waited on databasehost capability records, which are not an
-    input to the media election in any way. A machine could have published its
-    mediahost capability and still hold the media election shut because it had not yet
-    published its databasehost one. Now each role waits on its own records and nothing
-    else, which is both correct and strictly more permissive: mediahost decides as soon
-    as the media information is complete.
+    Each role waits on its own records and nothing else.
 
     Live machines = the reachable .1 FrogNetHost entries in the converged block (a host
     with no route was already dropped by HOSTS_GATE, so it is not awaited). A lone

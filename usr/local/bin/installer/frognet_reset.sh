@@ -36,7 +36,7 @@
 #   sudo bash frognet_reset.sh [--dry-run] [--keep-db] [--keep-identity] [--yes]
 #
 #   --dry-run        Print every action, change nothing.
-#   --keep-db        Do NOT drop the FrogNet / FrogNetFamily databases + FrogUser.
+#   --keep-db        Do NOT drop the FrogNet database + FrogUser.
 #   --keep-identity  Keep /etc/fnid (node GUID) and /etc/wireguard (WG keys).
 #                    Use this to REINSTALL the same node; omit for a true clone-
 #                    safe wipe (fresh GUID on next install).
@@ -133,7 +133,7 @@ fi
 phase "2. Drop FrogNet databases"
 ###############################################################################
 if [[ $KEEP_DB -eq 1 ]]; then
-    log "keep-db set - leaving FrogNet / FrogNetFamily / FrogUser in place"
+    log "keep-db set - leaving FrogNet / FrogUser in place"
 else
     if command -v mysql >/dev/null 2>&1; then
         [[ $DRY -eq 1 ]] || systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
@@ -145,7 +145,7 @@ else
         # fine, because by hand nobody touches AHI. The tuning was the hang, so it is
         # gone. If the drop is slow it is slow honestly, and the timing line says so.
         _t0=$(date +%s)
-        _do mysql -u root -e "DROP DATABASE IF EXISTS FrogNet; DROP DATABASE IF EXISTS FrogNetFamily; DROP USER IF EXISTS 'FrogUser'@'localhost'; DROP USER IF EXISTS 'FrogUser'@'%'; FLUSH PRIVILEGES;"
+        _do mysql -u root -e "DROP DATABASE IF EXISTS FrogNet; DROP USER IF EXISTS 'FrogUser'@'localhost'; DROP USER IF EXISTS 'FrogUser'@'%'; FLUSH PRIVILEGES;"
         [[ $DRY -eq 1 ]] || log "databases dropped in $(( $(date +%s) - _t0 ))s"
     else
         log "mysql client not present - skipping DB drop"

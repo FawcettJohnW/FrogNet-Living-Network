@@ -45,33 +45,6 @@ from .runmerge import run_merge
 IP = "/usr/sbin/ip"
 
 
-def _ensure_bundle_on_path() -> None:
-    """[BUNDLE_PATH_V1] The merge-end election hooks (reach_plane tuple write +
-    service-host election) live in the Communicator bundle, installed at
-    /opt/frognet_semantic/ribbit/examples/communicator. runMerge launches discovery with
-    PYTHONPATH=/opt/frognet_semantic ONLY, so `import frognet_tuples` /
-    `frognet_service_hosts` fail there (`No module named ...`) and both hooks
-    silently no-op. Add the bundle dir to sys.path so they resolve. core.* still
-    comes from /opt/frognet_semantic, already on the path. Order: FROGNET_BUNDLE_DIR
-    env override, the canonical install path, then a repo-relative path for in-tree
-    and sim runs. Idempotent; silent when the dir is absent (hooks degrade as before).
-    """
-    import sys as _sys
-    import os as _os
-    cands = []
-    env = _os.environ.get("FROGNET_BUNDLE_DIR")
-    if env:
-        cands.append(env)
-    cands.append("/opt/frognet_semantic/ribbit/examples/communicator")
-    here = _os.path.dirname(_os.path.abspath(__file__))
-    repo = _os.path.abspath(_os.path.join(here, "..", "..", ".."))
-    cands.append(_os.path.join(repo, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
-    for d in cands:
-        if d and _os.path.isdir(d) and d not in _sys.path:
-            _sys.path.insert(0, d)
-
-
-
 # [SENTINEL_DIR_HONOURED_V1] Every sentinel path goes through here.
 #
 # run_discovery_oracles.py:59 gives each oracle its own FROGNET_SENTINEL_DIR
@@ -679,8 +652,8 @@ def main():
             from discovery.real_backends import RegionRecords
             from core import region_capability as _RC
             _region_parts = RegionRecords().participants()
-            _n = _RC.set_snapshot(_region_parts, self_identity)
-            logger("ELECT: candidates from the region's facts: %d member(s) with a capability; my LAN (graph links): %s" % (_n, sorted(_RC.lan() or ())))
+            _n = _RC.set_snapshot(_region_parts)
+            logger("ELECT: candidates from the region's facts: %d member(s) with a capability" % _n)
         except Exception as _e:
             raise RuntimeError("region mode: the members' facts could not be read for the election: %s" % _e)
 
@@ -769,8 +742,8 @@ def main():
     # seconds later. The value has to OUTLIVE the merge -- the whole point is that
     # another node's election reads it afterwards.
     out["computed_wan"] = list(getattr(disc, "computed_wan", []))
-    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the mediahost's LAN bucket is the
-    # graph ([LAN_IS_THE_GRAPH_V1]) and the one reader gather_candidates had was a dead read, now removed. Not written.
+    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the one reader gather_candidates had
+    # was a dead read, now removed. Not written.
     _region = bool(getattr(disc, "no_crawl", False))
     if _region:
         logger("REACH_PLANE_TUPLE not written: region mode, the graph is the LAN/WAN input [REGION_MERGE_WRITES_NO_STORE_V1]")
@@ -804,8 +777,8 @@ def main():
     # [SERVICE_HOSTS_ELECTION_V1] Generic, dynamic service-host election. Derive the
     # live service set by consolidating the registered candidate tuples, elect each
     # role through its registry handler over capability memory, and emit
-    # <role>.frognet lines into the committed block. ONE loop for databasehost,
-    # mediahost, and any future role - no per-role hook. Degrades to no role lines
+    # <role>.frognet lines into the committed block. ONE loop for databasehost
+    # and any future role - no per-role hook. Degrades to no role lines
     # (the highest-IP databasehost floor stands) if the transient is unreachable.
     # [PUBLISH_BEFORE_ELECT_V1] Every merge, this node re-publishes its own <role>/
     # capability (perf inside the blob) to BOTH control + data BEFORE the election
@@ -856,35 +829,24 @@ def main():
         # deterministic (highest .1) and already in out['etc_hosts'].
         _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
         # [SERVICE_HOSTS_ELECTION_V1] POST-merge determination. Every component's host
-        # (databasehost, mediahost, ...) is its UnREST callback's pure pick
+        # (databasehost, ...) is its UnREST callback's pure pick
         # over the capability tuples in databasehost_control - identical on every node by
         # construction. No floor, no per-node reachability cull. self_ip = this node's .1,
         # used only for local-by-definition when a callback names no winner. This is a
         # read; it does NOT set runAgain (only route changes re-run the merge).
-        # [LAN_IS_ATTACHED_V1] LAN service roles (mediahost) must elect only over
-        # this node's directly-attached segments - not over boxes reached via a relay.
-        # disc.local_subnets is the attached-/24 prefix set; render as '10.x.y.0/24'.
-        _lan = {p + ".0/24" for p in getattr(disc, "local_subnets", set())}
         # [DBHOST_COMPLETENESS_BARRIER_V1] Only DECIDE the service roles once _control
         # holds a fresh capability record for every live machine. When ready, the ONE
-        # election loop sets databasehost AND (off the same machinery) mediahost
-        # together. Until ready, pin databasehost at the control (highest .1,
+        # election loop sets every role. Until ready, pin databasehost at the control (highest .1,
         # always valid) and leave the other role lines as committed, so a later merge -
         # after the missing nodes publish - decides over the COMPLETE pool and every node
         # agrees. A lone FrogNetHost is ready at once and elects itself for every role.
         # [ROLE_ELECTION_UNCOUPLED_V1] The election runs EVERY converged merge, for
         # every registered role. It used to sit behind the databasehost completeness
         # barrier, so a pond whose barrier never opened elected nothing at all - no
-        # mediahost line, and no error to say so.
-        # [ROLE_BARRIER_PER_ROLE_V1] Each role asks its OWN barrier. mediahost waits
-        # on mediahost capability records, not on databasehost ones -- those are not an
-        # input to the media election and used to hold it shut for no reason.
+        # role line, and no error to say so.
         from core.frognet_service_hosts import service_host_lines, commit_service_lines
-        try:
-            from core.role_registry import ROLE_HANDLERS as _RH
-            _roles = list(_RH)
-        except Exception:
-            _roles = ["databasehost", "mediahost"]
+        from core.role_registry import ROLE_HANDLERS as _RH
+        _roles = list(_RH)
         # [ABSENT_IS_A_DECIDABLE_STATE_V1] role_barrier_ready is no longer called.
         # It asked, once per role per merge with its own store read, whether every
         # live machine had published a capability record yet -- and deferred the
@@ -900,9 +862,7 @@ def main():
         # definition, whether or not its capability row landed this pass.
         _role_lines = service_host_lines(dbhost=_ctl, logger=logger,
                                          etc_hosts=out.get("etc_hosts", []),
-                                         self_ip=(self_identity or eth0_ip),
-                                         lan_subnets=_lan,
-                                         local_ips=set(getattr(disc, "local_ips", ())))
+                                         self_ip=(self_identity or eth0_ip))
         out["etc_hosts"] = commit_service_lines(out.get("etc_hosts", []), _role_lines,
                                                 _ready_roles, _ctl, logger=logger)
         logger(f"SERVICE_BARRIERS ready={sorted(_ready_roles)} "
@@ -1234,8 +1194,8 @@ def _arm_elector(logger=print):
 
 def _topology_changed(old_content: str, new_content: str) -> bool:
     """[SERVICE_HOSTS_NO_SYNC_V1] True only if the host files differ in a TOPOLOGY
-    line. Service-role lines end in `.frognet` (databasehost/databasehost_control/
-    mediahost/aihost ...); they are a DERIVED election result every node
+    line. Service-role lines end in `.frognet` (databasehost/databasehost_control
+    ...); they are a DERIVED election result every node
     computes identically from databasehost_control, so a change confined to them is
     NOT a topology change and must NEVER trigger re-sync/propagation (that is the
     merge-storm: each node re-derives a role line, the byte differs, it propagates,

@@ -389,7 +389,7 @@ STRIKES_TO_MARK = int(os.environ.get("FROGNET_NF_STRIKES", "3"))
 # behaves like marking on the first failure.
 #
 # Measured 2026-09-05: `systemctl restart frognet-proxy frognet-daemon
-# frognet-tunnel-daemon-v3 frognet-mediahost`, and every request through :80 to
+# frognet-tunnel-daemon-v3`, and every request through :80 to
 # the elected databasehost then failed with "cached non-FrogNet this session;
 # no worker built" -- the producer could not read the tuple store at all. Same
 # failure as Seattle3 on 2026-08-08, which is the failure three-strikes was

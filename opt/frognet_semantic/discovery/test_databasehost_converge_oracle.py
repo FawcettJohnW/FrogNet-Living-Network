@@ -73,8 +73,8 @@ sea5_pool = [s5, s3_busy]                       # what sea5 read:  {250, 130}
 sea3_pool = [s5, s3_idle, s2, ny, phantom]      # what sea3 read:  {250,130,120,102,179.179}
 
 h = DatabaseRoleHandler()
-w5 = (h.evaluate(sea5_pool, []) or {}).get("lan_ip")
-w3 = (h.evaluate(sea3_pool, []) or {}).get("lan_ip")
+w5 = (h.evaluate(sea5_pool) or {}).get("lan_ip")
+w3 = (h.evaluate(sea3_pool) or {}).get("lan_ip")
 print(f"  sea5 elects {w5} ; sea3 elects {w3}")
 
 check(w5 == w3, f"both nodes elect the SAME databasehost (sea5={w5} sea3={w3})")
@@ -85,7 +85,7 @@ check(w5 == "10.130.130.1",
 # Load-invariance in isolation: re-scoring the identical pool under a load spike must
 # not move the winner.
 spike = [dict(c, _perf={"loadavg": {"1": 9.9}}) for c in sea3_pool]
-ws = (h.evaluate(spike, []) or {}).get("lan_ip")
+ws = (h.evaluate(spike) or {}).get("lan_ip")
 check(ws == w3, "winner is invariant to a load spike on every candidate")
 
 print("RESULT:", "PASS" if ok else "FAIL")

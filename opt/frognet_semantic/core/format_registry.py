@@ -51,10 +51,7 @@ FORMAT_HANDLERS_V3 = FORMAT_HANDLERS
 # `from core.format_registry import role_handler` callers are unaffected).
 # ============================================================
 from .role_registry import (ROLE_HANDLERS, role_handler,        # noqa: F401
-                            SOTF_MEDIA_HANDLER, DATABASE_HANDLER)
-
-# register the media codex in the format registry too (it was previously unwired)
-FORMAT_HANDLERS["sotf_media"] = SOTF_MEDIA_HANDLER
+                            DATABASE_HANDLER)
 
 
 # ============================================================

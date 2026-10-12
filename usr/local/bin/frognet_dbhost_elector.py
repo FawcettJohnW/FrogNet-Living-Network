@@ -113,8 +113,9 @@ def main():
         print("[DBHOST-ELECT] region mode: the daemon elects from the region's facts; nothing to do here", flush=True)
         return 0
     # paths for the live election + my FrogNet identity
+    # [CORE_IMPORTS_V1] core.* from /opt/frognet_semantic, the way the shipped code imports them. The old
+    # Communicator bundle dir held top-level copies; outside region mode these imports failed.
     sys.path.insert(0, "/opt/frognet_semantic")
-    sys.path.insert(0, "/opt/frognet_semantic/ribbit/examples/communicator")
     # [NO_FALLBACK_V1] `return 0  # never fail the timer` is the fallback in its
     # purest form: the election modules are missing, no election runs, and
     # systemd records a clean success. The timer then reports green forever
@@ -128,8 +129,8 @@ def main():
     # only way `systemctl list-timers` can tell anyone. The original
     # `except Exception: return 0  # never fail the timer` reported success
     # forever while no election ran and /etc/hosts was never updated.
-    from frognet_service_hosts import apply_to_etc_hosts
-    from frognet_tuples import my_ip as _my_ip
+    from core.frognet_service_hosts import apply_to_etc_hosts
+    from core.frognet_tuples import my_ip as _my_ip
     # [NO_FALLBACK_V1] Same shape: an unreadable /etc/hosts reported success.
     try:
         lines = [l.rstrip("\n") for l in open(HOSTS)]

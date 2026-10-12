@@ -46,9 +46,7 @@ _HERE = os.path.abspath(__file__)
 _ROOT = _HERE
 for _ in range(3):
     _ROOT = os.path.dirname(_ROOT)                      # .../opt/frognet_semantic
-_WORK = os.path.dirname(os.path.dirname(_ROOT))         # .../right_discovery
-sys.path.insert(0, _ROOT)
-sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
+sys.path.insert(0, _ROOT)          # [CORE_IMPORTS_V1] core.*, as shipped; the old Communicator bundle dir is retired
 
 FAILS = []
 def check(label, problems):
@@ -61,15 +59,12 @@ def check(label, problems):
 
 _FAKE_T = None
 
-def install_tuples(db_caps, reach_wan, my_ip):
-    """Fake transient that honors fresh_s. One singleton module bound under both
-    the flat and the canonical core name (the moved election code imports
-    core.frognet_tuples)."""
+def install_tuples(db_caps, my_ip):
+    """Fake transient that honors fresh_s. One singleton module bound under the
+    canonical core name (the election code imports core.frognet_tuples)."""
     global _FAKE_T
     now = int(time.time())
-    rows = {("discovery", "reach_plane"): [
-        {"addr": my_ip, "var": "reach_plane",
-         "value": {"wan_subnets": reach_wan, "self_ip": my_ip, "ts": now}}]}
+    rows = {}
     rr = []
     for ip, cap in db_caps.items():
         rr.append({"addr": ip, "var": "capability",
@@ -89,7 +84,6 @@ def install_tuples(db_caps, reach_wan, my_ip):
         T.put = lambda *a, **k: True
         T.DEFAULT_DBHOST = "databasehost_control.frognet"
         _FAKE_T = T
-        sys.modules["frognet_tuples"] = T
         sys.modules["core.frognet_tuples"] = T
         import core as _core
         _core.frognet_tuples = T
@@ -98,20 +92,23 @@ def install_tuples(db_caps, reach_wan, my_ip):
 
 
 def fresh_handlers():
-    for m in ("frognet_role_elect", "frognet_service_hosts",
-              "core.frognet_role_elect", "core.frognet_service_hosts",
+    for m in ("core.frognet_role_elect", "core.frognet_service_hosts",
               "core.database_handler"):
         sys.modules.pop(m, None)
-    import frognet_role_elect as RE
+    import core.frognet_role_elect as RE
     from core.database_handler import DatabaseRoleHandler
     return RE, DatabaseRoleHandler
 
 
 # Real-ish pond. .130 is the legitimate best mysql box; .179 is the poison blob
-# (mem_available_kb is a DICT - exactly the int()-not-'dict' the log throws).
+# (mem_total_kb is a DICT - exactly the int()-not-'dict' the log throws).
+# [DBHOST_STATIC_RANK_V1] the score reads INSTALLED RAM (mem_total_kb) and gates on
+# disk_free_gb; the fixture carried only mem_available_kb and no disk_free_gb, so every
+# candidate scored -1 and the highest .1 won by tiebreak.
 def _good(ip, mem_gb, cpu, wmbps):
-    return dict(lan_ip=ip, mysql_running=1, mem_available_kb=mem_gb * 1024 * 1024,
-                cores=4, cpu_bench_total=cpu, disk_write_mbps=wmbps, disk_fsync_ms=3)
+    return dict(lan_ip=ip, mysql_running=1, mem_total_kb=mem_gb * 1024 * 1024,
+                mem_available_kb=mem_gb * 1024 * 1024, disk_free_gb=50,
+                cores=4, cpu_mhz=cpu // 4, cpu_bench_total=cpu, disk_write_mbps=wmbps, disk_fsync_ms=3)
 
 CLEAN = {
     "10.130.130.1": _good("10.130.130.1", 8, 9000, 120),   # Seattle3 - best
@@ -120,16 +117,16 @@ CLEAN = {
 }
 POISON = dict(CLEAN)
 POISON["10.179.179.1"] = dict(lan_ip="10.179.179.1", mysql_running=1,
-                              mem_available_kb={"clobbered": [1, 2, 3]},   # <-- dict, not a number
-                              cores=4, cpu_bench_total=9000, disk_write_mbps=120, disk_fsync_ms=3)
+                              mem_total_kb={"clobbered": [1, 2, 3]},       # <-- dict, not a number
+                              mem_available_kb={"clobbered": [1, 2, 3]}, disk_free_gb=50,
+                              cores=4, cpu_mhz=2250, cpu_bench_total=9000, disk_write_mbps=120, disk_fsync_ms=3)
 
 VANTAGES = ["10.130.130.1", "10.120.120.1", "10.250.250.1", "10.102.60.1"]
-REACH = []   # island: all candidates are LAN to the election
 EXPECT = "10.130.130.1"
 
 
 def _elect_from(my_ip, caps):
-    install_tuples(caps, REACH, my_ip)
+    install_tuples(caps, my_ip)
     RE, DBH = fresh_handlers()
     try:
         win = RE.elect(DBH())

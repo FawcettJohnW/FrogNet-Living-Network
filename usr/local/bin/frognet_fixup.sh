@@ -253,11 +253,8 @@ DROP USER IF EXISTS 'FrogUser'@'%';
 CREATE USER 'FrogUser'@'localhost' IDENTIFIED BY '${FROG_PASS}';
 CREATE USER 'FrogUser'@'%' IDENTIFIED BY '${FROG_PASS}';
 CREATE DATABASE IF NOT EXISTS FrogNet;
-CREATE DATABASE IF NOT EXISTS FrogNetFamily;
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'localhost';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'%';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'localhost';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'%';
 FLUSH PRIVILEGES;
 SQLEOF
 

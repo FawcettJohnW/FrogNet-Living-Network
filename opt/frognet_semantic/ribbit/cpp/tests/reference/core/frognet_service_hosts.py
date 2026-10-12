@@ -104,7 +104,6 @@ def _live_roles(handlers: Dict[str, object], dbhost: str) -> List[str]:
 ROLE_NOUN = {
     "mediahost": "media",
     "databasehost": "database",
-    "boardgame": "boardgame",
 }
 
 
@@ -219,7 +218,7 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
         # publish a capability row for this role enters the pool as a BARE candidate.
         # It exists; we simply do not know what it can do. The role's own score()
         # decides whether unknown capability is good enough -- mediahost's hard
-        # ffmpeg/libvpx gate will refuse it, boardgame's flat score will not. That
+        # ffmpeg/libvpx gate will refuse it; a role with a flat score would not. That
         # judgement belongs to the role, not to whether a publish happened to land.
         _published = {c.get("lan_ip") for c in hosts_list}
         _lan_subs = set(lan_subnets or ())

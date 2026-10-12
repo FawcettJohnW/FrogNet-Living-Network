@@ -17,22 +17,32 @@
 ################################################################
 """
 sim/host_reset_check.py - proves hostReset is the one reconcile path (memory, not
-messages) across the REAL modules. Simulates a databasehost float by swapping each
-module's transient for a fresh, cold one (the new host) and asserts every module
-rebuilds the new transient from its perm authority - the smooth host change - plus
-consistency-first ordering, idempotency, channel re-FULL, and the dispatcher's
-shared-vector read culminating in UI.
+messages) across the REAL modules: core.frognet_host_reset (host_reset_all and
+HostResetWatcher), core.role_publish (RolePublishReconcile -> publish_all) and the
+shipped role handler's advertise (core.database_handler.DatabaseRoleHandler).
+
+A databasehost float is simulated by pointing each module at a fresh, cold transient
+(the new host) and asserting every module rebuilds it from its perm authority - the
+smooth host change - plus consistency-first ordering, idempotency, one module's error
+not sinking the reconcile, the shared-vector read happening once AFTER every module
+re-asserted, and the watcher firing exactly once per resolved-IP delta.
+
+[HOST_RESET_REAL_MODULES_V1] This used to import working_memory and substrate (the old
+Communicator bundle's WorkingMemory / Codex / Channel) and media_codex, none of which is
+in the tree, so it failed at import. The fixtures below are local; the modules under test
+are the shipped ones.
 """
 from __future__ import annotations
 import os, sys
+from typing import Any, Dict, List
 
 _HERE = os.path.abspath(__file__)
 _ROOT = _HERE
 for _ in range(3):
     _ROOT = os.path.dirname(_ROOT)                 # .../opt/frognet_semantic
-_WORK = os.path.dirname(os.path.dirname(_ROOT))    # .../work
 sys.path.insert(0, _ROOT)
-sys.path.insert(0, os.path.join(_WORK, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
+
+from core.frognet_host_reset import host_reset_all, HostResetWatcher   # noqa: E402
 
 FAILS = []
 def check(label, problems):
@@ -42,261 +52,168 @@ def check(label, problems):
     else:
         print(f"  [PASS] {label}")
 
-from working_memory import InMemoryTransient, InMemoryPerm
-from substrate import Codex, Channel, Freshness
 
 # ---------------------------------------------------------------------------
-# Test fixtures: two modules that are each the perm authority for one element --
-# a lossless event list and a move log with a latest-only position. hostReset is
-# proven against them. (They were the calendar and backgammon bundles' codices;
-# those applications were dropped with /etc/frognet_bundles.)
+# Fixtures: a transient (the databasehost's store, which floats) and a perm (this
+# node's own authority, which does not), and a module that owns one element in each.
+# hostReset is the doctrine host_reset_all drives: reset my world -> make MY memory
+# consistent -> write MY memory.
 # ---------------------------------------------------------------------------
-from typing import Any, Dict, List, Tuple
-from working_memory import WorkingMemory, TransientStore, PermStore
-
-EVENTS_ELEMENT = "fixture.events"
-_EVENTS_FIELDS = ["name", "version", "event"]
-_EVENTS_FRESHNESS = {
-    "name":    Freshness.RESIDENT_ONCE,
-    "version": Freshness.LATEST_ONLY,
-    "event":   Freshness.LOSSLESS_EVENTUAL,     # every event must land, may be late
-}
+class Store:
+    def __init__(self): self.d: Dict[str, Any] = {}
+    def get(self, k): return self.d.get(k)
+    def put(self, k, v): self.d[k] = v
 
 
-class EventsModule(WorkingMemory):
-    """A shared list of events (test fixture). add_event commits perm-first then transient,
-    and offers the event (lossless) + bumped version (latest)."""
+class EventsModule:
+    """A lossless event list. Perm is the authority; the transient is re-asserted from it."""
 
-    def __init__(self, transient: TransientStore, perm: PermStore):
-        super().__init__(transient, perm)
-        self.codex = Codex(None, "POST", "fixture/events",
-                           _EVENTS_FIELDS, _EVENTS_FRESHNESS, mode="json",
-                           resident={"name": EVENTS_ELEMENT})
-        self.codex.learn()
-        self._channels: Dict[str, Channel] = {}
-        self._commit(EVENTS_ELEMENT, {"name": EVENTS_ELEMENT, "version": 0,
-                                   "events": [], "ts": self.now_ms()})
+    def __init__(self, transient: Store, perm: Store, key="fixture.events", log=None):
+        self.t, self.p, self.key, self.log = transient, perm, key, log if log is not None else []
+        self.p.put(self.key, {"version": 0, "events": []})
+        self.t.put(self.key, self.p.get(self.key))
 
-    def add_event(self, ev: Dict[str, Any]) -> Dict[str, Any]:
-        st = self._live(EVENTS_ELEMENT)
+    def add_event(self, ev):
+        st = dict(self.p.get(self.key))
         st["events"] = [e for e in st["events"] if e.get("uid") != ev.get("uid")] + [ev]
-        st["version"] = int(st["version"]) + 1
-        self._commit(EVENTS_ELEMENT, st)
-        for ch in self._channels.values():
-            ch.offer("event", ev)                    # lossless: queued, never dropped
-            ch.offer("version", st["version"])
-        return ev
+        st["version"] += 1
+        self.p.put(self.key, st); self.t.put(self.key, st)
 
-    def emit_to(self, peer_id: str) -> List[Tuple[bytes, str]]:
-        ch = self._channels.setdefault(peer_id, Channel(self.codex))
-        return ch.flush()
+    def events(self):
+        return list((self.t.get(self.key) or {}).get("events", []))
 
-    def events(self) -> List[Dict[str, Any]]:
-        return list(self._live(EVENTS_ELEMENT)["events"])
-
-    # hostReset hooks: I am the perm authority for the events element.
-    def _owned_keys(self):
-        return [EVENTS_ELEMENT]
-
-    def _consistency_check(self):
-        """One event per uid (add_event's invariant). On reconcile after a network
-        join, two islands' perms may both hold the uid - keep the latest by ts, so the
-        re-asserted memory is coherent before it is published."""
-        st = self.p.load(EVENTS_ELEMENT)
-        if not st:
-            return
-        by_uid = {}
+    def hostReset(self) -> Dict[str, Any]:
+        st = dict(self.p.get(self.key))
+        by_uid = {}                                  # consistency first: one event per uid, latest ts wins
         for e in st.get("events", []):
             u = e.get("uid")
             if u not in by_uid or int(e.get("ts", 0)) >= int(by_uid[u].get("ts", 0)):
                 by_uid[u] = e
-        deduped = list(by_uid.values())
-        if len(deduped) != len(st.get("events", [])):
-            st["events"] = deduped
-            self.p.save(EVENTS_ELEMENT, st)
+        consistency = "ok"
+        if len(by_uid) != len(st.get("events", [])):
+            st["events"] = list(by_uid.values()); self.p.put(self.key, st); consistency = "repaired"
+        self.t.put(self.key, st)                     # then write: an upsert, no version bump
+        self.log.append(("reset", self.key))
+        return {"module": "EventsModule", "reset": [self.key], "written": [self.key],
+                "consistency": consistency}
 
 
-class MovesModule(WorkingMemory):
-    """A move log with a latest position (test fixture). play_move commits the new
-    position and offers a bounded move-tip (lossless) + the position (latest-only)."""
-
-    def __init__(self, transient: TransientStore, perm: PermStore, gid: str,
-                 white: str = "white", black: str = "black"):
-        super().__init__(transient, perm)
-        self.gid = gid
-        self.element = f"fixture.moves.{gid}"
-        fields = ["gid", "position", "move"]
-        freshness = {
-            "gid":      Freshness.RESIDENT_ONCE,
-            "position": Freshness.LATEST_ONLY,        # stale board coalesces
-            "move":     Freshness.LOSSLESS_EVENTUAL,  # every move lands, in order
-        }
-        self.codex = Codex(None, "POST", f"fixture/moves/{gid}",
-                           fields, freshness, mode="json", resident={"gid": gid})
-        self.codex.learn()
-        self._channels: Dict[str, Channel] = {}
-        self._commit(self.element, {"gid": gid, "white": white, "black": black,
-                                    "position": None, "moves": [], "ts": self.now_ms()})
-
-    def play_move(self, move: Dict[str, Any], position: Any) -> None:
-        st = self._live(self.element)
-        st["moves"].append(move)                     # history is resident memory...
-        st["position"] = position
-        self._commit(self.element, st)
-        for ch in self._channels.values():
-            ch.offer("move", move)                   # ...the wire carries the bounded tip
-            ch.offer("position", position)
-
-    def emit_to(self, peer_id: str) -> List[Tuple[bytes, str]]:
-        ch = self._channels.setdefault(peer_id, Channel(self.codex))
-        return ch.flush()
-
-    def moves(self) -> List[Dict[str, Any]]:
-        return list(self._live(self.element)["moves"])
-
-    # hostReset hooks: I am the perm authority for this element.
-    def _owned_keys(self):
-        return [self.element]
-
-    def _consistency_check(self):
-        """The position must reflect the last move that landed (latest-only position
-        can coalesce stale, but the lossless move log is authoritative). If a position
-        was published with no move behind it, fall back to no-position so peers
-        re-derive from the move log rather than trust an orphan board."""
-        st = self.p.load(self.element)
-        if not st:
-            return
-        if st.get("position") is not None and not st.get("moves"):
-            st["position"] = None
-            self.p.save(self.element, st)
+class Broken:
+    def hostReset(self):
+        raise RuntimeError("this module's store is unreachable")
 
 
-from frognet_host_reset import host_reset_all
+class _StubTuples:
+    """The tuple client the role handler's advertise writes through; records every put."""
+    def __init__(self): self.puts: List[tuple] = []
+    def role_scope(self, role): return "host:10.250.250.1:%s" % role
+    def put(self, svc, var, scope, value, dbhost=None, own=True):
+        self.puts.append((svc, var, scope, dbhost)); return True
+    def prune_self_stale_capability(self, *a, **k): return 0
+
 
 def run():
-    perm = InMemoryPerm()
-    old_t = InMemoryTransient()
-    cal = EventsModule(old_t, perm)
-    bg = MovesModule(old_t, perm, gid="g1")
+    perm = Store(); old_t = Store(); order = []
+    cal = EventsModule(old_t, perm, "fixture.events", order)
+    other = EventsModule(old_t, Store(), "fixture.other", order)
     cal.add_event({"uid": "e1", "title": "soccer", "ts": 10})
     cal.add_event({"uid": "e2", "title": "dentist", "ts": 20})
-    bg.play_move({"n": 1, "from": 24, "to": 23}, position="p1")
+    other.add_event({"uid": "o1", "ts": 5})
 
-    # --- simulate a databasehost FLOAT: each module now points at a fresh, COLD host ---
-    new_t = InMemoryTransient()
-    cal.t = new_t
-    bg.t = new_t
-    probs = []
-    if new_t.get(EVENTS_ELEMENT) is not None:
-        probs.append("precondition: new transient should start cold")
-    check("[FLOAT] new databasehost transient starts cold (nothing migrated yet)", probs)
+    # --- a databasehost FLOAT: each module now points at a fresh, COLD host ---
+    new_t = Store(); cal.t = new_t; other.t = new_t
+    check("[FLOAT] new databasehost transient starts cold (nothing migrated yet)",
+          [] if new_t.get(cal.key) is None else ["precondition: new transient should start cold"])
 
-    # shared-vector read + UI culmination recorders (the dispatcher's job)
     rendered = {}
     def read_vector():
-        # read shared memory BY TUPLE VECTOR from the (now re-asserted) new transient
-        return [k for k in (EVENTS_ELEMENT, bg.element) if new_t.get(k) is not None]
+        order.append(("read", None))
+        return [k for k in (cal.key, other.key) if new_t.get(k) is not None]
     def render_ui(vec):
-        rendered["vec"] = list(vec)
+        order.append(("render", None)); rendered["vec"] = list(vec)
 
-    out = host_reset_all([cal, bg], read_shared_vector=read_vector,
-                         render_ui=render_ui)
+    out = host_reset_all([cal, Broken(), other], read_shared_vector=read_vector, render_ui=render_ui)
 
     # --- 1. SMOOTH MOVE: new transient rebuilt from perm by re-assertion ---
     probs = []
-    if new_t.get(EVENTS_ELEMENT) is None or new_t.get(bg.element) is None:
+    if new_t.get(cal.key) is None or new_t.get(other.key) is None:
         probs.append("new transient was NOT repopulated from perm on hostReset")
-    if cal.events() != [{"uid": "e1", "title": "soccer", "ts": 10},
-                        {"uid": "e2", "title": "dentist", "ts": 20}]:
+    if cal.events() != [{"uid": "e1", "title": "soccer", "ts": 10}, {"uid": "e2", "title": "dentist", "ts": 20}]:
         probs.append(f"event list lost across the float: {cal.events()}")
-    if bg.moves() != [{"n": 1, "from": 24, "to": 23}]:
-        probs.append(f"move log lost across the float: {bg.moves()}")
     check("[SMOOTH] every module rebuilt the new transient from perm (memory, not migration)", probs)
 
-    # --- 2. UI culmination over the re-asserted shared vector ---
+    # --- 2. ORDER: every module re-asserts BEFORE the one shared-vector read, then the UI ---
     probs = []
-    if rendered.get("vec") != [EVENTS_ELEMENT, bg.element]:
+    if order[-4:] != [("reset", cal.key), ("reset", other.key), ("read", None), ("render", None)]:
+        probs.append(f"reconcile order wrong: {order[-4:]}")
+    if rendered.get("vec") != [cal.key, other.key] or not out["ui_rendered"]:
         probs.append(f"UI not rendered over the full re-asserted vector: {rendered.get('vec')}")
-    if not out["ui_rendered"]:
-        probs.append("dispatcher did not render UI")
-    check("[UI] shared vector read AFTER all re-assert; Communicator UI rendered (living network)", probs)
+    check("[ORDER] shared vector read once, AFTER all re-assert; UI rendered over it", probs)
 
-    # --- 3. CONSISTENCY-FIRST: a dup uid in perm is repaired before re-assertion ---
+    # --- 3. ISOLATION: one module raising does not sink the others ---
     probs = []
-    st = perm.load(EVENTS_ELEMENT)
+    errs = [r for r in out["modules"] if r.get("error")]
+    if len(out["modules"]) != 3 or len(errs) != 1 or "unreachable" not in errs[0]["error"]:
+        probs.append(f"reports: {out['modules']}")
+    check("[ISOLATE] a module that raises is reported; the rest still reconcile", probs)
+
+    # --- 4. CONSISTENCY-FIRST: a dup uid in perm is repaired before re-assertion ---
+    probs = []
+    st = dict(perm.get(cal.key))
     st["events"] = [{"uid": "e1", "ts": 10}, {"uid": "e1", "ts": 99}, {"uid": "e2", "ts": 20}]
-    perm.save(EVENTS_ELEMENT, st)
-    cal.t = InMemoryTransient()
-    cal.hostReset()
-    ev = cal.events()
-    uids = sorted(e["uid"] for e in ev)
-    e1 = next((e for e in ev if e["uid"] == "e1"), None)
-    if uids != ["e1", "e2"]:
-        probs.append(f"consistency did not dedup uid before write: {ev}")
-    if not (e1 and e1["ts"] == 99):
-        probs.append(f"consistency kept the stale e1 (want ts=99): {e1}")
+    perm.put(cal.key, st)
+    cal.t = Store(); rep = cal.hostReset()
+    ev = cal.events(); e1 = next((e for e in ev if e["uid"] == "e1"), None)
+    if sorted(e["uid"] for e in ev) != ["e1", "e2"] or not (e1 and e1["ts"] == 99) or rep["consistency"] != "repaired":
+        probs.append(f"consistency did not dedup uid (latest ts) before write: {ev} {rep}")
     check("[CONSISTENCY] my world made coherent (dedup) BEFORE my memory is written", probs)
 
-    # --- 4. IDEMPOTENT: re-running changes nothing (upsert, no version churn) ---
+    # --- 5. IDEMPOTENT: re-running changes nothing (upsert, no version churn) ---
     probs = []
-    cal.t = InMemoryTransient()
-    r1 = cal.hostReset()
-    v1 = cal.t.get(EVENTS_ELEMENT)["version"]
-    r2 = cal.hostReset()
-    v2 = cal.t.get(EVENTS_ELEMENT)["version"]
-    if v1 != v2:
-        probs.append(f"hostReset bumped version (not idempotent): {v1} -> {v2}")
-    if r1["written"] != r2["written"]:
-        probs.append("hostReset not idempotent across runs")
+    cal.t = Store(); r1 = cal.hostReset(); v1 = cal.t.get(cal.key)["version"]
+    r2 = cal.hostReset(); v2 = cal.t.get(cal.key)["version"]
+    if v1 != v2 or r1["written"] != r2["written"]:
+        probs.append(f"hostReset not idempotent: version {v1} -> {v2}")
     check("[IDEMPOTENT] re-asserting the same authority does not churn version", probs)
-
-    # --- 5. CHANNEL re-FULL: a converged reference is dropped so next emit is FULL ---
-    probs = []
-    cx = Codex(None, "POST", "p/x", ["a", "b"], {"a": Freshness.LATEST_ONLY,
-                                                 "b": Freshness.LATEST_ONLY})
-    ch = Channel(cx)
-    _f, ref, kind = cx.encode({"a": 1, "b": 2}, ch.reference); ch.reference = ref
-    _f2, _r2, kind2 = cx.encode({"a": 1, "b": 2}, ch.reference)   # would be SAME now
-    ch.hostReset()
-    _f3, _r3, kind3 = cx.encode({"a": 1, "b": 2}, ch.reference)   # reference dropped -> FULL
-    if kind != "full" or kind2 != "same" or kind3 != "full":
-        probs.append(f"channel reset did not force re-FULL: {kind}/{kind2}/{kind3}")
-    check("[REFULL] hostReset drops the stale convergence reference; next emit is FULL", probs)
 
     # --- 6. SEE 1: trigger-agnostic - any reason takes the identical path ---
     probs = []
-    cal.t = InMemoryTransient(); a = host_reset_all([cal], read_shared_vector=lambda: ["x"])
-    cal.t = InMemoryTransient(); b = host_reset_all([cal], read_shared_vector=lambda: ["x"])
+    cal.t = Store(); a = host_reset_all([cal], read_shared_vector=lambda: ["x"])
+    cal.t = Store(); b = host_reset_all([cal], read_shared_vector=lambda: ["x"])
     if [r["written"] for r in a["modules"]] != [r["written"] for r in b["modules"]]:
         probs.append("two triggers took different paths - must be 'see 1'")
     check("[SEE1] one reconcile path regardless of what triggered it", probs)
 
-    # --- 7. SotF / ffmpeg: the CALL reconciles (envelope survives, droppable frame shed) ---
-    from media_codex import MediaCodex, SESSION_FIELDS
-    mperm = InMemoryPerm(); mt = InMemoryTransient()
-    call = MediaCodex(mt, mperm, session_id="call-1", codec="opus", level_idx=4)
-    call.frame(seq=7, audio=b"\xaa\xbb", video=b"\xcc\xdd")   # an in-flight frame
-    new_mt = InMemoryTransient(); call.t = new_mt              # mediahost/db float
-    # converge a channel reference so we can prove re-FULL
-    _f, _k = call.emit_to("peerX")[0][0], call.emit_to("peerX")
-    rep = call.hostReset()
+    # --- 7. ROLES: the shipped role handler rides the same path (RolePublishReconcile ->
+    #        publish_all -> DatabaseRoleHandler.advertise), control first, data mirror ---
+    import core.unrest_handler as UH
+    import core.role_publish as RP
+    from core.role_registry import ROLE_HANDLERS
+    stub = _StubTuples()
+    saved = (UH._tuples, RP._region_mode)
+    UH._tuples = lambda: stub
+    RP._region_mode = lambda: False                  # broker mode: the store is the election input
+    try:
+        reps = RP.publish_all(blob={"lan_ip": "10.250.250.1", "cores": 4}, control="10.250.250.1",
+                              logger=lambda s: None)
+        rec = RP.RolePublishReconcile()
+        RP.publish_all, _pa = (lambda logger=None, **k: reps), RP.publish_all
+        via = host_reset_all([rec])
+        RP.publish_all = _pa
+    finally:
+        UH._tuples, RP._region_mode = saved
     probs = []
-    s = new_mt.get("call-1")
-    if s is None:
-        probs.append("call session did NOT survive the float on the new host")
-    else:
-        if s.get("codec") != "opus" or s.get("level_idx") != 4:
-            probs.append(f"session envelope (scaffold) lost: {s}")
-        if s.get("seq") or s.get("audio") is not None or s.get("video") is not None:
-            probs.append(f"droppable in-flight frame was REPLAYED on reset: {s}")
-    # next emit after reset must be a FULL (reference dropped) carrying the envelope
-    frames = call.emit_to("peerX")
-    if not frames or frames[0][1] != "full":
-        probs.append(f"media channel did not re-FULL after reset: {[k for _,k in frames]}")
-    check("[SOTF] call envelope re-asserts, droppable frame shed, channel re-FULLs (ffmpeg returns)", probs)
+    if sorted(ROLE_HANDLERS) != ["databasehost"]:
+        probs.append(f"role registry is not the one-role world: {sorted(ROLE_HANDLERS)}")
+    if [(s, v, d) for s, v, _sc, d in stub.puts][:1] != [("databasehost", "capability", "10.250.250.1")]:
+        probs.append(f"advertise did not write databasehost/capability to the control first: {stub.puts}")
+    if not any(r.get("written") for r in reps):
+        probs.append(f"publish_all wrote nothing: {reps}")
+    if not via["modules"] or "role_publish" not in via["modules"][0]:
+        probs.append(f"RolePublishReconcile did not ride host_reset_all: {via}")
+    check("[ROLES] role publish is a hostReset module; databasehost re-advertises to control", probs)
 
     # --- 8. HostResetWatcher: a float is a resolved-IP delta; one reconcile per change ---
-    from frognet_host_reset import HostResetWatcher
     class _M:
         def __init__(self): self.n = 0
         def hostReset(self): self.n += 1; return {"module": "m", "written": ["k"]}
@@ -316,6 +233,7 @@ def run():
     if ui != [["v"]]:
         probs.append(f"living-network UI not rendered on the float: {ui}")
     check("[WATCH] float = resolved-IP delta -> exactly one reconcile (prime, then on change)", probs)
+
 
 def main():
     print("=== hostReset: the one reconcile path (memory, not messages) across modules ===")

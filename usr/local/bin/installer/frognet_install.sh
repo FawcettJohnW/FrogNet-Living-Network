@@ -1010,7 +1010,6 @@ systemctl enable mariadb; systemctl start mariadb
 for i in $(seq 1 15); do mysql -u root -e "SELECT 1" >/dev/null 2>&1 && break || sleep 1; done
 mysql -u root <<'SQL'
 CREATE DATABASE IF NOT EXISTS `FrogNet` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-CREATE DATABASE IF NOT EXISTS `FrogNetFamily` CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 SQL
 log "MariaDB configured (pool=${POOL_MB}M, RAM=${TOTAL_MB}M)"
 
@@ -1371,8 +1370,6 @@ CREATE USER 'FrogUser'@'localhost' IDENTIFIED BY '${DB_PASS_SQL}';
 CREATE USER 'FrogUser'@'%'         IDENTIFIED BY '${DB_PASS_SQL}';
 GRANT ALL PRIVILEGES ON \`FrogNet\`.* TO 'FrogUser'@'localhost';
 GRANT ALL PRIVILEGES ON \`FrogNet\`.* TO 'FrogUser'@'%';
-GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO 'FrogUser'@'localhost';
-GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO 'FrogUser'@'%';
 FLUSH PRIVILEGES;
 SQL
 # MYSQL_PWD keeps the secret out of argv (visible in ps) on the verify.
@@ -2096,18 +2093,17 @@ done
 systemctl disable --now frognet-pond-bootstrap.timer 2>/dev/null || true
 systemctl enable apache2 mariadb dnsmasq NetworkManager cron
 
-# Candidate registration: every FrogNet host advertises databasehost + mediahost
-# capability on a 60s timer so the merge-end election can score it. Units ship
-# statically (frognet-{dbhost,mediahost}-advertise.{service,timer}); enable the timers
-# here so they START AT BOOT (WantedBy=timers.target, OnBootSec=30). Opt a host out of
-# a role by stopping that role's timer. Server software is NOT required to register -
-# the capability blob's gate decides eligibility.
-for t in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer; do
+# Candidate registration: every FrogNet host advertises databasehost capability on a
+# 60s timer so the merge-end election can score it. Units ship statically
+# (frognet-dbhost-advertise.{service,timer}); enable the timer here so it STARTS AT BOOT
+# (WantedBy=timers.target, OnBootSec=30). Opt a host out by stopping the timer. Server
+# software is NOT required to register - the capability blob's gate decides eligibility.
+for t in frognet-dbhost-advertise.timer; do
     [[ -f "/etc/systemd/system/${t}" ]] && { systemctl enable "$t" 2>/dev/null && log "  enabled: $t"; } \
         || warn "  MISSING: ${t}"
 done
 if [[ -x /usr/local/bin/frognet_setup_advertisers.sh ]]; then
-    /usr/local/bin/frognet_setup_advertisers.sh && log "  candidate registration set up (db + media advertisers)" \
+    /usr/local/bin/frognet_setup_advertisers.sh && log "  candidate registration set up (db advertiser)" \
         || warn "  frognet_setup_advertisers.sh failed"
 else
     warn "  MISSING: frognet_setup_advertisers.sh (no candidate registration)"
@@ -2166,7 +2162,6 @@ chk "frognet-proxy enabled"  systemctl is-enabled --quiet frognet-proxy
 chk "frognet-daemon enabled" systemctl is-enabled --quiet frognet-daemon
 chk "resolved off"           test "$(systemctl is-active systemd-resolved 2>/dev/null)" != "active"
 chk "FrogNet DB"             mysql -u root -e "USE FrogNet"
-chk "FrogNetFamily DB"       mysql -u root -e "USE FrogNetFamily"
 chk "FrogUser auth"          mysql -u FrogUser -p"${DB_PASS}" FrogNet -e "SELECT 1"
 chk "interfaces_override"    test -f /etc/frognet/interfaces_override.conf
 chk "ip_forward"             test "$(sysctl -n net.ipv4.ip_forward)" = "1"

@@ -20,13 +20,13 @@ dbhost_barrier_run.py - simulate the ENTIRE service-election run end to end.
 
 Flow (John's design): merge converges -> control is the highest .1 -> every live
 machine publishes its capability to _control -> WAIT until _control holds a fresh
-record for every live machine -> only THEN decide databasehost, and off the same
-loop mediahost. Proves, against the REAL discovery.hosts barrier:
+record for every live machine -> only THEN decide databasehost. Proves, against the
+REAL discovery.hosts barrier:
 
   [STANDALONE] a lone FrogNetHost is ready at once (it is the only machine and it
-               published) -> it is its own databasehost + mediahost.
+               published) -> it is its own databasehost.
   [DEFER]      3 live, only 2 have published -> NOT ready -> databasehost pins to
-               control, media/games are not decided yet (no split on a partial pool).
+               control (no split on a partial pool).
   [PARTIAL_STALE] a live machine whose record aged past the ballot window counts as
                NOT published -> still deferred.
   [COMPLETE]   every live machine has a fresh record -> ready -> decide over the
@@ -53,8 +53,7 @@ def _install(recorded_ips, ts_offset=0):
     T.get = lambda s, v, dbhost=None, fresh_s=0, timeout=4.0: T._rows.get((s, v), [])
     T.put = lambda *a, **k: True
     T.DEFAULT_DBHOST = "databasehost_control.frognet"
-    for m in ("frognet_tuples", "core.frognet_tuples"):
-        sys.modules[m] = T
+    sys.modules["core.frognet_tuples"] = T
     import core as _core
     _core.frognet_tuples = T
 

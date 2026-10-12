@@ -26,12 +26,12 @@ echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}
 mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
 [ -f /etc/frognet/tunnel.conf ] && [ ! -f /etc/frognet/tunnel.conf.broker ] && cp /etc/frognet/tunnel.conf /etc/frognet/tunnel.conf.broker
 # [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
-# for pokes nobody sends: the 60 s <role>/capability advertisers (each ran frognet_capability_probe.sh -- cpu
-# benchmark, disk write+fsync -- every minute, per role), the 1/min store elector (stands down in region mode), the
+# for pokes nobody sends: the 60 s databasehost/capability advertiser (it ran frognet_capability_probe.sh -- cpu
+# benchmark, disk write+fsync -- every minute), the 1/min store elector (stands down in region mode), the
 # merge watcher (propogateNotification exits in region mode), the 120 s broker-enrolment retry (membership is the
 # session on a region). The daemon publishes capability as a fact.
 # fdf-leave turns them back on.
-for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
   [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
   systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
 done

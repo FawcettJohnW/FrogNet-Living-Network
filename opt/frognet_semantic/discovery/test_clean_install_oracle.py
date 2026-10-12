@@ -29,7 +29,7 @@ no FrogUser at all. api.php then cannot authenticate and every sensor write fail
 This oracle runs the two things that matter, from the REAL scripts:
 
   PLANE 1 (install)  clean machine -> databasehost postconditions:
-                     both databases, FrogUser on localhost AND '%', grants on both.
+                     the FrogNet database, FrogUser on localhost AND '%', its grants.
                      Plus a REACHABILITY check: the user-creating statement must not
                      be guarded by a file a clean machine does not have.
 
@@ -93,12 +93,8 @@ def plane_install():
           "clean install creates FrogUser@localhost")
     check(m.has_user("FrogUser", "%"),
           "clean install creates FrogUser@'%' (remote nodes reach a floating dbhost)")
-    check("FrogNetFamily" in m.databases,
-          "clean install creates FrogNetFamily (Communicator store)")
     check(m.can_reach("FrogNet", "FrogUser", "%"),
           "FrogUser@'%' is granted on FrogNet")
-    check(m.can_reach("FrogNetFamily", "FrogUser", "%"),
-          "FrogUser@'%' is granted on FrogNetFamily")
 
     # REACHABILITY: the statement may be correct and still never run.
     inst = _script("frognet_install.sh")
@@ -223,7 +219,6 @@ def plane_three_modes():
     mc = Machine("clean", files=cfg)
     simulate_install(mc, "clean", bin_dir, web_dir, dump_present=False)
     check(mc.mysql.has_user("FrogUser", "%"), "[clean]    FrogUser@'%' created")
-    check("FrogNetFamily" in mc.mysql.databases, "[clean]    FrogNetFamily created")
     check(mc.mysql.migrated, "[clean]    schema migrations applied")
 
     # ---- RESET: prior install, no --preserve ------------------------------- #

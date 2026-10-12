@@ -2326,7 +2326,7 @@ def _write_view(phase: str, reason: str) -> None:
 
 
 def _service_host_ips() -> set:
-    """The .1 addresses /etc/hosts currently names as a service host (databasehost.frognet, mediahost.frognet, ...)."""
+    """The .1 addresses /etc/hosts currently names as a service host (databasehost.frognet, ...)."""
     out = set()
     try:
         for ln in open("/etc/hosts"):
@@ -2389,8 +2389,8 @@ def run_region_loop():
                 was = {k: v for k, v in have.items() if k not in ("loadavg", "temps_c", "mem_available_kb", "disk_free_gb", "ts")}
                 if keep != was or not have:                 # the slow-moving part changed (or first time): announce it
                     region.write_facts({"capability": cap, "capability_ts": time.time()})
-                    config.log.warning("REGION: capability published as a fact (mysql=%s cores=%s mem_kb=%s disk=%s ffmpeg=%s)",
-                                       cap.get("mysql_running"), cap.get("cores"), cap.get("mem_total_kb"), cap.get("disk_class"), cap.get("ffmpeg"))
+                    config.log.warning("REGION: capability published as a fact (mysql=%s cores=%s mem_kb=%s disk=%s)",
+                                       cap.get("mysql_running"), cap.get("cores"), cap.get("mem_total_kb"), cap.get("disk_class"))
                 else:
                     config.log.info("REGION: capability unchanged (load/free space not announced)")
             except Exception as e:
@@ -2459,7 +2459,7 @@ def run_region_loop():
         if c.get("maps_changed") or changed_tunnels or (config.region_plan_maps and not (region.read_facts().get("maps") or [])):
             region.publish_plan_maps(config.region_plan_maps)
         # [SERVICE_HOST_LOSS_IS_A_FAILURE_V1] a member going dead is held down for routes and names, but NOT for the
-        # elections: if the member that went is the databasehost or mediahost (/etc/hosts says which .1 that is), the
+        # elections: if the member that went is the databasehost (/etc/hosts says which .1 that is), the
         # merge runs NOW -- lose comms with the databasehost -> switch to local, elect the replacement. A member coming
         # back also runs the merge, so the election can consider it again.
         # [ELECT_IN_PROCESS_V1] no runMerge for the election: the daemon has the only input that changed (who is

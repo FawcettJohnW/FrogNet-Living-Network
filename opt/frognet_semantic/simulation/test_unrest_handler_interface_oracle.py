@@ -25,7 +25,7 @@ PROVES:
   2. FORMAT handlers (JSON/XML/HTML/text) do only compress/decompress: their codec slot is
      real, and everything else is the empty-return default (advertise writes nothing,
      score==-1.0, evaluate==None).
-  3. ROLE handlers (databasehost/mediahost) advertise their <role>/capability to
+  3. ROLE handlers (databasehost) advertise their <role>/capability to
      BOTH databasehost_control.frognet and databasehost.frognet, perf inside the blob.
   4. publish_all() fans one probe across every role -> the all-contexts publish.
 
@@ -59,9 +59,8 @@ def _install_fake_tuples():
     m.put = put
     m.prune_self_stale_capability = lambda role, var="capability", dbhost=CONTROL: 0
     m.DEFAULT_DBHOST = CONTROL
-    sys.modules["frognet_tuples"] = m
     import core.unrest_handler as _uh
-    _uh._tuples = lambda: m            # code now prefers core.frognet_tuples; force the fake
+    _uh._tuples = lambda: m            # advertise's one tuple client (core.frognet_tuples); force the fake
     return rec
 
 
@@ -96,7 +95,7 @@ def main():
         ck(rep.get("role") is None and not rec,
            f"format {fmt}: advertise() must write nothing (role=None), got {rep} writes={rec}")
         ck(h.score({"lan_ip": "10.0.0.1"}) == -1.0, f"format {fmt}: score must be -1.0 (ineligible)")
-        ck(h.evaluate([{"lan_ip": "10.0.0.1"}], []) is None, f"format {fmt}: evaluate must be None")
+        ck(h.evaluate([{"lan_ip": "10.0.0.1"}]) is None, f"format {fmt}: evaluate must be None")
         ck(isinstance(h.learn_request_template("{}"), dict),
            f"format {fmt}: codec learn_request_template must still work")
 

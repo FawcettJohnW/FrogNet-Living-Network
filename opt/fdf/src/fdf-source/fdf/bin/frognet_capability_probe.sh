@@ -18,7 +18,7 @@
 ################################################################
 # frognet_capability_probe.sh — emit THIS node's capability as a JSON blob on stdout.
 #
-# Used by the per-service capability writers (databasehost / mediahost timers). The
+# Used by the capability writer (the databasehost timer) and the region daemon. The
 # EXPENSIVE measurements (cpu benchmark, disk write+fsync) run once per boot and are
 # computed every call (there is no cache); the cheap, time-varying signal (loadavg, temps,
 # ts) is read FRESH on every call, so each emitted blob is self-contained — the
@@ -52,7 +52,7 @@ def loadavg():
 #        fine; the consumer defaults it to 0).
 _AVCAP_NUMERIC_REQ = ("cores","cpu_mhz","cpu_bench_total","mem_total_kb",
                       "mem_available_kb","disk_write_mbps","disk_fsync_ms",
-                      "disk_free_gb","av_port")
+                      "disk_free_gb")
 _AVCAP_NUMERIC_OPT = ("mysql_innodb_pool_bytes",)
 
 # [NO_FALLBACK_V1 - John 2026-09-14] Measurement failures are recorded here and
@@ -125,7 +125,7 @@ def capability():
   A merge is a clean run. Nothing here is expensive enough to be worth a value that
   can be a day and a half stale.
   """
-  import os, json as _j, re, glob as _g
+  import os, json as _j, re
 
   cap={}
   # cores / clock / arch
@@ -155,29 +155,6 @@ def capability():
   except Exception: pass
   cap["cpu_model"]=model or cap["arch"]
 
-  # ffmpeg + codecs (the A/V hard gate + what it can do)
-  ff=_run(["bash","-lc","command -v ffmpeg"]).strip()
-  cap["ffmpeg"]=bool(ff)
-  cap["ffmpeg_path"]=ff
-  if ff:
-    enc=_run([ff,"-hide_banner","-encoders"])
-    cap["libvpx"]="libvpx" in enc
-    cap["encoders"]=sorted({e for e in ("libvpx","libvpx-vp9","libx264","libx265",
-                            "h264_v4l2m2m","h264_vaapi","h264_nvenc","libopus","aac")
-                            if e in enc})
-    ver=_run([ff,"-hide_banner","-version"]).splitlines()
-    cap["ffmpeg_version"]=ver[0].split()[2] if ver and len(ver[0].split())>2 else ""
-  else:
-    cap["libvpx"]=False; cap["encoders"]=[]; cap["ffmpeg_version"]=""
-
-  # hardware encoder presence
-  hw="none"
-  if _g.glob("/dev/video11"): hw="v4l2m2m"
-  if os.path.exists("/dev/dri/renderD128"): hw="vaapi"
-  if _run(["bash","-lc","command -v nvidia-smi"]).strip(): hw="nvenc"
-  cap["hw_encoder"]=hw
-  # GPU/VAAPI render node actually present (not just an ffmpeg build flag)
-  cap["gpu_render_node"]=bool(_g.glob("/dev/dri/renderD*"))
   # cross-architecture CPU benchmark: a measured per-core integer score so a
   # 1.5 GHz ARM and a 1.5 GHz x86 are compared by WORK DONE, not nominal clock.
   try:
@@ -330,7 +307,6 @@ def capability():
   if not lan:
     lan="127.0.0.1"                          # standalone floor: still a valid self-target
   cap["lan_ip"]=lan
-  cap["av_port"]=9000
 
   return cap
 

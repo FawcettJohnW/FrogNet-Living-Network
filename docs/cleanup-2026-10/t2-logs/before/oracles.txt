@@ -1,0 +1,90 @@
+=== discovery regression suite (86 oracles) ===
+  [   PASS    ] test_alive_retry_oracle    PASS: one transient :9009 miss is absorbed (route kept); LOOP and dead paths unchanged; healthy paths probed once. tries=1 reproduces the old drop (fail-on-old).
+  [   PASS    ] test_attached_onlink_oracle ALL ATTACHED-ONLINK ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_behind_relay_dot2_oracle ALL BEHIND-RELAY DOT2 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_blank_authname_oracle RESULT: PASS
+  [   PASS    ] test_boot_gate_oracle      ALL BOOT-GATE CHECKS PASS
+  [   PASS    ] test_capability_no_age_oracle [ROLE_ELECT] TRACE ip=10.250.250.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_child_onlink_uplink_oracle ALL CHILD-ONLINK-UPLINK ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_clean_install_oracle  ALL CLEAN-INSTALL CHECKPOINTS PASS
+  [   PASS    ] test_conf_lib_oracle       ALL CONF-LIB CHECKS PASS
+  [   PASS    ] test_data_cache_gen_oracle ALL PASS
+  [   PASS    ] test_databasehost_converge_oracle RESULT: PASS
+  [   PASS    ] test_dbhost_ballot_freshness_oracle ALL DBHOST-FRESHNESS CHECKS PASS
+  [   PASS    ] test_dbhost_incumbency_oracle ALL DBHOST-INCUMBENCY CHECKS PASS
+  [   PASS    ] test_dbhost_rank_malformed_oracle ALL DBHOST-RANK-MALFORMED ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_dbhost_row_pick_oracle [ROLE_ELECT] TRACE ip=10.170.170.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_dbhost_static_rank_oracle ALL DBHOST-STATIC-RANK CHECKS PASS
+  [   PASS    ] test_descend_depth_oracle  ALL DESCEND-DEPTH CHECKS PASS
+  [   PASS    ] test_descend_oracle        ALL DESCEND ORACLE CHECKS PASS
+  [   PASS    ] test_direct_neighbors_oracle urllib.error.HTTPError: HTTP Error 403: Forbidden
+  [   PASS    ] test_elector_oracle        ALL ELECTOR CHECKS PASS
+  [   PASS    ] test_empty_array_template_oracle ORACLE GREEN
+  [   PASS    ] test_fabric_integration    ALL FABRIC INTEGRATION CHECKPOINTS PASS
+  [   PASS    ] test_fastpath_existing_route_oracle ALL FASTPATH ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_fixdefault_modeb      
+  [   PASS    ] test_fixdefault_oracle     ALL FIXDEFAULT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_healthcheck_oracle    ALL HEALTHCHECK ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_host_records_oracle   ALL HOST-RECORDS ORACLE CHECKS PASS
+  [REGRESSION ] test_host_reset_oracle     ModuleNotFoundError: No module named 'working_memory'
+  [   PASS    ] test_hosts_authoritative_oracle [ PASS ] test_hosts_authoritative_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_hosts_oracle          ALL HOSTS ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_identity_preflight_oracle ALL IDENTITY-PREFLIGHT CHECKPOINTS PASS
+  [   PASS    ] test_kernel_oracle         ALL KERNEL ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_kernel_parity         
+  [   PASS    ] test_lan_chain_oracle      ALL LAN-CHAIN ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_lan_untunnelled_oracle ORACLE GREEN
+  [   PASS    ] test_leaf_src_oracle       ALL LEAF-SRC CHECKPOINTS PASS
+  [REGRESSION ] test_license_oracle        LICENSE CHECKS FAILED: 45
+  [   PASS    ] test_loop9009_hairpin_oracle ALL LOOP9009-HAIRPIN ORACLE CHECKPOINTS PASS
+  [REGRESSION ] test_malformed_capability_guard_oracle ModuleNotFoundError: No module named 'frognet_tuples'
+  [   PASS    ] test_mapinterfaces_oracle  ALL MAPINTERFACES ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_multitunnel_failcache_oracle ALL MULTITUNNEL-FAILCACHE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_nameless_host_oracle  RESULT: PASS
+  [   PASS    ] test_neighbor_client_dot1_oracle ALL NEIGHBOR-CLIENT-DOT1 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_not_frognet_skip_oracle ALL NOT_FROGNET_SKIP CHECKS PASS
+  [   PASS    ] test_ny2_alive_gate_oracle ALL NY-2 ALIVE-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_onsegment_gate_oracle ALL ONSEGMENT-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_pingpong_return_ip_oracle ALL RETURN-IP ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_prewarm_pip_serial_oracle [ PASS ] test_prewarm_pip_serial_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_propagate_oracle      ALL PROPAGATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_propagate_reach_oracle ALL PROPAGATE-REACH CHECKPOINTS PASS
+  [   PASS    ] test_prune_dest_extras_oracle [ PASS ] test_prune_dest_extras_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_prune_kernel_route_oracle ALL PRUNE-KERNEL-GUARD ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_real_backends         ALL REAL-BACKEND CHECKS PASS
+  [   PASS    ] test_reap_stale_winner_oracle [ PASS ] test_reap_stale_winner_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_record_walk_oracle    ALL RECORD-WALK ORACLE CHECKS PASS
+  [   PASS    ] test_reflect_pinned_path_oracle ALL REFLECT-PINNED-PATH ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_reflect_promote_vouch_oracle ALL REFLECT-PROMOTE-VOUCH CHECKPOINTS PASS
+  [   PASS    ] test_reflect_vouch_gate_oracle ALL REFLECT-VOUCH-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_region_backends_oracle urllib.error.HTTPError: HTTP Error 403: Forbidden
+  [   PASS    ] test_resolv_layout_oracle  ALL RESOLV-LAYOUT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_role_election_uncoupled_oracle ORACLE GREEN
+  [REGRESSION ] test_role_registry_lxmlfree_oracle ROLE-REGISTRY-LXMLFREE CHECKS FAILED: 1
+  [   PASS    ] test_routes_oracle         ALL ROUTES ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_runagain_convergence_oracle [ PASS ] test_runagain_convergence_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_runagain_real_delta_oracle FAILURES: none
+  [   PASS    ] test_runmerge_oracle       ALL RUNMERGE ORACLE CHECKPOINTS PASS
+  [REGRESSION ] test_safeboot_oracle       SAFEBOOT CHECKS FAILED: 1
+  [   PASS    ] test_seattle5_reflect_oracle ALL SEATTLE5-REFLECT ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_seattle6_oracle       ALL SEATTLE6 ORACLE CHECKPOINTS PASS
+  [REGRESSION ] test_service_election_oracle ModuleNotFoundError: No module named 'frognet_role_elect'
+  [   PASS    ] test_service_handlers_static_oracle ALL SERVICE-HANDLER-STATIC CHECKS PASS
+  [   PASS    ] test_service_host_consistency_oracle [ROLE_ELECT] TRACE ip=10.250.250.1 unavailable err=FileNotFoundError(2, 'No such file or directory')
+  [   PASS    ] test_shipped_paths_oracle  ALL SHIPPED-PATH CHECKS PASS
+  [   PASS    ] test_snapshot_struct       ALL SNAPSHOT STRUCT CHECKS PASS
+  [   PASS    ] test_sync_on_route_mutation_oracle ALL SYNC-ON-ROUTE-MUTATION ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_transit_from_winners_oracle [ PASS ] test_transit_from_winners_oracle - ALL CHECKPOINTS PASS
+  [   PASS    ] test_tunnel_kernel_immediate_oracle ALL TUNNEL-KERNEL-IMMEDIATE CHECKPOINTS PASS
+  [   PASS    ] test_tunnel_peer_dot2_oracle ALL TUNNEL-PEER-DOT2 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_upstream_lease_dot1_oracle ALL UPSTREAM-LEASE-DOT1 ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_verify_route_oracle   ALL VERIFY-ROUTE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_route_oracle    ALL VOUCH-ROUTE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_transit_gate_oracle ALL VOUCH-TRANSIT-GATE CHECKPOINTS PASS
+  [   PASS    ] test_vouch_ts_gate_oracle  ALL VOUCH-TS-GATE CHECKS PASS
+  [   PASS    ] test_walk_pingpong_gate_oracle ALL WALK-PINGPONG-GATE ORACLE CHECKPOINTS PASS
+  [   PASS    ] test_winner_hysteresis_nexthop_oracle RESULT: PASS
+  [   PASS    ] test_winner_via_hysteresis_oracle ALL WINNER-VIA-HYSTERESIS CHECKS PASS
+
+DISCOVERY GATE: FAIL (80 pass, 0 known-fail, 6 regression)
+  REGRESSIONS: test_host_reset_oracle, test_license_oracle, test_malformed_capability_guard_oracle, test_role_registry_lxmlfree_oracle, test_safeboot_oracle, test_service_election_oracle

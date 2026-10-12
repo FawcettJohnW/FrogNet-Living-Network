@@ -16,19 +16,16 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 # core/role_registry.py - role handlers ONLY, deliberately free of the lxml-backed
-# XML/HTML FORMAT handlers. Discovery's mediahost/databasehost election needs
+# XML/HTML FORMAT handlers. Discovery's databasehost election needs
 # ROLE_HANDLERS but NOT the format handlers (a proxy concern). Keeping these here
 # lets a node elect service hosts on a box without lxml: a minimal/embedded node
 # still self-forms and participates in the election even if it can't run the proxy's
 # XML/HTML semantic compression. format_registry re-exports these for compatibility.
-from .sotf_handler import SotFMediaHandler
 from .database_handler import DatabaseRoleHandler
 
-SOTF_MEDIA_HANDLER = SotFMediaHandler()      # also the media-role handler
-DATABASE_HANDLER   = DatabaseRoleHandler()
+DATABASE_HANDLER = DatabaseRoleHandler()
 
 ROLE_HANDLERS = {
-    "mediahost":    SOTF_MEDIA_HANDLER,
     "databasehost": DATABASE_HANDLER,
 }
 

@@ -41,33 +41,18 @@ from core import frognet_tuples as T
 
 
 def _role_handlers(log=lambda s: None) -> Dict[str, object]:
-    """role_name -> handler. Prefer the one registry in core; if importing it fails,
-    log the REAL exception (don't guess) and rebuild ROLE_HANDLERS by importing the
-    role-handler modules DIRECTLY. format_registry also imports the lxml-backed FORMAT
-    handlers at module top and (on an older box) may predate ROLE_HANDLERS entirely -
-    either would otherwise strand the role handlers, which carry no such dependency."""
-    for modpath in ("core.role_registry", "role_registry",
-                    "core.format_registry", "format_registry"):
-        try:
-            mod = __import__(modpath, fromlist=["ROLE_HANDLERS"])
-            return dict(mod.ROLE_HANDLERS)
-        except Exception as e:
-            log(f"SERVICE_ELECT role_registry_import_failed path={modpath} err={e!r}")
-    out: Dict[str, object] = {}
-    for role, modname, clsname in (
-            ("mediahost",    "sotf_handler",     "SotFMediaHandler"),
-            ("databasehost", "database_handler", "DatabaseRoleHandler")):
-        err = None
-        for pkg in ("core.", ""):
-            try:
-                m = __import__(pkg + modname, fromlist=[clsname])
-                out[role] = getattr(m, clsname)()
-                break
-            except Exception as e:
-                err = e
-        else:
-            log(f"SERVICE_ELECT role={role} direct_load_failed err={err!r}")
-    return out
+    """role_name -> handler, from the one registry: core.role_registry (lxml-free, so a
+    node without the proxy's XML/HTML handlers still elects). [CORE_IMPORTS_V1] There is
+    no second loader: the bundle-context imports (bare role_registry / format_registry,
+    and a direct per-module rebuild) served the retired Communicator bundle dir. A failed
+    import is logged with the real exception and the election emits no role lines this
+    pass; the next merge tries again."""
+    try:
+        from core.role_registry import ROLE_HANDLERS
+        return dict(ROLE_HANDLERS)
+    except Exception as e:
+        log(f"SERVICE_ELECT role_registry_import_failed path=core.role_registry err={e!r}")
+        return {}
 
 
 def _live_roles(handlers: Dict[str, object], dbhost: str) -> List[str]:
@@ -98,12 +83,10 @@ def _live_roles(handlers: Dict[str, object], dbhost: str) -> List[str]:
 # always contains at least this node -- so "nobody is on this LAN" cannot arise from a
 # missed publish, an unreachable store, or an aged-out row.
 #
-# What CAN legitimately happen is that nobody on the LAN MEETS THE ROLE'S CRITERIA (a
-# LAN with no ffmpeg/libvpx anywhere has no media host). That is a real answer, it is
-# not the same as an empty pool, and it must be LOUD.
+# What CAN legitimately happen is that nobody on the LAN MEETS THE ROLE'S CRITERIA.
+# That is a real answer, it is not the same as an empty pool, and it must be LOUD.
 
 ROLE_NOUN = {
-    "mediahost": "media",
     "databasehost": "database",
 }
 
@@ -129,18 +112,11 @@ def _alive_ones(etc_hosts) -> List[str]:
     return out
 
 
-def _slash24_of(ip: str) -> str:
-    parts = ip.split(".")
-    return ".".join(parts[:3]) + ".0/24" if len(parts) == 4 else ""
-
-
 def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None,
-                       reachable_subnets=None, self_ip=None, lan_subnets=None,
-                       local_ips=None, etc_hosts=None) -> List[str]:
+                       reachable_subnets=None, self_ip=None, etc_hosts=None) -> List[str]:
     """POST-merge role determination. For every live service role, return the
     `<role>.frognet <ip>` line for the committed /etc/hosts block. Each role's host is
-    its UnREST callback's pick over the capability tuples (the LAN/WAN split is read
-    from the reach_plane tuple, not passed in) - a PURE function of the shared converged
+    its UnREST callback's pick over the capability tuples - a PURE function of the shared converged
     memory, so every node computes the same winner. Returns [] on any failure. This is a
     read run AFTER the merge: it never triggers a re-run (only a route change does).
 
@@ -158,32 +134,25 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
 
     `logger(str)` (optional) receives one-shot determination diagnostics so a merge log
     (or the `python3 frognet_service_hosts.py` dry-run) shows exactly what each role saw -
-    every candidate's bucket(lan/wan) + ffmpeg/libvpx + score, and the winner (or
+    every candidate's score, and the winner (or
     local-by-definition). Pure read; no behaviour change when logger is None.
     """
     log = logger or (lambda s: None)
     try:
-        try:
-            from core.frognet_role_elect import gather_candidates, _slash24
-        except Exception:
-            from frognet_role_elect import gather_candidates, _slash24   # bundle-context fallback
+        from core.frognet_role_elect import gather_candidates
     except Exception as e:
         log(f"SERVICE_ELECT skipped reason=role_elect_import_failed err={e}")
         return []
     handlers = _role_handlers(log)
     if not handlers:
-        log("SERVICE_ELECT skipped reason=no_role_handlers "
-            "(registry AND direct role-handler load both failed - see errs above)")
+        log("SERVICE_ELECT skipped reason=no_role_handlers (see the import error above)")
         return []
     lines = []
     for role in _live_roles(handlers, dbhost):
         h = handlers[role]
         _report = {}
         try:
-            hosts_list, lan_list = gather_candidates(h, dbhost=dbhost,
-                                                     lan_subnets=lan_subnets,
-                                                     local_ips=local_ips,
-                                                     report=_report)
+            hosts_list = gather_candidates(h, dbhost=dbhost, report=_report)
         except Exception as e:
             log(f"SERVICE_ELECT role={role} reason=gather_failed err={e}")
             continue
@@ -218,18 +187,13 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
         # [EVERY_FROGNETHOST_IS_A_CANDIDATE_V1] Every live .1 FrogNetHost that did not
         # publish a capability row for this role enters the pool as a BARE candidate.
         # It exists; we simply do not know what it can do. The role's own score()
-        # decides whether unknown capability is good enough -- mediahost's hard
-        # ffmpeg/libvpx gate will refuse it; a role with a flat score would not. That
-        # judgement belongs to the role, not to whether a publish happened to land.
+        # decides whether unknown capability is good enough. That judgement belongs
+        # to the role, not to whether a publish happened to land.
         _published = {c.get("lan_ip") for c in hosts_list}
-        _lan_subs = set(lan_subnets or ())
         for _ip in _alive_ones(etc_hosts):
             if _ip in _published:
                 continue
-            _bare = {"lan_ip": _ip, "_unpublished": True}
-            hosts_list.append(_bare)
-            if not _lan_subs or _slash24_of(_ip) in _lan_subs:
-                lan_list.append(_bare)
+            hosts_list.append({"lan_ip": _ip, "_unpublished": True})
             log(f"SERVICE_CAND role={role} ip={_ip} UNPUBLISHED "
                 f"(no {role}/capability row on {dbhost}; entering the pool by "
                 f"definition -- every FrogNetHost is a candidate)")
@@ -243,9 +207,7 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
             if _dropped:
                 log(f"SERVICE_CAND role={role} dropped={sorted(x for x in _dropped if x)} reason=not_in_live_hosts_block")
             hosts_list = [c for c in hosts_list if c.get("lan_ip") in _live]
-            lan_list = [c for c in lan_list if c.get("lan_ip") in _live]
 
-        lan_ips = {c.get("lan_ip") for c in lan_list}
         bad = set()
         for c in hosts_list:
             ip = c.get("lan_ip", "?")
@@ -261,29 +223,25 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
                     # so the bad publish is visible - this is surfacing, not a floor: nothing
                     # is fabricated, the election proceeds over the VALID candidates only.
                     log(f"SERVICE_CAND role={role} ip={ip} MALFORMED excluded err={e}")
-            log(f"SERVICE_CAND role={role} ip={ip} "
-                f"bucket={'lan' if ip in lan_ips else 'wan'} "
-                f"ffmpeg={c.get('ffmpeg')} libvpx={c.get('libvpx')} score={sc}")
+            log(f"SERVICE_CAND role={role} ip={ip} score={sc}")
         clean_hosts = [c for c in hosts_list if c.get("lan_ip") not in bad]
-        clean_lan   = [c for c in lan_list   if c.get("lan_ip") not in bad]
         try:
-            winner = h.evaluate(clean_hosts, clean_lan)
+            winner = h.evaluate(clean_hosts)
         except Exception as e:
             log(f"SERVICE_ELECT role={role} reason=evaluate_failed err={e}")
             winner = None
         wip = winner.get("lan_ip") if winner else None
         # [NO_FLOOR] No winner means no host. We do NOT fabricate a local winner when
         # the callback named none or evaluate raised - a fabricated winner is the floor
-        # that makes databasehost/mediahost diverge per node and hides the real failure
+        # that makes databasehost diverge per node and hides the real failure
         # (e.g. a malformed capability blob). Absence is reported as absence.
         #
         # [NO_HOST_MEETS_CRITERIA_V1] With every FrogNetHost in the pool by definition,
         # "no winner" can no longer mean "nobody is out there". It means NOBODY ON THIS
-        # LAN MEETS THIS ROLE'S CRITERIA -- for mediahost, that ffmpeg and libvpx are
-        # present, which score() gates hard at -1.
+        # LAN MEETS THIS ROLE'S CRITERIA (score() gates it hard at -1).
         #
-        # That is a legitimate answer and the line is correctly skipped: naming a media
-        # host that cannot encode is worse than naming none. But it must be LOUD, and
+        # That is a legitimate answer and the line is correctly skipped: naming a
+        # host that does not qualify is worse than naming none. But it must be LOUD, and
         # it must be loud in the place people look. So: stderr (the journal), the merge
         # log, AND a commented marker in /etc/hosts itself, which is the first file
         # anyone opens when a .frognet name does not resolve. A comment cannot resolve,
@@ -317,7 +275,7 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
                     f"-- the converged block holds no .1 FrogNetHost at all, so "
                     f"there is nothing to elect from. dbhost={dbhost}")
         log(f"SERVICE_ELECT role={role} hosts={len(hosts_list)} "
-            f"lan={len(lan_list)} bad={len(bad)} winner={wip or 'none'} "
+            f"bad={len(bad)} winner={wip or 'none'} "
             f"dbhost={dbhost}")
         # [ELECT_EVIDENCE_V1] The verdict without the venue and the ballots is
         # uninvestigable (proven 2026-07-06: an election counted 8 candidates
@@ -345,20 +303,18 @@ def service_host_lines(dbhost: str = "databasehost_control.frognet", logger=None
 
 def apply_to_etc_hosts(etc_hosts: List[str],
                        dbhost: str = "databasehost_control.frognet",
-                       logger=None, reachable_subnets=None, self_ip=None,
-                       lan_subnets=None) -> List[str]:
+                       logger=None, reachable_subnets=None, self_ip=None) -> List[str]:
     """Given the assembled etc_hosts block, drop any existing <role>.frognet lines and
     append freshly-determined ones - for EVERY live service role uniformly,
     databasehost included. Each role's host is its UnREST callback's pure pick over the
-    capability tuples (LAN/WAN split read from the reach_plane tuple). There is NO floor
+    capability tuples. There is NO floor
     and NO per-node reachability cull: the determination is identical on every node by
     construction. `self_ip` is accepted and unused for winner selection
     ([NO_LOCAL_BY_DEFINITION_V1]: an empty pool names nobody). reachable_subnets is
     accepted (ignored) for caller compatibility. Idempotent; safe every converged merge. This is a post-merge read
     and never triggers a re-run."""
     role_lines = service_host_lines(dbhost=dbhost, logger=logger, etc_hosts=etc_hosts,
-                                    reachable_subnets=reachable_subnets, self_ip=self_ip,
-                                    lan_subnets=lan_subnets)
+                                    reachable_subnets=reachable_subnets, self_ip=self_ip)
     if not role_lines:
         return etc_hosts
     role_names = {ln.split()[1] for ln in role_lines}
@@ -390,7 +346,7 @@ def commit_service_lines(etc_hosts: List[str], role_lines: List[str],
     What the barrier actually bought was anti-flap on a CHANGE, and it was paid for in
     the worst currency available: a wait with no upper bound. Proven twice on live
     ponds. Once with four machines whose records were 34,000 to 330,000 seconds stale,
-    so every barrier stayed shut and mediahost.frognet never existed at all while the
+    so every barrier stayed shut and the role name never existed at all while the
     election named a healthy winner every pass -- patched then by letting a FIRST
     assignment through. And again on Seattle7, where the barrier reported recorded=[]
     for every role on every merge because the single control read was TIMING OUT, and
@@ -414,8 +370,8 @@ def commit_service_lines(etc_hosts: List[str], role_lines: List[str],
     committed, nohost = [], []
     # [NO_HOST_MEETS_CRITERIA_V1] Any marker from a PREVIOUS pass is dropped first,
     # unconditionally. It is a statement about one election; carrying a stale one
-    # forward would leave "#No media servers on this LAN" sitting under a working
-    # mediahost.frognet line, which is worse than saying nothing.
+    # forward would leave "#No database servers on this LAN" sitting under a working
+    # databasehost.frognet line, which is worse than saying nothing.
     _markers = {no_host_marker(r) for r in set(list(ROLE_NOUN) + list(ready))}
     out = [l for l in out if l.strip() not in _markers]
 

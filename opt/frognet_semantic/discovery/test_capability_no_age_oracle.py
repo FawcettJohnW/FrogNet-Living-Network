@@ -84,8 +84,8 @@ PERSISTED = [
         disk_write_mbps=20.0, disk_fsync_ms=15.0, disk_free_gb=4.0),
 ]
 
-# Fake the DB read: capability rows for databasehost, nothing else (reach_plane empty
-# -> WAN plane empty -> all candidates are LAN). The set NEVER changes - it's persisted.
+# Fake the DB read: capability rows for databasehost, nothing else. The set NEVER
+# changes - it's persisted.
 def fake_values_raw(service, dbhost=None, timeout=4.0, name_like=None, fresh_s=0):
     """Stands in for api.php, INCLUDING its freshness filter: &fresh_s=N returns only
     rows whose envelope is within N seconds of the STORE's clock."""
@@ -109,12 +109,12 @@ _REmod._clock = lambda: FT.time.time()   # admissibility ages on the injected cl
 DBHOST = "databasehost_control.frognet"
 def pool_at(now):
     FT.time.t = now
-    hosts, _lan = gather_candidates(DATABASE_HANDLER, dbhost=DBHOST)
+    hosts = gather_candidates(DATABASE_HANDLER, dbhost=DBHOST)
     return sorted(c["lan_ip"] for c in hosts)
 def winner_at(now):
     FT.time.t = now
-    hosts, lan = gather_candidates(DATABASE_HANDLER, dbhost=DBHOST)
-    w = DATABASE_HANDLER.evaluate(hosts, lan)
+    hosts = gather_candidates(DATABASE_HANDLER, dbhost=DBHOST)
+    w = DATABASE_HANDLER.evaluate(hosts)
     return w.get("lan_ip") if w else None
 
 # [SUPERSESSION 2026-07-06 - BALLOT_ADMISSIBILITY_V1] The chain, in full:
@@ -157,7 +157,7 @@ check(winner_at(NOW_FRESH) == winner_at(NOW_FRESH2) == "10.120.120.1",
 # The reasoning there is what this check now encodes: the 8.1-day fossil that
 # won for a day was not a stale DESCRIPTION -- that box still had its cores --
 # it was an UNREACHABLE box. Age only correlated with liveness and the
-# correlation broke both ways: a live mediahost whose advertiser write timed out
+# correlation broke both ways: a live node whose advertiser write timed out
 # was refused at ts_age=2040s (measured, 10.28.28.1), while a node that wrote a
 # minute before dying was admitted. Capability rows may live forever; the reaper
 # removes a dead node's rows, and that removal is a SHARED fact every node reads
