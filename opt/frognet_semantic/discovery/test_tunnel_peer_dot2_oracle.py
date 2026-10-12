@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.discovery import Discovery
 from discovery.routes import Routes
 from discovery.kernel import FakeKernel
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 from discovery import descend as _descend
 
@@ -54,7 +54,7 @@ def run(dot2_answers):
     echo = FakeEcho(answers={"10.102.60.2": "New-York-1,10.102.60.1,,"} if dot2_answers else {})
     rtt = FakeRtt(table={("wg2", "10.102.60.2"): [119]} if dot2_answers else {})
     gethosts = FakeGetHosts(children={})     # nothing vouches NY1: immediate-only
-    broker = FakeBroker(by_one={}, iface_channel={"wg2": "New-York-1-10.102.60"})
+    broker = FakeTunnelState(by_one={}, iface_channel={"wg2": "New-York-1-10.102.60"})
     k = FakeKernel()
     k.seed(
         "default via 192.168.0.1 dev wlan1 metric 601",

@@ -18,10 +18,10 @@
 #   ph 198.18.0.14 stage (7), when BRIDGE_KT (fdf-member-kt) and FDF_TUN (fdf-tun) are given: the PHONE's bridge -- the Kotlin
 #                  member, forward in A (a leaf), reaching B and F at once through fdf-tun; refused by C [BRIDGE_V1]
 # usage: tools/netns-reach-test.sh [RINAB_DIR]
-set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
-PK=${PKG_FDF:-$H/../../pkg-full/opt/fdf}; FDFPY=$H/../../repo/opt/fdf/lib/python
+set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
+PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python
 T=${T:-/tmp/claude-0/netns-reach}; rm -rf $T; mkdir -p $T/ha $T/hb $T/hc $T/hd $T/hf $T/a $T/b $T/c $T/d $T/g $T/e $T/n $T/ph $T/bin
-export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php
 RAMA=198.18.0.1:8840; RAMB=198.18.0.2:8840; RAMC=198.18.0.4:8840; RAMD=198.18.0.9:8840; RAMF=198.18.0.12:8840
@@ -153,9 +153,10 @@ check $([ "$RB" = 10.8.8.1:8080 ] && [ "$RC" = 100.64.0.1:8080 ] && echo 0 || ec
 MAIN1=$(ip netns exec n ip -4 route show table main | sort)
 check $([ "$MAIN0" = "$MAIN1" ] && echo 0 || echo 1) "n's main routing table is unchanged by the reach (pond A's daemon owns it)"
 echo "=== (2a) every network on one screen: getPonds.php, the monitor's Networks section [PONDS_ARE_LISTED_V1]"
-WWW=$H/../frognet/var/www/html
-# the monitor as a node has it: the public repo's package with this tree's files over it (FROGNET_REPO = a checkout)
-MON=$T/mon; mkdir -p $MON; cp -r ${FROGNET_REPO:-$H/../../../abuild/fullrepo}/usr/local/bin/frognet_monitor_py $MON/; cp $H/../frognet/usr/local/bin/frognet_monitor_py/*.py $MON/frognet_monitor_py/
+# [MIRROR_IS_THE_TREE_V1] the FrogNet files come from the tree FROGNET_DIR is in (its top: usr, var, opt/frognet_semantic),
+# not from a copy of them under fdf-source/frognet (gone)
+TOPR=$(cd $FN/../.. && pwd); WWW=$TOPR/var/www/html
+MON=$T/mon; mkdir -p $MON; cp -r $TOPR/usr/local/bin/frognet_monitor_py $MON/
 NSF n php $WWW/getPonds.php > $T/ponds.json 2>&1
 check $(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); p={x["area"]:x for x in d["ponds"]}
 ok = d["forward"]=="pondA" and p["pondA"]["forward"] and p["pondA"]["me"]["role"]=="node" and p["pondB"]["me"]["role"]=="reacher" \

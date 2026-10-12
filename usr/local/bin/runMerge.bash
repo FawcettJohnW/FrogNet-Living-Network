@@ -92,67 +92,11 @@ flog_info "lock_acquired" "lockfile=$LOCKFILE"
 # the merge watcher set theirs; anything else is a shell (manual), named by its parent.
 flog_info "invoked_by" "who=${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" "gen=$(cat /var/lib/frognet/gen 2>/dev/null | tr -d '\n' || echo none)"
 
-# [TUNNEL_AUTOSWITCH_V1] Automatic Internet<->LAN tunnel switch, at the top of
-# every merge. Replaces frognet_internet_watch.sh and the manual make-gateway /
-# unmake-gateway scripts: nothing promotes or demotes a node by hand anymore.
-# Enrollment (setup_lillypad_v4 -> tunnel-setup register + WG creds) is a
-# separate, one-time concern and is NOT touched here.
-#
-# The 2x2, evaluated each merge:
-#     online  = the broker is reachable (NOT "has Internet" -- a node can reach
-#               the broker over the LAN transit mesh). Reuses the daemon's own
-#               broker client via `internet_tunnels_v3 broker-reachable`.
-#     tunnels = any wgN interface exists in the kernel.
-#
-#     offline + tunnels present  -> frognet_nuke_tunnels --keep-config
-#                                   (go LAN-only; drop live tunnels, KEEP creds
-#                                    so a later bring-up needs no re-enrolment)
-#     online  + no tunnels        -> bring-up (rejoin: build the broker's channels)
-#     online  + tunnels present   -> no-op (steady state)
-#     offline + no tunnels        -> no-op (steady LAN-only)
-#
-# Idempotent by construction: only the two transition quadrants act. Cheap on the
-# common no-change pass (one broker probe + one iface check).
 # [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env (fdf-join) or tunnel.conf.
+# Region: the tunnel daemon owns the hub channel and the region's routes; LAN-only: no WireGuard at all, the merge's
+# bring-up stage (discovery.live) keeps it that way. [NO_BROKER_V1] the broker autoswitch that stood here is gone.
 _REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
 flog_info "mode" "region=$_REGION"
-
-flog_stage tunnel_autoswitch
-if [[ "$_REGION" -eq 1 ]]; then
-# [AUTOSWITCH_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub tunnel is the tunnel daemon's: it brings the channel up
-# on every region event and, when the region is gone, tears it down itself ([GONE_IS_GONE_V1]). This stage asked the
-# same question again from a second python (broker-reachable = region.my_channels = two region reads) and could act
-# on its answer (nuke or bring-up) behind the daemon's back. Not run.
-flog_info "autoswitch" "action=none" "reason=region_mode_the_daemon_owns_the_hub_channel"
-else
-_PYBIN_AS="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
-[[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
-
-if ip -o link show type wireguard 2>/dev/null | grep -q '^[0-9]'; then
-    _AS_TUNNELS=1
-else
-    _AS_TUNNELS=0
-fi
-
-if ( cd /opt/frognet_semantic && PYTHONPATH=/opt/frognet_semantic "$_PYBIN_AS" -m internet_tunnels_v3 broker-reachable ) >/dev/null 2>&1; then
-    _AS_ONLINE=1
-else
-    _AS_ONLINE=0
-fi
-
-flog_info "autoswitch" "online=$_AS_ONLINE" "tunnels=$_AS_TUNNELS"
-
-if [[ "$_AS_ONLINE" -eq 0 && "$_AS_TUNNELS" -eq 1 ]]; then
-    flog_info "autoswitch" "action=nuke_keep_config" "reason=offline_with_tunnels"
-    /usr/local/bin/frognet_nuke_tunnels --keep-config 2>&1 | while IFS= read -r _l; do flog_info "autoswitch_nuke" "$_l"; done || true
-elif [[ "$_AS_ONLINE" -eq 1 && "$_AS_TUNNELS" -eq 0 ]]; then
-    flog_info "autoswitch" "action=bringup" "reason=online_no_tunnels"
-    ( cd /opt/frognet_semantic && PYTHONPATH=/opt/frognet_semantic "$_PYBIN_AS" -m internet_tunnels_v3 bring-up-only ) 2>&1 | while IFS= read -r _l; do flog_info "autoswitch_bringup" "$_l"; done || true
-else
-    flog_info "autoswitch" "action=none" "reason=steady_state"
-fi
-fi
-flog_stage_end tunnel_autoswitch "rc=$?"
 
 flog_stage setup_iptables
 /etc/setup_iptables
@@ -331,7 +275,7 @@ flog_info "converge_decision" "changed_this_pass=$_sr" "runAgain=$_ra" "merge_rc
 # [HOSTJSON_FROM_THE_REGION_V1] In region mode the host list is the region's: the tunnel daemon writes
 # /var/lib/frognet/region_hosts.json (ip, name, echo from each member's facts) with region_hosts, on every event, and
 # getHosts.php serves that file. makeHostJson.bash -- /etc/hosts plus a frognet_echo.php curl to every peer with no
-# echo, --max-time 45, the merge waiting on the slowest -- does not run. Broker mode is unchanged.
+# echo, --max-time 45, the merge waiting on the slowest -- does not run. LAN-only rebuilds it here.
 if [[ "$_REGION" -eq 1 ]]; then
     flog_info "makeHostJson" "decision=skip" "reason=region_mode_hosts_are_the_daemons_region_hosts_json"
 else
@@ -373,26 +317,6 @@ if [[ "$_dirty" -eq 1 ]]; then
     fi
 else
     flog_info "PROP" "converged=YES" "chain_dirty=0" "reason=no_change_in_merge_chain"
-fi
-
-# [DEFERRED_BROKER_SETUP_V1] Retry an unfinished broker enrolment.
-#
-# A node configured as a gateway at install time may not have reached the broker
-# yet -- no upstream, DNS not up, broker down. The install writes the config
-# anyway and leaves enrolment pending; every merge retries it. runMerge fires on
-# any network change, which is exactly when a previously unreachable broker is
-# likely to have become reachable. There is no timer: the dnsmasq dhcp-script and
-# the NetworkManager up/down and connectivity-change hooks all land here.
-#
-# Cheap in the common case: one file test. frognet-pond-bootstrap.sh writes the
-# sentinel only once enrolment completed AND the tunnel daemon is running, so
-# this stops firing on its own. Backgrounded so a slow broker never stalls a merge.
-# [NO_BROKER_ENROLMENT_IN_REGION_V1] enrolment with the broker means nothing on a region (membership is the session).
-if [[ "$_REGION" -eq 0 && ! -f /etc/frognet/pond_bootstrap_done \
-      && -x /usr/local/bin/frognet-pond-bootstrap.sh ]] \
-   && grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null; then
-    flog_info "BROKER_SETUP" "state=pending" "action=retry_pond_bootstrap"
-    /usr/local/bin/frognet-pond-bootstrap.sh >/dev/null 2>&1 &
 fi
 
 flog_info "completed"

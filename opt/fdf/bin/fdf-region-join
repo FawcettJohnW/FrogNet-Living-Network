@@ -24,14 +24,12 @@ echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}
 # join.env first (the daemon's switch), then the daemon: it writes this node's name/guid/subnet/pubkey into
 # facts.json at start, and fdf-client takes its member name from there at ITS start -- so the daemon goes first.
 mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
-[ -f /etc/frognet/tunnel.conf ] && [ ! -f /etc/frognet/tunnel.conf.broker ] && cp /etc/frognet/tunnel.conf /etc/frognet/tunnel.conf.broker
 # [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
 # for pokes nobody sends: the 60 s databasehost/capability advertiser (it ran frognet_capability_probe.sh -- cpu
 # benchmark, disk write+fsync -- every minute), the 1/min store elector (stands down in region mode), the
-# merge watcher (propogateNotification exits in region mode), the 120 s broker-enrolment retry (membership is the
-# session on a region). The daemon publishes capability as a fact.
+# merge watcher (propogateNotification exits in region mode). The daemon publishes capability as a fact.
 # fdf-leave turns them back on.
-for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service; do
   [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
   systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
 done
@@ -43,8 +41,8 @@ grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null || echo "== warning: the da
 echo "== waiting 15 s for the join, the mapping and the hub"; sleep 15
 echo "== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)"
 journalctl -u fdf-client --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -8
-echo "== tunnel daemon (want: 'REGION switch', 'REGION: facts written', 'my-channels: hubs=[...]')"
-journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep -E "REGION|POLL|IDENTITY|Traceback|Error" | tail -12
+echo "== tunnel daemon (want: 'build', 'REGION switch', 'WG_KEY' on a first join, 'REGION: facts written', 'my-channels: hubs=[...]')"
+journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep -E "Starting frognet-tunnel-daemon|REGION|WG_KEY|IDENTITY|Traceback|Error" | tail -12
 echo "== wg (want: one peer, endpoint = the hub, a latest handshake)"
 wg show 2>&1 | grep -E "^interface|endpoint|allowed|handshake"
 echo "== members"; /opt/fdf/bin/fdf-ls 2>&1 | head -12

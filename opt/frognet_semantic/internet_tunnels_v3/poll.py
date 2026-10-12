@@ -16,100 +16,42 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 """
-poll.py - tunnel-daemon event loop + post-discovery reconcile.
+poll.py - the tunnel daemon's loops and the bring-up reconcile [NO_BROKER_V1].
 
-Two entry points:
+Two modes (config.MODE):
 
-  1. poll_once() / run_poll_loop()
-     Passive broker-list watcher.  When the broker's channel set changes,
-     fork runMerge to re-run discovery.  Unchanged from prior revisions.
+  region    run_region_loop(): one held FD&F region session (fdf-events); per region event the hub channels
+            (region.my_channels) are reconciled in-process by _reconcile_bringup_phase -- orphan wgN torn down,
+            channels whose hub is gone torn down, missing ones brought up in parallel -- then FD&F's plan is applied
+            (graph_apply), the plan's mappings published, elections run. The daemon owns its WireGuard key
+            (config.ensure_node_key) [DAEMON_OWNS_ITS_KEY_V1].
+  LAN-only  run_lan_only_loop(): frognet0 and nothing else; FrogNet discovery and the elections are runMerge's.
+            The merge's `bring-up-only` stage (discovery.live) comes here and, with no region, tears down any wg
+            iface, writes an empty handshake_rtts.json and touches /etc/sentinels/tunnel_bringup_ready
+            [LAN_ONLY_NO_REGION_V1].
 
-  2. reconcile_tunnels() -> _reconcile_tunnels_inner()
-     Invoked by runMerge at the end of its pass (after sync_interfaces
-     has done its observations + commits).  Now MUCH smaller:
-
-       Phase 0: internet check.
-       Phase 1: orphan-iface teardowns (kernel wg interfaces whose pubkey
-                isn't in the broker's list are stale - kill them).
-       Phase 2: local-state-only teardowns (channels we had up that the
-                broker has since removed).
-       Phase 3: bring up broker channels we don't have yet.  Parallel.
-                Each bring-up runs its own .2 aliveness probe; if it
-                fails, the tunnel is NOT saved and the channel gets no
-                observation emitted.
-       Phase 4: emit a tunnel Observation per live broker-channel subnet
-                into /etc/sentinels/discovery_observations.tsv.  The
-                probe technique matches sync_interfaces: /32 to .2 on
-                the channel's wgN at metric 1, curl echo through the
-                full stack, measure RTT, delete /32.
-       Phase 5: write /var/lib/frognet-tunnel/channel_map.json so the
-                committer can translate channel names to iface names
-                when it decides to tear one down.
-       Phase 6: call the committer (python -m frognet_route commit-final).
-                The committer installs winners, removes losers, tears
-                down any tunnel channel that won zero subnets.
-       Phase 7: reconcile Python-side state against the kernel - any
-                channel whose iface disappeared (because the committer
-                brought it down) loses its state file and _active_tunnels
-                entry.
-
-All /24 route installation and removal is done by the committer.  This
-module brings up and verifies tunnels; that's it.
-
-What was removed from the pre-refactor version of this file:
-  _has_non_kernel_route, _replace_route, _install_tunnel_routes,
-  _remove_tunnel_routes, _channel_is_lan_reachable,
-  _find_lan_route_for_subnet, _measure_rtt_through_dev,
-  _tear_down_lan_route, _list_all_routes_for_subnet,
-  _remove_specific_route, _candidate_lan_paths_for_subnet,
-  and the measurement/winner-picking/install bulk of
-  _reconcile_tunnels_inner.  Those responsibilities belong to
-  frognet_route.planner + frognet_route.committer now.
+Route installation for a hub channel's remote /24s at bring-up is _bringup_install_routes; everything else about
+routes is the region applier's (graph_apply) or the merge's.
 """
 
 import json
 import os
 import subprocess
-import ssl
 import threading
 import time
-import urllib.request
-import urllib.error
 from typing import Dict, List, Optional, Set, Tuple
 
 from . import config
 from .wg import (find_next_wg_iface, teardown_wg_iface,
-                 wg_handshake_age, frognet_echo)
+                 wg_handshake_age)
 
 
 # ---------------------------------------------------------------------------
-# frognet0 - virtual interface for chorus IPs (10.254.x.x)
+# frognet0 - the node's virtual interface
 # ---------------------------------------------------------------------------
 
 FROGNET_IFACE = "frognet0"
-OBSERVATIONS_PATH = "/etc/sentinels/discovery_observations.tsv"
-CHANNEL_MAP_PATH = "/var/lib/frognet-tunnel/channel_map.json"
-# [BROKER_TEARDOWN_V1] List of channel names the broker currently lists
-# for this node.  Written by _write_committer_sidecars().  Used by the
-# committer to drive teardown as active-minus-broker instead of the
-# legacy observation-winners rule.
-BROKER_CHANNELS_PATH = "/var/lib/frognet-tunnel/broker_channels.json"
-# [TRACEROUTE_V1] Per-observation traceroute hop counts written by
-# sync_interfaces.sh at OBSERVED ingest.  Schema per line:
-#   dest_subnet\tprobe_ip\tdev\tadditional_253_hops
-# Passed to the committer so a 0-additional-253 observation wins over
-# any indirect path regardless of RTT.  Not written by poll.py itself.
-TRACEROUTES_PATH = "/etc/sentinels/discovery_traceroutes.tsv"
-# [BROKER_STATE_PERSIST_V1] Persisted snapshot of the latest broker
-# fetch, written by bringup phase, read by commit-only phase.  Required
-# because bring-up-only and commit-only run as SEPARATE Python
-# processes spawned by mergeHostsAndResolv; they share no in-memory
-# state.  Without this file, the commit-only process has no broker
-# context - config.last_broker_names/channels are unset - and
-# _write_committer_sidecars writes empty sidecars, which the committer
-# interprets as "broker has no channels" -> tear down everything.
-LAST_BROKER_STATE_PATH = "/var/lib/frognet-tunnel/last_broker_state.json"
-FROGNET_ROUTE_CMD = ["/usr/bin/python3", "-m", "frognet_route"]
+
 
 
 def _bringup_install_routes(channel_name: str, iface: str,
@@ -133,9 +75,9 @@ def _bringup_install_routes(channel_name: str, iface: str,
         route the kernel accepts but no packet ever traverses, because
         peer.1 (10.133.144.1) is the actual forwarder.
 
-    Skips the host's own served /24 if a peer's broker config lists it
-    as remote - broker bug we saw on 2026-05-15 (Seattle-1I claiming
-    10.250.250.0/24 as a remote_subnet). Skipping early avoids the
+    Skips the host's own served /24 if a channel lists it as remote
+    (seen 2026-05-15: Seattle-1I claiming 10.250.250.0/24 as a
+    remote_subnet). Skipping early avoids the
     BRINGUP_ROUTE_FAILED noise and is more honest than letting the
     kernel reject.
 
@@ -181,7 +123,7 @@ def _bringup_install_routes(channel_name: str, iface: str,
         if own_subnet and sn == own_subnet:
             config.log.info(
                 "BRINGUP_ROUTE_SKIP %s: dest is own served /24 "
-                "(broker advertised it as peer's remote_subnet - bug)",
+                "(the channel listed it as a remote_subnet - bug)",
                 sn)
             continue
         if sn in existing:
@@ -193,7 +135,7 @@ def _bringup_install_routes(channel_name: str, iface: str,
         # [BRINGUP_OWN_SUBNET_ONLY_V1] Bringup installs ONLY the
         # channel's own /24 (peer.1 sits inside dest).  Routes for
         # subnets the peer claims to relay are NOT installed at
-        # bringup - they are unverified hints from broker
+        # bringup - they are unverified hints from the channel's
         # remote_subnets, and a peer can advertise a relay it can't
         # actually forward (stale transit_subnets registration, or
         # the relay node's upstream went away).  Installing such
@@ -222,7 +164,7 @@ def _bringup_install_routes(channel_name: str, iface: str,
             continue
 
         # [TUNNEL_DEV_ROUTE_V1] Always `dest dev wgN`, no via, no
-        # onlink.  Broker sets AllowedIPs=10.0.0.0/8 per channel, so
+        # onlink.  The channel sets AllowedIPs=10.0.0.0/8, so
         # wg accepts any 10.x destination on the iface; the peer's
         # kernel routes the inner packet onward.  Same shape for
         # peer's own /24 and for relayed /24s.  See planner
@@ -371,54 +313,10 @@ def _ensure_frognet0():
         config.log.info("Created %s virtual interface", FROGNET_IFACE)
 
 
-def _live_chorus_ips() -> Set[str]:
-    r = subprocess.run(["ip", "-4", "addr", "show", FROGNET_IFACE],
-                       capture_output=True, text=True, check=False)
-    ips = set()
-    for line in r.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("inet 10.254."):
-            ips.add(line.split()[1].split("/")[0])
-    return ips
-
-
-def _add_chorus_ip(chorus_ip: str, subnet: str):
-    prefix_len = subnet.split("/")[1]
-    subprocess.run(["ip", "addr", "add", f"{chorus_ip}/{prefix_len}",
-                    "dev", FROGNET_IFACE], capture_output=True, check=False)
-    config.log.info("Added chorus IP %s/%s to %s",
-                    chorus_ip, prefix_len, FROGNET_IFACE)
-
-
-def _remove_chorus_ip(chorus_ip: str):
-    subprocess.run(["ip", "addr", "del", f"{chorus_ip}/24", "dev", FROGNET_IFACE],
-                   capture_output=True, check=False)
-    config.log.info("Removed chorus IP %s from %s", chorus_ip, FROGNET_IFACE)
-
-
-def _sync_chorus_ips(chorus_assignments: List[dict]):
-    broker_ips: Dict[str, str] = {
-        a["chorus_ip"]: a["subnet"] for a in chorus_assignments
-    }
-    live_ips = _live_chorus_ips()
-    for ip in live_ips - set(broker_ips.keys()):
-        _remove_chorus_ip(ip)
-    for ip, subnet in broker_ips.items():
-        if ip not in live_ips:
-            _add_chorus_ip(ip, subnet)
-
 
 # ---------------------------------------------------------------------------
-# Subnet -> gateway helper (unchanged)
+# Subnet helper
 # ---------------------------------------------------------------------------
-
-def _subnet_gateway(subnet: str) -> str:
-    """'10.102.60.0/24' -> '10.102.60.1'.  Uses rsplit to stay safe on
-    subnets containing '0' in higher octets."""
-    net = subnet.split("/")[0]
-    prefix = net.rsplit(".", 1)[0]
-    return prefix + ".1"
-
 
 def _probe_ip_for_subnet(subnet: str) -> str:
     """'10.102.60.0/24' -> '10.102.60.2'.  Probe alias, not the gateway."""
@@ -431,185 +329,16 @@ def _probe_ip_for_subnet(subnet: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# HTTP client (unchanged)
-# ---------------------------------------------------------------------------
-
-_ssl_ctx = None
-_opener = None
-
-
-def _get_opener():
-    global _ssl_ctx, _opener
-    if _opener is None:
-        _ssl_ctx = ssl.create_default_context()
-        _ssl_ctx.check_hostname = False
-        _ssl_ctx.verify_mode = ssl.CERT_NONE
-        handler = urllib.request.HTTPSHandler(context=_ssl_ctx)
-        _opener = urllib.request.build_opener(handler)
-    return _opener
-
-
-def broker_get(path: str, params: dict = None) -> dict:
-    if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
-        from . import region
-        return region.get(path, params)
-    url = f"{config.BROKER_URL}{path}"
-    if params:
-        qs = "&".join(f"{k}={urllib.request.quote(str(v))}"
-                      for k, v in params.items())
-        url += ("&" if "?" in url else "?") + qs
-    req = urllib.request.Request(url, headers={"Connection": "keep-alive"})
-    with _get_opener().open(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
-
-
-def register_with_broker() -> bool:
-    """[GUID_IDENTITY_V1] Self-register this node with the broker.
-
-    The tunnel daemon historically never registered - registration was a one-
-    shot install-time action, so a node the broker had retired/forgotten could
-    only re-fetch /my-channels, get 404, tear down, and stop. This gives the
-    running daemon the ability to re-assert its identity: it POSTs its install-
-    time GUID (the sole identity key) so the broker REVIVES its row instead of
-    leaving it dead.
-
-    Returns True on a successful register, False otherwise. Never raises -
-    callers fall through to their existing teardown path on False. Requires
-    NODE_GUID and POND; without either there is no identity to register, so it
-    logs and returns False rather than sending a guess."""
-    if not config.NODE_GUID:
-        config.log.error("REGISTER: no identity at /etc/fnid - run "
-                         "`frognet-node-guid.sh --ensure` and restart "
-                         "frognet-tunnel-daemon-v3; cannot self-register.")
-        return False
-    if not config.POND:
-        config.log.error("REGISTER: no POND (NETWORK_NAME) on disk - cannot "
-                         "self-register.")
-        return False
-    body = {
-        "pond":      config.POND,
-        "pubkey":    config.PUBKEY,
-        "subnet":    config.LOCAL_SUBNET,
-        "node_name": config.NODE_NAME,
-        "guid":      config.NODE_GUID,
-    }
-    try:
-        resp = broker_post("/api/v4/register", body)
-        config.log.info("REGISTER: ok node=%s guid=%s pond=%s -> node_id=%s",
-                        config.NODE_NAME, config.NODE_GUID, config.POND,
-                        resp.get("node_id"))
-        return True
-    except Exception as e:
-        config.log.error("REGISTER: failed node=%s guid=%s pond=%s: %s",
-                         config.NODE_NAME, config.NODE_GUID, config.POND, e)
-        return False
-
-
-def broker_post(path: str, body: dict) -> dict:
-    if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
-        from . import region
-        return region.post(path, body)
-    url = f"{config.BROKER_URL}{path}"
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, method="POST",
-                                 headers={"Content-Type": "application/json",
-                                          "Connection": "keep-alive"})
-    with _get_opener().open(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
-
-
-# ---------------------------------------------------------------------------
-# Transit-subnet sync [TRANSIT_SUBNETS_SYNC_V1]
-#
-# Tell the broker which LAN /24s this node can forward to but does not
-# own.  The broker uses this to install namespace routes for those
-# subnets on every tunnel this node is part of, and surfaces them in
-# peers' my-channels responses so remote nodes learn to route through
-# us to reach our LAN-side peers.
-#
-# This replaces the intent of the dead advertise_thread websocket
-# path.  Called on every poll cycle; cheap when the set hasn't changed.
-# ---------------------------------------------------------------------------
-
-def _read_transit_sentinel():
-    """[TRANSIT_FROM_WINNERS_V1] Read winner-derived transit /24s from
-    /etc/sentinels/transit_subnets.tsv (one /24 per line). None if absent."""
-    try:
-        with open("/etc/sentinels/transit_subnets.tsv") as f:
-            return sorted({ln.strip() for ln in f if ln.strip()})
-    except OSError:
-        return None
-
-
-def _sync_transit_subnets():
-    """POST winner-derived transit /24s to broker if changed.
-    Never raises - broker errors are logged and retried next poll."""
-    transit = _read_transit_sentinel()
-    if transit is None:
-        try:
-            transit = sorted(config.discover_transit_subnets(config.LOCAL_SUBNET))
-        except Exception as e:
-            config.log.warning("SYNC_TRANSIT: discover failed: %s", e)
-            return
-
-    # [BROKER_STATE_IS_NOT_MY_MEMORY_V1 - John 2026-09-12] The early return
-    # here compared the sentinel against config.last_transit_subnets -- an
-    # in-process variable recording what THIS daemon last SENT -- and treated a
-    # match as proof the broker still holds it. It is not. The broker's row can
-    # change underneath us: a node row recreated after a pubkey/guid collision
-    # starts with transit_subnets=[] (the INSERT default), a restore or a manual
-    # edit clears it, a failed route install unwinds it. None of that touches
-    # this variable, so the daemon goes silent forever while the broker holds
-    # nothing.
-    #
-    # Measured on Seattle5 2026-09-12: /etc/sentinels/transit_subnets.tsv held
-    # 10.170.170.0/24, the broker row held [], and 200 lines of journal
-    # contained no SYNC_TRANSIT at all -- not a failure, a silence. Nothing
-    # downstream could reach Seattle7 and no log said why.
-    #
-    # So: always ask. The broker answers an unchanged set with a DB read and no
-    # route work ("status":"unchanged"), which is cheaper than being
-    # permanently wrong. Only the LOG is rate-limited, so a steady state is
-    # still quiet in the journal.
-
-    try:
-        resp = broker_post("/api/v4/update-subnets", {
-            "pubkey":          config.PUBKEY,
-            "transit_subnets": transit,
-        })
-    except Exception as e:
-        # 404 (not registered), 409 (conflict), network errors - log and
-        # keep last_transit_subnets unchanged so the next cycle retries.
-        config.log.warning("SYNC_TRANSIT: broker update failed "
-                           "(transit=%s): %s", transit, e)
-        return
-
-    status = resp.get("status", "?")
-    added = resp.get("added", [])
-    removed = resp.get("removed", [])
-    tunnels = resp.get("tunnels_updated", 0)
-    # Log every real change; log an unchanged re-assert only when the set
-    # differs from what we last logged, so steady state stays quiet without
-    # the silence ever meaning "I stopped checking".
-    if status != "unchanged" or getattr(config, "last_transit_subnets", None) != transit:
-        config.log.info("SYNC_TRANSIT: %s transit=%s added=%s removed=%s "
-                        "tunnels_updated=%d",
-                        status, transit, added, removed, tunnels)
-    config.last_transit_subnets = transit
-
-
-# ---------------------------------------------------------------------------
-# Local tunnel state (unchanged)
+# Local tunnel state
 # ---------------------------------------------------------------------------
 
 _active_tunnels: Dict[str, dict] = {}
 
 
 def _tear_down_all_kernel_wg_ifaces(reason: str) -> int:
-    """[BROKER_AUTHORITATIVE_V1] Tear down every wg iface in the kernel.
-    Used when this node has no authority to host any tunnel - broker
-    unreachable, no internet, no own WAN uplink, or broker-disabled.
-    Returns count of ifaces torn down.
+    """Tear down every wg iface in the kernel. Used when this node has no
+    authority to hold any tunnel: LAN-only (no region), or the region
+    session is gone ([GONE_IS_GONE_V1]). Returns count of ifaces torn down.
     """
     kernel_ifaces = _enumerate_kernel_wg_ifaces()
     if not kernel_ifaces:
@@ -637,12 +366,11 @@ HANDSHAKE_LIVE_SEC = int(os.environ.get("FROGNET_HANDSHAKE_LIVE_SEC", "180"))
 
 
 def _tear_down_stale_only(reason: str) -> int:
-    """[TRANSIENT_GUARD_V1] Teardown for the *transient* bring-up
-    short-circuits (no_internet / lan_only_node / broker_unreachable).
+    """[TRANSIENT_GUARD_V1] Teardown for a *transient* bring-up failure: the
+    hub channels could not be read this event (region.my_channels raised).
 
-    Those signals are evidence about OUR control plane this instant - a
-    single 8.8.8.8 ping, one uplink scan, one broker fetch - NOT proof
-    that any peer became unreachable.  On Seattle5 (2026-06-05 21:34) a
+    That is evidence about OUR control plane this instant - one read -
+    NOT proof that any peer became unreachable.  On Seattle5 (2026-06-05 21:34) a
     one-shot failure of one of these tore down wg0/wg1/wg2, three
     tunnels that had handshaked and carried data for 3h, cutting NY-1
     and 10.179.179 until a later merge rebuilt them.
@@ -651,9 +379,9 @@ def _tear_down_stale_only(reason: str) -> int:
     live on the wire regardless of the failing check, so we DO NOT tear
     it down here; the blip is re-evaluated next pass.  Genuinely stale /
     never-handshook ifaces (which were going to fail anyway) are still
-    cleaned.  Full unconditional teardown is reserved for operator
-    BROKER_DISABLED and for positive broker channel-list omission
-    (orphan / broker_removed) - i.e. authority, not failure-to-reach.
+    cleaned.  Full unconditional teardown is reserved for LAN-only, the
+    region gone, and a channel positively absent from the hub list
+    (orphan / hub gone) - i.e. authority, not failure-to-reach.
     Returns count of ifaces actually torn down.
     """
     kernel_ifaces = _enumerate_kernel_wg_ifaces()
@@ -679,25 +407,23 @@ def _tear_down_stale_only(reason: str) -> int:
     return torn
 
 
-def _rebuild_active_tunnels_from_kernel_and_broker(
-        broker_channels: Dict[str, dict]) -> None:
-    """[BROKER_AUTHORITATIVE_V1] Populate _active_tunnels from kernel
-    wg ifaces whose pubkeys match the broker's response.  Replaces
-    _load_local_state for the bringup phase: the source of truth is
-    (kernel, broker), never disk cache.
+def _rebuild_active_tunnels_from_kernel_and_hubs(
+        hub_channels: Dict[str, dict]) -> None:
+    """Populate _active_tunnels from kernel wg ifaces whose peer pubkey is
+    a hub's (region.my_channels: one channel per live hub). The source of
+    truth is (kernel, region), never a disk cache.
 
-    Each kernel iface whose droplet_pubkey matches a broker channel
-    becomes an entry in _active_tunnels, bound to that channel.  Ifaces
-    that don't match anything in the broker response are NOT added -
-    they'll be caught and torn down by the orphan scan that runs next.
+    Each kernel iface whose peer pubkey matches a hub channel becomes an
+    entry in _active_tunnels, bound to that channel.  Ifaces that match
+    no hub are NOT added - the orphan scan that runs next tears them down.
     """
     _active_tunnels.clear()
-    if not broker_channels:
+    if not hub_channels:
         return
     kernel_ifaces = _enumerate_kernel_wg_ifaces()  # {iface: pubkey}
     pubkey_to_ch: Dict[str, str] = {
         ch["wg_config"].get("droplet_pubkey", ""): ch_name
-        for ch_name, ch in broker_channels.items()
+        for ch_name, ch in hub_channels.items()
         if ch["wg_config"].get("droplet_pubkey", "")
     }
     adopted = 0
@@ -709,7 +435,7 @@ def _rebuild_active_tunnels_from_kernel_and_broker(
         # will deal with them.
         if ch_name in _active_tunnels:
             continue
-        ch = broker_channels[ch_name]
+        ch = hub_channels[ch_name]
         wgc = ch.get("wg_config", {})
         _active_tunnels[ch_name] = {
             "channel_name":     ch_name,
@@ -726,43 +452,8 @@ def _rebuild_active_tunnels_from_kernel_and_broker(
         }
         adopted += 1
     config.log.info(
-        "REBUILD_ACTIVE_TUNNELS: adopted=%d from kernel matching broker",
+        "REBUILD_ACTIVE_TUNNELS: adopted=%d from kernel matching a hub",
         adopted)
-
-
-def _load_local_state():
-    _active_tunnels.clear()
-    for sf_path in config.ACTIVE_DIR.glob("*.json"):
-        try:
-            with open(sf_path) as f:
-                sf = json.load(f)
-            ch = sf.get("channel_name", "")
-            if ch:
-                _active_tunnels[ch] = sf
-            else:
-                # Valid JSON but no channel_name - file is structurally wrong.
-                # Log and skip; do NOT delete so we don't destroy state that
-                # might be recoverable on a later pass.
-                config.log.warning(
-                    "_load_local_state: %s has no channel_name; skipping "
-                    "(file preserved for inspection)", sf_path)
-        except json.JSONDecodeError as e:
-            # Empty or partially-written file.  Do NOT delete: the writer
-            # may finish mid-cycle, or operator may want to inspect.  An
-            # always-broken file is harmless beyond a log line per cycle.
-            config.log.warning(
-                "_load_local_state: %s malformed JSON (%s); skipping "
-                "(file preserved)", sf_path, e)
-        except OSError as e:
-            config.log.warning(
-                "_load_local_state: %s read failed (%s); skipping "
-                "(file preserved)", sf_path, e)
-    config.log.info("Loaded %d active tunnel(s) from disk",
-                    len(_active_tunnels))
-    # [BROKER_STATE_PERSIST_V1] Recover the last broker fetch so this
-    # process has broker context even if it didn't run bringup itself
-    # (commit-only is spawned separately from bring-up-only).
-    _load_last_broker_state()
 
 
 def _save_tunnel_state(channel_name: str, info: dict):
@@ -906,9 +597,9 @@ def _bring_up_tunnel(channel: dict) -> bool:
     promotes its /24 at this handshake RTT and wave 2 probes it for a
     real frognet_echo RTT.
 
-    Does NOT probe the far edge and does NOT install /24 routes.  The
-    committer installs routes based on observations sync_interfaces
-    and the commit-only phase accumulate."""
+    Does NOT probe the far edge.  The only routes it installs are the
+    channel's own (_bringup_install_routes, at the end); every other
+    route is the region applier's (graph_apply)."""
     wg_config = channel["wg_config"]
     tunnel_name = channel["tunnel_name"]
     remote_subnets = wg_config.get("remote_subnets", [])
@@ -1034,7 +725,7 @@ def _tear_down_tunnel(channel_name: str):
 
 def _tear_down_orphan_iface(iface: str, pubkey: str, reason: str):
     """Tear down a kernel wgN that isn't in _active_tunnels.  Orphan policy:
-    broker-authoritative.  Routes through this iface are dropped by the
+    the hub list is authoritative.  Routes through this iface are dropped by the
     kernel automatically when the iface is removed."""
     config.log.info("ORPHAN_TEARDOWN: iface=%s pubkey=%s reason=%s",
                     iface, pubkey[:16] + "...", reason)
@@ -1052,483 +743,10 @@ def _tear_down_orphan_iface(iface: str, pubkey: str, reason: str):
 
 
 # ---------------------------------------------------------------------------
-# Poll cycle (unchanged - watches for broker-list changes only)
-# ---------------------------------------------------------------------------
-
-def _verify_one_tunnel(channel_name: str, info: dict) -> bool:
-    iface = info.get("interface", "")
-    subnets = info.get("remote_subnets", [])
-    if not iface or not subnets:
-        config.log.warning("VERIFY: %s incomplete state", channel_name)
-        return False
-    age = wg_handshake_age(iface)
-    if age is None or age >= config.HANDSHAKE_DEAD_SEC:
-        config.log.warning("VERIFY: %s handshake dead (age=%s)",
-                           channel_name, age)
-        return False
-    probe_timeout = float(os.environ.get(
-        "FROGNET_TUNNEL_VERIFY_TIMEOUT_SEC", "5.0"))
-    gw = _subnet_gateway(subnets[0])
-    rtt = frognet_echo(gw, timeout=probe_timeout)
-    if rtt is None:
-        config.log.warning("VERIFY: %s semantic path dead", channel_name)
-        return False
-    return True
-
-
-def _verify_tunnels_parallel(channel_names) -> List[str]:
-    names = [n for n in channel_names if n in _active_tunnels]
-    if not names:
-        return []
-    results: Dict[str, bool] = {}
-    results_lock = threading.Lock()
-    done_sem = threading.Semaphore(0)
-
-    def _worker(ch_name: str):
-        info = _active_tunnels.get(ch_name)
-        ok = False
-        if info:
-            try:
-                ok = _verify_one_tunnel(ch_name, info)
-            except Exception as e:
-                config.log.exception("VERIFY: %s: %s", ch_name, e)
-        with results_lock:
-            results[ch_name] = ok
-        done_sem.release()
-
-    for ch_name in names:
-        threading.Thread(target=_worker, args=(ch_name,),
-                         name=f"verify-{ch_name}", daemon=True).start()
-    for _ in range(len(names)):
-        done_sem.acquire()
-    return [ch for ch, ok in results.items() if not ok]
-
-
-def poll_once() -> bool:
-    """Passive watcher.  Forks runMerge when the broker's channel set
-    changes.  Doesn't do any tunnel work itself."""
-    # [TRANSIT_SUBNETS_SYNC_V1] push transit /24s before fetching our
-    # channel list so the response we receive reflects any just-pushed
-    # change on peers that include us as a host/joiner.
-    _sync_transit_subnets()
-
-    try:
-        resp = broker_get("/api/v4/my-channels", {"pubkey": config.PUBKEY})
-    except Exception as e:
-        config.log.warning("POLL: broker unreachable: %s", e)
-        return False
-
-    digest = resp.get("digest", "")
-    channels = resp.get("channels", [])
-    chorus_assignments = resp.get("chorus_assignments", [])
-    broker_names: Set[str] = {ch["channel_name"] for ch in channels}
-    previous_names: Set[str] = getattr(config, "last_broker_names", set())
-
-    # Diagnostic delta: what changed on the broker side this poll.
-    broker_added   = broker_names - previous_names
-    broker_removed = previous_names - broker_names
-
-    # Self-heal delta: what diverges between broker truth and our
-    # actual running tunnel state.  This is the authoritative trigger
-    # for runMerge - fires whenever we need to bring something up or
-    # tear something down, regardless of whether the broker JSON itself
-    # changed this cycle.  Catches: orphan teardown by another path,
-    # kernel iface vanished, daemon restart with empty in-memory
-    # last_broker_names, etc.
-    running_chs: Set[str] = set(_active_tunnels.keys())
-    needs_bringup  = broker_names - running_chs
-    needs_teardown = running_chs - broker_names
-
-    (config.log.warning if getattr(config, "REGION_RAM", "") else config.log.info)(
-        "POLL: broker=%d running=%d broker_added=%d broker_removed=%d "
-        "needs_bringup=%d needs_teardown=%d digest=%s",
-        len(broker_names), len(running_chs),
-        len(broker_added), len(broker_removed),
-        len(needs_bringup), len(needs_teardown), digest)
-    _sync_chorus_ips(chorus_assignments)
-    config.last_broker_names = broker_names
-    config.last_digest = digest
-    if not needs_bringup and not needs_teardown:
-        return False
-
-    if broker_added:
-        config.log.info("POLL: broker added channels=%s", sorted(broker_added))
-    if broker_removed:
-        config.log.info("POLL: broker removed channels=%s", sorted(broker_removed))
-    if needs_bringup:
-        config.log.info("POLL: needs bringup=%s", sorted(needs_bringup))
-    if needs_teardown:
-        config.log.info("POLL: needs teardown=%s", sorted(needs_teardown))
-    config.log.info("POLL: firing runMerge")
-    try:
-        subprocess.Popen(
-            ["/usr/local/bin/runMerge.bash"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL, close_fds=True,
-            start_new_session=True,
-        )
-    except Exception as e:
-        config.log.error("POLL: failed to fork runMerge: %s", e)
-        return False
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Reconcile helpers (observation + committer plumbing)
+# Reconcile helpers
 # ---------------------------------------------------------------------------
 
 _RECONCILE_LOCK_PATH = "/var/lock/frognet-tunnel-reconcile.lock"
-
-
-def _read_discovered_hosts() -> Set[str]:
-    try:
-        with open("/etc/sentinels/discovered_hosts") as f:
-            return {line.strip() for line in f if line.strip()}
-    except (OSError, IOError):
-        return set()
-
-
-def _broker_reachable() -> bool:
-    """The ONLY definition of "online": the broker answers. Reuses the daemon's
-    own broker client (same URL/pubkey/timeouts as every other call), so a node
-    that reaches the broker over the LAN transit mesh counts as online exactly
-    like one with a direct WAN. A 401/404 still means the server ANSWERED (it is
-    reachable); only a transport failure means unreachable."""
-    try:
-        broker_get("/api/v4/my-channels", {"pubkey": config.PUBKEY})
-        return True
-    except urllib.error.HTTPError:
-        return True   # broker answered (even if it 401/404s) => reachable
-    except Exception:
-        return False
-
-
-def _have_internet() -> bool:
-    """Ping 8.8.8.8. NOTE: no longer used as an online gate (online == broker
-    reachable). Retained only for any diagnostic caller."""
-    r = subprocess.run(
-        ["ping", "-c", "1", "-W", "2", "-n", "8.8.8.8"],
-        capture_output=True, check=False)
-    return r.returncode == 0
-
-def _node_has_own_uplink() -> bool:
-    """True if this node has a non-FrogNet interface with a non-10.x
-    IPv4 address - i.e., a real WAN of its own that can originate
-    WireGuard handshakes to the broker.
-
-    Distinct from _have_internet, which only proves that *something
-    upstream* can reach 8.8.8.8.  A LAN-child like SeattleTwo passes
-    _have_internet (its default route forwards through SeattleSix's
-    WiFi to a NATing gateway) but has no IP a WireGuard endpoint can
-    bind to: all its addresses are 10.x - its own served /24 plus a
-    DHCP lease from the parent node's WiFi.
-
-    Excludes lo, frognet*, wg*, and any interface whose only IPv4
-    addresses are in 10.0.0.0/8 (FrogNet overlay space).  An interface
-    with a 172.16/12 or 192.168/16 RFC1918 address still counts as a
-    real uplink for this purpose - those nodes are doing standard NAT
-    to the internet on their own, which is what the broker handshake
-    needs.
-
-    On a node that fails this check, attempting broker tunnels is
-    guaranteed to fail: wg-quick brings the iface up, no UDP handshake
-    packet can be sourced, all four channels time out after 30s and
-    tear down.  Bringup wastes ~30s per channel and produces nothing.
-    """
-    try:
-        r = subprocess.run(
-            ["ip", "-4", "-o", "addr", "show"],
-            capture_output=True, text=True, check=False, timeout=2)
-    except Exception as e:
-        # Can't tell - fail-open so we don't accidentally block a
-        # legitimate uplink node from bringing up tunnels.
-        config.log.warning(
-            "UPLINK_CHECK: ip addr show failed: %s (fail-open)", e)
-        return True
-    if r.returncode != 0:
-        config.log.warning(
-            "UPLINK_CHECK: ip addr show rc=%d stderr=%s (fail-open)",
-            r.returncode, (r.stderr or "").strip())
-        return True
-    for line in r.stdout.splitlines():
-        # Format: "<idx>: <iface>    inet <addr>/<prefix> ..."
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        iface = parts[1]
-        if iface == "lo":
-            continue
-        if iface.startswith("frognet") or iface.startswith("wg"):
-            continue
-        addr_cidr = parts[3]
-        addr = addr_cidr.split("/", 1)[0]
-        if not addr.startswith("10."):
-            return True
-    return False
-
-def _measure_tunnel_rtt(probe_ip: str, iface: str) -> Optional[int]:
-    """Install /32 to probe_ip on iface at metric 1, curl the echo
-    through the full stack, measure elapsed time, delete the /32.
-    Returns integer ms on success, None on failure.
-
-    This is the tunnel-side equivalent of what sync_interfaces does
-    for LAN probes.  It forces the probe through a specific wgN even
-    if a LAN /24 is already installed for the same dest."""
-    timeout = float(os.environ.get("FROGNET_TUNNEL_RTT_TIMEOUT_SEC", "5.0"))
-    # [DELETE_THEN_ADD_V1 2026-05-25] Was `ip route replace`.  Same
-    # rationale as peer.py: metric=1 is reserved for these probe /32s,
-    # so deleting unconditionally by (dest, metric=1) clears any prior
-    # leak before we install fresh on this iface.
-    subprocess.run(
-        ["ip", "route", "del", f"{probe_ip}/32", "metric", "1"],
-        capture_output=True, check=False)
-    subprocess.run(
-        ["ip", "route", "add", f"{probe_ip}/32",
-         "dev", iface, "metric", "1"],
-        capture_output=True, check=False)
-    rtt_ms: Optional[int] = None
-    try:
-        t0 = time.monotonic()
-        rc = subprocess.run(
-            ["curl", "-fsS",
-             "--connect-timeout", "2",
-             "--max-time", str(timeout),
-             "-H", f"Host: {probe_ip}",
-             f"http://{probe_ip}/frognet_echo.php"],
-            capture_output=True, text=True, check=False,
-            timeout=timeout + 2)
-        if rc.returncode == 0 and rc.stdout.strip():
-            rtt_ms = max(1, int((time.monotonic() - t0) * 1000))
-    except subprocess.TimeoutExpired:
-        pass
-    finally:
-        subprocess.run(["ip", "route", "del", f"{probe_ip}/32"],
-                       capture_output=True, check=False)
-    return rtt_ms
-
-
-# _emit_tunnel_observations was removed in the parallel refactor.
-#
-# Previously this function ran in the reconcile commit phase AFTER
-# sync_interfaces had exited, probing each active tunnel's subnet .2
-# for RTT and emitting observations.  In the new architecture, tunnels
-# come up BEFORE sync_interfaces wave 2, and wave 2 probes every
-# discovered host through every 10.x interface - including the freshly-
-# up wg ifaces - as part of normal discovery.  The separate reconcile
-# probe became redundant.
-#
-# A tunnel that sync_interfaces cannot probe contributes no observation,
-# wins no dest, and is torn down by the committer via the planner's
-# tear_down_tunnels list.  Same contract as before; one pipeline now
-# instead of two.
-#
-# _measure_tunnel_rtt remains above for any caller that wants direct
-# RTT measurement of a specific tunnel subnet (none in the current
-# call graph; it's preserved for potential diagnostic use).
-
-
-def _write_channel_map() -> None:
-    """Write {channel_name: iface} for every active tunnel so the
-    committer can translate channel names to iface names on teardown
-    and the planner sees the channels as active_tunnel_channels.
-
-    [COLD_STANDBY_REMOVED_20260518] The previous version excluded
-    channels with handshake age < 180s on the theory that the old
-    teardown rule (active - winning_channels) would tear them down
-    before observations could arrive.  That rule is gone - replaced by
-    BROKER_TEARDOWN_V1 (active - broker_channels) - so the broker now
-    owns existence and there's no scenario where the committer
-    spontaneously tears down a fresh-handshake channel.  Hiding the
-    channels from the map was actively harmful: it made the planner
-    treat them as nonexistent for winner selection.
-    """
-    ch_to_iface = {
-        ch_name: info.get("interface", "")
-        for ch_name, info in _active_tunnels.items()
-        if info.get("interface")
-    }
-    try:
-        os.makedirs(os.path.dirname(CHANNEL_MAP_PATH), exist_ok=True)
-        with open(CHANNEL_MAP_PATH, "w") as f:
-            json.dump(ch_to_iface, f, indent=2)
-    except OSError as e:
-        config.log.warning("channel_map write failed: %s", e)
-    # Sidecars for the new planner rules.  Failures here are logged
-    # but don't stop the committer from running - without these files
-    # the planner falls back to its legacy rules.
-    _write_committer_sidecars(ch_to_iface)
-
-
-def _write_committer_sidecars(ch_to_iface: Dict[str, str]) -> None:
-    """[BROKER_TEARDOWN_V1] Write the broker-channels sidecar the
-    committer reads alongside channel_map.json.
-
-    broker_channels.json - JSON list of channel names the broker
-        currently has for this node.  Source: config.last_broker_names
-        (Set[str]) populated by Phase 1 of run_bringup_phase.  The
-        committer uses this to drive teardown as active-minus-broker
-        (orphans only).  Cold-standby channels are INCLUDED here even
-        though they were excluded from channel_map; the planner won't
-        try to tear down a channel it can't see in active_tunnel_channels
-        (which comes from channel_map), so cold-standby logic still
-        holds.
-
-    The traceroute TSV consumed by the committer is written by
-    sync_interfaces.sh during discovery, not by poll.py.  See
-    TRACEROUTES_PATH.
-    """
-    broker_names = sorted(getattr(config, "last_broker_names", set()))
-    try:
-        os.makedirs(os.path.dirname(BROKER_CHANNELS_PATH), exist_ok=True)
-        with open(BROKER_CHANNELS_PATH, "w") as f:
-            json.dump(broker_names, f, indent=2)
-    except OSError as e:
-        config.log.warning("broker_channels write failed: %s", e)
-
-
-def _persist_last_broker_state(broker_names: Set[str],
-                               broker_channels: Dict[str, dict]) -> None:
-    """[BROKER_STATE_PERSIST_V1] Write the latest broker fetch to disk
-    so the next process (commit-only, separately spawned by
-    mergeHostsAndResolv) can recover it.  Without this, commit-only
-    sees config.last_broker_* as unset and _write_committer_sidecars
-    writes empty sidecars - leading the committer to tear down every
-    active tunnel as an orphan.
-
-    Schema:
-      {"names":    ["ChannelA", "ChannelB", ...],
-       "channels": {"ChannelA": {<broker channel dict verbatim>}, ...}}
-
-    Read by _load_local_state() at process startup.
-    """
-    payload = {
-        "names": sorted(broker_names),
-        "channels": broker_channels,
-    }
-    try:
-        os.makedirs(os.path.dirname(LAST_BROKER_STATE_PATH), exist_ok=True)
-        # Atomic: tempfile in same dir, fsync, replace.  Same pattern as
-        # _save_tunnel_state.  Half-written files would defeat the
-        # purpose: commit-only would read garbage or empty.
-        import tempfile
-        dir_ = os.path.dirname(LAST_BROKER_STATE_PATH)
-        fd, tmp = tempfile.mkstemp(prefix=".last_broker_state.", dir=dir_)
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(payload, f, indent=2, sort_keys=True)
-            os.replace(tmp, LAST_BROKER_STATE_PATH)
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-        config.log.debug("LAST_BROKER_STATE_WRITE: ok path=%s names=%d",
-                         LAST_BROKER_STATE_PATH, len(broker_names))
-    except OSError as e:
-        config.log.warning("LAST_BROKER_STATE_WRITE FAILED: %s", e)
-
-
-def _load_last_broker_state() -> None:
-    """[BROKER_STATE_PERSIST_V1] Populate config.last_broker_names and
-    config.last_broker_channels from disk.  Called by _load_local_state
-    at process startup.  Silent on missing file - first run, or running
-    on a node that hasn't completed a bringup phase yet."""
-    try:
-        with open(LAST_BROKER_STATE_PATH) as f:
-            payload = json.load(f)
-    except FileNotFoundError:
-        return
-    except (OSError, json.JSONDecodeError) as e:
-        config.log.warning("LAST_BROKER_STATE_LOAD failed: %s", e)
-        return
-    names = payload.get("names") or []
-    channels = payload.get("channels") or {}
-    if not isinstance(names, list) or not isinstance(channels, dict):
-        config.log.warning(
-            "LAST_BROKER_STATE_LOAD: schema mismatch in %s (names=%s channels=%s); ignoring",
-            LAST_BROKER_STATE_PATH, type(names).__name__, type(channels).__name__)
-        return
-    config.last_broker_names = set(names)
-    config.last_broker_channels = channels
-    config.log.info("LAST_BROKER_STATE_LOAD: ok names=%d channels=%d",
-                    len(names), len(channels))
-
-
-def _run_committer() -> bool:
-    """Run `python -m frognet_route commit-final`.  Returns True on
-    success (rc=0).  Stdout/stderr are forwarded line-by-line to our
-    log so planner/committer INFO/WARN/ERROR lines appear in the
-    merge log alongside the tunnel daemon's own lines."""
-    cmd = FROGNET_ROUTE_CMD + [
-        "commit-final",
-        "--channel-map", CHANNEL_MAP_PATH,
-        "--broker-channels-path", BROKER_CHANNELS_PATH,
-        "--traceroutes-path", TRACEROUTES_PATH,
-    ]
-    config.log.debug("COMMITTER_INVOKE: cmd=%s", cmd)
-    t0 = time.monotonic()
-    r = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    dur_ms = int((time.monotonic() - t0) * 1000)
-
-    # Forward every non-empty line from committer's stdout/stderr to
-    # our log.  Committer's own logging module uses stderr; we emit at
-    # INFO/WARN based on a crude prefix check so interesting bits stand
-    # out.
-    for line in (r.stdout or "").splitlines():
-        if line.strip():
-            config.log.info("COMMITTER_stdout: %s", line)
-    for line in (r.stderr or "").splitlines():
-        if not line.strip():
-            continue
-        lv = line.lower()
-        if "error" in lv or "failed" in lv:
-            config.log.error("COMMITTER_stderr: %s", line)
-        elif "warn" in lv:
-            config.log.warning("COMMITTER_stderr: %s", line)
-        else:
-            config.log.info("COMMITTER_stderr: %s", line)
-
-    if r.returncode != 0:
-        config.log.error("COMMITTER_EXIT: rc=%d dur_ms=%d", r.returncode, dur_ms)
-        return False
-    config.log.info("COMMITTER_EXIT: rc=0 dur_ms=%d", dur_ms)
-    return True
-
-
-def _reconcile_local_state_with_kernel() -> None:
-    """Any channel in _active_tunnels whose iface is gone from the
-    kernel (because the committer brought it down) loses its Python
-    state + state file.  Keeps the two in sync."""
-    try:
-        kernel_ifaces = set(
-            _enumerate_kernel_wg_ifaces().keys()
-        )
-    except Exception as e:
-        config.log.warning("STATE_RECONCILE: wg_enum_failed err=%s", e)
-        return
-    config.log.debug("STATE_RECONCILE: kernel_ifaces=%s python_state=%s",
-                     sorted(kernel_ifaces),
-                     sorted(_active_tunnels.keys()))
-    cleaned = 0
-    for ch_name in list(_active_tunnels.keys()):
-        info = _active_tunnels[ch_name]
-        iface = info.get("interface", "")
-        if iface and iface not in kernel_ifaces:
-            config.log.info("STATE_RECONCILE: clean ch=%s iface=%s reason=iface_gone_from_kernel",
-                            ch_name, iface)
-            _active_tunnels.pop(ch_name, None)
-            _remove_tunnel_state(info.get("tunnel_name", ""))
-            cleaned += 1
-    config.log.info("STATE_RECONCILE: done cleaned=%d remaining_active=%d",
-                    cleaned, len(_active_tunnels))
-
-
-# ---------------------------------------------------------------------------
-# Reconcile - the tail end of every runMerge pass
-# ---------------------------------------------------------------------------
-
-# _reconcile_tunnels_inner is defined below, after the new phase helpers.
 
 
 # ---------------------------------------------------------------------------
@@ -1657,134 +875,68 @@ def _tunnel_health_verdict(ch_name, iface, *, age_fn, refresh_fn,
 
 
 def _reconcile_bringup_phase() -> bool:
-    """Phase A of the split reconcile.  Fetches broker channel list,
-    tears down orphan wgN, tears down channels the broker removed,
-    brings up missing channels in parallel.
+    """Reconcile this node's WireGuard links with the region's hub channels (region.my_channels: one per live hub that
+    holds this node's key): tear down orphan wgN, tear down channels whose hub is gone, bring up missing ones in
+    parallel, repair their /24 routes.
 
-    Writes BRINGUP_READY sentinel after every bring-up thread has
-    joined, so sync_interfaces's wave-2 barrier can proceed.
+    LAN-only (no region): there are no channels; every wg iface comes down [LAN_ONLY_NO_REGION_V1].
+
+    Writes handshake_rtts.json and touches the BRINGUP_READY sentinel in every case.
     """
     t0 = time.monotonic()
     (config.log.warning if getattr(config, "REGION_RAM", "") else config.log.info)("BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]")
     changed = False
 
-    # [BROKER_AUTHORITATIVE_V1 2026-06-01] Four short-circuits below
-    # all converge on the same outcome: this node cannot be a tunnel
-    # endpoint right now, so every kernel wg iface must come down.
-    # Previously these signaled "ready" and left existing ifaces
-    # alone, which violated the principle that the broker's response
-    # (or lack thereof) is the complete authoritative state.
-
-    # LAN-only mode: configured to never speak to the broker.
-    if getattr(config, "BROKER_DISABLED", False):
-        config.log.info(
-            "BRINGUP_PHASE: status=broker_disabled - "
-            "tearing down all wg ifaces")
-        n = _tear_down_all_kernel_wg_ifaces(reason="broker_disabled")
+    # [LAN_ONLY_NO_REGION_V1] no region: no authority to hold any tunnel, so every kernel wg iface comes down, an empty
+    # handshake_rtts.json is written and the sentinel touched (what the merge's bring-up stage waits for).
+    if not getattr(config, "REGION_RAM", ""):
+        config.log.warning("BRINGUP_PHASE: LAN-only (no region): no WireGuard; tearing down any wg iface [LAN_ONLY_NO_REGION_V1]")
+        n = _tear_down_all_kernel_wg_ifaces(reason="lan_only")
         _signal_bringup_ready()
         return n > 0
 
-    # Phase 0: broker reachability is the ONLY online test. online == the
-    # broker answers; NOT "has internet", NOT "has a non-10.x address". A node
-    # can reach the broker over the LAN transit mesh with no internet at all,
-    # and such a node is legitimately online and must get its channels. The
-    # old _have_internet() (ping 8.8.8.8) and _node_has_own_uplink() (non-10.x
-    # address) gates tore down and returned BEFORE the fetch, so a broker-
-    # reachable node on the LAN side never built its tunnels on reconnect until
-    # frognet-tunnel-setup was run by hand. They are gone. Whether any single
-    # tunnel can actually handshake is proved per-tunnel in _bring_up_tunnel
-    # (30s handshake wait, then teardown of that one tunnel) - that is the
-    # correct place for "this endpoint can't handshake", not a blanket pre-gate.
-    # [WORLD_READ_ONCE_PER_EVENT_V1] region mode: the region answered this event's `world` read a moment ago, and the
-    # my-channels fetch below is the same question; asking it twice cost a region read and a duplicate log line.
-    if not getattr(config, "REGION_RAM", "") and not _broker_reachable():
-        config.log.info(
-            "BRINGUP_PHASE: status=broker_unreachable - "
-            "tearing down stale (broker did not answer)")
-        n = _tear_down_stale_only(reason="broker_unreachable")
+    # [DAEMON_OWNS_ITS_KEY_V1] the key is the daemon's to make (run_region_loop, before its first bring-up). A process
+    # that finds none here says so and brings nothing up; the daemon's next event has it.
+    if not config.PRIVKEY:
+        config.log.error("BRINGUP_PHASE: no WireGuard key at %s yet (the tunnel daemon makes it); nothing brought up "
+                         "[DAEMON_OWNS_ITS_KEY_V1]", config.PRIVKEY_FILE)
         _signal_bringup_ready()
-        return n > 0
+        return False
 
-    # Phase 1: fetch broker channel list
+    # Phase 1: the hub channels. [WORLD_READ_ONCE_PER_EVENT_V1] inside the daemon's event this answers from the
+    # event's one `world` read.
+    from . import region
     try:
         t_fetch0 = time.monotonic()
-        resp = broker_get("/api/v4/my-channels", {"pubkey": config.PUBKEY})
+        resp = region.my_channels()
         fetch_ms = int((time.monotonic() - t_fetch0) * 1000)
-    except urllib.error.HTTPError as he:
-        # [GUID_IDENTITY_V1] A 404/401 here means the broker is REACHABLE and
-        # says it does not know this pubkey - the node is retired/forgotten, not
-        # offline. The old code bucketed this with broker_unreachable, tore down
-        # all wg ifaces, and STOPPED - so a node could never come back to life.
-        # Instead: re-register with our GUID (broker REVIVES the row), then retry
-        # my-channels ONCE. Only if that still fails do we fall through to the
-        # stale teardown. A genuine connection failure is NOT an HTTPError and
-        # stays on the unreachable path below.
-        if he.code in (401, 404):
-            config.log.warning(
-                "BRINGUP_PHASE: my-channels %d (broker does not know us) - "
-                "self-registering with GUID and retrying", he.code)
-            if register_with_broker():
-                try:
-                    t_fetch0 = time.monotonic()
-                    resp = broker_get("/api/v4/my-channels",
-                                      {"pubkey": config.PUBKEY})
-                    fetch_ms = int((time.monotonic() - t_fetch0) * 1000)
-                    config.log.info("BRINGUP_PHASE: re-register + retry "
-                                    "succeeded - node is back in the mesh")
-                except Exception as e2:
-                    config.log.warning(
-                        "BRINGUP_PHASE: retry after register failed err=%s - "
-                        "tearing down stale only", e2)
-                    n = _tear_down_stale_only(reason="broker_unreachable")
-                    _signal_bringup_ready()
-                    return n > 0
-            else:
-                config.log.warning(
-                    "BRINGUP_PHASE: self-register failed - tearing down stale "
-                    "only (node has no usable identity yet)")
-                n = _tear_down_stale_only(reason="broker_unreachable")
-                _signal_bringup_ready()
-                return n > 0
-        else:
-            config.log.warning(
-                "BRINGUP_PHASE: broker_unreachable err=%s - "
-                "tearing down all wg ifaces", he)
-            n = _tear_down_stale_only(reason="broker_unreachable")
-            _signal_bringup_ready()
-            return n > 0
     except Exception as e:
         config.log.warning(
-            "BRINGUP_PHASE: broker_unreachable err=%s - "
-            "tearing down all wg ifaces", e)
-        n = _tear_down_stale_only(reason="broker_unreachable")
+            "BRINGUP_PHASE: hub channels unreadable err=%s - "
+            "tearing down stale only; the next event reads them again", e)
+        n = _tear_down_stale_only(reason="hub_channels_unreadable")
         _signal_bringup_ready()
         return n > 0
     channels = resp.get("channels", [])
-    broker_channels: Dict[str, dict] = {
+    hub_channels: Dict[str, dict] = {
         ch["channel_name"]: ch for ch in channels
     }
-    broker_names: Set[str] = set(broker_channels.keys())
-    config.log.info("BRINGUP_PHASE: broker_fetched count=%d fetch_ms=%d names=%s",
-                    len(broker_names), fetch_ms, sorted(broker_names))
+    hub_names: Set[str] = set(hub_channels.keys())
+    config.log.info("BRINGUP_PHASE: channels_fetched count=%d fetch_ms=%d names=%s",
+                    len(hub_names), fetch_ms, sorted(hub_names))
 
-    config.last_broker_names = broker_names
-    config.last_broker_channels = broker_channels
-    _persist_last_broker_state(broker_names, broker_channels)
-
-    # [BROKER_AUTHORITATIVE_V1] Rebuild _active_tunnels from kernel
-    # state, scoped to ifaces matching the broker's current pubkeys.
-    # Replaces _load_local_state for this phase: source of truth is
-    # (kernel, broker), not the on-disk JSON cache from a previous
-    # cycle.  After this call, _active_tunnels reflects exactly which
-    # kernel ifaces are currently bound to broker-known channels;
-    # downstream orphan/duplicate logic operates on that ground truth.
-    _rebuild_active_tunnels_from_kernel_and_broker(broker_channels)
+    # Rebuild _active_tunnels from kernel state, scoped to ifaces whose peer is
+    # one of the hubs' current pubkeys: source of truth is (kernel, region),
+    # not an on-disk cache.  After this call, _active_tunnels reflects exactly
+    # which kernel ifaces are currently bound to hub channels; downstream
+    # orphan/duplicate logic operates on that ground truth.
+    _rebuild_active_tunnels_from_kernel_and_hubs(hub_channels)
 
     # Orphan teardowns
     kernel_ifaces = _enumerate_kernel_wg_ifaces()
-    broker_pubkey_to_name: Dict[str, str] = {
+    hub_pubkey_to_name: Dict[str, str] = {
         ch["wg_config"].get("droplet_pubkey", ""): ch_name
-        for ch_name, ch in broker_channels.items()
+        for ch_name, ch in hub_channels.items()
         if ch["wg_config"].get("droplet_pubkey", "")
     }
     known_ifaces = {info.get("interface", "")
@@ -1792,10 +944,10 @@ def _reconcile_bringup_phase() -> bool:
     known_ifaces.discard("")
     # [ORPHAN_DUP_BY_CHANNEL_V1] Map channel_name -> currently active iface.
     # Used below to identify duplicate kernel ifaces: ifaces whose pubkey
-    # matches a broker channel but which are NOT the active iface for that
+    # matches a hub channel but which are NOT the active iface for that
     # channel.  Such duplicates accumulate when find_next_wg_iface allocates
     # a fresh wgN for a channel without the previous one being torn down.
-    # Every wgN ever brought up for the same channel shares the broker's
+    # Every wgN ever brought up for the same channel shares the hub's
     # droplet_pubkey, so a pubkey match alone is not sufficient to keep an
     # iface - it must also be the one currently bound to that channel.
     active_iface_by_ch: Dict[str, str] = {
@@ -1810,15 +962,15 @@ def _reconcile_bringup_phase() -> bool:
         if iface in known_ifaces:
             config.log.debug("BRINGUP_PHASE: orphan_check iface=%s decision=keep reason=in_known_ifaces", iface)
             continue
-        ch_name = broker_pubkey_to_name.get(pubkey, "")
+        ch_name = hub_pubkey_to_name.get(pubkey, "")
         if not ch_name:
-            config.log.info("BRINGUP_PHASE: orphan_teardown iface=%s reason=pubkey_not_in_broker_list", iface)
+            config.log.info("BRINGUP_PHASE: orphan_teardown iface=%s reason=pubkey_not_a_hub", iface)
             _tear_down_orphan_iface(iface, pubkey,
-                                    reason="pubkey_not_in_broker_list")
+                                    reason="pubkey_not_a_hub")
             changed = True
             orphan_count += 1
             continue
-        # [ORPHAN_DUP_BY_CHANNEL_V1] pubkey matches broker channel ch_name.
+        # [ORPHAN_DUP_BY_CHANNEL_V1] pubkey matches hub channel ch_name.
         # If we have an active record for ch_name and iface isn't it, this
         # is a duplicate from a prior bringup cycle - tear it down.
         # If we have NO active record for ch_name (e.g. active/ was wiped
@@ -1834,15 +986,15 @@ def _reconcile_bringup_phase() -> bool:
             changed = True
             orphan_count += 1
         else:
-            config.log.debug("BRINGUP_PHASE: orphan_check iface=%s decision=keep reason=matches_broker ch=%s active_for_ch=%s",
+            config.log.debug("BRINGUP_PHASE: orphan_check iface=%s decision=keep reason=matches_hub ch=%s active_for_ch=%s",
                              iface, ch_name, active_for_ch or "<none>")
     config.log.info("BRINGUP_PHASE: orphan_scan_done teardowns=%d", orphan_count)
 
-    # Phase 2: local channels no longer in broker
-    removed_by_broker = sorted(set(_active_tunnels.keys()) - broker_names)
-    config.log.info("BRINGUP_PHASE: broker_removed_channels count=%d list=%s",
-                    len(removed_by_broker), removed_by_broker)
-    for ch_name in removed_by_broker:
+    # Phase 2: local channels whose hub is gone
+    gone_hubs = sorted(set(_active_tunnels.keys()) - hub_names)
+    config.log.info("BRINGUP_PHASE: hub_gone_channels count=%d list=%s",
+                    len(gone_hubs), gone_hubs)
+    for ch_name in gone_hubs:
         config.log.info("BRINGUP_PHASE: teardown_removed ch=%s", ch_name)
         _tear_down_tunnel(ch_name)
         changed = True
@@ -1928,7 +1080,7 @@ def _reconcile_bringup_phase() -> bool:
             continue
 
     # Drop grace counters for channels no longer in _active_tunnels (the
-    # broker removed them, or they were torn down above) so the file does not
+    # hub is gone, or they were torn down above) so the file does not
     # accumulate dead keys.
     for stale_key in [k for k in grace_counts if k not in seen_channels]:
         grace_counts.pop(stale_key, None)
@@ -1956,7 +1108,7 @@ def _reconcile_bringup_phase() -> bool:
 
     # Phase 3: bring up missing channels in parallel
     current_local: Set[str] = set(_active_tunnels.keys())
-    to_bring_up_raw = sorted(broker_names - current_local)
+    to_bring_up_raw = sorted(hub_names - current_local)
 
     # Filter: skip channels whose remote /24s are already reachable via
     # non-WG routes.  Primer rule: WG tunnels exist only when the
@@ -1964,7 +1116,7 @@ def _reconcile_bringup_phase() -> bool:
     to_bring_up: List[str] = []
     skipped_lan_reachable: List[str] = []
     for ch_name in to_bring_up_raw:
-        ch = broker_channels.get(ch_name, {})
+        ch = hub_channels.get(ch_name, {})
         rs = (ch.get("wg_config", {}) or {}).get("remote_subnets", []) or []
         if _channel_already_lan_reachable(rs):
             skipped_lan_reachable.append(ch_name)
@@ -1985,7 +1137,7 @@ def _reconcile_bringup_phase() -> bool:
         for ch_name in to_bring_up:
             def _worker(name: str):
                 try:
-                    _bring_up_tunnel(broker_channels[name])
+                    _bring_up_tunnel(hub_channels[name])
                 except Exception as e:
                     config.log.exception("BRING_UP %s unhandled: %s", name, e)
                 finally:
@@ -2008,7 +1160,7 @@ def _reconcile_bringup_phase() -> bool:
         # straight into the hosts file, bypassing the route gate and re-bloating
         # it every cycle; that stale full list (and the dead /24 it implied)
         # kept the merge reaping a non-winner /24 and never converging. The
-        # merge already takes bringup peers (broker handshakes) and gates them
+        # merge already takes bringup peers (hub handshakes) and gates them
         # against the kernel table, so this write was redundant and wrong.
 
     # [BRINGUP_ROUTE_REPAIR_V1] For every channel that was already up at
@@ -2029,7 +1181,7 @@ def _reconcile_bringup_phase() -> bool:
         iface = info.get("interface", "")
         if not iface:
             continue
-        ch = broker_channels.get(ch_name, {})
+        ch = hub_channels.get(ch_name, {})
         rs = (ch.get("wg_config", {}) or {}).get("remote_subnets", []) or []
         if not rs:
             continue
@@ -2143,78 +1295,6 @@ def _signal_bringup_ready() -> None:
         config.log.warning("BRINGUP_READY: sentinel_write_FAILED err=%s", e)
 
 
-def _reconcile_commit_phase() -> bool:
-    """Phase B: writes channel_map, runs committer, reconciles state."""
-    t0 = time.monotonic()
-    config.log.info("COMMIT_PHASE: status=enter active_tunnels=%d",
-                    len(_active_tunnels))
-    changed = False
-
-    t_cm0 = time.monotonic()
-    _write_channel_map()
-    config.log.debug("COMMIT_PHASE: channel_map_write dur_ms=%d",
-                     int((time.monotonic() - t_cm0) * 1000))
-
-    t_c0 = time.monotonic()
-    committer_ok = _run_committer()
-    c_ms = int((time.monotonic() - t_c0) * 1000)
-    if committer_ok:
-        changed = True
-        config.log.info("COMMIT_PHASE: committer_done rc=ok dur_ms=%d", c_ms)
-    else:
-        config.log.error("COMMIT_PHASE: committer_FAILED dur_ms=%d", c_ms)
-
-    t_r0 = time.monotonic()
-    _reconcile_local_state_with_kernel()
-    config.log.debug("COMMIT_PHASE: state_reconcile dur_ms=%d",
-                     int((time.monotonic() - t_r0) * 1000))
-
-    dur_ms = int((time.monotonic() - t0) * 1000)
-    config.log.info("COMMIT_PHASE: status=exit dur_ms=%d active_tunnels=%d changed=%s",
-                    dur_ms, len(_active_tunnels), changed)
-    if getattr(config, "REGION_RAM", ""):
-        _write_view("steady", "merge")                        # [REGION_V1] the world is recomputed: apps may rediscover
-    return changed
-
-
-def _reconcile_tunnels_inner() -> bool:
-    """Back-compat single-shot: runs bring-up then commit in one
-    flock-protected call.  Preserved for the daemon's poll loop and
-    for anything still invoking `reconcile` as a single verb.
-    mergeHostsAndResolv now calls bring-up-only and commit-only
-    separately with discovery in between."""
-    changed = _reconcile_bringup_phase()
-    if _reconcile_commit_phase():
-        changed = True
-    return changed
-
-
-def reconcile_tunnels() -> bool:
-    """Public entry point; held by flock so concurrent invocations
-    serialize."""
-    import fcntl
-    try:
-        lock_f = open(_RECONCILE_LOCK_PATH, "w")
-    except OSError as e:
-        config.log.error("RECONCILE: cannot open lock: %s", e)
-        return False
-    try:
-        try:
-            fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            config.log.info("RECONCILE: another reconcile is running - skip")
-            return False
-        try:
-            return _reconcile_tunnels_inner()
-        except Exception as e:
-            config.log.exception("RECONCILE: unhandled: %s", e)
-            return False
-    finally:
-        try:
-            lock_f.close()
-        except Exception:
-            pass
-
 
 def reconcile_bringup_only() -> bool:
     """Public entry point for bring-up-only phase.  Flock-protected.
@@ -2247,37 +1327,8 @@ def reconcile_bringup_only() -> bool:
         except Exception:
             pass
 
-
-def reconcile_commit_only() -> bool:
-    """Public entry point for commit-only phase.  Flock-protected.
-    Called by mergeHostsAndResolv at the end of the merge cycle
-    after sync_interfaces has emitted all observations."""
-    import fcntl
-    try:
-        lock_f = open(_RECONCILE_LOCK_PATH, "w")
-    except OSError as e:
-        config.log.error("COMMIT: cannot open lock: %s", e)
-        return False
-    try:
-        try:
-            fcntl.flock(lock_f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            config.log.info("COMMIT: another reconcile is running - skip")
-            return False
-        try:
-            return _reconcile_commit_phase()
-        except Exception as e:
-            config.log.exception("COMMIT: unhandled: %s", e)
-            return False
-    finally:
-        try:
-            lock_f.close()
-        except Exception:
-            pass
-
-
 # ---------------------------------------------------------------------------
-# Main loop (unchanged)
+# Main loops
 # ---------------------------------------------------------------------------
 
 def _write_view(phase: str, reason: str) -> None:
@@ -2356,12 +1407,16 @@ def run_region_loop():
     _ensure_frognet0()
     config.log.warning("REGION: loop started (RINA_RAM=%s, no poll interval) [ELECT_IN_PROCESS_V1 VIEW_FACT_ON_SUBSTANCE_V1 GEN_V1 NO_MERGE_ON_REGION_EVENTS_V1 WATCH_BEFORE_READ_V1 WORLD_READ_ONCE_PER_EVENT_V1 KERNEL_READ_ONCE_PER_EVENT_V1 HOSTJSON_FROM_THE_REGION_V1 ALIVE_IS_THE_SESSION_V1]; region.py build %s; the region is build %s",
                     config.REGION_RAM, region.BUILD_TAG, region.version())
-    try:
-        region.post("/api/v4/register", {"pond": config.POND, "pubkey": config.PUBKEY,
-                                         "node_name": config.NODE_NAME, "guid": config.NODE_GUID})
-        config.log.warning("REGION: facts written (%s %s %s)", config.NODE_NAME, region.read_facts().get("subnet"), config.PUBKEY[:12])
-    except Exception as e:
-        config.log.error("REGION: could not write facts: %s", e)
+    # [DAEMON_OWNS_ITS_KEY_V1] the key before the facts: the facts announce its public half, and the hub adds the peer
+    # from them. A failure is logged; every event tries again (below, in _one) and re-announces once it has one.
+    config.ensure_node_key()
+    def _announce():
+        try:
+            region.register_node()
+            config.log.warning("REGION: facts written (%s %s %s)", config.NODE_NAME, region.read_facts().get("subnet"), config.PUBKEY[:12])
+        except Exception as e:
+            config.log.error("REGION: could not write facts: %s", e)
+    _announce()
     try:                                                       # FD&F's writer, once, so the first plan sees this node's rows
         subprocess.run([os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-facts")], timeout=20, capture_output=True)
     except Exception as e:
@@ -2405,6 +1460,8 @@ def run_region_loop():
     last_sig = [None]
 
     def _one(why: str, failures=frozenset()):
+        if not config.PRIVKEY and config.ensure_node_key():           # [DAEMON_OWNS_ITS_KEY_V1] made late: announce it
+            _announce()
         _t = {"t0": time.monotonic()}                               # [EVENT_TIMED_V1] every phase of the event, in the log
         def _lap(name):
             now = time.monotonic(); _t[name] = int((now - _t["t0"]) * 1000)
@@ -2669,48 +1726,24 @@ def run_region_loop():
         _write_view("steady", "rejoin:attempt")
 
 
-def run_poll_loop():
+def run_lan_only_loop():
+    """[LAN_ONLY_NO_REGION_V1] No region: FrogNet discovery and the elections are runMerge's (discovery.live), and the
+    merge's bring-up stage keeps the node free of WireGuard. The daemon makes frognet0, takes down any wg iface left
+    from a region this node was in (no region, no authority to hold one), says so, and waits for its stop. Joining a
+    region (fdf-join / fdf-region-join) restarts it into run_region_loop; nothing is polled here."""
+    _ensure_frognet0()
+    n = _tear_down_all_kernel_wg_ifaces("lan_only: no region, no authority to hold tunnels")
+    config.log.warning("LAN-only loop started: no region (RINA_RAM unset), %d wg iface(s) taken down; discovery and the "
+                       "elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]", n)
+    while config.running:
+        time.sleep(1)
+
+
+def run_daemon_loop():
+    """The daemon's loop for this node's mode (config.MODE)."""
     if getattr(config, "REGION_RAM", ""):                     # [REGION_V1]
         return run_region_loop()
-    _ensure_frognet0()
-    # [BROKER_AUTHORITATIVE_V1 2026-06-01] No _load_local_state() and
-    # no STARTUP_COMMIT special case.  The daemon enters its poll loop
-    # with empty _active_tunnels; the first poll_once() fetches the
-    # broker and reconciles kernel ifaces accordingly.  If the broker
-    # is reachable, kernel ifaces matching its response are adopted
-    # (via _rebuild_active_tunnels_from_kernel_and_broker inside the
-    # bringup phase); ifaces not in the response are torn down.  If
-    # the broker is unreachable at startup, all wg ifaces are torn
-    # down - this node has no authority to host tunnels without a
-    # broker confirmation.
-    config.log.info("Starting poll loop (interval=%ds)",
-                    config.POLL_INTERVAL_SEC)
-
-    # [TRANSIT_SUBNETS_SYNC_V1] push state once up-front so any change
-    # that accumulated while the daemon was down is propagated without
-    # waiting a full POLL_INTERVAL_SEC.
-    _sync_transit_subnets()
-    while config.running:
-        changed = False
-        try:
-            changed = poll_once()
-        except Exception as e:
-            config.log.exception("POLL: unhandled: %s", e)
-        if changed:
-            config.log.info("POLL: changes - forking runMerge")
-            try:
-                subprocess.Popen(
-                    ["/usr/local/bin/runMerge.bash"],
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL, close_fds=True,
-                    start_new_session=True,
-                )
-            except Exception as e:
-                config.log.error("POLL: fork failed: %s", e)
-        for _ in range(config.POLL_INTERVAL_SEC):
-            if not config.running:
-                return
-            time.sleep(1)
+    return run_lan_only_loop()
 
 
 def shutdown_all():

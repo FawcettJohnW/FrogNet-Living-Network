@@ -34,7 +34,7 @@ from core import not_frognet
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 NF = "10.250.250.50"        # an on-segment stray client (LAN, not .1/.2)
@@ -57,7 +57,7 @@ def _disc(verify):
     k.seed("10.250.250.0/24 dev eth0 proto kernel scope link src 10.250.250.1")
     routes = Routes(k, clock=lambda: 0.0)
     return Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={"10.250.250.1", "10.250.250.2", "127.0.0.1"},
                      dev_src_map={}, self_identity="10.250.250.1", verify=verify)
 

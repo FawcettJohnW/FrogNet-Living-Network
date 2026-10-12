@@ -131,23 +131,6 @@ def _cmd_commit_final(args) -> int:
         except (OSError, json.JSONDecodeError) as e:
             print(f"commit-final: channel_map load failed: {e}",
                   file=sys.stderr)
-    # [BROKER_TEARDOWN_V1] Read broker channel list from JSON file the
-    # tunnel daemon writes alongside channel_map.json.  Format:
-    # ["ChannelName1", "ChannelName2", ...].  When present, the planner
-    # tears down only orphans (active - broker) instead of using the
-    # legacy observation-winners rule.  When absent, legacy rule applies.
-    broker_channels: Optional[list] = None
-    if args.broker_channels_path:
-        try:
-            with open(args.broker_channels_path) as f:
-                broker_channels = json.load(f)
-            if not isinstance(broker_channels, list):
-                print(f"commit-final: broker_channels not a list, ignoring",
-                      file=sys.stderr)
-                broker_channels = None
-        except (OSError, json.JSONDecodeError) as e:
-            print(f"commit-final: broker_channels load failed: {e}",
-                  file=sys.stderr)
     # [TRACEROUTE_V1] Read per-observation traceroute hop counts from
     # the TSV sync_interfaces writes alongside discovery_observations.tsv.
     # Format per line: dest_subnet\tprobe_ip\tdev\tadditional_253_hops
@@ -184,7 +167,6 @@ def _cmd_commit_final(args) -> int:
         channel_to_iface=ch_to_iface,
         owned_subnets=args.owned_subnets or [],
         snapshot_path=args.snapshot_path,
-        broker_channels=broker_channels,
         traceroute_hops=traceroute_hops,
     )
     return 0
@@ -250,10 +232,6 @@ def main(argv: list[str] = None) -> int:
     p = sub.add_parser("commit-final", help="full commit + snapshot")
     p.add_argument("--channel-map", default="",
                    help="JSON path: {channel_name: iface_name}")
-    p.add_argument("--broker-channels-path", default="",
-                   help="JSON path: [channel_name, ...] from broker my-channels."
-                        " When set, teardown rule is active-minus-broker"
-                        " instead of legacy active-minus-winners.")
     p.add_argument("--traceroutes-path", default="",
                    help="TSV path: dest\\tprobe_ip\\tdev\\tadditional_253_hops"
                         " (written by sync_interfaces.sh).  When set, an"

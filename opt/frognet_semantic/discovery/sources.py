@@ -18,7 +18,7 @@
 """
 sources.py - the injected edges of discovery. walk() in the bash original calls
 out to: frognet_echo.php (echo_probe), frognet_alive (measure_rtt), getHosts.php
-(children), the broker handshake_rtts.json (broker_for_peer_ip), the active/*.json
+(children), the tunnel daemon's handshake_rtts.json (tunnel_for_peer_ip), the active/*.json
 (channel_for_iface), and addHostAndPropogate / discovery_cache (side
 effects). Those are the kernel-edge functions the primer says are mocked in the
 sim and covered only by the live-hardware tier.
@@ -75,31 +75,17 @@ class FakeGetHosts:
 
 
 @dataclass
-class FakeBroker:
+class FakeTunnelState:
     """peer .1 -> (channel, subnet, peer_one) from handshake_rtts.json. Only the
     DIRECT-tunnel peers are present; relayed peers return None (no override)."""
     by_one: dict[str, tuple] = field(default_factory=dict)   # ip -> (ch,sub,one)
     iface_channel: dict[str, str] = field(default_factory=dict)  # wgN -> channel
-    # [VOUCH_TRANSIT_GATE_V1] relay /24-prefix ("10.160.160") -> reachable /24
-    # CIDRs (owned + transit). Empty dict = map absent => transits() inert (True).
-    node_transit: dict[str, list] = field(default_factory=dict)
 
-    def broker_for_peer_ip(self, dest1: str) -> Optional[tuple]:
+    def tunnel_for_peer_ip(self, dest1: str) -> Optional[tuple]:
         return self.by_one.get(dest1)
 
     def channel_for_iface(self, dev: str) -> str:
         return self.iface_channel.get(dev, "")
-
-    def transits(self, relay_one: str, dest24: str) -> bool:
-        # No map loaded -> inert (allow all, = pre-gate behaviour).
-        if not self.node_transit:
-            return True
-        prefix = relay_one.rsplit(".", 1)[0]
-        if prefix in self.node_transit:
-            return dest24 in self.node_transit[prefix]
-        # Relay is not a registered transit node (e.g. an unregistered LAN
-        # leaf like New-York-2). It cannot legitimately relay a remote /24.
-        return False
 
 
 @dataclass
@@ -243,7 +229,7 @@ class HostStore:
     def add_host(self, host: str, host_path: str, dev: str,
                  authoritative: bool = False) -> None:
         # [HOSTS_AUTHORITATIVE_NAME_V1] authoritative=True means `host` is the
-        # name the node returned for ITSELF via echo (or the broker override) -
+        # name the node returned for ITSELF via echo (or the tunnel channel map's name) -
         # the source of truth. authoritative=False is a relayed vouch name (a
         # neighbor's getHosts entry), which may be the generic "FrogNetHost".
         # Reconciliation (orchestrate.merge) lets an authoritative name win per

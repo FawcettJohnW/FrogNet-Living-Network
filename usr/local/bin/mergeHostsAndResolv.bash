@@ -40,9 +40,7 @@
 #   /etc/hosts staging (with stable header — no timestamp)
 #   dnsmasq forwarders staging
 #   manageResolv (waits on fixDefaultRoute)
-#   tunnel commit-only (foreground)
-#     writes channel_map, runs committer (sole /24 installer),
-#     reconciles daemon state with kernel.
+#   (the tunnel commit-only stage is gone with the broker [NO_BROKER_V1])
 #   propogateNotification if sync_required + emit_routes_snapshot
 #
 # [BROKER_AUTHORITATIVE_V1 2026-06-01] BRINGUP_READY/BRINGUP_DONE
@@ -296,16 +294,8 @@ if [[ -n "$_mhj_pid" ]]; then
 fi
 flog_stage_end post_discovery_parallel
 
-# ------------------------------------------------------------
-# Tunnel commit
-# ------------------------------------------------------------
-flog_stage commit_only
-PYTHONPATH=/opt/frognet_semantic /usr/bin/python3 -m internet_tunnels_v3 commit-only 2>&1 \
-    | while IFS= read -r line; do flog_info "commit: $line"; done
-_commit_rc=${PIPESTATUS[0]}
-flog_stage_end commit_only "rc=$_commit_rc"
-
-# Post-commit route snapshot so you can see what committer did
+# [NO_BROKER_V1] The tunnel commit-only stage (channel_map, the committer's broker-channel teardown) was here; it went
+# with the broker. The route snapshot below is what this merge left.
 flog_dump_cmd "post_commit_routes" ip -4 route show
 flog_dump "post_commit_observations" "/etc/sentinels/discovery_observations.tsv"
 flog_dump "post_commit_snapshot" "/etc/sentinels/route_snapshot.tsv"

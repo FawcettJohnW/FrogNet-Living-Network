@@ -33,9 +33,10 @@ killed. The 21:34 incident was a control-plane feedback loop:
 
 None of that is modeled by the route sim. This module supplies the missing
 layers as light models that issue real callbacks, and drives the ACTUAL
-poll._reconcile_bringup_phase() through them - only the I/O leaves (ping,
-wg show, broker HTTP, ip link del) are faked, the decision ladder and the
-teardown functions are the installed code.
+poll._reconcile_bringup_phase() through them - only the I/O leaves (wg show,
+the region's hub-channel read, ip link del) are faked, the decision ladder and
+the teardown functions are the installed code. The "broker" here is the sim of
+region.my_channels: the hub channels this node should hold.
 
 Run: PYTHONPATH=<tree>/opt/frognet_semantic python3 -m simulation.sim_control_plane
 """
@@ -119,8 +120,6 @@ class ControlPlane:
     def __init__(self):
         self.kernel = SimKernel()
         self.broker = SimBroker()
-        self.have_internet = True
-        self.have_uplink = True
         self.lock_held = False
         # observability counters
         self.nm_removed = 0
@@ -179,32 +178,31 @@ def install_patches(cp):
     def save(mod, name):
         saved[(mod, name)] = getattr(mod, name)
 
-    for name in ("_have_internet", "_node_has_own_uplink", "broker_get",
-                 "_enumerate_kernel_wg_ifaces", "teardown_wg_iface",
+    from internet_tunnels_v3 import region
+    for name in ("_enumerate_kernel_wg_ifaces", "teardown_wg_iface",
                  "wg_handshake_age", "_signal_bringup_ready",
-                 "_persist_last_broker_state", "_bring_up_tunnel"):
+                 "_bring_up_tunnel"):
         save(poll, name)
+    save(region, "my_channels")
     save(wg, "refresh_handshake")
-    save(config, "BROKER_DISABLED")
+    save(config, "REGION_RAM")
     save(config, "PUBKEY")
+    save(config, "PRIVKEY")
 
-    poll._have_internet = lambda: cp.have_internet
-    poll._node_has_own_uplink = lambda: cp.have_uplink
-    poll.broker_get = lambda path, params=None: (
-        cp.broker.my_channels() if path.endswith("my-channels") else {})
+    region.my_channels = lambda: cp.broker.my_channels()
     poll._enumerate_kernel_wg_ifaces = lambda: cp.kernel.enum()
     poll.teardown_wg_iface = lambda iface: cp.kernel.delete(iface)
     poll.wg_handshake_age = lambda iface: cp.kernel.handshake_age(iface)
     poll._signal_bringup_ready = lambda: None
-    poll._persist_last_broker_state = lambda names, chans: None
     # Bring-up is the I/O leaf (allocates wgN, runs wg-quick up). The
     # teardown ladder is what's under test, so bring-up is a sim no-op:
     # a channel the broker authorizes is modeled as already present in
     # the sim kernel, so a "bring up" is a successful no-op.
     poll._bring_up_tunnel = lambda channel: True
     wg.refresh_handshake = lambda iface, wait_sec: 1.0   # always fresh
-    config.BROKER_DISABLED = False
+    config.REGION_RAM = "sim.invalid:8840"     # region mode: the hub channels are the authority
     config.PUBKEY = "SIMPUBKEY="
+    config.PRIVKEY = "SIMPRIVKEY="
 
     # _tear_down_orphan_iface calls the module-local teardown_wg_iface
     # (patched above) and touches _active_tunnels; reset that state.
@@ -222,8 +220,6 @@ def _fresh_three(cp):
     cp.kernel.ifaces.clear()
     cp.broker.channels.clear()
     cp.broker.unreachable = False
-    cp.have_internet = True
-    cp.have_uplink = True
     for i, (iface, sub) in enumerate([("wg0", "10.102.60"),
                                       ("wg1", "10.179.179"),
                                       ("wg2", "10.130.130")]):
@@ -250,30 +246,14 @@ def scenario_baseline_quiet():
         restore()
 
 
-def scenario_transient_no_internet():
-    print("transient: one dropped 8.8.8.8 ping (no_internet) during a merge")
-    cp = ControlPlane(); restore = install_patches(cp)
-    try:
-        _fresh_three(cp)
-        cp.have_internet = False           # single failed ping this pass
-        cp.run_merge(trigger="timer")
-        check("live tunnels SURVIVE transient no_internet",
-              set(cp.kernel.ifaces) == {"wg0", "wg1", "wg2"},
-              f"kernel={sorted(cp.kernel.ifaces)}")
-        check("NetworkManager fired no removals", cp.nm_removed == 0)
-        check("no dispatcher lock_held storm", cp.merge_bails == 0)
-    finally:
-        restore()
-
-
 def scenario_transient_broker_unreachable():
-    print("transient: one broker fetch throws (broker_unreachable) during a merge")
+    print("transient: one hub-channel read throws during a merge")
     cp = ControlPlane(); restore = install_patches(cp)
     try:
         _fresh_three(cp)
         cp.broker.unreachable = True
         cp.run_merge(trigger="timer")
-        check("live tunnels SURVIVE transient broker_unreachable",
+        check("live tunnels SURVIVE a transient hub-channel read failure",
               set(cp.kernel.ifaces) == {"wg0", "wg1", "wg2"},
               f"kernel={sorted(cp.kernel.ifaces)}")
         check("NetworkManager fired no removals", cp.nm_removed == 0)
@@ -291,7 +271,7 @@ def scenario_reproduce_2134():
         prefix = poll._tear_down_stale_only
         poll._tear_down_stale_only = poll._tear_down_all_kernel_wg_ifaces
         try:
-            cp.have_internet = False        # one dropped ping
+            cp.broker.unreachable = True    # one failed hub-channel read
             cp.run_merge(trigger="timer")
         finally:
             poll._tear_down_stale_only = prefix
@@ -452,9 +432,9 @@ def scenario_gossip_triggered_merge_is_teardown_safe():
     try:
         _fresh_three(cp)
         # A propogateNotification arrived and forked runMerge; during that
-        # merge a single 8.8.8.8 ping drops. Same merge path as a timer merge,
+        # merge one hub-channel read fails. Same merge path as a timer merge,
         # so the TRANSIENT_GUARD_V1 fix must cover it too.
-        cp.have_internet = False
+        cp.broker.unreachable = True
         cp.run_merge(trigger="apache:propogateNotification")
         check("gossip-triggered merge kept live tunnels under transient failure",
               set(cp.kernel.ifaces) == {"wg0", "wg1", "wg2"},
@@ -469,7 +449,6 @@ def main():
     print("=== control-plane sim: NM + dnsmasq + Apache callbacks over REAL bringup ===\n")
     FAILS.clear()
     scenario_baseline_quiet()
-    scenario_transient_no_internet()
     scenario_transient_broker_unreachable()
     scenario_reproduce_2134()
     scenario_authority_preserved()

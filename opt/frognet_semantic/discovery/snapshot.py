@@ -27,8 +27,8 @@ NOTE: the oracle does not dump routes_snapshot.json (and run_id/now_ts are
 nondeterministic), so this is proven STRUCTURALLY - the classifier matches the
 jq logic for a given table - not against a logged artifact.
 
-commit_only: the bash runs `internet_tunnels_v3 commit-only`, which invokes the
-EXISTING frognet_route.committer.commit_final. In the oracle that was a pure
+commit_only: the old bash (mergeHostsAndResolv) ran `internet_tunnels_v3 commit-only` (gone with the
+broker, [NO_BROKER_V1]), which invoked the EXISTING frognet_route.committer.commit_final. In the oracle that was a pure
 no-op (COMMIT_FINAL installs=0 removals=0 teardowns=0 probes_swept=0 winners=0)
 because sync_interfaces already installed the winners itself and
 discovery_observations.tsv was empty. Per the primer we WIRE that module rather

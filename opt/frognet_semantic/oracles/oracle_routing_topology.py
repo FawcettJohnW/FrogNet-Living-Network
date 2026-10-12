@@ -68,7 +68,7 @@ def main():
         print("FATAL: cannot find frognet_routing_topology.py at %s" % MOD)
         return 1
     frt = load_module()
-    _real_broker_config = frt.broker_config
+    _real_region_config = frt.region_config
 
     print("=== [LEASE_IS_NOT_A_NODE_V1] dot_one ===")
     # Real addresses seen in the fleet's peer observations and echo lines.
@@ -124,7 +124,7 @@ def main():
         {"dest": "10.120.120.0/24", "via": "10.160.160.1", "dev": "wlan0", "kind": "HOP"},
         {"dest": "default", "via": "10.250.250.1", "dev": "wlan1", "kind": "DEFAULT"},
     ]
-    frt.broker_config = lambda: {"host": "streamingfrog.com", "port": 18257,
+    frt.region_config = lambda: {"host": "198.51.100.7", "port": 8840,
                                  "configured": True, "up": True}
 
     payload, err = frt.build()
@@ -150,7 +150,7 @@ def main():
             "no lease published as a downstream" if not leases
             else "leases leaked: %s" % leases)
 
-        (ok if payload["broker"]["configured"] else bad)("broker carried")
+        (ok if payload["region"]["configured"] and "broker" not in payload else bad)("region carried (no broker field)")
         (ok if payload["tunnels"] and payload["tunnels"][0]["peer"] == "10.102.60.1"
          else bad)("tunnel peer normalised to a .1")
 
@@ -173,24 +173,34 @@ def main():
         (ok if payload["internet"]["gw"] == "192.168.0.1" else bad)(
             "internet gw = %s" % payload["internet"]["gw"])
 
-    print("\n=== broker liveness is evidence, not a probe ===")
-    # Restore the REAL broker_config: an earlier section stubbed it to keep the
+    print("\n=== region liveness is evidence, not a probe ===")
+    # Restore the REAL region_config: an earlier section stubbed it to keep the
     # payload deterministic, and testing a stub proves nothing.
-    frt.broker_config = _real_broker_config
-    # A live tunnel is what the broker is FOR, so a tunnel existing is the
+    frt.region_config = _real_region_config
+    # A live hub link is what the region is FOR, so a tunnel existing is the
     # evidence that matters. Two cheap execs, no network, no guessing.
     frt._wg_up = lambda: True
     frt._tunnel_daemon_up = lambda: False
-    b = frt.broker_config()
-    (ok if b.get("up") else bad)("wg interface present -> broker up")
+    b = frt.region_config()
+    (ok if b.get("up") else bad)("wg interface present -> region up")
     frt._wg_up = lambda: False
     frt._tunnel_daemon_up = lambda: True
-    b = frt.broker_config()
-    (ok if b.get("up") else bad)("tunnel daemon active -> broker up")
+    b = frt.region_config()
+    (ok if b.get("up") else bad)("tunnel daemon active -> region up")
     frt._wg_up = lambda: False
     frt._tunnel_daemon_up = lambda: False
-    b = frt.broker_config()
-    (ok if not b.get("up") else bad)("neither -> broker not claimed up")
+    b = frt.region_config()
+    (ok if not b.get("up") else bad)("neither -> region not claimed up")
+    # where RINA_RAM is read: join.env (fdf-join), an export line; none -> LAN-only
+    _rd = frt._read
+    frt._read = lambda p: "export RINA_RAM=203.0.113.9:8840\n" if p == "/opt/fdf/var/join.env" else ""
+    b = frt.region_config()
+    (ok if b.get("configured") and b.get("host") == "203.0.113.9" and b.get("port") == 8840 else bad)(
+        "RINA_RAM from join.env -> host 203.0.113.9 port 8840 (got %r)" % b)
+    frt._read = lambda p: "BROKER_URL=https://broker.invalid:8443/x\n" if p == "/etc/frognet/tunnel.conf" else ""
+    b = frt.region_config()
+    (ok if not b.get("configured") else bad)("only an old BROKER_URL -> not configured (LAN-only), got %r" % b)
+    frt._read = _rd
 
     print("\n=== the flusher can call it like any other producer ===")
     frt.identity = lambda: ("Seattle6", "", "10.160.160.1", "10.250.250.221")

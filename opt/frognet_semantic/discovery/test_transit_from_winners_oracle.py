@@ -34,14 +34,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 def _disc(local_ip, own_subnet, has_uplink, uplink_dev=""):
     k = FakeKernel()
     routes = Routes(k, clock=lambda: 0.0)
     d = Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                  FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                  FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                   local_ips={local_ip, "127.0.0.1"}, dev_src_map={},
                   self_identity=local_ip, own_subnet=own_subnet,
                   has_own_uplink=has_uplink, uplink_dev=uplink_dev)

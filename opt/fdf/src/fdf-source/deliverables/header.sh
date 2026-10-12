@@ -13,7 +13,6 @@ WANT_ARCH="__ARCH__"; M=$(uname -m)
 [ "$M" = "$WANT_ARCH" ] || { echo "fdf-install: this file is for $WANT_ARCH, this machine is $M"; exit 1; }
 for b in python3 wg systemctl tar; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing"; exit 1; }; done
 [ -d /opt/frognet_semantic/internet_tunnels_v3 ] || { echo "fdf-install: /opt/frognet_semantic/internet_tunnels_v3 not found: this is not a FrogNet node (install FrogNet first)"; exit 1; }
-[ -f /etc/frognet/tunnel.conf ] && [ ! -f /etc/frognet/tunnel.conf.broker ] && cp /etc/frognet/tunnel.conf /etc/frognet/tunnel.conf.broker && echo "== saved /etc/frognet/tunnel.conf.broker (the way back: fdf-leave, restore it, restart the daemon)"
 echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
 tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }

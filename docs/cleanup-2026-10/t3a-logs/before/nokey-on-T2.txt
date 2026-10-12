@@ -1,0 +1,440 @@
+PASS  hub up on 51820
+FAIL  converged: z has a's /24 and y's (via y's lease); a has z's and y's (after 60 s)
+--- z routes
+    default via 198.18.0.1 dev v-z 
+    10.2.2.0/24 via 10.3.3.20 dev v-zy metric 22 
+    10.3.3.0/24 dev v-zy proto kernel scope link src 10.3.3.1 
+    10.7.7.0/24 dev wg0 scope link src 10.3.3.1 metric 22 
+    10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.3.3 
+    198.18.0.0/24 dev v-z proto kernel scope link src 198.18.0.3 
+--- z daemon (last 25)
+    1791810978874 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=10 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+1/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[('route', ('10.2.2.0/24', '', 'wg0'))] changed=['y', 'z']
+    1791810978874 [frognet:frognet.tunnel-daemon] WARNING REGION: maps -> ['10.2.2.0/24', '10.3.3.0/24']
+    1791810978876 [frognet:frognet.tunnel-daemon] WARNING VIEW: phase=steady reason=graph:event p gen=8
+    1791810978878 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 9 -> 10 (z 8->9) after event p
+    1791810978879 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=1ms (participants+mappings, one read) +0ms bringup=22ms apply=22ms (probes=0/0ms routes=1/3ms) publish=3ms total=50ms
+    1791810978886 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978887 [frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['hubA'] channels=1 remote=[] members=['z:node', 'y:node', 'a:node', 'vm:hub'] mappings=1
+    1791810978898 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=0 list=[] already_up=['hub-hubA'] skipped_lan_reachable=0
+    1791810978898 [frognet:frognet.tunnel-daemon] WARNING HANDSHAKE_RTTS_WRITE: skip ch=hub-hubA reason=iface=wg0 subnets=[]
+    1791810978910 [frognet:frognet.tunnel-daemon] WARNING GRAPH kernel no longer holds [('10.2.2.0/24', '', 'wg0')] (its interface went): forgotten, re-installed now if still wanted
+    1791810978912 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: z keys=['gen', 'gen_why', 'maps']
+    1791810978912 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=11 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=['z']
+    1791810978915 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=1ms (participants+mappings, one read) +0ms bringup=17ms apply=10ms (probes=0/0ms routes=0/0ms) publish=0ms total=31ms
+    1791810978921 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978921 [frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['hubA'] channels=1 remote=['10.2.2.0/24'] members=['z:node', 'y:node', 'a:node', 'vm:hub'] mappings=2
+    1791810978935 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=0 list=[] already_up=['hub-hubA'] skipped_lan_reachable=0
+    1791810978953 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=12 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=[]
+    1791810978956 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=3ms (participants+mappings, one read) +0ms bringup=30ms apply=5ms (probes=0/0ms routes=0/0ms) publish=1ms total=41ms
+    1791810978960 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978960 [frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['hubA'] channels=1 remote=['10.2.2.0/24'] members=['z:node', 'y:node', 'a:node', 'vm:hub'] mappings=2
+    1791810978970 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=0 list=[] already_up=['hub-hubA'] skipped_lan_reachable=0
+    1791810978983 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: a keys=['gen', 'gen_why', 'view']
+    1791810978983 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=13 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=['a']
+    1791810978986 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 10 -> 11 (a 1->2) after event p
+    1791810978986 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=2ms (participants+mappings, one read) +0ms bringup=19ms apply=5ms (probes=0/0ms routes=0/0ms) publish=1ms total=30ms
+--- a routes
+    default via 198.18.0.1 dev v-a 
+    10.7.7.0/24 dev lan0 proto kernel scope link src 10.7.7.1 
+    198.18.0.0/24 dev v-a proto kernel scope link src 198.18.0.5 
+--- a daemon (last 25)
+    1791810978883 [frognet:frognet.tunnel-daemon] WARNING REGION: SERVICE_COMMIT committed=['databasehost']
+    1791810978886 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978890 [frognet:frognet.tunnel-daemon] WARNING REGION: HOSTS_WRITE path=/etc/hosts lines=12
+    1791810978890 [frognet:frognet.tunnel-daemon] WARNING REGION: HOSTS_WRITE path=/etc/dnsmasq.d/frognet_forwarders_auto.conf lines=9
+    1791810978890 [frognet:frognet.tunnel-daemon] WARNING REGION: DNSMASQ_FORWARDERS domains=3 changed=YES
+    1791810978890 [frognet:frognet.tunnel-daemon] WARNING REGION: DNSMASQ_NO_SENTINEL key=a13f5431c7fa - what dnsmasq holds is unknown, restarting
+    1791810978909 [frognet:frognet.tunnel-daemon] WARNING REGION: DNSMASQ_RESTART FAILED rc=1 stderr=System has not been booted with systemd as init system (PID 1). Can't operate.
+    1791810978909 Failed to connect to bus: Host is down - serving stale .frognet records
+    1791810978909 [frognet:frognet.tunnel-daemon] WARNING REGION: DNSMASQ_DIRTY key=a13f5431c7fa NOT recorded - dnsmasq is serving stale .frognet records and the next merge will retry
+    1791810978909 [frognet:frognet.tunnel-daemon] WARNING REGION: ELECT: control=10.7.7.1 databasehost=10.7.7.1 hosts_changed=True
+    1791810978910 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: y keys=['addrs', 'addrs_build'] +['held v-yz 10.3.3.20 y', 'own lan0 10.2.2.1 FrogNetHost.y', 'uplink v-yz 10.3.3.20 uplink eth 10000'] -[] | z keys=['gen', 'gen_why', 'maps', 'view']
+    1791810978910 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=4 gen=1 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=a exit=a default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=[] held=[] changed=['y', 'z']
+    1791810978911 [frognet:frognet.tunnel-daemon] WARNING GEN: 1 -> 2 why=service_host_changed by=elect
+    1791810978914 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 9 -> 10 (z 8->9) after event p
+    1791810978914 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=10ms (participants+mappings, one read) +0ms bringup=14ms apply=10ms (probes=0/0ms routes=0/0ms) publish=0ms total=38ms
+    1791810978918 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978923 [frognet:frognet.tunnel-daemon] WARNING VIEW: phase=steady reason=elect:start gen=2
+    1791810978929 [frognet:frognet.tunnel-daemon] WARNING REGION: election after start done in 0.3s (off the loop)
+    1791810978936 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=5 gen=2 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=a exit=a default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=[] held=[] changed=[]
+    1791810978938 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 10 -> 11 (a 1->2) after event p
+    1791810978938 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=3ms (participants+mappings, one read) +0ms bringup=12ms apply=7ms (probes=0/0ms routes=0/0ms) publish=0ms total=24ms
+    1791810978940 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+    1791810978953 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: a keys=['gen', 'gen_why', 'view']
+    1791810978954 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=6 gen=2 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=a exit=a default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=[] held=[] changed=['a']
+    1791810978958 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=1ms (participants+mappings, one read) +0ms bringup=4ms apply=10ms (probes=0/0ms routes=0/0ms) publish=0ms total=19ms
+--- region participants (as announced)
+    {
+        "ok": true,
+        "server": "fdf-2026-10-11-r19-a15",
+        "participants": [
+            {
+                "ns": "w:g-z",
+                "name": "z",
+                "ips": [
+                    "10.253.3.3",
+                    "198.18.0.3",
+                    "10.3.3.1"
+                ],
+                "cap": {
+                    "cores": 2,
+                    "mem_total_kb": 8222320,
+                    "os": "linux",
+                    "client": "fdf-client"
+                },
+                "facts": {
+                    "addrs": [
+                        {
+                            "iface": "v-zy",
+                            "ip": "10.3.3.20",
+                            "kind": "given",
+                            "mac": "8e:50:b6:fc:19:ac",
+                            "value": "y"
+                        },
+                        {
+                            "iface": "wg0",
+                            "ip": "10.253.3.3",
+                            "kind": "hub",
+                            "mac": "",
+                            "value": ""
+                        },
+                        {
+                            "iface": "v-zy",
+                            "ip": "10.3.3.1",
+                            "kind": "own",
+                            "mac": "d6:cd:95:52:ed:26",
+                            "value": "FrogNetHost.z"
+                        },
+                        {
+                            "iface": "v-z",
+                            "ip": "198.18.0.3",
+                            "kind": "uplink",
+                            "mac": "0a:e2:e4:bd:32:96",
+                            "value": "uplink eth 10000"
+                        }
+                    ],
+                    "addrs_build": "fdf-2026-10-11-r19-a15",
+                    "capability": {
+                        "cores": 4,
+                        "cpu_bench_total": 12000,
+                        "cpu_mhz": 2000,
+                        "disk_class": "ssd",
+                        "ffmpeg": true,
+                        "lan_ip": "",
+                        "libvpx": true,
+                        "loadavg": {
+                            "1": 0.1,
+                            "15": 0.1,
+                            "5": 0.1
+                        },
+                        "mem_available_kb": 4000000,
+                        "mem_total_kb": 8388608,
+                        "mysql": true,
+                        "mysql_running": true,
+                        "temps_c": []
+                    },
+                    "capability_ts": 1791810977.667595,
+                    "gen": 9,
+                    "gen_why": "routes_changed",
+                    "guid": "g-z",
+                    "maps": [
+                        {
+                            "eid": "10.2.2.0/24",
+                            "rlocs": "hubA:1:50"
+                        },
+                        {
+                            "eid": "10.3.3.0/24",
+                            "rlocs": "hubA:1:50"
+                        }
+                    ],
+                    "name": "z",
+                    "pond": "p",
+                    "pubkey": "fDuIZUGMKC8eE5kFLNmb4oKWuwUZxiDmcRL25z5YVwY=",
+                    "role": "node",
+                    "subnet": "10.3.3.0/24",
+                    "view": {
+                        "dbhost": "10.7.7.1",
+                        "hosts_hash": "509cbaaf8cdac8de",
+                        "phase": "steady"
+                    }
+                },
+                "alive": true,
+                "id": 46
+            },
+            {
+                "ns": "w:g-y",
+                "name": "y",
+                "ips": [
+                    "10.2.2.1",
+                    "10.3.3.20"
+                ],
+                "cap": {
+                    "cores": 2,
+                    "mem_total_kb": 8222320,
+                    "os": "linux",
+                    "client": "fdf-client"
+                },
+                "facts": {
+                    "addrs": [
+                        {
+                            "iface": "v-yz",
+                            "ip": "10.3.3.20",
+                            "kind": "held",
+                            "mac": "8e:50:b6:fc:19:ac",
+                            "value": "y"
+                        },
+                        {
+                            "iface": "lan0",
+                            "ip": "10.2.2.1",
+                            "kind": "own",
+                            "mac": "5a:bc:0a:6b:75:f5",
+                            "value": "FrogNetHost.y"
+                        },
+                        {
+                            "iface": "v-yz",
+                            "ip": "10.3.3.20",
+                            "kind": "uplink",
+                            "mac": "8e:50:b6:fc:19:ac",
+                            "value": "uplink eth 10000"
+                        }
+                    ],
+                    "addrs_build": "fdf-2026-10-11-r19-a15",
+                    "guid": "g-y",
+                    "maps": [],
+                    "name": "y",
+                    "pubkey": "",
+                    "role": "node",
+                    "subnet": "10.2.2.0/24",
+                    "transit": []
+                },
+                "alive": true,
+                "id": 45
+            },
+            {
+                "ns": "w:g-a",
+                "name": "a",
+                "ips": [
+                    "10.7.7.1",
+                    "198.18.0.5"
+                ],
+                "cap": {
+                    "cores": 2,
+                    "mem_total_kb": 8222320,
+                    "os": "linux",
+                    "client": "fdf-client"
+                },
+                "facts": {
+                    "addrs": [
+                        {
+                            "iface": "lan0",
+                            "ip": "10.7.7.1",
+                            "kind": "own",
+                            "mac": "da:7a:96:4a:ca:19",
+                            "value": "FrogNetHost.a"
+                        },
+                        {
+                            "iface": "v-a",
+                            "ip": "198.18.0.5",
+                            "kind": "uplink",
+                            "mac": "82:b6:bf:bd:59:ff",
+                            "value": "uplink eth 10000"
+                        }
+                    ],
+                    "addrs_build": "fdf-2026-10-11-r19-a15",
+                    "capability": {
+                        "cores": 4,
+                        "cpu_bench_total": 12000,
+                        "cpu_mhz": 2000,
+                        "disk_class": "ssd",
+                        "ffmpeg": true,
+                        "lan_ip": "",
+                        "libvpx": true,
+                        "loadavg": {
+                            "1": 0.1,
+                            "15": 0.1,
+                            "5": 0.1
+                        },
+                        "mem_available_kb": 4000000,
+                        "mem_total_kb": 8388608,
+                        "mysql": true,
+                        "mysql_running": true,
+                        "temps_c": []
+                    },
+                    "capability_ts": 1791810978.4701238,
+                    "gen": 2,
+                    "gen_why": "service_host_changed",
+                    "guid": "g-a",
+                    "name": "a",
+                    "pond": "p",
+                    "pubkey": "",
+                    "role": "node",
+                    "subnet": "10.7.7.0/24",
+                    "view": {
+                        "dbhost": "10.7.7.1",
+                        "hosts_hash": "1bf5f803f4efcae2",
+                        "phase": "steady"
+                    }
+                },
+                "alive": true,
+                "id": 50
+            },
+            {
+                "ns": "w:vm",
+                "name": "vm",
+                "ips": [
+                    "10.253.253.254",
+                    "198.18.0.1"
+                ],
+                "cap": {
+                    "cores": 2,
+                    "mem_total_kb": 8222320,
+                    "os": "linux",
+                    "client": "fdf-client"
+                },
+                "facts": {
+                    "role": "hub",
+                    "name": "hubA",
+                    "pubkey": "dKcjTvfRanrbfiVmrpdCLi9tEpi8AqHxuuqYTgLkiyA=",
+                    "endpoint": "198.18.0.1:51820",
+                    "addr": "10.253.253.254",
+                    "area": "frognet.test",
+                    "peers": [
+                        "fDuIZUGMKC8eE5kFLNmb4oKWuwUZxiDmcRL25z5YVwY="
+                    ]
+                },
+                "alive": true,
+                "id": 18
+            }
+        ]
+    }
+--- region mappings
+    {"ok":true,"mappings":[{"eid":"10.3.3.0/24","rloc":"hubA:1:50","site":"frognet.test","ttl_left":86336},{"eid":"10.2.2.0/24","rloc":"hubA:1:50","site":"frognet.test","ttl_left":86337}]}
+--- /tmp/claude-0/netns-region/y/facts.json
+    {"addrs": [{"iface": "v-yz", "ip": "10.3.3.20", "kind": "held", "mac": "8e:50:b6:fc:19:ac", "value": "y"}, {"iface": "lan0", "ip": "10.2.2.1", "kind": "own", "mac": "5a:bc:0a:6b:75:f5", "value": "FrogNetHost.y"}, {"iface": "v-yz", "ip": "10.3.3.20", "kind": "uplink", "mac": "8e:50:b6:fc:19:ac", "value": "uplink eth 10000"}], "addrs_build": "fdf-2026-10-11-r19-a15", "guid": "g-y", "maps": [], "name": "y", "pubkey": "", "role": "node", "subnet": "10.2.2.0/24", "transit": []}
+--- /tmp/claude-0/netns-region/z/fs/opt-fdf-var/facts.json
+    {"addrs": [{"iface": "v-zy", "ip": "10.3.3.20", "kind": "given", "mac": "8e:50:b6:fc:19:ac", "value": "y"}, {"iface": "wg0", "ip": "10.253.3.3", "kind": "hub", "mac": "", "value": ""}, {"iface": "v-zy", "ip": "10.3.3.1", "kind": "own", "mac": "d6:cd:95:52:ed:26", "value": "FrogNetHost.z"}, {"iface": "v-z", "ip": "198.18.0.3", "kind": "uplink", "mac": "0a:e2:e4:bd:32:96", "value": "uplink eth 10000"}], "addrs_build": "fdf-2026-10-11-r19-a15", "capability": {"cores": 4, "cpu_bench_total": 12000, "cpu_mhz": 2000, "disk_class": "ssd", "ffmpeg": true, "lan_ip": "", "libvpx": true, "loadavg": {"1": 0.1, "15": 0.1, "5": 0.1}, "mem_available_kb": 4000000, "mem_total_kb": 8388608, "mysql": true, "mysql_running": true, "temps_c": []}, "capability_ts": 1791810977.667595, "gen": 9, "gen_why": "routes_changed", "guid": "g-z", "maps": [{"eid": "10.2.2.0/24", "rlocs": "hubA:1:50"}, {"eid": "10.3.3.0/24", "rlocs": "hubA:1:50"}], "name": "z", "pond": "p", "pubkey": "fDuIZUGMKC8eE5kFLNmb4oKWuwUZxiDmcRL25z5YVwY=", "role": "node", "subnet": "10.3.3.0/24", "view": {"dbhost": "10.7.7.1", "hosts_hash": "509cbaaf8cdac8de", "phase": "steady"}}
+--- /tmp/claude-0/netns-region/a/fs/opt-fdf-var/facts.json
+    {"addrs": [{"iface": "lan0", "ip": "10.7.7.1", "kind": "own", "mac": "da:7a:96:4a:ca:19", "value": "FrogNetHost.a"}, {"iface": "v-a", "ip": "198.18.0.5", "kind": "uplink", "mac": "82:b6:bf:bd:59:ff", "value": "uplink eth 10000"}], "addrs_build": "fdf-2026-10-11-r19-a15", "capability": {"cores": 4, "cpu_bench_total": 12000, "cpu_mhz": 2000, "disk_class": "ssd", "ffmpeg": true, "lan_ip": "", "libvpx": true, "loadavg": {"1": 0.1, "15": 0.1, "5": 0.1}, "mem_available_kb": 4000000, "mem_total_kb": 8388608, "mysql": true, "mysql_running": true, "temps_c": []}, "capability_ts": 1791810978.4701238, "gen": 2, "gen_why": "service_host_changed", "guid": "g-a", "name": "a", "pond": "p", "pubkey": "", "role": "node", "subnet": "10.7.7.0/24", "view": {"dbhost": "10.7.7.1", "hosts_hash": "1bf5f803f4efcae2", "phase": "steady"}}
+--- y client.log
+    [PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/merge/src/rinab/../../repo/opt/fdf/templates/fdf.prime
+    fdf-client: build fdf-2026-10-11-r19-a15; region at 198.18.0.1:8840 is build fdf-2026-10-11-r19-a15
+    fdf-client: y joined the region at 198.18.0.1:8840, announced ["10.2.2.1","10.3.3.20"] with facts
+    fdf-client: facts changed, re-announced
+--- y facts.log
+    fdf-facts: build fdf-2026-10-11-r19-a15 facts=/tmp/claude-0/netns-region/y/facts.json leases=/tmp/claude-0/netns-region/y/leases
+    fdf-facts: wrote 3 rows {'held': 1, 'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /tmp/claude-0/netns-region/y/facts.json
+--- z client.log
+    [PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/merge/src/rinab/../../repo/opt/fdf/templates/fdf.prime
+    fdf-client: build fdf-2026-10-11-r19-a15; region at 198.18.0.1:8840 is build fdf-2026-10-11-r19-a15
+    fdf-client: z joined the region at 198.18.0.1:8840, announced ["198.18.0.3","10.3.3.1"] with facts
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: mapping 10.3.3.0/24 -> hubA:1:50 registered (site frognet.test)
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: mapping 10.2.2.0/24 -> hubA:1:50 registered (site frognet.test)
+--- z facts.log
+    fdf-facts: build fdf-2026-10-11-r19-a15 facts=/opt/fdf/var/facts.json leases=/tmp/claude-0/netns-region/z/leases
+    fdf-facts: unchanged 3 rows {'given': 1, 'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /opt/fdf/var/facts.json
+    fdf-facts: wrote 4 rows {'given': 1, 'hub': 1, 'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /opt/fdf/var/facts.json
+--- a client.log
+    [PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/merge/src/rinab/../../repo/opt/fdf/templates/fdf.prime
+    fdf-client: build fdf-2026-10-11-r19-a15; region at 198.18.0.1:8840 is build fdf-2026-10-11-r19-a15
+    fdf-client: a joined the region at 198.18.0.1:8840, announced ["10.7.7.1","198.18.0.5"] with facts
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+    fdf-client: facts changed, re-announced
+--- a facts.log
+    fdf-facts: build fdf-2026-10-11-r19-a15 facts=/opt/fdf/var/facts.json leases=/tmp/claude-0/netns-region/a/leases
+    fdf-facts: unchanged 2 rows {'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /opt/fdf/var/facts.json
+--- z GRAPH lines
+    1791810977780 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: vm keys=['addr', 'area', 'endpoint', 'name', 'peers', 'pubkey', 'role']
+    1791810977782 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=1 gen=0 hosts=0 links=0 uplinks=[] hubs=['vm'] conflicts=[] me=z exit=None default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=[] held=[] changed=['vm']
+    1791810977845 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: z keys=['addrs', 'addrs_build', 'capability', 'capability_ts', 'guid', 'name', 'pond', 'pubkey', 'role', 'subnet'] +['given v-zy 10.3.3.20 y', 'own v-zy 10.3.3.1 FrogNetHost.z', 'uplink v-z 198.18.0.3 uplink eth 10000'] -[]
+    1791810977846 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=2 gen=1 hosts=1 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+1/-0 maps=[] held=[] changed=['z']
+    1791810977848 [frognet:frognet.tunnel-daemon] WARNING GRAPH membership: went=[] came=[('z', '10.3.3.1')]
+    1791810978043 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: vm keys=['peers'] | z keys=['gen', 'gen_why', 'view']
+    1791810978044 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=3 gen=2 hosts=1 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=[] held=[] changed=['vm', 'z']
+    1791810978083 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: z keys=['addrs', 'gen', 'gen_why', 'maps', 'view'] +['hub wg0 10.253.3.3 '] -[]
+    1791810978088 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=4 gen=4 hosts=1 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.3.3.0/24'] held=[] changed=['z']
+    1791810978114 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=5 gen=4 hosts=1 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.3.3.0/24'] held=[] changed=[]
+    1791810978135 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: z keys=['gen', 'gen_why']
+    1791810978135 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=6 gen=4 hosts=1 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.3.3.0/24'] held=[] changed=['z']
+    1791810978579 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: y keys=['guid', 'maps', 'name', 'pubkey', 'role', 'subnet', 'transit']
+    1791810978585 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=7 gen=5 hosts=2 links=0 uplinks=['z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+1/-0 refused=0 hosts=+1/-0 maps=['10.3.3.0/24'] held=[] changed=['y']
+    1791810978585 [frognet:frognet.tunnel-daemon] WARNING GRAPH membership: went=[] came=[('y', '10.2.2.1')]
+    1791810978722 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: a keys=['addrs', 'addrs_build', 'capability', 'capability_ts', 'guid', 'name', 'pond', 'pubkey', 'role', 'subnet'] +['own lan0 10.7.7.1 FrogNetHost.a', 'uplink v-a 198.18.0.5 uplink eth 10000'] -[] | z keys=['gen', 'gen_why']
+    1791810978737 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=8 gen=7 hosts=3 links=0 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+1/-0 refused=0 hosts=+1/-0 maps=['10.3.3.0/24'] held=[] changed=['a', 'z']
+    1791810978737 [frognet:frognet.tunnel-daemon] WARNING GRAPH membership: went=[] came=[('a', '10.7.7.1')]
+    1791810978824 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: a keys=['gen', 'gen_why', 'view'] | z keys=['gen', 'gen_why', 'view']
+    1791810978824 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=9 gen=8 hosts=3 links=0 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.3.3.0/24'] held=[] changed=['a', 'z']
+    1791810978869 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: y keys=['addrs', 'addrs_build'] +['held v-yz 10.3.3.20 y', 'own lan0 10.2.2.1 FrogNetHost.y', 'uplink v-yz 10.3.3.20 uplink eth 10000'] -[] | z keys=['gen', 'view']
+    1791810978874 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=10 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+1/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[('route', ('10.2.2.0/24', '', 'wg0'))] changed=['y', 'z']
+    1791810978912 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: z keys=['gen', 'gen_why', 'maps']
+    1791810978912 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=11 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=['z']
+    1791810978953 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=12 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=[]
+    1791810978983 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: a keys=['gen', 'gen_why', 'view']
+    1791810978983 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-11-r19-a15 rebuild=13 gen=9 hosts=3 links=1 uplinks=['a', 'z'] hubs=['vm'] conflicts=[] me=z exit=z default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.2.2.0/24', '10.3.3.0/24'] held=[] changed=['a']
+--- y leases / z leases
+    1791814576 8e:50:b6:fc:19:ac 10.3.3.20 y *
+FAIL  y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)
+PASS  both daemons in the region loop
+FAIL  a: node_private.key exists now, mode none (it started with none)
+FAIL  a: the daemon says it made the key and names its public half: 
+FAIL  a: the public key it announced (facts.pubkey) is the one it made
+FAIL  a: its hub link is up: 10.7.7.1 -> 10.3.3.1 across the hub ()
+=== 6 changes on y (10.9.9.1/24 added / removed); per change: the timed line on a and z, and change -> that line
+  #1 a: change -> timed line 63 ms | world=2ms (participants+mappings, one read) +0ms bringup=13ms apply=5ms (probes=0/0ms routes=0/0ms) publish=4ms total=24ms
+  #1 z: change -> timed line 77 ms | world=1ms (participants+mappings, one read) +0ms bringup=14ms apply=17ms (probes=0/0ms routes=1/3ms) publish=6ms total=39ms
+  #2 a: change -> timed line 80 ms | world=2ms (participants+mappings, one read) +0ms bringup=6ms apply=8ms (probes=0/0ms routes=0/0ms) publish=0ms total=17ms
+  #2 z: change -> timed line 88 ms | world=4ms (participants+mappings, one read) +0ms bringup=15ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=26ms
+  #3 a: change -> timed line 84 ms | world=2ms (participants+mappings, one read) +0ms bringup=10ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=18ms
+  #3 z: change -> timed line 95 ms | world=5ms (participants+mappings, one read) +0ms bringup=17ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=29ms
+  #4 a: change -> timed line 83 ms | world=2ms (participants+mappings, one read) +0ms bringup=9ms apply=7ms (probes=0/0ms routes=0/0ms) publish=0ms total=20ms
+  #4 z: change -> timed line 93 ms | world=3ms (participants+mappings, one read) +0ms bringup=20ms apply=7ms (probes=0/0ms routes=0/0ms) publish=1ms total=32ms
+  #5 a: change -> timed line 88 ms | world=1ms (participants+mappings, one read) +0ms bringup=13ms apply=8ms (probes=0/0ms routes=0/0ms) publish=1ms total=23ms
+  #5 z: change -> timed line 92 ms | world=1ms (participants+mappings, one read) +0ms bringup=18ms apply=7ms (probes=0/0ms routes=0/0ms) publish=0ms total=27ms
+  #6 a: change -> timed line 81 ms | world=2ms (participants+mappings, one read) +0ms bringup=7ms apply=5ms (probes=0/0ms routes=0/0ms) publish=0ms total=16ms
+  #6 z: change -> timed line 92 ms | world=3ms (participants+mappings, one read) +0ms bringup=17ms apply=6ms (probes=0/0ms routes=0/0ms) publish=0ms total=27ms
+  median a (n=6): change->line 82 ms | world=2 bringup=9 apply=6 publish=0 total=19 ms
+  median z (n=6): change->line 92 ms | world=3 bringup=17 apply=6 publish=0 total=28 ms
+--- per-event region reads on a (one event): 'my-channels' lines logged between two timed lines
+    my-channels computations in one event on a: 0
+    timed events on a: 20
+PASS  a: region_hosts.json names z, y and a, each echo from its facts ([('10.2.2.1', 'y,10.2.2.1,10.3.3.20,0.0.0.0'), ('10.3.3.1', 'z,10.3.3.1,198.18.0.3,0.0.0.0'), ('10.7.7.1', 'a,10.7.7.1,198.18.0.5,0.0.0.0'), ('10.9.9.1', 'y,10.9.9.1,10.3.3.20,0.0.0.0')])
+PASS  a: each echo's fields 3-4 are that member's uplink rows: z 198.18.0.3, y its lease 10.3.3.20 on z's LAN [ECHO_UPSTREAM_FROM_THE_ROWS_V1]
+FAIL  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (11995 ms after the leaf's fdf-client started)
+--- a routes
+    default via 198.18.0.1 dev v-a 
+    10.7.7.0/24 dev lan0 proto kernel scope link src 10.7.7.1 
+    198.18.0.0/24 dev v-a proto kernel scope link src 198.18.0.5 
+--- z routes
+    default via 198.18.0.1 dev v-z 
+    10.2.2.0/24 via 10.3.3.20 dev v-zy metric 22 
+    10.3.3.0/24 dev v-zy proto kernel scope link src 10.3.3.1 
+    10.7.7.0/24 dev wg0 scope link src 10.3.3.1 metric 22 
+    10.9.9.0/24 via 10.3.3.20 dev v-zy metric 22 
+    10.252.0.1 dev wg0 scope link src 10.3.3.1 metric 22 
+    10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.3.3 
+    198.18.0.0/24 dev v-z proto kernel scope link src 198.18.0.3 
+--- y routes
+    default via 10.3.3.1 dev v-yz metric 600 
+    10.2.2.0/24 dev lan0 proto kernel scope link src 10.2.2.1 
+    10.3.3.0/24 dev v-yz proto kernel scope link src 10.3.3.20 
+FAIL  a -> the leaf 10.252.0.1 (a's tunnel, the hub, the leaf's tunnel)
+PASS  y -> the leaf (y's default to z, z's tunnel, the hub)
+PASS  a's /etc/hosts names the leaf
+PASS  runMerge on a (rc 0): its /etc/hosts still names the leaf (LEAVES named: 1; 1 line)
+PASS  a: region_hosts.json (getHosts.php) lists the leaf role=leaf alive=true: the monitor's DEVICE ONLINE row [DEVICE_ROW_V1]
+SKIP  the Communicator on a node (set COMMS_BUILD to the Communicator's build/)
+PASS  y's session ended: its announcement is gone, and no dead row is listed ([('z', True), ('a', True), ('phone', True), ('vm', True)])
+RESULT FAIL: 8

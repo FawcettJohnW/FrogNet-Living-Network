@@ -36,20 +36,11 @@ The planner does nothing the operator didn't authorize:
     entry.  One entry per distinct (dev, via, metric) tuple.
   * No removal for a dest where no observation succeeded.  If we don't
     know a path, we don't touch whatever's there.
-  * [BROKER_TEARDOWN_V1] Tunnel teardown is driven by the broker
-    channel list, NOT by observation winners.  A channel that the broker
-    says we should have stays up regardless of whether its remote /24
-    happens to have a faster non-WG observation this merge.  Only
-    channels that are up in the kernel but ABSENT from the broker list
-    (orphans) get torn down.  Observations still drive which kernel
-    route serves each /24 - that's the install/remove plan.  Separating
-    the two concerns: WG existence is broker-driven; WG usage is
-    observation-driven.
-
-    The pre-V1 behavior (tear_down = active - winning_channels) is
-    preserved only when the caller passes broker_channels=None, with a
-    warning.  This is for the transition window where old daemon
-    callers haven't been updated yet to plumb the broker list through.
+  * Tunnel teardown: an active channel that won no /24 is listed in
+    tear_down_tunnels.  (The broker channel list that once overrode this,
+    [BROKER_TEARDOWN_V1], went with the broker [NO_BROKER_V1]: on a region
+    the tunnel daemon owns hub-link existence and does not call the
+    committer; LAN-only has no tunnels.)
 
 The planner does not know about /32 probes.  Those are managed by the
 gatherer (sync_interfaces.sh) and swept defensively by the executor.
@@ -279,8 +270,8 @@ def _winning_via(obs: Observation) -> str:
     """The `via` clause of the /24 we install for this observation.
 
     Tunnel observations [TUNNEL_DEV_ROUTE_V1]:
-        empty - always `dest dev wgN`, no via.  Broker sets
-        AllowedIPs=10.0.0.0/8 on every channel, so wg accepts any
+        empty - always `dest dev wgN`, no via.  Every channel sets
+        AllowedIPs=10.0.0.0/8, so wg accepts any
         10.x destination on the iface regardless of next-hop.  The
         peer's kernel routes the inner packet onward.  Same shape
         for the channel's own /24 and for any /24 the peer relays.
@@ -299,8 +290,8 @@ def _winning_via(obs: Observation) -> str:
     trace_enter('planner._winning_via', obs=repr(obs))
     if obs.kind == "tunnel":
         # [TUNNEL_DEV_ROUTE_V1] Tunnel routes are always `dest dev wgN`
-        # with no via.  The broker sets AllowedIPs=10.0.0.0/8 on every
-        # channel, so wg accepts any 10.x destination on the iface
+        # with no via.  Every channel's AllowedIPs is 10.0.0.0/8,
+        # so wg accepts any 10.x destination on the iface
         # regardless of next-hop.  The kernel hands the packet to wgN,
         # wg encapsulates, the peer's kernel does its own routing
         # decision on the inner packet.  No via is needed.
@@ -399,7 +390,6 @@ def plan(
     active_tunnel_channels: Iterable[str] = (),
     *,
     owned_subnets: Iterable[str] = (),
-    broker_channels: Optional[Iterable[str]] = None,
     traceroute_hops: Optional[dict[tuple[str, str], int]] = None,
     failures: Iterable = (),
 ) -> Plan:
@@ -416,9 +406,6 @@ def plan(
         active_tunnel_channels - channel names of WG tunnels currently up
                          (kernel/daemon truth).  Used as the LEFT side of
                          the teardown computation.
-        broker_channels - [BROKER_TEARDOWN_V1] channel names the broker
-                         says this node should have tunnels for.  See
-                         section 4 below.
         traceroute_hops - [TRACEROUTE_V1] map from (dest, dev) to the
                          count of distinct 10.253.x.x addresses seen as
                          hops in a traceroute through that dev to that
@@ -729,7 +716,7 @@ def plan(
     # A dest with at least one Failure record this run and NO winning
     # observation means we probed (dev, via) for that dest and every
     # attempt failed terminally - typically a route bringup installed
-    # from a broker-advertised remote_subnet that the peer cannot
+    # from a channel-advertised remote_subnet that the peer cannot
     # actually forward, or a path whose intermediate node went away.
     # The current kernel route is stale; remove it.
     #
@@ -755,16 +742,14 @@ def plan(
     # for 3h while their .2 prover timed out every 5-min cycle; removing
     # the /24 on that signal cut the healthy .1 path (and led to the
     # wg0/1/2 teardown).  Per the model - failover is the proxy/daemon's
-    # job on dead next-hops; the committer never deletes a live,
-    # broker-authorized path - we suppress failure-driven removal for any
-    # dest whose channel is BOTH up locally AND still in the broker list.
+    # job on dead next-hops; the committer never deletes a live
+    # path - we suppress failure-driven removal for any dest whose
+    # channel is up locally.
     # The prover being down at most warrants a metric demotion or alert,
     # never deletion of the path .1 is using.  Removal still fires for a
-    # dest whose path genuinely went away (channel gone from broker /
-    # torn down), which is the legitimate case this branch was added for.
+    # dest whose path genuinely went away (channel torn down), which is
+    # the legitimate case this branch was added for.
     live_channels = set(active_tunnel_channels)
-    if broker_channels is not None:
-        live_channels &= set(broker_channels)
     failure_dests: dict[str, set[str]] = {}
     for f in failures:
         if f.dest in owned:
@@ -776,7 +761,7 @@ def plan(
         if dest in winners:
             continue
         if ch_names & live_channels:
-            # Path is still up and broker-authorized - prover-only failure.
+            # Path is still up - prover-only failure.
             continue
         for r in routes_by_dest.get(dest, []):
             removals.append(RemoveRoute(
@@ -786,33 +771,15 @@ def plan(
 
     # --- 4. Decide tunnel teardowns ------------------------------------
     #
-    # [BROKER_TEARDOWN_V1] Tunnel existence is broker-driven, not
-    # observation-driven.  The broker tells us which channels this node
-    # should hold open; we tear down only channels that are up in the
-    # kernel but absent from the broker list (orphans).  A channel that
-    # happens to lose every /24 to a faster LAN observation this merge
-    # is NOT redundant - the LAN observation may just be one hop through
-    # a peer that itself runs the very tunnel we're considering tearing
-    # down.  Killing the direct tunnel in that case strands traffic on
-    # the indirect path the moment the intermediate peer goes away.
-    # Bringup decides existence, planner decides usage; the two
-    # decisions don't share a knob.
-    #
-    # Legacy path (broker_channels is None): preserve the pre-V1 rule
-    # so untouched callers keep working until they're updated.  Any
-    # caller that passes broker_channels (even an empty list/set) opts
-    # into the V1 rule.
+    # An active channel that won no /24 this merge is torn down.
+    # [NO_BROKER_V1] the broker channel list that overrode this
+    # ([BROKER_TEARDOWN_V1]: tear down only active-minus-broker) is gone.
     active_set = set(active_tunnel_channels)
-    if broker_channels is None:
-        # Legacy: tear down channels that won no /24.
-        winning_channels: set[str] = set()
-        for win in winners.values():
-            if win.kind == "tunnel" and win.ch_name:
-                winning_channels.add(win.ch_name)
-        tear_down: list[str] = sorted(active_set - winning_channels)
-    else:
-        # V1: tear down only orphans (active minus broker).
-        tear_down = sorted(active_set - set(broker_channels))
+    winning_channels: set[str] = set()
+    for win in winners.values():
+        if win.kind == "tunnel" and win.ch_name:
+            winning_channels.add(win.ch_name)
+    tear_down: list[str] = sorted(active_set - winning_channels)
 
     return Plan(
         installs=installs,

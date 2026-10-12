@@ -36,7 +36,7 @@ from .kernel import RealKernel
 from .routes import Routes, table_fingerprint, fingerprint_delta
 from .discovery import Discovery
 from .propagate import Propagator, propagate_notification
-from .real_backends import RealEcho, RealRtt, RealGetHosts, RealBroker, RealPing, RealReflect, RealVerify
+from .real_backends import RealEcho, RealRtt, RealGetHosts, TunnelState, RealPing, RealReflect, RealVerify
 from .sources import HostStore
 from .mapinterfaces import RealInterfaceMap, classify
 from .fixdefault import FixDefaultRoute
@@ -400,7 +400,7 @@ def build_live(logger=print, self_identity: str = ""):
     k = RealKernel()
     routes = Routes(k, logger=logger)
     hoststore = HostStore()
-    broker = RealBroker()
+    tunnels = TunnelState()
     local_ips = _local_ips()
 
     # dev_src: transit /30 src per wg dev (RealKernel route show)
@@ -416,7 +416,7 @@ def build_live(logger=print, self_identity: str = ""):
     # classify winners as transit:
     #   own_subnet      - this node's served /24 (from self_identity .1)
     #   has_own_uplink  - gateway iff a non-FrogNet iface holds a non-10.x addr
-    #                     (a real WAN). Mirrors peer._node_has_own_uplink. A
+    #                     (a real WAN). A
     #                     gateway transits its ENTIRE downstream LAN subtree.
     #   uplink_dev      - on a LAN-child, the mesh-ward dev (dev of the FrogNet
     #                     default route) to EXCLUDE; empty on a gateway.
@@ -482,7 +482,7 @@ def build_live(logger=print, self_identity: str = ""):
         logger("DISCOVERY_SOURCE=region ram=" + _rec.ram + " (no crawl: FD&F owns discovery)")
     else:
         _echo, _gethosts = RealEcho(), RealGetHosts()
-    disc = Discovery(routes, _echo, RealRtt(), _gethosts, broker,
+    disc = Discovery(routes, _echo, RealRtt(), _gethosts, tunnels,
                      hoststore, local_ips, dev_src, logger=logger,
                      propagator=Propagator(hoststore, logger=logger),
                      reflect=RealReflect(), self_identity=self_identity,
@@ -500,7 +500,7 @@ def build_live(logger=print, self_identity: str = ""):
         disc.wave_workers = max(1, int(_os.environ.get("FROGNET_WAVE_WORKERS", "8")))
     except ValueError:
         disc.wave_workers = 8
-    return disc, k, broker, local_ips
+    return disc, k, tunnels, local_ips
 
 
 def check_ip_collision(ip, reflect=None, logger=print):
@@ -521,14 +521,15 @@ def check_ip_collision(ip, reflect=None, logger=print):
 
 
 def _reconcile_tunnels(logger=print):
-    """Bring-up stage - broker-authoritative wg reconcile, run synchronously
-    BEFORE discovery, exactly as mergeHostsAndResolv.bash does:
+    """Bring-up stage, run synchronously BEFORE discovery:
 
         PYTHONPATH=/opt/frognet_semantic python3 -m internet_tunnels_v3 bring-up-only
 
-    Brings up wg ifaces the broker says should exist, tears down the rest. The
-    merge port is not a full merge without this - discovery only routes over
-    tunnels, it never creates them. Skippable via FROGNET_SKIP_BRINGUP=1.
+    LAN-only (the only mode that runs it): the node holds no WireGuard, so every
+    wg iface comes down, handshake_rtts.json is written empty and
+    /etc/sentinels/tunnel_bringup_ready is touched [LAN_ONLY_NO_REGION_V1]. On a
+    region the daemon owns the hub channel and this stage is not run (below).
+    Skippable via FROGNET_SKIP_BRINGUP=1.
     Overridable: FROGNET_BRINGUP_PYTHONPATH, FROGNET_BRINGUP_PY.
     """
     import os
@@ -563,7 +564,7 @@ def _reconcile_tunnels(logger=print):
 
 def main():
     logger = print
-    # bring-up stage: reconcile wg ifaces to broker state BEFORE we gather/probe,
+    # bring-up stage: reconcile wg ifaces (LAN-only: none) BEFORE we gather/probe,
     # so discovery sees the tunnels that should exist (mergeHostsAndResolv order).
     _reconcile_tunnels(logger)
     imap = RealInterfaceMap()
@@ -593,14 +594,14 @@ def main():
             self_identity = ".".join(_iip.split(".")[:3]) + ".1"
             break
 
-    disc, k, broker, local_ips = build_live(logger, self_identity=self_identity)
+    disc, k, tunnels, local_ips = build_live(logger, self_identity=self_identity)
 
     # run_tunnel_health_check: probe each tunnel, derive dead ifaces, filter devs
     from .healthcheck import HealthCheck
     active_states_full = _active_states()
     health_states = []
     for iface, subs in active_states_full:
-        ch = broker.channel_for_iface(iface)
+        ch = tunnels.channel_for_iface(iface)
         if ch and ch.startswith("hub-"):
             # [HUB_HEALTH_IS_THE_HANDSHAKE_V1] a region hub channel carries many /24s that belong to other members;
             # probing "the first one's .2" judges the hub link by a third host (Seattle3B 15:07: wg0 declared dead
@@ -628,7 +629,7 @@ def main():
     upstream_seed = {}  # descend_upstream seeds (seed_from_dev_ip) - fill from cls if needed
 
     # bringup peers come from handshake_rtts (direct channels)
-    hs = broker._handshake()
+    hs = tunnels._handshake()
     bringup = [(ch.rsplit("-", 1)[0], v.get("peer_dot_one"))
                for ch, v in hs.items() if v.get("peer_dot_one")]
     # [NO_CRAWL_IN_REGION_V1] on a region the peers are FD&F's plan, as the daemon applied it (routes installed,
@@ -691,21 +692,10 @@ def main():
     # this merge through to the sync trigger; routing deltas, not host-table
     # deltas, are what neighbors must be told about.
     out["route_table_mutated"] = bool(getattr(disc.r, "route_table_mutated", False))
-    # [TRANSIT_FROM_WINNERS_V1] Persist the transit set promote() derived from
-    # the winners so the tunnel daemon's _sync_transit_subnets posts it. Written
-    # as a sentinel (one /24 per line) - the same cross-process channel discovery
-    # uses for frognet_hosts/exit_host. The daemon reads this instead of
-    # re-deriving transit from a route scan or DHCP-lease probe.
+    # [TRANSIT_FROM_WINNERS_V1] the transit set promote() derived from the winners, in the merge's result. (It was also
+    # written to /etc/sentinels/transit_subnets.tsv for the tunnel daemon to post to the broker; the broker is gone and
+    # nothing else read that file.)
     out["computed_transit"] = list(getattr(disc, "computed_transit", []))
-    try:
-        import os as _os
-        _os.makedirs(_sent(), exist_ok=True)
-        with open(_sent("transit_subnets.tsv"), "w") as _tf:
-            _tf.write("".join(s + "\n" for s in out["computed_transit"]))
-        logger(f"TRANSIT_SENTINEL wrote {len(out['computed_transit'])} /24(s): "
-               f"{out['computed_transit']}")
-    except OSError as _e:
-        logger(f"TRANSIT_SENTINEL write failed: {_e}")
 
     # [REACH_PLANE_TUPLE_V1] Persist this node's loopback-validated WAN plane to a
     # tuple so the merge-end service-host election can split LAN vs WAN by READING,
@@ -1271,7 +1261,7 @@ def _commit_hosts(out, logger=print):
     # ROUTING TABLE, not /etc/hosts. Any committed route add/replace/del this merge
     # (winner install, verify-backout, fallback, sweep of a real route) means
     # neighbors must re-sync - even when the host table is byte-identical, which is
-    # the common case (hosts come from the broker and persist while routes churn).
+    # the common case (hosts persist while routes churn).
     # [SERVICE_HOSTS_NO_SYNC_V1] A TOPOLOGY host-table change (a node-identity /
     # route-bearing line) still counts as a secondary trigger - but a change confined
     # to `<role>.frognet` SERVICE lines does NOT: those are a derived election result,

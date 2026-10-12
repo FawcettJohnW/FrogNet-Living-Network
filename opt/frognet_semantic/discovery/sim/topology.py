@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 # connected/kernel + bringup routes present when sync_interfaces starts (SNAP enter)
 ENTER_SEED = [
@@ -87,7 +87,7 @@ def build_ny1(logger=lambda s: None):
         "10.28.28.1":   [],
     })
 
-    broker = FakeBroker(
+    broker = FakeTunnelState(
         by_one={
             "10.179.179.1": ("BAMacBook-10.179.179", "10.179.179.0/24", "10.179.179.1"),
             "10.250.250.1": ("Seattle5-10.250.250", "10.250.250.0/24", "10.250.250.1"),
@@ -182,7 +182,7 @@ def build_seattle6(logger=lambda s: None, wlan0_linkdown=True):
     gethosts = FakeGetHosts(children={
         "10.241.241.1": ["10.179.179.1", "10.102.60.1", "10.111.11.1", "10.28.28.1"],
     })
-    broker = FakeBroker(by_one={}, iface_channel={})        # LAN-only
+    broker = FakeTunnelState(by_one={}, iface_channel={})        # LAN-only
 
     k = FakeKernel()
     k.seed(wlan0_line, wlan1_line)

@@ -22,8 +22,8 @@ test_reflect_vouch_gate_oracle.py - [REFLECT_VOUCH_GATE_V1]
 Folds in John's 2026-06-06 finding: the circular-route detector "isn't working"
 because vouches NEVER reach the walk's reflect probe - they're added straight to
 CAND. So a bent vouch (New-York-2 vouching Seattle5 back through us) installed as a
-black-hole LAN route, and zero [REFLECT] lines ever appeared. The transit-map gate
-that was supposed to catch this is inert (fail-open when node_transit.json absent).
+black-hole LAN route, and zero [REFLECT] lines ever appeared. (The transit-map gate
+that was supposed to catch this never had data, and was removed with the broker in T3a.)
 
 The fix reflect-probes each vouched dest's .1 at the point of the vouch. This
 oracle drives the REAL walk+promote with a reflect that returns LOOP for one
@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 IDENT = "10.130.130.1"; LEASE = "10.130.130.2"
 
@@ -68,7 +68,7 @@ def _run(verify):
         ("10.102.60.1", "New-York-1"),   # we'll mark this one a LOOP
         ("10.179.179.1", "BAMacBook"),   # this one clean
     ]})
-    disc = Discovery(routes, echo, rtt, gethosts, FakeBroker(), HostStore(),
+    disc = Discovery(routes, echo, rtt, gethosts, FakeTunnelState(), HostStore(),
                      local_ips={IDENT, LEASE, "127.0.0.1"},
                      dev_src_map={}, self_identity=IDENT, verify=verify, reflect=None)
     disc.walk("wlan1", "10.160.160.1", 1)

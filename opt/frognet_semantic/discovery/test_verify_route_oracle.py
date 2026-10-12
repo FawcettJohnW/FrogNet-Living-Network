@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                FakeVerify, HostStore)
 
 DEST = "10.50.50.0/24"
@@ -47,7 +47,7 @@ def _promote_with(dead):
     log = []
     k = FakeKernel()
     routes = Routes(k, logger=log.append, clock=lambda: 0.0)
-    disc = Discovery(routes, FakeEcho(), FakeRtt(), FakeGetHosts(), FakeBroker(),
+    disc = Discovery(routes, FakeEcho(), FakeRtt(), FakeGetHosts(), FakeTunnelState(),
                      HostStore(), local_ips=set(), dev_src_map={},
                      logger=log.append, verify=FakeVerify(dead=set(dead)))
     # two proven candidates for the same dest on different tunnels: wg0 nearer

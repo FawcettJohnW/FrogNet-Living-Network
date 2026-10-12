@@ -1,0 +1,6 @@
+== python3 internet_tunnels_v3/test_region_oracle.py rc=0 PASS=11 FAIL=0 | RESULT PASS
+== python3 internet_tunnels_v3/tests/graph_apply_oracle.py rc=0 PASS=35 FAIL=0 | ALL OK
+== python3 -m simulation.sim_control_plane rc=1 PASS=16 FAIL=5 | CONTROL-PLANE SIM FAILURES: ['N1 (degree 1) targets exactly its 1 neighbor, not all 6', 'N4 (degree 3) targets exactly i
+== python3 -m simulation.live_prober_removal rc=0 PASS=5 FAIL=0 | ALL PASS: prover-only failure preserved; genuine path-loss still removed.
+== python3 simulation/sim_tunnel_health.py rc=0 PASS=16 FAIL=0 |   - echo filter (real) excludes dead tunnels from routes/hosts per merge
+== python3 oracles/oracle_routing_topology.py rc=0 PASS=36 FAIL=0 | PASS - [LEASE_IS_NOT_A_NODE_V1]

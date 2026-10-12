@@ -269,7 +269,7 @@ class System:
                         and sysref.node[n2].subnet3 != owner.subnet3]
 
         class _Broker:
-            def broker_for_peer_ip(self, dest1):
+            def tunnel_for_peer_ip(self, dest1):
                 # only DIRECT tunnel peers are uplink-parents (authority)
                 if dest1 in direct_tunnel_ones:
                     o = sysref._owner_of(dest1)
@@ -280,8 +280,6 @@ class System:
             def channel_for_iface(self, dev):
                 p = dev_peer.get(dev)
                 return f"{p}-{sysref.node[p].subnet3}" if p else ""
-            def transits(self, relay_one, dest24):
-                return True  # no transit map modelled -> gate inert
 
         return _Echo(), _Rtt(), _GetHosts(), _Broker()
 

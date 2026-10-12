@@ -2,31 +2,24 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""region.py -- [REGION_V1] (PLAN-FROGNET-ON-FDF Stage 2) the tunnel daemon on an FD&F region instead of the broker.
+"""region.py -- [REGION_V1] (PLAN-FROGNET-ON-FDF Stage 2) the tunnel daemon's side of an FD&F region.
 
-The daemon keeps calling broker_get/broker_post with the broker's four paths; in region mode those are answered here,
-from the region's records and this node's own facts file, in the broker's response shapes, so peer.py/wg.py/poll.py
-need no other change:
-
-  POST /api/v4/register         -> this node's facts (name, guid, subnet, pubkey, role=node) written to the facts file;
-                                   the node's fdf-client announces them through ITS session ([IPCP_FACTS_V1]). The
-                                   session is enrollment; there is no node_id but the guid.
-  GET  /api/v4/my-channels      -> ONE channel per live hub (participants with facts.role == "hub" in this area):
-                                   edge_ip = 10.253.A.B for our 10.A.B.0/24, edge_mask 16, droplet_* = the hub's
-                                   pubkey/endpoint/addr, allowed_ips 10.0.0.0/8, remote_subnets = every prefix whose
-                                   VERIFIED mapping (map_list) names that hub, except ours.
-  POST /api/v4/update-subnets   -> facts.transit; and facts.maps for the transit /24s (registered by fdf-client,
-                                   signed, session-bound: [MAP_FROM_FACTS_V1]).
-  GET  /api/v4/transit-map      -> {"map": {"10.x.y": [/24s that node forwards]}} from the participants' facts.
-
-  publish_maps(live_hubs)       -> after the bringup phase: facts.maps = our /24 and transit /24s with the locator set of
-                                   every hub whose tunnel handshook, prio from the measured handshake RTT (lower first).
-
+  register_node()               -> this node's facts (role=node, name, guid, subnet, pubkey, pond = RINA_AREA) written
+                                   to the facts file; the node's fdf-client announces them through ITS session
+                                   ([IPCP_FACTS_V1]). The session is enrollment; the guid is the identity.
+  my_channels()                 -> ONE channel per live hub (participants with facts.role == "hub" in this area) that
+                                   holds this node's key: edge_ip = 10.253.A.B for our 10.A.B.0/24, edge_mask 16,
+                                   droplet_* = the hub's pubkey/endpoint/addr, allowed_ips 10.0.0.0/8, remote_subnets =
+                                   every prefix whose VERIFIED mapping (map_list) names that hub, except ours.
+  publish_plan_maps(prefixes)   -> facts.maps = the plan's prefixes with the locator set of every hub whose tunnel
+                                   handshook, prio from the measured handshake RTT (lower first); fdf-client registers
+                                   them, signed and session-bound ([MAP_FROM_FACTS_V1]).
   events()                      -> lines from fdf-events (one held FNWP session): "p" participants changed, "m" a
-                                   mapping changed, "gone" the region is gone. One line = one poll_once(). No timer.
+                                   mapping changed, "gone" the region is gone. No timer.
 
-Config (/etc/frognet/tunnel.conf): RINA_RAM=host:8840 (region mode on), RINA_AREA=<area name>. Facts file:
-FDF_FACTS (default /opt/fdf/var/facts.json). Tools: FDF_BIN (default /opt/fdf/bin).
+Config: RINA_RAM=host:8840 (region mode on) and RINA_AREA=<area name>, from /opt/fdf/var/join.env + site.env (or
+tunnel.conf, or the environment). Facts file: FDF_FACTS (default /opt/fdf/var/facts.json). Tools: FDF_BIN (default
+/opt/fdf/bin).
 """
 import hashlib
 import ipaddress
@@ -228,31 +221,12 @@ def _reach(maps: list) -> dict:
     return out
 
 
-# ---------------------------------------------------------------- the broker's four paths, answered from the region
-def get(path: str, params: dict = None) -> dict:
-    if path.startswith("/api/v4/my-channels"):
-        return my_channels()
-    if path.startswith("/api/v4/transit-map"):
-        return transit_map()
-    raise RuntimeError("region: no such GET " + path)
-
-
-def post(path: str, body: dict) -> dict:
-    if path == "/api/v4/register":
-        write_facts({"role": "node", "name": body.get("node_name", config.NODE_NAME), "guid": body.get("guid", config.NODE_GUID),
-                     "subnet": own_subnet(), "pubkey": body.get("pubkey", config.PUBKEY),
-                     "pond": body.get("pond", config.POND)})
-        return {"node_id": body.get("guid", config.NODE_GUID), "status": "registered"}
-    if path == "/api/v4/update-subnets":
-        f = read_facts()
-        before = sorted(f.get("transit") or [])
-        transit = sorted(body.get("transit_subnets") or [])
-        if transit != before:
-            write_facts({"transit": transit})
-            publish_maps(getattr(config, "live_hubs", {}))
-        return {"status": "unchanged" if transit == before else "updated",
-                "added": sorted(set(transit) - set(before)), "removed": sorted(set(before) - set(transit)), "tunnels_updated": 0}
-    raise RuntimeError("region: no such POST " + path)
+# ---------------------------------------------------------------- this node in the region
+def register_node() -> dict:
+    """This node's facts: who it is, its /24, its WireGuard public key (the daemon's: config.ensure_node_key) and the
+    pond it is in (the region's area). fdf-client announces them; the hub adds the peer from facts.pubkey."""
+    return write_facts({"role": "node", "name": config.NODE_NAME, "guid": config.NODE_GUID,
+                        "subnet": own_subnet(), "pubkey": config.PUBKEY, "pond": getattr(config, "REGION_AREA", "")})
 
 
 def my_channels() -> dict:
@@ -299,39 +273,10 @@ def my_channels() -> dict:
     payload = json.dumps({"channels": channels}, sort_keys=True, separators=(",", ":"))
     return {"node_name": me.get("name", config.NODE_NAME), "node_id": me.get("guid", config.NODE_GUID),
             "digest": hashlib.sha256(payload.encode()).hexdigest()[:16],
-            "channels": channels, "chorus_assignments": []}
-
-
-def transit_map() -> dict:
-    out = {}
-    for p in participants():
-        f = p.get("facts") or {}
-        if not p.get("alive") or f.get("role") != "node" or not f.get("subnet"):
-            continue
-        prefix = f["subnet"].split("/")[0].rsplit(".", 1)[0]
-        out[prefix] = sorted({f["subnet"]} | set(f.get("transit") or []))
-    return {"map": out}
+            "channels": channels}
 
 
 # ---------------------------------------------------------------- map-register through the node's own session
-def publish_maps(live_hubs: dict) -> None:
-    """live_hubs: {hub name: rtt_ms or None} for every hub whose tunnel handshook. Writes facts.maps; fdf-client
-    registers each (signed with RINA_SITE_KEY under RINA_AREA, own:true) and withdraws what is no longer listed."""
-    config.live_hubs = dict(live_hubs)
-    f = read_facts()
-    my_sub = f.get("subnet") or own_subnet()
-    prefixes = []
-    if my_sub:
-        prefixes.append(str(ipaddress.ip_network(my_sub, strict=False)))
-    prefixes += sorted(f.get("transit") or [])
-    ranked = sorted(live_hubs.items(), key=lambda kv: (kv[1] if kv[1] is not None else 10 ** 9, kv[0]))
-    rlocs = ",".join("%s:%d:50" % (name, i + 1) for i, (name, _rtt) in enumerate(ranked))
-    maps = [{"eid": p, "rlocs": rlocs} for p in prefixes] if rlocs else []
-    if (f.get("maps") or []) != maps:
-        write_facts({"maps": maps})
-        config.log.info("REGION: maps -> %s", maps)
-
-
 def publish_plan_maps(prefixes: list) -> None:
     """[MAPS_FROM_GRAPH_V1] what this node registers = the plan's maps (its own /24s plus those of every host whose
     exit it is), toward every hub whose tunnel handshook; [] withdraws everything (a child registers nothing)."""

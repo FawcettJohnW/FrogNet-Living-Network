@@ -15,11 +15,14 @@
 # Then: N changes on y (an address added, then removed, alternately); for each, the timed line on a and on z, and the
 # end-to-end time from the change to that line. Prints every sample and the median.
 # Needs root, ip, wg, wg-quick, wireguard-go, python3, curl.  usage: tools/netns-region-loop-test.sh [RINAB_DIR]
-#   FROGNET_DIR=<opt/frognet_semantic tree>  (default ../../repo/opt/frognet_semantic)   N=<changes> (default 6)
-set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
-PK=${PKG_FDF:-$H/../../pkg-full/opt/fdf}; FDFPY=$H/../../repo/opt/fdf/lib/python; N=${N:-6}
+#   FROGNET_DIR=<opt/frognet_semantic tree>  (default: this repo's opt/frognet_semantic)   N=<changes> (default 6)
+#   NOKEY=<node> [DAEMON_OWNS_ITS_KEY_V1]: that node starts with NO /var/lib/frognet-tunnel/node_private.key (and no
+#   broker keys in tunnel.conf, as every node here): its daemon must make the key, say so, announce its public half,
+#   and bring up its hub link (pinged across the hub). Without NOKEY every node's key is made here, as before.
+set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
+PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; N=${N:-6}
 T=${T:-/tmp/claude-0/netns-region}; rm -rf $T; mkdir -p $T/hub $T/z $T/a $T/y $T/bin
-export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
@@ -92,6 +95,7 @@ fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   echo "domain=$NAME" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns region-loop test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
   printf 'export RINA_RAM=%s\n' $RAM > $F/opt-fdf-var/join.env; printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' $SITE $KEY > $F/opt-fdf-var/site.env
+  [ "${NOKEY:-}" = "$n" ] && return 0                                  # [DAEMON_OWNS_ITS_KEY_V1] the daemon makes this one
   (umask 077; wg genkey > $F/var-lib-frognet-tunnel/node_private.key); wg pubkey < $F/var-lib-frognet-tunnel/node_private.key > $F/var-lib-frognet-tunnel/node_public.key; }
 # NSF node cmd...: run in the node's netns AND its mount namespace (ip netns exec gives a private one per call)
 NSF() { local n=$1; shift; local F=$T/$n/fs m=""
@@ -128,6 +132,21 @@ check $ok "converged: z has a's /24 and y's (via y's lease); a has z's and y's (
   echo "--- y leases / z leases"; cat $T/y/leases $T/z/leases 2>&1 | sed 's/^/    /'; }
 ip netns exec y ping -c 2 -W 2 -I 10.2.2.1 10.7.7.1 > $T/ping.log 2>&1; check $? "y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)"
 check $(grep -q 'REGION: loop started' $T/z/daemon.log && grep -q 'REGION: loop started' $T/a/daemon.log && echo 0 || echo 1) "both daemons in the region loop"
+# ---- [DAEMON_OWNS_ITS_KEY_V1] the node that started with no key: its daemon made it, said so, announced it, and its
+#      hub link carries traffic (ping from its .1 to the other daemon node's .1, across the hub)
+if [ -n "${NOKEY:-}" ]; then
+  KF=$T/$NOKEY/fs/var-lib-frognet-tunnel/node_private.key
+  KPUB=$( [ -s $KF ] && wg pubkey < $KF 2>/dev/null )
+  check $([ -n "$KPUB" ] && [ "$(stat -c %a $KF)" = 600 ] && echo 0 || echo 1) \
+        "$NOKEY: node_private.key exists now, mode $(stat -c %a $KF 2>/dev/null || echo none) (it started with none)"
+  check $(grep -q "WG_KEY: made .*public key $KPUB" $T/$NOKEY/daemon.log 2>/dev/null && [ -n "$KPUB" ] && echo 0 || echo 1) \
+        "$NOKEY: the daemon says it made the key and names its public half: $(grep -m1 -o 'WG_KEY: .*' $T/$NOKEY/daemon.log | cut -c1-160)"
+  check $(python3 -c 'import sys,json; sys.exit(0 if json.load(open(sys.argv[1])).get("pubkey")==sys.argv[2] and sys.argv[2] else 1)' $T/$NOKEY/fs/opt-fdf-var/facts.json "$KPUB" 2>/dev/null && echo 0 || echo 1) \
+        "$NOKEY: the public key it announced (facts.pubkey) is the one it made"
+  if [ "$NOKEY" = a ]; then SRC=10.7.7.1 DST=10.3.3.1; else SRC=10.3.3.1 DST=10.7.7.1; fi
+  ip netns exec $NOKEY ping -c 2 -W 2 -I $SRC $DST > $T/nokey-ping.log 2>&1
+  check $? "$NOKEY: its hub link is up: $SRC -> $DST across the hub ($(NSF $NOKEY wg show all latest-handshakes 2>/dev/null | awk '{print $1": handshake "$3}' | tr '\n' ' '))"
+fi
 sleep 3
 # ---- the measurement: N changes on y, each timed on a and z by the daemon's own line
 ip netns exec y ip link add lan1 type veth peer name lan1p; ip netns exec y ip link set lan1 up; ip netns exec y ip link set lan1p up

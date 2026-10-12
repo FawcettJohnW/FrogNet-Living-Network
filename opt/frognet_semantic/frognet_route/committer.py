@@ -385,7 +385,6 @@ def commit_final(
     channel_to_iface: dict[str, str] = None,
     owned_subnets: list[str] = None,
     snapshot_path: str = SNAPSHOT_PATH,
-    broker_channels: Optional[Iterable[str]] = None,
     traceroute_hops: Optional[dict[tuple[str, str], int]] = None,
     failures_path: str = FAILURES_PATH,
 ) -> Plan:
@@ -397,8 +396,6 @@ def commit_final(
             up, used as the LEFT side of teardown computation.
         channel_to_iface - map from channel name to kernel iface name,
             used to actually run `wg-quick down <iface>` for teardowns.
-        broker_channels - [BROKER_TEARDOWN_V1] channel names the broker
-            authorizes for this node.  See planner.plan().
         traceroute_hops - [TRACEROUTE_V1] map from (dest, dev) to count
             of additional 10.253.x.x hops on the path.  See planner.plan().
         failures_path - [PROBE_FAILURE_REMOVAL_V1] TSV of terminal probe
@@ -413,7 +410,6 @@ def commit_final(
     p = plan(obs, current,
              active_tunnel_channels=(active_tunnel_channels or []),
              owned_subnets=(owned_subnets or []),
-             broker_channels=broker_channels,
              traceroute_hops=traceroute_hops,
              failures=failures)
 

@@ -146,7 +146,7 @@ class Fabric:
                 return list(fab.vouch.get(owner.name, [])) if owner else []
 
         class _Broker:
-            def broker_for_peer_ip(self, dest1):
+            def tunnel_for_peer_ip(self, dest1):
                 for dev, (nn, _src, chname) in fab.channels.items():
                     if fab.nodes[nn].one == dest1:
                         return (chname, fab.nodes[nn].cidr, dest1)
@@ -154,8 +154,6 @@ class Fabric:
             def channel_for_iface(self, dev):
                 ch = fab.channels.get(dev)
                 return ch[2] if ch else ""
-            def transits(self, relay_one, dest24):
-                return True  # no transit map modelled -> gate inert
 
         return _Echo(), _Rtt(), _GetHosts(), _Broker()
 

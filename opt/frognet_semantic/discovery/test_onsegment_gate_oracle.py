@@ -42,7 +42,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.discovery import Discovery
 from discovery.routes import Routes
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                FakeVerify, HostStore)
 from discovery.sim.topology import FakeKernel
 
@@ -56,7 +56,7 @@ def build():
     })
     rtt = FakeRtt(table={})
     gethosts = FakeGetHosts(children={})
-    broker = FakeBroker(by_one={}, iface_channel={})
+    broker = FakeTunnelState(by_one={}, iface_channel={})
     verify = FakeVerify(refused={"10.250.250.60"}, dead={"10.250.250.90"},
                         loops={"10.250.250.70"})
 

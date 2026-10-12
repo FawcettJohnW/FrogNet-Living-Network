@@ -55,7 +55,7 @@ WHAT IT PUBLISHES
       "is_gateway":  false,
       "uplink":      {"addr","dev","parent","parent_name"},
       "internet":    {"gw","dev"},          # gateways only
-      "broker":      {"host","port","configured"},
+      "region":      {"host","port","configured","up"},   # the FD&F region (RINA_RAM); none = LAN-only
       "downstreams": [{"ip","name"}],       # who I forward FOR
       "tunnels":     [{"peer","peer_name","dev"}],
       "routes":      [{"dest","via","dev","kind"}]
@@ -224,9 +224,9 @@ def hosts_by_dot1():
 def _wg_up():
     """True if wireguard has at least one interface. Cheap and sufficient.
 
-    `wg show interfaces` is one exec and no network. If a tunnel is up, the
-    broker did its job -- that is what the broker is FOR. This is not a probe of
-    the broker itself and does not pretend to be.
+    `wg show interfaces` is one exec and no network. A hub link up is the
+    region doing its job. This is not a probe of the region and does not
+    pretend to be.
     """
     for exe in ("/usr/bin/wg", "/usr/sbin/wg", "wg"):
         try:
@@ -249,16 +249,17 @@ def _tunnel_daemon_up():
         return False
 
 
-def broker_config():
-    """Broker from /etc/frognet/tunnel.conf, plus whether it is evidently working.
+def region_config():
+    """[NO_BROKER_V1] The FD&F region this node is in (RINA_RAM, from
+    /opt/fdf/var/join.env, written by fdf-join, or /etc/frognet/tunnel.conf), plus
+    whether it is evidently working. No RINA_RAM: LAN-only, configured False.
 
     `up` is true when a tunnel exists or the tunnel daemon is running. Neither is
-    a probe of the broker, and it does not need to be: the broker's job is to get
-    tunnels established, so a live tunnel is the evidence that matters. Cheap,
-    two execs, no network.
+    a probe of the region, and it does not need to be: a live hub link is the
+    evidence that matters. Cheap, two execs, no network.
     """
-    text = _read("/etc/frognet/tunnel.conf")
-    m = re.search(r"^\s*BROKER(?:_URL)?\s*=\s*\"?([^\"\s#]+)", text, re.M)
+    text = _read("/opt/fdf/var/join.env") + "\n" + _read("/etc/frognet/tunnel.conf")
+    m = re.search(r"^\s*(?:export\s+)?RINA_RAM\s*=\s*\"?([^\"\s#]+)", text, re.M)
     up = _wg_up() or _tunnel_daemon_up()
     if not m:
         return {"host": "", "port": 0, "configured": False, "up": up}
@@ -364,7 +365,7 @@ def build():
         },
         "internet": ({"gw": exit_nh, "dev": exit_dev} if is_gateway
                      else {"gw": "", "dev": ""}),
-        "broker": broker_config(),
+        "region": region_config(),
         "downstreams": downstreams,
         "tunnels": tunnel_peers(),
         "routes": kernel_routes(),

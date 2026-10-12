@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 IDENT = "10.120.120.1"
 
@@ -56,7 +56,7 @@ def _promote_vouch(reflect):
     k.seed("10.120.120.0/24 dev wlan0 proto kernel scope link src 10.120.120.1")
     routes = Routes(k, clock=lambda: 0.0)
     disc = Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={IDENT, "127.0.0.1"}, dev_src_map={},
                      self_identity=IDENT, verify=DeadVerify(), reflect=reflect)
     # seed exactly what the walk would append for a relayed vouch:

@@ -46,9 +46,8 @@ class GetHosts:
     def get_hosts(self, host_path, pip):
         return self.children.get(host_path, [])
 class Broker:
-    def broker_for_peer_ip(self, dest1): return None
+    def tunnel_for_peer_ip(self, dest1): return None
     def channel_for_iface(self, dev): return None
-    def transits(self, host_path, cdest): return True
 class Reflect:
     def probe(self, o, target): return None  # never LOOP
 

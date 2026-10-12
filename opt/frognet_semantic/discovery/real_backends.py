@@ -26,7 +26,7 @@ written to the EXACT contracts read from sync_interfaces.sh:
                  before '.'; "0" -> 1; empty on failure
   get_hosts    : curl -sS -o F -w %{http_code} -H "Host: $host_path"
                  http://$pip/getHosts.php ; 3 tries until 200; jq '.[]?.ip'
-  broker       : handshake_rtts.json entry where value.peer_dot_one==ip ->
+  tunnel       : handshake_rtts.json entry where value.peer_dot_one==ip ->
                  (channel_key, value.subnet, value.peer_dot_one)
   channel_iface: active/*.json where .interface==dev -> .channel_name
   ping         : ping -I dev -c1 -W2 via
@@ -82,7 +82,7 @@ def parse_gethosts(json_text: str) -> list:
     return out
 
 
-def broker_lookup(handshake: dict, ip: str):
+def tunnel_lookup(handshake: dict, ip: str):
     """handshake_rtts mapping -> (channel, subnet, peer_dot_one) | None."""
     for ch, v in handshake.items():
         if isinstance(v, dict) and v.get("peer_dot_one") == ip:
@@ -194,13 +194,14 @@ class RealGetHosts:
         return []
 
 
-class RealBroker:
+class TunnelState:
+    """This node's own WireGuard tunnels, from the tunnel daemon's local files (every mode): handshake_rtts.json (one
+    entry per up channel: iface, subnet, peer .1, handshake ms) and active/*.json (iface -> channel). LAN-only: both
+    are empty, so nothing is overridden. Nothing here asks anyone over the network."""
     def __init__(self, handshake_path="/var/lib/frognet-tunnel/handshake_rtts.json",
-                 active_dir="/var/lib/frognet-tunnel/active",
-                 transit_map_path="/var/lib/frognet-tunnel/node_transit.json"):
+                 active_dir="/var/lib/frognet-tunnel/active"):
         self.handshake_path = handshake_path
         self.active_dir = active_dir
-        self.transit_map_path = transit_map_path
 
     def _handshake(self) -> dict:
         try:
@@ -209,8 +210,8 @@ class RealBroker:
         except (OSError, ValueError):
             return {}
 
-    def broker_for_peer_ip(self, dest1):
-        return broker_lookup(self._handshake(), dest1)
+    def tunnel_for_peer_ip(self, dest1):
+        return tunnel_lookup(self._handshake(), dest1)
 
     def channel_for_iface(self, dev):
         try:
@@ -228,25 +229,6 @@ class RealBroker:
             if d.get("interface") == dev and d.get("channel_name"):
                 return d["channel_name"]
         return ""
-
-    def transits(self, relay_one, dest24):
-        # [VOUCH_TRANSIT_GATE_V1] relay /24-prefix -> reachable /24 CIDRs, written
-        # each poll by the tunnel daemon from the broker's /api/v4/transit-map.
-        # Map absent/unparseable -> inert (True): gate behaves like the pre-gate
-        # build until the data is live. Relay present -> dest must be in its set.
-        # Relay absent (unregistered LAN leaf, e.g. New-York-2) -> not a legit
-        # transit for a remote /24 -> suppress.
-        try:
-            with open(self.transit_map_path) as f:
-                m = json.load(f)
-        except (OSError, ValueError):
-            return True
-        if not isinstance(m, dict) or not m:
-            return True
-        prefix = relay_one.rsplit(".", 1)[0]
-        if prefix in m:
-            return dest24 in (m[prefix] or [])
-        return False
 
 
 class RealHealthEcho:

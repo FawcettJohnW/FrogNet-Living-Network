@@ -44,7 +44,7 @@ _os.environ.setdefault("FROGNET_OFFLINE_TUPLES", "1")
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore)
 
 PROBS = []
@@ -59,7 +59,7 @@ def check(ok, label):
 def _disc(local="10.250.250.1"):
     routes = Routes(FakeKernel(), clock=lambda: 0.0)
     return Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={local, "127.0.0.1"},
                      dev_src_map={}, self_identity=local, verify=None)
 
