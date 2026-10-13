@@ -1,0 +1,4 @@
+FATAL: identity.parse_echo_line / dot_one_of missing: cannot import name 'parse_echo_line' from 'frognet_monitor_py.identity' (/tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/t0/usr/local/bin/frognet_monitor_py/identity.py)
+       The C++ and C# ports implement these; the Python must too,
+       or the shared vectors only prove two of three agree.
+EXIT 1

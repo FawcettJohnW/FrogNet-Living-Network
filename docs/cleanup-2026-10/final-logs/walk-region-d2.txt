@@ -1,0 +1,61 @@
+$ apt-get install -y python3 wireguard-tools
+Processing triggers for libc-bin (2.39-0ubuntu8) ...
+rc=0
+$ cd / && tar xvzf - < /tmp/fdf-droplet.tgz
+59
+rc=0 (59 = the file list)
+$ systemctl daemon-reload
+rc=0
+$ ip -o addr | grep 10\.253\.
+rc=1 (1 = printed nothing)
+$ ip route | grep 10\.253\.
+rc=1 (1 = printed nothing)
+$ /opt/fdf/bin/fdf-region-create myarea 172.30.0.10
+== fdf-region-create myarea at 172.30.0.10 (RAM manager tcp 51888, hub udp 50889); package=fdf-droplet.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP 
+fdf-wg-impl: wireguard-go is the choice and it is not installed: install it (apt-get install wireguard-go)
+fdf-wg-impl: wireguard-go (no wireguard module for 6.18.44-fc-v114), recorded in /etc/frognet/wg.impl
+rc=1
+fdf-region-create: no usable WireGuard implementation (above)
+$ apt-get install -y wireguard-go   (not in the doc's block; the line above says it)
+Setting up wireguard-go (0.0.20230223-1ubuntu0.24.04.2) ...
+rc=0
+$ /opt/fdf/bin/fdf-region-create myarea 172.30.0.10
+== fdf-region-create myarea at 172.30.0.10 (RAM manager tcp 51888, hub udp 50889); package=fdf-droplet.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP 
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+== site key: made, stored root-only in /opt/fdf/var/site-key-myarea (mode 600)
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-ram-myarea.service → /etc/systemd/system/fdf-ram-myarea.service.
+== fdf-ram-myarea started; waiting for it to answer on 127.0.0.1:51888
+   RAM manager: {"ok":true,"server":"fdf-2026-10-12-r20"}
+== map_site myarea: {"ok":true}
+== /opt/fdf/hub/hub.env written
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-hub.service → /etc/systemd/system/fdf-hub.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-client-myarea.service → /etc/systemd/system/fdf-client-myarea.service.
+== fdf-hub (want: 'hub regionbox on wg-myarea', 'start (adopt)')
+   fdf-events: build fdf-2026-10-12-r20; region is build fdf-2026-10-12-r20
+   2026-10-13 13:02:00 [FDF-HUB] facts: peers=0 announced
+   2026-10-13 13:02:00 [FDF-HUB] start (adopt): members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+   2026-10-13 13:02:00 [FDF-HUB] event p: members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+== fdf-client-myarea
+   fdf-client: regionbox joined the region at 127.0.0.1:51888, announced ["172.30.0.10"]
+   fdf-client: facts changed, re-announced
+   fdf-client: facts changed, re-announced
+== firewall: members must reach 172.30.0.10:51888/tcp and 172.30.0.10:50889/udp, and the hub forwards member to member.
+   With ufw, run (or re-run this with --ufw):
+     ufw allow 51888/tcp
+     ufw allow 50889/udp
+     ufw route allow in on wg-myarea out on wg-myarea
+
+== region myarea is held here. Its site key (shown this once; it stays in /opt/fdf/var/site-key-myarea):
+
+     <KEY>
+
+== a FrogNet node joins it at install:
+     sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --region 172.30.0.10:51888 --site-key <KEY> --area myarea
+   or, on a node already installed:  sudo bash fdf-install-$(uname -m).run <KEY> 172.30.0.10:51888 myarea
+rc=0
+$ /opt/fdf/bin/fdf-region-create myarea 172.30.0.10   (second run)
+== fdf-region-create myarea at 172.30.0.10 (RAM manager tcp 51888, hub udp 50889); package=fdf-droplet.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP 
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+rc=1
+(no ufw on this host: the ports are open on fn-wan; nothing to run)
+fdf-region-create: this machine already holds a region: /opt/fdf/hub/hub.env says FDF_AREA=myarea. A machine holds one; its site key is in /opt/fdf/var/site-key-<area>.

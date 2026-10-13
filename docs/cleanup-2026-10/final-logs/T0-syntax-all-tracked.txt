@@ -1,0 +1,1259 @@
+bash -n OK  docs/cleanup-2026-10/check-docs.sh
+bash -n OK  docs/cleanup-2026-10/static-no-broker.sh
+bash -n OK  docs/cleanup-2026-10/static-no-fallback.sh
+bash -n OK  etc/NetworkManager/dispatcher.d/90-frognet-merge
+py OK       opt/fdf/bin/chat-service.py
+bash -n OK  opt/fdf/bin/fdf-comms.sh
+py OK       opt/fdf/bin/fdf-facts
+py OK       opt/fdf/bin/fdf-hub
+bash -n OK  opt/fdf/bin/fdf-kart-ram.sh
+bash -n OK  opt/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/bin/fdf-mapping.sh
+bash -n OK  opt/fdf/bin/fdf-member.sh
+bash -n OK  opt/fdf/bin/fdf-ram-manager.sh
+bash -n OK  opt/fdf/bin/fdf-ram-server.sh
+py OK       opt/fdf/bin/fdf-reach
+bash -n OK  opt/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/bin/fdf-services.sh
+bash -n OK  opt/fdf/bin/frognet_capability_probe.sh
+py OK       opt/fdf/hub/apply_once.py
+py OK       opt/fdf/hub/hub_oracle.py
+bash -n OK  opt/fdf/hub/netns-graph-test.sh
+bash -n OK  opt/fdf/hub/netns-hub-test.sh
+py OK       opt/fdf/kart/kartdemo.py
+py OK       opt/fdf/kart/ribbit.py
+py OK       opt/fdf/lib/python/fdf_graph.py
+py OK       opt/fdf/lib/python/fdf_graph_oracle.py
+py OK       opt/fdf/lib/python/fdfram.py
+bash -n OK  opt/fdf/src/fdf-source/deliverables/header.sh
+py OK       opt/fdf/src/fdf-source/fdf/bin/chat-service.py
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-comms.sh
+py OK       opt/fdf/src/fdf-source/fdf/bin/fdf-facts
+py OK       opt/fdf/src/fdf-source/fdf/bin/fdf-hub
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-kart-ram.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-mapping.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-member.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-ram-manager.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-ram-server.sh
+py OK       opt/fdf/src/fdf-source/fdf/bin/fdf-reach
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-services.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/frognet_capability_probe.sh
+py OK       opt/fdf/src/fdf-source/fdf/hub/apply_once.py
+py OK       opt/fdf/src/fdf-source/fdf/hub/hub_oracle.py
+bash -n OK  opt/fdf/src/fdf-source/fdf/hub/netns-graph-test.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/hub/netns-hub-test.sh
+py OK       opt/fdf/src/fdf-source/fdf/lib/python/fdf_graph.py
+py OK       opt/fdf/src/fdf-source/fdf/lib/python/fdf_graph_oracle.py
+py OK       opt/fdf/src/fdf-source/fdf/lib/python/fdfram.py
+page js OK  opt/fdf/src/fdf-source/fdf/www/fdf/chat.html
+php -l OK   opt/fdf/src/fdf-source/fdf/www/fdf/chat_send.php
+php -l OK   opt/fdf/src/fdf-source/fdf/www/fdf/chat_wait.php
+page js OK  opt/fdf/src/fdf-source/fdf/www/fdf/fdf_dashboard.html
+php -l OK   opt/fdf/src/fdf-source/fdf/www/fdf/getParticipants.php
+php -l OK   opt/fdf/src/fdf-source/fdf/www/fdf/waitParticipants.php
+node OK     opt/fdf/src/fdf-source/fdf/www/term/addon-fit.js
+page js OK  opt/fdf/src/fdf-source/fdf/www/term/term.html
+node OK     opt/fdf/src/fdf-source/fdf/www/term/xterm.js
+bash -n OK  opt/fdf/src/fdf-source/frognet/etc/NetworkManager/dispatcher.d/90-frognet-merge
+py OK       opt/fdf/src/fdf-source/frognet/opt/fdf/lib/python/fdf_graph.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/fdf/lib/python/fdf_graph_oracle.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/frognet_role_elect.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/frognet_service_hosts.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/not_frognet.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/region_capability.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/role_publish.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/dbhost_switch_sim.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/descend.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/elect.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/hosts.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/live.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/orchestrate.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/real_backends.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/test_region_backends_oracle.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/config.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/gen.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/gen_oracle.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/region.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/test_region_oracle.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/__init__.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
+py OK       opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py
+bash -n OK  opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet-merge-watcher.sh
+py OK       opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_dbhost_elector.py
+py OK       opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/discovery.py
+py OK       opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/draw_ponds.py
+py OK       opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/main_loop.py
+py OK       opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/probes.py
+bash -n OK  opt/fdf/src/fdf-source/frognet/usr/local/bin/propogateNotificationInternal
+bash -n OK  opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash
+page js OK  opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html
+php -l OK   opt/fdf/src/fdf-source/frognet/var/www/html/frognet_echo.php
+php -l OK   opt/fdf/src/fdf-source/frognet/var/www/html/getHosts.php
+php -l OK   opt/fdf/src/fdf-source/frognet/var/www/html/getPonds.php
+bash -n OK  opt/fdf/src/fdf-source/rinab/bench.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp-nat-third.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp-nat.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp4-diag.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp4-readdress.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5a-diag.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5a-member-dies.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5b-full.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5b-host-moves.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5b-host-restart.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5b-late-program.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp5b-stress.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/exp6-split-merge.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/expD5-lan-join.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/expD5-lisp-name.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/expD5-mr-capability.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/expD5-one-name.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/experiments/retired/expD5-region-mapping.sh
+py OK       opt/fdf/src/fdf-source/rinab/kart/kartdemo.original.py
+py OK       opt/fdf/src/fdf-source/rinab/kart/kartdemo.py
+py OK       opt/fdf/src/fdf-source/rinab/kart/ribbit.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/lisp-mapping/lisp-down.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/lisp-mapping/lisp-up.sh
+py OK       opt/fdf/src/fdf-source/rinab/lisp-mapping/run-lispers.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/run.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tests/eexist_oracle.sh
+py OK       opt/fdf/src/fdf-source/rinab/tests/hub_oracle.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tests/mapown_oracle.sh
+py OK       opt/fdf/src/fdf-source/rinab/tests/reach_alias_test.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/alloc-stall.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_alloc_once.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_call_text.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_client_applier.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_client_coalesce_lockless.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_client_known_shape.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_client_landing_lockless.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_client_lockless.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_coalesce.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_decode_alloc.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_deferred_answer.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_ebr_readers.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_engine_exact_shortcuts.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_engine_lockless.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_engine_once.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_fire_keys.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_futex_portable.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_host_announce.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_host_coalesce.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_host_fanout.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_http_front.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_keepalive.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_keepalive_5s.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_net_config.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_no_answer_hash.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_once.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_primed_templates.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_refused_why.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_reply_proof.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_same_as_last.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_same_miss.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_session_epoch.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_session_hook.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_session_order.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_session_peer.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_template_precompute.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_windows_portable.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_wire_order.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/apply_work_moves.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/bench.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/bldc-compare.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/bldc-exact.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/bldc-replay.py
+py OK       opt/fdf/src/fdf-source/rinab/tools/build-prime.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_arm64.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_comms_deps.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_comms_static.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_rlite.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_static_clients.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_static_host.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/build_windows_client.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/cg-rr-whole.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/cg-rr.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/chat-check.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/chat-service.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/coalesce-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/cpu-split.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/dashboard-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/discovery-check.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/fdf-hub
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/loop-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/make_host.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/malloc-sites.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/map-expiry-compare.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/map-oracle-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/map-region-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/mapwait-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/move-check.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/mr-address.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-graph-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-hub-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-latency-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-leaf-tunnel-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-member-death-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-placement-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-ponds-daemon-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-reach-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-region-loop-test.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/perf-count.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/quick-bench.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/region-file-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/repeat-exp.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/exp3-run.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/retired/export_frognet_topos.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/handsoff-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/nat-agent-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/nat-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/nat-rtr-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/retired/nat-seen-check.sh
+py OK       opt/fdf/src/fdf-source/rinab/tools/retired/topo-rig.py
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/rr-count.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/rule-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/run-suite.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/selfreg-check.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/stall-repro.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/wire-mix.sh
+page js OK  opt/fdf/src/fdf-source/rinab/www/fdf/chat.html
+php -l OK   opt/fdf/src/fdf-source/rinab/www/fdf/chat_send.php
+php -l OK   opt/fdf/src/fdf-source/rinab/www/fdf/chat_wait.php
+page js OK  opt/fdf/src/fdf-source/rinab/www/fdf/fdf_dashboard.html
+php -l OK   opt/fdf/src/fdf-source/rinab/www/fdf/getParticipants.php
+php -l OK   opt/fdf/src/fdf-source/rinab/www/fdf/waitParticipants.php
+py OK       opt/fdf/src/frognet-android/communicator-test/gen_vectors.py
+bash -n OK  opt/fdf/src/frognet-android/communicator-test/run_tests.sh
+py OK       opt/fdf/src/frognet-android/communicator-test/test_android_core.py
+py OK       opt/fdf/src/frognet-android/communicator-test/test_app_flow.py
+py OK       opt/fdf/src/frognet-android/tools/apply_keepalive_5s.py
+bash -n OK  opt/fdf/src/frognet-android/tools/netns-fdftun-test.sh
+bash -n OK  opt/fdf/src/frognet-android/tools/netns-leaf-tunnel-test.sh
+bash -n OK  opt/fdf/src/frognet-android/tools/netns-member-death-test.sh
+bash -n OK  opt/fdf/src/frognet-android/tools/netns-placement-test.sh
+bash -n OK  opt/fdf/src/frognet-android/tools/netns-two-ponds-test.sh
+bash -n OK  opt/fdf/src/frognet-android/tun/build.sh
+bash -n OK  opt/fdf/src/frognet-android/tun/third_party/x-sys/unix/mkall.sh
+bash -n OK  opt/fdf/src/frognet-android/tun/third_party/x-sys/unix/mkerrors.sh
+bash -n OK  opt/fdf/src/frognet-android/tun/third_party/x-sys/windows/mkerrors.bash
+bash -n OK  opt/fdf/src/frognet-android/tun/third_party/x-sys/windows/mkknownfolderids.bash
+bash -n OK  opt/fdf/src/frognet-android/windows/make_package.sh
+py OK       opt/fdf/src/frognet-android/windows/strip_module_hashes.py
+py OK       opt/fdf/windows/fdf-browser.py
+py OK       opt/fdf/windows/fdf-monitor.py
+py OK       opt/fdf/windows/fdfram.py
+py OK       opt/fdf/windows/kartdemo.py
+py OK       opt/fdf/windows/ribbit.py
+node OK     opt/fdf/windows/term/addon-fit.js
+page js OK  opt/fdf/windows/term/term.html
+node OK     opt/fdf/windows/term/xterm.js
+page js OK  opt/fdf/www/fdf/chat.html
+php -l OK   opt/fdf/www/fdf/chat_send.php
+php -l OK   opt/fdf/www/fdf/chat_wait.php
+page js OK  opt/fdf/www/fdf/fdf_dashboard.html
+php -l OK   opt/fdf/www/fdf/getParticipants.php
+php -l OK   opt/fdf/www/fdf/waitParticipants.php
+node OK     opt/fdf/www/term/addon-fit.js
+page js OK  opt/fdf/www/term/term.html
+node OK     opt/fdf/www/term/xterm.js
+py OK       opt/frognet_semantic/.netbench-backup-20260908-163735/core/frognet_tuples.py
+py OK       opt/frognet_semantic/_fix_meta/frognet_role_elect_orig.py
+py OK       opt/frognet_semantic/_fix_meta/frognet_service_hosts_orig.py
+py OK       opt/frognet_semantic/_fix_meta/live_orig.py
+py OK       opt/frognet_semantic/_fix_meta/oracle_lan_bucket.py
+py OK       opt/frognet_semantic/_fix_meta/oracle_service_no_sync.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace_v4.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace_v4_STUB_for_oracles.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_orig.py
+bash -n OK  opt/frognet_semantic/broker/opt/frognet_broker_v4/deploy_broker_v4.sh
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/diagnose_mesh.py
+php -l OK   opt/frognet_semantic/broker/opt/frognet_broker_v4/frognet_broker_admin_v4.php
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/frognet_broker_v4.py
+php -l OK   opt/frognet_semantic/broker/opt/frognet_broker_v4/frognet_setup_v4_api.php
+bash -n OK  opt/frognet_semantic/broker/opt/frognet_broker_v4/frognet_setup_v4_helper.bash
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/frognet_trace.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/migrate_v3_to_v4.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/oracle_migration.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/oracle_tunnel_idkey.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/reap_ghost_tunnels.py
+py OK       opt/frognet_semantic/broker/opt/frognet_broker_v4/reap_stale_tunnels.py
+page js OK  opt/frognet_semantic/broker/opt/frognet_broker_v4/setup_frognet.html
+page js OK  opt/frognet_semantic/broker/var/www/html/about.dc.html
+node OK     opt/frognet_semantic/broker/var/www/html/assets/vendor/babel.min.js
+node OK     opt/frognet_semantic/broker/var/www/html/assets/vendor/react-dom.production.min.js
+node OK     opt/frognet_semantic/broker/var/www/html/assets/vendor/react.production.min.js
+page js OK  opt/frognet_semantic/broker/var/www/html/build-and-test.dc.html
+node OK     opt/frognet_semantic/broker/var/www/html/build_magnum.js
+py OK       opt/frognet_semantic/broker/var/www/html/checksite.py
+page js OK  opt/frognet_semantic/broker/var/www/html/comparison.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/contact.dc.html
+node OK     opt/frognet_semantic/broker/var/www/html/deck-stage.js
+BAD opt/frognet_semantic/broker/var/www/html/demonstrations.dc.html
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/broker_boundary.py
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/build.py
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/frognet_svg.py
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/ladder_vs_cliff.py
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/same_diff_full.py
+py OK       opt/frognet_semantic/broker/var/www/html/diagrams/split_and_merge.py
+py OK       opt/frognet_semantic/broker/var/www/html/frognet_site.py
+page js OK  opt/frognet_semantic/broker/var/www/html/index.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/index.html
+page js OK  opt/frognet_semantic/broker/var/www/html/library.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/license.dc.html
+py OK       opt/frognet_semantic/broker/var/www/html/license_endpoint.py
+page js OK  opt/frognet_semantic/broker/var/www/html/licensing.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/privacy.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/products.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/security.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/services.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/simulator.dc.html
+node OK     opt/frognet_semantic/broker/var/www/html/site.js
+page js OK  opt/frognet_semantic/broker/var/www/html/store.dc.html
+node OK     opt/frognet_semantic/broker/var/www/html/support.js
+BAD opt/frognet_semantic/broker/var/www/html/the-claim.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/track-record.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/unrest-examples.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/use-cases.dc.html
+page js OK  opt/frognet_semantic/broker/var/www/html/why.dc.html
+py OK       opt/frognet_semantic/codex_fullsuite/box_fullsuite.py
+bash -n OK  opt/frognet_semantic/codex_fullsuite/fetch_corpora.sh
+py OK       opt/frognet_semantic/core/__init__.py
+py OK       opt/frognet_semantic/core/blob_store.py
+py OK       opt/frognet_semantic/core/cache_policy.py
+py OK       opt/frognet_semantic/core/codec.py
+py OK       opt/frognet_semantic/core/database_handler.py
+py OK       opt/frognet_semantic/core/db_credentials.py
+py OK       opt/frognet_semantic/core/format_registry.py
+py OK       opt/frognet_semantic/core/frognet_diag.py
+py OK       opt/frognet_semantic/core/frognet_host_reset.py
+py OK       opt/frognet_semantic/core/frognet_ram.py
+py OK       opt/frognet_semantic/core/frognet_role_elect.py
+py OK       opt/frognet_semantic/core/frognet_secret.py
+py OK       opt/frognet_semantic/core/frognet_service_hosts.py
+py OK       opt/frognet_semantic/core/frognet_tuples.py
+py OK       opt/frognet_semantic/core/hosts_only.py
+py OK       opt/frognet_semantic/core/html_handler.py
+py OK       opt/frognet_semantic/core/json_handler.py
+py OK       opt/frognet_semantic/core/live.py
+py OK       opt/frognet_semantic/core/not_frognet.py
+py OK       opt/frognet_semantic/core/policy.py
+py OK       opt/frognet_semantic/core/region_capability.py
+py OK       opt/frognet_semantic/core/role_publish.py
+py OK       opt/frognet_semantic/core/role_registry.py
+py OK       opt/frognet_semantic/core/semcache_id.py
+py OK       opt/frognet_semantic/core/semcache_wire.py
+py OK       opt/frognet_semantic/core/sizing.py
+py OK       opt/frognet_semantic/core/sotf_handler.py
+py OK       opt/frognet_semantic/core/stat_schema.py
+py OK       opt/frognet_semantic/core/store.py
+py OK       opt/frognet_semantic/core/template.py
+py OK       opt/frognet_semantic/core/template_utils.py
+py OK       opt/frognet_semantic/core/test_capability_no_age_oracle.py
+py OK       opt/frognet_semantic/core/test_codec_int64_oracle.py
+py OK       opt/frognet_semantic/core/test_mediahost_onsegment_oracle.py
+py OK       opt/frognet_semantic/core/test_mediahost_pondwide_oracle.py
+py OK       opt/frognet_semantic/core/text_handler.py
+py OK       opt/frognet_semantic/core/tokens.py
+py OK       opt/frognet_semantic/core/tuple_key.py
+py OK       opt/frognet_semantic/core/type_detect.py
+py OK       opt/frognet_semantic/core/unrest_handler.py
+py OK       opt/frognet_semantic/core/xml_handler.py
+py OK       opt/frognet_semantic/daemon/__init__.py
+py OK       opt/frognet_semantic/daemon/cache/__init__.py
+py OK       opt/frognet_semantic/daemon/cache/semcache_db.py
+py OK       opt/frognet_semantic/daemon/daemon_main.py
+py OK       opt/frognet_semantic/daemon/daemon_metrics.py
+py OK       opt/frognet_semantic/daemon/engine/__init__.py
+py OK       opt/frognet_semantic/daemon/engine/data_cache.py
+py OK       opt/frognet_semantic/daemon/engine/errors.py
+py OK       opt/frognet_semantic/daemon/engine/execution.py
+py OK       opt/frognet_semantic/daemon/engine/packet.py
+py OK       opt/frognet_semantic/daemon/engine/policy.py
+py OK       opt/frognet_semantic/daemon/engine/resolver.py
+py OK       opt/frognet_semantic/daemon/engine/server.py
+py OK       opt/frognet_semantic/daemon/engine/session.py
+py OK       opt/frognet_semantic/daemon/engine/template.py
+py OK       opt/frognet_semantic/daemon/pool_resizer.py
+py OK       opt/frognet_semantic/daemon/templates/__init__.py
+py OK       opt/frognet_semantic/daemon/templates/loader.py
+py OK       opt/frognet_semantic/daemon/test_engine_error_reason_oracle.py
+py OK       opt/frognet_semantic/daemon/upstream/__init__.py
+py OK       opt/frognet_semantic/daemon/upstream/client.py
+py OK       opt/frognet_semantic/daemon/util/__init__.py
+py OK       opt/frognet_semantic/daemon/util/hosts.py
+py OK       opt/frognet_semantic/daemon/util/ip.py
+py OK       opt/frognet_semantic/daemon/util/log.py
+py OK       opt/frognet_semantic/discovery/__init__.py
+py OK       opt/frognet_semantic/discovery/__main__.py
+py OK       opt/frognet_semantic/discovery/cli.py
+py OK       opt/frognet_semantic/discovery/convert.py
+py OK       opt/frognet_semantic/discovery/dbhost_switch_sim.py
+py OK       opt/frognet_semantic/discovery/descend.py
+py OK       opt/frognet_semantic/discovery/discovery.py
+py OK       opt/frognet_semantic/discovery/elect.py
+py OK       opt/frognet_semantic/discovery/fixdefault.py
+py OK       opt/frognet_semantic/discovery/flaky.py
+py OK       opt/frognet_semantic/discovery/healthcheck.py
+py OK       opt/frognet_semantic/discovery/host_records.py
+py OK       opt/frognet_semantic/discovery/hosts.py
+py OK       opt/frognet_semantic/discovery/identity_preflight.py
+py OK       opt/frognet_semantic/discovery/kernel.py
+py OK       opt/frognet_semantic/discovery/live.py
+py OK       opt/frognet_semantic/discovery/mapinterfaces.py
+py OK       opt/frognet_semantic/discovery/neighbors.py
+py OK       opt/frognet_semantic/discovery/orchestrate.py
+py OK       opt/frognet_semantic/discovery/probe_sweep.py
+py OK       opt/frognet_semantic/discovery/propagate.py
+py OK       opt/frognet_semantic/discovery/real_backends.py
+py OK       opt/frognet_semantic/discovery/record_walk.py
+py OK       opt/frognet_semantic/discovery/resolv.py
+py OK       opt/frognet_semantic/discovery/routes.py
+py OK       opt/frognet_semantic/discovery/run_discovery_all.py
+py OK       opt/frognet_semantic/discovery/run_discovery_oracles.py
+py OK       opt/frognet_semantic/discovery/runmerge.py
+py OK       opt/frognet_semantic/discovery/selfcheck.py
+py OK       opt/frognet_semantic/discovery/sim/__init__.py
+py OK       opt/frognet_semantic/discovery/sim/boot_gate_check.py
+py OK       opt/frognet_semantic/discovery/sim/broker_world.py
+py OK       opt/frognet_semantic/discovery/sim/conf_lib_check.py
+py OK       opt/frognet_semantic/discovery/sim/databasehost_convergence_check.py
+py OK       opt/frognet_semantic/discovery/sim/dbhost_barrier_run.py
+py OK       opt/frognet_semantic/discovery/sim/elector_check.py
+py OK       opt/frognet_semantic/discovery/sim/fabric.py
+py OK       opt/frognet_semantic/discovery/sim/host_reset_check.py
+py OK       opt/frognet_semantic/discovery/sim/install_plane.py
+py OK       opt/frognet_semantic/discovery/sim/kernel_check.py
+py OK       opt/frognet_semantic/discovery/sim/lan_chain.py
+py OK       opt/frognet_semantic/discovery/sim/license_check.py
+py OK       opt/frognet_semantic/discovery/sim/lifecycle.py
+py OK       opt/frognet_semantic/discovery/sim/loop_scenarios.py
+py OK       opt/frognet_semantic/discovery/sim/loopcheck.py
+py OK       opt/frognet_semantic/discovery/sim/malformed_capability_guard_check.py
+py OK       opt/frognet_semantic/discovery/sim/multi_merge_thrash_check.py
+py OK       opt/frognet_semantic/discovery/sim/proof_plane.py
+py OK       opt/frognet_semantic/discovery/sim/random_reconnect_check.py
+py OK       opt/frognet_semantic/discovery/sim/role_election_check.py
+py OK       opt/frognet_semantic/discovery/sim/role_registry_lxmlfree_check.py
+py OK       opt/frognet_semantic/discovery/sim/safeboot_check.py
+py OK       opt/frognet_semantic/discovery/sim/service_election_check.py
+py OK       opt/frognet_semantic/discovery/sim/shapes.py
+py OK       opt/frognet_semantic/discovery/sim/shipped_paths_check.py
+py OK       opt/frognet_semantic/discovery/sim/system.py
+py OK       opt/frognet_semantic/discovery/sim/topology.py
+py OK       opt/frognet_semantic/discovery/snapshot.py
+py OK       opt/frognet_semantic/discovery/sources.py
+py OK       opt/frognet_semantic/discovery/test_alive_retry_oracle.py
+py OK       opt/frognet_semantic/discovery/test_attached_onlink_oracle.py
+py OK       opt/frognet_semantic/discovery/test_ballot_admissibility_oracle.py
+py OK       opt/frognet_semantic/discovery/test_behind_relay_dot2_oracle.py
+py OK       opt/frognet_semantic/discovery/test_blank_authname_oracle.py
+py OK       opt/frognet_semantic/discovery/test_boot_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_capability_no_age_oracle.py
+py OK       opt/frognet_semantic/discovery/test_child_onlink_uplink_oracle.py
+py OK       opt/frognet_semantic/discovery/test_clean_install_oracle.py
+py OK       opt/frognet_semantic/discovery/test_conf_lib_oracle.py
+py OK       opt/frognet_semantic/discovery/test_data_cache_gen_oracle.py
+py OK       opt/frognet_semantic/discovery/test_databasehost_converge_oracle.py
+py OK       opt/frognet_semantic/discovery/test_dbhost_ballot_freshness_oracle.py
+py OK       opt/frognet_semantic/discovery/test_dbhost_incumbency_oracle.py
+py OK       opt/frognet_semantic/discovery/test_dbhost_rank_malformed_oracle.py
+py OK       opt/frognet_semantic/discovery/test_dbhost_row_pick_oracle.py
+py OK       opt/frognet_semantic/discovery/test_dbhost_static_rank_oracle.py
+py OK       opt/frognet_semantic/discovery/test_descend_depth_oracle.py
+py OK       opt/frognet_semantic/discovery/test_descend_oracle.py
+py OK       opt/frognet_semantic/discovery/test_direct_neighbors_oracle.py
+py OK       opt/frognet_semantic/discovery/test_elector_oracle.py
+py OK       opt/frognet_semantic/discovery/test_empty_array_template_oracle.py
+py OK       opt/frognet_semantic/discovery/test_fabric_integration.py
+py OK       opt/frognet_semantic/discovery/test_fastpath_existing_route_oracle.py
+py OK       opt/frognet_semantic/discovery/test_fixdefault_modeb.py
+py OK       opt/frognet_semantic/discovery/test_fixdefault_oracle.py
+bash -n OK  opt/frognet_semantic/discovery/test_getfrognet_cache_oracle.sh
+py OK       opt/frognet_semantic/discovery/test_healthcheck_oracle.py
+py OK       opt/frognet_semantic/discovery/test_host_records_oracle.py
+py OK       opt/frognet_semantic/discovery/test_host_reset_oracle.py
+py OK       opt/frognet_semantic/discovery/test_hosts_authoritative_oracle.py
+py OK       opt/frognet_semantic/discovery/test_hosts_oracle.py
+py OK       opt/frognet_semantic/discovery/test_identity_preflight_oracle.py
+py OK       opt/frognet_semantic/discovery/test_kernel_oracle.py
+py OK       opt/frognet_semantic/discovery/test_kernel_parity.py
+py OK       opt/frognet_semantic/discovery/test_lan_chain_oracle.py
+py OK       opt/frognet_semantic/discovery/test_lan_untunnelled_oracle.py
+py OK       opt/frognet_semantic/discovery/test_leaf_src_oracle.py
+py OK       opt/frognet_semantic/discovery/test_license_oracle.py
+py OK       opt/frognet_semantic/discovery/test_loop9009_hairpin_oracle.py
+py OK       opt/frognet_semantic/discovery/test_malformed_capability_guard_oracle.py
+py OK       opt/frognet_semantic/discovery/test_mapinterfaces_oracle.py
+py OK       opt/frognet_semantic/discovery/test_multitunnel_failcache_oracle.py
+py OK       opt/frognet_semantic/discovery/test_nameless_host_oracle.py
+py OK       opt/frognet_semantic/discovery/test_neighbor_client_dot1_oracle.py
+py OK       opt/frognet_semantic/discovery/test_not_frognet_skip_oracle.py
+py OK       opt/frognet_semantic/discovery/test_ny2_alive_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_onsegment_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_pingpong_return_ip_oracle.py
+py OK       opt/frognet_semantic/discovery/test_prewarm_pip_serial_oracle.py
+py OK       opt/frognet_semantic/discovery/test_propagate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_propagate_reach_oracle.py
+py OK       opt/frognet_semantic/discovery/test_prune_dest_extras_oracle.py
+py OK       opt/frognet_semantic/discovery/test_prune_kernel_route_oracle.py
+py OK       opt/frognet_semantic/discovery/test_real_backends.py
+py OK       opt/frognet_semantic/discovery/test_reap_stale_winner_oracle.py
+py OK       opt/frognet_semantic/discovery/test_record_walk_oracle.py
+py OK       opt/frognet_semantic/discovery/test_reflect_pinned_path_oracle.py
+py OK       opt/frognet_semantic/discovery/test_reflect_promote_vouch_oracle.py
+py OK       opt/frognet_semantic/discovery/test_reflect_vouch_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_region_backends_oracle.py
+py OK       opt/frognet_semantic/discovery/test_resolv_layout_oracle.py
+py OK       opt/frognet_semantic/discovery/test_role_election_uncoupled_oracle.py
+py OK       opt/frognet_semantic/discovery/test_role_registry_lxmlfree_oracle.py
+py OK       opt/frognet_semantic/discovery/test_routes_oracle.py
+py OK       opt/frognet_semantic/discovery/test_runagain_convergence_oracle.py
+py OK       opt/frognet_semantic/discovery/test_runagain_real_delta_oracle.py
+py OK       opt/frognet_semantic/discovery/test_runmerge_oracle.py
+py OK       opt/frognet_semantic/discovery/test_safeboot_oracle.py
+py OK       opt/frognet_semantic/discovery/test_seattle5_reflect_oracle.py
+py OK       opt/frognet_semantic/discovery/test_seattle6_oracle.py
+py OK       opt/frognet_semantic/discovery/test_service_election_oracle.py
+py OK       opt/frognet_semantic/discovery/test_service_handlers_static_oracle.py
+py OK       opt/frognet_semantic/discovery/test_service_host_consistency_oracle.py
+py OK       opt/frognet_semantic/discovery/test_shipped_paths_oracle.py
+py OK       opt/frognet_semantic/discovery/test_snapshot_struct.py
+py OK       opt/frognet_semantic/discovery/test_sync_on_route_mutation_oracle.py
+py OK       opt/frognet_semantic/discovery/test_transit_from_winners_oracle.py
+py OK       opt/frognet_semantic/discovery/test_tunnel_kernel_immediate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_tunnel_peer_dot2_oracle.py
+py OK       opt/frognet_semantic/discovery/test_upstream_lease_dot1_oracle.py
+py OK       opt/frognet_semantic/discovery/test_verify_route_oracle.py
+py OK       opt/frognet_semantic/discovery/test_vouch_route_oracle.py
+py OK       opt/frognet_semantic/discovery/test_vouch_transit_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_vouch_ts_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_walk_oracle.py
+py OK       opt/frognet_semantic/discovery/test_walk_pingpong_gate_oracle.py
+py OK       opt/frognet_semantic/discovery/test_wave_parallel_equivalence_oracle.py
+py OK       opt/frognet_semantic/discovery/test_winner_hysteresis_nexthop_oracle.py
+py OK       opt/frognet_semantic/discovery/test_winner_via_hysteresis_oracle.py
+node OK     opt/frognet_semantic/docs/magnum_croakus/build_magnum.js
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/A.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/B.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/C.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/D.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/E.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/F.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/G.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/H.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/I.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/J.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/K.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/R-12.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/R-34.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/R-56.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/S.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/T.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/audit_1008_a.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/audit_1008_b.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-11/patchlib.py
+page js OK  opt/frognet_semantic/docs/magnum_croakus/shell_head.html
+py OK       opt/frognet_semantic/frognet_log.py
+py OK       opt/frognet_semantic/frognet_route/__init__.py
+py OK       opt/frognet_semantic/frognet_route/__main__.py
+py OK       opt/frognet_semantic/frognet_route/committer.py
+py OK       opt/frognet_semantic/frognet_route/frognet_trace.py
+py OK       opt/frognet_semantic/frognet_route/iproute.py
+py OK       opt/frognet_semantic/frognet_route/observation.py
+py OK       opt/frognet_semantic/frognet_route/planner.py
+py OK       opt/frognet_semantic/frognet_trace.py
+py OK       opt/frognet_semantic/frogsim/frogsim_merge_storm.py
+py OK       opt/frognet_semantic/frogsim/frogsim_runagain.py
+py OK       opt/frognet_semantic/frogsim/frogsim_runagain_external.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/__init__.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/__main__.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/broker.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/broker_auth.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/broker_pin.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/config.py
+php -l OK   opt/frognet_semantic/internet_tunnels_v3/frognet_chorus.php
+py OK       opt/frognet_semantic/internet_tunnels_v3/gen.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/gen_oracle.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+bash -n OK  opt/frognet_semantic/internet_tunnels_v3/install/install_client.sh
+bash -n OK  opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash
+py OK       opt/frognet_semantic/internet_tunnels_v3/iproute.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/main.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/names.py
+bash -n OK  opt/frognet_semantic/internet_tunnels_v3/package_client.sh
+py OK       opt/frognet_semantic/internet_tunnels_v3/peer.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/poll.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/region.py
+bash -n OK  opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash
+py OK       opt/frognet_semantic/internet_tunnels_v3/test_region_oracle.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/test_register_on_404_oracle.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/test_transit_discover_v2.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/test_transit_from_routes.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/tests/__init__.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/threads.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/websocket.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/wg.py
+bash -n OK  opt/frognet_semantic/oracles/oracle_default_route_resolver.sh
+bash -n OK  opt/frognet_semantic/oracles/oracle_dhcp_scope.sh
+py OK       opt/frognet_semantic/oracles/oracle_exit_gw_dot1.py
+py OK       opt/frognet_semantic/oracles/oracle_forwarders.py
+bash -n OK  opt/frognet_semantic/oracles/oracle_identity_fails_loud.sh
+bash -n OK  opt/frognet_semantic/oracles/oracle_mapinterfaces_names.sh
+bash -n OK  opt/frognet_semantic/oracles/oracle_opts_only_interface_lines.sh
+py OK       opt/frognet_semantic/oracles/oracle_routing_topology.py
+py OK       opt/frognet_semantic/oracles/oracle_self_identity_lines.py
+py OK       opt/frognet_semantic/proxy/__init__.py
+py OK       opt/frognet_semantic/proxy/cache/__init__.py
+py OK       opt/frognet_semantic/proxy/cache/semcache_db.py
+py OK       opt/frognet_semantic/proxy/cache/test_semcache_proxy_efficiency_oracle.py
+py OK       opt/frognet_semantic/proxy/channel_sets.py
+py OK       opt/frognet_semantic/proxy/constants.py
+py OK       opt/frognet_semantic/proxy/decision.py
+py OK       opt/frognet_semantic/proxy/frognet_media_diag.py
+py OK       opt/frognet_semantic/proxy/frognet_media_planes.py
+py OK       opt/frognet_semantic/proxy/icmp_semantic.py
+py OK       opt/frognet_semantic/proxy/local_read_cache.py
+py OK       opt/frognet_semantic/proxy/netutil.py
+py OK       opt/frognet_semantic/proxy/origin.py
+py OK       opt/frognet_semantic/proxy/policy.py
+py OK       opt/frognet_semantic/proxy/proxy_main.py
+py OK       opt/frognet_semantic/proxy/proxy_metrics.py
+py OK       opt/frognet_semantic/proxy/templates.py
+py OK       opt/frognet_semantic/proxy/test_channel_sets.py
+py OK       opt/frognet_semantic/proxy/test_connect_retire_oracle.py
+py OK       opt/frognet_semantic/proxy/test_fanout_wire_order_oracle.py
+py OK       opt/frognet_semantic/proxy/test_ham_accept_encoding_oracle.py
+py OK       opt/frognet_semantic/proxy/test_instance_references_oracle.py
+py OK       opt/frognet_semantic/proxy/test_no_fallback_oracle.py
+py OK       opt/frognet_semantic/proxy/test_no_import_guard_oracle.py
+py OK       opt/frognet_semantic/proxy/test_resp_same_reference_oracle.py
+py OK       opt/frognet_semantic/proxy/test_serve_before_publish_oracle.py
+py OK       opt/frognet_semantic/proxy/test_tuple_key_oracle.py
+py OK       opt/frognet_semantic/proxy/test_worker_liveness_oracle.py
+py OK       opt/frognet_semantic/proxy/transport_radio.py
+py OK       opt/frognet_semantic/proxy/transport_real.py
+py OK       opt/frognet_semantic/proxy/transport_semantic.py
+py OK       opt/frognet_semantic/relog_tree.py
+bash -n OK  opt/frognet_semantic/ribbit/cpp/ensure_build_deps.sh
+bash -n OK  opt/frognet_semantic/ribbit/cpp/qualify.sh
+py OK       opt/frognet_semantic/ribbit/cpp/tests/bench_semcodec_python.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/bench_semtpl.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/bench_semwire_python.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/gen_pyuni_s3.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/gen_pyuni_tables.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/blob_store.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/cache_policy.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/codec.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/database_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/db_credentials.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/format_registry.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_diag.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_host_reset.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_ram.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_role_elect.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_secret.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_service_hosts.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/frognet_tuples.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/game_role.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/hosts_only.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/html_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/json_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/not_frognet.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/policy.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/role_publish.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/role_registry.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/semcache_id.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/semcache_wire.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/sizing.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/sotf_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/stat_schema.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/store.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/template.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/template_utils.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/text_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/tokens.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/tuple_key.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/type_detect.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/unrest_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/core/xml_handler.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/cache/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/cache/semcache_db.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/daemon_main.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/daemon_metrics.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/data_cache.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/errors.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/execution.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/packet.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/policy.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/resolver.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/server.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/session.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/engine/template.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/pool_resizer.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/templates/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/templates/loader.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/upstream/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/upstream/client.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/util/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/util/hosts.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/util/ip.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/daemon/util/log.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/frognet_log.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/frognet_trace.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/cache/__init__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/cache/semcache_db.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/channel_sets.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/constants.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/decision.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/frognet_media_diag.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/frognet_media_planes.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/icmp_semantic.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/local_read_cache.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/netutil.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/origin.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/policy.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/proxy_main.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/proxy_metrics.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/templates.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/transport_radio.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/transport_real.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/transport_semantic.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/util/__INIT__.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/util/log.py
+bash -n OK  opt/frognet_semantic/ribbit/cpp/tests/semcodec_mutants.sh
+bash -n OK  opt/frognet_semantic/ribbit/cpp/tests/semtpl_mutants.sh
+bash -n OK  opt/frognet_semantic/ribbit/cpp/tests/semwire_mutants.sh
+py OK       opt/frognet_semantic/ribbit/cpp/tests/shaped_relay.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_fnwp_oracle.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_fnwp_reply_oracle.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_fnwp_server_oracle.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_ramrows.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_semcodec_oracle.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_semtpl_oracle.py
+py OK       opt/frognet_semantic/ribbit/cpp/tests/test_semwire_oracle.py
+bash -n OK  opt/frognet_semantic/ribbit/defaults/api/build.sh
+py OK       opt/frognet_semantic/ribbit/defaults/api/frognet_tuples.py
+bash -n OK  opt/frognet_semantic/ribbit/defaults/api/test.sh
+py OK       opt/frognet_semantic/ribbit/defaults/api/tests/test_tuples.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/chat/build.sh
+py OK       opt/frognet_semantic/ribbit/examples/chat/client/chat.py
+py OK       opt/frognet_semantic/ribbit/examples/chat/client/frogchat.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/chat/test.sh
+py OK       opt/frognet_semantic/ribbit/examples/chat/tests/test_chat.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/communicator/build-servers-static.sh
+bash -n OK  opt/frognet_semantic/ribbit/examples/communicator/build-windows.sh
+bash -n OK  opt/frognet_semantic/ribbit/examples/communicator/build.sh
+bash -n OK  opt/frognet_semantic/ribbit/examples/communicator/demo.sh
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/comms_app.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/comms_feed.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/__init__.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/audio.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/call.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/fnav.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/media.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/memory.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/python/frogcomms/room.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tests/py/test_call_interop.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tests/py/test_fnav.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tests/py/test_room_interop.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tests/test_media_fan.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tools/fnav_peer.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tools/gen_bearer.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tools/gen_frames.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tools/gen_mixer.py
+py OK       opt/frognet_semantic/ribbit/examples/communicator/tools/gen_segment.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/client/lisper.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/client/tests/test_lisper.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/__init__.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/adapters/__init__.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/adapters/command.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/adapters/control.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/model.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/normalize.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/conformance/timing.py
+page js OK  opt/frognet_semantic/ribbit/examples/lispers.net/evidence/2026-09-28/PERF-TIMELINE.html
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/run_conformance.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/lispers.net/run_ribbit_local.sh
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/__init__.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_ddt_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_mapping_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_read_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_registration_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_roundtrip_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_site_authorization.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_sync_architecture.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tests/test_wire_contract.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/third_party/lispers.net/lisp/lisp.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/acceptance.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/acceptance_hw.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/api_inventory.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_etr_registrar.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_etr_request.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_lisp_boundary.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_native_registration.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_native_regovernance.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/bench_notify_roundtrip.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/characterize_source.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/compare_lispers.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/compare_timings.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/control_wire_oracle.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/coverage/lcaf_vectors_from_lispers.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/coverage/surface_lispers.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/cross_process_ram.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/make_hw_configs.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/matched_audit.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/measure_liveness_bytes.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/measure_native_change_bytes.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/measure_registration_bytes.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/measure_resolution_scaling.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/measure_round_trips.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/lispers.net/tools/package_check.sh
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/perf.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/lispers.net/tools/qualify.sh
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/stress_multirecord_atomic.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_boundary_hol.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_control_wire_oracle.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_etr_registrar.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_etr_registrar_notify.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_fail_loudly.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_held_database_mapping.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_held_ddt.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_held_etr_request.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_held_map_cache.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_held_resolver.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_lisp_handler.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_lisp_service.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_native_liveness.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_native_registration.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_native_regovernance.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_python_no_fallbacks_oracle.py
+py OK       opt/frognet_semantic/ribbit/examples/lispers.net/tools/test_read_your_write.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/coordinated.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/internet_wrapper.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/redis/tests/rehearse_coordinated.sh
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/run_concurrency.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/run_reconnect.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/run_same_miss.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/run_trust.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/run_two_fronts.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tests/test_same_miss_py_oracle.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_coalesce.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_reply_proof.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_row_scan_bound.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_same_miss.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_same_miss_py.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/apply_wire_order.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/redis/tools/build.sh
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/gen_cmdtable.py
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/latency_relay.py
+bash -n OK  opt/frognet_semantic/ribbit/examples/redis/tools/make_host.sh
+bash -n OK  opt/frognet_semantic/ribbit/examples/redis/tools/qualify.sh
+py OK       opt/frognet_semantic/ribbit/examples/redis/tools/shaped_relay.py
+py OK       opt/frognet_semantic/simulation/bakeoff_rest_vs_sotf.py
+py OK       opt/frognet_semantic/simulation/broker_topology.py
+py OK       opt/frognet_semantic/simulation/collective_tier.py
+py OK       opt/frognet_semantic/simulation/compare_bandwidth.py
+py OK       opt/frognet_semantic/simulation/compare_udp_vs_sotf.py
+py OK       opt/frognet_semantic/simulation/db_conn_lifetime_tier.py
+py OK       opt/frognet_semantic/simulation/degrade_sweep.py
+php -l OK   opt/frognet_semantic/simulation/echo.php
+py OK       opt/frognet_semantic/simulation/folded_seattle_chain_routes.py
+py OK       opt/frognet_semantic/simulation/frognet_planner_fallback_tests.py
+py OK       opt/frognet_semantic/simulation/frognet_sim.py
+py OK       opt/frognet_semantic/simulation/games/election_split_merge_sim.py
+py OK       opt/frognet_semantic/simulation/hardware.py
+py OK       opt/frognet_semantic/simulation/harness_topo.py
+py OK       opt/frognet_semantic/simulation/live_engine.py
+py OK       opt/frognet_semantic/simulation/live_failures.py
+py OK       opt/frognet_semantic/simulation/live_prober_removal.py
+py OK       opt/frognet_semantic/simulation/machine.py
+bash -n OK  opt/frognet_semantic/simulation/mode2_capture_near.sh
+bash -n OK  opt/frognet_semantic/simulation/mode2_capture_remote.sh
+py OK       opt/frognet_semantic/simulation/mode_preflight.py
+py OK       opt/frognet_semantic/simulation/model_feedback.py
+py OK       opt/frognet_semantic/simulation/netdef.py
+py OK       opt/frognet_semantic/simulation/netns_backend.py
+bash -n OK  opt/frognet_semantic/simulation/netns_seattle_chain.sh
+py OK       opt/frognet_semantic/simulation/proxy_dataplane.py
+py OK       opt/frognet_semantic/simulation/psychedelic.py
+py OK       opt/frognet_semantic/simulation/regression_baselines.py
+py OK       opt/frognet_semantic/simulation/remote_test_daemon.py
+py OK       opt/frognet_semantic/simulation/return_channel_tier.py
+py OK       opt/frognet_semantic/simulation/role_registry_lxmlfree_check.py
+py OK       opt/frognet_semantic/simulation/run_all.py
+py OK       opt/frognet_semantic/simulation/run_all_media_stream.py
+py OK       opt/frognet_semantic/simulation/run_all_tests.py
+py OK       opt/frognet_semantic/simulation/run_hardware_loop.py
+py OK       opt/frognet_semantic/simulation/run_movies.py
+py OK       opt/frognet_semantic/simulation/sim_cache_soak.py
+py OK       opt/frognet_semantic/simulation/sim_control_plane.py
+py OK       opt/frognet_semantic/simulation/sim_mediahost.py
+py OK       opt/frognet_semantic/simulation/sim_pond_node.py
+py OK       opt/frognet_semantic/simulation/sim_sotf_media_codex.py
+py OK       opt/frognet_semantic/simulation/sim_src_pin.py
+py OK       opt/frognet_semantic/simulation/sim_tunnel_health.py
+py OK       opt/frognet_semantic/simulation/sotf_browser_server.py
+py OK       opt/frognet_semantic/simulation/sotf_degradation_ladder.py
+py OK       opt/frognet_semantic/simulation/sotf_media_tier.py
+py OK       opt/frognet_semantic/simulation/sotf_video_stream_test.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/__init__.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/_harness.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/box_fullsuite.py
+bash -n OK  opt/frognet_semantic/simulation/spec_compliance/fetch_corpora.sh
+py OK       opt/frognet_semantic/simulation/spec_compliance/run_compliance.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/test_html_compliance.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/test_json_compliance.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/test_text_compliance.py
+py OK       opt/frognet_semantic/simulation/spec_compliance/test_xml_compliance.py
+py OK       opt/frognet_semantic/simulation/store_preflight.py
+py OK       opt/frognet_semantic/simulation/test_aiconnect_ramp_oracle.py
+py OK       opt/frognet_semantic/simulation/test_cache_coherence_oracle.py
+py OK       opt/frognet_semantic/simulation/test_call_host_roster_oracle.py
+py OK       opt/frognet_semantic/simulation/test_call_host_service_oracle.py
+py OK       opt/frognet_semantic/simulation/test_call_media_oracle.py
+py OK       opt/frognet_semantic/simulation/test_call_mediahost_oracle.py
+py OK       opt/frognet_semantic/simulation/test_channel_sets_transport.py
+py OK       opt/frognet_semantic/simulation/test_dl_leg_settle_oracle.py
+py OK       opt/frognet_semantic/simulation/test_downlink_backpressure_oracle.py
+py OK       opt/frognet_semantic/simulation/test_group_call_oracle.py
+py OK       opt/frognet_semantic/simulation/test_ladder_rate_v2_oracle.py
+py OK       opt/frognet_semantic/simulation/test_lan_untunnelled_netns_oracle.py
+py OK       opt/frognet_semantic/simulation/test_media_engine_pipe_oracle.py
+py OK       opt/frognet_semantic/simulation/test_media_planes.py
+py OK       opt/frognet_semantic/simulation/test_media_stream.py
+py OK       opt/frognet_semantic/simulation/test_media_stream_e2e.py
+py OK       opt/frognet_semantic/simulation/test_media_stream_metrics.py
+py OK       opt/frognet_semantic/simulation/test_media_stream_transport.py
+py OK       opt/frognet_semantic/simulation/test_media_stream_watch.py
+py OK       opt/frognet_semantic/simulation/test_media_stream_wire.py
+py OK       opt/frognet_semantic/simulation/test_outplane_nonblocking_oracle.py
+py OK       opt/frognet_semantic/simulation/test_plane_direction_oracle.py
+py OK       opt/frognet_semantic/simulation/test_resp_hash_oracle.py
+py OK       opt/frognet_semantic/simulation/test_self_echo_oracle.py
+py OK       opt/frognet_semantic/simulation/test_server_temporal_subset_oracle.py
+py OK       opt/frognet_semantic/simulation/test_spatial_band_oracle.py
+py OK       opt/frognet_semantic/simulation/test_stats_overlay_oracle.py
+py OK       opt/frognet_semantic/simulation/test_temporal_decode_clean_oracle.py
+py OK       opt/frognet_semantic/simulation/test_temporal_layer_oracle.py
+py OK       opt/frognet_semantic/simulation/test_transit_closure_repro.py
+py OK       opt/frognet_semantic/simulation/test_tuple_address_oracle.py
+py OK       opt/frognet_semantic/simulation/test_unrest_handler_interface_oracle.py
+py OK       opt/frognet_semantic/simulation/tests_topology.py
+py OK       opt/frognet_semantic/simulation/transport_factories.py
+py OK       opt/frognet_semantic/simulation/transport_sim_tier.py
+py OK       opt/frognet_semantic/simulation/transport_tier.py
+py OK       opt/frognet_semantic/test_resp_same_decision_sim.py
+py OK       opt/frognet_semantic/tests/frogsim/derive_node.py
+py OK       opt/frognet_semantic/tests/frogsim/fabric.py
+py OK       opt/frognet_semantic/tests/frogsim/fake_curl.py
+py OK       opt/frognet_semantic/tests/frogsim/fake_httpd.py
+py OK       opt/frognet_semantic/tests/frogsim/fake_ip.py
+py OK       opt/frognet_semantic/tests/frogsim/frogsim_online.py
+py OK       opt/frognet_semantic/tests/frogsim/frogsim_roles.py
+py OK       opt/frognet_semantic/tests/frogsim/frogsim_runagain.py
+py OK       opt/frognet_semantic/tests/frogsim/frogsim_topologies.py
+py OK       opt/frognet_semantic/tests/frogsim/frogsim_transport.py
+py OK       opt/frognet_semantic/tests/frogsim/scenario_chain.py
+py OK       opt/frognet_semantic/tests/test_sotf_handler.py
+py OK       opt/frognet_semantic/tools/converge_trace.py
+bash -n OK  usr/local/bin/addHost.bash
+bash -n OK  usr/local/bin/addHostAndPropogate.bash
+bash -n OK  usr/local/bin/build_linux_communicator.sh
+bash -n OK  usr/local/bin/build_windows_communicator.sh
+bash -n OK  usr/local/bin/change_pond.bash
+py OK       usr/local/bin/check_blob.py
+bash -n OK  usr/local/bin/check_remote_is_sem.bash
+bash -n OK  usr/local/bin/check_routes.sh
+py OK       usr/local/bin/check_sem_health.py
+bash -n OK  usr/local/bin/clear_tables.sh
+py OK       usr/local/bin/daemon_main.py
+bash -n OK  usr/local/bin/demo_phase_1.bash
+bash -n OK  usr/local/bin/demo_phase_2.bash
+bash -n OK  usr/local/bin/dhcp_tracking.bash
+bash -n OK  usr/local/bin/dhcp_tracking.sh
+bash -n OK  usr/local/bin/discovery_pending.sh
+bash -n OK  usr/local/bin/discovery_slow_worker.sh
+bash -n OK  usr/local/bin/emit_routes_snapshot.sh
+bash -n OK  usr/local/bin/fix_powersave.sh
+bash -n OK  usr/local/bin/fix_unbound_bypass.sh
+bash -n OK  usr/local/bin/forceRun.bash
+bash -n OK  usr/local/bin/frognet-broker-admin.sh
+py OK       usr/local/bin/frognet-channel-advertise.py
+bash -n OK  usr/local/bin/frognet-channel-join.sh
+bash -n OK  usr/local/bin/frognet-conf-consolidate.sh
+bash -n OK  usr/local/bin/frognet-create-passcode.sh
+bash -n OK  usr/local/bin/frognet-make-gateway.sh
+bash -n OK  usr/local/bin/frognet-make-lanonly.sh
+bash -n OK  usr/local/bin/frognet-merge-watcher.sh
+bash -n OK  usr/local/bin/frognet-netstart
+bash -n OK  usr/local/bin/frognet-node-guid.sh
+bash -n OK  usr/local/bin/frognet-pond-bootstrap.sh
+bash -n OK  usr/local/bin/frognet-redeem-passcode.sh
+bash -n OK  usr/local/bin/frognet-system-tune.sh
+py OK       usr/local/bin/frognet-tunnel-daemon.py
+bash -n OK  usr/local/bin/frognet-tunnel-refresh.sh
+bash -n OK  usr/local/bin/frognet-tunnel-register.sh
+bash -n OK  usr/local/bin/frognet-tunnel-setup-v3.sh
+bash -n OK  usr/local/bin/frognet-tunnel-setup.sh
+bash -n OK  usr/local/bin/frognet-tunnel-watcher.sh
+bash -n OK  usr/local/bin/frognet-unmake-gateway.sh
+bash -n OK  usr/local/bin/frognet_alive.bash
+py OK       usr/local/bin/frognet_apply_license.py
+bash -n OK  usr/local/bin/frognet_backup_world.bash
+bash -n OK  usr/local/bin/frognet_bootstrap.sh
+bash -n OK  usr/local/bin/frognet_build_release.sh
+bash -n OK  usr/local/bin/frognet_cache_nuke.bash
+bash -n OK  usr/local/bin/frognet_candidate.sh
+bash -n OK  usr/local/bin/frognet_capability_probe.sh
+bash -n OK  usr/local/bin/frognet_collect_state.sh
+bash -n OK  usr/local/bin/frognet_common.sh
+bash -n OK  usr/local/bin/frognet_curl_via.sh
+bash -n OK  usr/local/bin/frognet_db_credential_sync.sh
+py OK       usr/local/bin/frognet_dbhost_elector.py
+py OK       usr/local/bin/frognet_demo_traffic.py
+bash -n OK  usr/local/bin/frognet_dhcp_scope.sh
+bash -n OK  usr/local/bin/frognet_diag.sh
+bash -n OK  usr/local/bin/frognet_discovery_cache.sh
+bash -n OK  usr/local/bin/frognet_down_clean.sh
+bash -n OK  usr/local/bin/frognet_echo_cached.bash
+bash -n OK  usr/local/bin/frognet_enable_on_boot.sh
+bash -n OK  usr/local/bin/frognet_eth0_fixup.sh
+bash -n OK  usr/local/bin/frognet_fix_db.sh
+bash -n OK  usr/local/bin/frognet_fixup.sh
+py OK       usr/local/bin/frognet_hosts_safeboot.py
+bash -n OK  usr/local/bin/frognet_internet_watch.sh
+bash -n OK  usr/local/bin/frognet_license_gaps.sh
+bash -n OK  usr/local/bin/frognet_link_autoconfig.sh
+bash -n OK  usr/local/bin/frognet_make_build_tar.sh
+bash -n OK  usr/local/bin/frognet_metrics_emit.sh
+bash -n OK  usr/local/bin/frognet_monitor
+py OK       usr/local/bin/frognet_monitor_py/__init__.py
+py OK       usr/local/bin/frognet_monitor_py/__main__.py
+py OK       usr/local/bin/frognet_monitor_py/config.py
+py OK       usr/local/bin/frognet_monitor_py/discovery.py
+py OK       usr/local/bin/frognet_monitor_py/draw_dashboard.py
+py OK       usr/local/bin/frognet_monitor_py/draw_overlay.py
+py OK       usr/local/bin/frognet_monitor_py/draw_ponds.py
+py OK       usr/local/bin/frognet_monitor_py/formatting.py
+py OK       usr/local/bin/frognet_monitor_py/identity.py
+py OK       usr/local/bin/frognet_monitor_py/main_loop.py
+py OK       usr/local/bin/frognet_monitor_py/merge.py
+py OK       usr/local/bin/frognet_monitor_py/probes.py
+py OK       usr/local/bin/frognet_monitor_py/sensors.py
+py OK       usr/local/bin/frognet_monitor_py/state.py
+py OK       usr/local/bin/frognet_monitor_py/test_merge_oracle.py
+py OK       usr/local/bin/frognet_monitor_py/test_parser_vectors_oracle.py
+py OK       usr/local/bin/frognet_monitor_py/trace.py
+py OK       usr/local/bin/frognet_monitor_py/ui_helpers.py
+bash -n OK  usr/local/bin/frognet_netdrop_watch.sh
+bash -n OK  usr/local/bin/frognet_nm_unmanage_if.sh
+bash -n OK  usr/local/bin/frognet_postinstall_20260912.sh
+bash -n OK  usr/local/bin/frognet_prune_removed.sh
+bash -n OK  usr/local/bin/frognet_radio_init.sh
+bash -n OK  usr/local/bin/frognet_register_candidate.sh
+py OK       usr/local/bin/frognet_routing_topology.py
+bash -n OK  usr/local/bin/frognet_set_transit_baud.sh
+bash -n OK  usr/local/bin/frognet_setup_advertisers.sh
+bash -n OK  usr/local/bin/frognet_setup_helper.bash
+bash -n OK  usr/local/bin/frognet_setup_v4_helper.bash
+bash -n OK  usr/local/bin/frognet_system_tune.sh
+bash -n OK  usr/local/bin/frognet_tc_apply.sh
+bash -n OK  usr/local/bin/frognet_tc_clear.sh
+bash -n OK  usr/local/bin/frognet_transit_boot.sh
+bash -n OK  usr/local/bin/frognet_transit_profile.sh
+bash -n OK  usr/local/bin/frognet_transit_watch.sh
+bash -n OK  usr/local/bin/frognet_tunnel_check.sh
+bash -n OK  usr/local/bin/frognet_up_clean.sh
+bash -n OK  usr/local/bin/full_tar.bash
+bash -n OK  usr/local/bin/getEth0Address
+bash -n OK  usr/local/bin/getFrogNet.bash
+bash -n OK  usr/local/bin/getHosts_cached.bash
+bash -n OK  usr/local/bin/get_gps_data.bash
+bash -n OK  usr/local/bin/gpsd_reporter.bash
+bash -n OK  usr/local/bin/ham_1200.sh
+bash -n OK  usr/local/bin/ham_19200.sh
+bash -n OK  usr/local/bin/ham_2400.sh
+bash -n OK  usr/local/bin/ham_4800.sh
+bash -n OK  usr/local/bin/ham_9600.sh
+bash -n OK  usr/local/bin/ham_apply_profile.sh
+bash -n OK  usr/local/bin/ham_autoconnect.sh
+bash -n OK  usr/local/bin/ham_client_up.sh
+bash -n OK  usr/local/bin/ham_concentrator_up.sh
+bash -n OK  usr/local/bin/ham_guardrail.sh
+bash -n OK  usr/local/bin/ham_iface_apply.sh
+bash -n OK  usr/local/bin/ham_link_down.sh
+bash -n OK  usr/local/bin/ham_link_up.sh
+bash -n OK  usr/local/bin/ham_qdisc.sh
+bash -n OK  usr/local/bin/ham_qdisc_apply.sh
+bash -n OK  usr/local/bin/ham_restart_link.sh
+bash -n OK  usr/local/bin/ham_sysctl_apply.sh
+bash -n OK  usr/local/bin/ham_tc.sh
+bash -n OK  usr/local/bin/ham_verify.sh
+bash -n OK  usr/local/bin/install_databasehost.sh
+bash -n OK  usr/local/bin/install_mediahost.sh
+bash -n OK  usr/local/bin/installer/frognet_install.sh
+bash -n OK  usr/local/bin/installer/frognet_reset.sh
+bash -n OK  usr/local/bin/isMergeProcRunning.bash
+bash -n OK  usr/local/bin/lab_testing_baseline.bash
+bash -n OK  usr/local/bin/makeHostJson.bash
+bash -n OK  usr/local/bin/make_tar.bash
+bash -n OK  usr/local/bin/manageResolv.bash
+bash -n OK  usr/local/bin/mapInterfaces
+bash -n OK  usr/local/bin/mergeHostsAndResolv.bash
+bash -n OK  usr/local/bin/metric_upsert.sh
+py OK       usr/local/bin/no_mask_scan.py
+bash -n OK  usr/local/bin/oracle_avcap_cache.sh
+py OK       usr/local/bin/package_communicator.py
+py OK       usr/local/bin/pipe_workload.py
+bash -n OK  usr/local/bin/probe_orig.sh
+bash -n OK  usr/local/bin/process_host.sh
+bash -n OK  usr/local/bin/propogateMergeGuid.bash
+bash -n OK  usr/local/bin/propogateNotification
+bash -n OK  usr/local/bin/propogateNotificationInternal
+bash -n OK  usr/local/bin/prune_stale_routes.bash
+bash -n OK  usr/local/bin/radio_link.sh
+bash -n OK  usr/local/bin/real_demo_baseline.bash
+bash -n OK  usr/local/bin/registerFrogNetHost.bash
+bash -n OK  usr/local/bin/routeMetrics.sh
+bash -n OK  usr/local/bin/runMerge.bash
+bash -n OK  usr/local/bin/runPingEverything
+bash -n OK  usr/local/bin/sem_is_ip_semantic.bash
+bash -n OK  usr/local/bin/semantic_monitor.sh
+bash -n OK  usr/local/bin/semantic_payload_sweep.sh
+bash -n OK  usr/local/bin/set_node_id.bash
+bash -n OK  usr/local/bin/setup_astrix.sh
+bash -n OK  usr/local/bin/setup_lillypad_v4.bash
+bash -n OK  usr/local/bin/setup_worker.bash
+bash -n OK  usr/local/bin/simulate_radio.bash
+bash -n OK  usr/local/bin/simulate_satellite.bash
+bash -n OK  usr/local/bin/sync_interfaces.sh
+bash -n OK  usr/local/bin/sysperf_outputter.bash
+bash -n OK  usr/local/bin/sysperf_reporter.bash
+bash -n OK  usr/local/bin/tarsite.bash
+bash -n OK  usr/local/lib/frognet/conf.sh
+bash -n OK  usr/local/lib/frognet_log.sh
+bash -n OK  usr/local/lib/frognet_trace.sh
+bash -n OK  usr/local/lib/frognet_world_manifest.sh
+bash -n OK  usr/local/sbin/dnsmasq_merge_trigger.sh
+php -l OK   var/www/html/FrogNetVars.php
+py OK       var/www/html/Sense_Logger_2.py
+node OK     var/www/html/api.js
+php -l OK   var/www/html/api.php
+php -l OK   var/www/html/api_route.php
+php -l OK   var/www/html/api_semantic.php
+py OK       var/www/html/api_semantic.py
+php -l OK   var/www/html/api_semantic_hosts.php
+node OK     var/www/html/app.js
+php -l OK   var/www/html/bulk.php
+node OK     var/www/html/chart.js
+php -l OK   var/www/html/config.php
+php -l OK   var/www/html/connect_network.php
+php -l OK   var/www/html/createFrogNet.php
+bash -n OK  var/www/html/create_sensor_data.sh
+page js OK  var/www/html/dans_lamp.html
+py OK       var/www/html/datalogger.py
+page js OK  var/www/html/fi.html
+page js OK  var/www/html/fln_dashboard32.html
+php -l OK   var/www/html/frognet_add_network.php
+php -l OK   var/www/html/frognet_cache.php
+php -l OK   var/www/html/frognet_chorus.php
+bash -n OK  var/www/html/frognet_common.sh
+page js OK  var/www/html/frognet_dashboard.html
+php -l OK   var/www/html/frognet_echo.php
+php -l OK   var/www/html/frognet_fuckme.php
+py OK       var/www/html/frognet_gateway.py
+php -l OK   var/www/html/frognet_intercept.php
+py OK       var/www/html/frognet_monitor
+php -l OK   var/www/html/frognet_setup_admin_api.php
+php -l OK   var/www/html/frognet_setup_v4_api.php
+php -l OK   var/www/html/frognet_templates.php
+php -l OK   var/www/html/frognet_test.php
+node OK     var/www/html/frogs.js
+php -l OK   var/www/html/getAllUsers.php
+php -l OK   var/www/html/getDbHost.php
+php -l OK   var/www/html/getDefaultRoute.php
+php -l OK   var/www/html/getFrogNet.php
+php -l OK   var/www/html/getFrogNet2.php
+php -l OK   var/www/html/getFrogs.php
+php -l OK   var/www/html/getHosts.php
+php -l OK   var/www/html/getHosts2.php
+php -l OK   var/www/html/getPonds.php
+php -l OK   var/www/html/getResolv.php
+php -l OK   var/www/html/get_available_wifi.php
+php -l OK   var/www/html/getteamlocations.php
+page js OK  var/www/html/gps_dashboard.html
+bash -n OK  var/www/html/gpsd_reporter.bash
+page js OK  var/www/html/index.html
+node OK     var/www/html/index.js
+php -l OK   var/www/html/index.php
+php -l OK   var/www/html/insertGeoLocation.php
+php -l OK   var/www/html/loginuser.php
+bash -n OK  var/www/html/mapInterfaces
+php -l OK   var/www/html/opendb.php
+node OK     var/www/html/oracle_dashboard32_views.js
+page js OK  var/www/html/pond_admin.html
+php -l OK   var/www/html/propogateNotification.php
+php -l OK   var/www/html/registerAndForward.php
+php -l OK   var/www/html/registerHost.php
+bash -n OK  var/www/html/registerSensor.bash
+php -l OK   var/www/html/registeruser.php
+php -l OK   var/www/html/runMerge.php
+php -l OK   var/www/html/saveSensorData.php
+php -l OK   var/www/html/semantic_test.php
+php -l OK   var/www/html/semantic_test_chat.php
+php -l OK   var/www/html/semantic_test_json.php
+php -l OK   var/www/html/semantic_test_telemetry.php
+bash -n OK  var/www/html/sensehat_reporter.sh
+php -l OK   var/www/html/setindividuallocation.php
+page js OK  var/www/html/setup_frognet.html
+page js OK  var/www/html/setup_frognet2.html
+page js OK  var/www/html/setup_frognet_dark.html
+node OK     var/www/html/sites.js
+php -l OK   var/www/html/somethingChanged.php
+php -l OK   var/www/html/storeFrogNet.php
+php -l OK   var/www/html/storeGpsLoc.php
+page js OK  var/www/html/sysperf.html
+page js OK  var/www/html/sysperf_2.html
+page js OK  var/www/html/sysperf_3.html
+php -l OK   var/www/html/sysperf_json.php
+bash -n OK  var/www/html/sysperf_reporter.bash
+node OK     var/www/html/teams.js
+php -l OK   var/www/html/test_endpoint.php
+node OK     var/www/html/users.js
+node OK     var/www/html/utils.js
+php -l OK   var/www/html/wg-route.php
+page js OK  var/www/www_admin/public_html/index.html
+php -l OK   var/www/www_admin/public_html/registerAndForward.php
+php -l OK   var/www/www_admin/public_html/registerHost.php
+cmp same    opt/fdf/bin/fdf-facts
+cmp same    opt/fdf/bin/fdf-hub
+cmp DIFF    fdf-region-create
+cmp DIFF    fdf-wg-impl
+cmp same    opt/fdf/bin/fdf-reach
+cmp same    opt/fdf/bin/fdf-mapping.sh
+cmp same    opt/fdf/bin/fdf-ram-manager.sh
+cmp same    opt/fdf/bin/fdf-member.sh
+cmp same    opt/fdf/bin/fdf-region-join
+cmp same    opt/fdf/bin/fdf-leave
+cmp same    opt/fdf/bin/fdf-pond-add
+cmp same    rinab/tools/fdf-hub
+cmp same    opt/fdf/fdf.env
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/waitParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/waitParticipants.php
+syntax: 1237 files OK, 4 bad

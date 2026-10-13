@@ -95,7 +95,9 @@ WantedBy=multi-user.target
 EOF
 [ -f /etc/systemd/system/fdf-hub.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-hub.service missing: it ships in fdf-droplet.tgz" >&2; exit 1; }
 systemctl daemon-reload
-systemctl enable --now $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
+# [START_FAILURE_IS_SEEN_V1 - final gates] `systemctl enable --now` exits 0 when the start job fails (systemd 255, seen
+# on the region host); `systemctl start` exits 1. So: enable, then start, and the start's status is the check.
+systemctl enable $RAMU.service && systemctl start $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
 echo "== $RAMU started; waiting for it to answer on 127.0.0.1:$RAM_PORT"
 call() {   # call JSON -> the RAM manager's answer
   python3 - "$RAM_PORT" "$1" <<'PY'
@@ -121,10 +123,14 @@ FDF_BIN=/opt/fdf/bin
 EOF
 mv "$HUBENV.tmp" "$HUBENV"; echo "== $HUBENV written"
 T0=$(date '+%Y-%m-%d %H:%M:%S')
-systemctl enable --now fdf-hub.service $CLIU.service || { echo "fdf-region-create: fdf-hub / $CLIU did not start: journalctl -u fdf-hub -u $CLIU" >&2; exit 1; }
-for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && break; sleep 0.5; done
+# A `systemctl start fdf-hub` before this run (no hub.env then) leaves the unit failed, and its restarts can use up
+# systemd's start limit: that failure is from before hub.env existed, so it is cleared before the start.
+systemctl reset-failed fdf-hub.service $CLIU.service 2>/dev/null
+systemctl enable fdf-hub.service $CLIU.service && systemctl start fdf-hub.service $CLIU.service || { echo "fdf-region-create: fdf-hub / $CLIU did not start: journalctl -u fdf-hub -u $CLIU" >&2; exit 1; }
+ADOPT=0; for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
 echo "== fdf-hub (want: 'hub $NAME on wg-$AREA', 'start (adopt)')"
 journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'
+[ "$ADOPT" = 1 ] || { echo "fdf-region-create: fdf-hub did not say 'start (adopt)' within 15 s: journalctl -u fdf-hub" >&2; exit 1; }
 echo "== $CLIU"
 journalctl -u $CLIU --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -3 | sed 's/^/   /'
 FW=("ufw allow $RAM_PORT/tcp" "ufw allow $HUB_PORT/udp" "ufw route allow in on wg-${AREA//./-} out on wg-${AREA//./-}")

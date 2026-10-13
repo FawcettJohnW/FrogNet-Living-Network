@@ -1,0 +1,14 @@
+units: 
+loaded: 
+crontab: 17 3 * * * /bin/true # operator line;
+froguser: id: 'froguser': no such user
+hooks: no-wait.d pre-down.d pre-up.d   conf.d: default-wifi-powersave-on.conf 
+dirs: 
+/usr/local/bin: 0 entries: 
+/usr/local/sbin: 0  /usr/local/lib: python3.12 
+etc files: /etc/dnsmasq.d/README 
+services: dnsmasq=disabled/inactive apache2=disabled/inactive mariadb=disabled/inactive NetworkManager=enabled/active systemd-resolved=not-found/inactive 
+resolv.conf: nameserver 127.0.0.11 options timeout:2 attempts:3 ndots:0 
+getent hosts archive.ubuntu.com: 
+hostname: FrogNetHost.N1 / FrogNetHost.N1
+FrogNetHost.N1: resolver now 127.0.0.11:39905, restored DNAT 127.0.0.11:35083 (docker moved its resolver on the container restart)

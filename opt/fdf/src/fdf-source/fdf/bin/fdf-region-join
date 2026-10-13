@@ -36,7 +36,7 @@ for u in frognet-dbhost-elect.timer; do
 done
 # a node joined before T4c had the watcher turned off here: on again (its failure is said; the next join retries)
 if [ -e /etc/systemd/system/frognet-merge-watcher.service ] && ! systemctl is-enabled --quiet frognet-merge-watcher.service; then
-  systemctl enable --now frognet-merge-watcher.service && echo "== the merge watcher: enabled (it runs in both modes)" \
+  systemctl enable frognet-merge-watcher.service && systemctl start frognet-merge-watcher.service && echo "== the merge watcher: enabled (it runs in both modes)" \
     || echo "== warning: could not enable frognet-merge-watcher.service (above); the hook's merge requests wait for it"
 fi
 T0=$(date '+%Y-%m-%d %H:%M:%S')

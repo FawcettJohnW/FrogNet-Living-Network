@@ -1,0 +1,9 @@
+h1 -> 10.72.72.1:
+3 packets transmitted, 3 received, 0% packet loss, time 2044ms
+rtt min/avg/max/mdev = 0.068/0.080/0.096/0.011 ms
+h2 -> 10.71.71.1:
+3 packets transmitted, 3 received, 0% packet loss, time 2057ms
+rtt min/avg/max/mdev = 0.060/0.069/0.077/0.007 ms
+h1 reads h2's echo: H2,10.72.72.1,172.30.0.42,10.71.71.20
+h2 reads h1's echo: H1,10.71.71.1,172.30.0.41,0.0.0.0
+0

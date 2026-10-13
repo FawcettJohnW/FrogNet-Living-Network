@@ -76,7 +76,8 @@ apt-get update -qq || { echo "[dbhost] apt-get update failed" >&2; exit 1; }
 apt-get install -y -qq mariadb-server php php-mysql libapache2-mod-php apache2 jq curl \
   || { echo "[dbhost] apt-get install failed (above); nothing else is tried" >&2; exit 1; }
 php -m 2>/dev/null | grep -qi mysqli || { echo "[dbhost] php has no mysqli extension after installing php-mysql" >&2; exit 1; }
-systemctl enable --now mariadb || { echo "[dbhost] systemctl enable --now mariadb failed (journalctl -u mariadb)" >&2; exit 1; }
+# enable, then start: `systemctl enable --now` exits 0 when the start fails (systemd 255) [START_FAILURE_IS_SEEN_V1]
+systemctl enable mariadb && systemctl start mariadb || { echo "[dbhost] mariadb did not start (journalctl -u mariadb)" >&2; exit 1; }
 
 # 2. schema + user
 # [NO_HARDCODED_CREDENTIAL_V1] DB_PASS defaulted to a live pond password when

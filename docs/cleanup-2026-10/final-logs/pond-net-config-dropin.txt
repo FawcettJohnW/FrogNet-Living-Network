@@ -1,0 +1,25 @@
+$ mkdir -p /etc/systemd/system/fdf-ram-lan.service.d
+$ printf '{"reach":"all","map":"allowed"}\n' | tee /opt/fdf/var/net-lan.json
+{"reach":"all","map":"allowed"}
+$ printf '[Service]\nEnvironment=RINA_NET_CONFIG=/opt/fdf/var/net-lan.json\n' | tee /etc/systemd/system/fdf-ram-lan.service.d/net.conf
+[Service]
+Environment=RINA_NET_CONFIG=/opt/fdf/var/net-lan.json
+$ systemctl daemon-reload && systemctl restart fdf-ram-lan fdf-client-lan fdf-hub
+rc=0
+[{'area': '', 'reach': 'all', 'map': 'allowed', 'hub': '10.253.253.254', 'edges': '10.253.0.0/16', 'leaves': '10.252.0.0/16', 'server': 'fdf-2026-10-12-r20'}]
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /opt/fdf/etc/net.json: reach none, map refused
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"all","map":"allowed","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+--- the default path instead of the drop-in
+ls: cannot access '/opt/fdf/etc': No such file or directory
+0
+(no net.json in fdf-droplet.tgz: an update leaves it)
+$ printf '{"reach":"all","map":"allowed"}\n' | tee /opt/fdf/etc/net.json
+tee: /opt/fdf/etc/net.json: No such file or directory
+{"reach":"all","map":"allowed"}
+$ systemctl restart fdf-ram-lan fdf-client-lan fdf-hub
+rc=0
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+--- after an update (untar of the same tgz + restart)
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-12-r20"}
+cat: /opt/fdf/etc/net.json: No such file or directory

@@ -1,0 +1,2 @@
+check-docs: 34 documents; (b) 32 commands in docs/OPERATING.md; (c) 3 word matches, 3 allowed; 0 problem(s)
+EXIT 0

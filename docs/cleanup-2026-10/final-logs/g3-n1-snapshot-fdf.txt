@@ -1,0 +1,21 @@
+failed units: 
+databasehost: 10.81.81.1 / 10.82.82.1
+getHosts.php: [{"ip":"10.81.81.1","name":"N1","echo":"N1,10.81.81.1,172.30.0.31,0.0.0.0","role":"node","alive":true},{"ip":"10.82.82.1","name":"N2","echo":"N2,10.82.82.1,172.30.0.32,0.0.0.0","role":"node","alive":true}]
+{'mode': 'region', 'mode_why': '/opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888', 'ponds': [{'area': 'myarea', 'ram': '172.30.0.10:51888', 'forward': True, 'source': '/opt/fdf/var/join.env + facts.json pond', 'config': {'reach': 'none', 'map': 'refused'}}], 'hub': [{'iface': 'wg0', 'edge': '10.253.81.81', 'handshake_age_s': 38, 'source': 'facts.json hub row + wg latest-handshakes'}], 'elections': {'databasehost': '10.82.82.1', 'databasehost_control': '10.82.82.1'}, 'errors': []}
+[('N1', '10.81.81.1', 'node', True, 'region'), ('N2', '10.82.82.1', 'node', True, 'region')]
+GET :8080/fdf/ 200  :80/fdf/ 200
+GET :8080/fdf/fdf_dashboard.html 200  :80/fdf/fdf_dashboard.html 200
+GET :8080/fdf/getParticipants.php 200  :80/fdf/getParticipants.php 200
+[
+ {"ip":"172.30.0.32","hostname":"N2","ips":["172.30.0.32","10.82.82.1","10.82.82.2","10.253.82.82"],"alive":true,"ns":"w:1a5de5ae4d884b4e9e8bb427d4083020","cores":2,"cpu_bench_total":0.000000,"mem_total_kb":8222320},
+ {"ip":"172.30.0.31","hostname":"N1","ips":["172.30.0.31","10.81.81.1","10.81.81.2","10.253.81.81"],"alive":true,"ns":"w:32a6455d45014466b98b787caf73f86d","cores":2,"cpu_bench_total":0.000000,"mem_total_kb":8222320},
+ {"ip":"172.30.0.10","hostname":"regionbox","ips":["172.30.0.10","10.253.253.254"],"alive":true,"ns":"w:regionbox","cores":2,"cpu_bench_total":0.000000,"mem_total_k
+  FrogNet   N1 (10.81.81.1)   2026-10-13 13:18:55
+  mode region    build fdf-2026-10-12-r20
+  ponds  *myarea   (* = forward)
+  hub    wg0 38s
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+    N1             SELF         node     10.81.81.1      region
+  # N2             ONLINE 47ms  node     10.82.82.1      region
+

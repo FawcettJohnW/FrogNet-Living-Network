@@ -162,7 +162,7 @@ for doc in DOCS:
         bad("(a)", doc, "no such file: %s" % w)
 
 # (b) OPERATING.md commands
-OS_CMDS = {"sudo", "apt-get", "git", "cd", "bash", "curl", "python3", "journalctl", "systemctl", "ip", "grep", "tar",
+OS_CMDS = {"sudo", "modprobe", "apt-get", "git", "cd", "bash", "curl", "python3", "journalctl", "systemctl", "ip", "grep", "tar",
            "ufw", "nmcli", "wg", "ls", "cat", "echo"}
 def blocks(md):
     lines, cur, inblk, fence = md.split("\n"), [], False, False

@@ -30,7 +30,7 @@ echo "removed $V/join.env, site.env, ponds/, attention/, forward, forward.want, 
 # stopped, the post-merge elector (the merge watcher runs in both modes; the 60 s advertiser is gone from the tree).
 for u in frognet-dbhost-elect.timer; do
     [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
-    systemctl enable --now "$u" && echo "re-enabled $u"
+    systemctl enable "$u" && systemctl start "$u" && echo "re-enabled $u"   # enable --now exits 0 on a failed start
 done
 systemctl restart frognet-tunnel-daemon-v3 && echo "restarted frognet-tunnel-daemon-v3: LAN-only (its log says 'LAN-only loop started')"
 echo "left the region: this node is LAN-only FrogNet"

@@ -5,7 +5,7 @@ is running, and what the logs say when something is wrong. Every command here na
 that start with `usr/`, `opt/` or `docs/` are in the repository checkout; paths that start with `/` are on the machine.
 
 Build ids at the time of writing (each program logs its own; see "What is running"):
-installer `frognet-install-2026-10-12-t5`, tunnel daemon `frognet-tunnel-2026-10-12-t5`, FrogNet base and FD&F
+installer `frognet-install-2026-10-12-r20`, tunnel daemon `frognet-tunnel-2026-10-12-r20`, FrogNet base and FD&F
 `fdf-2026-10-12-r20`.
 
 ## 1. What FrogNet is
@@ -133,6 +133,7 @@ address for a region with no internet. Copy `opt/fdf/dist/fdf-droplet.tgz` from 
 `/tmp`, then on the region host, as root:
 
     apt-get install -y python3 wireguard-tools
+    modprobe -n wireguard || apt-get install -y wireguard-go
     cd / && tar xvzf - < /tmp/fdf-droplet.tgz
     systemctl daemon-reload
     ip -o addr | grep '10\.253\.'
@@ -141,8 +142,8 @@ address for a region with no internet. Copy `opt/fdf/dist/fdf-droplet.tgz` from 
 
 The two `grep`s must print nothing: the hub uses 10.253.0.0/16 on its interface. `myarea` is the region's name
 (letters, digits, `.`, `_`, `-`, at most 12); `203.0.113.7` is the address members reach this machine at.
-`fdf-region-create` records the WireGuard implementation (kernel, or wireguard-go where the kernel has no module:
-install `wireguard-go` first then), makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`), starts
+`fdf-region-create` records the WireGuard implementation (kernel, or wireguard-go where the kernel has no module; the
+`modprobe -n` line above installs it in that case), makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`), starts
 `fdf-ram-myarea`, maps the site key on it, writes `/opt/fdf/hub/hub.env`, starts `fdf-hub` and `fdf-client-myarea`,
 and prints what each said. It then prints the firewall lines and the site key, once:
 
@@ -289,16 +290,16 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 | the dashboard (members, ponds, hub links, database host; drawn from the snapshot only) | `http://<node>/fln_dashboard32.html` |
 | the region's members (region nodes only; a LAN-only node answers 403) | `http://<node>/fdf/` |
 | the monitor, one frame as text / full screen | `/usr/local/bin/frognet_monitor --once` / `/usr/local/bin/frognet_monitor` |
-| the region's members from the region host | `/opt/fdf/bin/fdf-ls`, `/opt/fdf/bin/fdf-monitor --once` |
+| the region's members from the region host (it has no `join.env`, so give the RAM manager: 51888 or the `--ram-port` used) | `/opt/fdf/bin/fdf-ls 127.0.0.1:51888`, `RINA_RAM=127.0.0.1:51888 /opt/fdf/bin/fdf-monitor --once` |
 
 **Build lines and logs** (each program says its build when it starts):
 
 | component | build line | log |
 |---|---|---|
-| installer | `frognet_install.sh build frognet-install-2026-10-12-t5 starting on ...` | `/var/log/frognet_install.log` |
+| installer | `frognet_install.sh build frognet-install-2026-10-12-r20 starting on ...` | `/var/log/frognet_install.log` |
 | reset / uninstall | `FrogNet reset (build frognet-reset-2026-10-12-t4a) on ...` | `/var/tmp/frognet_reset.log` |
 | FrogNet base | `/opt/frognet_semantic/BUILD` (`build=fdf-2026-10-12-r20`, `installed=...`); F6 prints it | — |
-| tunnel daemon | `Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only\|region) base fdf-2026-10-12-r20` | `journalctl -u frognet-tunnel-daemon-v3` |
+| tunnel daemon | `Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-r20 (mode lan-only\|region) base fdf-2026-10-12-r20` | `journalctl -u frognet-tunnel-daemon-v3` |
 | proxy | `[Proxy] build fdf-2026-10-12-r20 listening ...` | `journalctl -u frognet-proxy` |
 | data daemon | `[Daemon] build fdf-2026-10-12-r20 ...` | `journalctl -u frognet-daemon` |
 | merge | `runMerge INFO ... invoked_by who=watcher:poke ...` per merge | `/var/log/frognet-merge-watcher.log`; the last merge's trace `/run/frognet/debug/latest/trace.log` |

@@ -1,3 +1,20 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 import sys; sys.path.insert(0,'/tmp/claude-0/verify1013'); from patchlib import *
 def SU(o, n): sub(U(o), U(n))   # old/new written with real characters; the source holds \uXXXX
 # S: CROAKUS-CHECK-2026-10-13.md, entries 1-11

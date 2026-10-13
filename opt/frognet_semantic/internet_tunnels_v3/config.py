@@ -47,7 +47,7 @@ from pathlib import Path
 
 VERSION = "3.0.0"
 # [BUILD_IN_THE_LOG_V1] said by the daemon at start, in both modes, so its log names what is deployed
-BUILD = "frognet-tunnel-2026-10-12-t5"
+BUILD = "frognet-tunnel-2026-10-12-r20"
 
 logging.basicConfig(
     level=logging.DEBUG,
