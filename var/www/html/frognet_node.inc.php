@@ -133,13 +133,16 @@ function fn_host_rows($mode, &$errors) {
         if (strpos($name, 'FrogNetHost.') === 0) $name = substr($name, strlen('FrogNetHost.'));
         if ($name === '') $name = 'unknown';
         $seen[$ip] = true;
+        // [DEVICE_ROW_V1] [ONE_ALIVE_V1] role and alive are decided HERE, once per mode, and getSnapshot.php's members
+        // carry these same values: region = the member's role and whether its region session is up this event (the
+        // daemon's row); LAN-only = a node, alive because the last merge named it (makeHostJson.bash lists nothing else).
+        $region = $mode['mode'] === 'region';
         $hosts[] = [
             'ip'    => $ip,
             'name'  => $name,
             'echo'  => $echo,
-            // [DEVICE_ROW_V1] region: the member's role and whether its session is up this event; absent off a region
-            'role'  => (string)($entry['role'] ?? ''),
-            'alive' => (bool)($entry['alive'] ?? false),
+            'role'  => $region ? ((string)($entry['role'] ?? '') !== '' ? (string)$entry['role'] : 'node') : 'node',
+            'alive' => $region ? (($entry['alive'] ?? false) === true) : true,
             'guid'  => (string)($entry['guid'] ?? ''),
         ];
     }
@@ -289,9 +292,8 @@ function fn_snapshot() {
     $rows = fn_host_rows($mode, $errors);
     $members = [];
     foreach ($rows as $h) {
-        $m = ['name' => $h['name'], 'guid' => $h['guid'], 'ip' => $h['ip'],
-              'role' => $mode['mode'] === 'region' ? ($h['role'] !== '' ? $h['role'] : 'node') : 'node',
-              'alive' => $mode['mode'] === 'region' ? $h['alive'] : true,
+        // role and alive are fn_host_rows' (the same values getHosts.php serves) [ONE_ALIVE_V1]
+        $m = ['name' => $h['name'], 'guid' => $h['guid'], 'ip' => $h['ip'], 'role' => $h['role'], 'alive' => $h['alive'],
               'source' => $mode['mode'] === 'region' ? 'region' : 'lan', 'echo' => $h['echo']];
         if ($dot1 !== '' && $h['ip'] === $dot1) { $m['self'] = true; if ($m['guid'] === '') $m['guid'] = $guid; }
         $members[] = $m;

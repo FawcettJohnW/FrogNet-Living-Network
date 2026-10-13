@@ -3,11 +3,14 @@
 # getParticipants.php returns the participants; waitParticipants.php?gen=0 is HELD until the set changes and then returns
 # it. PASS only if all three, and the held request did not return before the change.
 set -u; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; D=$(mktemp -d /tmp/dashboard-check.XXXX); echo "diag dir: $D"
-export RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/self/ns/net FDF_BIN=$B RINA_REGION_FILE=$D/region.perm
+export RINA_REGION_FILE=$D/region.perm
+# [FDF_WEB_UNDER_APACHE_V1 - T5b] the pages read the fdf.env of the install they belong to (www/fdf -> ../../fdf.env):
+# this check makes one, $D/www beside $D/fdf.env, naming its own RAM host and binaries
+cp -r $H/www $D/www; printf 'export RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/self/ns/net FDF_BIN=%s RINA_REGION_FILE=%s\n' "$B" "$D/region.perm" > $D/fdf.env
 cleanup() { kill ${HP:-} ${SP:-} ${WP:-} 2>/dev/null; }; trap cleanup EXIT
 $B/rina-host --listen 127.0.0.1:8876 --api /FawcettInnovations.RINA.ram_interface.php > $D/host.log 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8876) 2>/dev/null && break; sleep 0.05; done
-PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8091 -t $H/www > $D/php.log 2>&1 & SP=$!; sleep 1
+PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:8091 -t $D/www > $D/php.log 2>&1 & SP=$!; sleep 1
 PAGE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8091/fdf/fdf_dashboard.html); echo "page: HTTP $PAGE"
 FIRST=$(curl -s http://127.0.0.1:8091/fdf/getParticipants.php); echo "first view: $FIRST" | head -c 200; echo
 curl -s "http://127.0.0.1:8091/fdf/waitParticipants.php?gen=0" > $D/wait.json & WP=$!; sleep 1

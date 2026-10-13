@@ -1,0 +1,11 @@
+base http://172.30.0.32:8080
+status: 2 members · 2 hub links · 0 measured links · 2 engine · 2 daemon · 0ms
+header: N2 (10.82.82.1) · mode region · build fdf-2026-10-12-r20 · ponds *test · hub link wg0 28s
+region link shown: true
+hud: databasehost=10.82.82.1 · via 172.30.0.32:8080
+map nodes: ["10.81.81.1","10.82.82.1","pond:test"]
+hub links: ["10.81.81.1>pond:test","10.82.82.1>pond:test wg0 28s"]
+databasehost: 10.82.82.1
+measured links (panel): []
+ponds panel: test  (forward)node2 members · config: reach none, map refused
+members panel: N110.81.81.1 · node · alive · regionSemanticCache.EndpointsSemanticCache.PeerSemanticDaemon.CacheSemanticProxy.EngineSystemTopologyAll | N2 (db)10.82.82.1 · node · alive · regionSemanticCache.EndpointsSemanticDaemon.CacheSemanticProxy.EngineSystemTopologyAll

@@ -178,11 +178,15 @@ In another:
 From any Linux member, `. /opt/fdf/fdf.env && fdf-participants` lists the Windows machine by its computer name, with
 its IPs, cores and memory, alive while fdf-client.exe runs.
 
-## Web pages (on any machine with PHP)
+## Web pages ([FDF_WEB_UNDER_APACHE_V1])
 
-    . /opt/fdf/fdf.env && PHP_CLI_SERVER_WORKERS=4 php -S 0.0.0.0:8090 -t /opt/fdf/www
+On a FrogNet node the node's own Apache serves /opt/fdf/www/fdf at /fdf/ (its vhost, 000-default.conf, which this
+node bundle carries and reloads): open http://<node>/fdf/ (the region members, fdf_dashboard.html). Its PHP runs as
+www-data under /opt/fdf/fdf.env, read on each request. On a machine that is not a FrogNet node (no Apache), serve the
+same directory with `. /opt/fdf/fdf.env && PHP_CLI_SERVER_WORKERS=4 php -S 0.0.0.0:8090 -t /opt/fdf/www` and open
+http://<that machine>:8090/fdf/.
 
-Then open http://<that machine>:8090/fdf/fdf_dashboard.html, and /fdf/chat.html with, on the same machine:
+/fdf/chat.html needs, on the same machine:
 
     . /opt/fdf/fdf.env && python3 /opt/fdf/bin/chat-service.py
 

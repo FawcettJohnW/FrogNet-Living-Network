@@ -22,6 +22,7 @@ for d in opt/frognet_semantic usr/local/bin etc var/www/html; do
   [ -d "$REPO/$d" ] || { echo "make_deliverables: $REPO/$d missing: $REPO is not the FrogNet repo top" >&2; exit 1; }; done
 FROGNET_FILES=(
   etc/NetworkManager/dispatcher.d/90-frognet-merge
+  etc/apache2/sites-available/000-default.conf
   etc/sudoers.d/frognet-snapshot
   opt/frognet_semantic/core/build_id.py
   opt/frognet_semantic/core/frognet_role_elect.py

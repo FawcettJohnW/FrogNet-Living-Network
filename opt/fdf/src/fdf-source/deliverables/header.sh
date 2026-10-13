@@ -19,7 +19,7 @@ WANT_ARCH="__ARCH__"; M=$(uname -m)
 [ "$M" = "$WANT_ARCH" ] || { echo "fdf-install: this file is for $WANT_ARCH, this machine is $M"; exit 1; }
 # inotifywait (inotify-tools): the FrogNet merge watcher waits with it, and runs in region mode too since T4c (the
 # NetworkManager hook's merges are requests to it); a node installed before T4c may not have it [WATCHER_HAS_INOTIFY_V1]
-for b in python3 wg systemctl tar inotifywait; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing$( [ $b = inotifywait ] && echo ' (apt-get install inotify-tools)')"; exit 1; }; done
+for b in python3 wg systemctl tar inotifywait apache2ctl curl; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing$( [ $b = inotifywait ] && echo ' (apt-get install inotify-tools)')"; exit 1; }; done
 [ -d /opt/frognet_semantic/internet_tunnels_v3 ] || { echo "fdf-install: /opt/frognet_semantic/internet_tunnels_v3 not found: this is not a FrogNet node (install FrogNet first)"; exit 1; }
 echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
@@ -30,6 +30,13 @@ cat /opt/fdf/BUILD
 # fragment would stop sudo for everyone) and this install stops.
 chmod 0440 /etc/sudoers.d/frognet-snapshot && visudo -cf /etc/sudoers.d/frognet-snapshot >/dev/null \
   || { rm -f /etc/sudoers.d/frognet-snapshot; echo "fdf-install: /etc/sudoers.d/frognet-snapshot refused by visudo; removed"; exit 1; }
+# [FDF_WEB_UNDER_APACHE_V1 - T5b] the bundle's vhost (the tree's 000-default.conf) serves /opt/fdf/www/fdf at /fdf/ on
+# the node's Apache: checked, reloaded, and asked once. Any step that fails stops this install, and says which.
+apache2ctl configtest >/dev/null 2>&1 || { echo "fdf-install: apache2ctl configtest refuses the vhost:"; apache2ctl configtest; exit 1; }
+systemctl reload apache2 || { echo "fdf-install: systemctl reload apache2 failed (systemctl status apache2)"; exit 1; }
+C=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/fdf/fdf_dashboard.html)
+[ "$C" = 200 ] || { echo "fdf-install: http://127.0.0.1:8080/fdf/fdf_dashboard.html answered HTTP $C, not 200"; exit 1; }
+echo "== FD&F region view: http://<this node>/fdf/ (Apache, /opt/fdf/www/fdf)"
 # [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
 echo "== joining the region at $RAM (area $AREA)"

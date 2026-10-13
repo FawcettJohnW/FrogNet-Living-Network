@@ -34,7 +34,6 @@ $name  = (trim($echo) !== '' && $f[0] !== '') ? $f[0] : '';
 $dot1  = $f[1] ?? '';
 if ($name === '') $errors[] = ($mode['mode'] === 'region' ? '/opt/fdf/var/facts.json' : 'getFrogNet.bash') . ': no echo (this node states no name)';
 $h = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
-$host = $h(preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -73,7 +72,7 @@ $host = $h(preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));
     <li><a href="/fln_dashboard32.html">Dashboard</a><span>the map: members, ponds, hub links, link health</span></li>
     <li><a href="/getSnapshot.php">Monitor endpoint (getSnapshot.php)</a><span>this node's snapshot as JSON: mode, ponds, hub link, members, elections; <code>frognet_monitor</code> (and <code>--once</code>) draws it in a terminal</span></li>
 <?php if ($mode['mode'] === 'region'): ?>
-    <li><a href="http://<?= $host ?>:8090/fdf/fdf_dashboard.html">Region members (FD&amp;F)</a><span>the region as its RAM manager holds it; served by <code>php -S 0.0.0.0:8090 -t /opt/fdf/www</code></span></li>
+    <li><a href="/fdf/">Region members (FD&amp;F)</a><span>the region as its RAM manager holds it (/opt/fdf/www/fdf, served by this node's Apache at /fdf/)</span></li>
 <?php endif; ?>
   </ul>
 </main>

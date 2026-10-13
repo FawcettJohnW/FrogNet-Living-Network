@@ -10,7 +10,9 @@
      edges to draw: in FD&F every machine reaches the others only through the RAM manager.
      [ONE_MONITOR_TRUTH_V1 - T5] The same names as the node's pages (fln_dashboard32.html, frognet_monitor,
      getSnapshot.php): the region's machines are its members, each alive or not; the node dashboard is linked from the
-     header (port 80 of this host, when this host is a FrogNet node), and it links back here. -->
+     header, and it links back here. [FDF_WEB_UNDER_APACHE_V1 - T5b] On a node this page is /fdf/ of the node's own
+     Apache (000-default.conf Alias /fdf/ -> /opt/fdf/www/fdf/), the same server as fln_dashboard32.html, so the link is
+     a path on this server. -->
 <style>
   :root { --bg:#f6f7f9; --fg:#1c2330; --muted:#5d6878; --card:#fff; --line:#dde2ea; --ok:#1b7f3b; --bad:#b3261e; }
   @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6e9ee; --muted:#98a2b3; --card:#1a2029; --line:#2a323e; --ok:#4cc27a; --bad:#ff6b5e; } }
@@ -46,7 +48,6 @@
   <div id="err"></div>
 </main>
 <script>
-document.getElementById("node").href = "http://" + location.hostname + "/fln_dashboard32.html";   // the node's proxy, port 80
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[c]); }
 function render(list, gen) {
   list.sort((a, b) => (b.alive - a.alive) || a.hostname.localeCompare(b.hostname));

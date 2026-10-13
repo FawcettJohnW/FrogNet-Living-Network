@@ -1,0 +1,5 @@
+held before the change: yes
+n2: fdf-client restarted (a change in the set)
+waitParticipants answer:
+  gen 1 members [('d2', True), ('N1', True)]
+  HTTP200 after 3.188752s

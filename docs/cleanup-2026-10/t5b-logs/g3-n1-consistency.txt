@@ -1,0 +1,4 @@
+snapshot mode region ponds [('test', True)] hub [('wg0', 70)] errors [] elections {'databasehost': '10.82.82.1', 'databasehost_control': '10.82.82.1'}
+snapshot members: {'10.81.81.1': ('N1', 'node', True), '10.82.82.1': ('N2', 'node', True)}
+getHosts rows:    {'10.81.81.1': ('N1', 'node', True), '10.82.82.1': ('N2', 'node', True)}
+CONSISTENT

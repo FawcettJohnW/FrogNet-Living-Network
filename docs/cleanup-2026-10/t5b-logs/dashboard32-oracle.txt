@@ -1,0 +1,50 @@
+=== region: the map is the snapshot ===
+  ok    map nodes: the 3 members and the forward pond
+  ok    hub links: each alive member to the pond, this node's labelled wg0 17s; none from the down N3
+  ok    databasehost from the snapshot's elections
+  ok    no Internet node, nothing the snapshot does not name
+  ok    the page holds no edge model (EDGES is gone)
+  ok    measured links (panel only): the one direct hop N1|N2; the transit route and the outside address are not links
+  ok    status: members, hub links, measured links; no uplinks
+  ok    header: name (.1), mode, build, ponds, hub link
+  ok    region mode: the FD&F link is shown, and the script does not rewrite its href
+  ok    the FD&F link is /fdf/ on this server
+  ok    ponds: the forward pond counts the snapshot's alive members
+  ok    members panel: 3 tiles
+
+=== getSnapshot.php fails: nothing stale, said what and when ===
+  ok    map, members, hub links, databasehost and sensor panels all cleared
+  ok    status says what failed and when
+  ok    header says it too
+  ok    ponds panel says it too
+  ok    no region link without a snapshot
+  ok    members panel empty
+  ok    a refused connection is said the same way
+  ok    an answer that is not a snapshot is a failure
+
+=== the next refresh tries again ===
+  ok    drawn again from the new snapshot
+  ok    the failure is no longer shown
+
+=== api.php fails: the map stands, the panels say so ===
+  ok    map from the snapshot, no sensor data kept
+  ok    status says api.php failed and when
+  ok    engine and links panels say it
+
+=== LAN-only ===
+  ok    map nodes: the two members, no pond, no Internet
+  ok    no hub links; databasehost from the elections
+  ok    LAN-only header, the snapshot's error said, no region link
+  ok    ponds panel: LAN-only
+
+=== what the page no longer holds ===
+  ok    no EXTERNAL edges in the page's code
+  ok    no the egress tree in the page's code
+  ok    no uplinks in the page's code
+  ok    no echo upstream fields in the page's code
+  ok    no an Internet node in the page's code
+  ok    no a view toggle in the page's code
+  ok    no a link to a separate php -S on :8090 in the page's code
+  ok    no broker vocabulary in the page's script (comments included)
+
+PASS — [MAP_FROM_THE_SNAPSHOT_V1] [ONE_MONITOR_TRUTH_V1]

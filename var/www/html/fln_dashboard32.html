@@ -285,10 +285,10 @@
   <div class="logo">🐸</div>
   <div class="hdr-title">
     <h1>FrogNet <span>Living Network</span></h1>
-    <div class="hdr-sub">Logical map · every node to every other node · dotted = route via an intermediate host · glow = link health</div>
+    <div class="hdr-sub">Members of this node's snapshot (getSnapshot.php) · dashed = hub link to the forward pond · green glow = databasehost · dimmed = down</div>
     <!-- [ONE_MONITOR_TRUTH_V1] this node, from getSnapshot.php: name (.1), mode, build, ponds, hub link -->
     <div class="hdr-node" id="hdrNode">reading getSnapshot.php…</div>
-    <div class="hdr-links"><a href="/">node page</a> · <a href="/getSnapshot.php">getSnapshot.php</a> · <a href="/setup_frognet.html">setup</a><span id="lnkRegionWrap" hidden> · <a id="lnkRegion" href="#" title="FD&amp;F's view of the region (its members as the RAM manager holds them), served by: php -S 0.0.0.0:8090 -t /opt/fdf/www (opt/fdf/README.md)">region members (FD&amp;F)</a></span></div>
+    <div class="hdr-links"><a href="/">node page</a> · <a href="/getSnapshot.php">getSnapshot.php</a> · <a href="/setup_frognet.html">setup</a><span id="lnkRegionWrap" hidden> · <a id="lnkRegion" href="/fdf/" title="FD&amp;F's view of the region (its members as the RAM manager holds them): /opt/fdf/www/fdf on this node's Apache">region members (FD&amp;F)</a></span></div>
   </div>
   <div class="controls">
     <div class="ctl">
@@ -302,7 +302,6 @@
     </div>
     <button class="btn" id="btnFit">Fit</button>
     <button class="btn" id="btnRefresh">Refresh</button>
-    <button class="btn" id="btnView" title="Cycle: logical map → Internet (physical) map → egress tree">Internet map</button>
     <div class="status-pill" id="status">initializing…</div>
   </div>
 </header>
@@ -377,12 +376,6 @@ async function jget(url){
   return await r.json();
 }
 
-function parseEcho(echoStr){
-  if(typeof echoStr!=="string") return {fqdn:"",hostPath:"",gw0:"",gw1:""};
-  const parts=echoStr.trim().split(",");
-  return {fqdn:(parts[0]||"").trim(),hostPath:(parts[1]||"").trim(),gw0:(parts[2]||"").trim(),gw1:(parts[3]||"").trim()};
-}
-
 function canonicalKey(a,b){ return [a,b].sort().join("|"); }
 function subnetThird(ip){ if(!isV4(ip)) return null; const p=ip.split("."); return p[2]?Number(p[2]):null; }
 
@@ -430,53 +423,13 @@ function normalizeEdgesFromLinkStateJson(obj){
 }
 
 /**********************************************************************
- * RTT-based edge colors
+ * RTT colour of a measured link (the Network Links panel, from the Topology / LinkState sensors)
  **********************************************************************/
 function rttColor(rtt_ms){
   if(!rtt_ms||rtt_ms<=0) return"#546478";
   if(rtt_ms<1000) return"#3b9eff";
   if(rtt_ms<2000) return"#f0c038";
   return"#f0483e";
-}
-function edgeStrokeColor(e){
-  if(!e) return"#546478";
-  if(e.kind==="EXTERNAL") return "#9aafc8";   /* brighter than unknown-RTT gray so uplinks actually show up */
-  const rtt=e.meta&&e.meta.rtt_avg_ms?Number(e.meta.rtt_avg_ms):0;
-  return rttColor(rtt);
-}
-
-/**********************************************************************
- * Edge dash patterns — each maps to a route class.  Style identifies
- * the kind of route; color identifies the internet pathway (or RTT
- * for non-tunnel routes).  Keep in sync with drawLegend() and draw().
- *   []        solid    — direct/LAN route (dev != wg*, not EXTERNAL)
- *   [10,10]   dashed   — WireGuard tunnel route (dev wg*); drawn twice
- *                        in two pathway colors when both endpoints
- *                        have distinct internet gateways
- *   [8,4,2,4] dot-dash — Internet uplink (EXTERNAL); drawn in source
- *                        host's pathway color
- **********************************************************************/
-const DASH_DIRECT   = [];
-const DASH_TUNNEL   = [10,10];   /* slightly tighter than v23's [14,8] — interleaves cleanly with phase offset */
-const DASH_UPLINK   = [8,4,2,4];
-/* [LOGICAL_IS_NOT_PHYSICAL_V1] A route THROUGH another host is not a wire and
- * must not be drawn as one — in the logical view it is the majority of the
- * lines on screen. */
-const DASH_TRANSIT  = [2,5];
-/* [INFERRED_IS_NOT_OBSERVED_V1] filterEgressTree BFS-synthesizes hops when a
- * host's echo data is missing. v31 marked them synthetic:true and then drew
- * them identically to observed hops — the flag was set and never read. A map
- * that invents a link it cannot see is worse than one that shows a gap. */
-const DASH_INFERRED = [1,4];
-
-function edgeDash(e){
-  if(!e) return DASH_DIRECT;
-  if(e.meta && e.meta.synthetic) return DASH_INFERRED;
-  if(e.kind==="EXTERNAL") return DASH_UPLINK;
-  if(e.meta && e.meta.transit) return DASH_TRANSIT;
-  const dev=(e.meta&&typeof e.meta.dev==="string")?e.meta.dev.toLowerCase():"";
-  if(dev.startsWith("wg")) return DASH_TUNNEL;
-  return DASH_DIRECT;
 }
 
 /**********************************************************************
@@ -488,7 +441,7 @@ function hueDist(a,b){ const d=Math.abs(a-b)%360; return Math.min(d,360-d); }
 
 function computeUniqueNodeColors(nodeIds){
   const out=new Map();
-  const ids=Array.from(nodeIds).map(id=>String(id??"").trim()).filter(id=>id&&!id.startsWith("external:")).sort();
+  const ids=Array.from(nodeIds).map(id=>String(id??"").trim()).filter(id=>id).sort();
   const MIN_GAP=20, chosenHues=[];
   for(const id of ids){
     const base=hashStr(id)%360; let h=base,picked=null;
@@ -501,17 +454,12 @@ function computeUniqueNodeColors(nodeIds){
     chosenHues.push(picked);
     out.set(id,`hsl(${picked} 65% 52%)`);
   }
-  for(const raw of nodeIds){
-    const id=String(raw??"").trim();
-    if(id.startsWith("external:")) out.set(id,"hsl(0 0% 88%)");
-  }
   return out;
 }
 
 function assignColorIfMissing(id){
   const k=String(id??"").trim();
   if(!k) return "hsl(0 0% 55%)";
-  if(k.startsWith("external:")){ NODE_COLOR_MAP.set(k,"hsl(0 0% 88%)"); return NODE_COLOR_MAP.get(k); }
   if(NODE_COLOR_MAP.has(k)) return NODE_COLOR_MAP.get(k);
   const used=new Set(NODE_COLOR_MAP.values());
   const base=hashStr(k)%360;
@@ -686,13 +634,21 @@ function seeded01(s){ return(hashStr(s)%1000000)/1000000; }
  * State
  **********************************************************************/
 const EDGE_W=2.5;
+/* [MAP_FROM_THE_SNAPSHOT_V1 - T5b] The map is the node snapshot (getSnapshot.php) and nothing else: its members (one box
+ * each, dimmed when down), the forward pond (region mode), the hub links, the databasehost (its elections). There is no
+ * Internet node, no uplink edge and no egress tree: the echo's upstream fields are the node's own upstream addresses,
+ * not a parent's .1, and a picture built from them showed links nobody measured. The sensors (api.php) fill the side
+ * panels only (engine, measured network links, each member's sensor tags).
+ * SNAP_FAIL / SENSOR_FAIL: the last failed read, {what, why, at}. A failed snapshot read clears the whole page (nothing
+ * stale is drawn) and says what failed and when; the next refresh reads again. */
 let HOSTS=new Map(),SENSORS=[],SENSOR_BY_HOSTIP=new Map(),SENSOR_DATA_CACHE=new Map();
-let NODES=new Map(),EDGES=new Map(),PHYS_LINKS=new Map(),LINK_QUALITY=new Map(),SUBNET_EDGES=new Map();
+let NODES=new Map(),PHYS_LINKS=new Map(),SUBNET_EDGES=new Map();
 let DBHOST_IP="";
-/* [ONE_MONITOR_TRUTH_V1] the node snapshot (getSnapshot.php) this picture was drawn from, and the hub links it implies:
- * on a region every alive member of the forward pond holds a session to the pond's RAM manager and reaches the others
- * through the hub; this node's own hub link carries the kernel's handshake age. */
+/* [ONE_MONITOR_TRUTH_V1] the node snapshot this picture was drawn from, and the hub links it implies: on a region every
+ * alive member of the forward pond holds a session to the pond's RAM manager and reaches the others through the hub;
+ * this node's own hub link carries the kernel's handshake age. */
 let SNAPSHOT=null, HUB_LINKS=[];
+let SNAP_FAIL=null, SENSOR_FAIL=null;
 const POND_FILL="#b48cff";
 
 let ENGINE_BY_HOST=new Map();
@@ -700,270 +656,10 @@ let ENDPOINTS_BY_HOST=new Map();
 let PEER_SENSORS=[];
 let DAEMON_BY_HOST=new Map();
 
-/**********************************************************************
- * Internet pathway colors
- *
- * Each host that's an internet egress point is assigned a distinct
- * "pathway color" from a fixed palette.  Two detection rules are
- * unioned — a host is a gateway if EITHER rule matches:
- *
- *   Rule 1 (echo):  echo carries a non-FrogNet gw0 or gw1.  This is
- *                   the canonical case for hosts whose echo data is
- *                   complete and accurate.
- *   Rule 2 (wg*):   host owns a Topology/LinkState edge with dev=wg*.
- *                   Only a host with a local wg interface can have
- *                   dev=wg* in its routing table, and only a host
- *                   with internet egress can run WG tunnels.  Catches
- *                   gateways with echo data gaps, NAT'd-public-IP
- *                   setups, etc.
- *
- * Assignment is deterministic on sorted host IP so palette is stable
- * across polls and reloads.
- *
- * Usage at draw time:
- *   - EXTERNAL edge (host → Internet): drawn in the host's pathway
- *     color, dot-dash style.
- *   - WG tunnel edge (dev wg*): if both endpoints have pathway colors,
- *     drawn TWICE with phase-offset dashes so the two colors alternate
- *     along the line — each gateway's identity shows in every other
- *     dash.
- *   - Direct/LAN edge: unrelated to internet pathways; solid RTT
- *     color as before.
- *
- * Why this encodes topology: every tunnel emanating from gateway G
- * carries G's color on alternating dashes.  Scan for G's color and
- * you see G's tunnel cloud — which nodes egress through G.
- **********************************************************************/
-const PATHWAY_PALETTE = [
-  "#f0c038",   // amber
-  "#3b9eff",   // blue
-  "#28cc6e",   // green
-  "#f0483e",   // red
-  "#c878ff",   // purple
-  "#ff8c42",   // orange
-  "#42d4d4",   // cyan
-  "#ff6bcb",   // pink
-];
-let PATHWAY_COLOR_BY_HOST = new Map();
-
-function computePathwayColors(hostMap, edges){
-  PATHWAY_COLOR_BY_HOST = new Map();
-  const gatewayHosts = new Set();
-
-  // Rule 1: non-FrogNet gw in echo
-  for (const [ip,h] of hostMap.entries()){
-    const gws = [h.echo?.gw0, h.echo?.gw1].filter(x => x && x !== "0.0.0.0");
-    if (gws.some(g => !isFrogNetIp(g))) gatewayHosts.add(ip);
-  }
-
-  // Rule 2: host owns a wg* route.  Edges are keyed `from→to` where
-  // `from` is the reporting host — only that host can locally own
-  // the dev (wg* exists on its kernel).  So `from` is the gateway
-  // when dev starts with wg.
-  if (edges){
-    for (const e of edges.values()){
-      if (e.kind === "EXTERNAL") continue;
-      const dev = (e.meta && typeof e.meta.dev === "string") ? e.meta.dev.toLowerCase() : "";
-      if (dev.startsWith("wg")) gatewayHosts.add(e.from);
-    }
-  }
-
-  const sorted = Array.from(gatewayHosts).sort();
-  sorted.forEach((ip,i) => {
-    PATHWAY_COLOR_BY_HOST.set(ip, PATHWAY_PALETTE[i % PATHWAY_PALETTE.length]);
-  });
-}
-
-function pathwayColorForHost(ip){ return PATHWAY_COLOR_BY_HOST.get(ip) || null; }
-
-/**********************************************************************
- * parentGatewayIp(ip) — the FrogNet gateway this host actually routes
- * through, read from its OWN echo data (gw0/gw1).  Used by
- * familyColor() so children inherit their parent gateway's color.
- **********************************************************************/
-function parentGatewayIp(childIp){
-  const h = HOSTS.get(childIp);
-  if(!h || !h.echo) return null;
-  for(const gw of [h.echo.gw0, h.echo.gw1]){
-    if(!gw || gw === "0.0.0.0" || !isFrogNetIp(gw)) continue;
-    if(HOSTS.has(gw) && isGateway(gw)) return gw;
-  }
-  return null;
-}
-
-/**********************************************************************
- * familyColor(ip, edges) — the route-map "family color" of a host:
- * the pathway color of the internet gateway it ultimately egresses
- * through.  A host that IS a gateway gets its own pathway color.
- * Otherwise consult echo-derived parent; last resort = a one-hop
- * neighbor gateway, if any.
- **********************************************************************/
-function familyColor(ip, edges){
-  const own = pathwayColorForHost(ip);
-  if(own) return own;
-  const parent = parentGatewayIp(ip);
-  if(parent) return pathwayColorForHost(parent);
-  return egressGatewayColorForHost(ip, edges);
-}
-
-function egressGatewayColorForHost(ip, edges){
-  let bestIp = null, bestCol = null;
-  for(const e of edges.values()){
-    if(e.kind === "EXTERNAL") continue;
-    let other = null;
-    if(e.from === ip) other = e.to;
-    else if(e.to === ip) other = e.from;
-    if(!other) continue;
-    const pc = pathwayColorForHost(other);
-    if(pc && (bestIp === null || other < bestIp)){ bestIp = other; bestCol = pc; }
-  }
-  return bestCol;
-}
-
-function isGateway(ip){ return PATHWAY_COLOR_BY_HOST.has(String(ip||"")); }
-
-function ipToInt(ip){
-  const p = String(ip||"").split(".").map(Number);
-  if(p.length !== 4 || p.some(n => !Number.isFinite(n))) return 0;
-  return p[0]*16777216 + p[1]*65536 + p[2]*256 + p[3];
-}
-
-/**********************************************************************
- * Link STATUS  →  health GLOW
- *
- * Speed/health rides on a colored GLOW halo, not the line color:
- *   degraded (1–2s)   → yellow
- *   slow     (>2s)    → red
- *   down/unknown      → black
- *   online (<1s)      → no glow
- * Thresholds match the old RTT buckets.  A link with no RTT sample is
- * treated as online to avoid false halos.
- **********************************************************************/
-const RTT_DEGRADED_MS = 1000;
-const RTT_SLOW_MS     = 2000;
-
-function linkStatus(e){
-  if(!e) return "down";
-  if(e.kind === "UNKNOWN") return "down";
-  const rtt = (e.meta && Number(e.meta.rtt_avg_ms)) || 0;
-  if(rtt <= 0) return "online";
-  if(rtt < RTT_DEGRADED_MS) return "online";
-  if(rtt < RTT_SLOW_MS)     return "degraded";
-  return "slow";
-}
-function statusGlowColor(status){
-  switch(status){
-    case "degraded": return "#f0c038";
-    case "slow":     return "#f0483e";
-    case "down":     return "#000000";
-    default:         return null;
-  }
-}
-
-/**********************************************************************
- * View mode: "route" (full mesh) or "internet" (egress chain only).
- *
- * The egress chain is built primarily from echo gws as EXTERNAL edges
- * (child→parent for FrogNet gws, head→Internet for non-FrogNet gws).
- * When a host's echo data is missing or stale, that host orphans —
- * its descendants would dead-end at it.  filterEgressTree heals this
- * by BFS-ing from the Internet node through ALL edges (EXTERNAL +
- * non-EXTERNAL Topology, treated undirected) and synthesizing the
- * missing hops.  RTT is copied from the underlying Topology edge so
- * glow halos still reflect link health.  Synthetic edges only exist
- * in the Internet view; route view is unaffected.
- **********************************************************************/
-/* [THREE_VIEWS_V1] There are three distinct maps and v31 had a binary toggle
- * over two of them — neither of which was the logical one.
- *
- *   "logical"  every node to every other node, including routes that
- *              traverse an intermediate host. THE DEFAULT.
- *   "physical" direct hops only — Seattle2 to Seattle3 to Seattle6.
- *              This is what v31 called "route" and shipped as the default.
- *   "egress"   the chain to the Internet node. What v31 called "internet".
- *
- * physical is a strict subset of logical, which is what it is.
- */
-let VIEW_MODE = "logical";   // "logical" | "physical" | "egress"
-
-const VIEW_ORDER = ["logical","physical","egress"];
-const VIEW_LABEL = { logical:"Logical map", physical:"Internet map", egress:"Egress tree" };
-const VIEW_SUB = {
-  logical : "Logical map · every node to every other node · dotted = route via an intermediate host · glow = link health",
-  physical: "Internet map · direct hops only, as the packets actually travel · glow = link health",
-  egress  : "Egress tree · the chain each node takes to the Internet · hatched = inferred, not observed"
-};
-
-/* Drop transit edges: the physical map is what is left. */
-function filterDirectOnly(edges){
-  const out=new Map();
-  for(const [k,e] of edges.entries()){
-    if(e && e.meta && e.meta.transit) continue;
-    out.set(k,e);
-  }
-  return out;
-}
-
-function filterEgressTree(edges){
-  const internetId = "external:internet";
-  const out = new Map();
-
-  // 1. Start with the explicit EXTERNAL edges (echo-derived chain).
-  for(const [k, e] of edges.entries()){
-    if(e.kind === "EXTERNAL") out.set(k, e);
-  }
-
-  // 2. Build undirected adjacency over ALL edges.
-  const adj = new Map();
-  const addAdj=(a,b)=>{ if(!adj.has(a)) adj.set(a,new Set()); adj.get(a).add(b); };
-  for(const e of edges.values()){
-    addAdj(e.from, e.to);
-    addAdj(e.to,   e.from);
-  }
-
-  // 3. BFS from Internet → predecessor map (each node's next hop
-  //    toward Internet, by shortest path through the graph).
-  const pred    = new Map();
-  const visited = new Set([internetId]);
-  const queue   = [internetId];
-  while(queue.length){
-    const cur = queue.shift();
-    for(const nb of (adj.get(cur) || [])){
-      if(visited.has(nb)) continue;
-      visited.add(nb);
-      pred.set(nb, cur);
-      queue.push(nb);
-    }
-  }
-
-  // 4. Hosts that already have an outgoing EXTERNAL edge are anchored
-  //    to the chain.  Walking pred from each orphan toward Internet
-  //    synthesizes the missing hops, stopping the moment we reach an
-  //    anchored host (or the Internet node itself).
-  const anchored = new Set();
-  for(const e of out.values()) anchored.add(e.from);
-
-  for(const ip of HOSTS.keys()){
-    let cur = ip;
-    while(cur && cur !== internetId){
-      if(anchored.has(cur)) break;
-      const next = pred.get(cur);
-      if(!next || next === internetId) break;   // safety; heads handle this themselves
-      // Copy RTT from whichever Topology edge sits between cur↔next
-      // so the glow still encodes health for synthetic hops.
-      const direct = edges.get(`${cur}→${next}`) || edges.get(`${next}→${cur}`);
-      const rtt = (direct && direct.meta && Number(direct.meta.rtt_avg_ms)) || 0;
-      const key = `synth:${cur}→${next}`;
-      out.set(key, {
-        from: cur, to: next, kind: "EXTERNAL",
-        meta: {dev:"uplink", synthetic:true, rtt_avg_ms: rtt}
-      });
-      anchored.add(cur);
-      cur = next;
-    }
-  }
-
-  return out;
+function clock(ms){ const d=new Date(ms); return [d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>String(x).padStart(2,"0")).join(":"); }
+function failText(f){ return f ? `${f.what} failed at ${clock(f.at)}: ${f.why}` : "reading getSnapshot.php\u2026"; }
+function hubText(snap){
+  return ((snap&&snap.hub)||[]).map(h=>h.error?`${h.iface} error`:(typeof h.handshake_age_s==="number"?`${h.iface} ${Math.trunc(h.handshake_age_s)}s`:`${h.iface} no handshake`)).join(" ");
 }
 
 /**********************************************************************
@@ -995,7 +691,6 @@ function ensureNode(id,label,ipForSort){
         const third=Number(ipForSort.split(".")[2]||0);
         col=(third===10)?0.22:(third===20?0.36:(third===30?0.50:(third===50?0.68:0.82)));
       }
-      if(id.startsWith("external:")) col=0.92;
       x=wv*col+(seeded01(id)-0.5)*90;
       y=hv*(0.22+0.60*seeded01("y:"+id));
       if(id.startsWith("pond:")){ x=wv*0.50; y=hv*0.08; }      // the forward pond (its hub) above the members
@@ -1041,172 +736,33 @@ function resolveOverlaps(iter=70){
   }
 }
 
-function intersectRectBoundary(fromNode,toNode){
-  const fx=fromNode.x,fy=fromNode.y,tx=toNode.x,ty=toNode.y;
-  const dx=tx-fx,dy=ty-fy;
-  if(dx===0&&dy===0) return {x:fx,y:fy};
-  const sx=(dx!==0)?(fromNode.w/2/Math.abs(dx)):Infinity;
-  const sy=(dy!==0)?(fromNode.h/2/Math.abs(dy)):Infinity;
-  const t=Math.min(sx,sy);
-  return {x:fx+dx*t,y:fy+dy*t};
-}
-
-function segmentIntersectsRect(p0,p1,r){
-  const minx=Math.min(p0.x,p1.x),maxx=Math.max(p0.x,p1.x);
-  const miny=Math.min(p0.y,p1.y),maxy=Math.max(p0.y,p1.y);
-  if(maxx<r.x0||minx>r.x1||maxy<r.y0||miny>r.y1) return false;
-  for(let i=0;i<=18;i++){
-    const t=i/18;
-    const x=p0.x+(p1.x-p0.x)*t,y=p0.y+(p1.y-p0.y)*t;
-    if(x>=r.x0&&x<=r.x1&&y>=r.y0&&y<=r.y1) return true;
-  }
-  return false;
-}
-
-/* Edge routing: with deduplicated edges, there's at most ONE line per
- * host pair, so a single deterministic bend side is fine.  (The old
- * code alternated sides per direction to separate A→B from B→A; no
- * longer needed since A↔B is one edge now.) */
-function edgeCurvePoints(a,b){
-  const pA=intersectRectBoundary(a,b), pB=intersectRectBoundary(b,a);
-  const mx=(pA.x+pB.x)/2,my=(pA.y+pB.y)/2;
-  const dx=pB.x-pA.x,dy=pB.y-pA.y;
-  const len=Math.max(1,Math.hypot(dx,dy));
-  const nx=-dy/len,ny=dx/len;
-  const side=(hashStr(canonicalKey(a.id,b.id))&1)?1:-1;
-  let bend=26;
-  for(let tries=0;tries<10;tries++){
-    const c={x:mx+nx*bend*side,y:my+ny*bend*side};
-    let blocked=false;
-    for(const n of NODES.values()){
-      if(n.id===a.id||n.id===b.id) continue;
-      const r=rectOf(n,10);
-      if(segmentIntersectsRect(pA,c,r)||segmentIntersectsRect(c,pB,r)||segmentIntersectsRect(pA,pB,r)){blocked=true;break;}
-    }
-    if(!blocked) return {pA,pB,c};
-    bend+=22;
-  }
-  return {pA,pB,c:{x:mx+nx*160*side,y:my+ny*160*side}};
-}
-
 /**********************************************************************
- * Legend — three columns: route STYLE × RTT SPEED × per-gateway PATHWAY
- * color swatches.  Style and speed are fixed 3-row; pathway count is
- * dynamic (one row per internet-egress host).  Box height grows to fit.
+ * Legend: what the map's marks mean (all of them from the snapshot)
  **********************************************************************/
 function drawLegend(){
   const rect=canvas.getBoundingClientRect();
-
-  // STATUS glow swatches.  Online has no glow, so it isn't listed —
-  // absence of halo IS the online signal.
-  const statusLevels=[
-    {color:"#f0c038", label:"Degraded"},
-    {color:"#f0483e", label:"Slow"},
-    {color:"#000000", label:"Down"},
-  ];
-
-  // Pathway swatches: one row per gateway host.
-  const pathwayRows=[];
-  const gwSorted=Array.from(PATHWAY_COLOR_BY_HOST.keys()).sort();
-  for(const ip of gwSorted){
-    const h=HOSTS.get(ip);
-    const label=h?h.hostname:ip;
-    pathwayRows.push({color:PATHWAY_COLOR_BY_HOST.get(ip), label});
-  }
-
-  const padX=12, padY=10;
-  const hdrH=14, rowH=18;
-  const dotR=5, statusLabelW=58;
-  const pwSwatchW=14, pwLabelW=110;
-  const colGap=16;
-
-  const col1W = 2*dotR + 6 + statusLabelW;
-  const col2W = pwSwatchW + 6 + pwLabelW;
-  const haveCol2 = pathwayRows.length>0;
-
-  const boxW  = padX*2 + col1W + (haveCol2?(colGap+col2W):0);
-  const rows  = Math.max(statusLevels.length, pathwayRows.length);
-  const boxH  = padY*2 + hdrH + rows*rowH;
-
-  const bx = rect.width - boxW - 12;
-  const by = rect.height - boxH - 12;
-
+  const rows=[];
+  if(SNAPSHOT && SNAPSHOT.mode==="region") rows.push({kind:"hub", label:"hub link (member \u2192 forward pond)"});
+  rows.push({kind:"db", label:"databasehost"});
+  rows.push({kind:"down", label:"member down"});
+  const padX=12, padY=10, rowH=18, swW=22, labW=200;
+  const boxW=padX*2+swW+8+labW, boxH=padY*2+rows.length*rowH;
+  const bx=rect.width-boxW-12, by=rect.height-boxH-12;
   ctx.save();
   drawRoundedRect(bx,by,boxW,boxH,8);
-  ctx.fillStyle="rgba(10,15,22,0.88)";
-  ctx.fill();
-  ctx.strokeStyle="#1a2538";
-  ctx.lineWidth=1;
-  ctx.stroke();
+  ctx.fillStyle="rgba(10,15,22,0.88)"; ctx.fill();
+  ctx.strokeStyle="#1a2538"; ctx.lineWidth=1; ctx.stroke();
   ctx.restore();
-
-  const hdr1X = bx + padX;
-  const hdr2X = bx + padX + col1W + colGap;
-  ctx.save();
-  ctx.fillStyle="#6b7d94";
-  ctx.font=`700 9.5px ${getCss("--sans")}`;
-  ctx.textBaseline="top";
-  ctx.textAlign="left";
-  ctx.fillText("STATUS", hdr1X, by+padY);
-  if(haveCol2) ctx.fillText("PATHWAYS", hdr2X, by+padY);
-  ctx.restore();
-
-  const rowsY0 = by + padY + hdrH;
-
-  // status column — glowing dots; Down (black) gets a thin outline so
-  // it's visible against the dark panel.
-  for(let i=0;i<statusLevels.length;i++){
-    const s  = statusLevels[i];
-    const lx = hdr1X;
-    const ly = rowsY0 + i*rowH + rowH/2;
+  rows.forEach((r,i)=>{
+    const lx=bx+padX, ly=by+padY+i*rowH+rowH/2;
     ctx.save();
-    ctx.shadowColor=s.color;
-    ctx.shadowBlur=8;
-    ctx.fillStyle=s.color;
-    ctx.beginPath();
-    ctx.arc(lx+dotR, ly, dotR, 0, Math.PI*2);
-    ctx.fill();
+    if(r.kind==="hub"){ ctx.setLineDash([6,5]); ctx.strokeStyle=POND_FILL; ctx.lineWidth=EDGE_W; ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+swW,ly); ctx.stroke(); }
+    else if(r.kind==="db"){ ctx.shadowColor="rgba(40,204,110,0.8)"; ctx.shadowBlur=8; drawRoundedRect(lx,ly-5,swW,10,3); ctx.fillStyle="rgba(40,204,110,0.5)"; ctx.fill(); }
+    else { ctx.globalAlpha=0.35; drawRoundedRect(lx,ly-5,swW,10,3); ctx.fillStyle="#9aafc8"; ctx.fill(); }
     ctx.restore();
-    if(s.color==="#000000"){
-      ctx.save();
-      ctx.strokeStyle="#3d4f64";
-      ctx.lineWidth=1;
-      ctx.beginPath();
-      ctx.arc(lx+dotR, ly, dotR, 0, Math.PI*2);
-      ctx.stroke();
-      ctx.restore();
-    }
-    ctx.save();
-    ctx.fillStyle="#a4b3c5";
-    ctx.font=`11px ${getCss("--sans")}`;
-    ctx.textBaseline="middle";
-    ctx.textAlign="left";
-    ctx.fillText(s.label, lx+2*dotR+6, ly);
-    ctx.restore();
-  }
-
-  // pathway column — small rounded swatch + host label
-  if(haveCol2){
-    for(let i=0;i<pathwayRows.length;i++){
-      const p  = pathwayRows[i];
-      const lx = hdr2X;
-      const ly = rowsY0 + i*rowH + rowH/2;
-      ctx.save();
-      drawRoundedRect(lx, ly-5, pwSwatchW, 10, 2);
-      ctx.fillStyle=p.color;
-      ctx.fill();
-      ctx.restore();
-      ctx.save();
-      ctx.fillStyle="#a4b3c5";
-      ctx.font=`11px ${getCss("--sans")}`;
-      ctx.textBaseline="middle";
-      ctx.textAlign="left";
-      let lbl=p.label||"";
-      if(lbl.length>16) lbl=lbl.slice(0,15)+"…";
-      ctx.fillText(lbl, lx+pwSwatchW+6, ly);
-      ctx.restore();
-    }
-  }
+    ctx.save(); ctx.fillStyle="#a4b3c5"; ctx.font=`11px ${getCss("--sans")}`; ctx.textBaseline="middle"; ctx.textAlign="left";
+    ctx.fillText(r.label, lx+swW+8, ly); ctx.restore();
+  });
 }
 
 /**********************************************************************
@@ -1223,172 +779,38 @@ function drawRoundedRect(x,y,w,h,r){
   ctx.closePath();
 }
 
-/**********************************************************************
- * Collapse bidirectional host↔host edges into a single logical edge.
- * Every host publishes its own Topology sensor, so for every connected
- * pair we get A→B (reported by A) and B→A (reported by B).  They
- * describe the same transport: if one direction is healthy, the other
- * is too.  Merge so the graph shows one line per physical link.
- *
- * EXTERNAL (uplink) edges are NOT merged — they're inherently
- * one-directional and should stay that way.
- *
- * Merge rules:
- *   kind:         SEMANTIC wins over FAST — if either side has BLDC-1
- *                 compression active, the link is SEMANTIC
- *   rtt_avg_ms:   worst (max) wins — a bad leg makes the whole link bad
- *   dev/via/reason: take whichever side actually has a value
- **********************************************************************/
-function unifyEdgesForDisplay(edges, mode){
-  /* [DIRECTION_IS_NOT_SYMMETRIC_V1] Merging A→B with B→A rests on "if one
-   * direction is healthy the other is too." True of a physical link. NOT true
-   * of a logical route: the two directions can take different paths and have
-   * different health. Measured 2026-08-13 — Seattle5→Seattle2 ran 557/560
-   * while the eastern nodes' path to the same host failed in windows. One
-   * merged line reports max RTT of the two and calls it the link, which hides
-   * exactly the asymmetry worth seeing.
-   *
-   * Merge in the physical and egress views. Keep direction in logical. */
-  const out=new Map();
-  const keepDirection = (mode === "logical");
-  for(const e of edges.values()){
-    if(keepDirection && e.kind!=="EXTERNAL"){
-      out.set(`${e.from}→${e.to}|${e.meta&&e.meta.transit?"t":"d"}`,
-              {...e, meta:{...(e.meta||{}), directed:true}});
-      continue;
-    }
-    if(e.kind==="EXTERNAL"){
-      out.set(`ext:${e.from}|${e.to}`, e);
-      continue;
-    }
-    const key=canonicalKey(e.from,e.to)+(e.meta&&e.meta.transit?"|t":"|d");
-    const prev=out.get(key);
-    if(!prev){
-      out.set(key,{...e, meta:{...(e.meta||{})}});
-      continue;
-    }
-    if(e.kind==="SEMANTIC" && prev.kind!=="SEMANTIC") prev.kind="SEMANTIC";
-    const rttE=Number(e.meta&&e.meta.rtt_avg_ms||0);
-    const rttP=Number(prev.meta&&prev.meta.rtt_avg_ms||0);
-    if(rttE>rttP) prev.meta.rtt_avg_ms=rttE;
-    for(const f of ["dev","via","reason"]){
-      if(!prev.meta[f] && e.meta && e.meta[f]) prev.meta[f]=e.meta[f];
-    }
-  }
-  return out;
-}
-
 function draw(){
   const rect=canvas.getBoundingClientRect();
   ctx.clearRect(0,0,rect.width,rect.height);
 
-  const displayEdges = unifyEdgesForDisplay(EDGES, VIEW_MODE);
-  // [THREE_VIEWS_V1] logical = everything; physical = direct hops only;
-  // egress = the EXTERNAL chain to the Internet node.
-  const renderEdges =
-        (VIEW_MODE === "egress")   ? filterEgressTree(filterDirectOnly(displayEdges)) :
-        (VIEW_MODE === "physical") ? filterDirectOnly(displayEdges) :
-                                     displayEdges;
-
-  // Each non-EXTERNAL edge in route mode is drawn as TWO parallel
-  // cables, offset ±2.5px perpendicular to the line.  Each cable
-  // takes its destination's family color.  Same-family edges look
-  // like a single thicker line; cross-family edges show two colors
-  // side-by-side.  Glow halos encode health.
-  const CABLE_OFFSET = 2.5;
-
-  for(const e of renderEdges.values()){
-    const a=NODES.get(e.from),b=NODES.get(e.to);
-    if(!a||!b) continue;
-    const {pA,pB,c}=edgeCurvePoints(a,b);
-    const A=worldToScreen(pA),B=worldToScreen(pB),C=worldToScreen(c);
-
-    const isExternal = (e.kind==="EXTERNAL");
-    const status = linkStatus(e);
-    const glow   = statusGlowColor(status);
-
-    const strokeCurveAt=(Ap,Cp,Bp)=>{
-      ctx.beginPath();
-      ctx.moveTo(Ap.x,Ap.y);
-      ctx.quadraticCurveTo(Cp.x,Cp.y,Bp.x,Bp.y);
-      ctx.stroke();
-    };
-    const strokeCurve=()=>strokeCurveAt(A,C,B);
-
-    const dx_ab = B.x - A.x, dy_ab = B.y - A.y;
-    const ab_len = Math.hypot(dx_ab, dy_ab) || 1;
-    const px = -dy_ab/ab_len, py = dx_ab/ab_len;
-    const cablePlus =(p)=>({x:p.x+px*CABLE_OFFSET, y:p.y+py*CABLE_OFFSET});
-    const cableMinus=(p)=>({x:p.x-px*CABLE_OFFSET, y:p.y-py*CABLE_OFFSET});
-
-    // GLOW pass — solid halo, drawn UNDER the wire.  Online → skip.
-    if(glow){
-      ctx.save();
-      ctx.setLineDash([]);
-      ctx.lineCap="round";
-      ctx.strokeStyle=glow;
-      ctx.shadowColor=glow;
-      ctx.shadowBlur=16;
-      ctx.lineWidth=EDGE_W + (VIEW_MODE==="egress" ? 2.5 : 5.5);
-      ctx.globalAlpha=(status==="down")?0.7:0.55;
-      strokeCurve();
-      ctx.shadowBlur=9;
-      strokeCurve();
-      ctx.restore();
-    }
-
+  // [MAP_FROM_THE_SNAPSHOT_V1] no snapshot: nothing is drawn but what failed and when
+  if(!SNAPSHOT){
     ctx.save();
-    ctx.lineWidth=EDGE_W;
-    ctx.setLineDash([]);
-    ctx.globalAlpha=(status==="down")?0.4:((e.kind==="UNKNOWN")?0.35:0.85);
-
-    if(isExternal){
-      // Uplink chain (child→parent and head→Internet): single solid
-      // curve in the source's family color.  Source family resolves
-      // to the parent gateway's pathway color either way, so the
-      // whole chain renders in one consistent color.
-      ctx.strokeStyle = familyColor(e.from, renderEdges) ||
-                        pathwayColorForHost(e.from) ||
-                        "#9aafc8";
-      strokeCurve();
-    } else if(VIEW_MODE === "egress"){
-      // No non-EXTERNAL edges survive the filter, but be defensive.
-      ctx.strokeStyle = familyColor(e.from, renderEdges) ||
-                        familyColor(e.to,   renderEdges) ||
-                        nodeColorForId(e.from);
-      strokeCurve();
-    } else {
-      // Route map: TWO offset cables, each colored by its
-      // destination's family.  Side near each node carries that
-      // node's family.
-      const famFromSide = familyColor(e.from, renderEdges) || nodeColorForId(e.from);
-      const famToSide   = familyColor(e.to,   renderEdges) || nodeColorForId(e.to);
-
-      ctx.strokeStyle = famToSide;
-      strokeCurveAt(cablePlus(A), cablePlus(C), cablePlus(B));
-      ctx.strokeStyle = famFromSide;
-      strokeCurveAt(cableMinus(A), cableMinus(C), cableMinus(B));
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillStyle=SNAP_FAIL?"#f0483e":"#6b7d94"; ctx.font=`600 16px ${getCss("--sans")}`;
+    ctx.fillText(failText(SNAP_FAIL), rect.width/2, rect.height/2);
+    if(SNAP_FAIL){
+      ctx.fillStyle="#6b7d94"; ctx.font=`13px ${getCss("--sans")}`;
+      ctx.fillText("nothing is drawn until getSnapshot.php answers; the next refresh reads it again", rect.width/2, rect.height/2+24);
     }
-
     ctx.restore();
+    return;
   }
 
   // [ONE_MONITOR_TRUTH_V1] hub links: member -> its forward pond, dashed in the pond colour; this node's carries its
-  // handshake age. Not in the egress tree (that is the LAN chain to the Internet).
-  if(VIEW_MODE!=="egress"){
-    for(const l of HUB_LINKS){
-      const a=NODES.get(l.from), b=NODES.get(l.to);
-      if(!a||!b) continue;
-      const A=worldToScreen(a), B=worldToScreen(b);
-      ctx.save();
-      ctx.setLineDash([6,5]); ctx.strokeStyle=POND_FILL; ctx.lineWidth=l.self?EDGE_W+1:EDGE_W; ctx.globalAlpha=0.8;
-      ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
-      if(l.label){
-        ctx.setLineDash([]); ctx.globalAlpha=1; ctx.fillStyle=POND_FILL; ctx.font=`600 12px ${getCss("--mono")}`;
-        ctx.textAlign="center"; ctx.textBaseline="bottom"; ctx.fillText("hub link "+l.label,(A.x+B.x)/2,(A.y+B.y)/2-4);
-      }
-      ctx.restore();
+  // handshake age.
+  for(const l of HUB_LINKS){
+    const a=NODES.get(l.from), b=NODES.get(l.to);
+    if(!a||!b) continue;
+    const A=worldToScreen(a), B=worldToScreen(b);
+    ctx.save();
+    ctx.setLineDash([6,5]); ctx.strokeStyle=POND_FILL; ctx.lineWidth=l.self?EDGE_W+1:EDGE_W; ctx.globalAlpha=0.8;
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
+    if(l.label){
+      ctx.setLineDash([]); ctx.globalAlpha=1; ctx.fillStyle=POND_FILL; ctx.font=`600 12px ${getCss("--mono")}`;
+      ctx.textAlign="center"; ctx.textBaseline="bottom"; ctx.fillText("hub link "+l.label,(A.x+B.x)/2,(A.y+B.y)/2-4);
     }
+    ctx.restore();
   }
 
   drawLegend();
@@ -1397,11 +819,12 @@ function draw(){
     const P=worldToScreen(n);
     const w=n.w*view.k,h=n.h*view.k;
     const x=P.x-w/2,y=P.y-h/2;
-    const isExternal=n.id.startsWith("external:");
     const isPond=n.id.startsWith("pond:");
-    const isDb=(!isExternal&&!isPond&&DBHOST_IP&&n.id===DBHOST_IP);
-    const fill=isExternal?"rgba(220,228,237,0.94)":(isPond?POND_FILL:nodeColorForId(n.id));
-    const txtCol=(isExternal||isPond)?"#0b0f14":bestTextColorForFill(fill);
+    const m=HOSTS.get(n.id);
+    const down=!!(m && !m.alive);
+    const isDb=(!isPond&&DBHOST_IP&&n.id===DBHOST_IP);
+    const fill=isPond?POND_FILL:nodeColorForId(n.id);
+    const txtCol=isPond?"#0b0f14":bestTextColorForFill(fill);
 
     ctx.save();
     if(isDb){
@@ -1429,16 +852,16 @@ function draw(){
     }
 
     drawRoundedRect(x,y,w,h,12*view.k);
-    ctx.fillStyle=fill; ctx.globalAlpha=1.0; ctx.fill();
+    ctx.fillStyle=fill; ctx.globalAlpha=down?0.35:1.0; ctx.fill();
     ctx.strokeStyle="rgba(6,10,16,0.6)"; ctx.lineWidth=2; ctx.globalAlpha=0.9; ctx.stroke();
 
-    ctx.globalAlpha=1.0; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillStyle=txtCol;
+    ctx.globalAlpha=down?0.6:1.0; ctx.textAlign="center"; ctx.textBaseline="middle";
+    ctx.fillStyle=down?"#dce4ed":txtCol;
     ctx.font=`600 18px ${getCss("--sans")}`;
     ctx.fillText(n.label||n.id,P.x,P.y-12);
-    ctx.globalAlpha=0.88;
+    ctx.globalAlpha=down?0.6:0.88;
     ctx.font=`15px ${getCss("--mono")}`;
-    ctx.fillText(isExternal?"Internet":(n.ip||""),P.x,P.y+16);
+    ctx.fillText((n.ip||"")+(down?"  down":""),P.x,P.y+16);
     ctx.restore();
   }
 }
@@ -1467,8 +890,8 @@ canvas.addEventListener("mousedown",(ev)=>{
 
 window.addEventListener("mouseup",(ev)=>{
   /* Click vs drag: if pointer barely moved, treat as click and open the
-   * host's sensor list.  Internet/external nodes are not clickable —
-   * they're not in HOSTS. */
+   * host's sensor list.  The pond node is not a member (not in HOSTS)
+   * and is not clickable. */
   let upAt=null;
   if(ev && typeof ev.clientX==="number"){
     const rect=canvas.getBoundingClientRect();
@@ -1485,7 +908,7 @@ window.addEventListener("mouseup",(ev)=>{
   dragging.mode="none"; dragging.id="";
 
   if(wasNodeDrag && upAt && moved<CLICK_THRESH_PX){
-    if(clickedId && !clickedId.startsWith("external:") && HOSTS.has(clickedId)){
+    if(clickedId && HOSTS.has(clickedId)){
       showHostSensorsModal(clickedId);
     }
   }
@@ -1608,7 +1031,9 @@ function renderEngineTiles(){
   agg.lru_hit_rate=lruN>0?lruSum/lruN:0;
 
   if(!hasEngine){
-    el.innerHTML=`<div class="linkmeta">No engine metrics found.</div>`;
+    el.innerHTML=""; const m=document.createElement("div"); m.className="linkmeta";
+    m.textContent=SENSOR_FAIL?failText(SENSOR_FAIL):(SNAPSHOT?"No engine metrics found.":failText(SNAP_FAIL));
+    el.append(m);
     return;
   }
 
@@ -1782,339 +1207,183 @@ function renderEngineTiles(){
  **********************************************************************/
 function hostName(ip){ return HOSTS.has(ip)?HOSTS.get(ip).hostname:ip; }
 
+/* [MAP_FROM_THE_SNAPSHOT_V1] a failed snapshot read: the whole page is cleared (map, members, panels), and the header,
+ * the status pill and the map say what failed and when. Nothing from an earlier refresh stays on screen. */
+function clearAll(fail){
+  SNAPSHOT=null; SNAP_FAIL=fail; SENSOR_FAIL=null;
+  HOSTS=new Map(); NODES=new Map(); HUB_LINKS=[]; DBHOST_IP="";
+  SENSORS=[]; SENSOR_BY_HOSTIP=new Map(); SENSOR_DATA_CACHE=new Map();
+  PHYS_LINKS=new Map(); SUBNET_EDGES=new Map();
+  ENGINE_BY_HOST=new Map(); ENDPOINTS_BY_HOST=new Map(); PEER_SENSORS=[]; DAEMON_BY_HOST=new Map();
+  renderEngineTiles(); renderLinkTiles(); renderHostTiles(); renderNodeHeader();
+  document.getElementById("linkCount").textContent="";
+  document.getElementById("hostCount").textContent="";
+  document.getElementById("status").textContent=failText(fail);
+  document.getElementById("hud").textContent="—";
+  draw();
+}
+
+/* The sensors (api.php): the side panels only. Returns what they fill; throws when api.php does not answer. */
+async function readSensors(hosts){
+  const S={SENSORS:[], SENSOR_BY_HOSTIP:new Map(), SENSOR_DATA_CACHE:new Map(), PHYS_LINKS:new Map(), SUBNET_EDGES:new Map(),
+           ENGINE_BY_HOST:new Map(), ENDPOINTS_BY_HOST:new Map(), PEER_SENSORS:[], DAEMON_BY_HOST:new Map()};
+  S.SENSORS=await fetchSensorsAndData(S.SENSOR_DATA_CACHE);
+  const data=id=>S.SENSOR_DATA_CACHE.has(String(id))?S.SENSOR_DATA_CACHE.get(String(id)):null;
+  const typed=(...ts)=>S.SENSORS.filter(s=>ts.includes(String(s.SensorType||"")));
+  for(const s of S.SENSORS){
+    /* Resolve host IP from SensorName prefix, not SensorAddress */
+    const hostIp=resolveHostIp(s, hosts);
+    if(!hostIp) continue;
+    if(!S.SENSOR_BY_HOSTIP.has(hostIp)) S.SENSOR_BY_HOSTIP.set(hostIp,[]);
+    S.SENSOR_BY_HOSTIP.get(hostIp).push(s);
+  }
+
+  // Measured links for the Network Links panel: one entry per direct hop between two members, from the Topology and
+  // LinkState sensors. [LOGICAL_IS_NOT_PHYSICAL_V1] an entry whose `via` is another member is a path through that
+  // member, not a hop, and is not a link here.
+  function upsertPhysLink(a,b,kind,meta){
+    if(!hosts.has(a)||!hosts.has(b)||a===b) return;
+    if(meta.transit) return;
+    const key=canonicalKey(a,b);
+    const prevL=S.PHYS_LINKS.get(key);
+    if(!prevL){S.PHYS_LINKS.set(key,{a,b,kind,...meta});return;}
+    const next={...prevL};
+    if(String(next.kind||"FAST")!=="SEMANTIC"&&String(kind||"FAST")==="SEMANTIC") next.kind="SEMANTIC";
+    for(const f of["dev","via","reason"]){
+      const cur=String(next[f]??""),inc=String(meta[f]??"");
+      if((!cur||!cur.trim())&&inc&&inc.trim()) next[f]=inc;
+    }
+    if((!next.rtt_avg_ms||next.rtt_avg_ms===0)&&meta.rtt_avg_ms&&meta.rtt_avg_ms>0) next.rtt_avg_ms=meta.rtt_avg_ms;
+    S.PHYS_LINKS.set(key,next);
+  }
+  const transitOf=(via,peer)=>!!(via && isFrogNetIp(via) && hosts.has(via) && via!==peer);
+  for(const s of typed("LinkState","LinkState.Edge")){
+    const hostIp=resolveHostIp(s, hosts);
+    for(const e of normalizeEdgesFromLinkStateJson(data(s.SensorID))){
+      const peer=String(e.peer_host_ip||"").trim(), kind=String(e.kind||"FAST").toUpperCase(), via=String(e.via||"").trim();
+      upsertPhysLink(hostIp,peer,kind==="SEMANTIC"?"SEMANTIC":"FAST",
+                     {reason:e.reason,dev:e.dev,via:e.via,rtt_avg_ms:Number(e.rtt_avg_ms||0),transit:transitOf(via,peer)});
+    }
+  }
+  for(const s of typed("Topology")){
+    const hostIp=resolveHostIp(s, hosts);
+    const obj=data(s.SensorID);
+    if(!obj||!Array.isArray(obj.links)) continue;
+    for(const link of obj.links){
+      const peer=String(link.peer_ip||"").trim(), kind=String(link.kind||"FAST").toUpperCase(), via=String(link.via||"").trim();
+      if(kind==="LOCAL" || !isFrogNetIp(peer) || peer===hostIp || !hosts.has(peer)) continue;
+      upsertPhysLink(hostIp,peer,kind==="SEMANTIC"?"SEMANTIC":"FAST",
+                     {dev:link.dev,via:link.via,reason:link.reason,rtt_avg_ms:Number(link.rtt_avg_ms||0),transit:transitOf(via,peer)});
+    }
+  }
+  for(const L of S.PHYS_LINKS.values()){
+    const ta=subnetThird(L.a),tb=subnetThird(L.b);
+    if(ta===null||tb===null||ta===tb) continue;
+    const sk=[ta,tb].sort((x,y)=>x-y).join("|");
+    const knd=(String(L.kind||"FAST")==="SEMANTIC")?"SEMANTIC":"FAST";
+    const prevSE=S.SUBNET_EDGES.get(sk);
+    if(!prevSE) S.SUBNET_EDGES.set(sk,{a_sub:Math.min(ta,tb),b_sub:Math.max(ta,tb),hostsKey:canonicalKey(L.a,L.b),kind:knd});
+    else if(prevSE.kind!=="SEMANTIC"&&knd==="SEMANTIC") prevSE.kind="SEMANTIC";
+  }
+
+  // ---- v5 sensor model: Engine, Endpoints, Peer, Daemon ----
+  for(const s of typed("SemanticProxy.Engine")){ const obj=data(s.SensorID); if(obj) S.ENGINE_BY_HOST.set(resolveHostIp(s, hosts),obj); }
+  for(const s of typed("SemanticCache.Endpoints","SemanticCache")){ const obj=data(s.SensorID); if(obj) S.ENDPOINTS_BY_HOST.set(resolveHostIp(s, hosts),obj); }
+  S.PEER_SENSORS=typed("SemanticCache.Peer");
+  for(const s of typed("SemanticDaemon.Cache")){
+    const obj=data(s.SensorID);
+    /* Daemon data has totals.exec_avg_ms — flatten for the renderer */
+    if(obj) S.DAEMON_BY_HOST.set(resolveHostIp(s, hosts), obj.totals?{...obj, exec_avg_ms:obj.totals.exec_avg_ms, exec_p95_ms:obj.totals.exec_p95_ms, coalesce_hits:obj.totals.coalesce_hits}:obj);
+  }
+  // ---- legacy SemanticCache.Summary ----
+  for(const s of S.SENSORS.filter(s=>String(s.SensorType||"")==="SemanticCache" && String(s.SensorName||"").includes("Summary"))){
+    const hostIp=resolveHostIp(s, hosts);
+    const obj=data(s.SensorID);
+    if(!obj) continue;
+    if(!S.ENGINE_BY_HOST.has(hostIp)&&obj.totals){
+      const t=obj.totals, rt=t.response_types||{};
+      S.ENGINE_BY_HOST.set(hostIp,{
+        compression_ratio:Number(t.compression_ratio||0),
+        amplification:t.bytes_actual>0?Number(t.bytes_would||0)/Number(t.bytes_actual):0,
+        same_rate:t.total_requests>0?(Number(rt.RESP_SAME||0)/Number(t.total_requests)):0,
+        template_coverage:0, error_rate:0, lru_hit_rate:0,
+        total_requests:Number(t.total_requests||0), bytes_would:Number(t.bytes_would||0),
+        bytes_actual:Number(t.bytes_actual||0), bytes_saved:Number(t.bytes_saved||0),
+        same_count:Number(rt.RESP_SAME||0), miss_count:Number(rt.REQ_MISS||0),
+        error_count:0, local_requests:0, coalesce_hits:0, links:{}, rtt:{}, _legacy:true
+      });
+    }
+    if(!S.ENDPOINTS_BY_HOST.has(hostIp)&&obj.top_endpoints) S.ENDPOINTS_BY_HOST.set(hostIp,{top_endpoints:obj.top_endpoints});
+  }
+  return S;
+}
+
 async function buildFromSources(){
   const statusEl=document.getElementById("status");
   const hudEl=document.getElementById("hud");
   const t0=performance.now();
 
-  const prev={HOSTS,SENSORS,SENSOR_BY_HOSTIP,SENSOR_DATA_CACHE,NODES,EDGES,PHYS_LINKS,LINK_QUALITY,SUBNET_EDGES,DBHOST_IP,ENGINE_BY_HOST,ENDPOINTS_BY_HOST,PEER_SENSORS,DAEMON_BY_HOST};
-
-  let _HOSTS=new Map(),_SENSORS=[],_SENSOR_BY_HOSTIP=new Map(),_SENSOR_DATA_CACHE=new Map();
-  let _NODES=new Map(),_EDGES=new Map(),_PHYS_LINKS=new Map(),_LINK_QUALITY=new Map(),_SUBNET_EDGES=new Map();
-  let _DBHOST_IP="";
-  let _SNAPSHOT=null, _HUB_LINKS=[];
-  let _ENGINE_BY_HOST=new Map(),_ENDPOINTS_BY_HOST=new Map(),_PEER_SENSORS=[],_DAEMON_BY_HOST=new Map();
-
-  try {
-    // [ONE_MONITOR_TRUTH_V1] one read: the node snapshot. The hosts are its members, the databasehost its elections
-    // (/etc/hosts on the node, never the resolver), the ponds and the hub link its own fields.
-    const snap=await jget("/getSnapshot.php");
+  // [ONE_MONITOR_TRUTH_V1] [MAP_FROM_THE_SNAPSHOT_V1] 1. the snapshot: the members, the databasehost (its elections:
+  // /etc/hosts on the node, never the resolver), the ponds and the hub link. It does not answer: clearAll says so.
+  let snap;
+  try{
+    snap=await jget("/getSnapshot.php");
     if(!snap || snap.snapshot!==1 || (snap.mode!=="lan-only" && snap.mode!=="region"))
-      throw new Error("getSnapshot.php: not a snapshot");
-    _SNAPSHOT=snap;
-    _DBHOST_IP=String((snap.elections||{}).databasehost||"");
-    for(const m of (snap.members||[])){
-      const ip=String(m.ip||"").trim();
-      if(!ip) continue;
-      const hostname=String(m.name||ip).trim();
-      const echo=parseEcho(String(m.echo||""));
-      _HOSTS.set(ip,{ip,hostname,echo,role:String(m.role||""),alive:m.alive===true,source:String(m.source||""),self:m.self===true});
-    }
-
-    const saveNodes=NODES, saveCache=SENSOR_DATA_CACHE;
-    NODES=_NODES; SENSOR_DATA_CACHE=_SENSOR_DATA_CACHE;
-
-    for(const [ip,h] of _HOSTS.entries()){
-      ensureNode(ip,h.hostname,ip);
-    }
-
-    const internetId="external:internet";
-    ensureNode(internetId,"Internet","");
-
-    // [ONE_MONITOR_TRUTH_V1] ponds and hub links (region mode): the forward pond is a node on the map, each alive
-    // member is linked to it, and this node's link is labelled with its hub link's handshake age (the snapshot's hub).
-    if(snap.mode==="region"){
-      const hubTxt=(snap.hub||[]).map(h=>h.error?`${h.iface} error`:(typeof h.handshake_age_s==="number"?`${h.iface} ${Math.trunc(h.handshake_age_s)}s`:`${h.iface} no handshake`)).join("  ");
-      for(const p of (snap.ponds||[])){
-        if(p.forward!==true) continue;
-        const pid="pond:"+String(p.area||"");
-        ensureNode(pid,"pond "+String(p.area||""),String(p.ram||""));
-        for(const [ip,h] of _HOSTS.entries()){
-          if(!h.alive || h.role==="hub") continue;
-          _HUB_LINKS.push({from:ip,to:pid,self:h.self,label:h.self?hubTxt:""});
-        }
-      }
-    }
-
-    /* fetchSensorsAndData uses a RELATIVE url now — page's origin, no CORS */
-    _SENSORS=await fetchSensorsAndData(_SENSOR_DATA_CACHE);
-    for(const s of _SENSORS){
-      /* Resolve host IP from SensorName prefix, not SensorAddress */
-      const hostIp=resolveHostIp(s, _HOSTS);
-      if(!hostIp) continue;
-      if(!_SENSOR_BY_HOSTIP.has(hostIp)) _SENSOR_BY_HOSTIP.set(hostIp,[]);
-      _SENSOR_BY_HOSTIP.get(hostIp).push(s);
-    }
-
-    // Uplink edges (kind=EXTERNAL, rendered dot-dash in source color):
-    //   - Child host (echo gw is a 10.x FrogNet peer): edge to that
-    //     parent host.  The parent's own uplink edge then continues
-    //     the chain — child → parent → … → head → Internet.
-    //   - Head host (echo gw is non-FrogNet, i.e. a real LAN/public
-    //     router): edge to the Internet node.
-    // Rule: FrogNet IPs start with 10.  If gw starts with 10, it's a
-    // FrogNet peer; the host echoing it is a child of that peer.
-    for(const [ip,h] of _HOSTS.entries()){
-      const gws=[h.echo?.gw0,h.echo?.gw1].filter(x=>x&&x!=="0.0.0.0");
-      for(const gw of gws){
-        if(isFrogNetIp(gw)){
-          // Child → parent (parent must be a known host).
-          if(_HOSTS.has(gw) && gw!==ip){
-            const k=`${ip}→${gw}`;
-            _EDGES.set(k,{from:ip,to:gw,kind:"EXTERNAL",meta:{gw,dev:"uplink"}});
-          }
-        } else {
-          // Head → Internet.
-          const k=`${ip}→${internetId}`;
-          _EDGES.set(k,{from:ip,to:internetId,kind:"EXTERNAL",meta:{gw,dev:"internet"}});
-        }
-      }
-    }
-
-    function upsertDirectedEdge(from,to,kind,meta={}){
-      if(!_HOSTS.has(from)||!_HOSTS.has(to)||from===to) return;
-      // [LOGICAL_IS_NOT_PHYSICAL_V1] A host can hold BOTH a direct route and a
-      // transit route to the same peer. Keying on from→to alone let the second
-      // overwrite the first, or merge into it and yield an edge describing
-      // neither path. The transit flag is part of the identity.
-      const key=`${from}→${to}|${meta && meta.transit ? "t" : "d"}`;
-      const prevE=_EDGES.get(key);
-      if(!prevE){_EDGES.set(key,{from,to,kind,meta:{...meta}});return;}
-      const next={...prevE,meta:{...(prevE.meta||{})}};
-      if(String(next.kind||"FAST")!=="SEMANTIC"&&String(kind||"FAST")==="SEMANTIC") next.kind="SEMANTIC";
-      for(const f of["dev","via","reason"]){
-        const cur=String(next.meta[f]??""),inc=String(meta[f]??"");
-        if((!cur||!cur.trim())&&inc&&inc.trim()) next.meta[f]=inc;
-      }
-      if((!next.meta.rtt_avg_ms||next.meta.rtt_avg_ms===0)&&meta.rtt_avg_ms&&meta.rtt_avg_ms>0)
-        next.meta.rtt_avg_ms=meta.rtt_avg_ms;
-      _EDGES.set(key,next);
-    }
-
-    function upsertPhysLink(a,b,kind,meta={}){
-      if(!_HOSTS.has(a)||!_HOSTS.has(b)||a===b) return;
-      // [LOGICAL_IS_NOT_PHYSICAL_V1] _PHYS_LINKS is the PHYSICAL adjacency and
-      // feeds the subnet panel. A transit entry is an end-to-end path, not a
-      // hop, and must never enter it — that is what "physical" means here.
-      if(meta && meta.transit) return;
-      const key=canonicalKey(a,b);
-      const prevL=_PHYS_LINKS.get(key);
-      if(!prevL){_PHYS_LINKS.set(key,{a,b,kind,...meta});return;}
-      const next={...prevL};
-      if(String(next.kind||"FAST")!=="SEMANTIC"&&String(kind||"FAST")==="SEMANTIC") next.kind="SEMANTIC";
-      for(const f of["dev","via","reason"]){
-        const cur=String(next[f]??""),inc=String(meta[f]??"");
-        if((!cur||!cur.trim())&&inc&&inc.trim()) next[f]=inc;
-      }
-      if((!next.rtt_avg_ms||next.rtt_avg_ms===0)&&meta.rtt_avg_ms&&meta.rtt_avg_ms>0)
-        next.rtt_avg_ms=meta.rtt_avg_ms;
-      _PHYS_LINKS.set(key,next);
-    }
-
-    // LinkState sensors (legacy/optional source — kept for any node
-    // still emitting them; Topology is the primary source).  Same
-    // transit-route filter as Topology: if `via` is another known
-    // FrogNet host, drop the entry — it's a path, not a hop.
-    const linkStateSensors=_SENSORS.filter(s=>{const t=String(s.SensorType||"");return(t==="LinkState"||t==="LinkState.Edge");});
-    for(const s of linkStateSensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=await fetchSensorData(s.SensorID);
-      const edges=normalizeEdgesFromLinkStateJson(obj);
-      for(const e of edges){
-        const peer=String(e.peer_host_ip||"").trim();
-        const kind=String(e.kind||"FAST");
-        const via=String(e.via||"").trim();
-        // [LOGICAL_IS_NOT_PHYSICAL_V1] An entry whose `via` is another known
-        // FrogNet host IS the logical connection: "I reach that peer, by way
-        // of this hop." v31 dropped it here, so the logical mesh was never
-        // built and the toggle had nothing to switch to. Tag it; the RENDERER
-        // decides which view wants it.
-        const isTransit = !!(via && isFrogNetIp(via) && _HOSTS.has(via) && via!==peer);
-        const meta={reason:e.reason,dev:e.dev,via:e.via,rtt_avg_ms:Number(e.rtt_avg_ms||0),transit:isTransit};
-        upsertPhysLink(hostIp,peer,kind,meta);
-        upsertDirectedEdge(hostIp,peer,(kind.toUpperCase()==="SEMANTIC")?"SEMANTIC":"FAST",meta);
-      }
-    }
-
-    // Topology sensors.
-    //
-    // Each link entry describes the route THIS host uses to reach
-    // peer_ip — the route's exit interface is in `dev`, the next-hop
-    // gateway (if any) is in `via`.  We classify by kind:
-    //   LOCAL    — self-alias for service names like "databasehost.
-    //              frognet"; used below for db detection, not drawn
-    //   FAST     — reachable, BLDC-1 compression not active
-    //   SEMANTIC — reachable, BLDC-1 compression active
-    //
-    // Transit-route filter: if `via` resolves to another KNOWN
-    // FrogNet host, this entry describes a multi-hop path through
-    // that host (e.g. NY-2 reaching SeattleSix via NY-1).  The
-    // dashboard draws physical hops, not virtual end-to-end paths,
-    // so we skip such entries — the two real hops will appear from
-    // this host's route to `via`, and from `via`'s own Topology data
-    // for its route to `peer`.  Result: NY-2 only draws an edge to
-    // NY-1, not to every node NY-1 fronts for it.
-    //
-    // The route's interface (`dev`) determines line style at draw
-    // time: wg* → tunnel route, anything else → direct route.
-    const topologySensors=_SENSORS.filter(s=>String(s.SensorType||"")==="Topology");
-    // [PARALLEL_SENSOR_READ_V1] v31 awaited each payload inside the loop, so a
-    // refresh cost one serial round-trip per sensor per type. Resolve them
-    // together; the loop below then reads from the resolved map.
-    const _topoPayloads=new Map();
-    await Promise.all(topologySensors.map(async s=>{
-      try{ _topoPayloads.set(s.SensorID, await fetchSensorData(s.SensorID)); }
-      catch(err){ console.warn("Topology payload", s.SensorID, err && err.message); }
-    }));
-    for(const s of topologySensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=_topoPayloads.get(s.SensorID);
-      if(!obj||!Array.isArray(obj.links)) continue;
-      for(const link of obj.links){
-        const peer=String(link.peer_ip||"").trim();
-        const kind=String(link.kind||"FAST").toUpperCase();
-        if(kind==="LOCAL") continue;
-        if (!isFrogNetIp(peer)) continue;
-        if(peer===hostIp) continue;
-        if(!_HOSTS.has(peer)) continue;
-        const via=String(link.via||"").trim();
-        // [LOGICAL_IS_NOT_PHYSICAL_V1] See the LinkState site above: tag, do
-        // not drop. Physical view filters these out at render time; logical
-        // view is the whole set.
-        const isTransit = !!(via && isFrogNetIp(via) && _HOSTS.has(via) && via!==peer);
-        const meta={dev:link.dev,via:link.via,reason:link.reason,rtt_avg_ms:Number(link.rtt_avg_ms||0),transit:isTransit};
-        const edgeKind=(kind==="SEMANTIC")?"SEMANTIC":"FAST";
-        upsertPhysLink(hostIp,peer,edgeKind,meta);
-        upsertDirectedEdge(hostIp,peer,edgeKind,meta);
-      }
-      /* (the databasehost is the snapshot's election, read above: no second source here) */
-    }
-
-    // Pathway colors — computed after Topology+LinkState populate
-    // _EDGES, so Rule 2 (host owns wg* route) has data to scan.
-    computePathwayColors(_HOSTS, _EDGES);
-
-    // ---- v5 sensor model: Engine, Endpoints, Peer, Daemon ----
-    const engineSensors=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticProxy.Engine");
-    for(const s of engineSensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=await fetchSensorData(s.SensorID);
-      if(obj) _ENGINE_BY_HOST.set(hostIp,obj);
-    }
-
-    const endpointSensors=_SENSORS.filter(s=>{const t=String(s.SensorType||"");return(t==="SemanticCache.Endpoints"||t==="SemanticCache");});
-    for(const s of endpointSensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=await fetchSensorData(s.SensorID);
-      if(obj) _ENDPOINTS_BY_HOST.set(hostIp,obj);
-    }
-
-    _PEER_SENSORS=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticCache.Peer");
-
-    const daemonSensors=_SENSORS.filter(s=>String(s.SensorType||"")==="SemanticDaemon.Cache");
-    for(const s of daemonSensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=await fetchSensorData(s.SensorID);
-      /* Daemon data has totals.exec_avg_ms — flatten for the renderer */
-      if(obj){
-        const flat=obj.totals?{...obj, exec_avg_ms:obj.totals.exec_avg_ms, exec_p95_ms:obj.totals.exec_p95_ms, coalesce_hits:obj.totals.coalesce_hits}:obj;
-        _DAEMON_BY_HOST.set(hostIp,flat);
-      }
-    }
-
-    // ---- BACKWARD COMPAT: legacy SemanticCache.Summary ----
-    const legacySummarySensors=_SENSORS.filter(s=>{
-      const t=String(s.SensorType||"");
-      const n=String(s.SensorName||"");
-      return t==="SemanticCache" && n.includes("Summary");
-    });
-    for(const s of legacySummarySensors){
-      const hostIp=resolveHostIp(s, _HOSTS);
-      const obj=await fetchSensorData(s.SensorID);
-      if(!obj) continue;
-      if(!_ENGINE_BY_HOST.has(hostIp)&&obj.totals){
-        const t=obj.totals;
-        const rt=t.response_types||{};
-        _ENGINE_BY_HOST.set(hostIp,{
-          compression_ratio:Number(t.compression_ratio||0),
-          amplification:t.bytes_actual>0?Number(t.bytes_would||0)/Number(t.bytes_actual):0,
-          same_rate:t.total_requests>0?(Number(rt.RESP_SAME||0)/Number(t.total_requests)):0,
-          template_coverage:0, error_rate:0, lru_hit_rate:0,
-          total_requests:Number(t.total_requests||0),
-          bytes_would:Number(t.bytes_would||0),
-          bytes_actual:Number(t.bytes_actual||0),
-          bytes_saved:Number(t.bytes_saved||0),
-          same_count:Number(rt.RESP_SAME||0),
-          miss_count:Number(rt.REQ_MISS||0),
-          error_count:0, local_requests:0, coalesce_hits:0,
-          links:{}, rtt:{},
-          _legacy:true
-        });
-      }
-      if(!_ENDPOINTS_BY_HOST.has(hostIp)&&obj.top_endpoints){
-        _ENDPOINTS_BY_HOST.set(hostIp,{top_endpoints:obj.top_endpoints});
-      }
-    }
-
-    // Subnet edges
-    for(const L of _PHYS_LINKS.values()){
-      const ta=subnetThird(L.a),tb=subnetThird(L.b);
-      if(ta===null||tb===null||ta===tb) continue;
-      const sk=[ta,tb].sort((x,y)=>x-y).join("|");
-      const knd=(String(L.kind||"FAST")==="SEMANTIC")?"SEMANTIC":"FAST";
-      const prevSE=_SUBNET_EDGES.get(sk);
-      if(!prevSE) _SUBNET_EDGES.set(sk,{a_sub:Math.min(ta,tb),b_sub:Math.max(ta,tb),hostsKey:canonicalKey(L.a,L.b),kind:knd});
-      else if(prevSE.kind!=="SEMANTIC"&&knd==="SEMANTIC") prevSE.kind="SEMANTIC";
-    }
-
-    const hasInternet=Array.from(_EDGES.values()).some(e=>e.kind==="EXTERNAL");
-    if(!hasInternet) _NODES.delete(internetId);
-    else {
-      const posStore2=loadPositions();
-      if(!posStore2[internetId]){
-        const rect2=canvas.getBoundingClientRect();
-        posStore2[internetId]={x:rect2.width*0.92,y:rect2.height*0.50}; savePositions(posStore2);
-      }
-    }
-
-    NODES=saveNodes; SENSOR_DATA_CACHE=saveCache;
-    // (an empty member list is the snapshot's answer and is drawn as one: no earlier picture is kept in its place)
-
-    HOSTS=_HOSTS; SENSORS=_SENSORS; SENSOR_BY_HOSTIP=_SENSOR_BY_HOSTIP; SENSOR_DATA_CACHE=_SENSOR_DATA_CACHE;
-    NODES=_NODES; EDGES=_EDGES; PHYS_LINKS=_PHYS_LINKS; LINK_QUALITY=_LINK_QUALITY; SUBNET_EDGES=_SUBNET_EDGES;
-    DBHOST_IP=_DBHOST_IP;
-    SNAPSHOT=_SNAPSHOT; HUB_LINKS=_HUB_LINKS;
-    ENGINE_BY_HOST=_ENGINE_BY_HOST; ENDPOINTS_BY_HOST=_ENDPOINTS_BY_HOST;
-    PEER_SENSORS=_PEER_SENSORS; DAEMON_BY_HOST=_DAEMON_BY_HOST;
-
-    NODE_COLOR_MAP=computeUniqueNodeColors(Array.from(NODES.keys()).map(idNorm));
-    for(const id of NODES.keys()) assignColorIfMissing(id);
-    for(const ip of HOSTS.keys()) assignColorIfMissing(ip);
-
-    renderEngineTiles(); renderLinkTiles(); renderHostTiles();
-    resolveOverlaps(80); fitToScreen(NODES); draw();
-
-    const dt=Math.round(performance.now()-t0);
-    const engineCount=ENGINE_BY_HOST.size;
-    const daemonCount=DAEMON_BY_HOST.size;
-    const extCount=Array.from(EDGES.values()).filter(e=>e.kind==="EXTERNAL").length;
-    statusEl.textContent=`${HOSTS.size} members · ${PHYS_LINKS.size} links · ${HUB_LINKS.length} hub links · ${extCount} uplinks · ${engineCount} engine · ${daemonCount} daemon · ${dt}ms`;
-    document.getElementById("linkCount").textContent=`${SUBNET_EDGES.size}`;
-    document.getElementById("hostCount").textContent=`${HOSTS.size}`;
-    hudEl.textContent=`family-colored · glow=health · databasehost=${_DBHOST_IP||"none elected"} · via ${window.location.host}`;
-    renderNodeHeader();
-
-  } catch(e){
-    HOSTS=prev.HOSTS; SENSORS=prev.SENSORS; SENSOR_BY_HOSTIP=prev.SENSOR_BY_HOSTIP;
-    SENSOR_DATA_CACHE=prev.SENSOR_DATA_CACHE; NODES=prev.NODES; EDGES=prev.EDGES;
-    PHYS_LINKS=prev.PHYS_LINKS; LINK_QUALITY=prev.LINK_QUALITY; SUBNET_EDGES=prev.SUBNET_EDGES;
-    DBHOST_IP=prev.DBHOST_IP;
-    ENGINE_BY_HOST=prev.ENGINE_BY_HOST; ENDPOINTS_BY_HOST=prev.ENDPOINTS_BY_HOST;
-    PEER_SENSORS=prev.PEER_SENSORS; DAEMON_BY_HOST=prev.DAEMON_BY_HOST;
-    // the node line and the ponds say this refresh failed (the status pill says why); no earlier snapshot stands in
-    SNAPSHOT=null; HUB_LINKS=[]; renderNodeHeader();
-    throw e;
+      throw new Error("its answer is not a snapshot (snapshot:1 with a mode)");
+  }catch(e){
+    clearAll({what:"getSnapshot.php", why:(e&&e.message)||String(e), at:Date.now()});
+    return;
   }
+
+  const _HOSTS=new Map(), _NODES=new Map(), _HUB_LINKS=[];
+  for(const m of (snap.members||[])){
+    const ip=String(m.ip||"").trim();
+    if(!ip) continue;
+    _HOSTS.set(ip,{ip,hostname:String(m.name||ip).trim(),role:String(m.role||""),alive:m.alive===true,source:String(m.source||""),self:m.self===true});
+  }
+  const saveNodes=NODES; NODES=_NODES;
+  for(const [ip,h] of _HOSTS.entries()) ensureNode(ip,h.hostname,ip);
+  // region mode: the forward pond is a node on the map, each alive member is linked to it, and this node's link is
+  // labelled with its hub link's handshake age (the snapshot's hub)
+  if(snap.mode==="region"){
+    const hubTxt=hubText(snap);
+    for(const p of (snap.ponds||[])){
+      if(p.forward!==true) continue;
+      const pid="pond:"+String(p.area||"");
+      ensureNode(pid,"pond "+String(p.area||""),String(p.ram||""));
+      for(const [ip,h] of _HOSTS.entries()){
+        if(!h.alive || h.role==="hub") continue;
+        _HUB_LINKS.push({from:ip,to:pid,self:h.self,label:h.self?hubTxt:""});
+      }
+    }
+  }
+  NODES=saveNodes;
+
+  SNAPSHOT=snap; SNAP_FAIL=null;
+  HOSTS=_HOSTS; NODES=_NODES; HUB_LINKS=_HUB_LINKS;
+  DBHOST_IP=String((snap.elections||{}).databasehost||"");
+  NODE_COLOR_MAP=computeUniqueNodeColors(Array.from(NODES.keys()).map(idNorm));
+  for(const id of NODES.keys()) assignColorIfMissing(id);
+
+  // 2. the sensors (api.php): the side panels. A failure clears them and is said; the map stands (it is the snapshot's).
+  let S=null;
+  try{ S=await readSensors(_HOSTS); SENSOR_FAIL=null; }
+  catch(e){ SENSOR_FAIL={what:"api.php (sensors)", why:(e&&e.message)||String(e), at:Date.now()}; }
+  SENSORS=S?S.SENSORS:[]; SENSOR_BY_HOSTIP=S?S.SENSOR_BY_HOSTIP:new Map(); SENSOR_DATA_CACHE=S?S.SENSOR_DATA_CACHE:new Map();
+  PHYS_LINKS=S?S.PHYS_LINKS:new Map(); SUBNET_EDGES=S?S.SUBNET_EDGES:new Map();
+  ENGINE_BY_HOST=S?S.ENGINE_BY_HOST:new Map(); ENDPOINTS_BY_HOST=S?S.ENDPOINTS_BY_HOST:new Map();
+  PEER_SENSORS=S?S.PEER_SENSORS:[]; DAEMON_BY_HOST=S?S.DAEMON_BY_HOST:new Map();
+
+  renderEngineTiles(); renderLinkTiles(); renderHostTiles();
+  resolveOverlaps(80); fitToScreen(NODES); draw();
+
+  const dt=Math.round(performance.now()-t0);
+  statusEl.textContent=`${HOSTS.size} members · ${HUB_LINKS.length} hub links · ${PHYS_LINKS.size} measured links · ${ENGINE_BY_HOST.size} engine · ${DAEMON_BY_HOST.size} daemon · ${dt}ms`
+    + (SENSOR_FAIL?` · ! ${failText(SENSOR_FAIL)}`:"");
+  document.getElementById("linkCount").textContent=`${SUBNET_EDGES.size}`;
+  document.getElementById("hostCount").textContent=`${HOSTS.size}`;
+  hudEl.textContent=`databasehost=${DBHOST_IP||"none elected"} · via ${window.location.host}`;
+  renderNodeHeader();
 }
 
 /**********************************************************************
@@ -2134,7 +1403,8 @@ function renderHostTiles(){
     const dot=document.createElement("div"); dot.className="dot"; dot.style.background=nodeColorForId(hostIp);
     const name=document.createElement("div"); name.className="name";
     name.textContent=h.hostname+((DBHOST_IP&&hostIp===DBHOST_IP)?" (db)":"");
-    const ip=document.createElement("div"); ip.className="ip"; ip.textContent=h.ip;
+    // the snapshot's own words for this member: its .1, role, alive or down, and where the row came from
+    const ip=document.createElement("div"); ip.className="ip"; ip.textContent=`${h.ip} · ${h.role||"?"} · ${h.alive?"alive":"down"} · ${h.source}`;
     row.append(dot,name,ip);
 
     const mini=document.createElement("div"); mini.className="mini";
@@ -2165,7 +1435,9 @@ function renderHostTiles(){
 function renderLinkTiles(){
   const el=document.getElementById("linkTiles"); if(!el) return; el.innerHTML="";
   const edges=Array.from(SUBNET_EDGES.values()).sort((x,y)=>x.a_sub!==y.a_sub?x.a_sub-y.a_sub:x.b_sub-y.b_sub);
-  if(!edges.length){ el.innerHTML=`<div class="tile"><div class="linkmeta">No subnet links found.</div></div>`; return; }
+  if(!edges.length){ const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
+                     m.textContent=SENSOR_FAIL?failText(SENSOR_FAIL):(SNAPSHOT?"No measured links between members' subnets.":failText(SNAP_FAIL));
+                     t.append(m); el.append(t); return; }
 
   for(const E of edges){
     const L=PHYS_LINKS.get(E.hostsKey);
@@ -2217,22 +1489,23 @@ function renderNodeHeader(){
   const el=document.getElementById("hdrNode"); if(!el) return;
   const d=SNAPSHOT;
   el.textContent="";
-  if(!d){ const b=document.createElement("span"); b.className="bad"; b.textContent="getSnapshot.php did not answer"; el.append(b); return; }
+  const w=document.getElementById("lnkRegionWrap");
+  if(!d){ const b=document.createElement("span"); b.className="bad"; b.textContent=failText(SNAP_FAIL); el.append(b); if(w) w.hidden=true; return; }
   const n=d.node||{}, b=d.build||{};
   const ponds=(d.ponds||[]).map(p=>(p.forward===true?"*":"")+p.area).join(" ");
-  const hub=(d.hub||[]).map(h=>h.error?`${h.iface} error`:(typeof h.handshake_age_s==="number"?`${h.iface} ${Math.trunc(h.handshake_age_s)}s`:`${h.iface} no handshake`)).join(" ");
+  const hub=hubText(d);
   el.append(document.createTextNode(`${n.name||"?"} (${n.dot1||"no .1"}) · mode ${d.mode} · build ${b.build||"?"}${b.commit?" "+b.commit:""}`
     + (d.mode==="region" ? ` · ponds ${ponds||"none"} · hub link ${hub||"none"}` : ` · ponds none, hub none (LAN-only)`)));
   for(const e of (d.errors||[])){ const x=document.createElement("span"); x.className="bad"; x.textContent=" · ! "+e; el.append(x); }
-  const w=document.getElementById("lnkRegionWrap"), a=document.getElementById("lnkRegion");
-  if(w&&a){ w.hidden=(d.mode!=="region"); a.href=`http://${window.location.hostname}:8090/fdf/fdf_dashboard.html`; }
+  // [FDF_WEB_UNDER_APACHE_V1 - T5b] FD&F's region view is /fdf/ on this same Apache (a region node only)
+  if(w) w.hidden=(d.mode!=="region");
 }
 
 function renderPonds(){
   const el=document.getElementById("pondTiles"); if(!el) return;
   const d=SNAPSHOT;
-  if(!d){ el.innerHTML=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
-          m.textContent="getSnapshot.php did not answer"; t.append(m); el.append(t); return; }
+  if(!d){ el.innerHTML=""; document.getElementById("pondCount").textContent=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
+          m.textContent=failText(SNAP_FAIL); t.append(m); el.append(t); return; }
   const ponds=(d&&d.ponds)||[];
   document.getElementById("pondCount").textContent=ponds.length?String(ponds.length):"";
   el.innerHTML="";
@@ -2278,8 +1551,9 @@ function renderPonds(){
 async function tick(){
   if(REFRESH_INFLIGHT) return;
   REFRESH_INFLIGHT=true;
+  // a refresh that throws past its own reads (a page fault) is a failed refresh too: cleared, and said
   try{await buildFromSources();}
-  catch(err){console.error(err); document.getElementById("status").textContent=`Error: ${err.message||String(err)}`;}
+  catch(err){console.error(err); clearAll({what:"the refresh", why:(err&&err.message)||String(err), at:Date.now()});}
   finally{REFRESH_INFLIGHT=false;}
   renderPonds();                                                   // [PONDS_ARE_LISTED_V1] from the same snapshot
 }
@@ -2293,16 +1567,6 @@ function startPolling(){
 document.addEventListener("DOMContentLoaded",()=>{
   document.getElementById("btnFit").onclick=()=>{fitToScreen(NODES);draw();};
   document.getElementById("btnRefresh").onclick=()=>tick();
-  document.getElementById("btnView").onclick=()=>{
-    VIEW_MODE = VIEW_ORDER[(VIEW_ORDER.indexOf(VIEW_MODE)+1) % VIEW_ORDER.length];
-    // The button names the view you are ABOUT to get, which is the next one
-    // in the cycle — the header says which one you are looking at now.
-    const _next = VIEW_ORDER[(VIEW_ORDER.indexOf(VIEW_MODE)+1) % VIEW_ORDER.length];
-    document.getElementById("btnView").textContent = VIEW_LABEL[_next];
-    const _sub = document.querySelector(".hdr-sub");
-    if(_sub) _sub.textContent = VIEW_SUB[VIEW_MODE];
-    draw();
-  };
   document.getElementById("pollSec").onchange=()=>startPolling();
   startPolling(); tick();
 });

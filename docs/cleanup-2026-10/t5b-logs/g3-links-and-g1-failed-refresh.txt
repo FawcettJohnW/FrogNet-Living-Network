@@ -1,0 +1,21 @@
+== n1 served fdf_dashboard.html: node link id="node" href="/fln_dashboard32.html", target HTTP 200; served page = tree: yes
+== n1 landing page FD&F link: <a href="/fdf/">Region members (FD&amp;F)
+== g1 with apache2 stopped (a failed refresh, live):
+base http://172.30.0.21:8080
+status: getSnapshot.php failed at 21:42:49: fetch failed
+header: getSnapshot.php failed at 21:42:49: fetch failed
+region link shown: false
+hud: —
+map nodes: []
+hub links: []
+databasehost: 
+measured links (panel): []
+ponds panel: getSnapshot.php failed at 21:42:49: fetch failed
+members panel: 
+== apache2 started again: the next refresh
+base http://172.30.0.21:8080
+status: 1 members · 0 hub links · 0 measured links · 1 engine · 1 daemon · 0ms
+header: G1 (10.61.61.1) · mode lan-only · build fdf-2026-10-12-r20 · ponds none, hub none (LAN-only)
+region link shown: false
+hud: databasehost=10.61.61.1 · via 172.30.0.21:8080
+map nodes: ["10.61.61.1"]

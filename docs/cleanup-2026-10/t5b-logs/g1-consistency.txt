@@ -1,0 +1,4 @@
+snapshot mode lan-only errors [] databasehost {'databasehost': '10.61.61.1', 'databasehost_control': '10.61.61.1'}
+snapshot members: {'10.61.61.1': ('G1', 'node', True)}
+getHosts rows:    {'10.61.61.1': ('G1', 'node', True)}
+CONSISTENT

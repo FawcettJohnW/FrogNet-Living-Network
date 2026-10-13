@@ -1,0 +1,13 @@
+== n2 /fdf/ (Apache :8080, www-data)
+GET /fdf/ -> HTTP 200
+GET /fdf/fdf_dashboard.html -> HTTP 200
+GET /fdf/getParticipants.php -> HTTP 200
+getParticipants.php:
+   d2 alive ['172.30.0.10', '10.253.253.254']
+   N1 alive ['172.30.0.31', '10.81.81.1', '10.81.81.2', '10.253.81.81']
+   N2 alive ['10.82.82.1', '10.82.82.2', '172.30.0.32', '10.253.82.82']
+waitParticipants.php?gen=0 (held 3 s, then cut):
+  HTTP 000 after 3.002595s
+via :80 (the node's proxy): /fdf/ -> HTTP 200
+php -S on :8090: 0
+Apache workers user:       1 root       6 www-data 
