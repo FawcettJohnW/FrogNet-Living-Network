@@ -23,8 +23,9 @@ There is no broker.
 
 ## Traps
 
-- **`tunnel.conf` is optional and only `RINA_RAM` / `RINA_AREA` are read from it.**
-  Any other key (an old broker enrolment's) is named once in the log and ignored.
+- **The region switch is `/opt/fdf/var/join.env` alone** (`RINA_RAM`; the area is
+  `site.env`'s `RINA_AREA`). `tunnel.conf` and the environment are not read for it;
+  any key left in `tunnel.conf` is named once in the log and ignored.
   Identity is read from `/etc/fnid` directly.
 - **The daemon makes its own WireGuard key** (`/var/lib/frognet-tunnel/node_private.key`)
   in region mode, before its first announcement, and logs the public half

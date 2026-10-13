@@ -34,8 +34,8 @@ from .unrest_handler import CAPABILITY_PROBE, UnRESTHandler
 
 
 def _region_mode() -> bool:
-    """RINA_RAM in /opt/fdf/var/join.env (fdf-join, the switch) or /etc/frognet/tunnel.conf -- the daemon's rule."""
-    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+    """RINA_RAM in /opt/fdf/var/join.env (fdf-region-join / fdf-join; the one switch) -- the daemon's rule."""
+    for path in ("/opt/fdf/var/join.env",):   # the one switch [REGION_SWITCH_ONE_FILE_V1]
         try:
             for ln in open(path):
                 ln = ln.strip()

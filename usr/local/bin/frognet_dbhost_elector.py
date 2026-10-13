@@ -93,9 +93,9 @@ def _read_last_merge():
 
 
 def region_mode():
-    """[ELECTION_FROM_FACTS_V1] on a region (RINA_RAM= in join.env or tunnel.conf) the daemon elects from the members'
+    """[ELECTION_FROM_FACTS_V1] on a region (RINA_RAM= in /opt/fdf/var/join.env) the daemon elects from the members'
     facts on every membership event; this store-reading elector would fight it. It has nothing to do there."""
-    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+    for path in ("/opt/fdf/var/join.env",):   # the one switch [REGION_SWITCH_ONE_FILE_V1]
         try:
             for ln in open(path):
                 ln = ln.strip()

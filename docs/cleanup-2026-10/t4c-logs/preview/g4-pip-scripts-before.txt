@@ -1,0 +1,18 @@
+cbor2         #!/usr/bin/python3 | from cbor2.tool import main | 
+dotenv        #!/usr/bin/python3 | from dotenv.__main__ import cli | 
+gpsdclient    #!/usr/bin/python3 | from gpsdclient.cli import main | 
+gunicorn      #!/usr/bin/python3 | from gunicorn.app.wsgiapp import run | 
+gunicornc     #!/usr/bin/python3 | from gunicorn.ctl.cli import main | 
+httpx         #!/usr/bin/python3 | from httpx import main | 
+idna          #!/usr/bin/python3 | from idna.cli import main | 
+normalizer    #!/usr/bin/python3 | from charset_normalizer.cli import cli_detect | 
+cffi-gen-src  #!/usr/bin/python3 | from cffi._cffi_gen_src import run | 
+cbor2: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/cbor2
+dotenv: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/dotenv
+gpsdclient: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/gpsdclient
+gunicorn: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/gunicorn
+httpx: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/httpx
+idna: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/idna
+charset_normalizer: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/charset_normalizer
+cffi: dpkg-query: no path found matching pattern /usr/lib/python3/dist-packages/cffi
+ii  python3-cffi-backend:amd64      1.16.0-2build1                          amd64        Foreign Function Interface for Python 3 calling C code - runtime

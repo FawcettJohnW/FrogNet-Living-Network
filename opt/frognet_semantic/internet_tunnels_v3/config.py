@@ -20,15 +20,15 @@ Global configuration for frognet-tunnel-daemon v3.
 
 Two modes, and only two [NO_BROKER_V1]:
 
-  region    RINA_RAM is set (/opt/fdf/var/join.env, written by fdf-join / fdf-region-join; or tunnel.conf, or the
-            environment). The daemon holds an FD&F region session, applies FD&F's plan and keeps one WireGuard link
+  region    /opt/fdf/var/join.env names RINA_RAM (written by fdf-region-join / fdf-join, removed by fdf-leave: the ONE
+            switch [REGION_SWITCH_ONE_FILE_V1]; the area is site.env's RINA_AREA). The daemon holds an FD&F region session, applies FD&F's plan and keeps one WireGuard link
             per hub. It owns its WireGuard key: /var/lib/frognet-tunnel/node_private.key is made by the daemon itself
             the first time it is needed (ensure_node_key) [DAEMON_OWNS_ITS_KEY_V1].
   LAN-only  no RINA_RAM. FrogNet discovery and the databasehost election over the LAN; no WireGuard, no key.
 
-/etc/frognet/tunnel.conf is optional. Only RINA_RAM and RINA_AREA are read from it; any other key there (the old
-broker's BROKER_URL, GROUP_TOKEN, POND_PASSWORD, ...) is named in one log line and ignored. A missing tunnel.conf is
-LAN-only (or region, if join.env says so), never an exit.
+/etc/frognet/tunnel.conf is not a source of anything. If one is left on the machine, every key in it (an old
+enrolment's, or an old RINA_RAM / RINA_AREA) is named in one log line and ignored [NO_BROKER_V1]; the installer's
+upgrade removes them. Neither tunnel.conf nor the environment switches the mode.
 
 Node identity (name, subnet) is discovered from the local system.
 """
@@ -47,7 +47,7 @@ from pathlib import Path
 
 VERSION = "3.0.0"
 # [BUILD_IN_THE_LOG_V1] said by the daemon at start, in both modes, so its log names what is deployed
-BUILD = "frognet-tunnel-2026-10-12-t4b"
+BUILD = "frognet-tunnel-2026-10-12-t4c"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -179,8 +179,10 @@ NODE_GUID     = ""
 PUBKEY        = ""
 PRIVKEY       = ""
 
-# The keys load_config() reads from tunnel.conf. Anything else there is named once and ignored [NO_BROKER_V1].
-CONF_KEYS     = ("RINA_RAM", "RINA_AREA")
+# [REGION_SWITCH_ONE_FILE_V1 - T4c] the region settings have one file each: RINA_RAM in join.env (the switch), RINA_AREA
+# in site.env (fdf-region-join writes both, fdf-leave removes both). tunnel.conf is read only to name what is left in it.
+JOIN_ENV      = Path("/opt/fdf/var/join.env")
+SITE_ENV      = Path("/opt/fdf/var/site.env")
 
 # ---------------------------------------------------------------------------
 # Signal handling
@@ -199,21 +201,20 @@ signal.signal(signal.SIGINT, _shutdown)
 # load_config
 # ---------------------------------------------------------------------------
 
-def _fdf_var(name, *files):
-    """[REGION_SWITCH_V2] a value from FD&F's own files (/opt/fdf/var/join.env written by fdf-join, site.env written by
-    hand): `KEY=VALUE` or `export KEY=VALUE`. Nothing in FrogNet rewrites these, unlike tunnel.conf."""
-    for path in files:
-        try:
-            with open(path) as f:
-                for ln in f:
-                    ln = ln.strip()
-                    if ln.startswith("export "):
-                        ln = ln[7:].strip()
-                    if ln.startswith(name + "="):
-                        return ln.split("=", 1)[1].strip().strip('"')
-        except OSError:
-            pass
-    return ""
+def _fdf_var(name, path):
+    """[REGION_SWITCH_ONE_FILE_V1] NAME's value in one of FD&F's own files (`KEY=VALUE` or `export KEY=VALUE`).
+    Returns (value, why): value "" with why saying what was missing (no file, or no NAME in it)."""
+    try:
+        with open(path) as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln.startswith("export "):
+                    ln = ln[7:].strip()
+                if ln.startswith(name + "="):
+                    return ln.split("=", 1)[1].strip().strip('"'), ""
+    except OSError as e:
+        return "", "%s: %s" % (path, e.strerror)
+    return "", "%s has no %s" % (path, name)
 
 
 
@@ -221,9 +222,10 @@ PRIVKEY_FILE = STATE_DIR / "node_private.key"
 PUBKEY_FILE  = STATE_DIR / "node_public.key"
 
 
-def _read_conf() -> dict:
-    """tunnel.conf as {key: value}; {} when there is none (LAN-only unless join.env names a region)."""
-    conf = {}
+def _name_leftover_conf() -> None:
+    """[REGION_SWITCH_ONE_FILE_V1] tunnel.conf is no source: if one is on the machine, its keys are named in one line and
+    ignored (an old enrolment's, or an old RINA_RAM / RINA_AREA; the installer's upgrade strips them)."""
+    keys = []
     try:
         with open(CONF_FILE) as f:
             for line in f:
@@ -233,18 +235,12 @@ def _read_conf() -> dict:
                 if line.startswith("export "):
                     line = line[7:].strip()
                 if "=" in line:
-                    k, v = line.split("=", 1)
-                    conf[k.strip()] = v.strip().strip('"')
+                    keys.append(line.split("=", 1)[0].strip())
     except FileNotFoundError:
-        log.info("No %s: nothing to read from it (it is optional)", CONF_FILE)
-        return {}
-    ignored = sorted(k for k in conf if k not in CONF_KEYS)
-    if ignored:
-        # [NO_BROKER_V1] one line, then ignored: the broker is gone, nothing reads these (the installer's upgrade
-        # removes them from the file)
-        log.warning("%s: old broker keys ignored: %s (only %s are read) [NO_BROKER_V1]",
-                    CONF_FILE, ", ".join(ignored), ", ".join(CONF_KEYS))
-    return conf
+        return
+    if keys:
+        log.warning("%s: old broker keys ignored: %s (nothing is read from this file; the region switch is %s) [NO_BROKER_V1 "
+                    "REGION_SWITCH_ONE_FILE_V1]", CONF_FILE, ", ".join(sorted(set(keys))), JOIN_ENV)
 
 
 def _pubkey_of(privkey: str) -> str:
@@ -313,25 +309,22 @@ def load_config():
     global MODE, REGION_RAM, REGION_AREA
     global HOSTNAME, NODE_NAME, LOCAL_SUBNET, LOCAL_GW, SUBNET_PREFIX, NODE_GUID, PRIVKEY, PUBKEY
 
-    conf = _read_conf()
-    # [REGION_SWITCH_V2] the switch is fdf-join: /opt/fdf/var/join.env (RINA_RAM) + site.env (RINA_AREA). tunnel.conf
-    # lines and the environment still count, but tunnel.conf gets regenerated by FrogNet's own tools and lost them.
-    REGION_RAM = conf.get("RINA_RAM") or os.environ.get("RINA_RAM", "") or _fdf_var("RINA_RAM", "/opt/fdf/var/join.env")
-    REGION_AREA = conf.get("RINA_AREA") or os.environ.get("RINA_AREA", "") or _fdf_var("RINA_AREA", "/opt/fdf/var/site.env")
-    def _show(path):
-        try:
-            with open(path) as f:
-                return repr(f.read().strip())
-        except OSError as e:
-            return "missing (%s)" % e.strerror
-    log.warning("REGION switch: tunnel.conf RINA_RAM=%r; env RINA_RAM=%r; /opt/fdf/var/join.env=%s; /opt/fdf/var/site.env=%s -> RINA_RAM=%r RINA_AREA=%r",
-                conf.get("RINA_RAM"), os.environ.get("RINA_RAM"), _show("/opt/fdf/var/join.env"), _show("/opt/fdf/var/site.env").replace("RINA_SITE_KEY=", "RINA_SITE_KEY=<hidden>")[:60] + "'",
-                REGION_RAM, REGION_AREA)
+    _name_leftover_conf()
+    # [REGION_SWITCH_ONE_FILE_V1 - T4c] one file is the switch: join.env's RINA_RAM. The area: site.env's RINA_AREA.
+    # tunnel.conf and the environment are not read for either.
+    REGION_RAM, why_ram = _fdf_var("RINA_RAM", JOIN_ENV)
+    REGION_AREA, why_area = "", ""
+    if REGION_RAM:
+        REGION_AREA, why_area = _fdf_var("RINA_AREA", SITE_ENV)
     MODE = "region" if REGION_RAM else "lan-only"
     if REGION_RAM:
-        log.info("Region mode: RINA_RAM=%s RINA_AREA=%s", REGION_RAM, REGION_AREA)
+        log.warning("REGION switch: %s RINA_RAM=%s; %s RINA_AREA=%s -> region mode [REGION_SWITCH_ONE_FILE_V1]",
+                    JOIN_ENV, REGION_RAM, SITE_ENV, REGION_AREA or "<absent: %s>" % why_area)
+        if not REGION_AREA:
+            log.error("REGION: no area (%s): this node's mappings name no site until fdf-region-join writes it", why_area)
     else:
-        log.info("LAN-only mode: no RINA_RAM (join.env, tunnel.conf, environment); no WireGuard [LAN_ONLY_NO_REGION_V1]")
+        log.info("LAN-only mode: no region switch (%s); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]",
+                 why_ram)
 
     NODE_GUID = ""
     try:

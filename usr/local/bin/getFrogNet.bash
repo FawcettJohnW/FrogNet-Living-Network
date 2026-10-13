@@ -96,7 +96,9 @@ if [[ -z "$fqdn" ]]; then
     domain_ok=0               # degraded: return it for THIS call, but never cache it
 fi
 
-eth0IP="$(timeout  "$SUBCALL_TIMEOUT" /usr/local/bin/getEth0Address 2>/dev/null)"
+# [LAN_DEV_ONLY_V1 - T4c] getEth0Address answers from the LAN dev only; with no 10.x there (before the reboot
+# addresses it) the field is empty, said on stderr, and the line is NOT cached: the next call asks again.
+eth0IP="$(timeout  "$SUBCALL_TIMEOUT" /usr/local/bin/getEth0Address)"
 wlan0IP="$(timeout "$SUBCALL_TIMEOUT" /usr/local/bin/getWlan0IP     2>/dev/null)"
 wlan1IP="$(timeout "$SUBCALL_TIMEOUT" /usr/local/bin/getWlan1IP     2>/dev/null)"
 
@@ -106,7 +108,7 @@ line="${fqdn},${eth0IP},${wlan0IP},${wlan1IP}"
 # Any concurrent reader either sees the old file (possibly empty/absent)
 # or the fully-written new one — never a half-written line.
 tmp="$(mktemp /etc/sentinels/.getFrogNet.cache.XXXXXX 2>/dev/null)" || tmp=""
-if [[ -n "$tmp" && "$domain_ok" -eq 1 ]]; then
+if [[ -n "$tmp" && "$domain_ok" -eq 1 && -n "$eth0IP" ]]; then
     printf '%s\n' "$line" > "$tmp"
     # [ECHO_CACHE_READABLE_V1 - T4a] mktemp makes the file 0600, and the cache is written by root (the merge) but
     # read by Apache (www-data, frognet_echo.php): with it 0600 every echo of this node came back EMPTY once root had
@@ -114,7 +116,7 @@ if [[ -n "$tmp" && "$domain_ok" -eq 1 ]]; then
     chmod 644 "$tmp"
     mv -f "$tmp" "$CACHE_FILE" 2>/dev/null
 elif [[ -n "$tmp" ]]; then
-    rm -f "$tmp" 2>/dev/null   # [NO_CACHE_GARBAGE_V1] degraded name: don't persist garbage
+    rm -f "$tmp" 2>/dev/null   # [NO_CACHE_GARBAGE_V1] degraded name or no LAN address yet: don't persist it
 fi
 
 printf '%s\n' "$line"

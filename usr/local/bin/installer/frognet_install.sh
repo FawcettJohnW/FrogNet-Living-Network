@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-12-t4b"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-12-t4c"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -637,6 +637,11 @@ APT_PACKAGES=(
     # does not ship). file: C2's venv arch check. uuid-runtime: uuidgen
     # (frognet-node-guid.sh, registerFrogNetHost.bash, the reporters).
     file uuid-runtime
+    # [WATCHER_HAS_INOTIFY_V1 - T4c] inotifywait: the merge watcher waits on its request
+    # directory with it (the hook's and the neighbours' merge requests). It was never
+    # installed: every wait failed at once and the watcher fell into a 1 s poll that
+    # fired each request with no 30 s window (seen in the T4c G1 container).
+    inotify-tools
     jq qrencode sqlite3 cron logrotate rsync git htop tmux vim less unzip
     ca-certificates gnupg lsb-release openssl libssl-dev
     apt-transport-https software-properties-common
@@ -1044,19 +1049,20 @@ if [[ -n "$_leaks" ]]; then
 fi
 log "DB secret injected into ${#SECRET_INJECT_FILES[@]} declared file(s)"
 
-phase "C1c: Upgrade (what T3 retired)"
+phase "C1c: Upgrade (what the tree no longer ships)"
 ###############################################################################
 # Runs on EVERY install, --preserve included, after C1 laid the tree down (it
-# brings frognet_prune_removed.sh and conf.sh). Its T3 section is the one list:
-# the old tunnel.conf keys (RINA_RAM / RINA_AREA, which the daemon reads, stay),
-# the two retired config files and every backup of them or of tunnel.conf, the
-# retired units (tunnel setup, pond bootstrap + timer, the old coordinator,
-# mediahost, reaper), their sentinels and the daemon's old state files,
-# and the scripts the tree no longer has. Each removal is logged. A failure is
-# logged and the install goes on; the next install (or a manual run of the same
-# command) retries it.
+# brings frognet_prune_removed.sh and conf.sh). [PRUNE_ALL_ON_UPGRADE_V1 - T4c]
+# The WHOLE list, every section: the old tunnel.conf keys (RINA_RAM / RINA_AREA
+# too: join.env is the one switch), the retired config files and their backups,
+# the retired units, their sentinels and state, every file T1..T4b deleted from
+# usr/local/bin, usr/local/sbin, etc/systemd/system, var/www/html and
+# opt/frognet_semantic, and the old system-pip console scripts whose module is
+# not also an OS package. No path in it is in the tree. Each removal is logged.
+# A failure is logged and the install goes on; the next install (or a manual run
+# of the same command) retries it.
 ###############################################################################
-if /usr/local/bin/frognet_prune_removed.sh --apply --only T3; then
+if /usr/local/bin/frognet_prune_removed.sh --apply; then
     log "C1c: retired state removed"
 else
     warn "C1c: some retired state could not be removed (listed above); the next install retries it"
@@ -2142,9 +2148,15 @@ chk "daemon enabled"         systemctl is-enabled --quiet frognet-daemon
 chk "merge hook (one)"       test -x /etc/NetworkManager/dispatcher.d/90-frognet-merge -a ! -e /etc/NetworkManager/dispatcher.d/99-ifup
 chk "ssl key"                test -f /etc/ssl/frognet-universal.key
 chk "LAN is not the uplink"  test "$ETH0_IF" != "${_UPLINK_DEV:-}"
-# the echo is this node's line: "<name>,<.1>,<upstream>,<upstream>" - an empty 200 is a failure
-ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},"* ]] \
-    && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},...)"
+# the echo is this node's line: "<name>,<.1>,<upstream>,<upstream>" - an empty 200 is a failure.
+# [LAN_DEV_ONLY_V1 - T4c] The .1 field is getEth0Address: the LAN dev's own 10.x, nothing else. Before the reboot
+# (--norestart: NetworkManager's profile addresses the LAN at boot) it is empty; F6 does not ask a second runtime source,
+# it reads what this install set, NODE_IP, and says which of the two it expects.
+if ip -4 -o addr show dev "$ETH0_IF" 2>/dev/null | grep -q " inet ${NODE_IP}/"; then _E1="$NODE_IP"; _E1W="on $ETH0_IF now"
+else _E1=""; _E1W="$ETH0_IF not addressed yet: this install set $NODE_IP, NetworkManager's profile brings it up at the reboot"; fi
+echo "  LAN address: $NODE_IP ($_E1W)"
+ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},${_E1},"* ]] \
+    && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},${_E1},...)"
 echo "  FrogNet base: $(grep -vE '^#' /opt/frognet_semantic/BUILD | tr '\n' ' ')"   # [BASE_BUILD_V1]
 echo
 [[ $FAIL -eq 0 ]] && echo "  All checks passed." || echo "  $FAIL check(s) failed."

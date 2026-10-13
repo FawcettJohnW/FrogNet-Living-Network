@@ -56,6 +56,13 @@ DEBOUNCE_SEC=30
 mkdir -p "$REQ_DIR"
 chmod 1777 "$REQ_DIR" 2>/dev/null || true   # sticky world-write: www-data (.php) drops pokes; only owner/root removes
 
+# [WATCHER_HAS_INOTIFY_V1 - T4c] inotifywait is how this waits (the installer's A2 installs inotify-tools). Without it
+# every wait failed at once and the loop below became a 1 s poll firing each request with no window: that second
+# mechanism is gone. Missing: said, exit 1; systemd starts it again (Restart=on-failure) and the requests wait in
+# $REQ_DIR until it can run.
+command -v inotifywait >/dev/null 2>&1 \
+    || { echo "[MERGE-ACCUM] inotifywait not found (install inotify-tools): not watching $REQ_DIR" >&2; exit 1; }
+
 _pending() { compgen -G "$REQ_DIR/*" >/dev/null 2>&1; }
 
 _fire() {
@@ -88,15 +95,18 @@ while true; do
     # Idle until the first poke (skip the block if pokes are already queued,
     # e.g. ones that arrived while a previous merge was running).
     if ! _pending; then
-        inotifywait -qq -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null \
-            || { sleep 1; continue; }
+        inotifywait -qq -e create -e moved_to -e close_write "$REQ_DIR" \
+            || { echo "[MERGE-ACCUM] inotifywait on $REQ_DIR failed rc=$? (above); waiting again" >&2; sleep 1; continue; }
     fi
 
     # Resettable timer: each poke returns rc=0 and re-arms the wait; a timeout
     # (rc!=0) with no poke for the full window falls through to fire.
-    while inotifywait -qq -t "$DEBOUNCE_SEC" -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null; do
-        :   # poke arrived inside the window -> reset
+    # rc 0: a poke inside the window -> reset; rc 2: the window passed quiet -> fire; anything else is said
+    while :; do
+        inotifywait -qq -t "$DEBOUNCE_SEC" -e create -e moved_to -e close_write "$REQ_DIR"; _rc=$?
+        [[ $_rc -eq 0 ]] || break   # poke arrived inside the window -> reset (loop again)
     done
+    [[ $_rc -eq 2 ]] || echo "[MERGE-ACCUM] inotifywait window ended rc=$_rc (not the quiet timeout, 2)" >&2
 
     _pending && _fire
 done

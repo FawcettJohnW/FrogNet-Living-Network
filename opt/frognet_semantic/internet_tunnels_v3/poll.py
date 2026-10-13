@@ -268,8 +268,8 @@ def _tear_down_all_kernel_wg_ifaces(reason: str) -> int:
     n = 0
     for iface, pubkey in sorted(kernel_ifaces.items()):
         try:
-            _tear_down_orphan_iface(iface, pubkey, reason=reason)
-            n += 1
+            if _tear_down_orphan_iface(iface, pubkey, reason=reason):
+                n += 1
         except Exception as e:
             config.log.warning(
                 "TEAR_DOWN_ALL_WG: failed iface=%s err=%r", iface, e)
@@ -583,8 +583,7 @@ def _bring_up_tunnel(channel: dict) -> bool:
     if not handshake_ok:
         config.log.error("BRING_UP: %s no handshake after 30s on %s - tearing "
                          "down", tunnel_name, iface)
-        teardown_wg_iface(iface)
-        conf_path.unlink(missing_ok=True)
+        teardown_wg_iface(iface)        # removes the conf when the iface is gone; keeps it for the retry when not
         return False
 
     # NOTE: NO far-edge .2 probe here, deliberately.
@@ -641,21 +640,24 @@ def _tear_down_tunnel(channel_name: str):
     iface = info.get("interface", "")
     tunnel_name = info.get("tunnel_name", "")
     config.log.info("TEAR_DOWN: %s on %s", tunnel_name, iface)
-    if iface:
-        teardown_wg_iface(iface)
+    if iface and not teardown_wg_iface(iface):
+        # logged by teardown_wg_iface; the iface is now an orphan (not in _active_tunnels) and the next orphan check
+        # runs the same wg-quick down again [WG_TEARDOWN_BY_ITS_OWNER_V1]
+        _remove_tunnel_state(tunnel_name)
+        config.log.error("TEAR_DOWN: %s: %s still up (wg-quick down failed, above)", tunnel_name, iface)
+        return
     _remove_tunnel_state(tunnel_name)
     config.log.info("TEAR_DOWN: %s DOWN", tunnel_name)
 
 
-def _tear_down_orphan_iface(iface: str, pubkey: str, reason: str):
+def _tear_down_orphan_iface(iface: str, pubkey: str, reason: str) -> bool:
     """Tear down a kernel wgN that isn't in _active_tunnels.  Orphan policy:
     the hub list is authoritative.  Routes through this iface are dropped by the
     kernel automatically when the iface is removed."""
     config.log.info("ORPHAN_TEARDOWN: iface=%s pubkey=%s reason=%s",
                     iface, pubkey[:16] + "...", reason)
-    teardown_wg_iface(iface)
-    conf_path = config.CONF_DIR / f"{iface}.conf"
-    conf_path.unlink(missing_ok=True)
+    if not teardown_wg_iface(iface):    # logged; the conf stays, the next orphan check tries again
+        return False
     for sf_path in config.ACTIVE_DIR.glob("*.json"):
         try:
             with open(sf_path) as f:
@@ -664,6 +666,7 @@ def _tear_down_orphan_iface(iface: str, pubkey: str, reason: str):
                 sf_path.unlink(missing_ok=True)
         except (json.JSONDecodeError, OSError):
             pass
+    return True
 
 
 # ---------------------------------------------------------------------------

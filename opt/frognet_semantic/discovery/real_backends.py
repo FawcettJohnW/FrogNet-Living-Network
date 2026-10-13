@@ -490,10 +490,10 @@ class RegionRecords:
     API = "/FawcettInnovations.RINA.ram_interface.php"
 
     @staticmethod
-    def ram_from_conf(path="/etc/frognet/tunnel.conf"):
-        """RINA_RAM=host:port: from /opt/fdf/var/join.env (written by fdf-join: THE switch, [REGION_SWITCH_V2]) or the
-        tunnel daemon's conf. The same rule as internet_tunnels_v3/config.py, so runMerge needs no environment."""
-        for p in ("/opt/fdf/var/join.env", path):
+    def ram_from_conf(path="/opt/fdf/var/join.env"):
+        """RINA_RAM=host:port from /opt/fdf/var/join.env (written by fdf-region-join / fdf-join, removed by fdf-leave):
+        the one switch [REGION_SWITCH_ONE_FILE_V1], the same rule as internet_tunnels_v3/config.py."""
+        for p in (path,):
             try:
                 with open(p) as f:
                     for ln in f:
@@ -507,7 +507,7 @@ class RegionRecords:
         return ""
 
     def __init__(self, ram=None, participants=None):
-        self.ram = ram or os.environ.get("RINA_RAM", "") or self.ram_from_conf()
+        self.ram = ram or self.ram_from_conf()      # ram: an oracle's injection; else join.env only
         self._parts = participants          # injected (oracle) or fetched once
 
     def participants(self):

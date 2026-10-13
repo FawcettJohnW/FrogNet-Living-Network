@@ -4,7 +4,7 @@
 #   /opt/fdf/var/site.env   RINA_AREA=<area>  RINA_SITE_KEY=<key>   (fdf-client signs this node's /24 mapping with it;
 #                           the key must be the one map_site holds on the RAM manager, or the region says EPERM)
 #   fdf-join RAM            /opt/fdf/var/join.env (RINA_RAM) + fdf-client.service, started
-#   frognet-tunnel-daemon-v3 restarted: it reads join.env + site.env ([REGION_SWITCH_V2]) and runs region mode
+#   frognet-tunnel-daemon-v3 restarted: join.env is its one switch, site.env its area ([REGION_SWITCH_ONE_FILE_V1])
 # Then it waits 15 s and shows what happened: the client's mapping line, the daemon's REGION lines, wg. Nothing hidden.
 # All three arguments are required (fdf-region-create printed them); there is no built-in region. Run as root.
 # Re-runnable.
@@ -27,13 +27,18 @@ echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}
 mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
 # [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
 # for pokes nobody sends: the 60 s databasehost/capability advertiser (it ran frognet_capability_probe.sh -- cpu
-# benchmark, disk write+fsync -- every minute), the 1/min store elector (stands down in region mode), the
-# merge watcher (propogateNotification exits in region mode). The daemon publishes capability as a fact.
-# fdf-leave turns them back on.
-for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service; do
+# benchmark, disk write+fsync -- every minute) and the 1/min store elector (stands down in region mode). The daemon
+# publishes capability as a fact. fdf-leave turns them back on. The merge watcher stays on in both modes: the
+# NetworkManager hook's boot and interface-change merges are requests to it ([HOOK_ASKS_THE_WATCHER_V1], T4c).
+for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer; do
   [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
   systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
 done
+# a node joined before T4c had the watcher turned off here: on again (its failure is said; the next join retries)
+if [ -e /etc/systemd/system/frognet-merge-watcher.service ] && ! systemctl is-enabled --quiet frognet-merge-watcher.service; then
+  systemctl enable --now frognet-merge-watcher.service && echo "== the merge watcher: enabled (it runs in both modes)" \
+    || echo "== warning: could not enable frognet-merge-watcher.service (above); the hook's merge requests wait for it"
+fi
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl restart frognet-tunnel-daemon-v3
 for i in $(seq 1 20); do grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null && break; sleep 0.5; done

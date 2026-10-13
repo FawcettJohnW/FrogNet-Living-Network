@@ -17,8 +17,8 @@
   events()                      -> lines from fdf-events (one held FNWP session): "p" participants changed, "m" a
                                    mapping changed, "gone" the region is gone. No timer.
 
-Config: RINA_RAM=host:8840 (region mode on) and RINA_AREA=<area name>, from /opt/fdf/var/join.env + site.env (or
-tunnel.conf, or the environment). Facts file: FDF_FACTS (default /opt/fdf/var/facts.json). Tools: FDF_BIN (default
+Config: RINA_RAM=host:8840 (region mode on) from /opt/fdf/var/join.env and RINA_AREA=<area name> from site.env, one
+file each [REGION_SWITCH_ONE_FILE_V1] (config.load_config). Facts file: FDF_FACTS (default /opt/fdf/var/facts.json). Tools: FDF_BIN (default
 /opt/fdf/bin).
 """
 import hashlib

@@ -1,0 +1,6 @@
+Removed "/etc/systemd/system/multi-user.target.wants/frognet-merge-watcher.service".
+== region mode: frognet-dbhost-advertise.timer stopped and disabled
+== region mode: frognet-dbhost-elect.timer stopped and disabled
+== the merge watcher: enabled (it runs in both modes)
+== tunnel daemon (want: 'build', 'REGION switch', 'WG_KEY' on a first join, 'REGION: facts written', 'my-channels: hubs=[...]')
+watcher: enabled/active

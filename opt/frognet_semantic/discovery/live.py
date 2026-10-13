@@ -475,7 +475,7 @@ def build_live(logger=print, self_identity: str = ""):
     from .real_backends import RegionRecords, RegionEcho, RegionGetHosts
     _src = _os0.environ.get("FROGNET_DISCOVERY_SOURCE", "")
     if not _src and RegionRecords.ram_from_conf():
-        _src = "region"                        # RINA_RAM= in /etc/frognet/tunnel.conf: the node is on a region
+        _src = "region"                        # RINA_RAM= in /opt/fdf/var/join.env: the node is on a region
     if _src == "region":
         _rec = RegionRecords()
         _echo, _gethosts = RegionEcho(_rec), RegionGetHosts(_rec, local_ips)

@@ -19,13 +19,13 @@
 # =============================================================================
 # /usr/local/lib/frognet/conf.sh - [ONE_CONF_V1]
 #
-# Key-wise edits of the node's /etc/frognet/tunnel.conf. The tunnel daemon reads
-# two keys from it, RINA_RAM and RINA_AREA (internet_tunnels_v3/config.py
-# CONF_KEYS); the file is optional.
+# Key-wise edits of the node's /etc/frognet/tunnel.conf. Nothing reads that file
+# any more (T4c: the region switch is /opt/fdf/var/join.env alone); the tunnel
+# daemon names what is left in it once.
 #
 # One caller: frognet_prune_removed.sh's T3 section (run by the installer's C1c
 # upgrade step and by hand after an untar), which removes the retired keys with
-# fn_conf_unset. Key-wise, never a rewrite: RINA_RAM / RINA_AREA beside them stay.
+# fn_conf_unset. Key-wise, never a rewrite: any line it was not asked for stays.
 #
 #   FROGNET_CONF        the file (default /etc/frognet/tunnel.conf)
 #   fn_conf_unset KEY   remove every KEY= line; absent key or file is not an error

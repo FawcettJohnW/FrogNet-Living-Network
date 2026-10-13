@@ -227,11 +227,11 @@ truncate -s 0 /var/lib/misc/dnsmasq.leases 2>/dev/null || true
 log "NetworkManager leases..."
 find /var/lib/NetworkManager/ -name '*.lease' -delete 2>/dev/null || true
 
-log "Retired state (frognet_prune_removed.sh T3: the old tunnel.conf keys and their files)..."
+log "Retired state (frognet_prune_removed.sh, every section: what the tree no longer ships)..."
 # The build host is a node: the same removal its own install runs (installer C1c), so
-# nothing the T3 cleanup retired can reach the world tar. One list, in one script.
-if ! /usr/local/bin/frognet_prune_removed.sh --apply --only T3; then
-    warn "frognet_prune_removed.sh --only T3 failed on the build host - not building a world tar that may carry retired credentials"
+# nothing the cleanup retired can reach the world tar. One list, in one script, run whole.
+if ! /usr/local/bin/frognet_prune_removed.sh --apply; then
+    warn "frognet_prune_removed.sh failed on the build host - not building a world tar that may carry retired files or credentials"
     exit 1
 fi
 

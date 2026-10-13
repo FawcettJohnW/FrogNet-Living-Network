@@ -20,7 +20,7 @@
     // the region), in the form every region reader uses (RegionEcho, region_hosts.json): "<name>,<.1>,<upstream1>,<upstream2>".
     // No getFrogNet.bash (four helper scripts, a lock and a cache file). Off a region, unchanged.
     $region = false;
-    foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+    foreach (['/opt/fdf/var/join.env'] as $f) {          // the one switch [REGION_SWITCH_ONE_FILE_V1]
         $t = @file_get_contents($f);
         if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
     }

@@ -1,0 +1,10 @@
+2026-10-12 23:57:57,035 [v3.0.0] frognet.tunnel-daemon WARNING /etc/frognet/tunnel.conf: old broker keys ignored: RINA_AREA, RINA_RAM (nothing is read from this file; the region switch is /opt/fdf/var/join.env) [NO_BROKER_V1 REGION_SWITCH_ONE_FILE_V1]
+2026-10-12 23:57:57,035 [v3.0.0] frognet.tunnel-daemon INFO LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4c (mode lan-only) base fdf-2026-10-12-r20
+getHosts region? G1,10.61.61.1,172.30.0.21,0.0.0.0
+  unset RINA_RAM in /etc/frognet/tunnel.conf
+  unset RINA_AREA in /etc/frognet/tunnel.conf
+-- [T1..T4b, listed in T4c 2026-10-12] every file the cleanup deleted from usr/local/bin, usr/local/sbin,
+deleted 2 path(s); 338 already absent; 0 failed.
+tunnel.conf now: []
+0

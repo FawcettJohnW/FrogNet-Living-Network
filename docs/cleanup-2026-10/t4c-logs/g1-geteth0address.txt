@@ -1,0 +1,4 @@
+getEth0Address with the LAN addressed: [10.61.61.1] rc=0
+LAN address removed: stdout=[] rc=1 stderr: getEth0Address: no 10.x address on the LAN dev eth1
+getFrogNet.bash: getEth0Address: no 10.x address on the LAN dev eth1 G1,,172.30.0.21,0.0.0.0  cache: ls: cannot access '/etc/sentinels/getFrogNet.cache': No such file or directory
+back: [10.61.61.1]; getFrogNet.bash: G1,10.61.61.1,172.30.0.21,0.0.0.0 cache: G1,10.61.61.1,172.30.0.21,0.0.0.0

@@ -1,0 +1,99 @@
+ALLOWED   [public-dns] etc/dnsmasq.d/upstream_fallback.conf:24:# left this node forwarding to 8.8.8.8 while the merge wrote an upstream file
+ALLOWED   [public-dns] opt/fdf/bin/fdf-facts:33:# [UPLINK_JUDGED_LOCALLY_V1] No hard-coded public address (it was 8.8.8.8: somebody else's server, and a network that
+ALLOWED   [public-dns] opt/fdf/src/fdf-source/fdf/bin/fdf-facts:33:# [UPLINK_JUDGED_LOCALLY_V1] No hard-coded public address (it was 8.8.8.8: somebody else's server, and a network that
+ALLOWED   [public-dns] opt/frognet_semantic/DOCTRINE.txt:49:/etc/resolv.conf names ONLY 127.0.0.1 and the upstream (if any). (John, 2026-09-26, with 8.8.8.8 last; the 8.8.8.8
+ALLOWED   [public-dns] opt/frognet_semantic/discovery/live.py:325:    [RESOLV_LOCAL_UPSTREAM_V1] ONLY 127.0.0.1 and the upstream (if any); the 8.8.8.8 that John's 2026-09-26
+ALLOWED   [public-dns] opt/frognet_semantic/discovery/resolv.py:22:  (it replaces [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1], which always ended with 8.8.8.8: a second resolver behind the
+ALLOWED   [public-dns] opt/frognet_semantic/oracles/oracle_self_identity_lines.py:93:# 127.0.0.1, the upstream (if any) and 8.8.8.8 only -- see discovery/test_resolv_layout_oracle.py.
+ALLOWED   [public-dns] opt/frognet_semantic/simulation/proxy_dataplane.py:114:          _drive_decision("8.8.8.8", frognet=False) == DP.HAM)
+ALLOWED   [public-dns] usr/local/bin/fix_unbound_bypass.sh:35:#      honest state, not a reason to silently ship every query to 8.8.8.8.
+ALLOWED   [public-dns] usr/local/bin/frognet_metrics_emit.sh:197:  rt="$($IP -4 -j route get 8.8.8.8 2>/dev/null || echo '[]')"
+ALLOWED   [public-dns] usr/local/bin/installer/frognet_reset.sh:290:# exactly that. This used to write 8.8.8.8 / 8.8.4.4 into resolv.conf - somebody else's
+ALLOWED   [public-dns] usr/local/bin/manageResolv.bash:80:# nobody else -- no lease nameservers, no hardcoded 8.8.8.8, no unbound. The next
+ALLOWED   [nm-activation] usr/local/bin/setup_lillypad_v4.bash:321:# profile, then "try multiple activation methods", a disconnect/reconnect, and a "forcing IP assignment" flush+add).
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_fixup.sh:458:# the one owner of the LAN addresses. frognet-eth0-fixup, a second owner, is gone (frognet_prune_removed.sh).
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:167:# frognet-eth0-fixup: a boot-time second owner of the LAN addresses (NetworkManager's profile is the one)
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:168:units_off frognet-eth0-fixup.service
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:169:gone "etc/systemd/system/frognet-eth0-fixup.service"
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:170:gone "etc/systemd/system/multi-user.target.wants/frognet-eth0-fixup.service"
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:171:gone "usr/local/bin/frognet_eth0_fixup.sh"
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:454:gone "etc/systemd/system/frognet_eth0_fixup.sh"
+ALLOWED   [eth0-fixup] usr/local/bin/installer/frognet_install.sh:2010:    frognet-sysperf frognet-tunnel-daemon-v3)   # (frognet-eth0-fixup gone: [NM_OWNS_THE_LAN_ADDRESS_V1])
+ALLOWED   [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:569:# that puts the gateway and admin addresses on $ETH0, at boot as now. frognet-eth0-fixup (Before=network.target:
+ALLOWED   [belt] opt/frognet_semantic/discovery/probe_sweep.py:44:    ceiling is the belt-and-suspenders: we stop waiting on a wedged cell and
+ALLOWED   [belt] opt/frognet_semantic/frognet_route/committer.py:32:  6. Sweeps any leaked /32 probes (belt-and-suspenders cleanup in case
+ALLOWED   [belt] usr/local/bin/frognet_make_build_tar.sh:141:# Identity files (belt-and-suspenders; not in SRC_PATHS, so normally absent anyway)
+ALLOWED   [belt] usr/local/bin/installer/frognet_install.sh:1889:#    conf.d/frognet-unmanaged-ap.conf (unmanaged for good, "belt-and-suspenders"), which contradicted netstart in
+ALLOWED   [system-pip] opt/frognet_semantic/codex_fullsuite/box_fullsuite.py:29:    pip install --break-system-packages html5lib   # optional (HTML cert %)
+ALLOWED   [system-pip] opt/frognet_semantic/codex_fullsuite/fetch_corpora.sh:52:echo "optional (HTML WHATWG conformance %): pip install --break-system-packages html5lib"
+ALLOWED   [system-pip] opt/frognet_semantic/simulation/spec_compliance/box_fullsuite.py:31:    pip install --break-system-packages html5lib              # optional, HTML cert
+ALLOWED   [system-pip] opt/frognet_semantic/simulation/spec_compliance/fetch_corpora.sh:52:echo "done. Optionally: pip install --break-system-packages html5lib  (for WHATWG conformance %)"
+ALLOWED   [unmanaged-ap] usr/local/bin/frognet_prune_removed.sh:173:gone "etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf"
+ALLOWED   [unmanaged-ap] usr/local/bin/installer/frognet_install.sh:1889:#    conf.d/frognet-unmanaged-ap.conf (unmanaged for good, "belt-and-suspenders"), which contradicted netstart in
+ALLOWED   [tune-twin] usr/local/bin/frognet_prune_removed.sh:175:gone "usr/local/bin/frognet_system_tune.sh"
+ALLOWED   [tune-twin] usr/local/bin/installer/frognet_install.sh:2166:# cmp-identical frognet_system_tune.sh is gone (an upgrade removes it: frognet_prune_removed.sh).
+ALLOWED   [built-in-pond] opt/fdf/src/frognet-android/app/src/main/kotlin/com/fawcettinnovations/fdf/android/Identity.kt:36:        get() = (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").li
+ALLOWED   [region-sources] opt/fdf/bin/fdf-hub:269:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/bin/fdf-reach:86:    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
+ALLOWED   [region-sources] opt/fdf/lib/python/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/bin/fdf-hub:269:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/bin/fdf-reach:86:    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/lib/python/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/rinab/tools/fdf-hub:269:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/windows/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+
+matches per pattern:
+  alive-alt          0
+  returnip-identity  0
+  propagate-hosts    0
+  hosts-fallback     0
+  public-dns         12
+  nm-activation      1
+  db-unit-chain      0
+  gw-echo            0
+  eth0-fixup         9
+  belt               4
+  unbound-chain      0
+  py-fallback        0
+  system-pip         4
+  apt-chain          0
+  facts-swallow      0
+  boot-cron          0
+  legacy-tail        0
+  wg-fallback        0
+  unmanaged-ap       2
+  tune-twin          2
+  eth0-by-name       0
+  built-in-pond      1
+  region-sources     8
+  eth0-dhcp-range    0
+  wg-teardown-alt    0
+  hook-fork          0
+  watcher-region-off 0
+  watcher-poll       0
+allowed, by reason:
+     8  Names what it removes (its T3 section, with the T4b block at its end, is the installer's upgrade step).
+     5  FD&F operator tools (not the tunnel daemon): the environment, then join.env / the pond file. Outside T4c's brief; listed in T4c.md "Found, not done".
+     4  A developer note for an optional test-corpus dependency of the spec-compliance suite (not a node service).
+     4  A T4b/T4c tag line: it records what went and that it is gone.
+     3  FD&F's hub: RINA_RAM is its one input, from its unit (the region holder's hub.env); no file behind it.
+     2  History: what E6a(4) no longer writes.
+     1  The doctrine's dated note that the 8.8.8.8 went.
+     1  The doctrine line [DNS_NEXTHOP_ONLY_V1] saying there is none.
+     1  The committer's sweep of probe routes it installed itself (its own cleanup), not a second owner.
+     1  Simulator topologies and fixtures (an "internet" address in a model).
+     1  Oracle fixtures (recorded node files, not runtime).
+     1  History: what the reset no longer writes (T4a).
+     1  History: what Step 11 no longer creates.
+     1  History: the tag [RESOLV_LOCAL_UPSTREAM_V1] replaced.
+     1  History: the same, in the repair script.
+     1  History: the [NM_OWNS_THE_LAN_ADDRESS_V1] comment (its second line).
+     1  History: the F7 note.
+     1  History: [NO_DNS_FALLBACK_V1], why no-resolv must not be set.
+     1  History: [NO_DNS_FALLBACK_V1], what the old script did.
+     1  Android default pond: changing it needs an app rebuild (listed in T4b.md, not done here).
+     1  An exclusion from a build tar (never ship a node's identity), not a second mechanism.
+     1  A wall-clock ceiling on a wedged probe cell (a timeout), not a second mechanism for the same state.
+     1  A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.
+
+static-no-fallback: 43 allowed, 0 violation(s)

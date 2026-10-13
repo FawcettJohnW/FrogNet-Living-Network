@@ -200,6 +200,9 @@ def main():
     frt._read = lambda p: "BROKER_URL=https://broker.invalid:8443/x\n" if p == "/etc/frognet/tunnel.conf" else ""
     b = frt.region_config()
     (ok if not b.get("configured") else bad)("only an old BROKER_URL -> not configured (LAN-only), got %r" % b)
+    frt._read = lambda p: "RINA_RAM=203.0.113.9:8840\n" if p == "/etc/frognet/tunnel.conf" else ""
+    b = frt.region_config()
+    (ok if not b.get("configured") else bad)("RINA_RAM only in an old tunnel.conf -> not configured: join.env is the one switch [REGION_SWITCH_ONE_FILE_V1], got %r" % b)
     frt._read = _rd
 
     print("\n=== the flusher can call it like any other producer ===")

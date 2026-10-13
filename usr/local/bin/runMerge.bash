@@ -89,10 +89,10 @@ flog_info "lock_acquired" "lockfile=$LOCKFILE"
 # the merge watcher set theirs; anything else is a shell (manual), named by its parent.
 flog_info "invoked_by" "who=${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" "gen=$(cat /var/lib/frognet/gen 2>/dev/null | tr -d '\n' || echo none)"
 
-# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env (fdf-join) or tunnel.conf.
+# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env, the one file [REGION_SWITCH_ONE_FILE_V1].
 # Region: the tunnel daemon owns the hub channel and the region's routes; LAN-only: no WireGuard at all, the merge's
 # bring-up stage (discovery.live) keeps it that way. [NO_BROKER_V1] the broker autoswitch that stood here is gone.
-_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
+_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env && _REGION=1
 flog_info "mode" "region=$_REGION"
 
 flog_stage setup_iptables
@@ -155,7 +155,10 @@ _flog_dir="$(ls -1d /run/frognet/debug/*-$$ 2>/dev/null | head -1)"
 # (T4b G2: h2 told h1, h1 never merged) and the watcher spun on a missing directory.
 for _f in /var/run/frognet/* /var/run/frognet/.[!.]*; do
     [[ -e "$_f" || -L "$_f" ]] || continue
-    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid) continue ;; esac
+    # [HOOK_ASKS_THE_WATCHER_V1 - T4c] nm_dispatch_sig is the NetworkManager hook's last route signature: wiping it
+    # made the first interface event after every merge ask for another merge (no delta judged). /run still clears it
+    # at every boot, which is what makes the boot merge the hook's.
+    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid|nm_dispatch_sig) continue ;; esac
     rm -rf "$_f"
 done
 [[ -n "$_flog_dir" ]] && mkdir -p "$_flog_dir"

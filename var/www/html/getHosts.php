@@ -43,7 +43,7 @@ header('Content-Type: application/json');
 // /var/lib/frognet/region_hosts.json ([{ip, hostname, echo}], this node's applied plan, each echo rebuilt from that
 // member's facts) on every region event. No makeHostJson.bash, no curl to any peer. Absent file = no hosts yet.
 $region = false;
-foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+foreach (['/opt/fdf/var/join.env'] as $f) {          // the one switch [REGION_SWITCH_ONE_FILE_V1]
     $t = @file_get_contents($f);
     if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
 }

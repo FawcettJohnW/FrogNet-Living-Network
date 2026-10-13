@@ -1,0 +1,47 @@
+bash -n OK  docs/cleanup-2026-10/static-no-fallback.sh
+bash -n OK  docs/cleanup-2026-10/t4a-tools/syntax.sh
+bash -n OK  etc/NetworkManager/dispatcher.d/90-frognet-merge
+bash -n OK  opt/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/bin/fdf-wg-impl
+bash -n OK  opt/fdf/src/fdf-source/deliverables/header.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-wg-impl
+py OK       opt/frognet_semantic/core/build_id.py
+py OK       opt/frognet_semantic/core/role_publish.py
+py OK       opt/frognet_semantic/discovery/live.py
+py OK       opt/frognet_semantic/discovery/real_backends.py
+py OK       opt/frognet_semantic/frognet_route/iproute.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/config.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/iproute.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/poll.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/region.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/wg.py
+py OK       opt/frognet_semantic/oracles/oracle_routing_topology.py
+bash -n OK  usr/local/bin/frognet-merge-watcher.sh
+bash -n OK  usr/local/bin/frognet_build_release.sh
+py OK       usr/local/bin/frognet_dbhost_elector.py
+bash -n OK  usr/local/bin/frognet_prune_removed.sh
+py OK       usr/local/bin/frognet_routing_topology.py
+bash -n OK  usr/local/bin/getEth0Address
+bash -n OK  usr/local/bin/getFrogNet.bash
+bash -n OK  usr/local/bin/installer/frognet_install.sh
+bash -n OK  usr/local/bin/propogateNotificationInternal
+bash -n OK  usr/local/bin/runMerge.bash
+bash -n OK  usr/local/lib/frognet/conf.sh
+php -l OK   var/www/html/frognet_echo.php
+php -l OK   var/www/html/getHosts.php
+cmp same    opt/fdf/bin/fdf-facts
+cmp same    opt/fdf/bin/fdf-hub
+cmp same    opt/fdf/bin/fdf-region-create
+cmp same    opt/fdf/bin/fdf-wg-impl
+cmp same    opt/fdf/bin/fdf-reach
+cmp same    opt/fdf/bin/fdf-mapping.sh
+cmp same    opt/fdf/bin/fdf-ram-manager.sh
+cmp same    opt/fdf/bin/fdf-member.sh
+cmp same    opt/fdf/bin/fdf-region-join
+cmp same    opt/fdf/bin/fdf-leave
+cmp same    rinab/tools/fdf-hub
+cmp same    opt/fdf/fdf.env
+syntax: 34 files OK, 0 bad

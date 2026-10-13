@@ -296,14 +296,16 @@ class RealIPRoute:
         return rc == 0
 
     def tear_down_wg(self, iface: str) -> bool:
-        # Use wg-quick down so that the conf file's PostDown hooks run
-        # (if any) and the iface is cleanly torn down.  Fall back to
-        # `ip link del` if wg-quick can't manage it (e.g. no conf file).
-        rc, _out, _err = _run([self._wg_quick, "down", iface])
-        if rc == 0:
-            return True
-        rc, _out, _err = _run([self._ip, "link", "del", iface])
-        return rc == 0
+        # [WG_TEARDOWN_BY_ITS_OWNER_V1 - T4c] The tunnel daemon makes every wgN with `wg-quick up` from
+        # /etc/wireguard/wgN.conf, so `wg-quick down` is the one teardown (it runs the conf's PostDown and stops
+        # wireguard-go where that is the recorded implementation). A failure is logged with wg-quick's stderr and
+        # returned; the caller's next event tries the same again. No `ip link del` behind it.
+        rc, _out, err = _run([self._wg_quick, "down", iface])
+        if rc != 0:
+            __import__("logging").getLogger("frognet.iproute").error(
+                "tear_down_wg: wg-quick down %s failed rc=%d: %s [WG_TEARDOWN_BY_ITS_OWNER_V1]", iface, rc, err.strip())
+            return False
+        return True
 
     def list_active_wg(self) -> list[str]:
         rc, out, _err = _run([self._wg, "show", "interfaces"])

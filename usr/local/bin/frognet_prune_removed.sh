@@ -30,25 +30,23 @@
 #
 #   ./frognet_prune_removed.sh                      # DRY RUN - prints, changes nothing
 #   ./frognet_prune_removed.sh --apply              # actually delete
-#   ./frognet_prune_removed.sh --apply --only T3    # the T3 section only
 #
 # Run it on the node AFTER untarring the current tree, then re-run the simulator.
-# The installer's C1c upgrade step and frognet_build_release.sh run `--apply --only T3`
-# on every install / build: that section is the one list of what T3 (and T4b, at its end) retired.
+# [PRUNE_ALL_ON_UPGRADE_V1 - T4c] The installer's C1c upgrade step and frognet_build_release.sh run
+# `--apply`: every section, every install / build (there is no partial run). Every path below was
+# checked absent from the tree it ships with (a fresh install loses nothing to it).
 #
 # Exit status: 0, or 1 if any removal failed (each failure is logged; the next run
 # retries it).
 
 set -u
-APPLY=0; ONLY=""
+APPLY=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --apply) APPLY=1; shift ;;
-        --only)  ONLY="${2:-}"; shift 2 ;;
-        *) echo "usage: $0 [--apply] [--only T3]" >&2; exit 2 ;;
+        *) echo "usage: $0 [--apply]" >&2; exit 2 ;;
     esac
 done
-case "$ONLY" in ""|T3) ;; *) echo "--only: the one section it selects is T3 (got: $ONLY)" >&2; exit 2 ;; esac
 [ "$APPLY" -eq 0 ] && echo "DRY RUN - nothing will be deleted. Pass --apply to do it." && echo
 # FROGNET_PRUNE_ROOT: run against a tree other than / (the oracle's scratch root). Empty = the node.
 R="${FROGNET_PRUNE_ROOT:-}"
@@ -90,13 +88,15 @@ echo "-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: 
 units_off frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer \
     frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service \
     frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service
-# The old tunnel.conf keys. The daemon reads RINA_RAM and RINA_AREA only (internet_tunnels_v3/config.py CONF_KEYS)
-# and names any other key once, ignored; these are the ones the removed tools wrote. Key-wise: RINA_RAM stays.
+# The old tunnel.conf keys. Nothing reads tunnel.conf any more: the region switch is /opt/fdf/var/join.env alone and the
+# area site.env ([REGION_SWITCH_ONE_FILE_V1], T4c); the daemon names what is left here once, ignored. These are the keys
+# the removed tools wrote, and the old RINA_RAM / RINA_AREA (a node whose region lived only here is LAN-only after the
+# upgrade until fdf-region-join is run: gone is gone).
 _tc="$R/etc/frognet/tunnel.conf"
 if [ -f "$_tc" ]; then
     FROGNET_CONF="$_tc"
     . "$R/usr/local/lib/frognet/conf.sh" || { echo "  FAILED: cannot source $R/usr/local/lib/frognet/conf.sh" >&2; fail=$((fail+1)); }
-    for _k in BROKER_URL GROUP_TOKEN GROUP_NAME PASSCODE POND_NAME POND_PASSWORD CHORUSES MAX_TUNNELS NODE_GUID; do
+    for _k in BROKER_URL GROUP_TOKEN GROUP_NAME PASSCODE POND_NAME POND_PASSWORD CHORUSES MAX_TUNNELS NODE_GUID RINA_RAM RINA_AREA; do
         grep -q "^${_k}=" "$_tc" || continue
         echo "  unset $_k in $_tc"
         n=$((n+1))
@@ -178,6 +178,95 @@ gone "etc/sentinels/nm_dispatch_sig"
 if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi
 }
 
+t1_section() {
+echo "-- [T1..T4b, listed in T4c 2026-10-12] every file the cleanup deleted from usr/local/bin, usr/local/sbin,"
+echo "--   etc/systemd/system, var/www/html and opt/frognet_semantic (git diff --name-status 42465dd 0db230f, D)"
+echo "--   that no section above or below names already"
+# Not here, on purpose: fdf-hub.service, fdf-ram-frognet.service, fdf-client-frognet.service. The tree once carried
+# files by those names, but fdf-region-create makes fdf-ram-<AREA> / fdf-client-<AREA> and the droplet tarball
+# installs fdf-hub.service: on a region holder (area "frognet") a file by that name is the live region, not a leftover.
+units_off aiconnect.service frognet-post-merge-metrics.service
+gone "etc/systemd/system/aiconnect.service"
+gone "etc/systemd/system/frognet-nat64.service"
+gone "etc/systemd/system/frognet-post-merge-metrics.service"
+gone "opt/frognet_semantic/.netbench-backup-20260908-163735"
+gone "opt/frognet_semantic/APPLY.txt"
+gone "opt/frognet_semantic/_fix_meta"
+gone "opt/frognet_semantic/cpre"
+gone "opt/frognet_semantic/internet_tunnels_v3/broker.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/broker_auth.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/broker_pin.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/frognet-client-v3.tar.gz"
+gone "opt/frognet_semantic/internet_tunnels_v3/gen_oracle.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/install"
+gone "opt/frognet_semantic/internet_tunnels_v3/main.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/package_client.sh"
+gone "opt/frognet_semantic/internet_tunnels_v3/peer.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash"
+gone "opt/frognet_semantic/internet_tunnels_v3/test_transit_discover_v2.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/threads.py"
+gone "opt/frognet_semantic/internet_tunnels_v3/websocket.py"
+gone "usr/local/bin/'"
+gone "usr/local/bin/ConnectFamily"
+gone "usr/local/bin/addHost"
+gone "usr/local/bin/addHostAndPropogate"
+gone "usr/local/bin/daemon_main.py"
+gone "usr/local/bin/fr"
+gone "usr/local/bin/frognet-channel-advertise.py"
+gone "usr/local/bin/frognet-channel-join.sh"
+gone "usr/local/bin/frognet-create-passcode.sh"
+gone "usr/local/bin/frognet-redeem-passcode.sh"
+gone "usr/local/bin/frognet-tunnel"
+gone "usr/local/bin/frognet-tunnel-daemon"
+gone "usr/local/bin/frognet-tunnel-daemon.py"
+gone "usr/local/bin/frognet-tunnel-host"
+gone "usr/local/bin/frognet-tunnel-join"
+gone "usr/local/bin/frognet-tunnel-refresh.sh"
+gone "usr/local/bin/frognet-tunnel-register.sh"
+gone "usr/local/bin/frognet-tunnel-setup.sh"
+gone "usr/local/bin/frognet-tunnel-watcher.sh"
+gone "usr/local/bin/frognet_netdrop_watch.sh"
+gone "usr/local/bin/ham_concentrator_up.sh"
+gone "usr/local/bin/probe_orig.sh"
+gone "usr/local/bin/setup_log"
+gone "usr/local/bin/x"
+gone "usr/local/sbin/dnsmasq_merge_trigger.sh"
+gone "var/www/html/dans_lamp.html"
+gone "var/www/html/frognet_cli_bin_plus.zip"
+gone "var/www/html/frognet_fuckme.php"
+gone "var/www/html/frognet_test.php"
+gone "var/www/html/getFrogNet2.php"
+gone "var/www/html/getHosts2.php"
+gone "var/www/html/mysql-apt-config_0.8.30-1_all.deb"
+gone "var/www/html/setup_frognet2.html"
+gone "var/www/html/sysperf.json"
+gone "var/www/html/sysperf_2.html"
+gone "var/www/html/sysperf_3.html"
+gone "var/www/html/test_endpoint.php"
+}
+
+pip_console_section() {
+echo "-- [T4c 2026-10-12] console scripts the old installer's A3 put in /usr/local/bin with the system pip"
+# The services run on the venv since T4b; A3 installs nothing into the system python. These nine wrappers are what the
+# old A3 left. A wrapper goes only when (1) it is pip's console-script wrapper (a python shebang and a
+# `from <module>... import` line), (2) dpkg owns neither the wrapper nor its module as an OS package
+# (/usr/lib/python3/dist-packages/<module>): a module the OS also packages keeps its wrapper. Nothing is pip-uninstalled.
+local name f mod
+for name in cbor2 dotenv gpsdclient gunicorn gunicornc httpx idna normalizer cffi-gen-src; do
+    f="$R/usr/local/bin/$name"
+    [ -f "$f" ] || { miss=$((miss+1)); continue; }
+    if ! head -1 "$f" | grep -q '^#!.*python' ; then echo "  keep $f: not a python wrapper"; continue; fi
+    mod=$(sed -n 's/^from \([A-Za-z_][A-Za-z0-9_]*\)[. ].*import .*/\1/p' "$f" | head -1)
+    if [ -z "$mod" ]; then echo "  keep $f: no 'from <module> import' line (not pip's wrapper)"; continue; fi
+    if dpkg -S "/usr/local/bin/$name" >/dev/null 2>&1; then echo "  keep $f: dpkg owns it"; continue; fi
+    if dpkg -S "/usr/lib/python3/dist-packages/$mod" >/dev/null 2>&1; then
+        echo "  keep $f: its module $mod is also an OS package ($(dpkg -S "/usr/lib/python3/dist-packages/$mod" 2>/dev/null | head -1 | cut -d: -f1))"
+        continue
+    fi
+    gone "usr/local/bin/$name"
+done
+}
+
 summary() {
     echo
     if [ "$APPLY" -eq 1 ]; then
@@ -188,12 +277,6 @@ summary() {
     fi
     [ "$fail" -eq 0 ]
 }
-
-if [ "$ONLY" = "T3" ]; then
-    t3_section
-    summary
-    exit $?
-fi
 
 
 echo "-- timestamped runtime backups carrying GROUP_TOKEN"
@@ -420,12 +503,7 @@ gone "opt/frognet_semantic/proxy/test_onlink_tunnel_oracle.py"
 gone "opt/frognet_semantic/core/test_role_election_uncoupled_oracle.py"
 echo "-- [T2 2026-10-12] the mediahost role, the old Python Communicator's remnants and the game remnants, retired"
 # Stopped and disabled BEFORE their files go, so systemd still knows them by name.
-_T2_UNITS="frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service"
-if [ "$APPLY" -eq 1 ]; then
-    systemctl disable --now $_T2_UNITS 2>/dev/null
-else
-    echo "  systemctl disable --now $_T2_UNITS"
-fi
+units_off frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service
 gone "etc/systemd/system/frognet-mediahost-advertise.service"
 gone "etc/systemd/system/frognet-mediahost-advertise.timer"
 gone "etc/systemd/system/frognet-mediahost.service"
@@ -497,9 +575,11 @@ gone "usr/local/bin/runClient"
 gone "usr/local/bin/runServerHeadless"
 gone "usr/local/share/frognet/docs/SOTF_MEDIA_README.md"
 t3_section
+t1_section
+pip_console_section
 echo
 echo "-- python bytecode (regenerated on next import)"
-for d in /opt/frognet_semantic /usr/local/bin; do
+for d in "$R/opt/frognet_semantic" "$R/usr/local/bin"; do
     [ -d "$d" ] || continue
     if [ "$APPLY" -eq 1 ]; then
         find "$d" -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null
@@ -512,12 +592,8 @@ done
 
 echo
 echo "-- systemd: the removed units were disabled, but tell systemd anyway"
-if [ "$APPLY" -eq 1 ]; then
-    systemctl disable --now frognet-nat64 2>/dev/null
-    systemctl daemon-reload
-else
-    echo "  systemctl disable --now frognet-nat64 ; systemctl daemon-reload"
-fi
+units_off frognet-nat64.service
+if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi
 
 summary
 exit $?

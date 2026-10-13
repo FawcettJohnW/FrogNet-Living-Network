@@ -1,0 +1,9 @@
+before: wgT wg0; confs: wg0.conf
+wg0 (made by wg-quick from /etc/wireguard/wg0.conf): True
+_teardown_wg_iface: wg-quick down wgT failed rc=1: wg-quick: `/etc/wireguard/wgT.conf' does not exist (/etc/wireguard/wgT.conf kept; the next event tries again) [WG_TEARDOWN_BY_ITS_OWNER_V1]
+[frognet:frognet.tunnel-daemon] ERROR _teardown_wg_iface: wg-quick down wgT failed rc=1: wg-quick: `/etc/wireguard/wgT.conf' does not exist (/etc/wireguard/wgT.conf kept; the next event tries again) [WG_TEARDOWN_BY_ITS_OWNER_V1]
+wgT (made by wireguard-go by hand, no conf): False
+after: wgT; confs: wg0.conf
+45 s later: wg0
+[frognet:frognet.tunnel-daemon] WARNING ORPHAN_SCAN: wgT has 0 peers - not a FrogNet tunnel, skipping
+[frognet:frognet.tunnel-daemon] WARNING ORPHAN_SCAN: wgT has 0 peers - not a FrogNet tunnel, skipping

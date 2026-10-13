@@ -251,14 +251,15 @@ def _tunnel_daemon_up():
 
 def region_config():
     """[NO_BROKER_V1] The FD&F region this node is in (RINA_RAM, from
-    /opt/fdf/var/join.env, written by fdf-join, or /etc/frognet/tunnel.conf), plus
+    /opt/fdf/var/join.env, written by fdf-region-join / fdf-join: the one switch,
+    [REGION_SWITCH_ONE_FILE_V1]), plus
     whether it is evidently working. No RINA_RAM: LAN-only, configured False.
 
     `up` is true when a tunnel exists or the tunnel daemon is running. Neither is
     a probe of the region, and it does not need to be: a live hub link is the
     evidence that matters. Cheap, two execs, no network.
     """
-    text = _read("/opt/fdf/var/join.env") + "\n" + _read("/etc/frognet/tunnel.conf")
+    text = _read("/opt/fdf/var/join.env")
     m = re.search(r"^\s*(?:export\s+)?RINA_RAM\s*=\s*\"?([^\"\s#]+)", text, re.M)
     up = _wg_up() or _tunnel_daemon_up()
     if not m:

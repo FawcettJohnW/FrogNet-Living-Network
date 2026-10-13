@@ -17,7 +17,9 @@ umask 022
 KEY=$1; RAM=$2; AREA=$3
 WANT_ARCH="__ARCH__"; M=$(uname -m)
 [ "$M" = "$WANT_ARCH" ] || { echo "fdf-install: this file is for $WANT_ARCH, this machine is $M"; exit 1; }
-for b in python3 wg systemctl tar; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing"; exit 1; }; done
+# inotifywait (inotify-tools): the FrogNet merge watcher waits with it, and runs in region mode too since T4c (the
+# NetworkManager hook's merges are requests to it); a node installed before T4c may not have it [WATCHER_HAS_INOTIFY_V1]
+for b in python3 wg systemctl tar inotifywait; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing$( [ $b = inotifywait ] && echo ' (apt-get install inotify-tools)')"; exit 1; }; done
 [ -d /opt/frognet_semantic/internet_tunnels_v3 ] || { echo "fdf-install: /opt/frognet_semantic/internet_tunnels_v3 not found: this is not a FrogNet node (install FrogNet first)"; exit 1; }
 echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")

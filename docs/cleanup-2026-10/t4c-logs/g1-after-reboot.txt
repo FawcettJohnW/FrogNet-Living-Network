@@ -1,0 +1,42 @@
+hostname: FrogNetHost.G1   build lines:
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4c (mode lan-only) base fdf-2026-10-12-r20
+  [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+  mariadb                        enabled/active
+  apache2                        enabled/active
+  dnsmasq                        enabled/active
+  NetworkManager                 enabled/active
+  cron                           enabled/active
+  frognet-proxy                  enabled/active
+  frognet-daemon                 enabled/active
+  frognet-merge-watcher          enabled/active
+  frognet-tunnel-daemon-v3       enabled/active
+  frognet-eth0-fixup             not-found/inactive
+  frognet-sysperf                enabled/active
+  frognet-dbhost-advertise.timer enabled/active
+  frognet-dbhost-elect.timer     disabled/inactive
+  fdf-client                     not-found/inactive
+  fdf-facts                      not-found/inactive
+failed units: 
+merge: /etc/sentinels/discovered
+discovered last: 
+databasehost: 10.61.61.1 / 10.61.61.1
+getHosts.php: [{"ip":"10.61.61.1","name":"G1","echo":"FrogNetHost.G1,10.61.61.1,172.30.0.21,0.0.0.0","role":"","alive":false}]
+echo (:8080): G1,10.61.61.1,172.30.0.21,0.0.0.0
+echo (:80, the proxy): G1,10.61.61.1,172.30.0.21,0.0.0.0
+wg interfaces: 
+routes: 10.61.61.0/24 dev eth1 proto kernel scope link src 10.61.61.1 ;
+resolv.conf:  options timeout:1 attempts:1  search G1 FrogNetHost.G1  nameserver 127.0.0.1  nameserver 172.30.0.1 
+--- boot: 2026-10-12 11:42:36
+--- the hook this boot:
+2026-10-12T23:15:19+00:00 FrogNetHost.G1 frognet-merge-dispatch[346]: iface=eth0 state=up routing delta - merge requested from the watcher
+2026-10-12T23:15:20+00:00 FrogNetHost.G1 frognet-merge-dispatch[650]: iface=eth0 state=down no routing delta - not merging
+2026-10-12T23:15:41+00:00 FrogNetHost.G1 frognet-merge-dispatch[1128]: iface=eth0 state=up no routing delta - not merging
+2026-10-12T23:15:41+00:00 FrogNetHost.G1 frognet-merge-dispatch[1144]: iface=eth0 state=down routing delta - merge requested from the watcher
+2026-10-12T23:15:41+00:00 FrogNetHost.G1 frognet-merge-dispatch[1161]: iface=eth0 state=up no routing delta - not merging
+--- the watcher:
+[MERGE-ACCUM] /run/frognet/seen_notifications made (1777)
+[MERGE-ACCUM] fire decision=fork reason=lock_free
+[2026-10-12T23:16:11.304] runMerge INFO pid=1270 invoked_by who=watcher:poke gen=
+completed
+[2026-10-12T23:16:15.717] runMerge INFO pid=1270 completed
+--- /usr/local/bin entries: 135

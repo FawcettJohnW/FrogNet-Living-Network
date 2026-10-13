@@ -100,7 +100,11 @@ def find_next_wg_iface() -> str:
     raise RuntimeError("Too many WireGuard interfaces (32+)")
 
 
-def teardown_wg_iface(iface: str):
+def teardown_wg_iface(iface: str) -> bool:
+    """[WG_TEARDOWN_BY_ITS_OWNER_V1 - T4c] The daemon makes every wgN with `wg-quick up` from /etc/wireguard/wgN.conf
+    (poll.py's bring-up), so `wg-quick down` is the one teardown (it also stops wireguard-go where that is the recorded
+    implementation). A failure is logged with wg-quick's stderr, the conf is KEPT so the next event (orphan check,
+    startup reconcile) runs the same teardown again; no `ip link delete` behind it. True when the iface is gone."""
     trace_enter('wg.teardown_wg_iface', iface=repr(iface))
     kernel_changed()
     config.dbg(f"_teardown_wg_iface: {iface}")
@@ -111,22 +115,18 @@ def teardown_wg_iface(iface: str):
     except subprocess.CalledProcessError:
         config.log.info("_teardown_wg_iface: %s not in kernel", iface)
         conf_path.unlink(missing_ok=True)
-        return
+        return True
 
-    if conf_path.exists():
-        r = subprocess.run(["wg-quick", "down", iface],
-                           capture_output=True, text=True, check=False)
-        if r.returncode != 0:
-            config.log.warning("_teardown_wg_iface: wg-quick down %s failed: %s",
-                               iface, r.stderr.strip())
-    else:
-        subprocess.run(["ip", "link", "set", iface, "down"],
-                       capture_output=True, check=False)
-        subprocess.run(["ip", "link", "delete", iface],
-                       capture_output=True, check=False)
+    r = subprocess.run(["wg-quick", "down", iface],
+                       capture_output=True, text=True, check=False)
+    if r.returncode != 0:
+        config.log.error("_teardown_wg_iface: wg-quick down %s failed rc=%d: %s (%s kept; the next event tries "
+                         "again) [WG_TEARDOWN_BY_ITS_OWNER_V1]", iface, r.returncode, r.stderr.strip(), conf_path)
+        return False
 
     conf_path.unlink(missing_ok=True)
     config.log.info("Torn down %s", iface)
+    return True
 
 
 def refresh_handshake(iface: str, wait_sec: int) -> Optional[float]:
@@ -338,10 +338,9 @@ def startup_reconcile():
             config.log.info("startup_reconcile: %s alive (handshake=%ds)",
                             iface, age)
 
-    for iface in dead:
-        teardown_wg_iface(iface)
+    gone = {iface for iface in sorted(dead) if teardown_wg_iface(iface)}
 
-    live_ifaces -= dead
+    live_ifaces -= gone                 # a failed teardown keeps its conf: the next event tries the same again
 
     # -- 3. Remove orphaned conf files -------------------------------------
     # Any wgN.conf that doesn't belong to a currently live interface
