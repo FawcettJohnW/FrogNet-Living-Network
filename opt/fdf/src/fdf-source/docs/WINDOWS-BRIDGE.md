@@ -1,12 +1,17 @@
 # WINDOWS-BRIDGE — the bridge on Windows (fdf-kt-2026-10-11-a12, fdf-tun-2026-10-11-b8; region r19-a14)
 
+> **State (2026-10-13).** The bridge in `opt/fdf/windows/bridge` is `fdf-kt-2026-10-11-a15 + fdf-tun-2026-10-11-b11`
+> (its BUILD.txt; the strings in fdf-tun.exe and member.jar say the same). The hardware run below was a12/b8; a15/b11
+> has not been run on Windows. Since October 2026 `etc\ponds.txt` ships as an example and `fdf-bridge.cmd` refuses to
+> start until it names your pond. How to set it up: `docs/OPERATING.md` in the FrogNet repository.
+
 John 2026-10-11: "Needs to work with windows, too."
 
 ## What it is
 
 A Windows computer runs the same bridge as the phone: a member of every pond in `etc\ponds.txt` at once — a leaf of the
 forward pond and reaching every other pond its own `(pond, config, net)` allows, through 1:1 aliases in 100.64.0.0/10.
-It replaces `fdf-client.exe` plus the hand-made WireGuard tunnel of DEPLOY-REGION §3: no key, address or peer is typed.
+It replaces `fdf-client.exe` plus the hand-made WireGuard tunnel of the October 2026 region deployment (history): no key, address or peer is typed.
 
 | piece | on the phone | on Windows |
 |---|---|---|
@@ -58,7 +63,7 @@ loads it only from its own folder or System32 and says so when it is missing.
   and the monitor.
 - Moved to another network (192.168.0.2): the session ended on the change, rejoined off the mesh, the region gave it
   10.252.0.1, fdf-tun b8 brought up the Wintun adapter "FrogNet" (driver 0.14), netsh set 100.127.255.1/32 and the routes
-  (rc=0), forward via hub StreamingFrog. Ping to a node behind the hub answered; ssh from the PC into a node through the
+  (rc=0), forward via the region's hub. Ping to a node behind the hub answered; ssh from the PC into a node through the
   bridge, and frognet_monitor run there showed every row correct, the PC included.
 - Found on the way: on-mesh facts were empty (fixed a13); a wrong-architecture wintun.dll was reported as "not found"
   and the bridge carried on without a TUN (fixed a14/b9); Windows' multicast chatter logged as drops (silenced b10).

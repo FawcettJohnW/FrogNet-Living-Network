@@ -1,0 +1,26 @@
+tree: /home/claude/clean/opt/frognet_semantic (top /home/claude/clean)
+PASS  b's real frognet_echo.php answers a: b,10.22.22.1,10.11.11.20,0.0.0.0
+PASS  a: the tunnel daemon is running (no tunnel.conf at all) (0 exit/error lines)
+PASS  a: its log says LAN-only and its build: Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r | LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are r
+PASS  b: the tunnel daemon is running (tunnel.conf: old broker keys only) (0 exit/error lines)
+PASS  b: its log says LAN-only and its build: Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r | LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are r
+PASS  b: ONE line names the old broker keys and ignores them: old broker keys ignored: BROKER_URL, GROUP_TOKEN, POND_PASSWORD (nothing is read from this file; the region switch is /opt/fdf/var/join.env) [NO_BROKER_V1 REGIO
+merge 1 on a: rc 0
+merge 1 on b: rc 0
+merge 2 on a: rc 0
+merge 2 on b: rc 0
+PASS  a: the merge's bring-up stage ran and said LAN-only: BRINGUP_PHASE: LAN-only (no region): no WireGuard; tearing down any wg iface [LAN_ONLY_NO_REGION_V1]
+PASS  a: handshake_rtts.json is {} and tunnel_bringup_ready is touched
+PASS  b: the merge's bring-up stage ran and said LAN-only: BRINGUP_PHASE: LAN-only (no region): no WireGuard; tearing down any wg iface [LAN_ONLY_NO_REGION_V1]
+PASS  b: handshake_rtts.json is {} and tunnel_bringup_ready is touched
+PASS  a's /etc/hosts names b: 10.22.22.1 FrogNetHost.b
+PASS  b's /etc/hosts names a: 10.11.11.1 FrogNetHost.a
+PASS  a routes b's /24 via b's lease: 10.22.22.0/24 via 10.11.11.20 dev eth0 metric 22 
+PASS  a -> b's .1 (10.22.22.1) over the LAN
+PASS  both elected the same databasehost: a says '10.22.22.1', b says '10.22.22.1'
+PASS  a: no WireGuard interface
+PASS  a: nothing asked a broker anything (0 broker lines)
+PASS  b: no WireGuard interface
+PASS  b: nothing asked a broker anything (0 broker lines)
+RESULT PASS
+EXIT 0

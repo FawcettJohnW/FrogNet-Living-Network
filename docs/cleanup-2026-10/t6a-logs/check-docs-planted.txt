@@ -1,0 +1,9 @@
+(a) docs/OPERATING.md: no such file: /etc/frognet/nonesuch.conf
+(a) docs/OPERATING.md: no such file: /opt/fdf/bin/fdf-nonesuch-cmd
+(a) docs/OPERATING.md: no such file: opt/fdf/bin/fdf-nonesuch
+(b) docs/OPERATING.md: 'sudo /opt/fdf/bin/fdf-nonesuch-cmd --go': /opt/fdf/bin/fdf-nonesuch-cmd is not in the tree (looked for opt/fdf/bin/fdf-nonesuch-cmd)
+(b) docs/OPERATING.md: 'frobnicate-xyz now': frobnicate-xyz is neither in the tree nor an OS command
+(c) docs/OPERATING.md:338: See `opt/fdf/bin/fdf-nonesuch` and /etc/frognet/nonesuch.conf. The broker is here.
+(d) CLAIMS.md: usr/local/share/frognet/CLAIMS.md is not the same file
+check-docs: 33 documents; (b) 34 commands in docs/OPERATING.md; (c) 4 word matches, 3 allowed; 7 problem(s)
+exit 1

@@ -13,6 +13,10 @@ FrogNet Memory arrives here as an HTTP request.
 | | |
 |---|---|
 | `api.php` | `entity=sensor_data&action=upsert_by_name` for writes; `entity=sensors&action=values` for reads |
+| `frognet_node.inc.php` | every field of the node snapshot, one source per field per mode (its header has the table) |
+| `getSnapshot.php` | the node snapshot: build, mode, ponds, members, hub link, elections, errors. The monitors and the dashboard read only this |
+| `getHosts.php` `frognet_echo.php` | the members as rows, and this node's echo line (the same functions as the snapshot) |
+| `index.php` `fln_dashboard32.html` | the landing page and the dashboard (`docs/OPERATING.md` section 5) |
 
 ## Traps
 

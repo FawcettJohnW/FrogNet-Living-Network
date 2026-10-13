@@ -1,0 +1,96 @@
+== 2026-10-13T04:54:28Z w1 booted with t4a-tools/node.sh w1 FrogNetHost.NODE1 172.30.0.51 fn-lan1:10.61.61.1:eth1 (tree copied to /root/FrogNet by put-tree.sh)
+== OPERATING.md 2: sudo apt-get install -y git
+Setting up git (1:2.43.0-1ubuntu7.3) ...
+Setting up xauth (1:1.1.2-1build1) ...
+Processing triggers for libc-bin (2.39-0ubuntu8) ...
+rc=0
+== OPERATING.md 2: git clone https://github.com/FawcettJohnW/FrogNet-Living-Network.git
+Cloning into 'FrogNet-Living-Network'...
+Updating files:  34% (1046/3071)Updating files:  35% (1075/3071)Updating files:  36% (1106/3071)Updating files:  37% (1137/3071)Updating files:  38% (1167/3071)Updating files:  39% (1198/3071)Updating files:  40% (1229/3071)Updating files:  41% (1260/3071)Updating files:  42% (1290/3071)Updating files:  43% (1321/3071)Updating files:  44% (1352/3071)Updating files:  45% (1382/3071)Updating files:  46% (1413/3071)Updating files:  47% (1444/3071)Updating files:  48% (1475/3071)Updating files:  49% (1505/3071)Updating files:  50% (1536/3071)Updating files:  51% (1567/3071)Updating files:  52% (1597/3071)Updating files:  53% (1628/3071)Updating files:  54% (1659/3071)Updating files:  55% (1690/3071)Updating files:  56% (1720/3071)Updating files:  57% (1751/3071)Updating files:  58% (1782/3071)Updating files:  59% (1812/3071)Updating files:  60% (1843/3071)Updating files:  61% (1874/3071)Updating files:  62% (1905/3071)Updating files:  63% (1935/3071)Updating files:  64% (1966/3071)Updating files:  65% (1997/3071)Updating files:  66% (2027/3071)Updating files:  67% (2058/3071)Updating files:  68% (2089/3071)Updating files:  69% (2119/3071)Updating files:  70% (2150/3071)Updating files:  71% (2181/3071)Updating files:  72% (2212/3071)Updating files:  73% (2242/3071)Updating files:  74% (2273/3071)Updating files:  75% (2304/3071)Updating files:  76% (2334/3071)Updating files:  77% (2365/3071)Updating files:  78% (2396/3071)Updating files:  79% (2427/3071)Updating files:  80% (2457/3071)Updating files:  81% (2488/3071)Updating files:  82% (2519/3071)Updating files:  83% (2549/3071)Updating files:  84% (2580/3071)Updating files:  85% (2611/3071)Updating files:  86% (2642/3071)Updating files:  87% (2672/3071)Updating files:  88% (2703/3071)Updating files:  89% (2734/3071)Updating files:  90% (2764/3071)Updating files:  91% (2795/3071)Updating files:  92% (2826/3071)Updating files:  93% (2857/3071)Updating files:  94% (2887/3071)Updating files:  95% (2918/3071)Updating files:  96% (2949/3071)Updating files:  97% (2979/3071)Updating files:  98% (3010/3071)Updating files:  99% (3041/3071)Updating files: 100% (3071/3071)Updating files: 100% (3071/3071), done.
+rc=0
+AI_READ_FIRST.md
+CLAIMS.md
+COPYRIGHT
+LICENSE
+README.md
+etc
+opt
+usr
+var
+e889208 Docs: current install (one file per machine type), source build from opt/fdf/src/fdf-source, droplet hub.env needs FDF_FACTS, Communicator r5 in the FrogNet app
+== OPERATING.md 2: cd FrogNet-Living-Network (rc 0; the install below runs in /root/FrogNet, this tree, which is what the clone holds once it is pushed: the public repo is still e889208)
+== OPERATING.md 2: sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE1 --ip 10.61.61.1 --no-ssid-projection   (password typed at the prompt, twice; output in walk-install.txt)
+   -> rc 0 (28 '+' lines, 0 'x'; 'All checks passed.'; 04:55:06 -> 05:00:35, 5 min 29 s); the installer rebooted the machine: 'Rebooting.' and the container exited (129)
+== power the machine on again: t4a-tools/reboot.sh w1 (docker restart; the harness unmounts docker's three bind mounts)
+rebooted FrogNetHost.NODE1: starting
+== OPERATING.md 2 after the reboot: journalctl -b -u frognet-tunnel-daemon-v3 --no-pager | grep -E 'Starting frognet-tunnel-daemon|LAN-only'
+Oct 13 05:00:47 FrogNetHost.NODE1 python3[363]: 2026-10-13 05:00:47,719 [v3.0.0] frognet.tunnel-daemon INFO LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]
+Oct 13 05:00:47 FrogNetHost.NODE1 python3[363]: [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r20
+Oct 13 05:00:47 FrogNetHost.NODE1 python3[363]: [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+rc=0
+== curl -s http://127.0.0.1:8080/getSnapshot.php | python3 -m json.tool
+{
+    "snapshot": 1,
+    "at": 1791867722,
+    "node": {
+        "name": "NODE1",
+        "dot1": "10.61.61.1",
+        "guid": "cd5b80fb7e2649e186e11b805d26f068",
+        "echo": "NODE1,10.61.61.1,172.30.0.51,0.0.0.0"
+    },
+    "build": {
+        "build": "fdf-2026-10-12-r20",
+        "installed": "2026-10-13T04:58Z"
+    },
+    "mode": "lan-only",
+    "mode_why": "no /opt/fdf/var/join.env",
+    "ponds": [],
+    "hub": [],
+    "members": [
+        {
+            "name": "NODE1",
+            "guid": "cd5b80fb7e2649e186e11b805d26f068",
+            "ip": "10.61.61.1",
+            "role": "node",
+            "alive": true,
+            "source": "lan",
+            "echo": "FrogNetHost.NODE1,10.61.61.1,172.30.0.51,0.0.0.0",
+            "self": true
+        }
+    ],
+    "elections": {
+        "databasehost": "10.61.61.1",
+        "databasehost_control": "10.61.61.1"
+    },
+    "sources": {
+        "members": "makeHostJson.bash (LAN discovery: the last merge's /etc/hosts; alive = named by that merge)",
+        "node": "getFrogNet.bash",
+        "ponds": "none (LAN-only)",
+        "hub": "none (LAN-only)",
+        "elections": "/etc/hosts"
+    },
+    "errors": []
+}
+rc=0
+== /usr/local/bin/frognet_monitor --once
+  FrogNet   NODE1 (10.61.61.1)   2026-10-13 05:02:03
+  mode lan-only  build fdf-2026-10-12-r20
+  ponds  none, hub none (LAN-only: no /opt/fdf/var/join.env)
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+  # NODE1          SELF         node     10.61.61.1      lan
+
+  elections  databasehost=10.61.61.1  databasehost_control=10.61.61.1
+  internet   FAIL
+rc=0
+== systemctl --failed
+  UNIT                             LOAD   ACTIVE SUB    DESCRIPTION
+● frognet-dbhost-advertise.service loaded failed failed FrogNet databasehost candidate registration
+
+Legend: LOAD   → Reflects whether the unit definition was properly loaded.
+        ACTIVE → The high-level unit activation state, i.e. generalization of SUB.
+        SUB    → The low-level unit activation state, values depend on unit type.
+
+1 loaded units listed.
+rc=0
+== 05:17:10 10 min after boot: no failed units; frognet-dbhost-advertise ran and finished; databasehost.frognet -> 10.61.61.1 (walk-lan-only-state.txt)

@@ -1,5 +1,5 @@
-FD&F bridge for Windows (fdf-kt-2026-10-11-a12, fdf-tun-2026-10-11-b8)
-=======================================================================
+FD&F bridge for Windows (fdf-kt-2026-10-11-a15, fdf-tun-2026-10-11-b11: BUILD.txt)
+===================================================================================
 
 What it is: this computer as a member of every pond in etc\ponds.txt at once -- a leaf of the forward pond (its
 10.0.0.0/8, through its hub) and reaching every other pond that pond's own (pond, config, net) allows, through 1:1
@@ -11,7 +11,8 @@ Once:
   1. Unzip to C:\fdf (any folder).
   2. Get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into C:\fdf.
      (The only file not included: it carries Wintun's signed driver and comes only from its authors.)
-  3. Edit C:\fdf\etc\ponds.txt: one <area>=<host:port> line per pond.
+  3. Edit C:\fdf\etc\ponds.txt: replace the example line AREA=RAM-HOST:51888 with one <area>=<host:port> line
+     per pond (the area and RAM manager fdf-region-create printed). fdf-bridge.cmd refuses while the example is there.
 
 Run, in a terminal opened as Administrator:
   cd C:\fdf

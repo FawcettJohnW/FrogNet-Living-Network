@@ -7,11 +7,11 @@
 
 ## What is here
 
-Two modes and only two. **Region** (RINA_RAM set, normally by fdf-join in
-`/opt/fdf/var/join.env`): one held FD&F region session, one WireGuard link per
+Two modes and only two. **Region** (RINA_RAM set in `/opt/fdf/var/join.env`,
+written by `fdf-region-join` through `fdf-join`): one held FD&F region session, one WireGuard link per
 hub, FD&F's plan applied per region event. **LAN-only** (no RINA_RAM): FrogNet
 discovery and the databasehost election are runMerge's; no WireGuard at all.
-There is no broker.
+The daemon's first log line names its build and mode.
 
 | | |
 |---|---|
