@@ -26,8 +26,9 @@ V=/opt/fdf/var
 rm -rf "$V/ponds" "$V/attention"
 rm -f "$V/join.env" "$V/site.env" "$V/forward" "$V/forward.want" "$V/facts.json" "$V/facts.json.lock"
 echo "removed $V/join.env, site.env, ponds/, attention/, forward, forward.want, facts.json"
-# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join stopped.
-for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer; do      # (the merge watcher runs in both modes)
+# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join
+# stopped, the post-merge elector (the merge watcher runs in both modes; the 60 s advertiser is gone from the tree).
+for u in frognet-dbhost-elect.timer; do
     [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
     systemctl enable --now "$u" && echo "re-enabled $u"
 done

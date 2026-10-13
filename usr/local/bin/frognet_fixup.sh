@@ -483,7 +483,7 @@ done
 # [CONNECTIVITY_UI_REMOVED_V1] see frognet_install.sh OPT_SERVICES.
 for svc in frognet-sysperf \
            frognet-gps \
-           frognet-transit-boot frognet-transit-watch; do
+           frognet-transit-boot; do
     if [[ -f "/etc/systemd/system/${svc}.service" ]]; then
         systemctl enable "$svc" 2>/dev/null || true
     fi

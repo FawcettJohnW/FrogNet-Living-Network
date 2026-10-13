@@ -152,7 +152,6 @@ else
     systemctl restart NetworkManager 2>/dev/null || true
 fi
 systemctl stop frognet-transit-boot 2>/dev/null || true
-systemctl stop frognet-transit-watch 2>/dev/null || true
 
 # ============================================================
 # Step 1b: Purge stale identity from cloned image
@@ -588,7 +587,6 @@ svc_restart dnsmasq
 svc_restart frognet-proxy
 svc_restart frognet-daemon
 systemctl start frognet-transit-boot 2>/dev/null || true
-systemctl start frognet-transit-watch 2>/dev/null || true
 
 # ============================================================
 # Final verification

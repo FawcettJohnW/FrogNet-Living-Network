@@ -1,0 +1,4 @@
+booted FrogNetHost.N1: running; lo=127.0.0.1/8 eth0=172.30.0.51/24 
+tree in /root/FrogNet: 3196 files
+lo=127.0.0.1/8 eth0=172.30.0.51/24 eth1=10.81.81.1/24 
+started install of N1 10.81.81.1 --region 172.30.0.10:51888 --site-key 8ca6867b24818f2ad3683373541b35fa897a51eafcb0ccec61a677c6e33cb018 --area test

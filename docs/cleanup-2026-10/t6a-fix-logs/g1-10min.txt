@@ -1,0 +1,28 @@
+== FrogNetHost.H1 12:00:41; rebooted 11:49:58
+systemctl --failed: 0 units
+  frognet-daemon.service NRestarts=0 active Result=success
+  frognet-dbhost-elect.service NRestarts=0 inactive Result=success
+  frognet-discovered.service NRestarts=0 active Result=success
+  frognet-gps.service NRestarts=0 active Result=success
+  frognet-merge-watcher.service NRestarts=0 active Result=success
+  frognet-proxy.service NRestarts=0 active Result=success
+  frognet-sysperf.service NRestarts=0 active Result=success
+  frognet-transit-boot.service NRestarts=0 active Result=success
+  frognet-tunnel-daemon-v3.service NRestarts=0 active Result=success
+timers:
+Tue 2026-10-13 12:00:55 UTC 14s Tue 2026-10-13 11:59:55 UTC 45s ago frognet-dbhost-elect.timer frognet-dbhost-elect.service
+elector runs this boot (Finished lines): 10  failures: 0
+== FrogNetHost.H2 12:00:41; rebooted 11:49:58
+systemctl --failed: 0 units
+  frognet-daemon.service NRestarts=0 active Result=success
+  frognet-dbhost-elect.service NRestarts=0 inactive Result=success
+  frognet-discovered.service NRestarts=0 active Result=success
+  frognet-gps.service NRestarts=0 active Result=success
+  frognet-merge-watcher.service NRestarts=0 active Result=success
+  frognet-proxy.service NRestarts=0 active Result=success
+  frognet-sysperf.service NRestarts=0 active Result=success
+  frognet-transit-boot.service NRestarts=0 active Result=success
+  frognet-tunnel-daemon-v3.service NRestarts=0 active Result=success
+timers:
+Tue 2026-10-13 12:00:55 UTC 14s Tue 2026-10-13 11:59:55 UTC 46s ago frognet-dbhost-elect.timer frognet-dbhost-elect.service
+elector runs this boot (Finished lines): 9  failures: 0

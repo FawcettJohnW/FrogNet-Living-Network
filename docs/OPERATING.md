@@ -33,15 +33,20 @@ removed by `fdf-leave`).
 | `frognet-daemon` (data daemon :9009) | yes | yes | — |
 | `frognet-tunnel-daemon-v3` | yes, `mode lan-only` | yes, `mode region` | — |
 | `frognet-merge-watcher` (runs `runMerge.bash` on requests) | yes | yes | — |
-| `frognet-sysperf`, `frognet-gps`, `frognet-transit-boot` | yes | yes | — |
-| `frognet-transit-watch` (its script exits at once; systemd starts it again every 5 s) | yes | yes | — |
-| `frognet-dbhost-advertise.timer` | yes | stopped and disabled by `fdf-region-join` | — |
-| `frognet-dbhost-elect.timer` | no on a fresh install; yes after `fdf-leave` | stopped and disabled by `fdf-region-join` | — |
+| `frognet-sysperf`, `frognet-gps`, `frognet-transit-boot` (once at boot: a direct cable to another node becomes a 10.253.253.x/30 link) | yes | yes | — |
+| `frognet-dbhost-elect.timer` (1/min; works only on the control, the highest .1, for 10 min after a merge) | yes | stopped and disabled by `fdf-region-join`; `fdf-leave` enables it again | — |
 | `apache2` (:8080, :8443), `mariadb`, `dnsmasq`, `NetworkManager`, `cron` | yes | yes | — |
 | `fdf-client` (the node's session to the RAM manager), `fdf-facts` | — | yes | — |
 | `fdf-ram-<AREA>` (the RAM manager, `rina-host`, TCP 51888) | — | — | yes |
 | `fdf-hub` (WireGuard hub, UDP 50889, interface `wg-<AREA>`) | — | — | yes |
 | `fdf-client-<AREA>` (the hub's own membership) | — | — | yes |
+
+Who elects the database host. LAN-only: every merge publishes the node's capability to the control and elects
+(`SERVICE_ELECT role=databasehost ... winner=...` in `/var/log/frognet-merge-watcher.log`). A neighbour's capability
+can reach the control after the control's merge has elected; for that, `frognet-dbhost-elect.timer` runs the same
+election on the control once a minute for 10 minutes after each merge and, when the answer changes, rewrites
+`/etc/hosts` and reloads dnsmasq (`elector: databasehost re-elected` in `journalctl -u frognet-dbhost-elect`). In a
+region the tunnel daemon elects from the members' facts and the elector does nothing.
 
 A region host is not a FrogNet node: it needs `/opt/fdf` (from `fdf-droplet.tgz`), `python3`, `wireguard-tools`,
 and `wireguard-go` where its kernel has no WireGuard module. One machine holds one region.
@@ -111,8 +116,7 @@ the LAN comes up on the served interface. Look at:
 
 The daemon says `Starting frognet-tunnel-daemon v3.0.0 build ... (mode lan-only) base fdf-2026-10-12-r20` and
 `LAN-only loop started`. The snapshot says `"mode": "lan-only"`, lists the node itself among `members`, and names the
-database host under `elections`. `frognet-dbhost-advertise` can be listed as failed in the first minutes after a boot, until the
-database host's name resolves (section 7).
+database host under `elections`. `systemctl --failed` lists no unit.
 
 **A second node.** Install it the same way with its own 10.X.Y.1, its uplink on the first node's LAN (it takes a
 lease from the first node, which is then its default route) and its served LAN on another wired interface
@@ -343,7 +347,7 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 | the hub does not start | `fdf-hub: /opt/fdf/hub/hub.env does not exist ...` | run `fdf-region-create` on that machine |
 | two nodes with the same /24 in a region | `REFUSED 10.X.Y.0/24 claimed by ...` in `journalctl -u fdf-hub` | give one of them another 10.X.Y.1 (reinstall) |
 | outside names do not resolve | resolv.conf has only `127.0.0.1` and the gateway | the gateway does not serve DNS (section 6) |
-| `frognet-dbhost-advertise` failed after a boot | it fails until `databasehost.frognet` resolves | nothing: the timer runs it again every minute |
+| `databasehost.frognet` still names a LAN-only node that is gone | the last `SERVICE_ELECT role=databasehost ... winner=` in `/var/log/frognet-merge-watcher.log` is from before it left | a LAN-only node does not notice a neighbour leaving; the next merge (an interface change, a neighbour's notification, or any file created in `/run/frognet/merge_requests`) elects again |
 | the Windows bridge refuses | `fdf-bridge: ... is still the example ...`, `wintun.dll is missing`, `run this from a terminal opened as Administrator` | do what the line says |
 | an old node's `.run` stops | `fdf-install: inotifywait is required and missing (apt-get install inotify-tools)` | `apt-get install inotify-tools`, run the `.run` again |
 | the dashboard is empty | the page says `getSnapshot.php failed at HH:MM:SS: <why>` | Apache or the snapshot is not answering; the next refresh draws again when it does |

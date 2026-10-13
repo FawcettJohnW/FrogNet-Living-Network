@@ -143,3 +143,83 @@ x86-64 with systemd, uplink eth0, LAN eth1), then command by command:
 - A region host keeps old files a new fdf-droplet.tgz no longer has (no prune there); the three hub documents are
   overwritten by pointers for that reason.
 - The Android app's built-in first pond is still John's droplet (`Identity.kt:36`; T4b).
+
+## T6a fixes (2026-10-13; not committed; logs in t6a-fix-logs/)
+
+Rules: one mechanism per job, event-driven, a failure logged and retried on the next event, the code is the truth.
+
+**1. frognet-transit-watch: removed (no job).** `frognet_transit_watch.sh` was not a transit watcher: its header says
+`sync_interfaces.sh`, and its body is the old bash discovery walk (echo/getHosts BFS, routes), with `set -x; exit 0`
+at the top since the T0 baseline, under `Restart=always`/`RestartSec=5`. Discovery is `opt/frognet_semantic/discovery`,
+run by the merge, in both modes; nothing else reads the script's outputs. Unit and script deleted (`git rm`); dropped
+from the installer's OPT_SERVICES ([NO_TRANSIT_WATCH_V1]), `frognet_fixup.sh`, `setup_lillypad_v4.bash` (stop/start),
+`setup_worker.bash` (disable); `frognet_prune_removed.sh` `t6_section` removes the unit, its wants link and the script.
+
+**frognet-transit-boot: kept (it has a job), fixed to do only that job.** It turns a bare cable to another node into a
+10.253.253.x/30 link (frognet_link_autoconfig.sh) at boot, both modes. It used to take every addressed interface
+except a 10.x.x.1/24 gateway (on a test node it unmanaged the uplink eth0, gave it a 169.254 address, ARPed 20 s and
+rolled back), and its log lines went to stdout inside the interface lister and were read as interface names. Now
+([TRANSIT_IS_A_BARE_CABLE_V1]): a candidate is an Ethernet interface (type 1) with no IPv4 address, not in the exclude
+file; an addressed interface is logged `SKIP: <dev> has <addr> (in use, not a bare cable)`; the unit runs
+`After=/Wants=network-online.target`; log() writes stderr. The positive case (two nodes on a bare cable) was not run.
+
+**2. databasehost: the merge elects, the post-merge elector covers the late row, the advertiser is gone.**
+- The merge (LAN-only): `core/role_publish.publish_all` writes this node's `databasehost/capability` row
+  (`SD:capability.host:<ip>:databasehost`, own=False) to the control (highest .1), then `service_host_lines` elects
+  over the live .1 FrogNetHosts (`PUBLISH_CAPABILITY`, `SERVICE_CAND`, `SERVICE_ELECT` in
+  /var/log/frognet-merge-watcher.log), and `_arm_elector` stamps `/etc/sentinels/last_merge`.
+- `frognet-dbhost-elect.timer` / `frognet_dbhost_elector.py`: **restored from HEAD** with its oracle
+  (`discovery/sim/elector_check.py`, `test_elector_oracle.py`) and `live.py _arm_elector`. Removing it was wrong: a
+  neighbour's row can land in the control's store after the control's merge elected without it (G2: `ip=10.71.71.1
+  UNPUBLISHED ... score=-1.0`). On the control only, 1/min for 10 min after each merge, it runs the same election over
+  the rows now there and rewrites /etc/hosts + HUPs dnsmasq when the answer changes. Region: it stands down
+  (`region_mode()`). **The installer now enables it on a LAN-only node** ([ELECTOR_ON_LAN_ONLY_V1], F1: no `--region`
+  and no `RINA_RAM=` in /opt/fdf/var/join.env; a missing timer file is a die, not a warning); before, only `fdf-leave`
+  enabled it, so a fresh LAN-only node never ran it. `fdf-region-join` stops and disables it, `fdf-leave` enables it
+  again (both copies, [STORE_UNITS_OFF_IN_REGION_V1]).
+- `frognet-dbhost-advertise.timer` (60 s, `frognet_register_candidate.sh`, set up by `frognet_setup_advertisers.sh`):
+  **kept removed.** Read in the code: it wrote `T.put(role, "capability", T.role_scope(role), blob, own=False)` to
+  control and data; `UnRESTHandler.advertise()`, which publish_all calls, writes the same call to the same stores. The
+  elector reads those rows through `apply_to_etc_hosts`; their writers are every node's merge and the frognet-daemon's
+  publish watcher (boot, and when the control moves). The election never ages a capability row
+  (`test_capability_no_age_oracle`), so a 60 s refresh bought nothing. `install_databasehost.sh` no longer installs it.
+- Edited to match: OPERATING.md (units table row for the elector; "who elects" paragraph), `frognet_prune_removed.sh`
+  t6_section (prunes the advertiser's units, wants link and two scripts and the transit watcher; does **not** prune the
+  elector, its units, `last_merge` or its oracle: scratch-root run in `prune-scratch.txt`), `make_deliverables.sh`
+  (ships the elector again, as at HEAD), `selectNewDatabaseHost` comments, `t4a-tools/node-state.sh`. The node file
+  set (`frognet_node_files`) is directory-based and lists the elector, its two units and its oracle.
+
+## Gates (T6a fixes)
+
+| gate | command / setup | result |
+|---|---|---|
+| G2 two LAN-only nodes | h1 serves 10.71.71.0/24 (eth1); h2 on h1's LAN as 10.71.71.20 (eth1), serves 10.72.72.0/24 (eth2, `--lan-iface eth2`); control = h2. Both installs EXIT 0, "All checks passed", `enabled: frognet-dbhost-elect.timer (LAN-only)`. Bridged-frames allowance while it ran | **boot 1** (h2 rebooted, then h1; fresh store): h2 merged first 11:40:34 with h1 `UNPUBLISHED score=-1.0`, winner 10.72.72.1; the elector on h2 read 1 row at 11:40:52, 2 rows at 11:41:56; h1 merged 11:41:15 over both rows, winner 10.72.72.1. **boot 2** (rows deleted, h1 rebooted 20 s before h2, so the lower .1 merged first): h1 11:43:45 ABSTAIN (h2's store down), h2 11:44:05 (h1 unpublished), h1 again 11:44:41 over 2 rows; elector on h2 read 0, 1, 2 rows. **boot 4** (rows deleted, both rebooted at once 11:49:58): h1 11:51:01 alone (elects itself), h1 11:51:38 over 2 rows -> 10.72.72.1; h2 11:51:02 (h1 unpublished) and 11:52:30; elector on h2 read 1 row 11:51:16, 2 rows from 11:52:21. Every boot: both nodes' /etc/hosts and dnsmasq say **10.72.72.1** inside the window, no manual step (g2-boot1/2/4-*.txt). The two scores are equal (17.84, identical containers), so the highest-.1 tiebreak names the control either way and the elector's re-reads changed nothing; its changing branch is shown by the oracle only |
+| G1 restart loop | boot 4 (h1, h2), read at 12:00:41, 10 min 43 s after the reboot | `systemctl --failed`: **0 units** on both; NRestarts=0 and Result=success for every frognet service (daemon, dbhost-elect, discovered, gps, merge-watcher, proxy, sysperf, transit-boot, tunnel-daemon-v3); the elector ran 10 / 9 times, 0 failures; no advertiser, no transit-watch (g1-10min.txt) |
+| selfcheck | README command | **14/14** |
+| discovery oracles | README command | **PASS, 84 pass, 0 regression** (test_elector_oracle: ALL ELECTOR CHECKS PASS) |
+| static-no-broker | `bash docs/cleanup-2026-10/static-no-broker.sh` | **209 allowed, 0 violations**; strict 4, 0 |
+| static-no-fallback | `bash docs/cleanup-2026-10/static-no-fallback.sh` | **43 allowed, 0 violations** |
+| check-docs | `bash docs/cleanup-2026-10/check-docs.sh` | **0 problems**, 34 documents, 32 commands |
+| dist | `tools/make_deliverables.sh` (fdf-leave, fdf-region-join, make_deliverables changed) | x86_64.run 31,065,433 B bc6451b34279d9af; aarch64.run 28,148,226 B 90a4e5c1ed201eb1; droplet.tgz 23,217,018 B e2faf25e0b5e2f53 (11:32Z); the .run's fdf-leave, fdf-region-join, live.py, frognet_dbhost_elector.py cmp equal to the tree |
+
+Not re-run after this change: G3 (region; g3-*.txt and n1/n2-boot.txt are from the earlier run, before the elector was
+restored), `fdf-region-join` and `fdf-leave` on a node (bash -n only, and the .run payload compare). Containers h1, h2,
+networks fn-lan71/72 and the DOCKER-USER allowance removed.
+
+### Found, not fixed (T6a fixes)
+- **Design question for John: in LAN-only mode a neighbour leaving is not an event.** The role (and the hosts block)
+  stay on a gone node until some other event runs a merge (earlier run: 5 min 15 s with nothing after `docker stop`,
+  then one merge request moved it in 45 s). The elector does not cover this: it runs only inside a merge's window,
+  only on the control, and judges liveness from the same hosts block. Candidates for the event: an echo failure seen
+  by the proxy, a DHCP lease release, a hostapd disassociation, a carrier loss. Which one, and whether the merge it
+  triggers should run on every node or only the neighbours, is his call.
+- The elector rewrites only the control's /etc/hosts. A non-control node that elected over a partial store is put
+  right by its own next merge (G2 boot 4: h1 named itself for 37 s, until its next merge); if that merge
+  does not come, the two disagree. Not seen here with equal scores.
+- Boot 3 (h1 alone rebooted, h2 up, rows deleted): h1's only merge failed to reach h2's store (`10.72.72.1 cached
+  non-FrogNet this session`, a boot-time mark in h1's proxy) and nothing ran another, so h1's capability never reached
+  the control (g2-boot3-h1-only.txt). Agreement held only because the tiebreak names the control.
+- The region daemon re-probes capability every 600 s off its loop ([CAPABILITY_IS_A_FACT_V1]): a timer inside a
+  process, not touched here.
+- Comments in core/ (database_handler, frognet_tuples, frognet_role_elect) still speak of "the advertiser" as a writer
+  of capability rows; the writers are publish_all (merge, frognet-daemon publish watcher).

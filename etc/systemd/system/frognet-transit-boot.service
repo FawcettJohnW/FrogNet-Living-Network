@@ -17,9 +17,9 @@
 ################################################################
 [Unit]
 Description=FrogNet Transit Link Boot Initialization
-After=network-pre.target NetworkManager.service
-Before=frognet-transit-watch.service
-Wants=network-pre.target
+# [TRANSIT_IS_A_BARE_CABLE_V1 - T6a fixes] after the network is online: an interface with an address is not a transit
+After=network-online.target NetworkManager.service
+Wants=network-online.target
 
 [Service]
 Type=oneshot

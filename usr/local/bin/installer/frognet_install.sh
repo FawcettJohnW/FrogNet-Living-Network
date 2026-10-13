@@ -705,7 +705,7 @@ esac
 
 phase "A3: Python packages (the list C2 puts in the venv)"
 # [SERVICES_ON_THE_VENV_V1 - T4b] FrogNet's Python runs on ONE interpreter: the venv C2 builds,
-# /opt/frognet_semantic/venv/bin/python3 (frognet-proxy, -daemon, -tunnel-daemon-v3, the elector, the safeboot,
+# /opt/frognet_semantic/venv/bin/python3 (frognet-proxy, -daemon, -tunnel-daemon-v3, the safeboot,
 # the merge, C3). Nothing is pip-installed into the system python any more: that put eight console scripts in
 # /usr/local/bin (cbor2, dotenv, gpsdclient, gunicorn, ...) and Ubuntu 24.04 refuses some packages there
 # (Flask/pyOpenSSL over Debian's blinker/cryptography, T4a). The same list was installed twice.
@@ -2020,7 +2020,10 @@ CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
 # caller was propagateNotification.php, itself a superseded generation of an
 # endpoint nothing calls.
 
-OPT_SERVICES=(frognet-gps frognet-transit-boot frognet-transit-watch)
+OPT_SERVICES=(frognet-gps frognet-transit-boot)
+# [NO_TRANSIT_WATCH_V1 - T6a fixes] frognet-transit-watch is gone: its script was a disabled copy of the old bash
+# discovery (sync_interfaces.sh, `exit 0` at the top) under Restart=always, so systemd started it every 5 s for ever and
+# it did nothing. Discovery is opt/frognet_semantic/discovery, run by the merge; transit links are frognet-transit-boot.
 # [A_MISSING_UNIT_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] MISSING used to be counted
 # here and then never read again -- set to 0, incremented in the loop, and
 # examined by nothing. A release built without units warned eight times and
@@ -2045,20 +2048,22 @@ for svc in "${OPT_SERVICES[@]}"; do
 done
 systemctl enable apache2 mariadb dnsmasq NetworkManager cron
 
-# Candidate registration: every FrogNet host advertises databasehost capability on a
-# 60s timer so the merge-end election can score it. Units ship statically
-# (frognet-dbhost-advertise.{service,timer}); enable the timer here so it STARTS AT BOOT
-# (WantedBy=timers.target, OnBootSec=30). Opt a host out by stopping the timer. Server
-# software is NOT required to register - the capability blob's gate decides eligibility.
-for t in frognet-dbhost-advertise.timer; do
-    [[ -f "/etc/systemd/system/${t}" ]] && { systemctl enable "$t" 2>/dev/null && log "  enabled: $t"; } \
-        || warn "  MISSING: ${t}"
-done
-if [[ -x /usr/local/bin/frognet_setup_advertisers.sh ]]; then
-    /usr/local/bin/frognet_setup_advertisers.sh && log "  candidate registration set up (db advertiser)" \
-        || warn "  frognet_setup_advertisers.sh failed"
+# [ELECTOR_ON_LAN_ONLY_V1 - T6a fixes] databasehost, LAN-only: every merge publishes this node's capability to the
+# control (core/role_publish.publish_all; the daemon's publish watcher also does at boot and when the control moves)
+# and elects (discovery/live.py, SERVICE_ELECT in /var/log/frognet-merge-watcher.log). A neighbour's row can land in
+# the control's store AFTER the control's merge elected without it (boot race, T6a G2). frognet-dbhost-elect.timer
+# covers that: on the control only, 1/min for 10 min after each merge (the merge stamps /etc/sentinels/last_merge),
+# it runs the same election over the rows now there. This installer never enabled it (only fdf-leave did); it does now,
+# on a LAN-only node. A region node does not run it: there the tunnel daemon elects from the members' facts, the
+# elector stands down (region_mode()), and fdf-region-join (phase R, or an earlier join kept in
+# /opt/fdf/var/join.env) stops it; fdf-leave enables it again. The 60 s advertiser timer is gone: it wrote the same
+# databasehost/capability row publish_all writes, and the election never ages a row.
+if [[ -z "$REGION_RAM" ]] && ! grep -Eqs '^(export )?RINA_RAM=.+' /opt/fdf/var/join.env; then
+    [[ -f /etc/systemd/system/frognet-dbhost-elect.timer ]] \
+        || die "release is incomplete - /etc/systemd/system/frognet-dbhost-elect.timer is absent; it ships in the world tar"
+    systemctl enable frognet-dbhost-elect.timer && log "  enabled: frognet-dbhost-elect.timer (LAN-only)"
 else
-    warn "  MISSING: frognet_setup_advertisers.sh (no candidate registration)"
+    log "  frognet-dbhost-elect.timer: not enabled (region: the tunnel daemon elects)"
 fi
 
 phase "F2: Log management"

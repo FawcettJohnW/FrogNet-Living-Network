@@ -1,0 +1,10 @@
+== FrogNetHost.N1 11:17:36
+2026-10-13 05:54:01,555 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: /opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888; /opt/fdf/var/site.env RINA_AREA=test -> region mode [REGION_SWITCH_ONE_FILE_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode region) base fdf-2026-10-12-r20
+interface: wg0
+  latest handshake: 1 minute, 5 seconds ago
+failed: 0
+0
+"mode":"region"
+"elections":{"databasehost":"10.82.82.1","databasehost_control":"10.82.82.1"}
+"errors":[]

@@ -147,22 +147,12 @@ else
   echo "[dbhost] WARN: api.php did not answer on 127.0.0.1; check apache/php/config.php" >&2
 fi
 
-# 4. candidate registration (advertises databasehost/capability every 60s).
-# Uses the shared, election-COMPATIBLE writer (frognet_tuples -> SD:capability.<scope>),
-# the SAME tuple the merge-end election reads. mysql_running in the blob gates real
-# eligibility. install_* only ensures the role SERVER is present; the advertiser and
-# its timer are role-agnostic and set up here the same on every host.
-for f in frognet_capability_probe.sh frognet_register_candidate.sh frognet_setup_advertisers.sh; do
-  install -m 0755 "$f" /usr/local/bin/ 2>/dev/null || cp -f "$f" /usr/local/bin/ 2>/dev/null || true
-done
-if [ -x /usr/local/bin/frognet_setup_advertisers.sh ]; then
-  /usr/local/bin/frognet_setup_advertisers.sh || true       # installs + enables BOTH timers
-else
-  # minimal fallback: just register databasehost now
-  /usr/local/bin/frognet_register_candidate.sh databasehost || true
-fi
+# 4. candidate registration: none here. [ELECTION_AT_THE_MERGE_V1 - T6a fixes] The election's pool is the live .1
+# FrogNetHosts of the merged hosts block, and each of them publishes its own databasehost/capability (probe included)
+# at every merge (core/role_publish.publish_all) before it elects. A machine that is not a FrogNetHost is not a
+# candidate, so a timer registering it wrote a row the election never reads; the 60 s advertiser is gone.
 
 echo "[dbhost] DONE. This machine is now a databasehost CANDIDATE."
 echo "[dbhost]   - schema loaded, $DB_USER ready, api.php served by apache"
-echo "[dbhost]   - capability advertised every 60s under databasehost/capability"
+echo "[dbhost]   - on a FrogNetHost, its merge publishes the capability (mysql now running) and elects"
 echo "[dbhost]   - the merge-end election will pick it if it scores best."

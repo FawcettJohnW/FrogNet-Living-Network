@@ -25,12 +25,12 @@ echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}
 # join.env first (the daemon's switch), then the daemon: it writes this node's name/guid/subnet/pubkey into
 # facts.json at start, and fdf-client takes its member name from there at ITS start -- so the daemon goes first.
 mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
-# [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
-# for pokes nobody sends: the 60 s databasehost/capability advertiser (it ran frognet_capability_probe.sh -- cpu
-# benchmark, disk write+fsync -- every minute) and the 1/min store elector (stands down in region mode). The daemon
-# publishes capability as a fact. fdf-leave turns them back on. The merge watcher stays on in both modes: the
+# [STORE_UNITS_OFF_IN_REGION_V1] in region mode the daemon publishes capability as a fact and elects from the members'
+# facts; the merge writes no store. The 1/min store elector (frognet-dbhost-elect.timer) would have nothing to do (it
+# stands down in region mode): stopped and disabled here, fdf-leave turns it back on. (The 60 s advertiser this also
+# stopped is gone from the tree; an upgrade's prune removes it.) The merge watcher stays on in both modes: the
 # NetworkManager hook's boot and interface-change merges are requests to it ([HOOK_ASKS_THE_WATCHER_V1], T4c).
-for u in frognet-dbhost-advertise.timer frognet-dbhost-elect.timer; do
+for u in frognet-dbhost-elect.timer; do
   [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
   systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
 done

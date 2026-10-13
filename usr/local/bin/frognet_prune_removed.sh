@@ -599,10 +599,29 @@ done
 grep -qs "Admin BlackBox Portal foo" "$R/var/www/html/index.html" && gone "var/www/html/index.html"
 }
 
+t6_section() {
+echo "-- [T6a fixes 2026-10-13] the transit watcher that did nothing, the databasehost advertiser the merge repeats"
+# Units first, while systemd still knows them by name. frognet-transit-watch ran a disabled copy of the old bash
+# discovery (`exit 0` at the top) under Restart=always: a restart every 5 s, no work. The advertiser (60 s) wrote the
+# same databasehost/capability row every merge's publish_all writes. NOT pruned: frognet-dbhost-elect.{service,timer},
+# frognet_dbhost_elector.py, /etc/sentinels/last_merge and the elector's oracle -- the elector stays (the post-merge
+# window on the control, [ELECTOR_ON_LAN_ONLY_V1]).
+units_off frognet-transit-watch.service frognet-dbhost-advertise.timer frognet-dbhost-advertise.service
+gone "etc/systemd/system/frognet-transit-watch.service"
+gone "etc/systemd/system/multi-user.target.wants/frognet-transit-watch.service"
+gone "etc/systemd/system/frognet-dbhost-advertise.service"
+gone "etc/systemd/system/frognet-dbhost-advertise.timer"
+gone "etc/systemd/system/timers.target.wants/frognet-dbhost-advertise.timer"
+gone "usr/local/bin/frognet_transit_watch.sh"
+gone "usr/local/bin/frognet_register_candidate.sh"
+gone "usr/local/bin/frognet_setup_advertisers.sh"
+}
+
 t3_section
 t1_section
 pip_console_section
 t5_section
+t6_section
 echo
 echo "-- python bytecode (regenerated on next import)"
 for d in "$R/opt/frognet_semantic" "$R/usr/local/bin"; do

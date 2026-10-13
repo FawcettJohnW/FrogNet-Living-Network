@@ -1,0 +1,36 @@
+== FrogNetHost.H1 11:54:57  (both rebooted 11:49:58, store emptied of databasehost rows first)
+[2026-10-13T11:51:01.700] runMerge INFO pid=931 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.71.71.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=1 bad=0 winner=10.71.71.1 dbhost=10.71.71.1
+[2026-10-13T11:51:38.192] runMerge INFO pid=3393 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect since 11:49:55 (one run a minute; the rows it read):
+-- last_merge 11:51:58
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- dnsmasq: databasehost.frognet -> 10.72.72.1
+== FrogNetHost.H2 11:54:57  (both rebooted 11:49:58, store emptied of databasehost rows first)
+[2026-10-13T11:51:02.127] runMerge INFO pid=1026 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 UNPUBLISHED (no databasehost/capability row on 10.72.72.1; entering the pool by definition -- every FrogNetHost is a candidate)
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=-1.0
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+[2026-10-13T11:52:30.262] runMerge INFO pid=4703 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect since 11:49:55 (one run a minute; the rows it read):
+2026-10-13T11:51:16+00:00 FrogNetHost.H2 python3[4137]: [11:51:16.048] [    0.017] [DIAG-STORE] pid=4137 thr=MainThread/4137 GET rows n=1 service=databasehost
+2026-10-13T11:52:21+00:00 FrogNetHost.H2 python3[4694]: [11:52:21.031] [    0.018] [DIAG-STORE] pid=4694 thr=MainThread/4694 GET rows n=2 service=databasehost
+2026-10-13T11:53:26+00:00 FrogNetHost.H2 python3[6980]: [11:53:26.038] [    0.013] [DIAG-STORE] pid=6980 thr=MainThread/6980 GET rows n=2 service=databasehost
+2026-10-13T11:54:31+00:00 FrogNetHost.H2 python3[7057]: [11:54:31.022] [    0.017] [DIAG-STORE] pid=7057 thr=MainThread/7057 GET rows n=2 service=databasehost
+-- last_merge 11:52:33
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- dnsmasq: databasehost.frognet -> 10.72.72.1

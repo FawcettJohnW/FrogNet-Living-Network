@@ -25,10 +25,12 @@
 # Two mechanisms were writing the same name by different rules on different
 # schedules:
 #
-#   frognet_dbhost_elector.py   the real election. Reads every node's capability
+#   the service election        the real election. Reads every node's capability
 #                               from databasehost_control.frognet, scores it via
-#                               handler.evaluate(). Runs on the CONTROL node
-#                               only, inside the post-merge window, ~15 min.
+#                               handler.evaluate(). Runs at every merge
+#                               (discovery/live.py, SERVICE_ELECT) and, on the
+#                               control only, 1/min for 10 min after a merge
+#                               (frognet_dbhost_elector.py).
 #
 #   this script                 "highest 10.x.x.1 in my own /etc/hosts". Runs in
 #                               EVERY node's merge (mergeHostsAndResolv.bash),
@@ -49,10 +51,10 @@
 # The highest-.1 rule is not wrong -- it is exactly the definition of CONTROL,
 # the deterministic bootstrap host every node must agree on without an election
 # to reach the capabilities in the first place. And NOTHING was writing that
-# name: frognet_dbhost_elector.py only reads it. So the computation stays and
+# name: the election only reads it. So the computation stays and
 # the name it writes is corrected.
 #
-# databasehost.frognet is now the elector's alone, decided from the capability
+# databasehost.frognet is now the election's alone, decided from the capability
 # rows the database already holds for every machine in the pond.
 #
 # Idempotent selection of databasehost_control.frognet
