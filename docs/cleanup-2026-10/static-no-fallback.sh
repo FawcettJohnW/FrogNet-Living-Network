@@ -4,7 +4,7 @@
 #   bash docs/cleanup-2026-10/static-no-fallback.sh          # from anywhere; finds the repo root from its own path
 #
 # John's rule: a failed step is logged and retried on the next event, never replaced by a second mechanism.
-# Each PATTERN below is one of the specific fallbacks T4b (and, from region-sources on, T4c) removed (id, ERE, what it was). git grep over tracked +
+# Each PATTERN below is one of the specific fallbacks T4b (and, from region-sources on, T4c; from monitor-local-ip on, T5) removed (id, ERE, what it was). git grep over tracked +
 # untracked files in etc/ usr/ var/ opt/frognet_semantic opt/fdf, binary files skipped, excluding *.md, files named
 # test_*, *.diff, opt/frognet_semantic/docs and opt/fdf/src/fdf-source/docs.
 # Every match is printed. A match is ALLOWED only by an ALLOW entry (pattern id + path glob + line regex + reason);
@@ -50,13 +50,20 @@ wg-teardown-alt	"link", "del(ete)?", iface	T4c: `ip link del` of a wgN after (or
 hook-fork	MERGE_WHY="nm:|is-active --quiet frognet-merge-watcher	T4c: the NetworkManager hook running runMerge itself when the watcher was not running
 watcher-region-off	frognet-dbhost-elect\.timer frognet-merge-watcher	T4c: fdf-region-join stopping the merge watcher (and fdf-leave starting it again)
 watcher-poll	inotifywait .*"\$REQ_DIR" 2>/dev/null	T4c: the merge watcher's inotifywait with its failure discarded (no inotify-tools: a silent 1 s poll, no window)
+monitor-local-ip	parse_local_ip_from_ip_output	the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1)
+dbhost-resolver	gethostbyname\('databasehost\.frognet'\)	getDbHost.php: the databasehost from the resolver (its name when unresolved) beside /etc/hosts (T5)
+dbhost-alias	includes\("databasehost"\)	fln_dashboard32: the databasehost from a Topology sensor's LOCAL alias, a second source beside getDbHost (T5)
+stale-picture	Transient empty (hosts|edges) snapshot	fln_dashboard32: an empty host list replaced by the previous picture (T5)
+fetch-variants	jgetTry|all fetch variants failed	fln_dashboard32: try one URL, then the next (T5; it had no caller)
+monitor-hosts-file	fopen\("/etc/hosts"|ReadAllLinesAsync\("/etc/hosts"|def _hosts_lookup	the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections)
+old-monitor	/etc/hosts primary	var/www/html/frognet_monitor (v5.1): /etc/hosts first, getHosts.php as an 'optional upgrade' (T5: deleted)
 EOF
 )
 
 # ALLOW: "id<TAB>path-glob<TAB>line-regex (ERE; . = any)<TAB>reason"
 ALLOW=$(cat <<'EOF'
 *	usr/local/bin/frognet_prune_removed.sh	.	Names what it removes (its T3 section, with the T4b block at its end, is the installer's upgrade step).
-*	*	ALIVE_ONE_TARGET_V1|RETURN_IP_DEV_ONLY_V1|NEIGHBORS_ONLY_V1|MONITOR_HOSTS_ONE_SOURCE_V1|RESOLV_LOCAL_UPSTREAM_V1|NM_OWNS_THE_LAN_ADDRESS_V1|ONE_DB_UNIT_V1|UNBOUND_ONE_STEP_V1|SERVICES_ON_THE_VENV_V1|ONE_PACKAGE_LIST_V1|SH_FAILURES_SAID_V1|UPLINK_JUDGED_LOCALLY_V1|BOOT_MERGE_IS_THE_HOOK_V1|WG_IMPL_RECORDED_V1|AP_MANAGED_BY_NETSTART_V1|ONE_TUNE_SCRIPT_V1|UPLINK_BY_FUNCTION_V1|PONDS_ARE_THE_OPERATORS_V1|NO_BUILT_IN_AREA_V1|REGION_SWITCH_ONE_FILE_V1|LAN_DEV_ONLY_V1|WG_TEARDOWN_BY_ITS_OWNER_V1|HOOK_ASKS_THE_WATCHER_V1	A T4b/T4c tag line: it records what went and that it is gone.
+*	*	ALIVE_ONE_TARGET_V1|RETURN_IP_DEV_ONLY_V1|NEIGHBORS_ONLY_V1|MONITOR_HOSTS_ONE_SOURCE_V1|RESOLV_LOCAL_UPSTREAM_V1|NM_OWNS_THE_LAN_ADDRESS_V1|ONE_DB_UNIT_V1|UNBOUND_ONE_STEP_V1|SERVICES_ON_THE_VENV_V1|ONE_PACKAGE_LIST_V1|SH_FAILURES_SAID_V1|UPLINK_JUDGED_LOCALLY_V1|BOOT_MERGE_IS_THE_HOOK_V1|WG_IMPL_RECORDED_V1|AP_MANAGED_BY_NETSTART_V1|ONE_TUNE_SCRIPT_V1|UPLINK_BY_FUNCTION_V1|PONDS_ARE_THE_OPERATORS_V1|NO_BUILT_IN_AREA_V1|REGION_SWITCH_ONE_FILE_V1|LAN_DEV_ONLY_V1|WG_TEARDOWN_BY_ITS_OWNER_V1|HOOK_ASKS_THE_WATCHER_V1|ONE_MONITOR_TRUTH_V1	A T4b/T4c/T5 tag line: it records what went and that it is gone.
 public-dns	usr/local/bin/frognet_metrics_emit.sh	-4 -j route get 8\.8\.8\.8	A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.
 public-dns	usr/local/bin/manageResolv.bash	no hardcoded 8\.8\.8\.8	The doctrine line [DNS_NEXTHOP_ONLY_V1] saying there is none.
 public-dns	usr/local/bin/installer/frognet_reset.sh	used to write 8\.8\.8\.8	History: what the reset no longer writes (T4a).

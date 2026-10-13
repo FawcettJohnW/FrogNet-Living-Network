@@ -18,7 +18,7 @@ RAM=${1:?$U}; AREA=${2:?$U}; KEY=${3:?$U}; REACH=${4:-}
 V=${FDF_VAR:-/opt/fdf/var}; mkdir -p "$V/ponds"
 pond_env() { umask 077; printf 'RINA_RAM=%s\nRINA_AREA=%s\nRINA_SITE_KEY=%s\n' "$1" "$2" "$3" > "$V/ponds/$2.env"
              [ "${4:-}" = reach ] && printf 'FDF_REACH=1\n' >> "$V/ponds/$2.env"
-             (umask 022; printf '%s\n' "$1" > "$V/ponds/$2.ram"); return 0; }   # [PONDS_ARE_LISTED_V1] no key: for getPonds.php
+             (umask 022; printf '%s\n' "$1" > "$V/ponds/$2.ram"); return 0; }   # [PONDS_ARE_LISTED_V1] no key: for getSnapshot.php
 cat > /etc/systemd/system/fdf-client@.service <<'EOF'
 [Unit]
 Description=FD&F membership in pond %i: this machine's session to that pond's RAM manager [PONDS_V1]

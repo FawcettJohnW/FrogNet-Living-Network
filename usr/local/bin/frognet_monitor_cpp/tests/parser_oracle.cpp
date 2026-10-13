@@ -25,6 +25,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace frognet;
 
@@ -130,6 +131,38 @@ void runDotOne(const Json& group) {
   }
 }
 
+std::vector<std::string> strList(const Json& c, const char* k) {
+  std::vector<std::string> out;
+  if (const Json* a = c.find(k); a && a->isArray())
+    for (const Json& e : a->array) out.push_back(e.str);
+  return out;
+}
+
+std::string show(const std::vector<std::string>& v) {
+  std::string o = "[";
+  for (size_t i = 0; i < v.size(); ++i) o += (i ? ", \"" : "\"") + v[i] + "\"";
+  return o + "]";
+}
+
+void runSnapshot(const Json& group) {
+  std::printf("\n=== snapshot (getSnapshot.php) [ONE_MONITOR_TRUTH_V1] ===\n");
+  const Json* cases = need(group, "cases");
+  for (const Json& c : cases->array) {
+    std::string name = c.atString("name");
+    const Json* okv = c.find("ok");
+    bool want_ok = okv && okv->type == Json::Type::Bool && okv->boolean;
+    NodeSnapshot got = parseSnapshot(c.atString("input"));
+    if (!want_ok) { got.ok ? bad(name + " -- accepted, expected rejection") : ok(name + " -- rejected"); continue; }
+    if (!got.ok) { bad(name + " -- rejected, expected a snapshot"); continue; }
+    std::string why;
+    auto eq = [&](const char* k, const std::string& g) { if (g != c.atString(k)) why += std::string(" ") + k + "=\"" + g + "\""; };
+    auto eqv = [&](const char* k, const std::vector<std::string>& g) { if (g != strList(c, k)) why += std::string(" ") + k + "=" + show(g); };
+    eq("mode", got.mode); eq("node_name", got.name); eq("dot1", got.dot1); eq("build", got.build); eq("dbhost", got.dbhost);
+    eqv("ponds", got.ponds); eqv("hub", got.hub); eqv("members", got.members); eqv("errors", got.errors);
+    why.empty() ? ok(name) : bad(name + " -- got" + why);
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -151,6 +184,7 @@ int main(int argc, char** argv) {
   runEcho(*need(v, "echo_line"));
   runHosts(*need(v, "etc_hosts"));
   runDotOne(*need(v, "dot_one_of"));
+  runSnapshot(*need(v, "snapshot"));
 
   std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
   if (g_fail) { std::printf("FAILED\n"); return 1; }

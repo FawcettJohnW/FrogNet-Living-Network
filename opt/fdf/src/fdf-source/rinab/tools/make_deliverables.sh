@@ -22,6 +22,7 @@ for d in opt/frognet_semantic usr/local/bin etc var/www/html; do
   [ -d "$REPO/$d" ] || { echo "make_deliverables: $REPO/$d missing: $REPO is not the FrogNet repo top" >&2; exit 1; }; done
 FROGNET_FILES=(
   etc/NetworkManager/dispatcher.d/90-frognet-merge
+  etc/sudoers.d/frognet-snapshot
   opt/frognet_semantic/core/build_id.py
   opt/frognet_semantic/core/frognet_role_elect.py
   opt/frognet_semantic/core/frognet_service_hosts.py
@@ -52,17 +53,25 @@ FROGNET_FILES=(
   opt/frognet_semantic/internet_tunnels_v3/wg.py
   usr/local/bin/frognet-merge-watcher.sh
   usr/local/bin/frognet_dbhost_elector.py
+  usr/local/bin/frognet_monitor
+  usr/local/bin/frognet_monitor_py/__main__.py
   usr/local/bin/frognet_monitor_py/discovery.py
+  usr/local/bin/frognet_monitor_py/draw_dashboard.py
   usr/local/bin/frognet_monitor_py/draw_ponds.py
+  usr/local/bin/frognet_monitor_py/identity.py
   usr/local/bin/frognet_monitor_py/main_loop.py
+  usr/local/bin/frognet_monitor_py/once.py
   usr/local/bin/frognet_monitor_py/probes.py
+  usr/local/bin/frognet_monitor_py/state.py
   usr/local/bin/mergeHostsAndResolv.bash
   usr/local/bin/propogateNotificationInternal
   usr/local/bin/runMerge.bash
   var/www/html/fln_dashboard32.html
   var/www/html/frognet_echo.php
+  var/www/html/frognet_node.inc.php
   var/www/html/getHosts.php
-  var/www/html/getPonds.php
+  var/www/html/getSnapshot.php
+  var/www/html/index.php
 )
 for f in "${FROGNET_FILES[@]}"; do [ -f "$REPO/$f" ] || { echo "make_deliverables: $REPO/$f missing" >&2; exit 1; }; done
 TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$H/src/fdf_version.hpp"); NOW=$(date -u +%Y-%m-%dT%H:%MZ)

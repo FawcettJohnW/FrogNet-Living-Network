@@ -34,7 +34,6 @@ import urllib.request
 from typing import Dict, List, Tuple
 
 from .config import ECHO_TIMEOUT, INET_TIMEOUT, ECHO_STAGGER_SEC
-from .identity import LOCAL_LOWER, LOCAL_IP
 from .trace import trace
 
 
@@ -86,9 +85,9 @@ def probe_all(hosts: List[Tuple[str, str]]) -> Dict[str, Dict]:
     def _inet():
         results["__internet__"] = {"result": probe_internet()}
 
-    from .discovery import ROLES                   # [DEVICE_ROW_V1] a device runs no frognet_echo.php: not probed
-    remote_hosts = [(ip, name) for ip, name in hosts
-                    if name.lower() != LOCAL_LOWER and ip != LOCAL_IP and ROLES.get(ip) != "leaf"]
+    from . import discovery as _d                  # [DEVICE_ROW_V1] a device runs no frognet_echo.php: not probed
+    remote_hosts = [(ip, name) for ip, name in hosts   # this node is the snapshot's self row [ONE_MONITOR_TRUTH_V1]
+                    if ip != _d.SELF_IP and _d.ROLES.get(ip) != "leaf"]
 
     # Internet canary fires immediately
     ti = threading.Thread(target=_inet, daemon=True)

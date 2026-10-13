@@ -1,0 +1,24 @@
+ G1 - FrogNet node 
+ :root { --bg:#f6f7f9; --fg:#1c2330; --muted:#5d6878; --card:#fff; --line:#dde2ea; --bad:#b3261e; --accent:#1b7f3b; }
+ @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6e9ee; --muted:#98a2b3; --card:#1a2029; --line:#2a323e; --bad:#ff6b5e; --accent:#4cc27a; } }
+ body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+ main { max-width:720px; margin:0 auto; padding:24px 16px; }
+ h1 { font-size:22px; margin:0 0 4px; }
+ .facts { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:13px; color:var(--muted); }
+ .facts b { color:var(--fg); font-weight:600; }
+ ul { list-style:none; padding:0; margin:20px 0; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+ li { padding:12px 16px; border-bottom:1px solid var(--line); }
+ li:last-child { border-bottom:0; }
+ a { color:var(--accent); font-weight:600; text-decoration:none; }
+ a:hover { text-decoration:underline; }
+ li span { display:block; color:var(--muted); font-size:13px; }
+ .bad { color:var(--bad); font-size:13px; }
+ code { font-size:13px; }
+ G1 
+ 10.61.61.1 · mode lan-only · build fdf-2026-10-12-r20 no /opt/fdf/var/join.env 
+ Setup name, WiFi and the access point of this node 
+ Dashboard the map: members, ponds, hub links, link health 
+ Monitor endpoint (getSnapshot.php) this node's snapshot as JSON: mode, ponds, hub link, members, elections; frognet_monitor (and --once ) draws it in a terminal 
+
+fln_dashboard32.html 200
+0

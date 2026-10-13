@@ -76,11 +76,9 @@ FROGNET_WORLD_PATHS=(
     # Everything below is a file FrogNet writes. If the installer does not write
     # it, it does not belong here.
     etc/apache2/sites-available/000-default.conf
-    etc/apache2/sites-available/admin-site.conf
     etc/apache2/sites-available/databasehost.conf
     etc/apache2/sites-available/databasehost-ssl.conf
     etc/apache2/sites-available/default-ssl.conf
-    etc/apache2/sites-available/devices-site.conf
     etc/apache2/sites-available/frognet-ssl.conf
 
     etc/dnsmasq.d
@@ -126,9 +124,13 @@ FROGNET_WORLD_PATHS=(
     # FROGNET_NEVER_SHIP below.
     etc/wireguard
 
-    # Web files
+    # Web files. (var/www/www_admin went in T5 with admin-site.conf: its vhost was on *:80, which Apache does not
+    # listen on, and its two pages wrote Commands/netCommand.* files nothing reads.)
     var/www/html
-    var/www/www_admin
+
+    # [ONE_MONITOR_TRUTH_V1 - T5] www-data may read the kernel's WireGuard handshake times (getSnapshot.php's hub link
+    # age). The installer (D5) and the FD&F .run set it 0440 and check it with visudo.
+    etc/sudoers.d/frognet-snapshot
 
     # Python source. agent_workload/ -- ddpbench.py, the tuplespace collectives
     # and the DDP hooks -- is inside this and ships with it; it is deliberately

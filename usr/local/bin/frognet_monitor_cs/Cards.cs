@@ -126,7 +126,7 @@ public static class Cards
 
         // ---- header ----
         sb.Append(Fg(CHead)).Append(Bold);
-        sb.Append("  FrogNet \u2014 ").Append(s.Domain.Length == 0 ? "(no identity)" : s.Domain);
+        sb.Append(Parsers.TitleText(s.Node));          // [ONE_MONITOR_TRUTH_V1] the snapshot's name and .1
         sb.Append(Reset);
 
         // [MERGE_IS_VISIBLE_V1] Three states. "Unknown" is not "no merge": a
@@ -138,6 +138,8 @@ public static class Cards
         if (merge.Length > 0)
             sb.Append(Fg(CWarn)).Append("    ").Append(merge).Append(Reset);
         sb.AppendLine();
+        foreach (var line in Parsers.NodeLines(s.Node))   // mode, build, ponds, hub link, the snapshot's errors
+            sb.Append(Fg(line.StartsWith("  ! ") || s.Node is null ? CBad : CDimC)).Append(line).Append(Reset).AppendLine();
 
         sb.Append(Fg(CDimC)).Append("  ").Append(new string('\u2500', w - 4)).Append(Reset).AppendLine();
 
@@ -229,7 +231,7 @@ public static class Cards
         sb.Append(Fg(CDimC))
           .Append("  \u2191\u2193 / j k  select    r  refresh    q  quit")
           .Append(s.DbHostIp.Length > 0 ? $"        databasehost {s.DbHostIp}"
-                                        : "        databasehost: could not read /etc/hosts")
+                                        : "        databasehost: none in the snapshot's elections")
           .Append(Reset).AppendLine();
 
         return sb.ToString();

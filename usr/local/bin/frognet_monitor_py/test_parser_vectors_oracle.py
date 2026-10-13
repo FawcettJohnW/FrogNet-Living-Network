@@ -112,6 +112,27 @@ def main():
         else:
             bad(c["name"] + " -- got %r want %r" % (got, c["expect"]))
 
+    print("\n=== snapshot (getSnapshot.php) [ONE_MONITOR_TRUTH_V1] ===")
+    from frognet_monitor_py.discovery import parse_snapshot
+    for c in v["snapshot"]["cases"]:
+        got = parse_snapshot(c["input"])
+        if not c["ok"]:
+            if got is None:
+                ok(c["name"] + " -- rejected")
+            else:
+                bad(c["name"] + " -- accepted, expected rejection")
+            continue
+        if got is None:
+            bad(c["name"] + " -- rejected, expected a snapshot")
+            continue
+        want = {k: c[k] for k in ("mode", "dot1", "build", "ponds", "hub", "members", "dbhost", "errors")}
+        want["name"] = c["node_name"]
+        have = {k: got[k] for k in want}
+        if have == want:
+            ok(c["name"])
+        else:
+            bad(c["name"] + " -- got %r want %r" % (have, want))
+
     print()
     print("%d passed, %d failed" % (PASS, len(FAILURES)))
     if FAILURES:

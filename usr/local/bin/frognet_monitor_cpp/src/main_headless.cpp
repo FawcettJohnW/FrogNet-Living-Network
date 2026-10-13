@@ -21,6 +21,7 @@
 // generated stub, no SDK version to match against the nodes. libcurl and a
 // vendored JSON reader, and the client works.
 #include "frognet.h"
+#include "dashboard.h"
 
 #include <cstdio>
 #include <cstring>
@@ -35,8 +36,9 @@ void usage(const char* argv0) {
   std::fprintf(stderr,
     "usage: %s [--proxy HOST] [--port N] <command> [args]\n"
     "\n"
+    "  snapshot            this node's snapshot, one frame: mode, build, ponds, hub link, members, elections\n"
     "  identity            who this pond says we are (own IP -> .1 -> echo)\n"
-    "  hosts               list the FrogNet nodes\n"
+    "  hosts               list the FrogNet nodes (the snapshot's members)\n"
     "  sensors <domain>    every sensor whose name starts \"<domain>.\"\n"
     "  read <sensor-name>  one sensor's metadata and jsonData\n"
     "  engine [domain]     shorthand for <domain>.SemanticProxy.Engine\n"
@@ -74,8 +76,29 @@ int cmdIdentity(const Client& c) {
   return 0;
 }
 
+// [ONE_MONITOR_TRUTH_V1] getSnapshot.php, printed once: the same title and node block as the dashboards, then the
+// member rows and the elections. Exit 1 when the snapshot did not answer.
+int cmdSnapshot(const Client& c) {
+  NodeSnapshot n = c.snapshot();
+  std::printf("%s\n", titleText(n).c_str());
+  for (const auto& l : nodeLines(n)) std::printf("%s\n", l.c_str());
+  if (!n.ok) return 1;
+  std::printf("\n  members (ip name role alive|down source)\n");
+  for (const auto& m : n.members) {
+    std::string ip = m.substr(0, m.find(' '));
+    const char* mark = (ip == n.dbhost && ip == n.control) ? "#" : ip == n.dbhost ? "*" : ip == n.control ? "+" : " ";
+    std::printf("  %s %s\n", mark, m.c_str());
+  }
+  if (n.members.empty()) std::printf("    (none)\n");
+  std::string el;
+  if (const Json* e = n.raw.find("elections"); e && e->isObject())
+    for (const auto& kv : e->object) el += "  " + kv.first + "=" + (kv.second.type == Json::Type::String ? kv.second.str : "");
+  std::printf("\n  elections%s\n", el.empty() ? "  none in /etc/hosts" : el.c_str());
+  return 0;
+}
+
 int cmdHosts(const Client& c) {
-  std::vector<HostEntry> hosts = c.discoverHosts();
+  std::vector<HostEntry> hosts = Client::hostsOf(c.snapshot());
   if (hosts.empty()) { std::fprintf(stderr, "no hosts discovered\n"); return 1; }
   for (const auto& h : hosts)
     std::printf("%-16s %s\n", h.ip.c_str(), h.name.c_str());
@@ -127,6 +150,7 @@ int main(int argc, char** argv) {
   Client c(proxy, port);
   std::string cmd = argv[i++];
 
+  if (cmd == "snapshot") return cmdSnapshot(c);
   if (cmd == "identity") return cmdIdentity(c);
   if (cmd == "hosts")    return cmdHosts(c);
   if (cmd == "sensors") {

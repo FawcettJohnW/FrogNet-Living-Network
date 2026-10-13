@@ -11,6 +11,10 @@
 #
 # Every match is printed. A match is ALLOWED only by an entry in ALLOW below (path glob + line regex + reason);
 # anything else is a VIOLATION. Exit 0 = no violation; exit 1 = at least one.
+#
+# [T5] STRICT pass over what an operator sees -- the web pages (var/www/html, opt/fdf/www) and the monitors
+# (usr/local/bin/frognet_monitor*, Python, C++, C#, the shared vectors) -- with nothing excluded (READMEs and test files
+# included) and none of ALLOW's general rules: only STRICT_ALLOW (the oracles' own "no broker word here" assertions).
 
 set -u
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -43,8 +47,17 @@ opt/frognet_semantic/simulation/baselines/topo_mixed_iface_no_router.json	no int
 EOF
 )
 
-allowed_by() {   # allowed_by <path> <line> -> prints the reason, returns 0 if allowed
-    local path="$1" line="$2" g re why
+STRICT_SCOPE=(var/www/html opt/fdf/www usr/local/bin/frognet_monitor usr/local/bin/frognet_monitor_py
+              usr/local/bin/frognet_monitor_cpp usr/local/bin/frognet_monitor_cs usr/local/bin/frognet_monitor_shared)
+STRICT_ALLOW=$(cat <<'EOF'
+usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py	no broker vocabulary|"broker" not in	The view oracle asserting the screen and the frame carry no such word.
+usr/local/bin/frognet_monitor_cpp/tests/dashboard_oracle.cpp	broker vocabulary in the node block	The C++ dashboard oracle asserting the node block carries no such word.
+var/www/html/oracle_dashboard32_views.js	broker vocabulary in the page	The dashboard oracle asserting the page's script carries no such word.
+EOF
+)
+
+allowed_by() {   # allowed_by <path> <line> [list] -> prints the reason, returns 0 if allowed
+    local path="$1" line="$2" list="${3:-$ALLOW}" g re why
     while IFS=$'\t' read -r g re why; do
         [[ -z "$g" ]] && continue
         # shellcheck disable=SC2053
@@ -52,7 +65,7 @@ allowed_by() {   # allowed_by <path> <line> -> prints the reason, returns 0 if a
         if [[ "$re" == "." ]] || grep -q -E -- "$re" <<<"$line"; then
             printf '%s' "$why"; return 0
         fi
-    done <<<"$ALLOW"
+    done <<<"$list"
     return 1
 }
 
@@ -67,7 +80,7 @@ declare -A seen=() why_count=()
 while IFS= read -r m; do
     [[ -n "${seen[$m]:-}" ]] && continue; seen[$m]=1
     path="${m%%:*}"; rest="${m#*:}"; text="${rest#*:}"
-    if why="$(allowed_by "$path" "$text")"; then
+    if why="$(allowed_by "$path" "$text")" || why="$(allowed_by "$path" "$text" "$STRICT_ALLOW")"; then
         ok=$((ok+1)); why_count[$why]=$(( ${why_count[$why]:-0} + 1 ))
         printf 'ALLOWED   %s\n' "${m:0:200}"
     else
@@ -75,6 +88,26 @@ while IFS= read -r m; do
         printf 'VIOLATION %s\n' "${m:0:200}"
     fi
 done < <(matches)
+
+strict_matches() {
+    git grep --untracked -n -I -i -e 'broker' -- "${STRICT_SCOPE[@]}"
+    git grep --untracked -n -I -E -e 'BROKER_URL|GROUP_TOKEN|PASSCODE|POND_PASSWORD|/api/v4|frognet_chorus|pond_bootstrap' \
+        -- "${STRICT_SCOPE[@]}"
+}
+sviol=0; sok=0
+declare -A sseen=()
+echo "-- strict: the web pages and the monitors (nothing excluded, STRICT_ALLOW only)"
+while IFS= read -r m; do
+    [[ -n "${sseen[$m]:-}" ]] && continue; sseen[$m]=1
+    path="${m%%:*}"; rest="${m#*:}"; text="${rest#*:}"
+    if why="$(allowed_by "$path" "$text" "$STRICT_ALLOW")"; then
+        sok=$((sok+1)); printf 'ALLOWED   %s\n' "${m:0:200}"
+    else
+        sviol=$((sviol+1)); printf 'VIOLATION %s\n' "${m:0:200}"
+    fi
+done < <(strict_matches)
+echo "static-no-broker strict (pages + monitors): $sok allowed, $sviol violation(s)"
+viol=$((viol+sviol))
 
 echo
 echo "allowed, by reason:"

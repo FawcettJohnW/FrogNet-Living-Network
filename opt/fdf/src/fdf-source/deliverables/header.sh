@@ -25,6 +25,11 @@ echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
 tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }
 cat /opt/fdf/BUILD
+# [ONE_MONITOR_TRUTH_V1 - T5] the bundle's sudoers fragment: getSnapshot.php (www-data) reads the hub link's handshake
+# with exactly `wg show all latest-handshakes`. sudo wants it 0440; one that visudo refuses is taken out again (a bad
+# fragment would stop sudo for everyone) and this install stops.
+chmod 0440 /etc/sudoers.d/frognet-snapshot && visudo -cf /etc/sudoers.d/frognet-snapshot >/dev/null \
+  || { rm -f /etc/sudoers.d/frognet-snapshot; echo "fdf-install: /etc/sudoers.d/frognet-snapshot refused by visudo; removed"; exit 1; }
 # [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
 echo "== joining the region at $RAM (area $AREA)"

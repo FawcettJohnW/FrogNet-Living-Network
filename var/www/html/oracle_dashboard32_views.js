@@ -195,6 +195,45 @@ if (JSON.stringify(dSynth) !== JSON.stringify(dUplink))
   ok("inferred egress hop differs from observed \u2014 " + JSON.stringify(dSynth));
 else bad("BFS-synthesized hop drawn identically to an observed one");
 
+console.log("\n=== [ONE_MONITOR_TRUTH_V1] the header and the ponds come from the node snapshot ===");
+{
+  // elements that keep what is written into them
+  const els = {};
+  const mk = () => { const e = {children: [], hidden: false, href: "", className: "", _t: "",
+    append(...xs){ for (const x of xs) this.children.push(x); },
+    set textContent(v){ this._t = String(v); this.children = []; },
+    get textContent(){ return this._t + this.children.map(c => c.textContent ?? c.data ?? "").join(""); },
+    set innerHTML(v){ this._t = ""; this.children = []; }, style: {} }; return e; };
+  sandbox.document.getElementById = id => (els[id] ||= mk());
+  sandbox.document.createElement = () => mk();
+  sandbox.document.createTextNode = t => ({data: String(t), textContent: String(t)});
+  sandbox.window.location = {hostname: "10.81.81.1", host: "10.81.81.1"};
+  vm.runInContext(`SNAPSHOT = ${JSON.stringify({snapshot:1, mode:"region", node:{name:"N1", dot1:"10.81.81.1"},
+    build:{build:"fdf-2026-10-12-r20"}, ponds:[{area:"test", forward:true, ram:"172.30.0.10:51888", config:null}],
+    hub:[{iface:"wg0", handshake_age_s:17}], members:[{ip:"10.81.81.1", name:"N1", role:"node", alive:true, self:true},
+    {ip:"10.82.82.1", name:"N2", role:"node", alive:true}], elections:{databasehost:"10.82.82.1"}, errors:[]})};
+    renderNodeHeader(); renderPonds();`, ctx);
+  const hdr = els.hdrNode.textContent, tiles = els.pondTiles.textContent;
+  if (hdr === "N1 (10.81.81.1) · mode region · build fdf-2026-10-12-r20 · ponds *test · hub link wg0 17s")
+    ok("header: name (.1), mode, build, ponds (forward *), hub link \u2014 " + hdr);
+  else bad("header: " + hdr);
+  if (els.lnkRegionWrap.hidden === false && els.lnkRegion.href === "http://10.81.81.1:8090/fdf/fdf_dashboard.html")
+    ok("region mode: the link to FD&F's region members page is shown");
+  else bad("region link: hidden=" + els.lnkRegionWrap.hidden + " href=" + els.lnkRegion.href);
+  if (tiles.includes("test  (forward)") && tiles.includes("2 members")) ok("ponds: the forward pond counts the snapshot's members");
+  else bad("ponds tiles: " + tiles);
+  vm.runInContext(`SNAPSHOT = {snapshot:1, mode:"lan-only", node:{name:"G1", dot1:"10.61.61.1"}, build:{build:"b"}, ponds:[], hub:[],
+    members:[], elections:{}, errors:["/usr/local/bin/makeHostJson.bash: no output"]}; renderNodeHeader(); renderPonds();`, ctx);
+  const h2 = els.hdrNode.textContent;
+  if (h2.startsWith("G1 (10.61.61.1) · mode lan-only · build b · ponds none, hub none (LAN-only)") && h2.includes("! /usr/local/bin/makeHostJson.bash: no output")
+      && els.lnkRegionWrap.hidden === true) ok("LAN-only header, the snapshot's error said, no region link");
+  else bad("LAN-only header: " + h2);
+  vm.runInContext(`SNAPSHOT = null; renderNodeHeader();`, ctx);
+  if (els.hdrNode.textContent === "getSnapshot.php did not answer") ok("no snapshot: said, nothing in its place");
+  else bad("no snapshot: " + els.hdrNode.textContent);
+  if (!/broker/i.test(script)) ok("no broker vocabulary in the page's script"); else bad("broker vocabulary in the page's script");
+}
+
 console.log();
 if (FAIL) { console.log(`FAILED ${FAIL} check(s)`); process.exit(1); }
-console.log("PASS \u2014 [THREE_VIEWS_V1] [LOGICAL_IS_NOT_PHYSICAL_V1] [DIRECTION_IS_NOT_SYMMETRIC_V1]");
+console.log("PASS \u2014 [THREE_VIEWS_V1] [LOGICAL_IS_NOT_PHYSICAL_V1] [DIRECTION_IS_NOT_SYMMETRIC_V1] [ONE_MONITOR_TRUTH_V1]");

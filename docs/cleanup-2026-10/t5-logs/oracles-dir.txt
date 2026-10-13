@@ -1,0 +1,38 @@
+== default_route_resolver
+  ok: live.py writes the dnsmasq upstream file
+
+RESULT: FAIL (9)
+   rc=1
+== dhcp_scope
+FATAL: no template at /home/claude/clean/etc/dnsmasq_conf_template
+   rc=2
+== exit_gw_dot1
+  ok: no default installed via 10.250.250.221
+
+RESULT: PASS
+   rc=0
+== identity_fails_loud
+  FAIL  metric_upsert rebuilds a name from hostname (in code, not a comment)
+
+FAILED 10 check(s)
+   rc=1
+== mapinterfaces_names
+  ok: and eth0Name is still detected
+
+RESULT: PASS
+   rc=0
+== opts_only_interface_lines
+  ok     renderer emits live interface= for served devices
+
+FAILED 4 check(s)
+   rc=1
+== routing_topology
+
+36 passed, 0 failed
+PASS - [LEASE_IS_NOT_A_NODE_V1]
+   rc=0
+== self_identity_lines
+  ok: a peer never gets the bare alias
+
+RESULT: PASS
+   rc=0

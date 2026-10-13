@@ -102,6 +102,11 @@ _hl = {h["ip"]: h for h in _j.loads(_wl.files.get("/sent/frognet_hosts.json", "[
 check("z: hosts json carries the leaf with role leaf, alive, its echo; nodes are role node [DEVICE_ROW_V1]",
       (_hl.get("10.252.0.1", {}).get("role"), _hl.get("10.252.0.1", {}).get("alive"), _hl.get("10.252.0.1", {}).get("echo"), _hl.get("10.2.2.1", {}).get("role")),
       ("leaf", True, "phone,10.252.0.1,0.0.0.0,0.0.0.0", "node"))
+_apg = Applier(Fake(), "z", hosts_sentinel="/sent/frognet_hosts")
+_apg.apply(T1 + [{"name": "phone", "alive": True, "facts": {"role": "leaf", "name": "phone", "guid": "g-phone", "pubkey": "p", "addr": "10.252.0.1/32"}}])
+_hg = {h["ip"]: h for h in _j.loads(_apg.w.files.get("/sent/frognet_hosts.json", "[]"))}
+check("z: hosts json carries each member's guid from its facts ('' when its facts name none) [ONE_MONITOR_TRUTH_V1]",
+      (_hg.get("10.252.0.1", {}).get("guid"), "guid" in _hg.get("10.2.2.1", {})), ("g-phone", True))
 check("z: maps for the hub", c["maps"], ["10.1.1.0/24", "10.2.2.0/24", "10.3.3.0/24"])
 
 # ---------------------------------------------------------------- 5. same table again -> nothing happens

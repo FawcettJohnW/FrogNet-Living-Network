@@ -57,17 +57,6 @@ public sealed class Client : IDisposable
     /// </summary>
     public string? LastError { get; private set; }
 
-    /// <summary>
-    /// The platform hosts file. A Windows client is not a node and will not have
-    /// one worth reading, but hardcoding the Unix path meant the fallback threw
-    /// DirectoryNotFoundException on every refresh and the caller could not tell
-    /// that apart from "no FrogNet lines in it".
-    /// </summary>
-    public static string HostsFilePath =>
-        OperatingSystem.IsWindows()
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
-                           "drivers", "etc", "hosts")
-            : "/etc/hosts";
 
     /// <summary>
     /// GET through the proxy. <paramref name="hostHeader"/> names where the
@@ -138,35 +127,32 @@ public sealed class Client : IDisposable
         return Parsers.ParseEchoLine(body);
     }
 
-    /// <summary>getHosts.php only [MONITOR_HOSTS_ONE_SOURCE_V1 - T4b]: a failed read is an empty table (LastError
-    /// says why) until the next refresh asks again. There used to be an /etc/hosts read behind it.</summary>
-    public async Task<List<Parsers.HostEntry>> DiscoverHostsAsync(CancellationToken ct = default)
+    /// <summary>[ONE_MONITOR_TRUTH_V1] getSnapshot.php, the node's one snapshot. Null when it does not answer or
+    /// is not a snapshot (LastError says which); the next refresh asks again. The getHosts.php read, and the
+    /// /etc/hosts read before it, are gone.</summary>
+    public async Task<Parsers.NodeSnapshot?> SnapshotAsync(CancellationToken ct = default)
     {
-        var body = await GetAsync("/getHosts.php", null, ct).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(body))
+        var body = await GetAsync("/getSnapshot.php", null, ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(body)) { LastError ??= "getSnapshot.php: no answer"; return null; }
+        var snap = Parsers.ParseSnapshot(body);
+        if (snap is null) LastError ??= "getSnapshot.php: not a snapshot";
+        return snap;
+    }
+
+    /// <summary>The snapshot's members, in its order: the peer list.</summary>
+    public static List<Parsers.HostEntry> HostsOf(Parsers.NodeSnapshot? s)
+    {
+        var list = new List<Parsers.HostEntry>();
+        if (s is null || !s.Raw.TryGetProperty("members", out var ms) || ms.ValueKind != JsonValueKind.Array) return list;
+        foreach (var m in ms.EnumerateArray())
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(body);
-                if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                {
-                    var list = new List<Parsers.HostEntry>();
-                    foreach (var h in doc.RootElement.EnumerateArray())
-                    {
-                        if (!h.TryGetProperty("ip", out var ipEl)) continue;
-                        var ip = ipEl.GetString();
-                        if (string.IsNullOrEmpty(ip)) continue;
-                        var name = h.TryGetProperty("name", out var n) ? n.GetString() : null;
-                        list.Add(new Parsers.HostEntry(ip, string.IsNullOrEmpty(name) ? ip : name));
-                    }
-                    return list;
-                }
-                LastError ??= "getHosts.php: not a JSON array";
-            }
-            catch (JsonException ex) { LastError ??= $"getHosts.php: {ex.Message}"; }
+            if (m.ValueKind != JsonValueKind.Object || !m.TryGetProperty("ip", out var ipEl) || ipEl.ValueKind != JsonValueKind.String) continue;
+            var ip = ipEl.GetString();
+            if (string.IsNullOrEmpty(ip)) continue;
+            var name = m.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+            list.Add(new Parsers.HostEntry(ip, string.IsNullOrEmpty(name) ? ip : name));
         }
-        else LastError ??= "getHosts.php: no answer";
-        return new List<Parsers.HostEntry>();
+        return list;
     }
 
     /// <summary>

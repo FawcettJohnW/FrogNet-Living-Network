@@ -1,0 +1,30 @@
+=== view model ===
+  ok    filterDirectOnly + VIEW_ORDER exist (three views)
+  ok    default VIEW_MODE is "logical"
+
+=== physical view: direct hops only ===
+  ok    Seattle2 connects only to Seattle3 — ["Seattle3"]
+  ok    Seattle6 connects to Seattle3 and Seattle5 — ["Seattle3","Seattle5"]
+  ok    no transit edge survives into the physical view
+
+=== logical view: every node to every other node ===
+  ok    Seattle2 reaches every other node — ["Seattle3","Seattle5","Seattle6"]
+  ok    all 6 transit routes survive into the logical view
+
+=== direction is preserved logically, merged physically ===
+  ok    logical keeps A→B and B→A as separate edges
+  ok    physical merges the pair into one line
+
+=== a route through a host is not drawn as a wire ===
+  ok    transit dash differs from direct — [2,5]
+  ok    inferred egress hop differs from observed — [1,4]
+
+=== [ONE_MONITOR_TRUTH_V1] the header and the ponds come from the node snapshot ===
+  ok    header: name (.1), mode, build, ponds (forward *), hub link — N1 (10.81.81.1) · mode region · build fdf-2026-10-12-r20 · ponds *test · hub link wg0 17s
+  ok    region mode: the link to FD&F's region members page is shown
+  ok    ponds: the forward pond counts the snapshot's members
+  ok    LAN-only header, the snapshot's error said, no region link
+  ok    no snapshot: said, nothing in its place
+  ok    no broker vocabulary in the page's script
+
+PASS — [THREE_VIEWS_V1] [LOGICAL_IS_NOT_PHYSICAL_V1] [DIRECTION_IS_NOT_SYMMETRIC_V1] [ONE_MONITOR_TRUTH_V1]

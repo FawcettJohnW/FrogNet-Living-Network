@@ -273,6 +273,10 @@
       font-family:var(--mono); font-size:10.5px; color:var(--muted); flex:0 0 auto;
     }
     .sensor-empty{ padding:20px; color:var(--muted); font-size:12px; text-align:center; }
+    .hdr-node{ font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:2px; }
+    .hdr-node .bad{ color:var(--bad); }
+    .hdr-links{ font-size:11px; margin-top:2px; }
+    .hdr-links a{ color:var(--muted); }
   </style>
 </head>
 
@@ -282,6 +286,9 @@
   <div class="hdr-title">
     <h1>FrogNet <span>Living Network</span></h1>
     <div class="hdr-sub">Logical map · every node to every other node · dotted = route via an intermediate host · glow = link health</div>
+    <!-- [ONE_MONITOR_TRUTH_V1] this node, from getSnapshot.php: name (.1), mode, build, ponds, hub link -->
+    <div class="hdr-node" id="hdrNode">reading getSnapshot.php…</div>
+    <div class="hdr-links"><a href="/">node page</a> · <a href="/getSnapshot.php">getSnapshot.php</a> · <a href="/setup_frognet.html">setup</a><span id="lnkRegionWrap" hidden> · <a id="lnkRegion" href="#" title="FD&amp;F's view of the region (its members as the RAM manager holds them), served by: php -S 0.0.0.0:8090 -t /opt/fdf/www (opt/fdf/README.md)">region members (FD&amp;F)</a></span></div>
   </div>
   <div class="controls">
     <div class="ctl">
@@ -302,14 +309,15 @@
 
 <div class="layout">
   <aside>
-    <!-- [PONDS_ARE_LISTED_V1] every network this machine is in (getPonds.php, live from each pond's RAM manager).
-         The map is the FORWARD pond's (it routes); the others are listed here with what this machine reaches there. -->
+    <!-- [PONDS_ARE_LISTED_V1] every pond this machine is in (getSnapshot.php's ponds; a participant pond's members live
+         from its RAM manager). The map is the FORWARD pond's (it routes); the others are listed here with what this
+         machine reaches there. -->
     <div class="section" id="pondSection">
       <div class="section-hdr">
-        <h2>Networks</h2>
+        <h2>Ponds</h2>
         <span class="count" id="pondCount"></span>
       </div>
-      <div id="pondTiles"><div class="linkmeta">Loading networks…</div></div>
+      <div id="pondTiles"><div class="linkmeta">Loading ponds…</div></div>
     </div>
     <div class="section" id="engineSection">
       <div class="section-hdr"><h2>Semantic Engine</h2></div>
@@ -324,7 +332,7 @@
     </div>
     <div class="section">
       <div class="section-hdr">
-        <h2>Hosts</h2>
+        <h2>Members</h2>
         <span class="count" id="hostCount"></span>
       </div>
       <div id="hostTiles"></div>
@@ -367,11 +375,6 @@ async function jget(url){
   const r=await fetch(url,{cache:"no-store"});
   if(!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
   return await r.json();
-}
-async function jgetTry(urls){
-  let lastErr=null;
-  for(const u of urls){ try{return await jget(u);}catch(e){lastErr=e;} }
-  throw lastErr||new Error("all fetch variants failed");
 }
 
 function parseEcho(echoStr){
@@ -686,6 +689,11 @@ const EDGE_W=2.5;
 let HOSTS=new Map(),SENSORS=[],SENSOR_BY_HOSTIP=new Map(),SENSOR_DATA_CACHE=new Map();
 let NODES=new Map(),EDGES=new Map(),PHYS_LINKS=new Map(),LINK_QUALITY=new Map(),SUBNET_EDGES=new Map();
 let DBHOST_IP="";
+/* [ONE_MONITOR_TRUTH_V1] the node snapshot (getSnapshot.php) this picture was drawn from, and the hub links it implies:
+ * on a region every alive member of the forward pond holds a session to the pond's RAM manager and reaches the others
+ * through the hub; this node's own hub link carries the kernel's handshake age. */
+let SNAPSHOT=null, HUB_LINKS=[];
+const POND_FILL="#b48cff";
 
 let ENGINE_BY_HOST=new Map();
 let ENDPOINTS_BY_HOST=new Map();
@@ -990,6 +998,7 @@ function ensureNode(id,label,ipForSort){
       if(id.startsWith("external:")) col=0.92;
       x=wv*col+(seeded01(id)-0.5)*90;
       y=hv*(0.22+0.60*seeded01("y:"+id));
+      if(id.startsWith("pond:")){ x=wv*0.50; y=hv*0.08; }      // the forward pond (its hub) above the members
       posStore[id]={x,y}; savePositions(posStore);
     }
     const box=computeNodeBox(label||id,ipForSort||"");
@@ -1364,6 +1373,24 @@ function draw(){
     ctx.restore();
   }
 
+  // [ONE_MONITOR_TRUTH_V1] hub links: member -> its forward pond, dashed in the pond colour; this node's carries its
+  // handshake age. Not in the egress tree (that is the LAN chain to the Internet).
+  if(VIEW_MODE!=="egress"){
+    for(const l of HUB_LINKS){
+      const a=NODES.get(l.from), b=NODES.get(l.to);
+      if(!a||!b) continue;
+      const A=worldToScreen(a), B=worldToScreen(b);
+      ctx.save();
+      ctx.setLineDash([6,5]); ctx.strokeStyle=POND_FILL; ctx.lineWidth=l.self?EDGE_W+1:EDGE_W; ctx.globalAlpha=0.8;
+      ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
+      if(l.label){
+        ctx.setLineDash([]); ctx.globalAlpha=1; ctx.fillStyle=POND_FILL; ctx.font=`600 12px ${getCss("--mono")}`;
+        ctx.textAlign="center"; ctx.textBaseline="bottom"; ctx.fillText("hub link "+l.label,(A.x+B.x)/2,(A.y+B.y)/2-4);
+      }
+      ctx.restore();
+    }
+  }
+
   drawLegend();
 
   for(const n of NODES.values()){
@@ -1371,9 +1398,10 @@ function draw(){
     const w=n.w*view.k,h=n.h*view.k;
     const x=P.x-w/2,y=P.y-h/2;
     const isExternal=n.id.startsWith("external:");
-    const isDb=(!isExternal&&DBHOST_IP&&n.id===DBHOST_IP);
-    const fill=isExternal?"rgba(220,228,237,0.94)":nodeColorForId(n.id);
-    const txtCol=isExternal?"#0b0f14":bestTextColorForFill(fill);
+    const isPond=n.id.startsWith("pond:");
+    const isDb=(!isExternal&&!isPond&&DBHOST_IP&&n.id===DBHOST_IP);
+    const fill=isExternal?"rgba(220,228,237,0.94)":(isPond?POND_FILL:nodeColorForId(n.id));
+    const txtCol=(isExternal||isPond)?"#0b0f14":bestTextColorForFill(fill);
 
     ctx.save();
     if(isDb){
@@ -1498,8 +1526,7 @@ canvas.addEventListener("wheel",(ev)=>{
  * CORS check passes regardless of whether the user loaded the dashboard
  * via IP (http://10.101.210.1/...) or hostname (http://blackbox.frognet/...).
  * Per-node Apache and the FrogNet proxy both serve /api.php — the same
- * way they already serve /getHosts.php and /getDbHost.php, which have
- * been working from any host for a while.
+ * way they serve /getSnapshot.php.
  **********************************************************************/
 async function fetchSensorsAndData(dataCache){
   const url=`/api.php?entity=sensors&action=values&limit=5000`;
@@ -1765,21 +1792,23 @@ async function buildFromSources(){
   let _HOSTS=new Map(),_SENSORS=[],_SENSOR_BY_HOSTIP=new Map(),_SENSOR_DATA_CACHE=new Map();
   let _NODES=new Map(),_EDGES=new Map(),_PHYS_LINKS=new Map(),_LINK_QUALITY=new Map(),_SUBNET_EDGES=new Map();
   let _DBHOST_IP="";
+  let _SNAPSHOT=null, _HUB_LINKS=[];
   let _ENGINE_BY_HOST=new Map(),_ENDPOINTS_BY_HOST=new Map(),_PEER_SENSORS=[],_DAEMON_BY_HOST=new Map();
 
   try {
-    try {
-      const r=await jget("/getDbHost.php");
-      _DBHOST_IP=String(r.ip||"").trim();
-    } catch(e){ console.warn("getDbHost.php:",e.message); }
-
-    const hostsArr=await jget("/getHosts.php");
-    if(!Array.isArray(hostsArr)) throw new Error("getHosts returned non-array");
-    for(const h of hostsArr){
-      const ip=String(h.ip||"").trim();
-      const hostname=String(h.hostname||h.name||ip).trim();
-      const echo=parseEcho(String(h.echo||""));
-      _HOSTS.set(ip,{ip,hostname,echo});
+    // [ONE_MONITOR_TRUTH_V1] one read: the node snapshot. The hosts are its members, the databasehost its elections
+    // (/etc/hosts on the node, never the resolver), the ponds and the hub link its own fields.
+    const snap=await jget("/getSnapshot.php");
+    if(!snap || snap.snapshot!==1 || (snap.mode!=="lan-only" && snap.mode!=="region"))
+      throw new Error("getSnapshot.php: not a snapshot");
+    _SNAPSHOT=snap;
+    _DBHOST_IP=String((snap.elections||{}).databasehost||"");
+    for(const m of (snap.members||[])){
+      const ip=String(m.ip||"").trim();
+      if(!ip) continue;
+      const hostname=String(m.name||ip).trim();
+      const echo=parseEcho(String(m.echo||""));
+      _HOSTS.set(ip,{ip,hostname,echo,role:String(m.role||""),alive:m.alive===true,source:String(m.source||""),self:m.self===true});
     }
 
     const saveNodes=NODES, saveCache=SENSOR_DATA_CACHE;
@@ -1791,6 +1820,21 @@ async function buildFromSources(){
 
     const internetId="external:internet";
     ensureNode(internetId,"Internet","");
+
+    // [ONE_MONITOR_TRUTH_V1] ponds and hub links (region mode): the forward pond is a node on the map, each alive
+    // member is linked to it, and this node's link is labelled with its hub link's handshake age (the snapshot's hub).
+    if(snap.mode==="region"){
+      const hubTxt=(snap.hub||[]).map(h=>h.error?`${h.iface} error`:(typeof h.handshake_age_s==="number"?`${h.iface} ${Math.trunc(h.handshake_age_s)}s`:`${h.iface} no handshake`)).join("  ");
+      for(const p of (snap.ponds||[])){
+        if(p.forward!==true) continue;
+        const pid="pond:"+String(p.area||"");
+        ensureNode(pid,"pond "+String(p.area||""),String(p.ram||""));
+        for(const [ip,h] of _HOSTS.entries()){
+          if(!h.alive || h.role==="hub") continue;
+          _HUB_LINKS.push({from:ip,to:pid,self:h.self,label:h.self?hubTxt:""});
+        }
+      }
+    }
 
     /* fetchSensorsAndData uses a RELATIVE url now — page's origin, no CORS */
     _SENSORS=await fetchSensorsAndData(_SENSOR_DATA_CACHE);
@@ -1943,14 +1987,7 @@ async function buildFromSources(){
         upsertPhysLink(hostIp,peer,edgeKind,meta);
         upsertDirectedEdge(hostIp,peer,edgeKind,meta);
       }
-      /* Detect databasehost from LOCAL self-alias links */
-      for(const lk of obj.links){
-        if(!_DBHOST_IP &&
-           String(lk.peer_name||"").toLowerCase().includes("databasehost")&&
-           String(lk.kind||"").toUpperCase()==="LOCAL"){
-          _DBHOST_IP=hostIp;
-        }
-      }
+      /* (the databasehost is the snapshot's election, read above: no second source here) */
     }
 
     // Pathway colors — computed after Topology+LinkState populate
@@ -2041,14 +2078,12 @@ async function buildFromSources(){
     }
 
     NODES=saveNodes; SENSOR_DATA_CACHE=saveCache;
-    const hadHosts=prev.HOSTS&&prev.HOSTS.size>0;
-    const hadEdges=(prev.EDGES&&prev.EDGES.size>0)||(prev.SUBNET_EDGES&&prev.SUBNET_EDGES.size>0);
-    if(hadHosts&&_HOSTS.size===0) throw new Error("Transient empty hosts snapshot");
-    if(hadEdges&&_EDGES.size===0) throw new Error("Transient empty edges snapshot");
+    // (an empty member list is the snapshot's answer and is drawn as one: no earlier picture is kept in its place)
 
     HOSTS=_HOSTS; SENSORS=_SENSORS; SENSOR_BY_HOSTIP=_SENSOR_BY_HOSTIP; SENSOR_DATA_CACHE=_SENSOR_DATA_CACHE;
     NODES=_NODES; EDGES=_EDGES; PHYS_LINKS=_PHYS_LINKS; LINK_QUALITY=_LINK_QUALITY; SUBNET_EDGES=_SUBNET_EDGES;
     DBHOST_IP=_DBHOST_IP;
+    SNAPSHOT=_SNAPSHOT; HUB_LINKS=_HUB_LINKS;
     ENGINE_BY_HOST=_ENGINE_BY_HOST; ENDPOINTS_BY_HOST=_ENDPOINTS_BY_HOST;
     PEER_SENSORS=_PEER_SENSORS; DAEMON_BY_HOST=_DAEMON_BY_HOST;
 
@@ -2063,10 +2098,11 @@ async function buildFromSources(){
     const engineCount=ENGINE_BY_HOST.size;
     const daemonCount=DAEMON_BY_HOST.size;
     const extCount=Array.from(EDGES.values()).filter(e=>e.kind==="EXTERNAL").length;
-    statusEl.textContent=`${HOSTS.size} hosts · ${PHYS_LINKS.size} links · ${extCount} uplinks · ${engineCount} engine · ${daemonCount} daemon · ${dt}ms`;
+    statusEl.textContent=`${HOSTS.size} members · ${PHYS_LINKS.size} links · ${HUB_LINKS.length} hub links · ${extCount} uplinks · ${engineCount} engine · ${daemonCount} daemon · ${dt}ms`;
     document.getElementById("linkCount").textContent=`${SUBNET_EDGES.size}`;
     document.getElementById("hostCount").textContent=`${HOSTS.size}`;
-    hudEl.textContent=`family-colored · glow=health · databasehost=${_DBHOST_IP||"databasehost.frognet"} · via ${window.location.host}`;
+    hudEl.textContent=`family-colored · glow=health · databasehost=${_DBHOST_IP||"none elected"} · via ${window.location.host}`;
+    renderNodeHeader();
 
   } catch(e){
     HOSTS=prev.HOSTS; SENSORS=prev.SENSORS; SENSOR_BY_HOSTIP=prev.SENSOR_BY_HOSTIP;
@@ -2075,6 +2111,8 @@ async function buildFromSources(){
     DBHOST_IP=prev.DBHOST_IP;
     ENGINE_BY_HOST=prev.ENGINE_BY_HOST; ENDPOINTS_BY_HOST=prev.ENDPOINTS_BY_HOST;
     PEER_SENSORS=prev.PEER_SENSORS; DAEMON_BY_HOST=prev.DAEMON_BY_HOST;
+    // the node line and the ponds say this refresh failed (the status pill says why); no earlier snapshot stands in
+    SNAPSHOT=null; HUB_LINKS=[]; renderNodeHeader();
     throw e;
   }
 }
@@ -2173,27 +2211,45 @@ function aliasHere(ip, alias){
   }
   return "";
 }
-async function renderPonds(){
+/* [ONE_MONITOR_TRUTH_V1] the header's node line: name (.1), mode, build, ponds (forward *), hub link, the snapshot's
+ * errors -- the same words as frognet_monitor's title block. Text only through textContent. */
+function renderNodeHeader(){
+  const el=document.getElementById("hdrNode"); if(!el) return;
+  const d=SNAPSHOT;
+  el.textContent="";
+  if(!d){ const b=document.createElement("span"); b.className="bad"; b.textContent="getSnapshot.php did not answer"; el.append(b); return; }
+  const n=d.node||{}, b=d.build||{};
+  const ponds=(d.ponds||[]).map(p=>(p.forward===true?"*":"")+p.area).join(" ");
+  const hub=(d.hub||[]).map(h=>h.error?`${h.iface} error`:(typeof h.handshake_age_s==="number"?`${h.iface} ${Math.trunc(h.handshake_age_s)}s`:`${h.iface} no handshake`)).join(" ");
+  el.append(document.createTextNode(`${n.name||"?"} (${n.dot1||"no .1"}) · mode ${d.mode} · build ${b.build||"?"}${b.commit?" "+b.commit:""}`
+    + (d.mode==="region" ? ` · ponds ${ponds||"none"} · hub link ${hub||"none"}` : ` · ponds none, hub none (LAN-only)`)));
+  for(const e of (d.errors||[])){ const x=document.createElement("span"); x.className="bad"; x.textContent=" · ! "+e; el.append(x); }
+  const w=document.getElementById("lnkRegionWrap"), a=document.getElementById("lnkRegion");
+  if(w&&a){ w.hidden=(d.mode!=="region"); a.href=`http://${window.location.hostname}:8090/fdf/fdf_dashboard.html`; }
+}
+
+function renderPonds(){
   const el=document.getElementById("pondTiles"); if(!el) return;
-  let d;
-  try{ d=await jget("/getPonds.php"); }
-  catch(e){ el.innerHTML=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
-            m.textContent="getPonds.php: "+(e.message||String(e)); t.append(m); el.append(t); return; }
+  const d=SNAPSHOT;
+  if(!d){ el.innerHTML=""; const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
+          m.textContent="getSnapshot.php did not answer"; t.append(m); el.append(t); return; }
   const ponds=(d&&d.ponds)||[];
   document.getElementById("pondCount").textContent=ponds.length?String(ponds.length):"";
   el.innerHTML="";
   if(!ponds.length){ const t=document.createElement("div"); t.className="tile"; const m=document.createElement("div"); m.className="linkmeta";
-                     m.textContent="This machine is in no pond."; t.append(m); el.append(t); return; }
+                     m.textContent=d.mode==="region"?"This machine is in no pond.":"LAN-only: this machine is in no pond."; t.append(m); el.append(t); return; }
   for(const p of ponds){
     const t=document.createElement("div"); t.className="tile";
     const row=document.createElement("div"); row.className="row";
     const dot=document.createElement("div"); dot.className="dot";
     dot.style.background = p.error||p.refused ? getCss("--bad") : (p.forward||p.reach) ? getCss("--good") : getCss("--unknown");
     const name=document.createElement("div"); name.className="name"; name.textContent=p.area+(p.forward?"  (forward)":"");
-    const role=document.createElement("div"); role.className="ip"; role.textContent=(p.me&&p.me.role)||"";
+    const me=p.forward===true ? ((d.members||[]).find(m=>m.self===true)||{}) : (p.me||{});
+    const role=document.createElement("div"); role.className="ip"; role.textContent=me.role||"";
     row.append(dot,name,role); t.append(row);
     const meta=document.createElement("div"); meta.className="linkmeta";
-    const alive=(p.members||[]).filter(m=>m.alive).length;
+    // the forward pond's members are the snapshot's members (the map); a participant pond lists its own
+    const alive=p.forward===true ? (d.members||[]).filter(m=>m.alive===true).length : (p.members||[]).filter(m=>m.alive).length;
     if(p.error) meta.textContent=p.error;
     else if(p.refused) meta.textContent="reach REFUSED: "+p.refused;
     else if(p.reach){
@@ -2225,7 +2281,7 @@ async function tick(){
   try{await buildFromSources();}
   catch(err){console.error(err); document.getElementById("status").textContent=`Error: ${err.message||String(err)}`;}
   finally{REFRESH_INFLIGHT=false;}
-  renderPonds().catch(e=>console.warn("networks:",e));            // [PONDS_ARE_LISTED_V1] its own failure is its own
+  renderPonds();                                                   // [PONDS_ARE_LISTED_V1] from the same snapshot
 }
 
 let timer=null;

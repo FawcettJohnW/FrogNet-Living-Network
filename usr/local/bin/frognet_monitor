@@ -17,4 +17,5 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 cd /usr/local/bin
-/opt/frognet_semantic/venv/bin/python3 -m frognet_monitor_py .
+# --once: one frame as text, then exit (frognet_monitor_py/once.py)
+exec /opt/frognet_semantic/venv/bin/python3 -m frognet_monitor_py "$@"

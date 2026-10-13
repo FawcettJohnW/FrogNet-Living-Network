@@ -1,0 +1,27 @@
+/usr/local/bin/frognet_monitor
+/usr/local/bin/frognet_monitor_cpp
+/usr/local/bin/frognet_monitor_cs
+/usr/local/bin/frognet_monitor_py
+/usr/local/bin/frognet_monitor_shared
+  FrogNet   G1 (10.61.61.1)   2026-10-13 01:04:55
+  mode lan-only  build fdf-2026-10-12-r20
+  ponds  none, hub none (LAN-only: no /opt/fdf/var/join.env)
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+  # G1             SELF         node     10.61.61.1      lan
+
+  elections  databasehost=10.61.61.1  databasehost_control=10.61.61.1
+  internet   FAIL
+rc=0
+
+$ /usr/local/bin/frognet_monitor --once   (the shipped launcher, venv python)
+  FrogNet   G1 (10.61.61.1)   2026-10-13 04:04:54
+  mode lan-only  build fdf-2026-10-12-r20
+  ponds  none, hub none (LAN-only: no /opt/fdf/var/join.env)
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+  # G1             SELF         node     10.61.61.1      lan
+
+  elections  databasehost=10.61.61.1  databasehost_control=10.61.61.1
+  internet   FAIL
+rc=0

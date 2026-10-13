@@ -1,0 +1,50 @@
+vectors: /home/claude/clean/usr/local/bin/frognet_monitor_shared/parser_vectors.json
+
+=== echo_line (identity) ===
+  ok    all four fields present
+  ok    empty eth0 is DATA, not failure - no carrier is a real answer
+  ok    trailing empty field must not shorten the line
+  ok    two adjacent empties must not collapse
+  ok    trailing newline tolerated
+  ok    empty body means identity failed -- rejected, as it must be
+  ok    whitespace-only body means identity failed -- rejected, as it must be
+  ok    empty name field is a failure even with fields present -- rejected, as it must be
+  ok    fewer than four fields is a failure -- rejected, as it must be
+
+=== etc_hosts (discovery) ===
+  ok    standard node lines
+  ok    tunnel transit 10.253/16 excluded
+  ok    chorus virtual 10.254/16 excluded
+  ok    non-10/8 excluded
+  ok    line without the FrogNetHost alias is not a node
+  ok    comments and blanks skipped
+  ok    role names are not nodes
+  ok    extra aliases before the FrogNetHost one
+  ok    tabs and multiple spaces
+
+=== dot_one_of (identity endpoint) ===
+  ok    DHCP client on a pond
+  ok    a node's own .1
+  ok    a node's secondary .2
+  ok    high client octet
+  ok    tunnel transit rejected -- rejected
+  ok    chorus virtual rejected -- rejected
+  ok    non-10/8 rejected -- rejected
+  ok    loopback rejected -- rejected
+  ok    malformed rejected -- rejected
+
+=== snapshot (getSnapshot.php) [ONE_MONITOR_TRUTH_V1] ===
+  ok    region node: forward pond, a participant pond, hub link, a device
+  ok    LAN-only node: no ponds, no hub, members from LAN discovery
+  ok    hub states, non-boolean flags are not true, errors carried
+  ok    not JSON -- rejected
+  ok    getHosts.php's array is not a snapshot -- rejected
+  ok    another contract version -- rejected
+  ok    a mode that is neither lan-only nor region -- rejected
+  ok    no mode -- rejected
+  ok    types: 1.0 is 1, a non-string field reads empty, an empty error is no error, non-string errors dropped
+  ok    snapshot true is not the number 1 -- rejected
+
+37 passed, 0 failed
+PASS - Python parsers agree with the shared vectors
+rc=0

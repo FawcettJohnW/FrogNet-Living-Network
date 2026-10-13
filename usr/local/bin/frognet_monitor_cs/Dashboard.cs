@@ -209,28 +209,18 @@ public static class Dashboard
         }
         catch { s.MergeKnown = false; }
 
-        // The elected data host from /etc/hosts, never the resolver: in practice
-        // the two disagree, and the file is what everything else routes by.
-        try
-        {
-            foreach (var line in await File.ReadAllLinesAsync("/etc/hosts", ct))
-            {
-                var t = line.Trim();
-                if (t.StartsWith('#') || !t.Contains("databasehost.frognet")) continue;
-                var parts = t.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 0) { s.DbHostIp = parts[0]; break; }
-            }
-        }
-        catch { /* leave empty; the footer says which problem this is */ }
-
-        var hosts = await c.DiscoverHostsAsync(ct).ConfigureAwait(false);
+        // [ONE_MONITOR_TRUTH_V1] the node snapshot: the peer list is its members, the databasehost its elections
+        // (/etc/hosts <role>.frognet on the node, never the resolver), this node its self row.
+        s.Node = await c.SnapshotAsync(ct).ConfigureAwait(false);
+        s.DbHostIp = s.Node?.DbHost ?? "";
+        var hosts = Client.HostsOf(s.Node);
         if (hosts.Count == 0)
         {
-            // Nothing to draw, and the operator needs to know WHICH failure this
-            // is: an unreachable proxy, or a reachable one with no FrogNet hosts.
-            s.Notice = c.LastError is null
-                ? "getHosts.php returned no FrogNet hosts, and the local hosts file has none either."
-                : "cannot reach a FrogNet: " + c.LastError;
+            // Nothing to draw, and the operator needs to know WHICH failure this is: no snapshot, or a snapshot with
+            // no members (it says where it looked).
+            s.Notice = s.Node is null
+                ? "no snapshot: " + (c.LastError ?? "getSnapshot.php did not answer")
+                : "the snapshot lists no members" + (s.Node.Errors.Count > 0 ? ": " + string.Join("; ", s.Node.Errors) : "");
             return s;
         }
 
@@ -253,7 +243,7 @@ public static class Dashboard
                 // A node holds no cache or link-quality entry for ITSELF, so its
                 // status resolves to Unknown -- true, but it reads as a fault on
                 // the one row the operator most trusts. Mark it as self.
-                IsLocal = h.Name == domain
+                IsLocal = s.Node is not null && s.Node.Dot1.Length > 0 && h.Ip == s.Node.Dot1
             };
 
             // Echo proves the whole chain: local proxy, local daemon, remote

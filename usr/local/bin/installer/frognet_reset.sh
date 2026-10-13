@@ -270,7 +270,7 @@ nuke_glob /etc/mysql/mariadb.conf.d '99-frognet*.cnf' 'provider_*.cnf'
 nuke_glob /etc/ssl 'frognet-universal.*'
 nuke /etc/ssl/localCA
 nuke /etc/security/limits.d/99-frognet.conf
-nuke /etc/sudoers.d/frognet-setup
+nuke /etc/sudoers.d/frognet-setup /etc/sudoers.d/frognet-snapshot
 nuke /etc/iptables/rules.v4
 nuke_glob /etc/logrotate.d 'frognet'
 nuke /etc/ifplugd/action.d/frognet
@@ -371,7 +371,7 @@ phase "9. Uninstall: what only an install adds"
         nuke /opt/fdf
         _do systemctl daemon-reload
     fi
-    nuke /etc/systemd/system/dnsmasq.service.d /etc/sudoers.d/frognet-setup /etc/frognet /var/lib/frognet
+    nuke /etc/systemd/system/dnsmasq.service.d /etc/sudoers.d/frognet-setup /etc/sudoers.d/frognet-snapshot /etc/frognet /var/lib/frognet
     nuke "$REC"
 fi
 

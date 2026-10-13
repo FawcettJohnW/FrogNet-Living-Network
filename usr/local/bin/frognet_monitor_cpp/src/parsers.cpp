@@ -148,4 +148,56 @@ std::string dotOneOf(const std::string& ip) {
   return o[0] + "." + o[1] + "." + o[2] + ".1";
 }
 
+// [ONE_MONITOR_TRUTH_V1] see frognet.h. A field of the wrong type reads as empty; flags count only as the boolean true.
+namespace {
+std::string str(const Json* v) { return (v && v->type == Json::Type::String) ? v->str : std::string(); }
+bool isTrue(const Json* v) { return v && v->type == Json::Type::Bool && v->boolean; }
+bool isNum(const Json* v) { return v && v->type == Json::Type::Number; }
+}  // namespace
+
+NodeSnapshot parseSnapshot(const std::string& body) {
+  NodeSnapshot s;
+  std::string err;
+  Json d = Json::parse(body, &err);
+  if (!err.empty() || !d.isObject()) return s;
+  const Json* ver = d.find("snapshot");
+  if (!isNum(ver) || ver->number != 1) return s;
+  std::string mode = str(d.find("mode"));
+  if (mode != "lan-only" && mode != "region") return s;
+  s.mode = mode;
+  s.mode_why = str(d.find("mode_why"));
+  if (const Json* n = d.find("node")) { s.name = str(n->find("name")); s.dot1 = str(n->find("dot1")); }
+  if (const Json* b = d.find("build")) { s.build = str(b->find("build")); s.commit = str(b->find("commit")); }
+  if (const Json* ps = d.find("ponds"); ps && ps->isArray())
+    for (const Json& p : ps->array) {
+      if (!p.isObject()) continue;
+      s.ponds.push_back((isTrue(p.find("forward")) ? "*" : "") + str(p.find("area")));
+    }
+  if (const Json* hs = d.find("hub"); hs && hs->isArray())
+    for (const Json& h : hs->array) {
+      if (!h.isObject()) continue;
+      std::string iface = str(h.find("iface"));
+      const Json* age = h.find("handshake_age_s");
+      if (!str(h.find("error")).empty()) s.hub.push_back(iface + " error");
+      else if (isNum(age)) s.hub.push_back(iface + " " + std::to_string(static_cast<long long>(age->number)) + "s");
+      else s.hub.push_back(iface + " no handshake");
+    }
+  if (const Json* ms = d.find("members"); ms && ms->isArray())
+    for (const Json& m : ms->array) {
+      if (!m.isObject()) continue;
+      s.members.push_back(str(m.find("ip")) + " " + str(m.find("name")) + " " + str(m.find("role")) + " " +
+                          (isTrue(m.find("alive")) ? "alive" : "down") + " " + str(m.find("source")) +
+                          (isTrue(m.find("self")) ? " self" : ""));
+    }
+  if (const Json* el = d.find("elections")) {
+    s.dbhost = str(el->find("databasehost"));
+    s.control = str(el->find("databasehost_control"));
+  }
+  if (const Json* es = d.find("errors"); es && es->isArray())
+    for (const Json& e : es->array) if (e.type == Json::Type::String) s.errors.push_back(e.str);
+  s.raw = d;
+  s.ok = true;
+  return s;
+}
+
 }  // namespace frognet

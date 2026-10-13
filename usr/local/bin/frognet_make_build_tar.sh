@@ -79,7 +79,7 @@ WRAP_KEY="${FROGNET_DB_WRAP_KEY:-fn0-dbwrap-v1-do-not-rely-on-secrecy}"
 SRC_PATHS=(
     opt/frognet_semantic
     usr/local/bin usr/local/sbin usr/local/lib
-    var/www/html var/www/www_admin
+    var/www/html
 )
 
 # Names that must NEVER ship. Matched as basenames anywhere in the staged tree

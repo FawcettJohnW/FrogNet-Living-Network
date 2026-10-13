@@ -127,25 +127,25 @@ Identity Client::echo(const std::string& dot_one, long timeout_sec) const {
   return parseEchoLine(r.body);
 }
 
-std::vector<HostEntry> Client::discoverHosts() const {
-  HttpResult r = get("/getHosts.php", "", 5);
-  if (r.ok) {
-    std::string err;
-    Json body = Json::parse(r.body, &err);
-    if (err.empty() && body.isArray()) {
-      std::vector<HostEntry> out;
-      for (const Json& h : body.array) {
-        std::string ip = h.atString("ip");
-        if (ip.empty()) continue;
-        std::string name = h.atString("name");
-        out.push_back(HostEntry{ip, name.empty() ? ip : name});
-      }
-      return out;
+NodeSnapshot Client::snapshot(long timeout_sec) const {
+  // [ONE_MONITOR_TRUTH_V1] the node's one snapshot. A failed or malformed read is ok=false: the screen says so and
+  // the next refresh asks again (the getHosts.php read and the /etc/hosts read before it are gone).
+  HttpResult r = get("/getSnapshot.php", "", timeout_sec);
+  if (!r.ok) return NodeSnapshot{};
+  return parseSnapshot(r.body);
+}
+
+std::vector<HostEntry> Client::hostsOf(const NodeSnapshot& s) {
+  std::vector<HostEntry> out;
+  if (!s.ok) return out;
+  if (const Json* ms = s.raw.find("members"); ms && ms->isArray())
+    for (const Json& m : ms->array) {
+      std::string ip = m.atString("ip");
+      if (ip.empty()) continue;
+      std::string name = m.atString("name");
+      out.push_back(HostEntry{ip, name.empty() ? ip : name});
     }
-  }
-  // [MONITOR_HOSTS_ONE_SOURCE_V1 - T4b] getHosts.php is the one source: a failed read is an empty table until the
-  // next refresh asks again (there used to be an /etc/hosts read behind it; parseEtcHosts stays for the oracles).
-  return {};
+  return out;
 }
 
 Json Client::sensorsForHost(const std::string& domain) const {

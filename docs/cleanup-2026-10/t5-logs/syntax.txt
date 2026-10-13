@@ -1,0 +1,61 @@
+bash -n OK  docs/cleanup-2026-10/static-no-broker.sh
+bash -n OK  docs/cleanup-2026-10/static-no-fallback.sh
+bash -n OK  docs/cleanup-2026-10/t4a-tools/syntax.sh
+bash -n OK  opt/fdf/bin/fdf-wg-impl
+bash -n OK  opt/fdf/src/fdf-source/deliverables/header.sh
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-wg-impl
+page js OK  opt/fdf/src/fdf-source/fdf/www/fdf/fdf_dashboard.html
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh
+bash -n OK  opt/fdf/src/fdf-source/rinab/tools/netns-reach-test.sh
+page js OK  opt/fdf/src/fdf-source/rinab/www/fdf/fdf_dashboard.html
+page js OK  opt/fdf/www/fdf/fdf_dashboard.html
+py OK       opt/frognet_semantic/core/build_id.py
+py OK       opt/frognet_semantic/discovery/sim/boot_gate_check.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/config.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/graph_apply.py
+py OK       opt/frognet_semantic/internet_tunnels_v3/tests/graph_apply_oracle.py
+py OK       opt/frognet_semantic/simulation/frognet_sim.py
+bash -n OK  usr/local/bin/frognet_make_build_tar.sh
+bash -n OK  usr/local/bin/frognet_monitor
+py OK       usr/local/bin/frognet_monitor_py/__main__.py
+py OK       usr/local/bin/frognet_monitor_py/discovery.py
+py OK       usr/local/bin/frognet_monitor_py/draw_dashboard.py
+py OK       usr/local/bin/frognet_monitor_py/draw_ponds.py
+py OK       usr/local/bin/frognet_monitor_py/identity.py
+py OK       usr/local/bin/frognet_monitor_py/main_loop.py
+py OK       usr/local/bin/frognet_monitor_py/once.py
+py OK       usr/local/bin/frognet_monitor_py/probes.py
+py OK       usr/local/bin/frognet_monitor_py/state.py
+py OK       usr/local/bin/frognet_monitor_py/test_parser_vectors_oracle.py
+py OK       usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py
+bash -n OK  usr/local/bin/frognet_prune_removed.sh
+bash -n OK  usr/local/bin/installer/frognet_install.sh
+bash -n OK  usr/local/bin/installer/frognet_reset.sh
+bash -n OK  usr/local/lib/frognet_world_manifest.sh
+page js OK  var/www/html/fln_dashboard32.html
+php -l OK   var/www/html/frognet_echo.php
+php -l OK   var/www/html/frognet_node.inc.php
+php -l OK   var/www/html/getHosts.php
+php -l OK   var/www/html/getSnapshot.php
+php -l OK   var/www/html/index.php
+node OK     var/www/html/oracle_dashboard32_views.js
+cmp same    opt/fdf/bin/fdf-facts
+cmp same    opt/fdf/bin/fdf-hub
+cmp same    opt/fdf/bin/fdf-region-create
+cmp same    opt/fdf/bin/fdf-wg-impl
+cmp same    opt/fdf/bin/fdf-reach
+cmp same    opt/fdf/bin/fdf-mapping.sh
+cmp same    opt/fdf/bin/fdf-ram-manager.sh
+cmp same    opt/fdf/bin/fdf-member.sh
+cmp same    opt/fdf/bin/fdf-region-join
+cmp same    opt/fdf/bin/fdf-leave
+cmp same    opt/fdf/bin/fdf-pond-add
+cmp same    rinab/tools/fdf-hub
+cmp same    opt/fdf/fdf.env
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/waitParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/waitParticipants.php
+syntax: 41 files OK, 0 bad

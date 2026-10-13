@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-12-t4c"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-12-t5"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -762,7 +762,7 @@ mkdir -p \
     /etc/wireguard /etc/sentinels /etc/frognet /etc/ssl/localCA \
     /opt/frognet_semantic/{blob_cache,logs,cache} \
     /run/frognet /var/log/{frognet,mysql,apache2} \
-    /var/www/{html,www_admin/public_html,cgi-bin} \
+    /var/www/{html,cgi-bin} \
     /etc/dnsmasq.d /etc/NetworkManager/{conf.d,dispatcher.d} \
     /etc/systemd/system/dnsmasq.service.d \
     /etc/sudoers.d
@@ -1312,11 +1312,16 @@ a2dissite 000-default 2>/dev/null || true
 rm -f /etc/apache2/sites-enabled/000-default.conf
 # [TREE_FILES_ARE_THE_FILES_V1 - T4a] The four vhosts are the tree's own files in
 # etc/apache2/sites-available (C1 laid them down); this phase used to write its own copies
-# over them. (They log to the journal, [APACHE_LOG_TO_JOURNAL_V1]; E4 names admin-site.)
-for _v in 000-default admin-site databasehost frognet-ssl; do
+# over them. (They log to the journal, [APACHE_LOG_TO_JOURNAL_V1].) admin-site went in T5: it served
+# /var/www/www_admin on *:80, a port Apache does not listen on (the proxy owns 80); an upgraded node loses it in C1c.
+for _v in 000-default databasehost frognet-ssl; do
     [[ -f "/etc/apache2/sites-available/${_v}.conf" ]] || die "/etc/apache2/sites-available/${_v}.conf missing after C1"
 done
-a2ensite 000-default admin-site databasehost frognet-ssl
+a2ensite 000-default databasehost frognet-ssl
+# [ONE_MONITOR_TRUTH_V1 - T5] the tree's sudoers fragment (C1 laid it down): www-data reads the kernel's WireGuard
+# handshake times for getSnapshot.php's hub link. sudo wants it root-owned and not group/other-writable; 0440 as B4's.
+chmod 0440 /etc/sudoers.d/frognet-snapshot || die "/etc/sudoers.d/frognet-snapshot missing after C1"
+visudo -cf /etc/sudoers.d/frognet-snapshot >/dev/null || die "/etc/sudoers.d/frognet-snapshot is invalid"
 systemctl enable apache2
 log "Apache configured (not started - SSL certs come later)"
 
@@ -1729,7 +1734,6 @@ if [[ "$SSID_PROJECTION" -eq 1 ]]; then
 fi
 
 
-NODE_NAME_LOWER="${NODE_NAME,,}"
 echo
 echo "  +------------------------------------+"
 printf "  |  Name:      %-23s|\n" "$NODE_NAME"
@@ -1784,13 +1788,6 @@ log "setup_lillypad (v4) complete (config applied; interface + services come up 
 # No WireGuard key is made here: the tunnel daemon makes and owns
 # /var/lib/frognet-tunnel/node_private.key when the node is on a region
 # [DAEMON_OWNS_ITS_KEY_V1]. A LAN-only node needs none.
-
-phase "E4: Apache admin-site"
-ADMIN_CONF="/etc/apache2/sites-available/admin-site.conf"
-if [[ -f "$ADMIN_CONF" ]]; then
-    sed -i "s/ServerName FrogNetAdmin\..*/ServerName FrogNetAdmin.${NODE_NAME_LOWER}/" "$ADMIN_CONF"
-    sed -i "s/ServerName NODENAME_PLACEHOLDER/ServerName FrogNetAdmin.${NODE_NAME_LOWER}/" "$ADMIN_CONF"
-fi
 
 phase "E5: SSL certificates"
 mkdir -p /etc/ssl/localCA
@@ -2158,6 +2155,12 @@ echo "  LAN address: $NODE_IP ($_E1W)"
 ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},${_E1},"* ]] \
     && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},${_E1},...)"
 echo "  FrogNet base: $(grep -vE '^#' /opt/frognet_semantic/BUILD | tr '\n' ' ')"   # [BASE_BUILD_V1]
+# [ONE_MONITOR_TRUTH_V1 - T5] the node snapshot (getSnapshot.php: what frognet_monitor and the dashboard draw) answers
+SNAP_R="$(curl -fsS --max-time 10 http://127.0.0.1:8080/getSnapshot.php 2>&1)"
+SNAP_S="$(printf '%s' "$SNAP_R" | python3 -c 'import json,sys
+d=json.load(sys.stdin); assert d.get("snapshot")==1 and d.get("mode") in ("lan-only","region")
+print("mode=%s name=%s build=%s members=%d errors=%s" % (d["mode"], d["node"]["name"], d["build"].get("build",""), len(d["members"]), d["errors"]))' 2>&1)" \
+    && ok "snapshot: $SNAP_S" || nok "snapshot: ${SNAP_R:0:200} ($SNAP_S)"
 echo
 [[ $FAIL -eq 0 ]] && echo "  All checks passed." || echo "  $FAIL check(s) failed."
 

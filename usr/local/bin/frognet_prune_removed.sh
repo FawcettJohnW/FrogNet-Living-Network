@@ -574,9 +574,35 @@ gone "usr/local/bin/runCaptureHeadless"
 gone "usr/local/bin/runClient"
 gone "usr/local/bin/runServerHeadless"
 gone "usr/local/share/frognet/docs/SOTF_MEDIA_README.md"
+t5_section() {
+echo "-- [T5 2026-10-12] the PHP endpoints nothing calls, the admin and devices vhosts, the dashboard unit"
+# The vhosts: a2dissite's link first (a dangling sites-enabled link stops apache2's config test), then the file.
+gone "etc/apache2/sites-enabled/admin-site.conf"
+gone "etc/apache2/sites-available/admin-site.conf"
+gone "etc/apache2/sites-enabled/devices-site.conf"
+gone "etc/apache2/sites-available/devices-site.conf"
+gone "var/www/www_admin"
+units_off frognet-dashboard.service
+gone "etc/systemd/system/frognet-dashboard.service"
+gone "usr/local/bin/PropogateHost"
+gone "usr/local/bin/propogateMergeGuid.bash"
+for f in api_route.php api_semantic_hosts.php frognet_add_network.php frognet_intercept.php frognet_setup_admin_api.php \
+         getAllUsers.php getFrogNet.php getFrogs.php getResolv.php get_available_wifi.php connect_network.php \
+         getteamlocations.php insertGeoLocation.php loginuser.php registerAndForward.php registerHost.php registeruser.php \
+         setindividuallocation.php somethingChanged.php storeFrogNet.php storeGpsLoc.php wg-route.php runMerge.php \
+         frognet_templates.php frognet_gateway.py frognet_cache.php getHosts.php.example frognet_echo.php.example \
+         getDbHost.php getPonds.php Commands frognet_monitor MAMP-PRO-Logo.png; do
+    gone "var/www/html/$f"
+done
+# FrogNet's old index.html only (the "Admin BlackBox Portal foo" page): an index.html without it is apache2's own
+# default page, the distribution's file, and stays (000-default.conf serves index.php)
+grep -qs "Admin BlackBox Portal foo" "$R/var/www/html/index.html" && gone "var/www/html/index.html"
+}
+
 t3_section
 t1_section
 pip_console_section
+t5_section
 echo
 echo "-- python bytecode (regenerated on next import)"
 for d in "$R/opt/frognet_semantic" "$R/usr/local/bin"; do

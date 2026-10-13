@@ -436,7 +436,9 @@ class Applier:
             echo = "%s,%s,%s,%s" % (f.get("name") or name, ip, ups[0], ups[1]) if f else ""
             # role and alive: what the monitor shows for a device (a leaf: "DEVICE ONLINE|DOWN"); alive is this event's
             # session state, so a host in its hold-down reads alive=false while it is still listed
-            out.append({"ip": ip, "hostname": name, "echo": echo, "role": f.get("role", ""), "alive": ip in alive_ips})
+            # guid: the member's identity from its facts, for the monitor snapshot's member rows [ONE_MONITOR_TRUTH_V1]
+            out.append({"ip": ip, "hostname": name, "echo": echo, "role": f.get("role", ""), "alive": ip in alive_ips,
+                        "guid": f.get("guid", "")})
         self.w.write_if_changed(self.hosts_sentinel + ".json", _js.dumps(out, indent=1) + "\n")
 
     def _hosts_content(self, hosts: Dict[str, str]) -> str:
