@@ -228,7 +228,8 @@ def t_hostloss():
           % ("the RAM host" if ARM == "ribbit" else "the primary", got[BASE + 1], len(keys), waited))
 
 def bench(port, test):
-    out = subprocess.run([BENCH, "-p", str(port), "-q", "-c", "50", "-P", "16", "-n", "200000", "-r", "100000", "-t", test],
+    out = subprocess.run([BENCH, "-p", str(port), "-q", "-c", os.environ.get("BENCH_C", "50"), "-P", os.environ.get("BENCH_P", "16"),
+                          "-n", os.environ.get("BENCH_N", "200000"), "-r", "100000", "-t", test],
                          capture_output=True, text=True, timeout=600).stdout.replace("\r", "\n")
     m = re.findall(r"([0-9.]+) requests per second", out)
     return float(m[-1]) if m else 0.0

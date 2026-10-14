@@ -10,7 +10,7 @@
 #   REDIS_SRC   a built redis-7.2.11 tree (make). Its src/redis-server is moved to src/redis-server.stock once, and
 #               src/redis-server becomes a wrapper that runs whichever arm $ACCEPT_SERVER names, so Redis's suite
 #               starts stock or the region from the same tree with the same tests.
-#   STAGES      subset of: build metrics suite concurrency bench endpoints loss hostloss scale inet   (default: all but inet)
+#   STAGES      subset of: build metrics suite concurrency bench clients endpoints loss hostloss scale inet   (default: all but inet)
 #   SUITE       Redis suite files (default: the ten qualify.sh runs)
 #   K           endpoints for endpoints/scale (default: cores, at least 2)
 #   RAM_ENDPOINT  host:port of a deployed Redis RAM host -- the inet stage only
@@ -21,7 +21,7 @@ REDIS_SRC=${REDIS_SRC:?REDIS_SRC must name a built redis-7.2.11 tree}; REDIS_SRC
 # the suite puts unix sockets under REDIS_SRC/tests/tmp; a path near the kernel's 108-byte limit stops stock Redis from
 # starting while the region (which opens no unix socket) runs on -- an unequal test. Refuse such a tree up front.
 [ ${#REDIS_SRC} -le 40 ] || { echo "accept FAIL: REDIS_SRC path is ${#REDIS_SRC} characters; the suite's unix sockets need it 40 or less (e.g. /srv/redis-7.2.11)" >&2; exit 1; }
-STAGES=${STAGES:-"build metrics suite concurrency bench endpoints loss hostloss scale"}
+STAGES=${STAGES:-"build metrics suite concurrency bench clients endpoints loss hostloss scale"}
 SUITE=${SUITE:-"unit/type/incr unit/type/string unit/type/hash unit/type/set unit/type/list unit/type/zset unit/keyspace unit/type/stream unit/type/stream-cgroups unit/multi"}
 K=${K:-$(nproc)}; [ "$K" -lt 2 ] && K=2
 OUT=$ROOT/results/accept-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"; SUMMARY=$OUT/SUMMARY.txt
@@ -126,6 +126,16 @@ PY
 if has bench; then
   note "== bench: redis-benchmark -c 50 -P 16 -r 100000, one endpoint each, $REPEAT runs interleaved (req/s)"
   measure_k 1 bench; report bench
+fi
+
+# [MANY_CLIENTS_V1] John 2026-10-14: "we can't change the client, but we can add a test that runs a hundred of them at
+# the same time". Unpipelined clients (-P 1), as most real clients are: one at a time, then a hundred at once.
+if has clients; then
+  note "== clients: redis-benchmark -P 1 (each client one command at a time), one endpoint, $REPEAT runs interleaved (req/s)"
+  for c in 1 100; do
+    note "  $c client(s) at once:"
+    BENCH_C=$c BENCH_P=1 BENCH_N=$([ $c = 1 ] && echo 20000 || echo 200000) measure_k 1 clients$c; report clients$c
+  done
 fi
 
 note "# PART 2 -- beside stock as an operator would set it up: the same test on every arm, stock's result measured"
