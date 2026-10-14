@@ -398,6 +398,10 @@ FROGNET_NODE_EXCLUDE=(
     '*.pyc'
     'opt/frognet_semantic/*.old'
     opt/frognet_semantic/_v1
+    # [DISTRO_FILES_ARE_NOT_OURS_V1 - 2026-10-14] Debian's apache2 default page: the distribution's file on every
+    # node (000-default.conf serves index.php), not FrogNet's. A release built on a node picked it up from
+    # /var/www/html, recorded it as FrogNet's, and test_license_oracle failed on it.
+    var/www/html/index.html
     # Per-node state a build host has and a node makes for itself.
     etc/NetworkManager/system-connections
     etc/dnsmasq.d/forward_to_unbound.conf

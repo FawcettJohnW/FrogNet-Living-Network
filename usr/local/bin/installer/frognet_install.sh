@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-14-r27"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-14-r28"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -1081,6 +1081,15 @@ if [[ -f "$VENV_PYTHON" ]]; then
     [[ "$SYS_ARCH" =~ aarch64|arm ]] && SYS_IS_ARM=1 || SYS_IS_X86=1
     [[ "${VENV_ARCH,,}" =~ arm|aarch64 ]] && VEN_IS_ARM=1 || VEN_IS_X86=1
     [[ $SYS_IS_ARM -ne $VEN_IS_ARM ]] && REBUILD_VENV=1
+    # [VENV_MATCHES_THE_PYTHON_V1] A release carries its build host's venv. Same arch is not enough: a venv made on
+    # Python 3.12 (Ubuntu 24.04) points at /usr/bin/python3.12, which a Debian 12 box (3.11) does not have, and its
+    # compiled wheels are for 3.12. It is rebuilt when its interpreter does not run or is not this machine's python3.
+    _SYS_PYV="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    _VEN_PYV="$("$VENV_PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+    if [[ "$_VEN_PYV" != "$_SYS_PYV" ]]; then
+        log "  venv python ${_VEN_PYV:-<does not run>} is not this machine's python3 $_SYS_PYV: rebuilding"
+        REBUILD_VENV=1
+    fi
 else
     REBUILD_VENV=1
 fi

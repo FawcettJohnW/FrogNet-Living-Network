@@ -112,3 +112,16 @@ Now (`[TREE_FILES_ARE_THE_FILES_V1]`):
 - fix_unbound_bypass.sh is removed and pruned. It was the one-shot repair that wrote upstream_fallback.conf a third time; the installer stops unbound itself.
 
 No other heredoc in the installer, setup_lillypad or netstart writes a file the tree ships (checked). The installer is now build frognet-install-2026-10-14-r27. static-no-fallback reports 0 violations; check-docs reports 0.
+
+## r28: an install tar built and installed fresh
+I built a release on a clean r27 install (container b1) with frognet_build_release.sh, then installed it on a fresh container (r1). Three defects showed up:
+1. **The builder dropped proxy/cache/semcache_db.py, daemon/engine/data_cache.py and daemon/cache/semcache_db.py** from the world tar. It excluded them as "secret-bearing" and never appended them back, even though they stopped carrying the password long ago. A release-installed node's proxy and daemon could not import. The baseline had the same excludes. Fixed by removing the excludes. `[WORLD_HAS_THE_NODE_FILE_SET_V1]`: the build now FAILs if the world tar lacks any file of the node file set.
+2. **C2 kept a venv whose arch matched but whose Python did not.** The release carries the build host's venv (Python 3.12 on Ubuntu 24.04); Debian 12 has 3.11. `[VENV_MATCHES_THE_PYTHON_V1]`: the venv is rebuilt when its interpreter does not run or is a different version.
+3. **Debian's /var/www/html/index.html** was swept into the world tar and recorded as FrogNet's, so the licence oracle failed on it. It is now in FROGNET_NODE_EXCLUDE (`[DISTRO_FILES_ARE_NOT_OURS_V1]`).
+
+r1, installed from the release with no repo:
+- EXIT 0, "All checks passed".
+- After the reboot: `running`, no failed unit, echo `R1,10.82.82.1,...`, discovery 84/84.
+- collectives and aiconnect need agent_workload and torch, which are on the nodes and not in the repo (both PASS on Seattle7).
+
+Build id: frognet-install-2026-10-14-r28.

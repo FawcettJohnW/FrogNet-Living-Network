@@ -519,9 +519,6 @@ tar -czf "$WORLD_TGZ" \
     `# the install-written env seed, neither of which must ever ship.` \
     --exclude='var/www/html/config.php' \
     --exclude='opt/frognet_semantic/DB_CONFIG.json' \
-    --exclude='opt/frognet_semantic/daemon/cache/semcache_db.py' \
-    --exclude='opt/frognet_semantic/proxy/cache/semcache_db.py' \
-    --exclude='opt/frognet_semantic/daemon/engine/data_cache.py' \
     --exclude='usr/local/bin/install_databasehost.sh' \
     --exclude='usr/local/bin/semantic_cache_schema.sql' \
     --exclude='*addExternalNameserver.php' \
@@ -558,6 +555,22 @@ frognet_install.sh), then re-run." >&2
     exit 1
 fi
 rm -rf "$_SCAN_DIR"
+
+# [WORLD_HAS_THE_NODE_FILE_SET_V1 - 2026-10-14] The world tar must carry every file of the node file set (the same
+# list --from-repo copies), less this builder's own packaging excludes. Three code files -- proxy/cache/semcache_db.py,
+# daemon/engine/data_cache.py, daemon/cache/semcache_db.py -- were excluded here as "secret-bearing" long after they
+# stopped carrying the password (they read it through the credential module) and were never appended back, so every
+# release installed a proxy and a daemon that could not import (found on a fresh install of the 2026-10-14 release).
+_MEMBERS="$(tar --ignore-zeros -tzf "$WORLD_TGZ" | sed 's|^\./||' | sort -u)"
+_MISSING_FROM_WORLD="$(frognet_node_files / | sort -u | grep -vxE \
+    'usr/local/bin/installer/.*|usr/local/bin/frognet_install\.sh|usr/local/bin/frognet_build_release\.sh|.*addExternalNameserver\.php|etc/frognet/db\.env|.*frognet_world.*\.tgz|.*frognet_release_.*\.tgz' \
+    | comm -23 - <(printf '%s\n' "$_MEMBERS"))"
+if [[ -n "$_MISSING_FROM_WORLD" ]]; then
+    echo "FATAL: the world tar lacks $(wc -l <<<"$_MISSING_FROM_WORLD") file(s) of the node file set:" >&2
+    sed 's/^/  MISSING: /' <<<"$_MISSING_FROM_WORLD" | head -40 >&2
+    exit 1
+fi
+log "  world tar carries the whole node file set"
 unset _REAL_DB_PASS
 log "  Scan clean - no cleartext DB password in the world tar"
 
