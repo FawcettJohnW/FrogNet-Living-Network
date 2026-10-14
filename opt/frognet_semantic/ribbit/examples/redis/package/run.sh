@@ -16,8 +16,9 @@ cd "$(dirname "$(readlink -f "$0")")"; TOP=$PWD
 export REDIS_SRC=$TOP/redis-7.2.11
 case "${1:-}" in
 build)
-  need=(); for t in make:make g++:g++ tclsh:tcl python3:python3; do command -v ${t%%:*} >/dev/null || need+=(${t##*:}); done
+  need=(); for t in make:make g++:g++ tclsh:tcl python3:python3 pip3:python3-pip; do command -v ${t%%:*} >/dev/null || need+=(${t##*:}); done
   if [ ${#need[@]} -gt 0 ]; then echo "== installing ${need[*]}"; apt-get install -y -q "${need[@]}" || { echo "FAIL: apt-get install ${need[*]}"; exit 1; }; fi
+  python3 -c "import lizard" 2>/dev/null || { echo "== installing lizard (the metrics stage counts lines and complexity with it)"; pip3 install -q --break-system-packages lizard || { echo "FAIL: pip3 install lizard"; exit 1; }; }
   echo "== stock Redis 7.2.11"; make -C "$REDIS_SRC" -j"$(nproc)" || { echo "FAIL: stock Redis did not build"; exit 1; }
   echo "== the Redis region"; bash "$TOP/ribbit/examples/redis/tools/build.sh" || { echo "FAIL: the region did not build"; exit 1; }
   echo "== built: $("$REDIS_SRC/src/redis-server" --version 2>/dev/null || "$REDIS_SRC/src/redis-server.stock" --version) / region $(cat ribbit/examples/redis/VERSION)"

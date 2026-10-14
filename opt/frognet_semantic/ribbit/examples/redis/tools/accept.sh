@@ -54,7 +54,8 @@ CLI=$REDIS_SRC/src/redis-cli
 
 if has metrics; then
   note "== metrics (lines of code and cyclomatic complexity, stock src/ vs the region's src/)"
-  python3 tests/accept_metrics.py "$REDIS_SRC" "$ROOT" > "$OUT/metrics.txt" 2>&1; cat "$OUT/metrics.txt" | tee -a "$SUMMARY"
+  if python3 tests/accept_metrics.py "$REDIS_SRC" "$ROOT" > "$OUT/metrics.txt" 2>&1; then cat "$OUT/metrics.txt" | tee -a "$SUMMARY"
+  else note "  RESULT FAIL metrics: $(tail -1 "$OUT/metrics.txt")"; fi
 fi
 
 note "# PART 1 -- parity: the same tests on stock and on the region"
