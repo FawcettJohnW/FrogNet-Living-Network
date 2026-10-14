@@ -28,14 +28,16 @@ cd "$(dirname "$0")/.."
 PLAT=${PLAT:-platform/ribbit-v0.63}
 JOBS=${JOBS:-$(nproc)}
 CXX="${CXX_BIN:-g++} -O2 -pthread"          # CXX_BIN=g++-11 etc.; GCC 11 and newer
-source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
+# [SAME_ALLOCATOR_AS_STOCK_V1] stock Redis is built with jemalloc; the host and the front are too. glibc malloc takes a
+# lock that every thread contends for on every allocation (measured: futex waits in free() on the reader threads).
+source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; RIBBIT_EXTRA_DEPS="jemalloc/jemalloc.h:libjemalloc-dev" CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
 W="-Wall -Wextra -Wno-unused-parameter -Wno-free-nonheap-object"   # GCC 12 aarch64 false positive in libstdc++; see ribbit/cpp/qualify.sh
 [ "${CLEAN:-0}" = 1 ] && rm -rf build
 mkdir -p build/obj
 P=build/platform
 
 # ---- the platform, patched: redone only when the platform or a patch script changed
-PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py tools/apply_call_bytes.py tools/apply_call_async.py"
+PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py tools/apply_call_bytes.py tools/apply_call_async.py tools/apply_shape_fastpath.py"
 STAMP=$( (find "$PLAT" -type f -print0 | sort -z | xargs -0 sha256sum; sha256sum $PATCHES tools/make_host.sh) | sha256sum | cut -c1-16)
 if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   echo "== platform: copying and patching"
@@ -47,6 +49,7 @@ if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   python3 tools/apply_row_scan_bound.py $P/ribbit_cpp                     # [ROW_SCAN_BOUND_V1]
   python3 tools/apply_call_bytes.py $P/ribbit_cpp                         # [RESP_ON_THE_WIRE_V1]
   python3 tools/apply_call_async.py $P/ribbit_cpp                         # [NOBODY_WAITS_V1]
+  python3 tools/apply_shape_fastpath.py $P/ribbit_cpp                     # [SHAPE_NEEDS_AN_OBJECT_V1]
   tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_redis.cpp
   echo "$STAMP" > build/platform.stamp
 fi
@@ -94,7 +97,7 @@ settle
 
 echo "== linking"
 ENGINE=$(ls build/obj/*.o | grep -v -e frogram.o -e front.o)
-$CXX -o build/ribbit-redis-host build/ram_server_redis.o $ENGINE build/obj/frogram.o -llz4 -lcrypto
-$CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/frogram.o -llz4 -lcrypto
+$CXX -o build/ribbit-redis-host build/ram_server_redis.o $ENGINE build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+$CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/frogram.o -llz4 -lcrypto -ljemalloc
 $CXX -std=c++17 $W -Werror -I$P/ribbit_cpp tests/raw_call.cpp build/obj/frogram.o -o build/raw-call -llz4 -lcrypto   # the trust test's attacker
 echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1)"

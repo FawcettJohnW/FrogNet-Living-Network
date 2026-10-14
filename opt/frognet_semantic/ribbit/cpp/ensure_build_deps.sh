@@ -7,10 +7,11 @@
 # with apt-get, then checks again. A package that will not install stops the build with its name -- never a build
 # that goes on to fail later with a compiler error.
 #
-# Uses $CXX if the caller set it (default g++). Needs root or sudo to install.
+# Uses $CXX if the caller set it (default g++). Needs root or sudo to install. An example that needs more names them in
+# RIBBIT_EXTRA_DEPS, the same "header:package" pairs, space-separated (the Redis example: jemalloc).
 ribbit_ensure_build_deps() {
   local cxx="${CXX:-g++}" missing=() hp h pkg
-  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev"; do
+  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev" ${RIBBIT_EXTRA_DEPS:-}; do
     h=${hp%%:*}; pkg=${hp##*:}
     echo "#include <$h>" | $cxx -x c++ -fsyntax-only - 2>/dev/null || missing+=("$pkg")
   done
@@ -26,7 +27,7 @@ ribbit_ensure_build_deps() {
   # packages install and the headers are then present -- both checked below, both fatal.
   $sudo apt-get update -q || echo "  note: apt-get update reported errors (see above); installing from the lists it has"
   $sudo apt-get install -y -q "${missing[@]}" || { echo "build FAIL: apt-get install ${missing[*]} failed" >&2; exit 1; }
-  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev"; do
+  for hp in "lz4frame.h:liblz4-dev" "openssl/hmac.h:libssl-dev" ${RIBBIT_EXTRA_DEPS:-}; do
     h=${hp%%:*}; pkg=${hp##*:}
     echo "#include <$h>" | $cxx -x c++ -fsyntax-only - 2>/dev/null \
       || { echo "build FAIL: <$h> still not found after installing $pkg" >&2; exit 1; }

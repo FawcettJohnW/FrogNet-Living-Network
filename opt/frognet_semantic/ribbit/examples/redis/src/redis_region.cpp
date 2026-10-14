@@ -421,7 +421,7 @@ std::string batch(const std::string& body) {
     int slot = -1;
     if (n > 1) {                                      // one item is run where it is: nothing to fan out
         for (int k = 0; k < SLOTS && slot < 0; k++) { Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) slot = k; }
-        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); }
+        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, (int)std::min<size_t>(n - 1, INT32_MAX)); }
         // every slot taken: this batch runs on this thread alone -- the same work, without helpers
     }
     work(b);
@@ -512,7 +512,7 @@ std::string batch_raw(const std::string& body) {
     int slot = -1;
     if (n > 1) {
         for (int k = 0; k < SLOTS && slot < 0; k++) { Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) slot = k; }
-        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); }
+        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, (int)std::min<size_t>(n - 1, INT32_MAX)); }
     }
     work(b);
     for (uint32_t l; (l = b->left.load(std::memory_order_acquire)) != 0; ) fwait(b->left, l);
@@ -547,7 +547,7 @@ void batch_raw_async(const std::string& body, std::function<void(std::string)> d
     int slot = -1;
     if (n > 1)
         for (int k = 0; k < SLOTS; k++) { b->slot = k; Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) { slot = k; break; } }
-    if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); work(b); return; }
+    if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, (int)std::min<size_t>(n - 1, INT32_MAX)); work(b); return; }
     b->slot = -1;
     work(b);            // in no slot, no other thread can see it: this thread runs it all, and its last item answered and ...
     delete b;           // ... left it here to free
