@@ -31,6 +31,7 @@ pick() { grep -aE "^(PASS|FAIL|RESULT|MEASURE)" "$1" | sed "s/^/  /" | tee -a "$
 STOCK=$REDIS_SRC/src/redis-server.stock
 note "## Redis region acceptance $(basename $OUT) on $(uname -srm), $(nproc) cores"
 note "## stock: $( { [ -x $STOCK ] && $STOCK --version; } || $REDIS_SRC/src/redis-server --version)"
+note "## region build: $(cat "$ROOT/VERSION" 2>/dev/null || git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 if has build; then
   note "== build"
