@@ -32,12 +32,19 @@ def up(p):
         try: socket.create_connection(("127.0.0.1", p), timeout=1).close(); return
         except OSError: time.sleep(0.02)
     sys.exit("port %d never opened" % p)
-procs = [subprocess.Popen([B + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE, "--api", API, "--quiet"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
-up(BASE)
-for i in range(NF):
-    procs.append(subprocess.Popen([B + "/ribbit-redis-front", "--port", str(BASE + 1 + i), "--save", ""], env=dict(env, RIBBIT_RAM="127.0.0.1:%d" % BASE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    up(BASE + 1 + i)
-PORTS = [BASE + 1 + i for i in range(NF)]
+# ENDPOINTS=port,port,... runs the same audit against servers already running (acceptance runs it against stock Redis
+# this way, every "front" being the one stock server); otherwise a host and NF fronts are started here.
+if os.environ.get("ENDPOINTS"):
+    procs = []; given = [int(p) for p in os.environ["ENDPOINTS"].split(",")]
+    PORTS = [given[i % len(given)] for i in range(NF)]
+    for p in set(PORTS): up(p)
+else:
+    procs = [subprocess.Popen([B + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE, "--api", API, "--quiet"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
+    up(BASE)
+    for i in range(NF):
+        procs.append(subprocess.Popen([B + "/ribbit-redis-front", "--port", str(BASE + 1 + i), "--save", ""], env=dict(env, RIBBIT_RAM="127.0.0.1:%d" % BASE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        up(BASE + 1 + i)
+    PORTS = [BASE + 1 + i for i in range(NF)]
 admin = Redis("127.0.0.1", PORTS[0])
 results = []
 def run(n_per_thread, work):

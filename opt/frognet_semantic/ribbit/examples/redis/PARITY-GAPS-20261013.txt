@@ -1,0 +1,80 @@
+INCR uses shared objects in the 0-9999 range
+GETDEL propagate as DEL command to replica
+GETEX without argument does not propagate to replica
+trim on SET with big value
+Hash ziplist of various encodings
+Hash ziplist of various encodings - sanitize dump
+Is a ziplist encoded Hash promoted on big payload?
+SINTERSTORE with two sets, after a DEBUG RELOAD - intset
+SINTERSTORE with two sets, after a DEBUG RELOAD - regular
+SPOP new implementation: code path #1 propagate as DEL or UNLINK
+SRANDMEMBER with a dict containing long chain
+Set encoding after DEBUG RELOAD
+BLMPOP propagate as pop with count command to replica
+Check if list is still ok after a DEBUG RELOAD - listpack
+Check if list is still ok after a DEBUG RELOAD - quicklist
+Command being unblocked cause another command to get unblocked execution order test
+LMPOP propagate as pop with count command to replica
+List encoding conversion when RDB loading
+List of various encodings
+List of various encodings - sanitize dump
+MULTI + LPUSH + EXPIRE + DEBUG SLEEP on blocked client, key already expired
+SWAPDB wants to wake blocked client, but the key already expired
+Test LPUSH and LPOP on plain nodes
+BZMPOP propagate as pop with count command to replica
+ZMPOP propagate as pop with count command to replica
+ZSCORE after a DEBUG RELOAD - listpack
+ZSCORE after a DEBUG RELOAD - skiplist
+Empty stream can be rewrite into AOF correctly
+Stream can be rewrite into AOF correctly after XDEL lastid
+XADD with LIMIT consecutive calls
+XADD with LIMIT delete entries no more than limit
+XADD with MAXLEN > xlen can propagate correctly
+XADD with MAXLEN option and the '~' argument
+XADD with MINID > lastid can propagate correctly
+XADD with ~ MAXLEN and LIMIT can propagate correctly
+XADD with ~ MAXLEN can propagate correctly
+XADD with ~ MINID and LIMIT can propagate correctly
+XADD with ~ MINID can propagate correctly
+XTRIM with LIMIT delete entries no more than limit
+XTRIM with MAXLEN option basic test
+XTRIM with ~ MAXLEN can propagate correctly
+XTRIM with ~ is limited
+Consumer group last ID propagation to slave (NOACK=0)
+Consumer group last ID propagation to slave (NOACK=1)
+Consumer seen-time and active-time
+Consumer without PEL is present in AOF after AOFRW
+Empty stream with no lastid can be rewrite into AOF correctly
+Loading from legacy (Redis <= v6.2.x, rdb_ver < 10) persistence
+Loading from legacy (Redis <= v7.0.x, rdb_ver < 11) persistence
+Replication tests of XCLAIM with deleted entries (autclaim=0)
+Replication tests of XCLAIM with deleted entries (autclaim=1)
+XREADGROUP with NOACK creates consumer
+Blocking commands ignores the timeout
+EXEC and script timeout
+EXEC with at least one use-memory command should fail
+EXEC with only read commands should not be rejected when OOM
+Flushall while watching several keys by one client
+MULTI / EXEC is not propagated (single write command)
+MULTI / EXEC is propagated correctly (empty transaction)
+MULTI / EXEC is propagated correctly (multiple commands with SELECT)
+MULTI / EXEC is propagated correctly (multiple commands)
+MULTI / EXEC is propagated correctly (read-only commands)
+MULTI / EXEC is propagated correctly (write command, no effect)
+MULTI / EXEC with REPLICAOF
+MULTI and script timeout
+MULTI propagation of EVAL
+MULTI propagation of PUBLISH
+MULTI propagation of SCRIPT FLUSH
+MULTI propagation of SCRIPT LOAD
+MULTI propagation of XREADGROUP
+MULTI with BGREWRITEAOF
+MULTI with FLUSHALL and AOF
+MULTI with SAVE
+MULTI with SHUTDOWN
+MULTI with config error
+MULTI with config set appendonly
+MULTI-EXEC body and script timeout
+exec with read commands and stale replica state change
+exec with write commands and state change
+just EXEC and script timeout
