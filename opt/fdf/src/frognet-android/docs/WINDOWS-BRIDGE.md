@@ -65,6 +65,7 @@ loads it only from its own folder or System32 and says so when it is missing.
 
 ## Not yet proven on hardware
 
-The Wintun adapter, netsh, the keepalive options on Windows sockets, the no-loop binding, a live session. The log says
-each: `bridge: ponds …; Windows 11, Java 25.0.2`, `fdf-tun: Wintun driver 0.14`, `bridge: FrogNet 100.127.255.1/32 ->
+The run above proved the Wintun adapter, netsh, and a live session through the hub. Not yet shown on Windows hardware:
+the keepalive options on Windows sockets (a silent loss seen within 5 s), the no-loop binding, and reach into a second
+pond (more than one pond at once, colliding addresses: proven in netns only). The log says each: `bridge: ponds …; Windows 11, Java 25.0.2`, `fdf-tun: Wintun driver 0.14`, `bridge: FrogNet 100.127.255.1/32 ->
 rc=0`, `route 100.64.0.0/10 -> rc=0`, `forward via hub …`, `reach into …`, `… its socket is held to "Wi-Fi"`.

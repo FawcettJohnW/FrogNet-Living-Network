@@ -13,7 +13,7 @@ makes it fail. Exits nonzero on any failure.
 """
 import importlib.util, os, sys
 spec = importlib.util.spec_from_loader("fdfhub", loader=None)
-src = open(os.path.join(os.path.dirname(__file__), "..", "tools", "fdf-hub")).read()
+src = open(os.path.join(os.path.dirname(__file__), "..", "bin", "fdf-hub")).read()   # the installed tree: /opt/fdf/hub -> /opt/fdf/bin
 hub = importlib.util.module_from_spec(spec); exec(compile(src, "fdf-hub", "exec"), hub.__dict__)
 desired, reconcile, FakeKernel = hub.desired, hub.reconcile, hub.FakeKernel
 

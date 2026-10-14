@@ -3,6 +3,25 @@
 Everything installs under /opt/fdf; nothing goes into /usr/local/bin. Run as root (the RAM manager machine adds an
 address to an interface; members add one route).
 
+## What is proven where (r19-a15, 2026-10-11)
+
+"netns" means the repo's network-namespace tests on one Linux machine (rinab/tools/netns-*-test.sh). "Hardware" means
+John's machines, from his own reports. Nothing listed as netns-only has been run on hardware.
+
+| capability | netns (Linux) | hardware |
+|---|---|---|
+| region: RAM manager + hub on the droplet, nodes joined by `fdf-region-join` | region-loop PASS | droplet StreamingFrog + the Pis, running |
+| devices stay named in /etc/hosts after runMerge (a15) | region-loop's runMerge check: FAIL on a14, PASS on a15 | the fault was found on Seattle5; the a15 fix is not yet confirmed there |
+| reach across ponds: aliases, quarantine, `resolve`, ambiguity refused | netns-reach 70/70 | not run (one pond on hardware) |
+| Windows bridge (fdf-windows.zip) | the same Kotlin member, stage 7 | DESKTOP-1UJHGLF: on the mesh; off the mesh as a leaf via the hub; ping and ssh to a node; frognet_monitor correct. Not run: two ponds; the reverse direction beyond ssh |
+| Android bridge (app a15, fdf-tun b11) | fdf-tun suite; member selftest | handset: joined and reached ("Works", a15) |
+| the Communicator's servers on a node (`fdf-comms.sh`, `COMMS_ON_A_NODE_V1`) | stand-in binaries; the where cell | not yet run on a node |
+| the phone and `fdf-bridge.cmd ask comms` finding them from the where cell | stage 7 (`ask comms`) | not yet run |
+| kart demo calls through comms-app | stand-in comms-app (RESULTS.md) | not with the real Communicator |
+| LISP area mapping (`rina-lisp`, oracle against lispers.net) | RESULTS.md D5 sections | not on hardware |
+
+Historical RINA Mode B measurements are in rinab/README.md, marked as such.
+
 ## Install
 
 One file per machine type. In the FrogNet repo they are in opt/fdf/dist; the build they carry is in /opt/fdf/BUILD
@@ -29,7 +48,14 @@ The source of everything above is repo opt/fdf/src/fdf-source (rinab, fdf, the F
     # the x86 static clients: docs/TRANSITION-OPTIMIZATION.md section 5
     bash tools/make_deliverables.sh <outdir>      # the three files above; refuses on any tag or binary mismatch
 
-## Area name and password (the direct and mapping set-ups below)
+## The earlier set-ups: one RAM server, or the mapping system
+
+Everything from here to "The kart demo", except "The droplet's services", is the pre-region FD&F: a RAM server every member is told about, or a
+mapping system with a movable RAM manager, and fdf-member.sh on each machine. The scripts still ship (a lab or a demo);
+the FrogNet region (nodes, leaves, hub, re-homing) is "Install" above and
+hub/DEPLOY-REGION-2026-10-09.md.
+
+### Area name and password
 
 The area's name is set once, in /opt/fdf/fdf.env (RINA_AREA; default rina-area.test). Every machine in the area
 uses the same name.

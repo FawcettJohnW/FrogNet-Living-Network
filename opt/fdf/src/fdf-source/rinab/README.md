@@ -1,4 +1,12 @@
-# RINA on the Redis server model (Mode B, region build) — the code behind PROFILE-1.md
+# RINA on the Redis server model (Mode B, region build)
+
+**Two things in this file, kept apart.** The layout, the build and the commands describe the code as it is in this
+package (FD&F r19-a15). The measurements under "Historical measurements" were taken on the Mode B tree of 2026-10-05/06
+(steps 1 to 2b), before FD&F's region, LISP mapping and ponds work; they are not measurements of r19-a15.
+
+**Not in this package:** `PROFILE-1.md`, `VERIFIED.md` and `evidence/`. They were not in fdf-source-r16 or r19 as
+handed over either. Without them the table below cannot be checked from this package; the commands under "Rebuild
+and re-measure" produce the current numbers.
 
 ## Layout
 
@@ -22,7 +30,6 @@
 - `tools/cg-rr.sh [N] [OUT]`: instructions inside region calls (callgrind) during an rr of N.
 - `tools/bench.sh`, `tools/cpu-split.sh`: the same-run comparison with Mode B as handed off
   (`OLD=<that tree>/ribbit/examples/rina/rlite`).
-- `evidence/`: every result file PROFILE-1.md and VERIFIED.md cite, as produced.
 
 ## Rebuild and re-measure
 
@@ -39,7 +46,7 @@ namespaces.
     tools/perf-count.sh 20000                                                      # every SDU arrives (credit by quarters)
     tools/alloc-stall.sh 400                                                       # no allocation slower than 1 s
 
-## Which numbers come from which evidence
+## Historical measurements (Mode B, 2026-10-05/06; the files they cite are not in this package)
 
 | number | file |
 |---|---|
@@ -50,8 +57,10 @@ namespaces.
 | 30/30 isolated after step 2b | evidence/suite-isolated-after-step2b.tsv |
 | ping, rr and perf against the handed-off Mode B, same run | evidence/bench-after-credit.txt |
 
-The code here is the latest state (step 2d plus the fixes at the end of PROFILE-1.md). The step-1 and step-2a profiles were taken on earlier states of these same files.
-Their changes are marked by the tags above, and no later step removed them.
+Those profiles were taken on earlier states of these files. The changes they measured are marked by the tags above, and
+no later step removed them. The code here has grown since: `src/rina_lisp.cpp` (the LISP mapping, see
+`lisp-mapping/README.md`), the region and ponds work (`docs/`), and the netns tests in `tools/`. Their proofs are in
+`experiments/RESULTS.md` and the docs/MERGE-*.md files, each with the test that shows it.
 
 ## One command
 

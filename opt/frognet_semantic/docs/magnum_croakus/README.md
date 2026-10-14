@@ -1,29 +1,30 @@
-# Magnum Croakus — build kit (partial)
+# Magnum Croakus — generator
 
-Source of truth for *Magnum Croakus — How to Work Like a Frog*.
-**Edit `build_magnum.js`, NEVER the generated `.docx`.**
+Builds `Magnum_Croakus.docx` and `Magnum Croakus.html` from one source, `build_magnum.js`.
+This is the 2026-10-11 edition: the 10-07 audited edition (published book rebased with architecture checkpoint 6,
+Part XV1/2, and the normative audit), then checked section by section against the 2026-10-11 code and corrected
+to match it (notes/VERIFY-2026-10-11.md).
 
-## Present here
-- `build_magnum.js` — the generator (Node + `docx`). ~37 sections, 6 appendices.
-  Verified this rev: parses and runs; builds a valid docx once the figures exist.
+## Build
+    npm install          # docx 9.10.0, pinned in package.json / package-lock.json
+    node build_magnum.js # writes both outputs here
 
-## NOT here yet (upload to complete the kit)
-- `make_magnum_figures.py` — regenerates the four embedded PNGs (matplotlib).
-- `magnum-figures/*.png` — the embedded figures. `build_magnum.js` reads them at
-  build time (e.g. `magnum-figures/multi_transport.png`); without them the build
-  stops at ENOENT. The figures are RECONSTRUCTIONS of lost originals — verify each
-  against its section.
+Node 22 was used. The HTML output must be published next to `magnum-figures/`.
 
-## Build (once the figures are present)
-    python3 make_magnum_figures.py     # only if figures missing/changed
-    npm install docx                   # once
-    node build_magnum.js               # writes Magnum_Croakus.docx
+## Files
+- `build_magnum.js` — the generator. Edit this, never the outputs.
+- `shell_head.html` — HTML head and stylesheet; the generator reads it at build time.
+- `magnum-figures/` — all 32 figures the generator references, including the frontispiece.
+- `notes/REVIEW-2026-10-07.md` — what the rebase and audit changed.
+- `notes/MERGE-DROPPED.md` — published wording that lost to checkpoint wording in the merge.
+- `notes/AUDIT-normative-2026-10-07.md` — the normative-consistency audit.
+- `notes/VERIFY-2026-10-08.md` — the 10-08 verification against the 3 Oct code (superseded by 10-11).
+- `notes/VERIFY-2026-10-11.md` — verification against the 10-11 code: 347 problems found, then an independent
+  second pass over the corrected book found 72 more. All applied.
+- `notes/OPEN-FOR-JOHN-2026-10-11.md` — the code questions and rulings the check raised (the book states what the code does).
+- `notes/patches-2026-10-11/` — every edit, as scripts, in the order applied: audit_1008_a, audit_1008_b, A..K, S,
+  R-12, R-34, R-56, T. Each asserts its text matches exactly once.
 
-## Checked against the 2026-07-20 discovery/loop fixes
-No book change needed. Appendix E ("Advanced Simulation — The Disaster Area") and
-§12 assert reachability / component-count / routing STRUCTURE, not specific /32
-tables — exactly the invariants the loop fix preserves. Ran Appendix E's own 8-cell
-topology (LAN_SIZES=[3,4,5,4,3,5,4,3], 31 nodes) against the fixed sim: converged,
-0 back-vouch loops, full reachability. The loop prose (Parts III/IX: "children do
-not advertise up") describes the structural rule the counter+memo backstops — not
-contradicted.
+## Appendix L (doctrine index)
+Generated at build time by scanning a FrogNet source tree for `[TAG_Vn]` markers.
+Set `FROGNET_SRC` to that tree; without it the appendix prints its "not generated" notice.
