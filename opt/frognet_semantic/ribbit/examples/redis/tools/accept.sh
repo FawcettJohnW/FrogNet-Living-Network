@@ -70,12 +70,14 @@ if has suite; then
     for x in $s $r; do   # a file that ran no test is a failure of the run, never a zero-gap result
       grep -aqE '^\[(ok|err)\]' $x || note "  RESULT FAIL suite $f: $(basename $x .txt) ran no test: $(tail -1 $x)"
     done
-    # names, one per test (a few tests run under the same name twice -- once per encoding -- and count once here)
-    okn() { grep -a '^\[ok\]' "$1" | sed 's/^\[ok\]: //; s/ ([0-9]* ms)$//' | sort -u; }
-    errn() { grep -a '^\[err\]' "$1" | sed 's/^\[err\]: //; s/ in tests\/.*$//' | sort -u; }
+    # tests by name AND occurrence: some tests run twice under one name (once per encoding); the second run is "<name> (run 2)",
+    # so a test that fails in one encoding only is still a gap (counting names once hid one on the Pi 5)
+    nth() { awk '{c[$0]++; print (c[$0] > 1 ? $0 " (run " c[$0] ")" : $0)}' | sort; }
+    okn() { grep -a '^\[ok\]' "$1" | sed 's/^\[ok\]: //; s/ ([0-9]* ms)$//' | nth; }
+    errn() { grep -a '^\[err\]' "$1" | sed 's/^\[err\]: //; s/ in tests\/.*$//' | nth; }
     gaps=$(comm -23 <(okn "$s") <(okn "$r"))
-    red=$(comm -12 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort -u) <(errn "$r"))
-    notrun=$(comm -23 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort -u) <(errn "$r"))
+    red=$(comm -12 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort) <(errn "$r"))
+    notrun=$(comm -23 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort) <(errn "$r"))
     note "  $f  stock ok $(okn $s | wc -l) err $(errn $s | wc -l)   region ok $(okn $r | wc -l) err $(errn $r | wc -l)   green on stock only: $(printf '%s' "$gaps" | grep -c .) (red on the region $(printf '%s' "$red" | grep -c .), not run on the region $(printf '%s' "$notrun" | grep -c .))"
     [ -n "$red" ] && printf '%s\n' "$red" | sed 's/^/      stock-only, red on the region: /' >> "$SUMMARY"
     [ -n "$notrun" ] && printf '%s\n' "$notrun" | sed 's/^/      stock-only, not run on the region (the suite skipped it): /' >> "$SUMMARY"
