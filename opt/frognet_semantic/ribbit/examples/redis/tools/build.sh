@@ -35,7 +35,7 @@ mkdir -p build/obj
 P=build/platform
 
 # ---- the platform, patched: redone only when the platform or a patch script changed
-PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py"
+PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py tools/apply_call_bytes.py"
 STAMP=$( (find "$PLAT" -type f -print0 | sort -z | xargs -0 sha256sum; sha256sum $PATCHES tools/make_host.sh) | sha256sum | cut -c1-16)
 if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   echo "== platform: copying and patching"
@@ -45,6 +45,7 @@ if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
   python3 tools/apply_coalesce.py $P/ribbit_cpp                           # [CLIENT_COALESCES_V1]
   python3 tools/apply_wire_order.py $P/ribbit_cpp                         # [WIRE_ORDER_TURNS_V1]
   python3 tools/apply_row_scan_bound.py $P/ribbit_cpp                     # [ROW_SCAN_BOUND_V1]
+  python3 tools/apply_call_bytes.py $P/ribbit_cpp                         # [RESP_ON_THE_WIRE_V1]
   tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_redis.cpp
   echo "$STAMP" > build/platform.stamp
 fi

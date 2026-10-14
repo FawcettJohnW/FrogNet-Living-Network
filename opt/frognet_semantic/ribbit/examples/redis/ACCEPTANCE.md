@@ -162,3 +162,20 @@ no longer crosses the wire (`[CONTEXT_IN_THE_REGION_V1]`). Suite and concurrency
 
 One connection, one command at a time (no pipelining) got slower: the loss test's single writer on endpoint 2
 acknowledged 14,586 SETs in 10 s against 22,135 before -- the batch path adds a hop for a lone connection.
+
+## Run of 2026-10-14 04:46, the batch as RESP on the wire (same sandbox)
+
+`op=redis_raw` ([RESP_ON_THE_WIRE_V1]): the batch crosses the permanent socket (the data socket past the ceiling) as
+the pipelines' own RESP in a text frame -- no JSON, no base64, no per-character escaping. The wire's codec holds a body
+as text, so a payload that is not UTF-8 goes as base64, flagged; a value of every byte value round-trips. The platform
+gains `Session::call_bytes` (tools/apply_call_bytes.py): call() with the answer's bytes unparsed. Suite and concurrency
+identical; two-fronts, reconnect and trust oracles green.
+
+| redis-benchmark -c 50 -P 16 | stock | region (JSON batch) | region (RESP batch) | ÷ stock |
+|---|---|---|---|---|
+| SET, 1 endpoint | 653,595 | 113,186 | 210,084 | 0.32 |
+| GET, 1 endpoint | 900,901 | 130,890 | 286,944 | 0.32 |
+| SET, 2 endpoints | 411,350 | 145,124 | 297,973 | 0.72 |
+| GET, 2 endpoints | 1,061,195 | 181,171 | 406,672 | 0.38 |
+
+The loss test's single sequential writer: 25,659 SETs in 10 s (22,135 originally, 14,586 with the JSON batch).

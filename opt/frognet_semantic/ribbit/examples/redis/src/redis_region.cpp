@@ -326,7 +326,7 @@ std::string call(const std::string& body, bool blocking) {
 // epochs (ebr), so no worker can still hold it when it is freed.
 namespace {
 // one connection's pipeline, its context held here: the replies, then whether it is authenticated and must close
-struct Item { uint64_t id = 0; std::string token, p, r, err; bool authed = false, close = false; };
+struct Item { uint64_t id = 0; std::string token, p, r, err; bool authed = false, close = false, raw = false; };
 void run_item(Item& it) {
     try {
         std::unique_ptr<Client> holder(new Client); Client& c = *holder;
@@ -338,7 +338,7 @@ void run_item(Item& it) {
         ebr::Guard qepoch;
         if (c.in_multi) queue_load(c);
         RespParser parser; parser.authenticated = true; parser.max_bulk = g.max_bulk.load(std::memory_order_relaxed);
-        const std::string pb = b64dec(it.p);
+        const std::string pb = it.raw ? it.p : b64dec(it.p);
         parser.feed(pb.data(), pb.size());
         ParseResult pr = parser.drain();
         if (pr.fatal) throw std::runtime_error("redis region: the pipeline is not RESP: " + pr.err);
@@ -355,7 +355,7 @@ void run_item(Item& it) {
         }
         queue_store(c);
         rec->authed = c.authed; rec->user = c.user; snap_out(rec->snap, c);
-        it.r = b64enc(out); it.authed = c.authed; it.close = c.close_after_reply;
+        it.r = it.raw ? std::move(out) : b64enc(out); it.authed = c.authed; it.close = c.close_after_reply;
     } catch (const std::exception& e) { it.err = e.what(); }
 }
 struct Batch {
@@ -434,6 +434,80 @@ std::string batch(const std::string& body) {
     return o;
 }
 
+// [RESP_ON_THE_WIRE_V1] The same batch with no JSON at all: the body is the pipelines' RESP, framed in text.
+// Request: "RRB1 <count>\n", then per item "<id> <token>\n" and its pipeline as a payload. Answer: "RRA1 <count>\n",
+// then per item "<status><authenticated><close>\n" (each '0' or '1'; status 1 = refused) and the replies (or the
+// refusal's text) as a payload. A payload is "T<len>\n<RESP>" -- or "B<len>\n<base64>" when the bytes are not UTF-8.
+namespace {
+// [RESP_ON_THE_WIRE_V1] The semantic wire carries text (its codec holds a body as a Python str: bytes that are not UTF-8
+// cannot cross it). So the frame is text -- decimal lengths, one header line per item -- and a payload goes as its own
+// RESP when that is valid UTF-8 (what nearly every client sends), base64 only when it is not ('B' instead of 'T').
+static bool utf8_ok(const std::string& s) {
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) { i++; continue; }
+        int k = (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
+        if (k < 0) return false;
+        uint32_t cp = c & (0x3F >> k);
+        for (int j = 1; j <= k; j++) { if (i + j >= n) return false; unsigned char d = (unsigned char)s[i + j]; if ((d >> 6) != 2) return false; cp = cp << 6 | (d & 0x3F); }
+        if ((k == 1 && cp < 0x80) || (k == 2 && cp < 0x800) || (k == 3 && cp < 0x10000) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        i += k + 1;
+    }
+    return true;
+}
+static void put_text(std::string& o, const std::string& v, std::string (*b64)(const std::string&)) {   // "T<len>\n<bytes>" or "B<len>\n<base64>"
+    if (utf8_ok(v)) { o += 'T'; o += std::to_string(v.size()); o += '\n'; o += v; }
+    else { std::string e = b64(v); o += 'B'; o += std::to_string(e.size()); o += '\n'; o += e; }
+}
+static std::string get_line(const std::string& s, size_t& at) {
+    size_t e = s.find('\n', at); if (e == std::string::npos) throw std::runtime_error("raw batch truncated");
+    std::string l = s.substr(at, e - at); at = e + 1; return l;
+}
+static std::string get_text(const std::string& s, size_t& at, std::string (*b64d)(const std::string&)) {
+    std::string h = get_line(s, at);
+    if (h.empty() || (h[0] != 'T' && h[0] != 'B')) throw std::runtime_error("raw batch: a payload header is malformed");
+    size_t len = std::stoull(h.substr(1));
+    if (at + len > s.size()) throw std::runtime_error("raw batch truncated");
+    std::string v = s.substr(at, len); at += len;
+    return h[0] == 'T' ? v : b64d(v);
+}
+}  // namespace
+std::string batch_raw(const std::string& body) {
+    init_once(); start_pool();
+    size_t at = 0;
+    std::string h = get_line(body, at);
+    if (h.compare(0, 5, "RRB1 ") != 0) throw std::runtime_error("redis region: not a raw batch (RRB1)");
+    uint32_t n = (uint32_t)std::stoul(h.substr(5));
+    auto* b = new Batch; b->items.resize(n);
+    try {
+        for (uint32_t i = 0; i < n; i++) {
+            Item& it = b->items[i]; it.raw = true;
+            std::string l = get_line(body, at); size_t sp = l.find(' ');
+            if (sp == std::string::npos) throw std::runtime_error("redis region: raw batch item header is malformed");
+            it.id = std::stoull(l.substr(0, sp)); it.token = l.substr(sp + 1);
+            it.p = get_text(body, at, b64dec);
+        }
+    } catch (...) { delete b; throw; }
+    b->left.store(n, std::memory_order_release);
+    int slot = -1;
+    if (n > 1) {
+        for (int k = 0; k < SLOTS && slot < 0; k++) { Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) slot = k; }
+        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); }
+    }
+    work(b);
+    for (uint32_t l; (l = b->left.load(std::memory_order_acquire)) != 0; ) fwait(b->left, l);
+    std::string o = "RRA1 " + std::to_string(n) + "\n";
+    for (uint32_t i = 0; i < n; i++) {
+        const Item& it = b->items[i]; const bool bad = !it.err.empty();
+        o += bad ? '1' : '0'; o += it.authed ? '1' : '0'; o += it.close ? '1' : '0'; o += '\n';
+        put_text(o, bad ? it.err : it.r, b64enc);
+    }
+    if (slot >= 0) { slots[slot].store(nullptr, std::memory_order_release); ebr::Guard epoch; ebr::retire(b); }
+    else delete b;
+    return o;
+}
+
 }  // namespace door
 }  // namespace rr
 
@@ -441,3 +515,4 @@ std::string batch(const std::string& body) {
 std::string redis_region_call(const std::string& body) { return rr::door::call(body, false); }
 std::string redis_region_block(const std::string& body) { return rr::door::call(body, true); }
 std::string redis_region_batch(const std::string& body) { return rr::door::batch(body); }
+std::string redis_region_batch_raw(const std::string& body) { return rr::door::batch_raw(body); }

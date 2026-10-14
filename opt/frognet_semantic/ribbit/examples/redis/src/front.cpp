@@ -93,7 +93,13 @@ static SessHandle& g_sess = g_sessv[0];
 static std::string g_ram_host; static int g_ram_port = 0;
 static std::string g_api;
 struct RamRef {   // what the code below calls: the current session, opened on first use after a loss
+    std::string call_bytes(const std::string& m, const std::string& p, const std::string& b, double t, int which) {
+        return with(which, [&](frogram::Session& s) { return s.call_bytes(m, p, b, t); });
+    }
     frogram::Json call(const std::string& m, const std::string& p, const std::string& b = "", double t = 15.0, int which = 0) {
+        return with(which, [&](frogram::Session& s) { return s.call(m, p, b, t); });
+    }
+    template <class F> auto with(int which, F f) -> decltype(f(std::declval<frogram::Session&>())) {
         SessHandle& h = g_sessv[which];
         std::shared_ptr<frogram::Session> s = h.load();
         if (!s) {
@@ -101,7 +107,7 @@ struct RamRef {   // what the code below calls: the current session, opened on f
             std::shared_ptr<frogram::Session> none;
             if (h.compare_exchange_strong(none, fresh)) s = fresh; else s = none;
         }
-        try { return s->call(m, p, b, t); }
+        try { return f(*s); }
         catch (const frogram::Unreachable&) {
             // the host is one: a session found gone means every session to it is gone. Each is dropped, so the next
             // call on any of them opens a new one (a call already in flight on another fails loudly on its own).
@@ -178,11 +184,45 @@ static void diag_region(uint64_t id, const char* op, const std::string& body, co
 // dispatchers they wait for.
 static void fwait(std::atomic<uint32_t>& w, uint32_t v) { while (w.load(std::memory_order_acquire) == v) syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, v, nullptr, nullptr, 0); }
 static void fwake(std::atomic<uint32_t>& w, int n) { syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, n, nullptr, nullptr, 0); }
+
+// [RESP_ON_THE_WIRE_V1] The semantic wire carries text (its codec holds a body as a Python str: bytes that are not UTF-8
+// cannot cross it). So the frame is text -- decimal lengths, one header line per item -- and a payload goes as its own
+// RESP when that is valid UTF-8 (what nearly every client sends), base64 only when it is not ('B' instead of 'T').
+static bool utf8_ok(const std::string& s) {
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        unsigned char c = (unsigned char)s[i];
+        if (c < 0x80) { i++; continue; }
+        int k = (c >> 5) == 6 ? 1 : (c >> 4) == 14 ? 2 : (c >> 3) == 30 ? 3 : -1;
+        if (k < 0) return false;
+        uint32_t cp = c & (0x3F >> k);
+        for (int j = 1; j <= k; j++) { if (i + j >= n) return false; unsigned char d = (unsigned char)s[i + j]; if ((d >> 6) != 2) return false; cp = cp << 6 | (d & 0x3F); }
+        if ((k == 1 && cp < 0x80) || (k == 2 && cp < 0x800) || (k == 3 && cp < 0x10000) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return false;
+        i += k + 1;
+    }
+    return true;
+}
+static void put_text(std::string& o, const std::string& v, std::string (*b64)(const std::string&)) {   // "T<len>\n<bytes>" or "B<len>\n<base64>"
+    if (utf8_ok(v)) { o += 'T'; o += std::to_string(v.size()); o += '\n'; o += v; }
+    else { std::string e = b64(v); o += 'B'; o += std::to_string(e.size()); o += '\n'; o += e; }
+}
+static std::string get_line(const std::string& s, size_t& at) {
+    size_t e = s.find('\n', at); if (e == std::string::npos) throw std::runtime_error("the region\'s answer to a batch is truncated");
+    std::string l = s.substr(at, e - at); at = e + 1; return l;
+}
+static std::string get_text(const std::string& s, size_t& at, std::string (*b64d)(const std::string&)) {
+    std::string h = get_line(s, at);
+    if (h.empty() || (h[0] != 'T' && h[0] != 'B')) throw std::runtime_error("raw batch: a payload header is malformed");
+    size_t len = std::stoull(h.substr(1));
+    if (at + len > s.size()) throw std::runtime_error("the region\'s answer to a batch is truncated");
+    std::string v = s.substr(at, len); at += len;
+    return h[0] == 'T' ? v : b64d(v);
+}
 struct Conn;
 // A job is one connection's pipeline. Either a thread waits on `done` (the blocking-command path), or `conn` is set
 // and the dispatcher finishes the connection's turn itself: writes the replies and hands the socket back to the loop.
-struct Job { uint64_t id = 0; std::string token, p;                   // the call: connection and pipeline (base64)
-             std::string r, error; bool authed = false, close = false;   // the answer: replies (base64), the region's word
+struct Job { uint64_t id = 0; std::string token, p;                   // the call: connection and pipeline (RESP bytes)
+             std::string r, error; bool authed = false, close = false;   // the answer: replies (RESP bytes), the region's word
              std::atomic<uint32_t> done{0}; Job* next = nullptr;
              Conn* conn = nullptr; bool fatal = false; std::string fatal_err; };
 static std::atomic<Job*> g_jobs{nullptr};
@@ -203,28 +243,24 @@ static void dispatcher(int which) {
         if (!l) { fwait(g_jobs_gen, seen); continue; }
         v.clear(); for (; l; l = l->next) v.push_back(l);
         std::reverse(v.begin(), v.end());                              // arrival order (the list is a stack)
-        // [FAN_IN_BATCH_V1] three parallel lists: each item's fields once, never JSON inside JSON
-        std::string ids = "[", toks = "[", ps = "[";
-        for (size_t i = 0; i < v.size(); i++) {
-            if (i) { ids += ','; toks += ','; ps += ','; }
-            ids += std::to_string(v[i]->id); toks += Json::quote(v[i]->token); ps += Json::quote(v[i]->p);
-        }
-        std::string body = "{\"ids\":" + ids + "],\"tokens\":" + toks + "],\"ps\":" + ps + "]}";
+        // [RESP_ON_THE_WIRE_V1] the batch as bytes: per item id, token and the pipeline's RESP as it came off the
+        // client's socket -- no JSON, no base64. The wire carries it raw; past the ceiling, on the data socket.
+        std::string body = "RRB1 " + std::to_string(v.size()) + "\n";
+        for (auto* j : v) { body += std::to_string(j->id); body += ' '; body += j->token; body += '\n'; put_text(body, j->p, door::b64enc); }
         uint64_t nb = g_batches.fetch_add(1, std::memory_order_relaxed) + 1; uint64_t ni = g_batched.fetch_add(v.size(), std::memory_order_relaxed) + v.size();
         static const bool diag = getenv("RIBBIT_FRONT_DIAG") != nullptr;   // [DIAG-BATCH] every 1000th batch: size, bytes, call time
         auto t0 = std::chrono::steady_clock::now();
         try {
-            Json r = g_ram->call("POST", g_api + "?op=redis_batch", body, 15.0, which);
+            std::string a = g_ram->call_bytes("POST", g_api + "?op=redis_raw", body, 15.0, which);
             if (diag && nb % 1000 == 0) logmsg('#', "[DIAG-BATCH] batches=" + std::to_string(nb) + " items=" + std::to_string(ni) + " this=" + std::to_string(v.size()) +
-                " body=" + std::to_string(body.size()) + "B call_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
-            const size_t n = v.size();
-            if (r["ok"].type != Json::Bool || !r["ok"].b || r["r"].type != Json::Arr || r["e"].type != Json::Arr || r["a"].type != Json::Str || r["c"].type != Json::Str ||
-                r["r"].a.size() != n || r["e"].a.size() != n || r["a"].s.size() != n || r["c"].s.size() != n)
-                throw std::runtime_error(r["error"].type == Json::Str ? r["error"].s : "the region's answer to a batch of " + std::to_string(n) + " is not " + std::to_string(n) + " answers");
-            for (size_t i = 0; i < n; i++) {
-                if (r["e"].a[i].type == Json::Str && !r["e"].a[i].s.empty()) { v[i]->error = r["e"].a[i].s; continue; }
-                v[i]->r = r["r"].a[i].type == Json::Str ? r["r"].a[i].s : std::string();
-                v[i]->authed = r["a"].s[i] == '1'; v[i]->close = r["c"].s[i] == '1';
+                " body=" + std::to_string(body.size()) + "B answer=" + std::to_string(a.size()) + "B call_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
+            size_t at = 0;
+            if (get_line(a, at) != "RRA1 " + std::to_string(v.size())) throw std::runtime_error("the region's answer to a batch of " + std::to_string(v.size()) + " is not that batch's answer");
+            for (auto* j : v) {
+                std::string f = get_line(a, at);
+                if (f.size() != 3) throw std::runtime_error("the region's answer to a batch is malformed");
+                j->authed = f[1] == '1'; j->close = f[2] == '1';
+                (f[0] == '1' ? j->error : j->r) = get_text(a, at, door::b64dec);
             }
         } catch (const std::exception& e) { for (auto* j : v) j->error = e.what(); }
         for (auto* j : v) {
@@ -244,7 +280,7 @@ static void start_dispatchers() {
 // the connection ends here.
 static bool take_reply(Conn& c, const Job& j, std::string& out) {
     if (!j.error.empty()) { diag_region(c.id, "redis_batch", j.p, j.error); out += region_error(j.error); return false; }   // no region, no service
-    out += door::b64dec(j.r);
+    out += j.r;
     c.authed = j.authed; c.parser.authenticated = c.authed;
     return !j.close;
 }
@@ -260,7 +296,7 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
             // [REDIS_WIRE_FLAT_V1] the context's fields plus "p", the pipeline's RESP bytes
             // [CONTEXT_IN_THE_REGION_V1] the region holds the context: the call is the connection and its pipeline;
             // [FAN_IN_BATCH_V1] fanned in with every other ready connection
-            Job job; job.id = c.id; job.token = c.token; job.p = door::b64enc(pipeline);
+            Job job; job.id = c.id; job.token = c.token; job.p = std::move(pipeline);
             submit(job);
             if (!take_reply(c, job, out)) return false;
         }
@@ -350,7 +386,7 @@ static void event_loop() {
             if (blocking) { std::thread(blocking_turn, c, std::move(pr)).detach(); continue; }
             std::string pipeline; for (auto& a : pr.cmds) pipeline += resp_of(a);
             Job* j = new Job; j->conn = c; j->fatal = pr.fatal; j->fatal_err = pr.err;
-            j->id = c->id; j->token = c->token; j->p = door::b64enc(pipeline);
+            j->id = c->id; j->token = c->token; j->p = std::move(pipeline);
             push(*j); pushed = true;
         }
         if (pushed) kick();                                             // everything this pass read: one batch
@@ -365,7 +401,7 @@ static void accept_conn(int fd, std::string addr, std::string laddr) {
         Json r = g_ram->call("POST", g_api + "?op=redis", "{\"new_id\":true,\"n\":\"" + g_nonce + ":" + std::to_string(++accepts) + "\",\"ctx\":" + Json::quote(initial_ctx(0, addr, laddr)) + "}");
         if (r["id"].type != Json::Num) throw std::runtime_error("no id");
         c->id = (uint64_t)r["id"].n;
-        if (r["token"].type != Json::Str || r["token"].s.empty()) throw std::runtime_error("no token");
+        if (r["token"].type != Json::Str || r["token"].s.size() != 32) throw std::runtime_error("no token (the raw batch carries 32 bytes of it)");
         c->token = r["token"].s;
     } catch (const std::exception& e) { std::string m = region_error(e.what()); send_all(fd, m); ::close(fd); delete c; return; }
     c->authed = g.requirepass.empty(); c->parser.authenticated = c->authed;

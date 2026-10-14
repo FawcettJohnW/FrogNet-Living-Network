@@ -25,3 +25,5 @@ std::string redis_region_block(const std::string& body);
 // -> {"ok":true,"b":[<each one's reply, as JSON text>, ...]}, in order. The items are independent connections: they run
 // fanned out across the host's cores and are gathered back in order.
 std::string redis_region_batch(const std::string& body);
+// [RESP_ON_THE_WIRE_V1] the batch as bytes: no JSON, no base64 (format in redis_region.cpp)
+std::string redis_region_batch_raw(const std::string& body);
