@@ -249,8 +249,12 @@ write_interface_config() {
 #===============================================================================
 # Main
 #===============================================================================
-NETSTART_BUILD="frognet-netstart-2026-10-14-r21"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+NETSTART_BUILD="frognet-netstart-2026-10-14-r22"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "=== FrogNet network mode detection ($NETSTART_BUILD) ==="
+# [NETSTART_ONE_AT_A_TIME_V1] cron @reboot and ifplugd's link-up both run this at boot; two runs rewrote
+# opts_only.conf and restarted dnsmasq side by side. The second waits for the first.
+exec 9>/run/frognet-netstart.lock || die "cannot open /run/frognet-netstart.lock"
+flock 9 || die "flock /run/frognet-netstart.lock failed"
 
 get_subnet_from_dnsmasq
 get_node_name
@@ -297,13 +301,12 @@ if [[ "$MODE" == "wireless" && "$SSID_PROJECTION" != "1" ]]; then
     MODE="wired"
 fi
 
-# Detect if we're running during early boot or at runtime (udev/manual)
-if systemctl is-system-running 2>/dev/null | grep -qE '^running|^degraded'; then
-    RUNTIME=true
-else
-    RUNTIME=false
-fi
-log "Runtime mode: $RUNTIME"
+# [NETSTART_ALWAYS_APPLIES_V1] There is no "boot vs runtime" guess. It was `systemctl is-system-running` =
+# running|degraded, and the system stays "starting" until the first merge completes (frognet-discovered.service
+# blocks multi-user.target on it). So on a node whose merge could not run -- no identity, the very case this script
+# repairs -- every run believed it was early boot and skipped the hostapd and dnsmasq restarts and the merge request
+# while logging "hostapd started" (Seattle7, 2026-10-14). netstart runs from cron @reboot and ifplugd, never inside
+# a unit ordered before these, so it applies them every time.
 nm_wait_if_starting
 
 case "$MODE" in
@@ -312,9 +315,7 @@ case "$MODE" in
         if [[ ! -d "/sys/class/net/${eth0Name}" ]]; then
             die "eth0Name=${eth0Name} but /sys/class/net/${eth0Name} does not exist — set eth0Name in /etc/frognet/interfaces_override.conf to the actual wired NIC name"
         fi
-        if $RUNTIME; then
-            systemctl stop hostapd || true
-        fi
+        systemctl stop hostapd || log "systemctl stop hostapd failed (journalctl -u hostapd)"
         flush_frognet_ip "$AP_IFACE"
         assign_identity "$eth0Name"
         nm_ap_managed
@@ -348,9 +349,7 @@ case "$MODE" in
         sleep 1
         configure_hostapd "$AP_IFACE"
         assign_identity "$AP_IFACE"
-        if $RUNTIME; then
-            systemctl restart hostapd || die "systemctl restart hostapd failed (journalctl -u hostapd; is it masked?)"
-        fi
+        systemctl restart hostapd || die "systemctl restart hostapd failed (journalctl -u hostapd; is it masked?)"
         scope_dhcp "$AP_IFACE"
         write_interface_config "$AP_IFACE"
         log "hostapd started on $AP_IFACE with SSID=$NODE_NAME"
@@ -360,19 +359,16 @@ case "$MODE" in
         ;;
 esac
 
-if $RUNTIME; then
-    systemctl restart dnsmasq
-    log "dnsmasq restarted"
-    # [A_MISSING_THING_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] This guarded on
-    # /usr/local/bin/runMerge. The merge controller is runMerge.BASH -- there has
-    # never been a file at the guarded name -- so the test was permanently false
-    # and the discovery trigger silently did nothing on every network-mode change,
-    # while the log above it said the configuration completed. A guard on a name
-    # that does not exist is not a safety check, it is a switched-off branch.
-    _MERGE=/usr/local/bin/runMerge.bash
-    [[ -x "$_MERGE" ]] || die "merge controller $_MERGE is missing or not executable - network mode changed but discovery cannot be triggered"
-    log "Triggering discovery..."
-    "$_MERGE" &
+systemctl restart dnsmasq || die "systemctl restart dnsmasq failed (journalctl -u dnsmasq)"
+log "dnsmasq restarted"
+# [HOOK_ASKS_THE_WATCHER_V1] The merge is requested from the merge watcher, as the NetworkManager hook does (a burst of
+# events becomes one merge, under runMerge's lock). At boot the request waits in REQ_DIR until the watcher starts.
+# A request that cannot be written is logged; the next link event asks again.
+REQ_DIR=/run/frognet/merge_requests
+if { [[ -d "$REQ_DIR" ]] || { mkdir -p "$REQ_DIR" && chmod 1777 "$REQ_DIR"; }; } && : > "$REQ_DIR/netstart-$MODE-$$"; then
+    log "merge requested from the watcher ($REQ_DIR/netstart-$MODE-$$)"
+else
+    log "FAILED to write a merge request in $REQ_DIR (the next link event asks again)"
 fi
 
 log "=== FrogNet network mode configuration complete ==="

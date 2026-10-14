@@ -35,3 +35,30 @@ Also found:
   - After `ip addr flush dev eth1`, a lillypad run restored both addresses.
   - `frognet-ssid-projection on` then `off` kept AP_IFACE and WIFI_COUNTRY.
 - **Not checked:** the wireless path. The container has no radio. Seattle7 is that test.
+
+## r22: the run on Seattle7 (06:36)
+r21 worked on Seattle7:
+- 10.170.170.1/.2 are on wlan0.
+- "DHCP scoped to wlan0".
+- DecoPond1 was taken down and wlan0 unmanaged.
+- The merge's IDENTITY_PREFLIGHT passed.
+
+The same log also shows `Runtime mode: false`, an hour after boot. netstart decided boot vs runtime with `systemctl is-system-running` = running|degraded, but the system stays "starting" until the first merge completes: frognet-discovered.service blocks multi-user.target on it. On a node whose merge cannot run, which is the case netstart is there to repair, every run therefore skipped three things while still logging "hostapd started":
+- the hostapd restart;
+- the dnsmasq restart;
+- the merge.
+
+At a real boot it never started hostapd either.
+
+Fixes:
+- `[NETSTART_ALWAYS_APPLIES_V1]`: the guess is gone. Wired mode stops hostapd. Wireless mode restarts it, and netstart dies if that fails. dnsmasq is restarted, and netstart dies if that fails.
+- `[HOOK_ASKS_THE_WATCHER_V1]`: the merge is requested from the watcher through /run/frognet/merge_requests, the same way the NetworkManager hook asks for one, instead of running `runMerge.bash &`.
+- `[NETSTART_ONE_AT_A_TIME_V1]`: cron @reboot and ifplugd ran netstart side by side at boot. A flock now makes the second run wait for the first.
+
+Build ids: frognet-netstart-2026-10-14-r22, frognet-install-2026-10-14-r22.
+
+Container G1:
+- Install EXIT 0, "All checks passed".
+- Two reboots, each giving eth1 .1/.2, "DHCP scoped to eth1", "dnsmasq restarted" and "merge requested".
+- The two boot runs are serialized.
+- The system reaches `running`, with no failed unit.
