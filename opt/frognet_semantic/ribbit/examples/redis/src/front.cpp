@@ -144,6 +144,7 @@ struct Conn {
     std::string token;          // [REGION_HELD_AUTH_V1] the region's token for it: every call presents id and token
     RespParser parser;
     bool authed = true;
+    int ep = -1;                // [LOOP_PER_CORE_V1] the event loop this connection lives in
 };
 
 // The first context carries every field the region returns, so every request body has one field set from the start
@@ -357,13 +358,15 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
 // the list, then wakes ONE dispatcher: everything ready goes to the region as one batch. The dispatcher writes each
 // connection's replies and re-arms it. No thread per connection, so no thread hand-off per pipeline. A connection whose
 // pipeline holds a blocking command (BLPOP ...) leaves the set for a thread of its own until that command returns.
-static int g_ep = -1;
-static void rearm(Conn* c) { epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c; epoll_ctl(g_ep, EPOLL_CTL_MOD, c->fd, &ev); }
+// [LOOP_PER_CORE_V1] one event loop per core (RIBBIT_FRONT_LOOPS), connections dealt round-robin at accept: reading the
+// clients, parsing, and gathering batches run on every core at once. Stock Redis does all of it on one thread.
+static std::vector<int> g_eps;
+static void rearm(Conn* c) { epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c; epoll_ctl(c->ep, EPOLL_CTL_MOD, c->fd, &ev); }
 static void finish_conn(Conn* c) {
     // the connection is over: the region drops its record (and a MULTI queue, if it ended inside one)
     // [NOBODY_WAITS_V1] nobody waits for it: this may run on a session's reader thread, which a wait would deadlock
     if (auto s = g_sess.load()) s->call_async("POST", g_api + "?op=redis", "{\"gone\":" + std::to_string(c->id) + ",\"token\":" + Json::quote(c->token) + "}", [](int, std::string, std::string) {});
-    epoll_ctl(g_ep, EPOLL_CTL_DEL, c->fd, nullptr);
+    epoll_ctl(c->ep, EPOLL_CTL_DEL, c->fd, nullptr);
     ::close(c->fd); delete c;
 }
 static void complete_async(Job* j) {
@@ -381,10 +384,10 @@ static void blocking_turn(Conn* c, ParseResult pr) {
     if (!out.empty() && !send_all(c->fd, out)) keep = false;
     if (keep) rearm(c); else finish_conn(c);
 }
-static void event_loop() {
+static void event_loop(int ep) {
     epoll_event evs[512]; char buf[65536];
     for (;;) {
-        int n = epoll_wait(g_ep, evs, 512, -1);
+        int n = epoll_wait(ep, evs, 512, -1);
         if (n < 0) { if (errno == EINTR) continue; logmsg('#', std::string("epoll_wait: ") + strerror(errno)); _exit(1); }
         std::vector<Job*> batch;
         for (int k = 0; k < n; k++) {
@@ -424,7 +427,9 @@ static void accept_conn(int fd, std::string addr, std::string laddr) {
     } catch (const std::exception& e) { std::string m = region_error(e.what()); send_all(fd, m); ::close(fd); delete c; return; }
     c->authed = g.requirepass.empty(); c->parser.authenticated = c->authed;
     epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c;
-    epoll_ctl(g_ep, EPOLL_CTL_ADD, fd, &ev);
+    static std::atomic<uint32_t> deal{0};
+    c->ep = g_eps[deal.fetch_add(1, std::memory_order_relaxed) % g_eps.size()];
+    epoll_ctl(c->ep, EPOLL_CTL_ADD, fd, &ev);
 }
 
 // A host of its own, on a loopback port, when no RAM host is named: dies with this process (PR_SET_PDEATHSIG).
@@ -504,8 +509,10 @@ int main(int argc, char** argv) {
         logmsg('#', "Failed listening on port " + std::to_string(g.port) + " (tcp), aborting."); on_term(0);
     }
     start_sessions();
-    g_ep = epoll_create1(EPOLL_CLOEXEC);
-    std::thread(event_loop).detach();
+    {   const char* e = getenv("RIBBIT_FRONT_LOOPS");      // default: half the cores (the other half write replies and run the host)
+        int n = e ? atoi(e) : (int)std::thread::hardware_concurrency() / 2; if (n < 1) n = 1;
+        for (int i = 0; i < n; i++) { int ep = epoll_create1(EPOLL_CLOEXEC); g_eps.push_back(ep); std::thread(event_loop, ep).detach(); }
+    }
     logmsg('*', "Ready to accept connections tcp");
     for (;;) {
         sockaddr_in p{}; socklen_t pl = sizeof p;
