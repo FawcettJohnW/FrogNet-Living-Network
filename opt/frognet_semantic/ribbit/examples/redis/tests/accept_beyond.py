@@ -228,6 +228,9 @@ def t_hostloss():
           % ("the RAM host" if ARM == "ribbit" else "the primary", got[BASE + 1], len(keys), waited))
 
 def bench(port, test):
+    if os.environ.get("BENCH_WARM") == "1":                       # [WARM_READS_V1] the same run once first, not measured
+        subprocess.run([BENCH, "-p", str(port), "-q", "-c", os.environ.get("BENCH_C", "50"), "-P", os.environ.get("BENCH_P", "16"),
+                        "-n", os.environ.get("BENCH_N", "200000"), "-r", "100000", "-t", test], capture_output=True, timeout=600)
     out = subprocess.run([BENCH, "-p", str(port), "-q", "-c", os.environ.get("BENCH_C", "50"), "-P", os.environ.get("BENCH_P", "16"),
                           "-n", os.environ.get("BENCH_N", "200000"), "-r", "100000", "-t", test],
                          capture_output=True, text=True, timeout=600).stdout.replace("\r", "\n")
@@ -235,7 +238,7 @@ def bench(port, test):
     return float(m[-1]) if m else 0.0
 
 def t_scale():
-    for test in ("set", "get"):
+    for test in os.environ.get("BENCH_TESTS", "set get").split():
         ports = [BASE + 1] * K if (STOCKISH and test == "set") else [BASE + i for i in range(1, K + 1)]
         res = [0.0] * K
         def go(j): res[j] = bench(ports[j], test)

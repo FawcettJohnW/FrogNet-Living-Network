@@ -10,7 +10,7 @@
 #   REDIS_SRC   a built redis-7.2.11 tree (make). Its src/redis-server is moved to src/redis-server.stock once, and
 #               src/redis-server becomes a wrapper that runs whichever arm $ACCEPT_SERVER names, so Redis's suite
 #               starts stock or the region from the same tree with the same tests.
-#   STAGES      subset of: build metrics suite concurrency coherence bench clients endpoints loss hostloss scale inet   (default: all but inet)
+#   STAGES      subset of: build metrics suite concurrency coherence bench clients warm endpoints loss hostloss scale warmscale inet   (default: all but inet)
 #   SUITE       Redis suite files (default: the ten qualify.sh runs)
 #   K           endpoints for endpoints/scale (default: cores, at least 2)
 #   RAM_ENDPOINT  host:port of a deployed Redis RAM host -- the inet stage only
@@ -21,7 +21,7 @@ REDIS_SRC=${REDIS_SRC:?REDIS_SRC must name a built redis-7.2.11 tree}; REDIS_SRC
 # the suite puts unix sockets under REDIS_SRC/tests/tmp; a path near the kernel's 108-byte limit stops stock Redis from
 # starting while the region (which opens no unix socket) runs on -- an unequal test. Refuse such a tree up front.
 [ ${#REDIS_SRC} -le 40 ] || { echo "accept FAIL: REDIS_SRC path is ${#REDIS_SRC} characters; the suite's unix sockets need it 40 or less (e.g. /srv/redis-7.2.11)" >&2; exit 1; }
-STAGES=${STAGES:-"build metrics suite concurrency coherence bench clients endpoints loss hostloss scale"}
+STAGES=${STAGES:-"build metrics suite concurrency coherence bench clients warm endpoints loss hostloss scale warmscale"}
 SUITE=${SUITE:-"unit/type/incr unit/type/string unit/type/hash unit/type/set unit/type/list unit/type/zset unit/keyspace unit/type/stream unit/type/stream-cgroups unit/multi"}
 K=${K:-$(nproc)}; [ "$K" -lt 2 ] && K=2
 OUT=$ROOT/results/accept-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"; SUMMARY=$OUT/SUMMARY.txt
@@ -146,6 +146,16 @@ if has clients; then
   done
 fi
 
+# [WARM_READS_V1] a server that has been running has been read: the same reads again, after one unmeasured pass, on
+# both arms (stock gains nothing from it; a front answers from what it has read). GET only: a SET is never local.
+if has warm; then
+  note "== warm: redis-benchmark GET after one unmeasured pass of the same run, one endpoint, $REPEAT runs interleaved (req/s)"
+  note "  50 clients, -P 16:"
+  BENCH_WARM=1 BENCH_C=50 BENCH_P=16 BENCH_N=400000 BENCH_TESTS=get measure_k 1 warm16; report warm16
+  note "  100 clients, -P 1:"
+  BENCH_WARM=1 BENCH_C=100 BENCH_P=1 BENCH_N=200000 BENCH_TESTS=get measure_k 1 warm1; report warm1
+fi
+
 note "# PART 2 -- beside stock as an operator would set it up: the same test on every arm, stock's result measured"
 note "#   stock: persistence off (the region has none) | stock-aof: AOF on | stock-sentinel: AOF + Sentinel failover | ribbit: the region"
 port=9840
@@ -163,6 +173,10 @@ done
 if has scale; then
   note "== scale: K endpoints at once, requests/s summed, $REPEAT runs interleaved (stock SET can only go to its primary)"
   for k in $(seq 1 $K); do measure_k $k scale; done; report scale
+fi
+if has warmscale; then
+  note "== warmscale: K endpoints at once, GET after one unmeasured pass, requests/s summed, $REPEAT runs interleaved"
+  for k in $(seq 1 $K); do BENCH_WARM=1 BENCH_TESTS=get measure_k $k warmscale; done; report warmscale
 fi
 if has inet; then
   note "== inet: two fronts here, one keyspace on the deployed RAM host"
