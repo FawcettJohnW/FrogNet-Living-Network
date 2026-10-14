@@ -95,3 +95,9 @@ Fake-root test:
 - Kept: agent_workload/tuplespace/ddp_hook.py, mywork/thing.py, stray_top.py, venv/, logs/ and DB_CONFIG.json.
 
 Build id: frognet-install-2026-10-14-r24.
+
+## r26: the simulator on a node
+After the prune, Seattle7's run_all had 3 failures left. Each was the test reading the box, not the code under test:
+- collectives `web/api.php is present`: the tier looked for opt/frognet_semantic/web/api.php, which has never existed. It now reads var/www/html/api.php, which is the repo copy and /var/www/html on a node (`[API_PHP_IS_VAR_WWW_V1]`).
+- test_not_frognet_skip_oracle `.1 that is unreachable IS marked`: mark() refuses a live region member (`[MEMBER_IS_NOT_MARKED_V1]`) and read the box's region hosts file. On Seattle7, 10.250.250.1 is Seattle5, a member. The oracle now gives it an empty region (`[ORACLE_HAS_NO_REGION_V1]`). With a region file holding 10.250.250.1, the old oracle FAILs and the new one PASSes.
+- test_license_oracle, 335: on a node it walked the machine's and the operator's files too, nearly all of them a node-local rlite test tree (ribbit-rina-test) and units FrogNet never installed. On a node it now checks only the files the install record lists, and fails if there is no record (`[A_NODE_IS_JUDGED_BY_ITS_RECORD_V1]`). Container check: PASS with a stray .cpp and a stray unit present; with the record removed, "an installed node has its install record" FAILs.

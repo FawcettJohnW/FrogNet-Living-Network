@@ -188,8 +188,25 @@ def run():
     if not roots:
         return
 
+    # [A_NODE_IS_JUDGED_BY_ITS_RECORD_V1] On an installed node the tree root IS "/", and the world roots
+    # (/etc/systemd/system, /usr/local/bin, /opt/frognet_semantic ...) also hold the machine's own files and the
+    # operator's work: Seattle7 2026-10-14 reported 335, nearly all a node-local rlite test tree
+    # (opt/frognet_semantic/ribbit-rina-test) and units FrogNet never installed. FrogNet's files on a node are the
+    # ones its install laid down, the installer's record (/var/lib/frognet-install/files, C1). A node with no record
+    # cannot be judged and says so.
+    record = None
+    if os.path.realpath(tree) == "/":
+        rec = "/var/lib/frognet-install/files"
+        try:
+            record = set(l.strip() for l in open(rec, encoding="utf-8") if l.strip())
+        except OSError:
+            check("an installed node has its install record", [f"{rec} missing - this node's own files "
+                  "cannot be told from FrogNet's (frognet_install.sh writes it at C1)"])
+            return
     missing, orlater, apache = [], [], []
     for p in _sources(tree, roots, never, mod.classify):
+        if record is not None and os.path.relpath(p, tree) not in record:
+            continue
         try:
             text = open(p, encoding="utf-8", errors="strict").read()
         except (OSError, UnicodeDecodeError):

@@ -71,6 +71,11 @@ def main():
 
     # isolate the cache in a temp sentinel and start clean (== merge-top flush)
     not_frognet.SENTINEL = tempfile.mktemp(suffix="_not_frognet.tsv")
+    # [ORACLE_HAS_NO_REGION_V1] mark() refuses a live region member ([MEMBER_IS_NOT_MARKED_V1]), read from this box's
+    # region hosts file. On a region node whose neighbour is 10.250.250.1 (Seattle7: Seattle5) the oracle's DOT1 is a
+    # real member and the ONE_STATE_V1 check failed on the box, not the code. The oracle has no region: an empty one.
+    not_frognet._REGION_HOSTS = tempfile.mktemp(suffix="_region_hosts.json")
+    not_frognet._members.update({"looked": 0.0, "mtime": "unread", "ips": frozenset()})
     not_frognet.flush()
 
     print("=== a proven non-FrogNet host is not re-probed this session ===")
