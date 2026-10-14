@@ -541,9 +541,14 @@ void batch_raw_async(const std::string& body, std::function<void(std::string)> d
     b->left.store(n, std::memory_order_release);
     if (n == 0) { std::string o = raw_answer(b); delete b; done(std::move(o)); return; }
     b->done = std::move(done);
+    // The epoch is entered BEFORE the batch is published: from the moment it is in a slot, a worker may finish its last
+    // item and retire it, and this thread must not touch it after that unless it is inside an epoch.
+    ebr::Guard epoch;
+    int slot = -1;
     if (n > 1)
-        for (int k = 0; k < SLOTS; k++) { b->slot = k; Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) break; b->slot = -1; }
-    if (b->slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); ebr::Guard epoch; work(b); return; }
+        for (int k = 0; k < SLOTS; k++) { b->slot = k; Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) { slot = k; break; } }
+    if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); work(b); return; }
+    b->slot = -1;
     work(b);            // in no slot, no other thread can see it: this thread runs it all, and its last item answered and ...
     delete b;           // ... left it here to free
 }

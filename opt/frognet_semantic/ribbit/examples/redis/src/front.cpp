@@ -225,35 +225,23 @@ struct Job { uint64_t id = 0; std::string token, p;                   // the cal
              std::string r, error; bool authed = false, close = false;   // the answer: replies (RESP bytes), the region's word
              std::atomic<uint32_t> done{0}; Job* next = nullptr;
              Conn* conn = nullptr; bool fatal = false; std::string fatal_err; };
-static std::atomic<Job*> g_jobs{nullptr};
-static std::atomic<uint32_t> g_jobs_gen{0};
 static std::atomic<uint64_t> g_batches{0}, g_batched{0};          // for INFO-style diagnostics: calls, and items in them
-static void push(Job& j) {
-    Job* h = g_jobs.load(std::memory_order_acquire);
-    do { j.next = h; } while (!g_jobs.compare_exchange_weak(h, &j, std::memory_order_acq_rel, std::memory_order_acquire));
-}
-static void kick() { g_jobs_gen.fetch_add(1, std::memory_order_acq_rel); fwake(g_jobs_gen, 1); }
-static void submit(Job& j) { push(j); kick(); fwait(j.done, 0); }
 static void complete_async(Job* j);
-static void dispatcher(int which) {
-    std::vector<Job*> v;
-    for (;;) {
-        uint32_t seen = g_jobs_gen.load(std::memory_order_acquire);
-        Job* l = g_jobs.exchange(nullptr, std::memory_order_acq_rel);
-        if (!l) { fwait(g_jobs_gen, seen); continue; }
-        v.clear(); for (; l; l = l->next) v.push_back(l);
-        std::reverse(v.begin(), v.end());                              // arrival order (the list is a stack)
-        // [RESP_ON_THE_WIRE_V1] the batch as bytes: per item id, token and the pipeline's RESP as it came off the
-        // client's socket -- no JSON, no base64. The wire carries it raw; past the ceiling, on the data socket.
-        std::string body = "RRB1 " + std::to_string(v.size()) + "\n";
-        for (auto* j : v) { body += std::to_string(j->id); body += ' '; body += j->token; body += '\n'; put_text(body, j->p, door::b64enc); }
-        uint64_t nb = g_batches.fetch_add(1, std::memory_order_relaxed) + 1; uint64_t ni = g_batched.fetch_add(v.size(), std::memory_order_relaxed) + v.size();
-        static const bool diag = getenv("RIBBIT_FRONT_DIAG") != nullptr;   // [DIAG-BATCH] every 1000th batch: size, bytes, call time
-        auto t0 = std::chrono::steady_clock::now();
+// [NOBODY_WAITS_V1] John 2026-10-14: "There's nothing requiring us to wait, is there?" -- no. A batch is sent by the
+// thread that gathered it (Session::call_async puts the frame on the wire on this thread) and answered on the thread
+// that reads the reply off the return socket, which writes each connection's replies and hands it back to the loop. No
+// dispatcher thread, no thread waiting on the wire, any number of batches in flight. Batches go round-robin over the
+// sessions (RIBBIT_FRONT_CALLS, default one per core), so replies are read and written on that many threads at once.
+static int g_nsess = 1;
+static std::atomic<uint32_t> g_next_sess{0};
+static void drop_sessions() {   // the host is one: a session found gone means every session to it is gone
+    // A session is never destroyed on one of its own threads (its destructor joins them): this runs on a reader thread,
+    // so the last reference to each dropped session is let go on a thread of its own.
+    for (auto& o : g_sessv) { std::shared_ptr<frogram::Session> cur = o.load(); if (cur && o.compare_exchange_strong(cur, nullptr)) std::thread([cur] {}).detach(); }
+}
+static void deliver(const std::vector<Job*>& v, const std::string& a, std::string err) {
+    if (err.empty()) {
         try {
-            std::string a = g_ram->call_bytes("POST", g_api + "?op=redis_raw", body, 15.0, which);
-            if (diag && nb % 1000 == 0) logmsg('#', "[DIAG-BATCH] batches=" + std::to_string(nb) + " items=" + std::to_string(ni) + " this=" + std::to_string(v.size()) +
-                " body=" + std::to_string(body.size()) + "B answer=" + std::to_string(a.size()) + "B call_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
             size_t at = 0;
             if (get_line(a, at) != "RRA1 " + std::to_string(v.size())) throw std::runtime_error("the region's answer to a batch of " + std::to_string(v.size()) + " is not that batch's answer");
             for (auto* j : v) {
@@ -262,18 +250,47 @@ static void dispatcher(int which) {
                 j->authed = f[1] == '1'; j->close = f[2] == '1';
                 (f[0] == '1' ? j->error : j->r) = get_text(a, at, door::b64dec);
             }
-        } catch (const std::exception& e) { for (auto* j : v) j->error = e.what(); }
-        for (auto* j : v) {
-            if (j->conn) { complete_async(j); continue; }
-            j->done.store(1, std::memory_order_release); fwake(j->done, 1);
-        }
+        } catch (const std::exception& e) { err = e.what(); }
+    }
+    if (!err.empty()) for (auto* j : v) j->error = err;
+    for (auto* j : v) {
+        if (j->conn) { complete_async(j); continue; }
+        j->done.store(1, std::memory_order_release); fwake(j->done, 1);
     }
 }
-static void start_dispatchers() {
-    const char* e = getenv("RIBBIT_FRONT_CALLS");                   // batches in flight at once, each on its own session (default: one per core)
+static void send_batch(std::vector<Job*> v) {
+    // [RESP_ON_THE_WIRE_V1] the batch as bytes: per item id, token and the pipeline's RESP as it came off the client's
+    // socket -- no JSON, no base64. The wire carries it raw; past the ceiling, on the data socket.
+    std::string body = "RRB1 " + std::to_string(v.size()) + "\n";
+    for (auto* j : v) { body += std::to_string(j->id); body += ' '; body += j->token; body += '\n'; put_text(body, j->p, door::b64enc); }
+    uint64_t nb = g_batches.fetch_add(1, std::memory_order_relaxed) + 1; uint64_t ni = g_batched.fetch_add(v.size(), std::memory_order_relaxed) + v.size();
+    static const bool diag = getenv("RIBBIT_FRONT_DIAG") != nullptr;   // [DIAG-BATCH] every 1000th batch: size, bytes, round trip
+    const auto t0 = std::chrono::steady_clock::now(); const size_t bytes = body.size();
+    std::shared_ptr<frogram::Session> s;
+    try {
+        SessHandle& h = g_sessv[g_next_sess.fetch_add(1, std::memory_order_relaxed) % (uint32_t)g_nsess];
+        s = h.load();
+        if (!s) {
+            auto fresh = std::make_shared<frogram::Session>(g_ram_host, g_ram_port, g_api);   // throws when unreachable
+            std::shared_ptr<frogram::Session> none;
+            if (h.compare_exchange_strong(none, fresh)) s = fresh; else s = none;
+        }
+    } catch (const std::exception& e) { drop_sessions(); deliver(v, "", e.what()); return; }
+    s->call_async("POST", g_api + "?op=redis_raw", body, [v, nb, ni, t0, bytes](int status, std::string a, std::string err) {
+        if (diag && nb % 1000 == 0) logmsg('#', "[DIAG-BATCH] batches=" + std::to_string(nb) + " items=" + std::to_string(ni) + " this=" + std::to_string(v.size()) +
+            " body=" + std::to_string(bytes) + "B answer=" + std::to_string(a.size()) + "B round_trip_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
+        if (!err.empty()) { logmsg('#', "[DIAG-BATCH] batch " + std::to_string(nb) + " of " + std::to_string(v.size()) + " failed: " + err); drop_sessions(); deliver(v, a, err); return; }
+        if (status >= 400) { deliver(v, a, "HTTP " + std::to_string(status) + ": " + a); return; }
+        deliver(v, a, "");
+    });
+}
+// a thread that has nothing else to do (the blocking-command path) waits for its own pipeline's answer
+static void submit(Job& j) { send_batch({&j}); fwait(j.done, 0); }
+static void start_sessions() {
+    const char* e = getenv("RIBBIT_FRONT_CALLS");                   // sessions to the host (default: one per core)
     int n = e ? atoi(e) : (int)std::thread::hardware_concurrency(); if (n < 1) n = 1;
     if (n > MAX_SESSIONS) n = MAX_SESSIONS;
-    for (int i = 0; i < n; i++) std::thread(dispatcher, i).detach();
+    g_nsess = n;
 }
 
 // A region answer for a connection: its replies onto `out`; the region's word on authentication and closing. False if
@@ -344,7 +361,8 @@ static int g_ep = -1;
 static void rearm(Conn* c) { epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c; epoll_ctl(g_ep, EPOLL_CTL_MOD, c->fd, &ev); }
 static void finish_conn(Conn* c) {
     // the connection is over: the region drops its record (and a MULTI queue, if it ended inside one)
-    try { g_ram->call("POST", g_api + "?op=redis", "{\"gone\":" + std::to_string(c->id) + ",\"token\":" + Json::quote(c->token) + "}"); } catch (const std::exception&) {}
+    // [NOBODY_WAITS_V1] nobody waits for it: this may run on a session's reader thread, which a wait would deadlock
+    if (auto s = g_sess.load()) s->call_async("POST", g_api + "?op=redis", "{\"gone\":" + std::to_string(c->id) + ",\"token\":" + Json::quote(c->token) + "}", [](int, std::string, std::string) {});
     epoll_ctl(g_ep, EPOLL_CTL_DEL, c->fd, nullptr);
     ::close(c->fd); delete c;
 }
@@ -368,7 +386,7 @@ static void event_loop() {
     for (;;) {
         int n = epoll_wait(g_ep, evs, 512, -1);
         if (n < 0) { if (errno == EINTR) continue; logmsg('#', std::string("epoll_wait: ") + strerror(errno)); _exit(1); }
-        bool pushed = false;
+        std::vector<Job*> batch;
         for (int k = 0; k < n; k++) {
             Conn* c = static_cast<Conn*>(evs[k].data.ptr);
             ssize_t r = ::recv(c->fd, buf, sizeof buf, MSG_DONTWAIT);
@@ -387,9 +405,9 @@ static void event_loop() {
             std::string pipeline; for (auto& a : pr.cmds) pipeline += resp_of(a);
             Job* j = new Job; j->conn = c; j->fatal = pr.fatal; j->fatal_err = pr.err;
             j->id = c->id; j->token = c->token; j->p = std::move(pipeline);
-            push(*j); pushed = true;
+            batch.push_back(j);
         }
-        if (pushed) kick();                                             // everything this pass read: one batch
+        if (!batch.empty()) send_batch(std::move(batch));               // everything this pass read: one batch, sent now
     }
 }
 static void accept_conn(int fd, std::string addr, std::string laddr) {
@@ -485,7 +503,7 @@ int main(int argc, char** argv) {
     if (::bind(lfd, (sockaddr*)&sa, sizeof sa) < 0 || ::listen(lfd, 511) < 0) {
         logmsg('#', "Failed listening on port " + std::to_string(g.port) + " (tcp), aborting."); on_term(0);
     }
-    start_dispatchers();
+    start_sessions();
     g_ep = epoll_create1(EPOLL_CLOEXEC);
     std::thread(event_loop).detach();
     logmsg('*', "Ready to accept connections tcp");
