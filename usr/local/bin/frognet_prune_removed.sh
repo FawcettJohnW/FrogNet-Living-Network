@@ -179,6 +179,8 @@ echo "-- [2026-10-14] the identity has one owner, frognet-netstart ([NETSTART_OW
 # (setup_lillypad's old NetworkManager identity profile is deleted by setup_lillypad's own Step 2: it has the node's name)
 # the April 2026 clone-repair script: a second setup_lillypad that also wrote the identity (flush, ip addr add, NM profile)
 gone "usr/local/bin/frognet_fixup.sh"
+# the one-shot unbound repair: a third writer of upstream_fallback.conf (the installer stops unbound, the tree has the file)
+gone "usr/local/bin/fix_unbound_bypass.sh"
 # the merge hook's route signature moved to /run (gone at every boot: the boot merge is the hook's)
 gone "etc/sentinels/nm_dispatch_sig"
 if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi

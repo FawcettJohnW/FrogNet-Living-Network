@@ -101,3 +101,14 @@ After the prune, Seattle7's run_all had 3 failures left. Each was the test readi
 - collectives `web/api.php is present`: the tier looked for opt/frognet_semantic/web/api.php, which has never existed. It now reads var/www/html/api.php, which is the repo copy and /var/www/html on a node (`[API_PHP_IS_VAR_WWW_V1]`).
 - test_not_frognet_skip_oracle `.1 that is unreachable IS marked`: mark() refuses a live region member (`[MEMBER_IS_NOT_MARKED_V1]`) and read the box's region hosts file. On Seattle7, 10.250.250.1 is Seattle5, a member. The oracle now gives it an empty region (`[ORACLE_HAS_NO_REGION_V1]`). With a region file holding 10.250.250.1, the old oracle FAILs and the new one PASSes.
 - test_license_oracle, 335: on a node it walked the machine's and the operator's files too, nearly all of them a node-local rlite test tree (ribbit-rina-test) and units FrogNet never installed. On a node it now checks only the files the install record lists, and fails if there is no record (`[A_NODE_IS_JUDGED_BY_ITS_RECORD_V1]`). Container check: PASS with a stray .cpp and a stray unit present; with the record removed, "an installed node has its install record" FAILs.
+
+## r27: the installer wrote three tree files a second time
+The last 3 licence failures on Seattle7 were etc/dnsmasq.d/upstream_fallback.conf, etc/dnsmasq.d/frognet_dhcp_event.conf and etc/systemd/system/dnsmasq.service.d/override.conf.
+
+C1 lays all three down from the tree, notice included. Then the installer's D6 wrote them again from heredocs with the same settings and no notice, so every node's copy differed from the tree.
+
+Now (`[TREE_FILES_ARE_THE_FILES_V1]`):
+- D6 only checks that the three files are present.
+- fix_unbound_bypass.sh is removed and pruned. It was the one-shot repair that wrote upstream_fallback.conf a third time; the installer stops unbound itself.
+
+No other heredoc in the installer, setup_lillypad or netstart writes a file the tree ships (checked). The installer is now build frognet-install-2026-10-14-r27. static-no-fallback reports 0 violations; check-docs reports 0.

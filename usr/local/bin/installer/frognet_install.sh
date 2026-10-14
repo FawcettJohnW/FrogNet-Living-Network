@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-14-r24"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-14-r27"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -1339,11 +1339,14 @@ phase "D6: dnsmasq skeleton"
 # still resolve locally). Belkin sink and local domain stay; strict-order keeps
 # file order.
 touch /etc/sentinels/dnsmasq_upstream.conf
-cat > /etc/dnsmasq.d/upstream_fallback.conf <<'DNSCONF'
-resolv-file=/etc/sentinels/dnsmasq_upstream.conf
-strict-order
-address=/heartbeat.belkin.com/0.0.0.0
-DNSCONF
+# [TREE_FILES_ARE_THE_FILES_V1 - 2026-10-14] /etc/dnsmasq.d/upstream_fallback.conf, frognet_dhcp_event.conf and
+# /etc/systemd/system/dnsmasq.service.d/override.conf are the tree's own files (C1 laid them down). This phase used
+# to write all three again from heredocs with the same settings and no notice, so every node's copy differed from the
+# tree and test_license_oracle failed on them (Seattle7 2026-10-14). One writer: the tree. Checked here.
+for _f in /etc/dnsmasq.d/upstream_fallback.conf /etc/dnsmasq.d/frognet_dhcp_event.conf \
+          /etc/systemd/system/dnsmasq.service.d/override.conf; do
+    [[ -f "$_f" ]] || die "D6: $_f missing - C1 lays it down from the tree"
+done
 # [DNSMASQ_USE_EXISTING_TRACKER_V1] Point dnsmasq at the dhcp_tracking.bash that
 # already ships in the world tar, instead of writing a lesser trigger by heredoc.
 # dhcp_tracking.bash fires on add AND del, filters to the FrogNet plane (10/8
@@ -1353,9 +1356,6 @@ DNSCONF
 # node tool, so it stays in step with the rest of the tree; the heredoc drifted.
 # dhcp_tracking.sh is only a one-line exec shim onto the .bash, so either path
 # works; the .bash is canonical.
-cat > /etc/dnsmasq.d/frognet_dhcp_event.conf <<'DNSCONF'
-dhcp-script=/usr/local/bin/dhcp_tracking.bash
-DNSCONF
 # Clean up the heredoc trigger from any prior install so two scripts don't linger.
 rm -f /usr/local/sbin/dnsmasq_merge_trigger.sh 2>/dev/null || true
 # [DNSMASQ_NO_UNBOUND_V1] Do NOT write forward_to_unbound.conf.
@@ -1369,18 +1369,6 @@ rm -f /usr/local/sbin/dnsmasq_merge_trigger.sh 2>/dev/null || true
 # Remove it here and sweep any copy a prior install left behind.
 rm -f /etc/dnsmasq.d/forward_to_unbound.conf 2>/dev/null || true
 
-cat > /etc/systemd/system/dnsmasq.service.d/override.conf <<'UNIT'
-[Unit]
-# [UNIT_AFTER_IS_ONE_LINE_V1] After= takes its whole list on ONE line. Split
-# across two, systemd rejects the orphan line with "Missing '=', ignoring line"
-# on every daemon-reload, and the dependency silently does not exist.
-Wants=network-online.target
-After=network-online.target NetworkManager-wait-online.service
-
-[Service]
-Restart=on-failure
-RestartSec=2
-UNIT
 # [UNBOUND_ONE_STEP_V1] FrogNet does not install unbound (A2 used to, only for this phase to stop it). One that
 # is already on the machine would hold :53 against dnsmasq: it is stopped and disabled, here, once (the record A0b
 # made puts it back on --uninstall). (This was `fix_unbound_bypass.sh || systemctl stop unbound`; the script also

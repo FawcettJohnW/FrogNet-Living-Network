@@ -68,7 +68,6 @@ ALLOW=$(cat <<'EOF'
 public-dns	usr/local/bin/frognet_metrics_emit.sh	-4 -j route get 8\.8\.8\.8	A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.
 public-dns	usr/local/bin/manageResolv.bash	no hardcoded 8\.8\.8\.8	The doctrine line [DNS_NEXTHOP_ONLY_V1] saying there is none.
 public-dns	usr/local/bin/installer/frognet_reset.sh	used to write 8\.8\.8\.8	History: what the reset no longer writes (T4a).
-public-dns	usr/local/bin/fix_unbound_bypass.sh	ship every query to 8\.8\.8\.8	History: [NO_DNS_FALLBACK_V1], what the old script did.
 public-dns	etc/dnsmasq.d/upstream_fallback.conf	forwarding to 8\.8\.8\.8	History: [NO_DNS_FALLBACK_V1], why no-resolv must not be set.
 public-dns	opt/frognet_semantic/DOCTRINE.txt	John, 2026-09-26, with 8\.8\.8\.8 last	The doctrine's dated note that the 8.8.8.8 went.
 public-dns	opt/frognet_semantic/discovery/resolv.py	it replaces \[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1\]	History: the tag [RESOLV_LOCAL_UPSTREAM_V1] replaced.
