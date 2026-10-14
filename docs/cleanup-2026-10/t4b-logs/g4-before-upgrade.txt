@@ -1,0 +1,31 @@
+fnid: 8ad372ffdda09d8eb87471c2af424374
+opts_only: domain=U1 dhcp-option=option:router,10.63.63.1 
+eth1: 10.63.63.1/24 10.63.63.2/24 
+key md5: 936ebf74fae23e121395378e0200a5b6  -
+tunnel.conf: BROKER_URL=http://192.0.2.1:8443 GROUP_NAME=testpond POND_NAME=testpond 
+present: /etc/frognet/tunnel.conf.bak.20261012-181247
+present: /etc/frognet/tunnel.conf.20261012T181247Z
+present: /etc/systemd/system/frognet-tunnel-setup.service
+present: /etc/systemd/system/frognet-pond-bootstrap.timer
+present: /etc/systemd/system/frognet-pond-bootstrap.service
+present: /usr/local/bin/frognet-tunnel-setup-v3.sh
+present: /usr/local/bin/frognet-pond-bootstrap.sh
+present: /opt/frognet_semantic/broker
+present: /etc/NetworkManager/dispatcher.d/91-frognet-connectivity
+present: /etc/NetworkManager/dispatcher.d/99-ifup
+present: /etc/systemd/system/frognet-broker-v4.service
+90-frognet-merge lines: 19
+/usr/local/bin entries not FrogNet scripts:
+apache2.service frognet-dbhost-advertise.service frognet-mediahost-advertise.service frognet-tunnel-setup.service 
+frognet-eth0-fixup.service
+*/15 * * * * /usr/local/bin/registerFrogNetHost.bash
+@reboot /usr/local/bin/frognet-netstart
+@reboot sleep 240 && /usr/local/bin/runMerge.bash
+10-frognet-unmanaged.conf
+99-frognet-unmanaged.conf
+99-wifi-powersave.conf
+default-wifi-powersave-on.conf
+frognet-unmanaged-ap.conf
+no-resolved.conf
+/usr/local/bin/frognet_eth0_fixup.sh
+/usr/local/bin/frognet_system_tune.sh

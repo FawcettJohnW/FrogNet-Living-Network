@@ -49,7 +49,8 @@ flog_info "ENTER" "event_id=$EVENT_ID"
 
 SEEN_DIR="/run/frognet/seen_notifications"
 SEEN_FILE="${SEEN_DIR}/${EVENT_ID}"
-mkdir -p "$SEEN_DIR"
+# [QUEUE_SURVIVES_THE_WIPE_V1 - T4b] shared with propogateNotification.php (www-data): sticky, world-writable
+mkdir -p "$SEEN_DIR" && chmod 1777 "$SEEN_DIR"
 
 if [[ -f "$SEEN_FILE" ]]; then
     flog_info "DEDUP" "decision=skip" "reason=already_seen" "event_id=$EVENT_ID" "seen_at=$(cat "$SEEN_FILE" 2>/dev/null)"
@@ -60,13 +61,12 @@ flog_info "DEDUP" "decision=first_time" "seen_file=$SEEN_FILE"
 
 # [REGION_V1] On an FD&F region there is no peer fan-out: the merge's commit rewrote this node's facts, the region
 # told every member (their held reads returned), and each ran its own merge. Nothing to curl.
-if grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf; then
+if grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env; then     # the one switch [REGION_SWITCH_ONE_FILE_V1]
     flog_info "REGION" "decision=skip" "reason=region_mode_propagation_is_the_facts_write"
     exit 0
 fi
 
 OUR_ETH0="$(/usr/local/bin/getEth0Address || echo "")"
-HOSTS_FILE="/etc/hosts"
 CURL="/usr/bin/curl"
 [[ -x /usr/bin/curl.real ]] && CURL="/usr/bin/curl.real"
 
@@ -94,35 +94,23 @@ flog_info "config" "our_eth0=$OUR_ETH0" "curl=$CURL" \
 # next-hops on physical devs + WG tunnel peers — instead of every .1 in
 # /etc/hosts.  Epidemic re-propagation from each receiver still reaches the
 # whole mesh; this drops per-node fan-out from O(fleet) to O(neighbors).
-# The pure derivation lives in discovery.neighbors (oracle-tested). Fall back
-# to the legacy /etc/hosts .1 scan only if the helper fails to run.
-_neigh_out="$(PYTHONPATH=/opt/frognet_semantic /usr/bin/python3 -m discovery.neighbors 2>/dev/null)"
+# The pure derivation lives in discovery.neighbors (oracle-tested).
+# [NEIGHBORS_ONLY_V1] It is the only source of targets: when it fails, the failure and its stderr are logged and
+# this wave is not sent; the next merge's notification asks again (there used to be an /etc/hosts .1 scan behind it).
+_neigh_err="$(mktemp)"
+_neigh_out="$(PYTHONPATH=/opt/frognet_semantic /opt/frognet_semantic/venv/bin/python3 -m discovery.neighbors 2>"$_neigh_err")"
 _helper_rc=$?
-if [[ $_helper_rc -eq 0 ]]; then
-    mapfile -t PEER_IPS <<< "$_neigh_out"
-    # command-substitution of empty output yields a single empty element
-    [[ ${#PEER_IPS[@]} -eq 1 && -z "${PEER_IPS[0]}" ]] && PEER_IPS=()
-    flog_info "peer_scan" "source=direct_neighbors" "direct_targets_found=${#PEER_IPS[@]}"
-else
-    flog_info "peer_scan" "source=etc_hosts_fallback" "helper_rc=$_helper_rc"
-    mapfile -t PEER_IPS < <(
-      awk '
-        {
-          line=$0
-          sub(/#.*/, "", line)
-          gsub(/^[ \t]+|[ \t]+$/, "", line)
-          if(line=="") next
-          split(line,a,/[ \t]+/)
-          ip=a[1]
-          # Match 10.A.B.1 only; skip transit /30 (10.253.253.*).
-          if (ip ~ /^10\.[0-9]+\.[0-9]+\.1$/ && ip !~ /^10\.253\.253\./) {
-              print ip
-          }
-        }
-      ' "$HOSTS_FILE" | sort -u
-    )
-    flog_info "peer_scan" "admin_targets_found=${#PEER_IPS[@]}"
+if [[ $_helper_rc -ne 0 ]]; then
+    flog_error "peer_scan" "status=failed" "source=direct_neighbors" "helper_rc=$_helper_rc" \
+               "stderr=$(tr '\n' ' ' < "$_neigh_err" | cut -c1-400)"
+    rm -f "$_neigh_err" "$SEEN_FILE"   # not sent: the same wave arriving again may try again
+    exit 1
 fi
+rm -f "$_neigh_err"
+mapfile -t PEER_IPS <<< "$_neigh_out"
+# command-substitution of empty output yields a single empty element
+[[ ${#PEER_IPS[@]} -eq 1 && -z "${PEER_IPS[0]}" ]] && PEER_IPS=()
+flog_info "peer_scan" "source=direct_neighbors" "direct_targets_found=${#PEER_IPS[@]}"
 flog_info "peer_list" "ips=$(printf '%s,' "${PEER_IPS[@]}")"
 
 # [NOTIFY_FANOUT_ONLY_V1] This handler is now pure neighbor fan-out, invoked by

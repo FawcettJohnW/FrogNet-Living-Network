@@ -92,15 +92,12 @@ def gather(rows):
     def fake_get(var, scope, dbhost=None, fresh_s=None, **kw):
         if scope == "capability":
             return list(rows)
-        return []                      # no reach_plane rows: WAN bucket, fine here
+        return []
 
     RE.T.get = fake_get
     try:
-        hosts, _lan = RE.gather_candidates(DatabaseRoleHandler(),
-                                           dbhost="databasehost_control.frognet",
-                                           lan_subnets=[], local_ips=[],
-                                           report={})
-        return hosts
+        return RE.gather_candidates(DatabaseRoleHandler(),
+                                    dbhost="databasehost_control.frognet", report={})
     finally:
         RE.T.get = real_get
 

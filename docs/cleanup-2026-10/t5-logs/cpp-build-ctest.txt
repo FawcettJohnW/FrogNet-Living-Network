@@ -1,0 +1,39 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found version "8.5.0")  
+-- Found Curses: /usr/lib/x86_64-linux-gnu/libcurses.so  
+-- Configuring done (0.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/cppb
+[  7%] Building CXX object CMakeFiles/frognet_core.dir/src/parsers.cpp.o
+[ 14%] Building CXX object CMakeFiles/frognet_core.dir/src/dashboard.cpp.o
+[ 21%] Building CXX object CMakeFiles/frognet_core.dir/src/json.cpp.o
+[ 28%] Building CXX object CMakeFiles/frognet_core.dir/src/http.cpp.o
+[ 35%] Building CXX object CMakeFiles/frognet_core.dir/src/frognet.cpp.o
+[ 42%] Linking CXX static library libfrognet_core.a
+[ 42%] Built target frognet_core
+[ 50%] Building CXX object CMakeFiles/frognet_monitor.dir/src/main_headless.cpp.o
+[ 57%] Building CXX object CMakeFiles/frognet_dashboard_oracle.dir/tests/dashboard_oracle.cpp.o
+[ 64%] Building CXX object CMakeFiles/frognet_monitor_tui.dir/src/main_tui.cpp.o
+[ 71%] Building CXX object CMakeFiles/frognet_parser_oracle.dir/tests/parser_oracle.cpp.o
+[ 78%] Linking CXX executable frognet_monitor
+[ 78%] Built target frognet_monitor
+[ 85%] Linking CXX executable frognet_parser_oracle
+[ 85%] Built target frognet_parser_oracle
+[ 92%] Linking CXX executable frognet_dashboard_oracle
+[ 92%] Built target frognet_dashboard_oracle
+[100%] Linking CXX executable frognet_monitor_tui
+[100%] Built target frognet_monitor_tui
+Test project /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/cppb
+    Start 1: parser_vectors
+1/2 Test #1: parser_vectors ...................   Passed    0.00 sec
+    Start 2: dashboard_model
+2/2 Test #2: dashboard_model ..................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.02 sec

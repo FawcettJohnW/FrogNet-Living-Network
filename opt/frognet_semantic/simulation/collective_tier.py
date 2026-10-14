@@ -296,12 +296,12 @@ def plane_object_is_not_a_list():
     import types
 
     # -- the store -----------------------------------------------------------
-    # api.php lives in the tree at web/ and is DEPLOYED to /var/www/html. The
-    # tier reads the tree copy; a node that has one but not the other has a
-    # deployment problem this tier is not the place to find.
-    php = os.path.join(_SEM, "web", "api.php")
+    # [API_PHP_IS_VAR_WWW_V1] api.php is var/www/html/api.php: in the repository beside opt/, and on a node at
+    # /var/www/html. _SEM/../../var/www/html is that file in both (there has been no web/ copy under
+    # opt/frognet_semantic; the check failed on every node, Seattle7 2026-10-14).
+    php = _api_php()
     if not os.path.exists(php):
-        check(False, "web/api.php is present in the tree (looked at %s)" % php)
+        check(False, "var/www/html/api.php is present (looked at %s)" % php)
     else:
         src = open(php, encoding="utf-8").read()
         check("$jo = json_decode($raw);" in src,
@@ -537,6 +537,10 @@ def plane_linger():
           "it still published its own done, so nobody waits on IT")
 
 
+def _api_php():
+    return os.path.normpath(os.path.join(_SEM, "..", "..", "var", "www", "html", "api.php"))
+
+
 # ---------------------------------------------------------------------------
 # PLANE 8 -- the var coordinate actually filters
 # ---------------------------------------------------------------------------
@@ -574,7 +578,7 @@ def plane_name_like_is_a_like():
           "the pattern survives quoting intact (%r)"
           % q.get("SensorName__like", [""])[0])
 
-    php = os.path.join(_SEM, "web", "api.php")
+    php = _api_php()
     if os.path.exists(php):
         src = open(php, encoding="utf-8").read()
         check("'__like'" in src and "LIKE ?" in src,

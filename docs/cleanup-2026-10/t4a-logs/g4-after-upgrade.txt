@@ -1,0 +1,35 @@
+fnid: 8034f4077b49c560f7637d38f35688f0
+opts_only: domain=U1 dhcp-option=option:router,10.63.63.1 
+eth1: 10.63.63.1/24 10.63.63.2/24 
+key md5: 77e9d737303231b149eb42201f4dd237  -
+tunnel.conf: 
+90-frognet-merge lines: 102
+hostname: FrogNetHost.U1   build lines:
+  [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+  reconcile: 2026-10-12 15:53:57,713 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: tunnel.conf RINA_RAM=None; env RINA_RAM=None; /opt/fdf/var/join.env=missing (No such file or directory); /opt/fdf/var/site.env=missing (No such file or directory)' -> RINA_RAM='' RINA_AREA=''
+  reconcile: 2026-10-12 15:54:06,321 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: tunnel.conf RINA_RAM=None; env RINA_RAM=None; /opt/fdf/var/join.env=missing (No such file or directory); /opt/fdf/var/site.env=missing (No such file or directory)' -> RINA_RAM='' RINA_AREA=''
+  mariadb                        enabled/active
+  apache2                        enabled/active
+  dnsmasq                        enabled/active
+  NetworkManager                 enabled/active
+  cron                           enabled/active
+  frognet-proxy                  enabled/active
+  frognet-daemon                 enabled/active
+  frognet-merge-watcher          enabled/active
+  frognet-tunnel-daemon-v3       enabled/active
+  frognet-eth0-fixup             enabled/active
+  frognet-sysperf                enabled/active
+  frognet-dbhost-advertise.timer enabled/active
+  frognet-dbhost-elect.timer     disabled/inactive
+  fdf-client                     not-found/inactive
+  fdf-facts                      not-found/inactive
+failed units: 
+merge: /etc/sentinels/discovered
+discovered last: [2026-10-12T15:54:10.241] runMerge INFO pid=2655 completed
+databasehost: 10.63.63.1 / 10.63.63.1
+getHosts.php: [{"ip":"10.63.63.1","name":"U1","echo":"FrogNetHost.U1,10.63.63.1,172.30.0.31,0.0.0.0","role":"","alive":false}]
+echo (:8080): U1,10.63.63.1,172.30.0.31,0.0.0.0
+echo (:80, the proxy): U1,10.63.63.1,172.30.0.31,0.0.0.0
+wg interfaces: 
+routes: 10.63.63.0/24 dev eth1 proto kernel scope link src 10.63.63.1 ;
+resolv.conf:  options timeout:1 attempts:1  search U1 FrogNetHost.U1  nameserver 127.0.0.1  nameserver 172.30.0.1 nameserver 8.8.8.8 

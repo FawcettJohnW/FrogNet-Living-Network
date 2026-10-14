@@ -21,7 +21,7 @@ reconstructed as live inputs for the ported discovery. Reproduces:
   - 3 direct tunnels (wg0 BABox DEAD, wg1 BAMacBook, wg2 Seattle5)
   - relayed Seattle2/3/6 reached behind wg1 and/or wg2 (getHosts vouching)
   - New-York-2 on the eth0 LAN segment (seg_relay 10.102.60.230)
-  - broker authority: direct peers in handshake_rtts; relayed peers absent
+  - tunnel channel map: direct peers in handshake_rtts; relayed peers absent
 
 build_ny1() returns (discovery, kernel, seeds) ready to drive.
 """
@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 # connected/kernel + bringup routes present when sync_interfaces starts (SNAP enter)
 ENTER_SEED = [
@@ -87,7 +87,7 @@ def build_ny1(logger=lambda s: None):
         "10.28.28.1":   [],
     })
 
-    broker = FakeBroker(
+    tunnels = FakeTunnelState(
         by_one={
             "10.179.179.1": ("BAMacBook-10.179.179", "10.179.179.0/24", "10.179.179.1"),
             "10.250.250.1": ("Seattle5-10.250.250", "10.250.250.0/24", "10.250.250.1"),
@@ -108,7 +108,7 @@ def build_ny1(logger=lambda s: None):
     k = FakeKernel()
     k.seed(*ENTER_SEED)
     routes = Routes(k, logger=logger, clock=lambda: 0.0)
-    disc = Discovery(routes, echo, rtt, gethosts, broker, hoststore,
+    disc = Discovery(routes, echo, rtt, gethosts, tunnels, hoststore,
                      local_ips, dev_src_map, logger=logger)
     disc.DEAD_IFACES = {"wg0"}                # health check killed wg0 (BABox echo empty)
     disc._promote_order = [                    # oracle CAND/promote hash order
@@ -182,12 +182,12 @@ def build_seattle6(logger=lambda s: None, wlan0_linkdown=True):
     gethosts = FakeGetHosts(children={
         "10.241.241.1": ["10.179.179.1", "10.102.60.1", "10.111.11.1", "10.28.28.1"],
     })
-    broker = FakeBroker(by_one={}, iface_channel={})        # LAN-only
+    tunnels = FakeTunnelState(by_one={}, iface_channel={})        # LAN-only
 
     k = FakeKernel()
     k.seed(wlan0_line, wlan1_line)
     routes = Routes(k, logger=logger, clock=lambda: 0.0)
-    disc = Discovery(routes, echo, rtt, gethosts, broker, HostStore(),
+    disc = Discovery(routes, echo, rtt, gethosts, tunnels, HostStore(),
                      local_ips={"10.160.160.1", "10.160.160.2", "10.250.250.221", "127.0.0.1"},
                      dev_src_map={"wlan0": "10.160.160.1", "wlan1": "10.250.250.221"},
                      logger=logger, self_identity=S6_IDENT)

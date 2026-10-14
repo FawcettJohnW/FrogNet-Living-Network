@@ -82,6 +82,20 @@ std::vector<HostEntry> parseEtcHosts(const std::string& content);
 // a node carries those addresses but is not identified by them.
 std::string dotOneOf(const std::string& ip);
 
+// [ONE_MONITOR_TRUTH_V1] getSnapshot.php's body -> the summary every monitor draws: mode (lan-only | region),
+// this node's name and .1, its build, its ponds ("*<area>" = forward), the hub link ("<iface> <age>s",
+// "<iface> no handshake", "<iface> error"), the members ("<ip> <name> <role> <alive|down> <source>[ self]"), the
+// elected databasehost and the snapshot's own errors. ok=false when the body is not a snapshot (not JSON, not an
+// object, snapshot != 1, or a mode that is neither). The same rules as the Python (discovery.parse_snapshot) and the
+// C# (Parsers.ParseSnapshot), checked by the "snapshot" vectors.
+struct NodeSnapshot {
+  bool ok = false;
+  std::string mode, name, dot1, build, commit, mode_why, dbhost, control;
+  std::vector<std::string> ponds, hub, members, errors;
+  Json raw;
+};
+NodeSnapshot parseSnapshot(const std::string& body);
+
 // ---------------------------------------------------------------------------
 // HTTP — every request goes to the local proxy. Never to :9009.
 // ---------------------------------------------------------------------------
@@ -108,8 +122,11 @@ class Client {
   // Identity of the pond reachable at dot_one, via frognet_echo.php.
   Identity echo(const std::string& dot_one, long timeout_sec = 5) const;
 
-  // getHosts.php, falling back to /etc/hosts.
-  std::vector<HostEntry> discoverHosts() const;
+  // getSnapshot.php, the node's one snapshot [ONE_MONITOR_TRUTH_V1]; ok=false when it does not answer.
+  NodeSnapshot snapshot(long timeout_sec = 8) const;
+
+  // The snapshot's members, in its order [ONE_MONITOR_TRUTH_V1]; empty when there is no snapshot.
+  static std::vector<HostEntry> hostsOf(const NodeSnapshot& s);
 
   // Every sensor whose name begins "<domain>." — server-side filtered, so only
   // this host's rows cross the wire. Name prefix ONLY: SensorAddress keys on a

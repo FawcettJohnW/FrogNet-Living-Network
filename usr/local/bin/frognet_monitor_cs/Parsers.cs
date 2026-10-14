@@ -15,6 +15,8 @@
  *                                                             *
  *  See COPYRIGHT and LICENSE at the root of this tree.        *
  **************************************************************/
+using System.Text.Json;
+
 namespace FrogNet.Monitor;
 
 /// <summary>
@@ -135,5 +137,85 @@ public static class Parsers
             if (int.Parse(part) > 255) return "";
         }
         return $"{o[0]}.{o[1]}.{o[2]}.1";
+    }
+    /// <summary>
+    /// [ONE_MONITOR_TRUTH_V1] getSnapshot.php's body, normalized: the same summary as the Python
+    /// (discovery.parse_snapshot) and the C++ (parseSnapshot), checked by the shared "snapshot" vectors.
+    /// Ponds "*area" = forward; hub "iface 17s" | "iface no handshake" | "iface error"; members
+    /// "ip name role alive|down source[ self]". A field of the wrong type reads empty; flags count only as true.
+    /// </summary>
+    public sealed record NodeSnapshot(string Mode, string Name, string Dot1, string Build, string Commit, string ModeWhy,
+                                      string DbHost, string Control, List<string> Ponds, List<string> Hub,
+                                      List<string> Members, List<string> Errors, JsonElement Raw);
+
+    private static string Str(JsonElement o, string k) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String
+            ? v.GetString() ?? "" : "";
+
+    private static bool True(JsonElement o, string k) =>
+        o.ValueKind == JsonValueKind.Object && o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+
+    private static IEnumerable<JsonElement> Arr(JsonElement o, string k) =>
+        o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray() : Enumerable.Empty<JsonElement>();
+
+    private static JsonElement Obj(JsonElement o, string k) =>
+        o.TryGetProperty(k, out var v) ? v : default;
+
+    /// <summary>Null when the body is not a snapshot (not JSON, not an object, snapshot != 1, mode neither).</summary>
+    public static NodeSnapshot? ParseSnapshot(string? body)
+    {
+        if (string.IsNullOrEmpty(body)) return null;
+        JsonElement d;
+        try { using var doc = JsonDocument.Parse(body); d = doc.RootElement.Clone(); }
+        catch (JsonException) { return null; }
+        if (d.ValueKind != JsonValueKind.Object) return null;
+        if (!d.TryGetProperty("snapshot", out var ver) || ver.ValueKind != JsonValueKind.Number || ver.GetDouble() != 1)
+            return null;
+        var mode = Str(d, "mode");
+        if (mode != "lan-only" && mode != "region") return null;
+        var node = Obj(d, "node");
+        var build = Obj(d, "build");
+        var el = Obj(d, "elections");
+        var ponds = Arr(d, "ponds").Where(p => p.ValueKind == JsonValueKind.Object)
+                                   .Select(p => (True(p, "forward") ? "*" : "") + Str(p, "area")).ToList();
+        var hub = new List<string>();
+        foreach (var h in Arr(d, "hub"))
+        {
+            if (h.ValueKind != JsonValueKind.Object) continue;
+            var iface = Str(h, "iface");
+            if (Str(h, "error").Length > 0) hub.Add(iface + " error");
+            else if (h.TryGetProperty("handshake_age_s", out var a) && a.ValueKind == JsonValueKind.Number)
+                hub.Add($"{iface} {(long)a.GetDouble()}s");
+            else hub.Add(iface + " no handshake");
+        }
+        var members = Arr(d, "members").Where(m => m.ValueKind == JsonValueKind.Object)
+            .Select(m => $"{Str(m, "ip")} {Str(m, "name")} {Str(m, "role")} {(True(m, "alive") ? "alive" : "down")} {Str(m, "source")}"
+                         + (True(m, "self") ? " self" : "")).ToList();
+        var errors = Arr(d, "errors").Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString() ?? "").ToList();
+        return new NodeSnapshot(mode, Str(node, "name"), Str(node, "dot1"), Str(build, "build"), Str(build, "commit"),
+                                Str(d, "mode_why"), Str(el, "databasehost"), Str(el, "databasehost_control"),
+                                ponds, hub, members, errors, d);
+    }
+
+    /// <summary>The title, word for word the Python's draw_dashboard.title_text.</summary>
+    public static string TitleText(NodeSnapshot? n) =>
+        n is null ? "  FrogNet   (getSnapshot.php did not answer)"
+                  : $"  FrogNet   {(n.Name.Length > 0 ? n.Name : "?")} ({(n.Dot1.Length > 0 ? n.Dot1 : "no .1")})";
+
+    /// <summary>Mode, build, ponds, hub link, the snapshot's errors: the Python's draw_dashboard.node_lines.</summary>
+    public static List<string> NodeLines(NodeSnapshot? n)
+    {
+        if (n is null)
+            return new() { "  no snapshot: http://127.0.0.1/getSnapshot.php did not answer (asked again next cycle)" };
+        var build = (n.Build.Length > 0 ? n.Build : "?") + (n.Commit.Length > 0 ? " " + n.Commit : "");
+        var o = new List<string> { $"  mode {n.Mode,-9} build {build}" };
+        if (n.Mode == "region")
+        {
+            o.Add("  ponds  " + (n.Ponds.Count > 0 ? string.Join("  ", n.Ponds) : "none") + "   (* = forward)");
+            o.Add("  hub    " + (n.Hub.Count > 0 ? string.Join("  ", n.Hub) : "no hub link (facts.json has no hub row)"));
+        }
+        else o.Add($"  ponds  none, hub none (LAN-only: {n.ModeWhy})");
+        o.AddRange(n.Errors.Select(e => "  ! " + e));
+        return o;
     }
 }

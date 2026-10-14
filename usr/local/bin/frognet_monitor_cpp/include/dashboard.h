@@ -128,6 +128,7 @@ std::vector<int> loadWidths();
 // snapshot or the previous complete snapshot, never half of one.
 // ---------------------------------------------------------------------------
 struct Snapshot {
+  NodeSnapshot node;             // getSnapshot.php [ONE_MONITOR_TRUTH_V1]: mode, ponds, hub, members, elections
   std::string domain;
   std::string dbhost_ip;
   std::vector<Peer> peers;
@@ -147,6 +148,11 @@ class State {
   mutable std::mutex m_;
   Snapshot snap_;
 };
+
+// [ONE_MONITOR_TRUTH_V1] The title and the node block (mode, build, ponds, hub link, the snapshot's errors), word
+// for word what the Python monitor draws (draw_dashboard.title_text / node_lines). Pure: dashboard_oracle checks it.
+std::string titleText(const NodeSnapshot& n);
+std::vector<std::string> nodeLines(const NodeSnapshot& n);
 
 // Collect one full refresh. Blocking; call from the worker thread only.
 Snapshot collect(const Client& c, const std::string& domain);

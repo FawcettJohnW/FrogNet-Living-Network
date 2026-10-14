@@ -1,0 +1,18 @@
+before:
+aa4260b53cf1574a3d5f362a3ea96d1e /opt/fdf/hub/hub.env
+20bd5bfc6af06a5875dfdfcdd11c0161 /opt/fdf/var/site-key-myarea
+ec8d1033f389e556f1c6c1a74635da3c /etc/systemd/system/fdf-ram-myarea.service
+6c93b0837791afa9dfa7ab97db4e0f00 /etc/systemd/system/fdf-client-myarea.service
+35945b8460c4f93aae52a0ab53628e7c /etc/frognet/wg.impl
+$ cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-myarea fdf-client-myarea fdf-hub
+59
+rc=0
+after:
+aa4260b53cf1574a3d5f362a3ea96d1e /opt/fdf/hub/hub.env
+20bd5bfc6af06a5875dfdfcdd11c0161 /opt/fdf/var/site-key-myarea
+ec8d1033f389e556f1c6c1a74635da3c /etc/systemd/system/fdf-ram-myarea.service
+6c93b0837791afa9dfa7ab97db4e0f00 /etc/systemd/system/fdf-client-myarea.service
+35945b8460c4f93aae52a0ab53628e7c /etc/frognet/wg.impl
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+2026-10-13 13:25:11 [FDF-HUB] start (adopt): members=1 mappings=2 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+active active active 

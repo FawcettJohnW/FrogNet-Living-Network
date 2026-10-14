@@ -1,0 +1,16 @@
+$ cd / && sed "1,/^__PAYLOAD_BELOW__$/d" /tmp/fdf-install-x86_64.run | tar xvzf - opt/fdf
+sed: can't read /tmp/fdf-install-x86_64.run: No such file or directory
+
+gzip: stdin: unexpected end of file
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+0
+rc=2 (files listed: counted)
+cat: /opt/fdf/BUILD: No such file or directory
+$ cp /root/FrogNet/opt/fdf/src/fdf-source/deliverables/etc-droplet/systemd/system/fdf-hub.service /etc/systemd/system/
+rc=0
+$ ip -o addr | grep 10\.253\. ; ip route | grep 10\.253\.
+(printed nothing above = ok)
+$ /opt/fdf/bin/fdf-region-create lan 10.91.91.1
+bash: line 1: /opt/fdf/bin/fdf-region-create: No such file or directory
+rc=127

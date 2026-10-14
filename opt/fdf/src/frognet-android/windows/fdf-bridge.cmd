@@ -23,6 +23,16 @@ if not exist "%D%wintun.dll" (
   exit /b 2
 )
 set "FDF_PONDS_FILE=%D%etc\ponds.txt"
+rem [PONDS_ARE_THE_OPERATORS_V1 - T4b] ponds.txt ships as an example (no built-in pond): refuse until it is filled in
+if not exist "%FDF_PONDS_FILE%" (
+  echo fdf-bridge: %FDF_PONDS_FILE% is missing: one ^<area^>=^<RAM host:port^> line per pond
+  exit /b 2
+)
+findstr /b /c:"AREA=RAM-HOST" "%FDF_PONDS_FILE%" >nul 2>&1
+if not errorlevel 1 (
+  echo fdf-bridge: %FDF_PONDS_FILE% is still the example: replace the AREA=RAM-HOST:51888 line with your pond ^(the area and RAM manager fdf-region-create printed^)
+  exit /b 2
+)
 set "FDF_FORWARD_FILE=%D%var\forward"
 set "FDF_FACTS=%D%var\facts.json"
 set "FDF_KEY_FILE=%D%var\wg.key"

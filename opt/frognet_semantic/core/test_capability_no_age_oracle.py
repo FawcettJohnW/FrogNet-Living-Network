@@ -46,26 +46,30 @@ def _mod(rows, reachable):
     T = types.ModuleType("core.frognet_tuples")
     T.get = lambda role, var, dbhost=None, fresh_s=0, **k: rows
     T.role_scope = lambda r: "host:x:" + r
+    RC = types.ModuleType("core.region_capability")     # broker mode: no region snapshot, the store is read
+    RC.rows = lambda role: None
+    RC.active = lambda: False
+    pkg.frognet_tuples, pkg.region_capability = T, RC
     sys.modules["core"] = pkg
     sys.modules["core.frognet_tuples"] = T
+    sys.modules["core.region_capability"] = RC
     m = types.ModuleType("elect_probe")
     exec(compile(SRC, "elect_probe", "exec"), m.__dict__)
     return m
 
 
 def _row(ip, age_s):
-    return {"name": "SD:capability.host:%s:mediahost" % ip, "addr": ip,
+    return {"name": "SD:capability.host:%s:databasehost" % ip, "addr": ip,
             "age_s": age_s,
-            "value": {"lan_ip": ip, "cores": 4, "camera": True, "mic": True}}
+            "value": {"lan_ip": ip, "cores": 4, "mysql_running": True}}
 
 
 class _H:
-    ROLE_NAME = "mediahost"
+    ROLE_NAME = "databasehost"
 
 
-def _gather(m, **kw):
-    return m.gather_candidates(_H(), local_ips=kw.get("local_ips", []),
-                               lan_subnets=kw.get("lan_subnets"))
+def _gather(m):
+    return m.gather_candidates(_H())
 
 
 # ---- age is not a consideration -------------------------------------------
@@ -73,15 +77,15 @@ def _gather(m, **kw):
 def t_ancient_row_is_still_a_candidate():
     """The 8.1-day fossil case -- but REACHABLE. It still has its cores."""
     m = _mod([_row("10.160.160.1", 8 * 86400)], reachable={"10.160.160.1"})
-    hosts, _lan = _gather(m)
+    hosts = _gather(m)
     assert [c["lan_ip"] for c in hosts] == ["10.160.160.1"], (
         "an 8-day-old capability row was refused -- hardware does not expire")
 
 
 def t_the_2040s_ballot_is_admitted():
-    """Measured: mediahost 10.28.28.1 refused at ts_age=2040s while healthy."""
+    """Measured: 10.28.28.1 refused at ts_age=2040s while healthy."""
     m = _mod([_row("10.28.28.1", 2040)], reachable={"10.28.28.1"})
-    hosts, _lan = _gather(m)
+    hosts = _gather(m)
     assert len(hosts) == 1, "a 2040s-old row was refused"
 
 
@@ -96,7 +100,7 @@ def t_missing_envelope_no_longer_disqualifies():
     """age_s None was 'not admissible'. Age is not a consideration."""
     r = _row("10.120.120.1", None)
     m = _mod([r], reachable={"10.120.120.1"})
-    hosts, _lan = _gather(m)
+    hosts = _gather(m)
     assert len(hosts) == 1, (
         "a row with no envelope timestamp was dropped -- that is an age "
         "judgement by another name")
@@ -116,12 +120,12 @@ def t_no_per_node_reachability_cull():
 
 
 def t_same_rows_same_answer():
-    """Two nodes, same rows, different local_ips -> identical candidate list."""
+    """Two nodes, same rows -> identical candidate list (gather takes no per-node input)."""
     rows = [_row("10.1.1.1", 9999999), _row("10.2.2.2", 5), _row("10.3.3.3", 0)]
     a = _mod(rows, reachable=set())
-    ha, _ = a.gather_candidates(_H(), local_ips=["10.1.1.1"], lan_subnets=None)
+    ha = a.gather_candidates(_H())
     b = _mod(rows, reachable=set())
-    hb, _ = b.gather_candidates(_H(), local_ips=["10.9.9.9"], lan_subnets=None)
+    hb = b.gather_candidates(_H())
     assert [c["lan_ip"] for c in ha] == [c["lan_ip"] for c in hb], (
         "two nodes reading the SAME rows produced different candidate lists: "
         "%s vs %s" % ([c["lan_ip"] for c in ha], [c["lan_ip"] for c in hb]))
@@ -130,7 +134,7 @@ def t_same_rows_same_answer():
 def t_pool_is_every_row_regardless_of_age():
     rows = [_row("10.1.1.1", 8 * 86400), _row("10.2.2.2", 2040), _row("10.3.3.3", 1)]
     m = _mod(rows, reachable=set())
-    hosts, _ = m.gather_candidates(_H(), local_ips=[], lan_subnets=None)
+    hosts = m.gather_candidates(_H())
     assert len(hosts) == 3, (
         "%d of 3 rows survived -- age is not a consideration and nothing else "
         "may cull the pool per node" % len(hosts))

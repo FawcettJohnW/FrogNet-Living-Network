@@ -1,0 +1,35 @@
+opt/fdf/www/term/xterm.js
+drwxr-xr-x 7 root root 4096 Oct 12 15:06 /opt/fdf
+drwxr-xr-x 2 root root 4096 Oct 12 15:06 /opt/fdf/bin
+== fdf-region-create test at 172.30.0.10 (RAM manager tcp 51888, hub udp 50889); package=fdf-droplet.tgz build=fdf-2026-10-11-r19-a15 built=2026-10-12T15:01Z for=region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP 
+== site key: made, stored root-only in /opt/fdf/var/site-key-test (mode 600)
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-ram-test.service → /etc/systemd/system/fdf-ram-test.service.
+== fdf-ram-test started; waiting for it to answer on 127.0.0.1:51888
+   RAM manager: {"ok":true,"server":"fdf-2026-10-11-r19-a15"}
+== map_site test: {"ok":true}
+== /opt/fdf/hub/hub.env written
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-hub.service → /etc/systemd/system/fdf-hub.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-client-test.service → /etc/systemd/system/fdf-client-test.service.
+== fdf-hub (want: 'hub regionbox on wg-test', 'start (adopt)')
+   2026-10-12 15:06:13 [FDF-HUB] build fdf-2026-10-11-r19-a15; region at 127.0.0.1:51888 is build fdf-2026-10-11-r19-a15
+   fdf-events: build fdf-2026-10-11-r19-a15; region is build fdf-2026-10-11-r19-a15
+   2026-10-12 15:06:13 [FDF-HUB] facts: peers=0 announced
+   2026-10-12 15:06:13 [FDF-HUB] start (adopt): members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-11-r19-a15
+== fdf-client-test
+   fdf-client: regionbox joined the region at 127.0.0.1:51888, announced ["172.30.0.10"]
+   fdf-client: facts changed, re-announced
+   fdf-client: facts changed, re-announced
+== firewall: members must reach 172.30.0.10:51888/tcp and 172.30.0.10:50889/udp, and the hub forwards member to member.
+   With ufw, run (or re-run this with --ufw):
+     ufw allow 51888/tcp
+     ufw allow 50889/udp
+     ufw route allow in on wg-test out on wg-test
+
+== region test is held here. Its site key (shown this once; it stays in /opt/fdf/var/site-key-test):
+
+     fd91d2c8a50fd0b0907bcfa37b079874f71892758147fed01dc713d778af27eb
+
+== a FrogNet node joins it at install:
+     sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --region 172.30.0.10:51888 --site-key <KEY> --area test
+   or, on a node already installed:  sudo bash fdf-install-$(uname -m).run <KEY> 172.30.0.10:51888 test
+rc=0

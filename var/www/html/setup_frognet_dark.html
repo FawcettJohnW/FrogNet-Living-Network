@@ -175,50 +175,12 @@
     <div id="iface-list">Loading…</div>
   </section>
 
-  <!-- ============ Step 3: Broker ============ -->
-  <section class="card" id="card-broker">
-    <h2><span class="step-num">3</span>Broker</h2>
-    <p class="help">
-      A broker connects this node to a Pond — a group of FrogNet
-      hosts you can route through. Skip this if you don't have one.
-    </p>
-
-    <div class="checkbox">
-      <input type="checkbox" id="b-enable" onchange="toggleBroker()">
-      <label for="b-enable">Use a broker</label>
-    </div>
-
-    <div id="broker-fields" class="hidden">
-      <label for="b-host">Broker host or IP</label>
-      <input type="text" id="b-host" placeholder="streamingfrog.com"
-             autocomplete="off">
-
-      <label for="b-port">Port</label>
-      <input type="number" id="b-port" value="18257">
-
-      <label for="b-pond">Pond name</label>
-      <input type="text" id="b-pond" placeholder="e.g. fawcetts" autocomplete="off">
-
-      <label for="b-pw">Pond password (if the pond requires one)</label>
-      <input type="password" id="b-pw" autocomplete="off">
-
-      <label for="b-choruses">Choruses (comma-separated, optional)</label>
-      <input type="text" id="b-choruses" placeholder="e.g. office, home"
-             autocomplete="off">
-      <p class="help">
-        Joins additional choruses beyond <code>entire_pond</code>.
-        Pond admin must have allowed user-created choruses, or these
-        must already exist.
-      </p>
-    </div>
-  </section>
-
   <!-- ============ Apply (final) ============ -->
   <section class="card" id="card-apply">
     <h2>Apply &amp; reboot</h2>
     <p class="help">
-      Step 1 is applied immediately. Steps 2 and 3 are saved here and
-      take effect after a reboot. The host's SSID, IP, and
+      Step 1 is applied immediately. Step 2 is saved here and
+      takes effect after a reboot. The host's SSID, IP, and
       passphrase will all be re-stated on the next screen so you can
       reconnect after the reboot.
     </p>
@@ -303,22 +265,6 @@ async function loadState() {
     toast(e.message, 'error');
     document.getElementById('iface-list').textContent =
       'Could not load state: ' + e.message;
-  }
-  try {
-    const b = await call('broker-state');
-    if (b.enabled) {
-      document.getElementById('b-enable').checked = true;
-      toggleBroker();
-      document.getElementById('b-host').value = b.host || '';
-      document.getElementById('b-port').value = b.port || '18257';
-      document.getElementById('b-pond').value = b.pond || '';
-      document.getElementById('b-choruses').value =
-        (b.choruses || []).join(', ');
-      // We never round-trip the password.
-    }
-  } catch (e) {
-    // Soft-fail; broker section just stays empty.
-    console.warn('broker-state:', e.message);
   }
 }
 
@@ -461,13 +407,6 @@ async function disconnect(iface) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-// -------- Broker --------------------------------------------------------
-
-function toggleBroker() {
-  const on = document.getElementById('b-enable').checked;
-  document.getElementById('broker-fields').classList.toggle('hidden', !on);
-}
-
 // -------- Final apply + reboot ------------------------------------------
 
 async function finalApply() {
@@ -491,37 +430,7 @@ async function finalApply() {
     return;
   }
 
-  // 2. Broker section
-  const useBroker = document.getElementById('b-enable').checked;
-  if (useBroker) {
-    const host  = document.getElementById('b-host').value.trim();
-    const port  = document.getElementById('b-port').value.trim() || '18257';
-    const pond  = document.getElementById('b-pond').value.trim();
-    const pw    = document.getElementById('b-pw').value;
-    const csv   = document.getElementById('b-choruses').value.trim();
-    if (!host || !pond) {
-      status.className = 'err'; status.textContent =
-        'Broker host and pond name are required when "Use a broker" is checked.';
-      return;
-    }
-    try {
-      await call('apply-broker', {method: 'POST',
-        body: {host, port, pond, pond_password: pw, choruses: csv}});
-    } catch (e) {
-      status.className = 'err'; status.textContent =
-        'Broker apply failed: ' + e.message;
-      return;
-    }
-  } else {
-    try {
-      await call('clear-broker', {method: 'POST'});
-    } catch (e) {
-      // Non-fatal — pond.conf may not exist.  Continue.
-      console.warn('clear-broker:', e.message);
-    }
-  }
-
-  // 3. Show post-apply screen + QR + reboot
+  // 2. Show post-apply screen + QR + reboot
   await showPostApply(name, ip);
 
   try {
@@ -537,7 +446,6 @@ async function finalApply() {
 async function showPostApply(name, ip) {
   document.getElementById('card-identity').classList.add('hidden');
   document.getElementById('card-upstream').classList.add('hidden');
-  document.getElementById('card-broker').classList.add('hidden');
   document.getElementById('card-apply').classList.add('hidden');
 
   const url = 'http://' + ip + '/setup_frognet.html';

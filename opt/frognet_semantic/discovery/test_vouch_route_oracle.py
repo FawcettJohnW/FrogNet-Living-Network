@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 IDENT = "10.130.130.1"            # Seattle3 identity (.1 on its own AP, wlan0)
@@ -73,7 +73,7 @@ def _run(verify=None):
         ("10.102.60.1", "New-York-1"),      # echo FAILS, vouched
     ]})
     hs = HostStore()
-    disc = Discovery(routes, echo, rtt, gethosts, FakeBroker(), hs,
+    disc = Discovery(routes, echo, rtt, gethosts, FakeTunnelState(), hs,
                      local_ips={IDENT, "10.130.130.2", LEASE, "127.0.0.1"},
                      dev_src_map={}, self_identity=IDENT, verify=verify)
     disc.walk("wlan1", "10.160.160.1", 1)

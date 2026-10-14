@@ -1,12 +1,20 @@
+# fdf-hub.service -- the region's WireGuard concentrator (fdf-hub). Ships in fdf-droplet.tgz.
+# [HUB_ENV_IS_MADE_BY_REGION_CREATE_V1 - T4a] Its settings are /opt/fdf/hub/hub.env, which only fdf-region-create
+# writes (area, endpoint, name, port, facts file) and no tarball carries. Without it this unit does not start, and its
+# log says why: "run fdf-region-create". (EnvironmentFile is optional here ONLY so that the check below can be the one
+# that fails, with that message, instead of systemd's "Failed to load environment files".)
 [Unit]
-Description=FD&F hub: WireGuard concentrator for the frognet region (fdf-hub)
-After=network-online.target fdf-client-frognet.service
+Description=FD&F hub: WireGuard concentrator for the region (fdf-hub; settings: /opt/fdf/hub/hub.env from fdf-region-create)
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=/opt/fdf/hub/hub.env
+EnvironmentFile=-/opt/fdf/hub/hub.env
 Environment=FDF_PY=/opt/fdf/lib/python
+ExecStartPre=/bin/sh -c 'test -s /opt/fdf/hub/hub.env || { echo "fdf-hub: /opt/fdf/hub/hub.env does not exist: this machine holds no region yet. Run: /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP" >&2; exit 1; }'
+# [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation, chosen once and recorded (kept when there is one)
+ExecStartPre=/opt/fdf/bin/fdf-wg-impl --record
 ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area ${FDF_AREA} --endpoint ${FDF_ENDPOINT} --name ${FDF_HUB_NAME} --listen ${FDF_LISTEN} --facts ${FDF_FACTS}
 Restart=always
 RestartSec=2

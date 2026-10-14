@@ -1,16 +1,17 @@
 #!/bin/bash
-# fdf-region-join SITE_KEY [RAM_HOST:PORT] [AREA] -- [FDF_REGION_JOIN_V1] make this FrogNet node a member of the FD&F
+# fdf-region-join SITE_KEY RAM_HOST:PORT AREA -- [FDF_REGION_JOIN_V1] make this FrogNet node a member of the FD&F
 # region and switch its tunnel daemon to region mode, in one go:
 #   /opt/fdf/var/site.env   RINA_AREA=<area>  RINA_SITE_KEY=<key>   (fdf-client signs this node's /24 mapping with it;
 #                           the key must be the one map_site holds on the RAM manager, or the region says EPERM)
 #   fdf-join RAM            /opt/fdf/var/join.env (RINA_RAM) + fdf-client.service, started
-#   frognet-tunnel-daemon-v3 restarted: it reads join.env + site.env ([REGION_SWITCH_V2]) and runs region mode
+#   frognet-tunnel-daemon-v3 restarted: join.env is its one switch, site.env its area ([REGION_SWITCH_ONE_FILE_V1])
 # Then it waits 15 s and shows what happened: the client's mapping line, the daemon's REGION lines, wg. Nothing hidden.
-# Defaults: RAM 165.232.153.144:51888, area frognet. Run as root. Re-runnable.
+# All three arguments are required (fdf-region-create printed them); there is no built-in region. Run as root.
+# Re-runnable.
 set -u
 [ "$(id -u)" = 0 ] || { echo "fdf-region-join: run as root" >&2; exit 1; }
-KEY=${1:?usage: fdf-region-join SITE_KEY [RAM_HOST:PORT] [AREA]}
-RAM=${2:-165.232.153.144:51888}; AREA=${3:-frognet}
+[ $# -eq 3 ] || { echo "usage: fdf-region-join SITE_KEY RAM_HOST:PORT AREA   (all three required)" >&2; exit 2; }
+KEY=$1; RAM=$2; AREA=$3
 case "$KEY" in *\<*|*\>*) echo "fdf-region-join: '$KEY' looks like a placeholder, not a key" >&2; exit 2 ;; esac
 echo "== $(cat /opt/fdf/BUILD 2>/dev/null | tr '\n' ' ')"
 M=$(uname -m); E=$(od -An -tx1 -j18 -N1 /opt/fdf/bin/fdf-client | tr -d ' ')
@@ -24,17 +25,20 @@ echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}
 # join.env first (the daemon's switch), then the daemon: it writes this node's name/guid/subnet/pubkey into
 # facts.json at start, and fdf-client takes its member name from there at ITS start -- so the daemon goes first.
 mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
-[ -f /etc/frognet/tunnel.conf ] && [ ! -f /etc/frognet/tunnel.conf.broker ] && cp /etc/frognet/tunnel.conf /etc/frognet/tunnel.conf.broker
-# [STORE_UNITS_OFF_IN_REGION_V1] units whose only work in region mode is writing store tuples nobody reads, or waiting
-# for pokes nobody sends: the 60 s <role>/capability advertisers (each ran frognet_capability_probe.sh -- cpu
-# benchmark, disk write+fsync -- every minute, per role), the 1/min store elector (stands down in region mode), the
-# merge watcher (propogateNotification exits in region mode), the 120 s broker-enrolment retry (membership is the
-# session on a region). The daemon publishes capability as a fact.
-# fdf-leave turns them back on.
-for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+# [STORE_UNITS_OFF_IN_REGION_V1] in region mode the daemon publishes capability as a fact and elects from the members'
+# facts; the merge writes no store. The 1/min store elector (frognet-dbhost-elect.timer) would have nothing to do (it
+# stands down in region mode): stopped and disabled here, fdf-leave turns it back on. (The 60 s advertiser this also
+# stopped is gone from the tree; an upgrade's prune removes it.) The merge watcher stays on in both modes: the
+# NetworkManager hook's boot and interface-change merges are requests to it ([HOOK_ASKS_THE_WATCHER_V1], T4c).
+for u in frognet-dbhost-elect.timer; do
   [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
   systemctl disable --now "$u" 2>&1 | grep -v '^Removed' ; echo "== region mode: $u stopped and disabled"
 done
+# a node joined before T4c had the watcher turned off here: on again (its failure is said; the next join retries)
+if [ -e /etc/systemd/system/frognet-merge-watcher.service ] && ! systemctl is-enabled --quiet frognet-merge-watcher.service; then
+  systemctl enable frognet-merge-watcher.service && systemctl start frognet-merge-watcher.service && echo "== the merge watcher: enabled (it runs in both modes)" \
+    || echo "== warning: could not enable frognet-merge-watcher.service (above); the hook's merge requests wait for it"
+fi
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 systemctl restart frognet-tunnel-daemon-v3
 for i in $(seq 1 20); do grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null && break; sleep 0.5; done
@@ -43,8 +47,8 @@ grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null || echo "== warning: the da
 echo "== waiting 15 s for the join, the mapping and the hub"; sleep 15
 echo "== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)"
 journalctl -u fdf-client --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -8
-echo "== tunnel daemon (want: 'REGION switch', 'REGION: facts written', 'my-channels: hubs=[...]')"
-journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep -E "REGION|POLL|IDENTITY|Traceback|Error" | tail -12
+echo "== tunnel daemon (want: 'build', 'REGION switch', 'WG_KEY' on a first join, 'REGION: facts written', 'my-channels: hubs=[...]')"
+journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep -E "Starting frognet-tunnel-daemon|REGION|WG_KEY|IDENTITY|Traceback|Error" | tail -12
 echo "== wg (want: one peer, endpoint = the hub, a latest handshake)"
 wg show 2>&1 | grep -E "^interface|endpoint|allowed|handshake"
 echo "== members"; /opt/fdf/bin/fdf-ls 2>&1 | head -12

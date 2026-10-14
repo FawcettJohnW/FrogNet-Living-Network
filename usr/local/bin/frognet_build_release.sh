@@ -227,6 +227,14 @@ truncate -s 0 /var/lib/misc/dnsmasq.leases 2>/dev/null || true
 log "NetworkManager leases..."
 find /var/lib/NetworkManager/ -name '*.lease' -delete 2>/dev/null || true
 
+log "Retired state (frognet_prune_removed.sh, every section: what the tree no longer ships)..."
+# The build host is a node: the same removal its own install runs (installer C1c), so
+# nothing the cleanup retired can reach the world tar. One list, in one script, run whole.
+if ! /usr/local/bin/frognet_prune_removed.sh --apply; then
+    warn "frognet_prune_removed.sh failed on the build host - not building a world tar that may carry retired files or credentials"
+    exit 1
+fi
+
 log "Purge complete"
 
 ###############################################################################
@@ -278,23 +286,9 @@ mysqldump \
 log "  $(wc -l < "$DB_DUMP") lines, $(du -h "$DB_DUMP" | cut -f1)"
 
 ###############################################################################
-# D2. Deploy v3 scripts to /usr/local/bin
+# D2. Tunnel daemon unit: the image enables v3 only
 ###############################################################################
-phase "D2: Deploy v3 edge scripts"
-
-V3_PKG="/opt/frognet_semantic/internet_tunnels_v3"
-if [[ -d "$V3_PKG" ]]; then
-    # setup_lillypad_v3.bash deployment RETIRED - only setup_lillypad_v4.bash is
-    # supported now (it ships via the world-tar glob of usr/local/bin). Do NOT
-    # re-add a v3 deploy here. frognet-tunnel-setup-v3.sh likewise ships via the
-    # glob (underscore version retired).
-    if [[ -f "${V3_PKG}/frognet_chorus.php" ]]; then
-        cp "${V3_PKG}/frognet_chorus.php" "/var/www/html/frognet_chorus.php"
-        log "  Deployed frognet_chorus.php -> /var/www/html/"
-    fi
-else
-    warn "internet_tunnels_v3 not found - v3 edge assets not deployed"
-fi
+phase "D2: Tunnel daemon unit"
 
 # Disable v2 tunnel daemon in the image (keep unit file for rollback)
 if [[ -f /etc/systemd/system/frognet-tunnel-daemon.service ]]; then
@@ -399,9 +393,9 @@ phase "E: Build world tarball"
 #     cd /opt/frognet_semantic && PYTHONPATH=. python3 -m discovery.sim.lifecycle
 #
 # discovery selfcheck stays, and it is not weakened: it covers the oracle suite
-# byte-exact plus the proof_plane shapes/churn/broker scenarios.
-_DISC_PY="/opt/frognet_semantic/venv/bin/python3"
-[[ -x "$_DISC_PY" ]] || _DISC_PY="/usr/bin/python3"
+# byte-exact plus the proof_plane shapes/churn scenarios.
+_DISC_PY="/opt/frognet_semantic/venv/bin/python3"   # [SERVICES_ON_THE_VENV_V1] the gate runs on what the node runs
+[[ -x "$_DISC_PY" ]] || { echo "FATAL: $_DISC_PY missing (the installer's C2 builds it)" >&2; exit 1; }
 _GATE_LOG="/var/tmp/frognet_release_build_gate.log"
 : > "$_GATE_LOG"
 _gate_ok=1
@@ -487,27 +481,15 @@ for _lib in /usr/local/lib/frognet*; do
     log "  world: auto-added FrogNet lib $_rel (not in the hand-written manifest)"
 done
 
-# Add frognet systemd unit files individually (services + timers + paths + targets)
-#
-# [BOOT_GATE_V1] '.target' was missing from this list. frognet-discovered.target
-# is the stable name frognet-dashboard.service and frognet-gps.service order
-# behind (After=/Wants=), so a release built without it shipped two consumers
-# pointed at a unit that did not exist. systemd treats Wants= on a missing unit
-# as a soft failure -- it logs and continues -- so both services started at an
-# arbitrary point instead of after discovery converged, and nothing ever
-# complained. Caught by discovery/sim/boot_gate_check.py, which could not read
-# the target file.
-while IFS= read -r -d '' f; do
-    rel="${f#/}"
-    SAFE_WORLD_PATHS+=("$rel")
-done < <(find /etc/systemd/system -maxdepth 1 \
-    \( -name 'frognet-*.service' \
-    -o -name 'frognet-*.timer' \
-    -o -name 'frognet-*.path' \
-    -o -name 'frognet-*.mount' \
-    -o -name 'frognet-*.target' \
-    -o -name 'frognet-*@.service' \) \
-    -print0 2>/dev/null)
+# [NODE_FILE_SET_V1 - T4a] No per-unit additions here: etc/systemd/system is in
+# FROGNET_WORLD_PATHS whole (with its enable-state links in NEVER_SHIP), so adding each
+# frognet-* unit again put every one of them into the archive twice. The excludes that
+# say what a NODE is (FROGNET_NEVER_SHIP + FROGNET_NODE_EXCLUDE) come from the manifest,
+# the same ones frognet_install.sh --from-repo copies by; only the release's own
+# packaging excludes (nested tars, the installer that rides beside the tar, the
+# cleartext secret files whose tokenized copies are appended below) are listed here.
+_NODE_EX=()
+for _x in "${FROGNET_NEVER_SHIP[@]}" "${FROGNET_NODE_EXCLUDE[@]}"; do _NODE_EX+=( "--exclude=$_x" ); done
 
 tar -czf "$WORLD_TGZ" \
     `# [NO_NESTED_WORLD_TAR_V1] A prior frognet_world.tgz / frognet_release_*.tgz` \
@@ -530,81 +512,13 @@ tar -czf "$WORLD_TGZ" \
     --exclude='usr/local/bin/installer' \
     --exclude='usr/local/bin/frognet_install.sh' \
     --exclude='usr/local/bin/frognet_build_release.sh' \
-    `# [HAM_OUT_V1] Amateur/AX.25 subsystem must not ship (FCC Part 97.113(a)(4)` \
-    `# bars BLDC-1 on amateur bands). All ham_*.sh drive the ham0 interface;` \
-    `# frognet_radio_init.sh is an orphan ham0 driver (nothing invokes it).` \
-    `# radio_link.sh is a GENERIC tc/ifb shaper, NOT ham - it stays. ax25-tools/` \
-    `# ax25-apps removed from the installer apt list separately.` \
-    --exclude='usr/local/bin/ham_*.sh' \
-    --exclude='usr/local/bin/frognet_radio_init.sh' \
-    `# [RETIRED_VERSIONS_V1] Keep only setup_lillypad_v4.bash and` \
-    `# frognet-tunnel-setup-v3.sh. Drop the older versions so a build host that` \
-    `# still has them on disk cannot re-ship them.` \
-    --exclude='usr/local/bin/setup_lillypad.bash' \
-    --exclude='usr/local/bin/setup_lillypad_v3.bash' \
-    --exclude='opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash' \
-    --exclude='opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash' \
-    --exclude='usr/local/bin/frognet-tunnel-daemon.py' \
-    --exclude='usr/local/bin/ham_concentrator_up.sh' \
-    --exclude='usr/local/bin/frognet-tunnel-setup.sh' \
-    `# [NO_STAGING_DIRS_UNDER_OPT_V1] /opt/frognet_semantic is Python source only.` \
-    `# etc/bin/usr/var have no business there - they are stray staging mirrors` \
-    `# (e.g. a full duplicate of etc/frognet_bundles). Nothing references them.` \
-    `# Guard belt-and-suspenders even after they are deleted on the build host.` \
-    --exclude='opt/frognet_semantic/etc' \
-    --exclude='opt/frognet_semantic/bin' \
-    --exclude='opt/frognet_semantic/usr' \
-    --exclude='opt/frognet_semantic/var' \
-    --exclude='opt/frognet_semantic/blob_cache/*' \
-    --exclude='opt/frognet_semantic/logs/*' \
-    `# [SHIP_NO_BYTECODE] '**/' does not match a TOP-LEVEL __pycache__, i.e.` \
-    `# opt/frognet_semantic/__pycache__ itself. The pre-clean above deletes it,` \
-    `# so this is belt-and-braces -- but a tarball built from a tree the clean` \
-    `# did not reach would otherwise ship bytecode.` \
-    --exclude='opt/frognet_semantic/__pycache__' \
-    --exclude='opt/frognet_semantic/**/__pycache__' \
-    --exclude='opt/frognet_semantic/**/*.pyc' \
-    --exclude='opt/frognet_semantic/**.old' \
-    --exclude='opt/frognet_semantic/daemon.old' \
-    --exclude='opt/frognet_semantic/proxy.old' \
-    --exclude='opt/frognet_semantic/core.old' \
-    --exclude='opt/frognet_semantic/_v1' \
-    --exclude='usr/local/bin/__pycache__' \
-    --exclude='usr/local/bin/*.pyc' \
-    --exclude='usr/local/sbin/__pycache__' \
-    --exclude='usr/local/sbin/*.pyc' \
-    --exclude='usr/local/lib/python3.11/**/__pycache__' \
-    --exclude='usr/local/lib/python3.11/**/*.pyc' \
-    --exclude='etc/wireguard/*.conf' \
-    --exclude='etc/NetworkManager/system-connections' \
-    --exclude='etc/frognet/tunnel.conf' \
-    --exclude='etc/frognet/tunnel.conf.bak.*' \
-    --exclude='etc/frognet/wifi.env' \
-    --exclude='etc/frognet/sem_cache_secret' \
-    --exclude='etc/frognet/broker.conf' \
-    `# [DNSMASQ_IDENTITY_OUT_V1] opts_only.conf is per-node: setup_lillypad` \
-    `# writes domain=<node> and this node's dhcp-range into it. Building from a` \
-    `# live node would otherwise ship one node's DHCP scope and domain to every` \
-    `# node. It is regenerated on each install, so dropping it is safe.` \
-    --exclude='etc/dnsmasq.d/opts_only.conf' \
-    `# [DNSMASQ_NO_UNBOUND_V1] never ship the dead unbound-forward config; the` \
-    `# installer no longer writes it, but a live build host may still carry one.` \
-    --exclude='etc/dnsmasq.d/forward_to_unbound.conf' \
-    --exclude='etc/frognet/gateways.conf' \
-    --exclude='etc/frognet/pond.conf' \
-    --exclude='etc/frognet/active_interface' \
-    --exclude='etc/frognet/interfaces_override.conf' \
-    --exclude='etc/frognet/transit_exclude_interfaces' \
-    --exclude='etc/frognet/ssid_projection.conf' \
+    "${_NODE_EX[@]}" \
     `# [DB_SECRET_SCRAMBLE_V1] Drop the CLEARTEXT live copies of every secret-` \
     `# bearing file; the TOKENIZED copies are appended as a second gzip member` \
     `# below. Also drop the misnamed webroot-snapshot tarballs (junk + leak) and` \
     `# the install-written env seed, neither of which must ever ship.` \
     --exclude='var/www/html/config.php' \
     --exclude='opt/frognet_semantic/DB_CONFIG.json' \
-    --exclude='opt/frognet_semantic/daemon/cache/semcache_db.py' \
-    --exclude='opt/frognet_semantic/proxy/cache/semcache_db.py' \
-    --exclude='opt/frognet_semantic/daemon/engine/data_cache.py' \
     --exclude='usr/local/bin/install_databasehost.sh' \
     --exclude='usr/local/bin/semantic_cache_schema.sql' \
     --exclude='*addExternalNameserver.php' \
@@ -641,6 +555,22 @@ frognet_install.sh), then re-run." >&2
     exit 1
 fi
 rm -rf "$_SCAN_DIR"
+
+# [WORLD_HAS_THE_NODE_FILE_SET_V1 - 2026-10-14] The world tar must carry every file of the node file set (the same
+# list --from-repo copies), less this builder's own packaging excludes. Three code files -- proxy/cache/semcache_db.py,
+# daemon/engine/data_cache.py, daemon/cache/semcache_db.py -- were excluded here as "secret-bearing" long after they
+# stopped carrying the password (they read it through the credential module) and were never appended back, so every
+# release installed a proxy and a daemon that could not import (found on a fresh install of the 2026-10-14 release).
+_MEMBERS="$(tar --ignore-zeros -tzf "$WORLD_TGZ" | sed 's|^\./||' | sort -u)"
+_MISSING_FROM_WORLD="$(frognet_node_files / | sort -u | grep -vxE \
+    'usr/local/bin/installer/.*|usr/local/bin/frognet_install\.sh|usr/local/bin/frognet_build_release\.sh|.*addExternalNameserver\.php|etc/frognet/db\.env|.*frognet_world.*\.tgz|.*frognet_release_.*\.tgz' \
+    | comm -23 - <(printf '%s\n' "$_MEMBERS"))"
+if [[ -n "$_MISSING_FROM_WORLD" ]]; then
+    echo "FATAL: the world tar lacks $(wc -l <<<"$_MISSING_FROM_WORLD") file(s) of the node file set:" >&2
+    sed 's/^/  MISSING: /' <<<"$_MISSING_FROM_WORLD" | head -40 >&2
+    exit 1
+fi
+log "  world tar carries the whole node file set"
 unset _REAL_DB_PASS
 log "  Scan clean - no cleartext DB password in the world tar"
 

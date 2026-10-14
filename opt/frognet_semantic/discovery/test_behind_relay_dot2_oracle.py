@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.discovery import Discovery
 from discovery.routes import Routes
 from discovery.kernel import FakeKernel
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                FakeReflect, FakeVerify, HostStore)
 from discovery import descend as _descend
 
@@ -83,7 +83,7 @@ def build(seattle2_dot2_reflects_via_relay):
         "10.130.130.1": S3LIST,    # Seattle3 surfaces its child Seattle2
         "10.111.11.1": MESH5, "10.179.178.1": MESH5, "10.102.60.1": MESH5,
     })
-    broker = FakeBroker(by_one={}, iface_channel={
+    broker = FakeTunnelState(by_one={}, iface_channel={
         "wg0": "BABox-10.111.11", "wg1": "BAMacBook-10.179.178", "wg2": "New-York-1-10.102.60"})
     k = FakeKernel()
     k.seed(

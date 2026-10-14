@@ -18,7 +18,7 @@
 """
 sim/boot_gate_check.py - proves the frognet-discovered boot gate's unit graph and its merge
 wiring from the ACTUAL files: the gate service blocks on the discovered sentinel; the target
-requires+orders-after the gate service; consumers (dashboard, gps) order after the target;
+requires+orders-after the gate service; consumers (gps; the dashboard unit is gone, T5) order after the target;
 the producer (merge-watcher) does NOT depend on the target (no deadlock); and live.main marks
 'discovered' at merge completion.
 """
@@ -44,7 +44,6 @@ def _u(name):
 def run():
     svc = _u("frognet-discovered.service")
     tgt = _u("frognet-discovered.target")
-    dash = _u("frognet-dashboard.service")
     gps = _u("frognet-gps.service")
     mw = _u("frognet-merge-watcher.service")
 
@@ -61,10 +60,10 @@ def run():
     check("[GATE-TGT] discovered.target requires + orders after the gate service", probs)
 
     probs = []
-    for nm, txt in (("dashboard", dash), ("gps", gps)):
+    for nm, txt in (("gps", gps),):
         if "After=frognet-discovered.target" not in txt or "Wants=frognet-discovered.target" not in txt:
             probs.append(f"{nm} does not order after the discovered target")
-    check("[CONSUMERS] dashboard + gps start only after discovery converges", probs)
+    check("[CONSUMERS] gps starts only after discovery converges", probs)
 
     probs = []
     if "frognet-discovered.target" in mw:

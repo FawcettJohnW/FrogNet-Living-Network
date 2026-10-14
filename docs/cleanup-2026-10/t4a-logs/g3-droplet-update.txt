@@ -1,0 +1,12 @@
+before: b37a9012fa8afe71c05d3811284ef772  /opt/fdf/hub/hub.env
+before: 3fe44fbea5bfac925c05e0b9edee20f1  /opt/fdf/var/site-key-test
+before: 9cd9e7b387c081f078c34cc29d040165  /etc/systemd/system/fdf-ram-test.service
+before: 3721a3962f319858751c74cde1c5ab21  /etc/systemd/system/fdf-client-test.service
+58
+after:  b37a9012fa8afe71c05d3811284ef772  /opt/fdf/hub/hub.env
+after:  3fe44fbea5bfac925c05e0b9edee20f1  /opt/fdf/var/site-key-test
+after:  9cd9e7b387c081f078c34cc29d040165  /etc/systemd/system/fdf-ram-test.service
+after:  3721a3962f319858751c74cde1c5ab21  /etc/systemd/system/fdf-client-test.service
+RINA_AREA=test
+built=2026-10-12T15:46Z
+active active active fdf.env gives RINA_AREA=test

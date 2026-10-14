@@ -1,0 +1,42 @@
+$ python3 -m frognet_monitor_py --once   (on n2)
+  FrogNet   N2 (10.82.82.1)   2026-10-13 04:02:13
+  mode region    build fdf-2026-10-12-r20
+  ponds  *test   (* = forward)
+  hub    wg0 107s
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+    N1             ONLINE 499ms node     10.81.81.1      region
+  # N2             SELF         node     10.82.82.1      region
+
+  Ponds
+   * test       forward      node       2 members  config reach none, map refused
+
+  elections  databasehost=10.82.82.1  databasehost_control=10.82.82.1
+  internet   FAIL
+rc=0
+
+$ frognet_monitor --proxy 172.30.0.32 --port 80 snapshot   (C++, host build)
+  FrogNet   N2 (10.82.82.1)
+  mode region    build fdf-2026-10-12-r20
+  ponds  *test   (* = forward)
+  hub    wg0 108s
+
+  members (ip name role alive|down source)
+    10.81.81.1 N1 node alive region
+  # 10.82.82.1 N2 node alive region self
+
+  elections  databasehost=10.82.82.1  databasehost_control=10.82.82.1
+rc=0
+
+$ frognet-monitor --proxy 172.30.0.32 --port 80 snapshot   (C#, host build)
+  FrogNet   N2 (10.82.82.1)
+  mode region    build fdf-2026-10-12-r20
+  ponds  *test   (* = forward)
+  hub    wg0 108s
+
+  members (ip name role alive|down source)
+    10.81.81.1 N1 node alive region
+  # 10.82.82.1 N2 node alive region self
+
+  elections  databasehost=10.82.82.1  databasehost_control=10.82.82.1
+rc=0

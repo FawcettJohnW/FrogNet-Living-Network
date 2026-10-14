@@ -52,7 +52,6 @@ FIRST_PARTY = ("core", "proxy", "daemon", "frognet_log", "frognet_trace",
 # client tree is a separate deliverable and is not covered by this rev.
 EXEMPT = {
     "proxy/test_channel_sets.py": "test harness stubs mysql/lz4 deliberately",
-    "tests/test_sotf_handler.py": "test harness stubs lz4 deliberately (same as test_channel_sets)",
     "proxy/test_no_import_guard_oracle.py": "this file",
 }
 EXEMPT_DIRS = ("internet_tunnels_v3",
@@ -62,11 +61,9 @@ EXEMPT_DIRS = ("internet_tunnels_v3",
 # are not changed by this gate. They are REPORTED every run as PENDING so they are never out of sight.
 PENDING_DIRS = ("discovery",)
 PENDING = {
-    "core/live.py": "twin of discovery/live.py (discovery)",
     "core/frognet_role_elect.py": "election (discovery)",
     "core/unrest_handler.py": "role publishing (discovery)",
     "core/role_publish.py": "role publishing (discovery)",
-    "core/sotf_handler.py": "guard exists for discovery's election context (its own comment)",
     "core/frognet_tuples.py": "platform guards: the module must import on the Windows Communicator",
     "agent_workload/tuplespace/torch_backend.py": "native-extension fallback to the Python Work: not yet ruled",
     "frognet_route/committer.py": "route-commit spine: stdlib logging when frognet_log is absent -- not yet ruled",

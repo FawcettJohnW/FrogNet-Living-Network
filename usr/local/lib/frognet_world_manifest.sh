@@ -32,7 +32,7 @@
 # frognet_check_manifest below, which refuses.
 #
 # Cut by PATH, never by extension. The original full_tar used
-# --exclude='*.tgz', which took the BROKER (it ships as a bundle), and
+# --exclude='*.tgz', which took source that ships as a bundle, and
 # --exclude='*.png|*.svg|*.ico', which took the web root's assets - the shipped
 # var/www/html had zero images in it.
 # =============================================================================
@@ -50,12 +50,11 @@ FROGNET_WORLD_PATHS=(
     # [DEPS_ARE_INSTALLED_NOT_SHIPPED_V1]
     #
     # These are the REQUIRED ones - absent, frognet_check_manifest fails the build.
-    # usr/local/lib/frognet/ holds conf.sh, which frognet-conf-consolidate.sh,
-    # frognet-make-lanonly.sh and frognet-unmake-gateway.sh all source and none of
-    # them can run without. It was never packaged: the previous list named
-    # frognet_trace.sh and frognet_log.sh individually and stopped there, so
+    # usr/local/lib/frognet/ holds conf.sh, which frognet_prune_removed.sh's T3
+    # section (installer phase C1c) sources. It was once never packaged: the list
+    # named frognet_trace.sh and frognet_log.sh individually and stopped there, so
     # install phase C1c died with "FATAL: /usr/local/lib/frognet/conf.sh not found"
-    # on BrokerHost 2026-08-29. Anything else matching frognet* is picked up by the
+    # (2026-08-29). Anything else matching frognet* is picked up by the
     # autodiscovery below.
     usr/local/lib/frognet
     usr/local/lib/frognet_trace.sh
@@ -77,11 +76,9 @@ FROGNET_WORLD_PATHS=(
     # Everything below is a file FrogNet writes. If the installer does not write
     # it, it does not belong here.
     etc/apache2/sites-available/000-default.conf
-    etc/apache2/sites-available/admin-site.conf
     etc/apache2/sites-available/databasehost.conf
     etc/apache2/sites-available/databasehost-ssl.conf
     etc/apache2/sites-available/default-ssl.conf
-    etc/apache2/sites-available/devices-site.conf
     etc/apache2/sites-available/frognet-ssl.conf
 
     etc/dnsmasq.d
@@ -98,9 +95,7 @@ FROGNET_WORLD_PATHS=(
     # it is not ours and must not ship; the installer edits whatever is on the box.
     etc/NetworkManager/conf.d/10-frognet-unmanaged.conf
     etc/NetworkManager/conf.d/99-frognet-unmanaged.conf
-    etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
     etc/NetworkManager/dispatcher.d/90-frognet-merge
-    etc/NetworkManager/dispatcher.d/91-frognet-connectivity
     etc/ssl
     # [WE_DO_NOT_OWN_THE_DISTRIBUTION_V1] Named files, not the directory. Scoping
     # to etc/sysctl.d shipped Debian's and the Raspberry Pi foundation's stock
@@ -129,9 +124,13 @@ FROGNET_WORLD_PATHS=(
     # FROGNET_NEVER_SHIP below.
     etc/wireguard
 
-    # Web files
+    # Web files. (var/www/www_admin went in T5 with admin-site.conf: its vhost was on *:80, which Apache does not
+    # listen on, and its two pages wrote Commands/netCommand.* files nothing reads.)
     var/www/html
-    var/www/www_admin
+
+    # [ONE_MONITOR_TRUTH_V1 - T5] www-data may read the kernel's WireGuard handshake times (getSnapshot.php's hub link
+    # age). The installer (D5) and the FD&F .run set it 0440 and check it with visudo.
+    etc/sudoers.d/frognet-snapshot
 
     # Python source. agent_workload/ -- ddpbench.py, the tuplespace collectives
     # and the DDP hooks -- is inside this and ships with it; it is deliberately
@@ -202,14 +201,12 @@ FROGNET_THIRD_PARTY=(
     # Dino Farinacci's lispers.net, Apache-2.0, vendored unmodified as the frozen oracle the lispers example is tested
     # against. It carries its own LICENSE and NOTICE; ours must never be stamped on it. Not shipped: see NEVER_SHIP.
     opt/frognet_semantic/ribbit/examples/lispers.net/third_party
-    # React and Babel (MIT), vendored by the broker's web UI. Never stamped with ours.
-    opt/frognet_semantic/broker/var/www/html/assets/vendor
 )
 
 FROGNET_NEVER_SHIP=(
     # [NODE_LOCAL_NEVER_SHIPS_V1 - 2026-10-02] On a node, used there, never FrogNet source: pip's console-script
     # launchers (pip writes them on install), the Redis front binary the Redis build installs for that machine's
-    # architecture, a third-party service unit, and the broker's state copies. full_tar from Seattle5 is the snapshot
+    # architecture and a third-party service unit. full_tar from Seattle5 is the snapshot
     # that becomes every node and the repository, so these are kept out of it here rather than deleted from the node.
     usr/local/bin/bottle
     usr/local/bin/bottle.py
@@ -234,14 +231,12 @@ FROGNET_NEVER_SHIP=(
     usr/local/bin/torchrun
     usr/local/bin/ribbit-redis-front
     etc/systemd/system/uptime-kuma.service
-    'opt/frognet_semantic/broker/opt/frognet_broker_v4/*.db'
-    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet_system_tune.sh from the board's own RAM and
+    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet-system-tune.sh from the board's own RAM and
     # CPU count (innodb_buffer_pool_size, sysctl, service limits): each node's are its own, and a shipped copy would
     # carry Seattle5's sizing onto a smaller board until the next boot.
     etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
     etc/sysctl.d/99-frognet.conf
     'etc/systemd/system/*.service.d/99-frognet-tune.conf'
-    opt/frognet_semantic/broker/opt/frognet_broker_v4/files.zip
     # [NODE_IDENTITY_NEVER_SHIPS_V1 - 2026-10-01] Files every node generates for itself. A tree built on one node
     # carried them, and laying it over another node made that node Seattle5: dnsmasq served Seattle5's domain and
     # DHCP range, and `frognet_install.sh --preserve` then "recovered" the name Seattle5 from opts_only.conf.
@@ -249,7 +244,6 @@ FROGNET_NEVER_SHIP=(
     etc/dnsmasq.d/opts_only.conf
     etc/frognet/node-id
     etc/frognet/ssid_projection.conf
-    'etc/frognet/broker.conf.superseded.*'
     'etc/NetworkManager/conf.d/*'
     'etc/iptables/rules.v*'
     etc/ssl/localCA
@@ -297,11 +291,9 @@ FROGNET_NEVER_SHIP=(
     # Shipping it gives every cloned node the same identity.
     'etc/fnid'
 
-    # Pond membership and broker credentials. tunnel.conf holds GROUP_TOKEN,
-    # PASSCODE and the broker URL; broker.conf the broker's own. A node redeems
-    # its own at join.
+    # This node's region (RINA_RAM / RINA_AREA, when it has one) and its WiFi
+    # passphrase. Each node's own.
     'etc/frognet/tunnel.conf'
-    'etc/frognet/broker.conf'
     'etc/frognet/wifi.env'
 
     # Per-node RUNTIME STATE under etc/frognet. The DIRECTORY ships (the installer
@@ -309,16 +301,11 @@ FROGNET_NEVER_SHIP=(
     # a build candidate:
     #   gateways.conf  held NETWORK_NAME=Seattle5 and GATEWAY_IP=10.250.250.1 -
     #                  another node's pond identity, generated by setup_lillypad
-    #   pond_bootstrap_done  is a SENTINEL. Shipping it makes a freshly installed
-    #                  node believe deferred tunnel setup already ran, so
-    #                  runMerge never calls frognet-pond-bootstrap.sh. A zero-byte
-    #                  file that silently disables a boot step.
     #   active_interface / interfaces_override.conf  are AUTO-GENERATED from the
     #                  build host's NICs; D3 writes them for the target.
     'etc/frognet/gateways.conf'
     'etc/frognet/active_interface'
     'etc/frognet/interfaces_override.conf'
-    'etc/frognet/pond_bootstrap_done'
     'etc/frognet/semantic_hosts'
     'etc/frognet/simulator_underlay'
     'etc/frognet/transit_exclude_interfaces'
@@ -352,9 +339,14 @@ FROGNET_NEVER_SHIP=(
     'etc/frognet/*.pem'
 
     # TLS. The directory ships for its structure; the material does not.
+    # [EACH_NODE_MAKES_ITS_CERT_V1 - T4a] Nor the certificate: a certificate whose key does not ship is of no use to
+    # the node that gets it (Apache will not start on a cert without its key), so the installer's E5 makes the pair
+    # on every node that has no key, and nothing ships either half.
     'etc/ssl/private'
     'etc/ssl/*.key'
     'etc/ssl/*.pem'
+    'etc/ssl/*.crt'
+    'etc/ssl/*.csr'
 
     # Timestamped runtime backups of any of the above. Suffix-anchored ON
     # PURPOSE: a blanket '*backup*' would delete
@@ -372,6 +364,68 @@ FROGNET_NEVER_SHIP=(
     # (and C1b dies if any token survives). See the tokenize step in
     # full_tar.bash. [SHIP_THE_CODE_TOKENIZE_THE_SECRET_V1]
 )
+
+# -----------------------------------------------------------------------------
+# [NODE_FILE_SET_V1 - T4a] What a NODE is made of is FROGNET_WORLD_PATHS minus FROGNET_NEVER_SHIP minus this list: things
+# the tree (and a build host) carries that no node runs. frognet_node_files below applies all three, and both ways a
+# node is laid down use it: frognet_install.sh --from-repo copies exactly its output, and frognet_build_release.sh
+# builds the world tar from the same paths with the same excludes. full_tar.bash (the repository itself) does NOT
+# apply this list: the repository keeps the book and the retired names' history; a node does not get them.
+# The patterns are tar --exclude patterns (matched against the path relative to /; '*' spans '/').
+# -----------------------------------------------------------------------------
+FROGNET_NODE_EXCLUDE=(
+    # The book and its build (Magnum Croakus): read, not run.
+    opt/frognet_semantic/docs
+    # [HAM_OUT_V1] the amateur/AX.25 subsystem does not ship (FCC Part 97.113(a)(4)); frognet_radio_init.sh is its
+    # orphan ham0 driver.
+    'usr/local/bin/ham_*.sh'
+    usr/local/bin/frognet_radio_init.sh
+    # [RETIRED_VERSIONS_V1] only setup_lillypad_v4.bash runs; a build host that still has older ones must not ship them.
+    usr/local/bin/setup_lillypad.bash
+    usr/local/bin/setup_lillypad_v3.bash
+    opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash
+    opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash
+    usr/local/bin/frognet-tunnel-daemon.py
+    # [NO_STAGING_DIRS_UNDER_OPT_V1] stray staging mirrors and the runtime dirs' contents.
+    opt/frognet_semantic/etc
+    opt/frognet_semantic/bin
+    opt/frognet_semantic/usr
+    opt/frognet_semantic/var
+    'opt/frognet_semantic/blob_cache/*'
+    'opt/frognet_semantic/logs/*'
+    # [SHIP_NO_BYTECODE] (a top-level __pycache__ is not matched by '**/').
+    '*/__pycache__'
+    '*.pyc'
+    'opt/frognet_semantic/*.old'
+    opt/frognet_semantic/_v1
+    # [DISTRO_FILES_ARE_NOT_OURS_V1 - 2026-10-14] Debian's apache2 default page: the distribution's file on every
+    # node (000-default.conf serves index.php), not FrogNet's. A release built on a node picked it up from
+    # /var/www/html, recorded it as FrogNet's, and test_license_oracle failed on it.
+    var/www/html/index.html
+    # Per-node state a build host has and a node makes for itself.
+    etc/NetworkManager/system-connections
+    etc/dnsmasq.d/forward_to_unbound.conf
+    etc/frognet/db.env
+    'etc/wireguard/*.conf'
+    'etc/frognet/tunnel.conf.bak.*'
+)
+
+# frognet_node_files ROOT -- print the node file set under ROOT, one path per line, relative to ROOT, files and
+# symlinks only (no directory entries: laying them down must not reset the mode or owner of /etc, /usr/local/bin or any
+# other existing directory). ROOT is / on a build host, the checkout on --from-repo. The excludes are applied by GNU
+# tar itself (it lists without reading file data when the archive is /dev/null), so they mean exactly what they mean in
+# frognet_build_release.sh's world tar. A WORLD_PATHS entry absent under ROOT is reported by frognet_check_manifest.
+frognet_node_files() {
+    local _root="${1:?frognet_node_files ROOT}" _p _x
+    local _paths=() _ex=()
+    for _p in "${FROGNET_WORLD_PATHS[@]}"; do [ -e "${_root%/}/$_p" ] && _paths+=( "$_p" ); done
+    for _p in "${_root%/}"/usr/local/lib/frognet*; do           # [LIB_MANIFEST_AUTODISCOVER_V1], under ROOT
+        [ -e "$_p" ] || continue; _p="${_p#"${_root%/}"/}"
+        case " ${_paths[*]} " in *" $_p "*) ;; *) _paths+=( "$_p" ) ;; esac
+    done
+    for _x in "${FROGNET_NEVER_SHIP[@]}" "${FROGNET_NODE_EXCLUDE[@]}"; do _ex+=( "--exclude=$_x" ); done
+    tar -C "$_root" "${_ex[@]}" -cvf /dev/null "${_paths[@]}" | grep -v '/$'
+}
 
 # -----------------------------------------------------------------------------
 # frognet_check_manifest <root>

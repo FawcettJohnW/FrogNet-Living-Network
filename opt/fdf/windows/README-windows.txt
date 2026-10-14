@@ -1,3 +1,6 @@
+history: the older Windows client folder for the 8840 demo set-ups (one RAM server; opt/fdf/README.md, "The earlier set-ups").
+A Windows PC joins a FrogNet region with the bridge, bridge/README.txt (and docs/OPERATING.md in the FrogNet repository).
+
 FD&F on Windows: the FD&F client, and the kart demo
 
 Needs: nothing for fdf-client.exe (one static program, no DLLs).

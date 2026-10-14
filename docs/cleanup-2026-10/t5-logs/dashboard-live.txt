@@ -1,0 +1,30 @@
+=== dashboard model, page served by 172.30.0.31:8080
+header:  N1 (10.81.81.1) · mode region · build fdf-2026-10-12-r20 · ponds *test · hub link wg0 89s
+region link shown: true http://172.30.0.31:8090/fdf/fdf_dashboard.html
+ponds panel: test  (forward)node2 members · config: reach none, map refused
+members (HOSTS): [{"ip":"10.81.81.1","name":"N1","role":"node","alive":true,"source":"region","self":true},{"ip":"10.82.82.1","name":"N2","role":"node","alive":true,"source":"region","self":false}]
+databasehost: 10.82.82.1
+map nodes: ["10.81.81.1","10.82.82.1","external:internet","pond:test"]
+hub links: [{"from":"10.81.81.1","to":"pond:test","self":true,"label":"wg0 89s"},{"from":"10.82.82.1","to":"pond:test","self":false,"label":""}]
+edges: [{"from":"10.81.81.1","to":"external:internet","kind":"EXTERNAL"},{"from":"10.82.82.1","to":"external:internet","kind":"EXTERNAL"}]
+status: 2 members · 0 links · 2 hub links · 2 uplinks · 0 engine · 0 daemon · 140ms
+=== dashboard model, page served by 172.30.0.32:8080
+header:  N2 (10.82.82.1) · mode region · build fdf-2026-10-12-r20 · ponds *test · hub link wg0 29s
+region link shown: true http://172.30.0.32:8090/fdf/fdf_dashboard.html
+ponds panel: test  (forward)node2 members · config: reach none, map refused
+members (HOSTS): [{"ip":"10.81.81.1","name":"N1","role":"node","alive":true,"source":"region","self":false},{"ip":"10.82.82.1","name":"N2","role":"node","alive":true,"source":"region","self":true}]
+databasehost: 10.82.82.1
+map nodes: ["10.81.81.1","10.82.82.1","external:internet","pond:test"]
+hub links: [{"from":"10.81.81.1","to":"pond:test","self":false,"label":""},{"from":"10.82.82.1","to":"pond:test","self":true,"label":"wg0 29s"}]
+edges: [{"from":"10.81.81.1","to":"external:internet","kind":"EXTERNAL"},{"from":"10.82.82.1","to":"external:internet","kind":"EXTERNAL"}]
+status: 2 members · 0 links · 2 hub links · 2 uplinks · 2 engine · 2 daemon · 153ms
+=== dashboard model, page served by 172.30.0.21:8080
+header:  G1 (10.61.61.1) · mode lan-only · build fdf-2026-10-12-r20 · ponds none, hub none (LAN-only)
+region link shown: false http://172.30.0.21:8090/fdf/fdf_dashboard.html
+ponds panel: LAN-only: this machine is in no pond.
+members (HOSTS): [{"ip":"10.61.61.1","name":"G1","role":"node","alive":true,"source":"lan","self":true}]
+databasehost: 10.61.61.1
+map nodes: ["10.61.61.1","external:internet"]
+hub links: []
+edges: [{"from":"10.61.61.1","to":"external:internet","kind":"EXTERNAL"}]
+status: 1 members · 0 links · 0 hub links · 1 uplinks · 1 engine · 1 daemon · 338ms

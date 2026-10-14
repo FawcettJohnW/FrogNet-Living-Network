@@ -15,3 +15,6 @@ __pycache__/
 /etc/ssl/localCA/
 /etc/ssl/certs/
 /etc/ssl/openssl.cnf
+
+# build outputs (rinab tools/build*.sh): never committed; opt/fdf/dist carries the shipped binaries
+opt/fdf/src/fdf-source/rinab/build/

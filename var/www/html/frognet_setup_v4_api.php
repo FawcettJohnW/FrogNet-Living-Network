@@ -25,7 +25,7 @@
  *
  * Routes calls to two bash helpers:
  *   /usr/local/bin/frognet_setup_helper.bash      — state, wifi, identity
- *   /usr/local/bin/frognet_setup_v4_helper.bash   — broker, qr, reboot
+ *   /usr/local/bin/frognet_setup_v4_helper.bash   — qr, reboot, SSID projection
  *
  * Both helpers run via sudo (no password required for www-data on these
  * specific paths — see the sudoers fragment in the install notes).
@@ -109,27 +109,6 @@ switch ($action) {
         if ($iface === '') fail('iface required');
         helper(HELPER_V1, 'disconnect', [$iface]);
 
-    // -------- Broker (v4 helper) ------------------------------------------
-
-    case 'broker-state':
-        helper(HELPER_V4, 'broker_state');
-
-    case 'apply-broker':
-        if ($method !== 'POST') fail('POST required', 405);
-        $host = trim($input['host'] ?? '');
-        $port = trim((string)($input['port'] ?? '18257'));
-        $pond = trim($input['pond'] ?? '');
-        $pw   = (string)($input['pond_password'] ?? '');
-        $cs   = is_array($input['choruses'] ?? null)
-                ? implode(',', $input['choruses'])
-                : (string)($input['choruses'] ?? '');
-        if ($host === '' || $pond === '') fail('host and pond are required');
-        helper(HELPER_V4, 'apply_broker', [$host, $port, $pond, $pw, $cs]);
-
-    case 'clear-broker':
-        if ($method !== 'POST') fail('POST required', 405);
-        helper(HELPER_V4, 'clear_broker');
-
     // -------- Reboot + QR -------------------------------------------------
 
     case 'reboot':
@@ -141,12 +120,8 @@ switch ($action) {
         if ($text === '') fail('text required');
         helper(HELPER_V4, 'qr', [$text]);
 
-    // =====================================================================
-    // SSID_PROJECTION — paste into /var/www/html/frognet_setup_v4_api.php
-    // Insert these two cases BEFORE the `default:` case at line 127.
-    // Update the default-case error message to mention the new actions.
-    // =====================================================================
-    
+    // -------- SSID projection (v4 helper) --------------------------------
+
     case 'ssid-projection-state':
         helper(HELPER_V4, 'ssid_projection_get');
 
@@ -157,14 +132,9 @@ switch ($action) {
         $target = $enabled ? 'on' : 'off';
         helper(HELPER_V4, 'ssid_projection_set', [$target]);
 
-    // =====================================================================
-    // Update default case to add the new actions:
-    //   "..., reboot, qr, ssid-projection-state, apply-ssid-projection"
-    // =====================================================================
-    
     default:
         fail("unknown action: " . json_encode($action) . ". Available: " .
              "state, scan-wifi, auto-ip, apply-identity, connect-wifi, " .
-             "disconnect, broker-state, apply-broker, clear-broker, " .
-             "reboot, qr");
+             "disconnect, reboot, qr, ssid-projection-state, " .
+             "apply-ssid-projection");
 }

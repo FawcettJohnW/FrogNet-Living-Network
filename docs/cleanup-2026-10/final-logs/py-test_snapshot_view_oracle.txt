@@ -1,0 +1,17 @@
+  ok    title: the snapshot's name and .1
+  ok    mode and build (with commit)
+  ok    ponds, forward marked *
+  ok    hub link: iface and handshake age
+  ok    Ponds: the forward pond counts the snapshot's members
+  ok    Ponds: a participant pond lists its own members
+  ok    --once: self row, control-host mark
+  ok    --once: databasehost mark, echo result
+  ok    --once: a device row from its region session
+  ok    --once: elections
+  ok    LAN-only: no ponds, no hub, why
+  ok    LAN-only: member from LAN discovery, source lan
+  ok    no snapshot: said, nothing in its place
+  ok    no broker vocabulary on the screen or in the frame
+0 failed
+PASS
+EXIT 0

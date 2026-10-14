@@ -31,7 +31,6 @@ tar -cvzf "/tmp/all_tar.tgz" \
     --exclude='opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash' \
     --exclude='usr/local/bin/frognet-tunnel-daemon.py' \
     --exclude='usr/local/bin/ham_concentrator_up.sh' \
-    --exclude='usr/local/bin/frognet-tunnel-setup.sh' \
     --exclude='opt/frognet_semantic/etc' \
     --exclude='opt/frognet_semantic/bin' \
     --exclude='opt/frognet_semantic/usr' \
@@ -57,11 +56,9 @@ tar -cvzf "/tmp/all_tar.tgz" \
     --exclude='etc/frognet/tunnel.conf.bak.*' \
     --exclude='etc/frognet/wifi.env' \
     --exclude='etc/frognet/sem_cache_secret' \
-    --exclude='etc/frognet/broker.conf' \
     --exclude='etc/dnsmasq.d/opts_only.conf' \
     --exclude='etc/dnsmasq.d/forward_to_unbound.conf' \
     --exclude='etc/frognet/gateways.conf' \
-    --exclude='etc/frognet/pond.conf' \
     --exclude='etc/frognet/active_interface' \
     --exclude='etc/frognet/interfaces_override.conf' \
     --exclude='etc/frognet/transit_exclude_interfaces' \

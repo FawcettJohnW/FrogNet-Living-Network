@@ -29,7 +29,7 @@ core/database_handler.py:score() reads:
 
     REQUIRED numeric (probe's _AVCAP_NUMERIC_REQ):
         cores cpu_mhz cpu_bench_total mem_total_kb mem_available_kb
-        disk_write_mbps disk_fsync_ms disk_free_gb av_port
+        disk_write_mbps disk_fsync_ms disk_free_gb
     OPTIONAL numeric (_AVCAP_NUMERIC_OPT):
         mysql_innodb_pool_bytes
     REQUIRED string:
@@ -50,7 +50,7 @@ from typing import Dict, List, Optional
 # probe schema, verbatim from frognet_capability_probe.sh
 NUMERIC_REQ = ("cores", "cpu_mhz", "cpu_bench_total", "mem_total_kb",
                "mem_available_kb", "disk_write_mbps", "disk_fsync_ms",
-               "disk_free_gb", "av_port")
+               "disk_free_gb")
 NUMERIC_OPT = ("mysql_innodb_pool_bytes",)
 
 DISK_CLASSES = ("nvme", "ssd", "hdd", "sdcard", "unknown")
@@ -91,7 +91,7 @@ class Machine:
     domain: str                      # FrogNet domain, e.g. "Seattle5"
     ifaces: List[Iface] = field(default_factory=list)
     devices: List[Device] = field(default_factory=list)
-    roles: List[str] = field(default_factory=lambda: ["databasehost", "mediahost"])
+    roles: List[str] = field(default_factory=lambda: ["databasehost"])
 
     # hardware facts -> capability blob
     cores: int = 4
@@ -103,18 +103,9 @@ class Machine:
     disk_write_mbps: float = 120.0
     disk_fsync_ms: float = 3.0
     disk_free_gb: float = 40.0
-    # media capability. [MEDIAHOST_STATIC_RANK_V1] ffmpeg+libvpx is the HARD
-    # GATE in sotf_handler.score -- a candidate without both scores -1.0 and can
-    # never win, which is why mediahost elected NONE while databasehost worked:
-    # the blob simply never carried the fields the handler reads.
-    ffmpeg: bool = True
-    libvpx: bool = True
-    hw_encoder: str = "none"          # none | vaapi | nvenc | v4l2m2m
-    gpu_render_node: bool = False     # vaapi is only credited with a real node
     mysql: bool = False
     mysql_running: bool = False
     mysql_innodb_pool_bytes: int = 0
-    av_port: int = 7011
     arch: str = "x86_64"
 
     # ---- derived --------------------------------------------------------
@@ -163,13 +154,6 @@ class Machine:
             "mysql": bool(self.mysql),
             "mysql_running": bool(self.mysql_running),
             "mysql_innodb_pool_bytes": int(self.mysql_innodb_pool_bytes),
-            "av_port": int(self.av_port),
-            "ffmpeg": bool(self.ffmpeg),
-            "libvpx": bool(self.libvpx),
-            "hw_encoder": self.hw_encoder,
-            "gpu_render_node": bool(self.gpu_render_node),
-            "no_cam": not any(d.kind == "camera" for d in self.devices),
-            "no_mic": not any(d.kind == "mic" for d in self.devices),
         }
 
     def validate(self) -> List[str]:
@@ -221,7 +205,7 @@ def generic(name: str, subnet3: str, *, mysql: bool = False, **over) -> Machine:
             Device("root_fs", "disk", "System", {}),
             Device("eth0_link", "linkstate", "LinkState", {}),
         ],
-        roles=["databasehost", "mediahost"],
+        roles=["databasehost"],
         cores=4, cpu_mhz=1500, cpu_bench_total=400.0,
         mem_total_kb=4 * 1024 * 1024, mem_available_kb=3 * 1024 * 1024,
         disk_class="sdcard", disk_write_mbps=40.0, disk_fsync_ms=9.0,

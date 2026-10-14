@@ -20,7 +20,7 @@ test_real_backends.py - exercise the network-free parts of the Real backends:
   - echo CSV validation against the oracle's 8 echo CSVs (BABox empty rejected)
   - frognet_alive rtt parse
   - getHosts JSON parse
-  - RealBroker file I/O against a fixture handshake_rtts.json + active/*.json,
+  - TunnelState file I/O against a fixture handshake_rtts.json + active/*.json,
     reproducing the oracle broker mapping + channel_for_iface
 The subprocess/network methods (echo_probe/get_hosts/measure_rtt/ping) are
 UNVALIDATED here (no box) and flagged accordingly.
@@ -28,7 +28,7 @@ UNVALIDATED here (no box) and flagged accordingly.
 import sys, os, json, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.real_backends import (
-    valid_echo, parse_rtt, parse_gethosts, broker_lookup, RealBroker)
+    valid_echo, parse_rtt, parse_gethosts, tunnel_lookup, TunnelState)
 
 def main():
     ok = True
@@ -59,19 +59,19 @@ def main():
     else:
         ok = False; print(f"  FAIL getHosts parse: {g}")
 
-    # broker_lookup pure
+    # tunnel_lookup pure
     hs = {
         "BAMacBook-10.179.179": {"peer_dot_one": "10.179.179.1", "subnet": "10.179.179.0/24"},
         "Seattle5-10.250.250": {"peer_dot_one": "10.250.250.1", "subnet": "10.250.250.0/24"},
         "BABox-10.111.11": {"peer_dot_one": "10.111.11.1", "subnet": "10.111.11.0/24"},
     }
-    if (broker_lookup(hs, "10.179.179.1") == ("BAMacBook-10.179.179", "10.179.179.0/24", "10.179.179.1")
-            and broker_lookup(hs, "10.130.130.1") is None):
-        print("  PASS broker_lookup (direct peers resolve, relayed -> None)")
+    if (tunnel_lookup(hs, "10.179.179.1") == ("BAMacBook-10.179.179", "10.179.179.0/24", "10.179.179.1")
+            and tunnel_lookup(hs, "10.130.130.1") is None):
+        print("  PASS tunnel_lookup (direct peers resolve, relayed -> None)")
     else:
-        ok = False; print("  FAIL broker_lookup")
+        ok = False; print("  FAIL tunnel_lookup")
 
-    # RealBroker file I/O (actually exercises the production read path)
+    # TunnelState file I/O (actually exercises the production read path)
     with tempfile.TemporaryDirectory() as d:
         hp = os.path.join(d, "handshake_rtts.json")
         ad = os.path.join(d, "active"); os.mkdir(ad)
@@ -80,13 +80,13 @@ def main():
                   open(os.path.join(ad, "wg1.json"), "w"))
         json.dump({"interface": "wg2", "channel_name": "Seattle5-10.250.250"},
                   open(os.path.join(ad, "wg2.json"), "w"))
-        rb = RealBroker(handshake_path=hp, active_dir=ad)
-        if (rb.broker_for_peer_ip("10.250.250.1") == ("Seattle5-10.250.250", "10.250.250.0/24", "10.250.250.1")
+        rb = TunnelState(handshake_path=hp, active_dir=ad)
+        if (rb.tunnel_for_peer_ip("10.250.250.1") == ("Seattle5-10.250.250", "10.250.250.0/24", "10.250.250.1")
                 and rb.channel_for_iface("wg1") == "BAMacBook-10.179.179"
                 and rb.channel_for_iface("wg2") == "Seattle5-10.250.250"):
-            print("  PASS RealBroker file I/O (handshake + active/*.json)")
+            print("  PASS TunnelState file I/O (handshake + active/*.json)")
         else:
-            ok = False; print("  FAIL RealBroker file I/O")
+            ok = False; print("  FAIL TunnelState file I/O")
 
     print()
     print("ALL REAL-BACKEND CHECKS PASS" if ok else "REAL-BACKEND CHECKS FAILED")

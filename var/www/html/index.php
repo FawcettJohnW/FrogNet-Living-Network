@@ -16,113 +16,65 @@
  *                                                             *
  *  See COPYRIGHT and LICENSE at the root of this tree.        *
  **************************************************************/
-	$str_browser_language = !empty($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? strtok(strip_tags($_SERVER['HTTP_ACCEPT_LANGUAGE']), ',') : '';
-	$str_browser_language = !empty($_GET['language']) ? $_GET['language'] : $str_browser_language;
-	switch (substr($str_browser_language, 0,2))
-	{
-		case 'de':
-			$str_language = 'de';
-			break;
-		case 'en':
-			$str_language = 'en';
-			break;
-		default:
-			$str_language = 'en';
-	}
-    
-	$arr_available_languages = array();
-	$arr_available_languages[] = array('str_name' => 'English', 'str_token' => 'en');
-	$arr_available_languages[] = array('str_name' => 'Deutsch', 'str_token' => 'de');
-    
-	$str_available_languages = (string) '';
-	foreach ($arr_available_languages as $arr_language)
-	{
-		if ($arr_language['str_token'] !== $str_language)
-		{
-			$str_available_languages .= '<a href="'.strip_tags($_SERVER['PHP_SELF']).'?language='.$arr_language['str_token'].'" lang="'.$arr_language['str_token'].'" xml:lang="'.$arr_language['str_token'].'" hreflang="'.$arr_language['str_token'].'">'.$arr_language['str_name'].'</a> | ';
-		}
-	}
-	$str_available_languages = substr($str_available_languages, 0, -3);
-?>
-
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head lang="<?php echo $str_language; ?>" xml:lang="<?php echo $str_language; ?>">
-<meta http-equiv="content-type" content="text/html; charset=utf-8" />
-<title>MAMP PRO</title>
-<style type="text/css">
-    body {
-        font-family: Arial, Helvetica, sans-serif;
-        font-size: .9em;
-        color: #000000;
-        background-color: #FFFFFF;
-        margin: 0;
-        padding: 10px 20px 20px 20px;
-    }
-
-    samp {
-        font-size: 1.3em;
-    }
-
-    a {
-        color: #000000;
-        background-color: #FFFFFF;
-    }
-
-    sup a {
-        text-decoration: none;
-    }
-
-    hr {
-        margin-left: 90px;
-        height: 1px;
-        color: #000000;
-        background-color: #000000;
-        border: none;
-    }
-
-    #logo {
-        margin-bottom: 10px;
-        margin-left: 28px;
-    }
-
-    .text {
-        width: 80%;
-        margin-left: 90px;
-        line-height: 140%;
-    }
+/**
+ * /var/www/html/index.php -- [NODE_LANDING_V1 - T5] this node's landing page: its name, mode and build (from
+ * frognet_node.inc.php, the same functions getSnapshot.php uses) and the links an operator wants: the setup page, the
+ * dashboard, the monitor endpoint, and on a region FD&F's region members page. It replaces the MAMP default page and
+ * "Welcome to the Admin BlackBox Portal foo".
+ */
+require_once __DIR__ . '/frognet_node.inc.php';
+header('Content-Type: text/html; charset=utf-8');
+header('Cache-Control: no-store');
+$errors = [];
+$mode  = fn_mode();
+$build = fn_build($errors);
+$echo  = fn_self_echo($mode);
+$f     = explode(',', $echo);
+$name  = (trim($echo) !== '' && $f[0] !== '') ? $f[0] : '';
+$dot1  = $f[1] ?? '';
+if ($name === '') $errors[] = ($mode['mode'] === 'region' ? '/opt/fdf/var/facts.json' : 'getFrogNet.bash') . ': no echo (this node states no name)';
+$h = function ($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); };
+?><!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><?= $name !== '' ? $h($name) . ' - ' : '' ?>FrogNet node</title>
+<style>
+  :root { --bg:#f6f7f9; --fg:#1c2330; --muted:#5d6878; --card:#fff; --line:#dde2ea; --bad:#b3261e; --accent:#1b7f3b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#12161c; --fg:#e6e9ee; --muted:#98a2b3; --card:#1a2029; --line:#2a323e; --bad:#ff6b5e; --accent:#4cc27a; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .facts { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:13px; color:var(--muted); }
+  .facts b { color:var(--fg); font-weight:600; }
+  ul { list-style:none; padding:0; margin:20px 0; border:1px solid var(--line); border-radius:8px; background:var(--card); }
+  li { padding:12px 16px; border-bottom:1px solid var(--line); }
+  li:last-child { border-bottom:0; }
+  a { color:var(--accent); font-weight:600; text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  li span { display:block; color:var(--muted); font-size:13px; }
+  .bad { color:var(--bad); font-size:13px; }
+  code { font-size:13px; }
 </style>
 </head>
-
 <body>
-    <p><img src="MAMP-PRO-Logo.png" id="logo" alt="MAMP PRO Logo" width="250" height="49" /></p>
-
-<?php if ($str_language == 'de'): ?>
-
-    <p class="text"><strong>Der virtuelle <span lang="en" xml:lang="en">Host</span> wurde erfolgreich eingerichtet.</strong></p>
-    <p class="text">Wenn Sie diese Seite sehen, dann bedeutet dies, dass der neue virtuelle <span lang="en" xml:lang="en">Host</span> erfolgreich eingerichtet wurde. Sie können jetzt Ihren <span lang="en" xml:lang="en">Web</span>-Inhalt hinzufügen, diese Platzhalter-Seite<sup><a href="#footnote_1">1</a></sup> sollten Sie ersetzen <abbr title="beziehungsweise">bzw.</abbr> löschen.</p>
-    <p class="text">
-        Server-Name: <samp><?php echo $_SERVER['SERVER_NAME']; ?></samp><br />
-        Document-Root: <samp><?php echo $_SERVER['DOCUMENT_ROOT']; ?></samp>
-    </p>
-    <p class="text" id="footnote_1"><small><sup>1</sup> Dateien: <samp>index.php</samp> und <samp>MAMP-PRO-Logo.png</samp></small></p>
-    <hr />
-    <p class="text">This page in: <?php echo $str_available_languages; ?></p>
-
-<?php elseif ($str_language == 'en'): ?>
-
-    <p class="text"><strong>The virtual host was set up successfully.</strong></p>
-    <p class="text">If you can see this page, your new virtual host was set up successfully. Now, web content can be added and this placeholder page<sup><a href="#footnote_1">1</a></sup> should be replaced or deleted.</p>
-    <p class="text">
-        Server name: <samp><?php echo $_SERVER['SERVER_NAME']; ?></samp><br />
-        Document root: <samp><?php echo $_SERVER['DOCUMENT_ROOT']; ?></samp>
-    </p>
-    <p class="text" id="footnote_1"><small><sup>1</sup> Files: <samp>index.php</samp> and <samp>MAMP-PRO-Logo.png</samp></small></p>
-    <hr />
-    <p class="text">Diese Seite auf: <?php echo $str_available_languages; ?></p>
-
+<main>
+  <h1><?= $name !== '' ? $h($name) : 'FrogNet node' ?></h1>
+  <div class="facts">
+    <b><?= $h($dot1 !== '' ? $dot1 : 'no .1') ?></b> · mode <b><?= $h($mode['mode']) ?></b> · build <b><?= $h($build['build'] !== '' ? $build['build'] : '?') ?></b><?= isset($build['commit']) ? ' ' . $h($build['commit']) : '' ?>
+    <div><?= $h($mode['why']) ?></div>
+  </div>
+<?php foreach ($errors as $e): ?>  <div class="bad">! <?= $h($e) ?></div>
+<?php endforeach; ?>
+  <ul>
+    <li><a href="/setup_frognet.html">Setup</a><span>name, WiFi and the access point of this node</span></li>
+    <li><a href="/fln_dashboard32.html">Dashboard</a><span>the map: members, ponds, hub links, link health</span></li>
+    <li><a href="/getSnapshot.php">Monitor endpoint (getSnapshot.php)</a><span>this node's snapshot as JSON: mode, ponds, hub link, members, elections; <code>frognet_monitor</code> (and <code>--once</code>) draws it in a terminal</span></li>
+<?php if ($mode['mode'] === 'region'): ?>
+    <li><a href="/fdf/">Region members (FD&amp;F)</a><span>the region as its RAM manager holds it (/opt/fdf/www/fdf, served by this node's Apache at /fdf/)</span></li>
 <?php endif; ?>
-
+  </ul>
+</main>
 </body>
 </html>

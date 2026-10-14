@@ -1,3 +1,20 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 """[ELECT_IN_PROCESS_V1] the merge-end service election, callable without runMerge.
 
 In region mode FD&F owns membership, so the one input the election needs -- who is alive, with which .1 -- arrives
@@ -61,7 +78,7 @@ def leaf_lines(etc_hosts, participants):
 
 def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, alive_hosts=None, participants=None,
               self_ip=None, hosts_path=None, apply=True) -> dict:
-    """Returns {"databasehost": ip, "mediahost": ip, "hosts_changed": bool, "etc_hosts": [...]}.
+    """Returns {"databasehost": ip, "hosts_changed": bool, "etc_hosts": [...]}.
     alive_hosts: [(ip, name)] of the members alive RIGHT NOW (the daemon's plan, no hold-down). When given, the
     election's pool is exactly that; region_hosts (which keeps a vanished member for the hold-down) is not read.
     [ELECTION_SEES_NO_HOLD_DOWN_V1] a dead databasehost must not be the control host of its own replacement.
@@ -71,15 +88,14 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
                                  select_database_host, set_control_host)
     from discovery.live import _write_if_changed, _write_forwarders, _apply_dnsmasq
     from core.frognet_service_hosts import service_host_lines, commit_service_lines
+    from core.role_registry import ROLE_HANDLERS
     from core import region_capability as _RC
-    _self_ip, domain, local_ips = _my_dot1_and_domain()
+    _self_ip, domain, _local_ips = _my_dot1_and_domain()
     if self_ip is None:
         self_ip = _self_ip
-    else:
-        local_ips = [self_ip]
-    n_cap = _RC.set_snapshot(participants, self_ip)
+    n_cap = _RC.set_snapshot(participants)
     if participants is not None:
-        logger("ELECT: candidates from the region's facts: %d member(s) with a capability; my LAN (graph links): %s" % (n_cap, sorted(_RC.lan() or ())))
+        logger("ELECT: candidates from the region's facts: %d member(s) with a capability" % n_cap)
     hosts_path = hosts_path or "/etc/hosts"
     lines = local_lines(self_ip, domain) if self_ip else []
     if alive_hosts is not None:
@@ -96,7 +112,7 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
     # [ELECT_NODES_ONLY_V1] the pool is the region's NODES: a leaf's /32 (a phone) and a reaching participant's /32 are
     # given addresses, and the first one in every pond is 10.252.0.1 -- it ends in .1 and passed the node test below.
     # Found 2026-10-11 (netns region-loop and reach logs): the phone at 10.252.0.1 was elected the CONTROL host, and was
-    # a databasehost/mediahost candidate. Excluded by role, from the region's own facts.
+    # a databasehost candidate. Excluded by role, from the region's own facts.
     # They are still NAMED (the leaf row's promise, LEAF_ROW_FROM_ADDR_V1): one plain "<ip> <name>" line each, added
     # after control and the services are chosen -- never a FrogNetHost line, never with a FrogNetAdmin .2 (which is
     # another leaf's address).
@@ -113,14 +129,8 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
     ctl = control_host_ip(etc) or CONTROL_NAME
     etc = select_database_host(etc, dbhost=ctl, logger=logger)
     etc = set_control_host(etc)
-    try:
-        from core.role_registry import ROLE_HANDLERS as _RH
-        roles = list(_RH)
-    except Exception:
-        roles = ["databasehost", "mediahost"]
-    lan = {a.rsplit(".", 1)[0] + ".0/24" for a in local_ips}
-    role_lines = service_host_lines(dbhost=ctl, logger=logger, etc_hosts=etc, self_ip=self_ip, lan_subnets=lan, local_ips=set(local_ips))
-    etc = commit_service_lines(etc, role_lines, set(roles), ctl, logger=logger)
+    role_lines = service_host_lines(dbhost=ctl, logger=logger, etc_hosts=etc, self_ip=self_ip)
+    etc = commit_service_lines(etc, role_lines, set(ROLE_HANDLERS), ctl, logger=logger)
     etc = etc + ["%s %s" % (ip, nm) for ip, nm in named_given]     # [ELECT_NODES_ONLY_V1] leaves and reachers: named, never chosen
     changed = _write_if_changed(hosts_path, "\n".join(etc) + "\n", logger)
     if apply:
@@ -138,5 +148,5 @@ def elect_now(region_hosts_path="/var/lib/frognet/region_hosts", logger=print, a
         for t in f[1:]:
             if t.endswith(".frognet"):
                 who[t[:-len(".frognet")]] = f[0]
-    logger("ELECT: control=%s databasehost=%s mediahost=%s hosts_changed=%s" % (ctl, who.get("databasehost"), who.get("mediahost"), changed))
-    return {"databasehost": who.get("databasehost", ""), "mediahost": who.get("mediahost", ""), "hosts_changed": changed, "etc_hosts": etc}
+    logger("ELECT: control=%s databasehost=%s hosts_changed=%s" % (ctl, who.get("databasehost"), changed))
+    return {"databasehost": who.get("databasehost", ""), "hosts_changed": changed, "etc_hosts": etc}

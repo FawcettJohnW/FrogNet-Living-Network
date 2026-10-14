@@ -1,0 +1,43 @@
+  PASS  G1 the sentinel directory is /etc/sentinels
+  PASS  G1 the sentinel path is the one runMerge maintains
+  PASS  G1 and /opt is nowhere in the module
+  PASS  G1 the script path is runMerge.bash
+  PASS  G1 it does not scrape the process table
+  PASS  G3 no sentinel means no merge
+  PASS  G2 a sentinel means a merge is in progress
+  PASS  G2 with an age taken from its mtime
+  PASS  G2 and no note when the answer is certain
+  PASS  G4 an unreadable sentinel is UNKNOWN, not 'no merge'
+  PASS  G4 and it says why
+  PASS  G4 unknown is distinguishable from both answers
+  PASS  G5 seconds
+  PASS  G5 minutes
+  PASS  G5 a merge stuck for hours reads as hours
+  PASS  G6 fifty repaints do not mean fifty stat() calls
+  PASS  G7 M warns rather than launching while the sentinel is there
+  PASS  G7 and reports how old the claim is
+  PASS  G7 and says how to proceed anyway
+  PASS  G7 a forced launch goes through a stale sentinel
+  PASS  G7 and says it was forced
+  PASS  G7 with no merge running it launches
+  PASS  G8 a missing script is refused
+  PASS  G8 and named
+  PASS  G8 a non-executable script is refused
+  PASS  G8 and the reason distinguishes it from missing
+  PASS  G9 the note starts empty
+  PASS  G9 AppState carries merge_note
+  PASS  G9 AppState carries merge_note_ok
+  PASS  G9 AppState carries merge_note_at
+  PASS  G9 the note expires rather than persisting
+  PASS  G10 the indicator is on the title line, above the numbers it qualifies
+  PASS  G10 unknown gets its own wording
+  PASS  G10 the footer advertises the key
+  PASS  G10 the key is capital M, not a navigation letter
+  PASS  G11 the handler forces on a second press while the refusal stands
+  PASS  G11 and only inside the note window, so it is not armed forever
+  PASS  G12 start_merge has more than one way out
+  PASS  G12 and every one of them is traced
+  PASS  G12 the successful launch is traced too
+
+ALL PASS
+rc=0

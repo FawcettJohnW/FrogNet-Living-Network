@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                FakeVerify, HostStore)
 
 FAILS = []
@@ -44,7 +44,7 @@ def mk(caps):
     # relay 10.130.130.1 vouches two children: fresh 10.77.77.9 and ghost 10.88.88.9
     d = Discovery(r, FakeEcho(answers={}), FakeRtt(table={}),
                   FakeGetHosts(children={"10.130.130.1": ["10.77.77.9", "10.88.88.9"]}),
-                  FakeBroker(), HostStore(),
+                  FakeTunnelState(), HostStore(),
                   local_ips={"10.250.250.1", "127.0.0.1"}, dev_src_map={},
                   logger=logs.append, self_identity="10.250.250.1",
                   own_subnet="10.250.250.0/24", has_own_uplink=True,

@@ -66,11 +66,11 @@ PERF = {
     "10.120.120.1": dict(cores=4, mem_available_kb=8000000, cpu_bench_total=9000,
                          disk_write_mbps=20.0, disk_fsync_ms=15.0, disk_free_gb=20.0),
 }
-ROLES = ("databasehost", "mediahost")
+ROLES = ("databasehost",)
 PERSISTED = {r: [row(ip, r, **PERF[ip]) for ip in PERF] for r in ROLES}
 
 def fake_values_raw(service, dbhost=None, timeout=4.0, name_like=None, fresh_s=0):
-    return list(PERSISTED.get(service, []))          # [] for discovery/reach_plane -> all LAN
+    return list(PERSISTED.get(service, []))
 FT._values_raw = fake_values_raw
 
 DBHOST = "databasehost_control.frognet"

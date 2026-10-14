@@ -1,0 +1,11 @@
+13:22:56 before: N1->N2 2 received  N2->N1 2 received  n1 path: 10.253.253.254 10.82.82.1 
+13:22:59 docker network disconnect fn-wan d2
+d2 now: lo=127.0.0.1/8 wg-myarea=10.253.253.254/16 
+13:23:07 off +10s: N1->N2 0 received  N2->N1 0 received  n1 path: 10.81.81.254 * * 
+n1 route: 
+13:23:44 off +50s: N1->N2 0 received  N2->N1 0 received  n1 path: 10.81.81.254 * * 
+13:23:51 reconnect d2 172.30.0.10 eth0
+13:24:06 back +20s: N1->N2 2 received  N2->N1 2 received  n1 path: 10.253.253.254 10.82.82.1 
+13:24:22 back +40s: N1->N2 2 received  N2->N1 2 received  n1 path: 10.253.253.254 10.82.82.1 
+13:24:38 back +60s: N1->N2 2 received  N2->N1 2 received  n1 path: 10.253.253.254 10.82.82.1 
+13:24:54 back +90s: N1->N2 2 received  N2->N1 2 received  n1 path: 10.253.253.254 10.82.82.1 

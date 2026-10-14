@@ -28,7 +28,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 Verified on Ubuntu 24.04, GCC 13.3, CMake 3.28, libcurl 8.5 — clean build with
-`-Wall -Wextra -Wpedantic`, 27/27 vectors passing.
+`-Wall -Wextra -Wpedantic`, 37/37 vectors passing (T5, 2026-10-12, with the snapshot cases).
 
 The ncurses dashboard is built by default. Turn it off for a target without
 ncurses; the headless tool still builds and still demonstrates the whole
@@ -37,6 +37,13 @@ contract:
 ```sh
 cmake -S . -B build -DFROGNET_BUILD_TUI=OFF
 ```
+
+## The node snapshot
+
+`frognet_monitor snapshot` prints this node's snapshot once (`GET /getSnapshot.php`: mode lan-only|region, build,
+ponds with the forward one marked `*`, the hub link's handshake age, the members with their source, the elections),
+and both dashboards draw the same block under their title. The peer list is the snapshot's members; nothing else is
+read for those fields [ONE_MONITOR_TRUTH_V1].
 
 ## The dashboard
 

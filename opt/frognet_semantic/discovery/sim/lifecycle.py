@@ -256,88 +256,6 @@ def scenario_full_lifecycle(label, spec, *, join_node, join_tunnels, reip_target
     _run(lc)
 
 
-# ======================= REAL-BROKER LIFECYCLE ============================
-# Same timeline, but the TUNNELS are decided by the real broker
-# (frognet_broker_v4) at every phase: register_node at startup/join, retire
-# (active=0, the broker's own membership gate) at leave/shutdown, and
-# _compute_aggregate re-deriving each node's channels in between. Discovery
-# then converges over whatever the real broker paired.
-
-class BrokerLifecycle(Lifecycle):
-    def __init__(self, label, node_specs, *, pond="lifepond", verbose=True):
-        # node_specs: [(name, subnet3), ...]
-        self._bw = __import__("discovery.sim.broker_world",
-                              fromlist=["x"])
-        self.pond = pond
-        self.broker = self._bw.load_broker()
-        self._bw.pond_create(self.broker, pond)
-        self._members = list(node_specs)               # [(name, s3)] live
-        self._reg = {}                                 # name -> pubkey (active)
-        # base init with a placeholder spec; startup() rebuilds from the broker
-        super().__init__(label, TopologySpec(nodes=[NodeSpec(n, s3) for n, s3 in node_specs],
-                                             tunnels=[]), verbose=verbose)
-
-    def _rebuild_from_broker(self):
-        _ch, edges = self._bw.edges_for(self.broker, self.pond, self._reg)
-        nodes = [NodeSpec(n, s3) for (n, s3) in self._members]
-        self.sys = System(TopologySpec(nodes=nodes, tunnels=[list(e) for e in edges]))
-        return edges
-
-    def startup(self):
-        for name, s3 in self._members:
-            self._reg[name] = self._bw.node_register(self.broker, self.pond, name, s3)
-        edges = self._rebuild_from_broker()
-        c, probs = self._converge()
-        probs = probs + self.sys.validate()
-        self.up = set(self._live())
-        self._phase("STARTUP cold-start (real broker)", probs,
-                    extra=f"{len(self.up)} nodes, {len(edges)} tunnels, {c} cyc")
-        return self
-
-    def join(self, name, s3, *, _tunnels=None):
-        self._members.append((name, s3))
-        self._reg[name] = self._bw.node_register(self.broker, self.pond, name, s3)
-        self._rebuild_from_broker()
-        c, probs = self._converge()
-        probs = probs + self.sys.validate() + self._known_everywhere(s3, owner=name)
-        self.up.add(name)
-        self._phase(f"JOIN {name} (real broker)", probs, extra=f"{s3}, {c} cyc")
-        return self
-
-    def leave(self, name):
-        s3 = next((x for (n, x) in self._members if n == name), None)
-        self._bw.node_retire(self.broker, self._reg.pop(name, ""))
-        self._members = [(n, x) for (n, x) in self._members if n != name]
-        self._rebuild_from_broker()
-        self.up.discard(name)
-        c, probs = self._converge()
-        probs = probs + self._gone_everywhere(s3)
-        if self._live():
-            probs = probs + self.sys.validate()
-        self._phase(f"LEAVE {name} (real broker retire)", probs, extra=f"{s3}, {c} cyc")
-        return self
-
-    def shutdown(self):
-        while self._live():
-            name = self._safe_next()
-            if name is None:
-                break
-            s3 = next((x for (n, x) in self._members if n == name), None)
-            self._bw.node_retire(self.broker, self._reg.pop(name, ""))
-            self._members = [(n, x) for (n, x) in self._members if n != name]
-            self._rebuild_from_broker()
-            self.up.discard(name)
-            c, probs = self._converge()
-            probs = probs + self._gone_everywhere(s3)
-            if self._live():
-                probs = probs + self.sys.validate()
-            self._phase(f"SHUTDOWN {name} (real broker retire)", probs,
-                        extra=f"{len(self._live())} left, {c} cyc")
-        self._phase("SHUTDOWN complete", [] if not self._live() else
-                    [f"{len(self._live())} nodes still live"])
-        return self
-
-
 def scenario_loop_aware_lifecycle():
     """Seattle6 shape through its lifecycle: O has the tunnels, L is a LAN child
     of O, Rmt is a remote tunnel peer that only reaches L's /24 back through O.
@@ -356,46 +274,6 @@ def scenario_loop_aware_lifecycle():
        .loop_gate("O", "10.160.160.1", loop_via="Rmt", direct_via="L")
        .shutdown())
     _run(lc)
-
-
-def scenario_broker_lifecycle():
-    """Full timeline driven by the REAL broker: every tunnel comes from
-    register_node + _compute_aggregate; leave/shutdown go through the broker's
-    own active=0 retire. Skips cleanly if the broker tree isn't present."""
-    print("\n  === real-broker lifecycle (broker pairs every phase) ===")
-    # [BROKER_SIM_TIMEOUT_V1] The real-broker path makes blocking broker calls
-    # (load_broker/register/edges). A slow or unreachable broker during install
-    # would BLOCK forever here -- the try/except below only catches exceptions, and
-    # a hang raises none, so the whole pre-activation gate wedges. Bound it: if the
-    # broker doesn't answer within the deadline, SIGALRM raises TimeoutError and the
-    # scenario SKIPS cleanly (same as when the broker tree is absent), letting the
-    # install proceed. Main-thread only, which the sim entrypoint always is.
-    import signal as _signal
-    _have_alarm = hasattr(_signal, "SIGALRM")
-    _deadline = int(os.environ.get("FROGNET_SIM_BROKER_TIMEOUT_S", "45"))
-    _old_handler = None
-    try:
-        if _have_alarm:
-            def _on_timeout(_sig, _frame):
-                raise TimeoutError(f"real broker did not respond within {_deadline}s")
-            _old_handler = _signal.signal(_signal.SIGALRM, _on_timeout)
-            _signal.alarm(_deadline)
-        lc = BrokerLifecycle("broker", [("M1", "10.11.11"), ("M2", "10.12.12"),
-                                        ("M3", "10.13.13"), ("GW", "10.9.9")])
-        (lc.startup()
-           .tick()
-           .join("M4", "10.14.14")
-           .leave("M2")
-           .tick()
-           .shutdown())
-        _run(lc)
-    except Exception as e:
-        print(f"    [SKIP] real-broker lifecycle ({type(e).__name__}: {e})")
-    finally:
-        if _have_alarm:
-            _signal.alarm(0)
-            if _old_handler is not None:
-                _signal.signal(_signal.SIGALRM, _old_handler)
 
 
 def main():
@@ -422,7 +300,6 @@ def main():
         reip_target="C", reip_new="10.77.77")
 
     scenario_loop_aware_lifecycle()
-    scenario_broker_lifecycle()
 
     print("\n" + ("ALL LIFECYCLE SCENARIOS PASS" if not FAILS
                   else f"LIFECYCLE FAILURES: {len(FAILS)}"))

@@ -1,0 +1,884 @@
+2026-10-12 23:14:29 [install] frognet_install.sh build frognet-install-2026-10-12-t4c starting on FrogNetHost.U1 - x86_64 - Mon Oct 12 23:14:29 UTC 2026 - LAN-only
+2026-10-12 23:14:29 [install] merge lock held for the duration of the install (runMerge will defer)
+2026-10-12 23:14:29 [install] DB password taken from --db-pass (6 chars)
+
+========================================================
+  STEP D1: Detect interfaces (before anything is installed: a wrong LAN choice stops here)
+========================================================
+2026-10-12 23:14:29 [install] --preserve: LAN interface eth1 from /etc/frognet/interfaces_override.conf
+2026-10-12 23:14:29 [install] Detected: eth0=eth1 (served LAN) wlan0=wlan0 wlan1=wlan1 uplink=eth0
+2026-10-12 23:14:29 [install] --preserve: node name 'U1' recovered from opts_only.conf (not prompting)
+2026-10-12 23:14:29 [install] --preserve: gateway IP 10.63.63.1 recovered from opts_only.conf (not prompting)
+
+========================================================
+  STEP A0: Reinstall reset
+========================================================
+2026-10-12 23:14:29 [install] --preserve: UPGRADE IN PLACE - no files removed, no databases dropped
+2026-10-12 23:14:29 [install]   new code is written over the existing install; schema migrations run in D8
+
+========================================================
+  STEP A0b: Record the machine before FrogNet
+========================================================
+2026-10-12 23:14:29 [WARN]      no record of this machine's name resolution before FrogNet (it was installed before T4a): what is here now is FrogNet's, so it is not recorded; a later reset or uninstall will say it cannot put it back
+
+========================================================
+  STEP A1: Package index
+========================================================
+Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-security InRelease
+Get:4 http://archive.ubuntu.com/ubuntu noble/main amd64 Components [464 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble/universe amd64 Components [3871 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [181 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [388 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+Get:9 http://archive.ubuntu.com/ubuntu noble-security/main amd64 Components [46.4 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [76.2 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+Fetched 5028 kB in 4s (1289 kB/s)
+Reading package lists...
+2026-10-12 23:14:37 [install] Package index refreshed
+
+========================================================
+  STEP A2: APT packages
+========================================================
+2026-10-12 23:14:42 [install] APT: 67 already installed, 3 to install
+Reading package lists...
+Building dependency tree...
+Reading state information...
+mariadb-server is already the newest version (1:10.11.14-0ubuntu0.24.04.1).
+mariadb-client is already the newest version (1:10.11.14-0ubuntu0.24.04.1).
+0 upgraded, 0 newly installed, 0 to remove and 65 not upgraded.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  bsdutils libblkid1 libfdisk1 libinotifytools0 libmagic-mgc libmagic1t64
+  libmount1 libsmartcols1 libuuid1 mount util-linux
+Suggested packages:
+  cryptsetup-bin nfs-common dosfstools kbd util-linux-extra util-linux-locales
+Recommended packages:
+  bsdextrautils
+The following NEW packages will be installed:
+  file inotify-tools libinotifytools0 libmagic-mgc libmagic1t64 uuid-runtime
+The following packages will be upgraded:
+  bsdutils libblkid1 libfdisk1 libmount1 libsmartcols1 libuuid1 mount
+  util-linux
+8 upgraded, 6 newly installed, 0 to remove and 57 not upgraded.
+Need to get 2355 kB of archives.
+After this operation, 9209 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 bsdutils amd64 1:2.39.3-9ubuntu6.6 [96.4 kB]
+Get:2 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 util-linux amd64 2.39.3-9ubuntu6.6 [1128 kB]
+Get:3 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 mount amd64 2.39.3-9ubuntu6.6 [118 kB]
+Get:4 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libsmartcols1 amd64 2.39.3-9ubuntu6.6 [66.3 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libuuid1 amd64 2.39.3-9ubuntu6.6 [36.6 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 uuid-runtime amd64 2.39.3-9ubuntu6.6 [33.1 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libblkid1 amd64 2.39.3-9ubuntu6.6 [124 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libmount1 amd64 2.39.3-9ubuntu6.6 [134 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 libfdisk1 amd64 2.39.3-9ubuntu6.6 [146 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble/main amd64 libmagic-mgc amd64 1:5.45-3build1 [307 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble/main amd64 libmagic1t64 amd64 1:5.45-3build1 [87.2 kB]
+Get:12 http://archive.ubuntu.com/ubuntu noble/main amd64 file amd64 1:5.45-3build1 [22.0 kB]
+Get:13 http://archive.ubuntu.com/ubuntu noble/universe amd64 libinotifytools0 amd64 3.22.6.0-4 [22.4 kB]
+Get:14 http://archive.ubuntu.com/ubuntu noble/universe amd64 inotify-tools amd64 3.22.6.0-4 [32.1 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 2355 kB in 5s (497 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50777 files and directories currently installed.)
+Preparing to unpack .../bsdutils_1%3a2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking bsdutils (1:2.39.3-9ubuntu6.6) over (1:2.39.3-9ubuntu6) ...
+Setting up bsdutils (1:2.39.3-9ubuntu6.6) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50777 files and directories currently installed.)
+Preparing to unpack .../util-linux_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking util-linux (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Setting up util-linux (2.39.3-9ubuntu6.6) ...
+fstrim.service is a disabled or a static unit not running, not starting it.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50777 files and directories currently installed.)
+Preparing to unpack .../mount_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking mount (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Preparing to unpack .../libsmartcols1_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking libsmartcols1:amd64 (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Setting up libsmartcols1:amd64 (2.39.3-9ubuntu6.6) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50777 files and directories currently installed.)
+Preparing to unpack .../libuuid1_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking libuuid1:amd64 (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Setting up libuuid1:amd64 (2.39.3-9ubuntu6.6) ...
+Selecting previously unselected package uuid-runtime.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50777 files and directories currently installed.)
+Preparing to unpack .../uuid-runtime_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking uuid-runtime (2.39.3-9ubuntu6.6) ...
+Preparing to unpack .../libblkid1_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking libblkid1:amd64 (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Setting up libblkid1:amd64 (2.39.3-9ubuntu6.6) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50793 files and directories currently installed.)
+Preparing to unpack .../libmount1_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking libmount1:amd64 (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Setting up libmount1:amd64 (2.39.3-9ubuntu6.6) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 50793 files and directories currently installed.)
+Preparing to unpack .../0-libfdisk1_2.39.3-9ubuntu6.6_amd64.deb ...
+Unpacking libfdisk1:amd64 (2.39.3-9ubuntu6.6) over (2.39.3-9ubuntu6) ...
+Selecting previously unselected package libmagic-mgc.
+Preparing to unpack .../1-libmagic-mgc_1%3a5.45-3build1_amd64.deb ...
+Unpacking libmagic-mgc (1:5.45-3build1) ...
+Selecting previously unselected package libmagic1t64:amd64.
+Preparing to unpack .../2-libmagic1t64_1%3a5.45-3build1_amd64.deb ...
+Unpacking libmagic1t64:amd64 (1:5.45-3build1) ...
+Selecting previously unselected package file.
+Preparing to unpack .../3-file_1%3a5.45-3build1_amd64.deb ...
+Unpacking file (1:5.45-3build1) ...
+Selecting previously unselected package libinotifytools0:amd64.
+Preparing to unpack .../4-libinotifytools0_3.22.6.0-4_amd64.deb ...
+Unpacking libinotifytools0:amd64 (3.22.6.0-4) ...
+Selecting previously unselected package inotify-tools.
+Preparing to unpack .../5-inotify-tools_3.22.6.0-4_amd64.deb ...
+Unpacking inotify-tools (3.22.6.0-4) ...
+Setting up libinotifytools0:amd64 (3.22.6.0-4) ...
+Setting up libmagic-mgc (1:5.45-3build1) ...
+Setting up libmagic1t64:amd64 (1:5.45-3build1) ...
+Setting up file (1:5.45-3build1) ...
+Setting up libfdisk1:amd64 (2.39.3-9ubuntu6.6) ...
+Setting up inotify-tools (3.22.6.0-4) ...
+Setting up mount (2.39.3-9ubuntu6.6) ...
+Setting up uuid-runtime (2.39.3-9ubuntu6.6) ...
+info: Selecting GID from range 100 to 999 ...
+info: Adding group `uuidd' (GID 108) ...
+Created symlink /etc/systemd/system/sockets.target.wants/uuidd.socket → /usr/lib/systemd/system/uuidd.socket.
+uuidd.service is a disabled or a static unit, not starting it.
+Processing triggers for libc-bin (2.39-0ubuntu8.9) ...
+2026-10-12 23:14:53 [install] APT packages installed
+
+========================================================
+  STEP A2b: WireGuard implementation (chosen once, recorded)
+========================================================
+2026-10-12 23:14:53 [install] WireGuard: wireguard-go (no wireguard module for 6.18.44-fc-v114), recorded in /etc/frognet/wg.impl
+
+========================================================
+  STEP A3: Python packages (the list C2 puts in the venv)
+========================================================
+2026-10-12 23:14:53 [install]   21 packages, installed into the venv in C2 (nothing into the system python)
+
+========================================================
+  STEP B2: iptables scaffold
+========================================================
+
+========================================================
+  STEP B3: Directories
+========================================================
+2026-10-12 23:14:54 [install] Directories created
+
+========================================================
+  STEP B4: Sudoers
+========================================================
+2026-10-12 23:14:54 [install] Sudoers fragment installed
+
+========================================================
+  STEP C1: Lay down the world (tar, or --from-repo checkout)
+========================================================
+2026-10-12 23:14:54 [install] Installing from repository checkout /root/FrogNet -> / (the node file set)
+2026-10-12 23:14:55 [install]   copied 1609 files
+2026-10-12 23:14:55 [install]   install record: 1609 files in /var/lib/frognet-install/files
+2026-10-12 23:14:55 [install]   /usr/local/bin/installer/frognet_install.sh already in place (laid down by C1)
+2026-10-12 23:14:55 [install]   /usr/local/bin/installer/frognet_reset.sh already in place (laid down by C1)
+2026-10-12 23:14:55 [install] Clearing stale Python bytecode under /opt/frognet_semantic
+2026-10-12 23:14:55 [install] Extraction complete
+2026-10-12 23:14:55 [install] FrogNet base: build=fdf-2026-10-12-r20 (no git checkout: no commit recorded)
+
+========================================================
+  STEP C1a: sysctl (the tree's 90-frognet-forwarding.conf)
+========================================================
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+2026-10-12 23:14:55 [install] sysctl applied from /etc/sysctl.d/90-frognet-forwarding.conf (ip_forward=1)
+2026-10-12 23:14:55 [install] Node GUID at /etc/fnid: 472e2a92613f6e52313a3c57775fda5a
+
+========================================================
+  STEP C1b: DB secret injection
+========================================================
+    injected (1 site(s)) /var/www/html/config.php
+    injected (1 site(s)) /opt/frognet_semantic/DB_CONFIG.json
+2026-10-12 23:14:55 [install] DB secret injected into 2 declared file(s)
+
+========================================================
+  STEP C1c: Upgrade (what the tree no longer ships)
+========================================================
+-- timestamped runtime backups carrying GROUP_TOKEN
+-- the bundles directory, retired: the Communicator runs from /opt/frognet_semantic/ribbit/examples/communicator
+-- zero-byte shell accident
+-- older variant of hosts.py
+-- empty stub
+-- older variant
+-- lost its .py - the STALE .py was importing; renamed in the tree
+-- backup copy
+-- dead package - __INIT__.py is uppercase, it could never import
+-- byte-identical stale mirror of the docroot + a 23 MB tar named .php
+-- vendored ARM binaries
+-- shadow copies - Apache never serves bin, and the module cannot import from there
+-- zero-byte / runtime lock
+-- unreferenced; frognet-join held a hardcoded token, vba_extract is XlsxWriter's
+-- build output - the C++ source stays
+-- consolidated into opt/frognet_semantic/internet_tunnels_v3/
+-- units for things that were removed, and stray unit-shaped files
+-- units never existed anywhere
+-- superseded dashboard lineage
+-- awrtc webpack output - reached only from orphan pages
+-- orphan pages, nothing links them
+-- superseded dashboard; 32 is live (oracle_dashboard32_views.js pins it)
+-- the same undeployed API, deployed nowhere
+-- phpinfo - never on a public box
+-- adapter.js (BSD) + plainwebrtc.js - orphans
+-- undeployed second PHP API (its README says copy to your web root)
+-- superseded generation; the live wave hits propogateNotification.php
+-- orphan - part of the browser-WebRTC branch
+-- Apache-2.0 Google WebRTC samples - unreferenced
+
+-- [PRUNE_NODE_JUNK_V1 2026-10-02] found on Seattle5; full_tar would carry each into the repository
+-- copies of /usr/local/bin scripts left in the unit directory (systemd ignores them; the real ones are in /usr/local/bin)
+-- a stray copy of the proxy tree inside the monitor's directory (nothing imports it)
+-- a frog CLI tarball unpacked into the web root
+-- the old monitor library: referenced by nothing; frognet_monitor runs frognet_monitor_py
+-- retired by af0aa9b (bundles and games) and 62b0fe7 (backups), still on nodes
+-- retired oracles: they assert behaviour later ruled out (.1 discovery 2026-09-25, [NO_CACHES_V1], the July on-link change, the 2026-09-12 barrier)
+-- [T2 2026-10-12] the mediahost role, the old Python Communicator's remnants and the game remnants, retired
+  systemctl disable --now frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service
+  rm   /etc/systemd/system/frognet-mediahost-advertise.service
+  rm   /etc/systemd/system/frognet-mediahost-advertise.timer
+  rm   /etc/systemd/system/frognet-mediahost.service
+  rm   /etc/systemd/system/frognet-reaper.service
+  rm   /opt/frognet_semantic/FROGNET_NOW_mediahost_onsegment.md
+  rm   /opt/frognet_semantic/core/live.py
+  rm   /opt/frognet_semantic/core/sotf_handler.py
+  rm   /opt/frognet_semantic/core/test_mediahost_onsegment_oracle.py
+  rm   /opt/frognet_semantic/core/test_mediahost_pondwide_oracle.py
+  rm   /opt/frognet_semantic/discovery/sim/role_election_check.py
+  rm   /opt/frognet_semantic/discovery/test_lan_untunnelled_oracle.py
+  rm   /opt/frognet_semantic/proxy/frognet_media_diag.py
+  rm   /opt/frognet_semantic/proxy/frognet_media_planes.py
+  rm   /opt/frognet_semantic/ribbit/cpp/tests/reference/core/game_role.py
+  rm   /opt/frognet_semantic/simulation/bakeoff_rest_vs_sotf.py
+  rm   /opt/frognet_semantic/simulation/compare_bandwidth.py
+  rm   /opt/frognet_semantic/simulation/compare_udp_vs_sotf.py
+  rm   /opt/frognet_semantic/simulation/degrade_sweep.py
+  rm   /opt/frognet_semantic/simulation/games
+  rm   /opt/frognet_semantic/simulation/media_assets
+  rm   /opt/frognet_semantic/simulation/role_registry_lxmlfree_check.py
+  rm   /opt/frognet_semantic/simulation/run_all_media_stream.py
+  rm   /opt/frognet_semantic/simulation/run_all_tests.py
+  rm   /opt/frognet_semantic/simulation/run_hardware_loop.py
+  rm   /opt/frognet_semantic/simulation/run_movies.py
+  rm   /opt/frognet_semantic/simulation/sim_mediahost.py
+  rm   /opt/frognet_semantic/simulation/sim_sotf_media_codex.py
+  rm   /opt/frognet_semantic/simulation/test_call_host_roster_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_call_host_service_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_call_media_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_call_mediahost_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_dl_leg_settle_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_downlink_backpressure_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_group_call_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_ladder_rate_v2_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_lan_untunnelled_netns_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_media_engine_pipe_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_media_planes.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream_e2e.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream_metrics.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream_transport.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream_watch.py
+  rm   /opt/frognet_semantic/simulation/test_media_stream_wire.py
+  rm   /opt/frognet_semantic/simulation/test_outplane_nonblocking_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_plane_direction_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_self_echo_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_server_temporal_subset_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_spatial_band_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_stats_overlay_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_temporal_decode_clean_oracle.py
+  rm   /opt/frognet_semantic/simulation/test_temporal_layer_oracle.py
+  rm   /opt/frognet_semantic/simulation/tests_topology.py
+  rm   /opt/frognet_semantic/tests/test_sotf_handler.py
+  rm   /usr/local/bin/AVCAP_CACHE_SCHEMA_V1.diff
+  rm   /usr/local/bin/README_AVCAP_CACHE_SCHEMA_V1.md
+  rm   /usr/local/bin/build_linux_communicator.sh
+  rm   /usr/local/bin/build_windows_communicator.sh
+  rm   /usr/local/bin/check_blob.py
+  rm   /usr/local/bin/frognet_candidate.sh
+  rm   /usr/local/bin/install_mediahost.sh
+  rm   /usr/local/bin/oracle_avcap_cache.sh
+  rm   /usr/local/bin/package_communicator.py
+  rm   /usr/local/bin/runCaptureHeadless
+  rm   /usr/local/bin/runClient
+  rm   /usr/local/bin/runServerHeadless
+  rm   /usr/local/share/frognet/docs/SOTF_MEDIA_README.md
+-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region
+  systemctl disable --now frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service
+  unset BROKER_URL in /etc/frognet/tunnel.conf
+  unset GROUP_NAME in /etc/frognet/tunnel.conf
+  unset POND_NAME in /etc/frognet/tunnel.conf
+  rm   /etc/frognet/tunnel.conf.bak.20261012-231042
+  rm   /etc/frognet/tunnel.conf.20261012T231042Z
+  rm   /etc/sentinels/transit_subnets.tsv
+  rm   /etc/systemd/system/frognet-tunnel-setup.service
+  rm   /etc/systemd/system/frognet-pond-bootstrap.service
+  rm   /etc/systemd/system/frognet-pond-bootstrap.timer
+  rm   /etc/systemd/system/frognet-broker-v4.service
+  rm   /etc/systemd/system/multi-user.target.wants/frognet-tunnel-setup.service
+  rm   /etc/NetworkManager/dispatcher.d/91-frognet-connectivity
+  rm   /usr/local/bin/change_pond.bash
+  rm   /usr/local/bin/frognet-broker-admin.sh
+  rm   /usr/local/bin/frognet-conf-consolidate.sh
+  rm   /usr/local/bin/frognet-config-v4
+  rm   /usr/local/bin/frognet-guid
+  rm   /usr/local/bin/frognet-make-gateway.sh
+  rm   /usr/local/bin/frognet-make-lanonly.sh
+  rm   /usr/local/bin/frognet-pond-bootstrap.sh
+  rm   /usr/local/bin/frognet-tunnel-setup-v3.sh
+  rm   /usr/local/bin/frognet-unmake-gateway.sh
+  rm   /usr/local/bin/frognet_internet_watch.sh
+  rm   /usr/local/bin/frognet_nuke_tunnels
+  rm   /var/www/html/frognet_chorus.php
+  rm   /var/www/html/pond_admin.html
+  rm   /opt/frognet_semantic/broker
+  rm   /opt/frognet_semantic/internet_tunnels_v3/frognet_chorus.php
+  rm   /opt/frognet_semantic/internet_tunnels_v3/test_register_on_404_oracle.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/test_transit_from_routes.py
+  rm   /opt/frognet_semantic/discovery/test_vouch_transit_gate_oracle.py
+  rm   /opt/frognet_semantic/discovery/sim/broker_world.py
+  rm   /opt/frognet_semantic/simulation/broker_topology.py
+  rm   /opt/frognet_semantic/simulation/test_transit_closure_repro.py
+-- [T4b 2026-10-12] second mechanisms retired (one owner each)
+  systemctl disable --now frognet-eth0-fixup.service
+  rm   /etc/systemd/system/frognet-eth0-fixup.service
+  rm   /usr/local/bin/frognet_eth0_fixup.sh
+  rm   /etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
+  rm   /usr/local/bin/frognet_system_tune.sh
+-- [T1..T4b, listed in T4c 2026-10-12] every file the cleanup deleted from usr/local/bin, usr/local/sbin,
+--   etc/systemd/system, var/www/html and opt/frognet_semantic (git diff --name-status 42465dd 0db230f, D)
+--   that no section above or below names already
+  systemctl disable --now aiconnect.service frognet-post-merge-metrics.service
+  rm   /etc/systemd/system/aiconnect.service
+  rm   /etc/systemd/system/frognet-nat64.service
+  rm   /etc/systemd/system/frognet-post-merge-metrics.service
+  rm   /opt/frognet_semantic/.netbench-backup-20260908-163735
+  rm   /opt/frognet_semantic/APPLY.txt
+  rm   /opt/frognet_semantic/_fix_meta
+  rm   /opt/frognet_semantic/cpre
+  rm   /opt/frognet_semantic/internet_tunnels_v3/broker.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/broker_auth.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/broker_pin.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/frognet-client-v3.tar.gz
+  rm   /opt/frognet_semantic/internet_tunnels_v3/gen_oracle.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/install
+  rm   /opt/frognet_semantic/internet_tunnels_v3/main.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/package_client.sh
+  rm   /opt/frognet_semantic/internet_tunnels_v3/peer.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash
+  rm   /opt/frognet_semantic/internet_tunnels_v3/test_transit_discover_v2.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/threads.py
+  rm   /opt/frognet_semantic/internet_tunnels_v3/websocket.py
+  rm   /usr/local/bin/'
+  rm   /usr/local/bin/ConnectFamily
+  rm   /usr/local/bin/addHost
+  rm   /usr/local/bin/addHostAndPropogate
+  rm   /usr/local/bin/daemon_main.py
+  rm   /usr/local/bin/fr
+  rm   /usr/local/bin/frognet-channel-advertise.py
+  rm   /usr/local/bin/frognet-channel-join.sh
+  rm   /usr/local/bin/frognet-create-passcode.sh
+  rm   /usr/local/bin/frognet-redeem-passcode.sh
+  rm   /usr/local/bin/frognet-tunnel
+  rm   /usr/local/bin/frognet-tunnel-daemon
+  rm   /usr/local/bin/frognet-tunnel-daemon.py
+  rm   /usr/local/bin/frognet-tunnel-host
+  rm   /usr/local/bin/frognet-tunnel-join
+  rm   /usr/local/bin/frognet-tunnel-refresh.sh
+  rm   /usr/local/bin/frognet-tunnel-register.sh
+  rm   /usr/local/bin/frognet-tunnel-setup.sh
+  rm   /usr/local/bin/frognet-tunnel-watcher.sh
+  rm   /usr/local/bin/frognet_netdrop_watch.sh
+  rm   /usr/local/bin/ham_concentrator_up.sh
+  rm   /usr/local/bin/probe_orig.sh
+  rm   /usr/local/bin/setup_log
+  rm   /usr/local/bin/x
+  rm   /var/www/html/dans_lamp.html
+  rm   /var/www/html/frognet_cli_bin_plus.zip
+  rm   /var/www/html/frognet_fuckme.php
+  rm   /var/www/html/frognet_test.php
+  rm   /var/www/html/getFrogNet2.php
+  rm   /var/www/html/getHosts2.php
+  rm   /var/www/html/mysql-apt-config_0.8.30-1_all.deb
+  rm   /var/www/html/setup_frognet2.html
+  rm   /var/www/html/sysperf.json
+  rm   /var/www/html/sysperf_2.html
+  rm   /var/www/html/sysperf_3.html
+  rm   /var/www/html/test_endpoint.php
+-- [T4c 2026-10-12] console scripts the old installer's A3 put in /usr/local/bin with the system pip
+  rm   /usr/local/bin/cbor2
+  rm   /usr/local/bin/dotenv
+  rm   /usr/local/bin/gpsdclient
+  rm   /usr/local/bin/gunicorn
+  rm   /usr/local/bin/gunicornc
+  rm   /usr/local/bin/httpx
+  rm   /usr/local/bin/idna
+  rm   /usr/local/bin/normalizer
+  rm   /usr/local/bin/cffi-gen-src
+
+-- python bytecode (regenerated on next import)
+
+-- systemd: the removed units were disabled, but tell systemd anyway
+  systemctl disable --now frognet-nat64.service
+
+deleted 170 path(s); 173 already absent; 0 failed.
+2026-10-12 23:14:58 [install] C1c: retired state removed
+
+========================================================
+  STEP C2: Python venv
+========================================================
+2026-10-12 23:14:58 [install] Venv arch matches (/opt/frognet_semantic/venv); checking its 21 packages
+2026-10-12 23:14:59 [install]   [1/21] mysql-connector-python already present - skipping
+2026-10-12 23:14:59 [install]   [2/21] mysqlclient already present - skipping
+2026-10-12 23:14:59 [install]   [3/21] NetfilterQueue already present - skipping
+2026-10-12 23:15:00 [install]   [4/21] aiohttp already present - skipping
+2026-10-12 23:15:00 [install]   [5/21] lz4 already present - skipping
+2026-10-12 23:15:00 [install]   [6/21] msgpack already present - skipping
+2026-10-12 23:15:01 [install]   [7/21] orjson already present - skipping
+2026-10-12 23:15:01 [install]   [8/21] cbor2 already present - skipping
+2026-10-12 23:15:01 [install]   [9/21] psutil already present - skipping
+2026-10-12 23:15:03 [install]   [10/21] gevent already present - skipping
+2026-10-12 23:15:03 [install]   [11/21] gunicorn already present - skipping
+2026-10-12 23:15:03 [install]   [12/21] gpsdclient already present - skipping
+2026-10-12 23:15:04 [install]   [13/21] paho-mqtt already present - skipping
+2026-10-12 23:15:04 [install]   [14/21] requests already present - skipping
+2026-10-12 23:15:04 [install]   [15/21] python-dotenv already present - skipping
+2026-10-12 23:15:05 [install]   [16/21] simplejson already present - skipping
+2026-10-12 23:15:05 [install]   [17/21] ujson already present - skipping
+2026-10-12 23:15:05 [install]   [18/21] PyYAML already present - skipping
+2026-10-12 23:15:06 [install]   [19/21] cryptography already present - skipping
+2026-10-12 23:15:06 [install]   [20/21] httpx already present - skipping
+2026-10-12 23:15:06 [install]   [21/21] pip install lxml ...
+Collecting lxml
+  Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Downloading lxml-6.1.3-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
+Installing collected packages: lxml
+Successfully installed lxml-6.1.3
+2026-10-12 23:15:14 [install]   [21/21] OK: lxml
+2026-10-12 23:15:14 [install] Venv complete (21 packages)
+
+========================================================
+  STEP C3: Pre-activation simulator gate (real code on real hardware)
+========================================================
+2026-10-12 23:15:14 [install]   Running pre-activation simulator on real code (log: /var/log/frognet_preactivation_sim.log) ...
+2026-10-12 23:15:27 [install]   [PASS] discovery selfcheck (all suites)
+2026-10-12 23:15:27 [install]   [SKIP] discovery lifecycle E2E (development gate; not valid mid-install)
+2026-10-12 23:15:27 [install]   Pre-activation simulator gate PASSED - real code cleared for activation.
+
+========================================================
+  STEP D2: Clean stale state
+========================================================
+2026-10-12 23:15:28 [install] Stale state cleaned
+
+========================================================
+  STEP D3: Interface overrides
+========================================================
+2026-10-12 23:15:28 [install] Interface overrides written
+
+========================================================
+  STEP D4: MariaDB
+========================================================
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable mariadb
+2026-10-12 23:15:29 [install] MariaDB configured (pool=1024M, RAM=8029M)
+
+========================================================
+  STEP D5: Apache
+========================================================
+Module rewrite already enabled
+Module proxy already enabled
+Considering dependency proxy for proxy_http:
+Module proxy already enabled
+Module proxy_http already enabled
+Considering dependency proxy for proxy_fcgi:
+Module proxy already enabled
+Module proxy_fcgi already enabled
+Module setenvif already enabled
+Module headers already enabled
+Considering dependency mime for ssl:
+Module mime already enabled
+Considering dependency socache_shmcb for ssl:
+Module socache_shmcb already enabled
+Module ssl already enabled
+Considering dependency filter for deflate:
+Module filter already enabled
+Module deflate already enabled
+Module status already enabled
+Considering dependency mpm_prefork for php8.3:
+Considering conflict mpm_event for mpm_prefork:
+Considering conflict mpm_worker for mpm_prefork:
+Module mpm_prefork already enabled
+Considering conflict php5 for php8.3:
+Module php8.3 already enabled
+2026-10-12 23:15:29 [install] PHP 8.3 (mod_php, all FPM disabled)
+Conf other-vhosts-access-log already disabled
+Site 000-default disabled.
+To activate the new configuration, you need to run:
+  systemctl reload apache2
+Enabling site 000-default.
+Site admin-site already enabled
+Site databasehost already enabled
+Site frognet-ssl already enabled
+To activate the new configuration, you need to run:
+  systemctl reload apache2
+Synchronizing state of apache2.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable apache2
+2026-10-12 23:15:30 [install] Apache configured (not started - SSL certs come later)
+
+========================================================
+  STEP D6: dnsmasq skeleton
+========================================================
+Synchronizing state of unbound.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable unbound
+2026-10-12 23:15:31 [install] unbound was on this machine: stopped and disabled (dnsmasq serves :53)
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable dnsmasq
+2026-10-12 23:15:31 [install] dnsmasq skeleton configured
+
+========================================================
+  STEP D7: NetworkManager
+========================================================
+2026-10-12 23:15:31 [install]   merge hook: /etc/NetworkManager/dispatcher.d/90-frognet-merge (the tree's); 99-ifup removed
+2026-10-12 23:15:32 [install] NetworkManager configured (applies on reboot; not restarted to preserve SSH)
+
+========================================================
+  STEP D8: Schema + data + FrogUser
+========================================================
+2026-10-12 23:15:32 [install] --preserve: keeping existing data - no schema rebuild, no dump restore
+2026-10-12 23:15:32 [install] Applying schema migrations (/var/www/html/schema_fixups.sql)...
+width_check
+ok
+2026-10-12 23:15:32 [install] Schema migrations applied
+2026-10-12 23:15:32 [install] --preserve: live data left in place
+2026-10-12 23:15:32 [install] Setting FrogUser password...
+2026-10-12 23:15:32 [install] FrogUser auth verified
+2026-10-12 23:15:32 [install] DB_CONFIG.json password matches the installed grant
+
+========================================================
+  STEP E1: Node identity
+========================================================
+2026-10-12 23:15:32 [install] Using --name: U1
+2026-10-12 23:15:32 [install] Using --ip: 10.63.63.1
+2026-10-12 23:15:32 [WARN]      10.63.63.1 responded to ping - proceeding anyway (--ip was given)
+2026-10-12 23:15:32 [install] SSID_PROJECTION=0  AP_IFACE=wlan0  WIFI_COUNTRY=US
+
+  +------------------------------------+
+  |  Name:      U1                     |
+  |  IP:        10.63.63.1             |
+  |  Interface: eth1                   |
+  |  SSID proj: disabled               |
+  +------------------------------------+
+
+2026-10-12 23:15:32 [install] Non-interactive identity: skipping confirm prompt
+2026-10-12 23:15:32 [install] Identity: U1 10.63.63.1 eth1
+
+========================================================
+  STEP E2: Hostname
+========================================================
+2026-10-12 23:15:32 [install] Hostname: FrogNetHost.U1
+
+========================================================
+  STEP E3: setup_lillypad (v4)
+========================================================
+2026-10-12 23:15:32 [install] Using machine IP: 10.63.63.1
+[setup_lillypad] 23:15:32 Resolved eth0 interface: eth1
+[setup_lillypad] 23:15:32 Interface eth1 is present
+[setup_lillypad] 23:15:32 Identity transition: OLD_NAME='none' NEW='U1' OLD_SSID='none' projection=off
+[setup_lillypad] 23:15:32 Configuring FrogNet gateway: U1
+[setup_lillypad] 23:15:32   Gateway IP: 10.63.63.1
+[setup_lillypad] 23:15:32   Admin IP:   10.63.63.2
+[setup_lillypad] 23:15:32   Subnet: 10.63.63.0/24
+[setup_lillypad] 23:15:32   DHCP range: 10.63.63.3 - 10.63.63.254
+[setup_lillypad] 23:15:32 Step 1: Stopping interfering services...
+[setup_lillypad] 23:15:32   [--norestart] NOT restarting NetworkManager (would drop the install SSH; applies on reboot)
+[setup_lillypad] 23:15:32 Step 1b: Purging stale config from prior identity...
+[setup_lillypad] 23:15:32 Step 1b: Purge complete
+[setup_lillypad] 23:15:32 Step 1c: Reconciling cloned image to this machine...
+[setup_lillypad] 23:15:34   Syncing FrogUser password from config.php / DB_CONFIG.json...
+[setup_lillypad] 23:15:34   FrogUser password sync OK (socket and 127.0.0.1)
+Considering dependency mpm_prefork for php8.3:
+Considering conflict mpm_event for mpm_prefork:
+Considering conflict mpm_worker for mpm_prefork:
+Module mpm_prefork already enabled
+Considering conflict php5 for php8.3:
+Module php8.3 already enabled
+[setup_lillypad] 23:15:34   Enabled Apache module: php8.3
+[setup_lillypad] 23:15:34   [--norestart] not restarting: apache2 (applies on reboot)
+[setup_lillypad] 23:15:34   [--norestart] not restarting: frognet-proxy frognet-daemon (applies on reboot)
+[setup_lillypad] 23:15:34 Step 1c: Reconciliation complete
+[setup_lillypad] 23:15:34 Step 2: Cleaning up NetworkManager connections...
+[setup_lillypad] 23:15:34   Deleting connection named: U1
+Connection 'U1' (8c728f42-7194-47dd-b0e9-5085ac068442) successfully deleted.
+[setup_lillypad] 23:15:36 Step 3: Preparing eth1...
+[setup_lillypad] 23:15:36   [--norestart] eth1 is not re-addressed now (the NM profile applies on reboot)
+[setup_lillypad] 23:15:36   Current eth1 IP: 10.63.63.1/24
+[setup_lillypad] 23:15:36 Step 5: Creating NetworkManager connection...
+Connection 'U1' (72cdcedd-99ab-469f-9ebb-ed2cce6630ed) successfully added.
+[setup_lillypad] 23:15:36 Step 6/7: [--norestart] connection profile saved; NOT activated live (applies on reboot)
+[setup_lillypad] 23:15:36 Step 8: Setting hostname...
+[setup_lillypad] 23:15:36 Step 9: Configuring dnsmasq...
+[setup_lillypad] 23:15:36   dnsmasq: LAN device eth1 resolved from GATEWAY_IP=10.63.63.1
+[setup_lillypad] 23:15:36   dnsmasq: DHCP scoped to eth1 (LAN-projecting device)
+[setup_lillypad] 23:15:36   [--norestart] not restarting dnsmasq (applies on reboot)
+[setup_lillypad] 23:15:36 Step 9b: Reconciling projected SSID (mode=off, old='none')...
+[setup_lillypad] 23:15:36   Projection OFF -> dropping AP via frognet-ssid-projection off
+[setup_lillypad] 23:15:37 Step 10: Creating config files...
+[setup_lillypad] 23:15:37 Step 12: Configuring transit to skip eth1...
+[setup_lillypad] 23:15:37 Step 13: Restarting services...
+[setup_lillypad] 23:15:37   [--norestart] not restarting: mariadb (applies on reboot)
+[setup_lillypad] 23:15:37   [--norestart] not restarting: apache2 (applies on reboot)
+[setup_lillypad] 23:15:37   [--norestart] not restarting: dnsmasq (applies on reboot)
+[setup_lillypad] 23:15:37   [--norestart] not restarting: frognet-proxy (applies on reboot)
+[setup_lillypad] 23:15:37   [--norestart] not restarting: frognet-daemon (applies on reboot)
+[setup_lillypad] 23:16:26 
+[setup_lillypad] 23:16:26 ============================================
+[setup_lillypad] 23:16:26 Setup complete!
+[setup_lillypad] 23:16:26 
+[setup_lillypad] 23:16:26 eth1 configuration:
+2: eth1@if1162: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc noqueue state UP group default 
+    inet 10.63.63.1/24 brd 10.63.63.255 scope global eth1
+    inet 10.63.63.2/24 scope global secondary eth1
+[setup_lillypad] 23:16:26 
+[setup_lillypad] 23:16:26 getEth0Address returns: 10.63.63.1
+[setup_lillypad] 23:16:26 
+[setup_lillypad] 23:16:26 Service health:
+[setup_lillypad] 23:16:26   mariadb: active
+[setup_lillypad] 23:16:26   apache2: failed
+not found
+[setup_lillypad] 23:16:26   dnsmasq: active
+[setup_lillypad] 23:16:26   frognet-proxy: inactive
+not found
+[setup_lillypad] 23:16:26   frognet-daemon: inactive
+not found
+[setup_lillypad] 23:16:26 
+[setup_lillypad] 23:16:26 FrogUser auth:
+[setup_lillypad] 23:16:27   OK
+[setup_lillypad] 23:16:27 
+[setup_lillypad] 23:16:27 frognet_echo:
+[setup_lillypad] 23:16:27   curl: (7) Failed to connect to 127.0.0.1 port 80 after 0 ms: Couldn't connect to server
+[setup_lillypad] 23:16:27 ============================================
+2026-10-12 23:16:27 [install] setup_lillypad (v4) complete (config applied; interface + services come up on reboot)
+
+========================================================
+  STEP E4: Apache admin-site
+========================================================
+
+========================================================
+  STEP E5: SSL certificates
+========================================================
+2026-10-12 23:16:27 [install] SSL + Apache configured (applies on reboot)
+
+========================================================
+  STEP E6: iptables
+========================================================
+
+========================================================
+  STEP E6a: WiFi AP prerequisites
+========================================================
+2026-10-12 23:16:27 [install]   hostapd template already present at /etc/hostapd/hostapd.conf.template
+  iw: nl80211 not found.
+2026-10-12 23:16:27 [install]   iw reg set US
+
+========================================================
+  STEP E7: SSID projection (WiFi AP fallback)
+========================================================
+2026-10-12 23:16:27 [install] SSID projection: DISABLED  iface=wlan0  country=US
+2026-10-12 23:16:27 [install]   hostapd masked
+  helper: 2026-10-12 23:16:27 === FrogNet network mode detection ===
+  helper: 2026-10-12 23:16:27 Node subnet: 10.63.63.0/24, identity: 10.63.63.1, admin: 10.63.63.2
+  helper: 2026-10-12 23:16:27 Node name: U1
+  helper: 2026-10-12 23:16:27 Roles: eth0Name=eth1  AP_IFACE=wlan0  country=US
+  helper: 2026-10-12 23:16:28 Detected mode: wired  (SSID_PROJECTION=0)
+  helper: 2026-10-12 23:16:28 Runtime mode: true
+  helper: 2026-10-12 23:16:28 Wired mode: eth0 carries identity
+  helper: 2026-10-12 23:16:28 Identity 10.63.63.1 already on eth1
+  helper: 2026-10-12 23:16:28 Admin 10.63.63.2 already on eth1
+  helper: 2026-10-12 23:16:28 Returning wlan0 to NetworkManager
+  helper: nmcli: Error: Device 'wlan0' not found.
+  helper: 2026-10-12 23:16:28 eth0Name set to eth1
+  helper: 2026-10-12 23:16:28 dnsmasq restarted
+  helper: 2026-10-12 23:16:28 Triggering discovery...
+  helper: 2026-10-12 23:16:28 === FrogNet network mode configuration complete ===
+  helper: [2026-10-12T23:16:28.282] runMerge INFO pid=15457 STAGE=enter pid=15457 merge_id=20261012T231628-15457 debug_dir=/run/frognet/debug/20261012T231628-15457
+  helper: [2026-10-12T23:16:28.285] runMerge INFO pid=15457 ENTER depth=0 argv_count=0 pybin=/opt/frognet_semantic/venv/bin/python3
+  helper: [2026-10-12T23:16:28.290] runMerge WARN pid=15457 BAIL reason=lock_held depth=0
+  helper: [2026-10-12T23:16:28.321] runMerge INFO pid=15457 runAgain_touched reason=for_running_instance
+  helper: {"ok":true,"enabled":false,"state":"off"}
+
+========================================================
+  STEP E8: Link watcher (ifplugd -> frognet-netstart)
+========================================================
+2026-10-12 23:16:28 [install]   installed /etc/ifplugd/action.d/frognet
+2026-10-12 23:16:28 [install]   configured /etc/default/ifplugd to watch eth1
+
+========================================================
+  STEP F0: Cache nuke
+========================================================
+=== FrogNet Cache Nuke on FrogNetHost.U1 ===
+2026-10-12 23:16:29
+
+[1/5] Stopping frognet-proxy and frognet-daemon...
+  Done.
+
+[2/5] Truncating SemCacheProxy table...
+  SemCacheProxy rows after truncate: 0
+
+[3/5] Truncating SemCacheDaemon table...
+  SemCacheDaemon rows after truncate: 0
+
+[4/5] Cleaning temp and diag files...
+  Removed /tmp/frognet_proxy_diag.tsv
+  Removed /tmp/frognet_daemon_diag.tsv
+  Removed /tmp/frognet_*.log
+  Done.
+
+[5/5] Restarting frognet-daemon and frognet-proxy...
+  frognet-daemon: active
+  frognet-proxy:  active
+
+=== Cache nuke complete on FrogNetHost.U1 ===
+All requests will now be REQ_FULL until caches rebuild.
+
+2026-10-12 23:16:32 [install] Cache nuke complete
+
+========================================================
+  STEP F1: Enable services
+========================================================
+2026-10-12 23:16:32 [install]   enabled: frognet-proxy
+2026-10-12 23:16:32 [install]   enabled: frognet-daemon
+2026-10-12 23:16:33 [install]   enabled: frognet-merge-watcher
+2026-10-12 23:16:33 [install]   enabled: frognet-sysperf
+2026-10-12 23:16:33 [install]   enabled: frognet-tunnel-daemon-v3
+Synchronizing state of apache2.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable apache2
+Synchronizing state of mariadb.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable mariadb
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable dnsmasq
+Synchronizing state of cron.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable cron
+2026-10-12 23:16:36 [install]   enabled: frognet-dbhost-advertise.timer
+[advertisers] enabled frognet-dbhost-advertise.timer
+[TUPLE] PUT_FAILED dbhost=databasehost_control.frognet -> 10.63.63.1 name=SD:capability.host:10.63.63.1:databasehost err=HTTPError:HTTP Error 502: Bad Gateway body=real_upstream_local failed: ConnectionRefusedError(111, 'Connection refused')
+[TUPLE] PUT_FAILED dbhost=databasehost.frognet -> 10.63.63.1 name=SD:capability.host:10.63.63.1:databasehost err=HTTPError:HTTP Error 502: Bad Gateway body=real_upstream_local failed: ConnectionRefusedError(111, 'Connection refused')
+[advertisers] DONE — db registration enabled (start at boot, every 60s).
+2026-10-12 23:16:37 [install]   candidate registration set up (db advertiser)
+
+========================================================
+  STEP F2: Log management
+========================================================
+2026-10-12 23:16:37 [install]   removed a prior install's /etc/logrotate.d/mysql-server
+
+========================================================
+  STEP F3: Crontab
+========================================================
+
+========================================================
+  STEP F4: froguser
+========================================================
+
+========================================================
+  STEP F5: Cleanup
+========================================================
+
+========================================================
+  STEP F6: Verify
+========================================================
+  +  hostname
+  +  mariadb running
+  +  apache2 enabled
+  +  apache2 started
+  +  apache2 running
+  +  dnsmasq enabled
+  +  frognet-proxy enabled
+  +  frognet-daemon enabled
+  +  resolved off
+  +  FrogNet DB
+  +  FrogUser auth
+  +  interfaces_override
+  +  ip_forward
+  +  ssl cert
+  +  sudoers
+  +  sudoers valid
+  +  qrencode
+  +  merge controller present
+  +  ssid_projection.conf
+  +  gateways.conf
+  +  dnsmasq node
+  +  proxy enabled
+  +  daemon enabled
+  +  merge hook (one)
+  +  ssl key
+  +  LAN is not the uplink
+  LAN address: 10.63.63.1 (on eth1 now)
+  +  echo: U1,10.63.63.1,0.0.0.0,0.0.0.0
+  FrogNet base: build=fdf-2026-10-12-r20 installed=2026-10-12T23:14Z 
+
+  All checks passed.
+
+========================================================
+  STEP F7: System tuning
+========================================================
+[frognet_system_tune][2026-10-12 23:16:37] Discovering hardware...
+[frognet_system_tune][2026-10-12 23:16:37] RAM: 8029MB (tier=8G) CPUs: 2 SD_CARD: 0
+[frognet_system_tune][2026-10-12 23:16:37] Tuning: MySQL max_conn=500 innodb_bp=2G Apache max_workers=256 daemon_pool=256 daemon_db_pool=228
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/mysql/mariadb.conf.d/99-frognet-tune.cnf
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/apache2/mods-available/mpm_prefork.conf
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/sysctl.d/99-frognet.conf
+sysctl: setting key "net.netfilter.nf_conntrack_max": Operation not permitted
+net.netfilter.nf_conntrack_tcp_timeout_time_wait = 30
+net.netfilter.nf_conntrack_tcp_timeout_established = 300
+net.core.somaxconn = 1024
+sysctl: cannot stat /proc/sys/net/core/netdev_max_backlog: No such file or directory
+net.ipv4.tcp_max_syn_backlog = 1024
+net.ipv4.tcp_fin_timeout = 15
+net.ipv4.tcp_tw_reuse = 1
+net.ipv4.ip_local_port_range = 10000 60999
+net.ipv4.tcp_keepalive_time = 60
+net.ipv4.tcp_keepalive_intvl = 10
+net.ipv4.tcp_keepalive_probes = 5
+fs.file-max = 100000
+sysctl: setting key "net.core.rmem_max": Operation not permitted
+sysctl: setting key "net.core.wmem_max": Operation not permitted
+sysctl: setting key "net.core.rmem_default": Operation not permitted
+sysctl: setting key "net.core.wmem_default": Operation not permitted
+[frognet_system_tune][2026-10-12 23:16:37] WARNING: sysctl apply had errors (conntrack module may not be loaded yet)
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.forwarding = 1
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.default.rp_filter = 0
+[frognet_system_tune][2026-10-12 23:16:37] Applied sysctl settings
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/security/limits.d/99-frognet.conf
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/systemd/system/frognet-proxy.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/systemd/system/frognet-daemon.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 23:16:37] Wrote /etc/systemd/system/frognet-tunnel-daemon-v3.service.d/99-frognet-tune.conf
+[frognet_system_tune][2026-10-12 23:16:37] Reloaded systemd
+[frognet_system_tune][2026-10-12 23:16:37] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-10-12 23:16:37] FrogNet System Tune Complete
+[frognet_system_tune][2026-10-12 23:16:37]   Hardware:  8029MB RAM, 2 cores, tier=8G
+[frognet_system_tune][2026-10-12 23:16:37]   SD Card:   0
+[frognet_system_tune][2026-10-12 23:16:37]   MariaDB:   max_conn=500 innodb_bp=2G log_flush=2
+[frognet_system_tune][2026-10-12 23:16:37]   Apache:    max_workers=256 max_child=1000
+[frognet_system_tune][2026-10-12 23:16:37]   Daemon:    pool=256 db_pool=228 (env via systemd override)
+[frognet_system_tune][2026-10-12 23:16:37]   Kernel:    conntrack=65536 fd=65536
+[frognet_system_tune][2026-10-12 23:16:37]   tmpfs:     /tmp=256m /var/log=no
+[frognet_system_tune][2026-10-12 23:16:37] ════════════════════════════════════════════════════════
+[frognet_system_tune][2026-10-12 23:16:37] Changes applied.  Restart services to take effect:
+[frognet_system_tune][2026-10-12 23:16:37]   systemctl restart mariadb apache2 frognet-proxy frognet-daemon frognet-tunnel-daemon-v3
+
+========================================================
+  STEP R: Region (none: LAN-only)
+========================================================
+2026-10-12 23:16:37 [install] LAN-only node (no --region): nothing to join
+
+========================================================
+  STEP F8: Reboot
+========================================================
+  U1 (10.63.63.1) on eth1 installed. --no-reboot: reboot to start it.
+2026-10-12 23:16:37 [install] Install complete (--no-reboot).
+EXIT 0

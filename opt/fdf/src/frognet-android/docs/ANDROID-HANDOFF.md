@@ -1,5 +1,11 @@
 # HANDOFF — an FD&F member on Android (fdf-kt-2026-10-11-a11 + fdf-tun b6, with the Communicator r4 -- now r5, see COMMUNICATOR-ANDROID-r5.md; against region fdf-2026-10-11-r19-a14 = r19 + this thread)
 
+> **State (2026-10-13).** The app in this tree is `fdf-kt-2026-10-11-a15` (`app/build.gradle.kts` versionName) with
+> fdf-tun b11 in `app/src/main/jniLibs`; a handset joined and reached on a15 (John's report, before the October 2026
+> cleanup). No APK is built or shipped. The region it joins is any region `fdf-region-create` made: add the pond (area
+> and RAM manager) on the app's screen; its built-in first pond is John's own region. How to install a region and
+> the app: `docs/OPERATING.md` in the FrogNet repository. The dated sections below are the record of each build.
+
 ## The one-line version
 
 An Android device can be a region member as a **leaf**, in plain Kotlin, without porting the C++: the member speaks only
@@ -21,7 +27,7 @@ built here (no Android SDK reachable); its sources type-check against the Androi
   and a collision, reach none, no config) ends that session and is not rejoined until Start; the log says why.
 - `MemberService.resolve("w:<guid>:<port>")` answers host:port from whichever pond has that identity; two ponds answering
   is refused as ambiguous (the log names both).
-- Proven on a JVM in netns (the same Kotlin, `fdf-member-kt bridge`): see MERGE-r19-a14.md. **Not yet on the emulator or a
+- Proven on a JVM in netns (the same Kotlin, `fdf-member-kt bridge`): see `opt/fdf/src/fdf-source/docs/history/MERGE-r19-a14.md`. **Not yet on the emulator or a
   handset** — the first run there proves fdf-tun under Android's seccomp/SELinux and the protect path.
 - What the log says: `bridge: fdf-tun fdf-tun-2026-10-11-b6 on the VPN's TUN (routes 100.64.0.0/10 and 10.0.0.0/8)`,
   `bridge: forward via hub <hub> as 10.252.0.x`, `[pondB] reach into pondB (all, map allowed) as 10.252.0.1 there via hub
@@ -161,7 +167,7 @@ Build the JVM runner only: `gradle -Pfdf.jvmOnly=true :member-cli:installDist`.
 
 Every app line: `<time> [fdf-kt-2026-10-10-a7] …`, on the screen, in logcat (tag `FDF`), in `files/fdf-member.log`.
 
-- `member: <name> guid=android-… leaf 10.252.0.x/32 pubkey … region 165.232.153.144:51888 area frognet`
+- `member: <name> guid=android-… leaf 10.252.0.x/32 pubkey … region <RAM-HOST>:51888 area <AREA>`
 - `placement: on the mesh: 10.101.10.170 is in 10.101.10.0/24, served by BlackBox; routed by that /24, no tunnel` / `placement: off the mesh (…)`
 - `network: IPv4 [...] -> [...]; ending the session to place the member again`
 - `session up to H:P token=frogram-kt-… (request, return, data sockets; keepalive 2+3x1 s)`

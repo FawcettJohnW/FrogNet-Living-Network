@@ -1,0 +1,17 @@
+13:49:47 docker network disconnect fn-wan p1 p2
+p1: lo=127.0.0.1/8 eth1=10.91.91.1/24 eth1=10.91.91.2/24 wg-lan=10.253.253.254/16 
+p2: lo=127.0.0.1/8 eth1=10.91.91.20/24 eth2=10.92.92.1/24 eth2=10.92.92.2/24 wg0=10.253.92.92/16   default: 
+13:50:48 +60s
+  handshake age 89 s
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+active active active 
+region [('lan', '10.91.91.1:51888')] [('wg0', 90)] [('P2', True)] []
+13:50:49 p2: systemctl restart fdf-client (a re-join with no internet)
+fdf-client: P2 joined the region at 10.91.91.1:51888, announced ["10.91.91.20","10.92.92.1","10.92.92.2","10.253.92.92"] with facts
+fdf-client: mapping 10.92.92.0/24 -> FrogNetHost:1:50 registered (site lan)
+NAME         ALIVE  TERM  OS     CORES  MEM   IPS
+FrogNetHost  yes    -     linux  2      7.8G  10.91.91.1,10.91.91.2,10.253.253.254
+P2           yes    -     linux  2      7.8G  10.91.91.20,10.92.92.1,10.92.92.2,10.253.92.92
+peer: w239qM6DcbWEekAJLOdQugWn86qdHCI8E4Twyg4yaCg=
+  allowed ips: 10.253.92.92/32, 10.92.92.0/24
+  latest handshake: 10 seconds ago

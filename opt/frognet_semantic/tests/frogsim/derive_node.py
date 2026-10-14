@@ -31,7 +31,7 @@ NODE = os.environ["FROGSIM_NODE"]
 IDENT = os.environ.get("FROGSIM_IDENT", "")
 def log(s): print(f"  [{NODE}]", s)
 
-disc, k, broker, local_ips = live.build_live(log, self_identity=IDENT)
+disc, k, tunnels, local_ips = live.build_live(log, self_identity=IDENT)
 imap = RealInterfaceMap(); ifaces, leases_ne = imap.gather()
 print(f"[{NODE}] ifaces seen:", {i.dev: i.ip4() for i in ifaces})
 cls = classify(ifaces, leases_nonempty=leases_ne)

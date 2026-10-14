@@ -26,7 +26,7 @@ User=root
 Group=root
 WorkingDirectory=/opt/frognet_semantic
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/python3 -m internet_tunnels_v3
+ExecStart=/opt/frognet_semantic/venv/bin/python3 -m internet_tunnels_v3
 Restart=always
 RestartSec=5
 StandardOutput=journal

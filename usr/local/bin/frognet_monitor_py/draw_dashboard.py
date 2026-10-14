@@ -30,18 +30,46 @@ from .config import (CP_GREEN, CP_RED, CP_YELLOW, CP_CYAN, CP_DIM,
                      CP_HEADER, CP_TITLE, CP_SELECT,
                      MODE_DASHBOARD, MODE_SENSORS, MODE_JSON)
 from .formatting import fmt_bytes, fmt_bps, fmt_ratio, safe_get, num
-from .identity import LOCAL_DOMAIN, LOCAL_IP
 from .merge import merge_state, fmt_since
 from .ui_helpers import safe_addstr
 
 
-def draw_title(win, row: int) -> int:
+def title_text(snap) -> str:
+    """The title line: this node's name and .1 as its snapshot states them [ONE_MONITOR_TRUTH_V1]."""
+    if not snap:
+        return "  FrogNet   (getSnapshot.php did not answer)"
+    return "  FrogNet   %s (%s)" % (snap["name"] or "?", snap["dot1"] or "no .1")
+
+
+def node_lines(snap):
+    """[(text, color_pair)]: mode, build, ponds, hub link, the snapshot's errors. Pure: --once and the tests call it.
+    The words are the snapshot's: mode lan-only|region, pond (forward marked *), hub link (the region edge and the
+    kernel's handshake age)."""
+    if not snap:
+        return [("  no snapshot: http://127.0.0.1/getSnapshot.php did not answer (asked again next cycle)", CP_RED)]
+    raw = snap["raw"]
+    b = raw.get("build") or {}
+    build = snap["build"] or "?"
+    if b.get("commit"):
+        build += " " + str(b["commit"])
+    out = [("  mode %-9s build %s" % (snap["mode"], build), CP_CYAN)]
+    if snap["mode"] == "region":
+        out.append(("  ponds  %s   (* = forward)" % ("  ".join(snap["ponds"]) or "none"), 0))
+        out.append(("  hub    %s" % ("  ".join(snap["hub"]) or "no hub link (facts.json has no hub row)"),
+                    CP_GREEN if snap["hub"] and all(h.endswith("s") for h in snap["hub"]) else CP_YELLOW))   # "<iface> <age>s": a handshake
+    else:
+        out.append(("  ponds  none, hub none (LAN-only: %s)" % raw.get("mode_why", ""), CP_DIM))
+    for e in snap["errors"]:
+        out.append(("  ! " + e, CP_RED))
+    return out
+
+
+def draw_title(win, row: int, snap=None) -> int:
     ts = time.strftime("%H:%M:%S")
     bar = "═" * 78
     safe_addstr(win, row, 1, bar, curses.color_pair(CP_TITLE) | curses.A_BOLD)
     row += 1
-    safe_addstr(win, row, 1,
-                f"  FrogNet v5.0   {LOCAL_DOMAIN} ({LOCAL_IP})   {ts}",
+    safe_addstr(win, row, 1, f"{title_text(snap)}   {ts}",
                 curses.color_pair(CP_TITLE) | curses.A_BOLD)
 
     # [MERGE_IS_VISIBLE_V1] On the TITLE line, not in the footer with the help
@@ -61,6 +89,9 @@ def draw_title(win, row: int) -> int:
         safe_addstr(win, row, 46, "  ⟳ MERGE STATE UNKNOWN"[:32],
                     curses.color_pair(CP_RED) | curses.A_BOLD)
     row += 1
+    for text, cp in node_lines(snap):                 # [ONE_MONITOR_TRUTH_V1] mode, build, ponds, hub link
+        safe_addstr(win, row, 1, text[:78], curses.color_pair(cp))
+        row += 1
     safe_addstr(win, row, 1, bar, curses.color_pair(CP_TITLE) | curses.A_BOLD)
     return row + 2
 

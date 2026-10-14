@@ -21,7 +21,7 @@ i=1; for n in $NSS; do ip netns add $n; ip netns exec $n ip link set lo up
 pond() { local n=$1 ip=$2 area=$3 port=$4
   ip netns exec $n env RINA_REGION_FILE=$T/$n.perm $B/rina-host --listen $ip:8840 --api $API > $T/$n-host.log 2>&1 &
   sleep 1
-  ip netns exec $n env RINA_RAM=$ip:8840 FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $area --iface wg-$n --endpoint $ip:$port \
+  ip netns exec $n env RINA_RAM=$ip:8840 FDF_WG_IMPL=wireguard-go FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $area --iface wg-$n --endpoint $ip:$port \
      --listen $port --key $T/$n.key --facts $T/$n-facts.json --name hub-$area > $T/$n-hub.log 2>&1 &
   for j in $(seq 100); do [ -s $T/$n-facts.json ] && break; sleep 0.1; done
   ip netns exec $n env RINA_RAM=$ip:8840 FDF_FACTS=$T/$n-facts.json $B/fdf-client > $T/$n-client.log 2>&1 &

@@ -1,0 +1,47 @@
+up 12 hours, 10 minutes
+hostname: FrogNetHost.G1   build lines:
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r20
+  [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+  mariadb                        enabled/active
+  apache2                        enabled/active
+  dnsmasq                        enabled/active
+  NetworkManager                 enabled/active
+  cron                           enabled/active
+  frognet-proxy                  enabled/active
+  frognet-daemon                 enabled/active
+  frognet-merge-watcher          enabled/active
+  frognet-tunnel-daemon-v3       enabled/active
+  frognet-eth0-fixup             not-found/inactive
+  frognet-sysperf                enabled/active
+  frognet-dbhost-elect.timer     enabled/active
+  fdf-client                     not-found/inactive
+  fdf-facts                      not-found/inactive
+failed units: 
+merge: /etc/sentinels/discovered
+discovered last: 
+databasehost: 10.61.61.1 / 10.61.61.1
+getHosts.php: [{"ip":"10.61.61.1","name":"G1","echo":"FrogNetHost.G1,10.61.61.1,172.30.0.21,0.0.0.0","role":"node","alive":true}]
+echo (:8080): G1,10.61.61.1,172.30.0.21,0.0.0.0
+echo (:80, the proxy): G1,10.61.61.1,172.30.0.21,0.0.0.0
+wg interfaces: 
+routes: 10.61.61.0/24 dev eth1 proto kernel scope link src 10.61.61.1 ;
+resolv.conf:  options timeout:1 attempts:1  search G1 FrogNetHost.G1  nameserver 127.0.0.1  nameserver 172.30.0.1 
+== snapshot
+{'mode': 'lan-only', 'mode_why': 'no /opt/fdf/var/join.env', 'build': {'build': 'fdf-2026-10-12-r20', 'installed': '2026-10-13T12:56Z'}, 'ponds': [], 'hub': [], 'elections': {'databasehost': '10.61.61.1', 'databasehost_control': '10.61.61.1'}, 'errors': []}
+[('G1', '10.61.61.1', 'node', True, 'lan')]
+== monitor
+  FrogNet   G1 (10.61.61.1)   2026-10-13 13:03:46
+  mode lan-only  build fdf-2026-10-12-r20
+  ponds  none, hub none (LAN-only: no /opt/fdf/var/join.env)
+
+    MEMBER         STATUS       ROLE     IP              SOURCE
+  # G1             SELF         node     10.61.61.1      lan
+
+  elections  databasehost=10.61.61.1  databasehost_control=10.61.61.1
+rc=0
+== /fdf/ 403  landing 200  dashboard 200
+Oct 13 13:00:12 FrogNetHost.G1 python3[341]: 2026-10-13 13:00:12,810 [v3.0.0] frognet.tunnel-daemon INFO LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]
+Oct 13 13:00:13 FrogNetHost.G1 python3[341]: [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r20
+Oct 13 13:00:13 FrogNetHost.G1 python3[341]: [frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+130
+(above: /usr/local/bin entries on g1 not in the tree; empty = none)

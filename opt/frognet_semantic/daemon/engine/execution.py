@@ -421,4 +421,4 @@ class ExecutionEngine:
             return rep, 502, len(rep), opcode, None, None, inst
 
 # ---- DEPLOYMENT MARKER ----
-print("[execution] BUILD=2026-03-24-v1", flush=True)
+# (a fixed "BUILD=2026-03-24-v1" stamp was printed here; the service start line names the base build [BASE_BUILD_V1])

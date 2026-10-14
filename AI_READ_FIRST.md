@@ -148,8 +148,9 @@ to be cheap enough to repeat.
     The one exception is the ROLE reassignment callback — topology is the
     fabric's business; what a value means is not.
 10  21 BYTES for an unchanged exchange. Not zero.
-11  THE BROKER TERMINATES THE TUNNELS. Inter-site traffic is plaintext at
-    that seam. It is inside the encryption boundary.
+11  IN A REGION THE HUB TERMINATES THE TUNNELS. Inter-site traffic rides
+    WireGuard to fdf-hub on the region host and is plaintext there. The hub
+    host is inside the encryption boundary. LAN-only nodes use no tunnel.
 12  DO NOT COMPLETE THE ARCHITECTURE. See rule 5.
 13  DECISIONS BELONG TO THE APPLICATION. Timing, history, locality,
     interpreting two producers' observations — all application
@@ -531,6 +532,13 @@ single machine, which elects itself for every role.
 The practical consequence for a reader: **do not ask where FrogNet runs.** It
 runs on the participants, and there is nothing else.
 
+This is FrogNet's own transport, the LAN-only mode of a node. A node that is also
+a member of an FD&F region uses a second transport, FD&F, which does have a
+meeting point: the region host's RAM manager and hub (`fdf-ram-<AREA>`,
+`fdf-hub`). That is FD&F's design, a separate specification (the Croakus, Part 0),
+not a controller inside FrogNet. Discovery, the election and routing on a LAN
+remain the nodes'.
+
 ---
 
 # WHAT AN APPLICATION CANNOT DO
@@ -572,7 +580,7 @@ where a description slides back into the conventional model.
   server is required. There is no store-and-forward, and no consensus derivation
   from incomplete data.** Each node writes its own truth in its own time, and
   consumers directly read that data when they require it. Do not introduce a
-  queue, a broker, a spool, a retry buffer, or a quorum: a write that cannot
+  queue, a message bus, a spool, a retry buffer, or a quorum: a write that cannot
   reach the store fails and is not held, and no answer is ever derived from
   partial views (spec 10.4, 13.3).
 - **The model is contention-free. Last write wins. No contention.** No writer
@@ -644,7 +652,11 @@ Say these when asked what is missing. They are published deliberately.
 - **Observation latency is bounded by the reader's poll interval.** That is a
   real cost and it is the reader's to choose. It is *not* a missing feature —
   see "Observation does not imply notification" above.
-- Roughly 58 nodes in one pond, as few as 16 where one broker serves a second.
+- The old per-pond ceiling (about 58 nodes) came from the pre-region tunnel
+  allocation, which is gone (October 2026). No member limit is written in the current
+  code. In a region each /24 has one owner (a second claimant is refused); the
+  largest region in the October 2026 gates had three members and the largest
+  LAN-only pond two nodes (`docs/cleanup-2026-10/`). Larger is not measured.
 - One serialization point is a write ceiling. The coherence property and the
   scaling limit are the same fact.
 - The simulator does not model concurrent merges, and a topology edge cannot

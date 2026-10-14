@@ -21,6 +21,6 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/python3 /usr/local/bin/frognet_dbhost_elector.py
+ExecStart=/opt/frognet_semantic/venv/bin/python3 /usr/local/bin/frognet_dbhost_elector.py
 [Install]
 WantedBy=multi-user.target

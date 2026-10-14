@@ -1,0 +1,44 @@
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-dso_dlfcn.o): in function `dlfcn_globallookup':
+dso_dlfcn.c:(.text+0x1c): warning: Using 'dlopen' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: build/arm64/frogram.o: in function `frogram::(anonymous namespace)::dial(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, int)':
+frogram.cpp:(.text+0x4840): warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+/usr/lib/gcc-cross/aarch64-linux-gnu/13/../../../../aarch64-linux-gnu/bin/ld: /home/claude/clean/opt/fdf/src/fdf-source/rinab/build/arm-deps/openssl/libcrypto.a(libcrypto-lib-bio_sock.o): in function `BIO_gethostbyname':
+bio_sock.c:(.text+0x80): warning: Using 'gethostbyname' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking
+BUILD OK: build/arm64/{fdf-client,fdf-participants,ram,fdf-events,rina-host} (static aarch64)
+build_arm64 rc=0 144s

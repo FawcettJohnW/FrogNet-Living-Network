@@ -1,0 +1,18 @@
+$ systemctl start fdf-hub   (before create)
+Job for fdf-hub.service failed because the control process exited with error code.
+See "systemctl status fdf-hub.service" and "journalctl -xeu fdf-hub.service" for details.
+rc=1
+Starting fdf-hub.service - FD&F hub: WireGuard concentrator for the region (fdf-hub; settings: /opt/fdf/hub/hub.env from fdf-region-create)...
+$ /opt/fdf/bin/fdf-region-create test3 172.30.0.13   (at once, inside the start limit window)
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-hub.service → /etc/systemd/system/fdf-hub.service.
+== fdf-hub (want: 'hub regionbox3 on wg-test3', 'start (adopt)')
+   2026-10-13 13:02:33 [FDF-HUB] start (adopt): members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+== region test3 is held here. Its site key (shown this once; it stays in /opt/fdf/var/site-key-test3):
+rc=0
+active
+$ fdf-region-create test3 172.30.0.13   (fdf-hub made to fail by a test drop-in)
+== fdf-region-create test3 at 172.30.0.13 (RAM manager tcp 51888, hub udp 50889); package=fdf-droplet.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP 
+Job for fdf-hub.service failed because the control process exited with error code.
+See "systemctl status fdf-hub.service" and "journalctl -xeu fdf-hub.service" for details.
+fdf-region-create: fdf-hub / fdf-client-test3 did not start: journalctl -u fdf-hub -u fdf-client-test3
+rc=1

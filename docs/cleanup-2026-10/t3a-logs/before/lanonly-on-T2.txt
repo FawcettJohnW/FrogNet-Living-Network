@@ -1,0 +1,25 @@
+tree: /home/claude/t3a-t2/opt/frognet_semantic (top /home/claude/t3a-t2)
+PASS  b's real frognet_echo.php answers a: b,10.22.22.1,10.11.11.20,0.0.0.0
+FAIL  a: the tunnel daemon is running (no tunnel.conf at all) (1 exit/error lines)
+FAIL  a: its log says LAN-only and its build:  | 
+PASS  b: the tunnel daemon is running (tunnel.conf: old broker keys only) (0 exit/error lines)
+FAIL  b: its log says LAN-only and its build:  | 
+FAIL  b: ONE line names the old broker keys and ignores them: 
+merge 1 on a: rc 0
+merge 1 on b: rc 0
+merge 2 on a: rc 0
+merge 2 on b: rc 0
+FAIL  a: the merge's bring-up stage ran and said LAN-only: 
+FAIL  a: handshake_rtts.json is {} and tunnel_bringup_ready is touched
+FAIL  b: the merge's bring-up stage ran and said LAN-only: 
+PASS  b: handshake_rtts.json is {} and tunnel_bringup_ready is touched
+PASS  a's /etc/hosts names b: 10.22.22.1 FrogNetHost.b
+PASS  b's /etc/hosts names a: 10.11.11.1 FrogNetHost.a
+PASS  a routes b's /24 via b's lease: 10.22.22.0/24 via 10.11.11.20 dev eth0 metric 22 
+PASS  a -> b's .1 (10.22.22.1) over the LAN
+PASS  both elected the same databasehost: a says '10.22.22.1', b says '10.22.22.1'
+PASS  a: no WireGuard interface
+PASS  a: nothing asked a broker anything (0 broker lines)
+PASS  b: no WireGuard interface
+FAIL  b: nothing asked a broker anything (3 broker lines)
+RESULT FAIL: 8

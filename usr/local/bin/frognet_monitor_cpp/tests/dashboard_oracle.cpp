@@ -187,6 +187,31 @@ int main() {
     if (allFit) ok("every load cell fits its column, in display width");
   }
 
+  // [ONE_MONITOR_TRUTH_V1] the title and node block, word for word the Python monitor's (draw_dashboard.node_lines)
+  {
+    NodeSnapshot r = parseSnapshot(
+        "{\"snapshot\":1,\"mode\":\"region\",\"node\":{\"name\":\"N1\",\"dot1\":\"10.81.81.1\"},"
+        "\"build\":{\"build\":\"fdf-2026-10-12-r20\",\"commit\":\"546df37+changes\"},"
+        "\"ponds\":[{\"area\":\"test\",\"forward\":true},{\"area\":\"other\",\"forward\":false}],"
+        "\"hub\":[{\"iface\":\"wg0\",\"handshake_age_s\":17}],\"members\":[],\"errors\":[\"pond other: x\"]}");
+    std::vector<std::string> want = {"  mode region    build fdf-2026-10-12-r20 546df37+changes",
+                                     "  ponds  *test  other   (* = forward)", "  hub    wg0 17s", "  ! pond other: x"};
+    (titleText(r) == "  FrogNet   N1 (10.81.81.1)") ? ok("title: the snapshot's name and .1")
+                                                    : bad("title: \"" + titleText(r) + "\"");
+    (nodeLines(r) == want) ? ok("region node block: mode, build, ponds (forward *), hub link, errors")
+                           : bad("region node block differs: \"" + nodeLines(r)[0] + "\" ...");
+    NodeSnapshot l = parseSnapshot("{\"snapshot\":1,\"mode\":\"lan-only\",\"mode_why\":\"no /opt/fdf/var/join.env\","
+                                   "\"node\":{\"name\":\"G1\",\"dot1\":\"10.61.61.1\"},\"build\":{\"build\":\"b\"}}");
+    std::vector<std::string> wl = {"  mode lan-only  build b", "  ponds  none, hub none (LAN-only: no /opt/fdf/var/join.env)"};
+    (nodeLines(l) == wl) ? ok("LAN-only node block") : bad("LAN-only node block: \"" + nodeLines(l)[1] + "\"");
+    NodeSnapshot none;
+    (titleText(none) == "  FrogNet   (getSnapshot.php did not answer)" && nodeLines(none).size() == 1)
+        ? ok("no snapshot: said, nothing in its place") : bad("no snapshot");
+    bool clean = true;
+    for (const auto& x : nodeLines(r)) if (x.find("roker") != std::string::npos) clean = false;
+    clean ? ok("no broker vocabulary in the node block") : bad("broker vocabulary in the node block");
+  }
+
   std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
   if (g_fail) { std::printf("FAILED\n"); return 1; }
   std::printf("PASS - dashboard model\n");

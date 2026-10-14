@@ -26,7 +26,7 @@ written to the EXACT contracts read from sync_interfaces.sh:
                  before '.'; "0" -> 1; empty on failure
   get_hosts    : curl -sS -o F -w %{http_code} -H "Host: $host_path"
                  http://$pip/getHosts.php ; 3 tries until 200; jq '.[]?.ip'
-  broker       : handshake_rtts.json entry where value.peer_dot_one==ip ->
+  tunnel       : handshake_rtts.json entry where value.peer_dot_one==ip ->
                  (channel_key, value.subnet, value.peer_dot_one)
   channel_iface: active/*.json where .interface==dev -> .channel_name
   ping         : ping -I dev -c1 -W2 via
@@ -82,7 +82,7 @@ def parse_gethosts(json_text: str) -> list:
     return out
 
 
-def broker_lookup(handshake: dict, ip: str):
+def tunnel_lookup(handshake: dict, ip: str):
     """handshake_rtts mapping -> (channel, subnet, peer_dot_one) | None."""
     for ch, v in handshake.items():
         if isinstance(v, dict) and v.get("peer_dot_one") == ip:
@@ -194,13 +194,14 @@ class RealGetHosts:
         return []
 
 
-class RealBroker:
+class TunnelState:
+    """This node's own WireGuard tunnels, from the tunnel daemon's local files (every mode): handshake_rtts.json (one
+    entry per up channel: iface, subnet, peer .1, handshake ms) and active/*.json (iface -> channel). LAN-only: both
+    are empty, so nothing is overridden. Nothing here asks anyone over the network."""
     def __init__(self, handshake_path="/var/lib/frognet-tunnel/handshake_rtts.json",
-                 active_dir="/var/lib/frognet-tunnel/active",
-                 transit_map_path="/var/lib/frognet-tunnel/node_transit.json"):
+                 active_dir="/var/lib/frognet-tunnel/active"):
         self.handshake_path = handshake_path
         self.active_dir = active_dir
-        self.transit_map_path = transit_map_path
 
     def _handshake(self) -> dict:
         try:
@@ -209,8 +210,8 @@ class RealBroker:
         except (OSError, ValueError):
             return {}
 
-    def broker_for_peer_ip(self, dest1):
-        return broker_lookup(self._handshake(), dest1)
+    def tunnel_for_peer_ip(self, dest1):
+        return tunnel_lookup(self._handshake(), dest1)
 
     def channel_for_iface(self, dev):
         try:
@@ -228,25 +229,6 @@ class RealBroker:
             if d.get("interface") == dev and d.get("channel_name"):
                 return d["channel_name"]
         return ""
-
-    def transits(self, relay_one, dest24):
-        # [VOUCH_TRANSIT_GATE_V1] relay /24-prefix -> reachable /24 CIDRs, written
-        # each poll by the tunnel daemon from the broker's /api/v4/transit-map.
-        # Map absent/unparseable -> inert (True): gate behaves like the pre-gate
-        # build until the data is live. Relay present -> dest must be in its set.
-        # Relay absent (unregistered LAN leaf, e.g. New-York-2) -> not a legit
-        # transit for a remote /24 -> suppress.
-        try:
-            with open(self.transit_map_path) as f:
-                m = json.load(f)
-        except (OSError, ValueError):
-            return True
-        if not isinstance(m, dict) or not m:
-            return True
-        prefix = relay_one.rsplit(".", 1)[0]
-        if prefix in m:
-            return dest24 in (m[prefix] or [])
-        return False
 
 
 class RealHealthEcho:
@@ -348,10 +330,15 @@ class RealVerify:
                 # but never silent.
                 _LOG.warning(f"[PINGPONG] BINDTODEVICE FAILED dev={dev} err={_bind_e} "
                     f"- probe rides installed route, not the candidate")
+            ret_ip = _get_alive_return_ip(dev)
+            if ret_ip is None:      # [RETURN_IP_DEV_ONLY_V1]
+                self._last_fail = f"no 10.x on dev={dev}"
+                _LOG.warning(f"[PINGPONG] not probed {dest1}: dev={dev} has no 10.x return address")
+                return None
             sock.settimeout(self.ct)
             sock.connect((dest1, self.port))
             sock.settimeout(self.ft)
-            self._send_frame(sock, wrap_hello(_get_alive_return_ip(dev)))
+            self._send_frame(sock, wrap_hello(ret_ip))
             t_send = time.monotonic_ns()
             self._send_frame(sock, wrap_rtt_ping(ping_id=1,
                                                  proxy_t_send_ns=t_send,
@@ -411,7 +398,7 @@ class RealVerify:
 
 
 def _get_alive_return_ip(dev=None):
-    """Return the 10.x the far daemon should treat as our return path.
+    """Return the 10.x the far daemon should treat as our return path: the address on `dev`.
 
     [PINGPONG_RETURN_DEV_V1] It MUST be the address that egresses `dev`. The
     probe is SO_BINDTODEVICE-pinned to `dev`, so a direct-tunnel probe has to
@@ -420,37 +407,25 @@ def _get_alive_return_ip(dev=None):
     hairpin the daemon's [LOOP_DETECT_9009_V1] then (correctly) flags RTT_LOOP -
     a false loop on what is actually a direct call. With the dev's own address
     the return leg rides the same /30, so a direct probe never loops.
-    Fall back to the hostname identity only when no dev is given or the dev has
-    no 10.x (e.g. an un-pinned probe)."""
-    import socket as _s
-    if dev:
-        try:
-            out = subprocess.check_output(
-                ["ip", "-4", "-o", "addr", "show", "dev", dev], text=True)
-            for line in out.splitlines():
-                parts = line.split()
-                if len(parts) >= 4 and parts[2] == "inet":
-                    ip = parts[3].split("/")[0]
-                    if ip.startswith("10."):
-                        return ip
-        except (OSError, subprocess.SubprocessError):
-            pass
-    # [HOSTS_ONLY_V1] No resolver, not even for our own name. Every FrogNet node's
-    # hostname is "FrogNetHost", so asking the resolver what that means is asking a
-    # question with a different answer on every box -- and on a node whose resolv.conf
-    # starts `nameserver 127.0.0.1`, an answer that need not match /etc/hosts. The `ip`
-    # command above is the real source; if it did not answer, /etc/hosts is the only
-    # other place to look.
+
+    [RETURN_IP_DEV_ONLY_V1] One source: `ip -4 addr show dev DEV`. A dev with no 10.x (or no dev) has no FrogNet
+    return path, so None: the caller does not probe, says why, and the next merge asks again. (It used to fall back
+    to the /etc/hosts identity and then 0.0.0.0 - an address the far end cannot answer on that dev.)"""
+    if not dev:
+        return None
     try:
-        from core.hosts_only import try_resolve
-        import socket as _sk
-        for _n in (_sk.gethostname(), "FrogNetHost"):
-            _ip = try_resolve(_n)
-            if _ip and _ip.startswith("10."):
-                return _ip
-    except Exception:
-        pass
-    return "0.0.0.0"
+        out = subprocess.check_output(
+            ["ip", "-4", "-o", "addr", "show", "dev", dev], text=True)
+    except (OSError, subprocess.SubprocessError) as _e:
+        _LOG.warning(f"[PINGPONG] cannot read the address of dev={dev}: {_e}")
+        return None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "inet":
+            ip = parts[3].split("/")[0]
+            if ip.startswith("10."):
+                return ip
+    return None
 
 
 class RealReflect:
@@ -515,10 +490,10 @@ class RegionRecords:
     API = "/FawcettInnovations.RINA.ram_interface.php"
 
     @staticmethod
-    def ram_from_conf(path="/etc/frognet/tunnel.conf"):
-        """RINA_RAM=host:port: from /opt/fdf/var/join.env (written by fdf-join: THE switch, [REGION_SWITCH_V2]) or the
-        tunnel daemon's conf. The same rule as internet_tunnels_v3/config.py, so runMerge needs no environment."""
-        for p in ("/opt/fdf/var/join.env", path):
+    def ram_from_conf(path="/opt/fdf/var/join.env"):
+        """RINA_RAM=host:port from /opt/fdf/var/join.env (written by fdf-region-join / fdf-join, removed by fdf-leave):
+        the one switch [REGION_SWITCH_ONE_FILE_V1], the same rule as internet_tunnels_v3/config.py."""
+        for p in (path,):
             try:
                 with open(p) as f:
                     for ln in f:
@@ -532,7 +507,7 @@ class RegionRecords:
         return ""
 
     def __init__(self, ram=None, participants=None):
-        self.ram = ram or os.environ.get("RINA_RAM", "") or self.ram_from_conf()
+        self.ram = ram or self.ram_from_conf()      # ram: an oracle's injection; else join.env only
         self._parts = participants          # injected (oracle) or fetched once
 
     def participants(self):

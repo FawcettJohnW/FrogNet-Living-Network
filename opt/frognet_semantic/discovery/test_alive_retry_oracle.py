@@ -22,7 +22,7 @@ Field case (New-York-2 runMerge, 2026-06-20): the 10.130.130 (Seattle3) transit
 verified inconsistently across merge passes - VERIFY_OK, then a walk FAIL_ECHO
 (:9009 verdict=none), then VERIFY_SUSPECT, then FAIL_ECHO again. Each missed pong
 dropped the measured candidate to vouch-only, so the single-winner roles
-(mediahost) flapped pass to pass. The :9009 ping-pong is acknowledged
+flapped pass to pass. The :9009 ping-pong is acknowledged
 to false-negative on high-RTT/tunnel paths, yet one miss at the walk was
 destructive.
 
@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore)
 
 
@@ -72,7 +72,7 @@ def _disc(verify):
     k = FakeKernel()
     routes = Routes(k, clock=lambda: 0.0)
     return Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={"10.28.28.1", "127.0.0.1"},
                      dev_src_map={}, self_identity="10.28.28.1", verify=verify)
 

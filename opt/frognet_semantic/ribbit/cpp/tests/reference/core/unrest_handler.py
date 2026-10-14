@@ -21,8 +21,8 @@ core/unrest_handler.py - the ONE UnREST handler interface. No special-casing.
 
 Every semantic handler - JSON, XML, HTML, text, SotF media, the role handlers - is the
 SAME shape: a class exposing the complete method surface below. Dispatch is uniform:
-get JSON, call the JSON handler; get XML, call the XML handler; get SotF or a game, call
-the SotF or game handler. The proxy/daemon never branch on type - they look the handler up
+get JSON, call the JSON handler; get XML, call the XML handler; get SotF, call
+the SotF handler. The proxy/daemon never branch on type - they look the handler up
 and call the interface.
 
 A handler implements only the methods that mean something for it; everything else is the
@@ -32,7 +32,7 @@ empty-return default this base provides. So:
     inherits `return`-style no-ops for election and lifecycle.
   * the SotF handler overrides the SAME codec slot, where for it that slot manages the
     media/chat stream rather than compressing a body, PLUS the role slot.
-  * a pure ROLE handler (databasehost/boardgame) overrides election (score/evaluate) and
+  * a pure ROLE handler (databasehost) overrides election (score/evaluate) and
     inherits the real lifecycle (advertise/hostReset) below; its codec slot is `return`.
 
 THE LIFECYCLE IS REAL ON ANY HANDLER THAT NAMES A ROLE. `advertise()` dual-writes this

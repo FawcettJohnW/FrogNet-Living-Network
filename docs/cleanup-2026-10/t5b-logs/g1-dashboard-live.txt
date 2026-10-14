@@ -1,0 +1,15 @@
+base http://172.30.0.21:8080
+status: 1 members · 0 hub links · 0 measured links · 1 engine · 1 daemon · 0ms
+header: G1 (10.61.61.1) · mode lan-only · build fdf-2026-10-12-r20 · ponds none, hub none (LAN-only)
+region link shown: false
+hud: databasehost=10.61.61.1 · via 172.30.0.21:8080
+map nodes: ["10.61.61.1"]
+hub links: []
+databasehost: 10.61.61.1
+measured links (panel): []
+ponds panel: LAN-only: this machine is in no pond.
+members panel: G1 (db)10.61.61.1 · node · alive · lanSemanticCache.EndpointsSemanticDaemon.CacheSemanticProxy.EngineSystemTopologyAll
+--- /fdf/ on a LAN-only node: HTTP 403
+--- landing page links:
+href="/setup_frognet.html" href="/fln_dashboard32.html" href="/getSnapshot.php" 
+--- served dashboard = tree: yes

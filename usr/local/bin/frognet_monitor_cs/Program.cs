@@ -33,8 +33,9 @@ public static class Program
         Console.Error.WriteLine(
 @"usage: frognet-monitor [--proxy HOST] [--port N] <command> [args]
 
+  snapshot            this node's snapshot, one frame: mode, build, ponds, hub link, members, elections
   identity            who this pond says we are (own IP -> .1 -> echo)
-  hosts               list the FrogNet nodes
+  hosts               list the FrogNet nodes (the snapshot's members)
   sensors <domain>    every sensor whose name starts ""<domain>.""
   read <sensor-name>  one sensor's metadata and jsonData
   engine [domain]     shorthand for <domain>.SemanticProxy.Engine
@@ -73,6 +74,7 @@ public static class Program
 
         return cmd switch
         {
+            "snapshot" => await CmdSnapshot(client),
             "identity" => await CmdIdentity(client),
             "hosts"    => await CmdHosts(client),
             "sensors"  => rest.Length > 0 ? await CmdSensors(client, rest[0])
@@ -169,9 +171,32 @@ public static class Program
         return 0;
     }
 
+    // [ONE_MONITOR_TRUTH_V1] getSnapshot.php, printed once: the same title and node block as the dashboards, then the
+    // member rows and the elections. Exit 1 when the snapshot did not answer.
+    private static async Task<int> CmdSnapshot(Client c)
+    {
+        var n = await c.SnapshotAsync();
+        Console.WriteLine(Parsers.TitleText(n));
+        foreach (var l in Parsers.NodeLines(n)) Console.WriteLine(l);
+        if (n is null) return 1;
+        Console.WriteLine("\n  members (ip name role alive|down source)");
+        foreach (var m in n.Members)
+        {
+            var ip = m.Split(' ')[0];
+            var mark = ip == n.DbHost && ip == n.Control ? "#" : ip == n.DbHost ? "*" : ip == n.Control ? "+" : " ";
+            Console.WriteLine($"  {mark} {m}");
+        }
+        if (n.Members.Count == 0) Console.WriteLine("    (none)");
+        var el = n.Raw.TryGetProperty("elections", out var e) && e.ValueKind == JsonValueKind.Object
+            ? string.Concat(e.EnumerateObject().Select(p => $"  {p.Name}={(p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : "")}"))
+            : "";
+        Console.WriteLine("\n  elections" + (el.Length > 0 ? el : "  none in /etc/hosts"));
+        return 0;
+    }
+
     private static async Task<int> CmdHosts(Client c)
     {
-        var hosts = await c.DiscoverHostsAsync();
+        var hosts = Client.HostsOf(await c.SnapshotAsync());
         if (hosts.Count == 0) { Console.Error.WriteLine("no hosts discovered"); return 1; }
         foreach (var h in hosts) Console.WriteLine($"{h.Ip,-16} {h.Name}");
         return 0;

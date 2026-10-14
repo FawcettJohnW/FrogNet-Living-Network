@@ -1,0 +1,16 @@
+$ (on n1, as opt/fdf/README.md says) . /opt/fdf/fdf.env && PHP_CLI_SERVER_WORKERS=4 php -S 0.0.0.0:8090 -t /opt/fdf/www
+== n1 :8090/fdf/getParticipants.php
+[
+ {"ip":"172.30.0.32","hostname":"N2","ips":["172.30.0.32","10.82.82.1","10.82.82.2","10.253.82.82"],"alive":true,"ns":"w:88d9e580de414ccdb83514c0cdfd7e23","cores":2,"cpu_bench_total":0.000000,"mem_total_kb":8222320},
+ {"ip":"172.30.0.10","hostname":"regionbox","ips":["172.30.0.10","10.253.253.254"],"alive":true,"ns":"w:regionbox","cores":2,"cpu_bench_total":0.000000,"mem_total_kb":8222320},
+ {"ip":"172.30.0.31","hostname":"N1","ips":["172.30.0.31","10.81.81.1","10.81.81.2","10.253.81.81"],"alive":true,"ns":"w:8f7bf25a95044e6f89fc2383e196624a","cores":2,"cpu_bench_total":0.000000,"mem_total_kb":8222320}
+]
+== fdf_dashboard.html: 200
+<a id="node" href="/fln_dashboard32.html">node dashboard (fln_dashboard32)</a>
+<th>Addresses
+<th>Alive
+<th>CPU benchmark
+<th>Cores
+<th>Member
+<th>Memory (GB)
+<title>FD&amp;F region members

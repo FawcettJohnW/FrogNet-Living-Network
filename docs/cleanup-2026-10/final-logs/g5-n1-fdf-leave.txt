@@ -1,0 +1,25 @@
+crontab before:
+*/15 * * * * /usr/local/bin/registerFrogNetHost.bash;@reboot /usr/local/bin/frognet-netstart;17 3 * * * /bin/true # operator line;
+$ /opt/fdf/bin/fdf-leave
+== fdf-leave, package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=x86_64 FrogNet node or leaf 
+Removed "/etc/systemd/system/multi-user.target.wants/fdf-client.service".
+removed fdf-client.service
+Removed "/etc/systemd/system/multi-user.target.wants/fdf-facts.service".
+removed fdf-facts.service
+removed /opt/fdf/var/join.env, site.env, ponds/, attention/, forward, forward.want, facts.json
+Created symlink /etc/systemd/system/timers.target.wants/frognet-dbhost-elect.timer → /etc/systemd/system/frognet-dbhost-elect.timer.
+re-enabled frognet-dbhost-elect.timer
+restarted frognet-tunnel-daemon-v3: LAN-only (its log says 'LAN-only loop started')
+left the region: this node is LAN-only FrogNet
+rc=0
+after:
+facts.json
+facts.json.lock
+wg: 0 interface(s)
+enabled
+active
+2026-10-13 13:29:28,984 [v3.0.0] frognet.tunnel-daemon INFO LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode lan-only) base fdf-2026-10-12-r20
+[frognet:frognet.tunnel-daemon] WARNING LAN-only loop started: no region (RINA_RAM unset), 0 wg iface(s) taken down; discovery and the elections are runMerge's, this daemon has nothing else to do [LAN_ONLY_NO_REGION_V1]
+lan-only no /opt/fdf/var/join.env []
+/fdf/: 200

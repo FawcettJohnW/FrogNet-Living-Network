@@ -75,7 +75,7 @@ def rows_from(field):
 
 class _Handler:
     ROLE_NAME = "databasehost"
-    def evaluate(self, hosts, lan):
+    def evaluate(self, hosts):
         # deterministic stand-in for the real callback's pure pick: the
         # admissibility question is upstream of scoring, so any pure pick
         # over the admitted set proves the property. Highest lan_ip.
@@ -88,8 +88,8 @@ def run(field):
     try:
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            hosts, lan = RE.gather_candidates(_Handler(), dbhost="proof://field")
-        win = _Handler().evaluate(hosts, lan)
+            hosts = RE.gather_candidates(_Handler(), dbhost="proof://field")
+        win = _Handler().evaluate(hosts)
         return hosts, (win or {}).get("lan_ip"), err.getvalue()
     finally:
         T.get = real_get

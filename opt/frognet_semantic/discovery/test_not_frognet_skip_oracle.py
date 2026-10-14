@@ -34,7 +34,7 @@ from core import not_frognet
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 NF = "10.250.250.50"        # an on-segment stray client (LAN, not .1/.2)
@@ -57,7 +57,7 @@ def _disc(verify):
     k.seed("10.250.250.0/24 dev eth0 proto kernel scope link src 10.250.250.1")
     routes = Routes(k, clock=lambda: 0.0)
     return Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={"10.250.250.1", "10.250.250.2", "127.0.0.1"},
                      dev_src_map={}, self_identity="10.250.250.1", verify=verify)
 
@@ -71,6 +71,11 @@ def main():
 
     # isolate the cache in a temp sentinel and start clean (== merge-top flush)
     not_frognet.SENTINEL = tempfile.mktemp(suffix="_not_frognet.tsv")
+    # [ORACLE_HAS_NO_REGION_V1] mark() refuses a live region member ([MEMBER_IS_NOT_MARKED_V1]), read from this box's
+    # region hosts file. On a region node whose neighbour is 10.250.250.1 (Seattle7: Seattle5) the oracle's DOT1 is a
+    # real member and the ONE_STATE_V1 check failed on the box, not the code. The oracle has no region: an empty one.
+    not_frognet._REGION_HOSTS = tempfile.mktemp(suffix="_region_hosts.json")
+    not_frognet._members.update({"looked": 0.0, "mtime": "unread", "ips": frozenset()})
     not_frognet.flush()
 
     print("=== a proven non-FrogNet host is not re-probed this session ===")

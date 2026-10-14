@@ -208,12 +208,6 @@ if systemctl is-enabled frognet-sync.timer 2>/dev/null; then
     systemctl stop frognet-sync.timer || true
 fi
 
-# Disable transit watch
-if systemctl is-enabled frognet-transit-watch 2>/dev/null; then
-    systemctl disable frognet-transit-watch || true
-    systemctl stop frognet-transit-watch || true
-fi
-
 # ============================================================
 # Start/restart semantic services (workers DO use semantic compression)
 # ============================================================

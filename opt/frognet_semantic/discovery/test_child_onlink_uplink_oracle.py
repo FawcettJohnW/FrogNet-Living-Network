@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.discovery import Discovery
 from discovery.routes import Routes
 from discovery.kernel import FakeKernel
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                FakeReflect, HostStore)
 from discovery import descend as _descend
 
@@ -63,7 +63,7 @@ def build():
     gethosts = FakeGetHosts(children={
         "10.250.250.1": MESH,   # parent advertises the upstream mesh
     })
-    broker = FakeBroker(by_one={}, iface_channel={})
+    broker = FakeTunnelState(by_one={}, iface_channel={})
 
     k = FakeKernel(strict_gateway=True)   # model the real kernel's rc=2 for a
                                           # via whose gateway isn't on a connected /24

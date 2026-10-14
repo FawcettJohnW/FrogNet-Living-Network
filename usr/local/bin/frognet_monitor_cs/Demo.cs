@@ -61,6 +61,11 @@ public static class Demo
 
         var s = new Model.Snapshot
         {
+            // sample data: a node snapshot as getSnapshot.php serves it [ONE_MONITOR_TRUTH_V1]
+            Node = Parsers.ParseSnapshot("{\"snapshot\":1,\"mode\":\"region\",\"node\":{\"name\":\"Seattle5\","
+                + "\"dot1\":\"10.250.250.1\"},\"build\":{\"build\":\"sample\"},\"ponds\":[{\"area\":\"sample\","
+                + "\"forward\":true}],\"hub\":[{\"iface\":\"wg0\",\"handshake_age_s\":41}],\"members\":[],"
+                + "\"elections\":{\"databasehost\":\"10.199.199.1\"},\"errors\":[]}"),
             Domain = "Seattle5",
             DbHostIp = "10.199.199.1",
             MergeKnown = true,

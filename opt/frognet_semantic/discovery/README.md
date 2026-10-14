@@ -9,8 +9,8 @@ box, Fake* for the sim), mirroring `frognet_route/iproute.py`.
 - kernel.py        <- RTMUT readback + `ip route` FIB semantics (Real/FakeKernel)
 - routes.py        <- RTMUT, probe_install/delete, route_matches, install_if_changed,
                       _sweep_probe_routes  (SWEEP_METRIC=5, per John)
-- sources.py       <- echo_probe / frognet_alive / getHosts / broker / addHost edges
-- discovery.py     <- walk() (4 forms, depth-2, broker authority) + promote() + seeds
+- sources.py       <- echo_probe / frognet_alive / getHosts / tunnel state / addHost edges
+- discovery.py     <- walk() (4 forms, depth-2, tunnel channel map) + promote() + seeds
 - hosts.py         <- addHost host-entry + stage_hosts + selectNewDatabaseHost
 - propagate.py     <- addHostAndPropogate + propogateNotificationInternal
 - fixdefault.py    <- fixDefaultRoute (Mode A; Mode B raises NotImplementedError)

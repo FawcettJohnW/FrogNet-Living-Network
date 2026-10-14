@@ -1,4 +1,0 @@
-package=fdf-node-arm64.tgz
-build=fdf-2026-10-10-r19
-built=2026-10-10T11:34Z
-for=aarch64 FrogNet node (Pi): Seattle7, Seattle3B, Seattle5, HappyDog, New-York-2

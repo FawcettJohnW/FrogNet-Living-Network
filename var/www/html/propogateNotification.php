@@ -55,15 +55,30 @@ $seen = "$seen_dir/$guid";
 // wave we have already accounted for -> drop, no poke, no merge.
 $fp = @fopen($seen, 'x');
 if ($fp === false) {
-    http_response_code(200);
-    echo "DUP\n";
+    if (file_exists($seen)) {
+        http_response_code(200);
+        echo "DUP\n";
+        exit;
+    }
+    // [QUEUE_SURVIVES_THE_WIPE_V1 - T4b] Not a duplicate: the seen-set could not be written (it used to answer
+    // "DUP" here too, so a node whose /run/frognet/seen_notifications www-data could not write dropped every wave).
+    $why = error_get_last();
+    error_log("propogateNotification: cannot record $seen: " . ($why ? $why['message'] : 'unknown'));
+    http_response_code(500);
+    echo "ERROR cannot record the wave in $seen_dir\n";
     exit;
 }
 fwrite($fp, gmdate('c') . "\n");
 fclose($fp);
 
 // New wave: queue a poke. Creating the file is the accumulator's reset signal.
-@touch("$req_dir/$guid");
+if (!@touch("$req_dir/$guid")) {
+    $why = error_get_last();
+    error_log("propogateNotification: cannot queue $req_dir/$guid: " . ($why ? $why['message'] : 'unknown'));
+    http_response_code(500);
+    echo "ERROR cannot queue the merge in $req_dir\n";
+    exit;
+}
 
 http_response_code(200);
 echo "OK\n";

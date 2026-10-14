@@ -42,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 T_PEER, T_PIP = "10.102.60.1", "10.102.60.2"        # tunnel peer (wg2)
@@ -55,7 +55,7 @@ def _tunnel(echo_ans, verify):
     k.seed("10.102.60.0/24 dev wg2 scope link metric 22",
            "10.250.250.0/24 dev eth0 proto kernel scope link src 10.250.250.1")
     routes = Routes(k, clock=lambda: 0.0)
-    broker = FakeBroker(by_one={T_PEER: ("New-York-1-10.102.60", "10.102.60.0/24", T_PEER)},
+    broker = FakeTunnelState(by_one={T_PEER: ("New-York-1-10.102.60", "10.102.60.0/24", T_PEER)},
                         iface_channel={"wg2": "New-York-1-10.102.60"})
     disc = Discovery(routes, FakeEcho(answers=echo_ans), FakeRtt(table={}),
                      FakeGetHosts(children={}), broker, HostStore(),
@@ -72,7 +72,7 @@ def _relayed(echo_ans, verify):
            "10.250.250.0/24 dev eth0 proto kernel scope link src 10.250.250.1")
     routes = Routes(k, clock=lambda: 0.0)
     disc = Discovery(routes, FakeEcho(answers=echo_ans), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={"10.250.250.1", "10.250.250.2", "127.0.0.1"},
                      dev_src_map={"eth1": "10.50.50.9"},
                      self_identity="10.250.250.1", verify=verify)

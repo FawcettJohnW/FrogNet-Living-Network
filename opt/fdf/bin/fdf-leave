@@ -1,9 +1,16 @@
 #!/bin/bash
-# fdf-leave -- [FDF_JOIN_V1] undo fdf-join: stop and remove fdf-client.service (and fdf-term-serve.service, which needs
-# the membership), and remove /opt/fdf/var/join.env. Run as root.
+# fdf-leave -- [FDF_JOIN_V1][NO_BROKER_V1] undo fdf-join / fdf-region-join and return this node to LAN-only FrogNet:
+#   stop and remove every unit they made: fdf-client.service, fdf-facts.service, fdf-term-serve.service (it needs the
+#   membership), every pond's fdf-client@<area>.service and the fdf-client@.service template;
+#   remove what they wrote in /opt/fdf/var: join.env, site.env, ponds/, attention/, forward, forward.want, facts.json;
+#   turn back on the units fdf-region-join stopped (off the region the store is the election input again);
+#   restart frognet-tunnel-daemon-v3: with no RINA_RAM it runs LAN-only and takes down the hub link.
+# The daemon's WireGuard key (/var/lib/frognet-tunnel/node_private.key) is kept: a later join announces the same key.
+# Run as root. Re-runnable.
 set -eu
 [ "$(id -u)" = 0 ] || { echo "fdf-leave: run as root" >&2; exit 1; }
-for u in fdf-term-serve fdf-client; do
+echo "== fdf-leave, $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
+for u in fdf-term-serve fdf-client fdf-facts; do
     if [ -e /etc/systemd/system/$u.service ]; then
         systemctl disable --now $u.service
         rm -f /etc/systemd/system/$u.service
@@ -13,12 +20,17 @@ done
 # [PONDS_V1] every pond's session (fdf-client@<area>), the pond list and the forward word go too
 for u in $(systemctl list-units --all --plain --no-legend 'fdf-client@*.service' 2>/dev/null | awk '{print $1}'); do
     systemctl disable --now "$u" && echo "stopped $u"; done
-rm -f /etc/systemd/system/fdf-client@.service; rm -rf /opt/fdf/var/ponds /opt/fdf/var/attention; rm -f /opt/fdf/var/forward /opt/fdf/var/forward.want
+rm -f /etc/systemd/system/fdf-client@.service
 systemctl daemon-reload
-rm -f /opt/fdf/var/join.env
-# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join stopped.
-for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.timer; do
+V=/opt/fdf/var
+rm -rf "$V/ponds" "$V/attention"
+rm -f "$V/join.env" "$V/site.env" "$V/forward" "$V/forward.want" "$V/facts.json" "$V/facts.json.lock"
+echo "removed $V/join.env, site.env, ponds/, attention/, forward, forward.want, facts.json"
+# [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join
+# stopped, the post-merge elector (the merge watcher runs in both modes; the 60 s advertiser is gone from the tree).
+for u in frognet-dbhost-elect.timer; do
     [ -e "/etc/systemd/system/$u" ] || [ -e "/lib/systemd/system/$u" ] || continue
-    systemctl enable --now "$u" && echo "re-enabled $u"
+    systemctl enable "$u" && systemctl start "$u" && echo "re-enabled $u"   # enable --now exits 0 on a failed start
 done
-echo "left the network (removed /opt/fdf/var/join.env)"
+systemctl restart frognet-tunnel-daemon-v3 && echo "restarted frognet-tunnel-daemon-v3: LAN-only (its log says 'LAN-only loop started')"
+echo "left the region: this node is LAN-only FrogNet"

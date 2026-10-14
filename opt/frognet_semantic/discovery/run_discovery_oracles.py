@@ -86,7 +86,7 @@ RETIRED = {
     # [CAPABILITY_DOES_NOT_AGE_V1] supersedes [BALLOT_ADMISSIBILITY_V1] BY NAME
     # in core/frognet_role_elect.py: "The age gate is GONE." The 8.1-day fossil
     # this oracle replays was an UNREACHABLE box, not a stale description, and
-    # age correlated with liveness only until it didn't -- a live mediahost was
+    # age correlated with liveness only until it didn't -- a live node was
     # refused at ts_age=2040s while a node that wrote a minute before dying was
     # admitted. Every check in the file asserts the horizon; there is no
     # surviving half to keep. The property that replaced it (the read never

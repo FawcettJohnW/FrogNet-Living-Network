@@ -1,0 +1,78 @@
+fnid: f4b572c40e17314fbfd62c2d014438dd
+opts_only: domain=U1 dhcp-option=option:router,10.63.63.1 
+eth1: 10.63.63.1/24 10.63.63.2/24 
+key md5: 5b85ed680f9a2c53750c3a56c1fc7cd9  -
+tunnel.conf: BROKER_URL=http://192.0.2.1:8443 GROUP_NAME=testpond POND_NAME=testpond 
+present: /etc/frognet/tunnel.conf.bak.20261012-225140
+present: /etc/frognet/tunnel.conf.20261012T225140Z
+present: /etc/systemd/system/frognet-tunnel-setup.service
+present: /etc/systemd/system/frognet-pond-bootstrap.timer
+present: /etc/systemd/system/frognet-pond-bootstrap.service
+present: /usr/local/bin/frognet-tunnel-setup-v3.sh
+present: /usr/local/bin/frognet-pond-bootstrap.sh
+present: /opt/frognet_semantic/broker
+present: /etc/NetworkManager/dispatcher.d/91-frognet-connectivity
+present: /etc/NetworkManager/dispatcher.d/99-ifup
+present: /etc/systemd/system/frognet-broker-v4.service
+90-frognet-merge lines: 19
+apache2.service frognet-tunnel-setup.service 
+/usr/local/bin before the upgrade: 213 entries, 59 not in the tree (top-level names):
+'
+AVCAP_CACHE_SCHEMA_V1.diff
+ConnectFamily
+README_AVCAP_CACHE_SCHEMA_V1.md
+addHost
+addHostAndPropogate
+build_linux_communicator.sh
+build_windows_communicator.sh
+cbor2
+cffi-gen-src
+change_pond.bash
+check_blob.py
+daemon_main.py
+dotenv
+fr
+frognet-broker-admin.sh
+frognet-channel-advertise.py
+frognet-channel-join.sh
+frognet-conf-consolidate.sh
+frognet-config-v4
+frognet-create-passcode.sh
+frognet-guid
+frognet-make-gateway.sh
+frognet-make-lanonly.sh
+frognet-pond-bootstrap.sh
+frognet-redeem-passcode.sh
+frognet-tunnel
+frognet-tunnel-daemon
+frognet-tunnel-daemon.py
+frognet-tunnel-host
+frognet-tunnel-join
+frognet-tunnel-refresh.sh
+frognet-tunnel-register.sh
+frognet-tunnel-setup-v3.sh
+frognet-tunnel-setup.sh
+frognet-tunnel-watcher.sh
+frognet-unmake-gateway.sh
+frognet_candidate.sh
+frognet_eth0_fixup.sh
+frognet_internet_watch.sh
+frognet_netdrop_watch.sh
+frognet_nuke_tunnels
+frognet_system_tune.sh
+gpsdclient
+gunicorn
+gunicornc
+ham_concentrator_up.sh
+httpx
+idna
+install_mediahost.sh
+normalizer
+oracle_avcap_cache.sh
+package_communicator.py
+probe_orig.sh
+runCaptureHeadless
+runClient
+runServerHeadless
+setup_log
+x

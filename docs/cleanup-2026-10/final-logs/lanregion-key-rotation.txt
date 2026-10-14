@@ -1,0 +1,20 @@
+$ (umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' | tee /opt/fdf/var/site-key-lan); echo
+<NEWKEY>
+-rw------- 1 root root 64 Oct 13 13:51 /opt/fdf/var/site-key-lan
+$ python3 -c '... map_site lan ...'
+{"ok":true}
+13:51:28 p2 (old key): systemctl restart fdf-client
+fdf-client: P2 joined the region at 10.91.91.1:51888, announced ["10.91.91.20","10.92.92.1","10.92.92.2","10.253.92.92"] with facts
+fdf-client: mapping 10.92.92.0/24 -> FrogNetHost:1:50 REFUSED by the region: HTTP 200: EPERM (authentication failed) = RINA_SITE_KEY in /opt/fdf/var/site.env is not the key map_site holds for this area (HMAC mismatch)
+13:51:38 p2: bash /tmp/fdf-install-x86_64.run <NEWKEY> 10.91.91.1:51888 lan
+== site.env: RINA_AREA=lan RINA_SITE_KEY=<64 chars, ends 2fd768>
+== waiting 15 s for the join, the mapping and the hub
+== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)
+fdf-client: P2 joined the region at 10.91.91.1:51888, announced ["10.91.91.20","10.92.92.1","10.92.92.2","10.253.92.92"] with facts
+fdf-client: mapping 10.92.92.0/24 -> FrogNetHost:1:50 registered (site lan)
+[frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['FrogNetHost'] channels=1 remote=[] members=['FrogNetHost:hub', 'P2:node'] mappings=1
+[frognet:frognet.tunnel-daemon] WARNING REGION: event m timed: world=5ms (participants+mappings, one read) +0ms bringup=12ms apply=4ms (probes=0/0ms routes=0/0ms) publish=1ms total=22ms
+== wg (want: one peer, endpoint = the hub, a latest handshake)
+  latest handshake: 15 seconds ago
+rc=0
+13:51:58 p2 -> hub edge: 2 received

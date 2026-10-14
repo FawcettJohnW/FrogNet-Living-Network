@@ -1,18 +1,33 @@
 #!/usr/bin/env python3
-"""test_region_oracle.py -- [REGION_V1] oracle: the broker's four paths answered from the region, with controls.
-  1 register writes the facts file (the node's fdf-client announces it); nothing goes to any broker
-  2 my-channels: one channel per LIVE hub that holds my key (facts.peers); a dead hub, or one without my key yet, yields none (controls)
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+"""test_region_oracle.py -- [REGION_V1] oracle: this node's side of the region, with controls.
+  1 register_node writes the facts file (the node's fdf-client announces it): pubkey is the daemon's, pond is RINA_AREA
+  2 my_channels: one channel per LIVE hub that holds my key (facts.peers); a dead hub, or one without my key yet, yields none (controls)
   3 remote_subnets come ONLY from verified mappings naming that hub; a prefix mapped to another hub is absent (control)
-  4 update-subnets: transit into facts, maps republished; unchanged -> "unchanged"
-  5 publish_maps: locator set ordered by handshake RTT, prio 1 = fastest; a hub without a tunnel is not a locator
-  6 transit-map shape: {"map": {"10.x.y": [/24s]}} from alive nodes only
+  5 publish_plan_maps: locator set ordered by handshake RTT, prio 1 = fastest; a hub without a tunnel is not a locator
 """
 import json, os, sys, tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 os.environ["FDF_FACTS"] = os.path.join(tempfile.mkdtemp(), "facts.json")
 import internet_tunnels_v3.config as config
 config.REGION_RAM = "127.0.0.1:1"; config.REGION_AREA = "frognet.test"
-config.NODE_NAME = "Seattle9"; config.NODE_GUID = "g-9"; config.LOCAL_SUBNET = "10.9.9.0/24"; config.PUBKEY = "PK9"; config.POND = "frognet"
+config.NODE_NAME = "Seattle9"; config.NODE_GUID = "g-9"; config.LOCAL_SUBNET = "10.9.9.0/24"; config.PUBKEY = "PK9"
 from internet_tunnels_v3 import region
 
 fails = 0
@@ -31,24 +46,26 @@ MAPS = [{"eid": "10.1.1.0/24", "rloc": "hubA:1:50,hubB:2:50", "site": "frognet.t
 state = {"parts": HUBS + NODES, "maps": MAPS}
 region._call = lambda body: ({"participants": state["parts"]} if body["op"] == "participants" else {"mappings": state["maps"]})
 
-# 1 register
-r = region.post("/api/v4/register", {"pond": "frognet", "pubkey": "PK9", "subnet": "10.9.9.0/24", "node_name": "Seattle9", "guid": "g-9"})
+# 1 register_node
+region.own_subnet = lambda: "10.9.9.0/24"
+region.register_node()
 f = json.load(open(os.environ["FDF_FACTS"]))
-check(r["node_id"] == "g-9" and f["role"] == "node" and f["subnet"] == "10.9.9.0/24" and f["pubkey"] == "PK9", "1 register wrote the facts file")
+check(f["role"] == "node" and f["guid"] == "g-9" and f["name"] == "Seattle9" and f["subnet"] == "10.9.9.0/24" and f["pubkey"] == "PK9"
+      and f["pond"] == "frognet.test", "1 register_node wrote the facts file (pubkey the daemon's, pond = RINA_AREA)")
 
 # 2 my-channels, one per live hub
-ch = region.get("/api/v4/my-channels", {"pubkey": "PK9"})
+ch = region.my_channels()
 names = sorted(c["channel_name"] for c in ch["channels"])
 check(names == ["hub-hubA", "hub-hubB"], "2 one channel per live hub")
 w = {c["channel_name"]: c["wg_config"] for c in ch["channels"]}
 check(w["hub-hubA"]["edge_ip"] == "10.253.9.9" and w["hub-hubA"]["edge_mask"] == 16 and w["hub-hubA"]["droplet_pubkey"] == "HPA"
       and w["hub-hubA"]["droplet_endpoint"] == "203.0.113.1:51820" and w["hub-hubA"]["allowed_ips"] == "10.0.0.0/8", "2 wg_config: edge from our /24, hub's pubkey/endpoint, 10/8")
 state["parts"] = [dict(HUBS[0], alive=False), HUBS[1]] + NODES
-ch2 = region.get("/api/v4/my-channels", {})
+ch2 = region.my_channels()
 check([c["channel_name"] for c in ch2["channels"]] == ["hub-hubB"], "2c control: a hub whose session is down yields no channel")
 check(ch2["digest"] != ch["digest"], "2 digest changes with the channel set")
 state["parts"] = [dict(HUBS[0], facts=dict(HUBS[0]["facts"], peers=["PK1"])), HUBS[1]] + NODES
-check([c["channel_name"] for c in region.get("/api/v4/my-channels", {})["channels"]] == ["hub-hubB"],
+check([c["channel_name"] for c in region.my_channels()["channels"]] == ["hub-hubB"],
       "2h control: a live hub whose facts.peers does not hold my key yet yields no channel ([HUB_SAYS_ITS_PEERS_V1])")
 state["parts"] = HUBS + NODES
 
@@ -56,27 +73,17 @@ state["parts"] = HUBS + NODES
 check(w["hub-hubA"]["remote_subnets"] == ["10.1.1.0/24", "10.123.123.0/24", "10.77.77.0/24"], "3 hubA reaches 10.1.1, its own /24 (it is a node), the transit 10.77.77; not 10.2.2 (mapped to hubB only); not ours")
 check(w["hub-hubB"]["remote_subnets"] == ["10.1.1.0/24", "10.2.2.0/24"], "3 hubB reaches 10.1.1 and 10.2.2; not 10.77.77")
 
-# 4 update-subnets
-r = region.post("/api/v4/update-subnets", {"pubkey": "PK9", "transit_subnets": ["10.88.88.0/24"]})
-f = json.load(open(os.environ["FDF_FACTS"]))
-check(r["status"] == "updated" and r["added"] == ["10.88.88.0/24"] and f["transit"] == ["10.88.88.0/24"], "4 transit into facts")
-r = region.post("/api/v4/update-subnets", {"pubkey": "PK9", "transit_subnets": ["10.88.88.0/24"]})
-check(r["status"] == "unchanged", "4c control: same transit -> unchanged")
-
-# 5 publish_maps ordering by rtt; a hub without a tunnel is not a locator
-region.publish_maps({"hubB": 40, "hubA": 90})
+# 5 publish_plan_maps ordering by rtt; a hub without a tunnel is not a locator
+PLAN = ["10.9.9.0/24", "10.88.88.0/24"]
+config.live_hubs = {"hubB": 40, "hubA": 90}; region.publish_plan_maps(PLAN)
 f = json.load(open(os.environ["FDF_FACTS"]))
 eids = {m["eid"]: m["rlocs"] for m in f["maps"]}
-check(eids == {"10.9.9.0/24": "hubB:1:50,hubA:2:50", "10.88.88.0/24": "hubB:1:50,hubA:2:50"}, "5 our /24 and transit mapped, fastest hub prio 1")
-region.publish_maps({"hubA": 90})
+check(eids == {"10.9.9.0/24": "hubB:1:50,hubA:2:50", "10.88.88.0/24": "hubB:1:50,hubA:2:50"}, "5 the plan's prefixes mapped, fastest hub prio 1")
+config.live_hubs = {"hubA": 90}; region.publish_plan_maps(PLAN)
 f = json.load(open(os.environ["FDF_FACTS"]))
 check(all(m["rlocs"] == "hubA:1:50" for m in f["maps"]), "5c control: hub without a tunnel is not a locator")
-region.publish_maps({})
+config.live_hubs = {}; region.publish_plan_maps(PLAN)
 f = json.load(open(os.environ["FDF_FACTS"]))
 check(f["maps"] == [], "5 no tunnels -> no mappings (fdf-client withdraws them)")
-
-# 6 transit-map
-tm = region.get("/api/v4/transit-map", {})
-check(tm["map"] == {"10.1.1": ["10.1.1.0/24", "10.77.77.0/24"]}, "6 transit-map from alive nodes only (Seattle2 is down)")
 
 print("RESULT " + ("FAIL: %d" % fails if fails else "PASS")); sys.exit(1 if fails else 0)

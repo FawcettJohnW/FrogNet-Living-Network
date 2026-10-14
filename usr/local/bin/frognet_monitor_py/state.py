@@ -33,7 +33,8 @@ class AppState:
         self.merge_note: str = ""
         self.merge_note_ok: bool = True
         self.merge_note_at: float = 0.0
-        self.hosts: List[Tuple[str, str]] = []       # [(ip, name), ...]
+        self.snapshot: Optional[Dict] = None         # discovery.parse_snapshot of getSnapshot.php [ONE_MONITOR_TRUTH_V1]
+        self.hosts: List[Tuple[str, str]] = []       # [(ip, name), ...]: the snapshot's members
         self.results: Dict[str, Dict] = {}
         self.engine: Optional[Dict] = None      # SemanticProxy.Engine jsonData
         self.daemon: Optional[Dict] = None      # SemanticDaemon.Cache jsonData

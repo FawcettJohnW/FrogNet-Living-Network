@@ -24,11 +24,9 @@
 # Python port:  bring-up + discovery + promote + /etc/hosts commit are done by
 #   PYTHONPATH=/opt/frognet_semantic <venv>/python3 -m discovery.live
 #
-# RC-1: the python merge now covers the FULL tail — fixDefaultRoute (Mode A/B +
+# RC-1: the python merge covers the FULL tail — fixDefaultRoute (Mode A/B +
 # forced override) and manageResolv (resolv.conf) are ported and run inside
-# `discovery.live`. The bash legacy tail is therefore OFF by default
-# (FROGNET_MERGE_LEGACY_TAIL=0); set it to 1 only as an escape hatch to re-run
-# the old bash fixDefaultRoute/manageResolv alongside the python merge.
+# `discovery.live`. One mechanism: the bash tail is not run beside it.
 #
 # Cutover gate: this replaces sync_interfaces.sh/mergeHostsAndResolv.bash as the
 # merge path. The deciding pre-bare-metal test remains the on-box differential
@@ -72,9 +70,8 @@ cd / || true
 
 FROGNET_MERGE_DEPTH="${FROGNET_MERGE_DEPTH:-0}"
 MAX_MERGE_DEPTH="${MAX_MERGE_DEPTH:-10}"
-PYBIN="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
-[[ -x "$PYBIN" ]] || PYBIN="/usr/bin/python3"
-LEGACY_TAIL="${FROGNET_MERGE_LEGACY_TAIL:-0}"
+PYBIN="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"   # [SERVICES_ON_THE_VENV_V1] one interpreter
+[[ -x "$PYBIN" ]] || { flog_error "ENTER" "status=no_python" "pybin=$PYBIN" "reason=the venv the installer builds is missing; the next event retries"; exit 1; }
 
 flog_info "ENTER" "depth=$FROGNET_MERGE_DEPTH" "argv_count=$#" "pybin=$PYBIN"
 
@@ -92,67 +89,11 @@ flog_info "lock_acquired" "lockfile=$LOCKFILE"
 # the merge watcher set theirs; anything else is a shell (manual), named by its parent.
 flog_info "invoked_by" "who=${FROGNET_MERGE_WHY:-manual:$(ps -o comm= -p $PPID 2>/dev/null)}" "gen=$(cat /var/lib/frognet/gen 2>/dev/null | tr -d '\n' || echo none)"
 
-# [TUNNEL_AUTOSWITCH_V1] Automatic Internet<->LAN tunnel switch, at the top of
-# every merge. Replaces frognet_internet_watch.sh and the manual make-gateway /
-# unmake-gateway scripts: nothing promotes or demotes a node by hand anymore.
-# Enrollment (setup_lillypad_v4 -> tunnel-setup register + WG creds) is a
-# separate, one-time concern and is NOT touched here.
-#
-# The 2x2, evaluated each merge:
-#     online  = the broker is reachable (NOT "has Internet" -- a node can reach
-#               the broker over the LAN transit mesh). Reuses the daemon's own
-#               broker client via `internet_tunnels_v3 broker-reachable`.
-#     tunnels = any wgN interface exists in the kernel.
-#
-#     offline + tunnels present  -> frognet_nuke_tunnels --keep-config
-#                                   (go LAN-only; drop live tunnels, KEEP creds
-#                                    so a later bring-up needs no re-enrolment)
-#     online  + no tunnels        -> bring-up (rejoin: build the broker's channels)
-#     online  + tunnels present   -> no-op (steady state)
-#     offline + no tunnels        -> no-op (steady LAN-only)
-#
-# Idempotent by construction: only the two transition quadrants act. Cheap on the
-# common no-change pass (one broker probe + one iface check).
-# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env (fdf-join) or tunnel.conf.
-_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
+# [REGION_MODE_ONCE_V1] the switch, read once: RINA_RAM in /opt/fdf/var/join.env, the one file [REGION_SWITCH_ONE_FILE_V1].
+# Region: the tunnel daemon owns the hub channel and the region's routes; LAN-only: no WireGuard at all, the merge's
+# bring-up stage (discovery.live) keeps it that way. [NO_BROKER_V1] the broker autoswitch that stood here is gone.
+_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env && _REGION=1
 flog_info "mode" "region=$_REGION"
-
-flog_stage tunnel_autoswitch
-if [[ "$_REGION" -eq 1 ]]; then
-# [AUTOSWITCH_IS_THE_DAEMONS_IN_REGION_V1] On a region the hub tunnel is the tunnel daemon's: it brings the channel up
-# on every region event and, when the region is gone, tears it down itself ([GONE_IS_GONE_V1]). This stage asked the
-# same question again from a second python (broker-reachable = region.my_channels = two region reads) and could act
-# on its answer (nuke or bring-up) behind the daemon's back. Not run.
-flog_info "autoswitch" "action=none" "reason=region_mode_the_daemon_owns_the_hub_channel"
-else
-_PYBIN_AS="${FROGNET_PYBIN:-/opt/frognet_semantic/venv/bin/python3}"
-[[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
-
-if ip -o link show type wireguard 2>/dev/null | grep -q '^[0-9]'; then
-    _AS_TUNNELS=1
-else
-    _AS_TUNNELS=0
-fi
-
-if ( cd /opt/frognet_semantic && PYTHONPATH=/opt/frognet_semantic "$_PYBIN_AS" -m internet_tunnels_v3 broker-reachable ) >/dev/null 2>&1; then
-    _AS_ONLINE=1
-else
-    _AS_ONLINE=0
-fi
-
-flog_info "autoswitch" "online=$_AS_ONLINE" "tunnels=$_AS_TUNNELS"
-
-if [[ "$_AS_ONLINE" -eq 0 && "$_AS_TUNNELS" -eq 1 ]]; then
-    flog_info "autoswitch" "action=nuke_keep_config" "reason=offline_with_tunnels"
-    /usr/local/bin/frognet_nuke_tunnels --keep-config 2>&1 | while IFS= read -r _l; do flog_info "autoswitch_nuke" "$_l"; done || true
-elif [[ "$_AS_ONLINE" -eq 1 && "$_AS_TUNNELS" -eq 0 ]]; then
-    flog_info "autoswitch" "action=bringup" "reason=online_no_tunnels"
-    ( cd /opt/frognet_semantic && PYTHONPATH=/opt/frognet_semantic "$_PYBIN_AS" -m internet_tunnels_v3 bring-up-only ) 2>&1 | while IFS= read -r _l; do flog_info "autoswitch_bringup" "$_l"; done || true
-else
-    flog_info "autoswitch" "action=none" "reason=steady_state"
-fi
-fi
-flog_stage_end tunnel_autoswitch "rc=$?"
 
 flog_stage setup_iptables
 /etc/setup_iptables
@@ -207,7 +148,19 @@ rm -rf /tmp/frognet*
 # not break if flog_init's variable names change. If the glob finds nothing the
 # behaviour is exactly what it is today.
 _flog_dir="$(ls -1d /run/frognet/debug/*-$$ 2>/dev/null | head -1)"
-rm -rf /var/run/frognet/*
+# [QUEUE_SURVIVES_THE_WIPE_V1 - T4b] merge_requests is the merge watcher's queue (propogateNotification.php and the
+# NetworkManager hook drop pokes there), seen_notifications is propogateNotification.php's recursion guard (a wave's
+# GUID, so an echo of it is dropped), and tunnel-daemon.pid is the daemon's: none is this pass's state. Wiping
+# merge_requests removed the directory the watcher waits on, so every later neighbour notification was dropped
+# (T4b G2: h2 told h1, h1 never merged) and the watcher spun on a missing directory.
+for _f in /var/run/frognet/* /var/run/frognet/.[!.]*; do
+    [[ -e "$_f" || -L "$_f" ]] || continue
+    # [HOOK_ASKS_THE_WATCHER_V1 - T4c] nm_dispatch_sig is the NetworkManager hook's last route signature: wiping it
+    # made the first interface event after every merge ask for another merge (no delta judged). /run still clears it
+    # at every boot, which is what makes the boot merge the hook's.
+    case "${_f##*/}" in merge_requests|seen_notifications|tunnel-daemon.pid|nm_dispatch_sig) continue ;; esac
+    rm -rf "$_f"
+done
 [[ -n "$_flog_dir" ]] && mkdir -p "$_flog_dir"
 
 MERGE_PENDING="$SENT_DIR/mergePending"
@@ -297,16 +250,6 @@ flog_stage discovery_merge_py
 merge_rc=$?
 flog_stage_end discovery_merge_py "rc=$merge_rc"
 
-# ---- legacy tail not yet ported: default route + dnsmasq forwarders ------
-if [[ "$LEGACY_TAIL" == "1" ]]; then
-    flog_stage legacy_fixDefaultRoute
-    [[ -x /usr/local/bin/fixDefaultRoute ]] && /usr/local/bin/fixDefaultRoute
-    flog_stage_end legacy_fixDefaultRoute "rc=$?"
-    flog_stage legacy_manageResolv
-    [[ -x /usr/local/bin/manageResolv.bash ]] && /usr/local/bin/manageResolv.bash
-    flog_stage_end legacy_manageResolv "rc=$?"
-fi
-
 flog_dump_cmd "post_merge_routes" ip -4 route show
 flog_dump_cmd "post_merge_hosts"  cat /etc/hosts
 
@@ -331,7 +274,7 @@ flog_info "converge_decision" "changed_this_pass=$_sr" "runAgain=$_ra" "merge_rc
 # [HOSTJSON_FROM_THE_REGION_V1] In region mode the host list is the region's: the tunnel daemon writes
 # /var/lib/frognet/region_hosts.json (ip, name, echo from each member's facts) with region_hosts, on every event, and
 # getHosts.php serves that file. makeHostJson.bash -- /etc/hosts plus a frognet_echo.php curl to every peer with no
-# echo, --max-time 45, the merge waiting on the slowest -- does not run. Broker mode is unchanged.
+# echo, --max-time 45, the merge waiting on the slowest -- does not run. LAN-only rebuilds it here.
 if [[ "$_REGION" -eq 1 ]]; then
     flog_info "makeHostJson" "decision=skip" "reason=region_mode_hosts_are_the_daemons_region_hosts_json"
 else
@@ -373,26 +316,6 @@ if [[ "$_dirty" -eq 1 ]]; then
     fi
 else
     flog_info "PROP" "converged=YES" "chain_dirty=0" "reason=no_change_in_merge_chain"
-fi
-
-# [DEFERRED_BROKER_SETUP_V1] Retry an unfinished broker enrolment.
-#
-# A node configured as a gateway at install time may not have reached the broker
-# yet -- no upstream, DNS not up, broker down. The install writes the config
-# anyway and leaves enrolment pending; every merge retries it. runMerge fires on
-# any network change, which is exactly when a previously unreachable broker is
-# likely to have become reachable. There is no timer: the dnsmasq dhcp-script and
-# the NetworkManager up/down and connectivity-change hooks all land here.
-#
-# Cheap in the common case: one file test. frognet-pond-bootstrap.sh writes the
-# sentinel only once enrolment completed AND the tunnel daemon is running, so
-# this stops firing on its own. Backgrounded so a slow broker never stalls a merge.
-# [NO_BROKER_ENROLMENT_IN_REGION_V1] enrolment with the broker means nothing on a region (membership is the session).
-if [[ "$_REGION" -eq 0 && ! -f /etc/frognet/pond_bootstrap_done \
-      && -x /usr/local/bin/frognet-pond-bootstrap.sh ]] \
-   && grep -q '^BROKER_URL=..*' /etc/frognet/tunnel.conf 2>/dev/null; then
-    flog_info "BROKER_SETUP" "state=pending" "action=retry_pond_bootstrap"
-    /usr/local/bin/frognet-pond-bootstrap.sh >/dev/null 2>&1 &
 fi
 
 flog_info "completed"

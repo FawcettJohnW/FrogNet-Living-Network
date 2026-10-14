@@ -117,9 +117,8 @@ int drawTitle(const Snapshot& s, int row) {
   std::string bar(static_cast<size_t>(std::max(0, maxx - 2)), ' ');
   put(row, 1, bar, CP_TITLE, true);
 
-  std::string left = "  FrogNet Monitor  \u2014  " +
-                     (s.domain.empty() ? std::string("(no identity)") : s.domain) +
-                     (g_board == Board::Link ? "   [LINK]" : "   [LOAD]");
+  // [ONE_MONITOR_TRUTH_V1] the node's name and .1 as its snapshot states them, then mode, build, ponds, hub link
+  std::string left = titleText(s.node) + (g_board == Board::Link ? "   [LINK]" : "   [LOAD]");
   put(row, 1, left, CP_TITLE, true);
 
   // [MERGE_IS_VISIBLE_V1] Three states. "Unknown" is not "no merge": a merge
@@ -130,6 +129,10 @@ int drawTitle(const Snapshot& s, int row) {
   else if (s.merge_pending) right = "\u27f3 MERGE RUNNING " + std::to_string((long)s.merge_age_s) + "s";
   if (!right.empty()) put(row, std::max(1, maxx - (int)right.size() - 3), right, CP_TITLE, true);
 
+  for (const auto& line : nodeLines(s.node)) {
+    ++row;
+    put(row, 1, line, line.rfind("  ! ", 0) == 0 || !s.node.ok ? CP_BAD : CP_DIM, false);
+  }
   return row + 1;
 }
 

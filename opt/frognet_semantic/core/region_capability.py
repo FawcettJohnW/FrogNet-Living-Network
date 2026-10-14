@@ -1,3 +1,20 @@
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 """[ELECTION_FROM_FACTS_V1] the service elections' input in region mode: every member's capability is a FACT in the
 region (facts.capability, written by its daemon from frognet_capability_probe.sh), and the election reads the alive
 members' facts -- not capability tuples in a store that may live on the very host that just died.
@@ -11,7 +28,7 @@ databasehost.frognet left pointing at a dead host. The switchover was not automa
 Here: `set_snapshot(participants)` is called by the elector with the region's alive members (the daemon's view at
 this event); `rows(role)` then answers in the shape the readers expect from the store (value/addr/ts_env/name/age_s),
 so gather_candidates, _capability_index and _live_roles work unchanged over the region. Region mode always sets the
-snapshot; broker mode (no region) never does and reads the store as before. That is the mode, not a fallback.
+snapshot; LAN-only (no region) never does and reads the store as before. That is the mode, not a fallback.
 """
 from __future__ import annotations
 import threading
@@ -29,28 +46,11 @@ def _dot1_of(facts: dict) -> str:
     return sub.rsplit(".", 1)[0] + ".1" if sub.endswith(".0/24") else ""
 
 
-def lan_of(participants: list, self_ip: str) -> set:
-    """[LAN_IS_THE_GRAPH_V1] the .1s fdf_graph links to the member whose .1 is self_ip (a lease held/given between them)."""
-    import os, sys
-    fp = os.environ.get("FDF_PY", "/opt/fdf/lib/python")
-    if fp not in sys.path:
-        sys.path.insert(0, fp)
-    from fdf_graph import Graph
-    g = Graph(participants)
-    dot1 = {p.get("name"): _dot1_of(p.get("facts") or {}) for p in participants if p.get("alive")}
-    me = next((n for n, ip in dot1.items() if ip == self_ip), None)
-    out = {dot1.get(parent if child == me else child) for child, parent, _a, _d in g.links if me in (child, parent)}
-    out.discard(None); out.discard("")
-    return out
-
-
-def set_snapshot(participants: Optional[list], self_ip: str = "") -> int:
-    """participants: the region's list (name, alive, facts). None clears (broker mode). Returns how many rows.
-    self_ip: this node's .1 -> the LAN bucket is set from the graph too."""
+def set_snapshot(participants: Optional[list]) -> int:
+    """participants: the region's list (name, alive, facts). None clears (LAN-only). Returns how many rows."""
     if participants is None:
-        _snap.rows = None; _snap.lan = None
+        _snap.rows = None
         return 0
-    _snap.lan = lan_of(participants, self_ip) if self_ip else set()
     rows: List[Dict] = []
     for p in participants:
         f = p.get("facts") or {}
@@ -69,21 +69,11 @@ def set_snapshot(participants: Optional[list], self_ip: str = "") -> int:
     return len(rows)
 
 
-def set_lan(ips) -> None:
-    """[LAN_IS_THE_GRAPH_V1] the .1s on this node's LAN, from fdf_graph's links (a held lease whose giver wrote the same
-    ip+mac): the mediahost bucket. Replaces a traceroute per candidate per election."""
-    _snap.lan = set(ips or ())
-
-
-def lan() -> Optional[set]:
-    return getattr(_snap, "lan", None) if active() else None
-
-
 def active() -> bool:
     return getattr(_snap, "rows", None) is not None
 
 
 def rows(role: str) -> Optional[List[Dict]]:
-    """The capability rows for a role, from the snapshot; None when no snapshot is set (broker mode)."""
+    """The capability rows for a role, from the snapshot; None when no snapshot is set (LAN-only)."""
     r = getattr(_snap, "rows", None)
     return None if r is None else [dict(x, name="%s:%s" % (x["name"], role)) for x in r]

@@ -1,0 +1,554 @@
+VIOLATION [alive-alt] usr/local/bin/frognet_alive.bash:76:    HOSTS+=( "${prefix}.2" )
+        (frognet_alive.bash probing .1 when .2 did not answer (and .2 for .1))
+VIOLATION [alive-alt] usr/local/bin/frognet_alive.bash:78:    HOSTS+=( "${prefix}.1" )
+        (frognet_alive.bash probing .1 when .2 did not answer (and .2 for .1))
+VIOLATION [returnip-identity] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/real_backends.py:447:        for _n in (_sk.gethostname(), "FrogNetHost"):
+        (_get_alive_return_ip: /etc/hosts identity, then 0.0.0.0, when the dev had no 10.x)
+VIOLATION [returnip-identity] opt/frognet_semantic/discovery/real_backends.py:447:        for _n in (_sk.gethostname(), "FrogNetHost"):
+        (_get_alive_return_ip: /etc/hosts identity, then 0.0.0.0, when the dev had no 10.x)
+VIOLATION [propagate-hosts] opt/fdf/src/fdf-source/frognet/usr/local/bin/propogateNotificationInternal:98:# to the legacy /etc/hosts .1 scan only if the helper fails to run.
+        (propogateNotificationInternal: every 10.x.y.1 in /etc/hosts when discovery.neighbors failed)
+VIOLATION [propagate-hosts] opt/fdf/src/fdf-source/frognet/usr/local/bin/propogateNotificationInternal:107:    flog_info "peer_scan" "source=etc_hosts_fallback" "helper_rc=$_helper_rc"
+        (propogateNotificationInternal: every 10.x.y.1 in /etc/hosts when discovery.neighbors failed)
+VIOLATION [propagate-hosts] usr/local/bin/propogateNotificationInternal:98:# to the legacy /etc/hosts .1 scan only if the helper fails to run.
+        (propogateNotificationInternal: every 10.x.y.1 in /etc/hosts when discovery.neighbors failed)
+VIOLATION [propagate-hosts] usr/local/bin/propogateNotificationInternal:107:    flog_info "peer_scan" "source=etc_hosts_fallback" "helper_rc=$_helper_rc"
+        (propogateNotificationInternal: every 10.x.y.1 in /etc/hosts when discovery.neighbors failed)
+VIOLATION [hosts-fallback] opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/discovery.py:108:        trace(f"[DISCOVER] getHosts.php failed: {e}, falling back to /etc/hosts")
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+VIOLATION [hosts-fallback] opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_monitor_py/discovery.py:115:        trace(f"[DISCOVER] /etc/hosts fallback failed: {e}")
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+VIOLATION [hosts-fallback] usr/local/bin/frognet_monitor_cpp/include/frognet.h:111:  // getHosts.php, falling back to /etc/hosts.
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+VIOLATION [hosts-fallback] usr/local/bin/frognet_monitor_cs/Client.cs:141:    /// <summary>getHosts.php, falling back to /etc/hosts where one exists.</summary>
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+VIOLATION [hosts-fallback] usr/local/bin/frognet_monitor_py/discovery.py:108:        trace(f"[DISCOVER] getHosts.php failed: {e}, falling back to /etc/hosts")
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+VIOLATION [hosts-fallback] usr/local/bin/frognet_monitor_py/discovery.py:115:        trace(f"[DISCOVER] /etc/hosts fallback failed: {e}")
+        (monitor discover_hosts (and runPingEverything): /etc/hosts when getHosts.php failed)
+ALLOWED   [public-dns] etc/dnsmasq.d/upstream_fallback.conf:24:# left this node forwarding to 8.8.8.8 while the merge wrote an upstream file
+VIOLATION [public-dns] opt/fdf/bin/fdf-facts:31:PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Internet
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/fdf/bin/fdf-facts:31:PING_TARGET = os.environ.get("FDF_UPLINK_PING", "8.8.8.8")        # the one ping that decides "dead"; a test points it at its own Intern
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/live.py:353:    and 8.8.8.8. Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/live.py:418:    # manageResolv: [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, upstream (if any), 8.8.8.8.
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py:644:    single 8.8.8.8 ping, one uplink scan, one broker fetch - NOT proof
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py:1207:    """Ping 8.8.8.8. NOTE: no longer used as an online gate (online == broker
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py:1210:        ["ping", "-c", "1", "-W", "2", "-n", "8.8.8.8"],
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py:1220:    upstream* can reach 8.8.8.8.  A LAN-child like SeattleTwo passes
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/poll.py:1691:    # old _have_internet() (ping 8.8.8.8) and _node_has_own_uplink() (non-10.x
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/DOCTRINE.txt:49:/etc/resolv.conf names ONLY 127.0.0.1, the upstream (if any), and 8.8.8.8. (John, 2026-09-26)
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/DOCTRINE.txt:56:    nameserver 8.8.8.8
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/live.py:353:    and 8.8.8.8. Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/live.py:418:    # manageResolv: [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, upstream (if any), 8.8.8.8.
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/resolv.py:20:  header / options / search domains / nameserver 127.0.0.1 / upstream (if any) / 8.8.8.8.
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/resolv.py:31:GOOGLE_DNS = "8.8.8.8"   # [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] always last
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/resolv.py:35:    """[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, the upstream (if any), 8.8.8.8 -- nothing else."""
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/resolv.py:52:    if upstream and upstream != GOOGLE_DNS and not upstream.startswith("127."):
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/discovery/resolv.py:54:    out.append(f"nameserver {GOOGLE_DNS}")
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/peer.py:1068:    """Ping 8.8.8.8 - cheap, single packet, 2s timeout."""
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/peer.py:1071:        ["ping", "-c", "1", "-W", "2", "-n", "8.8.8.8"],
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/peer.py:1081:    upstream* can reach 8.8.8.8.  A LAN-child like SeattleTwo passes
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/poll.py:644:    single 8.8.8.8 ping, one uplink scan, one broker fetch - NOT proof
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/poll.py:1207:    """Ping 8.8.8.8. NOTE: no longer used as an online gate (online == broker
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/poll.py:1210:        ["ping", "-c", "1", "-W", "2", "-n", "8.8.8.8"],
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/poll.py:1220:    upstream* can reach 8.8.8.8.  A LAN-child like SeattleTwo passes
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] opt/frognet_semantic/internet_tunnels_v3/poll.py:1691:    # old _have_internet() (ping 8.8.8.8) and _node_has_own_uplink() (non-10.x
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+ALLOWED   [public-dns] opt/frognet_semantic/oracles/oracle_self_identity_lines.py:93:# 127.0.0.1, the upstream (if any) and 8.8.8.8 only -- see discovery/test_resolv_layout_oracle.py.
+ALLOWED   [public-dns] opt/frognet_semantic/simulation/proxy_dataplane.py:114:          _drive_decision("8.8.8.8", frognet=False) == DP.HAM)
+ALLOWED   [public-dns] opt/frognet_semantic/simulation/sim_control_plane.py:254:    print("transient: one dropped 8.8.8.8 ping (no_internet) during a merge")
+ALLOWED   [public-dns] opt/frognet_semantic/simulation/sim_control_plane.py:455:        # merge a single 8.8.8.8 ping drops. Same merge path as a timer merge,
+ALLOWED   [public-dns] usr/local/bin/fix_unbound_bypass.sh:35:#      honest state, not a reason to silently ship every query to 8.8.8.8.
+VIOLATION [public-dns] usr/local/bin/frognet_internet_watch.sh:23:# *direct* internet (a non-10.x global address AND 8.8.8.8 reachable from
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] usr/local/bin/frognet_internet_watch.sh:49:PING_TARGET="8.8.8.8"
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] usr/local/bin/frognet_internet_watch.sh:74:#   (b) ping 8.8.8.8 succeeds from that specific interface.
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+ALLOWED   [public-dns] usr/local/bin/frognet_metrics_emit.sh:197:  rt="$($IP -4 -j route get 8.8.8.8 2>/dev/null || echo '[]')"
+VIOLATION [public-dns] usr/local/bin/installer/frognet_reset.sh:220:    printf 'nameserver 8.8.8.8\nnameserver 8.8.4.4\n' > /etc/resolv.conf
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+VIOLATION [public-dns] usr/local/bin/installer/frognet_reset.sh:223:    echo "  DRY  reset /etc/resolv.conf -> 8.8.8.8 / 8.8.4.4"
+        (a public resolver / ping target hard-coded (resolv.conf always ended 8.8.8.8; fdf-facts pinged it))
+ALLOWED   [public-dns] usr/local/bin/manageResolv.bash:80:# nobody else -- no lease nameservers, no hardcoded 8.8.8.8, no unbound. The next
+VIOLATION [nm-activation] usr/local/bin/setup_lillypad_v4.bash:416:    # Try multiple activation methods
+        (setup_lillypad: conn up, conn up ifname, disconnect/reconnect, flush+ip addr add)
+VIOLATION [nm-activation] usr/local/bin/setup_lillypad_v4.bash:418:        log "  Direct activation failed, trying with ifname..."
+        (setup_lillypad: conn up, conn up ifname, disconnect/reconnect, flush+ip addr add)
+VIOLATION [nm-activation] usr/local/bin/setup_lillypad_v4.bash:424:        log "  Reconnecting $ETH0..."
+        (setup_lillypad: conn up, conn up ifname, disconnect/reconnect, flush+ip addr add)
+VIOLATION [nm-activation] usr/local/bin/setup_lillypad_v4.bash:440:        log "  Forcing IP assignment..."
+        (setup_lillypad: conn up, conn up ifname, disconnect/reconnect, flush+ip addr add)
+VIOLATION [db-unit-chain] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:274:systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:501:systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:274:systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:501:systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/frognet_backup_world.bash:418:        if ! systemctl is-active --quiet mysql.service && \
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/frognet_backup_world.bash:421:          systemctl start mysql.service 2>&1 || \
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/frognet_fixup.sh:230:systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/install_databasehost.sh:89:systemctl enable --now mariadb >/dev/null 2>&1 || systemctl enable --now mysql >/dev/null 2>&1 || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/installer/frognet_reset.sh:139:        [[ $DRY -eq 1 ]] || systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/setup_lillypad_v4.bash:241:systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [db-unit-chain] usr/local/bin/setup_lillypad_v4.bash:716:systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+        (`mariadb || mysql`: a second database unit tried after the first)
+VIOLATION [gw-echo] usr/local/bin/setup_lillypad_v4.bash:792:/usr/local/bin/getEth0Address 2>/dev/null || echo "$GATEWAY_IP"
+        (getEth0Address || echo $GATEWAY_IP)
+VIOLATION [eth0-fixup] etc/systemd/system/frognet-eth0-fixup.service:26:ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:454:cat > /usr/local/bin/frognet_eth0_fixup.sh << 'FIXUPEOF'
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:470:chmod +x /usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:472:cat > /etc/systemd/system/frognet-eth0-fixup.service << EOF
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:481:ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/install/setup_lillypad_v3.bash:489:systemctl enable frognet-eth0-fixup.service
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:454:cat > /usr/local/bin/frognet_eth0_fixup.sh << 'FIXUPEOF'
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:470:chmod +x /usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:472:cat > /etc/systemd/system/frognet-eth0-fixup.service << EOF
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:481:ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] opt/frognet_semantic/internet_tunnels_v3/setup_lillypad.bash:489:systemctl enable frognet-eth0-fixup.service
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet-config-v4:24:#                                 (read by frognet_eth0_fixup, by registration,
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:461:cat > /usr/local/bin/frognet_eth0_fixup.sh <<'FIXUPEOF'
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:477:chmod +x /usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:480:cat > /etc/systemd/system/frognet-eth0-fixup.service <<UNITEOF
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:489:ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:496:systemctl enable frognet-eth0-fixup 2>/dev/null || true
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/frognet_fixup.sh:522:for svc in frognet-eth0-fixup frognet-sysperf frognet-tunnel-daemon \
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+ALLOWED   [eth0-fixup] usr/local/bin/frognet_prune_removed.sh:226:gone "etc/systemd/system/frognet_eth0_fixup.sh"
+VIOLATION [eth0-fixup] usr/local/bin/installer/frognet_install.sh:2047:    frognet-eth0-fixup frognet-sysperf frognet-tunnel-setup frognet-tunnel-daemon-v3
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:122:    log "         configured anyway, and frognet-eth0-fixup will claim"
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:649:cat > /usr/local/bin/frognet_eth0_fixup.sh << 'FIXUPEOF'
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:683:chmod +x /usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:685:cat > /etc/systemd/system/frognet-eth0-fixup.service << EOF
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:694:ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+VIOLATION [eth0-fixup] usr/local/bin/setup_lillypad_v4.bash:702:systemctl enable frognet-eth0-fixup.service
+        (frognet-eth0-fixup: a boot-time second owner of the LAN addresses (flush, ip addr add, nmcli conn up))
+ALLOWED   [belt] opt/frognet_semantic/discovery/probe_sweep.py:44:    ceiling is the belt-and-suspenders: we stop waiting on a wedged cell and
+ALLOWED   [belt] opt/frognet_semantic/frognet_route/committer.py:32:  6. Sweeps any leaked /32 probes (belt-and-suspenders cleanup in case
+VIOLATION [belt] usr/local/bin/frognet_build_release.sh:553:    `# Guard belt-and-suspenders even after they are deleted on the build host.` \
+        (a second write of the same state "to be sure")
+ALLOWED   [belt] usr/local/bin/frognet_make_build_tar.sh:141:# Identity files (belt-and-suspenders; not in SRC_PATHS, so normally absent anyway)
+VIOLATION [belt] usr/local/bin/installer/frognet_install.sh:494:# Belt-and-suspenders: force procfs directly in case sysctl -p silently failed
+        (a second write of the same state "to be sure")
+VIOLATION [belt] usr/local/bin/installer/frognet_install.sh:1912:#    nmcli-managed-no is still useful as belt-and-suspenders.
+        (a second write of the same state "to be sure")
+VIOLATION [unbound-chain] usr/local/bin/installer/frognet_install.sh:1180:FIX_UNBOUND="/usr/local/bin/fix_unbound_bypass.sh"
+        (`fix_unbound_bypass.sh || systemctl stop unbound`)
+VIOLATION [unbound-chain] usr/local/bin/installer/frognet_install.sh:1181:[[ -x "$FIX_UNBOUND" ]] && bash "$FIX_UNBOUND" || { systemctl stop unbound 2>/dev/null || true; }
+        (`fix_unbound_bypass.sh || systemctl stop unbound`)
+VIOLATION [py-fallback] opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash:76:[[ -x "$PYBIN" ]] || PYBIN="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+VIOLATION [py-fallback] opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash:129:[[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+VIOLATION [py-fallback] usr/local/bin/frognet_build_release.sh:404:[[ -x "$_DISC_PY" ]] || _DISC_PY="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+VIOLATION [py-fallback] usr/local/bin/installer/frognet_install.sh:855:[[ -x "$DISC_PY" ]] || DISC_PY="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+VIOLATION [py-fallback] usr/local/bin/runMerge.bash:76:[[ -x "$PYBIN" ]] || PYBIN="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+VIOLATION [py-fallback] usr/local/bin/runMerge.bash:129:[[ -x "$_PYBIN_AS" ]] || _PYBIN_AS="/usr/bin/python3"
+        (the venv's python, else /usr/bin/python3)
+ALLOWED   [system-pip] opt/frognet_semantic/codex_fullsuite/box_fullsuite.py:29:    pip install --break-system-packages html5lib   # optional (HTML cert %)
+ALLOWED   [system-pip] opt/frognet_semantic/codex_fullsuite/fetch_corpora.sh:52:echo "optional (HTML WHATWG conformance %): pip install --break-system-packages html5lib"
+ALLOWED   [system-pip] opt/frognet_semantic/simulation/spec_compliance/box_fullsuite.py:31:    pip install --break-system-packages html5lib              # optional, HTML cert
+ALLOWED   [system-pip] opt/frognet_semantic/simulation/spec_compliance/fetch_corpora.sh:52:echo "done. Optionally: pip install --break-system-packages html5lib  (for WHATWG conformance %)"
+VIOLATION [system-pip] usr/local/bin/installer/frognet_install.sh:471:    pip3 install --break-system-packages --quiet "$pkg" \
+        (pip into the system python (the services run on the venv))
+VIOLATION [apt-chain] usr/local/bin/install_databasehost.sh:79:      apt-get install -y -qq "php${PHPV}-mysql" >/dev/null 2>&1 || apt-get install -y -qq php-mysql >/dev/null 2>&1 || true
+        (install_databasehost: a chain of package lists)
+VIOLATION [facts-swallow] opt/fdf/bin/fdf-facts:37:        return subprocess.check_output(list(cmd), text=True, stderr=subprocess.DEVNULL, timeout=10)
+        (fdf-facts sh(): every failure returned "" with stderr discarded)
+VIOLATION [facts-swallow] opt/fdf/src/fdf-source/fdf/bin/fdf-facts:37:        return subprocess.check_output(list(cmd), text=True, stderr=subprocess.DEVNULL, timeout=10)
+        (fdf-facts sh(): every failure returned "" with stderr discarded)
+VIOLATION [boot-cron] usr/local/bin/installer/frognet_install.sh:2139:    echo "@reboot sleep 240 && /usr/local/bin/runMerge.bash"
+        (@reboot sleep 240 && runMerge.bash (the hook is the boot merge))
+VIOLATION [legacy-tail] opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash:30:# (FROGNET_MERGE_LEGACY_TAIL=0); set it to 1 only as an escape hatch to re-run
+        (runMerge's legacy tail switch)
+VIOLATION [legacy-tail] opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash:77:LEGACY_TAIL="${FROGNET_MERGE_LEGACY_TAIL:-0}"
+        (runMerge's legacy tail switch)
+VIOLATION [legacy-tail] usr/local/bin/runMerge.bash:30:# (FROGNET_MERGE_LEGACY_TAIL=0); set it to 1 only as an escape hatch to re-run
+        (runMerge's legacy tail switch)
+VIOLATION [legacy-tail] usr/local/bin/runMerge.bash:77:LEGACY_TAIL="${FROGNET_MERGE_LEGACY_TAIL:-0}"
+        (runMerge's legacy tail switch)
+VIOLATION [wg-fallback] opt/fdf/bin/fdf-hub:73:            # same interface and `wg` drives it the same way. FDF_WG_USERSPACE=1 forces the latter.
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/bin/fdf-hub:75:                if os.environ.get("FDF_WG_USERSPACE", "") != "1" else None
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/bin/fdf-hub:76:            if r is None or r.returncode != 0:
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/hub/netns-graph-test.sh:14:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/hub/netns-hub-test.sh:12:R=$H/../../repo/opt/fdf; export RIBBIT_TEMPLATES=$R/templates/fdf.prime FDF_WG_USERSPACE=1
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/fdf/bin/fdf-hub:73:            # same interface and `wg` drives it the same way. FDF_WG_USERSPACE=1 forces the latter.
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/fdf/bin/fdf-hub:75:                if os.environ.get("FDF_WG_USERSPACE", "") != "1" else None
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/fdf/bin/fdf-hub:76:            if r is None or r.returncode != 0:
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/fdf/hub/netns-graph-test.sh:14:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/fdf/hub/netns-hub-test.sh:12:R=$H/../../repo/opt/fdf; export RIBBIT_TEMPLATES=$R/templates/fdf.prime FDF_WG_USERSPACE=1
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/fdf-hub:73:            # same interface and `wg` drives it the same way. FDF_WG_USERSPACE=1 forces the latter.
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/fdf-hub:75:                if os.environ.get("FDF_WG_USERSPACE", "") != "1" else None
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/fdf-hub:76:            if r is None or r.returncode != 0:
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-graph-test.sh:14:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-hub-test.sh:12:R=$H/../../repo/opt/fdf; export RIBBIT_TEMPLATES=$R/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=${FDF_PY:-$R/lib/python}  
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-latency-test.sh:14:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-leaf-tunnel-test.sh:22:NS hub env FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-placement-test.sh:26:NS hub env FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168.7
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-ponds-daemon-test.sh:14:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-reach-test.sh:24:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/fdf-source/rinab/tools/netns-region-loop-test.sh:22:export RIBBIT_TEMPLATES=$H/../../repo/opt/fdf/templates/fdf.prime FDF_WG_USERSPACE=1 FDF_PY=$FDFPY
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/frognet-android/tools/netns-leaf-tunnel-test.sh:22:NS hub env FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168.
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/frognet-android/tools/netns-placement-test.sh:26:NS hub env FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168.79
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/fdf/src/frognet-android/tools/netns-two-ponds-test.sh:24:  ip netns exec $n env RINA_RAM=$ip:8840 FDF_WG_USERSPACE=1 FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $area --iface wg
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [wg-fallback] opt/frognet_semantic/simulation/netns_backend.py:203:                    # always; userspace only when the kernel refuses.
+        (WireGuard: kernel first, wireguard-go when the kernel refused)
+VIOLATION [unmanaged-ap] usr/local/bin/installer/frognet_install.sh:1913:NM_UNMANAGED=/etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
+        (the installer's permanent NM unmanaged for the AP radio beside netstart's per-mode decision)
+VIOLATION [unmanaged-ap] usr/local/lib/frognet_world_manifest.sh:101:    etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf
+        (the installer's permanent NM unmanaged for the AP radio beside netstart's per-mode decision)
+VIOLATION [tune-twin] usr/local/bin/frognet-system-tune.sh:19:# /usr/local/bin/frognet_system_tune.sh
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet-system-tune.sh:26:# Usage: frognet_system_tune.sh [--dry-run]
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet-system-tune.sh:169:# Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet-system-tune.sh:221:    # Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet-system-tune.sh:240:# Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet_system_tune.sh:19:# /usr/local/bin/frognet_system_tune.sh
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet_system_tune.sh:26:# Usage: frognet_system_tune.sh [--dry-run]
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet_system_tune.sh:169:# Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet_system_tune.sh:221:    # Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/frognet_system_tune.sh:240:# Generated by frognet_system_tune.sh on $(date)
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/installer/frognet_install.sh:2193:TUNE="/usr/local/bin/frognet_system_tune.sh"
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/bin/installer/frognet_install.sh:2194:[[ -x "$TUNE" ]] && bash "$TUNE" || warn "frognet_system_tune.sh not found"
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [tune-twin] usr/local/lib/frognet_world_manifest.sh:238:    # [TUNE_IS_NODE_STATE_V1 - 2026-10-03] Written at every boot by frognet_system_tune.sh from the board's own RAM and
+        (the cmp-identical second copy of frognet-system-tune.sh)
+VIOLATION [eth0-by-name] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/live.py:687:    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [eth0-by-name] opt/frognet_semantic/_fix_meta/live_orig.py:484:    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [eth0-by-name] opt/frognet_semantic/core/live.py:711:    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [eth0-by-name] opt/frognet_semantic/discovery/live.py:687:    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [eth0-by-name] opt/frognet_semantic/discovery/mapinterfaces.py:142:        if dev != eth0_name and not _owns_served24(ifc) and not _has_transit30(ifc):
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [eth0-by-name] usr/local/bin/mapInterfaces:205:  if [[ "$dev" != "${eth0Name:-eth0}" ]] \
+        (an interface's role decided by its name (the uplink is eth0 on a container or a one-NIC box))
+VIOLATION [built-in-pond] opt/fdf/bin/fdf-join:11:WHERE=${1:?usage: fdf-join HOST:PORT   (e.g. fdf-join 165.232.153.144:51888)}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/bin/fdf-join:12:case "$WHERE" in *:*) ;; *) echo "fdf-join: give HOST:PORT, e.g. 165.232.153.144:51888" >&2; exit 2 ;; esac
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/bin/fdf-region-join:9:# Defaults: RAM 165.232.153.144:51888, area frognet. Run as root. Re-runnable.
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/bin/fdf-region-join:13:RAM=${2:-165.232.153.144:51888}; AREA=${3:-frognet}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/fdf.env:3:export RINA_AREA=${RINA_AREA:-rina-area.test}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/deliverables/BUILD.fdf-droplet:4:for=droplet 165.232.153.144: RAM manager 51888 + hub 50889
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/deliverables/header.sh:11:RAM=${2:-165.232.153.144:51888}; AREA=${3:-frognet}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/bin/fdf-join:11:WHERE=${1:?usage: fdf-join HOST:PORT   (e.g. fdf-join 165.232.153.144:51888)}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/bin/fdf-join:12:case "$WHERE" in *:*) ;; *) echo "fdf-join: give HOST:PORT, e.g. 165.232.153.144:51888" >&2; exit 2 ;; esac
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/bin/fdf-region-join:9:# Defaults: RAM 165.232.153.144:51888, area frognet. Run as root. Re-runnable.
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/bin/fdf-region-join:13:RAM=${2:-165.232.153.144:51888}; AREA=${3:-frognet}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/fdf.env:3:export RINA_AREA=${RINA_AREA:-rina-area.test}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/fdf/hub/hub.env:5:FDF_ENDPOINT=165.232.153.144:50820
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/frognet/opt/fdf/bin/fdf-join:11:WHERE=${1:?usage: fdf-join HOST:PORT   (e.g. fdf-join 165.232.153.144:51888)}
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/frognet/opt/fdf/bin/fdf-join:12:case "$WHERE" in *:*) ;; *) echo "fdf-join: give HOST:PORT, e.g. 165.232.153.144:51888" >&2; exit 2 ;; esac
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh:49:build_file fdf-droplet.tgz "droplet 165.232.153.144: RAM manager 51888 + hub 50889" "$R"
+        (a built-in region address or area name in shipped runtime)
+ALLOWED   [built-in-pond] opt/fdf/src/frognet-android/app/src/main/kotlin/com/fawcettinnovations/fdf/android/Identity.kt:36:        get() = (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").li
+VIOLATION [built-in-pond] opt/fdf/src/frognet-android/windows/etc/ponds.txt:3:frognet=165.232.153.144:51888
+        (a built-in region address or area name in shipped runtime)
+VIOLATION [built-in-pond] opt/fdf/windows/bridge/etc/ponds.txt:3:frognet=165.232.153.144:51888
+        (a built-in region address or area name in shipped runtime)
+ALLOWED   [region-sources] opt/fdf/bin/fdf-hub:248:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/bin/fdf-reach:86:    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
+ALLOWED   [region-sources] opt/fdf/lib/python/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/bin/fdf-hub:248:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/bin/fdf-reach:86:    r = env_of(area).get("RINA_RAM") or (os.environ.get("RINA_RAM") if os.environ.get("RINA_AREA") == area else "")
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/fdf/lib/python/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/core/role_publish.py:38:    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/discovery/real_backends.py:535:        self.ram = ram or os.environ.get("RINA_RAM", "") or self.ram_from_conf()
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/config.py:522:    REGION_RAM = conf.get("RINA_RAM") or os.environ.get("RINA_RAM", "") or _fdf_var("RINA_RAM"
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/config.py:523:    REGION_AREA = conf.get("RINA_AREA") or os.environ.get("RINA_AREA", "") or _fdf_var("RINA_A
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/config.py:531:                conf.get("RINA_RAM"), os.environ.get("RINA_RAM"), _show("/opt/fdf/var/join.env
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet_dbhost_elector.py:98:    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/usr/local/bin/propogateNotificationInternal:63:if grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf; then
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/usr/local/bin/runMerge.bash:117:_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/var/www/html/frognet_echo.php:23:    foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/fdf/src/fdf-source/frognet/var/www/html/getHosts.php:46:foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+ALLOWED   [region-sources] opt/fdf/src/fdf-source/rinab/tools/fdf-hub:248:    ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+ALLOWED   [region-sources] opt/fdf/windows/fdfram.py:20:    w = os.environ.get("RINA_RAM", "")
+VIOLATION [region-sources] opt/frognet_semantic/core/role_publish.py:38:    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/frognet_semantic/discovery/real_backends.py:535:        self.ram = ram or os.environ.get("RINA_RAM", "") or self.ram_from_conf()
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/frognet_semantic/internet_tunnels_v3/config.py:522:    REGION_RAM = conf.get("RINA_RAM") or os.environ.get("RINA_RAM", "") or _fdf_var("RINA_RAM", "/opt/fdf/var/join.env")
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/frognet_semantic/internet_tunnels_v3/config.py:523:    REGION_AREA = conf.get("RINA_AREA") or os.environ.get("RINA_AREA", "") or _fdf_var("RINA_AREA", "/opt/fdf/var/site.env")
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] opt/frognet_semantic/internet_tunnels_v3/config.py:531:                conf.get("RINA_RAM"), os.environ.get("RINA_RAM"), _show("/opt/fdf/var/join.env"), _show("/opt/fdf/var/site.en
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] usr/local/bin/frognet_dbhost_elector.py:98:    for path in ("/opt/fdf/var/join.env", "/etc/frognet/tunnel.conf"):
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] usr/local/bin/frognet_routing_topology.py:260:    text = _read("/etc/frognet/tunnel.conf")
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] usr/local/bin/propogateNotificationInternal:63:if grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf; then
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] usr/local/bin/runMerge.bash:117:_REGION=0; grep -qs '^\(export \)\?RINA_RAM=..*' /opt/fdf/var/join.env /etc/frognet/tunnel.conf && _REGION=1
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] var/www/html/frognet_echo.php:23:    foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [region-sources] var/www/html/getHosts.php:46:foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
+        (T4c: the region switch read from tunnel.conf / the environment / join.env (join.env is the one file; site.env the area))
+VIOLATION [eth0-dhcp-range] usr/local/bin/getEth0Address:48:# Fallback: infer from dnsmasq dhcp-range (subnet we serve)
+        (T4c: getEth0Address answering from dnsmasq's dhcp-range when the LAN dev had no 10.x)
+VIOLATION [eth0-dhcp-range] usr/local/bin/getEth0Address:49:assignedIP=$(grep -m 1 "^dhcp-range" /etc/dnsmasq.d/opts_only.conf 2>/dev/null \
+        (T4c: getEth0Address answering from dnsmasq's dhcp-range when the LAN dev had no 10.x)
+VIOLATION [wg-teardown-alt] opt/fdf/src/fdf-source/frognet/opt/frognet_semantic/internet_tunnels_v3/wg.py:125:        subprocess.run(["ip", "link", "delete", iface],
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace.py:351:        _run(["ip", "link", "delete", iface_name], check=False)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace.py:359:        _run(["ip", "link", "delete", iface_name], netns=ns_name, check=False)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace.py:510:    _run(["ip", "link", "delete", iface_name], netns=ns_name)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace_v4.py:352:        _run(["ip", "link", "delete", iface_name], check=False)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace_v4.py:360:        _run(["ip", "link", "delete", iface_name], netns=ns_name, check=False)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/broker/opt/frognet_broker_v4/broker_namespace_v4.py:644:    _run(["ip", "link", "delete", iface_name], netns=ns_name)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/frognet_route/iproute.py:305:        rc, _out, _err = _run([self._ip, "link", "del", iface])
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/internet_tunnels_v3/iproute.py:350:        rc, _out, _err = _run([self._ip, "link", "del", iface])
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] opt/frognet_semantic/internet_tunnels_v3/wg.py:125:        subprocess.run(["ip", "link", "delete", iface],
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [wg-teardown-alt] usr/local/bin/frognet-tunnel-daemon.py:429:        subprocess.run(["ip", "link", "delete", iface], capture_output=True, check=False)
+        (T4c: `ip link del` of a wgN after (or instead of) `wg-quick down`; the daemon makes them with wg-quick)
+VIOLATION [hook-fork] etc/NetworkManager/dispatcher.d/90-frognet-merge:97:if [[ -d "$REQ_DIR" ]] && systemctl is-active --quiet frognet-merge-watcher 2>/dev/null \
+        (T4c: the NetworkManager hook running runMerge itself when the watcher was not running)
+VIOLATION [hook-fork] etc/NetworkManager/dispatcher.d/90-frognet-merge:101:FROGNET_MERGE_WHY="nm:${1:-?}-${2:-?}" /usr/local/bin/runMerge.bash &
+        (T4c: the NetworkManager hook running runMerge itself when the watcher was not running)
+VIOLATION [hook-fork] opt/fdf/src/fdf-source/frognet/etc/NetworkManager/dispatcher.d/90-frognet-merge:97:if [[ -d "$REQ_DIR" ]] && systemctl is-active --quiet frognet-merge-watcher 2>/dev/null \
+        (T4c: the NetworkManager hook running runMerge itself when the watcher was not running)
+VIOLATION [hook-fork] opt/fdf/src/fdf-source/frognet/etc/NetworkManager/dispatcher.d/90-frognet-merge:101:FROGNET_MERGE_WHY="nm:${1:-?}-${2:-?}" /usr/local/bin/runMerge.bash &
+        (T4c: the NetworkManager hook running runMerge itself when the watcher was not running)
+VIOLATION [watcher-region-off] opt/fdf/bin/fdf-leave:20:for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-bootstrap.t
+        (T4c: fdf-region-join stopping the merge watcher (and fdf-leave starting it again))
+VIOLATION [watcher-region-off] opt/fdf/bin/fdf-region-join:34:for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frognet-pond-boots
+        (T4c: fdf-region-join stopping the merge watcher (and fdf-leave starting it again))
+VIOLATION [watcher-region-off] opt/fdf/src/fdf-source/fdf/bin/fdf-leave:20:for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service frogn
+        (T4c: fdf-region-join stopping the merge watcher (and fdf-leave starting it again))
+VIOLATION [watcher-region-off] opt/fdf/src/fdf-source/fdf/bin/fdf-region-join:34:for u in frognet-dbhost-advertise.timer frognet-mediahost-advertise.timer frognet-dbhost-elect.timer frognet-merge-watcher.service
+        (T4c: fdf-region-join stopping the merge watcher (and fdf-leave starting it again))
+VIOLATION [watcher-poll] opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet-merge-watcher.sh:84:        inotifywait -qq -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null \
+        (T4c: the merge watcher's inotifywait with its failure discarded (no inotify-tools: a silent 1 s poll, no window))
+VIOLATION [watcher-poll] opt/fdf/src/fdf-source/frognet/usr/local/bin/frognet-merge-watcher.sh:90:    while inotifywait -qq -t "$DEBOUNCE_SEC" -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null; d
+        (T4c: the merge watcher's inotifywait with its failure discarded (no inotify-tools: a silent 1 s poll, no window))
+VIOLATION [watcher-poll] usr/local/bin/frognet-merge-watcher.sh:84:        inotifywait -qq -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null \
+        (T4c: the merge watcher's inotifywait with its failure discarded (no inotify-tools: a silent 1 s poll, no window))
+VIOLATION [watcher-poll] usr/local/bin/frognet-merge-watcher.sh:90:    while inotifywait -qq -t "$DEBOUNCE_SEC" -e create -e moved_to -e close_write "$REQ_DIR" 2>/dev/null; do
+        (T4c: the merge watcher's inotifywait with its failure discarded (no inotify-tools: a silent 1 s poll, no window))
+VIOLATION [monitor-local-ip] opt/frognet_semantic/simulation/frognet_sim.py:74:#   frognet_monitor_py.identity.parse_local_ip_from_ip_output(out)   -> str
+        (the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1))
+VIOLATION [monitor-local-ip] opt/frognet_semantic/simulation/frognet_sim.py:132:    parse_local_ip_from_ip_output as _live_parse_local_ip,
+        (the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1))
+VIOLATION [monitor-local-ip] usr/local/bin/frognet_monitor_py/identity.py:47:def parse_local_ip_from_ip_output(ip_addr_output: str) -> str:
+        (the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1))
+VIOLATION [monitor-local-ip] usr/local/bin/frognet_monitor_py/identity.py:72:    parse_local_ip_from_ip_output().
+        (the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1))
+VIOLATION [monitor-local-ip] usr/local/bin/frognet_monitor_py/identity.py:80:        return parse_local_ip_from_ip_output(out)
+        (the monitor's own address: the first 10.x in `ip addr`, else 127.0.0.1 (T5: the snapshot names this node's .1))
+VIOLATION [dbhost-resolver] var/www/html/getDbHost.php:1:<?php header('Content-Type: application/json'); echo json_encode(['ip' => gethostbyname('databasehost.frognet')]); ?>
+        (getDbHost.php: the databasehost from the resolver (its name when unresolved) beside /etc/hosts (T5))
+VIOLATION [dbhost-alias] opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html:1949:           String(lk.peer_name||"").toLowerCase().includes("databasehost")&&
+        (fln_dashboard32: the databasehost from a Topology sensor's LOCAL alias, a second source beside getDbHost (T5))
+VIOLATION [dbhost-alias] var/www/html/fln_dashboard32.html:1949:           String(lk.peer_name||"").toLowerCase().includes("databasehost")&&
+        (fln_dashboard32: the databasehost from a Topology sensor's LOCAL alias, a second source beside getDbHost (T5))
+VIOLATION [stale-picture] opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html:2046:    if(hadHosts&&_HOSTS.size===0) throw new Error("Transient empty hosts snapshot");
+        (fln_dashboard32: an empty host list replaced by the previous picture (T5))
+VIOLATION [stale-picture] opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html:2047:    if(hadEdges&&_EDGES.size===0) throw new Error("Transient empty edges snapshot");
+        (fln_dashboard32: an empty host list replaced by the previous picture (T5))
+VIOLATION [stale-picture] var/www/html/fln_dashboard32.html:2046:    if(hadHosts&&_HOSTS.size===0) throw new Error("Transient empty hosts snapshot");
+        (fln_dashboard32: an empty host list replaced by the previous picture (T5))
+VIOLATION [stale-picture] var/www/html/fln_dashboard32.html:2047:    if(hadEdges&&_EDGES.size===0) throw new Error("Transient empty edges snapshot");
+        (fln_dashboard32: an empty host list replaced by the previous picture (T5))
+VIOLATION [fetch-variants] opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html:371:async function jgetTry(urls){
+        (fln_dashboard32: try one URL, then the next (T5; it had no caller))
+VIOLATION [fetch-variants] opt/fdf/src/fdf-source/frognet/var/www/html/fln_dashboard32.html:374:  throw lastErr||new Error("all fetch variants failed");
+        (fln_dashboard32: try one URL, then the next (T5; it had no caller))
+VIOLATION [fetch-variants] var/www/html/fln_dashboard32.html:371:async function jgetTry(urls){
+        (fln_dashboard32: try one URL, then the next (T5; it had no caller))
+VIOLATION [fetch-variants] var/www/html/fln_dashboard32.html:374:  throw lastErr||new Error("all fetch variants failed");
+        (fln_dashboard32: try one URL, then the next (T5; it had no caller))
+VIOLATION [monitor-hosts-file] usr/local/bin/frognet_monitor_cpp/src/dashboard.cpp:301:  if (FILE* f = std::fopen("/etc/hosts", "r")) {
+        (the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections))
+VIOLATION [monitor-hosts-file] usr/local/bin/frognet_monitor_cpp/src/http.cpp:147:  FILE* f = std::fopen("/etc/hosts", "r");
+        (the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections))
+VIOLATION [monitor-hosts-file] usr/local/bin/frognet_monitor_cs/Dashboard.cs:216:            foreach (var line in await File.ReadAllLinesAsync("/etc/hosts", ct))
+        (the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections))
+VIOLATION [monitor-hosts-file] usr/local/bin/frognet_monitor_py/identity.py:119:def _hosts_lookup(name, hosts_path="/etc/hosts"):
+        (the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections))
+VIOLATION [old-monitor] var/www/html/frognet_monitor:159:# Discovery — /etc/hosts primary, getHosts.php optional upgrade
+        (var/www/html/frognet_monitor (v5.1): /etc/hosts first, getHosts.php as an 'optional upgrade' (T5: deleted))
+
+matches per pattern:
+  alive-alt          2
+  returnip-identity  2
+  propagate-hosts    4
+  hosts-fallback     6
+  public-dns         39
+  nm-activation      4
+  db-unit-chain      11
+  gw-echo            1
+  eth0-fixup         26
+  belt               6
+  unbound-chain      2
+  py-fallback        6
+  system-pip         5
+  apt-chain          1
+  facts-swallow      2
+  boot-cron          1
+  legacy-tail        4
+  wg-fallback        25
+  unmanaged-ap       2
+  tune-twin          13
+  eth0-by-name       6
+  built-in-pond      19
+  region-sources     29
+  eth0-dhcp-range    2
+  wg-teardown-alt    11
+  hook-fork          4
+  watcher-region-off 4
+  watcher-poll       4
+  monitor-local-ip   5
+  dbhost-resolver    1
+  dbhost-alias       2
+  stale-picture      4
+  fetch-variants     4
+  monitor-hosts-file 4
+  old-monitor        1
+allowed, by reason:
+     5  FD&F operator tools (not the tunnel daemon): the environment, then join.env / the pond file. Outside T4c's brief; listed in T4c.md "Found, not done".
+     4  A developer note for an optional test-corpus dependency of the spec-compliance suite (not a node service).
+     3  Simulator topologies and fixtures (an "internet" address in a model).
+     3  FD&F's hub: RINA_RAM is its one input, from its unit (the region holder's hub.env); no file behind it.
+     1  The doctrine line [DNS_NEXTHOP_ONLY_V1] saying there is none.
+     1  The committer's sweep of probe routes it installed itself (its own cleanup), not a second owner.
+     1  Oracle fixtures (recorded node files, not runtime).
+     1  Names what it removes (its T3 section, with the T4b block at its end, is the installer's upgrade step).
+     1  History: [NO_DNS_FALLBACK_V1], why no-resolv must not be set.
+     1  History: [NO_DNS_FALLBACK_V1], what the old script did.
+     1  Android default pond: changing it needs an app rebuild (listed in T4b.md, not done here).
+     1  An exclusion from a build tar (never ship a node's identity), not a second mechanism.
+     1  A wall-clock ceiling on a wedged probe cell (a timeout), not a second mechanism for the same state.
+     1  A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.
+
+static-no-fallback: 25 allowed, 237 violation(s)
+EXIT 1

@@ -22,9 +22,9 @@ driven churn + mobility (remove/add, move-LAN, re-IP, rename). Every scenario
 builds the topology, runs the REAL ported discovery to convergence, and
 validates full host set + all-pairs reachability.
 
-Boundary: discovery + proxy route-planning are real code; the broker (PHP) is
-modeled as the channel/pairing INPUT, not executed. LAN-broker short-circuit
-pathways and multi-`.1`-host L2 segments are not modeled (need real source).
+Boundary: discovery + proxy route-planning are real code; the tunnel graph (which
+node has a channel to which) is modeled as the INPUT, not executed. Multi-`.1`-host
+L2 segments are not modeled (need real source).
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -94,52 +94,6 @@ def main():
     s = System(shapes.star(4)); s.converge()
     s.rename_node("N1", "N1b"); s.converge()
     check("rename N1->N1b: no reachability regression", s.validate())
-
-    print("\n=== REAL BROKER IN THE LOOP (frognet_broker_v4, LAN short-circuit) ===")
-    bdir = os.environ.get("FROGNET_BROKER_DIR",
-                          "/home/claude/broker_src/opt/frognet_broker_v4")
-    if not os.path.isfile(os.path.join(bdir, "frognet_broker_v4.py")):
-        print("  [SKIP] real-broker scenarios (frognet_broker_v4.py not found under "
-              "$FROGNET_BROKER_DIR; set it to the broker source dir to enable)")
-    else:
-      try:
-        from discovery.sim.broker_world import broker_driven_system
-        specs = [("M1", "10.11.11"), ("M4", "10.14.14"), ("M7", "10.17.17"),
-                 ("M10", "10.20.20"), ("GW", "10.9.9")]
-        s, channels, edges = broker_driven_system(specs)
-        s.converge()
-        probs = s.validate()
-        if tuple(sorted(("M4", "M10"))) not in edges:
-            probs.append("broker did not create the M4<->M10 LAN tunnel")
-        eg = route_egress(s.routes["M4"], "10.20.20.1")
-        dp = {d: p for p, d in s._wg_devs("M4").items()}
-        if not (eg and dp.get(eg[0]) == "M10"):
-            probs.append("M4->M10 not via the direct LAN tunnel (relayed)")
-        check("real broker pairs pond + discovery converges + M4<->M10 short-circuit",
-              probs)
-
-        # LAN brokers (one per LAN) + WAN broker (gateways only). They don't mix.
-        from discovery.sim.broker_world import multi_lan_wan_system
-        lans = {
-            "A": {"members": [("gwA", "10.1.1"), ("a1", "10.2.2")], "gateway": "gwA"},
-            "B": {"members": [("gwB", "10.3.3"), ("b1", "10.4.4")], "gateway": "gwB"},
-        }
-        s2, e2, _sn = multi_lan_wan_system(lans)
-        s2.converge()
-        tp = s2.validate()
-        def edge(a, b): return tuple(sorted((a, b))) in e2
-        if not (edge("gwA", "a1") and edge("gwB", "b1")):
-            tp.append("LAN broker did not pair its own LAN members")
-        if not edge("gwA", "gwB"):
-            tp.append("WAN broker did not connect the gateways")
-        if edge("a1", "b1") or edge("a1", "gwB"):
-            tp.append("LAN/WAN mixed: a1 has an off-LAN tunnel")
-        if not s2._reaches("a1", "10.4.4.1"):
-            tp.append("a1 cannot reach b1 (LAN-to-LAN via gateways)")
-        check("LAN brokers + WAN broker (LAN-to-LAN through gateways, no mixing)", tp)
-      except Exception as e:
-        print(f"  [SKIP] real-broker scenarios (broker load/run failed: "
-              f"{type(e).__name__}: {e})")
 
     print("\n=== ADMIN-CHANNEL LOOP + DUPLICATE-IP PROBE ===")
     from discovery.sim import loopcheck

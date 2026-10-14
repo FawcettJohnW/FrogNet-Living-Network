@@ -55,14 +55,15 @@ _write_state() {
     local target="$1"  # "on" or "off"
     local val
     val=$([[ "$target" == "on" ]] && echo 1 || echo 0)
-    mkdir -p /etc/frognet
-    cat > "$CONF" <<EOF
-# /etc/frognet/ssid_projection.conf
-# Managed by frognet-ssid-projection.
-# 1 = project node SSID via hostapd when eth0 has no carrier.
-# 0 = never start hostapd; wlan0 stays under NetworkManager.
-SSID_PROJECTION=${val}
-EOF
+    [[ -f "$CONF" ]] || { echo "frognet-ssid-projection: $CONF missing (the installer's E7 writes it)" >&2; exit 1; }
+    # [SSID_SWITCH_KEEPS_THE_CONF_V1] Change the one line. This used to rewrite the file with SSID_PROJECTION alone,
+    # which dropped the installer's AP_IFACE and WIFI_COUNTRY on every switch (the installer itself switches it at E7):
+    # netstart then put the AP on wlan0Name and the country back to US.
+    if grep -qE '^SSID_PROJECTION=' "$CONF"; then
+        sed -i -E "s/^SSID_PROJECTION=.*/SSID_PROJECTION=${val}/" "$CONF"
+    else
+        echo "SSID_PROJECTION=${val}" >> "$CONF"
+    fi
     chmod 644 "$CONF"
 }
 

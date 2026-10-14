@@ -1,0 +1,19 @@
+scratch root: the 7 removed files and the 7 elector files planted, then --apply
+-- [T6a fixes 2026-10-13] the transit watcher that did nothing, the databasehost advertiser the merge repeats
+  (root : systemctl not run for frognet-transit-watch.service frognet-dbhost-advertise.timer frognet-dbhost-advertise.service)
+  rm   /etc/systemd/system/frognet-transit-watch.service
+  rm   /etc/systemd/system/frognet-dbhost-advertise.service
+  rm   /etc/systemd/system/frognet-dbhost-advertise.timer
+  rm   /etc/systemd/system/timers.target.wants/frognet-dbhost-advertise.timer
+  rm   /usr/local/bin/frognet_transit_watch.sh
+  rm   /usr/local/bin/frognet_register_candidate.sh
+  rm   /usr/local/bin/frognet_setup_advertisers.sh
+
+left:
+./etc/sentinels/last_merge
+./etc/systemd/system/frognet-dbhost-elect.service
+./etc/systemd/system/frognet-dbhost-elect.timer
+./etc/systemd/system/timers.target.wants/frognet-dbhost-elect.timer
+./opt/frognet_semantic/discovery/sim/elector_check.py
+./opt/frognet_semantic/discovery/test_elector_oracle.py
+./usr/local/bin/frognet_dbhost_elector.py

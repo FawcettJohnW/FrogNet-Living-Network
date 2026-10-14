@@ -1,0 +1,23 @@
+=== view model ===
+  ok    filterDirectOnly + VIEW_ORDER exist (three views)
+  ok    default VIEW_MODE is "logical"
+
+=== physical view: direct hops only ===
+  ok    Seattle2 connects only to Seattle3 — ["Seattle3"]
+  ok    Seattle6 connects to Seattle3 and Seattle5 — ["Seattle3","Seattle5"]
+  ok    no transit edge survives into the physical view
+
+=== logical view: every node to every other node ===
+  ok    Seattle2 reaches every other node — ["Seattle3","Seattle5","Seattle6"]
+  ok    all 6 transit routes survive into the logical view
+
+=== direction is preserved logically, merged physically ===
+  ok    logical keeps A→B and B→A as separate edges
+  ok    physical merges the pair into one line
+
+=== a route through a host is not drawn as a wire ===
+  ok    transit dash differs from direct — [2,5]
+  ok    inferred egress hop differs from observed — [1,4]
+
+PASS — [THREE_VIEWS_V1] [LOGICAL_IS_NOT_PHYSICAL_V1] [DIRECTION_IS_NOT_SYMMETRIC_V1]
+EXIT 0

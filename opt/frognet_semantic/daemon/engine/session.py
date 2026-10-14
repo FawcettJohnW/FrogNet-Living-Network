@@ -1718,4 +1718,4 @@ class SemanticSession:
 
 # ---- DEPLOYMENT MARKER ----
 # v2026-04-06: priority executor -- fast unlimited, db throttled to hardware
-print("[session] BUILD=2026-03-24-v1", flush=True)
+# (a fixed "BUILD=2026-03-24-v1" stamp was printed here; the service start line names the base build [BASE_BUILD_V1])

@@ -272,7 +272,7 @@ int main(int argc, char** argv) {
 #ifndef _WIN32
     reach_arm();                                                                  // [REACH_V1]
     // [PONDS_ARE_LISTED_V1] the pond's RAM manager, without its key, for whatever shows this machine's networks
-    // (getPonds.php, the dashboard, the monitor): ponds/<area>.env is 0600 (it holds the site key); this file is not
+    // (getSnapshot.php, the dashboard, the monitor): ponds/<area>.env is 0600 (it holds the site key); this file is not
     if (const char* a = getenv("RINA_AREA"); a && *a) {
         const char* v = getenv("FDF_VAR"); const std::string dir = std::string(v && *v ? v : "/opt/fdf/var") + "/ponds";
         struct stat st; if (stat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {

@@ -35,10 +35,9 @@ If something routes through an interface -> via.
 
 Helper functions under test (verbatim transcriptions of the patched code):
   - identity._get_local_ip               (frognet_monitor_py/identity.py)
-  - tunnel-daemon subnet derivation       (frognet-tunnel-daemon.py load_config)
-  - tunnel-daemon _parse_channel_name     (frognet-tunnel-daemon.py)
+  - tunnel-daemon subnet derivation       (internet_tunnels_v3/names.py parse_local_subnet)
+  - tunnel-daemon channel-name parse      (internet_tunnels_v3/names.py parse_channel_name)
   - discovery /etc/hosts fallback         (frognet_monitor_py/discovery.py)
-  - tunnel-daemon local_subnets_from_routes (frognet-tunnel-daemon.py)
 """
 
 import glob
@@ -71,7 +70,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # Functions imported:
 #   internet_tunnels_v3.names.parse_channel_name(ch_name)            -> (name, prefix)
 #   internet_tunnels_v3.names.parse_local_subnet(ip_addr_show_output) -> {SUBNET_PREFIX, LOCAL_SUBNET, LOCAL_GW}
-#   frognet_monitor_py.identity.parse_local_ip_from_ip_output(out)   -> str
+#   frognet_monitor_py.identity.dot_one_of(ip)                       -> str (the .1 of its /24, or "")
 #   frognet_monitor_py.discovery.parse_etc_hosts_content(content)    -> [(ip, name), ...]
 #
 # All four are pure: no subprocess, no file I/O, no module-level side
@@ -129,7 +128,7 @@ from internet_tunnels_v3.names import (
     parse_local_subnet as _live_parse_local_subnet,
 )
 from frognet_monitor_py.identity import (
-    parse_local_ip_from_ip_output as _live_parse_local_ip,
+    dot_one_of as _live_dot_one_of,
 )
 from frognet_monitor_py.discovery import (
     parse_etc_hosts_content as _live_parse_etc_hosts,
@@ -141,8 +140,8 @@ print(f"SIM: using live patched code from {_PROXY_ROOT} (proxy) and {_BIN_ROOT} 
 # Thin wrappers - keep the sim's existing call sites and tests
 # unchanged, but exercise the live functions underneath.
 
-def identity_get_local_ip(ip_addr_show_output: str) -> str:
-    return _live_parse_local_ip(ip_addr_show_output)
+def identity_dot_one_of(ip: str) -> str:
+    return _live_dot_one_of(ip)
 
 
 def tunnel_daemon_load_subnet(ip_addr_show_output: str) -> dict:
@@ -179,44 +178,21 @@ def write_dnsmasq(d, dhcp_range, domain=""):
 
 
 def test_identity():
-    print("\n=== identity._get_local_ip - ip addr scan across the 10/8 space ===")
-    # (ip_addr_show output, expected ip)
+    # [ONE_MONITOR_TRUTH_V1 - T5] the monitor no longer scans `ip addr` for "its" address (the first 10.x, with a
+    # 127.0.0.1 stand-in): the node snapshot names this node's .1. What a client still derives itself is the .1 to ask
+    # (identity.dot_one_of), from its own address -- 10/8 only, never the reserved 10.253/16 or 10.254/16.
+    print("\n=== identity.dot_one_of - the .1 a client asks, across the 10/8 space ===")
     cases = [
-        ("2: eth0    inet 10.101.10.1/24 brd 10.101.10.255 scope global eth0",   "10.101.10.1"),
-        ("2: eth0    inet 10.241.241.1/24 brd 10.241.241.255 scope global eth0", "10.241.241.1"),
-        ("2: eth0    inet 10.44.44.1/24 brd 10.44.44.255 scope global eth0",     "10.44.44.1"),
-        ("2: eth0    inet 10.10.10.1/24 brd 10.10.10.255 scope global eth0",     "10.10.10.1"),
-        ("2: eth0    inet 10.201.201.1/24 brd 10.201.201.255 scope global eth0", "10.201.201.1"),
-        ("2: eth0    inet 10.1.1.1/24 brd 10.1.1.255 scope global eth0",         "10.1.1.1"),
-        ("2: eth0    inet 10.122.221.1/24 brd 10.122.221.255 scope global eth0", "10.122.221.1"),
-        ("2: eth0    inet 10.147.147.1/24 brd 10.147.147.255 scope global eth0", "10.147.147.1"),
+        ("10.101.10.63", "10.101.10.1"), ("10.241.241.1", "10.241.241.1"), ("10.44.44.2", "10.44.44.1"),
+        ("10.10.10.200", "10.10.10.1"), ("10.201.201.1", "10.201.201.1"), ("10.1.1.9", "10.1.1.1"),
+        ("10.122.221.1", "10.122.221.1"), ("10.147.147.77", "10.147.147.1"),
     ]
-    for ip_out, exp in cases:
-        got = identity_get_local_ip(ip_out)
-        expect(f"10/8 addr -> {exp}", got == exp, f"got={got}, expected={exp}")
-
-    # Reserved-range exclusions: 10.253. is WG transit, 10.254. is chorus
-    # virtual.  Both must be skipped even when they're the only 10/8 addr
-    # present, so the real served /24 wins when it shows up alongside.
-    mixed = """\
-2: wg0     inet 10.253.253.5/30 scope global wg0
-3: eth0    inet 10.101.10.1/24 brd 10.101.10.255 scope global eth0
-4: chorus0 inet 10.254.1.1/32 scope global chorus0
-"""
-    expect("served /24 wins over 10.253. transit and 10.254. chorus",
-           identity_get_local_ip(mixed) == "10.101.10.1",
-           f"got={identity_get_local_ip(mixed)}")
-
-    only_reserved = """\
-2: wg0     inet 10.253.253.5/30 scope global wg0
-3: chorus0 inet 10.254.1.1/32 scope global chorus0
-"""
-    expect("no real /24 -> fallback 127.0.0.1 (10.253/10.254 ignored)",
-           identity_get_local_ip(only_reserved) == "127.0.0.1",
-           f"got={identity_get_local_ip(only_reserved)}")
-
-    expect("no addresses at all -> 127.0.0.1",
-           identity_get_local_ip("") == "127.0.0.1")
+    for ip, exp in cases:
+        got = identity_dot_one_of(ip)
+        expect(f"{ip} -> {exp}", got == exp, f"got={got}, expected={exp}")
+    for ip in ("10.253.253.5", "10.254.1.1", "192.168.1.5", "127.0.0.1", "", "10.1.1"):
+        expect(f"{ip or '(empty)'} -> rejected (no stand-in)", identity_dot_one_of(ip) == "",
+               f"got={identity_dot_one_of(ip)!r}")
 
 
 def test_load_subnet():

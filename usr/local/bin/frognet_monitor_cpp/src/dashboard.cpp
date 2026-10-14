@@ -275,6 +275,41 @@ std::vector<Cell> peerRow(const Peer& p) {
   };
 }
 
+namespace {
+std::string joined(const std::vector<std::string>& v, const char* sep) {
+  std::string o;
+  for (size_t i = 0; i < v.size(); ++i) { if (i) o += sep; o += v[i]; }
+  return o;
+}
+}  // namespace
+
+std::string titleText(const NodeSnapshot& n) {
+  if (!n.ok) return "  FrogNet   (getSnapshot.php did not answer)";
+  return "  FrogNet   " + (n.name.empty() ? std::string("?") : n.name) + " (" +
+         (n.dot1.empty() ? std::string("no .1") : n.dot1) + ")";
+}
+
+std::vector<std::string> nodeLines(const NodeSnapshot& n) {
+  std::vector<std::string> out;
+  if (!n.ok) {
+    out.push_back("  no snapshot: http://127.0.0.1/getSnapshot.php did not answer (asked again next cycle)");
+    return out;
+  }
+  std::string build = n.build.empty() ? std::string("?") : n.build;
+  if (!n.commit.empty()) build += " " + n.commit;
+  char head[256];
+  std::snprintf(head, sizeof head, "  mode %-9s build %s", n.mode.c_str(), build.c_str());
+  out.push_back(head);
+  if (n.mode == "region") {
+    out.push_back("  ponds  " + (n.ponds.empty() ? std::string("none") : joined(n.ponds, "  ")) + "   (* = forward)");
+    out.push_back("  hub    " + (n.hub.empty() ? std::string("no hub link (facts.json has no hub row)") : joined(n.hub, "  ")));
+  } else {
+    out.push_back("  ponds  none, hub none (LAN-only: " + n.mode_why + ")");
+  }
+  for (const auto& e : n.errors) out.push_back("  ! " + e);
+  return out;
+}
+
 Snapshot collect(const Client& c, const std::string& domain) {
   Snapshot s;
   s.domain = domain;
@@ -293,26 +328,11 @@ Snapshot collect(const Client& c, const std::string& domain) {
     s.merge_pending = false;
   }  // anything else: merge_known stays false
 
-  std::vector<HostEntry> hosts = c.discoverHosts();
-
-  // The elected data host, from /etc/hosts and never the resolver: in practice
-  // the two disagree, and the file is what every other component routes by.
-  std::string content;
-  if (FILE* f = std::fopen("/etc/hosts", "r")) {
-    char buf[4096];
-    size_t n;
-    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) content.append(buf, n);
-    std::fclose(f);
-    std::istringstream is(content);
-    std::string line;
-    while (std::getline(is, line)) {
-      if (line.find("databasehost.frognet") == std::string::npos) continue;
-      if (line.find('#') == 0) continue;
-      std::istringstream ls(line);
-      ls >> s.dbhost_ip;
-      break;
-    }
-  }
+  // [ONE_MONITOR_TRUTH_V1] the node snapshot: the peer list is its members, the databasehost its elections
+  // (/etc/hosts <role>.frognet on the node, never the resolver), this node its self row.
+  s.node = c.snapshot();
+  std::vector<HostEntry> hosts = Client::hostsOf(s.node);
+  s.dbhost_ip = s.node.dbhost;
 
   // This node's per-peer cache stats and link quality, in one pair of reads
   // rather than one pair per peer.
@@ -331,7 +351,7 @@ Snapshot collect(const Client& c, const std::string& domain) {
     // A node holds no cache or link-quality entry for ITSELF, so its status
     // resolves to UNKNOWN -- true, but it reads as a fault on the one row the
     // operator is most likely to trust. Mark it as self instead.
-    p.is_local = (h.name == domain);
+    p.is_local = (!s.node.dot1.empty() && h.ip == s.node.dot1);
 
     // Echo proves the whole semantic chain: local proxy, local daemon, remote
     // daemon, remote Apache. A bare socket connect could not.

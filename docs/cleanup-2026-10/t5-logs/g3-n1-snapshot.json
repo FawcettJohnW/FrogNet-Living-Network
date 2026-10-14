@@ -1,0 +1,69 @@
+{
+    "snapshot": 1,
+    "at": 1791864130,
+    "node": {
+        "name": "N1",
+        "dot1": "10.81.81.1",
+        "guid": "8f7bf25a95044e6f89fc2383e196624a",
+        "echo": "N1,10.81.81.1,172.30.0.31,0.0.0.0"
+    },
+    "build": {
+        "build": "fdf-2026-10-12-r20",
+        "installed": "2026-10-13T01:04Z"
+    },
+    "mode": "region",
+    "mode_why": "/opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888",
+    "ponds": [
+        {
+            "area": "test",
+            "ram": "172.30.0.10:51888",
+            "forward": true,
+            "source": "/opt/fdf/var/join.env + facts.json pond",
+            "config": {
+                "reach": "none",
+                "map": "refused"
+            }
+        }
+    ],
+    "hub": [
+        {
+            "iface": "wg0",
+            "edge": "10.253.81.81",
+            "handshake_age_s": 44,
+            "source": "facts.json hub row + wg latest-handshakes"
+        }
+    ],
+    "members": [
+        {
+            "name": "N1",
+            "guid": "8f7bf25a95044e6f89fc2383e196624a",
+            "ip": "10.81.81.1",
+            "role": "node",
+            "alive": true,
+            "source": "region",
+            "echo": "N1,10.81.81.1,172.30.0.31,0.0.0.0",
+            "self": true
+        },
+        {
+            "name": "N2",
+            "guid": "88d9e580de414ccdb83514c0cdfd7e23",
+            "ip": "10.82.82.1",
+            "role": "node",
+            "alive": true,
+            "source": "region",
+            "echo": "N2,10.82.82.1,172.30.0.32,0.0.0.0"
+        }
+    ],
+    "elections": {
+        "databasehost": "10.82.82.1",
+        "databasehost_control": "10.82.82.1"
+    },
+    "sources": {
+        "members": "/var/lib/frognet/region_hosts.json (the daemon's applied plan; alive = the member's region session this event)",
+        "node": "/opt/fdf/var/facts.json",
+        "ponds": "/opt/fdf/var (ponds/, forward, join.env, facts.json pond) + each pond's RAM manager",
+        "hub": "facts.json hub rows + the kernel (wg latest-handshakes)",
+        "elections": "/etc/hosts"
+    },
+    "errors": []
+}

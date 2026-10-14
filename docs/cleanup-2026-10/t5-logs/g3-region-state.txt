@@ -1,0 +1,62 @@
+== FrogNetHost.N1  package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-13T00:37Z for=x86_64 FrogNet node or leaf 
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key O0XlLx9yfUU8SaZjmgzOYX2hlR1qhgyhDwO8k+2TqRk= [DAEMON_OWNS_ITS_KEY_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode region) base fdf-2026-10-12-r20
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key O0XlLx9yfUU8SaZjmgzOYX2hlR1qhgyhDwO8k+2TqRk= [DAEMON_OWNS_ITS_KEY_V1]
+key: -rw------- pub O0XlLx9yfUU8SaZjmgzOYX2hlR1qhgyhDwO8k+2TqRk=
+  fdf-client                 active
+  fdf-facts                  active
+  frognet-tunnel-daemon-v3   active
+  interface: wg0
+    endpoint: 172.30.0.10:50889
+    allowed ips: 10.0.0.0/8
+    latest handshake: 35 seconds ago
+routes: 10.81.81.0/24 dev eth1 proto kernel scope link src 10.81.81.1 ;10.82.82.0/24 dev wg0 scope link src 10.81.81.1 metric 22 ;10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.81.81 ;
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.053/1.203/1.336/0.116 ms
+== FrogNetHost.N2  package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-13T00:37Z for=x86_64 FrogNet node or leaf 
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key E6c643BCkaLWh4f4DOSandOkN0HXRCzci1+FBabsCAw= [DAEMON_OWNS_ITS_KEY_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t5 (mode region) base fdf-2026-10-12-r20
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key E6c643BCkaLWh4f4DOSandOkN0HXRCzci1+FBabsCAw= [DAEMON_OWNS_ITS_KEY_V1]
+key: -rw------- pub E6c643BCkaLWh4f4DOSandOkN0HXRCzci1+FBabsCAw=
+  fdf-client                 active
+  fdf-facts                  active
+  frognet-tunnel-daemon-v3   active
+  interface: wg0
+    endpoint: 172.30.0.10:50889
+    allowed ips: 10.0.0.0/8
+    latest handshake: 1 minute, 37 seconds ago
+routes: 10.81.81.0/24 dev wg0 scope link src 10.82.82.1 metric 22 ;10.82.82.0/24 dev eth1 proto kernel scope link src 10.82.82.1 ;10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.82.82 ;
+3 packets transmitted, 3 received, 0% packet loss, time 2002ms
+rtt min/avg/max/mdev = 1.248/1.372/1.492/0.099 ms
+fdf-monitor: no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port
+$ (on d2) RINA_RAM=127.0.0.1:51888 /opt/fdf/bin/fdf-monitor --once
+FD&F monitor   network 127.0.0.1:51888   RAM manager round trip 0.6 ms   3 member(s), 3 alive
+
+NAME              ALIVE  SEEN FROM        IPS                     OS       CORES  CPU       MEM     LOAD   TERM    SESS
+N1                yes    172.30.0.31      172.30.0.31,10.81.81.~  linux    2      -         7.8G    -      -       -
+N2                yes    172.30.0.32      172.30.0.32,10.82.82.~  linux    2      -         7.8G    -      -       -
+regionbox         yes    127.0.0.1        172.30.0.10,10.253.25~  linux    2      -         7.8G    -      -       -
+
+N1   (alive)
+
+identity      ns w:8f7bf25a95044e6f89fc2383e196624a
+session       7
+seen from     172.30.0.31   (the address the RAM manager sees this session come from)
+reports IPs   172.30.0.31, 10.81.81.1, 10.81.81.2, 10.253.81.81
+attached      node:w:8f7bf25a95044e6f89fc2383e196624a
+terminal      no (fdf-term-serve not running)
+processes     -
+applications  -
+
+capability (as announced):
+  client               fdf-client
+  cores                2
+  mem_total_kb         8222320
+  os                   linux
+
+N2   (alive)
+
+identity      ns w:88d9e580de414ccdb83514c0cdfd7e23
+session       9
+seen from     172.30.0.32   (the address the RAM manager sees this session come from)
+reports IPs   172.30.0.32, 10.82.82.1, 10.82.82.2, 10.253.82.82

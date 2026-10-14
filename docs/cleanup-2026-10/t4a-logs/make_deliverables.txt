@@ -1,0 +1,4 @@
+fdf-install-x86_64.run  31072571 bytes  sha256 a784649dbcfd2478
+fdf-install-aarch64.run  28145044 bytes  sha256 0f5414e86b449549
+fdf-droplet.tgz  23226211 bytes  sha256 8644d1b4ef715efc
+built fdf-2026-10-11-r19-a15 at 2026-10-12T15:46Z

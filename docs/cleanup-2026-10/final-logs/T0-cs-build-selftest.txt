@@ -1,0 +1,79 @@
+MSBuild version 17.8.49+7806cbf7b for .NET
+  Determining projects to restore...
+  Restored /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/csb0/frognet_monitor_cs/FrogNetMonitor.csproj (in 101 ms).
+  FrogNetMonitor -> /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/csb0/frognet_monitor_cs/bin/Release/net8.0/frognet-monitor.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.22
+vectors: /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/csb0/frognet_monitor_cs/bin/Release/net8.0/parser_vectors.json
+
+=== echo_line (identity) ===
+  ok    all four fields present
+  ok    empty eth0 is DATA, not failure - no carrier is a real answer
+  ok    trailing empty field must not shorten the line
+  ok    two adjacent empties must not collapse
+  ok    trailing newline tolerated
+  ok    empty body means identity failed -- rejected, as it must be
+  ok    whitespace-only body means identity failed -- rejected, as it must be
+  ok    empty name field is a failure even with fields present -- rejected, as it must be
+  ok    fewer than four fields is a failure -- rejected, as it must be
+
+=== etc_hosts (discovery) ===
+  ok    standard node lines
+  ok    tunnel transit 10.253/16 excluded
+  ok    chorus virtual 10.254/16 excluded
+  ok    non-10/8 excluded
+  ok    line without the FrogNetHost alias is not a node
+  ok    comments and blanks skipped
+  ok    role names are not nodes
+  ok    extra aliases before the FrogNetHost one
+  ok    tabs and multiple spaces
+
+=== dot_one_of (identity endpoint) ===
+  ok    DHCP client on a pond
+  ok    a node's own .1
+  ok    a node's secondary .2
+  ok    high client octet
+  ok    tunnel transit rejected -- rejected
+  ok    chorus virtual rejected -- rejected
+  ok    non-10/8 rejected -- rejected
+  ok    loopback rejected -- rejected
+  ok    malformed rejected -- rejected
+
+=== peer status: first match wins ===
+  ok    echo failure outranks a good link -> Down
+  ok    saturation outranks a good RTT -> Sat
+  ok    busy link -> Busy
+  ok    slow over 1000ms -> Slow
+  ok    fair over 250ms -> Fair
+
+=== a missing LinkQuality entry is not a failure ===
+  ok    degrades to RTT, not to DOWN -> Ok
+  ok    no readings at all is UNKNOWN, not OK -> Unknown
+
+=== a stale reading is not a reading ===
+  ok    400s old reading is stale and unusable
+  ok    stale node reports no load fraction, not 0%
+  ok    load fraction takes the worse of cpu/mem
+  ok    node with no System.Perf reports no load, not 0%
+
+=== zero is not a measurement ===
+  ok    Rtt(0) -> "—"
+  ok    Pct(0) -> "—"
+  ok    Bytes(0) -> "—"
+  ok    Bps(0) -> "—"
+  ok    Rtt(8.4) -> "8.4ms"
+  ok    Bytes(1536) -> "1.5K"
+  ok    Bps(1500000) -> "1.5Mbps"
+
+=== meters ===
+  ok    a 10-cell meter is 10 columns wide
+  ok    eighth-blocks distinguish 0% from 5% on a 10-cell meter
+  ok    out-of-range fractions are clamped, not overflowed
+
+48 passed, 0 failed
+PASS - C# parsers agree with the shared vectors
+selftest rc=0

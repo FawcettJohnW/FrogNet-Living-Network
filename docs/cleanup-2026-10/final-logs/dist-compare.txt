@@ -1,0 +1,34 @@
+Gate 5: opt/fdf/dist against HEAD (c20b7c6), 2026-10-13
+dist built 2026-10-13T11:32Z at ce72a41 (T6a fixes); since then only opt/frognet_semantic/docs/magnum_croakus, site/, docs/ changed (git diff --name-only ce72a41 HEAD).
+BUILD lines (each bundle's opt/fdf/BUILD):
+  x86_64.run   package=fdf-node.tgz       build=fdf-2026-10-12-r20 built=2026-10-13T11:32Z for=x86_64 FrogNet node or leaf
+  aarch64.run  package=fdf-node-arm64.tgz build=fdf-2026-10-12-r20 built=2026-10-13T11:32Z for=aarch64 FrogNet node (Pi)
+  droplet.tgz  package=fdf-droplet.tgz    build=fdf-2026-10-12-r20 built=2026-10-13T11:32Z for=region holder ...
+  tree opt/fdf/BUILD                      build=fdf-2026-10-12-r20 (for=the tree): same tag
+Payload comparison (every file unpacked, cmp against its source):
+  x86_64.run: 112 files; 111 cmp-identical to the tree path (incl. all 52 FROGNET_FILES); 1 differs: opt/fdf/BUILD (generated)
+  aarch64.run: 112 files; 102 identical to the tree path; opt/fdf/bin/{rina-host,fdf-attention,fdf-client,fdf-where,fdf-participants,fdf-events,ram} identical to rinab/build/arm64/*, opt/fdf/comms/{comms-ram,comms-media} identical to rinab/build/comms-arm64/*; opt/fdf/BUILD generated
+  droplet.tgz: 59 files; 57 identical to the tree; etc/systemd/system/fdf-hub.service identical to deliverables/etc-droplet/systemd/system/fdf-hub.service; opt/fdf/BUILD generated
+  .run header = deliverables/header.sh with __ARCH__ substituted (x86_64 / aarch64)
+  strings: rina-host x86 and arm64 both carry fdf-2026-10-12-r20
+Verdict: the dist carries HEAD's sources. Not rebuilt.
+sha256 of the files as they stand:
+e2faf25e0b5e2f531a9de2c60aca662f063438017b6390284c6292638ec033d1  fdf-droplet.tgz
+90a4e5c1ed201eb1bf5125997c5e4c4b8cf9b6ec0433bfe9add64fedb65559b6  fdf-install-aarch64.run
+bc6451b34279d9af3ee58e72e9897b4438f416a40c49d23aef7695a63dcd48e8  fdf-install-x86_64.run
+total 80508
+-rw-r--r-- 1 root root 23217018 Oct 13 04:32 fdf-droplet.tgz
+-rwxr-xr-x 1 root root 28148226 Oct 13 04:32 fdf-install-aarch64.run
+-rwxr-xr-x 1 root root 31065433 Oct 13 04:32 fdf-install-x86_64.run
+x86: 112 files, 111 equal to their source; other: opt/fdf/BUILD; build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z
+arm: 112 files, 111 equal to their source; other: opt/fdf/BUILD; build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z
+drop: 59 files, 58 equal to their source; other: opt/fdf/BUILD; build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z
+
+=== AFTER the START_FAILURE_IS_SEEN_V1 fix (fdf-region-create/join/leave changed): rebuilt with make_deliverables.sh 2026-10-13T12:58Z; the three lines above are the rebuilt files' comparison
+b5fc28cc703447ebfac8c075516be825e70d80e5106d2c5af4de1e345f6ffb9b  fdf-droplet.tgz
+dc4ae044fc64389efedc5713064f13b1c5300ae9827aa283d4337fd5bcdd011b  fdf-install-aarch64.run
+77fb15748f033ebe10a15f7c55087fbc2c1ce1d0a1c82236685c6c997f4aec11  fdf-install-x86_64.run
+total 80508
+-rw-r--r-- 1 root root 23216582 Oct 13 05:59 fdf-droplet.tgz
+-rwxr-xr-x 1 root root 28148395 Oct 13 05:59 fdf-install-aarch64.run
+-rwxr-xr-x 1 root root 31066176 Oct 13 05:59 fdf-install-x86_64.run

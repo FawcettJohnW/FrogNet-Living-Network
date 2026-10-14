@@ -1,4 +1,4 @@
-package=fdf-node.tgz
-build=fdf-2026-10-11-r19-a15
-built=2026-10-12T01:53Z
-for=x86_64 FrogNet node or leaf: AI-Host
+package=opt/fdf (the tree's copy; the bundles in opt/fdf/dist carry their own BUILD)
+build=fdf-2026-10-12-r20
+built=2026-10-12T18:43Z
+for=the tree

@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 IDENT = "10.111.11.1"; LEASE = "10.111.11.2"          # BABox
@@ -63,7 +63,7 @@ def _walk_hairpin(verify):
     # The hairpin echo SUCCEEDS - that is exactly the trap the old gate fell into.
     echo = FakeEcho(answers={f"{SEA5}.2": f"Seattle5,{SEA5}.1,,"})
     rtt = FakeRtt(table={("wlan0", f"{SEA5}.2"): [140]})   # looks fast - would win on RTT
-    disc = Discovery(routes, echo, rtt, FakeGetHosts(children={}), FakeBroker(),
+    disc = Discovery(routes, echo, rtt, FakeGetHosts(children={}), FakeTunnelState(),
                      HostStore(), local_ips={IDENT, LEASE, "127.0.0.1"},
                      dev_src_map={}, self_identity=IDENT, verify=verify)
     # walk Seattle5 via the LAN child on wlan0 (the hairpin candidate)

@@ -1,0 +1,33 @@
+PASS  1 second claimant refused, lowest id owns
+PASS  1 refusal logged with both guids
+PASS  1 owner's allowed-ips = edge/32 + its /24
+PASS  1c control: alone, the late claimant owns
+PASS  2 control: the fake kernel mirrors WireGuard's last-write trap
+2026-10-13 06:06:03 [FDF-HUB] deleted peer PUB-rogue (not a member now)
+PASS  2 reconcile restores the table; the rogue peer is deleted (not a member)
+PASS  3 no mapping for this hub: edge only
+PASS  3c control: mapping names this hub: /24 installed
+PASS  3 mapping present but nothing else: still only what facts claim
+PASS  4 owned /24 beats both transit claims
+PASS  4 unowned transit: first claimant gets it
+2026-10-13 06:06:03 [FDF-HUB] deleted peer PUB-a (not a member now)
+PASS  5 leave: peer deleted now, transit passed to the next claimant, route moved
+PASS  5 came back: a peer again, from the records now
+2026-10-13 06:06:03 [FDF-HUB] deleted peer PUB-a (not a member now)
+PASS  5 gone again: deleted again, no parking, no timer
+2026-10-13 06:06:03 [FDF-HUB] deleted peer PUB-stale (not a member now)
+PASS  6 adopt: stale peer deleted and its route removed
+PASS  6 adopt: the correct peer got no command
+PASS  7 leaf: its /32 is edge, allowed-ips and an on-link route
+PASS  8 a child WITH a tunnel carries its own /24 on it
+PASS  8 the parent carries only its own
+PASS  8 the hub routes the child's /24 to the child's edge
+PASS  8t tunnel-less child: the parent carries its /24
+PASS  8t the hub routes it to the parent's edge
+PASS  8b parent gone: nothing changes for the tunneled child
+PASS  8c no mapping from the parent: the tunnel-less child's /24 is carried by nobody, said
+PASS  8d child's own registration is enough; the parent without a mapping gets no /24
+PASS  9 a reacher: its /32 is allowed-ips and an on-link route, like a leaf
+PASS  9c control: a participant without reach is not peered
+RESULT PASS
+EXIT 0

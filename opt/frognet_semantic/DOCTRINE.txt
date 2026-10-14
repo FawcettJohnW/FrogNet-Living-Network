@@ -44,16 +44,16 @@ baseline, from the extracted delivery tarball. The C++ engines (ribbit-lisp v0.5
 68,878 cases, 0 differ, against this templates.py.
 
 
-[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1]
-=================================
-/etc/resolv.conf names ONLY 127.0.0.1, the upstream (if any), and 8.8.8.8. (John, 2026-09-26)
+[RESOLV_LOCAL_UPSTREAM_V1]  (was [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1])
+=========================
+/etc/resolv.conf names ONLY 127.0.0.1 and the upstream (if any). (John, 2026-09-26, with 8.8.8.8 last; the 8.8.8.8
+went in the 2026-10-12 cleanup, T4b: no fallbacks, and no public resolver hard-coded into somebody else's network.)
 
     # Section 3: nameservers
     # Local FrogNet DNS
     nameserver 127.0.0.1
 
     nameserver <upstream>          <- omitted when there is none
-    nameserver 8.8.8.8
 
 "The upstream" has ONE definition, discovery/live.py _dns_upstream(): exit_host.tsv's next hop, else the default
 route's gateway, never 127.x. The same function writes dnsmasq_upstream.conf, so the two files cannot name

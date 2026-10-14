@@ -36,7 +36,7 @@ _ADDR = {
     "wg0":   "8: wg0   inet 10.253.203.126/30 scope global wg0\n",
     "eth0":  ("2: eth0  inet 10.250.250.1/24 brd 10.250.250.255 scope global eth0\n"
               "2: eth0  inet 10.250.250.2/24 brd 10.250.250.255 scope global secondary eth0\n"),
-    "wlan1": "6: wlan1 inet 192.168.0.19/24 scope global wlan1\n",   # no 10.x -> fallback
+    "wlan1": "6: wlan1 inet 192.168.0.19/24 scope global wlan1\n",   # no 10.x -> None
 }
 
 
@@ -64,10 +64,10 @@ def main():
           "wg0 -> its own /30 (10.253.203.126)")
     check(rb._get_alive_return_ip("eth0") == "10.250.250.1",
           "eth0 -> its own 10.x (eth0 IS the egress here, so identity is correct)")
-    check(rb._get_alive_return_ip("wlan1") == "10.250.250.1",
-          "wlan1 has no 10.x -> hostname-identity fallback")
-    check(rb._get_alive_return_ip() == "10.250.250.1",
-          "no dev -> hostname identity (legacy fallback preserved)")
+    check(rb._get_alive_return_ip("wlan1") is None,
+          "wlan1 has no 10.x -> None (no identity fallback) [RETURN_IP_DEV_ONLY_V1]")
+    check(rb._get_alive_return_ip() is None,
+          "no dev -> None (no identity fallback) [RETURN_IP_DEV_ONLY_V1]")
 
     print()
     print("ALL RETURN-IP ORACLE CHECKPOINTS PASS" if ok

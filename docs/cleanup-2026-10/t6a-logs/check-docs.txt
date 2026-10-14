@@ -1,0 +1,34 @@
+    (b) cwd=.                        apt-get install -y git
+    (b) cwd=.                        git clone https://github.com/FawcettJohnW/FrogNet-Living-Network.git
+    (b) cwd=.                        bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE1 --ip 10.61.61.1 --no-ssid-projection
+    (b) cwd=.                        journalctl -b -u frognet-tunnel-daemon-v3 --no-pager
+    (b) cwd=.                        grep -E Starting frognet-tunnel-daemon|LAN-only
+    (b) cwd=.                        curl -s http://127.0.0.1:8080/getSnapshot.php
+    (b) cwd=.                        python3 -m json.tool
+    (b) cwd=.                        /usr/local/bin/frognet_monitor --once
+    (b) cwd=.                        systemctl --failed
+    (b) cwd=.                        apt-get install -y python3 wireguard-tools
+    (b) cwd=/                        tar xvzf - /tmp/fdf-droplet.tgz
+    (b) cwd=/                        systemctl daemon-reload
+    (b) cwd=/                        ip -o addr
+    (b) cwd=/                        grep 10\.253\.
+    (b) cwd=/                        ip route
+    (b) cwd=/                        grep 10\.253\.
+    (b) cwd=/                        /opt/fdf/bin/fdf-region-create myarea 203.0.113.7
+    (b) cwd=.                        ufw allow 51888/tcp
+    (b) cwd=.                        ufw allow 50889/udp
+    (b) cwd=.                        ufw route allow in on wg-myarea out on wg-myarea
+    (b) cwd=/                        tar xvzf - /tmp/fdf-droplet.tgz
+    (b) cwd=/                        systemctl daemon-reload
+    (b) cwd=/                        systemctl restart fdf-ram-myarea fdf-client-myarea fdf-hub
+    (b) cwd=.                        bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE2 --ip 10.81.81.1 --no-ssid-projection --region 203.0.113.7:51888 --site-key KEY --area myarea
+    (b) cwd=.                        bash opt/fdf/dist/fdf-install-x86_64.run KEY 203.0.113.7:51888 myarea
+    (b) cwd=.                        /opt/fdf/bin/fdf-leave
+    (b) cwd=.                        /opt/fdf/bin/fdf-comms.sh
+    (b) cwd=.                        git pull
+    (b) cwd=.                        bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve
+    (b) cwd=.                        bash /usr/local/bin/installer/frognet_install.sh --uninstall
+    (b) cwd=.                        bash usr/local/bin/installer/frognet_reset.sh --keep-identity --yes
+    (b) cwd=.                        bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE1 --ip 10.61.61.1 --no-ssid-projection
+check-docs: 34 documents; (b) 32 commands in docs/OPERATING.md; (c) 3 word matches, 3 allowed; 0 problem(s)
+EXIT 0

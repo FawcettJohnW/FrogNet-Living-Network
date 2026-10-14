@@ -1,0 +1,35 @@
+bash -n OK  opt/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/bin/fdf-region-create
+bash -n OK  opt/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/bin/fdf-wg-impl
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-leave
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-region-create
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-region-join
+bash -n OK  opt/fdf/src/fdf-source/fdf/bin/fdf-wg-impl
+py OK       opt/frognet_semantic/core/build_id.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-13/P.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-13/Q.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-13/R.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-13/S.py
+py OK       opt/frognet_semantic/docs/magnum_croakus/notes/patches-2026-10-13/patchlib.py
+bash -n OK  usr/local/bin/install_databasehost.sh
+cmp same    opt/fdf/bin/fdf-facts
+cmp same    opt/fdf/bin/fdf-hub
+cmp same    opt/fdf/bin/fdf-region-create
+cmp same    opt/fdf/bin/fdf-wg-impl
+cmp same    opt/fdf/bin/fdf-reach
+cmp same    opt/fdf/bin/fdf-mapping.sh
+cmp same    opt/fdf/bin/fdf-ram-manager.sh
+cmp same    opt/fdf/bin/fdf-member.sh
+cmp same    opt/fdf/bin/fdf-region-join
+cmp same    opt/fdf/bin/fdf-leave
+cmp same    opt/fdf/bin/fdf-pond-add
+cmp same    rinab/tools/fdf-hub
+cmp same    opt/fdf/fdf.env
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/fdf_dashboard.html
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/getParticipants.php
+cmp same    opt/fdf/src/fdf-source/fdf/www/fdf/waitParticipants.php
+cmp same    opt/fdf/src/fdf-source/rinab/www/fdf/waitParticipants.php
+syntax: 15 files OK, 0 bad

@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 IDENT = "10.130.130.1"; LEASE = "10.130.130.2"
 
@@ -57,7 +57,7 @@ def _walk_seattle2(verify):
     # Seattle2's .2 answers echo over the downstream candidate path (pinned /32).
     echo = FakeEcho(answers={"10.120.120.2": "Seattle2,10.120.120.1,,"})
     rtt = FakeRtt(table={("wlan0", "10.120.120.2"): [4]})
-    disc = Discovery(routes, echo, rtt, FakeGetHosts(children={}), FakeBroker(),
+    disc = Discovery(routes, echo, rtt, FakeGetHosts(children={}), FakeTunnelState(),
                      HostStore(), local_ips={IDENT, LEASE, "127.0.0.1"},
                      dev_src_map={}, self_identity=IDENT, verify=verify)
     # downstream walk: reach Seattle2 via the direct DHCP next-hop on wlan0

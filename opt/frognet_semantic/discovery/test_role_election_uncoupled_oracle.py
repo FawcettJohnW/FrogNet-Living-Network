@@ -15,20 +15,20 @@
 #  PURPOSE.  See the GNU General Public License for details.   #
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
-################################################################
 """
 test_role_election_uncoupled_oracle.py -- every registered service's platform-selection
 callback runs at the end of every converged runMerge, and its line is committed.
 
-The bug this pins: the databasehost completeness barrier gated the WHOLE election
-loop. On a pond whose barrier never opened, no role's callback ran, mediahost never
-reached /etc/hosts, and the Communicator dialled a name that did not resolve. Nothing
-raised - the else-branch wrote databasehost and returned - so it looked like the media
-election had been removed rather than skipped.
+The bug this pinned: the databasehost completeness barrier gated the WHOLE election
+loop, so on a pond whose barrier never opened no role's callback ran and the role's
+name never reached /etc/hosts. [ABSENT_IS_A_DECIDABLE_STATE_V1] removed the barrier;
+[ONE_ROLE_V1] (T2, 2026-10-12) left one role, databasehost. What stays pinned here is
+the commit rule for it: the elected winner is committed every merge whatever
+`ready_roles` says, a standing line is replaced (never duplicated), the commit is
+idempotent, and an election that names nobody gets the deterministic floor at the
+control -- a floor, not a fabricated winner.
 
-Drives the REAL commit_service_lines. The CONTROL reproduces the old inline gate from
-live.py verbatim, so these cases fail on the old behaviour rather than agreeing with
-themselves.
+Drives the REAL commit_service_lines and the REAL role registry.
 
 Run: python3 test_role_election_uncoupled_oracle.py
 """
@@ -36,7 +36,8 @@ import sys
 
 sys.path.insert(0, "/opt/frognet_semantic")
 
-from core.frognet_service_hosts import commit_service_lines
+from core.frognet_service_hosts import commit_service_lines, no_host_marker
+from core.role_registry import ROLE_HANDLERS
 
 _p = _f = 0
 
@@ -53,13 +54,12 @@ def ck(name, cond, extra=""):
 
 BLOCK = ["10.102.60.1 FrogNetHost", "10.160.160.1 FrogNetHost"]
 CTL = "10.160.160.1"
-# what the one generic loop returns when every registered role elects
-ELECTED = ["10.102.60.1 mediahost.frognet",
-           "10.160.160.1 databasehost.frognet"]
+ELECTED = ["10.102.60.1 databasehost.frognet"]      # the one generic loop's answer
+ALL = set(ROLE_HANDLERS)
 
 
 def names(lines):
-    return {l.split()[1] for l in lines if l.split()[1].endswith(".frognet")}
+    return {l.split()[1] for l in lines if len(l.split()) > 1 and l.split()[1].endswith(".frognet")}
 
 
 def host_of(lines, role):
@@ -69,184 +69,58 @@ def host_of(lines, role):
     return None
 
 
-# -- CONTROL: the old inline gate, transcribed from live.py ------------------
-def old_gate(etc_hosts, role_lines, ready, ctl):
-    if ready:
-        names_ = {ln.split()[1] for ln in role_lines}
-        out = [l for l in etc_hosts
-               if not (len(l.split()) >= 2 and l.split()[1] in names_)]
-        out.extend(role_lines)
-        return out
-    out = [l for l in etc_hosts if not l.endswith(" databasehost.frognet")]
-    out.append("%s databasehost.frognet" % ctl)
-    return out
+def count(lines, role):
+    return sum(1 for l in lines if l.endswith(" %s.frognet" % role))
 
 
 # =============================================================================
-print("-- barrier OPEN: every role elected and committed ----------------------")
-ALL = {"databasehost", "mediahost"}
+print("-- the role set --------------------------------------------------------")
+ck("databasehost is the one registered role", ALL == {"databasehost"}, ALL)
+
+
+# =============================================================================
+print("-- the elected winner is committed, whatever ready_roles says ----------")
 open_ = commit_service_lines(BLOCK, ELECTED, ALL, CTL)
-ck("mediahost is committed", "mediahost.frognet" in names(open_))
-ck("databasehost is committed", "databasehost.frognet" in names(open_))
-ck("each carries the winner its callback named",
-   host_of(open_, "mediahost") == "10.102.60.1"
-   and host_of(open_, "databasehost") == "10.160.160.1")
-ck("the node lines are untouched",
-   all(l in open_ for l in BLOCK))
-
-
-# =============================================================================
-print("-- barrier SHUT: databasehost pinned, everything else still elected ----")
-shut = commit_service_lines(BLOCK, ELECTED, ALL - {"databasehost"}, CTL)
-ck("mediahost is STILL committed -- this is the whole point",
-   "mediahost.frognet" in names(shut), names(shut))
-ck("and still names its own callback's winner",
-   host_of(shut, "mediahost") == "10.102.60.1", host_of(shut, "mediahost"))
-ck("databasehost is pinned at the control, not at its elected winner",
-   host_of(shut, "databasehost") == CTL, host_of(shut, "databasehost"))
-ck("exactly one databasehost line",
-   sum(1 for l in shut if l.endswith(" databasehost.frognet")) == 1)
-
-# CONTROL -- the old gate on the same inputs
-old = old_gate(BLOCK, ELECTED, False, CTL)
-ck("CONTROL: the old gate dropped mediahost entirely",
-   "mediahost.frognet" not in names(old), names(old))
-ck("CONTROL: and it pinned databasehost, which is why nothing looked broken",
-   host_of(old, "databasehost") == CTL)
-ck("the new gate keeps a role the old one lost",
-   names(shut) - names(old) == {"mediahost.frognet"},
-   names(shut) - names(old))
+ck("databasehost is committed with the winner its callback named",
+   host_of(open_, "databasehost") == "10.102.60.1", host_of(open_, "databasehost"))
+ck("the node lines are untouched", all(l in open_ for l in BLOCK))
+ck("no other role line is invented", names(open_) == {"databasehost.frognet"}, names(open_))
+for ready in (set(), {"databasehost"}, {"somethingelse"}):
+    ck("ready_roles=%s is ignored: same block" % sorted(ready),
+       commit_service_lines(BLOCK, ELECTED, ready, CTL) == open_)
 
 
 # =============================================================================
 print("-- a committed line is replaced, never duplicated ----------------------")
-was = BLOCK + ["10.9.9.1 mediahost.frognet", "10.9.9.1 databasehost.frognet"]
+was = BLOCK + ["10.9.9.1 databasehost.frognet"]
 again = commit_service_lines(was, ELECTED, ALL, CTL)
-ck("the stale mediahost line is gone",
-   host_of(again, "mediahost") == "10.102.60.1")
-ck("one line per role after a re-elect",
-   all(sum(1 for l in again if l.endswith(" %s.frognet" % r)) == 1
-       for r in ("mediahost", "databasehost")))
-ck("committing twice is idempotent",
-   commit_service_lines(again, ELECTED, ALL, CTL) == again)
-
-
-# =============================================================================
-print("-- the election naming nobody is reported as nobody --------------------")
-none = commit_service_lines(BLOCK, [], ALL - {"databasehost"}, CTL)
-ck("no election result means no role lines invented",
-   names(none) == {"databasehost.frognet"}, names(none))
-ck("except the barrier pin, which is a pin and not a fabricated winner",
-   host_of(none, "databasehost") == CTL)
-open_none = commit_service_lines(BLOCK, [], ALL, CTL)
-# [ABSENT_IS_A_DECIDABLE_STATE_V1] The databasehost floor is no longer a "barrier
-# pin" that appears only while shut -- there is no barrier. It is the floor, and it
-# applies whenever the election named no databasehost, which is this case.
-ck("with no result, only the deterministic databasehost floor is written",
-   names(open_none) == {"databasehost.frognet"}, names(open_none))
-
-# NO_FLOOR still governs: absence is absence. A role whose callback named no winner
-# simply has no line, and the Communicator will fail to resolve it -- loudly, at
-# connect, which is the correct visible failure rather than a fabricated local host.
-partial = commit_service_lines(BLOCK, ["10.160.160.1 databasehost.frognet"], ALL, CTL)
-ck("a role that elected nobody gets no line, not a floor",
-   "mediahost.frognet" not in names(partial))
-
-
-# =============================================================================
-print("-- each role waits on its OWN records, not on databasehost's ------------")
-# mediahost information complete, databasehost information not: media must decide.
-mh = commit_service_lines(BLOCK, ELECTED, {"mediahost"}, CTL)
-ck("mediahost decides while databasehost is still waiting",
-   host_of(mh, "mediahost") == "10.102.60.1")
-ck("and databasehost is pinned meanwhile", host_of(mh, "databasehost") == CTL)
-
-# The reverse: database information complete, media not.
-db = commit_service_lines(BLOCK, ELECTED, {"databasehost"}, CTL)
-ck("databasehost decides while mediahost is still waiting",
-   host_of(db, "databasehost") == "10.160.160.1")
-# This case used to assert that mediahost was withheld while its own barrier was
-# shut. That rule is what deadlocked a live pond: with no line standing, withholding
-# means the name never exists at all. A shut barrier defers a CHANGE only.
-ck("mediahost with no standing line is committed provisionally, not withheld",
-   host_of(db, "mediahost") == "10.102.60.1", host_of(db, "mediahost"))
-# [ABSENT_IS_A_DECIDABLE_STATE_V1] Was: a standing line is left alone while that
-# role's barrier is shut. There is no barrier now. A capability that is not in the
-# store is absent, that host ranks at the floor, and the election decides on what it
-# can read -- so an elected winner REPLACES a standing line every time. Every node
-# reads the same store and the same converged block and reaches the same answer, so
-# a replacement is agreement, not flap.
-ck("an elected winner replaces a standing line, records complete or not",
-   host_of(commit_service_lines(BLOCK + ["10.7.7.7 mediahost.frognet"],
-                                ELECTED, {"databasehost"}, CTL), "mediahost")
-   == "10.102.60.1")
-
-# [ABSENT_IS_A_DECIDABLE_STATE_V1] The old rule here was that a role with an
-# incomplete record set keeps the line it already had, so a media host agreed last
-# merge could not be displaced by a machine mid-publish. The cost was a wait with no
-# upper bound: on a live pond four machines were 34,000-330,000s stale and the gate
-# never opened, and on Seattle7 the gate reported recorded=[] every merge because
-# the single control read was timing out. The election now decides on what the store
-# holds, every merge.
-had = BLOCK + ["10.102.60.9 mediahost.frognet"]
-keep = commit_service_lines(had, ELECTED, {"databasehost"}, CTL)
-ck("the elected winner is committed over the previously standing line",
-   host_of(keep, "mediahost") == "10.102.60.1", host_of(keep, "mediahost"))
-ck("and does not duplicate it",
-   sum(1 for l in keep if l.endswith(" mediahost.frognet")) == 1)
-
-ck("no barriers open at all still yields a usable coordination plane",
-   host_of(commit_service_lines(BLOCK, ELECTED, set(), CTL), "databasehost") == CTL)
-
-
-# =============================================================================
-print("-- a shut barrier defers a CHANGE, never the FIRST assignment -----------")
-# Transcribed from a live pond, 2026-08-01. Four machines in the hosts block had not
-# published an admissible record in 34,000-330,000 s, so every barrier was shut and
-# stayed shut. The election named mediahost=10.250.250.1 on every pass and the line
-# never reached /etc/hosts, so the Communicator got NXDOMAIN for mediahost.frognet.
-LIVE = ["10.250.250.1 databasehost_control.frognet",
-        "10.250.250.1 databasehost.frognet"]
+ck("the stale databasehost line is gone", host_of(again, "databasehost") == "10.102.60.1")
+ck("one line after a re-elect", count(again, "databasehost") == 1)
+ck("committing twice is idempotent", commit_service_lines(again, ELECTED, ALL, CTL) == again)
+LIVE = ["10.250.250.1 databasehost_control.frognet", "10.250.250.1 databasehost.frognet"]
 live_out = commit_service_lines(LIVE, ELECTED, set(), CTL)
-ck("mediahost is committed even with every barrier shut",
-   host_of(live_out, "mediahost") == "10.102.60.1", host_of(live_out, "mediahost"))
-ck("databasehost is still pinned at the control", host_of(live_out, "databasehost") == CTL)
-ck("no role is left without a line when the election named a winner",
-   names(live_out) >= {"mediahost.frognet", "databasehost.frognet"}, names(live_out))
+ck("a standing line is replaced by the elected winner, no ready roles needed",
+   host_of(live_out, "databasehost") == "10.102.60.1" and count(live_out, "databasehost") == 1,
+   live_out)
+ck("the control line is untouched", "10.250.250.1 databasehost_control.frognet" in live_out)
 
-# [ABSENT_IS_A_DECIDABLE_STATE_V1] and with no ready roles at all, the elected
-# winner still lands: absence of records is an input to the election, not a reason
-# to withhold its result.
-stands = LIVE + ["10.9.9.9 mediahost.frognet"]
-held_out = commit_service_lines(stands, ELECTED, set(), CTL)
-ck("a standing line IS replaced by the elected winner, no ready roles needed",
-   host_of(held_out, "mediahost") == "10.102.60.1", host_of(held_out, "mediahost"))
-ck("and is not duplicated",
-   sum(1 for l in held_out if l.endswith(" mediahost.frognet")) == 1)
 
-# Barrier open replaces it as normal.
-ck("an open barrier replaces the standing line",
-   host_of(commit_service_lines(stands, ELECTED, ALL, CTL), "mediahost")
-   == "10.102.60.1")
+# =============================================================================
+print("-- the election naming nobody gets the floor, not a fabricated winner ---")
+none = commit_service_lines(BLOCK, [], ALL, CTL)
+ck("no election result: only the deterministic databasehost floor is written",
+   names(none) == {"databasehost.frognet"} and host_of(none, "databasehost") == CTL, none)
+ck("no control known and no result: no line at all",
+   names(commit_service_lines(BLOCK, [], ALL, None)) == set())
 
-# CONTROL -- the version that shipped this morning left it absent forever.
-def strict_gate(etc_hosts, role_lines, ready, ctl):
-    out = list(etc_hosts)
-    for ln in role_lines:
-        role = ln.split()[1][:-len(".frognet")]
-        if role not in ready:
-            continue
-        out = [l for l in out if l.split()[1] != ln.split()[1]]
-        out.append(ln)
-    if "databasehost" not in ready and ctl:
-        out = [l for l in out if not l.endswith(" databasehost.frognet")]
-        out.append(f"{ctl} databasehost.frognet")
-    return out
 
-ck("CONTROL: the strict per-role gate left mediahost absent forever",
-   "mediahost.frognet" not in names(strict_gate(LIVE, ELECTED, set(), CTL)))
-ck("the fix supplies the line the strict gate withheld",
-   "mediahost.frognet" in names(live_out))
+# =============================================================================
+print("-- a no-host marker from a previous pass is dropped ---------------------")
+marker = no_host_marker("databasehost")
+stale = BLOCK + [marker]
+cleared = commit_service_lines(stale, ELECTED, ALL, CTL)
+ck("the stale marker is dropped when a winner is committed", marker not in cleared, cleared)
+ck("and the winner is there", host_of(cleared, "databasehost") == "10.102.60.1")
 
 
 print()

@@ -1,3 +1,5 @@
+history: the release notes of an older dashboard page. The node's dashboard is fln_dashboard32.html (docs/OPERATING.md in the repository, section 5).
+
 # FrogNet Dashboard v2 (Fawcett Innovations, LLC)
 
 ### What's new

@@ -28,11 +28,22 @@
 # (secondary aliases like .2, transit /30s like 10.253.253.x, etc.)
 # so adding aliases to eth0 cannot change the reported identity.
 #
+# [LAN_DEV_ONLY_V1 - T4c] One source: the LAN dev's own 10.x (eth0Name, as
+# mapInterfaces computes it). No 10.x on it (a fresh install before the reboot
+# addresses it, a LAN that is down): nothing on stdout, the reason on stderr,
+# exit 1; callers ask again on their next event. The dnsmasq dhcp-range that
+# stood behind it is gone (the installer's F6 reads its own chosen address).
+#
 . /usr/local/bin/mapInterfaces
 
-# Find the FrogNet /24 on eth0: any 10.x.y.z that is NOT on the
+if [ -z "${eth0Name:-}" ]; then
+    echo "getEth0Address: mapInterfaces named no LAN dev (eth0Name empty)" >&2
+    exit 1
+fi
+
+# Find the FrogNet /24 on the LAN dev: any 10.x.y.z that is NOT on the
 # transit range 10.253.253.*
-prefix=$(ip -4 addr show scope global ${eth0Name:-eth0} \
+prefix=$(ip -4 addr show scope global "$eth0Name" \
     | awk '$1 == "inet" {print $2}' \
     | sed 's/\/.*$//' \
     | grep '^10\.' \
@@ -40,20 +51,8 @@ prefix=$(ip -4 addr show scope global ${eth0Name:-eth0} \
     | head -1 \
     | awk -F. '{print $1"."$2"."$3}')
 
-if [ -n "$prefix" ]; then
-    echo "${prefix}.1"
-    exit 0
+if [ -z "$prefix" ]; then
+    echo "getEth0Address: no 10.x address on the LAN dev $eth0Name" >&2
+    exit 1
 fi
-
-# Fallback: infer from dnsmasq dhcp-range (subnet we serve)
-assignedIP=$(grep -m 1 "^dhcp-range" /etc/dnsmasq.d/opts_only.conf 2>/dev/null \
-             | cut -d '=' -f 2 \
-             | cut -d ',' -f 1)
-if [ -n "$assignedIP" ]; then
-    prefix=$(echo "$assignedIP" | awk -F. '{print $1"."$2"."$3}')
-    echo "${prefix}.1"
-    exit 0
-fi
-
-# No answer — emit empty so callers that do `|| echo ""` still work
-echo ""
+echo "${prefix}.1"

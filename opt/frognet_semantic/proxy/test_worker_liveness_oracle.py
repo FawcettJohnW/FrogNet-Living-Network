@@ -153,7 +153,6 @@ LOOPS = [
     ("daemon/cache/semcache_db.py", "_flusher_loop"),
     ("daemon/pool_resizer.py", "_timer_loop"),
     ("daemon/pool_resizer.py", "_sentinel_loop"),
-    ("proxy/frognet_media_planes.py", "_on_conn"),
 ]
 
 MARKERS = ("WORKER_EXIT_REASON_V1", "READER_EXIT_REASON_V1",

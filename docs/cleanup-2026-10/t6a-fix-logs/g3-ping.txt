@@ -1,0 +1,4 @@
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.198/1.794/2.987/0.843 ms
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.036/1.579/2.504/0.656 ms

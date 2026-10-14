@@ -30,7 +30,8 @@ dotnet bin/Release/net8.0/frognet-monitor.dll selftest
 ```
 
 Verified on .NET 8.0.129 — clean build with `TreatWarningsAsErrors`, 27/27
-vectors passing.
+vectors passing. T5 (2026-10-12): .NET 8.0.131, `selftest` 60 passed (the 37 vectors with the snapshot cases, and
+the model checks).
 
 On Windows, open `FrogNetMonitor.csproj` in Visual Studio and press build. A
 Windows box is not a node; point it at one:
@@ -44,8 +45,9 @@ frognet-monitor --proxy 10.160.160.1 hosts
 ```
 frognet-monitor                                 the card dashboard (default)
 frognet-monitor demo                            render it from sample data, no network
+frognet-monitor snapshot                        this node's snapshot (getSnapshot.php), one frame
 frognet-monitor identity                        who this pond says we are
-frognet-monitor hosts                           the nodes
+frognet-monitor hosts                           the nodes (the snapshot's members)
 frognet-monitor sensors Seattle6                that node's telemetry
 frognet-monitor read Seattle6.SemanticProxy.Engine
 frognet-monitor engine                          shorthand for this node

@@ -51,7 +51,8 @@ ARG1="${1:-${TRANSIT_MODE:-auto}}"
 ARG2="${2:-${TRANSIT_BAUD:-full}}"
 
 ts(){ $DATE '+%Y-%m-%d %H:%M:%S.%3N'; }
-log(){ echo "[frognet-transit-boot][$(ts)][pid=$$] $*"; }
+# stderr: list_potential_transit_interfaces prints interface names on stdout, and its log lines were read as names
+log(){ echo "[frognet-transit-boot][$(ts)][pid=$$] $*" >&2; }
 
 is_excluded() {
   local dev="$1"
@@ -68,8 +69,10 @@ list_potential_transit_interfaces() {
     [[ "$dev" == br-* ]] && continue
     [[ "$dev" == virbr* ]] && continue
     
-    # Skip wireless interfaces
+    # Skip wireless interfaces, and anything that is not Ethernet (ARPHRD_ETHER = 1: tunl0, sit0, wg*, ham0 are not
+    # cables)
     [[ -d "/sys/class/net/$dev/wireless" ]] && continue
+    [[ "$(cat "/sys/class/net/$dev/type" 2>/dev/null)" == 1 ]] || continue
     
     # CRITICAL: Check exclude file FIRST
     if is_excluded "$dev"; then
@@ -84,21 +87,20 @@ list_potential_transit_interfaces() {
       continue
     fi
     
-    # Skip interfaces with no IP at all (not yet configured)
-    if ! $IP -4 addr show dev "$dev" 2>/dev/null | $GREP -q 'inet '; then
-      echo "$dev"
-      continue
-    fi
-    
-    # Skip interfaces that are FrogNet gateways (10.x.x.1/24)
+    # [TRANSIT_IS_A_BARE_CABLE_V1 - T6a fixes] A transit link is a wired interface with NO IPv4 address: a cable
+    # straight to another node. An interface with an address is in use -- the uplink (DHCP or static), the served
+    # LAN, a link into another node's LAN -- and is not touched. This used to take every addressed interface except
+    # a 10.x.x.1/24 gateway, so at each boot it unmanaged the uplink from NetworkManager, put a 169.254 address and a
+    # 10.253.253.x/30 on it and rolled them back 4-20 s later (2026-10-13, g1 eth0 and h2's link into h1's LAN).
+    # The unit runs after network-online.target, so an uplink's DHCP lease is in place before this looks.
     local primary_ip
-    primary_ip="$($IP -4 addr show dev "$dev" 2>/dev/null | $AWK '/inet /{print $2}' | head -1)"
-    if [[ "$primary_ip" == 10.*.*.1/24 ]]; then
-      log "SKIP: $dev is a FrogNet gateway ($primary_ip)"
+    primary_ip="$($IP -4 -o addr show dev "$dev" 2>/dev/null | $AWK '{print $4}' | head -1)"
+    if [[ -n "$primary_ip" ]]; then
+      log "SKIP: $dev has $primary_ip (in use, not a bare cable)"
       continue
     fi
-    
-    # This interface is a candidate for transit
+
+    # No address: a candidate for transit
     echo "$dev"
   done | $SORT -u
 }

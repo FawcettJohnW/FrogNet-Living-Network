@@ -1,0 +1,46 @@
+== x86: same=111
+
+
+differ:
+opt/fdf/BUILD
+
+
+not
+at
+that
+tree
+path:
+== arm: same=102
+
+
+differ:
+opt/fdf/BUILD
+opt/fdf/comms/comms-ram
+opt/fdf/comms/comms-media
+opt/fdf/bin/rina-host
+opt/fdf/bin/fdf-attention
+opt/fdf/bin/fdf-client
+opt/fdf/bin/fdf-where
+opt/fdf/bin/fdf-participants
+opt/fdf/bin/fdf-events
+opt/fdf/bin/ram
+
+
+not
+at
+that
+tree
+path:
+== drop: same=57
+
+
+differ:
+opt/fdf/BUILD
+
+
+not
+at
+that
+tree
+path:
+etc/systemd/system/fdf-hub.service

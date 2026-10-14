@@ -19,7 +19,7 @@
 Channel name parsing, deterministic tunnel naming, and joiner/host directionality.
 
 Identity for a FrogNet is the served /24, represented here as the first
-three octets - '10.x.y' - matching the broker's channel-name format
+three octets - '10.x.y' - matching the channel-name format
 `{node_name}-{subnet.replace('.0/24','')}`.  The (x, y) pair is the
 identity; neither octet alone is meaningful.
 

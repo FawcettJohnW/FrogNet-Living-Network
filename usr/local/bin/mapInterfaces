@@ -109,7 +109,7 @@ _dev_upstream_ips() {
     | while read -r ip; do
         [[ -z "$ip" ]] && continue
         # Exclude addresses that aren't real upstream identities:
-        #   10.253.0.0/16 (entire broker-reserved transit range —
+        #   10.253.0.0/16 (entire reserved transit range —
         #   wg /30s live here, e.g. 10.253.201.x, 10.253.202.x, not
         #   just 10.253.253.x); 10.254.0.0/16 (pond addresses,
         #   frognet0 intra-FrogNet); .1 we serve (downstream); sim
@@ -202,8 +202,10 @@ for dev in $(_list_up_interfaces); do
   # The remaining candidates are devs holding a 10.x address that some
   # other FrogNet node DHCP-assigned to us. Multiple IPs per dev are
   # emitted as separate "dev=ip" pairs.
-  if [[ "$dev" != "${eth0Name:-eth0}" ]] \
-     && ! _dev_owns_served24 "$dev" \
+  # [UPLINK_BY_FUNCTION_V1 - T4b] by what the link is, not its name: no dev is "always downstream" because it is
+  # called eth0 (on a container or a one-NIC box eth0 IS the uplink); the served dev is excluded because it holds
+  # the .1.
+  if ! _dev_owns_served24 "$dev" \
      && ! _dev_has_transit30 "$dev"; then
     while read -r up_ip; do
       [[ -n "$up_ip" ]] || continue
@@ -236,27 +238,74 @@ debugTag "FROGNET_TRANSIT_DEVS='$FROGNET_TRANSIT_DEVS'"
 debugTag "FROGNET_UPSTREAM_SEEDS='$FROGNET_UPSTREAM_SEEDS'"
 debugTag "FROGNET_UPSTREAM_DEVIPS='$FROGNET_UPSTREAM_DEVIPS'"
 
-# LEGACY EXPORTS
-export eth0Name="eth0"
-export wlan0Name="wlan0"
-export wlan1Name="wlan1"
+# ---------------------------------------------------------------------------
+# eth0Name / wlan0Name / wlan1Name -- [LEGACY_NAMES_ARE_DETECTED_V1] [UPLINK_BY_FUNCTION_V1 - T4b]
+# The ROLES, decided by what each link is (the names are historical: the role "eth0" is the LAN this node serves):
+#   eth0Name   the wired dev that owns a served /24 (holds a 10.A.B.1); on a fresh install (nothing served yet) the
+#              wired dev with no address (an addressed one holds a lease: it is a link INTO a network); else the
+#              only wired dev. Overlay and tunnel devices (wg*, frognet*, tun*, the reserved 10.253/10.254 planes)
+#              never.
+#   wlan0Name  the radio hostapd projects on (hostapd.conf's interface=), whatever the kernel calls it; else the
+#              first radio. wlan1Name: the next radio. A radio is what the kernel says is wireless
+#              (/sys/class/net/X/wireless), not a name. No radio: the conventional names (they name no device).
+# A pin in interfaces_override.conf / active_interface (the installer's --lan-iface) wins when it names a device
+# that exists here; a pin naming a device this machine does not have is ignored (and said with debugTag).
+# Sourcing this file writes nothing to stderr.
+# ---------------------------------------------------------------------------
+_MI_SYS=/sys/class/net
+_mi_is_overlay() { case "$1" in lo|wg*|frognet*|tun*|tap*|veth*|docker*|br-*|virbr*) return 0 ;; esac; return 1; }
+_mi_is_radio() { [[ -d "$_MI_SYS/$1/wireless" ]]; }
+_mi_exists() { [[ -n "$1" && -e "$_MI_SYS/$1" ]]; }
+_mi_detect_lan() {
+  local dev ips first_bare="" only="" n=0
+  for dev in $(ls "$_MI_SYS" 2>/dev/null | $SORT); do
+    _mi_is_overlay "$dev" && continue
+    _mi_is_radio "$dev" && continue
+    n=$((n+1)); only="$dev"
+    ips="$($IP -4 -o addr show dev "$dev" 2>/dev/null | $AWK '/inet /{print $4}' | $CUT -d/ -f1)"
+    if echo "$ips" | $GREP -E '^10\.[0-9]+\.[0-9]+\.1$' | $GREP -qvE '^10\.25[34]\.'; then echo "$dev"; return 0; fi
+    [[ -z "$ips" && -z "$first_bare" ]] && first_bare="$dev"
+  done
+  [[ -n "$first_bare" ]] && { echo "$first_bare"; return 0; }
+  [[ "$n" -eq 1 ]] && { echo "$only"; return 0; }
+  return 1
+}
+_mi_radios() {   # the hostapd radio first, then the rest, by name
+  local ap="" dev
+  if [[ -r /etc/hostapd/hostapd.conf ]]; then
+    ap="$($GREP -m1 '^interface=' /etc/hostapd/hostapd.conf 2>/dev/null | $CUT -d= -f2)"
+  fi
+  _mi_is_radio "$ap" 2>/dev/null && echo "$ap" || ap=""
+  for dev in $(ls "$_MI_SYS" 2>/dev/null | $SORT); do
+    [[ "$dev" == "$ap" ]] && continue
+    _mi_is_radio "$dev" && echo "$dev"
+  done
+}
+_mi_lan="$(_mi_detect_lan)"
+_mi_r=( $(_mi_radios) )
+export eth0Name="${_mi_lan:-eth0}"
+export wlan0Name="${_mi_r[0]:-wlan0}"
+export wlan1Name="${_mi_r[1]:-wlan1}"
 
-OVR="/etc/frognet/interfaces_override.conf"
-if [[ -f "$OVR" ]]; then
-  . "$OVR"
-  [[ -n "${eth0Name:-}" ]] && export eth0Name
-  [[ -n "${wlan0Name:-}" ]] && export wlan0Name
-  [[ -n "${wlan1Name:-}" ]] && export wlan1Name
-fi
+# [WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1] wiredLanName is the WIRED dev of the LAN role: detection, then the installer's
+# pin in interfaces_override.conf -- never active_interface, which is frognet-netstart's record of the dev serving
+# the LAN NOW (the AP radio in wireless mode). setup_lillypad took eth0Name, got the radio from that pin, and built an
+# ethernet NetworkManager profile on it ("No suitable device ... connection type is not loopback").
+for _mi_pinfile in /etc/frognet/interfaces_override.conf /etc/frognet/active_interface; do
+  if [[ "$_mi_pinfile" == /etc/frognet/active_interface ]]; then
+    if _mi_is_radio "$eth0Name"; then export wiredLanName="${_mi_lan:-eth0}"; else export wiredLanName="$eth0Name"; fi
+  fi
+  [[ -r "$_mi_pinfile" ]] || continue
+  _mi_pins="$( unset eth0Name wlan0Name wlan1Name; . "$_mi_pinfile" >/dev/null 2>&1; printf '%s %s %s' "${eth0Name:--}" "${wlan0Name:--}" "${wlan1Name:--}" )"
+  read -r _p_e _p_w0 _p_w1 <<<"$_mi_pins"
+  for _pair in "eth0Name:$_p_e" "wlan0Name:$_p_w0" "wlan1Name:$_p_w1"; do
+    _k="${_pair%%:*}"; _v="${_pair#*:}"
+    [[ "$_v" == "-" || -z "$_v" ]] && continue
+    if _mi_exists "$_v"; then export "$_k=$_v"
+    else debugTag "pin $_k=$_v in $_mi_pinfile names no device here: ignored"; fi
+  done
+done
+unset _mi_lan _mi_r _mi_pinfile _mi_pins _p_e _p_w0 _p_w1 _pair _k _v
 
-ACTIVE="/etc/frognet/active_interface"
-if [[ -f "$ACTIVE" ]]; then
-  . "$ACTIVE"
-  [[ -n "${eth0Name:-}" ]] && export eth0Name
-  [[ -n "${wlan0Name:-}" ]] && export wlan0Name
-  [[ -n "${wlan1Name:-}" ]] && export wlan1Name
-fi
-
-debugTag "LEGACY eth0Name=$eth0Name wlan0Name=$wlan0Name wlan1Name=$wlan1Name"
+debugTag "ROLES eth0Name=$eth0Name wiredLanName=$wiredLanName wlan0Name=$wlan0Name wlan1Name=$wlan1Name"
 :
-

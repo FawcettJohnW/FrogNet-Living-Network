@@ -1,0 +1,45 @@
+$ cd / && sed "1,/^__PAYLOAD_BELOW__$/d" /tmp/fdf-install-x86_64.run | tar xvzf - opt/fdf
+60
+rc=0 (files listed: counted)
+package=fdf-node.tgz
+build=fdf-2026-10-12-r20
+built=2026-10-13T12:58Z
+for=x86_64 FrogNet node or leaf
+$ cp /root/FrogNet/opt/fdf/src/fdf-source/deliverables/etc-droplet/systemd/system/fdf-hub.service /etc/systemd/system/ && systemctl daemon-reload
+rc=0
+$ ip -o addr | grep 10\.253\. ; ip route | grep 10\.253\.
+(nothing printed above = ok)
+$ /opt/fdf/bin/fdf-region-create lan 10.91.91.1
+== fdf-region-create lan at 10.91.91.1 (RAM manager tcp 51888, hub udp 50889); package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=x86_64 FrogNet node or leaf 
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+== site key: made, stored root-only in /opt/fdf/var/site-key-lan (mode 600)
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-ram-lan.service → /etc/systemd/system/fdf-ram-lan.service.
+== fdf-ram-lan started; waiting for it to answer on 127.0.0.1:51888
+   RAM manager: {"ok":true,"server":"fdf-2026-10-12-r20"}
+== map_site lan: {"ok":true}
+== /opt/fdf/hub/hub.env written
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-hub.service → /etc/systemd/system/fdf-hub.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-client-lan.service → /etc/systemd/system/fdf-client-lan.service.
+== fdf-hub (want: 'hub FrogNetHost on wg-lan', 'start (adopt)')
+   fdf-events: build fdf-2026-10-12-r20; region is build fdf-2026-10-12-r20
+   2026-10-13 13:49:05 [FDF-HUB] facts: peers=0 announced
+   2026-10-13 13:49:05 [FDF-HUB] start (adopt): members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+   2026-10-13 13:49:05 [FDF-HUB] event p: members=1 mappings=0 peers=0 prefixes=0 changes=0 build=fdf-2026-10-12-r20
+== fdf-client-lan
+   fdf-client: FrogNetHost joined the region at 127.0.0.1:51888, announced ["172.30.0.71","10.91.91.1","10.91.91.2"]
+   fdf-client: facts changed, re-announced
+   fdf-client: facts changed, re-announced
+== firewall: members must reach 10.91.91.1:51888/tcp and 10.91.91.1:50889/udp, and the hub forwards member to member.
+   With ufw, run (or re-run this with --ufw):
+     ufw allow 51888/tcp
+     ufw allow 50889/udp
+     ufw route allow in on wg-lan out on wg-lan
+
+== region lan is held here. Its site key (shown this once; it stays in /opt/fdf/var/site-key-lan):
+
+     <KEY>
+
+== a FrogNet node joins it at install:
+     sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --region 10.91.91.1:51888 --site-key <KEY> --area lan
+   or, on a node already installed:  sudo bash fdf-install-$(uname -m).run <KEY> 10.91.91.1:51888 lan
+rc=0

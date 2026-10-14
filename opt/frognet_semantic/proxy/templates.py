@@ -445,4 +445,4 @@ def learn_templates_from_real(
         traceback.print_exc()
 
 # ---- DEPLOYMENT MARKER ----
-print("[templates] BUILD=2026-03-24-v1", flush=True)
+# (a fixed "BUILD=2026-03-24-v1" stamp was printed here; the service start line names the base build [BASE_BUILD_V1])

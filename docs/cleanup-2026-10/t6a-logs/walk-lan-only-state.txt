@@ -1,0 +1,43 @@
+== enabled frognet/fdf units
+frognet-daemon.service frognet-gps.service frognet-merge-watcher.service frognet-proxy.service frognet-sysperf.service frognet-transit-boot.service frognet-transit-watch.service frognet-tunnel-daemon-v3.service frognet-dbhost-advertise.timer 
+== active frognet units
+frognet-daemon.service active running
+frognet-dbhost-advertise.service failed failed
+frognet-discovered.service active exited
+frognet-gps.service active running
+frognet-merge-watcher.service active running
+frognet-proxy.service active running
+frognet-sysperf.service active running
+frognet-transit-boot.service active exited
+frognet-transit-watch.service activating auto-restart
+frognet-tunnel-daemon-v3.service active running
+frognet-discovered.target active active
+frognet-dbhost-advertise.timer active waiting
+apache2 enabled/active
+mariadb enabled/active
+dnsmasq enabled/active
+NetworkManager enabled/active
+cron enabled/active
+== merge log
+-rw-r--r-- 1 root root  2770 Oct 13 05:01 /run/frognet/debug/latest/trace.log
+-rw-r--r-- 1 root root 12857 Oct 13 05:01 /var/log/frognet-merge-watcher.log
+[2026-10-13T05:01:38.348] runMerge INFO pid=1267 STAGE=enter pid=1267 merge_id=20261013T050138-1267 debug_dir=/run/frognet/debug/20261013T050138-1267
+[2026-10-13T05:01:38.362] runMerge INFO pid=1267 invoked_by who=watcher:poke gen=
+[2026-10-13T05:01:41.438] propogateNotificationInternal INFO pid=2896 STAGE=enter pid=2896 merge_id=20261013T050138-1267 debug_dir=/run/frognet/debug/20261013T050138-1267
+== ports
+0.0.0.0:8080
+0.0.0.0:9009
+0.0.0.0:80
+0.0.0.0:8443
+== landing
+200 200 dash 200 fdf 403
+== wg.impl wireguard-go
+== resolv:  options timeout:1 attempts:1  search NODE1 FrogNetHost.NODE1  nameserver 127.0.0.1  nameserver 172.30.0.1 
+[Daemon] build fdf-2026-10-12-r20 listening on 0.0.0.0:9009
+[Proxy] build fdf-2026-10-12-r20 listening on 0.0.0.0:80 upstream=127.0.0.1:8080 daemon_port=9009 eligible=['wlan0', 'wlan1']
+== 05:16:48 about 10 min after boot: systemctl --failed; dbhost-advertise last runs
+[05:16:46.270] [    0.032] [DIAG-STORE] pid=5921 thr=MainThread/5921 GET <- status=200 ms=3.6 bytes=1549 hdrs=Server=FrogNetProxy/3.3 Python/3.12.3;Content-Type=application/json;Content-Length=1549;Connection=close;Date=Tue, 13 Oct 2026 05:16:46 GMT
+[05:16:46.270] [    0.032] [DIAG-STORE] pid=5921 thr=MainThread/5921 GET rows n=1 service=databasehost
+frognet-dbhost-advertise.service: Deactivated successfully.
+Finished frognet-dbhost-advertise.service - FrogNet databasehost candidate registration.
+10.61.61.1      databasehost.frognet

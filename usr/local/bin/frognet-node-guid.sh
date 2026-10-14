@@ -21,11 +21,9 @@
 # Decision 2026-06-02: machine identity is an install-time GUID (NOT a MAC).
 # Stable across NIC swap / eth0<->wlan0 failover.
 #
-# [GUID_IDENTITY_V1 2026-06-19] The broker now keys identity on a real top-level
-# "guid" field (no longer the "mac" reuse hack). frognet-tunnel-setup-v3.sh sends
-# this GUID as "guid". The broker REVIVES a returning node's row on a matching
-# GUID and only retires on an explicit regenerate. This script gains a
-# `regenerate` subcommand for the deliberate-rotation case.
+# [GUID_IDENTITY_V1 2026-06-19] /etc/fnid is the node's identity: the tunnel
+# daemon announces it in the region (facts.guid) and rinab's machine_id reads it.
+# `regenerate` is the deliberate-rotation case; it is local only (2026-10-12).
 #
 # Lifecycle:
 #   - Allocated ONCE (generate-if-absent). NEVER regenerated automatically.
@@ -41,12 +39,8 @@
 # Usage:
 #   frognet-node-guid.sh            # ensure-exists, then print the GUID
 #   frognet-node-guid.sh --ensure   # ensure-exists only (install time), no print
-#   frognet-node-guid.sh regenerate # DELIBERATE rotation: retire old GUID on the
-#                                    # broker, then write a fresh one (0444).
+#   frognet-node-guid.sh regenerate # DELIBERATE rotation: write a fresh one (0444).
 GUID_FILE="${FROGNET_GUID_FILE:-/etc/fnid}"
-# [ONE_CONF_V1] broker.conf folded into tunnel.conf.
-BROKER_CONF="${FROGNET_BROKER_CONF:-${FROGNET_CONF:-/etc/frognet/tunnel.conf}}"
-GATEWAYS_CONF="${FROGNET_GATEWAYS_CONF:-/etc/frognet/gateways.conf}"
 err() { echo "frognet-node-guid: ERROR: $*" >&2; }
 
 _gen_guid() {
@@ -101,10 +95,9 @@ read_guid() {
     local g
     if [[ ! -s "$GUID_FILE" ]]; then
         err "$GUID_FILE absent or empty - this node has NO FrogNet identity."
-        err "Not minting one: a fresh GUID registers as a NEW node and collides"
-        err "with this node's existing broker row on (pond, name)."
+        err "Not minting one: a fresh GUID announces this node as a NEW node."
         err "Restore the prior value, or rotate deliberately:"
-        err "  frognet-node-guid.sh regenerate   # retires the old row first"
+        err "  frognet-node-guid.sh regenerate"
         return 1
     fi
     g="$(tr -d '[:space:]' < "$GUID_FILE")"
@@ -114,52 +107,13 @@ read_guid() {
     printf '%s' "$g"
 }
 
-_pond_name() {
-    # Pond for the broker retire call: POND_NAME in broker.conf, else
-    # NETWORK_NAME in gateways.conf (same precedence frognet-tunnel-setup-v3.sh uses).
-    local p=""
-    if [[ -r "$BROKER_CONF" ]]; then
-        p="$(grep '^POND_NAME=' "$BROKER_CONF" | cut -d= -f2- | tr -d '[:space:]')"
-    fi
-    if [[ -z "$p" && -r "$GATEWAYS_CONF" ]]; then
-        p="$(grep '^NETWORK_NAME=' "$GATEWAYS_CONF" | cut -d= -f2- | tr -d '[:space:]')"
-    fi
-    printf '%s' "$p"
-}
-
-_broker_url() {
-    [[ -r "$BROKER_CONF" ]] || return 0
-    grep '^BROKER_URL=' "$BROKER_CONF" | cut -d= -f2- | tr -d '[:space:]'
-}
-
 regenerate_guid() {
-    # DELIBERATE identity rotation. Retire the CURRENT GUID on the broker first
-    # (so the old row becomes a ghost by intent, not as a side effect), then
-    # write a fresh GUID. Broker retirement is best-effort: a node may be
-    # offline/LAN-only at rotation time; the broker tolerates an un-retired old
-    # row, and the node will register fresh regardless. We REPORT the outcome
-    # loudly either way.
-    local old new url pond
+    # DELIBERATE identity rotation: write a fresh GUID and say what it replaced.
+    local old new
     if [[ -s "$GUID_FILE" ]]; then
         old="$(read_guid)" || return 1
     else
         old=""
-    fi
-    url="$(_broker_url)"
-    pond="$(_pond_name)"
-    if [[ -n "$old" && -n "$url" && -n "$pond" ]]; then
-        if command -v curl >/dev/null; then
-            echo "frognet-node-guid: retiring old GUID $old on broker (pond=$pond)" >&2
-            local resp
-            resp="$(curl -sk -X POST "${url%/}/api/v4/retire-guid" \
-                -H "Content-Type: application/json" \
-                -d "{\"pond\":\"${pond}\",\"guid\":\"${old}\"}")"
-            echo "frognet-node-guid: broker retire response: ${resp}" >&2
-        else
-            err "curl not available — cannot retire old GUID on broker; rotating locally anyway"
-        fi
-    else
-        echo "frognet-node-guid: no broker retire (old='${old}' url='${url}' pond='${pond}') — rotating locally" >&2
     fi
     new="$(_gen_guid)" || return 1
     if [[ -z "$new" ]]; then
@@ -177,7 +131,7 @@ case "${1:-}" in
         ensure_guid || { err "GUID allocation failed for $GUID_FILE"; exit 1; }
         ;;                            # INSTALL ONLY - the sole creation path
     --read|"")
-        read_guid || exit 1 ;;        # register payload: read, never create
+        read_guid || exit 1 ;;        # read, never create
     *)
         err "unknown option: $1"; exit 2 ;;
 esac

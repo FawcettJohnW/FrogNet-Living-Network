@@ -16,32 +16,29 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 """
-Global configuration for frognet-tunnel-daemon v3 (pond/chorus).
+Global configuration for frognet-tunnel-daemon v3.
 
-Reads /etc/frognet/tunnel.conf which now contains:
-  BROKER_URL=https://streamingfrog.com:8443/frognet-broker
-  PUBKEY=<wireguard public key>
+Two modes, and only two [NO_BROKER_V1]:
 
-Node identity (name, subnet) is discovered from the local system,
-same as before. Pond/chorus membership is broker-side only - the
-daemon doesn't know or care about them.
+  region    /opt/fdf/var/join.env names RINA_RAM (written by fdf-region-join / fdf-join, removed by fdf-leave: the ONE
+            switch [REGION_SWITCH_ONE_FILE_V1]; the area is site.env's RINA_AREA). The daemon holds an FD&F region session, applies FD&F's plan and keeps one WireGuard link
+            per hub. It owns its WireGuard key: /var/lib/frognet-tunnel/node_private.key is made by the daemon itself
+            the first time it is needed (ensure_node_key) [DAEMON_OWNS_ITS_KEY_V1].
+  LAN-only  no RINA_RAM. FrogNet discovery and the databasehost election over the LAN; no WireGuard, no key.
 
-[LAN_ONLY_RUNTIME_V1] Broker reachability is a per-merge runtime
-property, not a config-time decision. On every load_config() call we
-do a cheap probe (DNS + TCP-connect with 2s timeout). Any failure
-flips BROKER_DISABLED=True and the daemon runs LAN-only for this
-cycle. We NEVER sys.exit() from config - the committer must run
-regardless so LAN observations get committed to the routing table.
+/etc/frognet/tunnel.conf is not a source of anything. If one is left on the machine, every key in it (an old
+enrolment's, or an old RINA_RAM / RINA_AREA) is named in one log line and ignored [NO_BROKER_V1]; the installer's
+upgrade removes them. Neither tunnel.conf nor the environment switches the mode.
+
+Node identity (name, subnet) is discovered from the local system.
 """
 
 import glob
 import logging
 import os
 import signal
-import socket
 import subprocess
 import sys
-import urllib.parse
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -49,6 +46,8 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 VERSION = "3.0.0"
+# [BUILD_IN_THE_LOG_V1] said by the daemon at start, in both modes, so its log names what is deployed
+BUILD = "frognet-tunnel-2026-10-12-r20"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -70,12 +69,49 @@ CONF_DIR   = Path("/etc/wireguard")
 STATE_DIR  = Path("/var/lib/frognet-tunnel")
 ACTIVE_DIR = STATE_DIR / "active"
 PID_FILE   = Path("/run/frognet/tunnel-daemon.pid")
+WG_IMPL_FILE = Path("/etc/frognet/wg.impl")
+
+
+def wg_impl():
+    """[WG_IMPL_RECORDED_V1 - T4b] The ONE WireGuard implementation of this machine: FDF_WG_IMPL when a test harness
+    sets it explicitly, else /etc/frognet/wg.impl (written once at install: the installer's A2b, the node .run, by
+    fdf-wg-impl's rule). Returns "kernel" | "wireguard-go", or None with the reason logged (a bring-up then fails and
+    the next poll retries it)."""
+    v, src = os.environ.get("FDF_WG_IMPL", "").strip(), "FDF_WG_IMPL"
+    if not v:
+        src = str(WG_IMPL_FILE)
+        try:
+            v = WG_IMPL_FILE.read_text().strip()
+        except OSError as e:
+            log.error("WG_IMPL: none recorded (%s: %s) - run the installer (or /opt/fdf/bin/fdf-wg-impl --record)",
+                      WG_IMPL_FILE, e.strerror)
+            return None
+    if v not in ("kernel", "wireguard-go"):
+        log.error("WG_IMPL: %s says %r - it must be kernel or wireguard-go", src, v)
+        return None
+    return v
+
+
+def wg_quick_env():
+    """The environment wg-quick runs in, so it makes the interface with the recorded implementation only.
+    wg-quick tries `ip link add ... type wireguard` and, when that fails, starts $WG_QUICK_USERSPACE_IMPLEMENTATION
+    if that command exists. kernel: it is set to a name no command has, so a kernel failure is the failure (said in
+    wg-quick's stderr, which the bring-up logs). wireguard-go: the record says this kernel has no WireGuard, so the
+    kernel attempt fails and wireguard-go makes the interface. None when there is no record."""
+    impl = wg_impl()
+    if impl is None:
+        return None
+    env = dict(os.environ)
+    env["WG_QUICK_USERSPACE_IMPLEMENTATION"] = (
+        "frognet-wg-impl-is-kernel-no-userspace" if impl == "kernel" else "wireguard-go")
+    if impl == "wireguard-go":
+        env["WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD"] = "1"
+    return env
 
 # ---------------------------------------------------------------------------
 # Tunable constants (env-overridable)
 # ---------------------------------------------------------------------------
 
-POLL_INTERVAL_SEC          = int(os.environ.get("FROGNET_TUNNEL_POLL_SEC",           "300"))
 # [STALE_HANDSHAKE_THRESHOLD_V2 2026-05-25] Raised default 180 -> 600.
 #
 # Why: STALE_HANDSHAKE_PURGE_V1 in poll.py tears down a tunnel whose
@@ -90,7 +126,7 @@ POLL_INTERVAL_SEC          = int(os.environ.get("FROGNET_TUNNEL_POLL_SEC",      
 # WireGuard's PersistentKeepalive (peer.py:620) is 25s; rekey interval
 # is 120s.  Under normal traffic handshake age stays well under 180s.
 # But a quiet tunnel with no probe traffic between merges, or any
-# transient broker/NAT hiccup that costs two keepalive intervals,
+# transient NAT hiccup that costs two keepalive intervals,
 # crosses 180s easily and triggers a purge of a tunnel that is in
 # fact fine and only needs a re-handshake.
 #
@@ -119,16 +155,7 @@ REFRESH_HANDSHAKE_WAIT_SEC = int(os.environ.get("FROGNET_TUNNEL_REFRESH_WAIT_SEC
 # of death, and a needless teardown costs a full rebuild + route churn.
 HANDSHAKE_GRACE_CYCLES     = int(os.environ.get("FROGNET_TUNNEL_HANDSHAKE_GRACE_CYCLES", "2"))
 GRACE_STATE_PATH           = str(STATE_DIR / "handshake_grace.json")
-GATEWAY_GRACE_SEC          = int(os.environ.get("FROGNET_TUNNEL_GW_GRACE_SEC",       "120"))
-GATEWAY_CHECK_INTERVAL_SEC = int(os.environ.get("FROGNET_TUNNEL_GW_CHECK_SEC",        "60"))
-GATEWAY_FAIL_THRESHOLD     = int(os.environ.get("FROGNET_TUNNEL_GW_FAIL_THRESH",       "3"))
 ECHO_TIMEOUT_SEC           = float(os.environ.get("FROGNET_ECHO_TIMEOUT_SEC",        "60.0"))
-ECHO_SETTLE_SEC            = int(os.environ.get("FROGNET_ECHO_SETTLE_SEC",            "5"))
-RECONNECT_BASE_SEC         = 5
-RECONNECT_MAX_SEC          = 120
-MERGE_SETTLE_SEC           = float(os.environ.get("FROGNET_MERGE_SETTLE_SEC",        "10.0"))
-METRICS_INTERVAL_SEC       = int(os.environ.get("FROGNET_METRICS_INTERVAL_SEC",      "60"))
-BROKER_PROBE_TIMEOUT_SEC   = float(os.environ.get("FROGNET_BROKER_PROBE_TIMEOUT_SEC", "2.0"))
 
 # ---------------------------------------------------------------------------
 # Node identity - populated by load_config()
@@ -136,8 +163,8 @@ BROKER_PROBE_TIMEOUT_SEC   = float(os.environ.get("FROGNET_BROKER_PROBE_TIMEOUT_
 
 running       = True
 
-BROKER_URL    = ""
-REGION_RAM    = ""      # [REGION_V1] RINA_RAM=host:8840 in tunnel.conf: the broker's four paths are answered from the region
+MODE          = ""      # "region" or "lan-only", set by load_config()
+REGION_RAM    = ""      # [REGION_V1] RINA_RAM=host:8840: region mode on
 REGION_AREA   = ""      # [REGION_V1] RINA_AREA=<area name>: the LISP site whose mappings count
 HOSTNAME      = ""
 NODE_NAME     = ""
@@ -148,20 +175,14 @@ SUBNET_PREFIX = ""
 # The served /24 is identified by SUBNET_PREFIX ('10.x.y'); the (x,y) pair
 # is the identity, neither octet alone is meaningful.  Comparators live
 # in names.py and operate on the full prefix tuple.
-CHANNEL_NAME  = ""
-GROUP_TOKEN   = ""
 NODE_GUID     = ""
-POND          = ""
 PUBKEY        = ""
 PRIVKEY       = ""
 
-# Last known digest from the broker - used for quick change detection
-last_digest   = ""
-
-# [LAN_ONLY_RUNTIME_V1] True when broker is empty, unreachable, or no
-# keypair on disk.  Consumers (bringup, poll) must skip every broker
-# call when this is True and treat the node as LAN-only.
-BROKER_DISABLED = False
+# [REGION_SWITCH_ONE_FILE_V1 - T4c] the region settings have one file each: RINA_RAM in join.env (the switch), RINA_AREA
+# in site.env (fdf-region-join writes both, fdf-leave removes both). tunnel.conf is read only to name what is left in it.
+JOIN_ENV      = Path("/opt/fdf/var/join.env")
+SITE_ENV      = Path("/opt/fdf/var/site.env")
 
 # ---------------------------------------------------------------------------
 # Signal handling
@@ -177,406 +198,143 @@ signal.signal(signal.SIGINT, _shutdown)
 
 
 # ---------------------------------------------------------------------------
-# Transit subnet discovery
-# ---------------------------------------------------------------------------
-
-# [LAN_DEV_DENYLIST_V1] Bearer classification is a DENY-list, not an
-# allow-list, and it matches mapInterfaces._list_physical_interfaces exactly.
-#
-# The prior allow-list ("eth","en","wlan","wlp","ham","br","bond") silently
-# misclassified working uplinks. systemd predictable naming produces wlx<mac>
-# for USB WiFi and enx<mac> for USB ethernet; "wlx90de80b193db" matches none of
-# wlan/wlp, so _is_lan_dev() returned False, _broker_reachable() declared the
-# node LAN-only, broker_disabled went True, and tunnel bring-up no-opped on
-# every merge forever while the node had a perfectly good non-10.x default
-# route. "enx0050b6246629" passed only by accident, because it starts with "en".
-#
-# The set of names a bearer MIGHT have is open and unknowable (wlx, enx, wwan,
-# usb, ww, altnames, user-renamed devices, ham radio bearers). The set of names
-# that are NOT bearers is small, closed, and ours: our own overlay interfaces
-# plus loopback and container/virtual devices. Deny that set; admit the rest.
-#
-# Keep in sync with mapInterfaces._list_physical_interfaces (lo, veth*,
-# docker*, br-*, virbr*) plus this module's overlay devices (wg*, frognet*).
-_NON_BEARER_PREFIXES = ("wg", "frognet", "lo", "docker", "veth",
-                        "virbr", "br-", "tun", "tap")
-
-# Retained for callers/tests that still import it. NOT used for classification:
-# an allow-list cannot be complete. Do not reintroduce it as the gate.
-_LAN_DEV_PREFIXES = ("eth", "en", "wlan", "wlp", "wlx", "wl", "ww",
-                     "ham", "br", "bond", "usb")
-
-
-def _is_lan_dev(dev: str) -> bool:
-    """True if dev is a directly-attached bearer.
-
-    A bearer is anything that is not one of OUR overlay interfaces (wg*,
-    frognet*) and not a loopback/container/virtual device. Name prefixes are
-    NOT consulted: see _NON_BEARER_PREFIXES above for why.
-
-    Note "br-" is denied (docker bridges) while a plain "br0" is admitted --
-    an operator-created bridge is a legitimate bearer. This matches
-    mapInterfaces, which skips br-* and keeps br*.
-    """
-    if not dev:
-        return False
-    return not any(dev == p or dev.startswith(p)
-                   for p in _NON_BEARER_PREFIXES)
-
-
-def _broker_reachable(broker_url: str,
-                      timeout: float = BROKER_PROBE_TIMEOUT_SEC) -> bool:
-    """[LAN_DEV_PATH_V1] Reachability = the route to the broker IP exits
-    via a directly-attached non-FrogNet interface (eth*/en*/wlan*/wlp*/
-    ham/br/bond).  A node whose path to the broker goes through wg* or
-    frognet* is riding another FrogNet's tunnels; that node must NOT
-    register, must NOT make broker calls, must NOT bring up its own
-    tunnels.  TCP-connect alone can't tell - it succeeds via the
-    upstream's tunnels.  The kernel routing table can.
-
-    Fail-closed on every uncertainty: no host, no DNS, no route, or
-    a route through wg*/frognet*/lo/anything-not-a-LAN-prefix -> False.
-
-    Cheap: one DNS lookup, one `ip route get`.  Runs every poll cycle.
-    """
-    try:
-        parsed = urllib.parse.urlparse(broker_url)
-        host = parsed.hostname
-    except Exception as e:
-        log.info("Broker URL %r parse failed (%s) - LAN-only", broker_url, e)
-        return False
-    if not host:
-        log.info("Broker URL %r has no host - LAN-only", broker_url)
-        return False
-    # [HOSTS_ONLY_V1] does NOT apply here, deliberately. The rule is that /etc/hosts is
-    # the only source of name->IP for FROGNET names. The broker is reached over the
-    # public internet and its hostname is not a FrogNet name -- it is not in
-    # /etc/hosts and never will be, so DNS is the correct and only source for it.
-    # Guarded: a 10. answer would mean a FrogNet name reached this path, which is a
-    # classification bug, and it is refused rather than dialled.
-    try:
-        ip = socket.gethostbyname(host)
-    except OSError as e:
-        log.info("Broker host %s not resolvable (%s) - LAN-only", host, e)
-        return False
-    if str(ip).startswith("10."):
-        log.info("Broker host %s resolved to a FrogNet address %s via DNS - refusing; "
-                 "FrogNet names come from /etc/hosts only [HOSTS_ONLY_V1]", host, ip)
-        return False
-    try:
-        out = subprocess.check_output(
-            ["ip", "-4", "route", "get", ip],
-            text=True, timeout=timeout)
-    except Exception as e:
-        log.info("Broker route lookup for %s (%s) failed (%s) - LAN-only",
-                 host, ip, e)
-        return False
-    # Parse "<ip> via <gw> dev <dev> ..." or "<ip> dev <dev> ..."
-    parts = out.split()
-    dev = ""
-    for i, tok in enumerate(parts):
-        if tok == "dev" and i + 1 < len(parts):
-            dev = parts[i + 1]
-            break
-    if not dev:
-        log.info("Broker route to %s (%s) has no dev (%r) - LAN-only",
-                 host, ip, out.strip())
-        return False
-    if not _is_lan_dev(dev):
-        log.info("Broker route to %s (%s) goes via dev=%s - upstream is "
-                 "another FrogNet, this node is LAN-only", host, ip, dev)
-        return False
-    log.info("Broker %s (%s) reachable via dev=%s - online", host, ip, dev)
-    return True
-
-
-# [TRANSIT_DISCOVER_V2_RESTORED 2026-06-06] Reverted v25's TRANSIT_FROM_ROUTES_V1
-# route-scan (which reintroduced the peer-LAN-claiming bug the working build
-# deliberately abandoned) back to the proven all5 lease-based downstream +
-# echo-probed upstream method. DHCP leases are the authoritative gateway signal.
-def discover_transit_subnets(local_subnet: str) -> list:
-    """[TRANSIT_DISCOVER_V2] Return /24s for FrogNet nodes that THIS host
-    serves DHCP to.
-
-    Algorithm:
-      1. Enumerate unexpired leases in /var/lib/misc/dnsmasq.leases.
-      2. For each leased IP, GET http://<ip>/frognet_echo.php (1s timeout).
-         Non-FrogNet devices (printers, laptops, '*' hostnames) fail the
-         probe and are skipped.
-      3. Parse CSV response; field 1 is the peer's frognet IP; mask /24.
-      4. Skip own /24, 10.253/8 transit, 10.254/8 chorus.
-
-    Hosts that aren't running DHCP have no leases file -> [].
-
-    The lease file is the gateway signal: a node only serves DHCP for
-    LANs it's the gateway of, so leases scoped to those LANs identify
-    that node's downstream FrogNet peers.  This replaces the symmetric
-    route-scan that incorrectly claimed peer-LANs and learned transit
-    routes as own transit subnets.
-    """
-    import time
-    import urllib.request
-
-    LEASES = "/var/lib/misc/dnsmasq.leases"
-    if not os.path.isfile(LEASES):
-        log.info("discover_transit_subnets [V2]: no %s -> []", LEASES)
-        return []
-    try:
-        with open(LEASES) as f:
-            raw_lines = f.readlines()
-    except OSError as e:
-        log.warning("discover_transit_subnets [V2]: read %s: %s", LEASES, e)
-        return []
-
-    now    = time.time()
-    found  = set()
-    probed = 0
-    skipped_expired = 0
-    failed_probe    = 0
-
-    for raw in raw_lines:
-        parts = raw.strip().split()
-        if len(parts) < 3:
-            continue
-        try:
-            expiry = int(parts[0])
-        except ValueError:
-            continue
-        if expiry <= now:
-            skipped_expired += 1
-            continue
-        ip = parts[2]
-
-        url = "http://%s/frognet_echo.php" % ip
-        probed += 1
-        try:
-            with urllib.request.urlopen(url, timeout=1.0) as r:
-                if getattr(r, "status", 200) != 200:
-                    failed_probe += 1
-                    continue
-                body = r.read(256).decode("utf-8", "replace").strip()
-        except Exception:
-            failed_probe += 1
-            continue
-
-        fields = body.split(",")
-        if len(fields) < 2:
-            failed_probe += 1
-            continue
-        frognet_ip = fields[1].strip()
-        if not frognet_ip.startswith("10."):
-            failed_probe += 1
-            continue
-        octets = frognet_ip.split(".")
-        if len(octets) != 4:
-            failed_probe += 1
-            continue
-        try:
-            if not all(0 <= int(o) <= 255 for o in octets):
-                failed_probe += 1
-                continue
-        except ValueError:
-            failed_probe += 1
-            continue
-        if frognet_ip.startswith("10.253.") or frognet_ip.startswith("10.254."):
-            continue
-        cidr = "%s.%s.%s.0/24" % (octets[0], octets[1], octets[2])
-        if cidr == local_subnet:
-            continue
-        found.add(cidr)
-
-    # [TRANSIT_DISCOVER_V3] Upstream gateway discovery. The lease loop
-    # above finds DOWNSTREAM peers (nodes we serve DHCP to). It misses
-    # UPSTREAM peers - APs whose network this host is a DHCP CLIENT of.
-    # Without this, when we transit traffic FROM the upstream's /24
-    # through one of our wg tunnels, the peer on the far end has no
-    # return route and replies are dropped.
-    #
-    # Method: enumerate every /24 connected on this host. For each /24
-    # where our IP is NOT the .1, probe .1 with frognet_echo. If .1
-    # answers as FrogNet, that's an upstream FrogNet host and we can
-    # transit its /24.
-    try:
-        addr_out = subprocess.check_output(
-            ["ip", "-4", "-o", "addr", "show"], text=True)
-    except subprocess.CalledProcessError as e:
-        log.warning("discover_transit_subnets [V3]: ip addr failed: %s", e)
-        addr_out = ""
-
-    local_ips = set()
-    candidate_subnets = []
-    for line in addr_out.splitlines():
-        parts = line.split()
-        if len(parts) < 4 or parts[2] != "inet":
-            continue
-        ip_cidr = parts[3]
-        if "/" not in ip_cidr:
-            continue
-        ip_str, mask_str = ip_cidr.split("/", 1)
-        if not ip_str.startswith("10."):
-            continue
-        if ip_str.startswith("10.253.") or ip_str.startswith("10.254."):
-            continue
-        try:
-            if int(mask_str) != 24:
-                continue
-        except ValueError:
-            continue
-        local_ips.add(ip_str)
-        octets = ip_str.split(".")
-        if len(octets) != 4:
-            continue
-        prefix = "%s.%s.%s" % (octets[0], octets[1], octets[2])
-        candidate_subnets.append(("%s.0/24" % prefix, "%s.1" % prefix, ip_str))
-
-    upstream_probed = 0
-    upstream_failed = 0
-    upstream_found = set()
-    for subnet_cidr, gw_ip, my_ip in candidate_subnets:
-        if subnet_cidr == local_subnet:
-            continue
-        if subnet_cidr in found:
-            continue
-        if gw_ip == my_ip or gw_ip in local_ips:
-            continue
-        upstream_probed += 1
-        try:
-            with urllib.request.urlopen(
-                    "http://%s/frognet_echo.php" % gw_ip, timeout=1.0) as r:
-                if getattr(r, "status", 200) != 200:
-                    upstream_failed += 1
-                    continue
-                body = r.read(256).decode("utf-8", "replace").strip()
-        except Exception:
-            upstream_failed += 1
-            continue
-        fields = body.split(",")
-        if len(fields) < 2 or not fields[1].strip().startswith("10."):
-            upstream_failed += 1
-            continue
-        upstream_found.add(subnet_cidr)
-        found.add(subnet_cidr)
-
-    log.info("discover_transit_subnets [V3-upstream]: candidates=%d "
-             "probed=%d failed=%d found=%s",
-             len(candidate_subnets), upstream_probed,
-             upstream_failed, sorted(upstream_found))
-
-    result = sorted(found)
-    log.info("discover_transit_subnets [V2]: local=%s leases=%d "
-             "probed=%d expired=%d failed=%d found=%s",
-             local_subnet, len(raw_lines), probed,
-             skipped_expired, failed_probe, result)
-    return result
-
-# ---------------------------------------------------------------------------
 # load_config
 # ---------------------------------------------------------------------------
 
-def _fdf_var(name, *files):
-    """[REGION_SWITCH_V2] a value from FD&F's own files (/opt/fdf/var/join.env written by fdf-join, site.env written by
-    hand): `KEY=VALUE` or `export KEY=VALUE`. Nothing in FrogNet rewrites these, unlike tunnel.conf."""
-    for path in files:
-        try:
-            with open(path) as f:
-                for ln in f:
-                    ln = ln.strip()
-                    if ln.startswith("export "):
-                        ln = ln[7:].strip()
-                    if ln.startswith(name + "="):
-                        return ln.split("=", 1)[1].strip().strip('"')
-        except OSError:
-            pass
-    return ""
+def _fdf_var(name, path):
+    """[REGION_SWITCH_ONE_FILE_V1] NAME's value in one of FD&F's own files (`KEY=VALUE` or `export KEY=VALUE`).
+    Returns (value, why): value "" with why saying what was missing (no file, or no NAME in it)."""
+    try:
+        with open(path) as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln.startswith("export "):
+                    ln = ln[7:].strip()
+                if ln.startswith(name + "="):
+                    return ln.split("=", 1)[1].strip().strip('"'), ""
+    except OSError as e:
+        return "", "%s: %s" % (path, e.strerror)
+    return "", "%s has no %s" % (path, name)
+
+
+
+PRIVKEY_FILE = STATE_DIR / "node_private.key"
+PUBKEY_FILE  = STATE_DIR / "node_public.key"
+
+
+def _name_leftover_conf() -> None:
+    """[REGION_SWITCH_ONE_FILE_V1] tunnel.conf is no source: if one is on the machine, its keys are named in one line and
+    ignored (an old enrolment's, or an old RINA_RAM / RINA_AREA; the installer's upgrade strips them)."""
+    keys = []
+    try:
+        with open(CONF_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if "=" in line:
+                    keys.append(line.split("=", 1)[0].strip())
+    except FileNotFoundError:
+        return
+    if keys:
+        log.warning("%s: old broker keys ignored: %s (nothing is read from this file; the region switch is %s) [NO_BROKER_V1 "
+                    "REGION_SWITCH_ONE_FILE_V1]", CONF_FILE, ", ".join(sorted(set(keys))), JOIN_ENV)
+
+
+def _pubkey_of(privkey: str) -> str:
+    r = subprocess.run(["wg", "pubkey"], input=privkey + "\n", capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise RuntimeError("wg pubkey failed rc=%d: %s" % (r.returncode, (r.stderr or "").strip()))
+    return r.stdout.strip()
+
+
+def _load_node_key() -> None:
+    """PRIVKEY/PUBKEY from node_private.key (the public half is derived from it, one source). Absent: both empty."""
+    global PRIVKEY, PUBKEY
+    PRIVKEY, PUBKEY = "", ""
+    try:
+        priv = PRIVKEY_FILE.read_text().strip()
+    except FileNotFoundError:
+        return
+    if not priv:
+        log.error("WG_KEY: %s is empty; treated as absent", PRIVKEY_FILE)
+        return
+    PRIVKEY = priv
+    PUBKEY = _pubkey_of(priv)
+
+
+def ensure_node_key() -> bool:
+    """[DAEMON_OWNS_ITS_KEY_V1] Region mode: the daemon's WireGuard key. If node_private.key is absent the daemon makes
+    it (umask 077, wg genkey; node_public.key = wg pubkey of it) and says so with the public half. This is the only
+    creator of the key. Returns True when a key is in hand. A failure is logged and the caller tries again on its next
+    event; there is no second way to get a key."""
+    global PRIVKEY, PUBKEY
+    if PRIVKEY:
+        return True
+    _load_node_key()
+    if PRIVKEY:
+        return True
+    old = os.umask(0o077)
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(["wg", "genkey"], capture_output=True, text=True)
+        if r.returncode != 0 or not r.stdout.strip():
+            raise RuntimeError("wg genkey failed rc=%d: %s" % (r.returncode, (r.stderr or "").strip()))
+        priv = r.stdout.strip()
+        pub = _pubkey_of(priv)
+        tmp = PRIVKEY_FILE.with_name(PRIVKEY_FILE.name + ".tmp.%d" % os.getpid())
+        tmp.write_text(priv + "\n")
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, PRIVKEY_FILE)
+        tmp = PUBKEY_FILE.with_name(PUBKEY_FILE.name + ".tmp.%d" % os.getpid())
+        tmp.write_text(pub + "\n")
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, PUBKEY_FILE)
+    except Exception as e:
+        log.error("WG_KEY: could not make %s: %s (tried again on the next event) [DAEMON_OWNS_ITS_KEY_V1]", PRIVKEY_FILE, e)
+        return False
+    finally:
+        os.umask(old)
+    PRIVKEY, PUBKEY = priv, pub
+    log.warning("WG_KEY: made %s (none on disk); public key %s [DAEMON_OWNS_ITS_KEY_V1]", PRIVKEY_FILE, pub)
+    return True
 
 
 def load_config():
-    """[LAN_ONLY_RUNTIME_V1] Load tunnel.conf and probe broker reachability.
+    """[NO_BROKER_V1] The mode (region or LAN-only), the node's identity and, in region mode, its WireGuard key if it
+    has one yet. Never exits for a missing tunnel.conf or key: LAN-only needs neither, and in region mode the daemon
+    makes the key (ensure_node_key) before its first bring-up."""
+    global MODE, REGION_RAM, REGION_AREA
+    global HOSTNAME, NODE_NAME, LOCAL_SUBNET, LOCAL_GW, SUBNET_PREFIX, NODE_GUID, PRIVKEY, PUBKEY
 
-    Never sys.exit() on broker/keypair issues - the committer must run
-    on LAN-only nodes so LAN observations get committed.  Sets
-    BROKER_DISABLED=True for any failure mode (empty URL, unreachable
-    broker, missing keypair when otherwise reachable).
-    """
-    global BROKER_URL, GROUP_TOKEN, BROKER_DISABLED
-    global HOSTNAME, NODE_NAME, LOCAL_SUBNET, LOCAL_GW, SUBNET_PREFIX
-    global CHANNEL_NAME, PUBKEY, PRIVKEY, NODE_GUID, POND
-
-    if not CONF_FILE.exists():
-        log.error("Config file %s not found - run frognet_tunnel_setup_v3.sh first", CONF_FILE)
-        sys.exit(1)
-
-    conf = {}
-    with open(CONF_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if "=" in line:
-                k, v = line.split("=", 1)
-                conf[k.strip()] = v.strip()
-
-    global REGION_RAM, REGION_AREA
-    # [REGION_SWITCH_V2] the switch is fdf-join: /opt/fdf/var/join.env (RINA_RAM) + site.env (RINA_AREA). tunnel.conf
-    # lines and the environment still count, but tunnel.conf gets regenerated by FrogNet's own tools and lost them.
-    REGION_RAM = conf.get("RINA_RAM") or os.environ.get("RINA_RAM", "") or _fdf_var("RINA_RAM", "/opt/fdf/var/join.env")
-    REGION_AREA = conf.get("RINA_AREA") or os.environ.get("RINA_AREA", "") or _fdf_var("RINA_AREA", "/opt/fdf/var/site.env")
-    def _show(path):
-        try:
-            with open(path) as f:
-                return repr(f.read().strip())
-        except OSError as e:
-            return "missing (%s)" % e.strerror
-    log.warning("REGION switch: tunnel.conf RINA_RAM=%r; env RINA_RAM=%r; /opt/fdf/var/join.env=%s; /opt/fdf/var/site.env=%s -> RINA_RAM=%r RINA_AREA=%r",
-                conf.get("RINA_RAM"), os.environ.get("RINA_RAM"), _show("/opt/fdf/var/join.env"), _show("/opt/fdf/var/site.env").replace("RINA_SITE_KEY=", "RINA_SITE_KEY=<hidden>")[:60] + "'",
-                REGION_RAM, REGION_AREA)
-    BROKER_URL = conf.get("BROKER_URL", "")
+    _name_leftover_conf()
+    # [REGION_SWITCH_ONE_FILE_V1 - T4c] one file is the switch: join.env's RINA_RAM. The area: site.env's RINA_AREA.
+    # tunnel.conf and the environment are not read for either.
+    REGION_RAM, why_ram = _fdf_var("RINA_RAM", JOIN_ENV)
+    REGION_AREA, why_area = "", ""
     if REGION_RAM:
-        # [REGION_V1] region mode: no broker, no reachability probe (liveness is the session, said by fdf-events)
-        log.info("Region mode: RINA_RAM=%s RINA_AREA=%s (broker not used)", REGION_RAM, REGION_AREA)
-        BROKER_DISABLED = False
-    elif not BROKER_URL:
-        log.info("No BROKER_URL in %s - LAN-only mode", CONF_FILE)
-        BROKER_DISABLED = True
-    elif not _broker_reachable(BROKER_URL):
-        # Logged inside _broker_reachable; no need to repeat.
-        BROKER_DISABLED = True
+        REGION_AREA, why_area = _fdf_var("RINA_AREA", SITE_ENV)
+    MODE = "region" if REGION_RAM else "lan-only"
+    if REGION_RAM:
+        log.warning("REGION switch: %s RINA_RAM=%s; %s RINA_AREA=%s -> region mode [REGION_SWITCH_ONE_FILE_V1]",
+                    JOIN_ENV, REGION_RAM, SITE_ENV, REGION_AREA or "<absent: %s>" % why_area)
+        if not REGION_AREA:
+            log.error("REGION: no area (%s): this node's mappings name no site until fdf-region-join writes it", why_area)
     else:
-        BROKER_DISABLED = False
+        log.info("LAN-only mode: no region switch (%s); no WireGuard [LAN_ONLY_NO_REGION_V1 REGION_SWITCH_ONE_FILE_V1]",
+                 why_ram)
 
-    GROUP_TOKEN = conf.get("GROUP_TOKEN", "")
     NODE_GUID = ""
     try:
         with open("/etc/fnid") as _gf:
             NODE_GUID = _gf.read().strip()
     except OSError:
         pass
-    if not NODE_GUID and not BROKER_DISABLED:
-        log.error("CRITICAL: No GUID at /etc/fnid - this node has NO FrogNet "
-                  "identity and the broker will reject its registration. Run "
-                  "`frognet-node-guid.sh --ensure` and restart "
-                  "frognet-tunnel-daemon-v3.")
-    # [NO_GROUP_TOKEN_CRITICAL_V1 - John 2026-09-12] Removed a CRITICAL that
-    # was not true.
-    #
-    # It read: "No GROUP_TOKEN ... broker auth WILL fail. Channel registration
-    # and transit-subnet updates will be rejected (401)." The broker
-    # (frognet_broker_v4.py) contains no group_token check and does not return
-    # 401 from any route -- grep both, zero hits. Registration is authenticated
-    # by the pond password and identified by the GUID; the token this warned
-    # about is not consulted by anything on the far end.
-    #
-    # So the line announced a certain failure that cannot occur, on every
-    # start, in the voice reserved for real faults. It cost real time: the
-    # 2026-07-26 NY1/Seattle2 transit asymmetry was chased as a 401 on
-    # update-subnets because this message said that is what happens, and the
-    # actual cause was elsewhere. A diagnostic that names a failure mode the
-    # code cannot produce is worse than silence -- silence does not send you
-    # somewhere else.
-    #
-    # GROUP_TOKEN is still read above and still forwarded by broker.py for a
-    # broker that may want it. If a broker ever does enforce it, the honest
-    # signal is that broker's own rejection, reported where it happens.
+    if not NODE_GUID and REGION_RAM:
+        log.error("CRITICAL: No GUID at /etc/fnid - this node has NO FrogNet identity to announce in the region. Run "
+                  "`frognet-node-guid.sh --ensure` and restart frognet-tunnel-daemon-v3.")
 
     HOSTNAME = subprocess.check_output(["hostname", "-s"], text=True).strip()
 
@@ -614,53 +372,15 @@ def load_config():
         log.error("No 10.x.x.x address found (excluding 10.253.x.x transit and 10.254.x.x chorus ranges)")
         sys.exit(1)
 
-    CHANNEL_NAME = f"{NODE_NAME}-{SUBNET_PREFIX}"
-
-    # [GUID_IDENTITY_V1] Pond name for broker register/retire calls. The
-    # daemon historically did not carry the pond (membership was broker-side
-    # only), but GUID re-registration needs it. It is already on disk: install
-    # writes NETWORK_NAME=<pond> into /etc/frognet/gateways.conf. Read it here
-    # so the daemon can re-register on a my-channels 404 instead of giving up.
-    POND = ""
-    try:
-        with open("/etc/frognet/gateways.conf") as _gf:
-            for _gl in _gf:
-                _gl = _gl.strip()
-                if _gl.startswith("NETWORK_NAME="):
-                    POND = _gl.split("=", 1)[1].strip()
-                    break
-    except OSError:
-        pass
-    if not POND and not BROKER_DISABLED:
-        log.warning("No NETWORK_NAME in /etc/frognet/gateways.conf - cannot "
-                    "self-register with the broker on a 404 until the pond is "
-                    "known.")
-
-    # WireGuard keys.  Required only when we intend to talk to the
-    # broker (i.e. not BROKER_DISABLED).  On a permanent LAN-only node
-    # the keys never exist, which is fine.  On a node that's just lost
-    # its broker, the keys exist but we won't use them this cycle.
-    privkey_file = STATE_DIR / "node_private.key"
-    pubkey_file  = STATE_DIR / "node_public.key"
-    if privkey_file.exists() and pubkey_file.exists():
-        PRIVKEY = privkey_file.read_text().strip()
-        PUBKEY  = pubkey_file.read_text().strip()
-    elif not BROKER_DISABLED:
-        # Broker reachable, configured, keypair missing.  This is the
-        # "operator hasn't run setup_v3 yet" case - log it loudly but
-        # don't sys.exit.  Downgrade to LAN-only so the committer
-        # still runs; setup_v3 will populate the keypair and a normal
-        # systemctl restart picks up from there.
-        log.error("WireGuard keypair missing - run frognet_tunnel_setup_v3.sh "
-                  "to register with broker; running in LAN-only mode this cycle")
-        PRIVKEY = ""
-        PUBKEY  = ""
-        BROKER_DISABLED = True
+    # WireGuard key: region mode only. If there is none yet the daemon makes it before its first bring-up
+    # (ensure_node_key); LAN-only never needs one.
+    if REGION_RAM:
+        _load_node_key()
+        if not PRIVKEY:
+            log.info("WireGuard key: none at %s yet; the daemon makes it before its first bring-up [DAEMON_OWNS_ITS_KEY_V1]",
+                     PRIVKEY_FILE)
     else:
-        log.info("WireGuard keypair not present - LAN-only mode, no tunnels")
-        PRIVKEY = ""
-        PUBKEY  = ""
+        PRIVKEY, PUBKEY = "", ""
 
-    log.info("Config: broker=%s broker_disabled=%s", BROKER_URL, BROKER_DISABLED)
-    log.info("Identity: node=%s host=%s subnet=%s channel=%s",
-             NODE_NAME, HOSTNAME, LOCAL_SUBNET, CHANNEL_NAME)
+    log.info("Config: mode=%s build=%s", MODE, BUILD)
+    log.info("Identity: node=%s host=%s subnet=%s", NODE_NAME, HOSTNAME, LOCAL_SUBNET)

@@ -1,0 +1,43 @@
+NAME       ALIVE  TERM  OS     CORES  MEM   IPS
+N1         yes    -     linux  2      7.8G  172.30.0.51,10.81.81.1,10.81.81.2,10.253.81.81
+N2         yes    -     linux  2      7.8G  172.30.0.52,10.82.82.1,10.82.82.2,10.253.82.82
+regionbox  yes    -     linux  2      7.8G  172.30.0.10,10.253.253.254
+
+FD&F monitor   network 127.0.0.1:51888   RAM manager round trip 0.6 ms   3 member(s), 3 alive
+
+NAME              ALIVE  SEEN FROM        IPS                     OS       CORES  CPU       MEM     LOAD   TERM    SESS
+N1                yes    172.30.0.51      172.30.0.51,10.81.81.~  linux    2      -         7.8G    -      -       -
+N2                yes    172.30.0.52      172.30.0.52,10.82.82.~  linux    2      -         7.8G    -      -       -
+regionbox         yes    127.0.0.1        172.30.0.10,10.253.25~  linux    2      -         7.8G    -      -       -
+
+N1   (alive)
+
+identity      ns w:809360c4a7624588b1350306a5e0ebf4
+session       8
+seen from     172.30.0.51   (the address the RAM manager sees this session come from)
+reports IPs   172.30.0.51, 10.81.81.1, 10.81.81.2, 10.253.81.81
+attached      node:w:809360c4a7624588b1350306a5e0ebf4
+terminal      no (fdf-term-serve not running)
+processes     -
+applications  -
+
+capability (as announced):
+  client               fdf-client
+  cores                2
+  mem_total_kb         8222320
+  os                   linux
+
+N2   (alive)
+
+identity      ns w:de07aec96642474e99bb93d6de08d9bd
+session       7
+seen from     172.30.0.52   (the address the RAM manager sees this session come from)
+reports IPs   172.30.0.52, 10.82.82.1, 10.82.82.2, 10.253.82.82
+peer: gGX2IefUF8lZukYBrRuznOqRHg5AJrnH7Sfq8LpQNmw=
+  endpoint: 172.30.0.51:11649
+  allowed ips: 10.253.81.81/32, 10.81.81.0/24
+  latest handshake: 54 seconds ago
+peer: r61qpv/v7Ih2iqmMiiqqajW3R+/VXjmKLAAEFbRDhRU=
+  endpoint: 172.30.0.52:27652
+  allowed ips: 10.253.82.82/32, 10.82.82.0/24
+  latest handshake: 55 seconds ago

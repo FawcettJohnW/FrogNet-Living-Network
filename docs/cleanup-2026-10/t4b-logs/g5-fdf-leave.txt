@@ -1,0 +1,15 @@
+== fdf-leave, package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-12T17:11Z for=x86_64 FrogNet node or leaf 
+Removed "/etc/systemd/system/multi-user.target.wants/fdf-client.service".
+removed fdf-client.service
+Removed "/etc/systemd/system/multi-user.target.wants/fdf-facts.service".
+removed fdf-facts.service
+removed /opt/fdf/var/join.env, site.env, ponds/, attention/, forward, forward.want, facts.json
+Created symlink /etc/systemd/system/timers.target.wants/frognet-dbhost-advertise.timer → /etc/systemd/system/frognet-dbhost-advertise.timer.
+re-enabled frognet-dbhost-advertise.timer
+Created symlink /etc/systemd/system/timers.target.wants/frognet-dbhost-elect.timer → /etc/systemd/system/frognet-dbhost-elect.timer.
+re-enabled frognet-dbhost-elect.timer
+Created symlink /etc/systemd/system/multi-user.target.wants/frognet-merge-watcher.service → /etc/systemd/system/frognet-merge-watcher.service.
+re-enabled frognet-merge-watcher.service
+restarted frognet-tunnel-daemon-v3: LAN-only (its log says 'LAN-only loop started')
+left the region: this node is LAN-only FrogNet
+rc=0

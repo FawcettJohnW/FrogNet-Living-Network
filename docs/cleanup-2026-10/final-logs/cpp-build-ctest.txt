@@ -1,0 +1,136 @@
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found CURL: /usr/lib/x86_64-linux-gnu/libcurl.so (found version "8.5.0")  
+-- Found Curses: /usr/lib/x86_64-linux-gnu/libcurses.so  
+-- Configuring done (0.7s)
+-- Generating done (0.0s)
+-- Build files have been written to: /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/cppb
+[  7%] Building CXX object CMakeFiles/frognet_core.dir/src/json.cpp.o
+[ 14%] Building CXX object CMakeFiles/frognet_core.dir/src/parsers.cpp.o
+[ 21%] Building CXX object CMakeFiles/frognet_core.dir/src/http.cpp.o
+[ 28%] Building CXX object CMakeFiles/frognet_core.dir/src/dashboard.cpp.o
+[ 35%] Building CXX object CMakeFiles/frognet_core.dir/src/frognet.cpp.o
+[ 42%] Linking CXX static library libfrognet_core.a
+[ 42%] Built target frognet_core
+[ 57%] Building CXX object CMakeFiles/frognet_monitor.dir/src/main_headless.cpp.o
+[ 57%] Building CXX object CMakeFiles/frognet_parser_oracle.dir/tests/parser_oracle.cpp.o
+[ 64%] Linking CXX executable frognet_monitor
+[ 64%] Built target frognet_monitor
+[ 71%] Building CXX object CMakeFiles/frognet_dashboard_oracle.dir/tests/dashboard_oracle.cpp.o
+[ 78%] Linking CXX executable frognet_parser_oracle
+[ 78%] Built target frognet_parser_oracle
+[ 85%] Building CXX object CMakeFiles/frognet_monitor_tui.dir/src/main_tui.cpp.o
+[ 92%] Linking CXX executable frognet_dashboard_oracle
+[ 92%] Built target frognet_dashboard_oracle
+[100%] Linking CXX executable frognet_monitor_tui
+[100%] Built target frognet_monitor_tui
+Test project /tmp/claude-0/-home-claude/06c60600-ebaa-53d9-824b-cf8b16fa00c7/scratchpad/cppb
+    Start 1: parser_vectors
+1/2 Test #1: parser_vectors ...................   Passed    0.00 sec
+    Start 2: dashboard_model
+2/2 Test #2: dashboard_model ..................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.02 sec
+vectors: /home/claude/clean/usr/local/bin/frognet_monitor_shared/parser_vectors.json
+
+=== echo_line (identity) ===
+  ok    all four fields present
+  ok    empty eth0 is DATA, not failure - no carrier is a real answer
+  ok    trailing empty field must not shorten the line
+  ok    two adjacent empties must not collapse
+  ok    trailing newline tolerated
+  ok    empty body means identity failed -- rejected, as it must be
+  ok    whitespace-only body means identity failed -- rejected, as it must be
+  ok    empty name field is a failure even with fields present -- rejected, as it must be
+  ok    fewer than four fields is a failure -- rejected, as it must be
+
+=== etc_hosts (discovery) ===
+  ok    standard node lines
+  ok    tunnel transit 10.253/16 excluded
+  ok    chorus virtual 10.254/16 excluded
+  ok    non-10/8 excluded
+  ok    line without the FrogNetHost alias is not a node
+  ok    comments and blanks skipped
+  ok    role names are not nodes
+  ok    extra aliases before the FrogNetHost one
+  ok    tabs and multiple spaces
+
+=== dot_one_of (identity endpoint) ===
+  ok    DHCP client on a pond
+  ok    a node's own .1
+  ok    a node's secondary .2
+  ok    high client octet
+  ok    tunnel transit rejected -- rejected
+  ok    chorus virtual rejected -- rejected
+  ok    non-10/8 rejected -- rejected
+  ok    loopback rejected -- rejected
+  ok    malformed rejected -- rejected
+
+=== snapshot (getSnapshot.php) [ONE_MONITOR_TRUTH_V1] ===
+  ok    region node: forward pond, a participant pond, hub link, a device
+  ok    LAN-only node: no ponds, no hub, members from LAN discovery
+  ok    hub states, non-boolean flags are not true, errors carried
+  ok    not JSON -- rejected
+  ok    getHosts.php's array is not a snapshot -- rejected
+  ok    another contract version -- rejected
+  ok    a mode that is neither lan-only nor region -- rejected
+  ok    no mode -- rejected
+  ok    types: 1.0 is 1, a non-string field reads empty, an empty error is no error, non-string errors dropped
+  ok    snapshot true is not the number 1 -- rejected
+
+37 passed, 0 failed
+PASS - C++ parsers agree with the shared vectors
+parser rc=0
+=== peer status: first match wins, same order as the Python ===
+  ok    echo failed outranks everything -> DOWN
+  ok    saturated link beats a good RTT -> SAT
+  ok    busy link beats a good RTT -> BUSY
+  ok    slow when p95 over 1000ms -> SLOW
+  ok    fair when p95 over 250ms -> FAIR
+  ok    ok otherwise -> OK
+
+=== a missing LinkQuality entry is not a failure ===
+  ok    degrades to RTT, not to DOWN -> OK
+  ok    degrades to RTT thresholds -> SLOW
+  ok    no readings at all is UNKNOWN, not OK -> ?
+
+=== zero is not a measurement ===
+  ok    fmtRtt(0) -> "—"
+  ok    fmtPct(0) -> "—"
+  ok    fmtBytes(0) -> "—"
+  ok    fmtBps(0) -> "—"
+  ok    rttInk(0) is dim, not good
+
+=== formatting ===
+  ok    fmtRtt(8.4) -> "8.4ms"
+  ok    fmtRtt(21.37) -> "21ms"
+  ok    fmtPct(0.5) -> "50%"
+  ok    fmtBytes(1024) -> "1.0K"
+  ok    fmtBytes(1536) -> "1.5K"
+  ok    fmtBytes(999) -> "999B"
+  ok    fmtBps(22000) -> "22Kbps"
+  ok    fmtBps(1500000) -> "1.5Mbps"
+
+=== row shape matches the column list ===
+  ok    cells, headers and widths agree (9)
+  ok    no formatted cell overflows its column
+  ok    databasehost is marked in the name column
+
+=== load board fits its columns ===
+  ok    load headers and widths agree
+  ok    every load cell fits its column, in display width
+  ok    title: the snapshot's name and .1
+  ok    region node block: mode, build, ponds (forward *), hub link, errors
+  ok    LAN-only node block
+  ok    no snapshot: said, nothing in its place
+  ok    no broker vocabulary in the node block
+
+32 passed, 0 failed
+PASS - dashboard model
+dashboard rc=0

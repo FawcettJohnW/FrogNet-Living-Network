@@ -1,0 +1,27 @@
+fdf-ls: no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port
+fdf-monitor: no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port
+peer: Rm2dD+xYG6sqfSBbl55zt6QZ3+r6WHK0FZo1/gGzc24=
+  allowed ips: 10.253.82.82/32, 10.82.82.0/24
+  latest handshake: 22 seconds ago
+peer: sbXPBZa7aAPiboDVtIohGFiAkTv4AcLUlUPvzfsY5xg=
+  allowed ips: 10.253.81.81/32, 10.81.81.0/24
+  latest handshake: 47 seconds ago
+$ /opt/fdf/bin/fdf-ls 127.0.0.1:51888
+NAME       ALIVE  TERM  OS     CORES  MEM   IPS
+N1         yes    -     linux  2      7.8G  172.30.0.31,10.81.81.1,10.81.81.2,10.253.81.81
+N2         yes    -     linux  2      7.8G  172.30.0.32,10.82.82.1,10.82.82.2,10.253.82.82
+regionbox  yes    -     linux  2      7.8G  172.30.0.10,10.253.253.254
+rc=0
+$ RINA_RAM=127.0.0.1:51888 /opt/fdf/bin/fdf-monitor --once
+FD&F monitor   network 127.0.0.1:51888   RAM manager round trip 0.6 ms   3 member(s), 3 alive
+
+NAME              ALIVE  SEEN FROM        IPS                     OS       CORES  CPU       MEM     LOAD   TERM    SESS
+N1                yes    172.30.0.31      172.30.0.31,10.81.81.~  linux    2      -         7.8G    -      -       -
+N2                yes    172.30.0.32      172.30.0.32,10.82.82.~  linux    2      -         7.8G    -      -       -
+regionbox         yes    127.0.0.1        172.30.0.10,10.253.25~  linux    2      -         7.8G    -      -       -
+
+N1   (alive)
+
+identity      ns w:32a6455d45014466b98b787caf73f86d
+rc=0
+fdf-monitor: no RAM manager: run fdf-join HOST:PORT, or set RINA_RAM=host:port

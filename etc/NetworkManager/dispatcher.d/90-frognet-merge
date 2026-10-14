@@ -29,7 +29,7 @@
 # no comparison, so `runMerge.bash &` ran unconditionally on every up and every
 # down. Only wg0 is unmanaged (99-frognet-unmanaged.conf), so every wg1+ tunnel
 # transition dispatched its own merge, on top of the one frognet-tunnel-daemon
-# already fires from _post_tunnel, on top of anything the broker reconcile did.
+# already fires from _post_tunnel.
 #
 # The signature is the thing the merge exists to maintain: the FrogNet /24
 # routes and the default route. Scratch /32s (the walk's metric-6 probes and
@@ -47,10 +47,11 @@ case "$STATE" in up|down) ;; *) exit 0 ;; esac
 # to the unconditional merge below with everything else.
 [[ "$IFACE" == "lo" ]] && exit 0
 
-SENT_DIR="/etc/sentinels"
-STATE_FILE="${SENT_DIR}/nm_dispatch_sig"
+# [BOOT_MERGE_IS_THE_HOOK_V1] The signature lives in /run: gone at every boot, so the first interface event after
+# a boot always merges (the installer's "@reboot sleep 240 && runMerge.bash" cron, a second boot trigger, is gone).
+STATE_FILE="/run/frognet/nm_dispatch_sig"
 REQ_DIR="/run/frognet/merge_requests"
-mkdir -p "$SENT_DIR" 2>/dev/null || true
+mkdir -p /run/frognet 2>/dev/null || true
 
 route_signature() {
     # FrogNet /24s: dest, via and dev only -- the fields that decide where
@@ -82,21 +83,25 @@ if [[ "$CUR" == "$PREV" ]]; then
     exit 0
 fi
 
-tmp="${STATE_FILE}.$$"
-if printf '%s\n' "$CUR" > "$tmp" 2>/dev/null; then
-    mv -f "$tmp" "$STATE_FILE" 2>/dev/null || rm -f "$tmp" 2>/dev/null
-fi
-
-logger -t frognet-merge-dispatch "iface=$IFACE state=$STATE routing delta - merging"
-
-# Prefer the accumulator: a burst of interface events (a tunnel set coming up,
-# a roam) becomes ONE merge after its 30s window instead of one merge per event
-# racing for the lock. frognet-merge-watcher.sh owns REQ_DIR and decides against
-# the same lock runMerge uses. Fork runMerge directly only if that service is
-# not running, so a dead watcher cannot silently stop merges altogether.
-if [[ -d "$REQ_DIR" ]] && systemctl is-active --quiet frognet-merge-watcher 2>/dev/null \
-   && : > "${REQ_DIR}/nm-${IFACE}-${STATE}-$$" 2>/dev/null; then
+# [HOOK_ASKS_THE_WATCHER_V1 - T4c] One action: a request to the merge watcher (frognet-merge-watcher.sh owns
+# REQ_DIR; a burst of interface events -- a tunnel set coming up, a roam -- becomes ONE merge after its 30 s window,
+# decided against the same lock runMerge uses). The watcher runs in both modes (fdf-region-join no longer stops it;
+# region mode's boot and interface-change merges, T3a, are these requests). There is no `runMerge.bash &` here: a
+# request that cannot be written is logged and the signature is NOT advanced, so the next interface event asks
+# again. At boot the hook can run before the watcher has started: the request waits in REQ_DIR and the watcher
+# fires it when it starts (it checks for pending requests before it first waits).
+if ! { [[ -d "$REQ_DIR" ]] || { mkdir -p "$REQ_DIR" && chmod 1777 "$REQ_DIR"; }; } \
+   || ! : > "${REQ_DIR}/nm-${IFACE}-${STATE}-$$"; then
+    logger -t frognet-merge-dispatch \
+        "iface=$IFACE state=$STATE routing delta - FAILED to write a merge request in $REQ_DIR (the next interface event asks again) [HOOK_ASKS_THE_WATCHER_V1]"
     exit 0
 fi
-FROGNET_MERGE_WHY="nm:${1:-?}-${2:-?}" /usr/local/bin/runMerge.bash &
+
+tmp="${STATE_FILE}.$$"
+if ! { printf '%s\n' "$CUR" > "$tmp" && mv -f "$tmp" "$STATE_FILE"; }; then
+    rm -f "$tmp" 2>/dev/null
+    logger -t frognet-merge-dispatch "iface=$IFACE state=$STATE could not record the route signature in $STATE_FILE (the next event compares against the old one)"
+fi
+
+logger -t frognet-merge-dispatch "iface=$IFACE state=$STATE routing delta - merge requested from the watcher"
 exit 0

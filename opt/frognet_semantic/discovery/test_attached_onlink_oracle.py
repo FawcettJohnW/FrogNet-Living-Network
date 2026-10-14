@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeBroker, HostStore
+from discovery.sources import FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState, HostStore
 
 IDENT = "10.130.130.1"            # Seattle3 identity (.1 on its own AP, wlan0)
 LEASE = "10.160.160.191"          # Seattle3's client lease on Seattle6's AP (wlan1)
@@ -54,7 +54,7 @@ def _run():
     })
     rtt = FakeRtt(table={("wlan1", "10.160.160.2"): [23], ("wlan1", "10.250.250.2"): [28]})
     gethosts = FakeGetHosts(children={"10.160.160.1": ["10.250.250.1"]})  # S6 vouches S5
-    broker = FakeBroker()
+    broker = FakeTunnelState()
     disc = Discovery(routes, echo, rtt, gethosts, broker, HostStore(),
                      local_ips={IDENT, "10.130.130.2", LEASE, "127.0.0.1"},
                      dev_src_map={}, self_identity=IDENT)

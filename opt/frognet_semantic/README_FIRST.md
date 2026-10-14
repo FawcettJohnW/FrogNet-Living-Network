@@ -9,14 +9,14 @@ non-negotiable working habits, not style preferences.
 - **Don't invent** paths, APIs, fields, configs, or log formats. If you don't have
   it, say so and ask — don't fabricate.
 - **Don't assume you have the codebase.** Each session starts empty; go read it.
-- When live code disagrees with the primer/spec, default to "code is wrong, primer
-  is right" — implement the primer rule rather than rationalizing the deviation,
-  unless explicitly told the primer is stale.
+- When live code disagrees with the specification, default to "code is wrong,
+  specification is right" — implement the specification's rule rather than
+  rationalizing the deviation, unless explicitly told the specification is stale.
 
 ## Root cause means find the cause, wherever it lives — not dig deeper where the light is
 1. **Enumerate layers and hosts before theorizing.** A distributed system is: app,
    threads, systemd, tunnel daemon, kernel (netfilter/conntrack/routing/ifaces),
-   overlay (WireGuard), LAN, broker, every peer, and any scheduled jobs/hooks on all
+   overlay (WireGuard), LAN, region (RAM manager, hub), every peer, and any scheduled jobs/hooks on all
    of the above.
 2. **State what you have and what's missing.** One log from one host during one
    incident is almost never enough.

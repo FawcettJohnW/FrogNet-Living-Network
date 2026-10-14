@@ -1,0 +1,118 @@
+  PASS checkpoint-1 enter seed (9 routes)
+  PASS checkpoint-2 post_promote (20 routes)
+  PASS checkpoint-3 final ip r (14 routes)
+
+ALL KERNEL ORACLE CHECKPOINTS PASS
+[PASS] test_kernel_oracle
+[PASS] test_kernel_parity
+  PASS decision sequence (2 KEEP, 12 INSTALL)
+  PASS post_promote table (20 routes)
+  PASS sweep count (6)
+  PASS final ip r (14 routes)
+
+ALL ROUTES ORACLE CHECKPOINTS PASS
+[PASS] test_routes_oracle
+[FROGNET-BUILD] discovery.py DESCEND+NAMING+TUNNEL+METRICS+NOCURL+BGIDLE  build=20260710-ax-LANVIA-CLEAN
+  PASS final ip r (13 routes)
+  PASS /etc/hosts (20 routes)
+  PASS HOSTS_NEED_ROUTE: dead-wg0 BABox gated out, routed Seattle2 kept
+  PASS HOSTS_DEDUP: frognet_hosts has no duplicate lines
+  PASS HOSTS_NEED_ROUTE(frognet_hosts): every peer /24 is a routed winner
+
+ALL HOSTS ORACLE CHECKPOINTS PASS
+[PASS] test_hosts_oracle
+  PASS fixDefaultRoute decision lines (11)
+  PASS default route unchanged
+
+ALL FIXDEFAULT ORACLE CHECKPOINTS PASS
+[PASS] test_fixdefault_oracle
+[PASS] test_fixdefault_modeb
+  PASS converge_decision line
+  PASS final ip r (13 routes)
+  PASS /etc/hosts (20 routes)
+
+ALL RUNMERGE ORACLE CHECKPOINTS PASS
+[PASS] test_runmerge_oracle
+  PASS addHostAndPropogate sequence (6 proceed, deduped)
+  PASS PROPAGATE fire x6
+  PASS peer scan + list (7 targets; BABox gated, no route)
+  PASS peer fan-out (6 launched, 1 skipped, all rc=0)
+
+ALL PROPAGATE ORACLE CHECKPOINTS PASS
+[PASS] test_propagate_oracle
+  PASS mapInterfaces classification (NY-1 setup oracle)
+
+ALL MAPINTERFACES ORACLE CHECKPOINTS PASS
+[PASS] test_mapinterfaces_oracle
+  [PASS] dead set = {wg0, wg1}
+  [PASS] wg0 (no :9009 answer on .2) -> dead reason=no_pong
+  [PASS] wg0 dead reason names the .2 it probed
+  [PASS] wg1 (hairpin on .2) -> dead reason=loop_9009
+  [PASS] healthy = {wg2}
+  [PASS] wg2 proven healthy on 10.250.250.2
+  [PASS] ALL_DEVS after health filter excludes wg0+wg1
+  [PASS] no legacy echo-gate reasons (echo_failed / wrong_peer) - gate is ping-pong
+  [PASS] every health route is a peer .2/32 (touched=['10.111.11.2', '10.179.179.2', '10.250.250.2'])
+  [PASS] no peer's production .1 is ever given a probe route
+
+ALL HEALTHCHECK ORACLE CHECKPOINTS PASS
+[PASS] test_healthcheck_oracle
+  PASS fabric-derived final ip r (13 routes)
+  PASS fabric-derived /etc/hosts (20 routes)
+  PASS exercise: 6 packets egress the expected dev
+
+ALL FABRIC INTEGRATION CHECKPOINTS PASS
+[PASS] test_fabric_integration
+  PASS route classifier
+  PASS snapshot payload shape
+  PASS commit_only no-op (table unchanged)
+
+ALL SNAPSHOT STRUCT CHECKS PASS
+[PASS] test_snapshot_struct
+  PASS echo CSV validation (5 valid, empty+garbage rejected)
+  PASS frognet_alive rtt parse
+  PASS getHosts JSON parse
+  PASS tunnel_lookup (direct peers resolve, relayed -> None)
+  PASS TunnelState file I/O (handshake + active/*.json)
+
+ALL REAL-BACKEND CHECKS PASS
+[PASS] test_real_backends
+=== SHAPES (real ported discovery over the tunnel graph) ===
+  [PASS] snake(5) (5n,4cyc)
+  [PASS] snake(8) (8n,4cyc)
+  [PASS] ring(6) (6n,3cyc)
+  [PASS] ring(9) (9n,3cyc)
+  [PASS] star(6) (7n,2cyc)
+  [PASS] snowflake(3x3) (13n,3cyc)
+  [PASS] snowflake(4x2) (13n,3cyc)
+
+=== MULTI-LAN OVER INTERNET (LAN-to-LAN via gateways) ===
+  [PASS] two LANs via StreamingFrog gateways (4n,3cyc)
+  [PASS] cross-LAN: A(LAN-1) reaches B(LAN-2)
+
+=== CHURN + MOBILITY (discovery is change-driven) ===
+  [PASS] star baseline
+  [PASS] remove N3 -> gone everywhere
+  [PASS] survivors still converged
+  [PASS] re-add N3 -> rediscovered
+  [PASS] move A from LAN-1 to LAN-2 (reachable in new LAN + cross-Internet)
+  [PASS] validate after move
+  [PASS] re-IP N2: old /24 gone + new /24 known everywhere
+  [PASS] validate after re-IP
+  [PASS] rename N1->N1b: no reachability regression
+
+=== ADMIN-CHANNEL LOOP + DUPLICATE-IP PROBE ===
+  [PASS] [SHIPPED] loop probe: tunnel path to a LAN child hairpins home (LOOP); LAN-direct terminates (DELIVERED)
+  [PASS] [SHIPPED] valid long path: leaves and terminates at a distant target (DELIVERED, not rejected for hop count)
+  [PASS] [PROPOSED GUID EXT] dup probe: another box holds my 10. (diff GUID) -> COLLISION (409)
+  [PASS] [PROPOSED GUID EXT] dup probe: sole holder / no claimant -> UNIQUE (free to claim)
+  [PASS] [EMITTER] discovery.walk fires the :9009 loop check; drops on LOOP, keeps on OK
+
+=== END-TO-END LIFECYCLE ===
+  [SKIP] lifecycle scenarios (development gate; not valid mid-install)
+
+ALL PROOF-PLANE SCENARIOS PASS
+[PASS] sim.proof_plane
+
+14/14 suites pass - all green
+EXIT 0

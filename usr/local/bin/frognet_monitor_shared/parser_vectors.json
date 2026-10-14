@@ -11,7 +11,6 @@
     "",
     "Add a case here first, then make the implementations pass it."
   ],
-
   "echo_line": {
     "_comment": [
       "getFrogNet.bash / frognet_echo.php return ONE CSV line:",
@@ -90,7 +89,6 @@
       }
     ]
   },
-
   "etc_hosts": {
     "_comment": [
       "Mirrors discovery.parse_etc_hosts_content: 10/8 only, excluding",
@@ -103,51 +101,99 @@
       {
         "name": "standard node lines",
         "input": "127.0.0.1 localhost\n10.120.120.1 FrogNetHost.Seattle2\n10.160.160.1 FrogNetHost.Seattle6\n",
-        "expect": [["10.120.120.1", "Seattle2"], ["10.160.160.1", "Seattle6"]]
+        "expect": [
+          [
+            "10.120.120.1",
+            "Seattle2"
+          ],
+          [
+            "10.160.160.1",
+            "Seattle6"
+          ]
+        ]
       },
       {
         "name": "tunnel transit 10.253/16 excluded",
         "input": "10.253.203.85 FrogNetHost.Whatever\n10.130.130.1 FrogNetHost.Seattle3\n",
-        "expect": [["10.130.130.1", "Seattle3"]]
+        "expect": [
+          [
+            "10.130.130.1",
+            "Seattle3"
+          ]
+        ]
       },
       {
         "name": "chorus virtual 10.254/16 excluded",
         "input": "10.254.1.9 FrogNetHost.Chorus\n10.102.60.1 FrogNetHost.New-York-1\n",
-        "expect": [["10.102.60.1", "New-York-1"]]
+        "expect": [
+          [
+            "10.102.60.1",
+            "New-York-1"
+          ]
+        ]
       },
       {
         "name": "non-10/8 excluded",
         "input": "192.168.1.245 FrogNetHost.Nope\n10.155.155.1 FrogNetHost.BABox\n",
-        "expect": [["10.155.155.1", "BABox"]]
+        "expect": [
+          [
+            "10.155.155.1",
+            "BABox"
+          ]
+        ]
       },
       {
         "name": "line without the FrogNetHost alias is not a node",
-        "input": "10.120.120.63 brokerhost.seattle2\n10.250.250.1 FrogNetHost.Seattle5\n",
-        "expect": [["10.250.250.1", "Seattle5"]]
+        "input": "10.120.120.63 otherhost.seattle2\n10.250.250.1 FrogNetHost.Seattle5\n",
+        "expect": [
+          [
+            "10.250.250.1",
+            "Seattle5"
+          ]
+        ]
       },
       {
         "name": "comments and blanks skipped",
         "input": "# a comment\n\n   \n10.199.199.1 FrogNetHost.BAMacBook\n",
-        "expect": [["10.199.199.1", "BAMacBook"]]
+        "expect": [
+          [
+            "10.199.199.1",
+            "BAMacBook"
+          ]
+        ]
       },
       {
         "name": "role names are not nodes",
         "input": "10.199.199.1 databasehost.frognet\n10.250.250.1 mediahost.frognet\n10.160.160.1 FrogNetHost.Seattle6\n",
-        "expect": [["10.160.160.1", "Seattle6"]]
+        "expect": [
+          [
+            "10.160.160.1",
+            "Seattle6"
+          ]
+        ]
       },
       {
         "name": "extra aliases before the FrogNetHost one",
         "input": "10.120.120.1 seattle2 alias2 FrogNetHost.Seattle2\n",
-        "expect": [["10.120.120.1", "Seattle2"]]
+        "expect": [
+          [
+            "10.120.120.1",
+            "Seattle2"
+          ]
+        ]
       },
       {
         "name": "tabs and multiple spaces",
         "input": "10.130.130.1\t\tFrogNetHost.Seattle3\n",
-        "expect": [["10.130.130.1", "Seattle3"]]
+        "expect": [
+          [
+            "10.130.130.1",
+            "Seattle3"
+          ]
+        ]
       }
     ]
   },
-
   "dot_one_of": {
     "_comment": [
       "A client derives the identity endpoint from its OWN address: replace the",
@@ -156,15 +202,185 @@
       "identity and must be rejected rather than mapped."
     ],
     "cases": [
-      { "name": "DHCP client on a pond",   "input": "10.120.120.63",  "ok": true,  "expect": "10.120.120.1" },
-      { "name": "a node's own .1",         "input": "10.160.160.1",   "ok": true,  "expect": "10.160.160.1" },
-      { "name": "a node's secondary .2",   "input": "10.130.130.2",   "ok": true,  "expect": "10.130.130.1" },
-      { "name": "high client octet",       "input": "10.250.250.221", "ok": true,  "expect": "10.250.250.1" },
-      { "name": "tunnel transit rejected", "input": "10.253.203.85",  "ok": false },
-      { "name": "chorus virtual rejected", "input": "10.254.1.9",     "ok": false },
-      { "name": "non-10/8 rejected",       "input": "192.168.1.245",  "ok": false },
-      { "name": "loopback rejected",       "input": "127.0.0.1",      "ok": false },
-      { "name": "malformed rejected",      "input": "10.120.120",     "ok": false }
+      {
+        "name": "DHCP client on a pond",
+        "input": "10.120.120.63",
+        "ok": true,
+        "expect": "10.120.120.1"
+      },
+      {
+        "name": "a node's own .1",
+        "input": "10.160.160.1",
+        "ok": true,
+        "expect": "10.160.160.1"
+      },
+      {
+        "name": "a node's secondary .2",
+        "input": "10.130.130.2",
+        "ok": true,
+        "expect": "10.130.130.1"
+      },
+      {
+        "name": "high client octet",
+        "input": "10.250.250.221",
+        "ok": true,
+        "expect": "10.250.250.1"
+      },
+      {
+        "name": "tunnel transit rejected",
+        "input": "10.253.203.85",
+        "ok": false
+      },
+      {
+        "name": "chorus virtual rejected",
+        "input": "10.254.1.9",
+        "ok": false
+      },
+      {
+        "name": "non-10/8 rejected",
+        "input": "192.168.1.245",
+        "ok": false
+      },
+      {
+        "name": "loopback rejected",
+        "input": "127.0.0.1",
+        "ok": false
+      },
+      {
+        "name": "malformed rejected",
+        "input": "10.120.120",
+        "ok": false
+      }
+    ]
+  },
+  "snapshot": {
+    "_comment": [
+      "getSnapshot.php's body (var/www/html/frognet_node.inc.php, [ONE_MONITOR_TRUTH_V1]) -> the summary every monitor draws.",
+      "ok false: not JSON, not an object, snapshot != 1, or mode not exactly \"lan-only\" or \"region\".",
+      "ponds: \"*<area>\" when forward is the boolean true, else \"<area>\".",
+      "hub: \"<iface> <age>s\" (age truncated to whole seconds), \"<iface> no handshake\" (null age), \"<iface> error\".",
+      "members: \"<ip> <name> <role> <alive|down> <source>\" + \" self\"; alive and self count only as the boolean true.",
+      "dbhost: elections.databasehost, or \"\". errors: as served."
+    ],
+    "cases": [
+      {
+        "name": "region node: forward pond, a participant pond, hub link, a device",
+        "input": "{\"snapshot\":1,\"at\":1791850578,\"node\":{\"name\":\"N1\",\"dot1\":\"10.81.81.1\",\"guid\":\"472e\",\"echo\":\"N1,10.81.81.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\",\"commit\":\"546df37+changes\"},\"mode\":\"region\",\"mode_why\":\"/opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888\",\"ponds\":[{\"area\":\"test\",\"ram\":\"172.30.0.10:51888\",\"forward\":true,\"source\":\"/opt/fdf/var/join.env\",\"config\":null},{\"area\":\"other\",\"ram\":\"172.30.0.11:51888\",\"forward\":false,\"members\":[{\"name\":\"q\",\"role\":\"node\",\"alive\":true,\"ip\":\"10.9.9.1\"}]}],\"hub\":[{\"iface\":\"wg0\",\"edge\":\"10.253.81.81\",\"handshake_age_s\":17}],\"members\":[{\"name\":\"N1\",\"guid\":\"472e\",\"ip\":\"10.81.81.1\",\"role\":\"node\",\"alive\":true,\"source\":\"region\",\"echo\":\"\",\"self\":true},{\"name\":\"N2\",\"guid\":\"99\",\"ip\":\"10.82.82.1\",\"role\":\"node\",\"alive\":true,\"source\":\"region\",\"echo\":\"\"},{\"name\":\"phone\",\"guid\":\"\",\"ip\":\"10.82.82.7\",\"role\":\"leaf\",\"alive\":false,\"source\":\"region\",\"echo\":\"\"}],\"elections\":{\"databasehost\":\"10.82.82.1\",\"databasehost_control\":\"10.81.81.1\"},\"sources\":{},\"errors\":[]}",
+        "ok": true,
+        "mode": "region",
+        "node_name": "N1",
+        "dot1": "10.81.81.1",
+        "build": "fdf-2026-10-12-r20",
+        "ponds": [
+          "*test",
+          "other"
+        ],
+        "hub": [
+          "wg0 17s"
+        ],
+        "members": [
+          "10.81.81.1 N1 node alive region self",
+          "10.82.82.1 N2 node alive region",
+          "10.82.82.7 phone leaf down region"
+        ],
+        "dbhost": "10.82.82.1",
+        "errors": []
+      },
+      {
+        "name": "LAN-only node: no ponds, no hub, members from LAN discovery",
+        "input": "{\"snapshot\":1,\"at\":1,\"node\":{\"name\":\"G1\",\"dot1\":\"10.61.61.1\",\"guid\":\"abc\",\"echo\":\"G1,10.61.61.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\"},\"mode\":\"lan-only\",\"mode_why\":\"no /opt/fdf/var/join.env\",\"ponds\":[],\"hub\":[],\"members\":[{\"name\":\"G1\",\"guid\":\"abc\",\"ip\":\"10.61.61.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\",\"self\":true},{\"name\":\"G2\",\"guid\":\"\",\"ip\":\"10.62.62.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\"}],\"elections\":{},\"sources\":{},\"errors\":[]}",
+        "ok": true,
+        "mode": "lan-only",
+        "node_name": "G1",
+        "dot1": "10.61.61.1",
+        "build": "fdf-2026-10-12-r20",
+        "ponds": [],
+        "hub": [],
+        "members": [
+          "10.61.61.1 G1 node alive lan self",
+          "10.62.62.1 G2 node alive lan"
+        ],
+        "dbhost": "",
+        "errors": []
+      },
+      {
+        "name": "hub states, non-boolean flags are not true, errors carried",
+        "input": "{\"snapshot\":1,\"at\":1791850578,\"node\":{\"name\":\"N1\",\"dot1\":\"10.81.81.1\",\"guid\":\"472e\",\"echo\":\"N1,10.81.81.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\",\"commit\":\"546df37+changes\"},\"mode\":\"region\",\"mode_why\":\"/opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888\",\"ponds\":[{\"area\":\"a\",\"forward\":1},{\"area\":\"b\",\"forward\":false}],\"hub\":[{\"iface\":\"wg0\",\"edge\":\"10.253.81.81\",\"handshake_age_s\":null},{\"iface\":\"wg1\",\"edge\":\"10.253.9.9\",\"handshake_age_s\":null,\"error\":\"the kernel was not asked (see errors)\"},{\"iface\":\"wg2\",\"edge\":\"10.253.8.8\",\"handshake_age_s\":12.7}],\"members\":[{\"name\":\"x\",\"ip\":\"10.1.1.1\",\"role\":\"node\",\"alive\":1,\"source\":\"region\"},{\"name\":\"y\",\"ip\":\"10.2.2.1\",\"role\":\"node\",\"alive\":\"true\",\"source\":\"region\",\"self\":\"yes\"}],\"elections\":{},\"sources\":{},\"errors\":[\"sudo -n /usr/bin/wg show all latest-handshakes: rc=1 sudo: a password is required\"]}",
+        "ok": true,
+        "mode": "region",
+        "node_name": "N1",
+        "dot1": "10.81.81.1",
+        "build": "fdf-2026-10-12-r20",
+        "ponds": [
+          "a",
+          "b"
+        ],
+        "hub": [
+          "wg0 no handshake",
+          "wg1 error",
+          "wg2 12s"
+        ],
+        "members": [
+          "10.1.1.1 x node down region",
+          "10.2.2.1 y node down region"
+        ],
+        "dbhost": "",
+        "errors": [
+          "sudo -n /usr/bin/wg show all latest-handshakes: rc=1 sudo: a password is required"
+        ]
+      },
+      {
+        "name": "not JSON",
+        "input": "<html>500</html>",
+        "ok": false
+      },
+      {
+        "name": "getHosts.php's array is not a snapshot",
+        "input": "[{\"ip\":\"10.61.61.1\",\"name\":\"G1\"}]",
+        "ok": false
+      },
+      {
+        "name": "another contract version",
+        "input": "{\"snapshot\":2,\"at\":1,\"node\":{\"name\":\"G1\",\"dot1\":\"10.61.61.1\",\"guid\":\"abc\",\"echo\":\"G1,10.61.61.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\"},\"mode\":\"lan-only\",\"mode_why\":\"no /opt/fdf/var/join.env\",\"ponds\":[],\"hub\":[],\"members\":[{\"name\":\"G1\",\"guid\":\"abc\",\"ip\":\"10.61.61.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\",\"self\":true},{\"name\":\"G2\",\"guid\":\"\",\"ip\":\"10.62.62.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\"}],\"elections\":{},\"sources\":{},\"errors\":[]}",
+        "ok": false
+      },
+      {
+        "name": "a mode that is neither lan-only nor region",
+        "input": "{\"snapshot\":1,\"at\":1,\"node\":{\"name\":\"G1\",\"dot1\":\"10.61.61.1\",\"guid\":\"abc\",\"echo\":\"G1,10.61.61.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\"},\"mode\":\"mesh\",\"mode_why\":\"no /opt/fdf/var/join.env\",\"ponds\":[],\"hub\":[],\"members\":[{\"name\":\"G1\",\"guid\":\"abc\",\"ip\":\"10.61.61.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\",\"self\":true},{\"name\":\"G2\",\"guid\":\"\",\"ip\":\"10.62.62.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\"}],\"elections\":{},\"sources\":{},\"errors\":[]}",
+        "ok": false
+      },
+      {
+        "name": "no mode",
+        "input": "{\"snapshot\":1,\"at\":1,\"node\":{\"name\":\"G1\",\"dot1\":\"10.61.61.1\",\"guid\":\"abc\",\"echo\":\"G1,10.61.61.1,172.30.0.21,0.0.0.0\"},\"build\":{\"build\":\"fdf-2026-10-12-r20\"},\"mode_why\":\"no /opt/fdf/var/join.env\",\"ponds\":[],\"hub\":[],\"members\":[{\"name\":\"G1\",\"guid\":\"abc\",\"ip\":\"10.61.61.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\",\"self\":true},{\"name\":\"G2\",\"guid\":\"\",\"ip\":\"10.62.62.1\",\"role\":\"node\",\"alive\":true,\"source\":\"lan\",\"echo\":\"\"}],\"elections\":{},\"sources\":{},\"errors\":[]}",
+        "ok": false
+      },
+      {
+        "name": "types: 1.0 is 1, a non-string field reads empty, an empty error is no error, non-string errors dropped",
+        "input": "{\"snapshot\":1.0,\"mode\":\"region\",\"node\":{\"name\":\"N\",\"dot1\":\"10.5.5.1\"},\"build\":{\"build\":\"b\"},\"ponds\":[{\"area\":7,\"forward\":true}],\"hub\":[{\"iface\":\"wg0\",\"error\":\"\",\"handshake_age_s\":3}],\"members\":[{\"ip\":\"10.5.5.1\",\"name\":5,\"role\":\"node\",\"alive\":true,\"source\":\"region\",\"self\":true}],\"elections\":{\"databasehost\":\"10.5.5.1\"},\"errors\":[\"x\",5]}",
+        "ok": true,
+        "mode": "region",
+        "node_name": "N",
+        "dot1": "10.5.5.1",
+        "build": "b",
+        "ponds": [
+          "*"
+        ],
+        "hub": [
+          "wg0 3s"
+        ],
+        "members": [
+          "10.5.5.1  node alive region self"
+        ],
+        "dbhost": "10.5.5.1",
+        "errors": [
+          "x"
+        ]
+      },
+      {
+        "name": "snapshot true is not the number 1",
+        "input": "{\"snapshot\":true,\"mode\":\"lan-only\"}",
+        "ok": false
+      }
     ]
   }
 }

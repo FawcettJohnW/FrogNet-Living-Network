@@ -77,6 +77,24 @@ def _owns_served24(ifc: Iface) -> bool:
     return False
 
 
+def served_identity(interfaces: list[Iface]) -> str:
+    """[UPLINK_BY_FUNCTION_V1 - T4b] This node's identity: the 10.A.B.1 it serves (A.B not the reserved 253/254
+    planes), on whichever up interface carries it. One rule, by what the link is, not by its name or its sort order:
+    a link into another node's LAN holds a lease (10.C.D.x, x != 1) from that node's .1 and is upstream; the link this
+    node serves holds the .1. ("" when no interface carries one yet.) This replaces "the first FROGNET_FROGNET_DEVS dev
+    by name": on a machine whose upstream lease sat on eth1 and whose LAN was eth2, eth1 sorted first and the node took
+    its neighbour's .1 as its own identity (T4a G2)."""
+    for ifc in sorted(interfaces, key=lambda i: i.dev):
+        if not _is_physical(ifc.dev) or ifc.operstate not in ("up", "unknown"):
+            continue
+        for a in ifc.addrs:
+            ip = _ip_of(a)
+            o = ip.split(".")
+            if len(o) == 4 and o[0] == "10" and o[1] not in ("253", "254") and o[3] == "1":
+                return ip
+    return ""
+
+
 def _seed_from_ip4(ip: str, sim_underlay) -> str:
     if not ip.startswith("10.") or ip.startswith("10.253.253."):
         return ""
@@ -139,7 +157,10 @@ def classify(interfaces: list[Iface], *, leases_nonempty: bool,
             s = _seed_from_ip4(ip4, sim_underlay)
             if s:
                 SEEDS.append(s)
-        if dev != eth0_name and not _owns_served24(ifc) and not _has_transit30(ifc):
+        # [UPLINK_BY_FUNCTION_V1] upstream = an interface that does not serve a /24 (holds no 10.A.B.1) and is not
+        # transit: what the link is, never its name (eth0_name is no longer consulted; on a container or a
+        # one-NIC box eth0 IS the uplink).
+        if not _owns_served24(ifc) and not _has_transit30(ifc):
             for up_ip in _upstream_ips(ifc, sim_underlay):
                 DEVIPS.append(f"{dev}={up_ip}")
 

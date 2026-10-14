@@ -40,72 +40,14 @@
 header('Content-Type: application/json');
 
 // [HOSTJSON_FROM_THE_REGION_V1] On an FD&F region the host list is the region's: the tunnel daemon writes
-// /var/lib/frognet/region_hosts.json ([{ip, hostname, echo}], this node's applied plan, each echo rebuilt from that
-// member's facts) on every region event. No makeHostJson.bash, no curl to any peer. Absent file = no hosts yet.
-$region = false;
-foreach (['/opt/fdf/var/join.env', '/etc/frognet/tunnel.conf'] as $f) {
-    $t = @file_get_contents($f);
-    if ($t !== false && preg_match('/^(export )?RINA_RAM=\S+/m', $t)) { $region = true; break; }
-}
-if ($region) {
-    $json = @file_get_contents('/var/lib/frognet/region_hosts.json');
-} else {
-    $json = shell_exec('/usr/local/bin/makeHostJson.bash 2>/dev/null');
-}
-
-if ($json === null || trim($json) === '') {
-    echo '[]';
-    exit;
-}
-
-$raw = json_decode($json, true);
+// /var/lib/frognet/region_hosts.json on every region event; off a region it is makeHostJson.bash. The rows and the
+// filter above are frognet_node.inc.php's fn_host_rows, the same rows getSnapshot.php serves as `members`
+// [ONE_MONITOR_TRUTH_V1]. A source that cannot be read is an empty list (getSnapshot.php says why).
+require_once __DIR__ . '/frognet_node.inc.php';
+$errors = [];
 $hosts = [];
-$seen  = [];
-
-if (is_array($raw)) {
-    foreach ($raw as $entry) {
-        $ip = $entry['ip'] ?? '';
-        if ($ip === '' || isset($seen[$ip])) continue;
-
-        // IP must be in FrogNet space, but not transit or chorus.
-        if (!preg_match('/^10\./', $ip))           continue;
-        if (preg_match('/^10\.253\./', $ip))       continue;
-        if (preg_match('/^10\.254\./', $ip))       continue;
-
-        // Drop admin-alias phantoms (.2 is probe-only).
-        if (preg_match('/\.2$/', $ip)) continue;
-
-        $echo = $entry['echo'] ?? '';
-        $name = '';
-        if ($echo !== '') {
-            $parts = explode(',', $echo);
-            $name  = $parts[0];
-        }
-        if ($name === '' && !empty($entry['hostname'])) {
-            $name = $entry['hostname'];
-        }
-
-        // Drop FrogNetAdmin-labeled entries from either field.
-        if (strpos($name, 'FrogNetAdmin.') === 0) continue;
-        if (strpos((string)($entry['hostname'] ?? ''), 'FrogNetAdmin.') === 0) continue;
-
-        // Strip "FrogNetHost." prefix if present
-        if (strpos($name, 'FrogNetHost.') === 0) {
-            $name = substr($name, strlen('FrogNetHost.'));
-        }
-        if ($name === '') $name = 'unknown';
-
-        $seen[$ip] = true;
-        $hosts[] = [
-            'ip'    => $ip,
-            'name'  => $name,
-            'echo'  => $echo,
-            // [DEVICE_ROW_V1] from region_hosts.json: the member's role (leaf = a device over the hub tunnel) and
-            // whether its region session is up this event; absent off a region
-            'role'  => (string)($entry['role'] ?? ''),
-            'alive' => (bool)($entry['alive'] ?? false),
-        ];
-    }
+foreach (fn_host_rows(fn_mode(), $errors) as $h) {
+    unset($h['guid']);                                  // the shape every caller of this endpoint reads
+    $hosts[] = $h;
 }
-
 echo json_encode($hosts);

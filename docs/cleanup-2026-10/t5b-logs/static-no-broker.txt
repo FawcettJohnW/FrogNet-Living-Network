@@ -1,0 +1,238 @@
+ALLOWED   opt/fdf/bin/fdf-facts:253:    # interface holding that address is a hub row. FrogNet's broker-mode tunnels (wgN with other 10.253.x addresses,
+ALLOWED   opt/fdf/bin/fdf-facts:255:    # and a region-wide replan (Seattle7 with five 10.253.205.x addresses, HappyDog re-registered with the broker 15:31).
+ALLOWED   opt/fdf/bin/fdf-hub:8:Replaces frognet_broker_v4 for a region: ONE wg interface per region, one peer per live member, derived entirely from
+ALLOWED   opt/fdf/bin/fdf-leave:2:# fdf-leave -- [FDF_JOIN_V1][NO_BROKER_V1] undo fdf-join / fdf-region-join and return this node to LAN-only FrogNet:
+ALLOWED   opt/fdf/src/fdf-source/fdf/bin/fdf-facts:253:    # interface holding that address is a hub row. FrogNet's broker-mode tunnels (wgN with other 10.253.x addresses,
+ALLOWED   opt/fdf/src/fdf-source/fdf/bin/fdf-facts:255:    # and a region-wide replan (Seattle7 with five 10.253.205.x addresses, HappyDog re-registered with the broker 15:31).
+ALLOWED   opt/fdf/src/fdf-source/fdf/bin/fdf-hub:8:Replaces frognet_broker_v4 for a region: ONE wg interface per region, one peer per live member, derived entirely from
+ALLOWED   opt/fdf/src/fdf-source/fdf/bin/fdf-leave:2:# fdf-leave -- [FDF_JOIN_V1][NO_BROKER_V1] undo fdf-join / fdf-region-join and return this node to LAN-only FrogNet:
+ALLOWED   opt/fdf/src/fdf-source/rinab/experiments/exp3-topologies.json:1622:  "label": "mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker",
+ALLOWED   opt/fdf/src/fdf-source/rinab/src/rina_region.cpp:611:        // live session holds (10.252.254.0/24 is the broker's veths, never given), bound to THIS session -- the same on
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/fdf-hub:8:Replaces frognet_broker_v4 for a region: ONE wg interface per region, one peer per live member, derived entirely from
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:3:# broker, no WireGuard. The REAL tunnel daemon (python3 -m internet_tunnels_v3, its LAN-only loop) and the REAL merge
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:10:#      tunnel.conf holds only old broker keys (BROKER_URL, GROUP_TOKEN, POND_PASSWORD), which must be named once
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:15:# databasehost; no WireGuard interface exists in either; nothing asked a broker anything.
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:52:printf '# an enrolled broker node, from before the region\nBROKER_URL=https://broker.invalid:8443/frognet-broker\nGROUP_TOKEN=tok\nPOND_PAS
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:74:  check $alive "$n: the tunnel daemon is running $(sleep 0; [ $n = a ] && echo '(no tunnel.conf at all)' || echo '(tunnel.conf: old broker 
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:78:check $([ "$(grep -c 'old broker keys' $T/b/daemon.log)" = 1 ] && grep 'old broker keys' $T/b/daemon.log | grep -q BROKER_URL && grep 'old 
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:79:      "b: ONE line names the old broker keys and ignores them: $(grep -m1 -o 'old broker keys.*' $T/b/daemon.log | cut -c1-160)"
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:98:  check $(cat $T/$n/daemon.log $T/$n/merge*.log | grep -q -i -E 'my-channels|broker host|broker route|api/v4|BROKER_URL=' && echo 1 || echo
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh:99:        "$n: nothing asked a broker anything ($(cat $T/$n/daemon.log $T/$n/merge*.log | grep -c -i -E 'my-channels|broker host|broker route
+ALLOWED   opt/fdf/src/fdf-source/rinab/tools/netns-region-loop-test.sh:20:#   broker keys in tunnel.conf, as every node here): its daemon must make the key, say so, announce its public half,
+ALLOWED   opt/frognet_semantic/discovery/discovery.py:601:        # [TUNNEL_CHANNEL_MAP_V1] (was BROKER_AUTHORITY, bash 447-461) a peer at the far end of one of this node's own
+ALLOWED   opt/frognet_semantic/discovery/snapshot.py:31:broker, [NO_BROKER_V1]), which invoked the EXISTING frognet_route.committer.commit_final. In the oracle that was a pure
+ALLOWED   opt/frognet_semantic/frognet_route/planner.py:41:    [BROKER_TEARDOWN_V1], is gone [NO_BROKER_V1]: on a region
+ALLOWED   opt/frognet_semantic/frognet_route/planner.py:775:    # [NO_BROKER_V1] the old channel list that overrode this
+ALLOWED   opt/frognet_semantic/frognet_route/planner.py:776:    # ([BROKER_TEARDOWN_V1]: tear down only active-minus-listed) is gone.
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/__main__.py:23:else [NO_BROKER_V1].
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/config.py:21:Two modes, and only two [NO_BROKER_V1]:
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/config.py:30:enrolment's, or an old RINA_RAM / RINA_AREA) is named in one log line and ignored [NO_BROKER_V1]; the installer's
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/config.py:242:        log.warning("%s: old broker keys ignored: %s (nothing is read from this file; the region switch is %s) [NO_BROKER_V1 "
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/config.py:306:    """[NO_BROKER_V1] The mode (region or LAN-only), the node's identity and, in region mode, its WireGuard key if it
+ALLOWED   opt/frognet_semantic/internet_tunnels_v3/poll.py:19:poll.py - the tunnel daemon's loops and the bring-up reconcile [NO_BROKER_V1].
+ALLOWED   opt/frognet_semantic/oracles/oracle_opts_only_interface_lines.sh:26:# no ICMP. `brokerhost.seattle2` resolved from Seattle6 (10.160.160.1, on its
+ALLOWED   opt/frognet_semantic/oracles/oracle_opts_only_interface_lines.sh:80:  echo "10.120.120.63 brokerhost.seattle2" > "$D/hosts"; chmod 644 "$D/hosts"
+ALLOWED   opt/frognet_semantic/oracles/oracle_opts_only_interface_lines.sh:84:        @10.120.120.1 brokerhost.seattle2 2>/dev/null | tail -1
+ALLOWED   opt/frognet_semantic/oracles/oracle_routing_topology.py:79:        ("10.120.120.63", "10.120.120.1", "brokerhost lease -> Seattle2"),
+ALLOWED   opt/frognet_semantic/oracles/oracle_routing_topology.py:153:        (ok if payload["region"]["configured"] and "broker" not in payload else bad)("region carried (no broker field)")
+ALLOWED   opt/frognet_semantic/oracles/oracle_routing_topology.py:200:    frt._read = lambda p: "BROKER_URL=https://broker.invalid:8443/x\n" if p == "/etc/frognet/tunnel.conf" else ""
+ALLOWED   opt/frognet_semantic/oracles/oracle_routing_topology.py:202:    (ok if not b.get("configured") else bad)("only an old BROKER_URL -> not configured (LAN-only), got %r" % b)
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:39:from .real_backends import RealEcho, RealRtt, RealGetHosts, RealBroker, RealPing, RealReflect, RealVerify
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:351:    here. Measured on Seattle3, 2026-08-13: `nslookup brokerhost.seattle2`
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:506:    broker = RealBroker()
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:575:    disc = Discovery(routes, RealEcho(), RealRtt(), RealGetHosts(), broker,
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:592:    return disc, k, broker, local_ips
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:613:    """Bring-up stage - broker-authoritative wg reconcile, run synchronously
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:618:    Brings up wg ifaces the broker says should exist, tears down the rest. The
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:648:    # bring-up stage: reconcile wg ifaces to broker state BEFORE we gather/probe,
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:678:    disc, k, broker, local_ips = build_live(logger, self_identity=self_identity)
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:685:        ch = broker.channel_for_iface(iface)
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:707:    hs = broker._handshake()
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/core/live.py:1313:    # the common case (hosts come from the broker and persist while routes churn).
+ALLOWED   opt/frognet_semantic/ribbit/cpp/tests/reference/proxy/constants.py:59:# exposed and env-overridable, like the daemon port and broker endpoint.
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-codec-exact.txt:17:TIER 3 - real broker in the loop (M3)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-codec-exact.txt:18:  [PASS] broker-decided ponds  (rc=0, ~0 checks ok)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-codec-exact.txt:186:  PASS  broker-decided ponds
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-fixed-python.txt:17:TIER 3 - real broker in the loop (M3)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-fixed-python.txt:18:  [PASS] broker-decided ponds  (rc=0, ~0 checks ok)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-fixed-python.txt:186:  PASS  broker-decided ponds
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-original-python.txt:17:TIER 3 - real broker in the loop (M3)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-original-python.txt:18:  [PASS] broker-decided ponds  (rc=0, ~0 checks ok)
+ALLOWED   opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/sim-run_all-original-python.txt:186:  PASS  broker-decided ponds
+ALLOWED   opt/frognet_semantic/simulation/baselines/topo_mixed_iface_no_router.json:50:  "topology": "mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker"
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:507:    ch_name: str       # broker channel name (wg only); "" for lan
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1462:# --- No-internet, no-broker, no-WG cases ------------------------------------
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1463:# WG tunnels only exist when (a) internet is up, (b) broker is reachable, and
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1473:    No internet, no broker, no WG. No remote destinations."""
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1486:    point-to-point ham radio link on ham0. No internet, no broker, no WG.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1507:    external router, no broker, no WG.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1514:    t = Topology("mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1591:#      Every broker channel comes up. Wave-2 then probes through those
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1592:#      tunnels; stale broker entries time out; committer tears them down.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1604:#      reconciles against the kernel. If memory matches the broker but the
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1607:#   5. Stale broker entries (renamed/dead nodes - Seattle-1G/1I/3/4C,
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1620:#   - broker channel list per node       (World.broker_channels)
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1733:        self.broker_channels: Dict[str, List[dict]] = {}
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1740:    def set_broker(self, name, channels): self.broker_channels[name] = channels
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1797:    broker_channels = world.broker_channels.get(node.name, [])
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1816:    for ch in broker_channels:
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1847:        ch = next((c for c in broker_channels if c["name"] == ch_name), None)
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:1868:        ch = next((c for c in broker_channels if c["name"] == ch_name), None)
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2241:    broker entries with no backing node. SeattleSix is the LAN gateway
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2251:    # is that the broker pairs them with SeattleFive when they should be
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2259:    # Broker channel list as observed in the merge logs:
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2261:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2282:    kernel, fails to skip any LAN-reachable peer, brings up all 8 broker
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2285:    print("\n--- orch: cold start brings up all 8 broker channels (bug) ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2298:    No broker channel lists 10.121.120, 10.130.130, or 10.160.160 anyway,
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2300:    drops only when broker advertises a channel for a LAN /24. We test the
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2301:    mechanism: when broker DOES list a LAN /24, the fix skips it."""
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2302:    print("\n--- orch: wave-1-first skips broker channels whose /24 is LAN ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2304:    # Add a hypothetical broker channel for SeattleTwo's /24 - what would
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2305:    # happen if the broker had paired SeattleFive with SeattleTwo as a WG peer.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2306:    w.broker_channels["SeattleFive"].append(
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2314:    w2.broker_channels["SeattleFive"].append(
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2329:    broker to not pair LAN-reachable peers."""
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2357:    # NY-1 is the only real-remote in our stale-heavy broker list; the 6
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2401:        for i, ch in enumerate(w.broker_channels["SeattleFive"])}
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2411:        for i, ch in enumerate(w2.broker_channels["SeattleFive"])}
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2428:        for i, ch in enumerate(w.broker_channels["SeattleFive"])}
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2429:    # Empty broker - nothing for merge_cycle to install
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2430:    w.set_broker("SeattleFive", [])
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2439:    reg("[note] state_reconcile clears phantom daemon entries when broker is empty",
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2444:def test_orch_stale_broker_entries_get_tunneled_and_torn_down():
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2445:    """Stale broker entries (Seattle-1G/1I/3/4C, SeattleDB, SeattleNewDB)
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2448:    print("\n--- orch: stale broker entries get tunneled then torn down every cycle ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2467:    """Live broker advertised 10.250.250.0/24 as one of Seattle-1I's
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2475:    print("\n--- orch: broker lists peer's remote subnets including this node's own /24 ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2477:    for ch in w.broker_channels["SeattleFive"]:
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2499:    # Seattle-1I broker channel includes 10.130.130 as one of its subnets.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2513:    fixed orchestration AND wide voucher scope AND clean broker, only
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2527:    # Clean broker - no stale entries, just the 4 real remotes
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2528:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2586:    """Models the daemon's periodic poll: does broker disagree with our
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2589:    Bug (poll_once_reconciles_with_kernel=False): compares broker against
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2590:    daemon_mem.active. If memory matches broker but kernel has drifted,
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2593:    Fix (poll_once_reconciles_with_kernel=True): compares broker against
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2595:    broker_set = set(c["name"] for c in world.broker_channels.get(node.name, []))
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2600:        return broker_set != kernel_alive
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2602:        return broker_set != set(node.daemon_mem.active.keys())
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2653:    """Sanity: a single node with no broker entries, no LAN anchor, and
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2656:    print("\n--- orch: empty broker, no LAN anchor - nothing happens ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2659:    w.set_broker("Solo", [])
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2673:def test_orch_clean_broker_no_stale_churn():
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2674:    """Pair to test_orch_stale_broker: with a clean broker (only real
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2677:    print("\n--- orch: clean broker has zero stale churn ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2682:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2689:    reg("clean broker: 2 brought_up, 0 torn_down",
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2692:    reg("clean broker: 2 wg ifaces remain",
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2698:    """With bugs on AND stale broker entries, every merge cycle does the
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2700:    because the stale broker entries keep coming back. Three cycles in a
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2721:    """Pair: with bugs fixed AND clean broker, the system converges after
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2724:    print("\n--- orch: multi-cycle convergence with all fixes + clean broker ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2733:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2813:        len(res.brought_up) == 8,  # 8 broker channels, all brought up since phantoms dropped
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2817:def test_orch_peer_appears_in_broker_between_cycles():
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2818:    """Cycle 1: broker has 1 channel. Cycle 2: broker has 2 channels (peer
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2821:    print("\n--- orch: peer appears in broker between cycles ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2826:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2836:    w.broker_channels["SeattleFive"].append(
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2848:def test_orch_peer_disappears_from_broker_between_cycles():
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2849:    """Cycle 1: broker has 2 channels. Cycle 2: one removed. That tunnel
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2851:    print("\n--- orch: peer disappears from broker between cycles ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2856:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2866:    # Remove BAMacBook from broker
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2867:    w.broker_channels["SeattleFive"] = [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2868:        c for c in w.broker_channels["SeattleFive"]
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2871:    reg("disappearance: cycle 2 tears down BAMacBook (broker no longer lists it)",
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2884:    served /24. Even with a buggy broker that lists own /24 as a peer's
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2890:    for ch in w.broker_channels["SeattleFive"]:
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2915:    the torn-down iface. Confirmed across the stale-broker scenario."""
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2965:    """Run merge with all fixes + clean broker, then verify every
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2974:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2991:    were torn down externally). Broker reports the same N channels.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2992:    Bug: poll compares broker vs daemon_mem -> match -> no merge fires.
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2993:    Fix: poll compares broker vs kernel-alive -> mismatch -> merge fires."""
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2996:    # Pre-populate daemon mem with what broker says, but kernel is empty
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:2999:        for i, c in enumerate(w.broker_channels["SeattleFive"])}
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3011:def test_orch_all_stale_broker_settles_to_zero_tunnels():
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3012:    """If every broker entry is stale (no real peer for any channel) and
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3017:    print("\n--- orch: all-stale broker - kernel churns but doesn't corrupt ---")
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3020:    # NO real peers - every broker entry is stale
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3021:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3052:    # Broker has one LAN peer (SeattleTwo as a tunnel - buggy broker pairing)
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3054:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3073:    """Mixed broker: 2 real remotes + 2 stale. Verify the real remotes get
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3081:    w.set_broker("SeattleFive", [
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3160:    test_orch_stale_broker_entries_get_tunneled_and_torn_down()
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3167:    test_orch_clean_broker_no_stale_churn()
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3172:    test_orch_peer_appears_in_broker_between_cycles()
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3173:    test_orch_peer_disappears_from_broker_between_cycles()
+ALLOWED   opt/frognet_semantic/simulation/frognet_sim.py:3180:    test_orch_all_stale_broker_settles_to_zero_tunnels()
+ALLOWED   opt/frognet_semantic/simulation/live_prober_removal.py:37:still up and the gateway was up. ([NO_BROKER_V1] the broker channel list this
+ALLOWED   usr/local/bin/frognet_monitor_cpp/tests/dashboard_oracle.cpp:212:    clean ? ok("no broker vocabulary in the node block") : bad("broker vocabulary in the node block");
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:86:echo "-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:89:    frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service \
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:99:    for _k in BROKER_URL GROUP_TOKEN GROUP_NAME PASSCODE POND_NAME POND_PASSWORD CHORUSES MAX_TUNNELS NODE_GUID RINA_RAM RINA_AREA; do
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:108:gone "etc/frognet/broker.conf"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:110:gone "etc/frognet/tunnel.conf.broker"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:111:gone_glob "etc/frognet" 'broker.conf.*'
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:117:gone "var/lib/frognet-tunnel/last_broker_state.json"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:118:gone "var/lib/frognet-tunnel/broker_channels.json"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:127:gone "etc/systemd/system/frognet-broker-v4.service"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:128:gone "etc/systemd/system/frognet-broker-v4.service.d"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:129:gone "etc/systemd/system/frognet-broker-v3.service"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:130:gone "etc/systemd/system/frognet-broker-v3.service.d"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:137:gone "etc/systemd/system/multi-user.target.wants/frognet-broker-v4.service"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:143:# The scripts and pages (T3b), the broker tree, and the T3a test files.
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:145:gone "usr/local/bin/frognet-broker-admin.sh"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:158:gone "opt/frognet_semantic/broker"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:163:gone "opt/frognet_semantic/discovery/sim/broker_world.py"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:164:gone "opt/frognet_semantic/simulation/broker_topology.py"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:196:gone "opt/frognet_semantic/internet_tunnels_v3/broker.py"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:197:gone "opt/frognet_semantic/internet_tunnels_v3/broker_auth.py"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:198:gone "opt/frognet_semantic/internet_tunnels_v3/broker_pin.py"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:283:gone "etc/frognet/broker.conf.lanonly-removed.20260619T090222Z"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:496:gone "opt/frognet_semantic/broker/opt/frognet_broker_v4/TUNNEL_ID_KEY_V1.diff"
+ALLOWED   usr/local/bin/frognet_routing_topology.py:253:    """[NO_BROKER_V1] The FD&F region this node is in (RINA_RAM, from
+ALLOWED   usr/local/bin/installer/frognet_install.sh:535:# incomplete when it was not. Measured on BrokerHost 2026-08-29.
+ALLOWED   usr/local/bin/installer/frognet_install.sh:599:# `apt-get upgrade -y` -- every package on the box. On BrokerHost 2026-08-29 that
+ALLOWED   usr/local/bin/installer/frognet_install.sh:880:        # about a file that was installed - observed on BrokerHost 2026-08-30 for
+ALLOWED   usr/local/bin/mergeHostsAndResolv.bash:41:#   (the tunnel commit-only stage is gone [NO_BROKER_V1])
+ALLOWED   usr/local/bin/mergeHostsAndResolv.bash:289:# [NO_BROKER_V1] The tunnel commit-only stage (channel_map and its teardown list) was here; it is gone (T3a).
+ALLOWED   usr/local/bin/runMerge.bash:94:# bring-up stage (discovery.live) keeps it that way. [NO_BROKER_V1] the broker autoswitch that stood here is gone.
+ALLOWED   var/www/html/oracle_dashboard32_views.js:187:  check(!/broker/i.test(script), "no broker vocabulary in the page's script (comments included)");
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:107:# Their files: the two old config files, and every backup of them or of tunnel.conf (they carry GROUP_TOKEN / PASSCODE).
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:116:gone "etc/frognet/pond_bootstrap_done"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:156:gone "var/www/html/frognet_chorus.php"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:159:gone "opt/frognet_semantic/internet_tunnels_v3/frognet_chorus.php"
+ALLOWED   usr/local/bin/frognet_prune_removed.sh:282:echo "-- timestamped runtime backups carrying GROUP_TOKEN"
+-- strict: the web pages and the monitors (nothing excluded, STRICT_ALLOW only)
+ALLOWED   usr/local/bin/frognet_monitor_cpp/tests/dashboard_oracle.cpp:212:    clean ? ok("no broker vocabulary in the node block") : bad("broker vocabulary in the node block");
+ALLOWED   usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py:20:and no broker vocabulary anywhere on the screen or in --once's frame. Uses the shared vectors' snapshot inputs, the
+ALLOWED   usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py:96:    check("broker" not in allout.lower(), "no broker vocabulary on the screen or in the frame")
+ALLOWED   var/www/html/oracle_dashboard32_views.js:187:  check(!/broker/i.test(script), "no broker vocabulary in the page's script (comments included)");
+static-no-broker strict (pages + monitors): 4 allowed, 0 violation(s)
+
+allowed, by reason:
+   109  TIER 1 model (run_all "model suite"). Its World.broker_channels is the channel list merge_cycle consumes, and ~40 regression scenarios replay broker-e
+    28  Names the paths and keys it removes (its T3 section is the installer's upgrade step).
+    18  A tag that records the removal; each such line says what went and that it is gone (T3a/T3b).
+    13  Frozen reference copy of the 2026-08 Python engine: the oracle ribbit/cpp/qualify.sh runs the C++ port against. Editing it changes the oracle.
+     9  The LAN-only netns oracle: it plants old broker keys and asserts they are named once, ignored, and that nothing asks a broker anything.
+     9  Recorded output of past run_all runs (evidence files), not code.
+     7  A machine's name (the host once called BrokerHost / brokerhost.seattle2) in history notes and test fixtures.
+     3  The oracle asserts there is no broker field and that an old BROKER_URL alone means LAN-only.
+     2  History: the same comment (cmp-identical source copy).
+     2  History: the incident that defined [HUB_ROW_IS_THE_REGION_EDGE_V1].
+     1  frognet_sim's learned baseline; the label must equal the model topology's name.
+     1  The region oracle's header: its nodes carry no old broker keys.
+     1  The dashboard oracle asserting the page's script carries no such word.
+     1  The C++ dashboard oracle asserting the node block carries no such word.
+     1  Recorded experiment input: frognet_sim's topology label, carried verbatim.
+     1  History: what the hub replaced (the hub's docstring).
+     1  History: the same docstring (cmp-identical source copy).
+     1  History: the same docstring (cmp-identical copy make_deliverables checks).
+     1  C++ source of the built RAM manager: why 10.252.254.0/24 is never handed to a leaf (an address reservation).
+
+static-no-broker: 209 allowed, 0 violation(s)

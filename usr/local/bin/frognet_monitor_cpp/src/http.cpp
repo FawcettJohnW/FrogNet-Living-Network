@@ -127,31 +127,25 @@ Identity Client::echo(const std::string& dot_one, long timeout_sec) const {
   return parseEchoLine(r.body);
 }
 
-std::vector<HostEntry> Client::discoverHosts() const {
-  HttpResult r = get("/getHosts.php", "", 5);
-  if (r.ok) {
-    std::string err;
-    Json body = Json::parse(r.body, &err);
-    if (err.empty() && body.isArray()) {
-      std::vector<HostEntry> out;
-      for (const Json& h : body.array) {
-        std::string ip = h.atString("ip");
-        if (ip.empty()) continue;
-        std::string name = h.atString("name");
-        out.push_back(HostEntry{ip, name.empty() ? ip : name});
-      }
-      if (!out.empty()) return out;
+NodeSnapshot Client::snapshot(long timeout_sec) const {
+  // [ONE_MONITOR_TRUTH_V1] the node's one snapshot. A failed or malformed read is ok=false: the screen says so and
+  // the next refresh asks again (the getHosts.php read and the /etc/hosts read before it are gone).
+  HttpResult r = get("/getSnapshot.php", "", timeout_sec);
+  if (!r.ok) return NodeSnapshot{};
+  return parseSnapshot(r.body);
+}
+
+std::vector<HostEntry> Client::hostsOf(const NodeSnapshot& s) {
+  std::vector<HostEntry> out;
+  if (!s.ok) return out;
+  if (const Json* ms = s.raw.find("members"); ms && ms->isArray())
+    for (const Json& m : ms->array) {
+      std::string ip = m.atString("ip");
+      if (ip.empty()) continue;
+      std::string name = m.atString("name");
+      out.push_back(HostEntry{ip, name.empty() ? ip : name});
     }
-  }
-  // Fallback to the same file, parsed by the same rules as the Python.
-  FILE* f = std::fopen("/etc/hosts", "r");
-  if (!f) return {};
-  std::string content;
-  char buf[4096];
-  size_t n;
-  while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) content.append(buf, n);
-  std::fclose(f);
-  return parseEtcHosts(content);
+  return out;
 }
 
 Json Client::sensorsForHost(const std::string& domain) const {

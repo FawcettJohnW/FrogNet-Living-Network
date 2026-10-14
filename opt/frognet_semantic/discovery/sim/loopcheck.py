@@ -185,8 +185,8 @@ def emitter_wiring_scenario():
         def measure_rtt(self, dev, pip): return "5"
     class FakeGetHosts:
         def get_hosts(self, host_path, pip): return []
-    class FakeBroker:
-        def broker_for_peer_ip(self, dest1): return None
+    class FakeTunnelState:
+        def tunnel_for_peer_ip(self, dest1): return None
         def channel_for_iface(self, dev): return ""
     class FakeVerify:
         def __init__(self, verdict): self.verdict = verdict; self.calls = []
@@ -199,7 +199,7 @@ def emitter_wiring_scenario():
         k = FakeKernel()
         routes = Routes(k, logger=lambda s: None, clock=lambda: 0.0)
         refl = FakeVerify(verdict)
-        disc = Discovery(routes, FakeEcho(), FakeRtt(), FakeGetHosts(), FakeBroker(),
+        disc = Discovery(routes, FakeEcho(), FakeRtt(), FakeGetHosts(), FakeTunnelState(),
                          HostStore(), {"10.99.99.1", "127.0.0.1"}, {"wg0": "10.99.99.1"},
                          logger=lambda s: None, verify=refl)
         disc.walk("wg0", "10.200.200.1", 1)

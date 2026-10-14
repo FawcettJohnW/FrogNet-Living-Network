@@ -1,0 +1,1478 @@
+SIM: using live patched code from /home/claude/clean/opt/frognet_semantic (proxy) and /home/claude/clean/usr/local/bin (bin)
+================== SECTION 1: helper functions ==================
+
+=== identity.dot_one_of - the .1 a client asks, across the 10/8 space ===
+  [OK  ] 10.101.10.63 -> 10.101.10.1 - got=10.101.10.1, expected=10.101.10.1
+  [OK  ] 10.241.241.1 -> 10.241.241.1 - got=10.241.241.1, expected=10.241.241.1
+  [OK  ] 10.44.44.2 -> 10.44.44.1 - got=10.44.44.1, expected=10.44.44.1
+  [OK  ] 10.10.10.200 -> 10.10.10.1 - got=10.10.10.1, expected=10.10.10.1
+  [OK  ] 10.201.201.1 -> 10.201.201.1 - got=10.201.201.1, expected=10.201.201.1
+  [OK  ] 10.1.1.9 -> 10.1.1.1 - got=10.1.1.1, expected=10.1.1.1
+  [OK  ] 10.122.221.1 -> 10.122.221.1 - got=10.122.221.1, expected=10.122.221.1
+  [OK  ] 10.147.147.77 -> 10.147.147.1 - got=10.147.147.1, expected=10.147.147.1
+  [OK  ] 10.253.253.5 -> rejected (no stand-in) - got=''
+  [OK  ] 10.254.1.1 -> rejected (no stand-in) - got=''
+  [OK  ] 192.168.1.5 -> rejected (no stand-in) - got=''
+  [OK  ] 127.0.0.1 -> rejected (no stand-in) - got=''
+  [OK  ] (empty) -> rejected (no stand-in) - got=''
+  [OK  ] 10.1.1 -> rejected (no stand-in) - got=''
+
+=== tunnel-daemon subnet derivation ===
+  [OK  ] prefix=10.101.10 - got={'SUBNET_PREFIX': '10.101.10', 'LOCAL_SUBNET': '10.101.10.0/24', 'LOCAL_GW': '10.101.10.1'}
+  [OK  ] prefix=10.241.241 - got={'SUBNET_PREFIX': '10.241.241', 'LOCAL_SUBNET': '10.241.241.0/24', 'LOCAL_GW': '10.241.241.1'}
+  [OK  ] prefix=10.44.44 - got={'SUBNET_PREFIX': '10.44.44', 'LOCAL_SUBNET': '10.44.44.0/24', 'LOCAL_GW': '10.44.44.1'}
+  [OK  ] prefix=10.201.201 - got={'SUBNET_PREFIX': '10.201.201', 'LOCAL_SUBNET': '10.201.201.0/24', 'LOCAL_GW': '10.201.201.1'}
+  [OK  ] prefix=10.122.221 - got={'SUBNET_PREFIX': '10.122.221', 'LOCAL_SUBNET': '10.122.221.0/24', 'LOCAL_GW': '10.122.221.1'}
+  [OK  ] prefix=10.1.1 - got={'SUBNET_PREFIX': '10.1.1', 'LOCAL_SUBNET': '10.1.1.0/24', 'LOCAL_GW': '10.1.1.1'}
+  [OK  ] 10.253. transit skipped, 10.101.10 picked - got={'SUBNET_PREFIX': '10.101.10', 'LOCAL_SUBNET': '10.101.10.0/24', 'LOCAL_GW': '10.101.10.1'}
+  [OK  ] only 10.253. transit present -> empty result
+  [OK  ] only 10.254. chorus present -> empty result
+  [OK  ] no input -> empty result
+
+=== _parse_channel_name ===
+  [OK  ] BlackBox-10.101.10 - got=('BlackBox', '10.101.10'), expected=('BlackBox','10.101.10')
+  [OK  ] IronBox-10.101.20 - got=('IronBox', '10.101.20'), expected=('IronBox','10.101.20')
+  [OK  ] SeattleDB-10.241.241 - got=('SeattleDB', '10.241.241'), expected=('SeattleDB','10.241.241')
+  [OK  ] Seattle-1G-10.44.44 - got=('Seattle-1G', '10.44.44'), expected=('Seattle-1G','10.44.44')
+  [OK  ] New-York-2-10.122.221 - got=('New-York-2', '10.122.221'), expected=('New-York-2','10.122.221')
+  [OK  ] Box-10.0.0 - got=('Box', '10.0.0'), expected=('Box','10.0.0')
+  [OK  ] simple-10.1.2 - got=('simple', '10.1.2'), expected=('simple','10.1.2')
+  [OK  ] foo-bar-baz-10.5.6 - got=('foo-bar-baz', '10.5.6'), expected=('foo-bar-baz','10.5.6')
+  [OK  ] no_hyphen_or_octets - got=('', ''), expected=('','')
+  [OK  ] name-10.1.2.3 - got=('', ''), expected=('','')
+  [OK  ] name-foo.bar.baz - got=('', ''), expected=('','')
+  [OK  ] trailing- - got=('', ''), expected=('','')
+
+=== discovery /etc/hosts fallback ===
+  [OK  ] 10.253./10.254. excluded, non-10/8 dropped - got=[('10.101.10.1', 'BlackBox'), ('10.241.241.1', 'SeattleDB'), ('10.44.44.1', 'Seattle-1G'), ('10.122.221.1', 'NewYork-2')]
+
+=== /etc/hosts reserved-range drift safeguard ===
+  [OK  ] only-reserved-ranges /etc/hosts -> empty output - got=[]
+
+================== SECTION 2: route discovery topologies ==================
+
+=== topology: two-node LAN (each serves own /24, peering LAN between) ===
+  converged in 2 cycle(s); 2 nodes, 1 L2 segment(s)
+  BlackBox (10.101.10.1 admin=10.101.10.2)
+      iface  eth0@10.101.10.1/24
+      iface  eth1@10.101.99.1/24
+      route  10.101.10.0/24 dev eth0 metric 100
+      route  10.101.99.0/24 dev eth1 metric 100
+      route  10.101.20.0/24 via 10.101.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+  IronBox (10.101.20.1 admin=10.101.20.2)
+      iface  eth0@10.101.20.1/24
+      iface  eth1@10.101.99.2/24
+      route  10.101.20.0/24 dev eth0 metric 100
+      route  10.101.99.0/24 dev eth1 metric 100
+      route  10.101.10.0/24 via 10.101.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+  REACHABILITY: all 4/4 (production+admin) pairs OK +
+
+=== topology: 3-node chain via dedicated link /24s ===
+  converged in 3 cycle(s); 3 nodes, 2 L2 segment(s)
+  A (10.1.1.1 admin=10.1.1.2)
+      iface  eth0@10.1.1.1/24
+      iface  wg0@10.200.1.1/30
+      route  10.1.1.0/24 dev eth0 metric 100
+      route  10.200.1.0/30 dev wg0 metric 100
+      route  10.2.2.0/24 via 10.2.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.2.2]
+      route  10.3.3.0/24 via 10.3.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.2.2]
+  B (10.2.2.1 admin=10.2.2.2)
+      iface  eth0@10.2.2.1/24
+      iface  wg0@10.200.1.2/30
+      iface  wg1@10.200.2.1/30
+      route  10.2.2.0/24 dev eth0 metric 100
+      route  10.200.1.0/30 dev wg0 metric 100
+      route  10.200.2.0/30 dev wg1 metric 100
+      route  10.1.1.0/24 via 10.1.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.1.1]
+      route  10.3.3.0/24 via 10.3.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=C-10.3.3]
+  C (10.3.3.1 admin=10.3.3.2)
+      iface  eth0@10.3.3.1/24
+      iface  wg0@10.200.2.2/30
+      route  10.3.3.0/24 dev eth0 metric 100
+      route  10.200.2.0/30 dev wg0 metric 100
+      route  10.2.2.0/24 via 10.2.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.2.2]
+      route  10.1.1.0/24 via 10.1.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.2.2]
+  REACHABILITY: all 12/12 (production+admin) pairs OK +
+
+=== topology: 5-node chain ===
+  converged in 5 cycle(s); 5 nodes, 4 L2 segment(s)
+  A (10.11.1.1 admin=10.11.1.2)
+      iface  eth0@10.11.1.1/24
+      iface  wg0@10.220.1.1/30
+      route  10.11.1.0/24 dev eth0 metric 100
+      route  10.220.1.0/30 dev wg0 metric 100
+      route  10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.11.2]
+      route  10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.11.2]
+      route  10.11.4.0/24 via 10.11.4.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B-10.11.2]
+      route  10.11.5.0/24 via 10.11.5.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B-10.11.2]
+  B (10.11.2.1 admin=10.11.2.2)
+      iface  eth0@10.11.2.1/24
+      iface  wg0@10.220.1.2/30
+      iface  wg1@10.220.2.1/30
+      route  10.11.2.0/24 dev eth0 metric 100
+      route  10.220.1.0/30 dev wg0 metric 100
+      route  10.220.2.0/30 dev wg1 metric 100
+      route  10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.11.1]
+      route  10.11.3.0/24 via 10.11.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=C-10.11.3]
+      route  10.11.4.0/24 via 10.11.4.1 dev wg1 metric 22  [wg rtt=50.0ms ch=C-10.11.3]
+      route  10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22  [wg rtt=75.0ms ch=C-10.11.3]
+  C (10.11.3.1 admin=10.11.3.2)
+      iface  eth0@10.11.3.1/24
+      iface  wg0@10.220.2.2/30
+      iface  wg1@10.220.3.1/30
+      route  10.11.3.0/24 dev eth0 metric 100
+      route  10.220.2.0/30 dev wg0 metric 100
+      route  10.220.3.0/30 dev wg1 metric 100
+      route  10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.11.2]
+      route  10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.11.2]
+      route  10.11.4.0/24 via 10.11.4.1 dev wg1 metric 22  [wg rtt=25.0ms ch=D-10.11.4]
+      route  10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22  [wg rtt=50.0ms ch=D-10.11.4]
+  D (10.11.4.1 admin=10.11.4.2)
+      iface  eth0@10.11.4.1/24
+      iface  wg0@10.220.3.2/30
+      iface  wg1@10.220.4.1/30
+      route  10.11.4.0/24 dev eth0 metric 100
+      route  10.220.3.0/30 dev wg0 metric 100
+      route  10.220.4.0/30 dev wg1 metric 100
+      route  10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C-10.11.3]
+      route  10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C-10.11.3]
+      route  10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C-10.11.3]
+      route  10.11.5.0/24 via 10.11.5.1 dev wg1 metric 22  [wg rtt=25.0ms ch=E-10.11.5]
+  E (10.11.5.1 admin=10.11.5.2)
+      iface  eth0@10.11.5.1/24
+      iface  wg0@10.220.4.2/30
+      route  10.11.5.0/24 dev eth0 metric 100
+      route  10.220.4.0/30 dev wg0 metric 100
+      route  10.11.4.0/24 via 10.11.4.1 dev wg0 metric 22  [wg rtt=25.0ms ch=D-10.11.4]
+      route  10.11.3.0/24 via 10.11.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=D-10.11.4]
+      route  10.11.2.0/24 via 10.11.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=D-10.11.4]
+      route  10.11.1.0/24 via 10.11.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=D-10.11.4]
+  REACHABILITY: all 40/40 (production+admin) pairs OK +
+
+=== topology: 4-spoke star ===
+  converged in 2 cycle(s); 5 nodes, 4 L2 segment(s)
+  Hub (10.20.99.1 admin=10.20.99.2)
+      iface  eth0@10.20.99.1/24
+      iface  wg0@10.221.1.1/30
+      iface  wg1@10.221.2.1/30
+      iface  wg2@10.221.3.1/30
+      iface  wg3@10.221.4.1/30
+      route  10.20.99.0/24 dev eth0 metric 100
+      route  10.221.1.0/30 dev wg0 metric 100
+      route  10.221.2.0/30 dev wg1 metric 100
+      route  10.221.3.0/30 dev wg2 metric 100
+      route  10.221.4.0/30 dev wg3 metric 100
+      route  10.20.1.0/24 via 10.20.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.20.1]
+      route  10.20.2.0/24 via 10.20.2.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B-10.20.2]
+      route  10.20.3.0/24 via 10.20.3.1 dev wg2 metric 22  [wg rtt=25.0ms ch=C-10.20.3]
+      route  10.20.4.0/24 via 10.20.4.1 dev wg3 metric 22  [wg rtt=25.0ms ch=D-10.20.4]
+  A (10.20.1.1 admin=10.20.1.2)
+      iface  eth0@10.20.1.1/24
+      iface  wg0@10.221.1.2/30
+      route  10.20.1.0/24 dev eth0 metric 100
+      route  10.221.1.0/30 dev wg0 metric 100
+      route  10.20.99.0/24 via 10.20.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.20.99]
+      route  10.20.2.0/24 via 10.20.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.3.0/24 via 10.20.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.4.0/24 via 10.20.4.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+  B (10.20.2.1 admin=10.20.2.2)
+      iface  eth0@10.20.2.1/24
+      iface  wg0@10.221.2.2/30
+      route  10.20.2.0/24 dev eth0 metric 100
+      route  10.221.2.0/30 dev wg0 metric 100
+      route  10.20.99.0/24 via 10.20.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.20.99]
+      route  10.20.1.0/24 via 10.20.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.3.0/24 via 10.20.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.4.0/24 via 10.20.4.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+  C (10.20.3.1 admin=10.20.3.2)
+      iface  eth0@10.20.3.1/24
+      iface  wg0@10.221.3.2/30
+      route  10.20.3.0/24 dev eth0 metric 100
+      route  10.221.3.0/30 dev wg0 metric 100
+      route  10.20.99.0/24 via 10.20.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.20.99]
+      route  10.20.1.0/24 via 10.20.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.2.0/24 via 10.20.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.4.0/24 via 10.20.4.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+  D (10.20.4.1 admin=10.20.4.2)
+      iface  eth0@10.20.4.1/24
+      iface  wg0@10.221.4.2/30
+      route  10.20.4.0/24 dev eth0 metric 100
+      route  10.221.4.0/30 dev wg0 metric 100
+      route  10.20.99.0/24 via 10.20.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.20.99]
+      route  10.20.1.0/24 via 10.20.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.2.0/24 via 10.20.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+      route  10.20.3.0/24 via 10.20.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.20.99]
+  REACHABILITY: all 40/40 (production+admin) pairs OK +
+
+=== topology: 4-node ring ===
+  converged in 3 cycle(s); 4 nodes, 4 L2 segment(s)
+  A (10.30.1.1 admin=10.30.1.2)
+      iface  eth0@10.30.1.1/24
+      iface  wg0@10.222.1.1/30
+      iface  wg1@10.222.4.2/30
+      route  10.30.1.0/24 dev eth0 metric 100
+      route  10.222.1.0/30 dev wg0 metric 100
+      route  10.222.4.0/30 dev wg1 metric 100
+      route  10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.30.2]
+      route  10.30.3.0/24 via 10.30.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.30.2]
+      route  10.30.4.0/24 via 10.30.4.1 dev wg1 metric 22  [wg rtt=25.0ms ch=D-10.30.4]
+  B (10.30.2.1 admin=10.30.2.2)
+      iface  eth0@10.30.2.1/24
+      iface  wg0@10.222.1.2/30
+      iface  wg1@10.222.2.1/30
+      route  10.30.2.0/24 dev eth0 metric 100
+      route  10.222.1.0/30 dev wg0 metric 100
+      route  10.222.2.0/30 dev wg1 metric 100
+      route  10.30.1.0/24 via 10.30.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.30.1]
+      route  10.30.4.0/24 via 10.30.4.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.30.1]
+      route  10.30.3.0/24 via 10.30.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=C-10.30.3]
+  C (10.30.3.1 admin=10.30.3.2)
+      iface  eth0@10.30.3.1/24
+      iface  wg0@10.222.2.2/30
+      iface  wg1@10.222.3.1/30
+      route  10.30.3.0/24 dev eth0 metric 100
+      route  10.222.2.0/30 dev wg0 metric 100
+      route  10.222.3.0/30 dev wg1 metric 100
+      route  10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.30.2]
+      route  10.30.1.0/24 via 10.30.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.30.2]
+      route  10.30.4.0/24 via 10.30.4.1 dev wg1 metric 22  [wg rtt=25.0ms ch=D-10.30.4]
+  D (10.30.4.1 admin=10.30.4.2)
+      iface  eth0@10.30.4.1/24
+      iface  wg0@10.222.3.2/30
+      iface  wg1@10.222.4.1/30
+      route  10.30.4.0/24 dev eth0 metric 100
+      route  10.222.3.0/30 dev wg0 metric 100
+      route  10.222.4.0/30 dev wg1 metric 100
+      route  10.30.3.0/24 via 10.30.3.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C-10.30.3]
+      route  10.30.2.0/24 via 10.30.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C-10.30.3]
+      route  10.30.1.0/24 via 10.30.1.1 dev wg1 metric 22  [wg rtt=25.0ms ch=A-10.30.1]
+  REACHABILITY: all 24/24 (production+admin) pairs OK +
+
+=== topology: snowflake (depth 2) ===
+  converged in 3 cycle(s); 7 nodes, 6 L2 segment(s)
+  Hub (10.40.99.1 admin=10.40.99.2)
+      iface  eth0@10.40.99.1/24
+      iface  wg0@10.223.1.1/30
+      iface  wg1@10.223.2.1/30
+      route  10.40.99.0/24 dev eth0 metric 100
+      route  10.223.1.0/30 dev wg0 metric 100
+      route  10.223.2.0/30 dev wg1 metric 100
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.40.1]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+      route  10.40.2.0/24 via 10.40.2.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B-10.40.2]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg1 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg1 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+  A (10.40.1.1 admin=10.40.1.2)
+      iface  eth0@10.40.1.1/24
+      iface  wg0@10.223.1.2/30
+      iface  wg1@10.223.3.1/30
+      iface  wg2@10.223.4.1/30
+      route  10.40.1.0/24 dev eth0 metric 100
+      route  10.223.1.0/30 dev wg0 metric 100
+      route  10.223.3.0/30 dev wg1 metric 100
+      route  10.223.4.0/30 dev wg2 metric 100
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.40.99]
+      route  10.40.2.0/24 via 10.40.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.40.99]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Hub-10.40.99]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Hub-10.40.99]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg1 metric 22  [wg rtt=25.0ms ch=A1-10.40.11]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg2 metric 22  [wg rtt=25.0ms ch=A2-10.40.12]
+  B (10.40.2.1 admin=10.40.2.2)
+      iface  eth0@10.40.2.1/24
+      iface  wg0@10.223.2.2/30
+      iface  wg1@10.223.5.1/30
+      iface  wg2@10.223.6.1/30
+      route  10.40.2.0/24 dev eth0 metric 100
+      route  10.223.2.0/30 dev wg0 metric 100
+      route  10.223.5.0/30 dev wg1 metric 100
+      route  10.223.6.0/30 dev wg2 metric 100
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Hub-10.40.99]
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Hub-10.40.99]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Hub-10.40.99]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Hub-10.40.99]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B1-10.40.21]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg2 metric 22  [wg rtt=25.0ms ch=B2-10.40.22]
+  A1 (10.40.11.1 admin=10.40.11.2)
+      iface  eth0@10.40.11.1/24
+      iface  wg0@10.223.3.2/30
+      route  10.40.11.0/24 dev eth0 metric 100
+      route  10.223.3.0/30 dev wg0 metric 100
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.40.1]
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+      route  10.40.2.0/24 via 10.40.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=A-10.40.1]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg0 metric 22  [wg rtt=100.0ms ch=A-10.40.1]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg0 metric 22  [wg rtt=100.0ms ch=A-10.40.1]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+  A2 (10.40.12.1 admin=10.40.12.2)
+      iface  eth0@10.40.12.1/24
+      iface  wg0@10.223.4.2/30
+      route  10.40.12.0/24 dev eth0 metric 100
+      route  10.223.4.0/30 dev wg0 metric 100
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A-10.40.1]
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+      route  10.40.2.0/24 via 10.40.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=A-10.40.1]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg0 metric 22  [wg rtt=100.0ms ch=A-10.40.1]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg0 metric 22  [wg rtt=100.0ms ch=A-10.40.1]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg0 metric 22  [wg rtt=50.0ms ch=A-10.40.1]
+  B1 (10.40.21.1 admin=10.40.21.2)
+      iface  eth0@10.40.21.1/24
+      iface  wg0@10.223.5.2/30
+      route  10.40.21.0/24 dev eth0 metric 100
+      route  10.223.5.0/30 dev wg0 metric 100
+      route  10.40.2.0/24 via 10.40.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.40.2]
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B-10.40.2]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B-10.40.2]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B-10.40.2]
+      route  10.40.22.0/24 via 10.40.22.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+  B2 (10.40.22.1 admin=10.40.22.2)
+      iface  eth0@10.40.22.1/24
+      iface  wg0@10.223.6.2/30
+      route  10.40.22.0/24 dev eth0 metric 100
+      route  10.223.6.0/30 dev wg0 metric 100
+      route  10.40.2.0/24 via 10.40.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B-10.40.2]
+      route  10.40.99.0/24 via 10.40.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+      route  10.40.1.0/24 via 10.40.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B-10.40.2]
+      route  10.40.11.0/24 via 10.40.11.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B-10.40.2]
+      route  10.40.12.0/24 via 10.40.12.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B-10.40.2]
+      route  10.40.21.0/24 via 10.40.21.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B-10.40.2]
+  REACHABILITY: all 84/84 (production+admin) pairs OK +
+
+=== topology: LAN-only triangle (3 hosts on one /24) ===
+  converged in 2 cycle(s); 3 nodes, 1 L2 segment(s)
+  X (10.60.0.1 admin=10.60.0.2)
+      iface  eth0@10.60.0.1/24
+      iface  eth1@10.60.99.1/24
+      route  10.60.0.0/24 dev eth0 metric 100
+      route  10.60.99.0/24 dev eth1 metric 100
+      route  10.61.0.0/24 via 10.60.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.62.0.0/24 via 10.60.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+  Y (10.61.0.1 admin=10.61.0.2)
+      iface  eth0@10.61.0.1/24
+      iface  eth1@10.60.99.2/24
+      route  10.61.0.0/24 dev eth0 metric 100
+      route  10.60.99.0/24 dev eth1 metric 100
+      route  10.60.0.0/24 via 10.60.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.62.0.0/24 via 10.60.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+  Z (10.62.0.1 admin=10.62.0.2)
+      iface  eth0@10.62.0.1/24
+      iface  eth1@10.60.99.3/24
+      route  10.62.0.0/24 dev eth0 metric 100
+      route  10.60.99.0/24 dev eth1 metric 100
+      route  10.60.0.0/24 via 10.60.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.61.0.0/24 via 10.60.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+  REACHABILITY: all 12/12 (production+admin) pairs OK +
+
+=== topology: 3-site pond (full WG mesh) ===
+  converged in 2 cycle(s); 3 nodes, 3 L2 segment(s)
+  Seattle (10.241.241.1 admin=10.241.241.2)
+      iface  eth0@10.241.241.1/24
+      iface  wg0@10.252.1.1/30
+      iface  wg1@10.252.2.1/30
+      route  10.241.241.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.252.2.0/30 dev wg1 metric 100
+      route  10.122.221.0/24 via 10.122.221.1 dev wg0 metric 22  [wg rtt=25.0ms ch=NewYork-10.122.221]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Austin-10.44.44]
+  NewYork (10.122.221.1 admin=10.122.221.2)
+      iface  eth0@10.122.221.1/24
+      iface  wg0@10.252.1.2/30
+      iface  wg1@10.252.3.1/30
+      route  10.122.221.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.252.3.0/30 dev wg1 metric 100
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Austin-10.44.44]
+  Austin (10.44.44.1 admin=10.44.44.2)
+      iface  eth0@10.44.44.1/24
+      iface  wg0@10.252.2.2/30
+      iface  wg1@10.252.3.2/30
+      route  10.44.44.0/24 dev eth0 metric 100
+      route  10.252.2.0/30 dev wg0 metric 100
+      route  10.252.3.0/30 dev wg1 metric 100
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.122.221.0/24 via 10.122.221.1 dev wg1 metric 22  [wg rtt=25.0ms ch=NewYork-10.122.221]
+  REACHABILITY: all 12/12 (production+admin) pairs OK +
+
+=== topology: 3-site pond with workers ===
+  converged in 2 cycle(s); 6 nodes, 6 L2 segment(s)
+  Seattle (10.241.241.1 admin=10.241.241.2)
+      iface  eth0@10.241.241.1/24
+      iface  wg0@10.252.1.1/30
+      iface  wg1@10.252.2.1/30
+      route  10.241.241.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.252.2.0/30 dev wg1 metric 100
+      route  10.241.241.0/24 via 10.241.241.5 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.122.221.0/24 via 10.122.221.1 dev wg0 metric 22  [wg rtt=25.0ms ch=NewYork-10.122.221]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Austin-10.44.44]
+  NewYork (10.122.221.1 admin=10.122.221.2)
+      iface  eth0@10.122.221.1/24
+      iface  wg0@10.252.1.2/30
+      iface  wg1@10.252.3.1/30
+      route  10.122.221.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.252.3.0/30 dev wg1 metric 100
+      route  10.122.221.0/24 via 10.122.221.5 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Austin-10.44.44]
+  Austin (10.44.44.1 admin=10.44.44.2)
+      iface  eth0@10.44.44.1/24
+      iface  wg0@10.252.2.2/30
+      iface  wg1@10.252.3.2/30
+      route  10.44.44.0/24 dev eth0 metric 100
+      route  10.252.2.0/30 dev wg0 metric 100
+      route  10.252.3.0/30 dev wg1 metric 100
+      route  10.44.44.0/24 via 10.44.44.5 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.122.221.0/24 via 10.122.221.1 dev wg1 metric 22  [wg rtt=25.0ms ch=NewYork-10.122.221]
+  Seattle-W1 (10.241.241.5)
+      iface  eth0@10.241.241.5/24
+      route  10.241.241.0/24 dev eth0 metric 100
+      route  10.241.241.0/24 via 10.241.241.1 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.122.221.0/24 via 10.241.241.1 dev eth0 metric 22  [lan rtt=27.0ms]
+      route  10.44.44.0/24 via 10.241.241.1 dev eth0 metric 22  [lan rtt=27.0ms]
+  NewYork-W1 (10.122.221.5)
+      iface  eth0@10.122.221.5/24
+      route  10.122.221.0/24 dev eth0 metric 100
+      route  10.122.221.0/24 via 10.122.221.1 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.241.241.0/24 via 10.122.221.1 dev eth0 metric 22  [lan rtt=27.0ms]
+      route  10.44.44.0/24 via 10.122.221.1 dev eth0 metric 22  [lan rtt=27.0ms]
+  Austin-W1 (10.44.44.5)
+      iface  eth0@10.44.44.5/24
+      route  10.44.44.0/24 dev eth0 metric 100
+      route  10.44.44.0/24 via 10.44.44.1 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.241.241.0/24 via 10.44.44.1 dev eth0 metric 22  [lan rtt=27.0ms]
+      route  10.122.221.0/24 via 10.44.44.1 dev eth0 metric 22  [lan rtt=27.0ms]
+  REACHABILITY: all 45/45 (production+admin) pairs OK +
+
+=== topology: 3-site pond hub-spoke (no NY<->Austin link) ===
+  converged in 2 cycle(s); 3 nodes, 2 L2 segment(s)
+  Seattle (10.241.241.1 admin=10.241.241.2)
+      iface  eth0@10.241.241.1/24
+      iface  wg0@10.252.1.1/30
+      iface  wg1@10.252.2.1/30
+      route  10.241.241.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.252.2.0/30 dev wg1 metric 100
+      route  10.122.221.0/24 via 10.122.221.1 dev wg0 metric 22  [wg rtt=25.0ms ch=NewYork-10.122.221]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Austin-10.44.44]
+  NewYork (10.122.221.1 admin=10.122.221.2)
+      iface  eth0@10.122.221.1/24
+      iface  wg0@10.252.1.2/30
+      route  10.122.221.0/24 dev eth0 metric 100
+      route  10.252.1.0/30 dev wg0 metric 100
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.44.44.0/24 via 10.44.44.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Seattle-10.241.241]
+  Austin (10.44.44.1 admin=10.44.44.2)
+      iface  eth0@10.44.44.1/24
+      iface  wg0@10.252.2.2/30
+      route  10.44.44.0/24 dev eth0 metric 100
+      route  10.252.2.0/30 dev wg0 metric 100
+      route  10.241.241.0/24 via 10.241.241.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Seattle-10.241.241]
+      route  10.122.221.0/24 via 10.122.221.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Seattle-10.241.241]
+  REACHABILITY: all 12/12 (production+admin) pairs OK +
+
+=== topology: mixed LAN+WG ===
+  converged in 3 cycle(s); 3 nodes, 2 L2 segment(s)
+  X (10.70.1.1 admin=10.70.1.2)
+      iface  eth0@10.70.1.1/24
+      iface  eth1@10.70.99.1/24
+      route  10.70.1.0/24 dev eth0 metric 100
+      route  10.70.99.0/24 dev eth1 metric 100
+      route  10.70.2.0/24 via 10.70.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.70.3.0/24 via 10.70.99.2 dev eth1 metric 22  [lan rtt=27.0ms]
+  Y (10.70.2.1 admin=10.70.2.2)
+      iface  eth0@10.70.2.1/24
+      iface  eth1@10.70.99.2/24
+      iface  wg0@10.224.1.1/30
+      route  10.70.2.0/24 dev eth0 metric 100
+      route  10.70.99.0/24 dev eth1 metric 100
+      route  10.224.1.0/30 dev wg0 metric 100
+      route  10.70.1.0/24 via 10.70.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.70.3.0/24 via 10.70.3.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Z-10.70.3]
+  Z (10.70.3.1 admin=10.70.3.2)
+      iface  eth0@10.70.3.1/24
+      iface  wg0@10.224.1.2/30
+      route  10.70.3.0/24 dev eth0 metric 100
+      route  10.224.1.0/30 dev wg0 metric 100
+      route  10.70.2.0/24 via 10.70.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Y-10.70.2]
+      route  10.70.1.0/24 via 10.70.1.1 dev wg0 metric 22  [wg rtt=27.0ms ch=Y-10.70.2]
+  REACHABILITY: all 12/12 (production+admin) pairs OK +
+
+=== topology: asymmetric: A=2-host LAN <-> WG <-> B=3-host LAN ===
+  converged in 4 cycle(s); 5 nodes, 3 L2 segment(s)
+  A1 (10.80.1.1 admin=10.80.1.2)
+      iface  eth0@10.80.1.1/24
+      iface  eth1@10.80.99.1/24
+      route  10.80.1.0/24 dev eth0 metric 100
+      route  10.80.99.0/24 dev eth1 metric 100
+      route  10.80.2.0/24 via 10.80.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.81.1.0/24 via 10.80.99.2 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.81.2.0/24 via 10.80.99.2 dev eth1 metric 22  [lan rtt=29.0ms]
+      route  10.81.3.0/24 via 10.80.99.2 dev eth1 metric 22  [lan rtt=29.0ms]
+  A2 (10.80.2.1 admin=10.80.2.2)
+      iface  eth0@10.80.2.1/24
+      iface  eth1@10.80.99.2/24
+      iface  wg0@10.250.1.1/30
+      route  10.80.2.0/24 dev eth0 metric 100
+      route  10.80.99.0/24 dev eth1 metric 100
+      route  10.250.1.0/30 dev wg0 metric 100
+      route  10.80.1.0/24 via 10.80.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.81.1.0/24 via 10.81.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B1-10.81.1]
+      route  10.81.2.0/24 via 10.81.2.1 dev wg0 metric 22  [wg rtt=27.0ms ch=B1-10.81.1]
+      route  10.81.3.0/24 via 10.81.3.1 dev wg0 metric 22  [wg rtt=27.0ms ch=B1-10.81.1]
+  B1 (10.81.1.1 admin=10.81.1.2)
+      iface  eth0@10.81.1.1/24
+      iface  eth1@10.81.99.1/24
+      iface  wg0@10.250.1.2/30
+      route  10.81.1.0/24 dev eth0 metric 100
+      route  10.81.99.0/24 dev eth1 metric 100
+      route  10.250.1.0/30 dev wg0 metric 100
+      route  10.81.2.0/24 via 10.81.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.81.3.0/24 via 10.81.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.80.2.0/24 via 10.80.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A2-10.80.2]
+      route  10.80.1.0/24 via 10.80.1.1 dev wg0 metric 22  [wg rtt=27.0ms ch=A2-10.80.2]
+  B2 (10.81.2.1 admin=10.81.2.2)
+      iface  eth0@10.81.2.1/24
+      iface  eth1@10.81.99.2/24
+      route  10.81.2.0/24 dev eth0 metric 100
+      route  10.81.99.0/24 dev eth1 metric 100
+      route  10.81.1.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.81.3.0/24 via 10.81.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.80.2.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.80.1.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=29.0ms]
+  B3 (10.81.3.1 admin=10.81.3.2)
+      iface  eth0@10.81.3.1/24
+      iface  eth1@10.81.99.3/24
+      route  10.81.3.0/24 dev eth0 metric 100
+      route  10.81.99.0/24 dev eth1 metric 100
+      route  10.81.1.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.81.2.0/24 via 10.81.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.80.2.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.80.1.0/24 via 10.81.99.1 dev eth1 metric 22  [lan rtt=29.0ms]
+  REACHABILITY: all 40/40 (production+admin) pairs OK +
+
+=== topology: asymmetric: A=3-chain <-> WG <-> B=3-spoke star ===
+  converged in 5 cycle(s); 7 nodes, 6 L2 segment(s)
+  Ca1 (10.83.1.1 admin=10.83.1.2)
+      iface  eth0@10.83.1.1/24
+      iface  wg0@10.250.11.1/30
+      route  10.83.1.0/24 dev eth0 metric 100
+      route  10.250.11.0/30 dev wg0 metric 100
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Ca2-10.83.2]
+      route  10.83.3.0/24 via 10.83.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Ca2-10.83.2]
+      route  10.84.99.0/24 via 10.84.99.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Ca2-10.83.2]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=Ca2-10.83.2]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg0 metric 22  [wg rtt=100.0ms ch=Ca2-10.83.2]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg0 metric 22  [wg rtt=100.0ms ch=Ca2-10.83.2]
+  Ca2 (10.83.2.1 admin=10.83.2.2)
+      iface  eth0@10.83.2.1/24
+      iface  wg0@10.250.11.2/30
+      iface  wg1@10.250.12.1/30
+      route  10.83.2.0/24 dev eth0 metric 100
+      route  10.250.11.0/30 dev wg0 metric 100
+      route  10.250.12.0/30 dev wg1 metric 100
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Ca1-10.83.1]
+      route  10.83.3.0/24 via 10.83.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Ca3-10.83.3]
+      route  10.84.99.0/24 via 10.84.99.1 dev wg1 metric 22  [wg rtt=50.0ms ch=Ca3-10.83.3]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg1 metric 22  [wg rtt=75.0ms ch=Ca3-10.83.3]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg1 metric 22  [wg rtt=75.0ms ch=Ca3-10.83.3]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg1 metric 22  [wg rtt=75.0ms ch=Ca3-10.83.3]
+  Ca3 (10.83.3.1 admin=10.83.3.2)
+      iface  eth0@10.83.3.1/24
+      iface  wg0@10.250.12.2/30
+      iface  wg1@10.250.20.1/30
+      route  10.83.3.0/24 dev eth0 metric 100
+      route  10.250.12.0/30 dev wg0 metric 100
+      route  10.250.20.0/30 dev wg1 metric 100
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Ca2-10.83.2]
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Ca2-10.83.2]
+      route  10.84.99.0/24 via 10.84.99.1 dev wg1 metric 22  [wg rtt=25.0ms ch=HubB-10.84.99]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg1 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg1 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg1 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+  HubB (10.84.99.1 admin=10.84.99.2)
+      iface  eth0@10.84.99.1/24
+      iface  wg0@10.250.20.2/30
+      iface  wg1@10.250.21.1/30
+      iface  wg2@10.250.22.1/30
+      iface  wg3@10.250.23.1/30
+      route  10.84.99.0/24 dev eth0 metric 100
+      route  10.250.20.0/30 dev wg0 metric 100
+      route  10.250.21.0/30 dev wg1 metric 100
+      route  10.250.22.0/30 dev wg2 metric 100
+      route  10.250.23.0/30 dev wg3 metric 100
+      route  10.83.3.0/24 via 10.83.3.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Ca3-10.83.3]
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Ca3-10.83.3]
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Ca3-10.83.3]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Bs1-10.84.1]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg2 metric 22  [wg rtt=25.0ms ch=Bs2-10.84.2]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg3 metric 22  [wg rtt=25.0ms ch=Bs3-10.84.3]
+  Bs1 (10.84.1.1 admin=10.84.1.2)
+      iface  eth0@10.84.1.1/24
+      iface  wg0@10.250.21.2/30
+      route  10.84.1.0/24 dev eth0 metric 100
+      route  10.250.21.0/30 dev wg0 metric 100
+      route  10.84.99.0/24 via 10.84.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=HubB-10.84.99]
+      route  10.83.3.0/24 via 10.83.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=HubB-10.84.99]
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=HubB-10.84.99]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+  Bs2 (10.84.2.1 admin=10.84.2.2)
+      iface  eth0@10.84.2.1/24
+      iface  wg0@10.250.22.2/30
+      route  10.84.2.0/24 dev eth0 metric 100
+      route  10.250.22.0/30 dev wg0 metric 100
+      route  10.84.99.0/24 via 10.84.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=HubB-10.84.99]
+      route  10.83.3.0/24 via 10.83.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=HubB-10.84.99]
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=HubB-10.84.99]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.84.3.0/24 via 10.84.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+  Bs3 (10.84.3.1 admin=10.84.3.2)
+      iface  eth0@10.84.3.1/24
+      iface  wg0@10.250.23.2/30
+      route  10.84.3.0/24 dev eth0 metric 100
+      route  10.250.23.0/30 dev wg0 metric 100
+      route  10.84.99.0/24 via 10.84.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=HubB-10.84.99]
+      route  10.83.3.0/24 via 10.83.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.83.2.0/24 via 10.83.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=HubB-10.84.99]
+      route  10.83.1.0/24 via 10.83.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=HubB-10.84.99]
+      route  10.84.1.0/24 via 10.84.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+      route  10.84.2.0/24 via 10.84.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=HubB-10.84.99]
+  REACHABILITY: all 84/84 (production+admin) pairs OK +
+
+=== topology: asymmetric: A=4-node WG ring <-> WG <-> B=3-host LAN cluster ===
+  converged in 4 cycle(s); 7 nodes, 6 L2 segment(s)
+  Ra (10.85.1.1 admin=10.85.1.2)
+      iface  eth0@10.85.1.1/24
+      iface  wg0@10.250.31.1/30
+      iface  wg1@10.250.34.2/30
+      route  10.85.1.0/24 dev eth0 metric 100
+      route  10.250.31.0/30 dev wg0 metric 100
+      route  10.250.34.0/30 dev wg1 metric 100
+      route  10.85.2.0/24 via 10.85.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Rb-10.85.2]
+      route  10.85.3.0/24 via 10.85.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+      route  10.86.1.0/24 via 10.86.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+      route  10.86.2.0/24 via 10.86.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=Rb-10.85.2]
+      route  10.86.3.0/24 via 10.86.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=Rb-10.85.2]
+      route  10.85.4.0/24 via 10.85.4.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Rd-10.85.4]
+  Rb (10.85.2.1 admin=10.85.2.2)
+      iface  eth0@10.85.2.1/24
+      iface  wg0@10.250.31.2/30
+      iface  wg1@10.250.32.1/30
+      iface  wg2@10.250.40.1/30
+      route  10.85.2.0/24 dev eth0 metric 100
+      route  10.250.31.0/30 dev wg0 metric 100
+      route  10.250.32.0/30 dev wg1 metric 100
+      route  10.250.40.0/30 dev wg2 metric 100
+      route  10.85.1.0/24 via 10.85.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Ra-10.85.1]
+      route  10.85.4.0/24 via 10.85.4.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Ra-10.85.1]
+      route  10.85.3.0/24 via 10.85.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Rc-10.85.3]
+      route  10.86.1.0/24 via 10.86.1.1 dev wg2 metric 22  [wg rtt=25.0ms ch=Lb1-10.86.1]
+      route  10.86.2.0/24 via 10.86.2.1 dev wg2 metric 22  [wg rtt=27.0ms ch=Lb1-10.86.1]
+      route  10.86.3.0/24 via 10.86.3.1 dev wg2 metric 22  [wg rtt=27.0ms ch=Lb1-10.86.1]
+  Rc (10.85.3.1 admin=10.85.3.2)
+      iface  eth0@10.85.3.1/24
+      iface  wg0@10.250.32.2/30
+      iface  wg1@10.250.33.1/30
+      route  10.85.3.0/24 dev eth0 metric 100
+      route  10.250.32.0/30 dev wg0 metric 100
+      route  10.250.33.0/30 dev wg1 metric 100
+      route  10.85.2.0/24 via 10.85.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Rb-10.85.2]
+      route  10.85.1.0/24 via 10.85.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+      route  10.85.4.0/24 via 10.85.4.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Rd-10.85.4]
+      route  10.86.1.0/24 via 10.86.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+      route  10.86.2.0/24 via 10.86.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=Rb-10.85.2]
+      route  10.86.3.0/24 via 10.86.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=Rb-10.85.2]
+  Rd (10.85.4.1 admin=10.85.4.2)
+      iface  eth0@10.85.4.1/24
+      iface  wg0@10.250.33.2/30
+      iface  wg1@10.250.34.1/30
+      route  10.85.4.0/24 dev eth0 metric 100
+      route  10.250.33.0/30 dev wg0 metric 100
+      route  10.250.34.0/30 dev wg1 metric 100
+      route  10.85.3.0/24 via 10.85.3.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Rc-10.85.3]
+      route  10.85.2.0/24 via 10.85.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rc-10.85.3]
+      route  10.85.1.0/24 via 10.85.1.1 dev wg1 metric 22  [wg rtt=25.0ms ch=Ra-10.85.1]
+      route  10.86.1.0/24 via 10.86.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Rc-10.85.3]
+      route  10.86.2.0/24 via 10.86.2.1 dev wg0 metric 22  [wg rtt=77.0ms ch=Rc-10.85.3]
+      route  10.86.3.0/24 via 10.86.3.1 dev wg0 metric 22  [wg rtt=77.0ms ch=Rc-10.85.3]
+  Lb1 (10.86.1.1 admin=10.86.1.2)
+      iface  eth0@10.86.1.1/24
+      iface  eth1@10.86.99.1/24
+      iface  wg0@10.250.40.2/30
+      route  10.86.1.0/24 dev eth0 metric 100
+      route  10.86.99.0/24 dev eth1 metric 100
+      route  10.250.40.0/30 dev wg0 metric 100
+      route  10.86.2.0/24 via 10.86.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.86.3.0/24 via 10.86.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.85.2.0/24 via 10.85.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=Rb-10.85.2]
+      route  10.85.1.0/24 via 10.85.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+      route  10.85.4.0/24 via 10.85.4.1 dev wg0 metric 22  [wg rtt=75.0ms ch=Rb-10.85.2]
+      route  10.85.3.0/24 via 10.85.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=Rb-10.85.2]
+  Lb2 (10.86.2.1 admin=10.86.2.2)
+      iface  eth0@10.86.2.1/24
+      iface  eth1@10.86.99.2/24
+      route  10.86.2.0/24 dev eth0 metric 100
+      route  10.86.99.0/24 dev eth1 metric 100
+      route  10.86.1.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.86.3.0/24 via 10.86.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.85.2.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.85.1.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.85.4.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+      route  10.85.3.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+  Lb3 (10.86.3.1 admin=10.86.3.2)
+      iface  eth0@10.86.3.1/24
+      iface  eth1@10.86.99.3/24
+      route  10.86.3.0/24 dev eth0 metric 100
+      route  10.86.99.0/24 dev eth1 metric 100
+      route  10.86.1.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.86.2.0/24 via 10.86.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.85.2.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.85.1.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.85.4.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+      route  10.85.3.0/24 via 10.86.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+  REACHABILITY: all 84/84 (production+admin) pairs OK +
+
+=== topology: asymmetric: 3 sites, each different shape, full WG mesh between gateways ===
+  converged in 4 cycle(s); 8 nodes, 8 L2 segment(s)
+  A_w1 (10.90.1.1 admin=10.90.1.2)
+      iface  eth0@10.90.1.1/24
+      iface  eth1@10.90.99.1/24
+      route  10.90.1.0/24 dev eth0 metric 100
+      route  10.90.99.0/24 dev eth1 metric 100
+      route  10.90.2.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.91.2.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.91.1.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.91.3.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.92.99.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.92.1.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.92.2.0/24 via 10.90.99.2 dev eth1 metric 22  [lan rtt=52.0ms]
+  A_gw (10.90.2.1 admin=10.90.2.2)
+      iface  eth0@10.90.2.1/24
+      iface  eth1@10.90.99.2/24
+      iface  wg0@10.251.1.1/30
+      iface  wg1@10.251.3.1/30
+      route  10.90.2.0/24 dev eth0 metric 100
+      route  10.90.99.0/24 dev eth1 metric 100
+      route  10.251.1.0/30 dev wg0 metric 100
+      route  10.251.3.0/30 dev wg1 metric 100
+      route  10.90.1.0/24 via 10.90.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.91.2.0/24 via 10.91.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_gw-10.91.2]
+      route  10.91.1.0/24 via 10.91.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.92.99.0/24 via 10.92.99.1 dev wg1 metric 22  [wg rtt=25.0ms ch=C_hub-10.92.99]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg1 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg1 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+  B_end1 (10.91.1.1 admin=10.91.1.2)
+      iface  eth0@10.91.1.1/24
+      iface  wg0@10.251.11.1/30
+      route  10.91.1.0/24 dev eth0 metric 100
+      route  10.251.11.0/30 dev wg0 metric 100
+      route  10.91.2.0/24 via 10.91.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_gw-10.91.2]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.90.2.0/24 via 10.90.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg0 metric 22  [wg rtt=52.0ms ch=B_gw-10.91.2]
+      route  10.92.99.0/24 via 10.92.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.91.2]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.91.2]
+  B_gw (10.91.2.1 admin=10.91.2.2)
+      iface  eth0@10.91.2.1/24
+      iface  wg0@10.251.11.2/30
+      iface  wg1@10.251.12.1/30
+      iface  wg2@10.251.1.2/30
+      iface  wg3@10.251.2.1/30
+      route  10.91.2.0/24 dev eth0 metric 100
+      route  10.251.11.0/30 dev wg0 metric 100
+      route  10.251.12.0/30 dev wg1 metric 100
+      route  10.251.1.0/30 dev wg2 metric 100
+      route  10.251.2.0/30 dev wg3 metric 100
+      route  10.91.1.0/24 via 10.91.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_end1-10.91.1]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B_end2-10.91.3]
+      route  10.90.2.0/24 via 10.90.2.1 dev wg2 metric 22  [wg rtt=25.0ms ch=A_gw-10.90.2]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg2 metric 22  [wg rtt=27.0ms ch=A_gw-10.90.2]
+      route  10.92.99.0/24 via 10.92.99.1 dev wg3 metric 22  [wg rtt=25.0ms ch=C_hub-10.92.99]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg3 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg3 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+  B_end2 (10.91.3.1 admin=10.91.3.2)
+      iface  eth0@10.91.3.1/24
+      iface  wg0@10.251.12.2/30
+      route  10.91.3.0/24 dev eth0 metric 100
+      route  10.251.12.0/30 dev wg0 metric 100
+      route  10.91.2.0/24 via 10.91.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_gw-10.91.2]
+      route  10.91.1.0/24 via 10.91.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.90.2.0/24 via 10.90.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg0 metric 22  [wg rtt=52.0ms ch=B_gw-10.91.2]
+      route  10.92.99.0/24 via 10.92.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.91.2]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.91.2]
+  C_hub (10.92.99.1 admin=10.92.99.2)
+      iface  eth0@10.92.99.1/24
+      iface  wg0@10.251.3.2/30
+      iface  wg1@10.251.2.2/30
+      iface  wg2@10.251.21.1/30
+      iface  wg3@10.251.22.1/30
+      route  10.92.99.0/24 dev eth0 metric 100
+      route  10.251.3.0/30 dev wg0 metric 100
+      route  10.251.2.0/30 dev wg1 metric 100
+      route  10.251.21.0/30 dev wg2 metric 100
+      route  10.251.22.0/30 dev wg3 metric 100
+      route  10.90.2.0/24 via 10.90.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=A_gw-10.90.2]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg0 metric 22  [wg rtt=27.0ms ch=A_gw-10.90.2]
+      route  10.91.2.0/24 via 10.91.2.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B_gw-10.91.2]
+      route  10.91.1.0/24 via 10.91.1.1 dev wg1 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg1 metric 22  [wg rtt=50.0ms ch=B_gw-10.91.2]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg2 metric 22  [wg rtt=25.0ms ch=C_s1-10.92.1]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg3 metric 22  [wg rtt=25.0ms ch=C_s2-10.92.2]
+  C_s1 (10.92.1.1 admin=10.92.1.2)
+      iface  eth0@10.92.1.1/24
+      iface  wg0@10.251.21.2/30
+      route  10.92.1.0/24 dev eth0 metric 100
+      route  10.251.21.0/30 dev wg0 metric 100
+      route  10.92.99.0/24 via 10.92.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C_hub-10.92.99]
+      route  10.90.2.0/24 via 10.90.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.92.99]
+      route  10.91.2.0/24 via 10.91.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.91.1.0/24 via 10.91.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.92.99]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.92.99]
+      route  10.92.2.0/24 via 10.92.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+  C_s2 (10.92.2.1 admin=10.92.2.2)
+      iface  eth0@10.92.2.1/24
+      iface  wg0@10.251.22.2/30
+      route  10.92.2.0/24 dev eth0 metric 100
+      route  10.251.22.0/30 dev wg0 metric 100
+      route  10.92.99.0/24 via 10.92.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C_hub-10.92.99]
+      route  10.90.2.0/24 via 10.90.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.90.1.0/24 via 10.90.1.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.92.99]
+      route  10.91.2.0/24 via 10.91.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+      route  10.91.1.0/24 via 10.91.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.92.99]
+      route  10.91.3.0/24 via 10.91.3.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.92.99]
+      route  10.92.1.0/24 via 10.92.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.92.99]
+  REACHABILITY: all 112/112 (production+admin) pairs OK +
+
+=== topology: multi-LAN, /30 full mesh between 4 gateways (asymmetric shapes) ===
+  converged in 4 cycle(s); 11 nodes, 12 L2 segment(s)
+  A_gw (10.140.1.1 admin=10.140.1.2)
+      iface  eth0@10.140.1.1/24
+      iface  eth1@10.140.99.1/24
+      iface  wgB@10.253.50.1/30
+      iface  wgC@10.253.50.5/30
+      iface  wgD@10.253.50.9/30
+      route  10.140.1.0/24 dev eth0 metric 100
+      route  10.140.99.0/24 dev eth1 metric 100
+      route  10.253.50.0/30 dev wgB metric 100
+      route  10.253.50.4/30 dev wgC metric 100
+      route  10.253.50.8/30 dev wgD metric 100
+      route  10.140.2.0/24 via 10.140.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.140.3.0/24 via 10.140.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.141.1.0/24 via 10.141.1.1 dev wgB metric 22  [wg rtt=25.0ms ch=B_gw-10.141.1]
+      route  10.142.99.0/24 via 10.142.99.1 dev wgC metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.143.1.0/24 via 10.143.1.1 dev wgD metric 22  [wg rtt=25.0ms ch=D_gw-10.143.1]
+      route  10.142.1.0/24 via 10.142.1.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.2.0/24 via 10.142.2.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.3.0/24 via 10.142.3.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wgB metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.141.3.0/24 via 10.141.3.1 dev wgB metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+  A_w1 (10.140.2.1 admin=10.140.2.2)
+      iface  eth0@10.140.2.1/24
+      iface  eth1@10.140.99.2/24
+      route  10.140.2.0/24 dev eth0 metric 100
+      route  10.140.99.0/24 dev eth1 metric 100
+      route  10.140.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.140.3.0/24 via 10.140.99.3 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.141.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.142.99.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.143.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.142.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.142.2.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.142.3.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.141.2.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.141.3.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+  A_w2 (10.140.3.1 admin=10.140.3.2)
+      iface  eth0@10.140.3.1/24
+      iface  eth1@10.140.99.3/24
+      route  10.140.3.0/24 dev eth0 metric 100
+      route  10.140.99.0/24 dev eth1 metric 100
+      route  10.140.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.140.2.0/24 via 10.140.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.141.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.142.99.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.143.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.142.1.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.142.2.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.142.3.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.141.2.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.141.3.0/24 via 10.140.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+  B_gw (10.141.1.1 admin=10.141.1.2)
+      iface  eth0@10.141.1.1/24
+      iface  wgA@10.253.50.2/30
+      iface  wgC@10.253.50.13/30
+      iface  wgD@10.253.50.17/30
+      iface  wg1@10.141.100.1/30
+      route  10.141.1.0/24 dev eth0 metric 100
+      route  10.253.50.0/30 dev wgA metric 100
+      route  10.253.50.12/30 dev wgC metric 100
+      route  10.253.50.16/30 dev wgD metric 100
+      route  10.141.100.0/30 dev wg1 metric 100
+      route  10.140.1.0/24 via 10.140.1.1 dev wgA metric 22  [wg rtt=25.0ms ch=A_gw-10.140.1]
+      route  10.140.2.0/24 via 10.140.2.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.140.3.0/24 via 10.140.3.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.142.99.0/24 via 10.142.99.1 dev wgC metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.143.1.0/24 via 10.143.1.1 dev wgD metric 22  [wg rtt=25.0ms ch=D_gw-10.143.1]
+      route  10.142.1.0/24 via 10.142.1.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.2.0/24 via 10.142.2.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.3.0/24 via 10.142.3.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B_m-10.141.2]
+      route  10.141.3.0/24 via 10.141.3.1 dev wg1 metric 22  [wg rtt=50.0ms ch=B_m-10.141.2]
+  B_m (10.141.2.1 admin=10.141.2.2)
+      iface  eth0@10.141.2.1/24
+      iface  wg0@10.141.100.2/30
+      iface  wg1@10.141.101.1/30
+      route  10.141.2.0/24 dev eth0 metric 100
+      route  10.141.100.0/30 dev wg0 metric 100
+      route  10.141.101.0/30 dev wg1 metric 100
+      route  10.141.1.0/24 via 10.141.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_gw-10.141.1]
+      route  10.140.1.0/24 via 10.140.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.140.2.0/24 via 10.140.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=B_gw-10.141.1]
+      route  10.140.3.0/24 via 10.140.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=B_gw-10.141.1]
+      route  10.142.99.0/24 via 10.142.99.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.143.1.0/24 via 10.143.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.142.1.0/24 via 10.142.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+      route  10.142.2.0/24 via 10.142.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+      route  10.142.3.0/24 via 10.142.3.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+      route  10.141.3.0/24 via 10.141.3.1 dev wg1 metric 22  [wg rtt=25.0ms ch=B_t-10.141.3]
+  B_t (10.141.3.1 admin=10.141.3.2)
+      iface  eth0@10.141.3.1/24
+      iface  wg0@10.141.101.2/30
+      route  10.141.3.0/24 dev eth0 metric 100
+      route  10.141.101.0/30 dev wg0 metric 100
+      route  10.141.2.0/24 via 10.141.2.1 dev wg0 metric 22  [wg rtt=25.0ms ch=B_m-10.141.2]
+      route  10.141.1.0/24 via 10.141.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=B_m-10.141.2]
+      route  10.140.1.0/24 via 10.140.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_m-10.141.2]
+      route  10.140.2.0/24 via 10.140.2.1 dev wg0 metric 22  [wg rtt=77.0ms ch=B_m-10.141.2]
+      route  10.140.3.0/24 via 10.140.3.1 dev wg0 metric 22  [wg rtt=77.0ms ch=B_m-10.141.2]
+      route  10.142.99.0/24 via 10.142.99.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_m-10.141.2]
+      route  10.143.1.0/24 via 10.143.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=B_m-10.141.2]
+      route  10.142.1.0/24 via 10.142.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B_m-10.141.2]
+      route  10.142.2.0/24 via 10.142.2.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B_m-10.141.2]
+      route  10.142.3.0/24 via 10.142.3.1 dev wg0 metric 22  [wg rtt=100.0ms ch=B_m-10.141.2]
+  C_hub (10.142.99.1 admin=10.142.99.2)
+      iface  eth0@10.142.99.1/24
+      iface  wgA@10.253.50.6/30
+      iface  wgB@10.253.50.14/30
+      iface  wgD@10.253.50.21/30
+      iface  wg1@10.142.100.1/30
+      iface  wg2@10.142.101.1/30
+      iface  wg3@10.142.102.1/30
+      route  10.142.99.0/24 dev eth0 metric 100
+      route  10.253.50.4/30 dev wgA metric 100
+      route  10.253.50.12/30 dev wgB metric 100
+      route  10.253.50.20/30 dev wgD metric 100
+      route  10.142.100.0/30 dev wg1 metric 100
+      route  10.142.101.0/30 dev wg2 metric 100
+      route  10.142.102.0/30 dev wg3 metric 100
+      route  10.140.1.0/24 via 10.140.1.1 dev wgA metric 22  [wg rtt=25.0ms ch=A_gw-10.140.1]
+      route  10.140.2.0/24 via 10.140.2.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.140.3.0/24 via 10.140.3.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.141.1.0/24 via 10.141.1.1 dev wgB metric 22  [wg rtt=25.0ms ch=B_gw-10.141.1]
+      route  10.143.1.0/24 via 10.143.1.1 dev wgD metric 22  [wg rtt=25.0ms ch=D_gw-10.143.1]
+      route  10.141.2.0/24 via 10.141.2.1 dev wgB metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.141.3.0/24 via 10.141.3.1 dev wgB metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+      route  10.142.1.0/24 via 10.142.1.1 dev wg1 metric 22  [wg rtt=25.0ms ch=C_s1-10.142.1]
+      route  10.142.2.0/24 via 10.142.2.1 dev wg2 metric 22  [wg rtt=25.0ms ch=C_s2-10.142.2]
+      route  10.142.3.0/24 via 10.142.3.1 dev wg3 metric 22  [wg rtt=25.0ms ch=C_s3-10.142.3]
+  C_s1 (10.142.1.1 admin=10.142.1.2)
+      iface  eth0@10.142.1.1/24
+      iface  wg0@10.142.100.2/30
+      route  10.142.1.0/24 dev eth0 metric 100
+      route  10.142.100.0/30 dev wg0 metric 100
+      route  10.142.99.0/24 via 10.142.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.140.1.0/24 via 10.140.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.140.2.0/24 via 10.140.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.140.3.0/24 via 10.140.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.141.1.0/24 via 10.141.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.143.1.0/24 via 10.143.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.142.99]
+      route  10.141.3.0/24 via 10.141.3.1 dev wg0 metric 22  [wg rtt=100.0ms ch=C_hub-10.142.99]
+      route  10.142.2.0/24 via 10.142.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.3.0/24 via 10.142.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+  C_s2 (10.142.2.1 admin=10.142.2.2)
+      iface  eth0@10.142.2.1/24
+      iface  wg0@10.142.101.2/30
+      route  10.142.2.0/24 dev eth0 metric 100
+      route  10.142.101.0/30 dev wg0 metric 100
+      route  10.142.99.0/24 via 10.142.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.140.1.0/24 via 10.140.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.140.2.0/24 via 10.140.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.140.3.0/24 via 10.140.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.141.1.0/24 via 10.141.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.143.1.0/24 via 10.143.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.142.99]
+      route  10.141.3.0/24 via 10.141.3.1 dev wg0 metric 22  [wg rtt=100.0ms ch=C_hub-10.142.99]
+      route  10.142.1.0/24 via 10.142.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.3.0/24 via 10.142.3.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+  C_s3 (10.142.3.1 admin=10.142.3.2)
+      iface  eth0@10.142.3.1/24
+      iface  wg0@10.142.102.2/30
+      route  10.142.3.0/24 dev eth0 metric 100
+      route  10.142.102.0/30 dev wg0 metric 100
+      route  10.142.99.0/24 via 10.142.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.140.1.0/24 via 10.140.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.140.2.0/24 via 10.140.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.140.3.0/24 via 10.140.3.1 dev wg0 metric 22  [wg rtt=52.0ms ch=C_hub-10.142.99]
+      route  10.141.1.0/24 via 10.141.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.143.1.0/24 via 10.143.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wg0 metric 22  [wg rtt=75.0ms ch=C_hub-10.142.99]
+      route  10.141.3.0/24 via 10.141.3.1 dev wg0 metric 22  [wg rtt=100.0ms ch=C_hub-10.142.99]
+      route  10.142.1.0/24 via 10.142.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.2.0/24 via 10.142.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+  D_gw (10.143.1.1 admin=10.143.1.2)
+      iface  eth0@10.143.1.1/24
+      iface  wgA@10.253.50.10/30
+      iface  wgB@10.253.50.18/30
+      iface  wgC@10.253.50.22/30
+      route  10.143.1.0/24 dev eth0 metric 100
+      route  10.253.50.8/30 dev wgA metric 100
+      route  10.253.50.16/30 dev wgB metric 100
+      route  10.253.50.20/30 dev wgC metric 100
+      route  10.140.1.0/24 via 10.140.1.1 dev wgA metric 22  [wg rtt=25.0ms ch=A_gw-10.140.1]
+      route  10.140.2.0/24 via 10.140.2.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.140.3.0/24 via 10.140.3.1 dev wgA metric 22  [wg rtt=27.0ms ch=A_gw-10.140.1]
+      route  10.141.1.0/24 via 10.141.1.1 dev wgB metric 22  [wg rtt=25.0ms ch=B_gw-10.141.1]
+      route  10.142.99.0/24 via 10.142.99.1 dev wgC metric 22  [wg rtt=25.0ms ch=C_hub-10.142.99]
+      route  10.142.1.0/24 via 10.142.1.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.2.0/24 via 10.142.2.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.142.3.0/24 via 10.142.3.1 dev wgC metric 22  [wg rtt=50.0ms ch=C_hub-10.142.99]
+      route  10.141.2.0/24 via 10.141.2.1 dev wgB metric 22  [wg rtt=50.0ms ch=B_gw-10.141.1]
+      route  10.141.3.0/24 via 10.141.3.1 dev wgB metric 22  [wg rtt=75.0ms ch=B_gw-10.141.1]
+  REACHABILITY: all 220/220 (production+admin) pairs OK +
+
+=== topology: two /30 admin mesh groups, bridged by BR_gw (asymmetric LANs) ===
+  converged in 4 cycle(s); 10 nodes, 11 L2 segment(s)
+  G1_gw (10.150.1.1 admin=10.150.1.2)
+      iface  eth0@10.150.1.1/24
+      iface  eth1@10.150.99.1/24
+      iface  wgG2@10.253.60.1/30
+      iface  wgBR@10.253.60.5/30
+      route  10.150.1.0/24 dev eth0 metric 100
+      route  10.150.99.0/24 dev eth1 metric 100
+      route  10.253.60.0/30 dev wgG2 metric 100
+      route  10.253.60.4/30 dev wgBR metric 100
+      route  10.150.2.0/24 via 10.150.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.151.1.0/24 via 10.151.1.1 dev wgG2 metric 22  [wg rtt=25.0ms ch=G2_gw-10.151.1]
+      route  10.152.1.0/24 via 10.152.1.1 dev wgBR metric 22  [wg rtt=25.0ms ch=BR_gw-10.152.1]
+      route  10.152.2.0/24 via 10.152.2.1 dev wgBR metric 22  [wg rtt=27.0ms ch=BR_gw-10.152.1]
+      route  10.153.99.0/24 via 10.153.99.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.154.1.0/24 via 10.154.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.153.2.0/24 via 10.153.2.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.151.2.0/24 via 10.151.2.1 dev wgG2 metric 22  [wg rtt=50.0ms ch=G2_gw-10.151.1]
+  G1_w1 (10.150.2.1 admin=10.150.2.2)
+      iface  eth0@10.150.2.1/24
+      iface  eth1@10.150.99.2/24
+      route  10.150.2.0/24 dev eth0 metric 100
+      route  10.150.99.0/24 dev eth1 metric 100
+      route  10.150.1.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.151.1.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.152.1.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.152.2.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=29.0ms]
+      route  10.153.99.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.154.1.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.153.1.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+      route  10.153.2.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=77.0ms]
+      route  10.151.2.0/24 via 10.150.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+  G2_gw (10.151.1.1 admin=10.151.1.2)
+      iface  eth0@10.151.1.1/24
+      iface  wgG1@10.253.60.2/30
+      iface  wgBR@10.253.60.9/30
+      iface  wg1@10.151.100.1/30
+      route  10.151.1.0/24 dev eth0 metric 100
+      route  10.253.60.0/30 dev wgG1 metric 100
+      route  10.253.60.8/30 dev wgBR metric 100
+      route  10.151.100.0/30 dev wg1 metric 100
+      route  10.150.1.0/24 via 10.150.1.1 dev wgG1 metric 22  [wg rtt=25.0ms ch=G1_gw-10.150.1]
+      route  10.150.2.0/24 via 10.150.2.1 dev wgG1 metric 22  [wg rtt=27.0ms ch=G1_gw-10.150.1]
+      route  10.152.1.0/24 via 10.152.1.1 dev wgBR metric 22  [wg rtt=25.0ms ch=BR_gw-10.152.1]
+      route  10.152.2.0/24 via 10.152.2.1 dev wgBR metric 22  [wg rtt=27.0ms ch=BR_gw-10.152.1]
+      route  10.153.99.0/24 via 10.153.99.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.154.1.0/24 via 10.154.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.153.2.0/24 via 10.153.2.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.151.2.0/24 via 10.151.2.1 dev wg1 metric 22  [wg rtt=25.0ms ch=G2_t-10.151.2]
+  G2_t (10.151.2.1 admin=10.151.2.2)
+      iface  eth0@10.151.2.1/24
+      iface  wg0@10.151.100.2/30
+      route  10.151.2.0/24 dev eth0 metric 100
+      route  10.151.100.0/30 dev wg0 metric 100
+      route  10.151.1.0/24 via 10.151.1.1 dev wg0 metric 22  [wg rtt=25.0ms ch=G2_gw-10.151.1]
+      route  10.150.1.0/24 via 10.150.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G2_gw-10.151.1]
+      route  10.150.2.0/24 via 10.150.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=G2_gw-10.151.1]
+      route  10.152.1.0/24 via 10.152.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G2_gw-10.151.1]
+      route  10.152.2.0/24 via 10.152.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=G2_gw-10.151.1]
+      route  10.153.99.0/24 via 10.153.99.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G2_gw-10.151.1]
+      route  10.154.1.0/24 via 10.154.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G2_gw-10.151.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wg0 metric 22  [wg rtt=100.0ms ch=G2_gw-10.151.1]
+      route  10.153.2.0/24 via 10.153.2.1 dev wg0 metric 22  [wg rtt=100.0ms ch=G2_gw-10.151.1]
+  BR_gw (10.152.1.1 admin=10.152.1.2)
+      iface  eth0@10.152.1.1/24
+      iface  eth1@10.152.99.1/24
+      iface  wgG1@10.253.60.6/30
+      iface  wgG2@10.253.60.10/30
+      iface  wgG3@10.253.61.5/30
+      iface  wgG4@10.253.61.9/30
+      route  10.152.1.0/24 dev eth0 metric 100
+      route  10.152.99.0/24 dev eth1 metric 100
+      route  10.253.60.4/30 dev wgG1 metric 100
+      route  10.253.60.8/30 dev wgG2 metric 100
+      route  10.253.61.4/30 dev wgG3 metric 100
+      route  10.253.61.8/30 dev wgG4 metric 100
+      route  10.152.2.0/24 via 10.152.99.2 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.150.1.0/24 via 10.150.1.1 dev wgG1 metric 22  [wg rtt=25.0ms ch=G1_gw-10.150.1]
+      route  10.150.2.0/24 via 10.150.2.1 dev wgG1 metric 22  [wg rtt=27.0ms ch=G1_gw-10.150.1]
+      route  10.151.1.0/24 via 10.151.1.1 dev wgG2 metric 22  [wg rtt=25.0ms ch=G2_gw-10.151.1]
+      route  10.151.2.0/24 via 10.151.2.1 dev wgG2 metric 22  [wg rtt=50.0ms ch=G2_gw-10.151.1]
+      route  10.153.99.0/24 via 10.153.99.1 dev wgG3 metric 22  [wg rtt=25.0ms ch=G3_hub-10.153.99]
+      route  10.154.1.0/24 via 10.154.1.1 dev wgG4 metric 22  [wg rtt=25.0ms ch=G4_gw-10.154.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wgG3 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.153.2.0/24 via 10.153.2.1 dev wgG3 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+  BR_w1 (10.152.2.1 admin=10.152.2.2)
+      iface  eth0@10.152.2.1/24
+      iface  eth1@10.152.99.2/24
+      route  10.152.2.0/24 dev eth0 metric 100
+      route  10.152.99.0/24 dev eth1 metric 100
+      route  10.152.1.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=2.0ms]
+      route  10.150.1.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.150.2.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=29.0ms]
+      route  10.151.1.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.151.2.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.153.99.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.154.1.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=27.0ms]
+      route  10.153.1.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+      route  10.153.2.0/24 via 10.152.99.1 dev eth1 metric 22  [lan rtt=52.0ms]
+  G3_hub (10.153.99.1 admin=10.153.99.2)
+      iface  eth0@10.153.99.1/24
+      iface  wgG4@10.253.61.1/30
+      iface  wgBR@10.253.61.6/30
+      iface  wg1@10.153.100.1/30
+      iface  wg2@10.153.101.1/30
+      route  10.153.99.0/24 dev eth0 metric 100
+      route  10.253.61.0/30 dev wgG4 metric 100
+      route  10.253.61.4/30 dev wgBR metric 100
+      route  10.153.100.0/30 dev wg1 metric 100
+      route  10.153.101.0/30 dev wg2 metric 100
+      route  10.154.1.0/24 via 10.154.1.1 dev wgG4 metric 22  [wg rtt=25.0ms ch=G4_gw-10.154.1]
+      route  10.152.1.0/24 via 10.152.1.1 dev wgBR metric 22  [wg rtt=25.0ms ch=BR_gw-10.152.1]
+      route  10.152.2.0/24 via 10.152.2.1 dev wgBR metric 22  [wg rtt=27.0ms ch=BR_gw-10.152.1]
+      route  10.150.1.0/24 via 10.150.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.150.2.0/24 via 10.150.2.1 dev wgBR metric 22  [wg rtt=52.0ms ch=BR_gw-10.152.1]
+      route  10.151.1.0/24 via 10.151.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.151.2.0/24 via 10.151.2.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wg1 metric 22  [wg rtt=25.0ms ch=G3_s1-10.153.1]
+      route  10.153.2.0/24 via 10.153.2.1 dev wg2 metric 22  [wg rtt=25.0ms ch=G3_s2-10.153.2]
+  G3_s1 (10.153.1.1 admin=10.153.1.2)
+      iface  eth0@10.153.1.1/24
+      iface  wg0@10.153.100.2/30
+      route  10.153.1.0/24 dev eth0 metric 100
+      route  10.153.100.0/30 dev wg0 metric 100
+      route  10.153.99.0/24 via 10.153.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=G3_hub-10.153.99]
+      route  10.154.1.0/24 via 10.154.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.152.1.0/24 via 10.152.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.152.2.0/24 via 10.152.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=G3_hub-10.153.99]
+      route  10.150.1.0/24 via 10.150.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G3_hub-10.153.99]
+      route  10.150.2.0/24 via 10.150.2.1 dev wg0 metric 22  [wg rtt=77.0ms ch=G3_hub-10.153.99]
+      route  10.151.1.0/24 via 10.151.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G3_hub-10.153.99]
+      route  10.151.2.0/24 via 10.151.2.1 dev wg0 metric 22  [wg rtt=100.0ms ch=G3_hub-10.153.99]
+      route  10.153.2.0/24 via 10.153.2.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+  G3_s2 (10.153.2.1 admin=10.153.2.2)
+      iface  eth0@10.153.2.1/24
+      iface  wg0@10.153.101.2/30
+      route  10.153.2.0/24 dev eth0 metric 100
+      route  10.153.101.0/30 dev wg0 metric 100
+      route  10.153.99.0/24 via 10.153.99.1 dev wg0 metric 22  [wg rtt=25.0ms ch=G3_hub-10.153.99]
+      route  10.154.1.0/24 via 10.154.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.152.1.0/24 via 10.152.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.152.2.0/24 via 10.152.2.1 dev wg0 metric 22  [wg rtt=52.0ms ch=G3_hub-10.153.99]
+      route  10.150.1.0/24 via 10.150.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G3_hub-10.153.99]
+      route  10.150.2.0/24 via 10.150.2.1 dev wg0 metric 22  [wg rtt=77.0ms ch=G3_hub-10.153.99]
+      route  10.151.1.0/24 via 10.151.1.1 dev wg0 metric 22  [wg rtt=75.0ms ch=G3_hub-10.153.99]
+      route  10.151.2.0/24 via 10.151.2.1 dev wg0 metric 22  [wg rtt=100.0ms ch=G3_hub-10.153.99]
+      route  10.153.1.0/24 via 10.153.1.1 dev wg0 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+  G4_gw (10.154.1.1 admin=10.154.1.2)
+      iface  eth0@10.154.1.1/24
+      iface  wgG3@10.253.61.2/30
+      iface  wgBR@10.253.61.10/30
+      route  10.154.1.0/24 dev eth0 metric 100
+      route  10.253.61.0/30 dev wgG3 metric 100
+      route  10.253.61.8/30 dev wgBR metric 100
+      route  10.153.99.0/24 via 10.153.99.1 dev wgG3 metric 22  [wg rtt=25.0ms ch=G3_hub-10.153.99]
+      route  10.152.1.0/24 via 10.152.1.1 dev wgBR metric 22  [wg rtt=25.0ms ch=BR_gw-10.152.1]
+      route  10.152.2.0/24 via 10.152.2.1 dev wgBR metric 22  [wg rtt=27.0ms ch=BR_gw-10.152.1]
+      route  10.150.1.0/24 via 10.150.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.150.2.0/24 via 10.150.2.1 dev wgBR metric 22  [wg rtt=52.0ms ch=BR_gw-10.152.1]
+      route  10.151.1.0/24 via 10.151.1.1 dev wgBR metric 22  [wg rtt=50.0ms ch=BR_gw-10.152.1]
+      route  10.151.2.0/24 via 10.151.2.1 dev wgBR metric 22  [wg rtt=75.0ms ch=BR_gw-10.152.1]
+      route  10.153.1.0/24 via 10.153.1.1 dev wgG3 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+      route  10.153.2.0/24 via 10.153.2.1 dev wgG3 metric 22  [wg rtt=50.0ms ch=G3_hub-10.153.99]
+  REACHABILITY: all 180/180 (production+admin) pairs OK +
+
+=== topology: isolated wlan0 AP: served on wlan0, 2 DHCP clients, no internet ===
+  converged in 2 cycle(s); 3 nodes, 1 L2 segment(s)
+  Farm (10.45.1.1 admin=10.45.1.2)
+      iface  wlan0@10.45.1.1/24
+      route  10.45.1.0/24 dev wlan0 metric 100
+      route  10.45.1.0/24 via 10.45.1.5 dev wlan0 metric 22  [lan rtt=5.0ms]
+  Sensor-A (10.45.1.5)
+      iface  wlan0@10.45.1.5/24
+      route  10.45.1.0/24 dev wlan0 metric 100
+      route  10.45.1.0/24 via 10.45.1.1 dev wlan0 metric 22  [lan rtt=5.0ms]
+  Sensor-B (10.45.1.6)
+      iface  wlan0@10.45.1.6/24
+      route  10.45.1.0/24 dev wlan0 metric 100
+      route  10.45.1.0/24 via 10.45.1.1 dev wlan0 metric 22  [lan rtt=5.0ms]
+  REACHABILITY: all 8/8 (production+admin) pairs OK +
+
+=== topology: two wlan0-AP FrogNets, peered by ham0 radio (no internet) ===
+  converged in 2 cycle(s); 4 nodes, 3 L2 segment(s)
+  HillCrest (10.46.1.1 admin=10.46.1.2)
+      iface  wlan0@10.46.1.1/24
+      iface  ham0@10.46.99.1/24
+      route  10.46.1.0/24 dev wlan0 metric 100
+      route  10.46.99.0/24 dev ham0 metric 100
+      route  10.46.1.0/24 via 10.46.1.5 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.46.2.0/24 via 10.46.99.2 dev ham0 metric 22  [lan rtt=20.0ms]
+  Valley (10.46.2.1 admin=10.46.2.2)
+      iface  wlan0@10.46.2.1/24
+      iface  ham0@10.46.99.2/24
+      route  10.46.2.0/24 dev wlan0 metric 100
+      route  10.46.99.0/24 dev ham0 metric 100
+      route  10.46.2.0/24 via 10.46.2.5 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.46.1.0/24 via 10.46.99.1 dev ham0 metric 22  [lan rtt=20.0ms]
+  HC-client (10.46.1.5)
+      iface  wlan0@10.46.1.5/24
+      route  10.46.1.0/24 dev wlan0 metric 100
+      route  10.46.1.0/24 via 10.46.1.1 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.46.2.0/24 via 10.46.1.1 dev wlan0 metric 22  [lan rtt=25.0ms]
+  V-client (10.46.2.5)
+      iface  wlan0@10.46.2.5/24
+      route  10.46.2.0/24 dev wlan0 metric 100
+      route  10.46.2.0/24 via 10.46.2.1 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.46.1.0/24 via 10.46.2.1 dev wlan0 metric 22  [lan rtt=25.0ms]
+  REACHABILITY: all 18/18 (production+admin) pairs OK +
+
+=== topology: mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker ===
+  converged in 3 cycle(s); 5 nodes, 4 L2 segment(s)
+  Barn (10.47.1.1 admin=10.47.1.2)
+      iface  eth0@10.47.1.1/24
+      iface  wlan1@10.47.50.1/30
+      route  10.47.1.0/24 dev eth0 metric 100
+      route  10.47.50.0/30 dev wlan1 metric 100
+      route  10.47.1.0/24 via 10.47.1.5 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.47.2.0/24 via 10.47.50.2 dev wlan1 metric 22  [lan rtt=5.0ms]
+      route  10.47.3.0/24 via 10.47.50.2 dev wlan1 metric 22  [lan rtt=25.0ms]
+  Forest (10.47.2.1 admin=10.47.2.2)
+      iface  wlan0@10.47.2.1/24
+      iface  wlan1@10.47.50.2/30
+      iface  ham0@10.47.51.1/30
+      route  10.47.2.0/24 dev wlan0 metric 100
+      route  10.47.50.0/30 dev wlan1 metric 100
+      route  10.47.51.0/30 dev ham0 metric 100
+      route  10.47.2.0/24 via 10.47.2.5 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.47.1.0/24 via 10.47.50.1 dev wlan1 metric 22  [lan rtt=5.0ms]
+      route  10.47.3.0/24 via 10.47.51.2 dev ham0 metric 22  [lan rtt=20.0ms]
+  Tower (10.47.3.1 admin=10.47.3.2)
+      iface  wlan0@10.47.3.1/24
+      iface  ham0@10.47.51.2/30
+      route  10.47.3.0/24 dev wlan0 metric 100
+      route  10.47.51.0/30 dev ham0 metric 100
+      route  10.47.2.0/24 via 10.47.51.1 dev ham0 metric 22  [lan rtt=20.0ms]
+      route  10.47.1.0/24 via 10.47.51.1 dev ham0 metric 22  [lan rtt=25.0ms]
+  Barn-sensor (10.47.1.5)
+      iface  eth0@10.47.1.5/24
+      route  10.47.1.0/24 dev eth0 metric 100
+      route  10.47.1.0/24 via 10.47.1.1 dev eth0 metric 22  [lan rtt=2.0ms]
+      route  10.47.2.0/24 via 10.47.1.1 dev eth0 metric 22  [lan rtt=7.0ms]
+      route  10.47.3.0/24 via 10.47.1.1 dev eth0 metric 22  [lan rtt=27.0ms]
+  Forest-ranger (10.47.2.5)
+      iface  wlan0@10.47.2.5/24
+      route  10.47.2.0/24 dev wlan0 metric 100
+      route  10.47.2.0/24 via 10.47.2.1 dev wlan0 metric 22  [lan rtt=5.0ms]
+      route  10.47.1.0/24 via 10.47.2.1 dev wlan0 metric 22  [lan rtt=10.0ms]
+      route  10.47.3.0/24 via 10.47.2.1 dev wlan0 metric 22  [lan rtt=25.0ms]
+  REACHABILITY: all 32/32 (production+admin) pairs OK +
+
+================== SECTION 3: bug regression tests ==================
+
+--- route stacking / idempotency ---
+  [OK  ] routes stable across 5 re-runs of discover_routes() - first=15 entries, second=15 entries
+  [OK  ] no duplicate routes on Seattle - got 5 entries, 5 unique
+  [OK  ] no duplicate routes on NewYork - got 5 entries, 5 unique
+  [OK  ] no duplicate routes on Austin - got 5 entries, 5 unique
+
+--- stickiness under RTT jitter ---
+  [OK  ] no winner switches under sub-threshold jitter - switches=0
+
+--- Bug #29: noisy sample consolidation ---
+  [OK  ] noisy sample consolidated to min RTT - winner rtt=5.0
+  [OK  ] low-RTT wg path wins over lan despite noisy sample - winner dev=wg0 via=10.2.2.1
+
+--- Bug #28: LAN via uses peering-segment IP not frognet_ip ---
+  [OK  ] LAN route's via = peering-segment IP (10.101.99.2) - via=10.101.99.2 dev=eth1
+  [OK  ] LAN route's via != served-/24 .1 (10.101.20.1) - via=10.101.99.2
+
+--- multipath selection picks lowest RTT ---
+  [OK  ] lowest-RTT path wins (wg 25ms beats lan 50ms) - winner dev=wg0 rtt=25.0 kind=wg
+  [OK  ] lowest-RTT path wins (lan 5ms beats wg 25ms) - winner dev=eth0 rtt=5.0 kind=lan
+
+--- distributed reconvergence after a node reboot ---
+  [OK  ] A reconverges to same routes after C reboot - diff=set()
+  [OK  ] rebooted C reconverges to know all 4 peer /24s - missing=set()
+
+--- algorithm is address-agnostic ---
+  [OK  ] discovery works for non-10.101 prefixes - 4/4, fails=[]
+
+--- .2 probe does not yield a separate observation ---
+  [OK  ] exactly one observation for peer's served /24 - got 1
+
+--- no WG between LAN-adjacent FrogNets ---
+  [OK  ] X: no wg ifaces in LAN-only topology - got []
+  [OK  ] X: no wg routes - got []
+  [OK  ] Y: no wg ifaces in LAN-only topology - got []
+  [OK  ] Y: no wg routes - got []
+  [OK  ] Z: no wg ifaces in LAN-only topology - got []
+  [OK  ] Z: no wg routes - got []
+
+--- wave-2 anchor validation ---
+  [OK  ] every installed winner's anchor is an L2 peer on its dev - violations=0
+
+========== SECTION 4: live merge-cycle orchestration tests ==========
+
+--- orch: cold start brings up all 8 broker channels (bug) ---
+  [OK  ] cold-start bringup brings up all 8 channels (skipped_lan_reachable=0) - brought_up=8 skipped=0
+
+--- orch: wave-1-first skips broker channels whose /24 is LAN ---
+  [OK  ] [bug] parallel bringup tunnels SeattleTwo despite LAN path - brought_up=['BAMacBook-10.147.147', 'New-York-1-10.102.60', 'Seattle-1G-10.201.201', 'Seattle-1I-10.133.144', 'Seattle-3-10.44.44', 'Seattle-4C-10.44.44', 'SeattleDB-10.241.241', 'SeattleNewDB-10.101.35', 'SeattleTwo-10.121.120']
+  [OK  ] [fix] wave-1-first ordering skips SeattleTwo channel - skipped=['SeattleTwo-10.121.120'] up=['BAMacBook-10.147.147', 'New-York-1-10.102.60', 'Seattle-1G-10.201.201', 'Seattle-1I-10.133.144', 'Seattle-3-10.44.44', 'Seattle-4C-10.44.44', 'SeattleDB-10.241.241', 'SeattleNewDB-10.101.35']
+
+--- orch: limited voucher scope hides LAN-reachable peers ---
+  [OK  ] [narrow voucher] BAMacBook still tunneled despite hypothetical LAN path - brought_up=['BAMacBook-10.147.147', 'New-York-1-10.102.60', 'Seattle-1G-10.201.201', 'Seattle-1I-10.133.144', 'Seattle-3-10.44.44', 'Seattle-4C-10.44.44', 'SeattleDB-10.241.241', 'SeattleNewDB-10.101.35']
+  [OK  ] [wide voucher] BAMacBook skipped when SeattleSix vouches for it - skipped=['BAMacBook-10.147.147']
+
+--- orch: teardown corrupts adjacent wg routes (bug) ---
+  [OK  ] [bug] surviving wg routes lose via+onlink after sibling teardowns - ny1=10.102.60.0/24 dev wg1 scope link src 10.250.250.1 metric 22 bamac=10.147.147.0/24 dev wg0 scope link src 10.250.250.1 metric 22
+
+--- orch: teardown without sibling corruption preserves winners ---
+  [OK  ] [fix] NY-1 and BAMacBook routes in canonical via+onlink form - ny1=10.102.60.0/24 via 10.102.60.1 dev wg1 onlink src 10.250.250.1 metric 22 bamac=10.147.147.0/24 via 10.147.147.1 dev wg0 onlink src 10.250.250.1 metric 22
+
+--- orch: phantom state files block bringup (bug) ---
+  [OK  ] [bug] phantom disk state suppresses bringup - brought_up=[]
+  [OK  ] [fix] kernel-validating load drops phantoms and brings up tunnels - brought_up=8
+
+--- orch: daemon poll_once misses kernel drift ---
+  [OK  ] [note] state_reconcile clears phantom daemon entries when broker is empty - daemon_active=[]
+
+--- orch: stale broker entries get tunneled then torn down every cycle ---
+  [OK  ] [bug] stale entries get tunneled at cold start - brought_stale={'Seattle-3-10.44.44', 'SeattleDB-10.241.241', 'Seattle-1I-10.133.144', 'SeattleNewDB-10.101.35', 'Seattle-4C-10.44.44', 'Seattle-1G-10.201.201'}
+  [OK  ] [bug] stale entries get torn down by committer (won_no_subnet) - torn_stale={'Seattle-3-10.44.44', 'SeattleDB-10.241.241', 'Seattle-1I-10.133.144', 'SeattleNewDB-10.101.35', 'Seattle-4C-10.44.44', 'Seattle-1G-10.201.201'}
+
+--- orch: broker lists peer's remote subnets including this node's own /24 ---
+  [OK  ] connected route for own served /24 not clobbered by wg install - own_route=10.250.250.0/24 dev eth0 src 10.250.250.1 metric 0
+
+--- orch: LAN winner replaces wg bringup route for same /24 ---
+  [OK  ] LAN route via SeattleSix wins over wg from Seattle-1I bringup - got 10.130.130.0/24 via 10.250.250.221 dev eth0 onlink metric 22
+
+--- orch: end-to-end with all fixes - only real remotes get tunnels ---
+  [OK  ] end-to-end: exactly 4 wg ifaces for 4 real remotes - got 4 wg ifaces: {'wg0', 'wg2', 'wg3', 'wg1'}
+  [OK  ] remote 10.102.60.0/24 has canonical wg via+onlink route - got 10.102.60.0/24 via 10.102.60.1 dev wg0 onlink src 10.250.250.1 metric 22
+  [OK  ] remote 10.147.147.0/24 has canonical wg via+onlink route - got 10.147.147.0/24 via 10.147.147.1 dev wg1 onlink src 10.250.250.1 metric 22
+  [OK  ] remote 10.103.10.0/24 has canonical wg via+onlink route - got 10.103.10.0/24 via 10.103.10.1 dev wg2 onlink src 10.250.250.1 metric 22
+  [OK  ] remote 10.103.20.0/24 has canonical wg via+onlink route - got 10.103.20.0/24 via 10.103.20.1 dev wg3 onlink src 10.250.250.1 metric 22
+  [OK  ] LAN 10.121.120.0/24 routed via SeattleSix on eth0 - got 10.121.120.0/24 via 10.250.250.221 dev eth0 onlink metric 22
+  [OK  ] LAN 10.130.130.0/24 routed via SeattleSix on eth0 - got 10.130.130.0/24 via 10.250.250.221 dev eth0 onlink metric 22
+  [OK  ] LAN 10.160.160.0/24 routed via SeattleSix on eth0 - got 10.160.160.0/24 via 10.250.250.221 dev eth0 onlink metric 22
+
+========== SECTION 4b: negative coverage + multi-cycle + invariants ==========
+
+--- orch: empty broker, no LAN anchor - nothing happens ---
+  [OK  ] solo: zero brought_up, zero torn_down - up=[] down=[]
+  [OK  ] solo: only the connected route remains - routes=['10.99.99.0/24']
+  [OK  ] solo: zero wg ifaces - wg_ifaces=set()
+  [OK  ] solo: all invariants hold - violations=[]
+
+--- orch: clean broker has zero stale churn ---
+  [OK  ] clean broker: 2 brought_up, 0 torn_down - up=['New-York-1-10.102.60', 'BAMacBook-10.147.147'] down=[]
+  [OK  ] clean broker: 2 wg ifaces remain - wg_ifaces={'wg0', 'wg1'}
+
+--- orch: multi-cycle thrashing - stale entries cycle every merge ---
+  [OK  ] thrashing: each cycle brings up the same 6 stale entries - got per-cycle stale bringups=[6, 6, 6]
+  [OK  ] thrashing: each cycle tears down the same 6 stale entries - got per-cycle stale teardowns=[6, 6, 6]
+
+--- orch: multi-cycle convergence with all fixes + clean broker ---
+  [OK  ] convergence: cycle 1 establishes 2 tunnels, cycles 2-3 are quiet - cycle1 up=2, cycle2 up=0 down=0, cycle3 up=0 down=0
+  [OK  ] convergence: kernel state stable across cycles 2 and 3 - cycle2=[], cycle3=[]
+  [OK  ] convergence: all invariants hold post-convergence - violations=[]
+
+--- orch: reboot - daemon mem lost, state files + kernel survive ---
+  [OK  ] reboot: kernel wg ifaces survive - pre={'wg0', 'wg1'} post={'wg1', 'wg0'}
+  [OK  ] reboot: state files survive - pre keys=['BAMacBook-10.147.147', 'New-York-1-10.102.60'], post keys=['BAMacBook-10.147.147', 'New-York-1-10.102.60']
+  [OK  ] reboot: daemon memory is empty - daemon_mem={}
+  [OK  ] reboot: post-reboot merge rehydrates daemon_mem from state files - daemon_mem keys=['BAMacBook-10.147.147', 'New-York-1-10.102.60']
+
+--- orch: reboot then phantom state files cleaned by validate ---
+  [OK  ] phantom-post-reboot: validate drops phantoms, bringup brings up tunnels - brought_up=8
+
+--- orch: peer appears in broker between cycles ---
+  [OK  ] appearance: cycle 1 brings up the one channel - got ['New-York-1-10.102.60']
+  [OK  ] appearance: cycle 2 brings up new channel without churn - up=['BAMacBook-10.147.147'] down=[]
+  [OK  ] appearance: NY-1 route still canonical after cycle 2 - got 10.102.60.0/24 via 10.102.60.1 dev wg0 onlink src 10.250.250.1 metric 22
+
+--- orch: peer disappears from broker between cycles ---
+  [OK  ] disappearance: cycle 1 brings up both - got ['New-York-1-10.102.60', 'BAMacBook-10.147.147']
+  [OK  ] disappearance: cycle 2 tears down BAMacBook (broker no longer lists it) - torn_down=['BAMacBook-10.147.147']
+  [OK  ] disappearance: NY-1 still up and canonical - ny1=10.102.60.0/24 via 10.102.60.1 dev wg0 onlink src 10.250.250.1 metric 22, mem=['New-York-1-10.102.60']
+
+--- orch: invariant - no wg route for own served /24 (multi-cycle) ---
+  [OK  ] I1: own /24 is still connected route on eth0 after 3 cycles - got 10.250.250.0/24 dev eth0 src 10.250.250.1 metric 0
+  [OK  ] I1: invariant holds at every cycle boundary
+
+--- orch: invariant - torn-down iface leaves no residual routes ---
+  [OK  ] I3: zero routes reference a torn-down (non-existent) wg iface - orphans=[]
+
+--- orch: invariant - no two channels share an iface ---
+  [OK  ] I4: zero ifaces shared by multiple channels - duplicates={}
+
+--- orch: invariant - enumerate violations under buggy config ---
+  [OK  ] buggy-run invariants: catalog what survives the bug - violations=[]
+
+--- orch: invariant - all invariants hold after clean fixed run ---
+  [OK  ] clean-run invariants: zero violations after 3 cycles - violations=[]
+
+--- orch: daemon poll detects kernel drift (paired bug/fix) ---
+  [OK  ] [bug] poll_once doesn't detect kernel drift - fired_bug=False
+  [OK  ] [fix] kernel-authoritative poll detects drift, fires merge - fired_fix=True
+
+--- orch: all-stale broker - kernel churns but doesn't corrupt ---
+  [OK  ] all-stale: kernel ends with only the connected own /24 - routes=['10.250.250.0/24']
+  [OK  ] all-stale: every cycle brings up 3 and tears down 3 (steady churn) - per-cycle: up=[3, 3, 3] down=[3, 3, 3]
+  [OK  ] all-stale: invariants hold after 3 cycles of churn - violations=[]
+
+--- orch: cold start with all fixes - no overshoot ---
+  [OK  ] no overshoot: SeattleTwo channel skipped (LAN-reachable via SeattleSix) - skipped=['SeattleTwo-10.121.120']
+  [OK  ] no overshoot: only NY-1 brought up - up=['New-York-1-10.102.60']
+  [OK  ] no overshoot: zero teardowns (no churn) - down=[]
+
+--- orch: mixed real+stale - real tunnels stable, stale cycles ---
+  [OK  ] mixed: real remotes have wg routes at end of every cycle - per cycle real_iface_status=[('wg0', 'wg1'), ('wg0', 'wg1'), ('wg0', 'wg1')]
+  [OK  ] mixed: cycle 1 brings up 4, cycles 2-3 bring up 2 stales each - per-cycle up=[4, 2, 2]
+  [OK  ] mixed: every cycle tears down exactly 2 stales - per-cycle down=[2, 2, 2]
+
+--- orch: teardown corruption persists into next cycle (bug) ---
+  [OK  ] [bug] NY-1 route in scope_link form after 2 buggy cycles - got 10.102.60.0/24 dev wg1 scope link src 10.250.250.1 metric 22
+  [OK  ] [fix] NY-1 route canonical after 2 fixed cycles - got 10.102.60.0/24 via 10.102.60.1 dev wg1 onlink src 10.250.250.1 metric 22
+
+================== SUMMARY ==================
+TOPOLOGY RESULT: PASS
+ALL TESTS PASS

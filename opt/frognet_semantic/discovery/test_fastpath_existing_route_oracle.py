@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 PEER, PIP = "10.102.60.1", "10.102.60.2"
@@ -56,7 +56,7 @@ def _walk(verify):
     k.seed(f"{DEST} dev wg2 scope link metric 22",
            "10.250.250.0/24 dev eth0 proto kernel scope link src 10.250.250.1")
     routes = Routes(k, clock=lambda: 0.0)
-    broker = FakeBroker(by_one={PEER: ("New-York-1-10.102.60", DEST, PEER)},
+    broker = FakeTunnelState(by_one={PEER: ("New-York-1-10.102.60", DEST, PEER)},
                         iface_channel={"wg2": "New-York-1-10.102.60"})
     # echo DOWN everywhere; getHosts surfaces one deep child (2nd level)
     gethosts = FakeGetHosts(children={PEER: [("10.88.88.1", "DeepHost")]})

@@ -1,0 +1,29 @@
+== FrogNetHost.H1 11:45:52
+[2026-10-13T11:43:45.186] runMerge INFO pid=952 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=[] ts={} ts_age_at_write={} NOT_WRITTEN=[('databasehost', 'ok', None)]
+SERVICE_ELECT role=databasehost decision=ABSTAIN reason=capability_read_failed err=StoreRefusedLocally: StoreRefusedLocally on 10.72.72.1: HTTP 500: dispatch failed: ConnectionError: 10.72.72.1 cached non-FrogNet this session; no worker built dbhost=10.72.72.1 -- the store did not answer. This is NOT an empty pool and the floor does NOT apply; the standing line is kept.
+[2026-10-13T11:44:41.058] runMerge INFO pid=3827 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect since 11:42:40:
+-- last_merge 11:44:43
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- dnsmasq answers: 10.72.72.1
+== FrogNetHost.H2 11:45:52
+[2026-10-13T11:44:05.077] runMerge INFO pid=1494 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 UNPUBLISHED (no databasehost/capability row on 10.72.72.1; entering the pool by definition -- every FrogNetHost is a candidate)
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=-1.0
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect since 11:42:40:
+2026-10-13T11:43:01+00:00 FrogNetHost.H2 python3[7095]: [11:43:01.032] [    0.020] [DIAG-STORE] pid=7095 thr=MainThread/7095 GET rows n=0 service=databasehost
+2026-10-13T11:44:23+00:00 FrogNetHost.H2 python3[4578]: [11:44:23.034] [    0.018] [DIAG-STORE] pid=4578 thr=MainThread/4578 GET rows n=1 service=databasehost
+2026-10-13T11:45:26+00:00 FrogNetHost.H2 python3[5840]: [11:45:26.050] [    0.014] [DIAG-STORE] pid=5840 thr=MainThread/5840 GET rows n=2 service=databasehost
+-- last_merge 11:44:08
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- dnsmasq answers: 10.72.72.1

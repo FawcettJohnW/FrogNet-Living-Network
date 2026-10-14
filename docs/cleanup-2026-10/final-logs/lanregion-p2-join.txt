@@ -1,0 +1,48 @@
+== unpacking the node bundle into /
+package=fdf-node.tgz
+build=fdf-2026-10-12-r20
+built=2026-10-13T12:58Z
+for=x86_64 FrogNet node or leaf
+== FD&F region view: http://<this node>/fdf/ (Apache, /opt/fdf/www/fdf)
+fdf-wg-impl: wireguard-go (recorded in /etc/frognet/wg.impl; kept)
+== joining the region at 10.91.91.1:51888 (area lan)
+== package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-13T12:58Z for=x86_64 FrogNet node or leaf 
+== site.env: RINA_AREA=lan RINA_SITE_KEY=<64 chars, ends 9193d4>
+== region mode: frognet-dbhost-elect.timer stopped and disabled
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-facts.service → /etc/systemd/system/fdf-facts.service.
+Created symlink /etc/systemd/system/multi-user.target.wants/fdf-client.service → /etc/systemd/system/fdf-client.service.
+joined: RINA_RAM=10.91.91.1:51888 written to /opt/fdf/var/join.env; fdf-facts.service and fdf-client.service started
+check:  systemctl status fdf-client   |   journalctl -u fdf-client -f   |   /opt/fdf/bin/fdf-ls
+== waiting 15 s for the join, the mapping and the hub
+== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)
+Started fdf-client.service - FD&F membership: this machine's session to the RAM manager at 10.91.91.1:51888.
+fdf-client: build fdf-2026-10-12-r20; region at 10.91.91.1:51888 is build fdf-2026-10-12-r20
+fdf-client: P2 joined the region at 10.91.91.1:51888, announced ["172.30.0.72","10.91.91.20","10.92.92.1","10.92.92.2"] with facts
+fdf-client: facts changed, re-announced
+fdf-client: facts changed, re-announced
+fdf-client: facts changed, re-announced
+fdf-client: mapping 10.92.92.0/24 -> FrogNetHost:1:50 registered (site lan)
+fdf-client: facts changed, re-announced
+== tunnel daemon (want: 'build', 'REGION switch', 'WG_KEY' on a first join, 'REGION: facts written', 'my-channels: hubs=[...]')
+[frognet:frognet.tunnel-daemon] WARNING REGION: DNSMASQ_KEEP reason=contents_unchanged key=b28c9a1cd78e
+[frognet:frognet.tunnel-daemon] WARNING REGION: ELECT: control=10.92.92.1 databasehost=10.92.92.1 hosts_changed=False
+[frognet:frognet.tunnel-daemon] WARNING REGION: election after event p done in 0.0s (off the loop)
+[frognet:frognet.tunnel-daemon] WARNING REGION: own ['10.92.92.0/24'] kept registered (hub channel up, hub row not in my facts yet)
+[frognet:frognet.tunnel-daemon] WARNING REGION: maps -> ['10.92.92.0/24']
+[frognet:frognet.tunnel-daemon] WARNING REGION: world gen 2 -> 3 (P2 2->3) after event p
+[frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=2ms (participants+mappings, one read) +0ms bringup=136ms apply=6ms (probes=0/0ms routes=0/0ms) publish=1ms total=146ms
+[frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['FrogNetHost'] channels=1 remote=[] members=['FrogNetHost:hub', 'P2:node'] mappings=1
+[frognet:frognet.tunnel-daemon] WARNING REGION: world gen 3 -> 4 (P2 3->4) after event p
+[frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=4ms (participants+mappings, one read) +0ms bringup=21ms apply=11ms (probes=0/0ms routes=0/0ms) publish=0ms total=37ms
+[frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['FrogNetHost'] channels=1 remote=[] members=['FrogNetHost:hub', 'P2:node'] mappings=1
+[frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=1ms (participants+mappings, one read) +0ms bringup=11ms apply=4ms (probes=0/0ms routes=0/0ms) publish=0ms total=17ms
+== wg (want: one peer, endpoint = the hub, a latest handshake)
+interface: wg0
+  endpoint: 10.91.91.1:50889
+  allowed ips: 10.0.0.0/8
+  latest handshake: 14 seconds ago
+== members
+NAME         ALIVE  TERM  OS     CORES  MEM   IPS
+FrogNetHost  yes    -     linux  2      7.8G  172.30.0.71,10.91.91.1,10.91.91.2,10.253.253.254
+P2           yes    -     linux  2      7.8G  172.30.0.72,10.91.91.20,10.92.92.1,10.92.92.2,10.253.92.92
+rc=0

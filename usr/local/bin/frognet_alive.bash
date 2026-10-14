@@ -24,9 +24,9 @@
 # We never open our own connections.  We ask the proxy to reach the
 # target via semantic transport (REQ_REPEAT / RESP_SAME when cached).
 #
-# Probe order:
-#   1. curl http://127.0.0.1:80/frognet_echo.php  Host: <target>.frognet
-#   2. Fallback: curl http://127.0.0.1:80/frognet_echo.php  Host: <ip>
+# One probe, one target: curl http://127.0.0.1:80/frognet_echo.php with Host: <target> (an IP as given, a name as
+# <name>.frognet). The address asked is the address probed: .2 is never answered by .1 nor .1 by .2
+# [ALIVE_ONE_TARGET_V1]. A failure is said on stderr; the caller's next event (the next merge) asks again.
 #
 # Usage:
 #   frognet_alive.bash <ip_or_hostname> [timeout_sec]
@@ -63,22 +63,6 @@ resolve_host() {
 
 HOST=$(resolve_host "$TARGET")
 
-# Build the list of Host headers to try.  The semantic proxy caches
-# per-endpoint, so a cold peer's first probe is usually REQ_FULL
-# (miss), second is REQ_REPEAT (miss → template warm), third is
-# REP_SAME (hit).  Probing both .1 (gateway) and .2 (admin) warms
-# both endpoints and lets the first responder win.
-HOSTS=( "$HOST" )
-if [[ "$HOST" =~ ^([0-9]+\.[0-9]+\.[0-9]+)\.([12])$ ]]; then
-  prefix="${BASH_REMATCH[1]}"
-  last="${BASH_REMATCH[2]}"
-  if [[ "$last" == "1" ]]; then
-    HOSTS+=( "${prefix}.2" )
-  else
-    HOSTS+=( "${prefix}.1" )
-  fi
-fi
-
 # ── Probe through proxy ────────────────────────────────────────
 # Single curl to 127.0.0.1:80 with Host header for the target.
 # The proxy routes this through the existing daemon connection.
@@ -92,36 +76,33 @@ probe() {
         --connect-timeout "$TIMEOUT" \
         --max-time "$TIMEOUT" \
         -H "Host: ${host}" \
-        "http://127.0.0.1:80/frognet_echo.php" 2>&1) || return 1
+        "http://127.0.0.1:80/frognet_echo.php" 2>&1) || { LAST_ERR="$out"; return 1; }
 
   # Validate: must have at least 3 commas and a 10.x IP in field 2
   local commas
   commas=$(/usr/bin/awk -F',' '{print NF-1}' <<<"$out")
-  [[ "$commas" -ge 3 ]] || return 1
+  [[ "$commas" -ge 3 ]] || { LAST_ERR="not an echo: ${out:0:80}"; return 1; }
   IFS=',' read -r _ fld2 _ _ <<<"$out"
   fld2="$(/usr/bin/xargs <<<"$fld2")"
-  [[ "$fld2" == 10.* ]] || return 1
+  [[ "$fld2" == 10.* ]] || { LAST_ERR="echo without a 10.x address: ${out:0:80}"; return 1; }
 
   end_ns=$(date +%s%N)
   elapsed_ms=$(( (end_ns - start_ns) / 1000000 ))
   [[ "$elapsed_ms" -lt 1 ]] && elapsed_ms=1
-  echo "${elapsed_ms}|proxy"
+  RESULT="${elapsed_ms}|proxy"
   return 0
 }
 
 # ── Main ────────────────────────────────────────────────────────
-# Up to 3 attempts.  Each attempt walks the host list; first success
-# wins.  0.2s gap between attempts lets the proxy's semantic cache
-# warm across REQ_FULL → REQ_REPEAT → REP_SAME.
+# The same probe of the same target up to 3 times, 0.2 s apart (the proxy's semantic cache warms across
+# REQ_FULL -> REQ_REPEAT -> REP_SAME). Not a second mechanism: one target, one path.
+LAST_ERR=""; RESULT=""
 for attempt in 1 2 3; do
-  for h in "${HOSTS[@]}"; do
-    result=$(probe "$h")
-    if [[ $? -eq 0 && -n "$result" ]]; then
-      echo "$result"
-      exit 0
-    fi
-  done
+  if probe "$HOST"; then
+    echo "$RESULT"
+    exit 0
+  fi
   [[ $attempt -lt 3 ]] && sleep 0.2
 done
-
+echo "frognet_alive: ${HOST} did not answer through the proxy: ${LAST_ERR}" >&2
 exit 1

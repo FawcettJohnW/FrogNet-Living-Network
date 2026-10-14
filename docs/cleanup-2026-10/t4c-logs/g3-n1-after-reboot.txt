@@ -1,0 +1,53 @@
+hostname: FrogNetHost.N1   build lines:
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4c (mode region) base fdf-2026-10-12-r20
+  2026-10-12 23:49:55,260 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: /opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888; /opt/fdf/var/site.env RINA_AREA=test -> region mode [REGION_SWITCH_ONE_FILE_V1]
+  [frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4c (mode region) base fdf-2026-10-12-r20
+  mariadb                        enabled/active
+  apache2                        enabled/active
+  dnsmasq                        enabled/active
+  NetworkManager                 enabled/active
+  cron                           enabled/active
+  frognet-proxy                  enabled/active
+  frognet-daemon                 enabled/active
+  frognet-merge-watcher          enabled/active
+  frognet-tunnel-daemon-v3       enabled/active
+  frognet-eth0-fixup             not-found/inactive
+  frognet-sysperf                enabled/active
+  frognet-dbhost-advertise.timer disabled/inactive
+  frognet-dbhost-elect.timer     disabled/inactive
+  fdf-client                     enabled/active
+  fdf-facts                      enabled/active
+failed units: 
+merge: /etc/sentinels/discovered
+discovered last: 
+databasehost: 10.81.81.1 / 10.82.82.1
+getHosts.php: [{"ip":"10.81.81.1","name":"N1","echo":"N1,10.81.81.1,172.30.0.41,0.0.0.0","role":"node","alive":true},{"ip":"10.82.82.1","name":"N2","echo":"N2,10.82.82.1,172.30.0.42,0.0.0.0","role":"node","alive":true}]
+echo (:8080): N1,10.81.81.1,172.30.0.41,0.0.0.0
+echo (:80, the proxy): N1,10.81.81.1,172.30.0.41,0.0.0.0
+wg interfaces: wg0
+routes: 10.81.81.0/24 dev eth1 proto kernel scope link src 10.81.81.1 ;10.82.82.0/24 dev wg0 scope link src 10.81.81.1 metric 22 ;10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.81.81 ;
+resolv.conf:  options timeout:1 attempts:1  search N1 FrogNetHost.N1  nameserver 127.0.0.1  nameserver 172.30.0.1 
+2026-10-12 23:12:42,536 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: /opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888; /opt/fdf/var/site.env RINA_AREA=test -> region mode [REGION_SWITCH_ONE_FILE_V1]
+2026-10-12 23:49:55,260 [v3.0.0] frognet.tunnel-daemon WARNING REGION switch: /opt/fdf/var/join.env RINA_RAM=172.30.0.10:51888; /opt/fdf/var/site.env RINA_AREA=test -> region mode [REGION_SWITCH_ONE_FILE_V1]
+--- hook/watcher this boot:
+2026-10-12T23:50:00+00:00 FrogNetHost.N1 frognet-merge-dispatch[1176]: iface=eth0 state=up routing delta - merge requested from the watcher
+2026-10-12T23:50:00+00:00 FrogNetHost.N1 frognet-merge-dispatch[1191]: iface=eth0 state=down routing delta - merge requested from the watcher
+2026-10-12T23:50:00+00:00 FrogNetHost.N1 frognet-merge-dispatch[1211]: iface=eth0 state=up no routing delta - not merging
+[MERGE-ACCUM] /run/frognet/seen_notifications made (1777)
+[MERGE-ACCUM] fire decision=fork reason=lock_free
+[2026-10-12T23:50:30.230] runMerge INFO pid=1498 invoked_by who=watcher:poke gen={"at": 1791848996.5694907, "by": "applier", "gen": 8, "why": "routes_changed"}
+== FrogNetHost.N1  package=fdf-node.tgz build=fdf-2026-10-12-r20 built=2026-10-12T22:58Z for=x86_64 FrogNet node or leaf 
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key zuaIbmlddNeexTJKwRJcDsfJXeB6OdFL43WJWweoCwY= [DAEMON_OWNS_ITS_KEY_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t4c (mode region) base fdf-2026-10-12-r20
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key zuaIbmlddNeexTJKwRJcDsfJXeB6OdFL43WJWweoCwY= [DAEMON_OWNS_ITS_KEY_V1]
+key: -rw------- pub zuaIbmlddNeexTJKwRJcDsfJXeB6OdFL43WJWweoCwY=
+  fdf-client                 active
+  fdf-facts                  active
+  frognet-tunnel-daemon-v3   active
+  interface: wg0
+    endpoint: 172.30.0.10:50889
+    allowed ips: 10.0.0.0/8
+    latest handshake: 11 seconds ago
+routes: 10.81.81.0/24 dev eth1 proto kernel scope link src 10.81.81.1 ;10.82.82.0/24 dev wg0 scope link src 10.81.81.1 metric 22 ;10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.81.81 ;
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.020/1.780/3.122/0.951 ms

@@ -19,19 +19,16 @@
 """
 core/unrest_handler.py - the ONE UnREST handler interface. No special-casing.
 
-Every semantic handler - JSON, XML, HTML, text, SotF media, the role handlers - is the
+Every semantic handler - JSON, XML, HTML, text, the role handlers - is the
 SAME shape: a class exposing the complete method surface below. Dispatch is uniform:
-get JSON, call the JSON handler; get XML, call the XML handler; get SotF or a game, call
-the SotF or game handler. The proxy/daemon never branch on type - they look the handler up
-and call the interface.
+get JSON, call the JSON handler; get XML, call the XML handler. The proxy/daemon never
+branch on type - they look the handler up and call the interface.
 
 A handler implements only the methods that mean something for it; everything else is the
 empty-return default this base provides. So:
   * a FORMAT handler (JSON/XML/HTML/text) overrides only the codec slot
     (learn_*/extract_*/rebuild_reply/decode_payload) - compress and decompress - and
     inherits `return`-style no-ops for election and lifecycle.
-  * the SotF handler overrides the SAME codec slot, where for it that slot manages the
-    media/chat stream rather than compressing a body, PLUS the role slot.
   * a pure ROLE handler (databasehost) overrides election (score/evaluate) and
     inherits the real lifecycle (advertise/hostReset) below; its codec slot is `return`.
 
@@ -53,19 +50,14 @@ CAPABILITY_PROBE = "/usr/local/bin/frognet_capability_probe.sh"
 
 
 def _tuples():
-    """Locate the tuple client (put/get/role_scope/prune). Works in any context: it is on
-    PYTHONPATH=/opt/frognet_semantic when present, else the bundle path is added by the
-    caller (discovery._ensure_bundle_on_path). Returns the module or None - advertise then
+    """The tuple client (put/get/role_scope/prune): core.frognet_tuples, on
+    PYTHONPATH=/opt/frognet_semantic. Returns the module or None - advertise then
     degrades to a no-op rather than raising into a reconcile."""
     try:
         from core import frognet_tuples as T  # type: ignore
         return T
     except Exception:
-        try:
-            import frognet_tuples as T  # type: ignore
-            return T
-        except Exception:
-            return None
+        return None
 
 
 
@@ -100,7 +92,7 @@ class UnRESTHandler:
     def mode(self) -> str:
         return self.ROLE_NAME or ""
 
-    # ---- codec / stream slot (compress & decompress; for SotF, stream mgmt) -
+    # ---- codec slot (compress & decompress) ---------------------------------
     # Defaults are typed empties so a non-codec handler is inert on this path, never
     # an AttributeError and never a wrong-typed return that breaks a caller.
     def learn_request_template(self, body_text: Any) -> Dict[str, Any]:
@@ -127,7 +119,7 @@ class UnRESTHandler:
     def score(self, cand: Dict[str, Any]) -> float:
         return -1.0        # ineligible by default - a content handler never wins a role
 
-    def evaluate(self, hosts_list, lan_list):
+    def evaluate(self, hosts_list):
         return None
 
     # ---- lifecycle slot (REAL for any role-naming handler) ------------------

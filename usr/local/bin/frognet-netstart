@@ -180,6 +180,64 @@ assign_identity() {
 }
 
 #-------------------------------------------------------------------------------
+# [NETSTART_SCOPES_DHCP_V1] DHCP is served on the dev that holds the identity,
+# and on nothing else. setup_lillypad writes the first scope; it is fixed at the
+# dev it saw then, so a mode change left DHCP refused on the new LAN dev (the AP
+# radio after wired -> wireless) and offered on the old one. Every run here
+# rewrites the exclusions in opts_only.conf for the dev just chosen. Tunnel devs
+# are pre-declared (wg0-wg31) because they appear after this runs.
+#-------------------------------------------------------------------------------
+scope_dhcp() {
+    local served="$1" conf=/etc/dnsmasq.d/opts_only.conf tmp d n
+    [[ -f "$conf" ]] || die "$conf missing - setup_lillypad_v4.bash writes it"
+    tmp="$(mktemp)" || die "mktemp failed"
+    grep -v '^no-dhcp-interface=' "$conf" > "$tmp"
+    {
+        for d in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1); do
+            [[ "$d" == "lo" || "$d" == "$served" ]] && continue
+            echo "no-dhcp-interface=$d"
+        done
+        for n in $(seq 0 31); do [[ "wg$n" == "$served" ]] || echo "no-dhcp-interface=wg$n"; done
+        [[ "frognet0" == "$served" ]] || echo "no-dhcp-interface=frognet0"
+    } | sort -u >> "$tmp"
+    cat "$tmp" > "$conf"
+    rm -f "$tmp"
+    log "DHCP scoped to $served"
+}
+
+#-------------------------------------------------------------------------------
+# [AP_UNMANAGED_PERSISTS_V1] Whether NetworkManager manages the AP radio is
+# decided here, and the decision has to outlive this run: `nmcli device set
+# managed no` only holds while NetworkManager runs, and at boot this can run
+# before NetworkManager is up (cron @reboot), when there is nothing to tell. NM
+# then took the radio and joined it to a saved WiFi network as a client, under
+# the AP. So wireless mode also writes AP_NM_CONF (read at every NM start), and
+# wired mode removes it. `+=` appends to the installer's unmanaged list in
+# 10-/99-frognet-unmanaged.conf, which this file sorts after.
+#-------------------------------------------------------------------------------
+AP_NM_CONF=/etc/NetworkManager/conf.d/99-frognet-wireless-ap.conf
+nm_wait_if_starting() {
+    local i
+    for i in $(seq 1 30); do
+        [[ "$(systemctl is-active NetworkManager 2>/dev/null)" == "activating" ]] || return 0
+        sleep 1
+    done
+    log "NetworkManager still activating after 30s"
+}
+nm_ap_unmanaged() {
+    local iface="$1"
+    mkdir -p /etc/NetworkManager/conf.d
+    printf '# Written by frognet-netstart in wireless mode (%s is the AP); removed in wired mode.\n[keyfile]\nunmanaged-devices+=interface-name:%s\n' "$iface" "$iface" > "$AP_NM_CONF"
+    log "NetworkManager: $iface unmanaged ($AP_NM_CONF)"
+}
+nm_ap_managed() {
+    if [[ -f "$AP_NM_CONF" ]]; then
+        rm -f "$AP_NM_CONF"
+        log "NetworkManager: removed $AP_NM_CONF"
+    fi
+}
+
+#-------------------------------------------------------------------------------
 # Write the current interface name for mapInterfaces to source
 #-------------------------------------------------------------------------------
 write_interface_config() {
@@ -191,7 +249,12 @@ write_interface_config() {
 #===============================================================================
 # Main
 #===============================================================================
-log "=== FrogNet network mode detection ==="
+NETSTART_BUILD="frognet-netstart-2026-10-14-r22"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+log "=== FrogNet network mode detection ($NETSTART_BUILD) ==="
+# [NETSTART_ONE_AT_A_TIME_V1] cron @reboot and ifplugd's link-up both run this at boot; two runs rewrote
+# opts_only.conf and restarted dnsmasq side by side. The second waits for the first.
+exec 9>/run/frognet-netstart.lock || die "cannot open /run/frognet-netstart.lock"
+flock 9 || die "flock /run/frognet-netstart.lock failed"
 
 get_subnet_from_dnsmasq
 get_node_name
@@ -238,13 +301,13 @@ if [[ "$MODE" == "wireless" && "$SSID_PROJECTION" != "1" ]]; then
     MODE="wired"
 fi
 
-# Detect if we're running during early boot or at runtime (udev/manual)
-if systemctl is-system-running 2>/dev/null | grep -qE '^running|^degraded'; then
-    RUNTIME=true
-else
-    RUNTIME=false
-fi
-log "Runtime mode: $RUNTIME"
+# [NETSTART_ALWAYS_APPLIES_V1] There is no "boot vs runtime" guess. It was `systemctl is-system-running` =
+# running|degraded, and the system stays "starting" until the first merge completes (frognet-discovered.service
+# blocks multi-user.target on it). So on a node whose merge could not run -- no identity, the very case this script
+# repairs -- every run believed it was early boot and skipped the hostapd and dnsmasq restarts and the merge request
+# while logging "hostapd started" (Seattle7, 2026-10-14). netstart runs from cron @reboot and ifplugd, never inside
+# a unit ordered before these, so it applies them every time.
+nm_wait_if_starting
 
 case "$MODE" in
     wired)
@@ -252,20 +315,21 @@ case "$MODE" in
         if [[ ! -d "/sys/class/net/${eth0Name}" ]]; then
             die "eth0Name=${eth0Name} but /sys/class/net/${eth0Name} does not exist — set eth0Name in /etc/frognet/interfaces_override.conf to the actual wired NIC name"
         fi
-        if $RUNTIME; then
-            systemctl stop hostapd || true
-        fi
+        systemctl stop hostapd || log "systemctl stop hostapd failed (journalctl -u hostapd)"
         flush_frognet_ip "$AP_IFACE"
         assign_identity "$eth0Name"
+        nm_ap_managed
         if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
             log "Returning $AP_IFACE to NetworkManager"
             nmcli device set "$AP_IFACE" managed yes 2>&1 | sed 's/^/nmcli: /' || true
         fi
+        scope_dhcp "$eth0Name"
         write_interface_config "$eth0Name"
         ;;
     wireless)
         log "Wireless mode: $AP_IFACE is AP with identity"
         flush_frognet_ip "$eth0Name"
+        nm_ap_unmanaged "$AP_IFACE"
         if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
             for c in $(nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v d="$AP_IFACE" '$2==d{print $1}'); do
                 log "Bringing down NM connection $c on $AP_IFACE"
@@ -285,9 +349,8 @@ case "$MODE" in
         sleep 1
         configure_hostapd "$AP_IFACE"
         assign_identity "$AP_IFACE"
-        if $RUNTIME; then
-            systemctl restart hostapd
-        fi
+        systemctl restart hostapd || die "systemctl restart hostapd failed (journalctl -u hostapd; is it masked?)"
+        scope_dhcp "$AP_IFACE"
         write_interface_config "$AP_IFACE"
         log "hostapd started on $AP_IFACE with SSID=$NODE_NAME"
         ;;
@@ -296,19 +359,16 @@ case "$MODE" in
         ;;
 esac
 
-if $RUNTIME; then
-    systemctl restart dnsmasq
-    log "dnsmasq restarted"
-    # [A_MISSING_THING_MUST_NEVER_LOOK_LIKE_AN_ANSWER_V1] This guarded on
-    # /usr/local/bin/runMerge. The merge controller is runMerge.BASH -- there has
-    # never been a file at the guarded name -- so the test was permanently false
-    # and the discovery trigger silently did nothing on every network-mode change,
-    # while the log above it said the configuration completed. A guard on a name
-    # that does not exist is not a safety check, it is a switched-off branch.
-    _MERGE=/usr/local/bin/runMerge.bash
-    [[ -x "$_MERGE" ]] || die "merge controller $_MERGE is missing or not executable - network mode changed but discovery cannot be triggered"
-    log "Triggering discovery..."
-    "$_MERGE" &
+systemctl restart dnsmasq || die "systemctl restart dnsmasq failed (journalctl -u dnsmasq)"
+log "dnsmasq restarted"
+# [HOOK_ASKS_THE_WATCHER_V1] The merge is requested from the merge watcher, as the NetworkManager hook does (a burst of
+# events becomes one merge, under runMerge's lock). At boot the request waits in REQ_DIR until the watcher starts.
+# A request that cannot be written is logged; the next link event asks again.
+REQ_DIR=/run/frognet/merge_requests
+if { [[ -d "$REQ_DIR" ]] || { mkdir -p "$REQ_DIR" && chmod 1777 "$REQ_DIR"; }; } && : > "$REQ_DIR/netstart-$MODE-$$"; then
+    log "merge requested from the watcher ($REQ_DIR/netstart-$MODE-$$)"
+else
+    log "FAILED to write a merge request in $REQ_DIR (the next link event asks again)"
 fi
 
 log "=== FrogNet network mode configuration complete ==="

@@ -1,0 +1,27 @@
+installed: resolv.conf nameserver 127.0.0.1 ; getent: 
+uninstall rc=0
+16:27:34 [reset] removed 187 recorded FrogNet file(s) from /usr/local/{bin,sbin,lib,share}
+16:27:35 [reset] packet-filter rules (IPv4): the machine's again (from /var/lib/frognet-install/os-before/iptables.v4)
+16:27:35 [reset] packet-filter rules (IPv6): the machine's again (from /var/lib/frognet-install/os-before/iptables.v6)
+16:27:35 [reset] systemd-resolved: not on this machine (was: not-found) - nothing more to put back
+16:27:36 [reset] dnsmasq: put back to not-found/inactive
+16:27:37 [reset] apache2: put back to not-found/inactive
+16:27:37 [reset] mariadb: put back to not-found/inactive
+16:27:38 [reset] hostapd: put back to not-found/inactive
+16:27:39 [reset] ifplugd: put back to not-found/inactive
+16:27:40 [reset] unbound: put back to not-found/inactive
+16:27:40 [reset] netfilter-persistent: put back to not-found/inactive
+16:27:40 [reset] crontab: FrogNet lines removed
+units: 
+loaded: frognet-dbhost-advertise.service 
+crontab: 17 3 * * * /usr/bin/true # an operator line;
+froguser: id: 'froguser': no such user
+hooks: no-wait.d pre-down.d pre-up.d   conf.d: default-wifi-powersave-on.conf 
+dirs: 
+/usr/local/bin: 8 entries: cbor2 dotenv gpsdclient gunicorn gunicornc httpx idna normalizer 
+/usr/local/sbin: 0  /usr/local/lib: python3.12 
+etc files: /etc/dnsmasq.d/README 
+services: dnsmasq=disabled/inactive apache2=disabled/inactive mariadb=disabled/inactive NetworkManager=enabled/active systemd-resolved=not-found/inactive 
+resolv.conf: nameserver 127.0.0.11 options timeout:2 attempts:3 ndots:0 
+getent hosts archive.ubuntu.com: 185.125.190.83  archive.ubuntu.com
+hostname: FrogNetHost.M2 / FrogNetHost.M2

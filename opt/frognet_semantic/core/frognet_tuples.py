@@ -340,9 +340,10 @@ DEFAULT_DBHOST = "databasehost_control.frognet"   # the SD: coordination plane l
 
 # Variables THIS process wrote, for atexit self-cleanup. atexit is the courtesy:
 # it fires on normal exit / graceful signals, NOT on SIGKILL, power loss, or a
-# crash - which on a contested mesh is exactly when nodes die. So the reaper
-# (frognet_reaper.py, 30-min ts sweep) is the guarantee; this just keeps the
-# space tidy in the common case.
+# crash - which on a contested mesh is exactly when nodes die. There is no reaper
+# (the tuple reaper and its unit are retired): readers decide liveness themselves
+# (the election's pool is the live hosts block, [POOL_IS_THE_LIVE_BLOCK_V1]); this
+# just keeps the space tidy in the common case.
 _OWNED: Set[Tuple[str, str]] = set()      # (dbhost, SensorName)
 _ATEXIT_ARMED = False
 
@@ -419,7 +420,7 @@ def node_scope() -> str:
 
 def role_scope(role: str) -> str:
     """Stable per-(node, role) scope: host:<ip>:<role>. A capability tuple is written
-    under MULTIPLE services at one node (mediahost AND databasehost). SensorName is the
+    under MULTIPLE services at one node (one per role). SensorName is the
     DB's unique key and does NOT carry SensorType, so a bare node_scope (host:<ip>)
     yields the SAME SensorName for both roles - upsert_by_name then overwrites one with
     the other, leaving a single row whose role flip-flops. Qualifying the scope with

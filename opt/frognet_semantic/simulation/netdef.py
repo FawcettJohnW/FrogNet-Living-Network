@@ -33,7 +33,7 @@ discovery/sim/shapes.py defines snake, ring, star, snowflake as functions):
         hardware: {profile: pi5, memory_gb: 64, disk: {class: class3, size_gb: 1000}}
         projects_ssid: true         # onboard radio projects this network's SSID
         external_antenna: true      # documentation only; no RF model exists
-        roles: [mediahost, databasehost]
+        roles: [databasehost]
         hosts:                      # machines ON net1's projected LAN
           - {name: net1-db, hardware: {profile: db_appliance, memory_gb: 256},
              roles: [databasehost], addr: 10.101.101.50}
@@ -214,7 +214,7 @@ def _compile_declarative(cfg: Dict) -> CompiledNet:
             out.unmodelled.append(
                 f"{nm}: external_antenna declared -- there is no RF/range model "
                 f"in this simulator, so it affects nothing")
-        roles = list(d.get("roles") or ["databasehost", "mediahost"])
+        roles = list(d.get("roles") or ["databasehost"])
         s3 = subnets[nm]
         out.machines.append(_mk_machine(nm, s3, hw, roles, projects_ssid=projects))
         specs[nm] = NodeSpec(name=nm, subnet3=s3)
@@ -226,7 +226,7 @@ def _compile_declarative(cfg: Dict) -> CompiledNet:
             hprof = hhw_cfg.pop("profile", "generic")
             hhw = hardware.resolve(hprof, **hhw_cfg)
             out.warnings += hardware.warnings(hn, hhw)
-            hroles = list(h.get("roles") or ["databasehost", "mediahost"])
+            hroles = list(h.get("roles") or ["databasehost"])
             # A guest still SERVES its own /24 (it is a FrogNetHost), and holds a
             # client lease on its host's LAN. That is the proven guest pattern.
             gi = len(specs)
@@ -302,7 +302,7 @@ def _compile_generated(cfg: Dict) -> CompiledNet:
         s3 = _auto_subnet(idx); idx += 1
         ap_names.append(ap)
         out.machines.append(_mk_machine(ap, s3, ap_hw,
-                                        ["databasehost", "mediahost"],
+                                        ["databasehost"],
                                         projects_ssid=True))
         specs.append(NodeSpec(name=ap, subnet3=s3))
         shape = rng.choice(SHAPES) if shape_cfg == "random" else shape_cfg
@@ -314,7 +314,7 @@ def _compile_generated(cfg: Dict) -> CompiledNet:
             ns3 = _auto_subnet(idx); idx += 1
             members.append(nn)
             out.machines.append(_mk_machine(nn, ns3, at_hw,
-                                            ["databasehost", "mediahost"]))
+                                            ["databasehost"]))
             specs.append(NodeSpec(name=nn, subnet3=ns3))
 
         # The LAN arrangement. A node attached to the AP's projected SSID is a

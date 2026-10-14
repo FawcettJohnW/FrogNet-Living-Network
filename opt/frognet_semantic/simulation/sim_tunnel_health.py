@@ -37,7 +37,6 @@ What is REAL installed code here (not modeled):
     real config thresholds, and asserts both the returned actions AND the log
     lines it emits.
   - discovery.healthcheck.HealthCheck - the per-merge filter (:9009 on the peer's .2).
-  - discovery.sources.FakeBroker.transits - the real transit-gate logic.
 
 MODELED (the foil only): policy_echo_keyed - the REJECTED design, kept solely to
 show what it would do to a live tunnel.
@@ -55,7 +54,7 @@ if _PARENT not in sys.path:
 sys.dont_write_bytecode = True
 
 from discovery.healthcheck import HealthCheck
-from discovery.sources import FakeBroker
+from discovery.sources import FakeTunnelState
 from internet_tunnels_v3 import poll, config
 
 FAILS = []
@@ -220,21 +219,11 @@ def s_no_iface():
     check("log explains grace N/A", log.has("no_iface_recorded", "grace N/A"))
 
 
-def s_ny1_orthogonal():
-    print("NY1: a tunnel-teardown policy cannot fix the LAN-vouch black holes")
-    inert = FakeBroker(node_transit={})
-    check("inert gate (empty map): NY-2 'transits' Seattle5 -> vouch installs (black hole)",
-          inert.transits("10.28.28.1", "10.250.250.0/24") is True)
-    populated = FakeBroker(node_transit={"10.160.160": ["10.130.130.0/24"]})
-    check("populated map: NY-2 not a registered transit -> vouch SUPPRESSED",
-          populated.transits("10.28.28.1", "10.250.250.0/24") is False)
-
-
 def main():
     print("=== tunnel-health teardown: simulator adjudication (REAL verdict fn) ===\n")
     FAILS.clear()
     for s in (s_echo_filter_real, s_live_tunnel_echo_blip, s_genuinely_dead,
-              s_transient_recovers, s_no_iface, s_ny1_orthogonal):
+              s_transient_recovers, s_no_iface):
         s()
     print()
     if FAILS:
@@ -245,8 +234,7 @@ def main():
           "  - genuinely dead -> grace_hold then teardown_dead after 2 cycles\n"
           "  - transient stale -> refreshed in place, no teardown\n"
           "  - no-iface -> immediate teardown (grace N/A)\n"
-          "  - echo filter (real) excludes dead tunnels from routes/hosts per merge\n"
-          "  - NY1 black holes are a transit-map problem, orthogonal to teardown")
+          "  - echo filter (real) excludes dead tunnels from routes/hosts per merge")
     return 0
 
 

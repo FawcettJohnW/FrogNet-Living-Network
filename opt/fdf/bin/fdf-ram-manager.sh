@@ -4,7 +4,8 @@
 # name), signed with the area's password (RINA_AREA_PASSWORD in /opt/fdf/fdf.env). ROUTER: on a machine other than the mapping's, where it reaches 198.18.0.0/15 (the mapping machine's IP).
 # To MOVE it: Ctrl-C here, start it on another machine or interface; members follow by themselves.
 set -eu; . /opt/fdf/fdf.env
-[ -n "$RINA_AREA_PASSWORD" ] || { echo "set RINA_AREA_PASSWORD in /opt/fdf/fdf.env (the area's password; how to make one is there)"; exit 1; }
+[ -n "$RINA_AREA" ] || { echo "set RINA_AREA in /opt/fdf/var/area.env (the area's name; /opt/fdf/fdf.env says how)"; exit 1; }
+[ -n "$RINA_AREA_PASSWORD" ] || { echo "set RINA_AREA_PASSWORD in /opt/fdf/var/area.env (the area's password; how to make one is in /opt/fdf/fdf.env)"; exit 1; }
 API=/FawcettInnovations.RINA.ram_interface.php; mkdir -p /opt/fdf/var
 [ -n "${1:-}" ] && { ip -4 route show 198.18.0.0/15 | grep -q . || ip route add 198.18.0.0/15 via "$1"; }
 MR=$(rina-lisp mr-address "$RINA_AREA" | head -1)

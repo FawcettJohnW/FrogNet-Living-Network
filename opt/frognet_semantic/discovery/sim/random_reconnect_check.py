@@ -57,7 +57,7 @@ os.environ.setdefault("FROGNET_OFFLINE_TUPLES", "1")
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 DEST = "10.120.120.0/24"
@@ -75,7 +75,7 @@ def _build():
     routes = Routes(k, clock=lambda: 0.0)
     verify = FakeVerify()
     disc = Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                     FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                     FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                      local_ips={OWN, "127.0.0.1"}, dev_src_map={},
                      self_identity=OWN, own_subnet=OWN_SUBNET,
                      has_own_uplink=False, uplink_dev="eth1", verify=verify)

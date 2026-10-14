@@ -75,7 +75,7 @@ def dest24_of(ip: str) -> str:           # bash 152
 
 
 class Discovery:
-    def __init__(self, routes: Routes, echo, rtt, gethosts, broker, hoststore,
+    def __init__(self, routes: Routes, echo, rtt, gethosts, tunnels, hoststore,
                  local_ips, dev_src_map, logger=lambda s: None, propagator=None,
                  reflect=None, self_identity: str = "", verify=None,
                  own_subnet: str = "", has_own_uplink: bool = True,
@@ -89,7 +89,7 @@ class Discovery:
         self.echo = echo
         self.rtt = rtt
         self.gethosts = gethosts
-        self.broker = broker
+        self.tunnels = tunnels          # this node's own WireGuard channels (TunnelState: handshake_rtts, active/)
         self.hosts = hoststore
         self.propagator = propagator
         self.reflect = reflect          # [REFLECT_PROBE_V1 emitter] or None (skip)
@@ -525,7 +525,7 @@ class Discovery:
                 # this path bends back through us: drop the whole seed (folds in the
                 # old standalone alive-step check below). None -> not reachable on
                 # this candidate, try the next. float -> reachable; echo is consulted
-                # ONLY for identity, with a seed-.1 fallback (broker/getHosts name it
+                # ONLY for identity, with a seed-.1 fallback (the tunnel channel map / getHosts name it
                 # below). An echo-less child whose :9009 is dead falls through to
                 # FAIL_ECHO and is served by the vouch path exactly as before.
                 v = self._alive_measure(pip, dev)   # [ALIVE_9009_RETRY_V1]
@@ -589,7 +589,7 @@ class Discovery:
             host_path = hp2
         # [PINGPONG_GATE_V1] An echo-less candidate (any kind) was selected on the
         # :9009 gate and has no self-report; fall back to the seed .1 so the
-        # broker-authority override / getHosts name below can name it. verify=None
+        # tunnel channel map / getHosts name below can name it. verify=None
         # keeps the legacy contract (echo was the gate; host_path is always set).
         if self.verify is not None and not (is_ip(host_path) and is_10x(host_path)):
             host_path = net_dot(dest_seed, 1)
@@ -598,19 +598,21 @@ class Discovery:
             self.r.probe_delete(pip)
             return
 
-        # [BROKER_AUTHORITY] broker overrides self-report (bash 447-461)
+        # [TUNNEL_CHANNEL_MAP_V1] (was BROKER_AUTHORITY, bash 447-461) a peer at the far end of one of this node's own
+        # WireGuard channels (handshake_rtts.json, the tunnel daemon's) is named by that channel, over its self-report;
+        # a probe on a wg dev must ride THAT peer's channel. LAN-only: no channels, nothing overridden.
         dest1 = net_dot(host_path, 1)
-        b = self.broker.broker_for_peer_ip(dest1)
+        b = self.tunnels.tunnel_for_peer_ip(dest1)
         if b:
             b_ch, b_sub, b_one = b
             if b_sub and b_one and is_ip(b_one) and is_10x(b_one):
                 host_path = b_one
                 host = b_ch.rsplit("-", 1)[0]          # ${b_ch%-*.*.*} ~ strip -10.x.y
                 if dev.startswith("wg"):
-                    iface_ch = self.broker.channel_for_iface(dev)
+                    iface_ch = self.tunnels.channel_for_iface(dev)
                     if iface_ch and iface_ch != b_ch:
                         self.log(f"WALK_REJECT dev={dev} ip={ip} dev_channel={iface_ch} "
-                                 f"broker_channel={b_ch} reason=wg_channel_mismatch")
+                                 f"peer_channel={b_ch} reason=wg_channel_mismatch")
                         self.r.probe_delete(pip)
                         return
 
@@ -638,7 +640,7 @@ class Discovery:
 
         # side effects (bash 481-485): addHostAndPropogate, then discovery_cache
         # [HOSTS_AUTHORITATIVE_NAME_V1] `host` here is the node's own echo
-        # self-report (or the broker override at BROKER_AUTHORITY above) - the
+        # self-report (or the tunnel channel map's name, TUNNEL_CHANNEL_MAP_V1 above) - the
         # authoritative name for host_path. It wins over any relayed vouch name.
         if self.propagator is not None:
             self.propagator.add_host_and_propagate(host, host_path, dev,
@@ -704,64 +706,41 @@ class Discovery:
                 if not self.is_local_ip(cip) and not self.is_on_local_subnet(cip):
                     cdest = dest24_of(cip)
                     cvia = "" if kind == "tunnel" else child_parent_via
-                    # [VOUCH_TRANSIT_GATE_V1] getHosts returns the relay's FULL
-                    # propagated host list, not just the hosts it actually relays.
-                    # Only vouch a child through this relay if the relay genuinely
-                    # transits the child's /24; otherwise the candidate is a loop
-                    # (a downstream leaf that merely KNOWS the subnet from
-                    # propagation, e.g. New-York-2 vouching Seattle5 back through
-                    # us; or a tunnel peer that reaches the subnet via the chain
-                    # back through us, e.g. BAMacBook/New-York-1 vouching Seattle3
-                    # to Seattle5). The relay's transit set comes from the broker
-                    # transit map (node_transit.json), populated once every node
-                    # advertises transit_subnets. self.broker.transits() returns
-                    # True when the map is absent, so this gate is INERT until the
-                    # data is live and behaviour matches the pre-gate build.
-                    # host_path is the relay's identity (.1); the recursive walk
-                    # below still runs, so a real echo can add a winning candidate
-                    # even when the vouch is suppressed.
                     _stale = self._vouch_stale(cdest1_pre := net_dot(cdest.split("/")[0], 1))
                     if _stale is not None:
                         self.log(f"VOUCH_STALE dest={cdest} host={cname} "
                                  f"from={host_path} reason={_stale} "
                                  f"skip=candidate+propagation+walk")
                         continue
-                    if self.broker.transits(host_path, cdest):
-                        # [REFLECT_VOUCH_GATE_V1] The transit-map gate above is
-                        # INERT (transits() fail-opens when node_transit.json is
-                        # absent), so a bent vouch - New-York-2 vouching Seattle5
-                        # back through us - sails into CAND and installs as a
-                        # black-hole LAN route. Vouches never echo, so they never
-                        # hit the walk's reflect probe (line ~194). Fire it HERE,
-                        # against the vouched dest's identity (.1): if the path to
-                        # cdest bends back through us, the reflect vhost returns 508
-                        # -> LOOP -> skip the vouch. Conservative like the walk
-                        # probe: only an explicit LOOP rejects; None/OK proceed, so
-                        # this is inert where :18432 isn't trapped and exact where
-                        # it is. This is the loop defense that was missing from the
-                        # vouch path entirely.
-                        cdest1 = net_dot(cdest.split("/")[0], 1)
-                        lverdict = None
-                        if self.verify is not None and cdest1:
-                            # [LOOP_DETECT_9009_V1] same :9009 loop check on the
-                            # vouched dest's .1; an explicit LOOP skips the vouch
-                            # so a bent vouch never installs a black-hole route.
-                            lverdict = self._alive_measure(cdest1, dev)   # [ALIVE_9009_RETRY_V1]
-                            self.log(f"[DIAG-LOOP9009] vouch dest={cdest} "
-                                     f"target={cdest1} dev={dev} value={lverdict}")
-                        if lverdict == "LOOP":
-                            self.log(f"VOUCH_SKIP dest={cdest} via={cvia} dev={dev} "
-                                     f"host={cname} from={host_path} "
-                                     f"reason=loop_9009 target={cdest1}")
-                        else:
-                            self.CAND[cdest].append(
-                                f"1000000|{cvia}|{dev}|0|{src}|vouch|{cname}")
-                            self.log(f"VOUCH dest={cdest} via={cvia} dev={dev} "
-                                     f"host={cname} from={host_path}")
-                    else:
+                    # [REFLECT_VOUCH_GATE_V1] A bent vouch - New-York-2
+                    # vouching Seattle5 back through us - would sail into
+                    # CAND and install as a black-hole LAN route. Vouches never echo, so they never
+                    # hit the walk's reflect probe (line ~194). Fire it HERE,
+                    # against the vouched dest's identity (.1): if the path to
+                    # cdest bends back through us, the reflect vhost returns 508
+                    # -> LOOP -> skip the vouch. Conservative like the walk
+                    # probe: only an explicit LOOP rejects; None/OK proceed, so
+                    # this is inert where :18432 isn't trapped and exact where
+                    # it is. This is the loop defense that was missing from the
+                    # vouch path entirely.
+                    cdest1 = net_dot(cdest.split("/")[0], 1)
+                    lverdict = None
+                    if self.verify is not None and cdest1:
+                        # [LOOP_DETECT_9009_V1] same :9009 loop check on the
+                        # vouched dest's .1; an explicit LOOP skips the vouch
+                        # so a bent vouch never installs a black-hole route.
+                        lverdict = self._alive_measure(cdest1, dev)   # [ALIVE_9009_RETRY_V1]
+                        self.log(f"[DIAG-LOOP9009] vouch dest={cdest} "
+                                 f"target={cdest1} dev={dev} value={lverdict}")
+                    if lverdict == "LOOP":
                         self.log(f"VOUCH_SKIP dest={cdest} via={cvia} dev={dev} "
                                  f"host={cname} from={host_path} "
-                                 f"reason=relay_no_transit")
+                                 f"reason=loop_9009 target={cdest1}")
+                    else:
+                        self.CAND[cdest].append(
+                            f"1000000|{cvia}|{dev}|0|{src}|vouch|{cname}")
+                        self.log(f"VOUCH dest={cdest} via={cvia} dev={dev} "
+                                 f"host={cname} from={host_path}")
                     if cname:
                         # [HOSTS_AUTHORITATIVE_NAME_V1] cname is the RELAY's
                         # getHosts name - hearsay, not the peer's own echo. It is

@@ -9,7 +9,7 @@
 #          repo's opt/frognet_semantic, for region.py)
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/bin; FN=${FROGNET_DIR:-$H/../../repo/opt/frognet_semantic}
 T=${T:-/tmp/claude-0/netns-hub}; rm -rf $T; mkdir -p $T/hub $T/n1 $T/n2
-R=$H/../../repo/opt/fdf; export RIBBIT_TEMPLATES=$R/templates/fdf.prime FDF_WG_USERSPACE=1
+R=$H/../../repo/opt/fdf; export RIBBIT_TEMPLATES=$R/templates/fdf.prime FDF_WG_IMPL=wireguard-go
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 ms() { date +%s%3N; }

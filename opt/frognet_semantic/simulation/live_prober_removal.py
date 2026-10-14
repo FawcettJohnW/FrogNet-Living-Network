@@ -34,7 +34,8 @@ INCIDENT (from SeattleFive journal, PID 2100 proxy + 2098 daemon):
 This harness drives the REAL frognet_route.planner with exactly that input
 shape and shows that [PROBE_FAILURE_REMOVAL_V1] removes the /24 carrying the
 HEALTHY .1 solely because the .2 prober failed - even though the channel is
-still broker-valid (not an orphan) and the gateway was up.
+still up and the gateway was up. ([NO_BROKER_V1] the broker channel list this
+also checked is gone; the guard keys on the channel being up locally.)
 
 The decisive committer/tunnel-daemon journal lines (reason="all_probes_failed",
 "won_no_subnet", BRINGUP_PHASE teardown) run in a different process and are NOT
@@ -81,21 +82,19 @@ def build_incident_inputs():
          (the prover never answered).
        - this pass has NO winning observation for those /24s (the .2 probe
          was the only probe for the dest, and it failed).
-       - the channels are STILL in the broker list -> not orphans.
+       - the channels are still up locally.
        - a healthy peer (10.130.130, reached on a LAN/transit path) DID win,
          to prove the planner is otherwise behaving.
     """
     current_routes = []
     failures = []
     active_channels = []
-    broker_channels = []
 
     for name, net, iface, ch in PEERS:
         current_routes.append(P.Route(dest=net, dev=iface, via=GW(net), metric=P.ROUTE_METRIC))
         failures.append(Failure(dest=net, dev=iface, via=GW(net),
                                 kind="tunnel", ch_name=ch, source="far_edge_probe"))
         active_channels.append(ch)
-        broker_channels.append(ch)   # broker still advertises them -> NOT orphan
 
     # A peer that is genuinely healthy this pass (won its /24): planner sanity.
     healthy_obs = [Observation(dest="10.130.130.0/24", host_path="10.130.130.1",
@@ -104,14 +103,12 @@ def build_incident_inputs():
     current_routes.append(P.Route(dest="10.130.130.0/24", dev="wg2",
                                   via="10.130.130.1", metric=P.ROUTE_METRIC))
     active_channels.append("Seattle3-10.130.130")
-    broker_channels.append("Seattle3-10.130.130")
 
     return dict(
         observations=healthy_obs,
         current_routes=current_routes,
         active_tunnel_channels=active_channels,
         owned_subnets=["10.250.250.0/24"],     # SeattleFive's own /24
-        broker_channels=broker_channels,
         failures=failures,
     )
 
@@ -123,25 +120,19 @@ def main():
     plan = P.plan(args["observations"], args["current_routes"],
                   args["active_tunnel_channels"],
                   owned_subnets=args["owned_subnets"],
-                  broker_channels=args["broker_channels"],
                   failures=args["failures"])
 
     removed_nets = {r.dest: r.reason for r in plan.removals}
     print(f"  planner removals : {removed_nets}")
     print(f"  tear_down_tunnels: {plan.tear_down_tunnels}")
 
-    # The bug: each disconnected peer's /24 is removed despite a live, broker-
-    # present channel and a healthy .1 - purely because the .2 prober failed.
+    # The bug: each disconnected peer's /24 is removed despite a live channel
+    # and a healthy .1 - purely because the .2 prober failed.
     for name, net, iface, ch in PEERS:
         check(f"{name} {net} route SURVIVES prover-only failure",
               net not in removed_nets,
               f"removed reason={removed_nets.get(net)!r} "
-              f"(channel {ch} still broker-valid; .1 gateway was healthy)")
-
-    # The broker still lists the channels, so they must NOT be torn down here.
-    for name, net, iface, ch in PEERS:
-        check(f"{name} channel {ch} NOT torn down (broker-valid)",
-              ch not in plan.tear_down_tunnels)
+              f"(channel {ch} still up; .1 gateway was healthy)")
 
     # Sanity: the genuinely-healthy peer is not removed by the prover-failure
     # branch.  (A metric replace from a winning observation is normal and fine.)
@@ -152,26 +143,25 @@ def main():
     if FAILS:
         print(f"REPRO CONFIRMS BUG (expected pre-fix): {FAILS}")
         return 1
-    print("PASS: prover-only failure no longer yanks a live broker-valid /24.")
+    print("PASS: prover-only failure no longer yanks a live /24.")
 
     # --- legitimate-removal case must still fire ----------------------------
-    # A dest whose channel genuinely went away (dropped from the broker list)
+    # A dest whose channel genuinely went away (no longer up locally)
     # SHOULD still be removed on terminal failure.  This proves the guard
     # narrowed the rule to prover-only failures, not gutted it.
     print()
-    print("--- legitimate removal still fires (channel gone from broker) ---")
+    print("--- legitimate removal still fires (channel gone) ---")
     gone_net, gone_ch = "10.28.28.0/24", "Node-28-10.28.28"
     plan2 = P.plan(
         [],
         [P.Route(dest=gone_net, dev="wg3", via="10.28.28.1", metric=P.ROUTE_METRIC)],
-        ["Node-28-10.28.28"],                      # locally still up...
+        ["Seattle3-10.130.130"],                   # Node-28's channel is not up any more
         owned_subnets=["10.250.250.0/24"],
-        broker_channels=["Seattle3-10.130.130"],   # ...but broker no longer lists it
         failures=[Failure(dest=gone_net, dev="wg3", via="10.28.28.1",
                           kind="tunnel", ch_name=gone_ch, source="far_edge_probe")],
     )
     removed2 = {r.dest: r.reason for r in plan2.removals}
-    check(f"{gone_net} (broker-removed) IS still removed on failure",
+    check(f"{gone_net} (channel gone) IS still removed on failure",
           removed2.get(gone_net) == "all_probes_failed",
           f"removals={removed2}")
 

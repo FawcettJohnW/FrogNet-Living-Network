@@ -34,7 +34,7 @@
 #
 # Take-out flow on the target:
 #   cd / && tar xzf frognet_build_<ts>.tgz
-#   sudo bash /usr/local/bin/frognet_install.sh --name <N> --ip 10.x.y.1 [--broker-host H]
+#   sudo bash /usr/local/bin/frognet_install.sh --name <N> --ip 10.x.y.1
 #   (the installer auto-detects the already-extracted tree; no world tar needed)
 #
 # Usage:
@@ -79,7 +79,7 @@ WRAP_KEY="${FROGNET_DB_WRAP_KEY:-fn0-dbwrap-v1-do-not-rely-on-secrecy}"
 SRC_PATHS=(
     opt/frognet_semantic
     usr/local/bin usr/local/sbin usr/local/lib
-    var/www/html var/www/www_admin
+    var/www/html
 )
 
 # Names that must NEVER ship. Matched as basenames anywhere in the staged tree
@@ -91,7 +91,7 @@ PRUNE_NAMES=(
     '*.bak' '*.old' '*.pre-*.bak' '*.orig' '*~'
     'ham_*.sh' 'frognet_radio_init.sh'
     'addExternalNameserver.php'
-    'setup_lillypad.bash' 'setup_lillypad_v3.bash' 'frognet-tunnel-setup.sh'
+    'setup_lillypad.bash' 'setup_lillypad_v3.bash'
     'frognet_build_release.sh' 'frognet_make_build_tar.sh'
     '*frognet_world*.tgz' '*frognet_release*.tgz'
     'boardgame' 'venv' 'blob_cache'
@@ -142,21 +142,12 @@ done
 rm -f "${STAGE}/etc/fnid" 2>/dev/null || true
 rm -rf "${STAGE}/etc/wireguard" 2>/dev/null || true
 # [STAGE_MATCHES_GATE_V1] The "no node identity" gate below checks for fnid,
-# wireguard, broker.conf, tunnel.conf AND db.env, but staging only removed the
-# first two -- so the gate would fail the build on files nothing had cleaned.
-# frognet_build_release.sh already excludes all of them (its --exclude list);
-# this brings the ad-hoc tar path in line.
-#
-# These are per-node identity and credentials, not software. tunnel.conf in
-# particular now carries BROKER_URL, POND_NAME, GROUP_TOKEN, PASSCODE,
-# POND_PASSWORD and NODE_GUID after [ONE_CONF_V1] -- shipping it would give every
-# node installed from the artifact the build host's identity and pond password.
-rm -f "${STAGE}/etc/frognet/broker.conf" 2>/dev/null || true
+# wireguard, tunnel.conf AND db.env. etc/frognet is not in SRC_PATHS, so these
+# are normally absent; removed by name all the same, so the gate cannot fail on
+# files nothing cleaned. tunnel.conf may hold RINA_RAM / RINA_AREA: this node's
+# region, not software.
 rm -f "${STAGE}/etc/frognet/tunnel.conf" 2>/dev/null || true
-rm -f "${STAGE}/etc/frognet/pond.conf" 2>/dev/null || true
-rm -f "${STAGE}"/etc/frognet/broker.conf.* 2>/dev/null || true
 rm -f "${STAGE}"/etc/frognet/tunnel.conf.* 2>/dev/null || true
-rm -f "${STAGE}"/etc/frognet/pond.conf.* 2>/dev/null || true
 rm -f "${STAGE}/etc/frognet/db.env" 2>/dev/null || true
 # [DNSMASQ_IDENTITY_OUT_V1] opts_only.conf carries this node's domain and DHCP
 # scope; forward_to_unbound.conf is the dead unbound path. Neither belongs in a
@@ -214,9 +205,9 @@ chk "no backups"           "find '$V' \( -name '*.bak' -o -name '*.old' -o -name
 chk "no ham"               "find '$V' -name 'ham_*.sh' -o -name 'frognet_radio_init.sh'"
 chk "no boardgame"         "find '$V' -type d -name boardgame"
 chk "no webroot tar junk"  "find '$V' -name 'addExternalNameserver.php'"
-chk "no retired versions"  "find '$V' \( -name 'setup_lillypad.bash' -o -name 'setup_lillypad_v3.bash' -o -name 'frognet-tunnel-setup.sh' \)"
+chk "no retired versions"  "find '$V' \( -name 'setup_lillypad.bash' -o -name 'setup_lillypad_v3.bash' \)"
 chk "no module shadows"    "find '$V/usr/local/bin' -maxdepth 1 \( -name discovery.py -o -name trace.py \) 2>/dev/null"
-chk "no node identity"     "find '$V' \( -name fnid -o -path '*wireguard/*' -o -name broker.conf -o -name tunnel.conf -o -name db.env -o -name opts_only.conf \)"
+chk "no node identity"     "find '$V' \( -name fnid -o -path '*wireguard/*' -o -name tunnel.conf -o -name db.env -o -name opts_only.conf \)"
 chk "no nested build tars" "find '$V' \( -name '*frognet_world*.tgz' -o -name '*frognet_release*.tgz' \)"
 chk "sim harness present"  "[[ -f '$V/opt/frognet_semantic/discovery/sim/topology.py' ]] || echo MISSING_SIM"
 # [STAGE_MATCHES_GATE_V1] the installer lives in usr/local/bin/installer/ now;
@@ -234,7 +225,7 @@ if [[ $fail -eq 0 ]]; then
     echo "════════════════════════════════════════════════════════"
     echo "  Take it out, then on the target:"
     echo "    cd / && tar xzf $(basename "$OUT_TGZ")"
-    echo "    sudo bash /usr/local/bin/frognet_install.sh --name <N> --ip 10.x.y.1 [--broker-host H]"
+    echo "    sudo bash /usr/local/bin/frognet_install.sh --name <N> --ip 10.x.y.1"
     [[ $SCRAMBLE -eq 1 ]] && echo "    (scrambled: the installer's C1b descrambles db_pass.enc automatically)"
     exit 0
 else

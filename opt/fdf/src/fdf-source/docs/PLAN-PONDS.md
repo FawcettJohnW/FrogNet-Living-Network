@@ -12,7 +12,7 @@ notification system so something happening in a pond that needs attention can sa
 | facts announced | the full node facts (role node, subnet, addrs, pubkey, maps, gen, view, capability) — today's facts.json | `{"role":"participant","name","guid"}` |
 | routes, default, /etc/hosts, names | the daemon applies that pond's graph | none |
 | mapping of this node's /24, hub peer, hub tunnel | yes | none (fdf-hub peers only role node/leaf) |
-| databasehost / mediahost elections | candidate and voter | neither (no capability fact) |
+| databasehost election | candidate and voter | neither (no capability fact) |
 | shared memory (apps, chat, presence) | yes | yes |
 | attention notices | not needed (already here) | held read; shown when one arrives |
 

@@ -33,7 +33,7 @@ import time
 
 from .config import (MODE_DASHBOARD, MODE_SENSORS, MODE_JSON,
                      REFRESH_SEC, DB_REFRESH_SEC)
-from .discovery import discover_hosts, discover_ponds
+from .discovery import fetch_snapshot, hosts_of
 from .draw_ponds import draw_ponds
 from .draw_dashboard import (draw_title, draw_peer_header, format_peer_cols,
                              draw_peer_row, draw_local_row, draw_internet,
@@ -41,8 +41,6 @@ from .draw_dashboard import (draw_title, draw_peer_header, format_peer_cols,
 from .draw_overlay import (draw_overlay_box, overlay_content_height,
                           clamp_scroll, follow_cursor)
 from .formatting import num, pretty_json
-from .identity import (LOCAL_LOWER, LOCAL_IP, databasehost_ip,
-                       databasehost_control_ip)
 from .merge import start_merge
 from . import discovery as _discovery
 from .probes import probe_all
@@ -57,12 +55,12 @@ from .config import CP_GREEN, CP_RED, CP_CYAN
 # ---- Background I/O workers ----
 
 def _bg_probe_cycle(st):
-    """Run discovery + probes in background.  Writes results atomically."""
-    hosts = discover_hosts()
-    ponds = discover_ponds()                       # [PONDS_ARE_LISTED_V1]
+    """One snapshot read + probes in background.  Writes results atomically."""
+    snap = fetch_snapshot()                        # [ONE_MONITOR_TRUTH_V1] mode, ponds, hub, members, elections
+    hosts = hosts_of(snap)
     results = probe_all(hosts)
-    st.ponds = ponds
     # Atomic swap — main loop reads these; single assignment = safe
+    st.snapshot = snap
     st.hosts = hosts
     st.results = results
     st.clamp_peer_cursor()
@@ -72,7 +70,6 @@ def _bg_probe_cycle(st):
 def _bg_db_fetch(st):
     """Run DB sensor fetches in background.  Writes results atomically."""
     from .trace import trace
-    from .identity import LOCAL_LOWER, LOCAL_IP
     engine = fetch_engine_json()
     daemon = fetch_daemon_json()
     # [LINK_POTENTIAL_PING_V1 2026-05-25] Pull this node's
@@ -81,8 +78,7 @@ def _bg_db_fetch(st):
     # the DB-roundtrip count predictable.
     link_quality = fetch_link_quality_json()
     # Build peer IP list from discovered hosts, excluding self
-    peer_ips = [ip for ip, name in st.hosts
-                if name.lower() != LOCAL_LOWER and ip != LOCAL_IP]
+    peer_ips = [ip for ip, name in st.hosts if ip != _discovery.SELF_IP]
     peer_data = fetch_peer_sensors(peer_ips)
     trace(f"[DB_FETCH] peer_data keys={list(peer_data.keys())} "
           f"host_ips={peer_ips}")
@@ -122,32 +118,20 @@ def main(stdscr):
         # --- Draw dashboard (always, as background) ---
         stdscr.erase()
         row = 0
-        row = draw_title(stdscr, row)
+        snap = getattr(st, "snapshot", None)
+        row = draw_title(stdscr, row, snap)
         row = draw_peer_header(stdscr, row)
 
         for idx, (ip, name) in enumerate(st.hosts):
-            is_self = (name.lower() == LOCAL_LOWER or ip == LOCAL_IP)
+            is_self = ip == _discovery.SELF_IP          # the member the snapshot marks self
             selected = (st.mode == MODE_DASHBOARD and idx == st.peer_cursor)
 
-            # [DBHOST_IS_MARKED_V1] Which peer the whole pond is reading and
-            # writing through. Resolved from /etc/hosts (TTL-cached in
-            # identity.py), because the role floats and the file is what every
-            # other component routes by.
-            # [NO_FALLBACK_V1] _hosts_lookup RAISES if /etc/hosts cannot be
-            # read -- it will not pretend the name is absent, because "no
-            # databasehost elected" and "the monitor cannot read the file" look
-            # identical on screen and are entirely different problems. The
-            # decision to carry on without markers is made HERE, explicitly and
-            # once per pass, not buried in the reader.
-            try:
-                _dbip = databasehost_ip()
-                _ctlip = databasehost_control_ip()
-            except OSError:
-                _dbip = _ctlip = None      # already reported by the resolver
-            _is_db = bool(_dbip) and ip == _dbip
-            # [CONTROL_IS_MARKED_V1] Independent of the above: a node can be
-            # both, one, or neither.
-            _is_ctl = bool(_ctlip) and ip == _ctlip
+            # [DBHOST_IS_MARKED_V1] Which peer the whole pond is reading and writing through, and [CONTROL_IS_MARKED_V1]
+            # the control host: the snapshot's elections (/etc/hosts <role>.frognet on the node, never the resolver)
+            # [ONE_MONITOR_TRUTH_V1]. No snapshot: nothing marked, and the title says why.
+            _el = ((snap or {}).get("raw") or {}).get("elections") or {}
+            _is_db = bool(_el.get("databasehost")) and ip == _el.get("databasehost")
+            _is_ctl = bool(_el.get("databasehost_control")) and ip == _el.get("databasehost_control")
 
             if is_self:
                 row = draw_local_row(stdscr, row, name, engine=st.engine,
@@ -230,7 +214,7 @@ def main(stdscr):
                                     selected=selected, is_dbhost=_is_db,
                                     is_control=_is_ctl)
 
-        row = draw_ponds(stdscr, row, getattr(st, "ponds", None))   # [PONDS_ARE_LISTED_V1] every network, not only the forward one
+        row = draw_ponds(stdscr, row, (snap or {}).get("raw"))   # [PONDS_ARE_LISTED_V1] every network, not only the forward one
         row += 1
         inet = st.results.get("__internet__", {}).get("result", ("FAIL", 0))
         row = draw_internet(stdscr, row, inet)

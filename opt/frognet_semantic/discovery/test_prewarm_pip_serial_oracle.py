@@ -36,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery, net_dot
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore)
 
 ok = True
@@ -45,7 +45,7 @@ def check(c, m):
 
 k = FakeKernel()
 d = Discovery(Routes(k, clock=lambda: 0.0), FakeEcho(answers={}), FakeRtt(table={}),
-              FakeGetHosts(children={}), FakeBroker(), HostStore(),
+              FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
               local_ips={"10.250.250.1", "127.0.0.1"}, dev_src_map={},
               self_identity="10.250.250.1", own_subnet="10.250.250.0/24")
 

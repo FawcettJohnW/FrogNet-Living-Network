@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeBroker,
+from discovery.sources import (FakeEcho, FakeRtt, FakeGetHosts, FakeTunnelState,
                                HostStore, FakeVerify)
 
 ok = True
@@ -51,7 +51,7 @@ k.seed("10.130.130.0/24 via 10.102.60.1 dev eth1 metric 22",   # stale loop rout
        "10.28.28.0/24 dev eth0 proto kernel scope link src 10.28.28.1")  # own connected
 routes = Routes(k, clock=lambda: 0.0)
 disc = Discovery(routes, FakeEcho(answers={}), FakeRtt(table={}),
-                 FakeGetHosts(children={}), FakeBroker(), HostStore(),
+                 FakeGetHosts(children={}), FakeTunnelState(), HostStore(),
                  local_ips={"10.28.28.1", "127.0.0.1"}, dev_src_map={},
                  self_identity="10.28.28.1", own_subnet="10.28.28.0/24",
                  has_own_uplink=False, uplink_dev="eth1")

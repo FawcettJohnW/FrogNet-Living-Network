@@ -64,6 +64,7 @@ public static class SelfTest
         RunEcho(root.GetProperty("echo_line").GetProperty("cases"));
         RunHosts(root.GetProperty("etc_hosts").GetProperty("cases"));
         RunDotOne(root.GetProperty("dot_one_of").GetProperty("cases"));
+        RunSnapshot(root.GetProperty("snapshot").GetProperty("cases"));
         RunModel();
 
         Console.WriteLine();
@@ -71,6 +72,42 @@ public static class SelfTest
         if (_fail > 0) { Console.WriteLine("FAILED"); return 1; }
         Console.WriteLine("PASS - C# parsers agree with the shared vectors");
         return 0;
+    }
+
+    private static List<string> StrList(JsonElement e, string k) =>
+        e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : new List<string>();
+
+    /// <summary>[ONE_MONITOR_TRUTH_V1] getSnapshot.php bodies -> the summary the three monitors share.</summary>
+    private static void RunSnapshot(JsonElement cases)
+    {
+        Console.WriteLine("\n=== snapshot (getSnapshot.php) [ONE_MONITOR_TRUTH_V1] ===");
+        foreach (var c in cases.EnumerateArray())
+        {
+            var name = Str(c, "name");
+            var got = Parsers.ParseSnapshot(Str(c, "input"));
+            if (!Flag(c, "ok")) { if (got is null) Ok(name + " -- rejected"); else Bad(name + " -- accepted, expected rejection"); continue; }
+            if (got is null) { Bad(name + " -- rejected, expected a snapshot"); continue; }
+            var why = "";
+            void Eq(string k, string g) { if (g != Str(c, k)) why += $" {k}=\"{g}\""; }
+            void EqV(string k, List<string> g) { if (!g.SequenceEqual(StrList(c, k))) why += $" {k}=[{string.Join(", ", g)}]"; }
+            Eq("mode", got.Mode); Eq("node_name", got.Name); Eq("dot1", got.Dot1); Eq("build", got.Build); Eq("dbhost", got.DbHost);
+            EqV("ponds", got.Ponds); EqV("hub", got.Hub); EqV("members", got.Members); EqV("errors", got.Errors);
+            if (why.Length == 0) Ok(name); else Bad(name + " -- got" + why);
+        }
+        // the node block, word for word the Python's (draw_dashboard.node_lines) and the C++'s (nodeLines)
+        var r = Parsers.ParseSnapshot("{\"snapshot\":1,\"mode\":\"region\",\"node\":{\"name\":\"N1\",\"dot1\":\"10.81.81.1\"},"
+            + "\"build\":{\"build\":\"fdf-2026-10-12-r20\",\"commit\":\"546df37+changes\"},"
+            + "\"ponds\":[{\"area\":\"test\",\"forward\":true},{\"area\":\"other\",\"forward\":false}],"
+            + "\"hub\":[{\"iface\":\"wg0\",\"handshake_age_s\":17}],\"members\":[],\"errors\":[\"pond other: x\"]}");
+        var want = new List<string> { "  mode region    build fdf-2026-10-12-r20 546df37+changes",
+                                      "  ponds  *test  other   (* = forward)", "  hub    wg0 17s", "  ! pond other: x" };
+        if (Parsers.TitleText(r) == "  FrogNet   N1 (10.81.81.1)" && Parsers.NodeLines(r).SequenceEqual(want))
+            Ok("node block: title, mode, build, ponds (forward *), hub link, errors");
+        else Bad("node block: " + string.Join(" | ", Parsers.NodeLines(r)));
+        if (Parsers.TitleText(null) == "  FrogNet   (getSnapshot.php did not answer)" && Parsers.NodeLines(null).Count == 1)
+            Ok("no snapshot: said, nothing in its place");
+        else Bad("no snapshot");
     }
 
     /// <summary>

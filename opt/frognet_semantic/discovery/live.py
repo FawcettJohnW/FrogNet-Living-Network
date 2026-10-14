@@ -36,40 +36,13 @@ from .kernel import RealKernel
 from .routes import Routes, table_fingerprint, fingerprint_delta
 from .discovery import Discovery
 from .propagate import Propagator, propagate_notification
-from .real_backends import RealEcho, RealRtt, RealGetHosts, RealBroker, RealPing, RealReflect, RealVerify
+from .real_backends import RealEcho, RealRtt, RealGetHosts, TunnelState, RealPing, RealReflect, RealVerify
 from .sources import HostStore
 from .mapinterfaces import RealInterfaceMap, classify
 from .fixdefault import FixDefaultRoute
 from .runmerge import run_merge
 
 IP = "/usr/sbin/ip"
-
-
-def _ensure_bundle_on_path() -> None:
-    """[BUNDLE_PATH_V1] The merge-end election hooks (reach_plane tuple write +
-    service-host election) live in the Communicator bundle, installed at
-    /opt/frognet_semantic/ribbit/examples/communicator. runMerge launches discovery with
-    PYTHONPATH=/opt/frognet_semantic ONLY, so `import frognet_tuples` /
-    `frognet_service_hosts` fail there (`No module named ...`) and both hooks
-    silently no-op. Add the bundle dir to sys.path so they resolve. core.* still
-    comes from /opt/frognet_semantic, already on the path. Order: FROGNET_BUNDLE_DIR
-    env override, the canonical install path, then a repo-relative path for in-tree
-    and sim runs. Idempotent; silent when the dir is absent (hooks degrade as before).
-    """
-    import sys as _sys
-    import os as _os
-    cands = []
-    env = _os.environ.get("FROGNET_BUNDLE_DIR")
-    if env:
-        cands.append(env)
-    cands.append("/opt/frognet_semantic/ribbit/examples/communicator")
-    here = _os.path.dirname(_os.path.abspath(__file__))
-    repo = _os.path.abspath(_os.path.join(here, "..", "..", ".."))
-    cands.append(_os.path.join(repo, "opt", "frognet_semantic", "ribbit", "examples", "communicator"))
-    for d in cands:
-        if d and _os.path.isdir(d) and d not in _sys.path:
-            _sys.path.insert(0, d)
-
 
 
 # [SENTINEL_DIR_HONOURED_V1] Every sentinel path goes through here.
@@ -302,7 +275,7 @@ def _default_gateway(k):
 
 
 def _dns_upstream(k):
-    """[RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] THE DNS upstream -- one definition, used for both
+    """[RESOLV_LOCAL_UPSTREAM_V1] THE DNS upstream -- one definition, used for both
     dnsmasq_upstream.conf and /etc/resolv.conf so the two can never name different ones.
     Field 2 of exit_host.tsv (the gateway the default route points at, [DNS_NEXTHOP_ONLY_V1]);
     before the first merge writes that sentinel, the default route's gateway, which is the
@@ -349,8 +322,8 @@ def _write_dnsmasq_upstream(k, logger=print):
 
 def _resolv_text(k, hn, local_domain):
     """The /etc/resolv.conf this node writes at the merge tail, as text.
-    [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] John 2026-09-26: ONLY 127.0.0.1, the upstream (if any),
-    and 8.8.8.8. Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
+    [RESOLV_LOCAL_UPSTREAM_V1] ONLY 127.0.0.1 and the upstream (if any); the 8.8.8.8 that John's 2026-09-26
+    layout ended with went in T4b (no public resolver behind the upstream). Not this node's own address ([SELF_IP_IS_A_RESOLVER_V1] retired), not tunnel
     peers or LAN neighbours ([PEER_PRIMARY_IS_A_RESOLVER_V1], [LAN_NEIGHBOR_IS_A_RESOLVER_V1]
     retired): other ponds' names are dnsmasq's job (frognet_forwarders_auto.conf)."""
     from .resolv import build_resolv
@@ -415,7 +388,7 @@ def _run_fixdefault_and_resolv(k, devs, dev_ip, local_ips, logger=print,
         self_identity=self_identity,
     )
     fdr.run()
-    # manageResolv: [RESOLV_LOCAL_UPSTREAM_GOOGLE_V1] 127.0.0.1, upstream (if any), 8.8.8.8.
+    # manageResolv: [RESOLV_LOCAL_UPSTREAM_V1] 127.0.0.1, upstream (if any).
     hn = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
     content = _resolv_text(k, hn, _local_domain())
     _write_if_changed("/etc/resolv.conf", content, logger)
@@ -427,7 +400,7 @@ def build_live(logger=print, self_identity: str = ""):
     k = RealKernel()
     routes = Routes(k, logger=logger)
     hoststore = HostStore()
-    broker = RealBroker()
+    tunnels = TunnelState()
     local_ips = _local_ips()
 
     # dev_src: transit /30 src per wg dev (RealKernel route show)
@@ -443,7 +416,7 @@ def build_live(logger=print, self_identity: str = ""):
     # classify winners as transit:
     #   own_subnet      - this node's served /24 (from self_identity .1)
     #   has_own_uplink  - gateway iff a non-FrogNet iface holds a non-10.x addr
-    #                     (a real WAN). Mirrors peer._node_has_own_uplink. A
+    #                     (a real WAN). A
     #                     gateway transits its ENTIRE downstream LAN subtree.
     #   uplink_dev      - on a LAN-child, the mesh-ward dev (dev of the FrogNet
     #                     default route) to EXCLUDE; empty on a gateway.
@@ -502,14 +475,14 @@ def build_live(logger=print, self_identity: str = ""):
     from .real_backends import RegionRecords, RegionEcho, RegionGetHosts
     _src = _os0.environ.get("FROGNET_DISCOVERY_SOURCE", "")
     if not _src and RegionRecords.ram_from_conf():
-        _src = "region"                        # RINA_RAM= in /etc/frognet/tunnel.conf: the node is on a region
+        _src = "region"                        # RINA_RAM= in /opt/fdf/var/join.env: the node is on a region
     if _src == "region":
         _rec = RegionRecords()
         _echo, _gethosts = RegionEcho(_rec), RegionGetHosts(_rec, local_ips)
         logger("DISCOVERY_SOURCE=region ram=" + _rec.ram + " (no crawl: FD&F owns discovery)")
     else:
         _echo, _gethosts = RealEcho(), RealGetHosts()
-    disc = Discovery(routes, _echo, RealRtt(), _gethosts, broker,
+    disc = Discovery(routes, _echo, RealRtt(), _gethosts, tunnels,
                      hoststore, local_ips, dev_src, logger=logger,
                      propagator=Propagator(hoststore, logger=logger),
                      reflect=RealReflect(), self_identity=self_identity,
@@ -527,7 +500,7 @@ def build_live(logger=print, self_identity: str = ""):
         disc.wave_workers = max(1, int(_os.environ.get("FROGNET_WAVE_WORKERS", "8")))
     except ValueError:
         disc.wave_workers = 8
-    return disc, k, broker, local_ips
+    return disc, k, tunnels, local_ips
 
 
 def check_ip_collision(ip, reflect=None, logger=print):
@@ -548,14 +521,15 @@ def check_ip_collision(ip, reflect=None, logger=print):
 
 
 def _reconcile_tunnels(logger=print):
-    """Bring-up stage - broker-authoritative wg reconcile, run synchronously
-    BEFORE discovery, exactly as mergeHostsAndResolv.bash does:
+    """Bring-up stage, run synchronously BEFORE discovery:
 
         PYTHONPATH=/opt/frognet_semantic python3 -m internet_tunnels_v3 bring-up-only
 
-    Brings up wg ifaces the broker says should exist, tears down the rest. The
-    merge port is not a full merge without this - discovery only routes over
-    tunnels, it never creates them. Skippable via FROGNET_SKIP_BRINGUP=1.
+    LAN-only (the only mode that runs it): the node holds no WireGuard, so every
+    wg iface comes down, handshake_rtts.json is written empty and
+    /etc/sentinels/tunnel_bringup_ready is touched [LAN_ONLY_NO_REGION_V1]. On a
+    region the daemon owns the hub channel and this stage is not run (below).
+    Skippable via FROGNET_SKIP_BRINGUP=1.
     Overridable: FROGNET_BRINGUP_PYTHONPATH, FROGNET_BRINGUP_PY.
     """
     import os
@@ -572,7 +546,7 @@ def _reconcile_tunnels(logger=print):
     env = dict(os.environ)
     env["PYTHONPATH"] = os.environ.get("FROGNET_BRINGUP_PYTHONPATH",
                                        "/opt/frognet_semantic")
-    py = os.environ.get("FROGNET_BRINGUP_PY", "/usr/bin/python3")
+    py = os.environ.get("FROGNET_BRINGUP_PY", "/opt/frognet_semantic/venv/bin/python3")   # [SERVICES_ON_THE_VENV_V1]
     logger("reconcile_tunnels START (internet_tunnels_v3 bring-up-only)")
     try:
         r = subprocess.run([py, "-m", "internet_tunnels_v3", "bring-up-only"],
@@ -590,7 +564,7 @@ def _reconcile_tunnels(logger=print):
 
 def main():
     logger = print
-    # bring-up stage: reconcile wg ifaces to broker state BEFORE we gather/probe,
+    # bring-up stage: reconcile wg ifaces (LAN-only: none) BEFORE we gather/probe,
     # so discovery sees the tunnels that should exist (mergeHostsAndResolv order).
     _reconcile_tunnels(logger)
     imap = RealInterfaceMap()
@@ -602,32 +576,20 @@ def main():
     # (the hostapd interface), regardless of which interface it currently
     # egresses through. On a leaf that reaches the mesh over a borrowed lease,
     # the egress iface address is NOT this, so routes must pin it as src.
-    self_identity = ""
-    _frognet_devs = cls.get("FROGNET_FROGNET_DEVS", "").split()
-    if _frognet_devs:
-        # [SELF_IDENTITY_SKIP_RESERVED_V1] Identity is the node's OWN /24 .1
-        # (e.g. 10.160.160.1), never a pool address. A chorus dev (frognet0,
-        # 10.254.x) or transit dev (10.253.x) must NOT source the identity: if it
-        # does, the node adopts a 10.254.x self-identity. Take the first frognet
-        # dev whose address is a real node /24, skipping the reserved pools.
-        for _dev in _frognet_devs:
-            _iip = next((i.ip4() for i in ifaces if i.dev == _dev), "")
-            if not _iip:
-                continue
-            if _iip.startswith("10.253.") or _iip.startswith("10.254."):
-                logger(f"SELF_IDENTITY_SKIP dev={_dev} ip={_iip} reason=reserved_pool")
-                continue
-            self_identity = ".".join(_iip.split(".")[:3]) + ".1"
-            break
+    # [UPLINK_BY_FUNCTION_V1 - T4b] the served .1, by function (mapinterfaces.served_identity), not the first dev
+    # with a 10.x/24 in name order (which, with the upstream lease on eth1 and the LAN on eth2, was the neighbour's .1).
+    from .mapinterfaces import served_identity
+    self_identity = served_identity(ifaces)
+    logger(f"SELF_IDENTITY {self_identity or '<none: no interface carries a served 10.A.B.1>'}")
 
-    disc, k, broker, local_ips = build_live(logger, self_identity=self_identity)
+    disc, k, tunnels, local_ips = build_live(logger, self_identity=self_identity)
 
     # run_tunnel_health_check: probe each tunnel, derive dead ifaces, filter devs
     from .healthcheck import HealthCheck
     active_states_full = _active_states()
     health_states = []
     for iface, subs in active_states_full:
-        ch = broker.channel_for_iface(iface)
+        ch = tunnels.channel_for_iface(iface)
         if ch and ch.startswith("hub-"):
             # [HUB_HEALTH_IS_THE_HANDSHAKE_V1] a region hub channel carries many /24s that belong to other members;
             # probing "the first one's .2" judges the hub link by a third host (Seattle3B 15:07: wg0 declared dead
@@ -655,7 +617,7 @@ def main():
     upstream_seed = {}  # descend_upstream seeds (seed_from_dev_ip) - fill from cls if needed
 
     # bringup peers come from handshake_rtts (direct channels)
-    hs = broker._handshake()
+    hs = tunnels._handshake()
     bringup = [(ch.rsplit("-", 1)[0], v.get("peer_dot_one"))
                for ch, v in hs.items() if v.get("peer_dot_one")]
     # [NO_CRAWL_IN_REGION_V1] on a region the peers are FD&F's plan, as the daemon applied it (routes installed,
@@ -679,12 +641,12 @@ def main():
             from discovery.real_backends import RegionRecords
             from core import region_capability as _RC
             _region_parts = RegionRecords().participants()
-            _n = _RC.set_snapshot(_region_parts, self_identity)
-            logger("ELECT: candidates from the region's facts: %d member(s) with a capability; my LAN (graph links): %s" % (_n, sorted(_RC.lan() or ())))
+            _n = _RC.set_snapshot(_region_parts)
+            logger("ELECT: candidates from the region's facts: %d member(s) with a capability" % _n)
         except Exception as _e:
             raise RuntimeError("region mode: the members' facts could not be read for the election: %s" % _e)
 
-    eth0_ip = next((i.ip4() for i in ifaces if i.dev == "eth0"), "")
+    # (no "eth0" address stands in for an identity [UPLINK_BY_FUNCTION_V1]: the identity is the served .1 or none)
     domain = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip().split(".", 1)
     domain = domain[1] if len(domain) > 1 else ""
 
@@ -711,28 +673,16 @@ def main():
     logger(f"TABLE_FINGERPRINT phase=before routes={len(_tbl_before)}")
 
     out = run_merge(disc, k, seeds, upstream_seed,
-                    local=(self_identity or eth0_ip, domain), bringup_peers=bringup,
+                    local=(self_identity, domain), bringup_peers=bringup,
                     prior_names=prior_names,
                     concurrent_attempt=False, logger=logger)
     # [SYNC_ON_ROUTE_MUTATION_V1] carry whether the committed route table changed
     # this merge through to the sync trigger; routing deltas, not host-table
     # deltas, are what neighbors must be told about.
     out["route_table_mutated"] = bool(getattr(disc.r, "route_table_mutated", False))
-    # [TRANSIT_FROM_WINNERS_V1] Persist the transit set promote() derived from
-    # the winners so the tunnel daemon's _sync_transit_subnets posts it. Written
-    # as a sentinel (one /24 per line) - the same cross-process channel discovery
-    # uses for frognet_hosts/exit_host. The daemon reads this instead of
-    # re-deriving transit from a route scan or DHCP-lease probe.
+    # [TRANSIT_FROM_WINNERS_V1] the transit set promote() derived from the winners, in the merge's result. (The
+    # transit_subnets.tsv sentinel it once also wrote had one reader, removed in T3a.)
     out["computed_transit"] = list(getattr(disc, "computed_transit", []))
-    try:
-        import os as _os
-        _os.makedirs(_sent(), exist_ok=True)
-        with open(_sent("transit_subnets.tsv"), "w") as _tf:
-            _tf.write("".join(s + "\n" for s in out["computed_transit"]))
-        logger(f"TRANSIT_SENTINEL wrote {len(out['computed_transit'])} /24(s): "
-               f"{out['computed_transit']}")
-    except OSError as _e:
-        logger(f"TRANSIT_SENTINEL write failed: {_e}")
 
     # [REACH_PLANE_TUPLE_V1] Persist this node's loopback-validated WAN plane to a
     # tuple so the merge-end service-host election can split LAN vs WAN by READING,
@@ -769,8 +719,8 @@ def main():
     # seconds later. The value has to OUTLIVE the merge -- the whole point is that
     # another node's election reads it afterwards.
     out["computed_wan"] = list(getattr(disc, "computed_wan", []))
-    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the mediahost's LAN bucket is the
-    # graph ([LAN_IS_THE_GRAPH_V1]) and the one reader gather_candidates had was a dead read, now removed. Not written.
+    # [REGION_MERGE_WRITES_NO_STORE_V1] In region mode nothing reads this tuple: the one reader gather_candidates had
+    # was a dead read, now removed. Not written.
     _region = bool(getattr(disc, "no_crawl", False))
     if _region:
         logger("REACH_PLANE_TUPLE not written: region mode, the graph is the LAN/WAN input [REGION_MERGE_WRITES_NO_STORE_V1]")
@@ -780,7 +730,7 @@ def main():
             _scope = _T.node_scope()
             _T.put("discovery", "reach_plane", _scope,
                    {"wan_subnets": out["computed_wan"],
-                    "self_ip": self_identity or eth0_ip},
+                    "self_ip": self_identity},
                    own=False)
             _pruned = _T.prune_self_stale_rows("discovery", "reach_plane", _scope)
             logger(f"REACH_PLANE_TUPLE wrote wan={out['computed_wan']} scope={_scope}"
@@ -804,8 +754,8 @@ def main():
     # [SERVICE_HOSTS_ELECTION_V1] Generic, dynamic service-host election. Derive the
     # live service set by consolidating the registered candidate tuples, elect each
     # role through its registry handler over capability memory, and emit
-    # <role>.frognet lines into the committed block. ONE loop for databasehost,
-    # mediahost, and any future role - no per-role hook. Degrades to no role lines
+    # <role>.frognet lines into the committed block. ONE loop for databasehost
+    # and any future role - no per-role hook. Degrades to no role lines
     # (the highest-IP databasehost floor stands) if the transient is unreachable.
     # [PUBLISH_BEFORE_ELECT_V1] Every merge, this node re-publishes its own <role>/
     # capability (perf inside the blob) to BOTH control + data BEFORE the election
@@ -856,35 +806,24 @@ def main():
         # deterministic (highest .1) and already in out['etc_hosts'].
         _ctl = control_host_ip(out.get("etc_hosts", [])) or CONTROL_NAME
         # [SERVICE_HOSTS_ELECTION_V1] POST-merge determination. Every component's host
-        # (databasehost, mediahost, ...) is its UnREST callback's pure pick
+        # (databasehost, ...) is its UnREST callback's pure pick
         # over the capability tuples in databasehost_control - identical on every node by
         # construction. No floor, no per-node reachability cull. self_ip = this node's .1,
         # used only for local-by-definition when a callback names no winner. This is a
         # read; it does NOT set runAgain (only route changes re-run the merge).
-        # [LAN_IS_ATTACHED_V1] LAN service roles (mediahost) must elect only over
-        # this node's directly-attached segments - not over boxes reached via a relay.
-        # disc.local_subnets is the attached-/24 prefix set; render as '10.x.y.0/24'.
-        _lan = {p + ".0/24" for p in getattr(disc, "local_subnets", set())}
         # [DBHOST_COMPLETENESS_BARRIER_V1] Only DECIDE the service roles once _control
         # holds a fresh capability record for every live machine. When ready, the ONE
-        # election loop sets databasehost AND (off the same machinery) mediahost
-        # together. Until ready, pin databasehost at the control (highest .1,
+        # election loop sets every role. Until ready, pin databasehost at the control (highest .1,
         # always valid) and leave the other role lines as committed, so a later merge -
         # after the missing nodes publish - decides over the COMPLETE pool and every node
         # agrees. A lone FrogNetHost is ready at once and elects itself for every role.
         # [ROLE_ELECTION_UNCOUPLED_V1] The election runs EVERY converged merge, for
         # every registered role. It used to sit behind the databasehost completeness
         # barrier, so a pond whose barrier never opened elected nothing at all - no
-        # mediahost line, and no error to say so.
-        # [ROLE_BARRIER_PER_ROLE_V1] Each role asks its OWN barrier. mediahost waits
-        # on mediahost capability records, not on databasehost ones -- those are not an
-        # input to the media election and used to hold it shut for no reason.
+        # role line, and no error to say so.
         from core.frognet_service_hosts import service_host_lines, commit_service_lines
-        try:
-            from core.role_registry import ROLE_HANDLERS as _RH
-            _roles = list(_RH)
-        except Exception:
-            _roles = ["databasehost", "mediahost"]
+        from core.role_registry import ROLE_HANDLERS as _RH
+        _roles = list(_RH)
         # [ABSENT_IS_A_DECIDABLE_STATE_V1] role_barrier_ready is no longer called.
         # It asked, once per role per merge with its own store read, whether every
         # live machine had published a capability record yet -- and deferred the
@@ -900,9 +839,7 @@ def main():
         # definition, whether or not its capability row landed this pass.
         _role_lines = service_host_lines(dbhost=_ctl, logger=logger,
                                          etc_hosts=out.get("etc_hosts", []),
-                                         self_ip=(self_identity or eth0_ip),
-                                         lan_subnets=_lan,
-                                         local_ips=set(getattr(disc, "local_ips", ())))
+                                         self_ip=self_identity)
         out["etc_hosts"] = commit_service_lines(out.get("etc_hosts", []), _role_lines,
                                                 _ready_roles, _ctl, logger=logger)
         logger(f"SERVICE_BARRIERS ready={sorted(_ready_roles)} "
@@ -1234,8 +1171,8 @@ def _arm_elector(logger=print):
 
 def _topology_changed(old_content: str, new_content: str) -> bool:
     """[SERVICE_HOSTS_NO_SYNC_V1] True only if the host files differ in a TOPOLOGY
-    line. Service-role lines end in `.frognet` (databasehost/databasehost_control/
-    mediahost/aihost ...); they are a DERIVED election result every node
+    line. Service-role lines end in `.frognet` (databasehost/databasehost_control
+    ...); they are a DERIVED election result every node
     computes identically from databasehost_control, so a change confined to them is
     NOT a topology change and must NEVER trigger re-sync/propagation (that is the
     merge-storm: each node re-derives a role line, the byte differs, it propagates,
@@ -1311,7 +1248,7 @@ def _commit_hosts(out, logger=print):
     # ROUTING TABLE, not /etc/hosts. Any committed route add/replace/del this merge
     # (winner install, verify-backout, fallback, sweep of a real route) means
     # neighbors must re-sync - even when the host table is byte-identical, which is
-    # the common case (hosts come from the broker and persist while routes churn).
+    # the common case (hosts persist while routes churn).
     # [SERVICE_HOSTS_NO_SYNC_V1] A TOPOLOGY host-table change (a node-identity /
     # route-bearing line) still counts as a secondary trigger - but a change confined
     # to `<role>.frognet` SERVICE lines does NOT: those are a derived election result,

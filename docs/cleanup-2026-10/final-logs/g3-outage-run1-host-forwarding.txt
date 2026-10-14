@@ -1,0 +1,9 @@
+13:20:18 before: N1->N2 2 received  N2->N1 2 received
+13:20:20 docker network disconnect fn-wan d2
+13:20:30 off +10s: N1->N2 2 received  N2->N1 2 received
+13:21:07 off +50s: N1->N2 2 received  N2->N1 2 received
+13:21:09 reconnect d2 172.30.0.10 eth0
+13:21:25 back +20s: N1->N2 2 received  N2->N1 2 received
+13:21:44 back +40s: N1->N2 2 received  N2->N1 2 received
+13:22:02 back +60s: N1->N2 2 received  N2->N1 2 received
+13:22:20 back +90s: N1->N2 2 received  N2->N1 2 received

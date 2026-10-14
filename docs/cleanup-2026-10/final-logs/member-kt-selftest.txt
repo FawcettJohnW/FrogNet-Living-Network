@@ -1,0 +1,33 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=42901 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+PASS  nothing held: the first block
+PASS  a reach keeps the block it has
+PASS  B back after a session loss (long ago): its own block again
+PASS  B's block released 5 s ago: F does not get it
+PASS  nor does B for a different prefix
+PASS  B for the same prefix: its block at once
+PASS  a /32 inside a quarantined /24 is quarantined too (and never an .0 or .255 address)
+PASS  after the quarantine any use may have it
+PASS  B's old block, held by another reach now: never shared
+PASS  a block colliding with this member's scope is never used, even B's own
+PASS  every block quarantined: refused
+PASS  reach all: every alive member's /24 and the leaf's /32, each aliased (the phone's 10/8 is its forward pond's): reach into pondB (all, map allowed) as 10.252.0.1 there via hub hub-B: 10.7.7.0/24 10.8.8.0/24 10.252.0.2/32; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24, 100.64.2.1/32 -> 10.252.0.2/32
+PASS  map refused and a collision: refused, naming it
+PASS  no config: refused
+PASS  reach none: refused
+PASS  the hub has not peered this key: not yet
+PASS  no address given yet: not yet
+PASS  reach listed: only the endpoints the where cells name: reach into pondB (listed, map allowed) as 10.252.0.1 there via hub hub-B: 10.7.7.1/32; aliased 100.64.0.1/32 -> 10.7.7.1/32
+PASS  where cells: identities only (an address is not taken)
+PASS  two ponds planned at once, 200 times: their alias blocks never overlap (0 did)
+PASS  a /32 inside a served /24 is not a destination of its own: reach into pondB (all, map allowed) as 10.252.0.1 there via hub hub-B: 10.7.7.0/24 10.8.8.0/24; aliased 100.64.0.0/24 -> 10.7.7.0/24, 100.64.1.0/24 -> 10.8.8.0/24
+PASS  a block B's re-plan dropped is not F's for the quarantine
+PASS  the ledger is read back after a restart: B's block is B's again
+PASS  fdf-tun gone: nothing stands, every session is told to end (fdf-tun did not answer (broken pipe))
+PASS  X25519 public key: RFC 7748 6.1
+PASS  the public key equals wg pubkey for 0 keys made by wg genkey
+2026-10-13 05:51:38.278 fdf-member-kt: identity: a new WireGuard key in /tmp/id1446890503711618051/key
+2026-10-13 05:51:38.296 fdf-member-kt: identity: /tmp/id1446890503711618051/facts.json says name vm, guid linux-dd3fb61f-3472-4c5d-858b-a8183ed5c8ac, pubkey T2PgJJpjCa0eVZSEiZptBEWh3uTfct3EGPuzWBOP31c=
+PASS  first run makes the key and the facts; the second keeps them (guid linux-dd3fb61f-3472-4c5d-858b-a8183ed5c8ac)
+PASS  leaf facts: on the mesh role/name/lan (no key), off it the key [DEVICE_ROW_V1]
+RESULT PASS
+EXIT 0

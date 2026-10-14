@@ -29,7 +29,7 @@ no FrogUser at all. api.php then cannot authenticate and every sensor write fail
 This oracle runs the two things that matter, from the REAL scripts:
 
   PLANE 1 (install)  clean machine -> databasehost postconditions:
-                     both databases, FrogUser on localhost AND '%', grants on both.
+                     the FrogNet database, FrogUser on localhost AND '%', its grants.
                      Plus a REACHABILITY check: the user-creating statement must not
                      be guarded by a file a clean machine does not have.
 
@@ -93,12 +93,8 @@ def plane_install():
           "clean install creates FrogUser@localhost")
     check(m.has_user("FrogUser", "%"),
           "clean install creates FrogUser@'%' (remote nodes reach a floating dbhost)")
-    check("FrogNetFamily" in m.databases,
-          "clean install creates FrogNetFamily (Communicator store)")
     check(m.can_reach("FrogNet", "FrogUser", "%"),
           "FrogUser@'%' is granted on FrogNet")
-    check(m.can_reach("FrogNetFamily", "FrogUser", "%"),
-          "FrogUser@'%' is granted on FrogNetFamily")
 
     # REACHABILITY: the statement may be correct and still never run.
     inst = _script("frognet_install.sh")
@@ -159,7 +155,8 @@ def plane_reinstall():
               "--preserve documented as removing nothing")
         check("dpkg-query" in text,
               "APT installs only MISSING packages (not the whole list every run)")
-        check('pip3 show' in text,
+        # [SERVICES_ON_THE_VENV_V1 - T4b] the packages go into the venv only: its pip ("$VP" show), not the system pip3
+        check('"$VP" show "$pkg"' in text,
               "pip installs only MISSING packages (not the whole list every run)")
 
     # [NO_MISSING_REQUIREMENTS_V1] The installer invokes frognet_reset.sh, so
@@ -223,7 +220,6 @@ def plane_three_modes():
     mc = Machine("clean", files=cfg)
     simulate_install(mc, "clean", bin_dir, web_dir, dump_present=False)
     check(mc.mysql.has_user("FrogUser", "%"), "[clean]    FrogUser@'%' created")
-    check("FrogNetFamily" in mc.mysql.databases, "[clean]    FrogNetFamily created")
     check(mc.mysql.migrated, "[clean]    schema migrations applied")
 
     # ---- RESET: prior install, no --preserve ------------------------------- #
@@ -324,6 +320,11 @@ def plane_reset_release_symmetry():
         print("  SKIP symmetry - needs frognet_install.sh (release tooling)")
         return
     itext = open(inst, encoding="utf-8", errors="replace").read()
+    # [TUNE_WRITES_ITS_FILES_V1 - T4b] F7 runs frognet-system-tune.sh, and what it writes (limits.d/99-frognet.conf,
+    # the -tune.cnf, ...) is written by the install as much as a heredoc in the installer is.
+    _tune = _script("frognet-system-tune.sh")
+    if _tune and "frognet-system-tune.sh" in itext:
+        itext += "\n" + open(_tune, encoding="utf-8", errors="replace").read()
     for f in sorted(files):
         rel = f.lstrip("/")
         # restorable two ways: carried in the world tar, OR written by the installer.

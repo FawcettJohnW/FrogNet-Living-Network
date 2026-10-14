@@ -17,54 +17,33 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 ##############################################################
-# setup_lillypad_v4.bash - FrogNet Gateway Setup (v4)
+# setup_lillypad_v4.bash - FrogNet node LAN setup (v4)
 #
-# Same LAN setup as v2, plus writes /etc/frognet/tunnel.conf
-# so the tunnel daemon knows where the broker is.
+# The LAN side of a node: dnsmasq (the node's /24), hostname, gateways.conf. The identity addresses are
+# frognet-netstart's ([NETSTART_OWNS_THE_IDENTITY_V1]): this writes the config and then runs it.
+# It writes no tunnel config: the node comes up LAN-only, and a region is
+# joined afterwards with fdf-region-join (/opt/fdf/var/join.env).
 #
 # Usage:
-#   sudo bash setup_lillypad_v4.bash <NetworkName> <GatewayIP> [BROKER_URL] \\
-#        [--pond <PondName>]
+#   sudo bash setup_lillypad_v4.bash <NetworkName> <GatewayIP> [--norestart]
 #
-#   --pond <PondName>   The pond this node JOINS - the group of nodes sharing a
-#                       broker namespace. REQUIRED whenever BROKER_URL is given.
-#                       It is NOT the node/domain name and has no default.
-#
-# Examples:
+# Example:
 #   sudo bash setup_lillypad_v4.bash HardBox 10.101.100.1
-#   sudo bash setup_lillypad_v4.bash HardBox 10.101.100.1 \
-#        https://streamingfrog.com/frognet-broker-v4
-#
-# BROKER_URL is the full URL the tunnel daemon will hit.  Path
-# prefix is required for v4 (e.g. /frognet-broker-v4).  The
-# daemon appends /api/v4/... itself.
-#
-# If BROKER_URL is omitted, tunnel.conf is created with an empty
-# BROKER_URL - broker registration is deferred until tunnel.conf
-# is filled in by hand or by a later run of this script.
 ##############################################################
 
-# [NO_SET_X_V1] `set -x` traced every command, and this script handles the broker
-# URL and the pond credentials - a trace is where secrets leak into logs and
-# terminals. Same rule frognet_reset.sh states in its header: never trace.
+# [NO_SET_X_V1] `set -x` traced every command; a trace is where secrets leak
+# into logs and terminals. Same rule frognet_reset.sh states in its header: never trace.
 
 log() { echo "[setup_lillypad] $(date '+%H:%M:%S') $*"; }
 die() { log "FATAL: $*"; exit 1; }
 
-# [POND_IS_NOT_THE_DOMAIN_V1] POND_NAME used to default to NETWORK_NAME. A pond is a
-# GROUP OF NODES that share a broker namespace; NETWORK_NAME is THIS node's domain.
-# Defaulting one to the other put every node in its own single-member pond named
-# after itself, so nodes joining "the same" pond never met. There is no sane default
-# for a pond you are joining - it must be given, as --pond.
-POND_NAME_ARG=""
 _POS=()
-# [SETUP_LILLYPAD_NORESTART_V1] --norestart: write all config (files + the
-# persistent NM connection profile) but do NOT bounce services or re-address the
-# live interface. Used when the installer calls this over SSH that rides the very
+# [SETUP_LILLYPAD_NORESTART_V1] --norestart: write all config but do NOT bounce
+# services or run frognet-netstart (which re-addresses the live interface). Used when the installer calls this over SSH that rides the very
 # interface being configured (a LAN-only gateway reached via its wlan0/AP link):
 # restarting NetworkManager or flushing the interface drops that SSH mid-install.
-# The install reboots at the end, and the NM profile is autoconnect-priority 999,
-# so everything skipped here comes up cleanly on that reboot.
+# The install reboots at the end and cron @reboot runs frognet-netstart, so
+# everything skipped here comes up on that reboot.
 NO_RESTART=0
 # [SETUP_LILLYPAD_NORESTART_V1] restart wrapper: a no-op under --norestart, since
 # the install reboots at the end and every service comes up then. Keeps SSH alive.
@@ -72,13 +51,11 @@ svc_restart() {
     if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
         log "  [--norestart] not restarting: $* (applies on reboot)"
     else
-        systemctl restart "$@" 2>/dev/null || true
+        systemctl restart "$@" || log "  FAILED: systemctl restart $* (see journalctl -u $*)"
     fi
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --pond)   POND_NAME_ARG="${2:-}"; shift 2 ;;
-        --pond=*) POND_NAME_ARG="${1#*=}"; shift ;;
         --norestart) NO_RESTART=1; shift ;;
         --)       shift; while [[ $# -gt 0 ]]; do _POS+=("$1"); shift; done ;;
         -*)       die "Unknown option: $1" ;;
@@ -88,39 +65,27 @@ done
 NETWORK_NAME="${_POS[0]:-}"
 GATEWAY_IP="${_POS[1]:-}"
 
+LILLYPAD_BUILD="setup-lillypad-2026-10-14-r21"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+log "build $LILLYPAD_BUILD"
 [[ $EUID -eq 0 ]] || die "Must run as root"
 [[ -n "$NETWORK_NAME" ]] || die "Usage: $0 <NetworkName> <GatewayIP>"
 [[ -n "$GATEWAY_IP" ]] || die "Usage: $0 <NetworkName> <GatewayIP>"
 [[ "$GATEWAY_IP" =~ ^10\.[0-9]+\.[0-9]+\.1$ ]] || die "Gateway IP must be 10.x.x.1 format"
 
-# Optional third arg: full URL to the v4 broker. (Was incorrectly read from $4 -
-# the caller passes it as $3: setup_lillypad_v4.bash <NetworkName> <GatewayIP> <URL>.
-# The $4 bug silently dropped the broker URL, leaving an empty tunnel.conf/broker.conf
-# so the tunnel daemon never registered.)
-BROKER_URL="${_POS[2]:-}"
-if [[ -n "$BROKER_URL" ]]; then
-    [[ "$BROKER_URL" =~ ^https?://[^/[:space:]]+(/.*)?$ ]] || \
-        die "BROKER_URL must be a full URL (e.g. https://streamingfrog.com/frognet-broker-v4)"
-fi
+[[ ${#_POS[@]} -le 2 ]] || die "Unexpected argument: ${_POS[2]} (usage: $0 <NetworkName> <GatewayIP> [--norestart])"
 
 # ============================================================
 # Resolve actual interface name via mapInterfaces
 # ============================================================
 . /usr/local/bin/mapInterfaces
-ETH0="${eth0Name:-eth0}"
-log "Resolved eth0 interface: $ETH0"
-
-# Sanity check: does the interface exist?
-# Sanity check: does the interface exist?
+# [WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1] The wired LAN dev, not eth0Name: in wireless mode eth0Name is the AP radio
+# (frognet-netstart's active_interface pin).
+ETH0="${wiredLanName:-eth0}"
+log "Resolved wired LAN interface: $ETH0 (serving now: ${eth0Name:-none})"
 if ip link show "$ETH0" >/dev/null 2>&1; then
-    ETH0_PRESENT=true
     log "Interface $ETH0 is present"
 else
-    ETH0_PRESENT=false
-    log "WARNING: Interface '$ETH0' does not exist."
-    log "         Continuing without eth0 - dnsmasq and identity will be"
-    log "         configured anyway, and frognet-eth0-fixup will claim"
-    log "         the interface when it appears."
+    log "WARNING: Interface '$ETH0' does not exist (wired mode cannot come up until it does)."
 fi
 
 # Extract subnet info
@@ -183,7 +148,6 @@ else
     systemctl restart NetworkManager 2>/dev/null || true
 fi
 systemctl stop frognet-transit-boot 2>/dev/null || true
-systemctl stop frognet-transit-watch 2>/dev/null || true
 
 # ============================================================
 # Step 1b: Purge stale identity from cloned image
@@ -238,7 +202,8 @@ touch /var/log/mysql/slow_query.log
 chown mysql:mysql /var/log/mysql /var/log/mysql/slow_query.log 2>/dev/null || true
 
 # -- MariaDB: start it so we can fix FrogUser --
-systemctl start mariadb 2>/dev/null || systemctl start mysql 2>/dev/null || true
+# [ONE_DB_UNIT_V1] FrogNet installs MariaDB; its unit is mariadb (there is no "mysql" unit to try after it).
+systemctl start mariadb || die "systemctl start mariadb failed (journalctl -u mariadb)"
 sleep 2
 
 # -- MariaDB: sync FrogUser password from the two credential files --
@@ -267,9 +232,6 @@ CREATE USER 'FrogUser'@'%' IDENTIFIED BY '${FROG_PASS}';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'localhost';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'127.0.0.1';
 GRANT ALL ON FrogNet.* TO 'FrogUser'@'%';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'localhost';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'127.0.0.1';
-GRANT ALL ON FrogNetFamily.* TO 'FrogUser'@'%';
 FLUSH PRIVILEGES;
 SQLEOF
 # Verify both ways in: the socket (localhost) and TCP to 127.0.0.1, which is how api.php and the Python readers connect
@@ -342,113 +304,14 @@ while nmcli conn show "$NETWORK_NAME" >/dev/null 2>&1; do
 done
 
 # ============================================================
-# Step 3: Ensure $ETH0 is managed and clean
+# Steps 3-7: (no NetworkManager identity profile)
 # ============================================================
-log "Step 3: Preparing $ETH0..."
-
-# Make sure NetworkManager manages $ETH0
-nmcli dev set "$ETH0" managed yes 2>/dev/null || true
-
-if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    # [SETUP_LILLYPAD_NORESTART_V1] Do NOT flush/re-address the live interface.
-    # On a LAN-only gateway the operator's SSH rides this very device; flushing it
-    # disconnects the install exactly as an NM restart would. The persistent NM
-    # connection is still created below (Step 5) and comes up on the reboot, so the
-    # address is applied then. If the interface already carries the gateway IP
-    # (a --preserve upgrade) nothing is lost; if it does not, it is set on reboot.
-    log "  [--norestart] NOT flushing/re-addressing $ETH0 (would drop the install SSH; NM profile applies on reboot)"
-    ip link set "$ETH0" up 2>/dev/null || true
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | head -1)
-    log "  Current $ETH0 IP: ${CURRENT_IP:-<unchanged>}"
-else
-    # Flush all IPs from $ETH0
-    ip addr flush dev "$ETH0" 2>/dev/null || true
-
-    # Bring $ETH0 up
-    ip link set "$ETH0" up
-
-    # Wait for device to be ready
-    sleep 1
-
-    # ============================================================
-    # Step 4: Set IP directly first (immediate effect)
-    # ============================================================
-    log "Step 4: Setting IP directly on $ETH0..."
-    ip addr add "${GATEWAY_IP}/24" dev "$ETH0" 2>/dev/null || true
-    ip addr add "${ADMIN_IP}/24" dev "$ETH0" 2>/dev/null || true
-    ip route add "$SUBNET" dev "$ETH0" 2>/dev/null || true
-
-    # Verify immediate result
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | head -1)
-    log "  Current $ETH0 IP: $CURRENT_IP"
-fi
-
-# ============================================================
-# Step 5: Create NetworkManager connection for persistence
-# ============================================================
-log "Step 5: Creating NetworkManager connection..."
-
-nmcli conn add con-name "$NETWORK_NAME" \
-    ifname "$ETH0" \
-    type ethernet \
-    ip4 "${GATEWAY_IP}/24,${ADMIN_IP}/24" \
-    ipv4.method manual \
-    ipv4.dns "$GATEWAY_IP" \
-    ipv4.gateway "" \
-    connection.autoconnect yes \
-    connection.autoconnect-priority 999 \
-    connection.autoconnect-retries 0
-
-# ============================================================
-# Step 6: Activate the connection
-# ============================================================
-if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    # [SETUP_LILLYPAD_NORESTART_V1] The persistent NM connection is created above
-    # (Step 5, autoconnect-priority 999). Do NOT activate it live here: nmcli
-    # conn up / dev disconnect / a forced ip flush all cut an SSH riding on $ETH0.
-    # It activates on the reboot instead.
-    log "Step 6/7: [--norestart] connection profile saved; NOT activated live (applies on reboot)"
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-    log "  $ETH0 primary IP: ${CURRENT_IP:-<applies on reboot>}"
-else
-    log "Step 6: Activating connection..."
-
-    # Try multiple activation methods
-    if ! nmcli conn up "$NETWORK_NAME" 2>/dev/null; then
-        log "  Direct activation failed, trying with ifname..."
-        nmcli conn up "$NETWORK_NAME" ifname "$ETH0" 2>/dev/null || true
-    fi
-
-    # If still not active, disconnect and reconnect the device
-    if ! nmcli -t -f DEVICE c show --active 2>/dev/null | grep -q "^${ETH0}\$"; then
-        log "  Reconnecting $ETH0..."
-        nmcli dev disconnect "$ETH0" 2>/dev/null || true
-        sleep 1
-        nmcli dev connect "$ETH0" 2>/dev/null || true
-    fi
-
-    # ============================================================
-    # Step 7: Verify and fix if needed
-    # ============================================================
-    log "Step 7: Verifying configuration..."
-
-    have_gw=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$GATEWAY_IP" || true)
-    have_admin=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$ADMIN_IP" || true)
-
-    if [[ -z "$have_gw" || -z "$have_admin" ]]; then
-        log "  WARNING: address set incomplete (gw=$have_gw admin=$have_admin want gw=$GATEWAY_IP admin=$ADMIN_IP)"
-        log "  Forcing IP assignment..."
-        ip addr flush dev "$ETH0"
-        ip addr add "${GATEWAY_IP}/24" dev "$ETH0"
-        ip addr add "${ADMIN_IP}/24" dev "$ETH0"
-        ip link set "$ETH0" up
-    fi
-
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-    log "  $ETH0 primary IP: $CURRENT_IP"
-    log "  $ETH0 addresses:"
-    ip -4 -o addr show dev "$ETH0" | awk '{print "    "$4}'
-fi
+# [NETSTART_OWNS_THE_IDENTITY_V1] The gateway and admin addresses are frognet-netstart's, in both modes: wired ->
+# on $ETH0, wireless -> on the AP radio with hostapd. It runs at boot (cron @reboot), on every carrier change
+# (ifplugd), and at the end of this script. The installer marks $ETH0 NetworkManager-unmanaged, so the ethernet
+# profile this used to create here never came up at boot anyway; and its `nmcli dev set $ETH0 managed yes` handed
+# whatever $ETH0 resolved to -- the AP radio, in wireless mode -- to NetworkManager, which joined it to a WiFi
+# network as a client. Step 2 still deletes the old profiles.
 
 # ============================================================
 # Step 8: Configure hostname
@@ -462,7 +325,7 @@ echo "$FQDN" > /etc/hostname
 if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
     hostname "$FQDN" 2>/dev/null || true
 else
-    hostnamectl set-hostname "$FQDN" 2>/dev/null || hostname "$FQDN"
+    hostnamectl set-hostname "$FQDN" || die "hostnamectl set-hostname $FQDN failed"
 fi
 
 # Update /etc/hosts
@@ -493,9 +356,8 @@ EOF
 #
 # Selector, in strict order of authority:
 #
-#   1. The interface actually carrying GATEWAY_IP.  This is the node's identity
-#      and Steps 4-7 above have just placed it, so it is live by the time this
-#      block runs.  It is the ONLY signal that reflects where the LAN really is.
+#   1. The interface actually carrying GATEWAY_IP (a re-run: netstart placed it
+#      before). It is the ONLY signal that reflects where the LAN really is.
 #   2. hostapd.conf interface=, ONLY if (1) came back empty -- i.e. the address
 #      is not up yet.
 #   3. eth0Name from mapInterfaces, wired mode last resort.
@@ -512,8 +374,11 @@ EOF
 # uplink at all still serves its own LAN and must still scope DHCP to it.
 #
 # This MUST be written HERE and not left to frognet_fixup.sh: this script
-# rm -f's opts_only.conf and rewrites it, so every enrolment / pond change /
+# rm -f's opts_only.conf and rewrites it, so every rename /
 # reinstall silently drops the exclusions until fixup happens to run again.
+# It is the first scope only: frognet-netstart rescopes DHCP to the dev it puts
+# the identity on, every time it runs ([NETSTART_SCOPES_DHCP_V1]), so a mode
+# change moves DHCP with the LAN.
 SERVED_IF="$(ip -4 -o addr show 2>/dev/null | awk -v g="$GATEWAY_IP" '$4 ~ ("^" g "/") {print $2; exit}')"
 if [[ -n "$SERVED_IF" ]]; then
     log "  dnsmasq: LAN device $SERVED_IF resolved from GATEWAY_IP=$GATEWAY_IP"
@@ -534,8 +399,8 @@ if [[ -z "$SERVED_IF" || ! -d "/sys/class/net/$SERVED_IF" ]]; then
 fi
 log "  dnsmasq: DHCP scoped to $SERVED_IF (LAN-projecting device)"
 # [DHCP_EXCLUDE_FUTURE_IFACES_V1] The loop below can only exclude interfaces
-# that EXIST right now. Tunnels are created later, by the tunnel daemon, one per
-# broker channel -- so a node that grows a wg iface after this runs serves DHCP
+# that EXIST right now. Tunnels are created later, by the tunnel daemon (a
+# region's hub link) -- so a node that grows a wg iface after this runs serves DHCP
 # across that tunnel, handing addresses out of THIS node's LAN pool to hosts on
 # the far side of the mesh. The shipped opts_only.conf stops at wg4 for exactly
 # this reason: it was written when the node had four tunnels.
@@ -642,64 +507,20 @@ echo "$GATEWAY_IP" > /etc/database_ip
 echo "nameserver $GATEWAY_IP" > /etc/sentinels/frog_resolv.conf
 
 # ============================================================
-# Step 11: Create boot-time fixup service
+# Step 11: The identity, now: frognet-netstart
 # ============================================================
-log "Step 11: Creating boot-time fixup service..."
-
-cat > /usr/local/bin/frognet_eth0_fixup.sh << 'FIXUPEOF'
-#!/bin/bash
-# Ensure FrogNet interface has the correct gateway + admin IPs at boot.
-# Runs BEFORE transit boot to claim the interface.
-
-CONF="/etc/frognet/gateways.conf"
-[[ -f "$CONF" ]] || exit 0
-
-source "$CONF"
-[[ -n "$GATEWAY_IP" ]] || exit 0
-
-# Derive admin alias from gateway IP:  10.x.y.1 -> 10.x.y.2
-ADMIN_IP="${GATEWAY_IP%.*}.2"
-
-# Resolve actual interface name
-. /usr/local/bin/mapInterfaces
-DEV="${eth0Name:-eth0}"
-
-# Check if interface already has BOTH correct IPs
-have_gw=$(ip -4 -o addr show dev "$DEV" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$GATEWAY_IP" || true)
-have_admin=$(ip -4 -o addr show dev "$DEV" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$ADMIN_IP" || true)
-[[ -n "$have_gw" && -n "$have_admin" ]] && exit 0
-
-# Force the correct IPs
-ip addr flush dev "$DEV" 2>/dev/null || true
-ip addr add "${GATEWAY_IP}/24" dev "$DEV"
-ip addr add "${ADMIN_IP}/24" dev "$DEV"
-ip link set "$DEV" up
-
-# Try to activate NM connection
-nmcli conn up "$NETWORK_NAME" 2>/dev/null || true
-
-exit 0
-FIXUPEOF
-chmod +x /usr/local/bin/frognet_eth0_fixup.sh
-
-cat > /etc/systemd/system/frognet-eth0-fixup.service << EOF
-[Unit]
-Description=FrogNet Gateway IP Fixup ($ETH0)
-Before=network.target frognet-transit-boot.service
-After=sys-subsystem-net-devices-${ETH0}.device
-Wants=sys-subsystem-net-devices-${ETH0}.device
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/frognet_eth0_fixup.sh
-RemainAfterExit=yes
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable frognet-eth0-fixup.service
+# [NETSTART_OWNS_THE_IDENTITY_V1] netstart reads the dhcp-range and domain= written in Step 9, decides the mode
+# (carrier, SSID_PROJECTION), puts the .1/.2 on the LAN dev, rescopes DHCP to it and restarts dnsmasq.
+# The boot-time fixup unit was a second owner of the same addresses and is gone (frognet_prune_removed.sh).
+if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
+    log "Step 11: [--norestart] frognet-netstart not run now (cron @reboot runs it)"
+else
+    log "Step 11: frognet-netstart..."
+    /usr/local/bin/frognet-netstart || die "frognet-netstart failed (journalctl -t frognet-netstart)"
+    have_gw=$(ip -4 -o addr show 2>/dev/null | awk -v g="$GATEWAY_IP" '$4 ~ ("^" g "/") {print $2; exit}')
+    [[ -n "$have_gw" ]] || die "frognet-netstart ran but no interface holds $GATEWAY_IP"
+    log "  $GATEWAY_IP is on $have_gw"
+fi
 
 # ============================================================
 # Step 12: Update transit boot to skip eth0
@@ -713,83 +534,24 @@ echo "$ETH0" > /etc/frognet/transit_exclude_interfaces
 # Step 13: Restart services
 # ============================================================
 log "Step 13: Restarting services..."
-systemctl restart mariadb 2>/dev/null || systemctl restart mysql 2>/dev/null || true
+svc_restart mariadb
 svc_restart apache2
 svc_restart dnsmasq
 svc_restart frognet-proxy
 svc_restart frognet-daemon
 systemctl start frognet-transit-boot 2>/dev/null || true
-systemctl start frognet-transit-watch 2>/dev/null || true
 
 # ============================================================
 # Final verification
 # ============================================================
 log ""
 log "============================================"
-# ============================================================
-# Step N: Write /etc/frognet/tunnel.conf for the tunnel daemon
-# ============================================================
-log "Step N: Writing /etc/frognet/tunnel.conf..."
-
-mkdir -p /etc/frognet
-
-if [[ -f /etc/frognet/tunnel.conf ]]; then
-    cp -p /etc/frognet/tunnel.conf "/etc/frognet/tunnel.conf.bak.$(date +%Y%m%d-%H%M%S)"
-    if grep -q '^BROKER_URL=' /etc/frognet/tunnel.conf; then
-        sed -i "s|^BROKER_URL=.*|BROKER_URL=${BROKER_URL}|" /etc/frognet/tunnel.conf
-    else
-        echo "BROKER_URL=${BROKER_URL}" >> /etc/frognet/tunnel.conf
-    fi
-    log "  Updated existing /etc/frognet/tunnel.conf (BROKER_URL set, other fields preserved)"
-else
-    cat > /etc/frognet/tunnel.conf <<TCONF
-BROKER_URL=${BROKER_URL}
-PASSCODE=
-GROUP_TOKEN=
-GROUP_NAME=
-MAX_TUNNELS=5000
-TCONF
-    chmod 600 /etc/frognet/tunnel.conf
-    log "  Wrote new /etc/frognet/tunnel.conf"
-fi
-
-if [[ -n "$BROKER_URL" ]]; then
-    log "  BROKER_URL=$BROKER_URL"
-else
-    log "  BROKER_URL=<empty> - fill in /etc/frognet/tunnel.conf before starting tunnel daemon"
-fi
-
-# ============================================================
-# Step N2: Write /etc/frognet/broker.conf - THIS is the file
-# frognet-tunnel-setup-v3.sh reads to register with the broker. v4 previously wrote
-# only tunnel.conf (read by the tunnel DAEMON), so tunnel-setup found no broker config
-# and never registered -> no tunnels. v3 wrote broker.conf; restore that.
-# ============================================================
-if [[ -n "$BROKER_URL" ]]; then
-    # A broker means this node JOINS A POND. Without the pond name we would be
-    # guessing which group it belongs to - refuse rather than invent one.
-    [[ -n "$POND_NAME_ARG" ]] || \
-        die "BROKER_URL given but no POND_NAME (4th arg) - a pond name is required to join a pond"
-    # [ONE_CONF_V1] One config file. This `cat >` was safe only while
-    # broker.conf held two keys nobody else owned; aimed at the merged file it
-    # would truncate GROUP_TOKEN, PASSCODE, MAX_TUNNELS and NODE_GUID -- the
-    # node's membership card. Set keys individually instead.
-    . "${FROGNET_CONF_LIB:-/usr/local/lib/frognet/conf.sh}"
-    fn_conf_backup >/dev/null
-    fn_conf_set BROKER_URL "$BROKER_URL"
-    fn_pond_set "$POND_NAME_ARG"
-    log "  Wrote $FROGNET_CONF (BROKER_URL + pond=${POND_NAME_ARG}) for tunnel-setup-v3"
-else
-    log "  No BROKER_URL - broker fields NOT written; tunnel-setup stays offline until configured"
-fi
-
 log "Setup complete!"
 log ""
-log "$ETH0 configuration:"
-ip addr show "$ETH0" | grep -E "inet |state"
+log "Identity:"
+ip -4 -o addr show 2>/dev/null | awk -v g="${IP_BASE}." 'index($4, g) == 1 {print "  " $2 " " $4}'
 log ""
-log "getEth0Address returns:"
-/usr/local/bin/getEth0Address 2>/dev/null || echo "$GATEWAY_IP"
+log "getEth0Address returns: $(/usr/local/bin/getEth0Address 2>&1 || echo "FAILED (rc=$?)")"
 log ""
 log "Service health:"
 for svc in mariadb apache2 dnsmasq frognet-proxy frognet-daemon; do

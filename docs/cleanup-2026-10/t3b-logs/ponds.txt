@@ -1,0 +1,31 @@
+PASS  two hubs up
+=== (1) n forward in A (after 1 s)
+PASS  n and a route each other's /24 (pond A's graph on n)
+PASS  n has no route from pond B
+PASS  hubA holds n's peer, hubB does not
+PASS  n's /24 is mapped in A only
+PASS  n is a node in A (node), a participant in B (participant)
+PASS  n -> a (10.7.7.1) over hubA
+=== (2) a notice in pond B
+[PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/clean/opt/fdf/src/fdf-source/rinab/../fdf/templates/fdf.prime
+PASS  n's fdf-client@pondB said it (38 ms after fdf-attention started); file: {"area":"pondB","why":"match starting","from":"b","id":2,"ts":1791813680.067000}
+PASS  the forward pond's client said nothing
+=== (3) bring pond B forward (fdf-forward = forward.want)
+    forward.want -> forward written 107 ms; hubA dropped n 162 ms; hubB holds n 189 ms; B's route on n 460 ms; n -> b answered 484 ms
+    [frognet:frognet.tunnel-daemon] WARNING REGION: forward pondA -> pondB requested; ending the session to 198.18.0.1:8840
+    [frognet:frognet.tunnel-daemon] WARNING REGION: forward pondA -> pondB (RINA_RAM=198.18.0.2:8840): old pond withdrawn, maps cleared, `forward` written in 2 ms; joining now
+PASS  n -> b (10.8.8.1) over hubB
+PASS  pond A's route is gone from n (gone is gone)
+PASS  hubB holds n's peer, hubA does not
+PASS  n's /24 is mapped in B only
+PASS  n is a node in B (node), a participant in A (participant)
+PASS  b routes n's /24
+PASS  the daemon was not restarted (pid 21744)
+PASS  one session per pond throughout
+=== (4) 6 more switches
+    forward.want -> the new pond's member answered, 6 switches: 387 427 439 575 609 636 ms
+PASS  every switch answered
+PASS  after them: only hb holds n (the last forward pond)
+PASS  facts.json still carries n's identity (name, guid, pubkey) after every writer
+PASS  still the same daemon
+RESULT PASS (/tmp/claude-0/netns-ponds)

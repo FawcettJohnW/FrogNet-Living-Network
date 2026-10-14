@@ -1,0 +1,35 @@
+13:26:02 d2: systemctl stop fdf-ram-myarea
+13:26:42 n1 fdf-client: active NRestarts=6  n2: active
+13:26:42 d2: systemctl start fdf-ram-myarea
+13:27:12 n1 fdf-client: active  n2: active
+N1->N2 2 received
+fdf-client: the session to 172.30.0.10:51888 ended: the far end closed the connection
+fdf-events: the session ended: the far end closed the connection
+fdf-client: attention read failed: the far end closed the connection -- ending this session for a fresh one
+[frognet:frognet.tunnel-daemon] WARNING VIEW: phase=recalc reason=lost:region gen=26
+fdf-client.service: Main process exited, code=exited, status=1/FAILURE
+fdf-client.service: Failed with result 'exit-code'.
+[frognet:frognet.tunnel-daemon] WARNING GEN: 21 -> 22 why=routes_changed by=applier
+[frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-12-r20 rebuild=32 gen=22 hosts=0 links=0 uplinks=[] hubs=[] conflicts=[] me=N1 exit=None default=None routes=+0/-1 refused=0 hosts=+0/-2
+[frognet:frognet.tunnel-daemon] WARNING GRAPH membership: went=[('N1', '10.81.81.1'), ('N2', '10.82.82.1')] came=[]
+[frognet:frognet.tunnel-daemon] WARNING REGION: lost; withdrew its routes and names, tore down 1 tunnel(s); waiting for the region
+fdf-client.service: Scheduled restart job, restart counter is at 6.
+Started fdf-client.service - FD&F membership: this machine's session to the RAM manager at 172.30.0.10:51888.
+fdf-client: build fdf-2026-10-12-r20; region at 172.30.0.10:51888 is build fdf-2026-10-12-r20
+fdf-client: N1 joined the region at 172.30.0.10:51888, announced ["172.30.0.31","10.81.81.1","10.81.81.2"] with facts
+fdf-client: mapping 10.81.81.0/24 -> regionbox:1:50 registered (site myarea)
+[frognet:frognet.tunnel-daemon] WARNING VIEW: phase=steady reason=rejoin:attempt gen=27
+fdf-events: build fdf-2026-10-12-r20; region is build fdf-2026-10-12-r20
+[frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+[frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['regionbox'] channels=1 remote=['10.82.82.0/24'] members=['N2:node', 'N1:node', 'regionbox:hub'] mappings=2
+[frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=1 list=['hub-regionbox'] already_up=[] skipped_lan_reachable=0
+fdf-client: facts changed, re-announced
+[frognet:frognet.tunnel-daemon] WARNING GRAPH changed: N1 keys=['addrs', 'addrs_build', 'capability', 'capability_ts', 'gen', 'gen_why', 'guid', 'maps', 'name', 'pond', 'pubkey', 'role', 'subnet', 'vi
+[frognet:frognet.tunnel-daemon] WARNING GEN: 22 -> 23 why=topology_hosts_changed by=applier
+[frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-12-r20 rebuild=33 gen=23 hosts=2 links=0 uplinks=['N1', 'N2'] hubs=['regionbox'] conflicts=[] me=N1 exit=N1 default=None routes=+0/-0 re
+[frognet:frognet.tunnel-daemon] WARNING GRAPH membership: went=[] came=[('N1', '10.81.81.1'), ('N2', '10.82.82.1')]
+[frognet:frognet.tunnel-daemon] WARNING REGION: own ['10.81.81.0/24'] kept registered (hub channel up, hub row not in my facts yet)
+[frognet:frognet.tunnel-daemon] WARNING VIEW: phase=steady reason=graph:start gen=28
+[frognet:frognet.tunnel-daemon] WARNING REGION: start timed: world=3ms (participants+mappings, one read) +0ms bringup=196ms apply=7ms (probes=0/0ms routes=0/0ms) publish=4ms total=214ms
+[frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: status=enter [GRAPH_APPLY_V1: region routes come from the applier]
+[frognet:frognet.tunnel-daemon] WARNING REGION: my-channels: hubs=['regionbox'] channels=1 remote=['10.82.82.0/24'] members=['N2:node', 'N1:node', 'regionbox:hub'] mappings=2

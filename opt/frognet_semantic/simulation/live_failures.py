@@ -110,27 +110,6 @@ def scenario_reroute_ring():
     check("after kill B: no phantom route to B's /24 (black hole)", nop, f"held by {who}")
 
 
-def scenario_reroute_broker_pond():
-    print("broker pond (real broker mesh): kill a member -> mesh reroutes")
-    import broker_topology as BT
-    try:
-        BT.load_broker()
-    except Exception as e:
-        print(f"  [SKIP] broker unavailable: {e}")
-        return
-    t, edges = BT.build_topology(
-        [("M1", "10.71.1"), ("M2", "10.71.2"), ("M3", "10.71.3"), ("M4", "10.71.4")],
-        label="failure pond")
-    LE.converge_real(t)
-    check("baseline broker pond all-pairs reach", not H.verify_reachability(t)[2])
-    dead_ip, dead_net = kill_node(t, "M3")
-    LE.converge_real(t)
-    fails = H.verify_reachability(t)[2]
-    check("after kill M3: survivors still all reach (full-mesh reroute)", not fails, str(fails[:2]))
-    nop, who = _no_phantom_to(t, dead_net)
-    check("after kill M3: no phantom route to M3's /24", nop, f"held by {who}")
-
-
 def scenario_partition_chain():
     print("chain(5): kill the middle node -> honest partition")
     t = H.topo_chain_5()
@@ -162,7 +141,6 @@ def main():
     print("=== FAILURE MODES through REAL planner+committer ===")
     FAILS.clear()
     scenario_reroute_ring()
-    scenario_reroute_broker_pond()
     scenario_partition_chain()
     print()
     if FAILS:

@@ -1,0 +1,5 @@
+fdf-install-x86_64.run  31081412 bytes  sha256 9ebf9fe0f789dc74
+fdf-install-aarch64.run  28166633 bytes  sha256 ca9d9f153aed35c9
+fdf-droplet.tgz  23234642 bytes  sha256 741203becb980478
+built fdf-2026-10-12-r20 at 2026-10-13T04:42Z
+x86_64.run: FrogNet files 52, differ from the tree 0; opt/fdf/www = tree

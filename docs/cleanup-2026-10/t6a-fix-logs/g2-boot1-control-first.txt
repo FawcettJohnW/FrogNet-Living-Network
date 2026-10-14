@@ -1,0 +1,30 @@
+== FrogNetHost.H2 11:42:20
+[2026-10-13T11:40:34.696] runMerge INFO pid=1042 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 UNPUBLISHED (no databasehost/capability row on 10.72.72.1; entering the pool by definition -- every FrogNetHost is a candidate)
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=-1.0
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+[2026-10-13T11:42:07.804] runMerge INFO pid=4780 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect (rows read, re-elections):
+2026-10-13T11:40:52+00:00 FrogNetHost.H2 python3[4193]: [11:40:52.040] [    0.016] [DIAG-STORE] pid=4193 thr=MainThread/4193 GET rows n=1 service=databasehost
+2026-10-13T11:41:56+00:00 FrogNetHost.H2 python3[4756]: [11:41:56.047] [    0.016] [DIAG-STORE] pid=4756 thr=MainThread/4756 GET rows n=2 service=databasehost
+-- last_merge 11:42:19
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- resolves: 10.72.72.1      databasehost.frognet
+== FrogNetHost.H1 11:42:21
+[2026-10-13T11:41:15.685] runMerge INFO pid=1095 invoked_by who=watcher:poke gen=
+PUBLISH_CAPABILITY control=10.72.72.1 wrote=['databasehost'] ts={} ts_age_at_write={}
+SERVICE_CAND role=databasehost ip=10.71.71.1 score=17.840415405273436
+SERVICE_CAND role=databasehost ip=10.72.72.1 score=17.840415405273436
+SERVICE_ELECT role=databasehost hosts=2 bad=0 winner=10.72.72.1 dbhost=10.72.72.1
+-- frognet-dbhost-elect (rows read, re-elections):
+-- last_merge 11:41:35
+10.72.72.1 databasehost_control.frognet
+10.72.72.1 databasehost.frognet
+-- resolves: 10.72.72.1      databasehost.frognet

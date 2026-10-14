@@ -16,11 +16,12 @@
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
 """
-frognet_monitor/draw_ponds.py -- [PONDS_ARE_LISTED_V1] the Networks section: every pond this machine is in, from
-getPonds.php (read live from each pond's RAM manager). The peer table above is the FORWARD pond (it routes); this
-section adds the others, so one screen shows every network the machine takes part in:
+frognet_monitor/draw_ponds.py -- [PONDS_ARE_LISTED_V1] the Ponds section: every pond this machine is in, from the
+node snapshot's `ponds` (getSnapshot.php [ONE_MONITOR_TRUTH_V1]; a participant pond's members read live from that
+pond's RAM manager). The peer table above is the FORWARD pond (it routes: the snapshot's `members`); this section adds
+the others, so one screen shows every network the machine takes part in:
 
-  Networks
+  Ponds
    * pondA      forward      node       3 members   config reach none, map refused
      pondB      participant  reacher    4 members   reach all as 10.252.0.1 (aliased 1)
        b          node      ONLINE   10.8.8.1
@@ -51,16 +52,22 @@ def _alias_of(ip, alias):
 
 
 def pond_lines(data):
-    """[(text, color_pair)] for the section, from getPonds.php's answer. Pure: the tests call it too."""
+    """[(text, color_pair)] for the section, from the snapshot (getSnapshot.php's object). Pure: the tests call it too.
+    The forward pond's entry carries no members: they are the snapshot's `members` (the peer table), counted here."""
     out = []
     ponds = (data or {}).get("ponds") or []
     if not ponds:
         return out
-    out.append(("Networks", CP_HEADER))
+    top = [m for m in (data or {}).get("members") or [] if isinstance(m, dict)]
+    out.append(("Ponds", CP_HEADER))
     for p in ponds:
         mark = "*" if p.get("forward") else " "
-        me = p.get("me") or {}
-        n = len([m for m in p.get("members") or [] if m.get("alive")])
+        if p.get("forward"):
+            me = next(({"role": m.get("role")} for m in top if m.get("self") is True), {})
+            n = len([m for m in top if m.get("alive") is True])
+        else:
+            me = p.get("me") or {}
+            n = len([m for m in p.get("members") or [] if m.get("alive")])
         head = " %s %-10s %-12s %-9s %2d members " % (mark, p.get("area", "?")[:10], "forward" if p.get("forward") else "participant",
                                                        (me.get("role") or "-")[:9], n)
         if p.get("error"):

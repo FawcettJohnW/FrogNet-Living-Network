@@ -1,0 +1,42 @@
+{
+    "snapshot": 1,
+    "at": 1791853484,
+    "node": {
+        "name": "G1",
+        "dot1": "10.61.61.1",
+        "guid": "de0dc5dfd5bc40f4b65a0a80551f568e",
+        "echo": "G1,10.61.61.1,172.30.0.21,0.0.0.0"
+    },
+    "build": {
+        "build": "fdf-2026-10-12-r20",
+        "installed": "2026-10-13T01:00Z"
+    },
+    "mode": "lan-only",
+    "mode_why": "no /opt/fdf/var/join.env",
+    "ponds": [],
+    "hub": [],
+    "members": [
+        {
+            "name": "G1",
+            "guid": "de0dc5dfd5bc40f4b65a0a80551f568e",
+            "ip": "10.61.61.1",
+            "role": "node",
+            "alive": true,
+            "source": "lan",
+            "echo": "FrogNetHost.G1,10.61.61.1,172.30.0.21,0.0.0.0",
+            "self": true
+        }
+    ],
+    "elections": {
+        "databasehost": "10.61.61.1",
+        "databasehost_control": "10.61.61.1"
+    },
+    "sources": {
+        "members": "makeHostJson.bash (LAN discovery: the last merge's /etc/hosts; alive = named by that merge)",
+        "node": "getFrogNet.bash",
+        "ponds": "none (LAN-only)",
+        "hub": "none (LAN-only)",
+        "elections": "/etc/hosts"
+    },
+    "errors": []
+}

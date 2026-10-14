@@ -1,0 +1,9 @@
+{
+  "name": "magnum-croakus",
+  "version": "2026.10.07",
+  "private": true,
+  "description": "Generator for Magnum Croakus (Ribbit, FrogNet, and FD&F). Emits Magnum_Croakus.docx and Magnum Croakus.html.",
+  "license": "GPL-2.0-only",
+  "scripts": { "build": "node build_magnum.js" },
+  "dependencies": { "docx": "9.10.0" }
+}

@@ -16,7 +16,7 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-"""Gated wrapper - runs the service-host-selection proof (control + data + media +
+"""Gated wrapper - runs the service-host-selection proof (control + data +
 off-mesh install_databasehost candidates + dnsmasq HUP) as part of the discovery
 regression suite, so the paradigm stays proven on every gate run."""
 import sys, os

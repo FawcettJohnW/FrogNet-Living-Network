@@ -114,6 +114,7 @@ public static class Model
 
     public sealed class Snapshot
     {
+        public Parsers.NodeSnapshot? Node;   // getSnapshot.php [ONE_MONITOR_TRUTH_V1]; null: it did not answer
         public string Domain = "";
         public string DbHostIp = "";
         public List<Node> Nodes = new();

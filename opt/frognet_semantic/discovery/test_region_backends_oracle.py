@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from discovery.kernel import FakeKernel
 from discovery.routes import Routes
 from discovery.discovery import Discovery
-from discovery.sources import HostStore, FakeRtt, FakeBroker
+from discovery.sources import HostStore, FakeRtt, FakeTunnelState
 from discovery.propagate import Propagator
 from discovery.real_backends import RegionRecords, RegionEcho, RegionGetHosts
 from discovery.runmerge import run_merge
@@ -58,7 +58,7 @@ def build():
         ("wg1", "10.252.0.7"):   [60, 60, 60, 60],
         # 10.120.120.2: absent -> dead over this tunnel
     })
-    broker = FakeBroker(by_one={}, iface_channel={"wg1": "hub-hubA"})
+    broker = FakeTunnelState(by_one={}, iface_channel={"wg1": "hub-hubA"})
     hoststore = HostStore()
     k = FakeKernel()
     k.seed("10.102.60.0/24 dev eth0 proto kernel scope link src 10.102.60.1",

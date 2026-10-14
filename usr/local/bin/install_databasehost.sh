@@ -67,26 +67,17 @@ echo "[dbhost] payload: $SRC"
 # 1. packages
 echo "[dbhost] installing mariadb + php + apache ..."
 export DEBIAN_FRONTEND=noninteractive
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -qq
-  # php-mysqli is not an installable package name on modern apt; php-mysql provides
-  # the mysqli + pdo_mysql extensions. Fall back to the versioned package if the
-  # metapackage is unavailable.
-  if ! apt-get install -y -qq mariadb-server php php-mysql libapache2-mod-php apache2 jq curl >/dev/null 2>&1; then
-    PHPV="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;' 2>/dev/null || true)"
-    apt-get install -y -qq mariadb-server php libapache2-mod-php apache2 jq curl >/dev/null || true
-    if [ -n "$PHPV" ]; then
-      apt-get install -y -qq "php${PHPV}-mysql" >/dev/null 2>&1 || apt-get install -y -qq php-mysql >/dev/null 2>&1 || true
-    else
-      apt-get install -y -qq php-mysql >/dev/null 2>&1 || true
-    fi
-  fi
-  command -v php >/dev/null 2>&1 && php -m 2>/dev/null | grep -qi mysqli \
-    || echo "[dbhost] WARN: php mysqli extension not detected; api.php DB access may fail" >&2
-else
-  echo "[dbhost] non-apt system: install mariadb-server, php, php-mysql, apache2 yourself, then re-run with packages present" >&2
-fi
-systemctl enable --now mariadb >/dev/null 2>&1 || systemctl enable --now mysql >/dev/null 2>&1 || true
+# [ONE_PACKAGE_LIST_V1] One list. php-mysql is the metapackage that provides mysqli + pdo_mysql on every
+# Debian/Ubuntu/Raspberry Pi OS release this runs on; a failure stops here with apt's own message (it used to try
+# the list, then a shorter list, then php<ver>-mysql, then php-mysql again, each `|| true`).
+command -v apt-get >/dev/null 2>&1 \
+  || { echo "[dbhost] non-apt system: install mariadb-server, php, php-mysql, libapache2-mod-php, apache2, jq, curl, then re-run" >&2; exit 1; }
+apt-get update -qq || { echo "[dbhost] apt-get update failed" >&2; exit 1; }
+apt-get install -y -qq mariadb-server php php-mysql libapache2-mod-php apache2 jq curl \
+  || { echo "[dbhost] apt-get install failed (above); nothing else is tried" >&2; exit 1; }
+php -m 2>/dev/null | grep -qi mysqli || { echo "[dbhost] php has no mysqli extension after installing php-mysql" >&2; exit 1; }
+# enable, then start: `systemctl enable --now` exits 0 when the start fails (systemd 255) [START_FAILURE_IS_SEEN_V1]
+systemctl enable mariadb && systemctl start mariadb || { echo "[dbhost] mariadb did not start (journalctl -u mariadb)" >&2; exit 1; }
 
 # 2. schema + user
 # [NO_HARDCODED_CREDENTIAL_V1] DB_PASS defaulted to a live pond password when
@@ -116,20 +107,13 @@ else
 fi
 
 echo "[dbhost] ensuring account $DB_USER@localhost ..."
-# [DBHOST_FAMILY_DB_V1] Create_Database.sql builds FrogNet only; the installer's D4
-# always created FrogNetFamily alongside it (the Communicator's games/calendar/chat
-# store). Granting a database that does not exist is a silent no-op, so create it
-# here or the Communicator fails at first write on a freshly-built databasehost.
-mysql -e "CREATE DATABASE IF NOT EXISTS \`FrogNetFamily\`
-          CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
 
 # [DBHOST_REMOTE_GRANT_V1] The '%' host is NOT optional and its absence is why the
 # installer grew its own divergent copy of this block. databasehost.frognet is a
 # FLOATING role: every other node in the pond connects to whichever machine holds it
 # ACROSS 10/8 - monitors, api.php clients, the proxy/daemon metrics writers. Granting
 # only localhost/127.0.0.1 makes this machine eligible for the role but unusable in
-# it: local queries work, every remote node gets access-denied. Also grant the
-# FrogNetFamily DB, which the Communicator (games/calendar/chat) uses.
+# it: local queries work, every remote node gets access-denied.
 mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASS';
           CREATE USER IF NOT EXISTS '$DB_USER'@'127.0.0.1' IDENTIFIED BY '$DB_PASS';
           CREATE USER IF NOT EXISTS '$DB_USER'@'%'         IDENTIFIED BY '$DB_PASS';
@@ -139,9 +123,6 @@ mysql -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PA
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'localhost';
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'127.0.0.1';
           GRANT ALL PRIVILEGES ON \`$DB_NAME\`.* TO '$DB_USER'@'%';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'localhost';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'127.0.0.1';
-          GRANT ALL PRIVILEGES ON \`FrogNetFamily\`.* TO '$DB_USER'@'%';
           FLUSH PRIVILEGES;"
 
 # 3. php web set
@@ -167,22 +148,12 @@ else
   echo "[dbhost] WARN: api.php did not answer on 127.0.0.1; check apache/php/config.php" >&2
 fi
 
-# 4. candidate registration (advertises databasehost/capability every 60s).
-# Uses the shared, election-COMPATIBLE writer (frognet_tuples -> SD:capability.<scope>),
-# the SAME tuple the merge-end election reads. mysql_running in the blob gates real
-# eligibility. install_* only ensures the role SERVER is present; the advertiser and
-# its timer are role-agnostic and set up here the same on every host.
-for f in frognet_capability_probe.sh frognet_register_candidate.sh frognet_setup_advertisers.sh; do
-  install -m 0755 "$f" /usr/local/bin/ 2>/dev/null || cp -f "$f" /usr/local/bin/ 2>/dev/null || true
-done
-if [ -x /usr/local/bin/frognet_setup_advertisers.sh ]; then
-  /usr/local/bin/frognet_setup_advertisers.sh || true       # installs + enables BOTH timers
-else
-  # minimal fallback: just register databasehost now
-  /usr/local/bin/frognet_register_candidate.sh databasehost || true
-fi
+# 4. candidate registration: none here. [ELECTION_AT_THE_MERGE_V1 - T6a fixes] The election's pool is the live .1
+# FrogNetHosts of the merged hosts block, and each of them publishes its own databasehost/capability (probe included)
+# at every merge (core/role_publish.publish_all) before it elects. A machine that is not a FrogNetHost is not a
+# candidate, so a timer registering it wrote a row the election never reads; the 60 s advertiser is gone.
 
 echo "[dbhost] DONE. This machine is now a databasehost CANDIDATE."
 echo "[dbhost]   - schema loaded, $DB_USER ready, api.php served by apache"
-echo "[dbhost]   - capability advertised every 60s under databasehost/capability"
+echo "[dbhost]   - on a FrogNetHost, its merge publishes the capability (mysql now running) and elects"
 echo "[dbhost]   - the merge-end election will pick it if it scores best."

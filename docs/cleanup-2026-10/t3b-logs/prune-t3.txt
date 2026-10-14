@@ -1,0 +1,68 @@
+### scratch root R (FROGNET_PRUNE_ROOT); tunnel.conf before:
+# c
+BROKER_URL=https://b
+GROUP_TOKEN=secret
+RINA_RAM=10.77.0.1:8840
+MAX_TUNNELS=5000
+NODE_GUID=abc
+RINA_AREA=s1
+### dry run
+DRY RUN - nothing will be deleted. Pass --apply to do it.
+
+-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region
+  (root R: systemctl not run for frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service)
+  unset BROKER_URL in R/etc/frognet/tunnel.conf
+  unset GROUP_TOKEN in R/etc/frognet/tunnel.conf
+  unset MAX_TUNNELS in R/etc/frognet/tunnel.conf
+  unset NODE_GUID in R/etc/frognet/tunnel.conf
+  rm   R/etc/frognet/broker.conf
+  rm   R/etc/frognet/pond.conf
+  rm   R/etc/frognet/tunnel.conf.bak.20260101-000000
+  rm   R/etc/frognet/tunnel.conf.20260829T010101Z
+  rm   R/etc/frognet/pond_bootstrap_done
+  rm   R/var/lib/frognet-tunnel/channel_map.json
+  rm   R/etc/sentinels/transit_subnets.tsv
+  rm   R/etc/systemd/system/frognet-pond-bootstrap.timer
+  rm   R/etc/systemd/system/timers.target.wants/frognet-pond-bootstrap.timer
+  rm   R/opt/frognet_semantic/broker
+
+14 path(s) would be deleted; 43 already absent.
+Re-run with --apply.
+rc=0
+### --apply --only T3
+-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region
+  (root R: systemctl not run for frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service)
+  unset BROKER_URL in R/etc/frognet/tunnel.conf
+  unset GROUP_TOKEN in R/etc/frognet/tunnel.conf
+  unset MAX_TUNNELS in R/etc/frognet/tunnel.conf
+  unset NODE_GUID in R/etc/frognet/tunnel.conf
+  rm   R/etc/frognet/broker.conf
+  rm   R/etc/frognet/pond.conf
+  rm   R/etc/frognet/tunnel.conf.bak.20260101-000000
+  rm   R/etc/frognet/tunnel.conf.20260829T010101Z
+  rm   R/etc/frognet/pond_bootstrap_done
+  rm   R/var/lib/frognet-tunnel/channel_map.json
+  rm   R/etc/sentinels/transit_subnets.tsv
+  rm   R/etc/systemd/system/frognet-pond-bootstrap.timer
+  rm   R/etc/systemd/system/timers.target.wants/frognet-pond-bootstrap.timer
+  rm   R/opt/frognet_semantic/broker
+
+deleted 14 path(s); 43 already absent; 0 failed.
+rc=0
+### tunnel.conf after (mode 600):
+# c
+RINA_RAM=10.77.0.1:8840
+RINA_AREA=s1
+### files left under R:
+/etc/frognet/tunnel.conf
+/usr/local/lib/frognet/conf.sh
+/var/lib/frognet-tunnel/node_private.key
+### second run
+-- [T3 2026-10-12] the broker, its enrolment and its node state, retired: two modes, LAN-only and region
+  (root R: systemctl not run for frognet-tunnel-setup.service frognet-pond-bootstrap.service frognet-pond-bootstrap.timer frognet-broker-v4.service frognet-broker-v3.service frognet-metering.service frognet-mediahost.service frognet-mediahost-advertise.timer frognet-mediahost-advertise.service frognet-reaper.service)
+
+deleted 0 path(s); 51 already absent; 0 failed.
+rc=0
+### bad section
+--only: the one section it selects is T3 (got: T9)
+rc=2

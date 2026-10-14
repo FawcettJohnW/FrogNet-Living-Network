@@ -1,0 +1,2 @@
+FATAL: clearAll not defined
+EXIT 1

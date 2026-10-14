@@ -1,0 +1,15 @@
+== FrogNetHost.N1  package=fdf-node.tgz build=fdf-2026-10-11-r19-a15 built=2026-10-12T15:46Z for=x86_64 FrogNet node or leaf 
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key gGX2IefUF8lZukYBrRuznOqRHg5AJrnH7Sfq8LpQNmw= [DAEMON_OWNS_ITS_KEY_V1]
+[frognet:frognet.tunnel-daemon] WARNING Starting frognet-tunnel-daemon v3.0.0 build frognet-tunnel-2026-10-12-t3a (mode region)
+[frognet:frognet.tunnel-daemon] WARNING WG_KEY: made /var/lib/frognet-tunnel/node_private.key (none on disk); public key gGX2IefUF8lZukYBrRuznOqRHg5AJrnH7Sfq8LpQNmw= [DAEMON_OWNS_ITS_KEY_V1]
+key: -rw------- pub gGX2IefUF8lZukYBrRuznOqRHg5AJrnH7Sfq8LpQNmw=
+  fdf-client                 active
+  fdf-facts                  active
+  frognet-tunnel-daemon-v3   active
+  interface: wg0
+    endpoint: 172.30.0.10:50889
+    allowed ips: 10.0.0.0/8
+    latest handshake: 49 seconds ago
+routes: 10.81.81.0/24 dev eth1 proto kernel scope link src 10.81.81.1 ;10.82.82.0/24 dev wg0 scope link src 10.81.81.1 metric 22 ;10.253.0.0/16 dev wg0 proto kernel scope link src 10.253.81.81 ;
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.370/1.705/2.134/0.318 ms

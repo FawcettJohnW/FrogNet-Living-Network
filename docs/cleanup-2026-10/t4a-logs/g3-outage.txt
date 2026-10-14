@@ -1,0 +1,32 @@
+== 16:00:14 docker network disconnect fn-wan d2
+2 packets transmitted, 0 received, 100% packet loss, time 1010ms
+
+== 16:01:03 reconnect (same IP, eth0)
+default via 172.30.0.1 dev eth0 
+10.81.81.0/24 via 10.253.81.81 dev wg-test 
+10.253.0.0/16 dev wg-test proto kernel scope link src 10.253.253.254 
+172.30.0.0/24 dev eth0 proto kernel scope link src 172.30.0.10 
+== +20s 16:01:29
+2 packets transmitted, 0 received, 100% packet loss, time 1032ms
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+== +40s 16:01:53
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+== +60s 16:02:15
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+2 packets transmitted, 2 received, 0% packet loss, time 1001ms
+== +90s 16:02:37
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+NAME       ALIVE  TERM  OS     CORES  MEM   IPS
+N1         yes    -     linux  2      7.8G  172.30.0.51,10.81.81.1,10.81.81.2,10.253.81.81
+N2         yes    -     linux  2      7.8G  172.30.0.52,10.82.82.1,10.82.82.2,10.253.82.82
+regionbox  yes    -     linux  2      7.8G  10.253.253.254,172.30.0.10
+10.81.81.0/24 via 10.253.81.81 dev wg-test 
+10.82.82.0/24 via 10.253.82.82 dev wg-test 
+10.253.0.0/16 dev wg-test proto kernel scope link src 10.253.253.254 
+2026-10-12 16:01:30 [FDF-HUB] event p: members=3 mappings=2 peers=2 prefixes=2 changes=0 build=fdf-2026-10-11-r19-a15
+2026-10-12 16:01:30 [FDF-HUB] event p: members=3 mappings=2 peers=2 prefixes=2 changes=0 build=fdf-2026-10-11-r19-a15
+2026-10-12 16:01:32 [FDF-HUB] event p: members=3 mappings=2 peers=2 prefixes=2 changes=0 build=fdf-2026-10-11-r19-a15
+2026-10-12 16:01:32 [FDF-HUB] event p: members=3 mappings=2 peers=2 prefixes=2 changes=0 build=fdf-2026-10-11-r19-a15
+2026-10-12 16:01:32 [FDF-HUB] event p: members=3 mappings=2 peers=2 prefixes=2 changes=0 build=fdf-2026-10-11-r19-a15
