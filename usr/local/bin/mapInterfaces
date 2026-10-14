@@ -287,7 +287,14 @@ export eth0Name="${_mi_lan:-eth0}"
 export wlan0Name="${_mi_r[0]:-wlan0}"
 export wlan1Name="${_mi_r[1]:-wlan1}"
 
+# [WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1] wiredLanName is the WIRED dev of the LAN role: detection, then the installer's
+# pin in interfaces_override.conf -- never active_interface, which is frognet-netstart's record of the dev serving
+# the LAN NOW (the AP radio in wireless mode). setup_lillypad took eth0Name, got the radio from that pin, and built an
+# ethernet NetworkManager profile on it ("No suitable device ... connection type is not loopback").
 for _mi_pinfile in /etc/frognet/interfaces_override.conf /etc/frognet/active_interface; do
+  if [[ "$_mi_pinfile" == /etc/frognet/active_interface ]]; then
+    if _mi_is_radio "$eth0Name"; then export wiredLanName="${_mi_lan:-eth0}"; else export wiredLanName="$eth0Name"; fi
+  fi
   [[ -r "$_mi_pinfile" ]] || continue
   _mi_pins="$( unset eth0Name wlan0Name wlan1Name; . "$_mi_pinfile" >/dev/null 2>&1; printf '%s %s %s' "${eth0Name:--}" "${wlan0Name:--}" "${wlan1Name:--}" )"
   read -r _p_e _p_w0 _p_w1 <<<"$_mi_pins"
@@ -300,5 +307,5 @@ for _mi_pinfile in /etc/frognet/interfaces_override.conf /etc/frognet/active_int
 done
 unset _mi_lan _mi_r _mi_pinfile _mi_pins _p_e _p_w0 _p_w1 _pair _k _v
 
-debugTag "ROLES eth0Name=$eth0Name wlan0Name=$wlan0Name wlan1Name=$wlan1Name"
+debugTag "ROLES eth0Name=$eth0Name wiredLanName=$wiredLanName wlan0Name=$wlan0Name wlan1Name=$wlan1Name"
 :

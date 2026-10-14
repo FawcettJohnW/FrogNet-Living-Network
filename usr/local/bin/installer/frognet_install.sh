@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-12-r20"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-14-r21"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -1881,8 +1881,9 @@ if [[ -f "$WPA_SUP" ]] && ! grep -qE '^country=' "$WPA_SUP"; then
 fi
 
 # 4) [AP_MANAGED_BY_NETSTART_V1] Whether NetworkManager manages $AP_IFACE is frognet-netstart's decision, made at
-#    every start from the mode: wireless (projecting) -> its NM connections down, `managed no`; wired -> `managed
-#    yes` (the radio may be this node's WiFi link into another LAN). The installer used to also write
+#    every start from the mode: wireless (projecting) -> its NM connections down, `managed no`, and its own
+#    conf.d/99-frognet-wireless-ap.conf so the decision holds when NM starts after it ([AP_UNMANAGED_PERSISTS_V1]);
+#    wired -> that file removed, `managed yes` (the radio may be this node's WiFi link into another LAN). The installer used to also write
 #    conf.d/frognet-unmanaged-ap.conf (unmanaged for good, "belt-and-suspenders"), which contradicted netstart in
 #    wired mode on every NetworkManager start. An upgrade removes that file (frognet_prune_removed.sh).
 
@@ -2004,7 +2005,7 @@ if [[ -f /etc/systemd/system/frognet-tunnel-daemon.service ]]; then
 fi
 
 CORE_SERVICES=(frognet-proxy frognet-daemon frognet-merge-watcher
-    frognet-sysperf frognet-tunnel-daemon-v3)   # (frognet-eth0-fixup gone: [NM_OWNS_THE_LAN_ADDRESS_V1])
+    frognet-sysperf frognet-tunnel-daemon-v3)   # (frognet-eth0-fixup gone: [NETSTART_OWNS_THE_IDENTITY_V1])
 # [NAT64_REMOVED_V1] frognet-nat64 dropped 2026-08-29. Its ExecStart,
 # /usr/local/bin/start_nat64_dns64_jool.bash, is not in the tree and the only
 # other mentions of nat64/jool anywhere were this line and the matching one in
@@ -2160,7 +2161,7 @@ ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)"
 _E1="$(printf '%s' "$ECHO_R" | cut -d, -f2)"
 if [[ "$ECHO_R" == "${NODE_NAME},"* && ( "$_E1" == "$NODE_IP" || -z "$_E1" ) ]]; then
     if [[ -n "$_E1" ]]; then ok "echo: $ECHO_R"
-    else ok "echo: $ECHO_R (LAN not addressed yet: NetworkManager brings up $NODE_IP on $ETH0_IF at the reboot)"; fi
+    else ok "echo: $ECHO_R (LAN not addressed yet: frognet-netstart puts $NODE_IP on the LAN dev at the reboot)"; fi
 else
     nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},${NODE_IP},... or ${NODE_NAME},,... before the reboot)"
 fi

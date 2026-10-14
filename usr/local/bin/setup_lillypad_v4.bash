@@ -19,7 +19,8 @@
 ##############################################################
 # setup_lillypad_v4.bash - FrogNet node LAN setup (v4)
 #
-# The LAN side of a node: identity, dnsmasq, NetworkManager, gateways.conf.
+# The LAN side of a node: dnsmasq (the node's /24), hostname, gateways.conf. The identity addresses are
+# frognet-netstart's ([NETSTART_OWNS_THE_IDENTITY_V1]): this writes the config and then runs it.
 # It writes no tunnel config: the node comes up LAN-only, and a region is
 # joined afterwards with fdf-region-join (/opt/fdf/var/join.env).
 #
@@ -37,13 +38,12 @@ log() { echo "[setup_lillypad] $(date '+%H:%M:%S') $*"; }
 die() { log "FATAL: $*"; exit 1; }
 
 _POS=()
-# [SETUP_LILLYPAD_NORESTART_V1] --norestart: write all config (files + the
-# persistent NM connection profile) but do NOT bounce services or re-address the
-# live interface. Used when the installer calls this over SSH that rides the very
+# [SETUP_LILLYPAD_NORESTART_V1] --norestart: write all config but do NOT bounce
+# services or run frognet-netstart (which re-addresses the live interface). Used when the installer calls this over SSH that rides the very
 # interface being configured (a LAN-only gateway reached via its wlan0/AP link):
 # restarting NetworkManager or flushing the interface drops that SSH mid-install.
-# The install reboots at the end, and the NM profile is autoconnect-priority 999,
-# so everything skipped here comes up cleanly on that reboot.
+# The install reboots at the end and cron @reboot runs frognet-netstart, so
+# everything skipped here comes up on that reboot.
 NO_RESTART=0
 # [SETUP_LILLYPAD_NORESTART_V1] restart wrapper: a no-op under --norestart, since
 # the install reboots at the end and every service comes up then. Keeps SSH alive.
@@ -65,6 +65,8 @@ done
 NETWORK_NAME="${_POS[0]:-}"
 GATEWAY_IP="${_POS[1]:-}"
 
+LILLYPAD_BUILD="setup-lillypad-2026-10-14-r21"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+log "build $LILLYPAD_BUILD"
 [[ $EUID -eq 0 ]] || die "Must run as root"
 [[ -n "$NETWORK_NAME" ]] || die "Usage: $0 <NetworkName> <GatewayIP>"
 [[ -n "$GATEWAY_IP" ]] || die "Usage: $0 <NetworkName> <GatewayIP>"
@@ -76,20 +78,14 @@ GATEWAY_IP="${_POS[1]:-}"
 # Resolve actual interface name via mapInterfaces
 # ============================================================
 . /usr/local/bin/mapInterfaces
-ETH0="${eth0Name:-eth0}"
-log "Resolved eth0 interface: $ETH0"
-
-# Sanity check: does the interface exist?
-# Sanity check: does the interface exist?
+# [WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1] The wired LAN dev, not eth0Name: in wireless mode eth0Name is the AP radio
+# (frognet-netstart's active_interface pin).
+ETH0="${wiredLanName:-eth0}"
+log "Resolved wired LAN interface: $ETH0 (serving now: ${eth0Name:-none})"
 if ip link show "$ETH0" >/dev/null 2>&1; then
-    ETH0_PRESENT=true
     log "Interface $ETH0 is present"
 else
-    ETH0_PRESENT=false
-    log "WARNING: Interface '$ETH0' does not exist."
-    log "         Continuing without eth0 - dnsmasq and identity will be"
-    log "         configured anyway, and the NetworkManager profile (ifname"
-    log "         $ETH0, autoconnect) takes the interface when it appears."
+    log "WARNING: Interface '$ETH0' does not exist (wired mode cannot come up until it does)."
 fi
 
 # Extract subnet info
@@ -308,67 +304,14 @@ while nmcli conn show "$NETWORK_NAME" >/dev/null 2>&1; do
 done
 
 # ============================================================
-# Step 3: Ensure $ETH0 is managed
+# Steps 3-7: (no NetworkManager identity profile)
 # ============================================================
-log "Step 3: Preparing $ETH0..."
-
-# Make sure NetworkManager manages $ETH0
-nmcli dev set "$ETH0" managed yes 2>/dev/null || true
-
-# [NM_OWNS_THE_LAN_ADDRESS_V1] NetworkManager is the one owner of $ETH0's addresses: the profile below is the
-# address. Nothing here flushes the interface or adds addresses with `ip` (it used to: flush, `ip addr add`, then the
-# profile, then "try multiple activation methods", a disconnect/reconnect, and a "forcing IP assignment" flush+add).
-if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    # [SETUP_LILLYPAD_NORESTART_V1] On a LAN-only gateway the operator's SSH may ride this very device; activating
-    # the profile live cuts it. The profile (Step 5) comes up on the reboot. If the interface already carries the
-    # gateway IP (a --preserve upgrade) nothing is lost.
-    log "  [--norestart] $ETH0 is not re-addressed now (the NM profile applies on reboot)"
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | head -1)
-    log "  Current $ETH0 IP: ${CURRENT_IP:-<unchanged>}"
-fi
-
-# ============================================================
-# Step 5: Create NetworkManager connection (the address)
-# ============================================================
-log "Step 5: Creating NetworkManager connection..."
-
-nmcli conn add con-name "$NETWORK_NAME" \
-    ifname "$ETH0" \
-    type ethernet \
-    ip4 "${GATEWAY_IP}/24,${ADMIN_IP}/24" \
-    ipv4.method manual \
-    ipv4.dns "$GATEWAY_IP" \
-    ipv4.gateway "" \
-    connection.autoconnect yes \
-    connection.autoconnect-priority 999 \
-    connection.autoconnect-retries 0 \
-    || die "nmcli could not create the connection $NETWORK_NAME on $ETH0"
-
-# ============================================================
-# Step 6: Activate the connection
-# ============================================================
-if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
-    log "Step 6/7: [--norestart] connection profile saved; NOT activated live (applies on reboot)"
-else
-    log "Step 6: Activating connection..."
-    _up_out=$(nmcli conn up "$NETWORK_NAME" 2>&1) \
-        || die "nmcli conn up $NETWORK_NAME failed on $ETH0: $_up_out"
-
-    # ============================================================
-    # Step 7: Verify (the profile's addresses are on the device, or it failed)
-    # ============================================================
-    log "Step 7: Verifying configuration..."
-    have_gw=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$GATEWAY_IP" || true)
-    have_admin=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | grep -Fx "$ADMIN_IP" || true)
-
-    [[ -n "$have_gw" && -n "$have_admin" ]] \
-        || die "$NETWORK_NAME is up but $ETH0 lacks its addresses (have gw=${have_gw:-none} admin=${have_admin:-none}; want $GATEWAY_IP $ADMIN_IP): $(ip -4 -o addr show dev "$ETH0" | awk '{print $4}' | tr '\n' ' ')"
-
-    CURRENT_IP=$(ip -4 -o addr show dev "$ETH0" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-    log "  $ETH0 primary IP: $CURRENT_IP"
-    log "  $ETH0 addresses:"
-    ip -4 -o addr show dev "$ETH0" | awk '{print "    "$4}'
-fi
+# [NETSTART_OWNS_THE_IDENTITY_V1] The gateway and admin addresses are frognet-netstart's, in both modes: wired ->
+# on $ETH0, wireless -> on the AP radio with hostapd. It runs at boot (cron @reboot), on every carrier change
+# (ifplugd), and at the end of this script. The installer marks $ETH0 NetworkManager-unmanaged, so the ethernet
+# profile this used to create here never came up at boot anyway; and its `nmcli dev set $ETH0 managed yes` handed
+# whatever $ETH0 resolved to -- the AP radio, in wireless mode -- to NetworkManager, which joined it to a WiFi
+# network as a client. Step 2 still deletes the old profiles.
 
 # ============================================================
 # Step 8: Configure hostname
@@ -413,9 +356,8 @@ EOF
 #
 # Selector, in strict order of authority:
 #
-#   1. The interface actually carrying GATEWAY_IP.  This is the node's identity
-#      and Steps 4-7 above have just placed it, so it is live by the time this
-#      block runs.  It is the ONLY signal that reflects where the LAN really is.
+#   1. The interface actually carrying GATEWAY_IP (a re-run: netstart placed it
+#      before). It is the ONLY signal that reflects where the LAN really is.
 #   2. hostapd.conf interface=, ONLY if (1) came back empty -- i.e. the address
 #      is not up yet.
 #   3. eth0Name from mapInterfaces, wired mode last resort.
@@ -434,6 +376,9 @@ EOF
 # This MUST be written HERE and not left to frognet_fixup.sh: this script
 # rm -f's opts_only.conf and rewrites it, so every rename /
 # reinstall silently drops the exclusions until fixup happens to run again.
+# It is the first scope only: frognet-netstart rescopes DHCP to the dev it puts
+# the identity on, every time it runs ([NETSTART_SCOPES_DHCP_V1]), so a mode
+# change moves DHCP with the LAN.
 SERVED_IF="$(ip -4 -o addr show 2>/dev/null | awk -v g="$GATEWAY_IP" '$4 ~ ("^" g "/") {print $2; exit}')"
 if [[ -n "$SERVED_IF" ]]; then
     log "  dnsmasq: LAN device $SERVED_IF resolved from GATEWAY_IP=$GATEWAY_IP"
@@ -562,12 +507,20 @@ echo "$GATEWAY_IP" > /etc/database_ip
 echo "nameserver $GATEWAY_IP" > /etc/sentinels/frog_resolv.conf
 
 # ============================================================
-# Step 11: (no boot-time address fixup)
+# Step 11: The identity, now: frognet-netstart
 # ============================================================
-# [NM_OWNS_THE_LAN_ADDRESS_V1] The NetworkManager profile from Step 5 (autoconnect, priority 999) is the one thing
-# that puts the gateway and admin addresses on $ETH0, at boot as now. frognet-eth0-fixup (Before=network.target:
-# flush, `ip addr add` both, then `nmcli conn up` too) was a second owner of the same addresses and is gone; an
-# upgrade removes it (frognet_prune_removed.sh).
+# [NETSTART_OWNS_THE_IDENTITY_V1] netstart reads the dhcp-range and domain= written in Step 9, decides the mode
+# (carrier, SSID_PROJECTION), puts the .1/.2 on the LAN dev, rescopes DHCP to it and restarts dnsmasq.
+# The boot-time fixup unit was a second owner of the same addresses and is gone (frognet_prune_removed.sh).
+if [[ "${NO_RESTART:-0}" -eq 1 ]]; then
+    log "Step 11: [--norestart] frognet-netstart not run now (cron @reboot runs it)"
+else
+    log "Step 11: frognet-netstart..."
+    /usr/local/bin/frognet-netstart || die "frognet-netstart failed (journalctl -t frognet-netstart)"
+    have_gw=$(ip -4 -o addr show 2>/dev/null | awk -v g="$GATEWAY_IP" '$4 ~ ("^" g "/") {print $2; exit}')
+    [[ -n "$have_gw" ]] || die "frognet-netstart ran but no interface holds $GATEWAY_IP"
+    log "  $GATEWAY_IP is on $have_gw"
+fi
 
 # ============================================================
 # Step 12: Update transit boot to skip eth0
@@ -595,8 +548,8 @@ log ""
 log "============================================"
 log "Setup complete!"
 log ""
-log "$ETH0 configuration:"
-ip addr show "$ETH0" | grep -E "inet |state"
+log "Identity:"
+ip -4 -o addr show 2>/dev/null | awk -v g="${IP_BASE}." 'index($4, g) == 1 {print "  " $2 " " $4}'
 log ""
 log "getEth0Address returns: $(/usr/local/bin/getEth0Address 2>&1 || echo "FAILED (rc=$?)")"
 log ""

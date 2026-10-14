@@ -173,6 +173,10 @@ gone "usr/local/bin/frognet_eth0_fixup.sh"
 gone "etc/NetworkManager/conf.d/frognet-unmanaged-ap.conf"
 # the cmp-identical second copy of the tuning script (frognet-system-tune.sh is the one)
 gone "usr/local/bin/frognet_system_tune.sh"
+echo "-- [2026-10-14] the identity has one owner, frognet-netstart ([NETSTART_OWNS_THE_IDENTITY_V1])"
+# (setup_lillypad's old NetworkManager identity profile is deleted by setup_lillypad's own Step 2: it has the node's name)
+# the April 2026 clone-repair script: a second setup_lillypad that also wrote the identity (flush, ip addr add, NM profile)
+gone "usr/local/bin/frognet_fixup.sh"
 # the merge hook's route signature moved to /run (gone at every boot: the boot merge is the hook's)
 gone "etc/sentinels/nm_dispatch_sig"
 if [ -z "$R" ] && [ "$APPLY" -eq 1 ]; then systemctl daemon-reload; fi

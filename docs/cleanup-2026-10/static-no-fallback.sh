@@ -57,13 +57,14 @@ stale-picture	Transient empty (hosts|edges) snapshot	fln_dashboard32: an empty h
 fetch-variants	jgetTry|all fetch variants failed	fln_dashboard32: try one URL, then the next (T5; it had no caller)
 monitor-hosts-file	fopen\("/etc/hosts"|ReadAllLinesAsync\("/etc/hosts"|def _hosts_lookup	the C++/C#/Python monitors reading /etc/hosts for the databasehost themselves (T5: the snapshot's elections)
 old-monitor	/etc/hosts primary	var/www/html/frognet_monitor (v5.1): /etc/hosts first, getHosts.php as an 'optional upgrade' (T5: deleted)
+nm-identity	ip4 "\$\{GATEWAY_IP\}/24|nmcli dev(ice)? set "\$ETH0" managed yes	2026-10-14: the identity as a NetworkManager profile beside frognet-netstart (setup_lillypad, frognet_fixup.sh)
 EOF
 )
 
 # ALLOW: "id<TAB>path-glob<TAB>line-regex (ERE; . = any)<TAB>reason"
 ALLOW=$(cat <<'EOF'
 *	usr/local/bin/frognet_prune_removed.sh	.	Names what it removes (its T3 section, with the T4b block at its end, is the installer's upgrade step).
-*	*	ALIVE_ONE_TARGET_V1|RETURN_IP_DEV_ONLY_V1|NEIGHBORS_ONLY_V1|MONITOR_HOSTS_ONE_SOURCE_V1|RESOLV_LOCAL_UPSTREAM_V1|NM_OWNS_THE_LAN_ADDRESS_V1|ONE_DB_UNIT_V1|UNBOUND_ONE_STEP_V1|SERVICES_ON_THE_VENV_V1|ONE_PACKAGE_LIST_V1|SH_FAILURES_SAID_V1|UPLINK_JUDGED_LOCALLY_V1|BOOT_MERGE_IS_THE_HOOK_V1|WG_IMPL_RECORDED_V1|AP_MANAGED_BY_NETSTART_V1|ONE_TUNE_SCRIPT_V1|UPLINK_BY_FUNCTION_V1|PONDS_ARE_THE_OPERATORS_V1|NO_BUILT_IN_AREA_V1|REGION_SWITCH_ONE_FILE_V1|LAN_DEV_ONLY_V1|WG_TEARDOWN_BY_ITS_OWNER_V1|HOOK_ASKS_THE_WATCHER_V1|ONE_MONITOR_TRUTH_V1	A T4b/T4c/T5 tag line: it records what went and that it is gone.
+*	*	ALIVE_ONE_TARGET_V1|RETURN_IP_DEV_ONLY_V1|NEIGHBORS_ONLY_V1|MONITOR_HOSTS_ONE_SOURCE_V1|RESOLV_LOCAL_UPSTREAM_V1|NM_OWNS_THE_LAN_ADDRESS_V1|ONE_DB_UNIT_V1|UNBOUND_ONE_STEP_V1|SERVICES_ON_THE_VENV_V1|ONE_PACKAGE_LIST_V1|SH_FAILURES_SAID_V1|UPLINK_JUDGED_LOCALLY_V1|BOOT_MERGE_IS_THE_HOOK_V1|WG_IMPL_RECORDED_V1|AP_MANAGED_BY_NETSTART_V1|ONE_TUNE_SCRIPT_V1|UPLINK_BY_FUNCTION_V1|PONDS_ARE_THE_OPERATORS_V1|NO_BUILT_IN_AREA_V1|REGION_SWITCH_ONE_FILE_V1|LAN_DEV_ONLY_V1|WG_TEARDOWN_BY_ITS_OWNER_V1|HOOK_ASKS_THE_WATCHER_V1|ONE_MONITOR_TRUTH_V1|NETSTART_OWNS_THE_IDENTITY_V1|WIRED_LAN_IS_NOT_THE_SERVED_LAN_V1|AP_UNMANAGED_PERSISTS_V1|NETSTART_SCOPES_DHCP_V1	A T4b/T4c/T5 tag line: it records what went and that it is gone.
 public-dns	usr/local/bin/frognet_metrics_emit.sh	-4 -j route get 8\.8\.8\.8	A kernel route LOOKUP (which device the default route uses); no packet is sent, nothing is asked of that address.
 public-dns	usr/local/bin/manageResolv.bash	no hardcoded 8\.8\.8\.8	The doctrine line [DNS_NEXTHOP_ONLY_V1] saying there is none.
 public-dns	usr/local/bin/installer/frognet_reset.sh	used to write 8\.8\.8\.8	History: what the reset no longer writes (T4a).
@@ -81,7 +82,6 @@ public-dns	opt/fdf/src/frognet-android/*	.	The Android/Windows member sources (a
 db-unit-chain	usr/local/bin/installer/frognet_reset.sh	it was "start mariadb \|\| start mysql \|\| true"	History comment on the one-unit line.
 db-unit-chain	usr/local/bin/installer/frognet_install.sh	mysql-server|mysql\.sock|mysqladmin	Not a unit: the distribution's file names.
 eth0-fixup	usr/local/bin/setup_lillypad_v4.bash	frognet-eth0-fixup \(Before=network.target	History: what Step 11 no longer creates.
-eth0-fixup	usr/local/bin/frognet_fixup.sh	frognet-eth0-fixup, a second owner	History: the same, in the repair script.
 eth0-fixup	usr/local/bin/installer/frognet_install.sh	frognet-eth0-fixup gone	The CORE_SERVICES note.
 belt	usr/local/bin/installer/frognet_install.sh	"belt-and-suspenders"\), which contradicted	History: what E6a(4) no longer writes.
 belt	opt/frognet_semantic/discovery/probe_sweep.py	ceiling is the belt-and-suspenders	A wall-clock ceiling on a wedged probe cell (a timeout), not a second mechanism for the same state.
@@ -89,7 +89,6 @@ belt	opt/frognet_semantic/frognet_route/committer.py	Sweeps any leaked /32 probe
 belt	usr/local/bin/frognet_make_build_tar.sh	Identity files \(belt-and-suspenders	An exclusion from a build tar (never ship a node's identity), not a second mechanism.
 unmanaged-ap	usr/local/bin/installer/frognet_install.sh	unmanaged for good	History: what E6a(4) no longer writes.
 tune-twin	usr/local/bin/installer/frognet_install.sh	cmp-identical frognet_system_tune.sh is gone	History: the F7 note.
-nm-activation	usr/local/bin/setup_lillypad_v4.bash	then "try multiple activation methods", a disconnect	History: the [NM_OWNS_THE_LAN_ADDRESS_V1] comment (its second line).
 system-pip	opt/frognet_semantic/codex_fullsuite/*|opt/frognet_semantic/simulation/spec_compliance/*	html5lib	A developer note for an optional test-corpus dependency of the spec-compliance suite (not a node service).
 py-fallback	opt/frognet_semantic/simulation/*	.	Simulator harness helpers (they run on the developer's python, not a node service).
 wg-fallback	opt/frognet_semantic/simulation/netns_backend.py	was \[WG_USERSPACE_FALLBACK_V1\]	History: the tag this replaced.

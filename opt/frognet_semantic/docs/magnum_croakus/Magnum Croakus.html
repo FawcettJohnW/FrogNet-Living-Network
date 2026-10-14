@@ -2151,7 +2151,7 @@ concepts in the worker   2                9</pre>
 <h4 class="bk-h2" id="look-at-the-machine-first">Look at the machine first</h4>
 <p>Start with <code>ip a</code> and read the interface you expect to be carrying traffic.</p>
 <ul class="bk-ul">
-<li><strong>Two address sets on one interface.</strong> One is usually the address you wanted and the other is something like the database host. How they got there was never shown. The October 2026 cleanup removed the second owners of the LAN address (setup_lillypad_v4.bash's flush and <code>ip addr add</code>, and the boot-time frognet-eth0-fixup); NetworkManager's profile is now the one owner. Whether that ends this case has not been shown on hardware. It stays on the list.</li>
+<li><strong>Two address sets on one interface.</strong> One is usually the address you wanted and the other is something like the database host. How they got there was never shown. The October 2026 cleanup removed the second owners of the LAN address (setup_lillypad_v4.bash's flush and <code>ip addr add</code>, and the boot-time frognet-eth0-fixup)). On 2026-10-14 the NetworkManager profile setup_lillypad made went too: on a projecting node it was built on the AP radio and failed. The one owner is frognet-netstart, in both modes (the .1 and .2 on the wired LAN, or on the AP radio with hostapd). Whether that ends this case has not been shown on hardware. It stays on the list.</li>
 <li><strong>An interface that will not come up.</strong> <code>eth0</code>, <code>eth1</code> or a <code>wlan</code> reports down and stays down, and with it nothing works. Also not understood.</li>
 </ul>
 <p>For both, the repair is to re-assert the machine’s identity rather than to reinstall it:</p>

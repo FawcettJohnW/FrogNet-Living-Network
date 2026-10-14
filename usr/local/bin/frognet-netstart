@@ -180,6 +180,64 @@ assign_identity() {
 }
 
 #-------------------------------------------------------------------------------
+# [NETSTART_SCOPES_DHCP_V1] DHCP is served on the dev that holds the identity,
+# and on nothing else. setup_lillypad writes the first scope; it is fixed at the
+# dev it saw then, so a mode change left DHCP refused on the new LAN dev (the AP
+# radio after wired -> wireless) and offered on the old one. Every run here
+# rewrites the exclusions in opts_only.conf for the dev just chosen. Tunnel devs
+# are pre-declared (wg0-wg31) because they appear after this runs.
+#-------------------------------------------------------------------------------
+scope_dhcp() {
+    local served="$1" conf=/etc/dnsmasq.d/opts_only.conf tmp d n
+    [[ -f "$conf" ]] || die "$conf missing - setup_lillypad_v4.bash writes it"
+    tmp="$(mktemp)" || die "mktemp failed"
+    grep -v '^no-dhcp-interface=' "$conf" > "$tmp"
+    {
+        for d in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | cut -d@ -f1); do
+            [[ "$d" == "lo" || "$d" == "$served" ]] && continue
+            echo "no-dhcp-interface=$d"
+        done
+        for n in $(seq 0 31); do [[ "wg$n" == "$served" ]] || echo "no-dhcp-interface=wg$n"; done
+        [[ "frognet0" == "$served" ]] || echo "no-dhcp-interface=frognet0"
+    } | sort -u >> "$tmp"
+    cat "$tmp" > "$conf"
+    rm -f "$tmp"
+    log "DHCP scoped to $served"
+}
+
+#-------------------------------------------------------------------------------
+# [AP_UNMANAGED_PERSISTS_V1] Whether NetworkManager manages the AP radio is
+# decided here, and the decision has to outlive this run: `nmcli device set
+# managed no` only holds while NetworkManager runs, and at boot this can run
+# before NetworkManager is up (cron @reboot), when there is nothing to tell. NM
+# then took the radio and joined it to a saved WiFi network as a client, under
+# the AP. So wireless mode also writes AP_NM_CONF (read at every NM start), and
+# wired mode removes it. `+=` appends to the installer's unmanaged list in
+# 10-/99-frognet-unmanaged.conf, which this file sorts after.
+#-------------------------------------------------------------------------------
+AP_NM_CONF=/etc/NetworkManager/conf.d/99-frognet-wireless-ap.conf
+nm_wait_if_starting() {
+    local i
+    for i in $(seq 1 30); do
+        [[ "$(systemctl is-active NetworkManager 2>/dev/null)" == "activating" ]] || return 0
+        sleep 1
+    done
+    log "NetworkManager still activating after 30s"
+}
+nm_ap_unmanaged() {
+    local iface="$1"
+    mkdir -p /etc/NetworkManager/conf.d
+    printf '# Written by frognet-netstart in wireless mode (%s is the AP); removed in wired mode.\n[keyfile]\nunmanaged-devices+=interface-name:%s\n' "$iface" "$iface" > "$AP_NM_CONF"
+    log "NetworkManager: $iface unmanaged ($AP_NM_CONF)"
+}
+nm_ap_managed() {
+    if [[ -f "$AP_NM_CONF" ]]; then
+        rm -f "$AP_NM_CONF"
+        log "NetworkManager: removed $AP_NM_CONF"
+    fi
+}
+
+#-------------------------------------------------------------------------------
 # Write the current interface name for mapInterfaces to source
 #-------------------------------------------------------------------------------
 write_interface_config() {
@@ -191,7 +249,8 @@ write_interface_config() {
 #===============================================================================
 # Main
 #===============================================================================
-log "=== FrogNet network mode detection ==="
+NETSTART_BUILD="frognet-netstart-2026-10-14-r21"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+log "=== FrogNet network mode detection ($NETSTART_BUILD) ==="
 
 get_subnet_from_dnsmasq
 get_node_name
@@ -245,6 +304,7 @@ else
     RUNTIME=false
 fi
 log "Runtime mode: $RUNTIME"
+nm_wait_if_starting
 
 case "$MODE" in
     wired)
@@ -257,15 +317,18 @@ case "$MODE" in
         fi
         flush_frognet_ip "$AP_IFACE"
         assign_identity "$eth0Name"
+        nm_ap_managed
         if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
             log "Returning $AP_IFACE to NetworkManager"
             nmcli device set "$AP_IFACE" managed yes 2>&1 | sed 's/^/nmcli: /' || true
         fi
+        scope_dhcp "$eth0Name"
         write_interface_config "$eth0Name"
         ;;
     wireless)
         log "Wireless mode: $AP_IFACE is AP with identity"
         flush_frognet_ip "$eth0Name"
+        nm_ap_unmanaged "$AP_IFACE"
         if command -v nmcli >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; then
             for c in $(nmcli -t -f NAME,DEVICE connection show --active | awk -F: -v d="$AP_IFACE" '$2==d{print $1}'); do
                 log "Bringing down NM connection $c on $AP_IFACE"
@@ -286,8 +349,9 @@ case "$MODE" in
         configure_hostapd "$AP_IFACE"
         assign_identity "$AP_IFACE"
         if $RUNTIME; then
-            systemctl restart hostapd
+            systemctl restart hostapd || die "systemctl restart hostapd failed (journalctl -u hostapd; is it masked?)"
         fi
+        scope_dhcp "$AP_IFACE"
         write_interface_config "$AP_IFACE"
         log "hostapd started on $AP_IFACE with SSID=$NODE_NAME"
         ;;
