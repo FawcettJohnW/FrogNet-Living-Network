@@ -22,9 +22,25 @@
 set -eu
 SRC=${1:?platform ram_server.cpp}; OUT=${2:?output}
 n1=$(grep -c '^#include "lisp_engine.hpp"$' "$SRC"); n2=$(grep -c '    if (op == "lisp") {' "$SRC")
-[ "$n1" = 1 ] && [ "$n2" = 1 ] || { echo "make_host: anchors not found exactly once (include=$n1 dispatch=$n2)" >&2; exit 1; }
+n3=$(grep -c '^void engine_frame(std::shared_ptr<Session> s, uint32_t seq, const std::string& f) {$' "$SRC")
+n4=$(grep -c '^    auto run = \[s, seq\](fnwp::ServerEngine::Work w) {$' "$SRC")
+[ "$n1" = 1 ] && [ "$n2" = 1 ] && [ "$n3" = 1 ] && [ "$n4" = 1 ] || { echo "make_host: anchors not found exactly once (include=$n1 dispatch=$n2 engine_frame=$n3 run=$n4)" >&2; exit 1; }
 awk '
 /^#include "lisp_engine.hpp"$/ { print; print "#include \"redis_region.h\""; next }
+/^void engine_frame\(std::shared_ptr<Session> s, uint32_t seq, const std::string& f\) \{$/ {
+  print "// [NOBODY_WAITS_V1] a raw Redis batch is handed to the region asynchronously: the socket thread offers it to the"
+  print "// region'"'"'s pool and returns to its socket; whichever thread finishes the batch sends the reply. No thread is made."
+  print "template <class F> static bool redis_async(const fnwp::ServerEngine::Work& w, F send) {"
+  print "    if (w.method != \"POST\" || w.path.compare(0, API_PATH.size(), API_PATH) || query(w.path)[\"op\"] != \"redis_raw\") return false;"
+  print "    try { redis_region_batch_raw_async(w.body, [send](std::string a) { send(Reply{200, std::move(a)}); }); }"
+  print "    catch (const std::exception& x) { send(bad(400, std::string(\"redis: \") + x.what())); }"
+  print "    return true;"
+  print "}"
+  print; next }
+/^    auto run = \[s, seq\]\(fnwp::ServerEngine::Work w\) \{$/ {
+  print
+  print "        if (redis_async(w, [s, seq, w](const Reply& r) { s->finish_and_send(seq, w, r); })) return;   // [NOBODY_WAITS_V1]"
+  next }
 /^    if \(op == "lisp"\) \{/ {
   print "    if (op == \"redis\") {                              // [REDIS_REGION_V1] the Redis region, resident, inline"
   print "        if (method != \"POST\") { out = bad(405, \"redis is POST\"); return true; }"
@@ -51,4 +67,5 @@ awk '
   print "    }"
   print; next }
 { print }' "$SRC" > "$OUT"
+grep -q 'NOBODY_WAITS_V1' "$OUT" || { echo "make_host: generated host lacks the asynchronous batch" >&2; exit 1; }
 grep -q 'REDIS_REGION_V1' "$OUT" || { echo "make_host: generated host lacks the region glue" >&2; exit 1; }

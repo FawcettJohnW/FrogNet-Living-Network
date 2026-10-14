@@ -17,6 +17,7 @@
  **************************************************************/
 // The Redis region's one entry point for the RAM host: a JSON body in, a JSON body out. No Redis type crosses it.
 #pragma once
+#include <functional>
 #include <string>
 std::string redis_region_call(const std::string& body);
 // A blocking command (BLPOP, XREAD BLOCK, DEBUG SLEEP ...): parks, on the caller's own request thread.
@@ -27,3 +28,6 @@ std::string redis_region_block(const std::string& body);
 std::string redis_region_batch(const std::string& body);
 // [RESP_ON_THE_WIRE_V1] the batch as bytes: no JSON, no base64 (format in redis_region.cpp)
 std::string redis_region_batch_raw(const std::string& body);
+// [NOBODY_WAITS_V1] the same raw batch, answered asynchronously: returns at once; done(answer) is called by whichever
+// thread finishes the batch's last item (possibly this one, before it returns). Throws only if the body is malformed.
+void redis_region_batch_raw_async(const std::string& body, std::function<void(std::string)> done);

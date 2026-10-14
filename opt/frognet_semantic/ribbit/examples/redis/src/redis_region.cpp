@@ -362,7 +362,11 @@ struct Batch {
     std::vector<Item> items;
     std::atomic<size_t> next{0};
     std::atomic<uint32_t> left{0};
+    // [NOBODY_WAITS_V1] an asynchronous batch: whoever finishes its last item answers it (done) and frees it; nothing
+    // waits for it. A batch with no done is the caller's: the last item wakes the caller.
+    std::function<void(std::string)> done; int slot = -1;
 };
+void finish_async(Batch* b);
 // raw futexes: std::atomic::wait spins on sched_yield first, which on a small machine takes the cores from the workers
 void fwait(std::atomic<uint32_t>& w, uint32_t v) { while (w.load(std::memory_order_acquire) == v) syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, v, nullptr, nullptr, 0); }
 void fwake(std::atomic<uint32_t>& w, int n) { syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, n, nullptr, nullptr, 0); }
@@ -376,7 +380,7 @@ bool work(Batch* b) {
         size_t i = b->next.fetch_add(1, std::memory_order_acq_rel);
         if (i >= b->items.size()) return ran;
         run_item(b->items[i]); ran = true;
-        if (b->left.fetch_sub(1, std::memory_order_acq_rel) == 1) fwake(b->left, INT32_MAX);
+        if (b->left.fetch_sub(1, std::memory_order_acq_rel) == 1) { if (b->done) finish_async(b); else fwake(b->left, INT32_MAX); }
     }
 }
 void worker() {
@@ -473,8 +477,7 @@ static std::string get_text(const std::string& s, size_t& at, std::string (*b64d
     return h[0] == 'T' ? v : b64d(v);
 }
 }  // namespace
-std::string batch_raw(const std::string& body) {
-    init_once(); start_pool();
+Batch* parse_raw(const std::string& body) {
     size_t at = 0;
     std::string h = get_line(body, at);
     if (h.compare(0, 5, "RRB1 ") != 0) throw std::runtime_error("redis region: not a raw batch (RRB1)");
@@ -489,6 +492,22 @@ std::string batch_raw(const std::string& body) {
             it.p = get_text(body, at, b64dec);
         }
     } catch (...) { delete b; throw; }
+    return b;
+}
+std::string raw_answer(const Batch* b) {
+    const uint32_t n = (uint32_t)b->items.size();
+    std::string o = "RRA1 " + std::to_string(n) + "\n";
+    for (uint32_t i = 0; i < n; i++) {
+        const Item& it = b->items[i]; const bool bad = !it.err.empty();
+        o += bad ? '1' : '0'; o += it.authed ? '1' : '0'; o += it.close ? '1' : '0'; o += '\n';
+        put_text(o, bad ? it.err : it.r, b64enc);
+    }
+    return o;
+}
+std::string batch_raw(const std::string& body) {
+    init_once(); start_pool();
+    Batch* b = parse_raw(body);
+    const uint32_t n = (uint32_t)b->items.size();
     b->left.store(n, std::memory_order_release);
     int slot = -1;
     if (n > 1) {
@@ -497,15 +516,36 @@ std::string batch_raw(const std::string& body) {
     }
     work(b);
     for (uint32_t l; (l = b->left.load(std::memory_order_acquire)) != 0; ) fwait(b->left, l);
-    std::string o = "RRA1 " + std::to_string(n) + "\n";
-    for (uint32_t i = 0; i < n; i++) {
-        const Item& it = b->items[i]; const bool bad = !it.err.empty();
-        o += bad ? '1' : '0'; o += it.authed ? '1' : '0'; o += it.close ? '1' : '0'; o += '\n';
-        put_text(o, bad ? it.err : it.r, b64enc);
-    }
+    std::string o = raw_answer(b);
     if (slot >= 0) { slots[slot].store(nullptr, std::memory_order_release); ebr::Guard epoch; ebr::retire(b); }
     else delete b;
     return o;
+}
+// [NOBODY_WAITS_V1] John 2026-10-14: "why is the RAM host creating a new thread? It should be using a thread pool" and
+// "there's nothing requiring us to wait, is there?" -- there is not. The batch is parsed on the socket's thread and
+// offered to the pool; the socket thread works on it too and goes back to its socket as soon as no item is left to
+// claim. Whoever finishes the LAST item builds the answer and sends it (done). No thread is made, none waits.
+// One item runs right here: handing it to another core would cost more than running it.
+namespace {
+void finish_async(Batch* b) {
+    std::string o = raw_answer(b);
+    auto done = std::move(b->done);
+    if (b->slot >= 0) { slots[b->slot].store(nullptr, std::memory_order_release); ebr::retire(b); }   // every toucher is inside an epoch
+    done(std::move(o));
+}
+}  // namespace
+void batch_raw_async(const std::string& body, std::function<void(std::string)> done) {
+    init_once(); start_pool();
+    Batch* b = parse_raw(body);
+    const uint32_t n = (uint32_t)b->items.size();
+    b->left.store(n, std::memory_order_release);
+    if (n == 0) { std::string o = raw_answer(b); delete b; done(std::move(o)); return; }
+    b->done = std::move(done);
+    if (n > 1)
+        for (int k = 0; k < SLOTS; k++) { b->slot = k; Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) break; b->slot = -1; }
+    if (b->slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); ebr::Guard epoch; work(b); return; }
+    work(b);            // in no slot, no other thread can see it: this thread runs it all, and its last item answered and ...
+    delete b;           // ... left it here to free
 }
 
 }  // namespace door
@@ -516,3 +556,4 @@ std::string redis_region_call(const std::string& body) { return rr::door::call(b
 std::string redis_region_block(const std::string& body) { return rr::door::call(body, true); }
 std::string redis_region_batch(const std::string& body) { return rr::door::batch(body); }
 std::string redis_region_batch_raw(const std::string& body) { return rr::door::batch_raw(body); }
+void redis_region_batch_raw_async(const std::string& body, std::function<void(std::string)> done) { rr::door::batch_raw_async(body, std::move(done)); }
