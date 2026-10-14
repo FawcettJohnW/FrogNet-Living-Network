@@ -84,3 +84,14 @@ Checked:
 - A fake root with a record: removed the 2 strays and kept the recorded code, venv/, logs/ and DB_CONFIG.json.
 - run_all on the tree: discovery 84/84, clean-install oracle PASS.
 - static-no-fallback: 0 violations.
+
+## r24: the r23 sweep deleted node-local code
+`/opt/frognet_semantic/agent_workload/` holds the PyTorch collectives and DDP hooks. It lives on the nodes and has never been in any repository, so it was not in the install record, and the r23 sweep removed its .py files.
+
+`[SWEEP_ONLY_RELEASE_DIRS_V1]`: the sweep now removes a file only if it sits in a directory the install record has files in. agent_workload/ is also excluded by name. A directory the release does not ship (agent_workload/, anything you add of your own) and top-level files are left alone.
+
+Fake-root test:
+- Removed: discovery/test_transit_chain_oracle.py and simulation/sim_games_over_wire.py.
+- Kept: agent_workload/tuplespace/ddp_hook.py, mywork/thing.py, stray_top.py, venv/, logs/ and DB_CONFIG.json.
+
+Build id: frognet-install-2026-10-14-r24.

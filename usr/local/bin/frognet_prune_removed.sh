@@ -645,14 +645,19 @@ elif [ ! -s "$REC" ]; then
     echo "  FAILED: no install record $REC (frognet_install.sh writes it at C1): not swept" >&2
     fail=$((fail+1))
 elif [ -d "$R/opt/frognet_semantic" ]; then
+    # [SWEEP_ONLY_RELEASE_DIRS_V1] Only in a directory the release itself has files in. A directory the record does
+    # not know at all is this node's own work, not a stray (Seattle7: agent_workload/, the PyTorch collectives, is
+    # node-local and in no repository; the first r23 sweep deleted its code).
+    _DIRS="$(sed -n 's|^\(opt/frognet_semantic/.*\)/[^/]*$|\1|p' "$REC" | sort -u)"
     _O="$R/opt/frognet_semantic"
     while IFS= read -r f; do
         rel="${f#"$R"/}"
         grep -qxF -- "$rel" "$REC" && continue
+        grep -qxF -- "${rel%/*}" <<<"$_DIRS" || continue
         gone "$rel"
     done < <(find "$_O" \( -path "$_O/venv" -o -path "$_O/docs" -o -path "$_O/logs" -o -path "$_O/blob_cache" \
                           -o -path "$_O/etc" -o -path "$_O/bin" -o -path "$_O/usr" -o -path "$_O/var" -o -path "$_O/_v1" \
-                          -o -name __pycache__ \) -prune -o -type f \( -name '*.py' -o -name '*.sh' -o -name '*.bash' -o -name '*.php' \) -print)
+                          -o -path "$_O/agent_workload" -o -name __pycache__ \) -prune -o -type f \( -name '*.py' -o -name '*.sh' -o -name '*.bash' -o -name '*.php' \) -print)
 fi
 
 echo
