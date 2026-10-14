@@ -2151,14 +2151,19 @@ chk "merge hook (one)"       test -x /etc/NetworkManager/dispatcher.d/90-frognet
 chk "ssl key"                test -f /etc/ssl/frognet-universal.key
 chk "LAN is not the uplink"  test "$ETH0_IF" != "${_UPLINK_DEV:-}"
 # the echo is this node's line: "<name>,<.1>,<upstream>,<upstream>" - an empty 200 is a failure.
-# [LAN_DEV_ONLY_V1 - T4c] The .1 field is getEth0Address: the LAN dev's own 10.x, nothing else. Before the reboot
-# (--norestart: NetworkManager's profile addresses the LAN at boot) it is empty; F6 does not ask a second runtime source,
-# it reads what this install set, NODE_IP, and says which of the two it expects.
-if ip -4 -o addr show dev "$ETH0_IF" 2>/dev/null | grep -q " inet ${NODE_IP}/"; then _E1="$NODE_IP"; _E1W="on $ETH0_IF now"
-else _E1=""; _E1W="$ETH0_IF not addressed yet: this install set $NODE_IP, NetworkManager's profile brings it up at the reboot"; fi
-echo "  LAN address: $NODE_IP ($_E1W)"
-ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)" && [[ "$ECHO_R" == "${NODE_NAME},${_E1},"* ]] \
-    && ok "echo: $ECHO_R" || nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},${_E1},...)"
+# [LAN_DEV_ONLY_V1 - T4c] The .1 field is getEth0Address: the LAN dev's own 10.x, nothing else.
+# [ECHO_CHECK_ONE_RULE_V1 - 2026-10-14] F6 does not probe the interface to decide what to expect (that probe and
+# getEth0Address can see the LAN at different moments: Seattle7 answered its .1 while the probe said "not addressed
+# yet", and the check failed a correct echo). The echo is right when it names this node and its .1 is the one this
+# install set, or is empty because NetworkManager addresses the LAN at the reboot. Any other .1 is a failure.
+ECHO_R="$(curl -fsS --max-time 5 http://127.0.0.1:8080/frognet_echo.php 2>&1)"
+_E1="$(printf '%s' "$ECHO_R" | cut -d, -f2)"
+if [[ "$ECHO_R" == "${NODE_NAME},"* && ( "$_E1" == "$NODE_IP" || -z "$_E1" ) ]]; then
+    if [[ -n "$_E1" ]]; then ok "echo: $ECHO_R"
+    else ok "echo: $ECHO_R (LAN not addressed yet: NetworkManager brings up $NODE_IP on $ETH0_IF at the reboot)"; fi
+else
+    nok "echo: ${ECHO_R:-<empty>} (want ${NODE_NAME},${NODE_IP},... or ${NODE_NAME},,... before the reboot)"
+fi
 echo "  FrogNet base: $(grep -vE '^#' /opt/frognet_semantic/BUILD | tr '\n' ' ')"   # [BASE_BUILD_V1]
 # [ONE_MONITOR_TRUTH_V1 - T5] the node snapshot (getSnapshot.php: what frognet_monitor and the dashboard draw) answers
 SNAP_R="$(curl -fsS --max-time 10 http://127.0.0.1:8080/getSnapshot.php 2>&1)"
