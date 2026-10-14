@@ -10,7 +10,7 @@
 #   REDIS_SRC   a built redis-7.2.11 tree (make). Its src/redis-server is moved to src/redis-server.stock once, and
 #               src/redis-server becomes a wrapper that runs whichever arm $ACCEPT_SERVER names, so Redis's suite
 #               starts stock or the region from the same tree with the same tests.
-#   STAGES      subset of: build metrics suite concurrency bench endpoints loss scale inet   (default: all but inet)
+#   STAGES      subset of: build metrics suite concurrency bench endpoints loss hostloss scale inet   (default: all but inet)
 #   SUITE       Redis suite files (default: the ten qualify.sh runs)
 #   K           endpoints for endpoints/scale (default: cores, at least 2)
 #   RAM_ENDPOINT  host:port of a deployed Redis RAM host -- the inet stage only
@@ -21,7 +21,7 @@ REDIS_SRC=${REDIS_SRC:?REDIS_SRC must name a built redis-7.2.11 tree}; REDIS_SRC
 # the suite puts unix sockets under REDIS_SRC/tests/tmp; a path near the kernel's 108-byte limit stops stock Redis from
 # starting while the region (which opens no unix socket) runs on -- an unequal test. Refuse such a tree up front.
 [ ${#REDIS_SRC} -le 40 ] || { echo "accept FAIL: REDIS_SRC path is ${#REDIS_SRC} characters; the suite's unix sockets need it 40 or less (e.g. /srv/redis-7.2.11)" >&2; exit 1; }
-STAGES=${STAGES:-"build metrics suite concurrency bench endpoints loss scale"}
+STAGES=${STAGES:-"build metrics suite concurrency bench endpoints loss hostloss scale"}
 SUITE=${SUITE:-"unit/type/incr unit/type/string unit/type/hash unit/type/set unit/type/list unit/type/zset unit/keyspace unit/type/stream unit/type/stream-cgroups unit/multi"}
 K=${K:-$(nproc)}; [ "$K" -lt 2 ] && K=2
 OUT=$ROOT/results/accept-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"; SUMMARY=$OUT/SUMMARY.txt
@@ -68,10 +68,15 @@ if has suite; then
     for x in $s $r; do   # a file that ran no test is a failure of the run, never a zero-gap result
       grep -aqE '^\[(ok|err)\]' $x || note "  RESULT FAIL suite $f: $(basename $x .txt) ran no test: $(tail -1 $x)"
     done
-    gaps=$(comm -23 <(grep -a '^\[ok\]' "$s" | sed 's/^\[ok\]: //; s/ ([0-9]* ms)$//' | sort -u) \
-                    <(grep -a '^\[ok\]' "$r" | sed 's/^\[ok\]: //; s/ ([0-9]* ms)$//' | sort -u))
-    note "  $f  stock ok $(grep -ac '^\[ok\]' $s) err $(grep -ac '^\[err\]' $s)   region ok $(grep -ac '^\[ok\]' $r) err $(grep -ac '^\[err\]' $r)   green on stock only: $(printf '%s' "$gaps" | grep -c .)"
-    [ -n "$gaps" ] && printf '%s\n' "$gaps" | sed 's/^/      stock-only: /' >> "$SUMMARY"
+    # names, one per test (a few tests run under the same name twice -- once per encoding -- and count once here)
+    okn() { grep -a '^\[ok\]' "$1" | sed 's/^\[ok\]: //; s/ ([0-9]* ms)$//' | sort -u; }
+    errn() { grep -a '^\[err\]' "$1" | sed 's/^\[err\]: //; s/ in tests\/.*$//' | sort -u; }
+    gaps=$(comm -23 <(okn "$s") <(okn "$r"))
+    red=$(comm -12 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort -u) <(errn "$r"))
+    notrun=$(comm -23 <(printf '%s\n' "$gaps" | sed '/^$/d' | sort -u) <(errn "$r"))
+    note "  $f  stock ok $(okn $s | wc -l) err $(errn $s | wc -l)   region ok $(okn $r | wc -l) err $(errn $r | wc -l)   green on stock only: $(printf '%s' "$gaps" | grep -c .) (red on the region $(printf '%s' "$red" | grep -c .), not run on the region $(printf '%s' "$notrun" | grep -c .))"
+    [ -n "$red" ] && printf '%s\n' "$red" | sed 's/^/      stock-only, red on the region: /' >> "$SUMMARY"
+    [ -n "$notrun" ] && printf '%s\n' "$notrun" | sed 's/^/      stock-only, not run on the region (the suite skipped it): /' >> "$SUMMARY"
   done
 fi
 
@@ -95,13 +100,17 @@ if has bench; then
   done
 fi
 
-note "# PART 2 -- what the region does that stock cannot: the same test on both, stock's result measured"
-for t in endpoints loss; do
+note "# PART 2 -- beside stock as an operator would set it up: the same test on every arm, stock's result measured"
+note "#   stock: persistence off (the region has none) | stock-aof: AOF on | stock-sentinel: AOF + Sentinel failover | ribbit: the region"
+port=9840
+for t in endpoints loss hostloss; do
   if has $t; then
     note "== $t"
-    for arm in stock ribbit; do
-      note "  $arm:"; python3 tests/accept_beyond.py $arm $t 98$([ $arm = stock ] && echo 40 || echo 60) "$REDIS_SRC" build $([ $t = loss ] && echo 2 || echo $K) > "$OUT/$t-$arm.txt" 2>&1
-      grep -aE "^(PASS|FAIL|RESULT)" "$OUT/$t-$arm.txt" | sed "s/^/    /" | tee -a "$SUMMARY"
+    for arm in stock stock-aof stock-sentinel ribbit; do
+      note "  $arm:"; python3 tests/accept_beyond.py $arm $t $port "$REDIS_SRC" build $([ $t = endpoints ] && echo $K || echo 2) > "$OUT/$t-$arm.txt" 2>&1
+      grep -aE "^(PASS|FAIL|RESULT|MEASURE)" "$OUT/$t-$arm.txt" | sed "s/^/    /" | tee -a "$SUMMARY"
+      grep -aqE "^RESULT" "$OUT/$t-$arm.txt" || note "    RESULT FAIL $arm $t: did not finish: $(tail -1 "$OUT/$t-$arm.txt")"
+      port=$((port + 10))
     done
   fi
 done

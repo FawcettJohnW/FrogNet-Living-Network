@@ -65,7 +65,7 @@ uint64_t Key::set_string(const std::string& val, bool keepttl) {
     std::vector<std::string> leftovers;
     if (v && ((!old && elem_count(v)) || (old && old->bag->kind != Kind::String))) v->each([&](const std::string& i, const CellPtr&) { leftovers.push_back(i); return true; });
     if (!keepttl && v && Memory::inst(v, TTL)) g.mem.remove(svc(dbi), name, TTL);
-    Bag b; b.kind = Kind::String; b.s = val;
+    Bag b; b.kind = Kind::String; b.s = val; b.n = piece_mark(dbi, name);   // [FOLD_MARK_V1] earlier pieces are not this value's
     uint64_t id = g.mem.write(R, name, h, VAL, std::move(b));
     if (!leftovers.empty()) g.mem.remove_many(svc(dbi), name, leftovers);
     drop_pieces(dbi, name);                          // [PIECES_V1] a SET: the old edits are gone
@@ -136,7 +136,6 @@ size_t put_elems(int dbi, const std::string& key, Kind kind, const std::vector<s
 // ---- [PIECES_V1] -----------------------------------------------------------------------------------------------
 const std::string PIECE = std::string("\x08", 1);
 void (*hll_fold)(std::string& v, const std::string& piece) = nullptr;
-static std::atomic<uint64_t> piece_seq{1};
 static std::string be64s(uint64_t x) { std::string s(8, '\0'); for (int i = 7; i >= 0; i--) { s[(size_t)i] = (char)(x & 0xff); x >>= 8; } return s; }
 static uint64_t rd64s(const std::string& s, size_t at) { uint64_t x = 0; for (size_t i = 0; i < 8; i++) x = (x << 8) | (unsigned char)s[at + i]; return x; }
 std::string float_text(long double v);
@@ -156,31 +155,90 @@ static void each_piece(const Var* v, const std::function<void(const std::string&
     if (!v || !v->inst_c()) return;
     v->range(PIECE, "", true, [&](const std::string& k, const CellPtr& c) {
         if (k.compare(0, PIECE.size(), PIECE) != 0) return false;
-        f(k, c); return true;
+        if (k.size() == PIECE.size() + 8) f(k, c);                    // a piece; the counter cell (PSEQ) is not one
+        return true;
     });
 }
 static std::string base_text(CellPtr n);
 static const size_t FOLD_AT = 32;
-// When a key's pieces pile up, they are folded into a new value cell: ONE replace_if on the value cell they were folded
-// onto. If it loses, no fold happens this time -- folding is optional work, never a second attempt at anything. Pieces
-// written after the fold read stay and apply over the new value.
+// [FOLD_MARK_V1] A key's pieces are numbered 1, 2, 3... by the key's own counter (one fetch_add in the memory, the
+// PSEQ cell), and the value cell records in Bag::n the number of the last piece folded into it: the mark. Readers
+// apply only the pieces past the mark, so a piece is counted exactly once whether or not its cell has been removed
+// yet. A fold takes only the run of pieces that have all landed, from mark+1 up to the first one not there yet, so a
+// piece numbered before another but landing after it is never jumped over and lost. The fold is ONE replace_if on the
+// value cell it read: if it loses, no fold happens this time -- folding is optional work. (Before this, a second
+// folder could read the first fold's new value with the folded pieces not yet removed and fold them in again:
+// 2,700 bytes appended read back as 2,892.)
+static const std::string PSEQ = PIECE + "pseq";   // the key's piece counter: under the prefix, never a piece (not 8 bytes)
+static uint64_t piece_no(const std::string& k) { return k.size() >= PIECE.size() + 8 ? rd64s(k, PIECE.size()) : 0; }
+static uint64_t mark_of(CellPtr n) { return (n && n->bag->kind == Kind::String && n->bag->n > 0) ? (uint64_t)n->bag->n : 0; }
 static void maybe_fold(int dbi, const std::string& key) {
     ebr::Guard eg;
     Region& R = g.mem.region(svc(dbi)); size_t h = Region::hash_of(key);
     VarPtr v = g.mem.var(R, key, h); if (!v) return;
     CellPtr n = Memory::inst(v, VAL); if (!n || n->bag->kind != Kind::String) return;
-    std::vector<std::string> keys; std::string folded = base_text(n);
-    each_piece(v, [&](const std::string& k, const CellPtr& c) { keys.push_back(k); apply_piece(folded, c->bag->s); });
+    uint64_t mark = mark_of(n), next = mark + 1;
+    std::vector<std::string> keys, stale; std::string folded = base_text(n);
+    each_piece(v, [&](const std::string& k, const CellPtr& c) {
+        uint64_t no = piece_no(k);
+        if (no <= mark) { stale.push_back(k); return; }               // already in the value; its removal is pending
+        if (no != next) return;                                       // a gap: an earlier piece has not landed yet
+        keys.push_back(k); apply_piece(folded, c->bag->s); next++;
+    });
     if (keys.size() < FOLD_AT) return;
-    Bag b = *n->bag; b.s = std::move(folded);
+    Bag b = *n->bag; b.s = std::move(folded); b.n = (int64_t)(next - 1);
     if (!g.mem.replace_if(R, key, h, VAL, n, std::move(b))) return;
     std::vector<std::pair<std::string, std::string>> rs; for (auto& k : keys) rs.emplace_back(key, k);
+    for (auto& k : stale) rs.emplace_back(key, k);
     g.mem.remove_many(svc(dbi), rs);
 }
 void add_piece(int dbi, const std::string& key, std::string payload) {
+    Region& R = g.mem.region(svc(dbi)); size_t h = Region::hash_of(key);
+    uint64_t no;
+    { ebr::Guard eg; Bag zero; zero.kind = Kind::String; zero.s = "0";
+      no = (uint64_t)g.mem.add(R, key, h, PSEQ, zero, 1, 0, false).acc_after; }
     Bag b; b.kind = Kind::String; b.s = std::move(payload);
-    g.mem.write(svc(dbi), key, PIECE + be64s(piece_seq.fetch_add(1, std::memory_order_relaxed)), std::move(b));
+    g.mem.write(svc(dbi), key, PIECE + be64s(no), std::move(b));
     maybe_fold(dbi, key);
+}
+// [APPEND_ON_THE_VALUE_V1] APPEND decided in the memory on the value cell: the new value is the value as read, the
+// run of landed pieces past its mark, then the suffix -- ONE replace_if (Memory::update), decided again on the new value
+// if another writer replaced it first. Every APPEND is serialised with every other writer of the value, so its reply,
+// the length after it, is exactly Redis's (as pieces, two APPENDs could answer the same length: 2,700 appends answered
+// 2,677 distinct lengths). The pieces folded in are removed after it lands; readers already skip them by the mark.
+long long append_value(int dbi, const std::string& key, const std::string& suffix) {
+    Region& R = g.mem.region(svc(dbi)); size_t h = Region::hash_of(key);
+    ebr::Guard eg;
+    long long len_after = 0; std::vector<std::string> folded_keys;
+    g.mem.update(R, key, h, VAL, [&](CellPtr cur) -> std::optional<Bag> {
+        folded_keys.clear();
+        Bag b; if (cur) b = *cur->bag; else b.kind = Kind::String;
+        std::string v = cur ? base_text(cur) : std::string();
+        uint64_t mark = mark_of(cur), next = mark + 1;
+        VarPtr var = g.mem.var(R, key, h);
+        each_piece(var, [&](const std::string& k, const CellPtr& c) {
+            uint64_t no = piece_no(k);
+            if (no <= mark) { folded_keys.push_back(k); return; }
+            if (no != next) return;
+            folded_keys.push_back(k); apply_piece(v, c->bag->s); next++;
+        });
+        v.append(suffix);
+        len_after = (long long)v.size();
+        b.kind = Kind::String; b.s = std::move(v); b.n = (int64_t)(next - 1);
+        return b;
+    });
+    if (!folded_keys.empty()) {
+        std::vector<std::pair<std::string, std::string>> rs; for (auto& k : folded_keys) rs.emplace_back(key, k);
+        g.mem.remove_many(svc(dbi), rs);
+    }
+    g.used_memory += (int64_t)suffix.size();
+    return len_after;
+}
+int64_t piece_mark(int dbi, const std::string& key) {
+    ebr::Guard eg;
+    VarPtr v = g.mem.var(svc(dbi), key); if (!v) return 0;
+    CellPtr c = Memory::inst(v, PSEQ); if (!c) return 0;
+    long long n = 0; string2ll(base_text(c), n); return (int64_t)n;
 }
 bool has_pieces(int dbi, const std::string& key) {
     VarPtr v = g.mem.var(svc(dbi), key); bool any = false;
@@ -214,7 +272,10 @@ std::string float_text(long double v) {
 std::string text(CellPtr n) {
     if (!n) return {};
     std::string v = base_text(n);
-    if (n->bag->kind == Kind::String) each_piece(n->owner.load(std::memory_order_acquire), [&](const std::string&, const CellPtr& c) { apply_piece(v, c->bag->s); });
+    if (n->bag->kind == Kind::String) {   // [FOLD_MARK_V1] only the pieces past the value's mark
+        uint64_t mark = mark_of(n);
+        each_piece(n->owner.load(std::memory_order_acquire), [&](const std::string& k, const CellPtr& c) { if (piece_no(k) > mark) apply_piece(v, c->bag->s); });
+    }
     return v;
 }
 static std::string base_text(CellPtr n) {
@@ -299,12 +360,12 @@ uint64_t set_string(int dbi, const std::string& key, const std::string& val, boo
         std::vector<Memory::W> ws;
         v->each([&](const std::string& i, const CellPtr&) { ws.push_back(Memory::W(key, i, nullptr, true, false)); return true; });
         if (!keepttl && Memory::inst(v, TTL)) ws.push_back(Memory::W(key, TTL, nullptr, true, false));
-        Bag b; b.kind = Kind::String; b.s = val;
+        Bag b; b.kind = Kind::String; b.s = val; b.n = piece_mark(dbi, key);   // [FOLD_MARK_V1]
         ws.push_back(Memory::W(key, VAL, std::make_shared<const Bag>(std::move(b))));
         id = g.mem.write_many(svc(dbi), ws);
     } else {
         if (!keepttl && Memory::inst(v, TTL)) g.mem.remove(svc(dbi), key, TTL);
-        Bag b; b.kind = Kind::String; b.s = val;
+        Bag b; b.kind = Kind::String; b.s = val; b.n = piece_mark(dbi, key);   // [FOLD_MARK_V1]
         id = g.mem.write(svc(dbi), key, VAL, std::move(b));
     }
     drop_pieces(dbi, key);                           // [PIECES_V1] a SET: the old edits are gone
@@ -381,7 +442,7 @@ void set_strings(int dbi, const std::vector<std::pair<std::string, std::string>>
         if (old && old->bag->kind == Kind::String) delta -= (int64_t)old->bag->s.size();
         g.used_memory += delta;
         if (Memory::inst(v, TTL)) g.mem.remove(svc(dbi), kv.first, TTL);
-        Bag b; b.kind = Kind::String; b.s = kv.second;
+        Bag b; b.kind = Kind::String; b.s = kv.second; b.n = piece_mark(dbi, kv.first);   // [FOLD_MARK_V1]
         ws.push_back(Memory::W{kv.first, VAL, std::move(b)});
     }
     g.mem.write_many(svc(dbi), ws);

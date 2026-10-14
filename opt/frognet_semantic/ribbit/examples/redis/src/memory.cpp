@@ -627,6 +627,16 @@ uint64_t Memory::exchange(Region& R, const std::string& variable, size_t hash, B
         return id;
     }
 }
+bool Memory::update(Region& R, const std::string& variable, size_t hash, const std::string& instance,
+                    const std::function<std::optional<Bag>(CellPtr)>& decide, CellPtr* node_out) {
+    // [ONE_CELL_SERIALISED_V1]
+    for (;;) {
+        CellPtr cur = cell(R, variable, hash, instance);
+        std::optional<Bag> nb = decide(cur);
+        if (!nb) return false;
+        if (replace_if(R, variable, hash, instance, cur, std::move(*nb), nullptr, node_out)) return true;
+    }
+}
 Memory::Added Memory::add(Region& R, const std::string& variable, size_t hash, const std::string& instance, const Bag& initial,
                           int64_t delta, double fdelta, bool is_float) {
     // [THE_MEMORY_DECIDES_V1] One pass, no retry. The cell is created holding `initial` if absent (exactly one creator

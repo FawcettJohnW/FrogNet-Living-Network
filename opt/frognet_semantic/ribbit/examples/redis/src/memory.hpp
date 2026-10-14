@@ -287,6 +287,13 @@ public:
     // there (valid inside the caller's EBR section).
     bool replace_if(Region& R, const std::string& variable, size_t hash, const std::string& instance, CellPtr expected,
                     Bag bag, uint64_t* id_out = nullptr, CellPtr* node_out = nullptr);
+    // Decide-and-replace, atomic in the memory: `decide` is shown the live cell (null if absent) and returns the bag to
+    // put there, or nothing to leave it. The bag lands only on the cell it was decided from (replace_if); if another
+    // writer changed the cell first, `decide` is shown the new cell and decides again -- the compare-and-swap loop
+    // every lock-free structure here uses, so the command is serialised with every other writer of that cell, as
+    // Redis serialises commands. Nothing else is ever tried. True iff a bag landed. [ONE_CELL_SERIALISED_V1]
+    bool update(Region& R, const std::string& variable, size_t hash, const std::string& instance,
+                const std::function<std::optional<Bag>(CellPtr live)>& decide, CellPtr* node_out = nullptr);
     // Replace the value cell unconditionally and hand back the node it replaced (valid inside the caller's EBR section).
     uint64_t exchange(Region& R, const std::string& variable, size_t hash, Bag bag, CellPtr* old_out);
     // Add to a cell's accumulator (the cell created holding `initial` if absent). One fetch_add: every caller gets its

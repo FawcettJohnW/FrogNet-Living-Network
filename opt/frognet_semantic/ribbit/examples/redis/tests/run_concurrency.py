@@ -20,7 +20,7 @@
 different fronts truly in parallel (one host thread per front session). Every command family that reads a key's
 state and writes from it is hammered here from several fronts at once, and checked against the guarantee Redis gives.
 Usage: run_concurrency.py <build-dir> <base-port> [fronts=3] [threads-per-front=6] [only=family,...]"""
-import os, socket, subprocess, sys, threading, time, collections
+import os, socket, subprocess, sys, threading, time, collections, atexit
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from coordinated import Redis
 B, BASE = sys.argv[1], int(sys.argv[2]); NF = int(sys.argv[3]) if len(sys.argv) > 3 else 3
@@ -39,12 +39,18 @@ if os.environ.get("ENDPOINTS"):
     PORTS = [given[i % len(given)] for i in range(NF)]
     for p in set(PORTS): up(p)
 else:
+    # a port already answering is a server this run did not start (a run that died left it): testing it would test
+    # whatever binary it is. Refuse, by name. [NO_STALE_SERVER_V1]
+    for p in range(BASE, BASE + NF + 1):
+        try: socket.create_connection(("127.0.0.1", p), timeout=0.5).close(); sys.exit("port %d is already in use by a server this run did not start" % p)
+        except OSError: pass
     procs = [subprocess.Popen([B + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE, "--api", API, "--quiet"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
     up(BASE)
     for i in range(NF):
         procs.append(subprocess.Popen([B + "/ribbit-redis-front", "--port", str(BASE + 1 + i), "--save", ""], env=dict(env, RIBBIT_RAM="127.0.0.1:%d" % BASE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         up(BASE + 1 + i)
     PORTS = [BASE + 1 + i for i in range(NF)]
+atexit.register(lambda: [p.kill() for p in procs])
 admin = Redis("127.0.0.1", PORTS[0])
 results = []
 def run(n_per_thread, work):
@@ -142,8 +148,17 @@ for cmd in ("LMOVE", "SMOVE"):
     family(cmd, len(allv) == M and len(set(allv)) == M, "%d elements, now %d (%d distinct)" % (M, len(allv), len(set(allv))))
 # ---- edits in place: every writer's edit present
 if want("APPEND"):
-    admin.cmd("DEL", "e:app"); run(N, lambda c, t, i: c.cmd("APPEND", "e:app", "x"))
-    n = int(admin.cmd("STRLEN", "e:app")); family("APPEND", n == N * W, "appended %d bytes, STRLEN %d" % (N * W, n))
+    # each thread appends its own letter: the length AND the bytes must show every append exactly once
+    admin.cmd("DEL", "e:app"); outs = run(N, lambda c, t, i: c.cmd("APPEND", "e:app", chr(65 + t % 58)))
+    replies = sorted(y for o in outs for y in o)
+    family("APPEND (replies)", replies == list(range(1, N * W + 1)),
+           "each APPEND answers the length after it: %d replies, %d distinct, max %s (Redis: exactly 1..%d)%s" % (len(replies), len(set(replies)), replies[-1] if replies else None, N * W,
+           "" if replies == list(range(1, N * W + 1)) else "; repeated: %s" % sorted(k for k, v in collections.Counter(replies).items() if v > 1)[:8]))
+    n = int(admin.cmd("STRLEN", "e:app")); body = admin.cmd("GET", "e:app") or ""
+    per = collections.Counter(body); expect = collections.Counter({chr(65 + t % 58): 0 for t in range(W)})
+    for t in range(W): expect[chr(65 + t % 58)] += N
+    family("APPEND", n == N * W and len(body) == N * W and per == expect,
+           "appended %d bytes, STRLEN %d, GET %d bytes, every thread's bytes counted exactly once: %s" % (N * W, n, len(body), per == expect))
 if want("SETBIT"):
     admin.cmd("DEL", "e:bit"); run(N, lambda c, t, i: c.cmd("SETBIT", "e:bit", str(t * N + i), "1"))
     n = int(admin.cmd("BITCOUNT", "e:bit")); family("SETBIT (distinct bits)", n == N * W, "set %d bits, BITCOUNT %d" % (N * W, n))

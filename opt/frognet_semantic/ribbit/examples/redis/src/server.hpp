@@ -199,7 +199,9 @@ namespace db {
     BagPtr copy_bag(CellPtr n);
     void add_piece(int dbi, const std::string& key, std::string payload);
     bool has_pieces(int dbi, const std::string& key);                 // edits are pending on the key: an add goes after them, as a piece
-    void drop_pieces(int dbi, const std::string& key);                 // a SET-class write: the old edits are gone
+    void drop_pieces(int dbi, const std::string& key);
+    long long append_value(int dbi, const std::string& key, const std::string& suffix);   // [APPEND_ON_THE_VALUE_V1] the length after
+    int64_t piece_mark(int dbi, const std::string& key);               // [FOLD_MARK_V1] the key's piece counter now: a SET-class value carries it as its mark                 // a SET-class write: the old edits are gone
     extern void (*hll_fold)(std::string& v, const std::string& piece);
     std::vector<Cell> elems(const VarPtr& v, int dbi, const std::string& key);       // every element, instance order
     // write elements (kind = HashField / SetMember); returns how many were new

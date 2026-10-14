@@ -102,7 +102,7 @@ static void set_generic(Client& c, const std::string& key, const std::string& va
         if (found && k != Kind::String) { kk.set_string(val, (flags & F_KEEPTTL) != 0); if (ex_ms) db::set_expire(c.db, key, ex_ms); r.status(okreply); return; }
         if (!found) { r.null(); return; }
         CellPtr old = nullptr;                                   // one exchange: the value replaced is the one handed back
-        g.mem.exchange(kk.R, key, kk.h, std::move(b), &old); db::drop_pieces(c.db, key);   // [PIECES_V1]
+        b.n = db::piece_mark(c.db, key); g.mem.exchange(kk.R, key, kk.h, std::move(b), &old); db::drop_pieces(c.db, key);   // [PIECES_V1]
         landed((flags & F_KEEPTTL) != 0);
         if (flags & F_GET) { if (old) r.bulk(db::text(old)); else r.null(); } else r.status(okreply);
         return;
@@ -110,7 +110,7 @@ static void set_generic(Client& c, const std::string& key, const std::string& va
     if (flags & F_GET) {
         if (found && k != Kind::String) { err_wrongtype(r); return; }
         CellPtr old = nullptr;
-        g.mem.exchange(kk.R, key, kk.h, std::move(b), &old); db::drop_pieces(c.db, key);   // [PIECES_V1]
+        b.n = db::piece_mark(c.db, key); g.mem.exchange(kk.R, key, kk.h, std::move(b), &old); db::drop_pieces(c.db, key);   // [PIECES_V1]
         landed((flags & F_KEEPTTL) != 0);
         if (old) r.bulk(db::text(old)); else r.null();
         return;
@@ -176,7 +176,7 @@ static void cmd_getset(Client& c, const Argv& a, Reply& r) {
     if (k.k != Kind::None && k.k != Kind::String) { err_wrongtype(r); return; }
     ebr::Guard eg; CellPtr old = nullptr;
     Bag b; b.kind = Kind::String; b.s = a[2];
-    g.mem.exchange(k.R, k.name, k.h, std::move(b), &old); db::drop_pieces(c.db, a[1]);   // [PIECES_V1]
+    b.n = db::piece_mark(c.db, a[1]); g.mem.exchange(k.R, k.name, k.h, std::move(b), &old); db::drop_pieces(c.db, a[1]);   // [PIECES_V1]
     VarPtr v = g.mem.var(k.R, k.name, k.h); if (v && Memory::inst(v, db::TTL)) g.mem.remove(db::svc(c.db), a[1], db::TTL);
     g.stats.dirty++;
     if (old) r.bulk(db::text(old)); else r.null();
@@ -223,13 +223,14 @@ static void cmd_strlen(Client& c, const Argv& a, Reply& r) {
     r.integer(st == 0 ? 0 : (long long)v.size());
 }
 static void cmd_append(Client& c, const Argv& a, Reply& r) {
-    // [PIECES_V1] the append is its own piece: every APPEND lands, in ticket order; none recomputes, none overwrites another
+    // [APPEND_ON_THE_VALUE_V1] decided in the memory on the value cell, serialised with every other writer of it;
+    // the reply is the length after THIS append
     { db::Key k(c.db, a[1]); if (k.k != Kind::None && k.k != Kind::String) { err_wrongtype(r); return; } }
     if (!check_len(current_len(c, a[1]), (long long)a[2].size(), r)) return;
     if (string_for_edit(c, a[1], r) < 0) return;
-    db::add_piece(c.db, a[1], "A" + a[2]);
+    long long n = db::append_value(c.db, a[1], a[2]);
     g.stats.dirty++;
-    r.integer(current_len(c, a[1]));
+    r.integer(n);
 }
 static void cmd_getrange(Client& c, const Argv& a, Reply& r) {
     long long start, end;

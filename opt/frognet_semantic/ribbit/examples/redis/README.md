@@ -44,8 +44,13 @@ in the command code ([THE_MEMORY_DECIDES_V1], src/memory.{hpp,cpp}):
 | batches (existing), used whole | a replacement appears in one step | the *STORE commands, SET over another kind, COPY REPLACE, RENAME |
 | pieces: each edit its own cell, folded in ticket order on read (reduce-by-read) | nothing -- no edit reads-then-writes, so none can lose | APPEND SETRANGE SETBIT BITFIELD, PFADD PFMERGE (register maxima) |
 
-No command recomputes an operation after losing a race: that would be a fallback. A command takes the memory's answer
-as final; where a claim is lost it takes the NEXT item (pops, SPOP, LREM, XREADGROUP), never the same one again.
+A command takes the memory's answer as final; where a claim is lost it takes the NEXT item (pops, SPOP, LREM,
+XREADGROUP), never the same one again. Where a command's new value depends on the old one and no accumulator can carry
+it (ZADD INCR/NX/XX/GT/LT and ZINCRBY, whose score is indexed; APPEND, whose reply is the length after it), the memory
+decides it with `update`: the value is decided from the live cell and lands only on that cell, and if another writer
+replaced the cell first it is decided again on the new one -- the compare-and-swap loop of every lock-free structure
+in the memory, serialising the command with that writer as Redis serialises commands ([ONE_CELL_SERIALISED_V1]). The
+same mechanism, never a second one.
 PROGRESS-NO-FALLBACKS.md records how each read-modify-write became a memory operation.
 
 Why it matters: the region runs commands from every front truly in parallel (one host thread per front session).

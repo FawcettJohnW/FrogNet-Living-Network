@@ -166,23 +166,28 @@ static void cmd_zadd(Client& c, const Argv& a, Reply& r) {
     for (size_t i = j; i < a.size(); i += 2) { long double d; if (!string2ld(a[i], d)) { err_notfloat(r); return; } in.emplace_back(a[i+1], (double)d); }
     VarPtr v; if (zvar(c, a[1], v, r) < 0) return;
     if (incr || nx || xx || gt || lt) {
-        // [THE_MEMORY_DECIDES_V1] a conditional or incremental ZADD: each member is decided from the cell as read and
-        // lands only on that cell (replace_if); if another writer changed the member first, it is decided again.
+        // [THE_MEMORY_DECIDES_V1][ONE_CELL_SERIALISED_V1] a conditional or incremental ZADD: each member is decided
+        // in the memory from the live cell and lands only on that cell; if another writer changed the member first,
+        // it is decided again on what is there now -- serialised with that writer, as Redis serialises the two
+        // commands. Losing a race never drops the increment (it used to: ZINCRBY answered nil and lost the add).
         db::Key k(c.db, a[1]);
         long long added = 0, updated = 0; double incr_result = 0; bool incr_nil = false;
         for (auto& m : in) {
             ebr::Guard eg;
-            CellPtr cur = g.mem.cell(k.R, k.name, k.h, db::ELEM + m.first);
-            bool had = cur != nullptr; double old = had ? cur->bag->d : 0;
-            double ns = m.second;
-            if (incr) { if (had) ns = old + m.second; if (std::isnan(ns)) { r.error("ERR resulting score is not a number (NaN)"); return; } }
-            if ((had && nx) || (!had && xx) || (had && ((gt && ns <= old) || (lt && ns >= old)))) { if (incr) incr_nil = true; continue; }
-            if (had && ns == old) { incr_result = ns; continue; }
-            // one decision: the member lands only on the cell its condition was checked against; if another writer
-            // changed it first, the memory's answer is final and this member was not applied
-            if (!g.mem.replace_if(k.R, k.name, k.h, db::ELEM + m.first, cur, Bag(*zbag(ns)))) { if (incr) incr_nil = true; continue; }
+            bool had = false, nan = false, skip = false; double old = 0, ns = 0;
+            bool landed = g.mem.update(k.R, k.name, k.h, db::ELEM + m.first, [&](CellPtr cur) -> std::optional<Bag> {
+                had = cur != nullptr; old = had ? cur->bag->d : 0; ns = m.second; nan = skip = false;
+                if (incr) { if (had) ns = old + m.second; if (std::isnan(ns)) { nan = true; return std::nullopt; } }
+                if ((had && nx) || (!had && xx) || (had && ((gt && ns <= old) || (lt && ns >= old)))) { skip = true; return std::nullopt; }
+                if (had && ns == old) return std::nullopt;               // nothing to write; the score stands
+                return Bag(*zbag(ns));
+            });
+            if (nan) { r.error("ERR resulting score is not a number (NaN)"); return; }
+            if (skip) { if (incr) incr_nil = true; continue; }
+            incr_result = ns;
+            if (!landed) continue;
             if (!had) added++; else updated++;
-            incr_result = ns; g.stats.dirty++;
+            g.stats.dirty++;
         }
         if (incr) { if (incr_nil) r.null(); else reply_score(r, incr_result); return; }
         r.integer(ch ? added + updated : added);

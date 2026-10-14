@@ -1,32 +1,17 @@
 # Acceptance -- the Redis region beside stock Redis 7.2.11
 
-`tools/accept.sh` stands up stock Redis 7.2.11 (built from its own source, jemalloc) beside the region and runs every
-test on both. Part 1 is parity; part 2 is what the region does that stock cannot, with stock's result measured on the
-same run. Raw output per stage and arm: `results/accept-<stamp>/`.
+`tools/accept.sh` builds stock Redis 7.2.11 from its own source (jemalloc) and runs every test on it and on the region.
+Part 1 is parity. Part 2 runs the same test on four arms -- stock with persistence off (as the region), stock with
+AOF, stock with AOF and Sentinel, and the region -- and measures stock's result rather than assuming it. Raw output
+per stage and arm: `results/accept-<stamp>/`. The supported contract that follows from it: `SUPPORTED-CONTRACT.md`.
 
-    REDIS_SRC=/srv/redis-7.2.11 bash tools/accept.sh          # all stages but inet
-    STAGES="suite" REDIS_SRC=... bash tools/accept.sh          # one stage
-    STAGES="inet" RAM_ENDPOINT=host:port REDIS_SRC=... bash tools/accept.sh
+    REDIS_SRC=/srv/redis-7.2.11 bash tools/accept.sh             # all stages but inet; REDIS_SRC path <= 40 chars
+    STAGES="suite" REDIS_SRC=... bash tools/accept.sh             # one stage
+    python3 tests/accept_triage.py results/<run>/SUMMARY.txt $REDIS_SRC --rerun   # class every parity gap
 
-Everything takes IP:port. Nothing needs DNS, so it runs on a LAN with no name service.
+Everything takes IP:port; nothing needs DNS, so it runs on a LAN with no name service.
 
-## Run of 2026-10-13, sandbox, 2 cores, x86_64 (not representative for performance; rerun on the Pi 5)
-
-```
-== suite: Redis 7.2.11's own tests, each file on both arms; a test green on stock and red on the region is a parity gap
-  unit/type/incr  stock ok 32 err 0   region ok 31 err 1   green on stock only: 1
-  unit/type/string  stock ok 82 err 0   region ok 79 err 2   green on stock only: 3
-  unit/type/hash  stock ok 73 err 0   region ok 70 err 3   green on stock only: 3
-  unit/type/set  stock ok 119 err 0   region ok 114 err 5   green on stock only: 5
-  unit/type/list  stock ok 274 err 0   region ok 261 err 13   green on stock only: 11
-  unit/type/zset  stock ok 320 err 0   region ok 316 err 4   green on stock only: 4
-  unit/keyspace  stock ok 56 err 0   region ok 56 err 0   green on stock only: 0
-  unit/type/stream  stock ok 75 err 0   region ok 60 err 15   green on stock only: 15
-  unit/type/stream-cgroups  stock ok 66 err 0   region ok 56 err 10   green on stock only: 10
-  unit/multi  stock ok 63 err 0   region ok 35 err 28   green on stock only: 28
-```
-
-Suite totals: stock 1,160 ok, 0 err. Region 1,078 ok, 81 err. 80 tests green on stock and red on the region, listed in `PARITY-GAPS-20261013.txt`; they have not yet been checked against TRIAGE-SUITE-REDS.md.
+## Run of 2026-10-13 20:00, sandbox, 2 cores, x86_64 (performance not representative; rerun on the Pi 5)
 
 ```
 == metrics (lines of code and cyclomatic complexity, stock src/ vs the region's src/)
@@ -45,20 +30,31 @@ stock Redis 7.2.11 server, src/ (deps/ excluded)
   TOTAL server (clients excluded)                                   85569 NLOC   3850 functions  CCN total  21836
   MATCHED (also without scripting and modules, which the region lacks)    73225 NLOC   3124 functions  CCN total  18889
 Redis region
-  the region: commands, data model, memory, front (src/)             35 files     7608 NLOC    788 functions  CCN total   4522  max  105  >10:  104
+  the region: commands, data model, memory, front (src/)             35 files     7677 NLOC    793 functions  CCN total   4548  max  105  >10:  104
   the vendored Ribbit platform it builds on (platform/)              23 files    11411 NLOC    615 functions  CCN total   3894  max  548  >10:   87
-  TOTAL                                                             19019 NLOC   1403 functions  CCN total   8416
+  TOTAL                                                             19088 NLOC   1408 functions  CCN total   8442
+# PART 1 -- parity: the same tests on stock and on the region
+== suite: Redis 7.2.11's own tests, each file on both arms; a test green on stock and red on the region is a parity gap
+  unit/type/incr  stock ok 32 err 0   region ok 31 err 1   green on stock only: 1 (red on the region 1, not run on the region 0)
+  unit/type/string  stock ok 82 err 0   region ok 79 err 2   green on stock only: 3 (red on the region 2, not run on the region 1)
+  unit/type/hash  stock ok 73 err 0   region ok 70 err 3   green on stock only: 3 (red on the region 3, not run on the region 0)
+  unit/type/set  stock ok 118 err 0   region ok 113 err 5   green on stock only: 5 (red on the region 5, not run on the region 0)
+  unit/type/list  stock ok 257 err 0   region ok 246 err 11   green on stock only: 11 (red on the region 11, not run on the region 0)
+  unit/type/zset  stock ok 303 err 0   region ok 299 err 4   green on stock only: 4 (red on the region 4, not run on the region 0)
+  unit/keyspace  stock ok 54 err 0   region ok 54 err 0   green on stock only: 0 (red on the region 0, not run on the region 0)
+  unit/type/stream  stock ok 75 err 0   region ok 60 err 15   green on stock only: 15 (red on the region 15, not run on the region 0)
+  unit/type/stream-cgroups  stock ok 65 err 0   region ok 55 err 10   green on stock only: 10 (red on the region 10, not run on the region 0)
+  unit/multi  stock ok 63 err 0   region ok 35 err 28   green on stock only: 28 (red on the region 28, not run on the region 0)
 == concurrency: every read-modify-write family hammered from several connections, Redis's guarantee checked
   stock:
-    RESULT GREEN: 38 of 38 families hold their guarantee under concurrency; failing: none
+    RESULT GREEN: 39 of 39 families hold their guarantee under concurrency; failing: none
   region:
-    RESULT RED: 36 of 38 families hold their guarantee under concurrency; failing: ZINCRBY, APPEND
-    results/accept-20261013-192114/concurrency-ribbit.txt:FAIL ZINCRBY -- expected 2700, region has 2693 (-7)
-    results/accept-20261013-192114/concurrency-ribbit.txt:FAIL APPEND -- appended 2700 bytes, STRLEN 2892
+    RESULT GREEN: 39 of 39 families hold their guarantee under concurrency; failing: none
 == bench: redis-benchmark, one endpoint each, same command lines (req/s; region/stock)
-  SET  stock 806452  region 60957  ratio 0.08
-  GET  stock 826446  region 61996  ratio 0.08
-# PART 2 -- what the region does that stock cannot: the same test on both, stock's result measured
+  SET  stock 701754  region 67092  ratio 0.10
+  GET  stock 851064  region 65147  ratio 0.08
+# PART 2 -- beside stock as an operator would set it up: the same test on every arm, stock's result measured
+#   stock: persistence off (the region has none) | stock-aof: AOF on | stock-sentinel: AOF + Sentinel failover | ribbit: the region
 == endpoints
   stock:
     PASS endpoint 1: 2000 INCRs accepted, 0 refused
@@ -66,6 +62,18 @@ Redis region
     FAIL endpoint 1 reads the total: 2000 of 4000 INCRs sent across all endpoints
     FAIL endpoint 2 reads the total: 2000 of 4000 INCRs sent across all endpoints
     RESULT FAIL stock endpoints (K=2): 3 fail
+  stock-aof:
+    PASS endpoint 1: 2000 INCRs accepted, 0 refused
+    FAIL endpoint 2: 0 INCRs accepted, 2000 refused (READONLY You can't write against a read only replica.)
+    FAIL endpoint 1 reads the total: 2000 of 4000 INCRs sent across all endpoints
+    FAIL endpoint 2 reads the total: 2000 of 4000 INCRs sent across all endpoints
+    RESULT FAIL stock-aof endpoints (K=2): 3 fail
+  stock-sentinel:
+    PASS endpoint 1: 2000 INCRs accepted, 0 refused
+    FAIL endpoint 2: 0 INCRs accepted, 2000 refused (READONLY You can't write against a read only replica.)
+    FAIL endpoint 1 reads the total: 2000 of 4000 INCRs sent across all endpoints
+    FAIL endpoint 2 reads the total: 2000 of 4000 INCRs sent across all endpoints
+    RESULT FAIL stock-sentinel endpoints (K=2): 3 fail
   ribbit:
     PASS endpoint 1: 2000 INCRs accepted, 0 refused
     PASS endpoint 2: 2000 INCRs accepted, 0 refused
@@ -74,25 +82,65 @@ Redis region
     RESULT PASS ribbit endpoints (K=2): 0 fail
 == loss
   stock:
-    FAIL after endpoint 1 was killed, endpoint 2 accepted 0 more writes (387 refused in all)
-    PASS while endpoint 1 is down, the survivor (endpoint 2) reads 23543 of 23543 keys written
-    FAIL endpoint 1, started again: reads 0 of 23543 keys written
-    PASS endpoint 2, after endpoint 1 is back: reads 23543 of 23543 keys written
-    RESULT FAIL stock loss (K=2): 2 fail
+    MEASURE stock: endpoint 2 accepted 0 writes in all, refused 961; first write accepted after endpoint 1 was killed: none within 8 s
+    FAIL endpoint 2 kept taking writes after endpoint 1 was killed
+    FAIL endpoint 1 after endpoint 1 is back (polled 30.2 s): reads 0 of 23620 acknowledged writes
+    FAIL endpoint 2 after endpoint 1 is back (polled 30.2 s): reads 0 of 23620 acknowledged writes
+    RESULT FAIL stock loss (K=2): 3 fail
+  stock-aof:
+    MEASURE stock-aof: endpoint 2 accepted 0 writes in all, refused 963; first write accepted after endpoint 1 was killed: none within 8 s
+    FAIL endpoint 2 kept taking writes after endpoint 1 was killed
+    PASS endpoint 1 after endpoint 1 is back (polled 0.0 s): reads 22345 of 22345 acknowledged writes
+    PASS endpoint 2 after endpoint 1 is back (polled 0.0 s): reads 22345 of 22345 acknowledged writes
+    RESULT FAIL stock-aof loss (K=2): 1 fail
+  stock-sentinel:
+    MEASURE stock-sentinel: endpoint 2 accepted 91839 writes in all, refused 312; first write accepted after endpoint 1 was killed: 1.27 s after
+    PASS endpoint 2 kept taking writes after endpoint 1 was killed
+    PASS endpoint 1 after endpoint 1 is back (polled 15.6 s): reads 113160 of 113160 acknowledged writes
+    PASS endpoint 2 after endpoint 1 is back (polled 15.6 s): reads 113160 of 113160 acknowledged writes
+    RESULT PASS stock-sentinel loss (K=2): 0 fail
   ribbit:
-    PASS after endpoint 1 was killed, endpoint 2 accepted 4782 more writes (0 refused in all)
-    PASS while endpoint 1 is down, the survivor (endpoint 2) reads 15981 of 15981 keys written
-    PASS endpoint 1, started again: reads 15981 of 15981 keys written
-    PASS endpoint 2, after endpoint 1 is back: reads 15981 of 15981 keys written
+    MEASURE ribbit: endpoint 2 accepted 22135 writes in all, refused 0; first write accepted after endpoint 1 was killed: 0.00 s after
+    PASS endpoint 2 kept taking writes after endpoint 1 was killed
+    PASS endpoint 1 after endpoint 1 is back (polled 0.2 s): reads 26661 of 26661 acknowledged writes
+    PASS endpoint 2 after endpoint 1 is back (polled 0.2 s): reads 26661 of 26661 acknowledged writes
     RESULT PASS ribbit loss (K=2): 0 fail
+== hostloss
+  stock:
+    FAIL after the data's home (the primary) was killed and started again, endpoint 1 reads 0 of 21739 acknowledged writes (polled 30.3 s)
+    RESULT FAIL stock hostloss (K=2): 1 fail
+  stock-aof:
+    PASS after the data's home (the primary) was killed and started again, endpoint 1 reads 20445 of 20445 acknowledged writes (polled 0.0 s)
+    RESULT PASS stock-aof hostloss (K=2): 0 fail
+  stock-sentinel:
+    PASS after the data's home (the primary) was killed and started again, endpoint 1 reads 21984 of 21984 acknowledged writes (polled 0.0 s)
+    RESULT PASS stock-sentinel hostloss (K=2): 0 fail
+  ribbit:
+    FAIL after the data's home (the RAM host) was killed and started again, endpoint 1 reads 0 of 4296 acknowledged writes (polled 30.5 s)
+    RESULT FAIL ribbit hostloss (K=2): 1 fail
 == scale: K endpoints at once, requests/s summed (stock SET can only go to its primary)
-  MEASURE stock SET K=1 total 696864 req/s  per endpoint 696864
-  MEASURE stock GET K=1 total 877193 req/s  per endpoint 877193
-  MEASURE ribbit SET K=1 total 65466 req/s  per endpoint 65466
-  MEASURE ribbit GET K=1 total 67958 req/s  per endpoint 67958
-  MEASURE stock SET K=2 total 437398 req/s  per endpoint 218579 218818
-  MEASURE stock GET K=2 total 898030 req/s  per endpoint 414938 483092
-  MEASURE ribbit SET K=2 total 69379 req/s  per endpoint 34795 34584
-  MEASURE ribbit GET K=2 total 71685 req/s  per endpoint 35772 35913
-## results in results/accept-20261013-192114
+  MEASURE stock SET K=1 total 727273 req/s  per endpoint 727273
+  MEASURE stock GET K=1 total 904977 req/s  per endpoint 904977
+  MEASURE ribbit SET K=1 total 65338 req/s  per endpoint 65338
+  MEASURE ribbit GET K=1 total 64082 req/s  per endpoint 64082
+  MEASURE stock SET K=2 total 554789 req/s  per endpoint 278164 276625
+  MEASURE stock GET K=2 total 1147892 req/s  per endpoint 579710 568182
+  MEASURE ribbit SET K=2 total 74116 req/s  per endpoint 36907 37209
+  MEASURE ribbit GET K=2 total 75507 req/s  per endpoint 37743 37764
+## results in results/accept-20261013-200034
 ```
+
+## Reading it
+- Suite counts are tests, by name (two list tests run twice under one name, once per encoding, and count once).
+  Stock 1,122 ok, 0 err; the region 1,042 ok, 79 err, and 1 test the suite skipped on it (it runs only when INFO
+  reports jemalloc). Those 80 are classed in `PARITY-TRIAGE-20261013.md`: replication 35, persistence 21,
+  encoding 13, scripting 5, cascade 5 (each passes alone on both arms), not run 1. None is unexplained.
+- Fixed before this run, found by the earlier one: ZINCRBY lost increments under contention (it answered nil when it
+  lost a race) and APPEND counted pieces twice when two folds overlapped (2,700 bytes read back as 2,892), and as
+  pieces could answer the same length twice. `[ONE_CELL_SERIALISED_V1]`, `[FOLD_MARK_V1]`, `[APPEND_ON_THE_VALUE_V1]`.
+- Stock with persistence off restarts empty, and its replica then resyncs from the empty primary: both read 0. That
+  is the configuration that matches the region's (no persistence); stock with AOF reads everything back.
+- Sentinel recovers stock from losing its primary: the replica took writes 1.27 s after the kill (312 writes refused
+  meanwhile), and the old primary was readable again 15.6 s after its restart. The region's surviving front took
+  writes with no gap (0 refused) and the restarted front read everything 0.2 s after its restart.
+- Losing the RAM host loses the region: 0 of 4,296 acknowledged writes readable after it restarts.
