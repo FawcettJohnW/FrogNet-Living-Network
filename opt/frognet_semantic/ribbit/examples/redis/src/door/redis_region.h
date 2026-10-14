@@ -21,3 +21,7 @@
 std::string redis_region_call(const std::string& body);
 // A blocking command (BLPOP, XREAD BLOCK, DEBUG SLEEP ...): parks, on the caller's own request thread.
 std::string redis_region_block(const std::string& body);
+// [FAN_IN_BATCH_V1] Many connections' pipelines in one call: {"batch":[<a redis_region_call body, as JSON text>, ...]}
+// -> {"ok":true,"b":[<each one's reply, as JSON text>, ...]}, in order. The items are independent connections: they run
+// fanned out across the host's cores and are gathered back in order.
+std::string redis_region_batch(const std::string& body);

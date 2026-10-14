@@ -144,3 +144,21 @@ Redis region
   meanwhile), and the old primary was readable again 15.6 s after its restart. The region's surviving front took
   writes with no gap (0 refused) and the restarted front read everything 0.2 s after its restart.
 - Losing the RAM host loses the region: 0 of 4,296 acknowledged writes readable after it restarts.
+
+## Run of 2026-10-13 23:44, after fan-in / multiplexing / consolidation (same sandbox)
+
+Changes: the front is an epoll loop that reads every ready connection and sends their pipelines as ONE call
+(`op=redis_batch`, `[EVENT_LOOP_FAN_IN_V1]`, `[FAN_IN_BATCH_V1]`); one session per dispatcher, so several batches are
+in flight and each session's semantic engine runs on its own threads at both ends (`[ONE_SESSION_PER_DISPATCHER_V1]`);
+the host fans each batch out across its cores with a lock-free pool; the connection context is held in the region and
+no longer crosses the wire (`[CONTEXT_IN_THE_REGION_V1]`). Suite and concurrency results identical to the run above.
+
+| redis-benchmark, -P 16 -c 50 | stock | region before | region now | now ÷ stock |
+|---|---|---|---|---|
+| SET, 1 endpoint | 660,066 | 65,338 | 113,186 | 0.17 |
+| GET, 1 endpoint | 930,233 | 64,082 | 130,890 | 0.14 |
+| SET, 2 endpoints | 444,199 | 74,116 | 145,124 | 0.33 |
+| GET, 2 endpoints | 907,095 | 75,507 | 181,171 | 0.20 |
+
+One connection, one command at a time (no pipelining) got slower: the loss test's single writer on endpoint 2
+acknowledged 14,586 SETs in 10 s against 22,135 before -- the batch path adds a hop for a lone connection.

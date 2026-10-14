@@ -37,6 +37,8 @@
 #include <linux/futex.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <thread>
+#include <atomic>
 
 namespace rr {
 namespace door {
@@ -171,16 +173,44 @@ static void apply_config(const Json& cfg) {
 // gets its id (Redis: unique and increasing for the server's life, so unique across fronts) and a random token; every
 // call must present both; authed and user are taken from the region's record, never from the call, and written back
 // after the call. A front sends "gone" when a connection ends; only a front that dies leaves records behind.
-struct ConnRec { std::string token; bool authed; std::string user; };
+// [CONTEXT_IN_THE_REGION_V1] the connection's context (SELECT, HELLO, CLIENT SETNAME/REPLY, MULTI/WATCH state) is held
+// here too, with its record: it used to travel in every call both ways, ~460 bytes the semantic wire had to scan per
+// pipeline for a context that almost never changes. A call now carries id, token and the pipeline; the reply carries
+// the replies, whether the connection is authenticated and whether it must close.
+struct Snap {               // the context's fields, copied in and out of a Client -- no JSON on the batch path
+    int db = 0, proto = 2, reply_mode = 0, skip_count = 0; bool no_evict = false, no_touch = false, in_multi = false, multi_err = false;
+    std::string name, libname, libver, addr, laddr, flags = "N"; int64_t created_ms = 0; std::vector<Client::Watch> watches;
+};
+static void snap_in(Client& c, const Snap& s, uint64_t id) {
+    c.id = id; c.db = s.db; c.proto = s.proto; c.reply_mode = s.reply_mode; c.skip_count = s.skip_count;
+    c.no_evict = s.no_evict; c.no_touch = s.no_touch; c.in_multi = s.in_multi; c.multi_err = s.multi_err;
+    c.name = s.name; c.libname = s.libname; c.libver = s.libver; c.addr = s.addr; c.laddr = s.laddr; c.flags = s.flags;
+    c.created_ms = s.created_ms; c.last_cmd_ms = Memory::now_ms(); c.watches = s.watches;
+}
+static void snap_out(Snap& s, const Client& c) {
+    s.db = c.db; s.proto = c.proto; s.reply_mode = c.reply_mode; s.skip_count = c.skip_count;
+    s.no_evict = c.no_evict; s.no_touch = c.no_touch; s.in_multi = c.in_multi; s.multi_err = c.multi_err;
+    s.name = c.name; s.libname = c.libname; s.libver = c.libver; s.addr = c.addr; s.laddr = c.laddr; s.flags = c.flags;
+    s.created_ms = c.created_ms; s.watches = c.watches;
+}
+struct ConnRec { std::string token; bool authed; std::string user; std::string ctx; Snap snap; bool has_snap = false; };
 static LFMap<uint64_t, ConnRec*> conns;
 static std::string random_token() {
     static thread_local std::mt19937_64 r{std::random_device{}() ^ (uint64_t)std::chrono::steady_clock::now().time_since_epoch().count()};
     char b[33]; snprintf(b, sizeof b, "%016llx%016llx", (unsigned long long)r(), (unsigned long long)r()); return b;
 }
-static std::string new_id() {
+static std::string ctx_out(const Client& c);
+static std::string new_id(const Json& in) {
     ebr::Guard epoch;
     uint64_t id = g.next_client_id++; std::string tok = random_token();
-    conns.add(id, new ConnRec{tok, g.requirepass.empty(), "default"});
+    std::string ctx;
+    if (in["ctx"].type == Json::Str) {        // the connection as its front first knows it (addresses, creation time)
+        Client c; ctx_in(c, Json::parse(in["ctx"].s)); c.id = id; c.authed = g.requirepass.empty(); c.user = "default";
+        ctx = ctx_out(c);
+        auto* rec = new ConnRec{tok, g.requirepass.empty(), "default", ctx, Snap{}, false};
+        snap_out(rec->snap, c); rec->has_snap = true;
+        conns.add(id, rec);
+    } else conns.add(id, new ConnRec{tok, g.requirepass.empty(), "default", ctx, Snap{}, false});
     return "{\"ok\":true,\"id\":" + num((long long)id) + ",\"token\":" + q(tok) + "}";
 }
 // the record of the connection a call names, if its token matches; nullptr otherwise
@@ -227,7 +257,7 @@ std::string call(const std::string& body, bool blocking) {
             throw std::runtime_error("redis region: configuration is not accepted from this caller (use CONFIG SET after AUTH, or start the host with RIBBIT_REDIS_CONFIG)");
         apply_config(in["config"]); return "{\"ok\":true}";
     }
-    if (in["new_id"].type == Json::Bool) return new_id();
+    if (in["new_id"].type == Json::Bool) return new_id(in);
     if (in["cancel"].type == Json::Num) {
         ebr::Guard epoch;
         if (!conn_of((uint64_t)in["cancel"].n, in["token"].type == Json::Str ? in["token"].s : std::string()))
@@ -239,10 +269,12 @@ std::string call(const std::string& body, bool blocking) {
     // A blocking command parks here, on its own request thread, in the memory -- exactly as a held read parks on
     // MEM -- and while it is parked the region knows it: CLIENT UNBLOCK from any connection of any front finds it.
     std::unique_ptr<Client> holder(new Client);
-    Client& c = *holder; ctx_in(c, in);
+    Client& c = *holder;
     ebr::Guard cepoch;
-    ConnRec* rec = conn_of(c.id, S(in, "token"));
+    ConnRec* rec = conn_of((uint64_t)N(in, "id"), S(in, "token"));
     if (!rec) throw std::runtime_error("redis region: the call does not name a connection the region issued (id and token)");
+    const bool held = in["db"].type != Json::Num && !rec->ctx.empty();   // [CONTEXT_IN_THE_REGION_V1] no context in the call
+    if (held) { if (rec->has_snap) snap_in(c, rec->snap, (uint64_t)N(in, "id")); else ctx_in(c, Json::parse(rec->ctx)); } else ctx_in(c, in);
     c.authed = rec->authed; c.user = rec->user;          // never from the call
     struct Registered {
         Client* c; bool on;
@@ -273,12 +305,133 @@ std::string call(const std::string& body, bool blocking) {
     queue_store(c);
     rec->authed = c.authed; rec->user = c.user;          // one connection's calls never overlap: this record is its own
     if (c.counted_blocked) g.blocked_clients--;          // after the command and its accounting: INFO is never ahead
-    std::string res = "{\"ok\":true,\"r\":" + q(b64enc(out)) + ",\"ctx\":" + q(ctx_out(c)) + "}";
+    std::string res;
+    if (held) {
+        snap_out(rec->snap, c); rec->has_snap = true;   // one connection's calls never overlap: this record is its own
+        res = std::string("{\"ok\":true,\"r\":") + q(b64enc(out)) + ",\"a\":" + (c.authed ? "true" : "false") + ",\"c\":" + (c.close_after_reply ? "true" : "false") + "}";
+    } else res = "{\"ok\":true,\"r\":" + q(b64enc(out)) + ",\"ctx\":" + q(ctx_out(c)) + "}";
     if (blocking) {                       // unregistered now; freed once no epoch can still see it (CLIENT LIST walkers)
         Client* out = nullptr; g.clients.remove(c.id, &out); reg.on = false;
         ebr::retire(holder.release());
     }
     return res;
+}
+
+// ---- [FAN_IN_BATCH_V1] fan-in at the front, fan-out here -------------------------------------------------------------
+// A batch is many connections' pipelines in one call. Its items are independent (one connection never has two items
+// in flight: its front sends the next only after the reply), so they run across the host's cores and are gathered
+// back in order. The pool's workers never take a lock: a batch is offered in one of a fixed set of slots, workers claim
+// its items with one fetch_add each, and the caller -- which works its own batch too -- waits only for the items in
+// flight when it runs out. A worker reads the slots inside an epoch; the caller retires the batch through the same
+// epochs (ebr), so no worker can still hold it when it is freed.
+namespace {
+// one connection's pipeline, its context held here: the replies, then whether it is authenticated and must close
+struct Item { uint64_t id = 0; std::string token, p, r, err; bool authed = false, close = false; };
+void run_item(Item& it) {
+    try {
+        std::unique_ptr<Client> holder(new Client); Client& c = *holder;
+        ebr::Guard cepoch;
+        ConnRec* rec = conn_of(it.id, it.token);
+        if (!rec || !rec->has_snap) throw std::runtime_error("redis region: the call does not name a connection the region issued (id and token)");
+        snap_in(c, rec->snap, it.id);
+        c.authed = rec->authed; c.user = rec->user;          // never from the call
+        ebr::Guard qepoch;
+        if (c.in_multi) queue_load(c);
+        RespParser parser; parser.authenticated = true; parser.max_bulk = g.max_bulk.load(std::memory_order_relaxed);
+        const std::string pb = b64dec(it.p);
+        parser.feed(pb.data(), pb.size());
+        ParseResult pr = parser.drain();
+        if (pr.fatal) throw std::runtime_error("redis region: the pipeline is not RESP: " + pr.err);
+        std::string out;
+        for (auto& argv : pr.cmds) {
+            Reply r; r.proto = c.proto;
+            execute_command(c, argv, r);
+            bool suppress = false;
+            if (c.reply_mode == 1) suppress = true;
+            else if (c.skip_count > 0) { suppress = true; c.skip_count--; }
+            if (!suppress) out += r.out;
+            if (!strcasecmp(argv[0].c_str(), "quit")) c.close_after_reply = true;
+            if (c.close_after_reply) break;
+        }
+        queue_store(c);
+        rec->authed = c.authed; rec->user = c.user; snap_out(rec->snap, c);
+        it.r = b64enc(out); it.authed = c.authed; it.close = c.close_after_reply;
+    } catch (const std::exception& e) { it.err = e.what(); }
+}
+struct Batch {
+    std::vector<Item> items;
+    std::atomic<size_t> next{0};
+    std::atomic<uint32_t> left{0};
+};
+// raw futexes: std::atomic::wait spins on sched_yield first, which on a small machine takes the cores from the workers
+void fwait(std::atomic<uint32_t>& w, uint32_t v) { while (w.load(std::memory_order_acquire) == v) syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, v, nullptr, nullptr, 0); }
+void fwake(std::atomic<uint32_t>& w, int n) { syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, n, nullptr, nullptr, 0); }
+constexpr int SLOTS = 64;
+std::atomic<Batch*> slots[SLOTS];
+std::atomic<uint32_t> offered{0};                  // bumped on every offer: the futex the workers sleep on
+// claim and run items until none are left; true if it ran any
+bool work(Batch* b) {
+    bool ran = false;
+    for (;;) {
+        size_t i = b->next.fetch_add(1, std::memory_order_acq_rel);
+        if (i >= b->items.size()) return ran;
+        run_item(b->items[i]); ran = true;
+        if (b->left.fetch_sub(1, std::memory_order_acq_rel) == 1) fwake(b->left, INT32_MAX);
+    }
+}
+void worker() {
+    for (;;) {
+        uint32_t seen = offered.load(std::memory_order_acquire);
+        bool any = false;
+        {   ebr::Guard epoch;                                             // a batch seen here is not freed until we leave
+            for (int k = 0; k < SLOTS; k++) { Batch* b = slots[k].load(std::memory_order_acquire); if (b) any |= work(b); }
+        }
+        if (!any) fwait(offered, seen);                                  // nothing to do until the next offer
+    }
+}
+void start_pool() {
+    static bool started = [] {
+        unsigned n = std::thread::hardware_concurrency(); if (n < 2) n = 2;
+        for (unsigned i = 0; i + 1 < n; i++) std::thread(worker).detach();   // the caller is the last core's worker
+        return true;
+    }();
+    (void)started;
+}
+}  // namespace
+
+// [FAN_IN_BATCH_V1] {"ids":[n...],"tokens":[s...],"ps":[s...]} -> {"ok":true,"r":[s...],"a":"0101..","c":"0010..","e":[s...]}:
+// parallel lists, so the wire carries each item's few fields once and never JSON inside JSON.
+std::string batch(const std::string& body) {
+    init_once(); start_pool();
+    Json in = Json::parse(body);
+    if (in["ids"].type != Json::Arr || in["tokens"].type != Json::Arr || in["ps"].type != Json::Arr ||
+        in["ids"].a.size() != in["tokens"].a.size() || in["ids"].a.size() != in["ps"].a.size())
+        throw std::runtime_error("redis region: a batch is three lists of one length: ids, tokens, ps");
+    auto* b = new Batch;
+    size_t n = in["ids"].a.size(); b->items.resize(n);
+    for (size_t i = 0; i < n; i++) {
+        if (in["ids"].a[i].type != Json::Num || in["tokens"].a[i].type != Json::Str || in["ps"].a[i].type != Json::Str) { delete b; throw std::runtime_error("redis region: batch item " + std::to_string(i) + " is malformed"); }
+        b->items[i].id = (uint64_t)in["ids"].a[i].n; b->items[i].token = in["tokens"].a[i].s; b->items[i].p = in["ps"].a[i].s;
+    }
+    b->left.store((uint32_t)n, std::memory_order_release);
+    int slot = -1;
+    if (n > 1) {                                      // one item is run where it is: nothing to fan out
+        for (int k = 0; k < SLOTS && slot < 0; k++) { Batch* e = nullptr; if (slots[k].compare_exchange_strong(e, b)) slot = k; }
+        if (slot >= 0) { offered.fetch_add(1, std::memory_order_acq_rel); fwake(offered, INT32_MAX); }
+        // every slot taken: this batch runs on this thread alone -- the same work, without helpers
+    }
+    work(b);
+    for (uint32_t l; (l = b->left.load(std::memory_order_acquire)) != 0; ) fwait(b->left, l);
+    std::string o = "{\"ok\":true,\"r\":[", a, c, e = "[";
+    for (size_t i = 0; i < n; i++) {
+        const Item& it = b->items[i];
+        if (i) { o += ','; e += ','; }
+        o += q(it.r); e += q(it.err); a += it.authed ? '1' : '0'; c += it.close ? '1' : '0';
+    }
+    o += "],\"a\":" + q(a) + ",\"c\":" + q(c) + ",\"e\":" + e + "]}";
+    if (slot >= 0) { slots[slot].store(nullptr, std::memory_order_release); ebr::Guard epoch; ebr::retire(b); }
+    else delete b;
+    return o;
 }
 
 }  // namespace door
@@ -287,3 +440,4 @@ std::string call(const std::string& body, bool blocking) {
 // The one symbol the host sees: no Redis type crosses this line.
 std::string redis_region_call(const std::string& body) { return rr::door::call(body, false); }
 std::string redis_region_block(const std::string& body) { return rr::door::call(body, true); }
+std::string redis_region_batch(const std::string& body) { return rr::door::batch(body); }

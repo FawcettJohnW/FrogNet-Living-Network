@@ -47,6 +47,13 @@
 #include <cstring>
 #include <cerrno>
 #include <sstream>
+#include <sys/epoll.h>
+#include <chrono>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <algorithm>
+#include <thread>
+#include <atomic>
 
 namespace rr {
 extern FILE* log_fp;
@@ -77,21 +84,28 @@ struct SessHandle {
     bool compare_exchange_strong(std::shared_ptr<frogram::Session>& e, std::shared_ptr<frogram::Session> d) { return std::atomic_compare_exchange_strong(&p, &e, std::move(d)); }
 };
 #endif
-static SessHandle g_sess;
+// [ONE_SESSION_PER_DISPATCHER_V1] Each dispatcher has its own session to the host: a session's semantic engine runs on
+// its own send and read threads at each end, so batches on different sessions are encoded, decoded and executed on
+// different cores at both ends. Session 0 also carries the single calls (accept, gone, blocking commands).
+static const int MAX_SESSIONS = 64;
+static SessHandle g_sessv[MAX_SESSIONS];
+static SessHandle& g_sess = g_sessv[0];
 static std::string g_ram_host; static int g_ram_port = 0;
 static std::string g_api;
 struct RamRef {   // what the code below calls: the current session, opened on first use after a loss
-    frogram::Json call(const std::string& m, const std::string& p, const std::string& b = "", double t = 15.0) {
-        std::shared_ptr<frogram::Session> s = g_sess.load();
+    frogram::Json call(const std::string& m, const std::string& p, const std::string& b = "", double t = 15.0, int which = 0) {
+        SessHandle& h = g_sessv[which];
+        std::shared_ptr<frogram::Session> s = h.load();
         if (!s) {
             auto fresh = std::make_shared<frogram::Session>(g_ram_host, g_ram_port, g_api);   // throws when unreachable
             std::shared_ptr<frogram::Session> none;
-            if (g_sess.compare_exchange_strong(none, fresh)) s = fresh; else s = none;
+            if (h.compare_exchange_strong(none, fresh)) s = fresh; else s = none;
         }
         try { return s->call(m, p, b, t); }
         catch (const frogram::Unreachable&) {
-            std::shared_ptr<frogram::Session> cur = s;
-            g_sess.compare_exchange_strong(cur, nullptr);   // this session is gone: the next call opens another
+            // the host is one: a session found gone means every session to it is gone. Each is dropped, so the next
+            // call on any of them opens a new one (a call already in flight on another fails loudly on its own).
+            for (auto& o : g_sessv) { std::shared_ptr<frogram::Session> cur = o.load(); if (cur) o.compare_exchange_strong(cur, nullptr); }
             throw;
         }
     }
@@ -122,7 +136,6 @@ struct Conn {
     int fd = -1;
     uint64_t id = 0;            // the region's id for this connection (unique across fronts)
     std::string token;          // [REGION_HELD_AUTH_V1] the region's token for it: every call presents id and token
-    std::string ctx;            // the connection's context as the region last returned it (JSON)
     RespParser parser;
     bool authed = true;
 };
@@ -155,6 +168,86 @@ static void diag_region(uint64_t id, const char* op, const std::string& body, co
     logmsg('#', "[DIAG-REGION] conn=" + std::to_string(id) + " op=" + op + " error=" + what + " wire{" + st + "} body=" + body);
 }
 
+// [FAN_IN_BATCH_V1] Fan-in. A connection thread does not call the region itself: it puts its pipeline on a lock-free
+// list and waits on its own word. Dispatchers take EVERYTHING on the list at once -- every connection that has a
+// pipeline ready -- and send it as ONE call (op=redis_batch); several dispatchers mean several batches in flight on the
+// session at once (the wire multiplexes them). The host fans the batch out across its cores and gathers it back in
+// order; each reply is handed to its connection. One connection never has two pipelines in flight (it sends the next
+// only after its reply), so its order is kept. Nothing here takes a lock; an idle dispatcher sleeps on a futex word.
+// Waits are raw futexes: std::atomic::wait spins on sched_yield first, and fifty connections spinning starve the very
+// dispatchers they wait for.
+static void fwait(std::atomic<uint32_t>& w, uint32_t v) { while (w.load(std::memory_order_acquire) == v) syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, v, nullptr, nullptr, 0); }
+static void fwake(std::atomic<uint32_t>& w, int n) { syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAKE_PRIVATE, n, nullptr, nullptr, 0); }
+struct Conn;
+// A job is one connection's pipeline. Either a thread waits on `done` (the blocking-command path), or `conn` is set
+// and the dispatcher finishes the connection's turn itself: writes the replies and hands the socket back to the loop.
+struct Job { uint64_t id = 0; std::string token, p;                   // the call: connection and pipeline (base64)
+             std::string r, error; bool authed = false, close = false;   // the answer: replies (base64), the region's word
+             std::atomic<uint32_t> done{0}; Job* next = nullptr;
+             Conn* conn = nullptr; bool fatal = false; std::string fatal_err; };
+static std::atomic<Job*> g_jobs{nullptr};
+static std::atomic<uint32_t> g_jobs_gen{0};
+static std::atomic<uint64_t> g_batches{0}, g_batched{0};          // for INFO-style diagnostics: calls, and items in them
+static void push(Job& j) {
+    Job* h = g_jobs.load(std::memory_order_acquire);
+    do { j.next = h; } while (!g_jobs.compare_exchange_weak(h, &j, std::memory_order_acq_rel, std::memory_order_acquire));
+}
+static void kick() { g_jobs_gen.fetch_add(1, std::memory_order_acq_rel); fwake(g_jobs_gen, 1); }
+static void submit(Job& j) { push(j); kick(); fwait(j.done, 0); }
+static void complete_async(Job* j);
+static void dispatcher(int which) {
+    std::vector<Job*> v;
+    for (;;) {
+        uint32_t seen = g_jobs_gen.load(std::memory_order_acquire);
+        Job* l = g_jobs.exchange(nullptr, std::memory_order_acq_rel);
+        if (!l) { fwait(g_jobs_gen, seen); continue; }
+        v.clear(); for (; l; l = l->next) v.push_back(l);
+        std::reverse(v.begin(), v.end());                              // arrival order (the list is a stack)
+        // [FAN_IN_BATCH_V1] three parallel lists: each item's fields once, never JSON inside JSON
+        std::string ids = "[", toks = "[", ps = "[";
+        for (size_t i = 0; i < v.size(); i++) {
+            if (i) { ids += ','; toks += ','; ps += ','; }
+            ids += std::to_string(v[i]->id); toks += Json::quote(v[i]->token); ps += Json::quote(v[i]->p);
+        }
+        std::string body = "{\"ids\":" + ids + "],\"tokens\":" + toks + "],\"ps\":" + ps + "]}";
+        uint64_t nb = g_batches.fetch_add(1, std::memory_order_relaxed) + 1; uint64_t ni = g_batched.fetch_add(v.size(), std::memory_order_relaxed) + v.size();
+        static const bool diag = getenv("RIBBIT_FRONT_DIAG") != nullptr;   // [DIAG-BATCH] every 1000th batch: size, bytes, call time
+        auto t0 = std::chrono::steady_clock::now();
+        try {
+            Json r = g_ram->call("POST", g_api + "?op=redis_batch", body, 15.0, which);
+            if (diag && nb % 1000 == 0) logmsg('#', "[DIAG-BATCH] batches=" + std::to_string(nb) + " items=" + std::to_string(ni) + " this=" + std::to_string(v.size()) +
+                " body=" + std::to_string(body.size()) + "B call_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
+            const size_t n = v.size();
+            if (r["ok"].type != Json::Bool || !r["ok"].b || r["r"].type != Json::Arr || r["e"].type != Json::Arr || r["a"].type != Json::Str || r["c"].type != Json::Str ||
+                r["r"].a.size() != n || r["e"].a.size() != n || r["a"].s.size() != n || r["c"].s.size() != n)
+                throw std::runtime_error(r["error"].type == Json::Str ? r["error"].s : "the region's answer to a batch of " + std::to_string(n) + " is not " + std::to_string(n) + " answers");
+            for (size_t i = 0; i < n; i++) {
+                if (r["e"].a[i].type == Json::Str && !r["e"].a[i].s.empty()) { v[i]->error = r["e"].a[i].s; continue; }
+                v[i]->r = r["r"].a[i].type == Json::Str ? r["r"].a[i].s : std::string();
+                v[i]->authed = r["a"].s[i] == '1'; v[i]->close = r["c"].s[i] == '1';
+            }
+        } catch (const std::exception& e) { for (auto* j : v) j->error = e.what(); }
+        for (auto* j : v) {
+            if (j->conn) { complete_async(j); continue; }
+            j->done.store(1, std::memory_order_release); fwake(j->done, 1);
+        }
+    }
+}
+static void start_dispatchers() {
+    const char* e = getenv("RIBBIT_FRONT_CALLS");                   // batches in flight at once, each on its own session (default: one per core)
+    int n = e ? atoi(e) : (int)std::thread::hardware_concurrency(); if (n < 1) n = 1;
+    if (n > MAX_SESSIONS) n = MAX_SESSIONS;
+    for (int i = 0; i < n; i++) std::thread(dispatcher, i).detach();
+}
+
+// A region answer for a connection: its replies onto `out`; the region's word on authentication and closing. False if
+// the connection ends here.
+static bool take_reply(Conn& c, const Job& j, std::string& out) {
+    if (!j.error.empty()) { diag_region(c.id, "redis_batch", j.p, j.error); out += region_error(j.error); return false; }   // no region, no service
+    out += door::b64dec(j.r);
+    c.authed = j.authed; c.parser.authenticated = c.authed;
+    return !j.close;
+}
 // One pipeline to the region: returns the bytes to write, and whether the connection stays open.
 static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
     size_t i = 0;
@@ -165,18 +258,11 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
         if (j > i) {
             std::string pipeline; for (size_t k = i; k < j; k++) pipeline += resp_of(cmds[k]);
             // [REDIS_WIRE_FLAT_V1] the context's fields plus "p", the pipeline's RESP bytes
-            std::string body = c.ctx.substr(0, c.ctx.size() - 1) + ",\"token\":" + Json::quote(c.token) + ",\"p\":" + Json::quote(door::b64enc(pipeline)) + "}";
-            Json r;
-            try { r = g_ram->call("POST", g_api + "?op=redis", body); }
-            catch (const std::exception& e) { diag_region(c.id, "redis", body, e.what()); out += region_error(e.what()); return false; }   // no region, no service
-            if (r["ok"].type != Json::Bool || !r["ok"].b || r["r"].type != Json::Str || r["ctx"].type != Json::Str) {
-                out += region_error(r["error"].type == Json::Str ? r["error"].s : "refused"); return false; }
-            out += door::b64dec(r["r"].s);
-            c.ctx = r["ctx"].s;
-            const Json x = Json::parse(c.ctx);
-            c.authed = x["authed"].type == Json::Bool && x["authed"].b;
-            c.parser.authenticated = c.authed;
-            if (x["close_after_reply"].type == Json::Bool && x["close_after_reply"].b) return false;
+            // [CONTEXT_IN_THE_REGION_V1] the region holds the context: the call is the connection and its pipeline;
+            // [FAN_IN_BATCH_V1] fanned in with every other ready connection
+            Job job; job.id = c.id; job.token = c.token; job.p = door::b64enc(pipeline);
+            submit(job);
+            if (!take_reply(c, job, out)) return false;
         }
         if (j < cmds.size() && is_blocking_class(cmds[j])) {
             // the replies before a blocking command go out now: the client may need them to unblock this very command
@@ -186,7 +272,7 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
             // memory, with the command's own claim and wait. This connection's thread waits on the call -- that is
             // the client being blocked. If the client hangs up meanwhile, a watcher (on the socket and an eventfd,
             // no time slices) tells the region, which wakes the parked command and lets it go.
-            std::string body = c.ctx.substr(0, c.ctx.size() - 1) + ",\"token\":" + Json::quote(c.token) + ",\"p\":" + Json::quote(door::b64enc(resp_of(cmds[j]))) + "}";
+            std::string body = "{\"id\":" + std::to_string(c.id) + ",\"token\":" + Json::quote(c.token) + ",\"p\":" + Json::quote(door::b64enc(resp_of(cmds[j]))) + "}";
             int efd = eventfd(0, 0);
             std::thread watcher([&c, efd] {
                 pollfd pf[2] = {{c.fd, POLLRDHUP, 0}, {efd, POLLIN, 0}};
@@ -201,14 +287,11 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
             uint64_t one = 1; if (::write(efd, &one, sizeof one) < 0) {}
             watcher.join(); ::close(efd);
             if (!failed.empty()) { diag_region(c.id, "redis_block", body, failed); out += region_error(failed); return false; }
-            if (r["ok"].type != Json::Bool || !r["ok"].b || r["r"].type != Json::Str || r["ctx"].type != Json::Str) {
+            if (r["ok"].type != Json::Bool || !r["ok"].b || r["r"].type != Json::Str || r["a"].type != Json::Bool || r["c"].type != Json::Bool) {
                 out += region_error(r["error"].type == Json::Str ? r["error"].s : "refused"); return false; }
             out += door::b64dec(r["r"].s);
-            c.ctx = r["ctx"].s;
-            const Json x = Json::parse(c.ctx);
-            c.authed = x["authed"].type == Json::Bool && x["authed"].b;
-            c.parser.authenticated = c.authed;
-            if (x["close_after_reply"].type == Json::Bool && x["close_after_reply"].b) return false;
+            c.authed = r["a"].b; c.parser.authenticated = c.authed;
+            if (r["c"].b) return false;
             j++;
         }
         i = j;
@@ -216,36 +299,78 @@ static bool run_pipeline(Conn& c, std::vector<Argv>& cmds, std::string& out) {
     return true;
 }
 
-static void serve(int fd, std::string addr, std::string laddr) {
-    Conn c; c.fd = fd;
+// [EVENT_LOOP_FAN_IN_V1] The front's connections live in one epoll set, one-shot: a connection is read only when it
+// has no pipeline in flight. One pass of the loop reads every connection that is ready and puts each one's pipeline on
+// the list, then wakes ONE dispatcher: everything ready goes to the region as one batch. The dispatcher writes each
+// connection's replies and re-arms it. No thread per connection, so no thread hand-off per pipeline. A connection whose
+// pipeline holds a blocking command (BLPOP ...) leaves the set for a thread of its own until that command returns.
+static int g_ep = -1;
+static void rearm(Conn* c) { epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c; epoll_ctl(g_ep, EPOLL_CTL_MOD, c->fd, &ev); }
+static void finish_conn(Conn* c) {
+    // the connection is over: the region drops its record (and a MULTI queue, if it ended inside one)
+    try { g_ram->call("POST", g_api + "?op=redis", "{\"gone\":" + std::to_string(c->id) + ",\"token\":" + Json::quote(c->token) + "}"); } catch (const std::exception&) {}
+    epoll_ctl(g_ep, EPOLL_CTL_DEL, c->fd, nullptr);
+    ::close(c->fd); delete c;
+}
+static void complete_async(Job* j) {
+    Conn& c = *j->conn; std::string out;
+    bool keep = take_reply(c, *j, out);
+    if (j->fatal && keep) { Reply r; r.error("ERR " + j->fatal_err); out += r.out; keep = false; }
+    delete j;
+    if (!out.empty() && !send_all(c.fd, out)) keep = false;
+    if (keep) rearm(&c); else finish_conn(&c);
+}
+static void blocking_turn(Conn* c, ParseResult pr) {
+    std::string out;
+    bool keep = run_pipeline(*c, pr.cmds, out);
+    if (pr.fatal && keep) { Reply r; r.error("ERR " + pr.err); out += r.out; keep = false; }
+    if (!out.empty() && !send_all(c->fd, out)) keep = false;
+    if (keep) rearm(c); else finish_conn(c);
+}
+static void event_loop() {
+    epoll_event evs[512]; char buf[65536];
+    for (;;) {
+        int n = epoll_wait(g_ep, evs, 512, -1);
+        if (n < 0) { if (errno == EINTR) continue; logmsg('#', std::string("epoll_wait: ") + strerror(errno)); _exit(1); }
+        bool pushed = false;
+        for (int k = 0; k < n; k++) {
+            Conn* c = static_cast<Conn*>(evs[k].data.ptr);
+            ssize_t r = ::recv(c->fd, buf, sizeof buf, MSG_DONTWAIT);
+            if (r < 0 && (errno == EAGAIN || errno == EINTR)) { rearm(c); continue; }
+            if (r <= 0) { finish_conn(c); continue; }
+            c->parser.feed(buf, (size_t)r);
+            c->parser.max_bulk = g.max_bulk.load(std::memory_order_relaxed);
+            ParseResult pr = c->parser.drain();
+            if (pr.cmds.empty()) {
+                if (pr.fatal) { Reply e; e.error("ERR " + pr.err); send_all(c->fd, e.out); finish_conn(c); }
+                else rearm(c);                                          // a partial command: wait for the rest
+                continue;
+            }
+            bool blocking = false; for (auto& a : pr.cmds) if (is_blocking_class(a)) { blocking = true; break; }
+            if (blocking) { std::thread(blocking_turn, c, std::move(pr)).detach(); continue; }
+            std::string pipeline; for (auto& a : pr.cmds) pipeline += resp_of(a);
+            Job* j = new Job; j->conn = c; j->fatal = pr.fatal; j->fatal_err = pr.err;
+            j->id = c->id; j->token = c->token; j->p = door::b64enc(pipeline);
+            push(*j); pushed = true;
+        }
+        if (pushed) kick();                                             // everything this pass read: one batch
+    }
+}
+static void accept_conn(int fd, std::string addr, std::string laddr) {
+    Conn* c = new Conn; c->fd = fd;
     try {                                   // the region assigns the id: unique across every front of the region
         // every accept asks for its own id: the request carries this front's nonce and accept count, so the client's
         // coalescing ([CLIENT_COALESCES_V1]) never serves two connections one id and token
         static std::atomic<uint64_t> accepts{0};
-        Json r = g_ram->call("POST", g_api + "?op=redis", "{\"new_id\":true,\"n\":\"" + g_nonce + ":" + std::to_string(++accepts) + "\"}");
+        Json r = g_ram->call("POST", g_api + "?op=redis", "{\"new_id\":true,\"n\":\"" + g_nonce + ":" + std::to_string(++accepts) + "\",\"ctx\":" + Json::quote(initial_ctx(0, addr, laddr)) + "}");
         if (r["id"].type != Json::Num) throw std::runtime_error("no id");
-        c.id = (uint64_t)r["id"].n;
+        c->id = (uint64_t)r["id"].n;
         if (r["token"].type != Json::Str || r["token"].s.empty()) throw std::runtime_error("no token");
-        c.token = r["token"].s;
-    } catch (const std::exception& e) { std::string m = region_error(e.what()); send_all(fd, m); ::close(fd); return; }
-    c.ctx = initial_ctx(c.id, addr, laddr);
-    c.authed = g.requirepass.empty(); c.parser.authenticated = c.authed;
-    char buf[65536];
-    for (;;) {
-        ssize_t n = ::read(fd, buf, sizeof buf);
-        if (n <= 0) { if (n < 0 && errno == EINTR) continue; break; }
-        c.parser.feed(buf, (size_t)n);
-        c.parser.max_bulk = g.max_bulk.load(std::memory_order_relaxed);
-        ParseResult pr = c.parser.drain();
-        std::string out;
-        bool keep = run_pipeline(c, pr.cmds, out);
-        if (pr.fatal && keep) { Reply r; r.error("ERR " + pr.err); out += r.out; keep = false; }
-        if (!out.empty() && !send_all(fd, out)) break;
-        if (!keep) break;
-    }
-    // the connection is over: the region drops its record (and a MULTI queue, if it ended inside one)
-    try { g_ram->call("POST", g_api + "?op=redis", "{\"gone\":" + std::to_string(c.id) + ",\"token\":" + Json::quote(c.token) + "}"); } catch (const std::exception&) {}
-    ::close(fd);
+        c->token = r["token"].s;
+    } catch (const std::exception& e) { std::string m = region_error(e.what()); send_all(fd, m); ::close(fd); delete c; return; }
+    c->authed = g.requirepass.empty(); c->parser.authenticated = c->authed;
+    epoll_event ev{}; ev.events = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT; ev.data.ptr = c;
+    epoll_ctl(g_ep, EPOLL_CTL_ADD, fd, &ev);
 }
 
 // A host of its own, on a loopback port, when no RAM host is named: dies with this process (PR_SET_PDEATHSIG).
@@ -324,6 +449,9 @@ int main(int argc, char** argv) {
     if (::bind(lfd, (sockaddr*)&sa, sizeof sa) < 0 || ::listen(lfd, 511) < 0) {
         logmsg('#', "Failed listening on port " + std::to_string(g.port) + " (tcp), aborting."); on_term(0);
     }
+    start_dispatchers();
+    g_ep = epoll_create1(EPOLL_CLOEXEC);
+    std::thread(event_loop).detach();
     logmsg('*', "Ready to accept connections tcp");
     for (;;) {
         sockaddr_in p{}; socklen_t pl = sizeof p;
@@ -334,6 +462,6 @@ int main(int argc, char** argv) {
         std::string addr = std::string(ip) + ":" + std::to_string(ntohs(p.sin_port));
         sockaddr_in la{}; socklen_t ll = sizeof la; getsockname(fd, (sockaddr*)&la, &ll); inet_ntop(AF_INET, &la.sin_addr, ip, sizeof ip);
         std::string laddr = std::string(ip) + ":" + std::to_string(ntohs(la.sin_port));
-        std::thread(serve, fd, addr, laddr).detach();
+        accept_conn(fd, addr, laddr);
     }
 }
