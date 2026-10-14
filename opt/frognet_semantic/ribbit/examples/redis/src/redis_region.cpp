@@ -39,6 +39,7 @@
 #include <unistd.h>
 #include <thread>
 #include <atomic>
+#include "coherence.hpp"
 
 namespace rr {
 namespace door {
@@ -86,6 +87,7 @@ static void init_once() {
         std::vector<std::string> svcs; for (int d = 0; d < g.databases; d++) { svcs.push_back(db::svc(d)); svcs.push_back(db::claims(d)); }
         svcs.push_back("batches"); g.mem.init(svcs);
         register_all_commands();
+        coh::install();                                       // [READS_AT_THE_FRONT_V1] the fronts' copies follow every change
         return true;
     }();
     (void)done;
@@ -326,7 +328,17 @@ std::string call(const std::string& body, bool blocking) {
 // epochs (ebr), so no worker can still hold it when it is freed.
 namespace {
 // one connection's pipeline, its context held here: the replies, then whether it is authenticated and must close
-struct Item { uint64_t id = 0; std::string token, p, r, err; bool authed = false, close = false, raw = false; };
+struct Item { uint64_t id = 0; std::string token, p, r, err; bool authed = false, close = false, raw = false;
+             // [READS_AT_THE_FRONT_V1] the front that sent it (-1: none follows); the replies it may keep (which command,
+             // where in r, the read's seq, the db and protocol it was read in); invalidations for that front made while it
+             // ran; and the connection as it stands after it (db, protocol, whether a plain read may be answered locally)
+             int front = -1;
+             struct Fill { size_t ix, off, len; uint64_t rseq; int db, proto; };
+             std::vector<Fill> fills; std::vector<coh::Inval> invals;
+             int db = 0, proto = 2; bool plain = false; };
+// a reply a front may keep must not change except by a change to its key: the key has no expiry
+bool no_ttl(int db, const std::string& key) { ebr::Guard e; VarPtr v = db::live_var(db, key); return !v || !v->ttl.load(std::memory_order_acquire); }
+bool plain_ctx(const Client& c) { return c.authed && !c.in_multi && c.reply_mode == 0 && c.skip_count == 0; }
 void run_item(Item& it) {
     try {
         std::unique_ptr<Client> holder(new Client); Client& c = *holder;
@@ -343,16 +355,28 @@ void run_item(Item& it) {
         ParseResult pr = parser.drain();
         if (pr.fatal) throw std::runtime_error("redis region: the pipeline is not RESP: " + pr.err);
         std::string out;
+        struct ItemScope { ItemScope(Item& i) { coh::begin_item(i.front, &i.invals); } ~ItemScope() { coh::end_item(); } } scope(it);
+        size_t ix = 0;
         for (auto& argv : pr.cmds) {
             Reply r; r.proto = c.proto;
+            // [READS_AT_THE_FRONT_V1] a plain read of one key: registered as held by this front BEFORE it reads
+            const bool cand = it.front >= 0 && plain_ctx(c) && coh::cacheable(lower(argv[0]), argv.size());
+            const int db0 = c.db, pr0 = c.proto;
+            const uint64_t rseq = cand ? coh::register_read(it.front, db0, argv[1]) : 0;
             execute_command(c, argv, r);
             bool suppress = false;
             if (c.reply_mode == 1) suppress = true;
             else if (c.skip_count > 0) { suppress = true; c.skip_count--; }
-            if (!suppress) out += r.out;
+            if (!suppress) {
+                const size_t off = out.size(); out += r.out;
+                if (cand && !r.out.empty() && r.out[0] != '-' && r.out[0] != '!' && no_ttl(db0, argv[1]))
+                    it.fills.push_back(Item::Fill{ix, off, r.out.size(), rseq, db0, pr0});
+            }
+            ix++;
             if (!strcasecmp(argv[0].c_str(), "quit")) c.close_after_reply = true;
             if (c.close_after_reply) break;
         }
+        it.db = c.db; it.proto = c.proto; it.plain = plain_ctx(c);
         queue_store(c);
         rec->authed = c.authed; rec->user = c.user; snap_out(rec->snap, c);
         it.r = it.raw ? std::move(out) : b64enc(out); it.authed = c.authed; it.close = c.close_after_reply;
@@ -464,6 +488,12 @@ static void put_text(std::string& o, const std::string& v, std::string (*b64)(co
     if (utf8_ok(v)) { o += 'T'; o += std::to_string(v.size()); o += '\n'; o += v; }
     else { std::string e = b64(v); o += 'B'; o += std::to_string(e.size()); o += '\n'; o += e; }
 }
+static void put_invals(std::string& o, const std::vector<coh::Inval>& v) {   // [READS_AT_THE_FRONT_V1]
+    for (auto& x : v) {
+        if (x.flush) { o += "F " + std::to_string(x.seq) + ' ' + std::to_string(x.db) + '\n'; continue; }
+        o += "I " + std::to_string(x.seq) + ' ' + std::to_string(x.db) + '\n'; put_text(o, x.key, b64enc);
+    }
+}
 static std::string get_line(const std::string& s, size_t& at) {
     size_t e = s.find('\n', at); if (e == std::string::npos) throw std::runtime_error("raw batch truncated");
     std::string l = s.substr(at, e - at); at = e + 1; return l;
@@ -480,12 +510,15 @@ static std::string get_text(const std::string& s, size_t& at, std::string (*b64d
 Batch* parse_raw(const std::string& body) {
     size_t at = 0;
     std::string h = get_line(body, at);
-    if (h.compare(0, 5, "RRB1 ") != 0) throw std::runtime_error("redis region: not a raw batch (RRB1)");
-    uint32_t n = (uint32_t)std::stoul(h.substr(5));
+    // "RRB2 <count> <front>": the front's feed number, or -1 when it has none open (then it keeps nothing)
+    if (h.compare(0, 5, "RRB2 ") != 0) throw std::runtime_error("redis region: not a raw batch (RRB2)");
+    size_t sp0 = h.find(' ', 5); if (sp0 == std::string::npos) throw std::runtime_error("redis region: raw batch header is malformed");
+    uint32_t n = (uint32_t)std::stoul(h.substr(5, sp0 - 5));
+    int front = std::stoi(h.substr(sp0 + 1)); if (front < -1 || front >= coh::FEEDS) throw std::runtime_error("redis region: raw batch names no feed");
     auto* b = new Batch; b->items.resize(n);
     try {
         for (uint32_t i = 0; i < n; i++) {
-            Item& it = b->items[i]; it.raw = true;
+            Item& it = b->items[i]; it.raw = true; it.front = front;
             std::string l = get_line(body, at); size_t sp = l.find(' ');
             if (sp == std::string::npos) throw std::runtime_error("redis region: raw batch item header is malformed");
             it.id = std::stoull(l.substr(0, sp)); it.token = l.substr(sp + 1);
@@ -494,13 +527,23 @@ Batch* parse_raw(const std::string& body) {
     } catch (...) { delete b; throw; }
     return b;
 }
+void put_invals_pub(std::string& o, const std::vector<coh::Inval>& v) { put_invals(o, v); }
 std::string raw_answer(const Batch* b) {
     const uint32_t n = (uint32_t)b->items.size();
-    std::string o = "RRA1 " + std::to_string(n) + "\n";
+    // per item: "<status><authenticated><close> <db> <proto> <plain>\n", the replies as a payload, then
+    // "<fills> <invalidations>\n", each fill "<command> <offset> <length> <seq> <db> <proto>\n", each invalidation
+    // "I <seq> <db>\n" and the key as a payload, or "F <seq> <db>\n" (the whole db)
+    std::string o = "RRA2 " + std::to_string(n) + "\n";
     for (uint32_t i = 0; i < n; i++) {
         const Item& it = b->items[i]; const bool bad = !it.err.empty();
-        o += bad ? '1' : '0'; o += it.authed ? '1' : '0'; o += it.close ? '1' : '0'; o += '\n';
+        o += bad ? '1' : '0'; o += it.authed ? '1' : '0'; o += it.close ? '1' : '0';
+        o += ' '; o += std::to_string(it.db); o += ' '; o += std::to_string(it.proto); o += ' '; o += (!bad && it.plain) ? '1' : '0'; o += '\n';
         put_text(o, bad ? it.err : it.r, b64enc);
+        const size_t nf = bad ? 0 : it.fills.size();
+        o += std::to_string(nf); o += ' '; o += std::to_string(it.invals.size()); o += '\n';
+        for (size_t k = 0; k < nf; k++) { const auto& f = it.fills[k];
+            o += std::to_string(f.ix) + ' ' + std::to_string(f.off) + ' ' + std::to_string(f.len) + ' ' + std::to_string(f.rseq) + ' ' + std::to_string(f.db) + ' ' + std::to_string(f.proto) + '\n'; }
+        put_invals(o, it.invals);
     }
     return o;
 }
@@ -562,3 +605,19 @@ std::string redis_region_block(const std::string& body) { return rr::door::call(
 std::string redis_region_batch(const std::string& body) { return rr::door::batch(body); }
 std::string redis_region_batch_raw(const std::string& body) { return rr::door::batch_raw(body); }
 void redis_region_batch_raw_async(const std::string& body, std::function<void(std::string)> done) { rr::door::batch_raw_async(body, std::move(done)); }
+// [READS_AT_THE_FRONT_V1] a front's feed: "RRF0 <n>" opens one; a read of feed n answers "RRF1 <count>\n" and the
+// invalidations (as in a batch answer). Nothing waiting: false, unless the caller may wait (then up to a second).
+std::string redis_region_feed_open() {
+    rr::door::init_once();
+    int f = rr::coh::feed_open();
+    if (f < 0) throw std::runtime_error("every feed is held by a live front (" + std::to_string(rr::coh::FEEDS) + ")");
+    return "RRF0 " + std::to_string(f);
+}
+bool redis_region_feed(int f, bool may_wait, std::string& out) {
+    if (f < 0 || f >= rr::coh::FEEDS) throw std::runtime_error("no such feed");
+    std::vector<rr::coh::Inval> v;
+    rr::coh::feed_take(f, v, 0);
+    if (v.empty()) { if (!may_wait) return false; rr::coh::feed_take(f, v, 1000); }
+    out = "RRF1 " + std::to_string(v.size()) + "\n"; rr::door::put_invals_pub(out, v);
+    return true;
+}

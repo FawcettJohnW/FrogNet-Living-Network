@@ -31,3 +31,7 @@ std::string redis_region_batch_raw(const std::string& body);
 // [NOBODY_WAITS_V1] the same raw batch, answered asynchronously: returns at once; done(answer) is called by whichever
 // thread finishes the batch's last item (possibly this one, before it returns). Throws only if the body is malformed.
 void redis_region_batch_raw_async(const std::string& body, std::function<void(std::string)> done);
+// [READS_AT_THE_FRONT_V1] a front's invalidation feed: open one ("RRF0 <n>"); read feed n ("RRF1 <count>\n" and the
+// invalidations). redis_region_feed returns false when nothing is waiting and the caller may not wait.
+std::string redis_region_feed_open();
+bool redis_region_feed(int feed, bool may_wait, std::string& out);

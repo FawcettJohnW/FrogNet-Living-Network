@@ -332,10 +332,10 @@ static void incr_generic(Client& c, const std::string& key, long long incr, Repl
     auto ad = g.mem.add(k.R, k.name, k.h, db::VAL, zero, incr, 0, false);
     long long base = 0;
     if (ad.node->bag->kind != Kind::String || !string2ll(ad.node->bag->s, base)) {   // the value was replaced by one that is not an integer
-        ad.node->acc.fetch_sub(incr, std::memory_order_acq_rel); err_notint(r); return;
+        ad.node->acc.fetch_sub(incr, std::memory_order_acq_rel); k.R.touched_h(k.h, k.name); err_notint(r); return;
     }
     __int128 total = (__int128)base + (__int128)ad.acc_after;
-    if (total > LLONG_MAX || total < LLONG_MIN) { ad.node->acc.fetch_sub(incr, std::memory_order_acq_rel); r.error("ERR increment or decrement would overflow"); return; }
+    if (total > LLONG_MAX || total < LLONG_MIN) { ad.node->acc.fetch_sub(incr, std::memory_order_acq_rel); k.R.touched_h(k.h, k.name); r.error("ERR increment or decrement would overflow"); return; }
     g.stats.dirty++;
     r.integer((long long)total);
 }
@@ -364,9 +364,9 @@ static void cmd_incrbyfloat(Client& c, const Argv& a, Reply& r) {
     Bag zero; zero.kind = Kind::String; zero.s = "0";
     auto ad = g.mem.add(k.R, k.name, k.h, db::VAL, zero, 0, (double)incr, true);
     long double base = 0;
-    if (!string2ld(ad.node->bag->s, base)) { ad.node->facc.fetch_sub((double)incr, std::memory_order_acq_rel); err_notfloat(r); return; }
+    if (!string2ld(ad.node->bag->s, base)) { ad.node->facc.fetch_sub((double)incr, std::memory_order_acq_rel); k.R.touched_h(k.h, k.name); err_notfloat(r); return; }
     long double value = base + (long double)ad.node->acc.load(std::memory_order_acquire) + (long double)ad.facc_after;
-    if (std::isnan(value) || std::isinf(value)) { ad.node->facc.fetch_sub((double)incr, std::memory_order_acq_rel); r.error("ERR increment would produce NaN or Infinity"); return; }
+    if (std::isnan(value) || std::isinf(value)) { ad.node->facc.fetch_sub((double)incr, std::memory_order_acq_rel); k.R.touched_h(k.h, k.name); r.error("ERR increment would produce NaN or Infinity"); return; }
     g.stats.dirty++;
     r.bulk(db::float_text(value));
 }

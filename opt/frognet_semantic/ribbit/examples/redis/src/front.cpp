@@ -32,6 +32,7 @@
 // error that names why, rather than parking a region thread (a region operation never waits).
 #include "server.hpp"
 #include "frogram.hpp"
+#include "coherence.hpp"
 #include <sys/socket.h>
 #include <sys/prctl.h>
 #include <sys/wait.h>
@@ -145,6 +146,9 @@ struct Conn {
     RespParser parser;
     bool authed = true;
     int ep = -1;                // [LOOP_PER_CORE_V1] the event loop this connection lives in
+    // [READS_AT_THE_FRONT_V1] the connection as the region last left it: its db and protocol, and whether a plain read
+    // may be answered here (authenticated, not in MULTI, replies on). One pipeline in flight at a time, so this is exact.
+    int db = 0, proto = 2; bool plain = false;
 };
 
 // The first context carries every field the region returns, so every request body has one field set from the start
@@ -223,9 +227,86 @@ struct Conn;
 // A job is one connection's pipeline. Either a thread waits on `done` (the blocking-command path), or `conn` is set
 // and the dispatcher finishes the connection's turn itself: writes the replies and hands the socket back to the loop.
 struct Job { uint64_t id = 0; std::string token, p;                   // the call: connection and pipeline (RESP bytes)
+             std::vector<Argv> cmds;                                    // [READS_AT_THE_FRONT_V1] the commands, to key what is kept
+             int db = 0, proto = 2; bool plain = false;                 // the connection after it (from the region)
+             std::string here;                                          // replies answered here, ahead of the region's
              std::string r, error; bool authed = false, close = false;   // the answer: replies (RESP bytes), the region's word
              std::atomic<uint32_t> done{0}; Job* next = nullptr;
              Conn* conn = nullptr; bool fatal = false; std::string fatal_err; };
+// [READS_AT_THE_FRONT_V1] The front's copy of what it has read (coherence.hpp: the host's half and the argument).
+// [KEPT_IS_DIRECT_MAPPED_V1] A kept reply sits in one slot of a fixed array, chosen by a hash of the whole command (db,
+// protocol, every argument); a later reply for another command in the same slot replaces it. Nothing is ever removed
+// to keep the copy true: every kept reply carries the seq it was read at, and it is good only while no invalidation of
+// its key (inval: a fixed array of the highest seq applied, by a hash of db and key -- two keys in one slot only cost a
+// miss) or of its db (flush_at) is above that seq, and while the feed it was read for is the feed (gen). So an
+// invalidation is one atomic max, and it can land before or after the reply it voids.
+struct Kept { std::string key, reply; uint64_t rseq = 0, gen = 0; };
+static size_t g_keep_slots = size_t(1) << 20;                          // RIBBIT_FRONT_KEEP (a power of two; 0: keep nothing)
+static std::atomic<const Kept*>* g_kept = nullptr;
+static constexpr size_t INV = size_t(1) << 20;
+static std::atomic<uint64_t>* g_inval = [] { auto* v = new std::atomic<uint64_t>[INV]; for (size_t i = 0; i < INV; i++) v[i].store(0, std::memory_order_relaxed); return v; }();
+static std::atomic<uint64_t> g_flush_at[1024];
+static std::atomic<int> g_feed{-1};                                   // this front's feed at the host; -1: none, keep nothing
+static std::atomic<uint64_t> g_gen{1};                                // bumped whenever the feed is lost or opened
+static std::atomic<uint64_t> g_local{0}, g_remote{0};                 // [DIAG-LOCAL] commands answered here / at the host
+static std::string be32s(uint32_t v) { std::string o(4, '\0'); o[0] = char(v >> 24); o[1] = char(v >> 16); o[2] = char(v >> 8); o[3] = char(v); return o; }
+static std::atomic<uint64_t>& inval_of(int db, const std::string& key) { return g_inval[(std::hash<std::string>{}(key) ^ (size_t(db) * 0x9E3779B97F4A7C15ull)) & (INV - 1)]; }
+static std::string kept_key(int db, int proto, const Argv& a) {
+    std::string k = be32s((uint32_t)db); k += char(proto);
+    for (size_t i = 0; i < a.size(); i++) { k += be32s((uint32_t)a[i].size()); if (i) k += a[i]; else k += lower(a[i]); }
+    return k;
+}
+static void raise_to(std::atomic<uint64_t>& a, uint64_t v) { uint64_t c = a.load(); while (c < v && !a.compare_exchange_weak(c, v)) {} }
+static void apply_inval(const coh::Inval& x) {
+    if (x.flush) raise_to(g_flush_at[x.db & 1023], x.seq);
+    else raise_to(inval_of(x.db, x.key), x.seq);
+}
+// numbers separated by single spaces, as the region writes them (no sscanf: it showed in the profile)
+static bool nums(const std::string& l, size_t from, uint64_t* v, int n) {
+    size_t i = from;
+    for (int k = 0; k < n; k++) {
+        bool neg = false; if (i < l.size() && l[i] == '-') { neg = true; i++; }
+        if (i >= l.size() || l[i] < '0' || l[i] > '9') return false;
+        uint64_t x = 0; while (i < l.size() && l[i] >= '0' && l[i] <= '9') x = x * 10 + uint64_t(l[i++] - '0');
+        v[k] = neg ? uint64_t(-int64_t(x)) : x;
+        if (k + 1 < n) { if (i >= l.size() || l[i] != ' ') return false; i++; }
+    }
+    return i == l.size();
+}
+static bool good(const Kept* e, int db, const std::string& key) {
+    return e->gen == g_gen.load(std::memory_order_acquire) && e->rseq >= inval_of(db, key).load(std::memory_order_acquire)
+        && e->rseq >= g_flush_at[db & 1023].load(std::memory_order_acquire);
+}
+static void keep(int db, int proto, const Argv& a, std::string reply, uint64_t rseq, uint64_t gen) {
+    if (!g_kept) return;
+    auto* e = new Kept{kept_key(db, proto, a), std::move(reply), rseq, gen};
+    if (!good(e, db, a[1])) { delete e; return; }                       // changed since it was read
+    ebr::Guard g;
+    auto& slot = g_kept[std::hash<std::string>{}(e->key) & (g_keep_slots - 1)];
+    const Kept* old = slot.load(std::memory_order_acquire);
+    for (;;) {   // never over a later read of the same command: two reads of one key can come back in either order
+        if (old && old->key == e->key && old->gen == e->gen && old->rseq > e->rseq) { delete e; return; }
+        if (slot.compare_exchange_weak(old, e, std::memory_order_acq_rel, std::memory_order_acquire)) break;
+    }
+    if (old) ebr::retire(const_cast<Kept*>(old));
+}
+static void forget_all() { g_gen.fetch_add(1, std::memory_order_acq_rel); }   // every kept reply was read for an older feed
+// The leading plain reads of a pipeline that are kept and good are answered here; the rest goes to the region. Only
+// the LEADING ones: a read after a command sent to the region must see what that command did.
+static size_t answer_here(Conn& c, const std::vector<Argv>& cmds, std::string& out) {
+    if (!g_kept || g_feed.load(std::memory_order_acquire) < 0 || !c.plain) return 0;
+    ebr::Guard g;
+    size_t k = 0;
+    for (auto& a : cmds) {
+        if (!coh::cacheable(lower(a[0]), a.size())) break;
+        std::string key = kept_key(c.db, c.proto, a);
+        const Kept* e = g_kept[std::hash<std::string>{}(key) & (g_keep_slots - 1)].load(std::memory_order_acquire);
+        if (!e || e->key != key || !good(e, c.db, a[1])) break;
+        out += e->reply; k++;
+    }
+    return k;
+}
+static void parse_invals(const std::string& a, size_t& at, size_t count, std::vector<coh::Inval>& v);
 static std::atomic<uint64_t> g_batches{0}, g_batched{0};          // for INFO-style diagnostics: calls, and items in them
 static void complete_async(Job* j);
 // [NOBODY_WAITS_V1] John 2026-10-14: "There's nothing requiring us to wait, is there?" -- no. A batch is sent by the
@@ -240,16 +321,35 @@ static void drop_sessions() {   // the host is one: a session found gone means e
     // so the last reference to each dropped session is let go on a thread of its own.
     for (auto& o : g_sessv) { std::shared_ptr<frogram::Session> cur = o.load(); if (cur && o.compare_exchange_strong(cur, nullptr)) std::thread([cur] {}).detach(); }
 }
-static void deliver(const std::vector<Job*>& v, const std::string& a, std::string err) {
+static void deliver(const std::vector<Job*>& v, const std::string& a, std::string err, int feed, uint64_t gen) {
     if (err.empty()) {
         try {
             size_t at = 0;
-            if (get_line(a, at) != "RRA1 " + std::to_string(v.size())) throw std::runtime_error("the region's answer to a batch of " + std::to_string(v.size()) + " is not that batch's answer");
+            if (get_line(a, at) != "RRA2 " + std::to_string(v.size())) throw std::runtime_error("the region's answer to a batch of " + std::to_string(v.size()) + " is not that batch's answer");
+            struct F { Job* j; size_t ix, off, len; uint64_t rseq; int db, proto; };
+            std::vector<F> fills; std::vector<coh::Inval> invals;
             for (auto* j : v) {
                 std::string f = get_line(a, at);
-                if (f.size() != 3) throw std::runtime_error("the region's answer to a batch is malformed");
-                j->authed = f[1] == '1'; j->close = f[2] == '1';
+                uint64_t st[3];
+                if (f.size() < 4 || f[3] != ' ' || !nums(f, 4, st, 3)) throw std::runtime_error("the region's answer to a batch is malformed");
+                j->authed = f[1] == '1'; j->close = f[2] == '1'; j->db = (int)st[0]; j->proto = (int)st[1]; j->plain = st[2] == 1;
                 (f[0] == '1' ? j->error : j->r) = get_text(a, at, door::b64dec);
+                uint64_t cnt[2];
+                if (!nums(get_line(a, at), 0, cnt, 2)) throw std::runtime_error("the region's answer to a batch is malformed");
+                for (uint64_t k = 0; k < cnt[0]; k++) {
+                    uint64_t w[6];
+                    if (!nums(get_line(a, at), 0, w, 6)) throw std::runtime_error("the region's answer to a batch is malformed");
+                    fills.push_back(F{j, (size_t)w[0], (size_t)w[1], (size_t)w[2], w[3], (int)w[4], (int)w[5]});
+                }
+                parse_invals(a, at, (size_t)cnt[1], invals);
+            }
+            // [READS_AT_THE_FRONT_V1] what this batch changed leaves the copy BEFORE any of its replies is written; then
+            // what it read is kept -- only when it was read for this front's current feed
+            if (feed >= 0 && gen == g_gen.load(std::memory_order_acquire)) {
+                for (auto& x : invals) apply_inval(x);
+                for (auto& x : fills)
+                    if (x.ix < x.j->cmds.size() && x.off + x.len <= x.j->r.size() && x.j->cmds[x.ix].size() >= 2)
+                        keep(x.db, x.proto, x.j->cmds[x.ix], x.j->r.substr(x.off, x.len), x.rseq, gen);
             }
         } catch (const std::exception& e) { err = e.what(); }
     }
@@ -262,7 +362,9 @@ static void deliver(const std::vector<Job*>& v, const std::string& a, std::strin
 static void send_batch(std::vector<Job*> v) {
     // [RESP_ON_THE_WIRE_V1] the batch as bytes: per item id, token and the pipeline's RESP as it came off the client's
     // socket -- no JSON, no base64. The wire carries it raw; past the ceiling, on the data socket.
-    std::string body = "RRB1 " + std::to_string(v.size()) + "\n";
+    const uint64_t gen = g_gen.load(std::memory_order_acquire);        // [READS_AT_THE_FRONT_V1] what it reads is kept for this feed
+    const int feed = g_feed.load(std::memory_order_acquire);
+    std::string body = "RRB2 " + std::to_string(v.size()) + " " + std::to_string(feed) + "\n";
     for (auto* j : v) { body += std::to_string(j->id); body += ' '; body += j->token; body += '\n'; put_text(body, j->p, door::b64enc); }
     uint64_t nb = g_batches.fetch_add(1, std::memory_order_relaxed) + 1; uint64_t ni = g_batched.fetch_add(v.size(), std::memory_order_relaxed) + v.size();
     static const bool diag = getenv("RIBBIT_FRONT_DIAG") != nullptr;   // [DIAG-BATCH] every 1000th batch: size, bytes, round trip
@@ -276,14 +378,48 @@ static void send_batch(std::vector<Job*> v) {
             std::shared_ptr<frogram::Session> none;
             if (h.compare_exchange_strong(none, fresh)) s = fresh; else s = none;
         }
-    } catch (const std::exception& e) { drop_sessions(); deliver(v, "", e.what()); return; }
-    s->call_async("POST", g_api + "?op=redis_raw", body, [v, nb, ni, t0, bytes](int status, std::string a, std::string err) {
+    } catch (const std::exception& e) { drop_sessions(); deliver(v, "", e.what(), -1, 0); return; }
+    s->call_async("POST", g_api + "?op=redis_raw", body, [v, nb, ni, t0, bytes, feed, gen](int status, std::string a, std::string err) {
         if (diag && nb % 1000 == 0) logmsg('#', "[DIAG-BATCH] batches=" + std::to_string(nb) + " items=" + std::to_string(ni) + " this=" + std::to_string(v.size()) +
             " body=" + std::to_string(bytes) + "B answer=" + std::to_string(a.size()) + "B round_trip_us=" + std::to_string(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count()));
-        if (!err.empty()) { logmsg('#', "[DIAG-BATCH] batch " + std::to_string(nb) + " of " + std::to_string(v.size()) + " failed: " + err); drop_sessions(); deliver(v, a, err); return; }
-        if (status >= 400) { deliver(v, a, "HTTP " + std::to_string(status) + ": " + a); return; }
-        deliver(v, a, "");
+        if (!err.empty()) { logmsg('#', "[DIAG-BATCH] batch " + std::to_string(nb) + " of " + std::to_string(v.size()) + " failed: " + err); drop_sessions(); deliver(v, a, err, feed, gen); return; }
+        if (status >= 400) { deliver(v, a, "HTTP " + std::to_string(status) + ": " + a, feed, gen); return; }
+        deliver(v, a, "", feed, gen);
     });
+}
+static void parse_invals(const std::string& a, size_t& at, size_t count, std::vector<coh::Inval>& v) {
+    for (size_t k = 0; k < count; k++) {
+        std::string l = get_line(a, at); coh::Inval x; unsigned long long sq = 0; char t = 0;
+        if (sscanf(l.c_str(), "%c %llu %d", &t, &sq, &x.db) != 3 || (t != 'I' && t != 'F')) throw std::runtime_error("an invalidation from the region is malformed: " + l);
+        x.seq = sq; x.flush = t == 'F'; if (!x.flush) x.key = get_text(a, at, door::b64dec);
+        v.push_back(std::move(x));
+    }
+}
+// [READS_AT_THE_FRONT_V1] The feed: a held read on a session of its own, for the invalidations of keys this front keeps
+// that other fronts (or other batches) changed. Lost, it is gone: everything kept goes with it, nothing is answered here
+// until a new feed is open, and opening one is tried again a second later.
+static void feed_loop() {
+    for (;;) {
+        try {
+            frogram::Session s(g_ram_host, g_ram_port, g_api);
+            std::string a = s.call_bytes("POST", g_api + "?op=redis_feed_open", "", 15.0);
+            if (a.compare(0, 5, "RRF0 ") != 0) throw std::runtime_error("the host did not open a feed: " + a.substr(0, 80));
+            const int f = atoi(a.c_str() + 5);
+            g_gen.fetch_add(1, std::memory_order_acq_rel); g_feed.store(f, std::memory_order_release);
+            logmsg('*', "[READS_AT_THE_FRONT] feed " + std::to_string(f) + " open: plain reads of what this front has read are answered here");
+            for (;;) {
+                a = s.call_bytes("POST", g_api + "?op=redis_feed&f=" + std::to_string(f), "", 15.0);
+                size_t at = 0; std::string h = get_line(a, at);
+                if (h.compare(0, 5, "RRF1 ") != 0) throw std::runtime_error("the feed's answer is malformed: " + h.substr(0, 80));
+                std::vector<coh::Inval> v; parse_invals(a, at, std::stoul(h.substr(5)), v);
+                for (auto& x : v) apply_inval(x);
+            }
+        } catch (const std::exception& e) {
+            g_feed.store(-1, std::memory_order_release); forget_all();
+            logmsg('#', std::string("[READS_AT_THE_FRONT] feed lost (") + e.what() + "): nothing is answered here until one is open again");
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+    }
 }
 // a thread that has nothing else to do (the blocking-command path) waits for its own pipeline's answer
 static void submit(Job& j) { send_batch({&j}); fwait(j.done, 0); }
@@ -292,14 +428,21 @@ static void start_sessions() {
     int n = e ? atoi(e) : (int)std::thread::hardware_concurrency(); if (n < 1) n = 1;
     if (n > MAX_SESSIONS) n = MAX_SESSIONS;
     g_nsess = n;
+    if (const char* k = getenv("RIBBIT_FRONT_KEEP")) { size_t n = (size_t)atol(k), p = 1; while (p < n) p <<= 1; g_keep_slots = n ? p : 0; }
+    if (g_keep_slots) {                                                // RIBBIT_FRONT_KEEP=0: this front keeps nothing
+        g_kept = new std::atomic<const Kept*>[g_keep_slots]; for (size_t i = 0; i < g_keep_slots; i++) g_kept[i].store(nullptr, std::memory_order_relaxed);
+        std::thread(feed_loop).detach();
+    }
 }
 
 // A region answer for a connection: its replies onto `out`; the region's word on authentication and closing. False if
 // the connection ends here.
 static bool take_reply(Conn& c, const Job& j, std::string& out) {
+    out += j.here;                                                     // [READS_AT_THE_FRONT_V1] the leading reads answered here
     if (!j.error.empty()) { diag_region(c.id, "redis_batch", j.p, j.error); out += region_error(j.error); return false; }   // no region, no service
     out += j.r;
     c.authed = j.authed; c.parser.authenticated = c.authed;
+    c.db = j.db; c.proto = j.proto; c.plain = j.plain;                  // [READS_AT_THE_FRONT_V1]
     return !j.close;
 }
 // One pipeline to the region: returns the bytes to write, and whether the connection stays open.
@@ -403,11 +546,20 @@ static void event_loop(int ep) {
                 else rearm(c);                                          // a partial command: wait for the rest
                 continue;
             }
+            std::string here; size_t nhere = 0;                         // [READS_AT_THE_FRONT_V1] the leading kept reads
+            if (!pr.fatal) nhere = answer_here(*c, pr.cmds, here);
+            if (nhere == pr.cmds.size()) {                              // every one: no trip at all
+                g_local.fetch_add(nhere, std::memory_order_relaxed);
+                if (send_all(c->fd, here)) rearm(c); else finish_conn(c);
+                continue;
+            }
+            if (nhere) { g_local.fetch_add(nhere, std::memory_order_relaxed); pr.cmds.erase(pr.cmds.begin(), pr.cmds.begin() + (long)nhere); }
+            g_remote.fetch_add(pr.cmds.size(), std::memory_order_relaxed);
             bool blocking = false; for (auto& a : pr.cmds) if (is_blocking_class(a)) { blocking = true; break; }
             if (blocking) { std::thread(blocking_turn, c, std::move(pr)).detach(); continue; }
             std::string pipeline; for (auto& a : pr.cmds) pipeline += resp_of(a);
             Job* j = new Job; j->conn = c; j->fatal = pr.fatal; j->fatal_err = pr.err;
-            j->id = c->id; j->token = c->token; j->p = std::move(pipeline);
+            j->id = c->id; j->token = c->token; j->p = std::move(pipeline); j->cmds = std::move(pr.cmds); j->here = std::move(here);
             batch.push_back(j);
         }
         if (!batch.empty()) send_batch(std::move(batch));               // everything this pass read: one batch, sent now

@@ -68,12 +68,14 @@ void Region::end_quiet() {
     for (auto& h : *held) h.first->touched(h.second);
     held->clear();
 }
+void (*Region::on_change)(Region& R, const std::string* variable) = nullptr;
 void Region::touched(const std::string& variable) { touched_h(hash_of(variable), variable); }
 void Region::touched_h(size_t h, const std::string& variable) {
     if (quiet_span) { quiet_span->emplace_back(this, variable); return; }
+    if (on_change) on_change(*this, &variable);      // [READS_AT_THE_FRONT_V1] after the change, before anyone is told
     bump(word_h(h)); bump(any);
 }
-void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
+void Region::touched_all() { if (on_change) on_change(*this, nullptr); for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
 
 // ---------------------------------------------------------------- Var
 // A node that landed alone is retired on its own. A node that landed as a batch member belongs to its batch:
@@ -161,7 +163,11 @@ void Var::n_rrange(const NumInst& lo, const NumInst& hi, const std::function<boo
 
 // ---------------------------------------------------------------- regions
 void Memory::init(const std::vector<std::string>& services, size_t wait_words) {
-    for (auto& s : services) { RegionEntry e; e.name = s; e.r = std::make_unique<Region>(wait_words); regions_[s] = std::move(e); }
+    for (auto& s : services) {
+        RegionEntry e; e.name = s; e.r = std::make_unique<Region>(wait_words);
+        if (s.size() > 2 && s.compare(0, 2, "db") == 0 && s.find_first_not_of("0123456789", 2) == std::string::npos) e.r->dbi = std::stoi(s.substr(2));
+        regions_[s] = std::move(e);
+    }
 }
 Region& Memory::region(const std::string& service) const {
     // service names are static strings (db::svc): a two-entry per-thread cache keyed on the string's address

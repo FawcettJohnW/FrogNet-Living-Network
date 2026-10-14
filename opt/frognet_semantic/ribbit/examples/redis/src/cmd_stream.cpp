@@ -151,7 +151,7 @@ static void cmd_xadd(Client& c, const Argv& a, Reply& r) {
         auto ad = g.mem.add(k.R, k.name, k.h, db::VAL, *meta_bag(Meta()), 1, 0, false);   // entries added: one fetch_add
         e.n = (int64_t)((uint64_t)ad.acc_after + unpack_meta(ad.node->bag->s).added);    // this XADD's number, kept in the entry
         if (!g.mem.replace_if(k.R, k.name, k.h, inst_of(id), nullptr, Bag(e))) {
-            ad.node->acc.fetch_sub(1, std::memory_order_acq_rel);                        // no entry was added: withdraw the count
+            ad.node->acc.fetch_sub(1, std::memory_order_acq_rel); k.R.touched_h(k.h, k.name);                        // no entry was added: withdraw the count
             r.error("ERR The ID specified in XADD is equal or smaller than the target stream top item"); return;
         }
     }

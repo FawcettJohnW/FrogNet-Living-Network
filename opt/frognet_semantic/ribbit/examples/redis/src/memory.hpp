@@ -236,6 +236,10 @@ public:
     std::atomic<long> nvars{0};
 
     explicit Region(size_t words_n = 4096) : WORDS(words_n), words(new WaitWord[words_n]) {}
+    int dbi = -1;                                    // the Redis db this region is ("dbN"), -1 for any other region
+    // [READS_AT_THE_FRONT_V1] called after every change a reader could see, from the thread that made it: the variable
+    // changed, or nullptr for the whole region (FLUSHDB, SWAPDB). Set once at start; the fronts' copies follow it.
+    static void (*on_change)(Region& R, const std::string* variable);
     static size_t hash_of(const std::string& variable) { return std::hash<std::string>{}(variable); }
     WaitWord& word(const std::string& variable) const { return words[hash_of(variable) & (WORDS - 1)]; }
     Bucket& bucket(const std::string& variable) const { return buckets()[hash_of(variable) & (BUCKETS - 1)]; }
