@@ -91,13 +91,37 @@ if has concurrency; then
   grep -a '^FAIL' "$OUT/concurrency-stock.txt" "$OUT/concurrency-ribbit.txt" | sed 's/^/    /' | tee -a "$SUMMARY"
 fi
 
+# [REPEATED_MEASURE_V1] A single benchmark run swings +-25% on a shared machine (six runs of one command on a fresh
+# stock server: 602k..980k SET/s), so every throughput figure is REPEAT runs, stock and region interleaved, reported as
+# median [min..max] with the CPU steal ticks the runs saw.
+REPEAT=${REPEAT:-5}
+measure_k() {   # $1 K, $2 tag -> MEASURE lines appended to $OUT/$2-measures.txt
+  for r in $(seq 1 $REPEAT); do for arm in stock ribbit; do
+    s1=$(awk '/^cpu /{print $9}' /proc/stat)
+    python3 tests/accept_beyond.py $arm scale $((9880 + 10 * r)) "$REDIS_SRC" build $1 > "$OUT/$2-$arm-$1-$r.txt" 2>&1
+    s2=$(awk '/^cpu /{print $9}' /proc/stat)
+    grep -a "^MEASURE" "$OUT/$2-$arm-$1-$r.txt" | sed "s/\$/ steal=$((s2 - s1))/" >> "$OUT/$2-measures.txt"
+    grep -aq "^RESULT PASS" "$OUT/$2-$arm-$1-$r.txt" || note "  RESULT FAIL $2 $arm K=$1 run $r: $(tail -1 "$OUT/$2-$arm-$1-$r.txt")"
+  done; done
+}
+report() {      # $1 tag
+  python3 - "$OUT/$1-measures.txt" <<'PY' | tee -a "$SUMMARY"
+import re, statistics, sys
+rows = {}
+for l in open(sys.argv[1]):
+    m = re.match(r"MEASURE (\S+) (\S+) K=(\d+) total (\d+) req/s.* steal=(\d+)", l)
+    if m: rows.setdefault((int(m.group(3)), m.group(2), m.group(1)), []).append((int(m.group(4)), int(m.group(5))))
+print("  %-4s %-4s %28s %28s %7s %6s" % ("K", "cmd", "stock median [min..max]", "region median [min..max]", "ratio", "steal"))
+for k, cmd in sorted({(k, c) for k, c, _ in rows}):
+    s, r = rows.get((k, cmd, "stock"), []), rows.get((k, cmd, "ribbit"), [])
+    if not s or not r: continue
+    f = lambda v: "%9.0f [%7.0f..%7.0f]" % (statistics.median(x for x, _ in v), min(x for x, _ in v), max(x for x, _ in v))
+    print("  %-4d %-4s %28s %28s %7.2f %6d" % (k, cmd, f(s), f(r), statistics.median(x for x, _ in r) / statistics.median(x for x, _ in s), sum(t for _, t in s + r)))
+PY
+}
 if has bench; then
-  note "== bench: redis-benchmark, one endpoint each, same command lines (req/s; region/stock)"
-  for arm in stock ribbit; do python3 tests/accept_beyond.py $arm scale 9820 "$REDIS_SRC" build 1 > "$OUT/bench-$arm.txt" 2>&1; done
-  for t in SET GET; do
-    s=$(grep -a "MEASURE stock $t" "$OUT/bench-stock.txt" | awk '{print $6}'); r=$(grep -a "MEASURE ribbit $t" "$OUT/bench-ribbit.txt" | awk '{print $6}')
-    note "  $t  stock $s  region $r  ratio $(python3 -c "print('%.2f' % ($r/$s))" 2>/dev/null)"
-  done
+  note "== bench: redis-benchmark -c 50 -P 16 -r 100000, one endpoint each, $REPEAT runs interleaved (req/s)"
+  measure_k 1 bench; report bench
 fi
 
 note "# PART 2 -- beside stock as an operator would set it up: the same test on every arm, stock's result measured"
@@ -115,11 +139,8 @@ for t in endpoints loss hostloss; do
   fi
 done
 if has scale; then
-  note "== scale: K endpoints at once, requests/s summed (stock SET can only go to its primary)"
-  for k in $(seq 1 $K); do for arm in stock ribbit; do
-    python3 tests/accept_beyond.py $arm scale 9880 "$REDIS_SRC" build $k > "$OUT/scale-$arm-$k.txt" 2>&1
-    grep -a "^MEASURE" "$OUT/scale-$arm-$k.txt" | sed "s/^/  /" | tee -a "$SUMMARY"
-  done; done
+  note "== scale: K endpoints at once, requests/s summed, $REPEAT runs interleaved (stock SET can only go to its primary)"
+  for k in $(seq 1 $K); do measure_k $k scale; done; report scale
 fi
 if has inet; then
   note "== inet: two fronts here, one keyspace on the deployed RAM host"
