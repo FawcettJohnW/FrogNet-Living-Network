@@ -41,10 +41,12 @@
 
 set -u
 APPLY=0
+SWEEP=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --apply) APPLY=1; shift ;;
-        *) echo "usage: $0 [--apply]" >&2; exit 2 ;;
+        --sweep-code) SWEEP=1; shift ;;   # [CODE_IS_THE_TREE_V1] the installer's C1c only (see that section)
+        *) echo "usage: $0 [--apply] [--sweep-code]" >&2; exit 2 ;;
     esac
 done
 [ "$APPLY" -eq 0 ] && echo "DRY RUN - nothing will be deleted. Pass --apply to do it." && echo
@@ -626,6 +628,33 @@ t1_section
 pip_console_section
 t5_section
 t6_section
+echo
+echo "-- [2026-10-14] code under opt/frognet_semantic that this install did not lay down [CODE_IS_THE_TREE_V1]"
+# The list above names what the cleanup deleted from the repository. A node also carries code that was never in the
+# repository at all, from older tarballs and hand copies (Seattle7: discovery/test_transit_chain_oracle.py importing
+# FakeBroker, simulation/sim_games_over_wire.py), and no list can name those. The install record (C1:
+# /var/lib/frognet-install/files, the node file set just laid down) can: a .py/.sh/.bash/.php under
+# opt/frognet_semantic that is not in it is not this release's code. Data files are not touched, nor the dirs that
+# hold this node's own state (venv, docs, logs, blob_cache, etc, bin, usr, var, _v1).
+# Only with --sweep-code, which the installer passes right after C1 wrote the record. Not on a build host
+# (frognet_build_release.sh): there /opt/frognet_semantic is where new code is written before any install records it.
+REC="$R/var/lib/frognet-install/files"
+if [ "$SWEEP" -eq 0 ]; then
+    echo "  (not run: --sweep-code not given)"
+elif [ ! -s "$REC" ]; then
+    echo "  FAILED: no install record $REC (frognet_install.sh writes it at C1): not swept" >&2
+    fail=$((fail+1))
+elif [ -d "$R/opt/frognet_semantic" ]; then
+    _O="$R/opt/frognet_semantic"
+    while IFS= read -r f; do
+        rel="${f#"$R"/}"
+        grep -qxF -- "$rel" "$REC" && continue
+        gone "$rel"
+    done < <(find "$_O" \( -path "$_O/venv" -o -path "$_O/docs" -o -path "$_O/logs" -o -path "$_O/blob_cache" \
+                          -o -path "$_O/etc" -o -path "$_O/bin" -o -path "$_O/usr" -o -path "$_O/var" -o -path "$_O/_v1" \
+                          -o -name __pycache__ \) -prune -o -type f \( -name '*.py' -o -name '*.sh' -o -name '*.bash' -o -name '*.php' \) -print)
+fi
+
 echo
 echo "-- python bytecode (regenerated on next import)"
 for d in "$R/opt/frognet_semantic" "$R/usr/local/bin"; do

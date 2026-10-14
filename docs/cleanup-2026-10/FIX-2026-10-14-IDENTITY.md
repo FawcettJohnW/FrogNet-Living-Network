@@ -62,3 +62,25 @@ Container G1:
 - Two reboots, each giving eth1 .1/.2, "DHCP scoped to eth1", "dnsmasq restarted" and "merge requested".
 - The two boot runs are serialized.
 - The system reaches `running`, with no failed unit.
+
+## r23: code on a node that was never in the repository
+On Seattle7, run_all failed 3 discovery tests that the tree passes 84/84:
+- test_transit_chain_oracle imports FakeBroker;
+- test_license_oracle reports 338 files with no notice;
+- test_not_frognet_skip_oracle fails.
+
+The node carries code that no repository version has had, such as `discovery/test_transit_chain_oracle.py` and `simulation/sim_games_over_wire.py`. frognet_prune_removed.sh can only name what the cleanup deleted from the repository, so it never touched these files.
+
+`[CODE_IS_THE_TREE_V1]`: `frognet_prune_removed.sh --sweep-code` removes every .py/.sh/.bash/.php under opt/frognet_semantic that the install record (/var/lib/frognet-install/files, written at C1) does not list.
+- Data files are not touched.
+- The node-state dirs are left alone: venv, docs, logs, blob_cache, etc, bin, usr, var, _v1.
+- With no record, it says so and counts that as a failure.
+
+The installer's C1c passes `--sweep-code`. frognet_build_release.sh does not, because on a build host new code exists in /opt/frognet_semantic before any install has recorded it. /usr/local/bin is not swept, because it holds pip console scripts and other projects' tools.
+
+Installer build id: frognet-install-2026-10-14-r23.
+
+Checked:
+- A fake root with a record: removed the 2 strays and kept the recorded code, venv/, logs/ and DB_CONFIG.json.
+- run_all on the tree: discovery 84/84, clean-install oracle PASS.
+- static-no-fallback: 0 violations.

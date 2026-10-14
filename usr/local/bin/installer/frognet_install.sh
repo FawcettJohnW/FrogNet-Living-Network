@@ -333,7 +333,7 @@ log()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [install] $*"; }
 warn()      { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]    $*" >&2; }
 die()       { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL]   $*" >&2; exit 1; }
 
-INSTALL_BUILD="frognet-install-2026-10-14-r22"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
+INSTALL_BUILD="frognet-install-2026-10-14-r23"   # [EVERY_COMPONENT_LOGS_ITS_BUILD_V1]
 log "frognet_install.sh build ${INSTALL_BUILD} starting on $(hostname) - $(uname -m) - $(date) - $( [[ -n "$REGION_RAM" ]] && echo "region ${REGION_AREA} at ${REGION_RAM}" || echo "LAN-only" )"
 
 # [INSTALL_QUIESCE_MERGE_V1] Take runMerge's own lock and hold it for the whole
@@ -1059,10 +1059,12 @@ phase "C1c: Upgrade (what the tree no longer ships)"
 # usr/local/bin, usr/local/sbin, etc/systemd/system, var/www/html and
 # opt/frognet_semantic, and the old system-pip console scripts whose module is
 # not also an OS package. No path in it is in the tree. Each removal is logged.
+# --sweep-code: also every .py/.sh/.bash/.php under /opt/frognet_semantic that C1's install record does not
+# list -- code from older tarballs that no list can name [CODE_IS_THE_TREE_V1].
 # A failure is logged and the install goes on; the next install (or a manual run
 # of the same command) retries it.
 ###############################################################################
-if /usr/local/bin/frognet_prune_removed.sh --apply; then
+if /usr/local/bin/frognet_prune_removed.sh --apply --sweep-code; then
     log "C1c: retired state removed"
 else
     warn "C1c: some retired state could not be removed (listed above); the next install retries it"
