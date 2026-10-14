@@ -409,7 +409,11 @@ std::vector<Cell> Memory::read_after(const std::string& service, const std::stri
         }
         if (!out.empty() || wait_ms == 0) return out;
         int64_t left = -1;
-        if (wait_ms > 0) { left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count(); if (left <= 0) return out; }
+        if (wait_ms > 0) {           // [NEVER_BEFORE_THE_DEADLINE_V1] ends only once the deadline has passed (rounded up)
+            auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) return out;
+            left = (std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count() + 999) / 1000;
+        }
         ebr::exit(); Region::wait(w, seen, left); ebr::enter();     // a parked participant holds nobody's garbage
     }
 }

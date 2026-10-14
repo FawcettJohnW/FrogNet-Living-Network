@@ -359,7 +359,13 @@ bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::ch
     for (;;) {
         if (c.closing) break;                          // the peer hung up (seen by the event thread): leave now
         int64_t left = -1;
-        if (timeout_ms > 0) { left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count(); if (left <= 0) { ok = false; break; } }
+        // [NEVER_BEFORE_THE_DEADLINE_V1] the timeout ends only once the deadline has passed: the time left is rounded UP
+        // to the millisecond (truncating it ended a 1 s BZPOPMIN at 999 ms on the Pi 5; Redis never returns early)
+        if (timeout_ms > 0) {
+            auto now = std::chrono::steady_clock::now();
+            if (now >= deadline) { ok = false; break; }
+            left = (std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count() + 999) / 1000;
+        }
         int64_t slice = left < 0 ? 100 : std::min<int64_t>(left, 100);
         ebr::exit(); Region::wait(w, seen, slice); ebr::enter();     // parked: hold nobody's garbage
         if (w.gen.load(std::memory_order_acquire) != seen || c.unblock.load()) break;
