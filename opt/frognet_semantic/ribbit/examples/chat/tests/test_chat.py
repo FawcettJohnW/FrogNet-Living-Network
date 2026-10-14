@@ -23,6 +23,9 @@ def waiter():
     r, at2 = b.receive(bob, at, 10); got.extend(r); at = at2
 t0 = time.time(); th = threading.Thread(target=waiter); th.start(); time.sleep(0.4); d.send(bob, dave, "late"); th.join()
 check(len(got) == 1 and got[0]["text"] == "late" and 0.35 <= time.time() - t0 < 3, "P2 a held receive wakes on the send")
+d.here(dave); b.here(bob)
+who = b.list()
+check(dave in who and bob in who and who == sorted(who), "P4 here/list through the library")
 try:
     chat.Client("127.0.0.1", 1); check(False, "P3 unreachable chat-ram raises")
 except chat.ChatError as e:

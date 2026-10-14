@@ -26,6 +26,10 @@ int64_t chat_position(chat_client* c, const char* me, char** err);
 /* Messages written to me after *after, waiting up to wait_s seconds for the first. Returns a JSON array of
  * {"from","text","ts","id"} and moves *after past them; NULL with *err set on failure. */
 char* chat_receive(chat_client* c, const char* me, int64_t* after, double wait_s, char** err);
+/* me is here: writes (refreshes) me's presence; call it again within a minute to stay listed. 0, or -1 with *err. */
+int chat_here(chat_client* c, const char* me, char** err);
+/* Who is here: a JSON array of names, sorted; NULL with *err set on failure. */
+char* chat_list(chat_client* c, char** err);
 void chat_free(char* s);
 
 #ifdef __cplusplus

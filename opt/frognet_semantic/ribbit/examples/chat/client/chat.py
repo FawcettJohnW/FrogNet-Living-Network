@@ -32,6 +32,8 @@ _lib.chat_send.restype = ctypes.c_int;       _lib.chat_send.argtypes = [ctypes.c
 _lib.chat_position.restype = ctypes.c_int64; _lib.chat_position.argtypes = [ctypes.c_void_p, _c, _err]
 _lib.chat_receive.restype = ctypes.c_void_p; _lib.chat_receive.argtypes = [ctypes.c_void_p, _c, ctypes.POINTER(ctypes.c_int64), ctypes.c_double, _err]
 _lib.chat_free.argtypes = [ctypes.c_void_p]
+_lib.chat_here.restype = ctypes.c_int;       _lib.chat_here.argtypes = [ctypes.c_void_p, _c, _err]
+_lib.chat_list.restype = ctypes.c_void_p;    _lib.chat_list.argtypes = [ctypes.c_void_p, _err]
 
 class ChatError(RuntimeError):
     pass
@@ -61,3 +63,10 @@ class Client:
         err = ctypes.c_void_p(); a = ctypes.c_int64(after)
         p = _lib.chat_receive(self._h, me.encode(), ctypes.byref(a), float(wait_s), ctypes.byref(err)); _check(p, err)
         return json.loads(_take(p)), a.value
+    def here(self, me):
+        """me is here; call again within a minute to stay listed."""
+        err = ctypes.c_void_p(); _check(_lib.chat_here(self._h, me.encode(), ctypes.byref(err)) == 0, err)
+    def list(self):
+        """Who is here, sorted."""
+        err = ctypes.c_void_p(); p = _lib.chat_list(self._h, ctypes.byref(err)); _check(p, err)
+        return json.loads(_take(p))
