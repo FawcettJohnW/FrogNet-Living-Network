@@ -556,7 +556,10 @@ static void event_loop(int ep) {
             if (nhere) { g_local.fetch_add(nhere, std::memory_order_relaxed); pr.cmds.erase(pr.cmds.begin(), pr.cmds.begin() + (long)nhere); }
             g_remote.fetch_add(pr.cmds.size(), std::memory_order_relaxed);
             bool blocking = false; for (auto& a : pr.cmds) if (is_blocking_class(a)) { blocking = true; break; }
-            if (blocking) { std::thread(blocking_turn, c, std::move(pr)).detach(); continue; }
+            if (blocking) {
+                if (!here.empty() && !send_all(c->fd, here)) { finish_conn(c); continue; }   // the replies answered here go first
+                std::thread(blocking_turn, c, std::move(pr)).detach(); continue;
+            }
             std::string pipeline; for (auto& a : pr.cmds) pipeline += resp_of(a);
             Job* j = new Job; j->conn = c; j->fatal = pr.fatal; j->fatal_err = pr.err;
             j->id = c->id; j->token = c->token; j->p = std::move(pipeline); j->cmds = std::move(pr.cmds); j->here = std::move(here);
