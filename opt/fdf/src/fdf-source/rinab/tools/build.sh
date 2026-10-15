@@ -13,6 +13,7 @@ python3 tools/apply_engine_exact_shortcuts.py $P/ribbit_cpp
 python3 tools/apply_alloc_once.py $P/ribbit_cpp
 python3 tools/apply_template_precompute.py $P/ribbit_cpp
 python3 tools/apply_fire_keys.py $P/ribbit_cpp/ram_memory.hpp
+python3 tools/apply_publish_order.py $P/ribbit_cpp/ram_memory.hpp   # [PUBLISH_IN_ID_ORDER_V1] a follower never skips a write
 python3 tools/apply_ebr_readers.py $P/ribbit_cpp/ebr.hpp
 python3 tools/apply_coalesce.py $P/ribbit_cpp
 python3 tools/apply_wire_order.py $P/ribbit_cpp
@@ -35,6 +36,7 @@ python3 tools/apply_session_order.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_host_coalesce.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_deferred_answer.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_work_moves.py $P/ramsrv/ram_server.cpp
+python3 tools/apply_region_session_key.py $P/ramsrv/ram_server.cpp   # [REGION_COALESCE_PER_SESSION_V1]
 python3 tools/apply_host_announce.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_session_peer.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_http_front.py $P/ramsrv/ram_server.cpp         # [HTTP_FRONT_V1] last: plain HTTP on the same port

@@ -64,7 +64,7 @@ public:
         const std::string tmp = path_ + ".new"; FILE* out = fopen(tmp.c_str(), "w");
         if (!out) { fprintf(stderr, "rina-host: writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
         size_t kept = 0;
-        for (auto& [k, bag] : last) { if (Json::parse(bag)["v"].s.empty()) continue;   // a deletion: gone for good
+        for (auto& [k, bag] : last) { const std::string v = Json::parse(bag)["v"].s; if (v.empty() || (k.first == "map" && v.find(";own=1") != std::string::npos)) continue;   // a deletion: gone for good; [OWNED_MAPPING_IS_NOT_RESTORED_V1] a session-bound mapping went with its session
             put(k.first, k.second, bag); fputs(line_of(k.first, k.second, bag).c_str(), out); ++kept; }
         if (fflush(out) != 0 || fdatasync(fileno(out)) != 0 || fclose(out) != 0 || rename(tmp.c_str(), path_.c_str()) != 0) {
             fprintf(stderr, "rina-host: compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
@@ -161,7 +161,7 @@ std::string get(frogram::MemoryApi&, const std::string& kind, const std::string&
 }
 void put(frogram::MemoryApi& m, const std::string& variable, const std::string& instance, const std::string& value) {
     m.write("rina", variable, instance, "{\"v\":" + Json::quote(value) + "}");
-}
+}  void put_gone_permanent(frogram::MemoryApi& m, const std::string& variable, const std::string& instance) { m.write("rina", variable, instance, "{\"v\":\"\",\"p\":1}"); }   // [MAP_REMOVAL_IS_PERMANENT_V1] removing a Permanent record is Permanent too: filed, so the replay deletes it
 struct Ipcp { std::string name, dif, type; int id; };
 std::vector<Ipcp> ipcps_of(frogram::MemoryApi& m, const std::string& ns) {
     std::vector<Ipcp> v;
@@ -482,7 +482,7 @@ std::string resident(const std::string& op, const Json& in) {
                     return "{\"ok\":false,\"error\":\"EEXIST\",\"why\":" + Json::quote(name + " is held by a live session (" + get(m, "sess", owner) + "); not transferred") + "}";
             }
             char exp[32]; snprintf(exp, sizeof exp, "%.3f", t + strtod(ttl.c_str(), nullptr));
-            m.write("rina", "map", name, "{\"v\":" + Json::quote("rloc=" + rloc + ";exp=" + exp + ";ts=" + ts + ";site=" + site) + ",\"p\":1}");
+            m.write("rina", "map", name, "{\"v\":" + Json::quote("rloc=" + rloc + ";exp=" + exp + ";ts=" + ts + ";site=" + site + (in["own"].b ? ";own=1" : "")) + ",\"p\":1}");   // [OWNED_MAPPING_IS_NOT_RESTORED_V1] filed (it supersedes an older one), never restored
             put(m, "mown", name, in["own"].b ? sess_key(rina_session_id()) : "");          // [MAP_PREFIX_LOCATOR_SET_V1] session-bound, or not
             for (auto& w : scan(m, "mwatch", name + "|")) if (!w.value.empty()) push_event(w.rest.substr(name.size() + 1), "{\"k\":\"m\"}");   // [MAP_WATCH_V1]
             for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}");
@@ -495,7 +495,7 @@ std::string resident(const std::string& op, const Json& in) {
     if (op == "map_remove") {                  // [MAP_PREFIX_LOCATOR_SET_V1] a session withdraws a mapping it registered with own:true
         frogram::MemoryApi& m = region_memory(); const std::string name = in["name"].s;
         if (name.empty() || get(m, "mown", name) != sess_key(rina_session_id())) return "{\"ok\":false,\"error\":\"EPERM\",\"why\":\"not this session's mapping\"}";
-        put(m, "mown", name, ""); put(m, "map", name, "");
+        put(m, "mown", name, ""); put_gone_permanent(m, "map", name);   // [MAP_REMOVAL_IS_PERMANENT_V1]
         for (auto& w : scan(m, "mwatch", name + "|")) if (!w.value.empty()) push_event(w.rest.substr(name.size() + 1), "{\"k\":\"m\"}");
         for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}");
         return "{\"ok\":true}";
@@ -989,7 +989,7 @@ void rina_session_down(uint64_t sid) {
     for (auto& r : scan(m, "mwatch", "")) if (r.value == sess_key(sid)) put(m, "mwatch", r.rest, "");   // [MAP_WATCH_V1] a watcher gone   // [FDF_PARTICIPANTS_CHANGE_V1] a watcher gone
     for (auto& r : scan(m, "laddr", "")) if (r.value == sess_key(sid)) put(m, "laddr", r.rest, "");       // [LEAF_ADDR_FROM_THE_REGION_V1] its /32 is free
     for (auto& r : scan(m, "mown", "")) if (r.value == sess_key(sid)) {                                   // [MAP_PREFIX_LOCATOR_SET_V1] its mappings go with it
-        put(m, "mown", r.rest, ""); put(m, "map", r.rest, "");
+        put(m, "mown", r.rest, ""); put_gone_permanent(m, "map", r.rest);   // [MAP_REMOVAL_IS_PERMANENT_V1]
         for (auto& w : scan(m, "mwatch", r.rest + "|")) if (!w.value.empty()) push_event(w.rest.substr(r.rest.size() + 1), "{\"k\":\"m\"}");
         for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}"); }
     notify_participants(m);                                          // [FDF_PARTICIPANTS_CHANGE_V1] a participant may have gone
