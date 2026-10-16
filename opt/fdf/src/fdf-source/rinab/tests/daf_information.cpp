@@ -44,9 +44,9 @@ int main(int argc, char** argv) {
       Json s = sc.call("subscribe", "\"daf\":" + q(D) + ",\"names\":[\"receiving\"],\"period_s\":0.2");
       uint64_t rev = uint64_t(s["rev"].n); std::vector<double> ts; std::vector<double> caps; int changed_at = -1;
       for (int i = 0; i < 10; ++i) {
-          auto got = sc.memory().read("daf", "subd|" + D, s["sub"].s, int64_t(rev), 2.0);
-          if (got.empty()) break; rev = got[0].id; ts.push_back(got[0].bag["t"].n);
-          double cap = 0; for (auto& m : got[0].bag["data"]["receiving"].a) if (m["apn"].s == "h-a") cap = m["facts"]["capacity"].n; caps.push_back(cap);
+          Json got; try { got = sc.wait(D, "sub", s["sub"].s, rev, false, 2.0); } catch (const std::exception&) { break; }
+          if (!got["ok"].b || got["rows"].a.empty()) break; rev = uint64_t(got["rev"].n); const Json& v = got["rows"].a[0]["v"]; ts.push_back(v["t"].n);
+          double cap = 0; for (auto& m : v["data"]["receiving"].a) if (m["apn"].s == "h-a") cap = m["facts"]["capacity"].n; caps.push_back(cap);
           if (i == 4) { ha.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":9}"); changed_at = i; }
       }
       double mn = 1e9, mx = 0; for (size_t i = 1; i < ts.size(); ++i) { mn = std::min(mn, ts[i] - ts[i - 1]); mx = std::max(mx, ts[i] - ts[i - 1]); }
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
           subs.push_back(s["sub"].s); revs.push_back(uint64_t(s["rev"].n)); if (s["shared"].b) ++shared; }
       const double runs0 = admin.call("stats")["subscription_runs"].n;
       std::atomic<int> woke{0}; std::vector<std::thread> ws;
-      for (int i = 0; i < 50; ++i) ws.emplace_back([&, i] { daf::Client w(A); if (!w.memory().read("daf", "subd|" + D, subs[i], int64_t(revs[i]), 5.0).empty()) ++woke; });
+      for (int i = 0; i < 50; ++i) ws.emplace_back([&, i] { try { Json r = boards[i]->wait(D, "sub", subs[i], revs[i], false, 5.0); if (r["ok"].b && !r["rows"].a.empty()) ++woke; } catch (const std::exception&) {} });
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       for (int k = 0; k < 5; ++k) hb.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":" + std::to_string(10 + k) + "}");
       for (auto& t : ws) t.join();
@@ -91,15 +91,15 @@ int main(int argc, char** argv) {
 
     // ---- E: distribute a value to every member of a name
     { Json r = admin.call("distribute", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"key\":\"alert-1\",\"value\":{\"text\":\"mass casualty incident, 40 patients\"}");
-      auto a1 = ha.memory().read("daf", "in|" + D + "|h-a", "alert-1"), b1 = hb.memory().read("daf", "in|" + D + "|h-b", "alert-1");
-      expect("E", "a value distributed to a name reaches every member's inbox", r["delivered"].n == 2 && a1.size() == 1 && b1.size() == 1 && a1[0].bag["v"]["text"].s.find("40") != std::string::npos,
+      Json a1 = ha.peek(D, "in", "alert-1"), b1 = hb.peek(D, "in", "alert-1");
+      expect("E", "a value distributed to a name reaches every member's inbox", r["delivered"].n == 2 && a1["rows"].a.size() == 1 && b1["rows"].a.size() == 1 && a1["rows"].a[0]["v"]["v"]["text"].s.find("40") != std::string::npos,
              std::to_string(int(r["delivered"].n)) + " delivered"); }
 
     // ---- E: START
     { Json st = admin.call("start", "\"daf\":" + q(D) + ",\"script\":{\"from\":\"receiving\",\"filter\":[{\"f\":\"trauma\",\"v\":true}],\"fact\":\"capacity\",\"agg\":\"sum\",\"out\":\"trauma-capacity\",\"on_change\":true}");
       const double first = st["result"]["v"].n;
       hb.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":20}");
-      Json o; for (auto& c : admin.memory().read("daf", "out|" + D, "trauma-capacity")) o = c.bag;
+      const Json out = admin.peek(D, "out", "trauma-capacity"); Json o; for (auto& c : out["rows"].a) o = c["v"];
       expect("E", "a script started at the RAM manager runs beside the memory; its result is written there", st["ok"].b && first == 3 + 14 && o["v"].n == 3 + 20,
              "sum of trauma capacity: " + std::to_string(int(first)) + ", after a change " + std::to_string(int(o["v"].n)));
       admin.call("set_policy", "\"daf\":" + q(D) + ",\"key\":\"op:start\",\"mode\":\"roles\",\"roles\":[\"coordinator\"]");

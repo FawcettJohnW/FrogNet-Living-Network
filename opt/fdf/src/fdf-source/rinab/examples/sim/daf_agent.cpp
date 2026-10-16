@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
             if (line.compare(0, 9, "{\"watch\":") == 0) {
                 Json w = Json::parse(line)["watch"];
                 uint64_t got = 0;
-                try { got = c.watch(w[0].s, w[1].s, uint64_t(w[2].n), w[3].n); } catch (const std::exception&) { got = 0; }   // the wait ran out
+                got = c.watch(w[0].s, w[1].s, uint64_t(w[2].n), w[3].n);   // 0: the wait ran out
                 out = "{\"rev\":" + std::to_string((unsigned long long)got) + "}";
             } else out = c.raw(line);
         } catch (const std::exception& e) { out = "{\"ok\":false,\"error\":\"EAGENT\",\"why\":" + daf::q(e.what()) + "}"; }

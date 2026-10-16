@@ -1,6 +1,6 @@
 // daf_membership.cpp -- [DAF_MODEL_V1] milestone 3 of the plan: sections C (enrollment, partitions) and D
-// (Application-Entities, connections, flows), and B's flow to a whatevercast name. Run by tools/daf-check.sh, which
-// gives it two RAM hosts (two islands). usage: daf_membership HOST_A:PORT 1|2 TAG HOST_B:PORT
+// (Application-Entities, connections, flows), and B's flow to a whatevercast name. Run by tools/daf-check.sh.
+// usage: daf_membership HOST_A:PORT 1|2 TAG HOST_B:PORT (HOST_B is not used: one region holds a DAF)
 #include "daf_client.hpp"
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
@@ -9,6 +9,8 @@
 #include <chrono>
 #include <cstdio>
 #include <future>
+#include <map>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -29,23 +31,11 @@ static std::string hmac_hex(const std::string& key, const std::string& msg) {
     HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), md, &n);
     static const char hx[] = "0123456789abcdef"; std::string a; for (unsigned i = 0; i < n; ++i) { a += hx[md[i] >> 4]; a += hx[md[i] & 15]; } return a;
 }
-static std::string dj(const Json& j) {
-    switch (j.type) { case Json::Null: return "null"; case Json::Bool: return j.b ? "true" : "false";
-        case Json::Num: { char x[40]; snprintf(x, sizeof x, "%.17g", j.n); return x; } case Json::Str: return q(j.s);
-        case Json::Arr: { std::string o = "["; for (size_t k = 0; k < j.a.size(); ++k) o += (k ? "," : "") + dj(j.a[k]); return o + "]"; }
-        default: { std::string o = "{"; for (size_t k = 0; k < j.o.size(); ++k) o += (k ? "," : "") + q(j.o[k].first) + ":" + dj(j.o[k].second); return o + "}"; } }
-}
-static std::string cells_of(const Json& ex) {
-    std::string s = "["; bool f = true;
-    for (auto& c : ex["cells"].a) { s += (f ? "" : ",") + std::string("{\"v\":") + q(c["v"].s) + ",\"i\":" + q(c["i"].s) + ",\"bag\":" + dj(c["bag"]) + "}"; f = false; }
-    return s + "]";
-}
 static double ms_since(std::chrono::steady_clock::time_point t) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count(); }
 static double pct(std::vector<double> v, double p) { std::sort(v.begin(), v.end()); return v.empty() ? 0 : v[std::min(v.size() - 1, size_t(p * double(v.size())))]; }
-static double nowd() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 int main(int argc, char** argv) {
     if (argc != 5) { fprintf(stderr, "usage: daf_membership HOST_A:PORT 1|2 TAG HOST_B:PORT\n"); return 2; }
-    const std::string A = argv[1], phase = argv[2], tag = argv[3], B = argv[4];
+    const std::string A = argv[1], phase = argv[2], tag = argv[3];
     const std::string D = "hcm-" + tag + "#m1", P = "hcm-" + tag + "#part";
     if (phase == "2") { printf("RESULT PASS phase 2 (nothing to do after the restart)\n"); return 0; }
     daf::Client admin(A);
@@ -61,7 +51,7 @@ int main(int argc, char** argv) {
       syn1 = r["syn"]["addr"].s; full_ref = r["ref"].a.size();
       // then live updates: a held read from where enrollment left the member sees the next change
       const uint64_t from = uint64_t(r["from"].n);
-      auto w = std::async(std::launch::async, [&] { daf::Client wc(A); return wc.memory().read("daf", "nv|" + D, "members", int64_t(from), 5.0).size(); });
+      auto w = std::async(std::launch::async, [&] { return size_t(x.watch(D, "members", from, 5.0) > from ? 1 : 0); });
       std::this_thread::sleep_for(std::chrono::milliseconds(200)); daf::Client y(A); enroll(y, D, "stmary");
       const size_t woke = w.get();
       expect("C", "a new member: synonyms, reference data and state in one answer, then live updates",
@@ -86,38 +76,35 @@ int main(int argc, char** argv) {
              !r["ok"].b && r["error"].s == "EPERM" && !r["why"].s.empty() && !n["ok"].b && n["error"].s == "ENOENT" && n["why"].s == "not found",
              r["why"].s + " | resolve: " + n["error"].s); (void)m; }
 
-    // ---- C: two islands of one DAF rejoin
-    { daf::Client a(A), b(B);
-      a.call("create_daf", "\"dan\":" + q("hcm-" + tag) + ",\"daii\":\"part\",\"owner\":\"county\"");
+    // ---- C: a partition. [DAF_LOCKLESS_V1] One region holds the DAF: nothing is replicated, so nothing is merged. The
+    // members cut off from the region lose their sessions and leave; what is persistent never left; on the network's
+    // return they re-enroll -- a short rejoin, their synonyms kept.
+    { daf::Client a(A);
+      a.call("create_daf", "\"dan\":" + q("hcm-" + tag) + ",\"daii\":\"part\",\"owner\":\"county\",\"syn_lifetime_s\":30");
       enroll(a, P, "coord-a", "coordinator");
       a.call("define_name", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"rule\":\"all\",\"lifetime\":\"persistent\"");
+      a.call("define_name", "\"daf\":" + q(P) + ",\"name\":\"on-duty\",\"rule\":\"all\"");
       for (auto h : {"x", "y"}) a.call("join", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":" + q(h) + ",\"facts\":{}");
-      Json ex = a.call("export", "\"daf\":" + q(P));
-      Json mb = b.call("merge", "\"daf\":" + q(P) + ",\"since\":0,\"daf_info\":" + dj(ex["daf_info"]) + ",\"cells\":" + cells_of(ex));
-      enroll(b, P, "coord-b", "coordinator");
-      Json both = b.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"facilities\"");
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      const double since = nowd();                              // the network splits here
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
-      a.call("join", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":\"z\",\"facts\":{}");
-      a.call("unjoin", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":\"y\"");
-      b.call("unjoin", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":\"x\"");
-      b.call("join", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":\"w\",\"facts\":{}");
-      b.call("join", "\"daf\":" + q(P) + ",\"name\":\"facilities\",\"apn\":\"y\",\"facts\":{\"beds\":12}");
-      daf::Client live_b(B); enroll(live_b, P, "only-on-b");               // session state on island B
-      // the islands rejoin: B's persistent state merges into A
-      Json eb = b.call("export", "\"daf\":" + q(P));
-      const std::string cells = cells_of(eb);
-      char sb[40]; snprintf(sb, sizeof sb, "%.6f", since);
-      Json mg = a.call("merge", "\"daf\":" + q(P) + ",\"since\":" + sb + ",\"cells\":" + cells);
-      Json after = a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"facilities\"");
-      Json cf = a.call("conflicts", "\"daf\":" + q(P)); std::string cfs; for (auto& c : cf["conflicts"].a) cfs += c["apn"].s;
+      std::map<std::string, std::string> syn0;
+      { std::vector<std::unique_ptr<daf::Client>> far;
+        for (auto n : {"far-1", "far-2"}) { far.push_back(std::make_unique<daf::Client>(A)); syn0[n] = enroll(*far.back(), P, n)["syn"]["addr"].s;
+            far.back()->call("join", "\"daf\":" + q(P) + ",\"name\":\"on-duty\",\"facts\":{}"); }
+        const uint64_t rev = uint64_t(a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"on-duty\"")["rev"].n);
+        for (auto& c : far) c->shutdown();                                     // the network splits: their sessions end
+        (void)rev; for (int i = 0; i < 150; ++i) { Json d = a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"on-duty\"");   // until the host hears the sockets close
+            if (d["members"].a.empty()) break; std::this_thread::sleep_for(std::chrono::milliseconds(20)); } }
+      Json duty = a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"on-duty\""), fac = a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"facilities\"");
       Json mem = a.call("resolve", "\"daf\":" + q(P) + ",\"name\":\"members\"");
-      expect("C", "two islands rejoin: persistent sets merge as joins minus removals",
-             mb["ok"].b && apns(both) == "x,y" && apns(after) == "w,z",
-             "before split " + apns(both) + "; after merge " + apns(after) + " (" + std::to_string((int)mg["added"].n) + " added, " + std::to_string((int)mg["removed"].n) + " removed)");
-      expect("C", "an add on one side and a removal on the other is flagged, not settled", cfs == "y" && mg["conflicts"].n == 1, "conflicts: " + cfs);
-      expect("C", "session state is not merged: it is whoever is connected here", apns(mem).find("only-on-b") == std::string::npos && apns(mem).find("coord-a") != std::string::npos, apns(mem)); }
+      expect("C", "a partition: the cut-off members leave; the persistent group never left",
+             duty["members"].a.empty() && apns(fac) == "x,y" && apns(mem) == "coord-a", "on-duty: [" + apns(duty) + "] facilities: " + apns(fac) + " members: " + apns(mem));
+      // the network returns: they re-enroll, and get the same synonyms back
+      std::vector<std::unique_ptr<daf::Client>> back; std::string st, got;
+      for (auto n : {"far-1", "far-2"}) { back.push_back(std::make_unique<daf::Client>(A)); Json e = enroll(*back.back(), P, n);
+          st += e["state"].s + " "; got += std::string(n) + " " + syn0[n] + "->" + e["syn"]["addr"].s + " ";
+          if (e["state"].s != "short" || e["syn"]["addr"].s != syn0[n]) st += "(!) "; }
+      expect("C", "on the network's return: a short rejoin, synonyms kept", st == "short short ", st + "| " + got);
+      Json mg = a.call("merge", "\"daf\":" + q(P));
+      expect("C", "there is no merge: one region, nothing to reconcile", !mg["ok"].b && mg["error"].s == "ENOSYS", mg["error"].s); }
 
     // ---- D: Application-Entities and connections
     admin.call("set_objects", "\"daf\":" + q(D) + ",\"role\":\"ambulance\",\"objects\":[\"receiving\",\"transfer*\"]");
@@ -159,8 +146,8 @@ int main(int argc, char** argv) {
       ha.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":2}");
       hb.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":7}");
       Json fo = amb.call("flow_open", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"rule\":\"one\",\"filter\":[{\"f\":\"trauma\",\"v\":true}],\"rank\":{\"f\":\"capacity\"},\"spec\":{\"qos\":\"bulk\"}");
-      auto box = hb.memory().read("daf", "box|" + D + "|h-b", fo["fid"].s);
-      expect("B", "a flow allocated to a name with rule one reaches the member one selects", fo["ok"].b && fo["to"].s == "h-b" && box.size() == 1, "to=" + fo["to"].s);
+      Json box = hb.peek(D, "box", fo["fid"].s);
+      expect("B", "a flow allocated to a name with rule one reaches the member one selects", fo["ok"].b && fo["to"].s == "h-b" && box["rows"].a.size() == 1, "to=" + fo["to"].s);
       // small requests alone, then during a bulk transfer on the same session
       auto small = [&](int n) { std::vector<double> v; for (int i = 0; i < n; ++i) { auto t = std::chrono::steady_clock::now();
           amb.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"receiving\""); v.push_back(ms_since(t)); } return v; };
@@ -178,8 +165,8 @@ int main(int argc, char** argv) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
       std::vector<double> during; while (!done) { auto v = small(1); during.push_back(v[0]); }
       bulk.get();
-      auto got = hb.memory().read("daf", "fd|" + D + "|" + fo["fid"].s + "|f", "", 0, 0);
-      size_t bytes = 0; for (auto& c : got) bytes += c.bag["d"].s.size();
+      Json got = hb.peek(D, "fd", fo["fid"].s + "|f");
+      size_t bytes = 0; for (auto& c : got["rows"].a) bytes += c["v"]["d"].s.size();
       char det[400]; snprintf(det, sizeof det, "small requests p50/p99: alone %.2f/%.2f ms (n=%zu), during 32 MB %.2f/%.2f ms (n=%zu); bulk %.0f ms; received %zu MB",
                               pct(base, .5), pct(base, .99), base.size(), pct(during, .5), pct(during, .99), during.size(), bulk_ms, bytes >> 20);
       expect("D", "a large transfer beside small requests: small requests keep moving", bytes == size_t(32) << 20 && during.size() >= 5 && pct(during, .99) < std::max(20.0, 5 * pct(base, .99)), det);

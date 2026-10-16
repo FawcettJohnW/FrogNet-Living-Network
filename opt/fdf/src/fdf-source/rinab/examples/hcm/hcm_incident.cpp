@@ -1,7 +1,8 @@
 // hcm_incident.cpp -- [DAF_MODEL_V1] the plan's demonstration: one scripted incident that exercises every section of the
 // DAF model through the hospital capacity manager. Each step checks what the system answers, and what the board shows.
 // usage: hcm_incident HOST_A:PORT HOST_B:PORT TAG BOARD_PORT
-//   host A: the incident's region and the state's directory; host B: the neighboring county's region (another island)
+//   host A: the incident's region and the state's directory; host B: the neighboring county's region (its own DAFs:
+//   one region holds a DAF -- nothing is copied between regions, nothing is merged)
 // The board (hcm_board) must be started on the incident's DAF, "hcm-<TAG>#incident", once step 1 has created it.
 #include "daf_client.hpp"
 #include <arpa/inet.h>
@@ -10,6 +11,8 @@
 #include <unistd.h>
 #include <atomic>
 #include <functional>
+#include <initializer_list>
+#include <map>
 #include <chrono>
 #include <cstdio>
 #include <string>
@@ -40,6 +43,12 @@ static Json board_until(int port, const std::string& want) {
 static bool board_live(const Json& b, const std::string& apn) { for (auto& h : b["hospitals"].a) if (h["apn"].s == apn) return h["live"].b; return false; }
 static bool board_has(const Json& b, const std::string& apn) { for (auto& h : b["hospitals"].a) if (h["apn"].s == apn) return true; return false; }
 static std::string apns(const Json& r) { std::string s; for (auto& m : r["members"].a) s += (s.empty() ? "" : ",") + m["apn"].s; return s; }
+// a closed session's members leave when the region hears the socket close: look until they are gone (up to 3 s)
+static void until_gone(daf::Client& c, const std::string& D, std::initializer_list<const char*> who) {
+    for (int i = 0; i < 150; ++i) { Json m = c.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"members\"");
+        bool any = false; for (auto w : who) if (("," + apns(m) + ",").find("," + std::string(w) + ",") != std::string::npos) any = true;
+        if (!any) return; std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+}
 int main(int argc, char** argv) {
     if (argc != 5) { fprintf(stderr, "usage: hcm_incident HOST_A:PORT HOST_B:PORT TAG BOARD_PORT\n"); return 2; }
     const std::string A = argv[1], B = argv[2], tag = argv[3]; const int BP = atoi(argv[4]);
@@ -88,10 +97,10 @@ int main(int argc, char** argv) {
     daf::Client bulk(A); must_ok(bulk.call("connect", inc("\"ae_name\":\"records\",\"objects\":[\"flow:*\"],\"apn\":\"medic-12\",\"token\":" + q(ea["token"].s))), "connect records");
     const std::string record(512 * 1024, 'r');
     Json fs = bulk.call("flow_send", inc("\"fid\":" + q(fo["fid"].s) + ",\"seq\":0,\"data\":{\"patient\":\"P-0193\",\"ecg\":" + q(record) + "}"));
-    auto box = hs[0].c->memory().read("daf", "box|" + I + "|st-joseph", fo["fid"].s);
-    auto rec = hs[0].c->memory().read("daf", "fd|" + I + "|" + fo["fid"].s + "|f", "0");
-    check("the trauma choice is st-joseph; the flow reached it", fo["to"].s == "st-joseph" && box.size() == 1, "to " + fo["to"].s);
-    check("the patient record (512 KB) arrived on its own connection", fs["ok"].b && rec.size() == 1 && rec[0].bag["d"]["ecg"].s.size() == record.size(), "");
+    Json box = hs[0].c->peek(I, "box", fo["fid"].s);
+    Json rec = hs[0].c->peek(I, "fd", fo["fid"].s + "|f", 0, "\"seq\":0");
+    check("the trauma choice is st-joseph; the flow reached it", fo["to"].s == "st-joseph" && box["rows"].a.size() == 1, "to " + fo["to"].s);
+    check("the patient record (512 KB) arrived on its own connection", fs["ok"].b && rec["rows"].a.size() == 1 && rec["rows"].a[0]["v"]["d"]["ecg"].s.size() == record.size(), "");
     Json b3 = board_until(BP, "st-joseph");
     check("the board shows st-joseph as the trauma choice", b3["trauma_choice"].s == "st-joseph", b3["trauma_choice"].s);
 
@@ -107,6 +116,7 @@ int main(int argc, char** argv) {
     step("Good Samaritan loses its connection, then comes back", "B, C");
     Json syn_before = must_ok(hs[1].c->call("whoami", inc("")), "whoami");
     delete hs[1].c; hs[1].c = nullptr;
+    until_gone(coord, I, {"good-samaritan"});
     Json c5 = amb2.call("resolve", inc("\"name\":\"receiving\"," + TRAUMA));
     Json fac = coord.call("resolve", inc("\"name\":\"facilities\""));
     Json b5 = board_until(BP, "tacoma-general");
@@ -120,28 +130,25 @@ int main(int argc, char** argv) {
           back["state"].s + ", synonym " + back["syn"]["addr"].s);
     check("the board shows it connected and chosen again", board_live(b5b, "good-samaritan") && b5b["trauma_choice"].s == "good-samaritan", b5b["trauma_choice"].s);
 
-    // 6. the network splits in two, then rejoins: persistent groups merge; live membership rebuilds from who is present
-    step("The network splits, and rejoins", "C");
-    daf::Client island(B);
-    Json ex = must_ok(coord.call("export", inc("")), "export");
-    auto cells = [&](const Json& e) { std::string s = "["; bool f = true; for (auto& c : e["cells"].a) { s += (f ? "" : ",") + std::string("{\"v\":") + q(c["v"].s) + ",\"i\":" + q(c["i"].s) + ",\"bag\":" + [&] {
-        std::function<std::string(const Json&)> d = [&](const Json& j) -> std::string { switch (j.type) { case Json::Null: return "null"; case Json::Bool: return j.b ? "true" : "false";
-            case Json::Num: { char x[40]; snprintf(x, sizeof x, "%.17g", j.n); return x; } case Json::Str: return q(j.s);
-            case Json::Arr: { std::string o = "["; for (size_t k = 0; k < j.a.size(); ++k) o += (k ? "," : "") + d(j.a[k]); return o + "]"; }
-            default: { std::string o = "{"; for (size_t k = 0; k < j.o.size(); ++k) o += (k ? "," : "") + q(j.o[k].first) + ":" + d(j.o[k].second); return o + "}"; } } };
-        return d(c["bag"]); }() + "}"; f = false; } return s + "]"; };
-    must_ok(island.call("merge", inc("\"since\":0,\"daf_info\":{\"dan\":" + q("hcm-" + tag) + ",\"daii\":\"incident\",\"owner\":\"pierce-county\",\"synsets\":[\"addr\",\"catalog\"],\"syn_lifetime_s\":300},\"cells\":" + cells(ex))), "copy to the island");
-    must_ok(island.call("enroll", inc("\"apn\":\"gig-harbor-coordinator\",\"role\":\"coordinator\"")), "enroll on the island");
-    const double split = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-    island.call("join", inc("\"name\":\"facilities\",\"apn\":\"st-anthony\",\"facts\":{\"beds\":110}"));       // admitted on the island
-    coord.call("join", inc("\"name\":\"facilities\",\"apn\":\"mary-bridge\",\"facts\":{\"beds\":80}"));          // admitted here
-    char sb[40]; snprintf(sb, sizeof sb, "%.6f", split);
-    Json mg = must_ok(coord.call("merge", inc("\"since\":" + std::string(sb) + ",\"cells\":" + cells(must_ok(island.call("export", inc("")), "island export")))), "merge");
-    Json fac6 = coord.call("resolve", inc("\"name\":\"facilities\""));
+    // 6. the network splits: two hospitals are cut off from the region. [DAF_LOCKLESS_V1] One region holds the incident,
+    // so nothing is copied and nothing is merged: the cut-off members' sessions end and they leave the live names; the
+    // persistent roster never left; an admission made meanwhile is simply there; on the network's return they re-enroll.
+    step("The network splits: two hospitals are cut off, then return", "C");
+    std::map<std::string, std::string> syn6;
+    for (int i : {0, 2}) { syn6[hs[i].apn] = must_ok(hs[i].c->call("whoami", inc("")), "whoami")["member"]["syn"]["addr"].s; delete hs[i].c; hs[i].c = nullptr; }
+    until_gone(coord, I, {"st-joseph", "tacoma-general"});
+    coord.call("join", inc("\"name\":\"facilities\",\"apn\":\"mary-bridge\",\"facts\":{\"beds\":80}"));     // admitted during the split
     Json live6 = coord.call("resolve", inc("\"name\":\"receiving\",\"rule\":\"all\""));
-    check("persistent groups merge: both sides' admissions are in facilities", apns(fac6) == "good-samaritan,mary-bridge,st-anthony,st-joseph,tacoma-general", apns(fac6));
-    check("live membership is whoever is connected here", apns(live6) == "good-samaritan,st-joseph,tacoma-general", apns(live6) + "; merge: " + std::to_string(int(mg["conflicts"].n)) + " conflicts");
+    Json fac6 = coord.call("resolve", inc("\"name\":\"facilities\""));
+    check("the cut-off hospitals leave the live names", apns(live6) == "good-samaritan", apns(live6));
+    check("the roster never left; the admission made during the split is there", apns(fac6) == "good-samaritan,mary-bridge,st-joseph,tacoma-general", apns(fac6));
+    std::string st6, sy6;
+    for (int i : {0, 2}) { hs[i].c = new daf::Client(A);
+        Json e = must_ok(hs[i].c->call("enroll", inc("\"apn\":" + q(hs[i].apn) + ",\"role\":\"hospital\"")), "re-enroll");
+        hs[i].c->call("join", inc("\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":" + std::string(i == 0 ? "0" : "2") + "}"));
+        st6 += e["state"].s + " "; if (e["syn"]["addr"].s != syn6[hs[i].apn]) sy6 += hs[i].apn + " changed synonym "; }
+    Json back6 = coord.call("resolve", inc("\"name\":\"receiving\",\"rule\":\"all\""));
+    check("on the network's return: short rejoins, synonyms kept, live again", st6 == "short short " && sy6.empty() && apns(back6) == "good-samaritan,st-joseph,tacoma-general", st6 + sy6 + "| " + apns(back6));
 
     // 7. a burn unit is needed and none is in the incident: the neighboring county's region is found and joined
     step("A burn unit is needed; the incident has none", "F, G");
@@ -167,17 +174,19 @@ int main(int argc, char** argv) {
     step("A member of the public asks about a relative", "I");
     daf::Client rc(A); rc.call("create_daf", "\"dan\":" + q("shelter-" + tag) + ",\"owner\":\"red-cross\""); must_ok(rc.call("enroll", "\"daf\":" + q(SH) + ",\"apn\":\"rc-coordinator\",\"role\":\"coordinator\""), "enroll rc");
     rc.call("define_name", "\"daf\":" + q(SH) + ",\"name\":\"reunification\",\"rule\":\"one\"");
-    daf::Client desk(A); must_ok(desk.call("enroll", "\"daf\":" + q(SH) + ",\"apn\":\"tacoma-dome-desk\""), "enroll desk");
+    daf::Client desk(A); const std::string desk_tok = must_ok(desk.call("enroll", "\"daf\":" + q(SH) + ",\"apn\":\"tacoma-dome-desk\""), "enroll desk")["token"].s;
     desk.call("join", "\"daf\":" + q(SH) + ",\"name\":\"reunification\",\"facts\":{}");
-    std::atomic<bool> stop{false};
-    std::thread server([&] { int64_t after = 0; while (!stop) { auto got = desk.memory().read("daf", "req|" + SH + "|tacoma-dome-desk", "", after, 0.3);
-        for (auto& r : got) { after = std::max<int64_t>(after, int64_t(r.id)); if (r.bag["gone"].b) continue;
-            desk.call("answer", "\"daf\":" + q(SH) + ",\"rid\":" + q(r.instance) + ",\"body\":{\"found\":true,\"where\":\"Tacoma Dome shelter, checked in 14:05\"}"); } } });
+    // the desk waits for requests on a connection of its own, and answers on its enrolled session
+    daf::Client deskw(A); must_ok(deskw.call("connect", "\"daf\":" + q(SH) + ",\"ae_name\":\"requests\",\"objects\":[\"*\"],\"apn\":\"tacoma-dome-desk\",\"token\":" + q(desk_tok)), "desk connect");
+    std::thread server([&] { uint64_t after = 0; for (;;) { Json got; try { got = deskw.wait(SH, "req", "", after); } catch (const std::exception&) { return; }
+        if (!got["ok"].b) return; after = uint64_t(got["rev"].n);
+        for (auto& r : got["rows"].a) { if (r["v"].type == Json::Null) continue;
+            desk.call("answer", "\"daf\":" + q(SH) + ",\"rid\":" + q(r["i"].s) + ",\"body\":{\"found\":true,\"where\":\"Tacoma Dome shelter, checked in 14:05\"}"); } } });
     daf::Client pub(A);
     Json rq = pub.call("request", "\"daf\":" + q(SH) + ",\"name\":\"reunification\",\"body\":{\"ask\":\"Maria Lopez, 34\"}");
-    auto an = rq["ok"].b ? pub.memory().read("daf", "ans|" + SH, rq["rid"].s, 0, 5.0) : std::vector<frogram::Cell>{};
+    Json an; if (rq["ok"].b) { try { Json w = pub.wait(SH, "ans", rq["rid"].s, 0, false, 5.0); if (!w["rows"].a.empty()) an = w["rows"].a[0]["v"]; } catch (const std::exception&) {} }
     Json peek = pub.call("members", "\"daf\":" + q(SH));
-    check("the answer comes back; the asker never joined", !an.empty() && an[0].bag["body"]["found"].b && !peek["ok"].b, an.empty() ? "no answer" : an[0].bag["body"]["where"].s);
+    check("the answer comes back; the asker never joined", an["body"]["found"].b && !peek["ok"].b, an["body"]["found"].b ? an["body"]["where"].s : "no answer");
 
     // 9. the refusing test policy is switched on for the public, and the same request is refused with its reason
     step("The refusing test policy is switched on for the public", "H");
@@ -185,7 +194,7 @@ int main(int argc, char** argv) {
     Json rq2 = pub.call("request", "\"daf\":" + q(SH) + ",\"name\":\"reunification\",\"body\":{\"ask\":\"Maria Lopez, 34\"}");
     Json au = rc.call("audit", "\"daf\":" + q(SH)); std::string last; for (auto& r : au["records"].a) if (r["r"]["op"].s == "request") last = r["r"]["decision"].s + ": " + r["r"]["why"].s;
     check("refused, with its reason; the audit records it", !rq2["ok"].b && rq2["error"].s == "EPERM" && last.find("refuse") == 0, rq2["why"].s);
-    stop = true; server.join();
+    deskw.shutdown(); server.join();
 
     if (const char* p = getenv("HCM_PAUSE_MS")) std::this_thread::sleep_for(std::chrono::milliseconds(atoi(p)));
     printf("\nThe coordinator's and ambulances' programs used only names -- never an address.\nRESULT %s\n", bad ? "FAIL" : "PASS");

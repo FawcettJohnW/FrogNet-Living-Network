@@ -26,17 +26,21 @@ static std::string hmac_hex(const std::string& key, const std::string& msg) {
     HMAC(EVP_sha256(), key.data(), int(key.size()), reinterpret_cast<const unsigned char*>(msg.data()), msg.size(), md, &n);
     static const char hx[] = "0123456789abcdef"; std::string a; for (unsigned i = 0; i < n; ++i) { a += hx[md[i] >> 4]; a += hx[md[i] & 15]; } return a;
 }
-// a member that answers the requests sent to it, until told to stop; `leave_on` names a request body it leaves on
-static void serve(daf::Client& c, const std::string& D, const std::string& apn, std::atomic<bool>& stop, const std::string& reply) {
-    int64_t after = 0;
-    while (!stop) {
-        auto got = c.memory().read("daf", "req|" + D + "|" + apn, "", after, 0.5);
-        for (auto& r : got) { after = std::max<int64_t>(after, int64_t(r.id)); if (r.bag["gone"].b) continue;
-            c.call("answer", "\"daf\":" + q(D) + ",\"rid\":" + q(r.instance) + ",\"body\":{\"from\":" + q(apn) + ",\"text\":" + q(reply) + "}"); }
+// a member that answers the requests sent to it: it waits for them on a connection of its own (`w`, connected as the
+// member), and answers on its enrolled session `c`. Shutting `w` ends the wait, and the loop.
+static void serve(daf::Client& c, daf::Client& w, const std::string& D, const std::string& apn, const std::string& reply) {
+    uint64_t after = 0;
+    for (;;) {
+        Json got; try { got = w.wait(D, "req", "", after); } catch (const std::exception&) { return; }
+        if (!got["ok"].b) return;
+        after = uint64_t(got["rev"].n);
+        for (auto& r : got["rows"].a) { if (r["v"].type == Json::Null) continue;
+            c.call("answer", "\"daf\":" + q(D) + ",\"rid\":" + q(r["i"].s) + ",\"body\":{\"from\":" + q(apn) + ",\"text\":" + q(reply) + "}"); }
     }
 }
+// the requester waits for its answer on the session that asked (only that session may)
 static Json wait_answer(daf::Client& c, const std::string& D, const std::string& rid, double s) {
-    auto got = c.memory().read("daf", "ans|" + D, rid, 0, s); return got.empty() ? Json{} : got[0].bag;
+    try { Json r = c.wait(D, "ans", rid, 0, false, s); return r["ok"].b && !r["rows"].a.empty() ? r["rows"].a[0]["v"] : r; } catch (const std::exception&) { return Json{}; }
 }
 int main(int argc, char** argv) {
     if (argc != 5) { fprintf(stderr, "usage: daf_reach HOST_A:PORT 1|2 TAG HOST_B:PORT\n"); return 2; }
@@ -102,11 +106,13 @@ int main(int argc, char** argv) {
     const std::string SV = "shelter-" + tag + "#1";
     daf::Client s(A); s.call("create_daf", "\"dan\":" + q("shelter-" + tag) + ",\"owner\":\"redcross\""); enroll(s, SV, "rc-coordinator", "coordinator");
     s.call("define_name", "\"daf\":" + q(SV) + ",\"name\":\"reunification\",\"rule\":\"one\"");
-    daf::Client d1(A), d2(A); enroll(d1, SV, "desk-1"); enroll(d2, SV, "desk-2");
+    daf::Client d1(A), d2(A); enroll(d1, SV, "desk-1"); const std::string d2tok = enroll(d2, SV, "desk-2")["token"].s;
     d1.call("join", "\"daf\":" + q(SV) + ",\"name\":\"reunification\",\"facts\":{\"load\":1}");
     d2.call("join", "\"daf\":" + q(SV) + ",\"name\":\"reunification\",\"facts\":{\"load\":5}");
-    std::atomic<bool> stop{false};
-    std::thread t2([&] { serve(d2, SV, "desk-2", stop, "Jane Doe checked in at the Tacoma Dome shelter"); });
+    daf::Client d2w(A);                                                     // desk-2's second connection: where it waits
+    { Json c = d2w.call("connect", "\"daf\":" + q(SV) + ",\"ae_name\":\"requests\",\"objects\":[\"*\"],\"apn\":\"desk-2\",\"token\":" + q(d2tok));
+      if (!c["ok"].b) { printf("desk-2 connect refused: %s\n", c["why"].s.c_str()); return 2; } }
+    std::thread t2([&] { serve(d2, d2w, SV, "desk-2", "Jane Doe checked in at the Tacoma Dome shelter"); });
     { daf::Client pub(A);                                                   // a member of the public: never enrolls
       auto t0 = std::chrono::steady_clock::now();
       Json rq = pub.call("request", "\"daf\":" + q(SV) + ",\"name\":\"reunification\",\"rule\":\"one\",\"rank\":{\"f\":\"load\"},\"body\":{\"ask\":\"Jane Doe\"}");
@@ -129,7 +135,7 @@ int main(int argc, char** argv) {
       Json an2 = wait_answer(pub, SV, rq2["rid"].s, 5);
       expect("I", "the selected member leaves before answering: an error, not silence; a retry is answered",
              !an["ok"].b && an["error"].s == "gone" && an2["ok"].b, "first: " + an["error"].s + " (" + an["why"].s + "); retry answered by " + an2["body"]["from"].s); }
-    stop = true; t2.join();
+    d2w.shutdown(); t2.join();
     // a message stored for a member who is offline
     { daf::Client pub(A);
       Json st = pub.call("request", "\"daf\":" + q(SV) + ",\"to\":\"desk-7\",\"store\":true,\"body\":{\"note\":\"your sister is looking for you\"}");

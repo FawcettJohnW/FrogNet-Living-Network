@@ -1,6 +1,7 @@
 // hcm_board.cpp -- [DAF_MODEL_V1] the hospital capacity manager's board: a member of the incident's DAF that holds one
 // subscription to its names and serves what it sees as a web page. Nothing here asks for a hospital's address: it reads
-// names. usage: hcm_board RAM_HOST:PORT DAF HTTP_PORT
+// names. usage: hcm_board RAM_HOST:PORT DAF HTTP_PORT. It waits for its subscription's changes and resolves, one after
+// the other, on its one session (a wait never overlaps another call there).
 //   GET /            the board (one page, no external files)
 //   GET /state.json  what the board holds now: hospitals, live or not, the current trauma choice, the incident's events
 #include "daf_client.hpp"
@@ -71,8 +72,8 @@ int main(int argc, char** argv) {
     if (!s["ok"].b) { fprintf(stderr, "hcm_board: subscribe refused: %s\n", s["why"].s.c_str()); return 2; }
     const std::string sub = s["sub"].s; int64_t rev = 0; std::string last_choice = "?"; std::map<std::string, bool> was_live;
     for (;;) {
-        auto got = c.memory().read("daf", "subd|" + D, sub, rev, 30.0);
-        if (got.empty()) continue; rev = int64_t(got[0].id); const Json& data = got[0].bag["data"];
+        Json got = c.wait(D, "sub", sub, uint64_t(rev));    // [DAF_WAIT_V1] answered by the change; no polling
+        if (!got["ok"].b || got["rows"].a.empty()) continue; rev = int64_t(got["rev"].n); const Json data = got["rows"].a[0]["v"]["data"];
         Json one = c.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"rule\":\"one\",\"live\":true,\"filter\":[{\"f\":\"trauma\",\"v\":true},{\"f\":\"capacity\",\"op\":\">\",\"v\":0}],\"rank\":{\"f\":\"capacity\"}");
         const std::string choice = one["members"].a.empty() ? "" : one["members"].a[0]["apn"].s;
         std::map<std::string, Json> live; for (auto& m : data["receiving"].a) live[m["apn"].s] = m;

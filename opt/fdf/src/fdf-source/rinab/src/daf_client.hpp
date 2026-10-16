@@ -1,6 +1,8 @@
 // daf_client.hpp -- [DAF_MODEL_V1] a program's session to the DAF region (op=daf) of a RAM host. The session is the
-// program's liveness: what it enrolled and joined for the session goes when the session ends. Watching is a held read
-// on the memory itself: (daf, nv|<D>, <name>) is written on every change to the name.
+// program's liveness: what it enrolled and joined for the session goes when the session ends. [DAF_WAIT_V1] Watching is
+// the region's own held read (fn "wait"), through the check point: answered by the write that makes its answer exist,
+// or ended with the session. The region keeps no timers: a wait given up by the client (timeout_s) is answered later
+// and discarded, or dropped when its session ends. A program waits on a session of its own; shutdown() ends it.
 #pragma once
 #include "frogram.hpp"
 #include <atomic>
@@ -21,7 +23,6 @@ public:
     explicit Client(const std::string& where) {
         const size_t c = where.rfind(':'); if (c == std::string::npos) throw std::runtime_error("daf: '" + where + "' has no port");
         s_.reset(new frogram::Session(where.substr(0, c), atoi(where.c_str() + c + 1), api()));
-        m_.reset(new frogram::Memory(*s_, api()));
     }
     // one DAF operation: {"fn": fn, ...fields}; an answer of ok:false is the answer, handed back
     Json call(const std::string& fn, const std::string& fields = "") {
@@ -30,15 +31,24 @@ public:
     }
     // one DAF operation from a whole body ({"fn":...,...}); the answer's text as it came
     std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
-    // wait (up to wait_s) for a change to a name after `rev`; returns the new rev, or 0 if nothing changed
-    uint64_t watch(const std::string& D, const std::string& name, uint64_t rev, double wait_s) {
-        auto cells = m_->read("daf", "nv|" + D, name, int64_t(rev), wait_s);
-        uint64_t n = 0; for (auto& c : cells) n = std::max<uint64_t>(n, c.id); return n;
+    // [DAF_WAIT_V1] a held read: what = name | sub | ans | box | fd | in | req | out (daf_region.cpp, wait). The answer
+    // {ok, rev, rows:[{i, id, v}]} comes when something there is past `after`; now=true answers at once (a plain read).
+    // timeout_s: how long THIS program waits (the region does not time it out); running out throws.
+    Json wait(const std::string& D, const std::string& what, const std::string& key, uint64_t after, bool now = false, double timeout_s = 1e9, const std::string& extra = "") {
+        const std::string body = "{\"fn\":\"wait\",\"daf\":" + q(D) + ",\"what\":" + q(what) + ",\"key\":" + q(key) + ",\"after\":" + std::to_string((unsigned long long)after) +
+                                 (now ? ",\"now\":true" : "") + (extra.empty() ? "" : "," + extra) + "}";
+        return Json::parse(s_->call_text("POST", api() + "?op=daf", body, timeout_s));
     }
-    frogram::Memory& memory() { return *m_; }
+    Json peek(const std::string& D, const std::string& what, const std::string& key, uint64_t after = 0, const std::string& extra = "") { return wait(D, what, key, after, true, 15.0, extra); }
+    // watch a name: its new rev once it changes after `rev` (0 if the wait ran out at timeout_s)
+    uint64_t watch(const std::string& D, const std::string& name, uint64_t rev, double timeout_s = 1e9) {
+        try { Json r = wait(D, "name", name, rev, false, timeout_s); return r["ok"].b ? uint64_t(r["rev"].n) : 0; }
+        catch (const std::exception& x) { const std::string w = x.what(); if (w.find("imeout") != std::string::npos || w.find("timed out") != std::string::npos) return 0; throw; }
+    }
+    void shutdown() { s_->shutdown(); }                 // ends this session: a wait parked on it returns by throwing
     frogram::Stats stats() const { return s_->stats(); }
 private:
-    std::unique_ptr<frogram::Session> s_; std::unique_ptr<frogram::Memory> m_;
+    std::unique_ptr<frogram::Session> s_;
 };
 // [DAF_WORKING_SET_V1] (plan E) a task's working set: the names it declares are resolved once, then kept current by a
 // held read per name on a session of its own; a read of the set is local -- no round trip, nothing waits.
@@ -55,19 +65,18 @@ public:
             { std::lock_guard<std::mutex> l(m_); cache_[n] = r; }
             Client* cp = c.get(); clients_.push_back(std::move(c));
             threads_.emplace_back([this, cp, n, rev = uint64_t(r["rev"].n)]() mutable {
-                // a held read that ends with nothing written is the 1 s wait running out (so the set can be closed):
-                // it is asked again from the same place; any other failure ends the watcher, and says so
+                // one held read at a time, answered by the change; closing the set ends the watcher's session, which
+                // ends its wait. Any other failure ends the watcher, and says so.
                 while (!stop_) { uint64_t got = 0;
-                    try { got = cp->watch(D_, n, rev, 1.0); }
-                    catch (const std::exception& x) { const std::string w = x.what(); if (w.find("imeout") != std::string::npos || w.find("timed out") != std::string::npos) continue;
-                        fprintf(stderr, "[DAF_WORKING_SET_V1] watcher for %s ended: %s\n", n.c_str(), x.what()); return; }
+                    try { got = cp->watch(D_, n, rev); }
+                    catch (const std::exception& x) { if (!stop_) fprintf(stderr, "[DAF_WORKING_SET_V1] watcher for %s ended: %s\n", n.c_str(), x.what()); return; }
                     if (!got || stop_) { continue; }
                     rev = got;
                     Json r2 = cp->call("resolve", "\"daf\":" + q(D_) + ",\"name\":" + q(n));
                     if (r2["ok"].b) { std::lock_guard<std::mutex> l(m_); cache_[n] = r2; ++updates_; } } });
         }
     }
-    ~WorkingSet() { stop_ = true; for (auto& t : threads_) t.join(); }
+    ~WorkingSet() { stop_ = true; for (auto& c : clients_) c->shutdown(); for (auto& t : threads_) t.join(); }
     Json get(const std::string& name) { std::lock_guard<std::mutex> l(m_); return cache_[name]; }   // local
     uint64_t updates() const { return updates_; }
 private:
