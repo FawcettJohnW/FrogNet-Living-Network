@@ -10,10 +10,13 @@
 //              ONE writer -- its owner -- who publishes by exchange. Where several parties have something to say about
 //              one thing (a policy, a persistent entry, a designation), each says it in ITS OWN record (the instance
 //              names the writer) and a reader folds them: the newest says. Ids come from the memory's one write clock.
-//   claims     a decision several may race for (a DAF's name, a member name, a synonym, a nonce, an answer) is a claim
-//              log: each claimant appends its claim (append is its own slot; nothing is overwritten) and the log is
-//              read in write order as a gap-free prefix. The first claimant wins, and every reader folds the same
-//              prefix to the same answer. No compare-and-retry: nobody's write is ever undone or redone.
+//   claims     a decision several may race for (a DAF's name, a member name, a synonym, a nonce, an answer) is a
+//              variable of single tuples: each claimant writes its own claim as its own tuple (nothing is overwritten,
+//              nothing grows inside a bag), and the claims are read in write order -- each tuple's write id is its
+//              place. The first claimant wins, and every reader folds the same tuples to the same answer.
+//   order      [DAF_PUBLISHED_ORDER_V1] write order is only meaningful if nobody reads past a write still being
+//              published: the memory keeps a published watermark, the highest id below which every write is
+//              visible. A claimant waits until the watermark reaches its own write, then reads the claims up to it.
 //   durable    a permanent record is appended to the DAF file with its id and fdatasync'd BEFORE it is published (its
 //              one writer publishes in id order). At start the highest id of each record wins.
 //   waits      a held read on one or more variables: answered at once if it has something to say; otherwise parked as
@@ -64,6 +67,31 @@ private:
 
 inline Grow<rmem::VarSet>& recs() { static auto* t = new Grow<rmem::VarSet>; return *t; }
 inline std::atomic<uint64_t>& ids() { static std::atomic<uint64_t> n{0}; return n; }   // the memory's write clock
+// ---- [DAF_PUBLISHED_ORDER_V1] the published watermark: every write with an id <= it is visible. A write marks its id
+// done once published; whoever finds the next id done moves the watermark on (a write in flight holds it back only for
+// the instant between taking its id and publishing). Readers that need write order wait on its word.
+constexpr uint64_t PUB_RING = uint64_t(1) << 20;                         // ids in flight at once: far fewer than this
+inline std::atomic<bool>* pub_done() { static auto* r = [] { auto* a = new std::atomic<bool>[PUB_RING]; for (uint64_t i = 0; i < PUB_RING; ++i) a[i].store(false); return a; }(); return r; }
+inline std::atomic<uint64_t>& published() { static std::atomic<uint64_t> w{0}; return w; }
+inline rmem::WaitWord& pub_word() { static rmem::WaitWord w; return w; }
+inline void mark_published(uint64_t id) {
+    pub_done()[id & (PUB_RING - 1)].store(true, std::memory_order_release);
+    bool moved = false;
+    for (;;) { uint64_t w = published().load(std::memory_order_acquire);
+        std::atomic<bool>& next = pub_done()[(w + 1) & (PUB_RING - 1)];
+        if (!next.load(std::memory_order_acquire)) break;
+        if (published().compare_exchange_strong(w, w + 1, std::memory_order_acq_rel)) { next.store(false, std::memory_order_release); moved = true; } }
+    if (moved) rmem::bump(pub_word());
+}
+// [DAF_PREALLOCATED_NUMBERS_V1] a number no one else will ever get, pre-allocated from the memory's write clock: an id
+// for a request, a flow, a subscription, a claim. No counter record is read and rewritten for it. It is no write, so it
+// is published at once (the watermark is about writes; a number that names none holds nothing back).
+inline uint64_t number() { const uint64_t n = ids().fetch_add(1, std::memory_order_acq_rel) + 1; mark_published(n); return n; }
+inline void wait_published(uint64_t id) {
+    for (;;) { const uint32_t seen = pub_word().gen.load(std::memory_order_acquire);
+        if (published().load(std::memory_order_acquire) >= id) return;
+        rmem::sleep_on(pub_word(), seen, 0.01); }
+}
 
 inline rmem::RecSlot* slot(const std::string& v, const std::string& i, bool create) {
     rmem::VarSet* vs = recs().get(v, create); if (!vs) return nullptr;
@@ -128,6 +156,7 @@ inline uint64_t put(const std::string& v, const std::string& i, const std::strin
     if (before) before(id);                                     // the durable append, before anyone can read it
     const Val* old = r->val.exchange(new Val{id, bag, clock_s()}, std::memory_order_acq_rel);
     rmem::ebr().retire(old);
+    mark_published(id);
     wake(v);
     return id;
 }
@@ -137,48 +166,6 @@ inline void restore(const std::string& v, const std::string& i, const std::strin
     const Val* old = r->val.exchange(new Val{id, bag, clock_s()}, std::memory_order_acq_rel); delete old;
     uint64_t c = ids().load(); while (c < id && !ids().compare_exchange_weak(c, id)) {}
 }
+inline void restored() { published().store(ids().load()); }      // after replay: everything restored is visible
 
-// ---- claims: append-only, read in write order as a gap-free prefix
-struct Claim { uint64_t seq; std::string bag; };
-class ClaimLog {
-public:
-    ClaimLog() { Seg* s = new Seg(1); head_.store(s); tail_.store(s); }
-    // append a claim: its place in the log is its number, 1 = the first claimant
-    uint64_t append(std::string bag) {
-        const uint64_t n = next_.fetch_add(1, std::memory_order_acq_rel);
-        Seg* s = seg_for(n);
-        s->slot[n - s->base].store(new Claim{n, std::move(bag)}, std::memory_order_release);
-        rmem::bump(ww_);
-        return n;
-    }
-    // claims 1..upto, in order; a claim numbered but still being placed is waited for (on the log's wait word)
-    template <class F> void prefix(uint64_t upto, F each) {
-        for (uint64_t k = 1; k <= upto; ++k) {
-            const Claim* c = nullptr;
-            for (;;) { const uint32_t seen = ww_.gen.load(std::memory_order_acquire);
-                Seg* s = find(k); if (s) c = s->slot[k - s->base].load(std::memory_order_acquire);
-                if (c) break;
-                rmem::sleep_on(ww_, seen, 0.01); }
-            each(*c);
-        }
-    }
-    uint64_t count() const { return next_.load(std::memory_order_acquire) - 1; }
-private:
-    static constexpr uint64_t SEG = 256;
-    struct Seg { explicit Seg(uint64_t b) : base(b) { for (auto& x : slot) x.store(nullptr, std::memory_order_relaxed); }
-                 const uint64_t base; std::atomic<const Claim*> slot[SEG]; std::atomic<Seg*> next{nullptr}; };
-    Seg* seg_for(uint64_t n) {
-        Seg* s = tail_.load(std::memory_order_acquire); if (n < s->base) s = head_.load(std::memory_order_acquire);
-        for (;;) { if (n < s->base + SEG) return s;
-            Seg* nx = s->next.load(std::memory_order_acquire);
-            if (!nx) { Seg* fresh = new Seg(s->base + SEG); Seg* expect = nullptr;
-                if (s->next.compare_exchange_strong(expect, fresh, std::memory_order_acq_rel)) nx = fresh; else { delete fresh; nx = expect; }
-                Seg* t = s; tail_.compare_exchange_strong(t, nx, std::memory_order_acq_rel); }
-            s = nx; }
-    }
-    Seg* find(uint64_t n) { for (Seg* s = head_.load(std::memory_order_acquire); s; s = s->next.load(std::memory_order_acquire)) if (n < s->base + SEG) return n >= s->base ? s : nullptr; return nullptr; }
-    std::atomic<uint64_t> next_{1}; std::atomic<Seg*> head_{nullptr}, tail_{nullptr}; rmem::WaitWord ww_;
-};
-inline Grow<ClaimLog>& claims() { static auto* t = new Grow<ClaimLog>; return *t; }
-inline ClaimLog& claim_log(const std::string& key) { return *claims().get(key, true); }
 }  // namespace dmem
