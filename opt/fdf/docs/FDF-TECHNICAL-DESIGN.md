@@ -1,10 +1,10 @@
 # FD&F Technical Design Document
 
 **System:** FD&F (Farinacci–Day–Fawcett): RINA naming, LISP mapping and Ribbit shared RAM as one network.
-**Build described:** `fdf-2026-10-12-r20` (`fdf-source/rinab/src/fdf_version.hpp:4`), public repository `FawcettJohnW/FrogNet-Living-Network` at commit `989225c` (2026-10-14).
+**Build described:** `fdf-2026-10-12-r20`; Appendix S, `fdf-2026-10-16-r21` (`fdf-source/rinab/src/fdf_version.hpp:4`), public repository `FawcettJohnW/FrogNet-Living-Network` at commit `989225c` (2026-10-14).
 **Author:** Fawcett Innovations LLC. **Status:** technical design of the code as built, derived from the code. **This is very early code; the security model is designed but not yet fully implemented (§9).**
 
-The main document (§1–§12) is the technical design: the FD&F client, then region mode. The reference appendices (A–O) hold the detail, with every statement traced to the code. The last three appendices (P–R) show additional capabilities: preloading a region with data, and extending the RAM API and the semantic message handling.
+The main document (§1–§12) is the technical design: the FD&F client, then region mode. The reference appendices (A–O) hold the detail, with every statement traced to the code. The last four appendices (P–S) show additional capabilities: preloading a region with data, extending the RAM API and the semantic message handling, and John Day's DAF model built as a region.
 
 **Contents**
 
@@ -42,6 +42,7 @@ The main document (§1–§12) is the technical design: the FD&F client, then re
 - P. Preloading custom data
 - Q. Examples of extending the RAM API
 - R. Examples of extending semantic message handling
+- S. John Day's DAF model on Ribbit
 
 ---
 
@@ -1905,3 +1906,132 @@ SotF is the one handler that fills all three slots plus a program factory.
 - **Building.** `build-prime.py` keeps one exemplar per (path, op, field shape). Two bodies of one op with different fields are different templates, such as a program's control hello and its data-set hello.
 - **Loading.** `RIBBIT_TEMPLATES` names the store a program loads.
 - **What priming does not do.** A primed dictionary supplies the shapes in advance, but it does not make the first message compact. The first message of each instance still carries all of its fields.
+
+---
+
+## Appendix S. John Day's DAF model on Ribbit
+
+A working prototype of the distributed-application model in the RINA Reference Model, Part 2, Chapters 1 and 2 (John Day; Day and Trouva), built as a region of the FD&F RAM host. The plan it implements is *The RINA DAF Model on Ribbit: A Prototype Plan* (2026-10-16). Build `fdf-2026-10-16-r21`.
+
+**Where it is.** All paths are relative to `opt/fdf/src/fdf-source/rinab/`.
+
+| What | File |
+|---|---|
+| The region: every operation, the check point, the DAF file | `src/daf_region.cpp` (`[DAF_MODEL_V1]`) |
+| Its entry points in the host | `src/door/rina_region.h`; dispatch in `tools/make_host.sh` (`op=daf`); session end and start in `src/rina_region.cpp` |
+| The client library: a session, watching, working sets, find-and-join | `src/daf_client.hpp` |
+| Tests, one program per milestone | `tests/daf_names.cpp`, `tests/daf_membership.cpp`, `tests/daf_information.cpp`, `tests/daf_reach.cpp`; run by `tools/daf-check.sh` |
+| The hospital capacity manager: the scripted incident and the board | `examples/hcm/hcm_incident.cpp`, `examples/hcm/hcm_board.cpp`; run by `tools/hospital-demo.sh` |
+
+### S.1 Shape
+
+- **One region operation.** `op=daf` (POST, inline, never waits) carries `{"fn": <operation>, ...}`. It runs in the host, beside the memory, like the RINA region (§Q.5). Answers are `{"ok":true,...}` or `{"ok":false,"error":...,"why":...}`.
+- **Everything is a cell.** The model's objects are cells of the generic memory, service `daf` (§S.2). Programs watch by holding a read on the memory itself. Nothing is pushed.
+- **One decider.** Every operation runs under one lock (`[DAF_ONE_DECIDER_V1]`, `daf_region.cpp:47`), so each read-decide-write is atomic. The lock is held only for the operation, not while a body is parsed.
+- **Liveness is the session.** What a session enrolled, joined, subscribed to or started ends when the session ends (`daf_session_down`, `daf_region.cpp:882`). A member that leaves keeps its synonyms for the DAF's synonym lifetime, for a short rejoin.
+- **Permanent cells** (DAFs, names, policies, reference data, persistent memberships and their removals, name spaces) are appended and fdatasync'd to the DAF file before they are written, and replayed at start (`[DAF_FILE_V1]`, `daf_region.cpp:66`). The file is `RINA_DAF_FILE`, or `RINA_REGION_FILE` with `.daf` appended.
+- **Coalescing.** `op=daf` is coalesced only within one session (`[REGION_COALESCE_PER_SESSION_V1]`, `tools/apply_region_session_key.py`), because its answers depend on the caller's session.
+- **Diagnostics.** `DAF_DIAG=<ms>` logs every call slower than that, with its parse, lock-wait and run times (`[DAF_DIAG_V1]`).
+
+### S.2 Cells
+
+`D` is one DAF instance, `<dan>#<daii>`. A cell that is gone holds `{"gone":true}`: the memory replaces rows, and a write is what wakes a held read.
+
+| Variable | Instance | Holds | Kept |
+|---|---|---|---|
+| `dafs` | `D` | the DAF: dan, daii, owner, synonym sets, synonym lifetime | Permanent |
+| `m\|D` | apn | an enrolled member: role, facts, synonyms, session | session |
+| `ret\|D` | apn | a member that left: synonyms and role, until its lifetime ends | until then |
+| `s\|D\|<set>` | synonym | who holds the synonym | |
+| `n\|D` | name | a whatevercast name: rule, lifetime, designated member | Permanent |
+| `e\|D\|<name>` | apn | a member of the name: facts, reference | session, or Permanent |
+| `nv\|D` | name | written on every change to the name: **hold a read here to watch it** | |
+| `pol\|D` | key | a policy (§S.4) | Permanent |
+| `audit\|D` | n | one record per check-point decision | |
+| `ref\|D` | key | reference data given at enrollment | Permanent |
+| `ae\|D\|<sid>` | AE name | a connection's granted object set | session |
+| `fl\|D`, `box\|D\|<apn>`, `fd\|D\|<fid>\|f\|r` | | a flow, a member's inbox of flows, the flow's data each way | |
+| `subd\|D` | key | a subscription's delivery: hold a read here | while held |
+| `in\|D\|<apn>` | key | values distributed to the member | |
+| `out\|D` | key | a started script's result | |
+| `nsp\|D`, `dlg\|D\|<space>`, `nsn\|D\|<space>` | | name spaces, delegations, names | Permanent |
+| `req\|D\|<apn>`, `ans\|D`, `store\|D\|<apn>` | rid | requests from non-members, their answers, stored messages | |
+| `prop` | `D` | a DAF proposed by several owners | Permanent |
+| `#daf` service | | secrets, never served over the network: authentication keys, owner keys, connection tokens | |
+
+### S.3 Operations
+
+Numbers in brackets are lines of `src/daf_region.cpp`.
+
+| Section of the plan | Operations (`fn`) |
+|---|---|
+| A. Application naming | `create_daf` (184), `list_dafs`, `enroll` (355), `synonym` (431), `members`, `whoami` |
+| B. Whatevercast names | `define_name` (221), `join` (233), `unjoin`, `designate`, `resolve` (298), `names`. Rules: `all`, `one` (filter, rank, ties to the lowest apn), `designated`, `nearest`. Lifetime: `session` or `persistent`. A new DAF has `members`, `join` and `service` (Part 2-1 §4.2). |
+| C. Enrollment | `enroll` in six steps (state, role, synonyms, static data, connections, state and the write to continue from); `leave`; `set_ref`; `export`, `merge` (543), `conflicts` for partitions |
+| D. Application-Entities | `connect` (464) with an object set, an authentication module and, from another session, the member's token; `disconnect`; `set_objects`; `set_auth`; `flow_open` (to a member or a name), `flow_send`, `flow_close` |
+| E. RIB Daemon | `subscribe` (601: state or collect, on change or periodic; identical specs are one subscription), `unsubscribe`, `distribute`, `start` (662), `stop`, `stats`; working sets in `daf_client.hpp` |
+| F. Name spaces | `ns_create`, `ns_delegate`, `ns_assign`, `ns_resolve` (730) |
+| G. DIF Allocator | registration and search through F; `register_owner`, `propose_daf`, `approve_daf` (796); the redirect policy; `daf::find_and_join` in the client |
+| H. Security | `set_policy`, `audit`; the check point (`check`, 142; `must`, 167) |
+| I. Requests without enrollment | `request` (754, to a name, or stored for a member), `answer` |
+
+### S.4 The check point and policies
+
+Every operation of a DAF, except the few listed below, calls `must()` before it acts. `must()`:
+1. refuses a session that is not enrolled with `ENOENT "not found"`, the answer a DAF that does not exist gets (`[DAF_NOT_FOUND_IS_ONE_ANSWER_V1]`, after Part 2-2 §2.6.3); the audit keeps the real reason;
+2. asks the most specific policy: `name:<object>`, then `op:<op>`, then `role:<role>`, then `*`. None means open. Modes: `open`, `refuse`, `roles` (allowed roles), `redirect` (refused with an alternative region, `EREDIRECT`), and `objects:<role>` (the most a role's connection may be granted);
+3. on a connection (`"ae"` in the request), asks whether the object is in the granted set, and if not, consults `op:outside_object_set`: open by default (allowed and recorded), refused when that policy says so;
+4. writes an audit record: who, role, operation, object, decision, reason.
+
+Not behind the check point: `create_daf`, `list_dafs`, `whoami`, `version`, `stats`, `disconnect` (the caller's own connection), `register_owner`, and `propose_daf` and `approve_daf` (owner keys decide). `merge` into a host that does not hold the DAF yet is an import and needs no enrollment.
+
+As built, every policy is open unless one is set. That is the plan's "access control designed in, not yet enforced".
+
+### S.5 The client library (`src/daf_client.hpp`)
+
+- **`daf::Client`**: one session. `call(fn, fields)` returns the answer whole. `watch(D, name, rev, s)` is a held read on `(daf, nv|D, name)`.
+- **`daf::WorkingSet`**: a read cache. Names resolved once and kept current by a held read per name, each on its own session connected as the member (its token). Reads are local and can trail the RAM manager's copy by one change's arrival time.
+- **`daf::find_and_join`**: resolve an application in a directory DAF's `apps` space, then enroll at the region it names. Refusal and absence give the same answer.
+
+### S.6 The hospital capacity manager (`examples/hcm/`)
+
+- **`hcm_board`** enrolls in the incident's DAF as `board`, holds one subscription to `facilities` and `receiving`, and serves a page and `/state.json`: each hospital connected or offline, its trauma capability and capacity, the current trauma choice, and the incident's events.
+- **`hcm_incident`** is the plan's demonstration: nine steps covering every section, each checking what the system answers and what the board shows. `HCM_PAUSE_MS` pauses between steps for a person watching.
+
+### S.7 Verification
+
+| Run | Result (2026-10-16) |
+|---|---|
+| `tools/daf-check.sh`: two RAM hosts; phase 1, kill -9 and restart of host A, phase 2 | 55 checks pass: A 4, B 14, C 7, D 5, E 6, F 6, G 4, H 5, I 4 |
+| `tools/hospital-demo.sh 3` | 3 of 3 runs pass, 19 checks each |
+| Regression: `memory-order-check.sh`, `map-removal-check.sh`, `map-region-check.sh`, `mapwait-check.sh` | all pass, before and after |
+| `tools/long-leaf-check.sh` (§S.8) | 900,048 answers identical |
+
+Measured on loopback, one machine:
+- A periodic subscription delivered at 0.202 s intervals for a 0.2 s period.
+- 50 holders of one subscription: 5 changes cost 5 computations; all 50 woke.
+- Working-set reads: 0.6 µs p50, 0.8 µs p99, no request sent; a change reached the set in about 1 ms.
+- Short rejoin with 64 reference rows: 0.9 ms against 3.8 ms for a full enrollment.
+- Small requests during a 32 MB transfer on a **separate connection**: p99 0.6 to 4 ms, against 0.4 to 2 ms alone, over seven runs (final run: 0.47 ms alone, 2.44 ms during). The separate connection reduces the interference but does not remove it; the plan's pass condition, "unchanged within measurement error", is not met as written, and the test passes on p99 below max(20 ms, 5 x the unloaded p99). With the transfer on the **same session**, p99 ranged from 0.7 ms to 62 ms between runs: a session runs its requests in order (`[SESSION_ORDER_V1]`), so a small request issued while a 1 MB request is in flight waits for it. Day's prescription, separate connections for short and long responses (Part 2-1 §4.2), is the remedy, and is what the test uses.
+- A request from a non-member, answered by a member: 1 ms.
+
+### S.8 A platform change found by the bulk test
+
+`[LONG_LEAF_ONE_PASS_V1]` (`tools/apply_long_leaf.py`, applied to `semtpl.hpp` at build):
+- **Before.** A 1 MiB value cost 630 to 690 ms to write on loopback, through the raw memory API or a region operation alike. Both ends were on-CPU in `semtpl::leaf_type`. Every template learned from a body types every string leaf, and for each one `is_ipv4`, `looks_like_interface`, `looks_like_enum` (twice) and `is_plausible_host` decoded the whole string into code points, stripped it, and upper-cased it through a table.
+- **Change.** For an ASCII string longer than 64 bytes the same answer is reached in one pass: it cannot be an IPv4 address, and it is a host only under conditions checkable in one scan. A string with any byte ≥ 0x80 takes the full path unchanged.
+- **After.** A 1 MiB write takes about 105 ms. `tools/long-leaf-check.sh` builds `leaf_type` both ways and compares them on 300,016 strings under three paths: 900,048 answers, 76,536 of them hosts, none different.
+
+### S.9 Where it departs from the text, and its limits
+
+| Item | As built |
+|---|---|
+| Replication | One copy at the RAM manager: replication of degree one. Day's RIB is "a partially replicated database" for most DAFs. |
+| RIB in each member | A member's RIB is a reference to the one shared copy: reads and writes execute at the RAM manager. The exception is a working set (§S.5): a read cache of declared names, refreshed by held reads, whose local reads can trail the copy by the time a change takes to arrive (1.2 ms measured). Writes always go to the copy. |
+| Partitions | Each island keeps its own copy. Rejoining is an explicit `export` and `merge`, given the time of the split. Session state is rebuilt by re-assertion, never merged. |
+| Who may read cells | `op=daf` enforces membership and object sets. The generic memory itself does no authorization, by design (§9.1, R-S1), so anything that reaches the RAM port can read service `daf` directly. Private secrets live in `#daf`, which the network cannot read. |
+| START | A restricted script (from a name: filter, a fact, count, sum, min, max, avg or list), once, periodic or on change. Not arbitrary code. |
+| DIF Allocator: create | Creates a new DAF on one RAM host once all owners approve. It does not start a new RAM manager. |
+| Authentication | Modules `null` and `key` (HMAC-SHA-256 with nonce, replay refused). Sessions are not encrypted (§9.2). |
+| Growth | Audit records, tombstones and answered requests are not compacted, like the rest of the memory (§D.1). |
+| Concurrency | One lock for every DAF operation. Correct, and fast enough at these scales; not measured beyond them. |

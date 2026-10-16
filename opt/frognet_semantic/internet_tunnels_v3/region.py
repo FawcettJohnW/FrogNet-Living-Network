@@ -32,7 +32,7 @@ import urllib.request
 from . import config
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-12-r20"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-16-r21"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_MASK = 16
 ALLOWED = "10.0.0.0/8"
 

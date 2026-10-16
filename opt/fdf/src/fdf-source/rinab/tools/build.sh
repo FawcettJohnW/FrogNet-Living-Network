@@ -27,6 +27,7 @@ python3 tools/apply_call_text.py $P/ribbit_cpp/frogram.hpp $P/ribbit_cpp/frogram
 python3 tools/apply_futex_portable.py $P/ribbit_cpp/frogram.cpp          # [FUTEX_PORTABLE_V1] Windows client
 python3 tools/apply_client_known_shape.py $P/ribbit_cpp/fnwp_engine.hpp
 python3 tools/apply_engine_once.py $P/ribbit_cpp/fnwp_engine.hpp
+python3 tools/apply_long_leaf.py $P/ribbit_cpp/semtpl.hpp              # [LONG_LEAF_ONE_PASS_V1]
 python3 tools/apply_session_hook.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_host_fanout.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_engine_lockless.py $P/ribbit_cpp/fnwp_engine.hpp $P/ramsrv/ram_server.cpp
@@ -49,12 +50,13 @@ tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_rina.cpp
 $CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp -o build/obj/frogram.o
 $CXX -std=c++20 $W -Werror -Isrc -Isrc/door -I$P/ribbit_cpp -c src/rina_region.cpp -o build/obj/rina_region.o
 $CXX -std=c++20 -Isrc -Isrc/door -I$P/ribbit_cpp -c src/ctl_host.cpp -o build/obj/ctl_host.o
+$CXX -std=c++20 $W -Werror -Isrc -Isrc/door -I$P/ribbit_cpp -c src/daf_region.cpp -o build/obj/daf_region.o   # [DAF_MODEL_V1]
 $CXX -std=c++20 -I$P/ribbit_cpp -I$P/ramsrv -Isrc/door -c build/ram_server_rina.cpp -o build/obj/ram_server_rina.o
 # [HOST_ALLOCATOR_V1] the host links jemalloc when the machine has it (apt install libjemalloc2): measured on rr 3,000 +
 # perf 20,000, host CPU -15% (181 -> 155 ticks) and rr +16..27% against glibc malloc, which was 38% of the host's
 # instructions (callgrind). Without it the host links glibc malloc and says so. NO_JEMALLOC=1 forces glibc.
 JE=$(ldconfig -p 2>/dev/null | awk '/libjemalloc\.so\.2 /{print $NF; exit}')
 if [ -n "$JE" ] && [ "${NO_JEMALLOC:-0}" != 1 ]; then ALLOC="$JE"; echo "host allocator: jemalloc ($JE)"; else ALLOC=""; echo "host allocator: glibc malloc (apt install libjemalloc2 for jemalloc)"; fi
-$CXX -o build/rina-host build/obj/ram_server_rina.o build/obj/rina_region.o build/obj/ctl_host.o build/obj/frogram.o -llz4 -lcrypto -lresolv $ALLOC   # [MR_FROM_THE_AREA_NAME_V1] -lresolv: SRV lookup
+$CXX -o build/rina-host build/obj/ram_server_rina.o build/obj/rina_region.o build/obj/daf_region.o build/obj/ctl_host.o build/obj/frogram.o -llz4 -lcrypto -lresolv $ALLOC   # [MR_FROM_THE_AREA_NAME_V1] -lresolv: SRV lookup
 mkdir -p build/bin && cp build/rina-host build/bin/rina-host     # the one the scripts run
 echo "BUILD OK: build/rina-host (and build/bin/rina-host)"
