@@ -10,6 +10,7 @@ python3 tools/apply_reply_proof.py $P/ribbit_cpp/fnwp_engine.hpp
 python3 tools/apply_same_miss.py $P/ribbit_cpp
 python3 tools/apply_no_answer_hash.py $P/ribbit_cpp/fnwp_engine.hpp      # after same_miss: it needs CacheE.status/body
 python3 tools/apply_engine_exact_shortcuts.py $P/ribbit_cpp
+python3 tools/apply_exact_extract.py $P/ribbit_cpp                # [EXACT_EXTRACTION_V1] the reply is not probed
 python3 tools/apply_alloc_once.py $P/ribbit_cpp
 python3 tools/apply_template_precompute.py $P/ribbit_cpp
 python3 tools/apply_fire_keys.py $P/ribbit_cpp/ram_memory.hpp
@@ -27,6 +28,7 @@ python3 tools/apply_call_text.py $P/ribbit_cpp/frogram.hpp $P/ribbit_cpp/frogram
 python3 tools/apply_futex_portable.py $P/ribbit_cpp/frogram.cpp          # [FUTEX_PORTABLE_V1] Windows client
 python3 tools/apply_client_known_shape.py $P/ribbit_cpp/fnwp_engine.hpp
 python3 tools/apply_engine_once.py $P/ribbit_cpp/fnwp_engine.hpp
+python3 tools/apply_long_leaf.py $P/ribbit_cpp/semtpl.hpp              # [LONG_LEAF_ONE_PASS_V1]
 python3 tools/apply_session_hook.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_host_fanout.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_engine_lockless.py $P/ribbit_cpp/fnwp_engine.hpp $P/ramsrv/ram_server.cpp
