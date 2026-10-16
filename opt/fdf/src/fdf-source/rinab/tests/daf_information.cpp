@@ -72,23 +72,6 @@ int main(int argc, char** argv) {
       expect("E", "50 members subscribe to the same set: the work is done once per change, not 50 times",
              same && shared == 49 && runs == 5 && woke == 50, "one subscription shared by " + std::to_string(shared + 1) + "; 5 changes -> " + std::to_string(int(runs)) + " computations; " + std::to_string(woke.load()) + " of 50 holders woke"); }
 
-    // ---- E: a working set: local reads, kept current
-    { daf::Client t(A); Json e = enroll(t, D, "task-1");
-      daf::WorkingSet set(A, D, {"receiving"}, "task-1", e["token"].s);
-      const auto s0 = t.stats(); std::vector<double> us;
-      for (int i = 0; i < 1000; ++i) { auto st = std::chrono::steady_clock::now(); Json r = set.get("receiving"); us.push_back(us_since(st)); if (r["members"].a.size() != 2) break; }
-      const auto s1 = t.stats(); std::sort(us.begin(), us.end());
-      const auto up0 = set.updates(); ha.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":3}");
-      auto st = std::chrono::steady_clock::now(); double cap = 0;
-      while (us_since(st) < 2e6) { const Json g = set.get("receiving");     // a copy: the set may replace its own at any moment
-          for (auto& m : g["members"].a) if (m["apn"].s == "h-a") cap = m["facts"]["capacity"].n;
-          if (cap == 3) break; std::this_thread::sleep_for(std::chrono::microseconds(200)); }
-      const double lag_ms = us_since(st) / 1000;
-      char d[200]; snprintf(d, sizeof d, "1000 reads: p50 %.1f us, p99 %.1f us, requests sent %llu; a change reached the set in %.1f ms", us[500], us[990],
-                            (unsigned long long)((s1.raw + s1.repeat + s1.same + s1.diff + s1.full) - (s0.raw + s0.repeat + s0.same + s0.diff + s0.full)), lag_ms);
-      expect("E", "a task reads from its declared working set: no round trip; changes arrive", us.size() == 1000 && us[990] < 200 && cap == 3 && set.updates() > up0 &&
-             (s1.raw + s1.repeat + s1.same + s1.diff + s1.full) == (s0.raw + s0.repeat + s0.same + s0.diff + s0.full), d); }
-
     // ---- E: distribute a value to every member of a name
     { Json r = admin.call("distribute", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"key\":\"alert-1\",\"value\":{\"text\":\"mass casualty incident, 40 patients\"}");
       Json a1 = ha.peek(D, "in", "alert-1"), b1 = hb.peek(D, "in", "alert-1");
@@ -100,7 +83,7 @@ int main(int argc, char** argv) {
       const double first = st["result"]["v"].n;
       hb.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":20}");
       const Json out = admin.peek(D, "out", "trauma-capacity"); Json o; for (auto& c : out["rows"].a) o = c["v"];
-      expect("E", "a script started at the RAM manager runs beside the memory; its result is written there", st["ok"].b && first == 3 + 14 && o["v"].n == 3 + 20,
+      expect("E", "a script started at the RAM manager runs beside the memory; its result is written there", st["ok"].b && first == 4 + 14 && o["v"].n == 4 + 20,
              "sum of trauma capacity: " + std::to_string(int(first)) + ", after a change " + std::to_string(int(o["v"].n)));
       admin.call("set_policy", "\"daf\":" + q(D) + ",\"key\":\"op:start\",\"mode\":\"roles\",\"roles\":[\"coordinator\"]");
       Json no = ha.call("start", "\"daf\":" + q(D) + ",\"script\":{\"from\":\"receiving\",\"agg\":\"count\",\"out\":\"x\"}");

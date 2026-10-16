@@ -50,39 +50,9 @@ public:
 private:
     std::unique_ptr<frogram::Session> s_;
 };
-// [DAF_WORKING_SET_V1] (plan E) a task's working set: the names it declares are resolved once, then kept current by a
-// held read per name on a session of its own; a read of the set is local -- no round trip, nothing waits.
-class WorkingSet {
-public:
-    // apn and token: the enrolled member's, from its enrollment; each watcher is a further connection of that member
-    WorkingSet(const std::string& where, const std::string& D, std::vector<std::string> names, const std::string& apn, const std::string& token)
-        : where_(where), D_(D), names_(std::move(names)) {
-        for (auto& n : names_) { auto c = std::make_unique<Client>(where_);          // each watcher: its own session
-            Json e = c->call("connect", "\"daf\":" + q(D_) + ",\"ae_name\":" + q("working-set:" + n) + ",\"objects\":[" + q(n) + "],\"apn\":" + q(apn) + ",\"token\":" + q(token));
-            if (!e["ok"].b) throw std::runtime_error("working set: connect refused: " + e["why"].s);
-            Json r = c->call("resolve", "\"daf\":" + q(D_) + ",\"name\":" + q(n));
-            if (!r["ok"].b) throw std::runtime_error("working set: " + n + ": " + r["why"].s);
-            { std::lock_guard<std::mutex> l(m_); cache_[n] = r; }
-            Client* cp = c.get(); clients_.push_back(std::move(c));
-            threads_.emplace_back([this, cp, n, rev = uint64_t(r["rev"].n)]() mutable {
-                // one held read at a time, answered by the change; closing the set ends the watcher's session, which
-                // ends its wait. Any other failure ends the watcher, and says so.
-                while (!stop_) { uint64_t got = 0;
-                    try { got = cp->watch(D_, n, rev); }
-                    catch (const std::exception& x) { if (!stop_) fprintf(stderr, "[DAF_WORKING_SET_V1] watcher for %s ended: %s\n", n.c_str(), x.what()); return; }
-                    if (!got || stop_) { continue; }
-                    rev = got;
-                    Json r2 = cp->call("resolve", "\"daf\":" + q(D_) + ",\"name\":" + q(n));
-                    if (r2["ok"].b) { std::lock_guard<std::mutex> l(m_); cache_[n] = r2; ++updates_; } } });
-        }
-    }
-    ~WorkingSet() { stop_ = true; for (auto& c : clients_) c->shutdown(); for (auto& t : threads_) t.join(); }
-    Json get(const std::string& name) { std::lock_guard<std::mutex> l(m_); return cache_[name]; }   // local
-    uint64_t updates() const { return updates_; }
-private:
-    std::string where_, D_; std::vector<std::string> names_; std::mutex m_; std::map<std::string, Json> cache_;
-    std::vector<std::unique_ptr<Client>> clients_; std::vector<std::thread> threads_; std::atomic<bool> stop_{false}; std::atomic<uint64_t> updates_{0};
-};
+// [DAF_NO_STATE_CACHE_V1] There is no working set: a program keeps no copy of application state. It reads the region
+// when it needs a value, and holds a read (wait) on what it depends on to learn when it changed. (The transport's
+// semantic message cache compresses repeated messages on the wire; it holds messages, not application state.)
 // [DAF_ALLOCATOR_V1] (plan G) find the region that offers an application and join it. The search is a resolution in a
 // directory DAF's "apps" space (where regions register what they offer); it ends at the owning region, whose own check
 // point decides: enrollment (joined), an alternative (EREDIRECT, with where), or refusal -- reported as "not found".
