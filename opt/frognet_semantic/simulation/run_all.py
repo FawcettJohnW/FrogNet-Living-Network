@@ -454,9 +454,8 @@ def main():
     # in this suite at all -- not the DDP comm hooks, not the psychedelic
     # collectives, not the c10d store. Every defect in it was found by running
     # a four-node benchmark across a continent and reading py-spy by hand.
-    from simulation import collective_tier
-    results.append(_run_tier("collectives + DDP hooks (agent_workload)",
-                             collective_tier.main))
+    # [PYTORCH_TIERS_PULLED_V1 - John 2026-10-16] pulled from this suite: agent_workload/ is not in this tree
+    # (.gitignore), so the tier could not run here. simulation/collective_tier.py is kept; run it where agent_workload is.
 
     results.append(_run_tier("proxy decision/keying/origin", proxy_dataplane.main))
     # [RETURN_ONLY_V1] The reply path for every semantic RPC, against a real
@@ -502,8 +501,8 @@ def main():
     # producer.py and the bulk receiver were the only code in the tree changed
     # without a gate. This runs the ramp oracle in its own process, as the
     # transport tiers do.
-    results.append(_run_proc("aiconnect ramp oracle (ceiling/extend/receiver)",
-                             ["simulation/test_aiconnect_ramp_oracle.py"]))
+    # [PYTORCH_TIERS_PULLED_V1 - John 2026-10-16] pulled with the collectives tier: it imports agent_workload.aiconnect.
+    # simulation/test_aiconnect_ramp_oracle.py is kept; run it where agent_workload is.
     results.append(_run_proc("channel_sets UNIT (alloc/registry/threads)",
                              ["proxy/test_channel_sets.py"]))
     results.append(_run_proc("channel_sets INTEGRATION (HOL isolation via sim)",
