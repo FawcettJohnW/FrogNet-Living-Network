@@ -59,4 +59,6 @@ JE=$(ldconfig -p 2>/dev/null | awk '/libjemalloc\.so\.2 /{print $NF; exit}')
 if [ -n "$JE" ] && [ "${NO_JEMALLOC:-0}" != 1 ]; then ALLOC="$JE"; echo "host allocator: jemalloc ($JE)"; else ALLOC=""; echo "host allocator: glibc malloc (apt install libjemalloc2 for jemalloc)"; fi
 $CXX -o build/rina-host build/obj/ram_server_rina.o build/obj/rina_region.o build/obj/daf_region.o build/obj/ctl_host.o build/obj/frogram.o -llz4 -lcrypto -lresolv $ALLOC   # [MR_FROM_THE_AREA_NAME_V1] -lresolv: SRV lookup
 mkdir -p build/bin && cp build/rina-host build/bin/rina-host     # the one the scripts run
-echo "BUILD OK: build/rina-host (and build/bin/rina-host)"
+# [DAF_SIM_AGENT_V1] one simulated node's FNW1 session, for the simulator's DAF discovery tier
+$CXX -std=c++20 $W -Werror -O2 -pthread -D_GNU_SOURCE -I$P/ribbit_cpp -Isrc examples/sim/daf_agent.cpp build/obj/frogram.o -llz4 -lcrypto -lresolv -o build/bin/daf-agent
+echo "BUILD OK: build/rina-host (and build/bin/rina-host, build/bin/daf-agent)"

@@ -866,6 +866,10 @@ std::string daf_region_call(const std::string& body) {
     start_once();
     const double t0 = now();
     Json in; try { in = Json::parse(body); } catch (const std::exception& e) { return err("EINVAL", std::string("body is not JSON: ") + e.what()); }
+    // [DAF_NEEDS_A_SESSION_V1] membership, connections and requests are bound to the caller's session. The plain-HTTP
+    // front has none (every request there is session 0), so it would make every caller one member: refused, said.
+    if (rina_session_id() == 0 && in["fn"].s != "version" && in["fn"].s != "list_dafs")
+        return err("ENOTSUP", "op=daf needs a session (FNW1); a plain HTTP request has none");
     const double t1 = now();
     std::string r;
     { std::unique_lock<std::recursive_mutex> l(g_mu); const double t2 = now();

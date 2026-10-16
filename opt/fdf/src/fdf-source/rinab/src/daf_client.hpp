@@ -28,6 +28,8 @@ public:
         const std::string body = "{\"fn\":" + q(fn) + (fields.empty() ? "" : "," + fields) + "}";
         return Json::parse(s_->call_text("POST", api() + "?op=daf", body));   // the answer whole, error and why included
     }
+    // one DAF operation from a whole body ({"fn":...,...}); the answer's text as it came
+    std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
     // wait (up to wait_s) for a change to a name after `rev`; returns the new rev, or 0 if nothing changed
     uint64_t watch(const std::string& D, const std::string& name, uint64_t rev, double wait_s) {
         auto cells = m_->read("daf", "nv|" + D, name, int64_t(rev), wait_s);
@@ -59,7 +61,8 @@ public:
                     try { got = cp->watch(D_, n, rev, 1.0); }
                     catch (const std::exception& x) { const std::string w = x.what(); if (w.find("imeout") != std::string::npos || w.find("timed out") != std::string::npos) continue;
                         fprintf(stderr, "[DAF_WORKING_SET_V1] watcher for %s ended: %s\n", n.c_str(), x.what()); return; }
-                    if (!got || stop_) continue; rev = got;
+                    if (!got || stop_) { continue; }
+                    rev = got;
                     Json r2 = cp->call("resolve", "\"daf\":" + q(D_) + ",\"name\":" + q(n));
                     if (r2["ok"].b) { std::lock_guard<std::mutex> l(m_); cache_[n] = r2; ++updates_; } } });
         }
