@@ -538,6 +538,13 @@ def main():
     results.append(_run_tier("discovery oracle suite (incl. Seattle6 identity-down)", _discovery_gate))
     print("        (real LAN/gateway route engine; runMerge ip r as hardware truth)")
 
+    # [DAF_DISCOVERY_SIM_V1] discovery's "who exists" answered by John Day's DAF model (op=daf on a real rina-host,
+    # every node its own session) instead of peer gossip; the real planner and committer; hardware baselines as the
+    # oracle. Needs rinab built (tools/build.sh: build/rina-host, build/bin/daf-agent): without them it FAILS, it does
+    # not skip -- a tier that passes when it cannot run is a hole with a green tick on it.
+    print("\nTIER DAF - discovery by the DAF model (20 topologies + failure scenarios)")
+    results.append(_run_proc("DAF discovery (op=daf, hardware baselines)", ["simulation/daf_discovery_tier.py"], retry=False))
+
     print("\n================== SUMMARY ==================")
     failed = [l for (l, rc) in results if rc != 0]
     for (l, rc) in results:
