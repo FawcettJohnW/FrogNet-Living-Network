@@ -89,36 +89,62 @@ int main(int argc, char** argv) {
     daf::Client dwc(where); Json dwe = dwc.call("enroll", "\"daf\":" + q(D) + ",\"apn\":\"watcher\",\"role\":\"observer\"");
     daf::Client dw(where); dw.call("connect", "\"daf\":" + q(D) + ",\"ae_name\":\"watch\",\"objects\":[\"*\"],\"apn\":\"watcher\",\"token\":" + q(dwe["token"].s));
     uint64_t drev = uint64_t(rd.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"nodes\"")["rev"].n);
-    // until the watcher's read shows `done`: wait, then read; again if it does not yet
-    auto fdf_until = [&](const std::function<bool(const Json&)>& done) { for (;;) { fafter = last_seq(rina_wait(*fw, "bw" + tag, fafter), fafter);
-        if (done(rina(*rf, "{\"op\":\"participants\"}"))) return; } };
-    auto daf_until = [&](const std::function<bool(const Json&)>& done) { for (;;) { Json w = dw.wait(D, "name", "nodes", drev); drev = uint64_t(w["rev"].n);
-        if (done(rd.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"nodes\",\"live\":true"))) return; } };
+    // [BENCH_WATCH_SPLIT_V1] until the watcher's read shows `done`: wait, then read; again if it does not yet. Each
+    // measurement is split: the write itself (change only), the wait until the watcher's FIRST wake, the wait until its
+    // LAST wake, the reads, and how many wake+read rounds it took -- all ms from the measurement's start.
+    struct Split { double write = 0, first_wake = -1, last_wake = 0, reads = 0, total = 0; int rounds = 0;
+                   double bytes_in = 0, same = 0, diff = 0, full = 0, raw = 0; };   // the reads' answers, as the transport carried them
+    auto carried = [](Split& sp, const frogram::Stats& a, const frogram::Stats& b) { sp.bytes_in += double(b.bytes_in - a.bytes_in); sp.same += double(b.same - a.same);
+        sp.diff += double(b.diff - a.diff); sp.full += double(b.full - a.full); sp.raw += double(b.raw - a.raw); };
+    Clock::time_point t0;
+    auto fdf_until = [&](Split& sp, const std::function<bool(const Json&)>& done) { for (;;) { fafter = last_seq(rina_wait(*fw, "bw" + tag, fafter), fafter);
+        sp.last_wake = ms(t0); if (sp.first_wake < 0) sp.first_wake = sp.last_wake; ++sp.rounds;
+        const auto s0 = rf->stats(); auto r0 = Clock::now(); const bool ok = done(rina(*rf, "{\"op\":\"participants\"}")); sp.reads += ms(r0); carried(sp, s0, rf->stats());
+        if (ok) { sp.total = ms(t0); return; } } };
+    auto daf_until = [&](Split& sp, const std::function<bool(const Json&)>& done) { for (;;) { Json w = dw.wait(D, "name", "nodes", drev); drev = uint64_t(w["rev"].n);
+        sp.last_wake = ms(t0); if (sp.first_wake < 0) sp.first_wake = sp.last_wake; ++sp.rounds;
+        const auto s0 = rd.stats(); auto r0 = Clock::now(); const bool ok = done(rd.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"nodes\",\"live\":true")); sp.reads += ms(r0); carried(sp, s0, rd.stats());
+        if (ok) { sp.total = ms(t0); return; } } };
+    auto split_rows = [&](const char* what, const std::vector<Split>& f, const std::vector<Split>& d) {
+        auto col = [](const std::vector<Split>& v, double Split::* m) { std::vector<double> x; for (auto& s : v) x.push_back(s.*m); return x; };
+        auto rounds = [](const std::vector<Split>& v) { std::vector<double> x; for (auto& s : v) x.push_back(s.rounds); return x; };
+        printf("  %s (p50 ms)\n", what);
+        printf("    %-30s FDF %8.3f   DAF %8.3f\n", "write returned", pct(col(f, &Split::write), .5), pct(col(d, &Split::write), .5));
+        printf("    %-30s FDF %8.3f   DAF %8.3f\n", "watcher's first wake", pct(col(f, &Split::first_wake), .5), pct(col(d, &Split::first_wake), .5));
+        printf("    %-30s FDF %8.3f   DAF %8.3f\n", "watcher's last wake", pct(col(f, &Split::last_wake), .5), pct(col(d, &Split::last_wake), .5));
+        printf("    %-30s FDF %8.3f   DAF %8.3f\n", "reads after waking (sum)", pct(col(f, &Split::reads), .5), pct(col(d, &Split::reads), .5));
+        printf("    %-30s FDF %8.1f   DAF %8.1f\n", "wake+read rounds", pct(rounds(f), .5), pct(rounds(d), .5));
+        printf("    %-30s FDF %8.0f   DAF %8.0f\n", "bytes in, the reads", pct(col(f, &Split::bytes_in), .5), pct(col(d, &Split::bytes_in), .5));
+        double fs = 0, fd = 0, ff = 0, fr = 0, ds = 0, dd = 0, dfu = 0, dr = 0; for (auto& x : f) { fs += x.same; fd += x.diff; ff += x.full; fr += x.raw; } for (auto& x : d) { ds += x.same; dd += x.diff; dfu += x.full; dr += x.raw; }
+        printf("    %-30s FDF same %.0f diff %.0f full %.0f raw %.0f   DAF same %.0f diff %.0f full %.0f raw %.0f\n", "answers carried as (all runs)", fs, fd, ff, fr, ds, dd, dfu, dr);
+        printf("    %-30s FDF %8.3f   DAF %8.3f\n", "total", pct(col(f, &Split::total), .5), pct(col(d, &Split::total), .5)); fflush(stdout); };
 
     // ---- change
-    std::vector<double> cf, cd;
+    std::vector<Split> cf, cd;
     for (int k = 0; k < K; ++k) {
         const int i = k; const std::string ns = "bench" + tag + "-" + std::to_string(i), apn = "n" + std::to_string(i); const int cap = 100 + k;
-        auto t = Clock::now();
+        Split a; t0 = Clock::now();
         rina(*fm[size_t(i)], "{\"op\":\"announce\",\"ns\":" + q(ns) + ",\"name\":" + q(ns) + ",\"cap\":\"{}\",\"ips\":[],\"facts\":" + q(facts(i, cap)) + "}");
-        fdf_until([&](const Json& p) { for (auto& x : p["participants"].a) if (x["ns"].s == ns) return x["facts"]["capacity"].n == cap; return false; });
-        cf.push_back(ms(t));
-        t = Clock::now();
+        a.write = ms(t0);
+        fdf_until(a, [&](const Json& p) { for (auto& x : p["participants"].a) if (x["ns"].s == ns) return x["facts"]["capacity"].n == cap; return false; });
+        cf.push_back(a);
+        Split b; t0 = Clock::now();
         dm[size_t(i)]->call("join", "\"daf\":" + q(D) + ",\"name\":\"nodes\",\"facts\":" + facts(i, cap));
-        daf_until([&](const Json& r) { for (auto& x : r["members"].a) if (x["apn"].s == apn) return x["facts"]["capacity"].n == cap; return false; });
-        cd.push_back(ms(t)); }
-    row("change -> watcher's read shows it", cf, cd);
+        b.write = ms(t0);
+        daf_until(b, [&](const Json& r) { for (auto& x : r["members"].a) if (x["apn"].s == apn) return x["facts"]["capacity"].n == cap; return false; });
+        cd.push_back(b); }
+    split_rows("change -> watcher's read shows it", cf, cd);
 
     // ---- gone
-    std::vector<double> gf, gd;
+    std::vector<Split> gf, gd;
     for (int k = 0; k < K; ++k) {
         const int i = N - 1 - k; const std::string ns = "bench" + tag + "-" + std::to_string(i), apn = "n" + std::to_string(i);
-        auto t = Clock::now(); fm[size_t(i)].reset();
-        fdf_until([&](const Json& p) { return !fdf_live(p, ns, nullptr); });
-        gf.push_back(ms(t));
-        t = Clock::now(); dm[size_t(i)].reset();
-        daf_until([&](const Json& r) { for (auto& x : r["members"].a) if (x["apn"].s == apn) return false; return true; });
-        gd.push_back(ms(t)); }
-    row("session closed -> watcher sees gone", gf, gd);
+        Split a; t0 = Clock::now(); fm[size_t(i)].reset(); a.write = ms(t0);
+        fdf_until(a, [&](const Json& p) { return !fdf_live(p, ns, nullptr); });
+        gf.push_back(a);
+        Split b; t0 = Clock::now(); dm[size_t(i)].reset(); b.write = ms(t0);
+        daf_until(b, [&](const Json& r) { for (auto& x : r["members"].a) if (x["apn"].s == apn) return false; return true; });
+        gd.push_back(b); }
+    split_rows("session closed -> watcher sees gone", gf, gd);
     return 0;
 }
