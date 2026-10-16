@@ -10,6 +10,7 @@ python3 tools/apply_reply_proof.py $P/ribbit_cpp/fnwp_engine.hpp
 python3 tools/apply_same_miss.py $P/ribbit_cpp
 python3 tools/apply_no_answer_hash.py $P/ribbit_cpp/fnwp_engine.hpp      # after same_miss: it needs CacheE.status/body
 python3 tools/apply_engine_exact_shortcuts.py $P/ribbit_cpp
+python3 tools/apply_exact_extract.py $P/ribbit_cpp                # [EXACT_EXTRACTION_V1] the reply is not probed
 python3 tools/apply_alloc_once.py $P/ribbit_cpp
 python3 tools/apply_template_precompute.py $P/ribbit_cpp
 python3 tools/apply_fire_keys.py $P/ribbit_cpp/ram_memory.hpp
