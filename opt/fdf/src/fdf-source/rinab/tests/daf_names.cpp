@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
         expect("B", "three members under one name: all returns three; one picks; a tie goes to the lowest", apns(ra) == "h-a,h-b,h-c" && apns(r1) == "h-a", "all=" + apns(ra) + " one=" + apns(r1));
         // a member's facts change: one moves, and a held read on the name returns
         const uint64_t rev = uint64_t(r1["rev"].n);
-        auto w = std::async(std::launch::async, [&] { return hc.watch(I1, "receiving", rev, 10); });   // a member watches (a non-member gets "not found")
+        auto w = std::async(std::launch::async, [&] { return hc.watch(I1, "receiving", rev); });   // a member watches (a non-member gets "not found")
         std::this_thread::sleep_for(std::chrono::milliseconds(300));
         join(ha, I1, "receiving", "{\"trauma\":true,\"capacity\":0}");
         const uint64_t woke = w.get(); Json r2 = one(admin, I1, "receiving");
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         // a member joins between a resolve and the held read after it
         { Json r = all(admin, I1, "receiving"); const uint64_t rv = uint64_t(r["rev"].n);
           daf::Client he(where); enroll(he, I1, "h-e"); join(he, I1, "receiving", "{\"trauma\":false,\"capacity\":4}");
-          const uint64_t got = he.watch(I1, "receiving", rv, 5);
+          const uint64_t got = he.watch(I1, "receiving", rv);
           expect("B", "a member joins between a resolve and the held read: the read reports it at once", got > rv, std::to_string(rv) + "->" + std::to_string(got)); }
         // a member that fails the filter does not change one
         { Json before = one(admin, I1, "receiving"); daf::Client hf(where); enroll(hf, I1, "h-f"); join(hf, I1, "receiving", "{\"trauma\":false,\"capacity\":99}");

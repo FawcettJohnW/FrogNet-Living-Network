@@ -1,17 +1,17 @@
 // daf_client.hpp -- [DAF_MODEL_V1] a program's session to the DAF region (op=daf) of a RAM host. The session is the
 // program's liveness: what it enrolled and joined for the session goes when the session ends. [DAF_WAIT_V1] Watching is
 // the region's own held read (fn "wait"), through the check point: answered by the write that makes its answer exist,
-// or ended with the session. The region keeps no timers: a wait given up by the client (timeout_s) is answered later
-// and discarded, or dropped when its session ends. A program waits on a session of its own; shutdown() ends it.
+// or ended with the session. A program waits on a session of its own; shutdown() ends it.
+// [DAF_FROG_V1] The region is handed to the program as a library: Client() finds the area's region the way every FD&F
+// participant does (rina_region::Client::locate(): RINA_RAM, or the area's one name), so no program names a host. A
+// locator is passed only when it was itself read from the memory (a DIF Allocator answer names the region that offers
+// an application) or by a harness that plays several machines. No timeouts, no retries: a wait is answered by the write
+// that makes its answer exist, or ends with its session.
 #pragma once
 #include "frogram.hpp"
-#include <atomic>
+#include "rina_region_client.hpp"
 #include <cstdio>
-#include <map>
 #include <memory>
-#include <mutex>
-#include <thread>
-#include <vector>
 #include <stdexcept>
 #include <string>
 namespace daf {
@@ -20,6 +20,7 @@ using frogram::Json;
 inline std::string q(const std::string& s) { return Json::quote(s); }
 class Client {
 public:
+    Client() : Client(rina_region::Client::locate()) {}       // this area's region
     explicit Client(const std::string& where) {
         const size_t c = where.rfind(':'); if (c == std::string::npos) throw std::runtime_error("daf: '" + where + "' has no port");
         s_.reset(new frogram::Session(where.substr(0, c), atoi(where.c_str() + c + 1), api()));
@@ -33,17 +34,17 @@ public:
     std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
     // [DAF_WAIT_V1] a held read: what = name | sub | ans | box | fd | in | req | out (daf_region.cpp, wait). The answer
     // {ok, rev, rows:[{i, id, v}]} comes when something there is past `after`; now=true answers at once (a plain read).
-    // timeout_s: how long THIS program waits (the region does not time it out); running out throws.
-    Json wait(const std::string& D, const std::string& what, const std::string& key, uint64_t after, bool now = false, double timeout_s = 1e9, const std::string& extra = "") {
+    Json wait(const std::string& D, const std::string& what, const std::string& key, uint64_t after, bool now = false, const std::string& extra = "") {
         const std::string body = "{\"fn\":\"wait\",\"daf\":" + q(D) + ",\"what\":" + q(what) + ",\"key\":" + q(key) + ",\"after\":" + std::to_string((unsigned long long)after) +
                                  (now ? ",\"now\":true" : "") + (extra.empty() ? "" : "," + extra) + "}";
-        return Json::parse(s_->call_text("POST", api() + "?op=daf", body, timeout_s));
+        return Json::parse(s_->call_text("POST", api() + "?op=daf", body, 1e9));   // held until answered, or the session ends
     }
-    Json peek(const std::string& D, const std::string& what, const std::string& key, uint64_t after = 0, const std::string& extra = "") { return wait(D, what, key, after, true, 15.0, extra); }
-    // watch a name: its new rev once it changes after `rev` (0 if the wait ran out at timeout_s)
-    uint64_t watch(const std::string& D, const std::string& name, uint64_t rev, double timeout_s = 1e9) {
-        try { Json r = wait(D, "name", name, rev, false, timeout_s); return r["ok"].b ? uint64_t(r["rev"].n) : 0; }
-        catch (const std::exception& x) { const std::string w = x.what(); if (w.find("imeout") != std::string::npos || w.find("timed out") != std::string::npos) return 0; throw; }
+    Json peek(const std::string& D, const std::string& what, const std::string& key, uint64_t after = 0, const std::string& extra = "") { return wait(D, what, key, after, true, extra); }
+    // watch a name: its new rev once it changes after `rev`; a refusal (the name or the DAF is gone, or not ours) throws
+    uint64_t watch(const std::string& D, const std::string& name, uint64_t rev) {
+        Json r = wait(D, "name", name, rev);
+        if (!r["ok"].b) throw std::runtime_error("daf: watch " + D + " " + name + ": " + r["error"].s + " " + r["why"].s);
+        return uint64_t(r["rev"].n);
     }
     void shutdown() { s_->shutdown(); }                 // ends this session: a wait parked on it returns by throwing
     frogram::Stats stats() const { return s_->stats(); }

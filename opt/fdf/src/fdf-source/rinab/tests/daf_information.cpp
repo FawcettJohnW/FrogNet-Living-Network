@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstdio>
 #include <future>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,7 +45,7 @@ int main(int argc, char** argv) {
       Json s = sc.call("subscribe", "\"daf\":" + q(D) + ",\"names\":[\"receiving\"],\"period_s\":0.2");
       uint64_t rev = uint64_t(s["rev"].n); std::vector<double> ts; std::vector<double> caps; int changed_at = -1;
       for (int i = 0; i < 10; ++i) {
-          Json got; try { got = sc.wait(D, "sub", s["sub"].s, rev, false, 2.0); } catch (const std::exception&) { break; }
+          Json got = sc.wait(D, "sub", s["sub"].s, rev);
           if (!got["ok"].b || got["rows"].a.empty()) break; rev = uint64_t(got["rev"].n); const Json& v = got["rows"].a[0]["v"]; ts.push_back(v["t"].n);
           double cap = 0; for (auto& m : v["data"]["receiving"].a) if (m["apn"].s == "h-a") cap = m["facts"]["capacity"].n; caps.push_back(cap);
           if (i == 4) { ha.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":9}"); changed_at = i; }
@@ -56,25 +57,27 @@ int main(int argc, char** argv) {
       (void)changed_at; sc.call("unsubscribe", "\"daf\":" + q(D) + ",\"sub\":" + q(s["sub"].s)); }
     ha.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":4}");
 
-    // ---- E: 50 members subscribe to the same set: one computation per change
-    { std::vector<std::unique_ptr<daf::Client>> boards; std::vector<std::string> subs; std::vector<uint64_t> revs; int shared = 0;
+    // ---- E: 50 members hold a subscription to the same set. [DAF_FROG_V1] Each holder's subscription is its own record;
+    // its answer is read from the members' own records when it is asked for, so there is no shared result to keep.
+    { std::vector<std::unique_ptr<daf::Client>> boards; std::vector<std::string> subs; std::vector<uint64_t> revs;
       for (int i = 0; i < 50; ++i) { boards.push_back(std::make_unique<daf::Client>(A)); enroll(*boards.back(), D, "board-" + std::to_string(100 + i));
           Json s = boards.back()->call("subscribe", "\"daf\":" + q(D) + ",\"names\":[\"receiving\"],\"filter\":[{\"f\":\"trauma\",\"v\":true}]");
-          subs.push_back(s["sub"].s); revs.push_back(uint64_t(s["rev"].n)); if (s["shared"].b) ++shared; }
-      const double runs0 = admin.call("stats")["subscription_runs"].n;
-      std::atomic<int> woke{0}; std::vector<std::thread> ws;
-      for (int i = 0; i < 50; ++i) ws.emplace_back([&, i] { try { Json r = boards[i]->wait(D, "sub", subs[i], revs[i], false, 5.0); if (r["ok"].b && !r["rows"].a.empty()) ++woke; } catch (const std::exception&) {} });
+          subs.push_back(s["sub"].s); revs.push_back(uint64_t(s["rev"].n)); }
+      std::atomic<int> woke{0}, saw{0}; std::vector<std::thread> ws;
+      for (int i = 0; i < 50; ++i) ws.emplace_back([&, i] { Json r = boards[i]->wait(D, "sub", subs[i], revs[i]);
+          if (!r["ok"].b || r["rows"].a.empty()) return; ++woke;
+          for (auto& m : r["rows"].a[0]["v"]["data"]["receiving"].a) if (m["apn"].s == "h-b" && m["facts"]["capacity"].n >= 10) { ++saw; break; } });
       std::this_thread::sleep_for(std::chrono::milliseconds(300));
       for (int k = 0; k < 5; ++k) hb.call("join", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"facts\":{\"trauma\":true,\"capacity\":" + std::to_string(10 + k) + "}");
       for (auto& t : ws) t.join();
-      const double runs = admin.call("stats")["subscription_runs"].n - runs0;
-      bool same = true; for (auto& x : subs) same = same && x == subs[0];
-      expect("E", "50 members subscribe to the same set: the work is done once per change, not 50 times",
-             same && shared == 49 && runs == 5 && woke == 50, "one subscription shared by " + std::to_string(shared + 1) + "; 5 changes -> " + std::to_string(int(runs)) + " computations; " + std::to_string(woke.load()) + " of 50 holders woke"); }
+      std::set<std::string> distinct(subs.begin(), subs.end());
+      expect("E", "50 members subscribe to the same set: each holds its own, wakes on the change and reads it from the members",
+             distinct.size() == 50 && woke == 50 && saw == 50, std::to_string(distinct.size()) + " subscriptions, " + std::to_string(woke.load()) + " of 50 woke, " + std::to_string(saw.load()) + " saw the change"); }
 
     // ---- E: distribute a value to every member of a name
     { Json r = admin.call("distribute", "\"daf\":" + q(D) + ",\"name\":\"receiving\",\"key\":\"alert-1\",\"value\":{\"text\":\"mass casualty incident, 40 patients\"}");
-      Json a1 = ha.peek(D, "in", "alert-1"), b1 = hb.peek(D, "in", "alert-1");
+      // each item in an inbox is its sender's own record: "<key>\x1f<sender>"
+      Json a1 = ha.peek(D, "in", std::string("alert-1\x1f") + "coordinator"), b1 = hb.peek(D, "in", std::string("alert-1\x1f") + "coordinator");
       expect("E", "a value distributed to a name reaches every member's inbox", r["delivered"].n == 2 && a1["rows"].a.size() == 1 && b1["rows"].a.size() == 1 && a1["rows"].a[0]["v"]["v"]["text"].s.find("40") != std::string::npos,
              std::to_string(int(r["delivered"].n)) + " delivered"); }
 

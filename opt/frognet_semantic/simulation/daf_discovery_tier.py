@@ -71,7 +71,9 @@ class Agent:
     calls = 0
 
     def __init__(self, exe, where):
-        self.p = subprocess.Popen([exe, where], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+        # [DAF_FROG_V1] the agent finds its area's region as every FD&F participant does (RINA_RAM); it is given no host
+        self.p = subprocess.Popen([exe], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1,
+                                  env=dict(os.environ, RINA_RAM=where))
 
     def call(self, fn, **kw):
         kw["fn"] = fn
@@ -89,8 +91,8 @@ class Agent:
             raise RuntimeError(f"{fn} refused: {r.get('error')} {r.get('why')}")
         return r
 
-    def watch(self, D, name, rev, s):
-        self.p.stdin.write(json.dumps({"watch": [D, name, rev, s]}) + "\n")
+    def watch(self, D, name, rev):
+        self.p.stdin.write(json.dumps({"watch": [D, name, rev]}) + "\n")
         self.p.stdin.flush()
         return json.loads(self.p.stdout.readline())["rev"]
 
@@ -265,7 +267,7 @@ def run_scenario(fp, exe, where):
             rev = watcher.must("resolve", daf=dd.D, name="nodes")["rev"]
             t0 = time.monotonic()
             dd.kill(args[0])
-            got = watcher.watch(dd.D, "nodes", rev, 5.0)
+            got = watcher.watch(dd.D, "nodes", rev)
             gone_ms = round((time.monotonic() - t0) * 1000, 1) if got else None
             still = [m["apn"] for m in watcher.must("resolve", daf=dd.D, name="nodes", live=True)["members"]]
             watcher.close()

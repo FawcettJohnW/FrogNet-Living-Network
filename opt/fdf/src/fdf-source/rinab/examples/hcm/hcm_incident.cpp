@@ -184,7 +184,7 @@ int main(int argc, char** argv) {
             desk.call("answer", "\"daf\":" + q(SH) + ",\"rid\":" + q(r["i"].s) + ",\"body\":{\"found\":true,\"where\":\"Tacoma Dome shelter, checked in 14:05\"}"); } } });
     daf::Client pub(A);
     Json rq = pub.call("request", "\"daf\":" + q(SH) + ",\"name\":\"reunification\",\"body\":{\"ask\":\"Maria Lopez, 34\"}");
-    Json an; if (rq["ok"].b) { try { Json w = pub.wait(SH, "ans", rq["rid"].s, 0, false, 5.0); if (!w["rows"].a.empty()) an = w["rows"].a[0]["v"]; } catch (const std::exception&) {} }
+    Json an; if (rq["ok"].b) { Json w = pub.wait(SH, "ans", rq["rid"].s, 0); if (!w["rows"].a.empty()) an = w["rows"].a[0]["v"]; }
     Json peek = pub.call("members", "\"daf\":" + q(SH));
     check("the answer comes back; the asker never joined", an["body"]["found"].b && !peek["ok"].b, an["body"]["found"].b ? an["body"]["where"].s : "no answer");
 

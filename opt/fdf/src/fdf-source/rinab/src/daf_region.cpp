@@ -1,33 +1,41 @@
 // daf_region.cpp -- [DAF_MODEL_V1] John Day's distributed-application model (RINA Reference Model, Part 2, Chapters 1
 // and 2) as a region of the FD&F RAM host: op=daf. Plan: "The RINA DAF Model on Ribbit: A Prototype Plan" (2026-10-16).
 //
-// [DAF_LOCKLESS_V1] One region holds each DAF; every member reads and writes it. No lock, no replication, no
-// reconciliation. The region's own memory (daf_memory.hpp) is lock-free: a record its owner alone writes is published
-// by exchange (a member's enrollment, its entry in a name, its inbox items); a decision others may race is a
-// compare-and-swap from the value read (a DAF or a name created, a synonym claimed, a nonce used, a request answered,
-// an approval completing), and the loser re-reads and sees the winner. Holding a read is a continuation parked on the
-// variable, answered by whoever writes it -- no thread waits. A partition is not merged: a member cut off from the
-// region loses its session and leaves; on its return it re-enrolls (short rejoin: its synonyms are kept).
+// [DAF_FROG_V1] Written as a lockless multithreaded program over one memory ("think like a frog"):
+//   - One region holds each DAF; every member reads and writes it. No lock, no replication, no reconciliation.
+//   - Every mutable truth has an owner, and only its owner writes it. A member owns its enrollment, its entries, its
+//     inbox items, its requests, its subscriptions; a session owns its connections; a creator owns what it created.
+//   - Where several parties say something about one thing (a policy, a persistent entry, a designation, a name's
+//     rule), each says it in its own record and a reader folds them: the newest says.
+//   - A decision several may race for (a DAF, a name, a member name, a synonym, a nonce, an answer) is a claim log
+//     read in write order: the first claimant wins, and every reader folds the same prefix to the same answer.
+//     Nothing is compare-and-retried; nobody's write is undone.
+//   - Nothing computed is stored as a collection inside one record: a subscription or a script is a stored request,
+//     and its answer is read from the members' own records when it is asked for.
+//   - No shared counters: ids are the caller's session and its own sequence.
+//   - Holding a read is a continuation parked on the variables that can change its answer, answered by their writers.
+//   - A partition is not merged: a member cut off loses its session and leaves; on its return it re-enrolls.
 //
-// Records (variable, instance) -> JSON text; "" is a record that is gone. D = "<dan>#<daii>", one DAF instance.
-//   dafs            <D>                 the DAF: dan, daii, owner, synonym sets, synonym lifetime          (Permanent)
-//   m|<D>           <apn>               an enrolled member: role, facts, synonyms, session
-//   ret|<D>         <apn>               a member that left: its synonyms and role, kept until `until` (short rejoin)
-//   s|<D>|<set>     <synonym>           who holds a synonym of a set
-//   n|<D>           <name>              a whatevercast name: rule, lifetime, designated                     (Permanent)
-//   e|<D>|<name>    <apn>               a member of the name: facts, ref, session (lifetime session) or p (Permanent)
-//   nv|<D>          <name>              the name's version: written on every change -- a wait on it is a watch
-//   pol|<D>         <key>               a policy (key: *, op:<op>, role:<role>, name:<name>, objects:<role>) (Permanent)
-//   audit|<D>       <n>                 one record per check-point decision
-//   ref|<D>         <key>               the DAF's reference data, given at enrollment                       (Permanent)
-//   sx|<sid>        <D>\x1f<apn>[\x1f<name>]   what a session enrolled and joined (gone with the session)
-//   #tok|<D>, #auth, #owner             secrets: never answered by any operation
-// Nothing here is readable except through op=daf, so every read passes the check point.
+// Records (variable, instance) -> JSON text; "" is a record that is gone. D = "<dan>#<daii>". "w" below is the
+// writer's member name (or a session); "\x1f" separates an instance's parts.
+//   dafs             <D>                 the DAF (its creator's)                                             (Permanent)
+//   nl|<D>           <name>              a name's lifetime (its first definer's)                             (Permanent)
+//   n|<D>            <name>\x1f<w>       a name's rule, as w says it                                         (Permanent)
+//   des|<D>          <name>\x1f<w>       the member a designated name designates, as w says it               (Permanent)
+//   e|<D>|<name>     <apn>\x1f<w>        an entry in the name: <apn> itself for a session entry; for a persistent
+//                                        name, whoever admitted or removed it                     (Permanent if so)
+//   m|<D>            <apn>               an enrolled member (the session holding the name writes it)
+//   ret|<D>          <apn>               a member that left: its synonyms and role, until `until` (short rejoin)
+//   pol|<D>          <key>\x1f<w>        a policy, as w set it                                               (Permanent)
+//   ref|<D>          <key>\x1f<w>        reference data                                                      (Permanent)
+//   audit|<D>        <sid>.<n>           one record per check-point decision, by the session it decided for
+//   sx|<sid> ...                         what a session holds (gone with the session)
+//   #tok|<D>, #auth, #owner              secrets: never answered by any operation
+//   claim logs       c|dafs|D, c|nl|D|name, c|m|D|apn, c|s|D|set|syn, c|nonce|D|n, c|ans|D|rid, c|stk|D|rid, ...
 #include "rina_region.h"
 #include "daf_memory.hpp"
 #include "frogram.hpp"
 #include "fdf_version.hpp"
-#include <atomic>
 #include <chrono>
 #include <functional>
 #include <thread>
@@ -49,8 +57,6 @@
 using frogram::Json;
 
 namespace {
-std::atomic<uint64_t> g_seq{0};
-
 std::string dump(const Json& j) {
     switch (j.type) {
         case Json::Null: return "null"; case Json::Bool: return j.b ? "true" : "false";
@@ -63,12 +69,15 @@ std::string dump(const Json& j) {
 }
 Json num(double v) { return Json{Json::Num, false, v, {}, {}, {}}; }
 double now() { return dmem::clock_s(); }
+std::string nows() { return std::to_string(now()); }
 std::string err(const std::string& code, const std::string& why) { return "{\"ok\":false,\"error\":" + Json::quote(code) + ",\"why\":" + Json::quote(why) + "}"; }
 struct Refuse { std::string code, why; };
 [[noreturn]] void refuse(const std::string& code, const std::string& why) { throw Refuse{code, why}; }
+const char SEP = '\x1f';
+std::string cell(const std::string& key, const std::string& writer) { return key + SEP + writer; }
 
-// ---- [DAF_FILE_V1] Permanent records: appended with their id and fdatasync'd before they are published; replayed at
-// start, where the highest surviving id of each record wins (a publication that lost its race left a void line)
+// ---- [DAF_FILE_V1] Permanent records: appended with their id and fdatasync'd before they are published (each by its
+// one writer, so ids rise in publication order); replayed at start, where the highest id of each record wins
 class DafFile {
 public:
     void open_and_replay() {
@@ -76,17 +85,16 @@ public:
         path_ = (f && *f) ? f : (r && *r) ? std::string(r) + ".daf" : "";
         if (path_.empty()) { fprintf(stderr, "rina-host: [DAF_FILE_V1] no RINA_DAF_FILE or RINA_REGION_FILE: the DAF region does not start\n"); _exit(2); }
         struct L { std::string bag; uint64_t id; };
-        std::vector<std::pair<std::pair<std::string, std::string>, L>> lines; std::set<uint64_t> voids;
+        std::map<std::pair<std::string, std::string>, L> last;
         if (FILE* in = fopen(path_.c_str(), "r")) {
             char* line = nullptr; size_t cap = 0; ssize_t n; size_t no = 0;
             while ((n = getline(&line, &cap, in)) > 0) { ++no; Json j;
                 try { j = Json::parse(std::string(line, size_t(n))); } catch (...) { fprintf(stderr, "rina-host: [DAF_FILE_V1] %s line %zu is damaged\n", path_.c_str(), no); _exit(2); }
-                if (j.type == Json::Obj) { voids.insert(uint64_t(j["void"].n)); continue; }
-                lines.push_back({{j[0].s, j[1].s}, L{j[2].s, j.a.size() > 3 ? uint64_t(j[3].n) : uint64_t(no)}}); }
+                if (j.type != Json::Arr || j.a.size() < 4) { fprintf(stderr, "rina-host: [DAF_FILE_V1] %s line %zu is not a record with an id\n", path_.c_str(), no); _exit(2); }
+                const L l{j[2].s, uint64_t(j[3].n)}; auto it = last.find({j[0].s, j[1].s});
+                if (it == last.end() || it->second.id < l.id) last[{j[0].s, j[1].s}] = l; }
             free(line); fclose(in);
         } else if (errno != ENOENT) { fprintf(stderr, "rina-host: [DAF_FILE_V1] reading %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
-        std::map<std::pair<std::string, std::string>, L> last;
-        for (auto& [k, l] : lines) { if (voids.count(l.id)) continue; auto it = last.find(k); if (it == last.end() || it->second.id < l.id) last[k] = l; }
         const std::string tmp = path_ + ".new"; FILE* out = fopen(tmp.c_str(), "w");
         if (!out) { fprintf(stderr, "rina-host: [DAF_FILE_V1] writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
         size_t kept = 0;
@@ -96,16 +104,15 @@ public:
             fprintf(stderr, "rina-host: [DAF_FILE_V1] compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         fd_ = ::open(path_.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC | O_CREAT, 0600);
         if (fd_ < 0) { fprintf(stderr, "rina-host: [DAF_FILE_V1] opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
-        fprintf(stderr, "rina-host: [DAF_FILE_V1] %zu Permanent DAF record(s) restored from %s ([DAF_MODEL_V1] [DAF_LOCKLESS_V1] op=daf, build %s)\n", kept, path_.c_str(), FDF_BUILD_TAG);
+        fprintf(stderr, "rina-host: [DAF_FILE_V1] %zu Permanent DAF record(s) restored from %s ([DAF_MODEL_V1] [DAF_FROG_V1] op=daf, build %s)\n", kept, path_.c_str(), FDF_BUILD_TAG);
     }
     // one write() per line (O_APPEND: whole lines, never interleaved), then fdatasync; a failure is said and fatal
-    void append(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) { line(line_of(v, i, bag, id)); }
-    void void_id(uint64_t id) { line("{\"void\":" + std::to_string((unsigned long long)id) + "}\n"); }
-private:
-    void line(const std::string& l) {
+    void append(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) {
+        const std::string l = line_of(v, i, bag, id);
         if (::write(fd_, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd_) != 0) {
             fprintf(stderr, "rina-host: [DAF_FILE_V1] could not make a Permanent record durable in %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
     }
+private:
     static std::string line_of(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) {
         return "[" + Json::quote(v) + "," + Json::quote(i) + "," + Json::quote(bag) + "," + std::to_string((unsigned long long)id) + "]\n"; }
     std::string path_; int fd_ = -1;
@@ -118,20 +125,35 @@ bool get(const std::string& v, const std::string& i, Json& out, uint64_t* id = n
 struct Cell { std::string instance; uint64_t id; Json bag; };
 std::vector<Cell> rows(const std::string& v) {
     std::vector<Cell> out; for (auto& r : dmem::rows(v)) out.push_back(Cell{r.instance, r.id, Json::parse(r.bag)}); return out; }
-uint64_t put(const std::string& v, const std::string& i, const std::string& bag) { return dmem::put(v, i, bag); }   // its one writer
+uint64_t put(const std::string& v, const std::string& i, const std::string& bag) { return dmem::put(v, i, bag); }        // by its owner
 void gone(const std::string& v, const std::string& i) { dmem::put(v, i, ""); }
-// a decision others may race, not durable: decide(current, next) -> false to decline
-uint64_t cas(const std::string& v, const std::string& i, const std::function<bool(const std::string&, std::string&)>& decide) { return dmem::cas(v, i, decide); }
-// a Permanent decision: durable before it is published
-uint64_t pcas(const std::string& v, const std::string& i, const std::function<bool(const std::string&, std::string&)>& decide) {
-    return dmem::cas(v, i, decide, [&](uint64_t id, const std::string& bag) { dfile().append(v, i, bag, id); }, [](uint64_t id) { dfile().void_id(id); }); }
-uint64_t pput(const std::string& v, const std::string& i, const std::string& bag) { return pcas(v, i, [&](const std::string&, std::string& n) { n = bag; return true; }); }
-void pgone(const std::string& v, const std::string& i) { pcas(v, i, [](const std::string& c, std::string& n) { n = ""; return !c.empty(); }); }
-// claim a record that is free: true if this call wrote it
-bool claim(const std::string& v, const std::string& i, const std::string& bag) { return cas(v, i, [&](const std::string& c, std::string& n) { if (!c.empty()) return false; n = bag; return true; }) != 0; }
-// take a record away (exactly one caller gets it): true if this call made it gone
-bool take(const std::string& v, const std::string& i) { return cas(v, i, [](const std::string& c, std::string& n) { if (c.empty()) return false; n = ""; return true; }) != 0; }
+uint64_t pput(const std::string& v, const std::string& i, const std::string& bag) {                                       // permanent, by its owner
+    return dmem::put(v, i, bag, [&](uint64_t id) { dfile().append(v, i, bag, id); }); }
+// several writers about one key, each in its own record: the newest says. A "cleared" or "removed" record says "none".
+bool says(const std::string& v, const std::string& key, Json& out, uint64_t* id = nullptr) {
+    const std::string pre = key + SEP; uint64_t best = 0; std::string bag;
+    for (auto& r : dmem::rows(v)) if (r.instance.compare(0, pre.size(), pre) == 0 && r.id > best) { best = r.id; bag = r.bag; }
+    if (!best) return false;
+    out = Json::parse(bag); if (id) *id = best;
+    return !out["cleared"].b && !out["removed"].b;
+}
+std::map<std::string, Cell> all_say(const std::string& v) {                       // every key: what its newest writer says
+    std::map<std::string, Cell> best;
+    for (auto& r : dmem::rows(v)) { const std::string key = r.instance.substr(0, r.instance.find(SEP));
+        auto it = best.find(key); if (it == best.end() || it->second.id < r.id) best[key] = Cell{key, r.id, Json::parse(r.bag)}; }
+    for (auto it = best.begin(); it != best.end();) { if (it->second.bag["cleared"].b || it->second.bag["removed"].b) it = best.erase(it); else ++it; }
+    return best;
+}
 std::string sess() { return std::to_string((unsigned long long)rina_session_id()); }
+// [DAF_OWN_IDS_V1] an id no one else can make: this session and its own sequence (a session's operations run in order)
+std::string own_id() {
+    Json c; const uint64_t n = (get("sn", sess(), c) ? uint64_t(c["n"].n) : 0) + 1;
+    put("sn", sess(), "{\"n\":" + std::to_string((unsigned long long)n) + "}");
+    return sess() + "." + std::to_string((unsigned long long)n);
+}
+// ---- claims: the first claimant wins. claim() appends this caller's claim and returns its place (1 = first).
+uint64_t claim(const std::string& key, const std::string& bag) { return dmem::claim_log(key).append(bag); }
+Json first_claim(const std::string& key) { Json j; dmem::claim_log(key).prefix(1, [&](const dmem::Claim& c) { j = Json::parse(c.bag); }); return j; }
 
 // ---- the DAF
 struct Daf { std::string D; Json j; };
@@ -139,11 +161,10 @@ Daf daf_of(const Json& in) {
     const std::string D = in["daf"].s; if (D.empty()) refuse("EINVAL", "no daf named");
     Daf d{D, {}}; if (!get("dafs", D, d.j)) refuse("ENOENT", "not found"); return d;   // [DAF_NOT_FOUND_IS_ONE_ANSWER_V1]
 }
-// the caller: the member this session enrolled in D (empty if none)
 struct Who { std::string apn, role; Json mem; };
 Who caller(const std::string& D) {
-    for (auto& c : rows("sx|" + sess())) { const std::string k = c.instance; const size_t b = k.find('\x1f');
-        if (b == std::string::npos || k.compare(0, b, D) != 0 || k.find('\x1f', b + 1) != std::string::npos) { continue; }
+    for (auto& c : rows("sx|" + sess())) { const std::string k = c.instance; const size_t b = k.find(SEP);
+        if (b == std::string::npos || k.compare(0, b, D) != 0 || k.find(SEP, b + 1) != std::string::npos) { continue; }
         Who w; w.apn = k.substr(b + 1);
         // the member's own session, or a further connection it opened on another session ([DAF_MORE_CONNECTIONS_V1])
         if (get("m|" + D, w.apn, w.mem) && (w.mem["sess"].s == sess() || c.bag["kind"].s == "conn")) { w.role = w.mem["role"].s; return w; } }
@@ -151,16 +172,16 @@ Who caller(const std::string& D) {
 }
 
 // ---- [DAF_CHECK_POINT_V1] (plan H) every operation asks here first. The most specific policy decides:
-// name:<object>, then op:<op>, then role:<role>, then *. None: open. Every decision is recorded.
+// name:<object>, then op:<op>, then role:<role>, then *. None: open. Every decision is recorded, by its session.
 void record_audit(const std::string& D, const Who& w, const std::string& op, const std::string& object, bool allow, const std::string& why) {
-    put("audit|" + D, std::to_string(++g_seq), "{\"t\":" + std::to_string(now()) + ",\"apn\":" + Json::quote(w.apn) + ",\"role\":" + Json::quote(w.role) +
+    put("audit|" + D, own_id(), "{\"t\":" + nows() + ",\"apn\":" + Json::quote(w.apn) + ",\"role\":" + Json::quote(w.role) +
         ",\"sess\":" + Json::quote(sess()) + ",\"op\":" + Json::quote(op) + ",\"object\":" + Json::quote(object) + ",\"decision\":" +
         (allow ? "\"allow\"" : "\"refuse\"") + ",\"why\":" + Json::quote(why) + "}");
 }
 bool check(const std::string& D, const Who& w, const std::string& op, const std::string& object, std::string& why) {
     Json p; std::string key;
     const std::string keys[] = {"name:" + object, "op:" + op, "role:" + w.role, "*"};
-    for (auto& k : keys) { if (k == "name:" || k == "role:") continue; if (get("pol|" + D, k, p)) { key = k; break; } }
+    for (auto& k : keys) { if (k == "name:" || k == "role:") continue; if (says("pol|" + D, k, p)) { key = k; break; } }
     bool allow = true; why = "open";
     if (!key.empty()) { const std::string mode = p["mode"].s;
         if (mode == "refuse") { allow = false; why = "refused by policy " + key; }
@@ -180,12 +201,9 @@ bool within(const Json& objects, const std::string& object) {
     return false;
 }
 void must(const std::string& D, const Who& w, const std::string& op, const std::string& object) {
-    // a DAF's objects are its members' business: everything but enrolling needs this session enrolled (Part 2-1 5.5)
-    // [DAF_NOT_FOUND_IS_ONE_ANSWER_V1] (Part 2-2 2.6.3) a session that is not a member gets the answer a DAF that does
-    // not exist gets: "not found". The audit keeps the real reason.
+    // [DAF_NOT_FOUND_IS_ONE_ANSWER_V1] a session that is not a member gets the answer a DAF that does not exist gets
     if (w.apn.empty() && op != "enroll" && op != "request") { record_audit(D, w, op, object, false, "not enrolled"); refuse("ENOENT", "not found"); }
     std::string why; if (!check(D, w, op, object, why)) refuse(why.compare(0, 9, "redirect:") == 0 ? "EREDIRECT" : "EPERM", why);
-    // an operation made on an Application-Entity's connection is checked against the object set it was granted
     if (g_in && !(*g_in)["ae"].s.empty()) {
         Json g; if (!get("ae|" + D + "|" + sess(), (*g_in)["ae"].s, g)) refuse("ENOTCONN", "no connection " + (*g_in)["ae"].s + " on this session");
         if (!within(g["objects"], object) && !check(D, w, "outside_object_set", (*g_in)["ae"].s + ":" + object, why)) refuse("EPERM", why + " (" + object + " is outside the object set of " + (*g_in)["ae"].s + ")");
@@ -193,22 +211,22 @@ void must(const std::string& D, const Who& w, const std::string& op, const std::
 }
 
 // ---- section A: DAFs, names, synonyms
-const char* BUILTIN[][2] = {{"members", "{\"rule\":\"all\",\"lifetime\":\"session\",\"builtin\":true}"},
-                            {"join", "{\"rule\":\"designated\",\"lifetime\":\"session\",\"builtin\":true}"},
-                            {"service", "{\"rule\":\"one\",\"lifetime\":\"session\",\"builtin\":true}"}};
+const char* BUILTIN[][3] = {{"members", "all", "session"}, {"join", "designated", "session"}, {"service", "one", "session"}};
 std::string create_daf(const Json& in) {
     const std::string dan = in["dan"].s, daii = in["daii"].s.empty() ? "1" : in["daii"].s;
     if (dan.empty() || dan.find('#') != std::string::npos || daii.find('#') != std::string::npos) refuse("EINVAL", "a DAF needs a dan (no '#')");
     const std::string D = dan + "#" + daii;
+    Json old; if (get("dafs", D, old)) refuse("EEXIST", "DAF " + D + " exists");
     std::string sets = "[\"addr\""; for (auto& s : in["synsets"].a) if (s.s != "addr") sets += "," + Json::quote(s.s); sets += "]";
     const double life = in["syn_lifetime_s"].type == Json::Num ? in["syn_lifetime_s"].n : 300;
-    // its three whatevercast names exist from the start (Part 2-1 4.2): all members, the member to join through, the
-    // member that serves requests. Each is claimed only if absent, so racing creators write the same thing once.
-    for (auto& b : BUILTIN) pcas("n|" + D, b[0], [&](const std::string& c, std::string& n) { if (!c.empty()) return false; n = b[1]; return true; });
-    // the DAF's own record is the decision: whoever claims it created the DAF
     const std::string bag = "{\"dan\":" + Json::quote(dan) + ",\"daii\":" + Json::quote(daii) + ",\"owner\":" + Json::quote(in["owner"].s) +
-        ",\"synsets\":" + sets + ",\"syn_lifetime_s\":" + dump(num(life)) + ",\"created\":" + std::to_string(now()) + "}";
-    if (!pcas("dafs", D, [&](const std::string& c, std::string& n) { if (!c.empty()) return false; n = bag; return true; })) refuse("EEXIST", "DAF " + D + " exists");
+        ",\"synsets\":" + sets + ",\"syn_lifetime_s\":" + dump(num(life)) + ",\"created\":" + nows() + "}";
+    if (claim("c|dafs|" + D, bag) != 1) refuse("EEXIST", "DAF " + D + " exists");     // the first claimant creates it
+    // its three whatevercast names exist from the start (Part 2-1 4.2), written by the DAF's creator; the DAF's own
+    // record is written last: the DAF exists, for everyone, once it is whole
+    for (auto& b : BUILTIN) { pput("nl|" + D, b[0], std::string("{\"lifetime\":\"") + b[2] + "\",\"builtin\":true}");
+                              pput("n|" + D, cell(b[0], "daf"), std::string("{\"rule\":\"") + b[1] + "\"}"); }
+    pput("dafs", D, bag);
     return "{\"ok\":true,\"daf\":" + Json::quote(D) + "}";
 }
 std::string list_dafs(const Json& in) {
@@ -216,77 +234,89 @@ std::string list_dafs(const Json& in) {
     for (auto& c : rows("dafs")) if (in["dan"].s.empty() || c.bag["dan"].s == in["dan"].s) { out += (f ? "" : ",") + std::string("{\"daf\":") + Json::quote(c.instance) + ",\"info\":" + dump(c.bag) + "}"; f = false; }
     return out + "]}";
 }
-// a synonym slot is free for apn if nobody holds it, apn holds it, or its holder is away and past its lifetime
-bool free_for(const std::string& D, const std::string& cur, const std::string& apn) {
-    if (cur.empty()) return true;
-    const std::string holder = Json::parse(cur)["apn"].s; if (holder == apn) return true;
-    Json m; if (get("m|" + D, holder, m)) return false;                                 // held by a live member
-    Json r; if (get("ret|" + D, holder, r) && r["until"].n > now()) return false;       // reserved for its return
-    return true;
+// [DAF_SYNONYM_CLAIMS_V1] a synonym slot's holder, folded from its claim log up to `upto` (0: all of it). A claim takes
+// the slot if it is free, already the claimant's, or released and past its reservation AT THE CLAIM'S OWN TIME (so every
+// reader folds the same log to the same holder, whenever it reads). A release reserves it until `u`.
+struct SlotState { std::string holder; bool released = false; double until = 0; };
+SlotState slot_state(const std::string& key, uint64_t upto) {
+    SlotState s; dmem::ClaimLog& L = dmem::claim_log(key); if (!upto) upto = L.count();
+    L.prefix(upto, [&](const dmem::Claim& c) { Json e = Json::parse(c.bag); const std::string a = e["a"].s;
+        if (e["k"].s == "c") { if (s.holder.empty() || s.holder == a || (s.released && s.until < e["t"].n)) { s.holder = a; s.released = false; } }
+        else if (a == s.holder) { s.released = true; s.until = e["u"].n; } });
+    return s;
 }
-// the lowest synonym of a set free for apn, claimed by compare-and-swap (a racer for the same one moves on)
+bool take_slot(const std::string& key, const std::string& apn) {
+    const uint64_t n = claim(key, "{\"k\":\"c\",\"a\":" + Json::quote(apn) + ",\"t\":" + nows() + "}");
+    return slot_state(key, n).holder == apn;
+}
 std::string assign_synonym(const std::string& D, const std::string& set, const std::string& apn) {
-    const std::string mine = "{\"apn\":" + Json::quote(apn) + "}";
     for (unsigned n = 1; ; ++n) {
-        const std::string syn = (set == "addr" ? "a" : set.substr(0, 1)) + std::to_string(n);
-        bool ok = false;
-        cas("s|" + D + "|" + set, syn, [&](const std::string& c, std::string& nx) { ok = free_for(D, c, apn); if (!ok || c == mine) return false; nx = mine; return true; });
-        if (ok) return syn;
+        const std::string syn = (set == "addr" ? "a" : set.substr(0, 1)) + std::to_string(n), key = "c|s|" + D + "|" + set + "|" + syn;
+        const SlotState s = slot_state(key, 0);                        // looks taken: move on without claiming it
+        if (!s.holder.empty() && s.holder != apn && !(s.released && s.until < now())) continue;
+        if (take_slot(key, apn)) return syn;
     }
 }
 
 // ---- section B: whatevercast names
-Json name_of(const std::string& D, const std::string& name) { Json n; if (!get("n|" + D, name, n)) refuse("ENOENT", "no name " + name + " in " + D); return n; }
-void on_change(const std::string& D, const std::string& name);   // section E, below
-void bump(const std::string& D, const std::string& name) { put("nv|" + D, name, "{\"t\":" + std::to_string(now()) + "}"); on_change(D, name); }
+struct Name { std::string rule, lifetime, designated; bool builtin = false; };
+Name name_of(const std::string& D, const std::string& name) {
+    Json l; if (!get("nl|" + D, name, l)) refuse("ENOENT", "no name " + name + " in " + D);
+    Name n; n.lifetime = l["lifetime"].s; n.builtin = l["builtin"].b;
+    Json r; if (says("n|" + D, name, r)) n.rule = r["rule"].s;
+    Json d; if (says("des|" + D, name, d)) n.designated = d["apn"].s;
+    return n;
+}
 std::string define_name(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s;
-    if (name.empty() || name.find('|') != std::string::npos) refuse("EINVAL", "a name needs text without '|'");
+    if (name.empty() || name.find('|') != std::string::npos || name.find(SEP) != std::string::npos) refuse("EINVAL", "a name needs text without '|'");
     must(d.D, w, "define_name", name);
     const std::string rule = in["rule"].s.empty() ? "all" : in["rule"].s, life = in["lifetime"].s.empty() ? "session" : in["lifetime"].s;
     if (rule != "all" && rule != "one" && rule != "designated" && rule != "nearest") refuse("EINVAL", "rule is all, one, designated or nearest");
     if (life != "session" && life != "persistent") refuse("EINVAL", "lifetime is session or persistent");
-    std::string clash;
-    pcas("n|" + d.D, name, [&](const std::string& c, std::string& n) {
-        Json old = c.empty() ? Json{} : Json::parse(c);
-        if (!c.empty() && old["lifetime"].s != life) { clash = old["lifetime"].s; return false; }
-        n = "{\"rule\":" + Json::quote(rule) + ",\"lifetime\":" + Json::quote(life) + ",\"designated\":" + Json::quote(old["designated"].s) + (old["builtin"].b ? ",\"builtin\":true" : "") + "}";
-        return true; });
-    if (!clash.empty()) refuse("EEXIST", "name " + name + " exists with lifetime " + clash);
-    bump(d.D, name);
+    // the lifetime is the first definer's (a claim); the rule is whoever said it last (each definer in its own record)
+    Json l; std::string fixed;
+    if (get("nl|" + d.D, name, l)) fixed = l["lifetime"].s;
+    else { const std::string key = "c|nl|" + d.D + "|" + name;
+        if (claim(key, "{\"lifetime\":" + Json::quote(life) + "}") == 1) { pput("nl|" + d.D, name, "{\"lifetime\":" + Json::quote(life) + "}"); fixed = life; }
+        else fixed = first_claim(key)["lifetime"].s; }
+    if (fixed != life) refuse("EEXIST", "name " + name + " exists with lifetime " + fixed);
+    pput("n|" + d.D, cell(name, w.apn), "{\"rule\":" + Json::quote(rule) + "}");
     return "{\"ok\":true}";
 }
 std::string join(const Json& in) {
-    Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; Json n = name_of(d.D, name);
+    Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; Name n = name_of(d.D, name);
     const std::string apn = in["apn"].s.empty() ? w.apn : in["apn"].s;
     if (apn.empty()) refuse("ENOENT", "not found");
     must(d.D, w, apn == w.apn ? "join" : "admit", name);
-    const bool persistent = n["lifetime"].s == "persistent";
+    const bool persistent = n.lifetime == "persistent";
     if (!persistent && apn != w.apn) refuse("EINVAL", "a session name is joined by the member itself, over its own session");
     const std::string facts = in["facts"].type == Json::Obj ? dump(in["facts"]) : "{}";
-    std::string bag = "{\"apn\":" + Json::quote(apn) + ",\"facts\":" + facts + ",\"ref\":" + Json::quote(in["ref"].s) + ",\"t\":" + std::to_string(now());
-    if (persistent) pput("e|" + d.D + "|" + name, apn, bag + ",\"p\":1,\"by\":" + Json::quote(w.apn) + "}");
-    else { put("e|" + d.D + "|" + name, apn, bag + ",\"sess\":" + Json::quote(sess()) + "}");   // the member's own entry
-           put("sx|" + sess(), d.D + "\x1f" + apn + "\x1f" + name, "{\"kind\":\"entry\"}"); }
-    bump(d.D, name);
+    std::string bag = "{\"apn\":" + Json::quote(apn) + ",\"facts\":" + facts + ",\"ref\":" + Json::quote(in["ref"].s) + ",\"t\":" + nows();
+    if (persistent) pput("e|" + d.D + "|" + name, cell(apn, w.apn), bag + ",\"p\":1,\"by\":" + Json::quote(w.apn) + "}");
+    else { put("e|" + d.D + "|" + name, cell(apn, apn), bag + ",\"sess\":" + Json::quote(sess()) + "}");    // the member's own entry
+           put("sx|" + sess(), d.D + SEP + apn + SEP + name, "{\"kind\":\"entry\"}"); }
     return "{\"ok\":true}";
 }
+struct Entry { std::string apn, ref; Json facts; bool live; double key = 0; };
+std::vector<Entry> members_of(const std::string& D, const std::string& name) {
+    std::vector<Entry> out;
+    for (auto& [apn, c] : all_say("e|" + D + "|" + name)) { Json m; const bool live = get("m|" + D, apn, m); out.push_back(Entry{apn, c.bag["ref"].s, c.bag["facts"], live}); }
+    return out;                                                          // all_say is ordered by apn
+}
 std::string unjoin(const Json& in) {
-    Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; Json n = name_of(d.D, name);
+    Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; Name n = name_of(d.D, name);
     const std::string apn = in["apn"].s.empty() ? w.apn : in["apn"].s;
     must(d.D, w, apn == w.apn ? "leave_name" : "remove", name);
-    Json e; if (!get("e|" + d.D + "|" + name, apn, e)) refuse("ENOENT", apn + " is not in " + name);
-    if (n["lifetime"].s == "persistent") pgone("e|" + d.D + "|" + name, apn); else gone("e|" + d.D + "|" + name, apn);
-    bump(d.D, name);
+    Json e; if (!says("e|" + d.D + "|" + name, apn, e)) refuse("ENOENT", apn + " is not in " + name);
+    if (n.lifetime == "persistent") pput("e|" + d.D + "|" + name, cell(apn, w.apn), "{\"removed\":true,\"t\":" + nows() + ",\"by\":" + Json::quote(w.apn) + "}");
+    else gone("e|" + d.D + "|" + name, cell(apn, apn));
     return "{\"ok\":true}";
 }
 std::string designate(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; name_of(d.D, name);
     must(d.D, w, "designate", name);
-    pcas("n|" + d.D, name, [&](const std::string& c, std::string& nx) { if (c.empty()) return false; Json n = Json::parse(c);
-        nx = "{\"rule\":" + Json::quote(n["rule"].s) + ",\"lifetime\":" + Json::quote(n["lifetime"].s) + ",\"designated\":" + Json::quote(in["apn"].s) + (n["builtin"].b ? ",\"builtin\":true" : "") + "}";
-        return true; });
-    bump(d.D, name);
+    pput("des|" + d.D, cell(name, w.apn), "{\"apn\":" + Json::quote(in["apn"].s) + "}");
     return "{\"ok\":true}";
 }
 // a fact against a filter clause {f, op, v}
@@ -306,27 +336,26 @@ bool pass(const Json& facts, const Json& c) {
     if (x.type == Json::Str && v.type == Json::Str) return op == "=" ? x.s == v.s : op == "!=" ? x.s != v.s : false;
     return false;
 }
-struct Entry { std::string apn, ref; Json facts; bool live; double key = 0; };
-std::vector<Entry> members_of(const std::string& D, const std::string& name) {
-    std::vector<Entry> out;
-    for (auto& c : rows("e|" + D + "|" + name)) { Json m; const bool live = get("m|" + D, c.instance, m); out.push_back(Entry{c.instance, c.bag["ref"].s, c.bag["facts"], live}); }
-    std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.apn < b.apn; });
-    return out;
+// a name's version: the newest change to its entries, or to the enrollment of a member it lists (gone records included)
+uint64_t name_rev(const std::string& D, const std::string& name) {
+    uint64_t r = 0; std::set<std::string> in_name;
+    for (auto& e : dmem::rows("e|" + D + "|" + name, "", 0, true)) { r = std::max(r, e.id); in_name.insert(e.instance.substr(0, e.instance.find(SEP))); }
+    for (auto& m : dmem::rows("m|" + D, "", 0, true)) if (in_name.count(m.instance)) r = std::max(r, m.id);
+    return r;
 }
 // [DAF_RESOLVE_V1] a name, resolved by its rule (or the caller's), against the members as they are now
 std::string resolve_core(const std::string& D, const Json& in, std::string* chosen) {
-    const std::string name = in["name"].s; Json n = name_of(D, name);
-    const std::string rule = in["rule"].s.empty() ? n["rule"].s : in["rule"].s;
-    const uint64_t rev = dmem::version("nv|" + D, name);          // read first: the members below are at least this new
+    const std::string name = in["name"].s; Name n = name_of(D, name);
+    const std::string rule = in["rule"].s.empty() ? n.rule : in["rule"].s;
+    const uint64_t rev = name_rev(D, name);                     // read first: the members below are at least this new
     std::vector<Entry> sel; const bool live_only = in["live"].b;
     for (auto& e : members_of(D, name)) {
         if (live_only && !e.live) continue;
         bool ok = true; for (auto& c : in["filter"].a) if (!pass(e.facts, c)) { ok = false; break; }
         if (ok) sel.push_back(e);
     }
-    if (rule == "designated") { std::vector<Entry> d; for (auto& e : sel) if (e.apn == n["designated"].s) d.push_back(e); sel = d; }
+    if (rule == "designated") { std::vector<Entry> d; for (auto& e : sel) if (e.apn == n.designated) d.push_back(e); sel = d; }
     else if (rule == "one" || rule == "nearest") {
-        // ranked: by a fact (desc by default), or by distance from a point; ties to the lowest identity
         std::vector<Entry> rk; const std::string f = in["rank"]["f"].s; const bool asc = in["rank"]["dir"].s == "asc";
         for (auto& e : sel) {
             if (rule == "nearest") { const Json& at = in["near"]; if (e.facts["x"].type != Json::Num || e.facts["y"].type != Json::Num) continue;
@@ -346,7 +375,9 @@ std::string resolve_inner(const std::string& D, const Who& w, const Json& in, st
 std::string resolve(const Json& in) { Daf d = daf_of(in); return resolve_inner(d.D, caller(d.D), in, nullptr); }
 std::string names(const Json& in) {
     Daf d = daf_of(in); must(d.D, caller(d.D), "names", d.D); std::string out = "{\"ok\":true,\"names\":["; bool f = true;
-    for (auto& c : rows("n|" + d.D)) { out += (f ? "" : ",") + std::string("{\"name\":") + Json::quote(c.instance) + ",\"settings\":" + dump(c.bag) + "}"; f = false; }
+    for (auto& c : rows("nl|" + d.D)) { Name n = name_of(d.D, c.instance);
+        out += (f ? "" : ",") + std::string("{\"name\":") + Json::quote(c.instance) + ",\"settings\":{\"rule\":" + Json::quote(n.rule) + ",\"lifetime\":" + Json::quote(n.lifetime) +
+               ",\"designated\":" + Json::quote(n.designated) + (n.builtin ? ",\"builtin\":true" : "") + "}}"; f = false; }
     return out + "]}";
 }
 
@@ -355,101 +386,102 @@ std::string set_policy(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string key = in["key"].s.empty() ? "*" : in["key"].s, mode = in["mode"].s;
     if (mode != "open" && mode != "refuse" && mode != "roles" && mode != "redirect") refuse("EINVAL", "mode is open, refuse, roles or redirect");
     must(d.D, w, "set_policy", key);
-    if (mode == "open" && in["clear"].b) pgone("pol|" + d.D, key);
-    else pput("pol|" + d.D, key, "{\"mode\":" + Json::quote(mode) + ",\"roles\":" + (in["roles"].type == Json::Arr ? dump(in["roles"]) : "[]") +
+    if (mode == "open" && in["clear"].b) pput("pol|" + d.D, cell(key, w.apn), "{\"cleared\":true}");
+    else pput("pol|" + d.D, cell(key, w.apn), "{\"mode\":" + Json::quote(mode) + ",\"roles\":" + (in["roles"].type == Json::Arr ? dump(in["roles"]) : "[]") +
               ",\"to\":" + (in["to"].type == Json::Obj ? dump(in["to"]) : "null") + "}");
     return "{\"ok\":true}";
 }
 std::string audit(const Json& in) {
     Daf d = daf_of(in); must(d.D, caller(d.D), "audit", d.D); const double after = in["after"].n;
-    std::vector<std::pair<unsigned long long, std::string>> rs;
-    for (auto& c : rows("audit|" + d.D)) { const unsigned long long n = strtoull(c.instance.c_str(), nullptr, 10); if (double(n) > after) rs.push_back({n, dump(c.bag)}); }
+    std::vector<std::pair<uint64_t, std::string>> rs;
+    for (auto& c : rows("audit|" + d.D)) if (double(c.id) > after) rs.push_back({c.id, dump(c.bag)});
     std::sort(rs.begin(), rs.end());
     std::string out = "{\"ok\":true,\"records\":["; bool f = true;
-    for (auto& [n, b] : rs) { out += (f ? "" : ",") + std::string("{\"n\":") + std::to_string(n) + ",\"r\":" + b + "}"; f = false; }
+    for (auto& [n, b] : rs) { out += (f ? "" : ",") + std::string("{\"n\":") + std::to_string((unsigned long long)n) + ",\"r\":" + b + "}"; f = false; }
     return out + "]}";
 }
 
 // ---- enrollment (Part 2-1 5.5; Enrollment specs)
+// [DAF_MEMBER_CLAIMS_V1] who holds a member name: its claim log folded up to `upto`. A session's claim takes the name if
+// no session holds it (or it already does); a release by the holding session frees it.
+std::string member_holder(const std::string& key, uint64_t upto) {
+    std::string holder;
+    dmem::claim_log(key).prefix(upto, [&](const dmem::Claim& c) { Json e = Json::parse(c.bag);
+        if (e["k"].s == "c") { if (holder.empty() || holder == e["s"].s) holder = e["s"].s; }
+        else if (holder == e["s"].s) holder.clear(); });
+    return holder;
+}
 std::string enroll(const Json& in) {
     Daf d = daf_of(in); const std::string apn = in["apn"].s, role = in["role"].s.empty() ? "member" : in["role"].s;
-    if (apn.empty() || apn.find('\x1f') != std::string::npos) refuse("EINVAL", "enroll needs an apn");
+    if (apn.empty() || apn.find(SEP) != std::string::npos) refuse("EINVAL", "enroll needs an apn");
     Who w; w.apn = apn; w.role = role;
     // 1) state: new, returning within its synonym lifetime, or returning after it
-    Json cur; if (get("m|" + d.D, apn, cur) && cur["sess"].s != sess()) refuse("EEXIST", apn + " is enrolled on another session");
     Json ret; const bool back = get("ret|" + d.D, apn, ret), shortr = back && ret["until"].n > now() && ret["role"].s == role;
-    // 2) role and capabilities: the role asked for, at the check point; the facts it declares
+    // 2) role and capabilities: the role asked for, at the check point
     must(d.D, w, "enroll", role);
+    // the member name is held by one session: this session claims it, and holds it if it is first in line
+    const std::string mkey = "c|m|" + d.D + "|" + apn;
+    const uint64_t mine = claim(mkey, "{\"k\":\"c\",\"s\":" + Json::quote(sess()) + "}");
+    if (member_holder(mkey, mine) != sess()) refuse("EEXIST", apn + " is enrolled on another session");
     // 3) synonyms: one from each set; on a short rejoin its own again, unless someone live took it meanwhile
-    const std::string mine = "{\"apn\":" + Json::quote(apn) + "}";
     std::string syn = "{"; bool f = true;
     for (auto& s : d.j["synsets"].a) {
         std::string v;
-        if (shortr && ret["syn"][s.s].type == Json::Str) { bool ok = false; const std::string want = ret["syn"][s.s].s;
-            cas("s|" + d.D + "|" + s.s, want, [&](const std::string& c, std::string& nx) { Json held; ok = c.empty() || c == mine || !get("m|" + d.D, Json::parse(c)["apn"].s, held); if (!ok || c == mine) return false; nx = mine; return true; });
-            if (ok) v = want; }
+        if (shortr && ret["syn"][s.s].type == Json::Str && take_slot("c|s|" + d.D + "|" + s.s + "|" + ret["syn"][s.s].s, apn)) v = ret["syn"][s.s].s;
         if (v.empty()) v = assign_synonym(d.D, s.s, apn);
         syn += (f ? "" : ",") + Json::quote(s.s) + ":" + Json::quote(v); f = false; }
     syn += "}";
     const std::string facts = in["facts"].type == Json::Obj ? dump(in["facts"]) : "{}";
-    // the member record is the decision: one session holds an apn
-    const std::string mbag = "{\"apn\":" + Json::quote(apn) + ",\"role\":" + Json::quote(role) + ",\"facts\":" + facts + ",\"syn\":" + syn +
-                             ",\"sess\":" + Json::quote(sess()) + ",\"t\":" + std::to_string(now()) + "}";
-    bool taken = false;
-    const uint64_t inst = cas("m|" + d.D, apn, [&](const std::string& c, std::string& nx) { if (!c.empty() && Json::parse(c)["sess"].s != sess()) { taken = true; return false; } nx = mbag; return true; });
-    if (taken) refuse("EEXIST", apn + " is enrolled on another session");
-    put("sx|" + sess(), d.D + "\x1f" + apn, "{\"kind\":\"member\",\"inst\":" + std::to_string(inst) + "}");
-    // [DAF_MORE_CONNECTIONS_V1] a member may hold several connections (Part 2-1 5.4.2), each its own session -- so a
-    // long transfer never waits behind, or holds up, its short requests (a session runs its requests in order). The
-    // token lets the member's other sessions connect as it; it changes at every enrollment, and no operation returns it
-    // except this one, to this member.
+    const uint64_t inst = put("m|" + d.D, apn, "{\"apn\":" + Json::quote(apn) + ",\"role\":" + Json::quote(role) + ",\"facts\":" + facts + ",\"syn\":" + syn +
+                              ",\"sess\":" + Json::quote(sess()) + ",\"t\":" + nows() + "}");
+    put("sx|" + sess(), d.D + SEP + apn, "{\"kind\":\"member\",\"inst\":" + std::to_string(inst) + "}");
+    // [DAF_MORE_CONNECTIONS_V1] a token for the member's further connections (Part 2-1 5.4.2); new at every enrollment
     unsigned char rnd[16]; { FILE* u = fopen("/dev/urandom", "rb"); if (!u || fread(rnd, 1, 16, u) != 16) { if (u) fclose(u); refuse("EIO", "no randomness for a token"); } fclose(u); }
     static const char hx[] = "0123456789abcdef"; std::string token; for (unsigned char c : rnd) { token += hx[c >> 4]; token += hx[c & 15]; }
     put("#tok|" + d.D, apn, "{\"token\":" + Json::quote(token) + ",\"inst\":" + std::to_string(inst) + "}");
     if (back) gone("ret|" + d.D, apn);
-    // the member is in the DAF's all-members name (session) from now on
-    put("e|" + d.D + "|members", apn, "{\"apn\":" + Json::quote(apn) + ",\"facts\":" + facts + ",\"ref\":" + Json::quote(in["ref"].s) + ",\"t\":" + std::to_string(now()) + ",\"sess\":" + Json::quote(sess()) + "}");
-    put("sx|" + sess(), d.D + "\x1f" + apn + "\x1f" + "members", "{\"kind\":\"entry\"}");
-    bump(d.D, "members");
-    // 4) static and near-static data, skipped on a short rejoin: the DAF and its reference data
+    put("e|" + d.D + "|members", cell(apn, apn), "{\"apn\":" + Json::quote(apn) + ",\"facts\":" + facts + ",\"ref\":" + Json::quote(in["ref"].s) + ",\"t\":" + nows() + ",\"sess\":" + Json::quote(sess()) + "}");
+    put("sx|" + sess(), d.D + SEP + apn + SEP + "members", "{\"kind\":\"entry\"}");
+    // 4) static and near-static data, skipped on a short rejoin
     std::string refd = "[";
-    if (!shortr) { bool g = true; for (auto& c : rows("ref|" + d.D)) { refd += (g ? "" : ",") + std::string("{\"key\":") + Json::quote(c.instance) + ",\"v\":" + dump(c.bag) + "}"; g = false; } }
+    if (!shortr) { bool g = true; for (auto& [k, c] : all_say("ref|" + d.D)) { refd += (g ? "" : ",") + std::string("{\"key\":") + Json::quote(k) + ",\"v\":" + dump(c.bag) + "}"; g = false; } }
     refd += "]";
-    // [DAF_REQUEST_V1] what was stored for this member while it was away: each taken exactly once
-    std::string stored = "["; { bool g = true; for (auto& c : rows("store|" + d.D + "|" + apn)) { if (!take("store|" + d.D + "|" + apn, c.instance)) continue;
+    // [DAF_REQUEST_V1] what was stored for this member while it was away: each handed over once (the first taker)
+    std::string stored = "["; { bool g = true; for (auto& c : rows("store|" + d.D + "|" + apn)) { if (claim("c|stk|" + d.D + "|" + c.instance, "{}") != 1) continue;
         stored += (g ? "" : ",") + std::string("{\"rid\":") + Json::quote(c.instance) + ",\"m\":" + dump(c.bag) + "}"; g = false; } }
     stored += "]";
     // 6) the state the member continues from: its names and the write it holds reads from
-    std::string ns = "["; f = true; for (auto& c : rows("n|" + d.D)) { ns += (f ? "" : ",") + Json::quote(c.instance); f = false; } ns += "]";
+    std::string ns = "["; f = true; for (auto& c : rows("nl|" + d.D)) { ns += (f ? "" : ",") + Json::quote(c.instance); f = false; } ns += "]";
     return "{\"ok\":true,\"daf\":" + Json::quote(d.D) + ",\"apn\":" + Json::quote(apn) + ",\"inst\":" + std::to_string(inst) + ",\"from\":" + std::to_string(inst) + ",\"token\":" + Json::quote(token) + ",\"role\":" + Json::quote(role) +
            ",\"state\":" + (shortr ? "\"short\"" : back ? "\"returning\"" : "\"new\"") + ",\"syn\":" + syn + ",\"static\":" + (shortr ? "\"kept\"" : "\"sent\"") +
            ",\"ref\":" + refd + ",\"stored\":" + stored + ",\"names\":" + ns + ",\"daf_info\":" + dump(d.j) + "}";
 }
-// a member's leaving, by its own word (leave) or its session's end: only the session that holds the member makes it
-// leave. Its synonyms are kept for the lifetime (written before the member goes, so a re-enrollment sees them).
+void answer_gone(const std::string& D, const std::string& rid) {      // the first answer to a request wins
+    if (claim("c|ans|" + D + "|" + rid, "{}") == 1) put("ans|" + D, rid, "{\"ok\":false,\"error\":\"gone\",\"why\":\"the member serving the request left before answering\"}"); }
+// a member's leaving, by its own word or its session's end; only the session holding the member makes it leave
 void depart(const std::string& D, const std::string& apn, const std::string& s, bool keep) {
     Json m; if (!get("m|" + D, apn, m) || m["sess"].s != s) return;
-    Json d; get("dafs", D, d);
-    if (keep) put("ret|" + D, apn, "{\"syn\":" + dump(m["syn"]) + ",\"role\":" + Json::quote(m["role"].s) + ",\"until\":" + std::to_string(now() + d["syn_lifetime_s"].n) + "}");
-    if (!cas("m|" + D, apn, [&](const std::string& c, std::string& nx) { if (c.empty() || Json::parse(c)["sess"].s != s) return false; nx = ""; return true; })) return;
-    for (auto& c : rows("pend|" + D + "|" + apn)) {        // [DAF_REQUEST_V1] its unanswered requests: an error, never silence
-        claim("ans|" + D, c.instance, "{\"ok\":false,\"error\":\"gone\",\"why\":\"the member serving the request left before answering\"}"); gone("pend|" + D + "|" + apn, c.instance); }
-    bump(D, "members");
+    Json d; get("dafs", D, d); const double until = now() + d["syn_lifetime_s"].n;
+    if (keep) put("ret|" + D, apn, "{\"syn\":" + dump(m["syn"]) + ",\"role\":" + Json::quote(m["role"].s) + ",\"until\":" + std::to_string(until) + "}");
+    for (auto& [set, v] : m["syn"].o) claim("c|s|" + D + "|" + set + "|" + v.s, "{\"k\":\"r\",\"a\":" + Json::quote(apn) + ",\"u\":" + std::to_string(keep ? until : 0) + "}");
+    gone("m|" + D, apn);
+    claim("c|m|" + D + "|" + apn, "{\"k\":\"r\",\"s\":" + Json::quote(s) + "}");
+    for (auto& c : rows("pend|" + D + "|" + apn)) answer_gone(D, c.instance);   // [DAF_REQUEST_V1] an error, never silence
 }
 std::string leave(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); if (w.apn.empty()) refuse("ENOENT", "not found");
     must(d.D, w, "leave", w.apn);
-    for (auto& c : rows("sx|" + sess())) { const std::string k = c.instance;
-        if (k.compare(0, d.D.size() + 1 + w.apn.size() + 1, d.D + "\x1f" + w.apn + "\x1f") == 0) {
-            const std::string name = k.substr(d.D.size() + w.apn.size() + 2); gone("e|" + d.D + "|" + name, w.apn); bump(d.D, name); gone("sx|" + sess(), k); } }
-    gone("sx|" + sess(), d.D + "\x1f" + w.apn);
+    const std::string pre = d.D + SEP + w.apn + SEP;
+    for (auto& c : rows("sx|" + sess())) if (c.instance.compare(0, pre.size(), pre) == 0) {
+        gone("e|" + d.D + "|" + c.instance.substr(pre.size()), cell(w.apn, w.apn)); gone("sx|" + sess(), c.instance); }
+    gone("sx|" + sess(), d.D + SEP + w.apn);
     depart(d.D, w.apn, sess(), false);
     return "{\"ok\":true}";
 }
 std::string set_ref(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); must(d.D, w, "set_ref", in["key"].s);
     if (in["key"].s.empty()) refuse("EINVAL", "set_ref needs a key");
-    pput("ref|" + d.D, in["key"].s, in["v"].type == Json::Obj ? dump(in["v"]) : "{\"v\":" + dump(in["v"]) + "}");
+    pput("ref|" + d.D, cell(in["key"].s, w.apn), in["v"].type == Json::Obj ? dump(in["v"]) : "{\"v\":" + dump(in["v"]) + "}");
     return "{\"ok\":true}";
 }
 std::string whoami(const Json& in) {
@@ -457,13 +489,13 @@ std::string whoami(const Json& in) {
     if (w.apn.empty()) return "{\"ok\":true,\"enrolled\":false}";
     return "{\"ok\":true,\"enrolled\":true,\"member\":" + dump(w.mem) + "}";
 }
-// a synonym, resolved within its DAF and set only (Part 2-1 4.2: unambiguous only within the DAF)
 std::string synonym(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string set = in["set"].s.empty() ? "addr" : in["set"].s;
     must(d.D, w, "synonym", set);
-    Json h; if (!get("s|" + d.D + "|" + set, in["syn"].s, h)) refuse("ENOENT", "no synonym " + in["syn"].s + " in set " + set + " of " + d.D);
-    Json m; if (!get("m|" + d.D, h["apn"].s, m) || m["syn"][set].s != in["syn"].s) refuse("ENOENT", "synonym " + in["syn"].s + " is held for a member who is away");
-    return "{\"ok\":true,\"apn\":" + Json::quote(h["apn"].s) + "}";
+    const SlotState s = slot_state("c|s|" + d.D + "|" + set + "|" + in["syn"].s, 0);
+    if (s.holder.empty()) refuse("ENOENT", "no synonym " + in["syn"].s + " in set " + set + " of " + d.D);
+    Json m; if (s.released || !get("m|" + d.D, s.holder, m) || m["syn"][set].s != in["syn"].s) refuse("ENOENT", "synonym " + in["syn"].s + " is held for a member who is away");
+    return "{\"ok\":true,\"apn\":" + Json::quote(s.holder) + "}";
 }
 std::string members(const Json& in) {
     Daf d = daf_of(in); must(d.D, caller(d.D), "members", d.D); std::string out = "{\"ok\":true,\"members\":["; bool f = true;
@@ -472,22 +504,19 @@ std::string members(const Json& in) {
 }
 
 // ---- section D: Application-Entities and connections (Part 2-1 5.4)
-// [DAF_AUTH_MODULES_V1] authentication, chosen per DAF: "null", or "key" -- HMAC-SHA-256 with the DAF's key of
-// "<daf>|<ae>|<apn>|<nonce>". The key is a secret record (#auth): no operation answers it.
 std::string hmac_hex(const std::string& key, const std::string& msg);
 std::string set_auth(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); must(d.D, w, "set_auth", in["module"].s);
     const std::string mod = in["module"].s; if (mod != "null" && mod != "key") refuse("EINVAL", "module is null or key");
-    put("#auth", d.D, "{\"module\":" + Json::quote(mod) + ",\"key\":" + Json::quote(in["key"].s) + "}");
+    put("#auth", cell(d.D, w.apn), "{\"module\":" + Json::quote(mod) + ",\"key\":" + Json::quote(in["key"].s) + "}");
     return "{\"ok\":true}";
 }
 bool authenticate(const std::string& D, const std::string& ae, const std::string& apn, const Json& a, std::string& why) {
-    Json au; if (!get("#auth", D, au) || au["module"].s == "null") { why = "null"; return true; }
+    Json au; if (!says("#auth", D, au) || au["module"].s == "null") { why = "null"; return true; }
     const std::string key = au["key"].s, nonce = a["nonce"].s;
     if (nonce.size() < 8) { why = "key: a nonce of 8 or more characters is needed"; return false; }
-    const std::string want = hmac_hex(key, D + "|" + ae + "|" + apn + "|" + nonce);
-    if (a["proof"].s != want) { why = "key: the proof does not match"; return false; }
-    if (!claim("nonce|" + D, nonce, "{}")) { why = "key: the nonce was used before"; return false; }   // first use wins
+    if (a["proof"].s != hmac_hex(key, D + "|" + ae + "|" + apn + "|" + nonce)) { why = "key: the proof does not match"; return false; }
+    if (claim("c|nonce|" + D + "|" + nonce, "{}") != 1) { why = "key: the nonce was used before"; return false; }   // its first use
     why = "key"; return true;
 }
 std::string connect(const Json& in) {
@@ -496,41 +525,39 @@ std::string connect(const Json& in) {
     if (w.apn.empty() && !in["apn"].s.empty()) {           // [DAF_MORE_CONNECTIONS_V1] another session of an enrolled member
         Json t, m;
         if (!get("#tok|" + d.D, in["apn"].s, t) || t["token"].s != in["token"].s || !get("m|" + d.D, in["apn"].s, m)) refuse("EACCES", "not a connection of an enrolled member: wrong apn or token");
-        put("sx|" + sess(), d.D + "\x1f" + in["apn"].s, "{\"kind\":\"conn\"}");
+        put("sx|" + sess(), d.D + SEP + in["apn"].s, "{\"kind\":\"conn\"}");
         w = caller(d.D);
     }
     if (w.apn.empty()) refuse("ENOENT", "not found");
     std::string why; if (!authenticate(d.D, ae, w.apn, in["auth"], why)) { std::string rec; check(d.D, w, "connect_auth_failed", ae, rec); refuse("EACCES", "authentication failed: " + why); }
     must(d.D, w, "connect", ae);
-    // the object set granted: what was asked, narrowed to what the role's policy allows (objects:<role>)
     Json lim; std::string granted = "["; bool f = true;
-    const bool limited = get("pol|" + d.D, "objects:" + w.role, lim);
+    const bool limited = says("pol|" + d.D, "objects:" + w.role, lim);
     for (auto& o : in["objects"].a) { if (limited && !within(lim["objects"], o.s)) continue; granted += (f ? "" : ",") + Json::quote(o.s); f = false; }
     granted += "]";
     put("ae|" + d.D + "|" + sess(), ae, "{\"apn\":" + Json::quote(w.apn) + ",\"objects\":" + granted + ",\"auth\":" + Json::quote(why) + "}");
-    put("sxa|" + sess(), d.D + "\x1f" + ae, "{}");
+    put("sxa|" + sess(), d.D + SEP + ae, "{}");
     return "{\"ok\":true,\"ae\":" + Json::quote(ae) + ",\"granted\":" + granted + ",\"auth\":" + Json::quote(why) + "}";
 }
 std::string disconnect(const Json& in) {
-    Daf d = daf_of(in); const std::string ae = in["ae_name"].s; gone("ae|" + d.D + "|" + sess(), ae); gone("sxa|" + sess(), d.D + "\x1f" + ae);
+    Daf d = daf_of(in); const std::string ae = in["ae_name"].s; gone("ae|" + d.D + "|" + sess(), ae); gone("sxa|" + sess(), d.D + SEP + ae);
     return "{\"ok\":true}";
 }
-std::string set_objects(const Json& in) {     // the object set a role may be granted
+std::string set_objects(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); must(d.D, w, "set_policy", "objects:" + in["role"].s);
-    pput("pol|" + d.D, "objects:" + in["role"].s, "{\"mode\":\"objects\",\"objects\":" + (in["objects"].type == Json::Arr ? dump(in["objects"]) : "[]") + "}");
+    pput("pol|" + d.D, cell("objects:" + in["role"].s, w.apn), "{\"mode\":\"objects\",\"objects\":" + (in["objects"].type == Json::Arr ? dump(in["objects"]) : "[]") + "}");
     return "{\"ok\":true}";
 }
-// [DAF_FLOWS_V1] a flow between members: opened to a member, or to a whatevercast name resolved by its rule. The
-// receiver waits (op=daf wait) on its inbox ("box") for new flows and on the flow's data ("fd").
-std::atomic<uint64_t> g_fid{0};
+// [DAF_FLOWS_V1] a flow between members: its record and inbox item are its opener's; each direction's data is its
+// sender's; a close is its closer's own record. The receiver waits on its inbox ("box") and the flow's data ("fd").
+bool closed(const std::string& D, const std::string& fid) { const std::string pre = fid + SEP; for (auto& r : dmem::rows("flc|" + D)) if (r.instance.compare(0, pre.size(), pre) == 0) return true; return false; }
 std::string flow_open(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); std::string to = in["to"].s;
-    if (to.empty()) {                                   // to a whatevercast name: resolve it first
-        std::string chosen; must(d.D, w, "flow_open", in["name"].s); resolve_inner(d.D, w, in, &chosen); to = chosen;
-        if (to.empty()) refuse("ENOENT", "no member of " + in["name"].s + " is selected by its rule");
-    } else must(d.D, w, "flow_open", to);
+    if (to.empty()) { std::string chosen; must(d.D, w, "flow_open", in["name"].s); resolve_inner(d.D, w, in, &chosen); to = chosen;
+        if (to.empty()) refuse("ENOENT", "no member of " + in["name"].s + " is selected by its rule"); }
+    else must(d.D, w, "flow_open", to);
     Json m; if (!get("m|" + d.D, to, m)) refuse("ENOENT", to + " is not a member now");
-    const std::string fid = std::to_string((unsigned long long)(now() * 1000)) + "-" + std::to_string(++g_fid);
+    const std::string fid = own_id();
     const std::string spec = in["spec"].type == Json::Obj ? dump(in["spec"]) : "{}";
     put("fl|" + d.D, fid, "{\"from\":" + Json::quote(w.apn) + ",\"to\":" + Json::quote(to) + ",\"spec\":" + spec + ",\"sess\":" + Json::quote(sess()) + "}");
     put("box|" + d.D + "|" + to, fid, "{\"from\":" + Json::quote(w.apn) + ",\"spec\":" + spec + "}");
@@ -540,9 +567,9 @@ std::string flow_send(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string fid = in["fid"].s;
     Json f; if (!get("fl|" + d.D, fid, f)) refuse("ENOENT", "no flow " + fid);
     if (f["from"].s != w.apn && f["to"].s != w.apn) refuse("EPERM", "not an end of flow " + fid);
-    if (f["closed"].b) refuse("EPIPE", "flow " + fid + " is closed");
+    if (closed(d.D, fid)) refuse("EPIPE", "flow " + fid + " is closed");
     must(d.D, w, "flow_send", "flow:" + fid);
-    const std::string dir = f["from"].s == w.apn ? "f" : "r";                 // f: toward the receiver; r: back
+    const std::string dir = f["from"].s == w.apn ? "f" : "r";
     const uint64_t id = put("fd|" + d.D + "|" + fid + "|" + dir, std::to_string((unsigned long long)in["seq"].n), "{\"d\":" + dump(in["data"]) + "}");
     return "{\"ok\":true,\"id\":" + std::to_string(id) + "}";
 }
@@ -550,119 +577,95 @@ std::string flow_close(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string fid = in["fid"].s;
     Json f; if (!get("fl|" + d.D, fid, f)) refuse("ENOENT", "no flow " + fid);
     if (f["from"].s != w.apn && f["to"].s != w.apn) refuse("EPERM", "not an end of flow " + fid);
-    put("fd|" + d.D + "|" + fid + "|f", "end", "{\"end\":true}"); put("fd|" + d.D + "|" + fid + "|r", "end", "{\"end\":true}");
-    // the flow's record stays, closed: its ends can still read what was sent, and its end; nothing more is sent on it
-    cas("fl|" + d.D, fid, [](const std::string& c, std::string& nx) { if (c.empty()) return false; Json j = Json::parse(c); if (j["closed"].b) return false;
-        nx = c.substr(0, c.size() - 1) + ",\"closed\":true}"; return true; });
-    gone("box|" + d.D + "|" + f["to"].s, fid);
+    put("fd|" + d.D + "|" + fid + "|" + (f["from"].s == w.apn ? "f" : "r"), "end", "{\"end\":true}");   // in its own direction
+    put("flc|" + d.D, cell(fid, w.apn), "{\"t\":" + nows() + "}");
     return "{\"ok\":true}";
 }
 
-// ---- section E: the RIB Daemon (Part 2-1 4.0, 2) -- subscriptions, distribution, and scripts started beside the memory
-// [DAF_SUBSCRIPTIONS_V1] a subscription is a spec; identical specs are ONE subscription however many hold it, computed
-// once per change (or per period) and published to one record, ("subd|<D>", <key>), on which every holder waits.
-// [DAF_LOCKLESS_V1] A subscription object is made once (insert-only table); its spec is published once by
-// compare-and-swap; its holders are a counter. Its result is published by compare-and-swap from the value read before
-// computing it, so a result computed from older state never replaces one computed from newer.
-struct SubSpec { std::string D, key; Json j; double period; };
-struct SubObj { std::atomic<const SubSpec*> spec{nullptr}; std::atomic<int> holders{0}; std::atomic<double> next{0}; std::atomic<bool> indexed{false}; };
-struct ScriptObj { std::string D, id, from, out, sess; Json j; double every = 0; bool on_change = false; std::atomic<bool> stopped{false}; std::atomic<double> next{0}; };
-struct IdxNode { SubObj* s; ScriptObj* sc; IdxNode* next; };
-struct IdxList { std::atomic<IdxNode*> head{nullptr}; };
-void idx_push(IdxList& L, SubObj* s, ScriptObj* sc) { IdxNode* n = new IdxNode{s, sc, L.head.load(std::memory_order_acquire)};
-    while (!L.head.compare_exchange_weak(n->next, n, std::memory_order_acq_rel, std::memory_order_acquire)) {} }
-rmem::Table<SubObj>& subs() { static auto* t = new rmem::Table<SubObj>; return *t; }
-rmem::Table<ScriptObj>& scripts() { static auto* t = new rmem::Table<ScriptObj>; return *t; }
-rmem::Table<IdxList>& by_name() { static auto* t = new rmem::Table<IdxList>; return *t; }   // "D\x1fname" -> what follows it
-IdxList& periodic() { static auto* l = new IdxList; return *l; }
-std::atomic<uint64_t> g_sub_runs{0}, g_script_runs{0}; std::atomic<int> g_subs_held{0}, g_scripts_live{0};
-std::string sub_key(const std::string& spec) { char b[20]; snprintf(b, sizeof b, "%016llx", (unsigned long long)std::hash<std::string>{}(spec)); return b; }
-std::string sub_data(const SubSpec& s) {
+// ---- section E: the RIB Daemon (Part 2-1 4.0, 2). [DAF_SUBSCRIPTIONS_V1] A subscription is a stored request, its
+// holder's own record. Its answer is read from the members' own records when the holder waits: no computed collection
+// is stored, and no one else writes it. A change wakes the holders of the names it touched; a periodic one is answered
+// on its period.
+std::string sub_data(const std::string& D, const Json& j) {
     std::string data = "{"; bool f = true;
-    if (s.j["kind"].s == "collect") {                       // one fact from every member of each name
-        for (auto& n : s.j["names"].a) { data += (f ? "" : ",") + Json::quote(n.s) + ":{"; f = false; bool g = true;
-            for (auto& e : members_of(s.D, n.s)) { const Json& x = e.facts[s.j["fact"].s]; if (x.type == Json::Null) continue;
+    if (j["kind"].s == "collect") {
+        for (auto& n : j["names"].a) { data += (f ? "" : ",") + Json::quote(n.s) + ":{"; f = false; bool g = true;
+            for (auto& e : members_of(D, n.s)) { const Json& x = e.facts[j["fact"].s]; if (x.type == Json::Null) continue;
                 data += (g ? "" : ",") + Json::quote(e.apn) + ":" + dump(x); g = false; }
             data += "}"; }
-    } else {                                                // the state of each name: its members and their facts
-        for (auto& n : s.j["names"].a) { data += (f ? "" : ",") + Json::quote(n.s) + ":["; f = false; bool g = true;
-            for (auto& e : members_of(s.D, n.s)) { bool ok = true; for (auto& c : s.j["filter"].a) { if (!pass(e.facts, c)) { ok = false; break; } }
+    } else {
+        for (auto& n : j["names"].a) { data += (f ? "" : ",") + Json::quote(n.s) + ":["; f = false; bool g = true;
+            for (auto& e : members_of(D, n.s)) { bool ok = true; for (auto& c : j["filter"].a) { if (!pass(e.facts, c)) { ok = false; break; } }
                 if (!ok) { continue; }
                 data += (g ? "" : ",") + std::string("{\"apn\":") + Json::quote(e.apn) + ",\"live\":" + (e.live ? "true" : "false") + ",\"facts\":" + dump(e.facts) + "}"; g = false; }
             data += "]"; }
     }
     return data + "}";
 }
-void sub_run(const SubSpec& s) {
-    cas("subd|" + s.D, s.key, [&](const std::string&, std::string& nx) {   // computed afresh on every attempt
-        const uint64_t run = ++g_sub_runs;
-        nx = "{\"t\":" + std::to_string(now()) + ",\"run\":" + std::to_string(run) + ",\"data\":" + sub_data(s) + "}"; return true; });
-}
+uint64_t names_rev(const std::string& D, const Json& names) { uint64_t r = 0; for (auto& n : names.a) r = std::max(r, name_rev(D, n.s)); return r; }
+uint64_t now_ms() { return uint64_t(now() * 1000); }
 std::string subscribe(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D);
     for (auto& n : in["names"].a) { must(d.D, w, "subscribe", n.s); name_of(d.D, n.s); }
     if (in["names"].a.empty()) refuse("EINVAL", "a subscription names one or more whatevercast names");
     const std::string kind = in["kind"].s.empty() ? "state" : in["kind"].s;
     if (kind != "state" && kind != "collect") refuse("EINVAL", "kind is state or collect");
-    const std::string spec = "{\"kind\":" + Json::quote(kind) + ",\"names\":" + dump(in["names"]) + ",\"filter\":" + (in["filter"].type == Json::Arr ? dump(in["filter"]) : "[]") +
-                             ",\"fact\":" + Json::quote(in["fact"].s) + ",\"period_s\":" + dump(in["period_s"].type == Json::Num ? in["period_s"] : num(0)) + "}";
-    const std::string key = sub_key(d.D + spec);
-    SubObj* s = subs().get(d.D + "\x1f" + key, true); if (!s) refuse("ENOSPC", "the subscription table is full");
-    { const SubSpec* none = nullptr; SubSpec* made = new SubSpec{d.D, key, Json::parse(spec), 0}; made->period = made->j["period_s"].n;
-      const SubSpec* mine = made;
-      if (!s->spec.compare_exchange_strong(none, mine, std::memory_order_acq_rel)) delete mine; }   // made once: the first spec stands
-    const SubSpec& sp = *s->spec.load(std::memory_order_acquire);
-    if (!s->indexed.exchange(true, std::memory_order_acq_rel)) {   // indexed once: by each name it follows, and by time
-        for (auto& n : sp.j["names"].a) if (IdxList* L = by_name().get(d.D + "\x1f" + n.s, true)) idx_push(*L, s, nullptr);
-        if (sp.period > 0) { s->next.store(now() + sp.period); idx_push(periodic(), s, nullptr); } }
-    const bool fresh = s->holders.fetch_add(1, std::memory_order_acq_rel) == 0;
-    if (fresh) ++g_subs_held;
-    put("sxs|" + sess(), d.D + "\x1f" + key + "\x1f" + std::to_string(++g_seq), "{}");
-    if (fresh || !dmem::version("subd|" + d.D, key)) sub_run(sp);
-    return "{\"ok\":true,\"sub\":" + Json::quote(key) + ",\"rev\":" + std::to_string(dmem::version("subd|" + d.D, key)) + ",\"shared\":" + (fresh ? "false" : "true") + "}";
-}
-void sub_release(const std::string& D, const std::string& key) {
-    SubObj* s = subs().get(D + "\x1f" + key, false); if (!s) return;
-    if (s->holders.fetch_sub(1, std::memory_order_acq_rel) == 1) --g_subs_held;   // held by nobody: no longer computed
+    const double period = in["period_s"].type == Json::Num ? in["period_s"].n : 0;
+    const std::string id = own_id();
+    put("sub|" + d.D, id, "{\"kind\":" + Json::quote(kind) + ",\"names\":" + dump(in["names"]) + ",\"filter\":" + (in["filter"].type == Json::Arr ? dump(in["filter"]) : "[]") +
+        ",\"fact\":" + Json::quote(in["fact"].s) + ",\"period_s\":" + dump(num(period)) + ",\"sess\":" + Json::quote(sess()) + "}");
+    put("sxs|" + sess(), d.D + SEP + "sub" + SEP + id, "{}");
+    const uint64_t rev = period > 0 ? now_ms() : names_rev(d.D, in["names"]);
+    return "{\"ok\":true,\"sub\":" + Json::quote(id) + ",\"rev\":" + std::to_string(rev) + "}";
 }
 std::string unsubscribe(const Json& in) {
-    Daf d = daf_of(in); const std::string key = in["sub"].s;
-    for (auto& c : rows("sxs|" + sess())) if (c.instance.compare(0, d.D.size() + key.size() + 2, d.D + "\x1f" + key + "\x1f") == 0 && take("sxs|" + sess(), c.instance)) {
-        sub_release(d.D, key); return "{\"ok\":true}"; }
-    refuse("ENOENT", "this session holds no subscription " + key);
+    Daf d = daf_of(in); const std::string id = in["sub"].s;
+    Json s; if (!get("sub|" + d.D, id, s) || s["sess"].s != sess()) refuse("ENOENT", "this session holds no subscription " + id);
+    gone("sub|" + d.D, id); gone("sxs|" + sess(), d.D + SEP + "sub" + SEP + id);
+    return "{\"ok\":true}";
 }
-// distribute: a value to every member of a name, into each member's own inbox ("in|<D>|<apn>")
 std::string distribute(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s; name_of(d.D, name);
     must(d.D, w, "distribute", name); if (in["key"].s.empty()) refuse("EINVAL", "distribute needs a key");
-    int n = 0; for (auto& e : members_of(d.D, name)) { put("in|" + d.D + "|" + e.apn, in["key"].s, "{\"from\":" + Json::quote(w.apn) + ",\"v\":" + dump(in["value"]) + "}"); ++n; }
+    int n = 0; for (auto& e : members_of(d.D, name)) { put("in|" + d.D + "|" + e.apn, cell(in["key"].s, w.apn), "{\"from\":" + Json::quote(w.apn) + ",\"v\":" + dump(in["value"]) + "}"); ++n; }
     return "{\"ok\":true,\"delivered\":" + std::to_string(n) + "}";
 }
-// [DAF_START_V1] START (Part 2-1 5.4.3: "transfer a script or program to the other process and START it"). A script is a
-// restricted form, as CDAP's scope and filter are: from a name, filter the members, take a fact, reduce it (count, sum,
-// min, max, avg, list), and write the result to ("out|<D>", <out>). It runs once, every N seconds, or on every change
-// to its name, until STOPped or its session ends. Not arbitrary code: a program that can do anything at the memory is
-// a decision this prototype leaves to the region's owner.
-void script_run(const ScriptObj& sc) {
-    cas("out|" + sc.D, sc.out, [&](const std::string&, std::string& nx) {   // computed afresh on every attempt
-        ++g_script_runs;
-        const std::string agg = sc.j["agg"].s.empty() ? "count" : sc.j["agg"].s, f = sc.j["fact"].s;
-        double acc = 0; int n = 0; double mn = 0, mx = 0; std::string list = "["; bool first = true;
-        for (auto& e : members_of(sc.D, sc.from)) {
-            if (sc.j["live"].b && !e.live) continue;
-            bool ok = true; for (auto& c : sc.j["filter"].a) { if (!pass(e.facts, c)) { ok = false; break; } }
-            if (!ok) continue;
-            const Json& x = e.facts[f];
-            if (agg == "list") { list += (first ? "" : ",") + Json::quote(e.apn); first = false; ++n; continue; }
-            if (agg == "count") { ++n; continue; }
-            if (x.type != Json::Num) continue;
-            if (n == 0) { mn = mx = x.n; } else { mn = std::min(mn, x.n); mx = std::max(mx, x.n); }
-            acc += x.n; ++n;
-        }
-        list += "]";
-        const std::string v = agg == "count" ? std::to_string(n) : agg == "sum" ? dump(num(acc)) : agg == "min" ? dump(num(mn)) :
-                              agg == "max" ? dump(num(mx)) : agg == "avg" ? dump(num(n ? acc / n : 0)) : list;
-        nx = "{\"v\":" + v + ",\"n\":" + std::to_string(n) + ",\"t\":" + std::to_string(now()) + ",\"script\":" + Json::quote(sc.id) + "}"; return true; });
+// [DAF_START_V1] START: a restricted script -- from a name, filter, take a fact, reduce it -- stored as its starter's
+// request. Its result is computed from the members' records when it is read; a script run once keeps its one result
+// as its starter's record. It answers "on change" or "every N s" waits until STOPped or its session ends.
+std::string script_value(const std::string& D, const Json& j, const std::string& id) {
+    const std::string agg = j["agg"].s.empty() ? "count" : j["agg"].s, f = j["fact"].s;
+    double acc = 0; int n = 0; double mn = 0, mx = 0; std::string list = "["; bool first = true;
+    for (auto& e : members_of(D, j["from"].s)) {
+        if (j["live"].b && !e.live) continue;
+        bool ok = true; for (auto& c : j["filter"].a) { if (!pass(e.facts, c)) { ok = false; break; } }
+        if (!ok) continue;
+        const Json& x = e.facts[f];
+        if (agg == "list") { list += (first ? "" : ",") + Json::quote(e.apn); first = false; ++n; continue; }
+        if (agg == "count") { ++n; continue; }
+        if (x.type != Json::Num) continue;
+        if (n == 0) { mn = mx = x.n; } else { mn = std::min(mn, x.n); mx = std::max(mx, x.n); }
+        acc += x.n; ++n;
+    }
+    list += "]";
+    const std::string v = agg == "count" ? std::to_string(n) : agg == "sum" ? dump(num(acc)) : agg == "min" ? dump(num(mn)) :
+                          agg == "max" ? dump(num(mx)) : agg == "avg" ? dump(num(n ? acc / n : 0)) : list;
+    return "{\"v\":" + v + ",\"n\":" + std::to_string(n) + ",\"t\":" + nows() + ",\"script\":" + Json::quote(id) + "}";
+}
+bool script_running(const std::string& D, const std::string& id, const Json& j) {
+    if (!(j["every_s"].n > 0 || j["on_change"].b)) return false;
+    const std::string pre = id + SEP; for (auto& r : dmem::rows("scrs|" + D)) if (r.instance.compare(0, pre.size(), pre) == 0) return false;
+    return true;
+}
+// the newest script writing `out`: (id, spec), or false
+bool script_for(const std::string& D, const std::string& out, std::string& id, Json& j) {
+    uint64_t best = 0; for (auto& c : rows("scr|" + D)) if (c.bag["out"].s == out && c.id > best) { best = c.id; id = c.instance; j = c.bag; }
+    return best != 0;
+}
+std::string out_value(const std::string& D, const std::string& out) {
+    std::string id; Json j; if (!script_for(D, out, id, j)) return "";
+    if (script_running(D, id, j)) return script_value(D, j, id);
+    std::string b; return dmem::get("outs|" + D, cell(out, id), b) ? b : "";
 }
 std::string start(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const Json& j = in["script"];
@@ -671,73 +674,47 @@ std::string start(const Json& in) {
     if (j["from"].s.empty() || j["out"].s.empty()) refuse("EINVAL", "a script needs from and out");
     if (!agg.empty() && agg != "count" && agg != "sum" && agg != "min" && agg != "max" && agg != "avg" && agg != "list") refuse("EINVAL", "agg is count, sum, min, max, avg or list");
     name_of(d.D, j["from"].s);
-    const std::string id = "s" + std::to_string(++g_seq);
-    ScriptObj* sc = scripts().get(id, true); if (!sc) refuse("ENOSPC", "the script table is full");
-    // the id is this call's alone: its fields are written before the script is indexed (published) anywhere
-    sc->D = d.D; sc->id = id; sc->from = j["from"].s; sc->out = j["out"].s; sc->j = j; sc->sess = sess();
-    sc->every = j["every_s"].type == Json::Num ? j["every_s"].n : 0; sc->on_change = j["on_change"].b; sc->next.store(now() + sc->every);
-    script_run(*sc);
-    if (sc->every > 0 || sc->on_change) {
-        ++g_scripts_live;
-        put("sxs|" + sess(), d.D + "\x1f" + "script:" + id + "\x1f" + std::to_string(++g_seq), "{}");
-        if (sc->on_change) if (IdxList* L = by_name().get(d.D + "\x1f" + sc->from, true)) idx_push(*L, nullptr, sc);
-        if (sc->every > 0) idx_push(periodic(), nullptr, sc);
-    } else sc->stopped.store(true);
-    Json o; get("out|" + d.D, sc->out, o);
-    return "{\"ok\":true,\"id\":" + Json::quote(id) + ",\"result\":" + dump(o) + "}";
+    const std::string id = own_id(), v = script_value(d.D, j, id);
+    std::string spec = dump(j); spec = spec.substr(0, spec.size() - 1) + (spec.size() > 2 ? "," : "") + "\"sess\":" + Json::quote(sess()) + "}";
+    put("scr|" + d.D, id, spec);
+    if (j["every_s"].n > 0 || j["on_change"].b) put("sxs|" + sess(), d.D + SEP + "script" + SEP + id, "{}");
+    else put("outs|" + d.D, cell(j["out"].s, id), v);                          // run once: its one result, the starter's
+    return "{\"ok\":true,\"id\":" + Json::quote(id) + ",\"result\":" + v + "}";
 }
-bool script_stop(const std::string& id) { ScriptObj* sc = scripts().get(id, false); if (!sc || sc->stopped.exchange(true)) return false; --g_scripts_live; return true; }
 std::string stop(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); must(d.D, w, "stop", in["id"].s);
-    if (!script_stop(in["id"].s)) refuse("ENOENT", "no running script " + in["id"].s);
+    Json j; if (!get("scr|" + d.D, in["id"].s, j) || !script_running(d.D, in["id"].s, j)) refuse("ENOENT", "no running script " + in["id"].s);
+    put("scrs|" + d.D, cell(in["id"].s, w.apn), "{\"t\":" + nows() + "}");
     return "{\"ok\":true}";
 }
-std::string stats(const Json&) {
-    return "{\"ok\":true,\"subscription_runs\":" + std::to_string(g_sub_runs.load()) + ",\"script_runs\":" + std::to_string(g_script_runs.load()) +
-           ",\"subscriptions\":" + std::to_string(g_subs_held.load()) + ",\"scripts\":" + std::to_string(g_scripts_live.load()) + "}";
-}
-void on_change(const std::string& D, const std::string& name) {
-    IdxList* L = by_name().get(D + "\x1f" + name, false); if (!L) return;
-    for (IdxNode* n = L->head.load(std::memory_order_acquire); n; n = n->next) {
-        if (n->s) { const SubSpec* sp = n->s->spec.load(std::memory_order_acquire); if (sp && sp->period == 0 && n->s->holders.load() > 0) sub_run(*sp); }
-        else if (n->sc && !n->sc->stopped.load()) script_run(*n->sc); }
-}
-// [DAF_PERIODIC_V1] time is the one thing no write announces: the periodic subscriptions and scripts are run by the
-// host's own thread when they fall due. Lock-free like the rest: whoever moves `next` forward runs it.
-void tick() {
-    const double t = now();
-    for (IdxNode* n = periodic().head.load(std::memory_order_acquire); n; n = n->next) {
-        if (n->s) { const SubSpec* sp = n->s->spec.load(); double due = n->s->next.load();
-            if (sp && n->s->holders.load() > 0 && t >= due && n->s->next.compare_exchange_strong(due, t + sp->period)) sub_run(*sp); }
-        else if (n->sc) { double due = n->sc->next.load();
-            if (!n->sc->stopped.load() && t >= due && n->sc->next.compare_exchange_strong(due, t + n->sc->every)) script_run(*n->sc); } }
+std::string stats(const Json& in) {
+    Daf d = daf_of(in); must(d.D, caller(d.D), "stats", d.D);
+    int subs = 0, scripts = 0; for (auto& c : rows("sub|" + d.D)) { (void)c; ++subs; }
+    for (auto& c : rows("scr|" + d.D)) if (script_running(d.D, c.instance, c.bag)) ++scripts;
+    return "{\"ok\":true,\"subscriptions\":" + std::to_string(subs) + ",\"scripts\":" + std::to_string(scripts) + "}";
 }
 
-// ---- section F: name-space management (Part 2-2 2.5). A name space lives in a DAF (its NSM function). Names are
-// hierarchical ("county/harborview/er"); the creator owns the root; an owner may delegate a subtree, and then assigns
-// only within what it owns. A name resolves to an object or to another name (indirection), possibly in another space or
-// another DAF's space, followed up to a hop limit. A requester without access gets exactly the answer a missing name
-// gets. A space marked internal resolves only for members of its own DAF.
+// ---- section F: name-space management (Part 2-2 2.5)
 bool owns(const std::string& D, const std::string& space, const std::string& apn, const std::string& name) {
     Json sp; if (!get("nsp|" + D, space, sp)) return false;
     if (sp["owner"].s == apn) return true;
     std::string pre = name;
-    for (;;) { Json dg; if (get("dlg|" + D + "|" + space, pre, dg) && dg["to"].s == apn) return true;
+    for (;;) { Json dg; if (says("dlg|" + D + "|" + space, pre, dg) && dg["to"].s == apn) return true;
         const size_t sl = pre.rfind('/'); if (sl == std::string::npos) return false; pre = pre.substr(0, sl); }
 }
 std::string ns_create(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string sp = in["space"].s;
     if (sp.empty() || sp.find('|') != std::string::npos) refuse("EINVAL", "a space needs a name without '|'");
     must(d.D, w, "ns_create", sp);
-    const std::string bag = "{\"owner\":" + Json::quote(w.apn) + ",\"internal\":" + (in["internal"].b ? "true" : "false") + "}";
-    if (!pcas("nsp|" + d.D, sp, [&](const std::string& c, std::string& n) { if (!c.empty()) return false; n = bag; return true; })) refuse("EEXIST", "space " + sp + " exists");
+    Json old; if (get("nsp|" + d.D, sp, old) || claim("c|nsp|" + d.D + "|" + sp, "{}") != 1) refuse("EEXIST", "space " + sp + " exists");
+    pput("nsp|" + d.D, sp, "{\"owner\":" + Json::quote(w.apn) + ",\"internal\":" + (in["internal"].b ? "true" : "false") + "}");
     return "{\"ok\":true}";
 }
 std::string ns_delegate(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string sp = in["space"].s, pre = in["prefix"].s;
     must(d.D, w, "ns_delegate", sp + ":" + pre);
     if (!owns(d.D, sp, w.apn, pre)) refuse("EPERM", w.apn + " does not own " + pre + " in " + sp);
-    pput("dlg|" + d.D + "|" + sp, pre, "{\"to\":" + Json::quote(in["to"].s) + ",\"by\":" + Json::quote(w.apn) + "}");
+    pput("dlg|" + d.D + "|" + sp, cell(pre, w.apn), "{\"to\":" + Json::quote(in["to"].s) + ",\"by\":" + Json::quote(w.apn) + "}");
     return "{\"ok\":true}";
 }
 std::string ns_assign(const Json& in) {
@@ -745,8 +722,8 @@ std::string ns_assign(const Json& in) {
     must(d.D, w, "ns_assign", sp + ":" + name);
     if (!owns(d.D, sp, w.apn, name)) refuse("EPERM", w.apn + " may not assign " + name + " in " + sp);
     const Json& t = in["target"];
-    if (t["alias"].type == Json::Obj) pput("nsn|" + d.D + "|" + sp, name, "{\"alias\":" + dump(t["alias"]) + ",\"by\":" + Json::quote(w.apn) + "}");
-    else pput("nsn|" + d.D + "|" + sp, name, "{\"object\":" + dump(t["object"]) + ",\"by\":" + Json::quote(w.apn) + "}");
+    if (t["alias"].type == Json::Obj) pput("nsn|" + d.D + "|" + sp, cell(name, w.apn), "{\"alias\":" + dump(t["alias"]) + ",\"by\":" + Json::quote(w.apn) + "}");
+    else pput("nsn|" + d.D + "|" + sp, cell(name, w.apn), "{\"object\":" + dump(t["object"]) + ",\"by\":" + Json::quote(w.apn) + "}");
     return "{\"ok\":true}";
 }
 std::string ns_resolve(const Json& in) {
@@ -757,9 +734,9 @@ std::string ns_resolve(const Json& in) {
     for (int hop = 0; ; ++hop) {
         if (hop > limit) refuse("ELOOP", "more than " + std::to_string(limit) + " indirections from " + in["name"].s);
         Json spj; if (!get("nsp|" + D, sp, spj)) return missing;
-        if (spj["internal"].b && D != d.D) return missing;      // an internal space, asked from another DAF
+        if (spj["internal"].b && D != d.D) return missing;
         std::string why; if (!check(D, w, "ns_resolve", sp + ":" + name, why)) return missing;
-        Json n; if (!get("nsn|" + D + "|" + sp, name, n)) return missing;
+        Json n; if (!says("nsn|" + D + "|" + sp, name, n)) return missing;
         path += (hop ? "," : "") + std::string("{\"daf\":") + Json::quote(D) + ",\"space\":" + Json::quote(sp) + ",\"name\":" + Json::quote(name) + "}";
         if (n["alias"].type != Json::Obj) return "{\"ok\":true,\"object\":" + dump(n["object"]) + ",\"path\":" + path + "]}";
         if (!n["alias"]["daf"].s.empty()) { D = n["alias"]["daf"].s; }
@@ -768,16 +745,13 @@ std::string ns_resolve(const Json& in) {
     }
 }
 
-// ---- section I: requests without enrollment (Part 2-1 6). [DAF_REQUEST_V1] A requester that is not a member asks a
-// DAF's name; the request goes to the member the name's rule selects, which answers into ("ans|<D>", <rid>), on which
-// the requester -- that session alone -- waits. The requester gains no membership, no synonym and no view of the DAF.
-// With store, the request is held for a named member until its next enrollment (the mail model).
-std::atomic<uint64_t> g_rid{0};
+// ---- section I: requests without enrollment (Part 2-1 6). [DAF_REQUEST_V1] The requester owns its request (to the
+// member the name selects, or stored for a member who is away); the answer is the first answer claimed.
 std::string request(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); const std::string name = in["name"].s;
     must(d.D, w, "request", in["store"].b ? "store:" + in["to"].s : name);
-    const std::string rid = std::to_string((unsigned long long)(now() * 1000)) + "-" + std::to_string(++g_rid);
-    const std::string body = "{\"body\":" + dump(in["body"]) + ",\"from\":" + Json::quote(w.apn.empty() ? "(not a member)" : w.apn) + ",\"t\":" + std::to_string(now()) + "}";
+    const std::string rid = own_id();
+    const std::string body = "{\"body\":" + dump(in["body"]) + ",\"from\":" + Json::quote(w.apn.empty() ? "(not a member)" : w.apn) + ",\"t\":" + nows() + "}";
     if (in["store"].b) {
         if (in["to"].s.empty()) refuse("EINVAL", "a stored request names its recipient (to)");
         put("store|" + d.D + "|" + in["to"].s, rid, body); return "{\"ok\":true,\"rid\":" + Json::quote(rid) + ",\"stored\":true}";
@@ -785,39 +759,34 @@ std::string request(const Json& in) {
     std::string chosen; resolve_core(d.D, in, &chosen);
     if (chosen.empty()) refuse("ENOENT", "not found");
     Json m; if (!get("m|" + d.D, chosen, m)) refuse("ENOENT", "not found");
-    put("ask|" + d.D, rid, "{\"sess\":" + Json::quote(sess()) + "}");   // whose answer it is
+    put("ask|" + d.D, rid, "{\"sess\":" + Json::quote(sess()) + "}");
     put("pend|" + d.D + "|" + chosen, rid, "{}");
     put("req|" + d.D + "|" + chosen, rid, body);
-    // the member may have left between the choice and the posting: then its departure did not see this request
-    if (!get("m|" + d.D, chosen, m) && take("pend|" + d.D + "|" + chosen, rid))
-        claim("ans|" + d.D, rid, "{\"ok\":false,\"error\":\"gone\",\"why\":\"the member serving the request left before answering\"}");
+    if (!get("m|" + d.D, chosen, m)) answer_gone(d.D, rid);    // it left between the choice and the posting
     return "{\"ok\":true,\"rid\":" + Json::quote(rid) + "}";
 }
 std::string answer(const Json& in) {
     Daf d = daf_of(in); Who w = caller(d.D); must(d.D, w, "answer", in["rid"].s);
     Json p; if (!get("pend|" + d.D + "|" + w.apn, in["rid"].s, p)) refuse("ENOENT", "no request " + in["rid"].s + " waits on " + w.apn);
-    if (!claim("ans|" + d.D, in["rid"].s, "{\"ok\":true,\"body\":" + dump(in["body"]) + "}")) refuse("ENOENT", "request " + in["rid"].s + " was already answered");
-    gone("pend|" + d.D + "|" + w.apn, in["rid"].s); gone("req|" + d.D + "|" + w.apn, in["rid"].s);
+    if (claim("c|ans|" + d.D + "|" + in["rid"].s, "{}") != 1) refuse("ENOENT", "request " + in["rid"].s + " was already answered");
+    put("ans|" + d.D, in["rid"].s, "{\"ok\":true,\"body\":" + dump(in["body"]) + "}");
     return "{\"ok\":true}";
 }
 
-// ---- section G: the DIF Allocator (Part 2-2 2.6). [DAF_ALLOCATOR_V1] Searching is name-space management (F): each
-// region registers the applications it offers in a directory DAF's "apps" space; a requester resolves there, and the
-// search ends at the owning region, whose own check point decides -- join (enrollment), an alternative (the redirect
-// policy), or "not found". Creating a DAF that spans two owners takes both owners' agreement, each proven with its key:
-// each owner's approval is its own record, and the creation is the DAF's record, claimed once by whoever completes it.
+// ---- section G: the DIF Allocator (Part 2-2 2.6). [DAF_ALLOCATOR_V1] Each owner's approval is its own record; the
+// DAF is created by whoever claims it first once every owner has approved.
 std::string register_owner(const Json& in) {
     const std::string o = in["owner"].s; if (o.empty() || in["key"].s.size() < 16) refuse("EINVAL", "an owner and a key of 16 or more characters");
-    if (!claim("#owner", o, "{\"key\":" + Json::quote(in["key"].s) + "}")) refuse("EEXIST", "owner " + o + " is registered");
+    if (claim("c|owner|" + o, "{}") != 1) refuse("EEXIST", "owner " + o + " is registered");
+    put("#owner", o, "{\"key\":" + Json::quote(in["key"].s) + "}");
     return "{\"ok\":true}";
 }
 std::string propose_daf(const Json& in) {
     const std::string dan = in["dan"].s, daii = in["daii"].s.empty() ? "1" : in["daii"].s, D = dan + "#" + daii;
     if (dan.empty() || in["owners"].a.size() < 2) refuse("EINVAL", "a proposal names a DAF and two or more owners");
     for (auto& o : in["owners"].a) { Json k; if (!get("#owner", o.s, k)) refuse("ENOENT", "owner " + o.s + " is not registered here"); }
-    Json old; if (get("dafs", D, old)) refuse("EEXIST", D + " exists or is proposed");
-    const std::string bag = "{\"owners\":" + dump(in["owners"]) + ",\"spec\":" + dump(in) + "}";
-    if (!pcas("prop", D, [&](const std::string& c, std::string& n) { if (!c.empty()) return false; n = bag; return true; })) refuse("EEXIST", D + " exists or is proposed");
+    Json old; if (get("dafs", D, old) || get("prop", D, old) || claim("c|prop|" + D, "{}") != 1) refuse("EEXIST", D + " exists or is proposed");
+    pput("prop", D, "{\"owners\":" + dump(in["owners"]) + ",\"spec\":" + dump(in) + "}");
     return "{\"ok\":true,\"daf\":" + Json::quote(D) + ",\"state\":\"proposed\"}";
 }
 std::string approve_daf(const Json& in) {
@@ -826,8 +795,8 @@ std::string approve_daf(const Json& in) {
     if (!listed) refuse("EPERM", o + " is not an owner of " + D);
     Json k; const std::string nonce = in["nonce"].s;
     if (!get("#owner", o, k) || nonce.size() < 8 || in["proof"].s != hmac_hex(k["key"].s, "approve|" + D + "|" + nonce)) refuse("EACCES", "the owner's proof does not match");
-    if (!claim("nonce|prop", nonce, "{}")) refuse("EACCES", "the nonce was used before");
-    pput("apv|" + D, o, "{\"t\":" + std::to_string(now()) + "}");                // this owner's approval: its own record
+    if (claim("c|nonce|prop|" + nonce, "{}") != 1) refuse("EACCES", "the nonce was used before");
+    pput("apv|" + D, o, "{\"t\":" + nows() + "}");                      // this owner's approval: its own record
     std::set<std::string> have; for (auto& c : rows("apv|" + D)) have.insert(c.instance);
     std::string ap = "["; bool f = true; for (auto& x : have) { ap += (f ? "" : ",") + Json::quote(x); f = false; } ap += "]";
     bool all = true; for (auto& x : p["owners"].a) if (!have.count(x.s)) all = false;
@@ -837,18 +806,16 @@ std::string approve_daf(const Json& in) {
     Json c = Json::parse("{\"dan\":" + Json::quote(p["spec"]["dan"].s) + ",\"daii\":" + Json::quote(p["spec"]["daii"].s.empty() ? "1" : p["spec"]["daii"].s) +
                          ",\"owner\":" + Json::quote(owners) + ",\"synsets\":" + spec + "}");
     try { create_daf(c); } catch (const Refuse& x) { if (x.code != "EEXIST") throw; }   // two last approvers: one creates, both see it created
-    pgone("prop", D);
     return "{\"ok\":true,\"daf\":" + Json::quote(D) + ",\"state\":\"created\",\"approved\":" + ap + "}";
 }
 
 // ---- [DAF_WAIT_V1] holding a read: the region's own, through the check point. {fn:"wait", daf, what, key, after}
-//   what   name  a whatevercast name's version ("watch")       -> {rev}
-//          sub   a subscription's result (key: from subscribe) -> {rev, rows}
-//          ans   the answer to this session's request (key: rid)
-//          box   the caller's flow inbox      fd  a flow's data (key: "<fid>|f" or "<fid>|r"; the caller is an end)
-//          in    the caller's distribution inbox      req  the caller's requests      out  a script's output (key: out)
-// Answered at once if anything there is past `after` (or "now":true); otherwise parked as this request's continuation
-// and answered by the write that makes the answer exist -- or dropped when this session ends. Key "" = every instance.
+//   what   name  a whatevercast name's version ("watch")       sub  a subscription (key: from subscribe), computed now
+//          ans   the answer to this session's request           box  the caller's flow inbox
+//          fd    a flow's data (key "<fid>|f" or "<fid>|r")     in   the caller's distribution inbox
+//          req   the caller's requests                          out  a script's output (key: out)
+// Answered at once if anything there is past `after` (or "now":true); otherwise parked on the variables that can
+// change the answer, answered by their writers -- or dropped when this session ends.
 std::string rows_answer(const std::string& v, const std::string& inst, uint64_t after, bool always) {
     auto rs = dmem::rows(v, inst, after, true);
     if (rs.empty() && !always) return "";
@@ -858,29 +825,55 @@ std::string rows_answer(const std::string& v, const std::string& inst, uint64_t 
         out += (f ? "" : ",") + std::string("{\"i\":") + Json::quote(r.instance) + ",\"id\":" + std::to_string(r.id) + ",\"v\":" + (r.bag.empty() ? std::string("null") : r.bag) + "}"; f = false; }
     return "{\"ok\":true,\"rev\":" + std::to_string(rev) + out + "]}";
 }
+std::string one_row(const std::string& key, uint64_t rev, const std::string& v) {
+    return "{\"ok\":true,\"rev\":" + std::to_string((unsigned long long)rev) + ",\"rows\":[{\"i\":" + Json::quote(key) + ",\"id\":" + std::to_string((unsigned long long)rev) + ",\"v\":" + v + "}]}"; }
 std::string wait(const Json& in) {
-    Daf d = daf_of(in); Who w = caller(d.D); const std::string what = in["what"].s, key = in["key"].s;
+    Daf d = daf_of(in); Who w = caller(d.D); const std::string what = in["what"].s, key = in["key"].s, D = d.D;
     const uint64_t after = in["after"].type == Json::Num ? uint64_t(in["after"].n) : 0; const bool now_only = in["now"].b;
-    std::string v, inst = key; bool name_watch = false;
-    if (what == "name") { must(d.D, w, "resolve", key); name_of(d.D, key); v = "nv|" + d.D; name_watch = true; }
-    else if (what == "sub") { must(d.D, w, "subscribe", key); v = "subd|" + d.D; }
-    else if (what == "out") { must(d.D, w, "read_out", key); v = "out|" + d.D; }
-    else if (what == "box" || what == "in" || what == "req") { must(d.D, w, "wait_" + what, w.apn); v = what + "|" + d.D + "|" + w.apn; }
-    else if (what == "fd") { const size_t b = key.rfind('|'); const std::string fid = key.substr(0, b);
-        Json f; if (b == std::string::npos || !get("fl|" + d.D, fid, f)) refuse("ENOENT", "no flow " + fid);
+    std::vector<std::string> vars; std::function<std::string(bool)> answer;
+    if (what == "name") { must(D, w, "resolve", key); name_of(D, key);
+        vars = {"e|" + D + "|" + key, "m|" + D};
+        answer = [D, key, after](bool always) { const uint64_t r = name_rev(D, key); return r > after || always ? "{\"ok\":true,\"rev\":" + std::to_string(r) + "}" : std::string(); }; }
+    else if (what == "sub") { must(D, w, "subscribe", key);
+        Json s; if (!get("sub|" + D, key, s)) refuse("ENOENT", "no subscription " + key);
+        const double period = s["period_s"].n;
+        if (period > 0) { vars = {"tick", "sub|" + D};
+            answer = [D, key, s, after, period](bool always) { const uint64_t t = now_ms(); std::string b;
+                if (!dmem::get("sub|" + D, key, b)) return std::string("{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"the subscription ended\"}");
+                if (!always && t < after + uint64_t(period * 1000)) return std::string();
+                return one_row(key, t, "{\"t\":" + nows() + ",\"data\":" + sub_data(D, s) + "}"); }; }
+        else { vars = {"m|" + D, "sub|" + D}; for (auto& n : s["names"].a) vars.push_back("e|" + D + "|" + n.s);
+            answer = [D, key, s, after](bool always) { std::string b;
+                if (!dmem::get("sub|" + D, key, b)) return std::string("{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"the subscription ended\"}");
+                const uint64_t r = names_rev(D, s["names"]); if (r <= after && !always) return std::string();
+                return one_row(key, r, "{\"t\":" + nows() + ",\"data\":" + sub_data(D, s) + "}"); }; } }
+    else if (what == "out") { must(D, w, "read_out", key);
+        std::string id; Json j; if (!script_for(D, key, id, j)) refuse("ENOENT", "no script writes " + key);
+        vars = {"scr|" + D, "scrs|" + D, "outs|" + D};
+        if (j["on_change"].b) { vars.push_back("e|" + D + "|" + j["from"].s); vars.push_back("m|" + D); }
+        if (j["every_s"].n > 0) vars.push_back("tick");
+        const std::string from = j["from"].s; const double every = j["every_s"].n;
+        answer = [D, key, from, every, after](bool always) { const uint64_t r = every > 0 ? now_ms() : std::max(names_rev(D, Json::parse("[" + Json::quote(from) + "]")), dmem::newest("outs|" + D));
+            if (!always && (every > 0 ? r < after + uint64_t(every * 1000) : r <= after)) return std::string();
+            const std::string v = out_value(D, key); return v.empty() ? std::string() : one_row(key, r, v); }; }
+    else if (what == "box" || what == "in" || what == "req") { must(D, w, "wait_" + what, w.apn);
+        const std::string v = what + "|" + D + "|" + w.apn; vars = {v};
+        answer = [v, after](bool always) { return rows_answer(v, "", after, always); }; }
+    else if (what == "fd") { const size_t b = key.rfind('|'); const std::string fid = b == std::string::npos ? key : key.substr(0, b);
+        Json f; if (b == std::string::npos || !get("fl|" + D, fid, f)) refuse("ENOENT", "no flow " + fid);
         if (f["from"].s != w.apn && f["to"].s != w.apn) refuse("EPERM", "not an end of flow " + fid);
-        must(d.D, w, "flow_read", "flow:" + fid); v = "fd|" + d.D + "|" + key; inst = in["seq"].type == Json::Num ? std::to_string((unsigned long long)in["seq"].n) : ""; }
-    else if (what == "ans") { Json a; if (!get("ask|" + d.D, key, a) || a["sess"].s != sess()) refuse("ENOENT", "not found");   // this session's request only
-        v = "ans|" + d.D; }
+        must(D, w, "flow_read", "flow:" + fid);
+        const std::string v = "fd|" + D + "|" + key, inst = in["seq"].type == Json::Num ? std::to_string((unsigned long long)in["seq"].n) : "";
+        vars = {v}; answer = [v, inst, after](bool always) { return rows_answer(v, inst, after, always); }; }
+    else if (what == "ans") { Json a; if (!get("ask|" + D, key, a) || a["sess"].s != sess()) refuse("ENOENT", "not found");   // this session's request only
+        const std::string v = "ans|" + D; vars = {v};
+        answer = [v, key, after](bool always) { return rows_answer(v, key, after, always); }; }
     else refuse("EINVAL", "what is name, sub, out, box, in, req, fd or ans");
-    auto answer_fn = [v, inst, name_watch](uint64_t aft, bool always) -> std::string {
-        if (name_watch) { const uint64_t r = dmem::version(v, inst); return r > aft || always ? "{\"ok\":true,\"rev\":" + std::to_string(r) + "}" : ""; }
-        return rows_answer(v, inst, aft, always); };
-    const std::string a = answer_fn(after, now_only);
-    if (!a.empty()) return a;
+    const std::string a = answer(now_only);
+    if (!a.empty() || now_only) return a.empty() ? "{\"ok\":true,\"rev\":" + std::to_string(after) + ",\"rows\":[]}" : a;
     void* h = rina_defer(); if (!h) refuse("ENOTSUP", "a held read needs a request to park (FNW1)");
-    put("sw|" + sess(), v, "{}");                         // so this session's end can drop its waits
-    dmem::park(v, new dmem::Waiter{h, after, inst, rina_session_id(), [answer_fn](const dmem::Waiter& x) { return answer_fn(x.after, false); }});
+    for (auto& v : vars) put("sw|" + sess(), v, "{}");     // so this session's end can drop its waits
+    dmem::park(vars, h, rina_session_id(), [answer]() { return answer(false); });
     return "";
 }
 
@@ -924,21 +917,19 @@ std::string dispatch(const std::string& fn, const Json& in) {
     if (fn == "set_policy") return set_policy(in);
     if (fn == "audit") return audit(in);
     if (fn == "wait") return wait(in);
-    if (fn == "version") return std::string("{\"ok\":true,\"daf_model\":\"DAF_MODEL_V1\",\"memory\":\"DAF_LOCKLESS_V1\",\"server\":\"") + FDF_BUILD_TAG + "\"}";
+    if (fn == "version") return std::string("{\"ok\":true,\"daf_model\":\"DAF_MODEL_V1\",\"memory\":\"DAF_FROG_V1\",\"server\":\"") + FDF_BUILD_TAG + "\"}";
     refuse("ENOSYS", "no DAF operation " + fn);
 }
-// the region exists from the host's start: its Permanent records restored, its periodic work running
+// the region exists from the host's start; its clock answers the periodic waits (the only work time drives)
 const bool g_daf_at_start = [] { dfile().open_and_replay();
-    std::thread([] { for (;;) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); tick(); } }).detach(); return true; }();
+    std::thread([] { for (;;) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); dmem::wake("tick"); } }).detach(); return true; }();
 }  // namespace
 
-// [DAF_DIAG_V1] DAF_DIAG=<ms>: every call slower than that is logged with its parse and run times
 static const double g_diag_ms = [] { const char* e = getenv("DAF_DIAG"); return e && *e ? atof(e) : -1.0; }();
 std::string daf_region_call(const std::string& body) {
     const double t0 = now();
     Json in; try { in = Json::parse(body); } catch (const std::exception& e) { return err("EINVAL", std::string("body is not JSON: ") + e.what()); }
-    // [DAF_NEEDS_A_SESSION_V1] membership, connections and requests are bound to the caller's session. The plain-HTTP
-    // front has none (every request there is session 0), so it would make every caller one member: refused, said.
+    // [DAF_NEEDS_A_SESSION_V1] membership, connections and requests are bound to the caller's session
     if (rina_session_id() == 0 && in["fn"].s != "version" && in["fn"].s != "list_dafs")
         return err("ENOTSUP", "op=daf needs a session (FNW1); a plain HTTP request has none");
     const double t1 = now();
@@ -951,26 +942,25 @@ std::string daf_region_call(const std::string& body) {
     return r;
 }
 void daf_start() { (void)g_daf_at_start; }
-// [DAF_SESSION_IS_LIVENESS_V1] a session's end: its waits are dropped, its connections, subscriptions and scripts end,
-// its session-held entries go (every name they were in is bumped, so its watchers wake), and its members leave
-// (synonyms kept for the lifetime). Everything here is this session's own records, taken once each.
+// [DAF_SESSION_IS_LIVENESS_V1] a session's end: its waits are dropped; its connections, subscriptions and scripts
+// end; its own entries go; its members leave. Everything written here is this session's own.
 void daf_session_down(uint64_t sid) {
     const std::string s = std::to_string((unsigned long long)sid);
     dmem::put("ended", s, "1");
-    for (auto& r : dmem::rows("sw|" + s)) { gone("sw|" + s, r.instance); dmem::wake(r.instance); }   // its parked waits, dropped
-    for (auto& c : rows("sxa|" + s)) { const size_t a = c.instance.find('\x1f');           // its connections end
+    for (auto& r : dmem::rows("sw|" + s)) { gone("sw|" + s, r.instance); dmem::wake(r.instance); }
+    for (auto& c : rows("sxa|" + s)) { const size_t a = c.instance.find(SEP);
         gone("ae|" + c.instance.substr(0, a) + "|" + s, c.instance.substr(a + 1)); gone("sxa|" + s, c.instance); }
-    for (auto& c : rows("sxs|" + s)) {                                                      // its subscriptions and scripts end
-        if (!take("sxs|" + s, c.instance)) continue;
-        const size_t a = c.instance.find('\x1f'), b = c.instance.find('\x1f', a + 1); const std::string D = c.instance.substr(0, a), k = c.instance.substr(a + 1, b - a - 1);
-        if (k.compare(0, 7, "script:") == 0) script_stop(k.substr(7)); else sub_release(D, k); }
+    for (auto& c : rows("sxs|" + s)) { const size_t a = c.instance.find(SEP), b = c.instance.find(SEP, a + 1);
+        const std::string D = c.instance.substr(0, a), kind = c.instance.substr(a + 1, b - a - 1), id = c.instance.substr(b + 1);
+        if (kind == "sub") gone("sub|" + D, id); else put("scrs|" + D, cell(id, "session:" + s), "{\"t\":" + nows() + "}");
+        gone("sxs|" + s, c.instance); }
     std::vector<Cell> mine = rows("sx|" + s);
-    for (auto& c : mine) { const std::string k = c.instance; const size_t a = k.find('\x1f'), b = k.find('\x1f', a + 1);
+    for (auto& c : mine) { const std::string k = c.instance; const size_t a = k.find(SEP), b = k.find(SEP, a + 1);
         if (b == std::string::npos) { continue; }
         const std::string D = k.substr(0, a), apn = k.substr(a + 1, b - a - 1), name = k.substr(b + 1);
-        if (cas("e|" + D + "|" + name, apn, [&](const std::string& cur, std::string& nx) { if (cur.empty() || Json::parse(cur)["sess"].s != s) return false; nx = ""; return true; })) bump(D, name); }
-    for (auto& c : mine) { const std::string k = c.instance; const size_t a = k.find('\x1f');
-        if (k.find('\x1f', a + 1) != std::string::npos) { gone("sx|" + s, k); continue; }
+        Json e; if (get("e|" + D + "|" + name, cell(apn, apn), e) && e["sess"].s == s) gone("e|" + D + "|" + name, cell(apn, apn)); }
+    for (auto& c : mine) { const std::string k = c.instance; const size_t a = k.find(SEP);
+        if (k.find(SEP, a + 1) != std::string::npos) { gone("sx|" + s, k); continue; }
         depart(k.substr(0, a), k.substr(a + 1), s, true);
         gone("sx|" + s, k); }
 }

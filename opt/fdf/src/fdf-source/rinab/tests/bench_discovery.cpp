@@ -92,7 +92,7 @@ int main(int argc, char** argv) {
     // until the watcher's read shows `done`: wait, then read; again if it does not yet
     auto fdf_until = [&](const std::function<bool(const Json&)>& done) { for (;;) { fafter = last_seq(rina_wait(*fw, "bw" + tag, fafter), fafter);
         if (done(rina(*rf, "{\"op\":\"participants\"}"))) return; } };
-    auto daf_until = [&](const std::function<bool(const Json&)>& done) { for (;;) { Json w = dw.wait(D, "name", "nodes", drev, false, 30.0); drev = uint64_t(w["rev"].n);
+    auto daf_until = [&](const std::function<bool(const Json&)>& done) { for (;;) { Json w = dw.wait(D, "name", "nodes", drev); drev = uint64_t(w["rev"].n);
         if (done(rd.call("resolve", "\"daf\":" + q(D) + ",\"name\":\"nodes\",\"live\":true"))) return; } };
 
     // ---- change

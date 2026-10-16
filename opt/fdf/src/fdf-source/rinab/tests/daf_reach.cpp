@@ -40,7 +40,7 @@ static void serve(daf::Client& c, daf::Client& w, const std::string& D, const st
 }
 // the requester waits for its answer on the session that asked (only that session may)
 static Json wait_answer(daf::Client& c, const std::string& D, const std::string& rid, double s) {
-    try { Json r = c.wait(D, "ans", rid, 0, false, s); return r["ok"].b && !r["rows"].a.empty() ? r["rows"].a[0]["v"] : r; } catch (const std::exception&) { return Json{}; }
+    (void)s; Json r = c.wait(D, "ans", rid, 0); return r["ok"].b && !r["rows"].a.empty() ? r["rows"].a[0]["v"] : r;
 }
 int main(int argc, char** argv) {
     if (argc != 5) { fprintf(stderr, "usage: daf_reach HOST_A:PORT 1|2 TAG HOST_B:PORT\n"); return 2; }

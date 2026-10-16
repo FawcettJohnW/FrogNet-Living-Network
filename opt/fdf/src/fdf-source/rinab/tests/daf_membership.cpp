@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
       syn1 = r["syn"]["addr"].s; full_ref = r["ref"].a.size();
       // then live updates: a held read from where enrollment left the member sees the next change
       const uint64_t from = uint64_t(r["from"].n);
-      auto w = std::async(std::launch::async, [&] { return size_t(x.watch(D, "members", from, 5.0) > from ? 1 : 0); });
+      auto w = std::async(std::launch::async, [&] { return size_t(x.watch(D, "members", from) > from ? 1 : 0); });
       std::this_thread::sleep_for(std::chrono::milliseconds(200)); daf::Client y(A); enroll(y, D, "stmary");
       const size_t woke = w.get();
       expect("C", "a new member: synonyms, reference data and state in one answer, then live updates",
