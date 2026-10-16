@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {"id": "help",      "title": "Help requests",       "version": "1.0", "page": "help.html",      "services": ["help"], "about": "Register people, location, needs and status; see who needs help nearby"},
+    {"id": "resp",      "title": "Responders",          "version": "1.0", "page": "responders.html", "services": ["resp"], "about": "Teams, ambulances, equipment and volunteers publish location, availability and capabilities"},
+    {"id": "hosp",      "title": "Hospital capacity",   "version": "1.0", "page": "hospitals.html", "services": ["hosp"], "about": "Hospitals publish receiving status, capabilities and beds; EMS filters the combined picture"},
+    {"id": "coord",     "title": "Coordination",        "version": "1.0", "page": "coord.html",     "services": ["help", "resp", "hosp"], "about": "Match a request to the nearest available responder and a receiving hospital"},
+    {"id": "chat",      "title": "Chat",                "version": "1.0", "page": "../fdf/chat.html", "services": ["chat"], "about": "Text for communities, field teams and coordination centres"}
+  ]
+}

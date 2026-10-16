@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hospital capacity</title><link rel="stylesheet" href="dc.css"></head>
+<body>
+<header><a href="index.html">◂</a><h1>Hospital capacity</h1></header>
+<main class="cols">
+  <section class="card"><h2>Publish my hospital</h2>
+    <form id="f">
+      <label>Facility</label><input name="name" required placeholder="Harborview Medical Center">
+      <label>Receiving</label><select name="receiving"><option value="open">Open</option><option value="limited">Limited</option><option value="diversion">Diversion</option><option value="closed">Closed</option></select>
+      <label>Capabilities</label><div id="caps"></div>
+      <label>Available beds</label>
+      <div class="row"><div><label>ER</label><input name="er" type="number" min="0" value="0"></div><div><label>ICU</label><input name="icu" type="number" min="0" value="0"></div>
+        <div><label>General</label><input name="general" type="number" min="0" value="0"></div><div><label>Peds</label><input name="peds" type="number" min="0" value="0"></div></div>
+      <label>Place</label><input name="place">
+      <div class="row"><div><label>Lat</label><input name="lat" inputmode="decimal"></div><div><label>Lon</label><input name="lon" inputmode="decimal"></div></div>
+      <button type="button" class="quiet" id="loc">Use my location</button>
+      <label>Contact (EMS line, radio channel)</label><input name="contact">
+      <label>Note</label><input name="note">
+      <button>Publish</button><div class="say" id="say"></div>
+    </form></section>
+  <section class="card"><h2>Receiving facilities</h2>
+    <div class="filters"><div><label>Needs capability</label><select id="fc"><option value="">Any</option></select></div>
+      <div><label>Needs beds</label><select id="fb"><option value="">Any</option><option value="er">ER</option><option value="icu">ICU</option><option value="general">General</option><option value="peds">Peds</option></select></div>
+      <div><label>Show</label><select id="fr"><option value="1">Receiving only</option><option value="">All</option></select></div></div>
+    <div class="list" id="list" style="margin-top:10px"></div></section>
+</main>
+<script src="dc.js"></script>
+<script>
+// [DC_APPS_V1] hosp.status.<facility id> is the hospital's own record; EMS watches and filters the combined picture.
+const CAPS = ['trauma', 'burn', 'peds', 'cardiac', 'stroke', 'obstetric', 'dialysis', 'psych', 'decon', 'surgery'];
+const f = document.getElementById('f'), say = (t, bad) => { const e = document.getElementById('say'); e.textContent = t; e.className = 'say' + (bad ? ' err' : ''); };
+document.getElementById('caps').innerHTML = CAPS.map(n => `<label style="display:inline-block;margin-right:10px;color:inherit"><input type="checkbox" name="cap" value="${n}" style="width:auto"> ${n}</label>`).join('');
+document.getElementById('fc').innerHTML += CAPS.map(n => `<option>${n}</option>`).join('');
+const hid = DC.myId('hosp'); const saved = DC.remember('hosp');
+if (saved) { for (const k of ['name', 'receiving', 'contact', 'note']) if (saved[k] != null) f[k].value = saved[k];
+  for (const k of ['er', 'icu', 'general', 'peds']) f[k].value = saved.beds?.[k] ?? 0;
+  f.place.value = saved.location?.text || ''; f.lat.value = saved.location?.lat ?? ''; f.lon.value = saved.location?.lon ?? '';
+  for (const c of f.querySelectorAll('[name=cap]')) c.checked = (saved.caps || []).includes(c.value); }
+document.getElementById('loc').onclick = () => DC.useMyLocation(f, say);
+let hosps = new Map();
+f.onsubmit = async (ev) => {
+  ev.preventDefault();
+  const bag = { name: f.name.value.trim(), receiving: f.receiving.value, caps: [...f.querySelectorAll('[name=cap]:checked')].map(c => c.value),
+                beds: { er: +f.er.value || 0, icu: +f.icu.value || 0, general: +f.general.value || 0, peds: +f.peds.value || 0 },
+                location: DC.locationFrom(f), contact: f.contact.value.trim(), note: f.note.value.trim(), at: DC.now() };
+  try { await DC.write('hosp', 'status', hid, bag); DC.remember('hosp', bag); say('Published. EMS can see ' + bag.name + ' now.'); }
+  catch (e) { say('Not published: ' + e.message, true); }
+};
+function draw() {
+  const fc = document.getElementById('fc').value, fb = document.getElementById('fb').value, fr = document.getElementById('fr').value, me = DC.locationFrom(f);
+  const rows = [...hosps.values()].filter(c => (!fc || (c.bag.caps || []).includes(fc)) && (!fb || (c.bag.beds?.[fb] || 0) > 0) && (!fr || ['open', 'limited'].includes(c.bag.receiving)))
+    .map(c => ({ c, k: DC.km(me, c.bag.location) })).sort((a, b) => (a.k ?? 1e9) - (b.k ?? 1e9));
+  document.getElementById('list').innerHTML = rows.length ? rows.map(({ c, k }) => { const b = c.bag, bd = b.beds || {};
+    return `<div class="item"><div class="top"><span>${DC.esc(b.name)}</span><span class="s-${DC.esc(b.receiving)}">${DC.esc(b.receiving)}</span></div>
+      <div>${(b.caps || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div>
+      <div>ER ${bd.er || 0} · ICU ${bd.icu || 0} · General ${bd.general || 0} · Peds ${bd.peds || 0}</div>
+      <div class="meta">${DC.esc(DC.where(b.location))} ${k != null ? '· ' + DC.dist(k) : ''} · ${DC.age(b.at)}${b.contact ? ' · ' + DC.esc(b.contact) : ''}${b.note ? ' · ' + DC.esc(b.note) : ''}</div></div>`; }).join('')
+    : '<div class="meta">Nothing to show.</div>';
+}
+for (const id of ['fc', 'fb', 'fr']) document.getElementById(id).onchange = draw;
+DC.watch('hosp', 'status', c => { hosps = c; draw(); }, e => say('RAM: ' + e.message, true));
+</script>
+</body></html>

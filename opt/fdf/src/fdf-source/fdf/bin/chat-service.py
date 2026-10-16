@@ -7,8 +7,12 @@ Needs RINA_RAM (or RINA_AREA + RINA_MAP_RESOLVER) and FDF_BIN in its environment
 import json, os, subprocess, sys
 RAM = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "ram")
 def ram(*a):
-    r = subprocess.run([RAM, *a], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if r.returncode != 0: sys.exit(f"chat-service: ram {' '.join(a[:3])} failed: {r.stdout.strip()}")
+    # [CHAT_STDERR_APART_V1] the answer is stdout; ram's diagnostics (e.g. the primed-templates line it prints whenever
+    # RIBBIT_TEMPLATES is set, as fdf.env sets it) go to this service's own stderr, the journal. Merged, they broke the
+    # JSON and the service died on its first read.
+    r = subprocess.run([RAM, *a], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if r.stderr: sys.stderr.write(r.stderr)
+    if r.returncode != 0: sys.exit(f"chat-service: ram {' '.join(a[:3])} failed: {(r.stderr + r.stdout).strip()}")
     return json.loads(r.stdout)
 after, n = 0, 0
 print("chat-service: holding a read on chat.inbox", flush=True)
