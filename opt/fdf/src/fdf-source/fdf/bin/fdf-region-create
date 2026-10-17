@@ -127,6 +127,8 @@ T0=$(date '+%Y-%m-%d %H:%M:%S')
 # systemd's start limit: that failure is from before hub.env existed, so it is cleared before the start.
 systemctl reset-failed fdf-hub.service $CLIU.service 2>/dev/null
 systemctl enable fdf-hub.service $CLIU.service && systemctl start fdf-hub.service $CLIU.service || { echo "fdf-region-create: fdf-hub / $CLIU did not start: journalctl -u fdf-hub -u $CLIU" >&2; exit 1; }
+# [FDF_CHAT_SERVICE_UNIT_V1] the area's one chat service, beside its RAM manager (fdf-chat@.service ships in this bundle)
+systemctl enable fdf-chat@$RAM_PORT.service && systemctl start fdf-chat@$RAM_PORT.service || { echo "fdf-region-create: fdf-chat@$RAM_PORT did not start: journalctl -u fdf-chat@$RAM_PORT" >&2; exit 1; }
 ADOPT=0; for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
 echo "== fdf-hub (want: 'hub $NAME on wg-$AREA', 'start (adopt)')"
 journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'

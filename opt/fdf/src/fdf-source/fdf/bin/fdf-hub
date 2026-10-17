@@ -30,7 +30,7 @@ import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urlli
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-12-r20"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-17-r22"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_ADDR = "10.253.253.254"
 HUB_MASK = 16
 
