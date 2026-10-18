@@ -45,6 +45,7 @@ python3 tools/apply_keepalive.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.
 python3 tools/apply_keepalive_5s.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_5S_V1] after the 20 s block it replaces
 python3 tools/apply_session_epoch.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_net_config.py $P/ramsrv/ram_server.cpp $P/ribbit_cpp/ram_memory.hpp   # [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+python3 tools/apply_owned_cells.py $P/ramsrv/ram_server.cpp   # after net_config: it rewrites the same write op; [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
 tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_rina.cpp
 $CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp -o build/obj/frogram.o
 $CXX -std=c++20 $W -Werror -Isrc -Isrc/door -I$P/ribbit_cpp -c src/rina_region.cpp -o build/obj/rina_region.o

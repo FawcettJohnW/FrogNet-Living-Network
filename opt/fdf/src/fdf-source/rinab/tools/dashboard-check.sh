@@ -15,7 +15,7 @@ PAGE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8091/fdf/fdf_dash
 FIRST=$(curl -s http://127.0.0.1:8091/fdf/getParticipants.php); echo "first view: $FIRST" | head -c 200; echo
 curl -s "http://127.0.0.1:8091/fdf/waitParticipants.php?gen=0" > $D/wait.json & WP=$!; sleep 1
 kill -0 $WP 2>/dev/null && HELD=yes || HELD=no; echo "long-poll held before any change: $HELD"
-$B/transport-conformance > /dev/null 2>&1                     # a participant announces: the set changes
+RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/self/ns/net $B/transport-conformance > /dev/null 2>&1   # a participant announces (to THIS check's RAM manager): the set changes
 for i in $(seq 100); do kill -0 $WP 2>/dev/null || break; sleep 0.05; done
 echo "long-poll returned: $(head -c 200 $D/wait.json)"
 [ "$PAGE" = 200 ] && [ "$FIRST" = "[" ] || echo "$FIRST" | grep -q '^\['

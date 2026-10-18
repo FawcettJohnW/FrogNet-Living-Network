@@ -1,6 +1,7 @@
 #!/bin/bash
 # fdf-kart-ram.sh -- the kart demo's own region (Ribbit: each application has its own memory), on the droplet beside
-# FD&F's RAM server. Port 8799, the ram.php API the demo's pure-Python client speaks over plain HTTP ([HTTP_FRONT_V1]).
+# FD&F's RAM server. Port 8799, API /ram.php. Each game holds one FNW1 session to it ([KART_ON_THE_SESSION_V1]) and its
+# tuples go with that session ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]: needs this rina-host at fdf-2026-10-18-r21 or later).
 # Players run:  python3 /opt/fdf/kart/kartdemo.py --name <name> --race-host <droplet>:8799
 # Foreground; everything prints to this terminal. Open TCP 8799 to the players.
 set -eu; . /opt/fdf/fdf.env; mkdir -p /opt/fdf/var

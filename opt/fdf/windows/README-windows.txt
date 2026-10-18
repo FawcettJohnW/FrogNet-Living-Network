@@ -5,6 +5,8 @@ FD&F on Windows: the FD&F client, and the kart demo
 
 Needs: nothing for fdf-client.exe (one static program, no DLLs).
        Python 3 and pygame for the kart demo:  pip install pygame
+       kartram.dll beside kartdemo.py and ribbit.py: the game's one session to each region (static, no other DLLs).
+       The race region (the droplet's rina-host) must be fdf-2026-10-18-r21 or later.
 
 1. Join the FD&F region (leave this window open; while it runs, this machine is a member):
 

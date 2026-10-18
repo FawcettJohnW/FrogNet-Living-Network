@@ -4,21 +4,26 @@
 #
 # This is the architecture made visible: ONE application, TWO independently-governed memories.
 #   * the RACE region  (race/kart/<id>)  -- karts write their pose, read everyone else's
-#   * the COMM region  (comm/*)          -- presence + a video-call tile per player
+#   * the COMM region  (comm/tile/<id>)  -- presence + a call tile per player
 # The two regions know nothing about each other. The app maps both and composes them on screen.
 #
 #   python kartdemo.py --name red --race-host H:PORT --comm-host H:PORT [--bots N] [--autodrive] [--headless]
 #
-# Controls: arrow keys / WASD to drive, P toggles the autopilot on your own kart.  Deps: pygame only.
+# Controls: arrow keys / WASD to drive, P toggles the autopilot on your own kart.  Deps: pygame, and libkartram
+# (kartram.dll on Windows) beside ribbit.py.
 #
-# [KART_WRITER_THREAD_V1] Every kart this game owns -- yours and each robot's -- is its own participant: it writes its
-# own cell from its own thread, always the newest pose. The frame loop never waits on the network, so the frame rate
-# does not fall with the distance to the region (before: one blocking write per frame, 61 fps local, 27 fps at 30 ms
-# RTT, 10 fps at 80 ms).
+# The memory is memory (DESIGN.md is the truth table):
+# [KART_ON_THE_SESSION_V1] one permanent FNW1 session per region. A write is posted -- it goes out and the game carries
+#   on; nothing waits for it. The frame loop never waits on the network.
+# [KART_WRITES_ON_CHANGE_V1] a kart is written when it departs from where readers will draw it (its last pose carried
+#   forward along its heading); a tile when what it says changes. Nothing is written to stay fresh.
+# [KART_HELD_READS_V1] each family is read once, then held: the region answers when something is written to it, and
+#   only what was written comes back. That is the game's callback; nothing polls.
+# [OWNED_CELL_GOES_WITH_THE_SESSION_V1] every tuple the game writes is its session's: when the game's session ends the
+#   region writes it {}, the other games' holds fire, and it is gone. No timeout decides who is still here.
 # [KART_AUTODRIVE_V1] --bots N adds N robot karts owned by this game (<name>-bot1..N); --autodrive (or P) puts your own
-# kart on the same autopilot. A robot is not special to anyone reading the race region: it is a kart cell like any
-# other, written by its owner.
-import sys, os, time, math, random, argparse, threading, subprocess
+#   kart on the same autopilot. To anyone reading the race region a robot is a kart like any other.
+import sys, os, time, math, random, argparse, threading, subprocess, json
 
 # ----------------------------------------------------------------------------- args
 ap = argparse.ArgumentParser()
@@ -43,18 +48,13 @@ import pygame
 from ribbit import Memory, RibbitError
 
 NAME = a.name or random.choice(["red","blue","green","yellow","pink","cyan"])
+HERE = os.path.dirname(os.path.abspath(__file__))
 def hp(s, d="127.0.0.1", p=8799):
     if ":" in s: h, pp = s.rsplit(":",1); return h, int(pp)
     return s, p
-
-# [KART_REPORT_V1] a region call that fails is said when it starts failing (with why) and when it works again; the
-# next write or read happens on its next event, as always.
-class Reporter:
-    def __init__(self, what): self.what = what; self.bad = None
-    def fail(self, e):
-        if self.bad != str(e): print(f"kartdemo: {self.what} FAILING: {e}", flush=True); self.bad = str(e)
-    def ok(self):
-        if self.bad is not None: print(f"kartdemo: {self.what} working again", flush=True); self.bad = None
+_say_lock = threading.Lock()
+def say(m):                                   # one line at a time: the region threads and the frame loop all report
+    with _say_lock: sys.stdout.write(f"kartdemo: {m}\n"); sys.stdout.flush()
 
 # [FDF_GATED_V1] with --fdf, FD&F is the source of truth: where the race and the Communicator are (fdf.where.*,
 # published by the droplet's fdf-services.sh), and who is here (FD&F's participants: machines whose FD&F client is up).
@@ -64,7 +64,9 @@ MACHINE = os.environ.get("COMPUTERNAME") or __import__("socket").gethostname()  
 WHERE = {}
 if FDF:
     try:
-        for c in Memory(FDF[0], FDF[1], api=FDF_API).read("fdf", "where"): WHERE[c.get("instance")] = c.get("bag", {})
+        f = Memory(FDF[0], FDF[1], api=FDF_API)
+        for c in f.read("fdf", "where"): WHERE[c.get("instance")] = c.get("bag", {})
+        f.close()
     except RibbitError as e:
         sys.exit(f"kartdemo: cannot read where the race is from FD&F: {e}")
     if "race" not in WHERE and not a.race_host:
@@ -76,12 +78,63 @@ RACE_H, RACE_P = hp(a.race_host)
 COMM_H, COMM_P = hp(a.comm_host) if a.comm_host else (RACE_H, RACE_P)
 COMMS_RAM = a.comms_ram or f"{RACE_H}:8800"          # [KART_CALLS_V1]
 COMMS_MEDIA = a.comms_media or f"{RACE_H}:8994"
-print(f"kartdemo: {NAME} on {MACHINE}: race region {RACE_H}:{RACE_P}, comm region {COMM_H}:{COMM_P}, "
-      f"{a.bots} robot kart(s), autopilot {'on' if a.autodrive else 'off'}", flush=True)
+say(f"{NAME} on {MACHINE}: race region {RACE_H}:{RACE_P}, comm region {COMM_H}:{COMM_P}, "
+    f"{a.bots} robot kart(s), autopilot {'on' if a.autodrive else 'off'}")
 
-# TWO independent regions, mapped at once. This is the whole point of the demo.
-race = Memory(RACE_H, RACE_P)            # the race world state
-comm = Memory(COMM_H, COMM_P)            # the communicator: presence + video-call tiles
+# ----------------------------------------------------------------------------- the regions
+running = True
+class Region:
+    """One region the game maps: one session, the family it follows, and the view of it the game holds.
+    The follower thread is the only reader: it reads the family once, then holds; every cell written comes back once
+    and goes into the view ({} = gone). A session that breaks is said, and a new one is opened a second later; on a
+    new session the game writes its own truths again (gen changes) and the view is read whole again."""
+    def __init__(self, name, host, port, family):
+        self.name, self.host, self.port, self.family = name, host, port, family
+        self.mem = None; self.gen = 0; self.view = {}; self.lock = threading.Lock(); self.bad = None; self.writes = 0
+        self.refused_said = 0
+        threading.Thread(target=self.follower, daemon=True).start()
+    def failing(self, e):
+        if self.bad != str(e): say(f"{self.name} region FAILING: {e}"); self.bad = str(e)
+    def write(self, s, v, i, bag):
+        m = self.mem
+        if m is None: return False
+        try:
+            m.write(s, v, i, bag, own=True); self.writes += 1
+            r = m.refused()
+            if r != self.refused_said: say(f"{self.name} region refused {r - self.refused_said} write(s) on this session"); self.refused_said = r
+            return True
+        except RibbitError as e: self.failing(e); return False
+    def follower(self):
+        retired = []
+        while running:
+            try:
+                m = Memory(self.host, self.port)
+            except RibbitError as e:
+                self.failing(e); time.sleep(1.0); continue
+            first = True
+            try:
+                for cells in m.follow(*self.family):
+                    now = time.time()
+                    with self.lock:
+                        if first: self.view = {}
+                        for c in cells:
+                            if c["bag"]: self.view[c["instance"]] = (c["bag"], now)
+                            else: self.view.pop(c["instance"], None)
+                    if first:
+                        self.mem = m; self.gen += 1; first = False
+                        if self.bad is not None: say(f"{self.name} region working again (a new session)"); self.bad = None
+                        for r in retired: r.close()
+                        retired = []
+            except RibbitError as e:
+                self.failing(e)
+            if self.mem is m: self.mem = None
+            retired.append(m)             # closed once the next session is up: the frame loop may still be posting on it
+            time.sleep(1.0)
+    def snapshot(self):
+        with self.lock: return dict(self.view)
+
+race = Region("race", RACE_H, RACE_P, ("race", "kart"))     # the race world state
+comm = Region("comm", COMM_H, COMM_P, ("comm", "tile"))     # the communicator: presence + call tiles
 
 # ----------------------------------------------------------------------------- look
 pygame.init()
@@ -152,35 +205,45 @@ def sprite(n, color=None):
     return SPRITES[c]
 
 # ----------------------------------------------------------------------------- the karts this game owns
-running=True
 VMAX=240.0; ACC=260.0; TURN=2.8; FRICT=0.92
+# [KART_WRITES_ON_CHANGE_V1] how far the truth may depart from what readers draw before the owner writes again
+TOL_XY, TOL_H = 2.0, 0.05      # a change of speed or turn rate shows up here, in position and heading, as soon as it matters
+def carried(b, dt):
+    """Where a kart written as b is dt seconds later: along its heading at its speed, turning at its turn rate. The
+    owner and every reader compute the same thing, so the owner knows exactly what the others are drawing."""
+    x,y,h,v,w=b.get("x",0),b.get("y",0),b.get("h",0),b.get("v",0),b.get("w",0)
+    if abs(w) < 1e-6: return x+math.cos(h)*v*dt, y+math.sin(h)*v*dt, h
+    h2=h+w*dt
+    return x+v/w*(math.sin(h2)-math.sin(h)), y-v/w*(math.cos(h2)-math.cos(h)), h2
 class Owned:
-    """A kart this game drives and is the only writer of: its truth is race.kart.<name>. [KART_WRITER_THREAD_V1]"""
+    """A kart this game drives and is the only writer of: its truth is race.kart.<name>."""
     def __init__(self, name, color, robot, t0, lane, skill=1.0):
         self.name=name; self.color=color; self.robot=robot; self.skill=skill
         sx,sy=track_point(t0); nx,ny=math.cos(t0+math.pi/2),math.sin(t0+math.pi/2)
-        self.k=dict(x=sx+nx*lane, y=sy+ny*lane, h=t0+math.pi/2, v=0.0, lap=0)
+        self.k=dict(x=sx+nx*lane, y=sy+ny*lane, h=t0+math.pi/2, v=0.0, w=0.0, lap=0)
         self.last_t=nearest_t(self.k["x"],self.k["y"]); self.unwrapped=0.0
         self.lane=lane; self.dodge=0.0; self.wander=random.uniform(0,6.28); self.wander_rate=random.uniform(0.3,0.7)
-        self.pub=None; self.ev=threading.Event(); self.rep=Reporter(f"race write {name}")
-        threading.Thread(target=self.writer, daemon=True).start()
-    def publish(self):                     # the frame loop: hand the newest pose to the writer, never wait
-        k=self.k
-        self.pub={"x":k["x"],"y":k["y"],"h":k["h"],"v":k["v"],"lap":k["lap"],"name":self.name,"t":time.time(),
-                  "machine":MACHINE,"color":list(self.color),"robot":self.robot,"owner":NAME}
-        self.ev.set()
-    def writer(self):                      # this kart's own participant: one write in flight, always the newest pose
-        while running:
-            self.ev.wait(); self.ev.clear()
-            try: race.write("race","kart",self.name,self.pub); self.rep.ok()
-            except RibbitError as e: self.rep.fail(e)
+        self.w=None; self.w_at=0.0; self.w_gen=-1
+    def publish(self):
+        """Write my truth if it has departed from where every reader is drawing it (my last write carried forward)."""
+        k=self.k; now=time.time(); w=self.w
+        if w is not None and self.w_gen == race.gen:
+            px,py,ph=carried(w, now-self.w_at)
+            if (math.hypot(k["x"]-px,k["y"]-py) <= TOL_XY and abs(math.remainder(k["h"]-ph,2*math.pi)) <= TOL_H
+                    and k["lap"] == w["lap"]): return
+        bag={"x":k["x"],"y":k["y"],"h":k["h"],"v":k["v"],"w":k["w"],"lap":k["lap"],"name":self.name,
+             "machine":MACHINE,"color":list(self.color),"robot":self.robot,"owner":NAME}
+        gen=race.gen
+        if race.write("race","kart",self.name,bag): self.w=bag; self.w_at=now; self.w_gen=gen
 
 def drive(o, steer, gas, dt):
     k=o.k
     k["v"]+=gas*ACC*dt
     if gas==0: k["v"]*=FRICT
+    if gas==0 and abs(k["v"])<1.0: k["v"]=0.0          # at rest is at rest: a kart standing still has nothing to write
     k["v"]=max(-VMAX*0.4,min(VMAX,k["v"]))
-    k["h"]+=steer*TURN*dt*(k["v"]/VMAX if abs(k["v"])>5 else 0)
+    k["w"]=steer*TURN*(k["v"]/VMAX if abs(k["v"])>5 else 0)       # the turn rate: part of the kart's truth
+    k["h"]+=k["w"]*dt
     k["x"]+=math.cos(k["h"])*k["v"]*dt
     k["y"]+=math.sin(k["h"])*k["v"]*dt
     # keep roughly on the island
@@ -219,9 +282,9 @@ bots=[Owned(f"{NAME}-bot{i+1}", BOT_COLORS[(seed+i)%len(BOT_COLORS)], True,
 MINE={o.name for o in [me]+bots}
 trail=[]
 
-# ----------------------------------------------------------------------------- comm region: a video tile
-# Each player publishes a "video" tile to the comm region: presence + a synthetic colour pattern
-# (placeholder for real webcam frames, which are the documented next step). Latest-value, droppable.
+# ----------------------------------------------------------------------------- comm region: a call tile
+# Each player's tile says who it is, its status and whom it is calling. The moving pattern on it is drawn locally
+# from the clock: it is not anyone's truth, so it is not written.
 # [KART_CALLS_V1] calls through the REAL Communicator. Calling: my tile says whom I call ("calling") and I launch
 # comms-app --auto-join <them>, which rings them as soon as they are in its lobby. Being called: my game sees a tile
 # whose "calling" is me and launches comms-app WITHOUT auto-join, so the call rings in my window and I answer it.
@@ -239,73 +302,56 @@ def launch_comms(callee=""):
           + shlex.split(a.comms_args)
     global call_id
     try: comms_proc = subprocess.Popen(cmd); calling = callee; call_id = f"{time.time():.3f}" if callee else ""
-    except OSError as e: print(f"kartdemo: cannot start the Communicator ({a.comms_app}): {e}", flush=True)
+    except OSError as e: say(f"cannot start the Communicator ({a.comms_app}): {e}")
 
+tile_written=None; tile_gen=-1
 def publish_tile():
-    st = ("calling " + calling) if (calling and comms_running()) else ("in a call" if comms_running() else "on call")
-    comm.write("comm","tile",NAME, {"name":NAME,"color":list(col(NAME)),
-               "t":time.time(),"status":st,"frame":int(time.time()*8)%1000,"calling":calling if comms_running() else "","call_id":call_id if comms_running() else "","machine":MACHINE})
-def tile_writer():                         # [KART_WRITER_THREAD_V1] the tile is written off the frame loop too
-    rep=Reporter("comm tile write")
-    while running:
-        try: publish_tile(); rep.ok()
-        except RibbitError as e: rep.fail(e)
-        time.sleep(0.15)
+    """[KART_WRITES_ON_CHANGE_V1] my tile is written when what it says changes (or on a new session)."""
+    global tile_written, tile_gen
+    up=comms_running()
+    st = ("calling " + calling) if (calling and up) else ("in a call" if up else "on call")
+    bag={"name":NAME,"color":list(col(NAME)),"status":st,"calling":calling if up else "","call_id":call_id if up else "","machine":MACHINE}
+    if bag == tile_written and tile_gen == comm.gen: return
+    gen=comm.gen
+    if comm.write("comm","tile",NAME,bag): tile_written=bag; tile_gen=gen
 
-# ----------------------------------------------------------------------------- background readers
-# Reading both regions off the render thread keeps the frame rate smooth. Each reader is just HTTP.
-state_lock=threading.Lock()
-others={}        # name -> (kart pose, local time it was read)  (race region)
-tiles={}         # name -> comm tile  (comm region)
-def race_reader():
-    rep=Reporter("race read")
-    while running:
-        try: rows=race.read("race","kart","", fresh_s=4); rep.ok()
-        except RibbitError as e: rep.fail(e); time.sleep(0.5); continue
-        now=time.time(); d={}
-        for c in rows:
-            b=c.get("bag",{}); inst=c.get("instance","")
-            if inst and inst not in MINE and member(b.get("machine","")):   # [FDF_GATED_V1]; my own karts I draw from my own state
-                d[inst]=(b,now)
-        with state_lock: others.clear(); others.update(d)
-        time.sleep(0.04)
-def comm_reader():
-    rep=Reporter("comm read")
-    while running:
-        try: rows=comm.read("comm","tile","", fresh_s=6); rep.ok()
-        except RibbitError as e: rep.fail(e); time.sleep(0.5); continue
-        d={}
-        for c in rows:
-            b=c.get("bag",{}); inst=c.get("instance","")
-            if inst and (inst==NAME or member(b.get("machine",""))): d[inst]=b   # [FDF_GATED_V1]
-        with state_lock: tiles.clear(); tiles.update(d)
-        time.sleep(0.2)
+# ----------------------------------------------------------------------------- FD&F membership
 fdf_alive=set()          # [FDF_GATED_V1] FD&F machine names alive now (only with --fdf)
 fdf_seen=False           # FD&F has answered at least once
+def fdf_tool(base):
+    exe=base+(".exe" if os.name=="nt" else "")
+    for c in [os.path.join(HERE,exe), os.path.join("/opt/fdf/bin",exe)]:
+        if os.path.exists(c): return c
+    return exe                                                   # on the PATH, or said when it cannot start
 def fdf_reader():
+    """[KART_HELD_READS_V1] FD&F's own participant watch, on this game's own session to FD&F: watch_participants once,
+    then a held wait that FD&F answers when the participant set changes; the set is read again on each answer."""
     global fdf_alive, fdf_seen
-    import urllib.request, json as _j
-    url=f"http://{FDF[0]}:{FDF[1]}{FDF_API}?op=rina"
-    rep=Reporter(f"FD&F participants read ({FDF[0]}:{FDF[1]})")
+    me=f"kart:{MACHINE}:{NAME}:{os.getpid()}"; bad=None
     while running:
         try:
-            req=urllib.request.Request(url, data=b'{"op":"participants"}', headers={"Content-Type":"application/json"}, method="POST")
-            with urllib.request.urlopen(req, timeout=5) as r: ps=_j.loads(r.read()).get("participants",[])
-            with state_lock: fdf_alive={p.get("name","") for p in ps if p.get("alive")}; fdf_seen=True
-            rep.ok()
-        except Exception as e: rep.fail(f"{type(e).__name__}: {e}")
-        ensure_fdf_member()
-        time.sleep(1.0)
+            f=Memory(FDF[0], FDF[1], api=FDF_API)
+            r=f.call("POST", FDF_API+"?op=rina", json.dumps({"op":"watch_participants","proc":me}))
+            if not r.get("ok"): raise RibbitError(f"FD&F refused the participant watch: {r}")
+            after=0
+            while running:
+                ps=f.call("POST", FDF_API+"?op=rina", json.dumps({"op":"participants"})).get("participants",[])
+                fdf_alive={q.get("name","") for q in ps if q.get("alive")}; fdf_seen=True
+                if bad is not None: say("FD&F participant watch working again"); bad=None
+                ensure_fdf_member()
+                text=f.call_text("POST", FDF_API+"?op=rina_block", json.dumps({"op":"wait","proc":me,"after":after}), 3.0e8)
+                for line in text.split("\n")[1:]:                 # "E" then "<n>\t<event>" lines
+                    if "\t" in line: after=max(after, int(line.split("\t",1)[0]))
+        except (RibbitError, ValueError) as e:
+            if bad != str(e): say(f"FD&F participant watch FAILING: {e}"); bad=str(e)
+        time.sleep(1.0)                                            # a new session, a second later
 def member(machine): return (not FDF) or (machine in fdf_alive)
 # [FDF_AUTOCLIENT_V1] this machine is not an FD&F member: start the FD&F client (it IS the machine's membership, so it
 # keeps running after the game). Once per game: if it is already running for another game, the machine is a member.
 fdf_client_proc=None
 fdf_client_t=0.0
 def fdf_client_path():
-    here=os.path.dirname(os.path.abspath(__file__)); exe="fdf-client.exe" if os.name=="nt" else "fdf-client"
-    for c in [a.fdf_client, os.path.join(here,exe), "/opt/fdf/bin/fdf-client"]:
-        if c and os.path.exists(c): return c
-    return exe                                                   # on the PATH, or said when it cannot start
+    return a.fdf_client if a.fdf_client and os.path.exists(a.fdf_client) else fdf_tool("fdf-client")
 def ensure_fdf_member():
     global fdf_client_proc
     global fdf_client_t
@@ -317,19 +363,16 @@ def ensure_fdf_member():
     try:
         flags=subprocess.CREATE_NEW_CONSOLE if os.name=="nt" else 0      # its own window on Windows: you see it join
         fdf_client_proc=subprocess.Popen(cmd, creationflags=flags) if os.name=="nt" else subprocess.Popen(cmd, start_new_session=True)
-        print(f"kartdemo: {MACHINE} was not an FD&F member: started {cmd[0]} {cmd[1]}", flush=True)
+        say(f"{MACHINE} was not an FD&F member: started {cmd[0]} {cmd[1]}")
     except OSError as e:
-        fdf_client_proc=False; print(f"kartdemo: {MACHINE} is not an FD&F member, and the FD&F client could not start ({cmd[0]}): {e}", flush=True)
+        fdf_client_proc=False; say(f"{MACHINE} is not an FD&F member, and the FD&F client could not start ({cmd[0]}): {e}")
 if FDF: threading.Thread(target=fdf_reader,daemon=True).start()
-threading.Thread(target=race_reader,daemon=True).start()
-threading.Thread(target=comm_reader,daemon=True).start()
-threading.Thread(target=tile_writer,daemon=True).start()
 
 # ----------------------------------------------------------------------------- comm tile rendering
 def draw_tile(surf, x, y, w, h, name, bag, live):
     pygame.draw.rect(surf,(16,17,20),(x,y,w,h),border_radius=10)
-    # synthetic "video": moving bands in the player's colour (stand-in for a webcam frame)
-    c=col(name); fr=(bag or {}).get("frame",0)
+    # synthetic "video": moving bands in the player's colour (stand-in for a webcam frame), from the local clock
+    c=col(name); fr=int(time.time()*8)%1000
     inner=pygame.Surface((w-10,h-34))
     for yy in range(0,h-34,4):
         shade=0.5+0.5*math.sin((yy+fr*3)*0.08)
@@ -354,7 +397,7 @@ def draw_kart(n, x, y, h, color):
     screen.blit(SMALL.render(n,True,(240,240,240)),(x-10,y-26))
 
 # ----------------------------------------------------------------------------- main loop
-T0=time.time(); fps_t=time.time(); fps_n=0; fps=0.0
+T0=time.time(); fps_t=time.time(); fps_n=0; fps=0.0; w_n0=0
 while running:
     dt=clock.tick(60)/1000.0
     for e in pygame.event.get():
@@ -363,15 +406,15 @@ while running:
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:      # [KART_CALLS_V1] Call: open the Communicator to them
             for who,r in list(call_buttons.items()):
                 if r.collidepoint(e.pos): launch_comms(who); break
-    with state_lock:
-        snap=dict(others); tsnap=dict(tiles)
     now=time.time()
-    # where everyone else is drawn: their last write, carried forward along their heading for the time since it was read
-    # (rendering between reads, not reconciliation: the owner's cell is the only truth about its kart)
+    tsnap={n:b for n,(b,_) in comm.snapshot().items() if n==NAME or member(b.get("machine",""))}   # [FDF_GATED_V1]
+    # everyone else's karts: their last write carried forward (heading, speed, turn rate) for the time since it arrived
+    # (rendering between writes, not reconciliation: the owner writes again whenever this departs from its truth)
     drawn={}
-    for n,(b,rt) in snap.items():
-        age=min(0.3,now-rt); v=b.get("v",0); h=b.get("h",0)
-        drawn[n]=(b.get("x",0)+math.cos(h)*v*age, b.get("y",0)+math.sin(h)*v*age, h, b.get("color"))
+    for n,(b,rt) in race.snapshot().items():
+        if n in MINE or not member(b.get("machine","")): continue                                  # [FDF_GATED_V1]
+        x,y,h=carried(b, now-rt)
+        drawn[n]=(x, y, h, b.get("color"))
 
     # physics: me, then my robots
     k=pygame.key.get_pressed()
@@ -388,8 +431,9 @@ while running:
     if abs(me.k["v"])>120: trail.append((me.k["x"],me.k["y"]))
     if len(trail)>60: trail.pop(0)
 
-    # WRITE: each kart I own hands its newest pose to its own writer (latest-value, droppable)
+    # WRITE: my truths, when they change -- posted, never waited for
     for o in [me]+bots: o.publish()
+    publish_tile()
 
     # ---- draw ----
     screen.blit(TRACK,(0,0))
@@ -398,8 +442,8 @@ while running:
         launch_comms(os.environ["KART_TEST_CALL"])
     call_buttons.clear()                                       # [KART_CALLS_V1]
     for who,bag in tsnap.items():                              # someone is calling ME: open my Communicator to answer
-        calling_me = who != NAME and (bag or {}).get("calling") == NAME and time.time()-(bag or {}).get("t",0) < 6
-        cid = (bag or {}).get("call_id", "")
+        calling_me = who != NAME and bag.get("calling") == NAME
+        cid = bag.get("call_id", "")
         if calling_me and answered.get(who) != cid and member(MACHINE):   # each NEW call (its own id) opens a window, once
             answered[who] = cid; launch_comms("")
     # other karts (from the race region), my robots, then me
@@ -411,11 +455,14 @@ while running:
     # HUD
     fps_n+=1
     if now-fps_t>=1.0:
-        fps=fps_n/(now-fps_t); fps_n=0; fps_t=now
-        if os.environ.get("KART_TEST_FPS"): print(f"[KART_TEST_FPS] {NAME} {fps:.1f} fps, {len(snap)} other kart(s) seen", flush=True)   # test only
+        fps=fps_n/(now-fps_t)
+        if os.environ.get("KART_TEST_FPS"):                      # test only
+            say(f"[KART_TEST_FPS] {NAME} {fps:.1f} fps, {len(drawn)} other kart(s) seen, "
+                f"{(race.writes+comm.writes-w_n0)/(now-fps_t):.1f} writes/s for {1+len(bots)} kart(s) and a tile")
+        fps_n=0; fps_t=now; w_n0=race.writes+comm.writes
     screen.blit(BIG.render(f"Lap {min(me.k['lap'],a.laps)}/{a.laps}",True,(255,255,255)),(16,14))
     screen.blit(FONT.render(f"{int(abs(me.k['v']))} px/s" + ("   AUTOPILOT (P)" if autodrive else ""),True,(230,230,230)),(16,52))
-    n_race=len(snap)+1+len(bots); n_comm=len(tsnap)
+    n_race=len(drawn)+1+len(bots); n_comm=len(tsnap)
     screen.blit(SMALL.render(f"race region: {n_race} kart(s), {len(bots)} of them my robots   |   comm region: {n_comm} on call   |   {fps:.0f} fps",
                True,(210,210,210)),(16,H-24))
 
@@ -432,7 +479,7 @@ while running:
     tw=W-TRACK_W-32; th=150; ty=58
     names=sorted(set(list(tsnap.keys()) or [NAME]))
     for n in names:
-        live = n==NAME or (time.time()-(tsnap.get(n,{}).get("t",0))<6)
+        live = n in tsnap                                        # there while its session is up
         draw_tile(screen,sx0+16,ty,tw,th,n,tsnap.get(n),live)
         ty+=th+12
         if ty>H-th: break
@@ -442,5 +489,6 @@ while running:
         pygame.image.save(screen, os.environ["KART_TEST_SHOT"]); _shot = True
 
 running=False
-time.sleep(0.2)
 pygame.quit()
+# The process ends here, and with it the sessions: the region writes my karts and my tile {} for everyone. (They are not
+# closed by hand: a follower may be inside a held read on its session, and the session must outlive that call.)

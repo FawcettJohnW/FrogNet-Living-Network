@@ -19,24 +19,40 @@ own pace, wander across the road a little, and step aside for a kart just ahead.
 
     python kartdemo.py --name nyc --race-host H:8799 --bots 4 --autodrive --headless
 
-## Every kart writes from its own thread `[KART_WRITER_THREAD_V1]`
+## The memory is memory (DESIGN.md is the truth table)
 
-Each kart a game owns (yours and each robot) is its own participant: it writes its own cell from its own thread,
-always the newest pose, one write in flight. The frame loop never waits on the network. Before this, the game wrote
-its pose on the frame loop, so the frame rate fell with the distance to the region:
+The game is a multithreaded program whose threads are on different machines. Each game writes its own truths at its
+own tuples, once, and never waits; it reads everyone else's from the region, and held reads are its callbacks.
 
-| round trip to the region | before (fps) | now (fps) |
+- `[KART_ON_THE_SESSION_V1]` **One permanent FNW1 session per region**, through this tree's own C++ session client
+  (`kartram.cpp`: a C interface over `frogram::Session`, built as `libkartram.so` / `kartram.dll`). A write is posted:
+  it goes out and the game carries on. There is no plain-HTTP path and no second way in.
+- `[KART_WRITES_ON_CHANGE_V1]` **Written when it changes.** A kart carries its heading, speed and turn rate; every
+  reader draws it carried forward along that arc, and the owner computes the same thing and writes again only when
+  its truth is more than 2 px or 0.05 rad from it, or its lap changes. A tile is written when what it says changes.
+  Nothing is written to stay fresh.
+- `[KART_HELD_READS_V1]` **Held reads, no polling.** Each family is read once, then held: the region answers when
+  something is written to it, with only what was written.
+- `[OWNED_CELL_GOES_WITH_THE_SESSION_V1]` **Gone is gone.** Every tuple the game writes is its session's. When the
+  game's session ends (quit, crash, kill -9, the machine drops) the region writes each of them `{}`, every other
+  game's hold fires, and the karts and tile vanish. No timeout decides who is still here.
+- FD&F's member list is re-read when FD&F's held participant wait answers (on the game's own FD&F session), not once a second.
+
+What that changed, measured by `tools/kart-check.sh` (three machines, 11 karts):
+
+| | before (2026-10-17) | now |
 |---|---|---|
-| local | 61 | 61 |
-| 30 ms | 27 | 61 |
-| 80 ms | 10 | 61 (with 3 robots and a second player) |
+| writes per kart | 60/s (every frame), plus a tile every 0.15 s | 2.6 to 4.0/s; the tile only on a change |
+| reads | every kart every 40 ms and every tile every 200 ms, changed or not | held: one answer per change |
+| connections | a new TCP connection with a plain-HTTP request per call | one FNW1 session per region |
+| a player who leaves | drawn until its cells are 4 s old | gone everywhere ~100 ms after its session ends |
 
-Measured here through a TCP relay adding the delay each way (this kernel has no netem). The tile is written off the
-frame loop as well. Other karts are drawn at their last written pose carried forward along their heading for the
-time since it was read (at most 0.3 s): rendering between reads, not reconciliation.
+The frame rate is 62 fps either way; before this, writing on the frame loop had cost 27 fps at 30 ms and 10 fps at
+80 ms to the region (fixed 2026-10-17, measured through a delay relay: this kernel has no netem).
 
-`[KART_REPORT_V1]` A region call that fails is said once when it starts failing, with the cause, and once when it
-works again; `ribbit.py` raises `RibbitError` rather than returning nothing (`[RIBBIT_PY_SAYS_WHY_V1]`).
+`[KART_REPORT_V1]` A region whose session breaks is said once, with the cause; the game opens a new session a second
+later, says "working again", and writes its own truths again. `ribbit.py` raises `RibbitError` rather than returning
+nothing (`[RIBBIT_PY_SAYS_WHY_V1]`).
 
 ## What is real and what is not
 
@@ -51,8 +67,12 @@ Real camera and audio happen only in the Communicator window, never inside the g
 
 ## Files
 
-- `kartdemo.py` — the game, the robots and autopilot, the call strip, the Call buttons and the FD&F lookup (446 lines).
-- `ribbit.py` — the pure-Python Ribbit client (HTTP `/ram.php`), stdlib only (54 lines).
+- `kartdemo.py` — the game, the robots and autopilot, the call strip, the Call buttons and the FD&F lookup.
+- `ribbit.py` — the game's memory in Python: one session per region over `libkartram` (ctypes).
+- `kartram.cpp`, `build_kartram.sh` — that library: `libkartram.so` (Linux x86-64, needs libcrypto.so.3 and glibc 2.38
+  or later, i.e. Ubuntu 24.04) and, with `--windows`, `kartram.dll` (64-bit, static).
+- `DESIGN.md` — the truth table.
+- `test_owned_cells.py` — the region's owned-cell checks (run by `tools/kart-check.sh`).
 - `kartdemo.original.py` — the version before calls and FD&F, kept for comparison.
 
 ## What has to exist first (not in this directory)
@@ -64,7 +84,9 @@ Real camera and audio happen only in the Communicator window, never inside the g
   started by `fdf-services.sh` on the droplet or `fdf-comms.sh` on a node.
 - **comms-app.** Built from `communicator-r3-full.zip` (`comms/WINDOWS.md` on Windows). Without it, the Call button
   prints `kartdemo: cannot start the Communicator (...)` and the race carries on.
-- **pygame** on each player's machine.
+- **pygame** on each player's machine, and `libkartram.so` (Linux) or `kartram.dll` (Windows) beside `ribbit.py`.
+- **The region at r21 or later** (`fdf-2026-10-18-r21`): own-cell writes need it. An older `rina-host` takes the
+  writes but never removes a departed player's karts.
 
 ## Run
 
@@ -103,7 +125,29 @@ are independent. `--laps N` (default 3).
 The game is not in any installed package: run it from this directory. `fdf-kart-ram.sh`'s header names
 `/opt/fdf/kart/kartdemo.py`, which no package installs.
 
-## Proven: robots, autopilot, writer threads (2026-10-17)
+## Proven: the memory model, across machines (2026-10-18, `tools/kart-check.sh`, build fdf-2026-10-18-r21)
+
+Each machine its own network namespace on one shared network, the region on the "droplet": red (3 robots), blue
+(1 robot), and "nyc", a machine that only runs 4 robots. 10 of 10 checks pass, on the shipped files (fdf-droplet.tgz's rina-host, kart-r21-linux.tgz's game):
+
+- every game sees every other machine's karts (7, 9 and 6: 11 minus its own); every game at 61.7 to 62.0 fps;
+- 2.6 to 4.0 writes/s per kart; all 11 karts lap on the road (2.2 to 3.4 laps in 25 s, at most 50.5 px off the centre-line, the road 62 px each side);
+- 0 packets between two player machines (tcpdump on the shared network): everything is through the region;
+- red's game killed -9: its 4 karts and its tile are `{}` in the region 98 ms later, and blue and nyc stop drawing them;
+- the region killed -9 and started again: both games say FAILING, then "working again", and their 7 karts are back;
+- the owned-cell checks;
+- with `--fdf` (FD&F's RAM manager on the droplet, each machine its own hostname): blue and nyc start their own
+  fdf-client and draw only each other's karts, not red's (red runs without FD&F); nyc's fdf-client killed -9, and blue
+  stops drawing nyc's karts at FD&F's next answer (within 2 s);
+- a player's path dies silently for 12 s (its link down: no reset): its game stays at 61+ fps, says FAILING when the
+  session's 5 s keepalive gives up, opens a new session when the path is back, and its karts are in the region again.
+
+Red/green: against the r20 region (no owned cells) check 6 fails (red's karts still there 4 s later, still drawn by
+both other games) and check 8 fails; against r21 both pass.
+
+**Not run:** on Windows (`kartram.dll` is built, not run), and across real machines.
+
+## Proven: robots, autopilot, writer threads (2026-10-17; the writer threads are replaced by the above)
 
 Against `rina-host` built from this tree by `tools/build.sh` (build fdf-2026-10-12-r20), on one Linux machine, all
 players headless:
