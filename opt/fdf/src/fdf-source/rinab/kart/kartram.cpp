@@ -3,8 +3,9 @@
 // compressed, the same client fdf-client uses. Python reaches it through ctypes (ribbit.py).
 //
 //   kr_open(host, port, api, &err)                    a session to the region at host:port (api: "/ram.php")
-//   kr_write(h, s, v, i, bag_json, own, &err)         posted: goes out, nothing is waited for. own=1: the tuple goes
-//                                                     ({} written) when this session ends [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
+//   kr_write(h, s, v, i, bag_json, flags, &err)       posted: goes out, nothing is waited for. flags 1 (own): the tuple
+//                                                     goes ({} written) when this session ends [OWNED_CELL_GOES_WITH_THE_SESSION_V1];
+//                                                     flags 2 (permanent): filed, and back after the region restarts [PERMANENT_CELL_V1]
 //   kr_read(h, s, v, i, after, wait_s, &err)          a family read (i "" = any instance); after>=0 with wait_s>0 is the
 //                                                     trigger: held until something is written past `after`.
 //                                                     Returns a JSON array of {id, variable, instance, bag}
@@ -49,10 +50,10 @@ KR_API void* kr_open(const char* host, int port, const char* api, char** err) {
 }
 KR_API void kr_close(void* h) { delete static_cast<KR*>(h); }
 KR_API void kr_free(char* s) { free(s); }
-KR_API int kr_write(void* h, const char* s, const char* v, const char* i, const char* bag, int own, char** err) {
+KR_API int kr_write(void* h, const char* s, const char* v, const char* i, const char* bag, int flags, char** err) {
     KR* k = static_cast<KR*>(h);
     try { k->s.post("POST", k->api + "?op=write", "{\"service\":" + Json::quote(s) + ",\"variable\":" + Json::quote(v) + ",\"instance\":" +
-                    Json::quote(i) + ",\"bag\":" + bag + (own ? ",\"own\":true}" : "}")); return 0; }
+                    Json::quote(i) + ",\"bag\":" + bag + ((flags & 1) ? ",\"own\":true" : "") + ((flags & 2) ? ",\"permanent\":true" : "") + "}"); return 0; }
     catch (const std::exception& e) { fail(err, e.what()); return -1; }
 }
 KR_API char* kr_read(void* h, const char* s, const char* v, const char* i, long long after, double wait_s, char** err) {

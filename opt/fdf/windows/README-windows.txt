@@ -6,7 +6,7 @@ FD&F on Windows: the FD&F client, and the kart demo
 Needs: nothing for fdf-client.exe (one static program, no DLLs).
        Python 3 and pygame for the kart demo:  pip install pygame
        kartram.dll beside kartdemo.py and ribbit.py: the game's one session to each region (static, no other DLLs).
-       The race region (the droplet's rina-host) must be fdf-2026-10-18-r21 or later.
+       The main memory (the droplet's rina-host, FD&F or the kart region) must be fdf-2026-10-18-r22 or later.
 
 1. Join the FD&F region (leave this window open; while it runs, this machine is a member):
 
@@ -14,22 +14,23 @@ Needs: nothing for fdf-client.exe (one static program, no DLLs).
 
    It prints:  fdf-client: <COMPUTERNAME> joined the region at <droplet-ip>:8840, announced [...]
 
-2. Race, in a second window:
+2. The kart lobby, in a second window (FD&F's memory is the lobby; a race starts when enough players are there, or
+   when someone presses Start, and runs on a player's Linux machine -- Windows plays but does not host):
 
-     python kartdemo.py --name <your-name> --race-host <droplet-ip>:8799
+     python kartdemo.py --name <your-name> --fdf <droplet-ip>:8840
 
-   Arrow keys or WASD. You see the other players' karts and their call tiles.
-   --bots 4 puts four robot karts of yours on the track; --autodrive (or P) drives your own kart for you;
-   --headless runs with no window.
+   Start (or S / Enter) in the lobby; arrow keys or WASD to drive. --bots 4 puts four robot karts of yours in each
+   race; --autodrive (or P) drives your own kart; --min-players N (default 2); --headless runs with no window.
+   Results and records stay in FD&F's memory across races and restarts.
 
 If the droplet restarts, start fdf-client.exe again.
 
 3. Calls (the real Communicator). Each other player's tile has a Call button; it opens comms-app.exe straight into a
    call to them, and their game opens theirs, where the call rings. Tell the game where comms-app.exe is:
 
-     python kartdemo.py --name <your-name> --race-host <race-ip>:8799 --comms-app <path>\comms-app.exe
+     python kartdemo.py --name <your-name> --fdf <droplet-ip>:8840 --comms-app <path>\comms-app.exe
 
-   The race machine runs the Communicator's memory and media server (fdf-comms.sh), ports 8800 and 8994.
+   The droplet runs the Communicator's memory and media server (fdf-services.sh), ports 8800 and 8994.
 
 4. The browser terminal: log in to any machine in the network that runs fdf-term-serve, from this machine's browser.
    Needs Python 3 only (nothing to pip install). In a window of its own:

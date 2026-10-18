@@ -4,6 +4,7 @@
 #   m = Memory(host, port)                       one session to the region (api /ram.php)
 #   m.write(s, v, i, bag, own=True)              posted: it goes out and this returns; nothing is waited for.
 #                                                own=True: the region writes the tuple {} when this session ends
+#   m.write(s, v, i, bag, permanent=True)        filed by the region: back in the memory after the region restarts
 #   m.read(s, v, i, after=-1, wait_s=0)          a family read (i "" = any); after>=0 with wait_s>0 is the trigger,
 #                                                held by the region until something is written past `after`
 #   for changed in m.follow(s, v): ...           the family once, then only what is written to it, as it is written
@@ -57,11 +58,20 @@ class Memory:
     def _err(self, what, err):
         return RibbitError(f"{self.where} {what}: {_text(_lib, err) if err.value else '?'}")
 
-    def write(self, service, variable, instance, bag, own=False):
+    def write(self, service, variable, instance, bag, own=False, permanent=False):
         err = ctypes.c_void_p()
         if _lib.kr_write(self.h, service.encode(), variable.encode(), instance.encode(), json.dumps(bag).encode(),
-                         1 if own else 0, ctypes.byref(err)) != 0:
+                         (1 if own else 0) | (2 if permanent else 0), ctypes.byref(err)) != 0:
             raise self._err(f"write {service}.{variable}.{instance}", err)
+
+    def write_landed(self, service, variable, instance, bag, permanent=False):
+        """The same write, returning once the memory has it (its id). Only for a program about to end its session,
+        which must know its last truths are in the memory before it goes; everything else posts."""
+        body = {"service": service, "variable": variable, "instance": instance, "bag": bag}
+        if permanent: body["permanent"] = True
+        r = self.call("POST", self.api + "?op=write", json.dumps(body))
+        if not r.get("ok"): raise RibbitError(f"{self.where} write {service}.{variable}.{instance} refused: {r}")
+        return r["id"]
 
     def read(self, service, variable="", instance="", after=-1, wait_s=0.0):
         err = ctypes.c_void_p()
