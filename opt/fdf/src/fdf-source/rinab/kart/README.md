@@ -7,6 +7,37 @@ strip at the same time. One application, two independently governed memories, co
 - **comm region** (`comm/tile/<id>`): each player publishes a tile (presence, status, whom they are calling).
   The two regions know nothing about each other; the app maps both.
 
+## Robots and the autopilot `[KART_AUTODRIVE_V1]`
+
+`--bots N` adds N robot karts that this game owns and drives, named `<name>-bot1` … `<name>-botN`, each in its own
+colour. A robot is a kart cell like any other: every player on every machine sees it the same way it sees a person's
+kart, and nothing anywhere knows it is a robot except its owner. Robots follow the track in their own lane at their
+own pace, wander across the road a little, and step aside for a kart just ahead.
+
+`--autodrive` puts your own kart on the same autopilot from the start; `P` turns it on and off during play.
+`--headless` runs with no window and no sound, for a machine that is only there to put karts on the track:
+
+    python kartdemo.py --name nyc --race-host H:8799 --bots 4 --autodrive --headless
+
+## Every kart writes from its own thread `[KART_WRITER_THREAD_V1]`
+
+Each kart a game owns (yours and each robot) is its own participant: it writes its own cell from its own thread,
+always the newest pose, one write in flight. The frame loop never waits on the network. Before this, the game wrote
+its pose on the frame loop, so the frame rate fell with the distance to the region:
+
+| round trip to the region | before (fps) | now (fps) |
+|---|---|---|
+| local | 61 | 61 |
+| 30 ms | 27 | 61 |
+| 80 ms | 10 | 61 (with 3 robots and a second player) |
+
+Measured here through a TCP relay adding the delay each way (this kernel has no netem). The tile is written off the
+frame loop as well. Other karts are drawn at their last written pose carried forward along their heading for the
+time since it was read (at most 0.3 s): rendering between reads, not reconciliation.
+
+`[KART_REPORT_V1]` A region call that fails is said once when it starts failing, with the cause, and once when it
+works again; `ribbit.py` raises `RibbitError` rather than returning nothing (`[RIBBIT_PY_SAYS_WHY_V1]`).
+
 ## What is real and what is not
 
 | piece | state |
@@ -20,8 +51,8 @@ Real camera and audio happen only in the Communicator window, never inside the g
 
 ## Files
 
-- `kartdemo.py` — the game, the call strip, the Call buttons and the FD&F lookup (337 lines).
-- `ribbit.py` — the pure-Python Ribbit client (HTTP `/ram.php`), stdlib only.
+- `kartdemo.py` — the game, the robots and autopilot, the call strip, the Call buttons and the FD&F lookup (446 lines).
+- `ribbit.py` — the pure-Python Ribbit client (HTTP `/ram.php`), stdlib only (54 lines).
 - `kartdemo.original.py` — the version before calls and FD&F, kept for comparison.
 
 ## What has to exist first (not in this directory)
@@ -50,7 +81,7 @@ Or with the addresses given directly (no FD&F, no member check):
 
     python kartdemo.py --name red --race-host H:8799 --comms-ram H:8800 --comms-media H:8994 --comms-app <path>
 
-Controls: arrow keys or WASD. `--comm-host H:P` puts the tile region on another server, to show that the two regions
+Controls: arrow keys or WASD; `P` toggles the autopilot. `--comm-host H:P` puts the tile region on another server, to show that the two regions
 are independent. `--laps N` (default 3).
 
 ## Options
@@ -65,9 +96,25 @@ are independent. `--laps N` (default 3).
 | `--comms-media H:P` | from FD&F, else race host:8994 | the Communicator's media server |
 | `--comms-app PATH` | `comms-app.exe` / `comms-app` on PATH | the Communicator program |
 | `--comms-args "…"` | none | more options for comms-app, e.g. `--camera video=<name> --mic 1` or `--synthetic 640x360` |
+| `--bots N` | 0 | robot karts this game owns and drives |
+| `--autodrive` | off | your own kart starts on the autopilot (`P` toggles it) |
+| `--headless` | off | no window, no sound |
 
 The game is not in any installed package: run it from this directory. `fdf-kart-ram.sh`'s header names
 `/opt/fdf/kart/kartdemo.py`, which no package installs.
+
+## Proven: robots, autopilot, writer threads (2026-10-17)
+
+Against `rina-host` built from this tree by `tools/build.sh` (build fdf-2026-10-12-r20), on one Linux machine, all
+players headless:
+
+- Two games, red with 5 robots and blue on the autopilot with 2 robots, sampled from the region every 0.25 s for 40 s:
+  every robot and blue lapped continuously, 3.4 to 4.5 laps each, never stopped, and the farthest any of them got
+  from the centre-line was 50 px on a road 62 px wide each side.
+- The frame-rate table above.
+- The region stopped mid-race and started again: each of the five region calls said `FAILING` with
+  `Connection refused`, then `working again`; the game held 61 fps throughout.
+- **Not run:** across real machines, and on Windows.
 
 ## Proven (rinab/experiments/RESULTS.md, "kart calls")
 

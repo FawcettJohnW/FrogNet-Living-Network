@@ -17,6 +17,8 @@ Needs: nothing for fdf-client.exe (one static program, no DLLs).
      python kartdemo.py --name <your-name> --race-host <droplet-ip>:8799
 
    Arrow keys or WASD. You see the other players' karts and their call tiles.
+   --bots 4 puts four robot karts of yours on the track; --autodrive (or P) drives your own kart for you;
+   --headless runs with no window.
 
 If the droplet restarts, start fdf-client.exe again.
 
