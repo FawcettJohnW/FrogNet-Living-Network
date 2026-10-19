@@ -296,6 +296,13 @@ I asked John which shape replaces the replica, and he has not answered:
 
 Don't build either until he rules.
 
+### Ruled 2026-10-19: this tree supersedes main's Redis work
+
+Main (7651d9c) carries Redis work this tree does not: `[READS_AT_THE_FRONT_V1]`, `[CLIENT_COALESCES_V1]`, and 47
+files including `examples/redis/platform/ribbit-v0.63`. Branch `ribbit-mqtt-v32-20261019` replaces it. John's ruling:
+"This work should supersede the main work. It is faster and adheres to the principles." Do not port main's Redis
+work back. The (a)/(b) question above is separate and still open.
+
 ### Also wrong, not yet fixed
 
 - **Directory scans.** `hold_filter`, `topics_matching` and `rgn_retained_count` each read the whole
