@@ -208,7 +208,12 @@ class _DaemonInflight:
         self.reply: Optional[bytes] = None
         self.error: Optional[Exception] = None
 
-_daemon_inflight: Dict[bytes, _DaemonInflight] = {}   # keyed on req_hash
+# [COALESCE_PER_PEER_V1] keyed on (peer_ip, req_hash): a reply is a difference against ITS peer's reference
+# (_diff_encode_response), so it is handed only to a caller from that peer. Handed to another peer it decoded against a
+# reference that peer does not hold, and that peer's reference never moved (daemon/test_coalesce_per_peer_oracle.py).
+# Sharing one execution across peers needs the upstream call coalesced inside ExecutionEngine.execute, with each peer's
+# reply encoded for it -- not done here.
+_daemon_inflight: Dict[Tuple[str, bytes], _DaemonInflight] = {}
 _daemon_inflight_lock = threading.RLock()
 
 
@@ -885,13 +890,14 @@ class SemanticSession:
         )
 
         if can_coalesce:
+            inflight_key = (self.peer_ip, req_hash)          # [COALESCE_PER_PEER_V1]
             with _daemon_inflight_lock:
-                existing = _daemon_inflight.get(req_hash)
+                existing = _daemon_inflight.get(inflight_key)
                 if existing is not None:
                     _debug(f"COALESCE: waiting on in-flight exec for hash={req_hash.hex()} (from {self.peer_ip})")
                 else:
                     entry = _DaemonInflight()
-                    _daemon_inflight[req_hash] = entry
+                    _daemon_inflight[inflight_key] = entry
 
             if existing is not None:
                 if existing.event.wait(timeout=_COALESCE_WAIT_SEC):
@@ -912,7 +918,7 @@ class SemanticSession:
             finally:
                 entry.event.set()
                 with _daemon_inflight_lock:
-                    _daemon_inflight.pop(req_hash, None)
+                    _daemon_inflight.pop(inflight_key, None)
 
             return (seq, reply, wire_in)
 
