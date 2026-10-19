@@ -21,6 +21,10 @@ WANT_ARCH="__ARCH__"; M=$(uname -m)
 # NetworkManager hook's merges are requests to it); a node installed before T4c may not have it [WATCHER_HAS_INOTIFY_V1]
 for b in python3 wg systemctl tar inotifywait apache2ctl curl; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing$( [ $b = inotifywait ] && echo ' (apt-get install inotify-tools)')"; exit 1; }; done
 [ -d /opt/frognet_semantic/internet_tunnels_v3 ] || { echo "fdf-install: /opt/frognet_semantic/internet_tunnels_v3 not found: this is not a FrogNet node (install FrogNet first)"; exit 1; }
+# [NODE_HAS_THE_VENV_V1] the bundle's FrogNet files (runMerge.bash, the tunnel daemon's region code) run on the venv the
+# FrogNet installer builds ([SERVICES_ON_THE_VENV_V1]). A node installed before that has none: unpacking would leave its
+# merges failing "status=no_python". Stop before anything is written, and say what to do.
+[ -x /opt/frognet_semantic/venv/bin/python3 ] || { echo "fdf-install: /opt/frognet_semantic/venv/bin/python3 not found: this node's FrogNet predates the venv its files now run on. Nothing was changed. Upgrade FrogNet first (sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve, from a checkout of the repository), then run this again."; exit 1; }
 echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
 tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }
