@@ -155,15 +155,19 @@ New entries:
 10. **Bytes on the session.** The session carries a call as text; Redis values are any bytes. Each byte travels as the
     code point of the same number (`[BYTES_AS_CODE_POINTS_V1]`): exact for any bytes, ASCII unchanged, no base64.
 
-11. **Answers that finish out of order.** A blocked command's answer comes long after the calls behind it. The session
-    keeps one answer reference per instance; calls with no instance share one, so out-of-order answers were
-    differenced against a reference the front did not hold. Each connection's calls name a slot as their instance
-    (`[A_CHAIN_PER_CONNECTION_V1]`); a slot is not a number (a numeric instance is read as a moving window -- see 12).
+11. **Answers that finish out of order -- a misdiagnosis, withdrawn.** A blocked command's answer comes after the calls
+    behind it, and a failure under that load was first blamed on the session's answer references; per-connection slot
+    instances were added to the front to work around it. Wrong layer and wrong cause: the session applies answers in the
+    order they arrive (the host's send order, `[WIRE_ORDER_TURNS_V1]`), and the failure was entry 13. The slots are
+    removed; the front's calls carry no instance; the families that failed (GETDEL, ZINCRBY) are green 6 of 6 without them.
 
-12. **Platform: the moving window after a REQ_MISS** (not fixed here; reported 2026-10-19). A "next in window" frame
-    carries no location; the receiver takes one past the last it decoded. A REQ_MISS on the frame before leaves the
-    sender's last location advanced and the receiver's not, and the next window frame decodes into the wrong instance,
-    silently (seen: sent instance=4, decoded instance=2). Redis no longer uses the window; MQTT's publish window can.
+12. **Platform: the moving window after a REQ_MISS -- observed, not reproduced alone, not fixed.** With the slot
+    instances above (numeric, taken out of order and reused), a trace showed a frame sent for instance=4 decoded as
+    instance=2: a "next in window" frame carries its instance as a delta against the last cell, and after a REQ_MISS on
+    the frame before, the sender's last cell had moved and the host's had not. An in-process test of the two engines
+    with out-of-order numeric instances produced no REQ_MISS at all (references release in lockstep there), so the fix
+    was not shipped without a failing test. Redis no longer sends instances. Open for any writer whose window frames can
+    meet a REQ_MISS while later frames are in flight.
 
 13. **Platform: SAME after RAW** (fixed, `[SAME_ONLY_WHEN_BOTH_MOVE_V1]`, `cpp/include/fnwp_engine.hpp`). An answer the
     reply template cannot hold goes RAW and moves neither end's reference; the same answer again came as RESP_SAME, which

@@ -28,9 +28,7 @@ the tuple). The answer is the call's reply. Nothing is copied, cached, fed, inva
 ## The call
 
 One kind of request, `op=redis`, its body a line naming what it is, then its bytes -- each byte carried as the code point
-of the same number, since the session carries text (`[BYTES_AS_CODE_POINTS_V1]`). A pipeline's call names its
-connection's slot as its instance, so each connection's answers keep their own reference on the session
-(`[A_CHAIN_PER_CONNECTION_V1]`; QUESTION-3 entry 11).
+of the same number, since the session carries text (`[BYTES_AS_CODE_POINTS_V1]`).
 
 | request | runs | answer |
 |---|---|---|

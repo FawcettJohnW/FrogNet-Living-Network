@@ -31,13 +31,15 @@ namespace region {
 void (*write_kill)(const std::string& front, uint64_t n) = nullptr;
 
 namespace {
-enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16 };
+enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16, WAIT = 32 };
 
 struct Conn {
     std::string key, front; uint64_t n = 0, session = 0;
     Client* c = nullptr;
     std::atomic<uint32_t> busy{0}, pend{0};
     std::string pipeline; void* answer = nullptr;      // PIPE: set before the bit
+    void* waiter = nullptr;                            // WAIT: a parked call's held read for the rest, set before the bit
+    std::string stash; bool stashed = false;          // the runner's: an answer made before its held read arrived
     std::atomic<uint64_t> due{0};                     // TIMEOUT: the parking whose time ran out
     bool dead = false;                                 // the runner's
     // parked: the runner's, except `word` and `park_no` (read by writers and the deadline thread)
@@ -101,11 +103,15 @@ void deadlines() {
 }
 
 // ---- the runner --------------------------------------------------------------------------------------------------
-void answer(Conn* k, std::string out, bool close) {
-    if (!k->answer) { DIAG("region", "answer-none", k->key, "close=" + std::to_string(close)); return; }
-    DIAG("region", "answer", k->key, "bytes=" + std::to_string(out.size()) + " close=" + std::to_string(close) + " parked=" + std::to_string(k->parked));
+// The answer: "<authenticated><0 open | 1 close | 2 parked: more follows>\n" and the replies. [REPLIES_BEFORE_THE_BLOCK_V1]
+// A command that parks answers the call with the replies before it (Redis sends them as the command blocks), and its
+// front makes one more call for the connection, `w`: a held read for the rest. An answer made before that read has
+// arrived is kept (stash) and given to it when it does.
+void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
     std::string b; b.reserve(out.size() + 3);
-    b += k->c->authed ? '1' : '0'; b += close ? '1' : '0'; b += '\n'; b += out;
+    b += k->c->authed ? '1' : '0'; b += close ? '1' : parked_more ? '2' : '0'; b += '\n'; b += out;
+    if (!k->answer) { DIAG("region", "answer-stashed", k->key, "close=" + std::to_string(close)); k->stash = std::move(b); k->stashed = true; return; }
+    DIAG("region", "answer", k->key, "bytes=" + std::to_string(out.size()) + " close=" + std::to_string(close) + " parked=" + std::to_string(k->parked));
     // taken out BEFORE it is sent: once the front has the answer it may send the next call, which sets k->answer anew
     void* a = k->answer; k->answer = nullptr;
     ribbit::answer_later(a, bytes_to_text(b));
@@ -153,6 +159,8 @@ void park(Conn* k, const Argv& argv, std::vector<Argv>& cmds, size_t i, std::str
     if (c.park_timeout_ms > 0) add_deadline(mono_us() + c.park_timeout_ms * 1000, k->key, no);
     // a write between the try and the registration moved nothing: try once more now that it is registered
     k->recheck = true; k->pend.fetch_or(WAKE, std::memory_order_acq_rel);
+    std::string before = std::move(k->out); k->out.clear();
+    answer(k, std::move(before), false, true);   // the replies before it, now [REPLIES_BEFORE_THE_BLOCK_V1]
 }
 // a connection's commands from `from` on; the replies so far are `o`; answers its call unless it parks
 void run(Conn* k, std::vector<Argv>& cmds, size_t from, std::string o) {
@@ -198,9 +206,13 @@ void serve(Conn* k, uint32_t p) {
 }
 void handle(Conn* k, uint32_t p) {
     DIAG("region", "handle", k->key, "pend=" + std::to_string(p) + " dead=" + std::to_string(k->dead) + " parked=" + std::to_string(k->parked) + " answer=" + std::to_string(k->answer != nullptr));
-    if (k->dead) { if (p & PIPE) answer(k, std::string(), true); return; }
+    if (p & WAIT) {                               // the parked call's held read for the rest
+        k->answer = k->waiter; k->waiter = nullptr;
+        if (k->stashed) { k->stashed = false; void* a = k->answer; k->answer = nullptr; ribbit::answer_later(a, bytes_to_text(k->stash)); k->stash.clear(); }
+    }
+    if (k->dead) { if (p & (PIPE | WAIT)) answer(k, std::string(), true); return; }
     if (p & (GONE | KILL)) {
-        const bool had_call = k->parked || (p & PIPE);
+        const bool had_call = k->parked || (p & (PIPE | WAIT));
         if (k->parked) { std::string o = std::move(k->out); unpark(k); answer(k, std::move(o), true); }
         if (p & PIPE) answer(k, std::string(), true);
         if ((p & KILL) && !(p & GONE) && !had_call && write_kill) write_kill(k->front, k->n);   // its front closes the socket
@@ -295,6 +307,16 @@ std::string call(const std::string& text) {
         k->pend.fetch_or(PIPE, std::memory_order_acq_rel);
         DIAG("region", "p-deferred", key, "answer=" + std::to_string(k->answer != nullptr));
         ribbit::pool_run([key] { DIAG("region", "job", key); job(key); });
+        return std::string();
+    }
+    case 'w': {                                   // a parked call's held read for the rest of its pipeline
+        auto* nd = conns.get(key);
+        if (!nd) return std::string("01\n");
+        Conn* k = nd->val;
+        k->waiter = ribbit::defer_answer();
+        if (!k->waiter) throw std::runtime_error("redis region: a held read is answered later, and this call cannot be");
+        k->pend.fetch_or(WAIT, std::memory_order_acq_rel);
+        ribbit::pool_run([key] { job(key); });
         return std::string();
     }
     case 'g': {                                   // the client hung up

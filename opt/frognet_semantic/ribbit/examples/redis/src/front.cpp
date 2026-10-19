@@ -41,26 +41,6 @@ using namespace rr;
 
 namespace {
 const std::string PATH = "/redis-api?op=redis";
-// [A_CHAIN_PER_CONNECTION_V1] A pipeline's call names a slot as its instance: the session keeps one reference per instance
-// for the answers, and a connection's calls are strictly one after another, so each slot's answers are made and applied
-// in the same order. (Calls with no instance share one chain, and answers that finish out of order -- a blocked command
-// behind a fast one -- would difference against a reference the front does not hold.) Slots are reused, so the
-// session's references stay as many as the connections at once: a slot is free again once its connection is gone AND
-// its last call is answered.
-struct Slot { uint64_t n = 0; std::atomic<int> refs{1}; };
-std::atomic<uint64_t> slots_made{0};
-LFMap<uint64_t, int> free_slots;
-Slot* take_slot() {
-    auto* s = new Slot;
-    ebr::Guard g;
-    for (;;) {
-        auto* f = free_slots.first();
-        if (!f) { s->n = ++slots_made; return s; }
-        const uint64_t n = f->key;
-        if (free_slots.remove(n)) { s->n = n; return s; }
-    }
-}
-void unref(Slot* s) { if (s->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) { free_slots.add(s->n, 1); delete s; } }
 std::unique_ptr<frogram::Session> S;              // the front's session: its calls, in order
 std::unique_ptr<ribbit::Space> SP;               // its read of the kills the region wrote for it
 std::string ME;                                   // this front's name
@@ -72,7 +52,6 @@ struct Conn {
     int fd = -1, ep = -1;
     uint64_t local = 0;
     std::string key;                              // "<front>/<n>": its name in the region
-    Slot* slot = nullptr; std::string path;       // its calls' instance [A_CHAIN_PER_CONNECTION_V1]
     RespParser parser;
     std::atomic<bool> authed{true};
     std::atomic<bool> inflight{false};            // a call is out: the socket is watched for hang-ups only
@@ -92,7 +71,6 @@ std::vector<int> loops;
 void arm(Conn* c, uint32_t events) { epoll_event ev{}; ev.events = events | EPOLLONESHOT; ev.data.u64 = c->local; epoll_ctl(c->ep, EPOLL_CTL_MOD, c->fd, &ev); }
 void gone(Conn* c) {                              // the client hung up, or was closed: it leaves the region and this table
     if (c->gone.exchange(true)) return;
-    unref(c->slot);                               // free once the call out (if any) is answered too
     DIAG("front", "gone", c->key, "inflight=" + std::to_string(c->inflight.load()));
     S->post("POST", PATH, bytes_to_text("g " + c->key));
     Conn* out = nullptr;
@@ -141,9 +119,14 @@ void answered(uint64_t local, int status, const std::string& text, const std::st
     auto* x = conns.get(local); Conn* c = x ? x->val : nullptr;
     DIAG("front", "answered", ME + "/" + std::to_string(local), "status=" + std::to_string(status) + " bytes=" + std::to_string(text.size()) + " found=" + std::to_string(c != nullptr) + " head=" + text.substr(0, 2));
     if (!c) return;                               // hung up meanwhile
-    std::string out; bool close = false;
+    std::string out; bool close = false, more = false;
     if (status >= 400 || body.size() < 3 || body[2] != '\n') { Reply e; e.error("ERR region: " + body.substr(0, 200)); out = e.out; close = true; }
-    else { c->authed = body[0] == '1'; close = body[1] == '1'; out = body.substr(3); }
+    else { c->authed = body[0] == '1'; close = body[1] == '1'; more = body[1] == '2'; out = body.substr(3); }
+    if (more) {                                   // parked: the replies before it now, and a held read for the rest
+        S->call_async("POST", PATH, bytes_to_text("w " + c->key), [local](int st, std::string b, std::string er) { answered(local, st, b, er); });   // [REPLIES_BEFORE_THE_BLOCK_V1]
+        send_out(c, std::move(out));
+        return;
+    }
     if (c->fatal) { Reply e; e.error("ERR " + c->fatal_err); out += e.out; close = true; }
     c->inflight.store(false, std::memory_order_release);
     // [REPLIES_IN_ORDER_V1] re-armed BEFORE the reply is written: the client's next command can only follow the reply
@@ -187,17 +170,14 @@ void event_loop(int ep) {
             std::string body = "p " + c->key + "\n"; for (auto& a : pr.cmds) body += resp_of(a);
             c->inflight.store(true, std::memory_order_release);
             arm(c, EPOLLRDHUP);
-            const uint64_t local = c->local; Slot* sl = c->slot; sl->refs.fetch_add(1, std::memory_order_acq_rel);
+            const uint64_t local = c->local;
             DIAG("front", "call", c->key, "cmds=" + std::to_string(pr.cmds.size()) + " bytes=" + std::to_string(body.size()));
-            S->call_async("POST", c->path, bytes_to_text(body), [local, sl](int status, std::string b, std::string err) { answered(local, status, b, err); unref(sl); });
+            S->call_async("POST", PATH, bytes_to_text(body), [local](int status, std::string b, std::string err) { answered(local, status, b, err); });
         }
     }
 }
 void accept_conn(int fd, const std::string& addr, const std::string& laddr) {
     auto* c = new Conn; c->fd = fd; c->local = ++next_local; c->key = ME + "/" + std::to_string(c->local);
-    // "c<n>", not a bare number: a numeric instance is read by the session as a moving window (cell N differenced
-    // against N-1, N's location inferred from the last one decoded) -- slots are taken out of order and reused, so not one
-    c->slot = take_slot(); c->path = PATH + "&service=redis&variable=" + ME + "&instance=c" + std::to_string(c->slot->n);
     c->authed = g.requirepass.empty();
     static std::atomic<uint32_t> deal{0};
     c->ep = loops[deal.fetch_add(1, std::memory_order_relaxed) % loops.size()];
