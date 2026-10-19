@@ -337,9 +337,16 @@ def draw_lobby(lob, servers, recs, agreed, chats):
     y+=8; text("races running", 40, y, FONT, (200,220,255)); y+=26
     for r, b in sorted(servers.items()): text(f"{r} on {b.get('host')} ({b.get('addr')}:{b.get('port')})", 40, y, SMALL); y+=19
     if not servers: text("none", 40, y, SMALL, (150,150,155))
-    x2=470; y2=104; text("chat", x2, y2, FONT, (200,220,255)); y2+=26
-    for c in chats[-13:]: text(f"{c.get('who','?')}: {c.get('text','')}"[:58], x2, y2, SMALL, (200,200,170) if c.get('who')=='kart service' else (230,230,235)); y2+=19
-    pygame.draw.rect(screen,(20,22,26),(x2,y2+4,380,26),border_radius=4); text(chat_text+"_", x2+6, y2+8, SMALL); y2+=40
+    x2=470; y2=104; text("chat with everyone in the lobby", x2, y2, FONT, (200,220,255)); y2+=28
+    # [KART_CHAT_BOX_V1] the box you type into is at the top, lit, and says what to do while it is empty
+    box=pygame.Rect(x2, y2, TRACK_W-x2-20, 30); pygame.draw.rect(screen,(14,16,20),box,border_radius=6)
+    pygame.draw.rect(screen,(110,170,255),box,width=2,border_radius=6)
+    cursor="|" if int(time.time()*2)%2 else " "
+    if chat_text: text(chat_text[-50:]+cursor, x2+10, y2+7, SMALL)
+    else: text(cursor+" type here, Enter sends it to everyone", x2+10, y2+7, SMALL, (140,150,170))
+    y2+=40
+    for c in chats[-12:]: text(f"{c.get('who','?')}: {c.get('text','')}"[:52], x2, y2, SMALL, (200,200,170) if c.get('who')=='kart service' else (230,230,235)); y2+=19
+    y2+=10
     text("records (permanent)", x2, y2, FONT, (200,220,255)); y2+=24
     for n, r in sorted(recs.items(), key=lambda kv: (-kv[1].get("wins",0), kv[1].get("best_lap") or 1e9))[:6]:
         text(f"{n:12s} races {r.get('races',0):3d}  wins {r.get('wins',0):3d}  best lap {r.get('best_lap') or '-'}", x2, y2, SMALL); y2+=19
