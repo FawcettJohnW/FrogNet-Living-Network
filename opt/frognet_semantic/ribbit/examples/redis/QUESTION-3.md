@@ -176,3 +176,11 @@ New entries:
     does not say SAME when the client could not. `tests/run_same_after_raw.py`: red before, green after. The Python
     daemon's RAW-path SAME (`_build_raw_reply`) has the same shape; it diverges only if the proxy extracts what the
     daemon's proof refused -- not yet shown, not changed.
+
+14. **Platform: a follow lost its wakeup** (fixed, `[SEEN_IS_WHAT_WAS_READ_V1]`, `cpp/src/ram_host.cpp`,
+    `cpp/include/ram_memory.hpp`). The memory's follow task took "seen" as the family's head before reading. A write whose
+    slot was reserved but not yet filled stopped the read, yet counted as seen; its own wake then found nothing new, and
+    the row waited for the next write. Replies written as piece cells and then their cell (a reply past one frame) made
+    it frequent: string.tcl "Very big payload random access" stalled. "seen" is now the cursor's read position after the
+    read. `tests/run_big_replies.py`: red before, green 3/3 after. MQTT two_boxes 13/13 after; its cross-box qos1 load
+    "lost" is intermittent (3 of 4 runs on cc87622, 2 of 3 on this tree) -- pre-existing, open, not this fix.

@@ -37,6 +37,7 @@ stage() { local name=$1; shift; note "== $name"; "$@" > "$OUT/$name.txt" 2>&1; g
 if has oracles; then
   stage two-fronts python3 tests/run_two_fronts.py build 9611
   stage same-after-raw python3 tests/run_same_after_raw.py build 9620
+  stage big-replies python3 tests/run_big_replies.py build 9621
   stage concurrency python3 tests/run_concurrency.py build 9631
 fi
 suite() {   # $1 name, $2 the program Redis's suite starts as src/redis-server
