@@ -569,6 +569,20 @@ public:
         auto la = last_ans_.find(ik); if (la != last_ans_.end()) { last_by_sid_.erase(la->second.sid); last_ans_.erase(la); } }   // the writer only
     // [SAME_AS_LAST_ANSWER_V1] the last answer each instance was given (the writer's)
     struct LastAns { int status = 0; std::string body, sid; };
+    // [SAME_ONLY_WHEN_BOTH_MOVE_V1] A RESP_SAME moves the client's response reference to the fields it extracts from the
+    // answer the SAME names (ClientEngine::complete_locked: its RAM-answer template, or the reply template, no proof).
+    // This end moves its own to exactly those fields before saying SAME; when the client could not extract them, SAME is
+    // not said (the answer goes RAW, which moves neither). Without it, an answer that went RAW once and came again as
+    // SAME moved the client's reference and not this one: the next difference was applied to another reference
+    // (Redis's incr.tcl: "a splice longer than its reference"; examples/redis/tests/run_same_after_raw.py).
+    bool same_moves(const Template& t, const detail::IKey& ik, const std::string& body) {
+        std::optional<semcodec::Fields> held;
+        if (t.ram_rows) { auto rt = rr_tpl_.find(ik); if (rt != rr_tpl_.end()) held = ramrows::extract(body, ramrows::learn(rt->second)); }
+        else held = semtpl::extract(t.resp_frag, body, true);
+        if (!held) return false;
+        Dict nr; for (auto& kv : *held) nr.set(kv.first, kv.second); respref_[ik] = nr;
+        return true;
+    }
     std::unordered_map<detail::IKey, LastAns, detail::IKeyHash> last_ans_;
     std::string remember(const detail::IKey& ik, int status, const std::string& body, const std::string& sid, std::string frame) {
         LastAns& l = last_ans_[ik]; if (!l.sid.empty() && l.sid != sid) last_by_sid_.erase(l.sid);   // [SAME_NAMES_A_HELD_ANSWER_V1]
@@ -742,9 +756,11 @@ inline std::string ServerEngine::finish(const Work& w, const Answer& a) {     //
         return semwire::wrap_resp_raw(mint_sid(), uint16_t(a.status), "", a.body);
     }
     const detail::IKey& ik = w.ik; const uint64_t op = ik.first; const Template& t = tpl_.at(op); std::optional<semcodec::Fields> dyn;
-    {   // [SAME_AS_LAST_ANSWER_V1] the very answer this instance was last given: SAME, and nothing else to do
+    {   // [SAME_AS_LAST_ANSWER_V1] the very answer this instance was last given: SAME -- moving the reference as the client
+        // will ([SAME_ONLY_WHEN_BOTH_MOVE_V1]: that last answer may have gone RAW and moved nothing)
         auto la = last_ans_.find(ik);
-        if (w.consider_same && la != last_ans_.end() && la->second.status == int(a.status) && la->second.body == a.body && by_sid_.count(la->second.sid))
+        if (w.consider_same && la != last_ans_.end() && la->second.status == int(a.status) && la->second.body == a.body && by_sid_.count(la->second.sid)
+            && same_moves(t, ik, a.body))
             return semwire::wrap_resp_same(la->second.sid); }
     if (a.status < 400) {
         if (t.ram_rows) { auto it = rr_tpl_.find(ik); if (it != rr_tpl_.end()) dyn = ramrows::extract(a.body, ramrows::learn(it->second)); }
@@ -767,13 +783,16 @@ inline std::string ServerEngine::finish(const Work& w, const Answer& a) {     //
     }
     if (dyn && !semcodec::fits_wire(*dyn)) dyn.reset();  // [HOLDABLE_V1] a field the wire cannot carry: the answer goes RAW
     if (!dyn) {                                         // [RAW_SIGNAL_V1]: this answer cannot be held -> RESP_RAW
-        if (t.ram_rows && a.status < 400) { rr_tpl_[ik] = a.body; respref_.erase(ik); }
         // [RAW_ANSWER_IS_CACHED_FOR_REPEAT_V1] as the daemon's _build_raw_reply: the answer's hash is kept under the
         // request hash, so a REQ_REPEAT whose answer has not changed is RESP_SAME, and a REQ_REPEAT of it is not a
         // REQ_MISS. Without this every REPEAT after a RAW answer cost a MISS and a FULL (seen on every held read).
+        // [SAME_ONLY_WHEN_BOTH_MOVE_V1] decided BEFORE this end's RAM-answer template moves (the client's moves only on
+        // RAW), and only when the client can hold it: a SAME moves the client's reference, so it moves this one the same.
         auto c = cache_.find(w.req_hash);
-        if (w.consider_same && c != cache_.end() && c->second.held && c->second.status == int(a.status) && c->second.body == a.body && c->second.same_id.size() == 16)
+        if (w.consider_same && c != cache_.end() && c->second.held && c->second.status == int(a.status) && c->second.body == a.body && c->second.same_id.size() == 16
+            && same_moves(t, ik, a.body))
             { cache_touch(w.req_hash); return semwire::wrap_resp_same(c->second.same_id); }   // [NO_ANSWER_HASH_V1] the bytes held; [SAME_NAMES_A_HELD_ANSWER_V1] moved back
+        if (t.ram_rows && a.status < 400) { rr_tpl_[ik] = a.body; respref_.erase(ik); }
         const std::string sid = mint_sid();
         if (a.status < 400) cache_put(w.req_hash, CacheE{w.sem_in, "", sid, int(a.status), a.body});
         return a.status < 400 ? remember(ik, int(a.status), a.body, sid, semwire::wrap_resp_raw(sid, uint16_t(a.status), "", a.body))

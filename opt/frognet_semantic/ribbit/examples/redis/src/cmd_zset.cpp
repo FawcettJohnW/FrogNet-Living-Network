@@ -540,7 +540,6 @@ void register_zset_commands() {
 // ---- shared with geo
 int z_var(Client& c, const std::string& key, VarPtr& v, Reply& r) { return zvar(c, key, v, r); }
 bool z_score(const VarPtr& v, const std::string& m, double& d) { return zscore(v, m, d); }
-std::vector<std::pair<std::string, double>> z_all(const VarPtr& v) { return all_ordered(v); }
 // members whose score lies in [lo, hi], through the numeric index (geo's cell ranges)
 void z_range_scores(const VarPtr& v, double lo, double hi, const std::function<bool(const std::string&, double)>& f) {
     v->n_range(NumInst{score_key(lo), ""}, NumInst{score_key(hi), std::string(1, '\xff')}, [&](const NumInst& k, const CellPtr& c) { return f(member_of(k.instance), score_of(c)); });

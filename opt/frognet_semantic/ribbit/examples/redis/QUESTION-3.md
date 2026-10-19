@@ -130,37 +130,45 @@ A multi-key read reads each key as it is when read; concurrent changes are the s
 
 ---
 
-## One order (2026-10-17) [ONE_ORDER_V1] -- what the boxes change in this register
+## One keyspace (2026-10-19) [ONE_KEYSPACE_V1] -- what it changes in this register
 
-The RAM-host design ran commands from different fronts truly at once, in one memory, and the entries above are what
-that forced. Boxes on the memory (DESIGN.md) apply every box's intents in write order, one at a time, each box to its
-own copy: Redis's own execution model, reached without a server. What that does to each entry:
+The keyspace is in the memory once; a front's pipeline is one call, run on the memory's pool in parallel with every
+other connection's, each key's tuple taking one request at a time (DESIGN.md). It replaces ONE_ORDER_V1 (2026-10-17:
+every box a copy, applying every box's intents in write order), whose own entries 7-9 -- a box joining late by a copy,
+intents that were not UTF-8, intents larger than a write frame -- are gone with the copies and the intents. What it
+does to the entries above:
 
-- **Entry 1 (lazy expiry)** stands: liveness is still derived from value + ttl + now; "now" is the intent's time.
-- **Entries 2/4 (a batch is a value)** stand and matter less: an EXEC is applied in one turn of the applier, so no
-  other command sees its middle.
-- **Entries 3/5 (claims decide who is served)** are now the order itself: a parked command waits in a line in every
-  copy, first parked first served. The claim code stays (it is how a command finds its turn) and is not placed while
-  the applier tries a command (`[PARKED_IN_THE_ORDER_V1]`).
-- **Entry 6 (Linked LMOVEs, unblock inside CLIENT UNBLOCK)** is gone: a parked command is served in the same turn as
-  the write that readied it, before any later intent is applied -- what Redis does inside the writer's call.
-- **The two rulings (MULTI/EXEC isolation, multi-key reads at one moment)** now hold by construction, at no cost:
-  nothing waits for a transaction that would not wait anyway, because every command is applied in its turn.
+- **Entry 1 (lazy expiry)** stands: liveness is derived from value + ttl + the memory's clock.
+- **Entries 2/4 (a batch is a value)** stand for the *STORE family and RENAME; an EXEC's writes land one by one with
+  every wake held to its end, so a parked reader wakes once, after it. Another connection's write can land between an
+  EXEC's commands -- the 2026-09-29 ruling (nothing stops for one transaction). `run_two_fronts.py` check 7 asserts no
+  increment is lost and measures how many transactions saw another write in their middle.
+- **Entries 3/5 (claims decide who is served)** are the line again: a parked command keeps its ticket while it waits
+  (`[CLAIM_OUTLIVES_THE_TRY_V1]`), and the lowest ticket under a key is served (`run_two_fronts.py` check 4).
+- **Entry 6 (served right after the write that readied it)** holds without a thread: the writer's own thread serves
+  the parked commands its command woke, before its next command (`[WOKEN_BY_THE_WRITE_V1]`).
+- **The two rulings (no MULTI/EXEC isolation; multi-key reads best-effort)** are in force again, as ruled 2026-09-29.
+  (Under ONE_ORDER_V1 they held by construction, because one applier ran everything.)
 
 New entries:
 
-7. **A box joining late.** When every box's ring no longer holds that box's first intent, the history cannot be
-   replayed. Redis's answer is a replica's full sync, asked of the primary. Here the request is an intent (`j`) and the
-   answer a truth: the smallest live box writes the region as it stands right after that intent, and the joiner loads it
-   and follows the order from there (`[JOIN_BY_COPY_V1]`; `run_two_boxes.py` check 10; acceptance `loss`: a box killed
-   mid-write and started again reads every acknowledged write, 58,024 of 58,024).
+10. **Bytes on the session.** The session carries a call as text; Redis values are any bytes. Each byte travels as the
+    code point of the same number (`[BYTES_AS_CODE_POINTS_V1]`): exact for any bytes, ASCII unchanged, no base64.
 
-8. **Bytes that are not UTF-8.** The wire holds a bag as text; a pipeline carrying such bytes went unanswered and the
-   next intent's gap stopped the box (GETRANGE fuzzing, string.tcl). Such a pipeline now goes as base64, and a write
-   the memory refuses stops the box loudly (`[BINARY_SAFE_INTENTS_V1]`).
+11. **Answers that finish out of order.** A blocked command's answer comes long after the calls behind it. The session
+    keeps one answer reference per instance; calls with no instance share one, so out-of-order answers were
+    differenced against a reference the front did not hold. Each connection's calls name a slot as their instance
+    (`[A_CHAIN_PER_CONNECTION_V1]`); a slot is not a number (a numeric instance is read as a moving window -- see 12).
 
-9. **An intent larger than a write frame.** A 4 MB SET is one pipeline; a write frame is at most 16 KB, and a large
-   request taken off the request socket onto the data socket executes when its body lands -- out of the session's
-   order, so a box's intents could arrive as n+1 before n. Such an intent now goes as pieces, each an intent of its own
-   in the box's order, gathered per connection and applied whole when the intent itself arrives
-   (`[BIG_INTENTS_IN_PIECES_V1]`; string.tcl "Very big payload in GET/SET").
+12. **Platform: the moving window after a REQ_MISS** (not fixed here; reported 2026-10-19). A "next in window" frame
+    carries no location; the receiver takes one past the last it decoded. A REQ_MISS on the frame before leaves the
+    sender's last location advanced and the receiver's not, and the next window frame decodes into the wrong instance,
+    silently (seen: sent instance=4, decoded instance=2). Redis no longer uses the window; MQTT's publish window can.
+
+13. **Platform: SAME after RAW** (fixed, `[SAME_ONLY_WHEN_BOTH_MOVE_V1]`, `cpp/include/fnwp_engine.hpp`). An answer the
+    reply template cannot hold goes RAW and moves neither end's reference; the same answer again came as RESP_SAME, which
+    moves the client's reference and did not move the host's. The next difference broke the front (incr.tcl: "a splice
+    longer than its reference"). The host now moves its reference exactly as the client will before it says SAME, and
+    does not say SAME when the client could not. `tests/run_same_after_raw.py`: red before, green after. The Python
+    daemon's RAW-path SAME (`_build_raw_reply`) has the same shape; it diverges only if the proxy extracts what the
+    daemon's proof refused -- not yet shown, not changed.

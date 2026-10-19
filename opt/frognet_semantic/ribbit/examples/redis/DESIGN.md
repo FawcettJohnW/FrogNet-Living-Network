@@ -1,97 +1,74 @@
-# Redis on the memory -- design [ONE_ORDER_V1]
+# Redis on the memory -- design [ONE_KEYSPACE_V1]
 
-The reference model is `docs/CONVERTING-TO-RIBBIT.md`; this is how Redis meets it. Written 2026-10-17 with the
-change from the RAM-host design (a host process executing every pipeline, fronts calling it) to boxes on the memory.
+The reference model is `docs/CONVERTING-TO-RIBBIT.md`. Written 2026-10-19; replaces ONE_ORDER_V1 (every box a copy of
+the keyspace, kept the same by an intent ring) and main's RAM-host design (one keyspace, but fronts keeping read caches
+true with invalidation feeds). Both kept more than one copy of something true; that layer is gone (study-one-keyspace.md).
 
 ## The model, for Redis
 
-Redis's contract is one order: every command sees every command before it, and nothing between its start and its
-end (a transaction is one command). Its core state -- counters, lists, a blocked client's place in line -- is
-read-modify-write on contested truths. So the truth a box owns is not a key (any box may write any key): it is what
-its clients asked. Each box writes its clients' requests once, as intents, and every box applies every intent, in
-write order, to its own copy of the keyspace (`CONVERTING-TO-RIBBIT.md` §4b, the second form). The write order is the
-one order; every copy reaches the same state by it, and the box that wrote an intent answers its client from
-applying it. Nobody asks another machine anything; nothing is acknowledged.
+There is one keyspace and it is in the memory: the Redis region. The region is the one owner of every key -- a client
+never writes a key, it asks, and its request is the RAM call (2026-10-18). A front speaks RESP to stock clients and makes
+that call on its session for each pipeline it reads; the memory runs each call as a job on its pool, in parallel with
+every other, and a key's tuple takes one request at a time (2026-10-18: the only data serialisation is on the server, at
+the tuple). The answer is the call's reply. Nothing is copied, cached, fed, invalidated, paced or joined.
 
-    client --RESP--> box A ---- intents (written once) ----> memory <---- held read (the trigger) ---- box A, B, C ...
-                     (applies every intent in write order; answers its own clients)
+    stock client --RESP--> front --one RAM call per pipeline (the session)--> memory: the Redis region (the keyspace)
 
 ## The truth table
 
 | truth | owner (one writer) | indices | latest / distinct | readers | trigger | derived instead |
 |---|---|---|---|---|---|---|
-| a request: a connection opening (`o`), its pipeline (`p`), its end (`g`), its parked command's time running out (`u`), the region's configuration (`x`) | the box the client is connected to | `(redis, cmd, <box>/<n mod RING>)` | distinct: a ring of RING per box; a slot is rewritten only when every live reader has applied it | every box | a standing trigger on `(redis, cmd, *)` (`Memory::follow`): every box's intents in one family, in write order, as they are written | -- |
-| how far a box has applied | that box | `(redis, applied, <box>)` | latest | every box (pacing its own writes) | held read on `(redis, applied, *)` | a box is live while it rewrites it (every 250 ms) |
-| a request for the region: a box joining whose history the rings no longer hold | the joining box | an intent `j` in its own ring | distinct | every box; the smallest live one answers | the `cmd` trigger | -- |
-| the region as it stands at one write id (a copy) | the box that answered | `(redis, snap.<joiner>, <donor>/<k>)` pieces, then `(redis, snapdone, <joiner>)` `{id, k, b}` | written once | the joiner | held read on `(redis, snapdone, <joiner>)` | -- |
-| the keyspace, connections, MULTI queues, WATCH versions, parked commands | nobody: derived | -- | -- | -- | -- | each box's copy, applied from the intents |
+| a key's value, one cell per element (hash field, set member, list position, zset member, stream entry) and its ttl cell | the region, applying the requests in arrival order at the tuple | `(<db>, <key>, <element>)` | latest | requests in the region | a blocked command's held read on the key's word | sizes, counts, liveness (ttl against the clock) |
+| a blocked command's place in line | the region, for that request | `(claims.<db>, <key>, <ticket>)` | distinct, in arrival order | the other blocked commands on that key: the lowest ticket is served | the key's word | -- |
+| a connection (its db, protocol, name, MULTI queue, WATCHes, auth) | the region, opened by its front's request | the region's connection table, `<front>/<n>` | latest | its own requests; CLIENT LIST, CLIENT KILL, CLIENT UNBLOCK, INFO | -- | -- |
+| a connection the region killed (CLIENT KILL) | the region | `(redis.kill, <front>, <n>)` | written once | its front | the front's held read on `(redis.kill, <front>, *)`: it closes the socket | -- |
+| which session a connection came on | the region, when the connection opens (`o`) | the connection | for the session's life | the region: a session that ends takes its connections with it (invariant 5) | session down | -- |
+| the region's configuration | the front that starts the memory (its file), then CONFIG SET | the region's config | latest | every request | -- | -- |
 
-An intent's bag: `{"b":box,"n":n,"t":writer's clock ms,"k":kind,"c":the box's number for the connection,"u":parking,
-"p":the pipeline's RESP}` -- `"q"` (base64) instead of `"p"` when the bytes are not UTF-8 (`[BINARY_SAFE_INTENTS_V1]`).
-An intent over 12 KB goes as pieces (`"k":"P"`), each its own intent in the box's order, gathered per connection and
-applied whole with the intent itself (`[BIG_INTENTS_IN_PIECES_V1]`).
+## The call
 
-## Deciding the same on every box
+One kind of request, `op=redis`, its body a line naming what it is, then its bytes -- each byte carried as the code point
+of the same number, since the session carries text (`[BYTES_AS_CODE_POINTS_V1]`). A pipeline's call names its
+connection's slot as its instance, so each connection's answers keep their own reference on the session
+(`[A_CHAIN_PER_CONNECTION_V1]`; QUESTION-3 entry 11).
 
-- **Order**: the write id. A box applies an intent only after every intent with a smaller id (the memory publishes
-  in id order, `[PUBLISH_IN_ID_ORDER_V1]`).
-- **Time**: while an intent is applied, the clock is the largest writer's clock seen so far in the order (never
-  backwards). Expiry, TTL, XADD's `*`, OBJECT IDLETIME, CLIENT LIST ages: all read it (`apply_now_ms`, memory.hpp).
-- **Randomness**: the generator is seeded by the intent's write id (`apply_rng`): SPOP, SRANDMEMBER, HRANDFIELD,
-  ZRANDMEMBER, RANDOMKEY pick the same on every box.
-- **Connection ids**: assigned when the `o` intent is applied, in order: the same on every box.
-- **Blocked commands** `[PARKED_IN_THE_ORDER_V1]`: a blocking command is tried without blocking (`try_block`). When
-  it would wait, it is parked in arrival order with what its pipeline still holds; after every intent the parked
-  commands whose keys changed are tried again, first parked first. Served, it answers and its pipeline goes on. Its
-  time running out is an intent written by its own box (`u`); CLIENT UNBLOCK and CLIENT KILL are commands like any
-  other. Every box parks and serves the same way; only the box holding the client writes to it.
+| request | runs | answer |
+|---|---|---|
+| `o <front>/<n> <addr> <laddr>`: a connection opens | inline, in wire order (before its first pipeline) | none awaited |
+| `p <front>/<n>` + the pipeline's RESP | on the pool | `<authenticated><close>` then the replies' RESP |
+| `g <front>/<n>`: the client hung up | inline | none awaited |
+| `x` + the configuration as RESP | inline | none awaited |
 
-## Nothing lost, or said
+A connection has at most one pipeline in the region: its front reads the client's next bytes only after the answer
+(Redis's own order for one connection). A blocked command keeps its call unanswered; the front holds the socket open for
+hang-ups only.
 
-- A writer never overwrites slot `n mod RING` until every live box has applied intent `n - RING` (the readers'
-  `applied` tuples). A box that has not rewritten its `applied` for 3 s is gone and is not waited for.
-- Each box checks every other box's intents arrive as 1, 2, 3 ... A gap -- an intent overwritten before this box
-  applied it, or a box joining a region whose history the rings no longer hold -- means this copy can no longer be
-  the region's: the box says so and stops. Gone is gone (`run_two_boxes.py` check 10).
-- A box listens for clients only once it holds the region: it has applied the history the memory holds, or -- when the
-  rings no longer reach back to every box's first intent -- it has taken a copy (`[JOIN_BY_COPY_V1]`): it writes a `j`
-  intent and holds `applied` at 0 (so nothing after its request is overwritten); the smallest live box, applying that
-  intent, writes the region as it stands right after it -- keyspace cells with their write ids, creation ids, times and
-  accumulators; connections; MULTI queues and watches; parked commands in their line; configuration; every box's place
-  in the order -- as pieces; the joiner loads it and follows the order from that write id. Measured: 15 KB, 1 ms to
-  write, 511 ms to join (500 of them the wait before asking); `run_two_boxes.py` check 10.
+## Blocked commands, without a thread
 
-## The participants (front.cpp, apply.cpp)
+A blocking command (BLPOP and family, BZPOP*, XREAD/XREADGROUP BLOCK) is tried at once. If it would wait, its call's
+answer is kept, its claim ticket stays in the line, and it is registered on the key's word. The write that moves the
+word wakes it: the writer's own thread runs the parked command again right after its command, before its next one
+(Redis serves an unblocked client before the pipeline goes on), and the lowest ticket is served. Its time running out is
+one deadline thread for every parked command (one thread waits for all, 2026-10-18). CLIENT UNBLOCK and a hang-up end it
+the same way. Each connection has one runner at a time: an atomic flag and a mask of what is pending (a pipeline, a wake,
+a deadline, a hang-up); whoever takes the flag runs everything pending, so nothing waits on a lock.
 
-| participant | does |
-|---|---|
-| event loops (one per two cores) | read clients, frame pipelines, write `o`/`p`/`g` intents |
-| the writer (whoever drains) | the box's intents in order through one lock-free queue, paced by the slowest reader; each its cell's own request on the semantic wire, a DIFF against the box's previous intent (`<box>/<n>` is a moving window, `[MOVING_WINDOW_REFERENCE_V1]`), not answered (`[NO_WRITE_ACK_V1]`) |
-| the applier | the standing trigger on `cmd` (its rows DIFFs against the previous row, `[ROWS_ON_THE_SEMANTIC_WIRE_V1]`), run on the session's reader thread as each batch lands: applies every intent in write order (apply.cpp), hands this box's replies to its clients (re-armed before the reply is written: `[REPLIES_IN_ORDER_V1]`) |
-| heartbeat | this box's `applied` every 250 ms; a refused write stops the box |
-| readers | the trigger on `applied`: the slowest live box, for pacing |
-| the watcher | parked clients: hang-ups (`g`) and deadlines (`u`) |
-
-## What changed from the RAM-host design, and why
+## What it removed
 
 | before | now |
 |---|---|
-| a host process executing every pipeline (`op=redis_raw`), fronts calling it and waiting for the answer | the memory holds intents; every box executes; nothing is called |
-| connection ids and tokens issued by the host, context held there | connections are state in every copy, opened by an intent |
-| blocking commands parked on a host thread (`op=redis_block`), a watcher calling `cancel` | parked in the order, served by whichever intent makes them ready |
-| reads answered at the front from a coherent cache (feeds, invalidations, `coherence.cpp`) | every box holds the keyspace: a read is applied in order like a write |
-| MULTI/EXEC not isolated (ruled), multi-key reads best-effort (ruled) | both hold by construction: each intent is applied in one turn |
-| a vendored platform (v0.63) and 40 patch scripts | ribbit/cpp, linked as it is (`tools/build.sh`) |
-
-Removed: `redis_region.cpp`, `coherence.{hpp,cpp}`, `door/`, `tools/make_host.sh`, `tools/apply_*.py`, `tools/fdf/`,
-`platform/`.
+| every box a copy of the keyspace, applying every box's intents (`apply.cpp`, the intent ring, its writer and pacer) | one keyspace in the memory |
+| `applied` heartbeats, gap checks, a box that stops on a gap | nothing to keep in step |
+| a late box joining by a snapshot copy (`snap.*`, `snapdone`, dump/load) | a front holds nothing: start one and it serves |
+| the same clock and the same random seed on every copy | the region's clock and generator |
+| main: fronts' read caches, per-front invalidation feeds (`coherence.*`) | reads are the call; the semantic wire's SAME is the cache |
+| main: a parked request thread per blocked command; a fixed worker pool | a kept answer and a wake; the platform's adaptive pool |
+| main: vendored platform v0.63 and 40 patch scripts | ribbit/cpp, linked as it is |
 
 ## Limits, stated
 
-- **One applier per box.** Every box executes every command, one at a time, as stock Redis does. A box's command
-  rate is bounded by one core, whatever the number of boxes; boxes add clients and places, not command throughput.
-- **A copy is written on the answering box's applier.** While it is written, that box applies nothing else (a large
-  keyspace takes its serialisation time); the other boxes go on, and the joiner's `applied` of 0 holds their rings.
-- **Trust.** Anyone who can write the memory can write intents in any box's name; the memory's access is the trust
-  boundary (run it inside FrogNet's transport or WireGuard).
+- **Trust.** Anyone who can call the memory can name any front's connection; the memory's access is the trust boundary
+  (run it inside FrogNet's transport or WireGuard).
 - **Persistence.** None: when the memory stops, the region is gone.
+- **Redis pub/sub** (SUBSCRIBE, PUBLISH) is not implemented in this tree (it was not in the trees before either); it is a
+  write and a held read when it is.

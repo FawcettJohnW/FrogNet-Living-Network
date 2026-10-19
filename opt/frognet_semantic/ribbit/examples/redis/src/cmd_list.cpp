@@ -346,36 +346,14 @@ WaitWord& wait_word_for(Client& c, const std::vector<std::string>& keys) {
     c.block_keys.keys = keys; c.block_keys.nokey = false;
     return keys.size() == 1 ? R.word(keys[0]) : R.any;
 }
-bool peer_gone(int fd) { char b; ssize_t n = recv(fd, &b, 1, MSG_PEEK | MSG_DONTWAIT); return n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR); }
-// park until the word moves past `seen` (read BEFORE the pop attempt, so nothing between is missed),
-// the timeout passes, CLIENT UNBLOCK, or the peer hangs up. Sliced so the client watches its own connection.
-bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::chrono::steady_clock::time_point deadline) {
-    if (c.in_exec) return false;                    // inside EXEC a blocking command is its non-blocking self
-    if (c.try_block) { c.would_block = true; c.park_timeout_ms = timeout_ms; c.park_word = &w; c.park_seen = seen; return false; }   // [PARKED_IN_THE_ORDER_V1]
-    c.waiting_on = &w;
-    if (!c.region_blocked) g.blocked_clients++;
-    else if (!c.counted_blocked) { g.blocked_clients++; c.counted_blocked = true; }   // the door takes it off, after accounting
-    auto* bk = new Client::BlockKeys(c.block_keys); c.blocked_keys.store(bk, std::memory_order_release);
-    bool ok = true;
-    for (;;) {
-        if (c.closing) break;                          // the peer hung up (seen by the event thread): leave now
-        int64_t left = -1;
-        // [NEVER_BEFORE_THE_DEADLINE_V1] the timeout ends only once the deadline has passed: the time left is rounded UP
-        // to the millisecond (truncating it ended a 1 s BZPOPMIN at 999 ms on the Pi 5; Redis never returns early)
-        if (timeout_ms > 0) {
-            auto now = std::chrono::steady_clock::now();
-            if (now >= deadline) { ok = false; break; }
-            left = (std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count() + 999) / 1000;
-        }
-        int64_t slice = left < 0 ? 100 : std::min<int64_t>(left, 100);
-        ebr::exit(); Region::wait(w, seen, slice); ebr::enter();     // parked: hold nobody's garbage
-        if (w.gen.load(std::memory_order_acquire) != seen || c.unblock.load()) break;
-        if (c.closing || (c.fd >= 0 && peer_gone(c.fd))) { c.closing = true; break; }   // no socket in the region: a hang-up arrives as a cancel
-    }
-    if (!c.region_blocked) g.blocked_clients--;
-    c.waiting_on = nullptr;
-    c.blocked_keys.store(nullptr, std::memory_order_release); ebr::retire(bk);
-    return ok;
+// [PARKED_NOT_WAITING_V1] a blocking command that would wait says so and returns (answering as on a timeout): the
+// region keeps its call's answer, registers it on `w` (moved past `seen`, read BEFORE the attempt, nothing between is
+// missed) and runs it again when a write moves it, its time runs out, CLIENT UNBLOCK, or its client hangs up
+// (region.cpp). No thread waits. Inside EXEC a blocking command is its non-blocking self.
+bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::chrono::steady_clock::time_point) {
+    if (c.in_exec) return false;
+    c.would_block = true; c.park_timeout_ms = timeout_ms; c.park_word = &w; c.park_seen = seen;
+    return false;
 }
 static bool list_ready(Client& c, const std::string& k, bool first, VarPtr& v, Reply& r, bool& err) {
     err = false;

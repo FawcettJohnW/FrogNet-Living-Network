@@ -180,24 +180,13 @@ void Stats::reset() {
 }
 
 // ---------------------------------------------------------------- Client
-bool Client::send(const std::string& bytes) {
-    std::lock_guard<std::mutex> lk(wmu);
-    if (closing) return false;
-    size_t off = 0;
-    while (off < bytes.size()) {
-        ssize_t n = ::write(fd, bytes.data() + off, bytes.size() - off);
-        if (n < 0) { if (errno == EINTR) continue; closing = true; return false; }
-        off += (size_t)n;
-    }
-    return true;
-}
 
 void Client::kill() {
     closing = true;
     if (fd >= 0) ::shutdown(fd, SHUT_RDWR);
     if (g.on_kill) g.on_kill(this);
     WaitWord* w = waiting_on.load();
-    if (w) { w->gen.fetch_add(1, std::memory_order_release); syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w->gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0); }
+    if (w) Region::wake(*w);
 }
 
 // ---------------------------------------------------------------- registry / dispatch

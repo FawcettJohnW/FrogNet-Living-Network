@@ -51,7 +51,7 @@ if has build; then
   run(){ while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done; build_one "$@" & pids+=($!); }
   I="-Iinclude -Itests"
   run bin/ram_client.o -std=c++20 $NOFP -O2 -pthread $WERR $I -c src/ram_client.cpp
-  run bin/ribbit-ram -std=c++20 $NOFP -O2 -pthread $WERR $I tools/ribbit_ram.cpp src/ram_host.cpp $FO -llz4 -lcrypto
+  run bin/ribbit-ram -std=c++20 $NOFP -O2 -pthread $WERR $I tools/ribbit_ram.cpp src/ram_host.cpp src/lf_ebr.cpp $FO -llz4 -lcrypto
   run bin/tuple-write -std=c++20 -O2 -pthread $WERR $I tools/tuple_write.cpp $FO -llz4 -lcrypto
   run bin/semwire-driver -std=c++20 -O2 $WERR $I tests/semwire_driver.cpp
   run bin/bench-semwire -std=c++20 $NOFP -O2 $I tests/bench_semwire.cpp
@@ -65,10 +65,10 @@ if has build; then
   run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp src/lf_ebr.cpp
   run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp src/lf_ebr.cpp
   run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp src/lf_ebr.cpp
-  run bin/test-family-hooks -std=c++20 -O2 -pthread $WERR $I tests/test_family_hooks.cpp
-  run bin/test-fnwp-e2e -std=c++20 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp -llz4 -lcrypto
-  run bin/test-session-tcp -std=c++20 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp -llz4 -lcrypto
-  run bin/test-fanin-data -std=c++20 -O2 -pthread $WERR $I tests/test_fanin_data.cpp src/frogram.cpp -llz4 -lcrypto
+  run bin/test-family-hooks -std=c++20 -O2 -pthread $WERR $I tests/test_family_hooks.cpp src/lf_ebr.cpp
+  run bin/test-fnwp-e2e -std=c++20 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp src/lf_ebr.cpp -llz4 -lcrypto
+  run bin/test-session-tcp -std=c++20 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp src/lf_ebr.cpp -llz4 -lcrypto
+  run bin/test-fanin-data -std=c++20 -O2 -pthread $WERR $I tests/test_fanin_data.cpp src/frogram.cpp src/lf_ebr.cpp -llz4 -lcrypto
   bfail=0; for pid in "${pids[@]}"; do wait "$pid" || bfail=1; done
   cat "$BLOG"/*.txt >> "$OUT/build.txt"
   echo "  build took $(( $(date +%s)-t_all ))s"

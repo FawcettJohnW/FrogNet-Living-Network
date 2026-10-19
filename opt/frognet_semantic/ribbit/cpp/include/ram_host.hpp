@@ -49,6 +49,9 @@ void pool_run(std::function<void()> f);
 // the thread running a request) and answers later, from any thread; the session's writer sends it.
 void* defer_answer();
 void answer_later(void* continuation, const std::string& body);
+// [SESSION_OF_THE_CALL_V1] the session the request this thread is running arrived on (the id session_up named; 0 when
+// this thread is running none): a region that keeps state for a session's life keys it by this.
+uint64_t current_session();
 
 class RamHost {
 public:

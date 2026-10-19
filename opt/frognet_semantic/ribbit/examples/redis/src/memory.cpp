@@ -44,12 +44,6 @@ int64_t Memory::now_ms() {
 }
 
 // ---------------------------------------------------------------- wait words
-static void futex_wait(std::atomic<uint32_t>& w, uint32_t seen, int64_t timeout_ms) {
-    if (timeout_ms == 0) return;
-    struct timespec ts, *tp = nullptr;
-    if (timeout_ms > 0) { ts.tv_sec = timeout_ms / 1000; ts.tv_nsec = (timeout_ms % 1000) * 1000000L; tp = &ts; }
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, tp, nullptr, 0);
-}
 // A writer bumps a word only when someone is registered on it. The waiter registers (a full-barrier RMW)
 // BEFORE it reads `seen` and checks the data; the writer publishes, fences, then reads the registration.
 // One of them sees the other: either the writer bumps, or the waiter's data check sees the write.
@@ -59,8 +53,14 @@ static void bump(WaitWord& w) {
     if (w.waiters.load(std::memory_order_seq_cst) == 0) return;
     w.gen.fetch_add(1, std::memory_order_release);
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    if (Region::on_wake) Region::on_wake(w);
 }
-void Region::wait(WaitWord& w, uint32_t seen, int64_t timeout_ms) { futex_wait(w.gen, seen, timeout_ms); }   // caller is registered
+void (*Region::on_wake)(WaitWord& w) = nullptr;
+void Region::wake(WaitWord& w) {
+    w.gen.fetch_add(1, std::memory_order_release);
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    if (on_wake) on_wake(w);
+}
 void Region::watch(WaitWord& w) { w.waiters.fetch_add(1, std::memory_order_seq_cst); }
 void Region::unwatch(WaitWord& w) { w.waiters.fetch_sub(1, std::memory_order_seq_cst); }
 // A quiet span: the wakes of every write inside it are held and delivered once at its end, so a held read
@@ -74,14 +74,12 @@ void Region::end_quiet() {
     for (auto& h : *held) h.first->touched(h.second);
     held->clear();
 }
-void (*Region::on_change)(Region& R, const std::string* variable) = nullptr;
 void Region::touched(const std::string& variable) { touched_h(hash_of(variable), variable); }
 void Region::touched_h(size_t h, const std::string& variable) {
     if (quiet_span) { quiet_span->emplace_back(this, variable); return; }
-    if (on_change) on_change(*this, &variable);      // [READS_AT_THE_FRONT_V1] after the change, before anyone is told
     bump(word_h(h)); bump(any);
 }
-void Region::touched_all() { if (on_change) on_change(*this, nullptr); for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
+void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
 
 // ---------------------------------------------------------------- Var
 // A node that landed alone is retired on its own. A node that landed as a batch member belongs to its batch:
@@ -132,7 +130,6 @@ CellPtr Var::get(const std::string& instance) const {
     auto* n = m->get(instance);
     return n ? Memory::resolve(n->val.node.load(std::memory_order_acquire)) : nullptr;
 }
-size_t Var::count() const { return inst_count() + (val.load(std::memory_order_acquire) ? 1 : 0) + (ttl.load(std::memory_order_acquire) ? 1 : 0); }
 std::optional<Ent> Var::nth(size_t i) const { auto* m = inst_c(); if (!m) return std::nullopt; auto* n = m->nth(i); if (!n) return std::nullopt; CellPtr c = Memory::resolve(n->val.node.load(std::memory_order_acquire)); if (!c) return std::nullopt; return Ent{n->key, c}; }
 void Var::range(const std::string& lo, const std::string& hi, bool hi_unbounded, const std::function<bool(const std::string&, const CellPtr&)>& f) const {
     auto* m = inst_c(); if (!m) return;
@@ -376,11 +373,6 @@ uint64_t Memory::write_many(const std::string& service, const std::vector<W>& ws
 // ---------------------------------------------------------------- reads
 static Cell mk_cell(const std::string& s, const std::string& v, const std::string& i, const CellPtr& n) { Cell c; c.service = s; c.variable = v; c.instance = i; c.node = n; return c; }
 
-bool Memory::read(const std::string& service, const std::string& variable, const std::string& instance, Cell& out) const {
-    VarPtr v = var(service, variable); if (!v) return false;
-    CellPtr n = v->get(instance); if (!n) return false;
-    out = mk_cell(service, variable, instance, n); return true;
-}
 std::vector<Cell> Memory::read_all(const std::string& service, const std::string& variable) const {
     std::vector<Cell> r; VarPtr v = var(service, variable); if (!v) return r;
     v->each_all([&](const std::string& i, const CellPtr& c) { r.push_back(mk_cell(service, variable, i, c)); return true; });
@@ -405,31 +397,6 @@ std::vector<Cell> Memory::read_indexed(const std::string& service, int64_t lo, i
 }
 size_t Memory::indexed_count(const std::string& service) const { return region(service).by_ttl.size(); }
 
-std::vector<Cell> Memory::read_after(const std::string& service, const std::string& variable, const std::string* instance,
-                                     uint64_t after, int64_t wait_ms) const {
-    Region& R = region(service);
-    WaitWord& w = R.word(variable);
-    Region::watch(w); struct Un { WaitWord& w; ~Un() { Region::unwatch(w); } } un{w};
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms > 0 ? wait_ms : 0);
-    for (;;) {
-        uint32_t seen = w.gen.load(std::memory_order_acquire);
-        std::vector<Cell> out;
-        VarPtr v = var(service, variable);
-        if (v && v->last.load(std::memory_order_acquire) > after) {
-            v->each_all([&](const std::string& i, const CellPtr& c) { if (c->id > after && (!instance || i == *instance)) out.push_back(mk_cell(service, variable, i, c)); return true; });
-            std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id() < b.id(); });
-        }
-        if (!out.empty() || wait_ms == 0) return out;
-        int64_t left = -1;
-        if (wait_ms > 0) {           // [NEVER_BEFORE_THE_DEADLINE_V1] ends only once the deadline has passed (rounded up)
-            auto now = std::chrono::steady_clock::now();
-            if (now >= deadline) return out;
-            left = (std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count() + 999) / 1000;
-        }
-        ebr::exit(); Region::wait(w, seen, left); ebr::enter();     // a parked participant holds nobody's garbage
-    }
-}
-size_t Memory::count(const std::string& service, const std::string& variable) const { VarPtr v = var(service, variable); return v ? v->count() : 0; }
 
 // ---------------------------------------------------------------- remove
 bool Memory::drop(Region& R, Var& v, const std::string& instance, uint64_t id, CellPtr* gone) {
@@ -525,11 +492,6 @@ bool Memory::random_variable(const std::string& service, std::string& out) const
     std::mt19937_64& rng = apply_rng();
     auto* x = R.by_born.nth(rng() % n); if (!x) return false;
     out = x->val->name; return true;
-}
-std::vector<std::string> Memory::instances(const std::string& service, const std::string& variable) const {
-    std::vector<std::string> r; VarPtr v = var(service, variable); if (!v) return r;
-    v->each_all([&](const std::string& i, const CellPtr&) { r.push_back(i); return true; });
-    return r;
 }
 void Memory::each_cell(const std::string& service, const std::function<bool(const Cell&)>& f) const {
     Region& R = region(service);
@@ -711,64 +673,5 @@ bool Memory::remove_if(const std::string& service, const std::string& variable, 
     return true;
 }
 
-// ---------------------------------------------------------------- [JOIN_BY_COPY_V1] the memory as bytes
-namespace {
-void p64(std::string& o, uint64_t v) { for (int k = 0; k < 8; k++) o += char(v >> (8 * k)); }
-void p32(std::string& o, uint32_t v) { for (int k = 0; k < 4; k++) o += char(v >> (8 * k)); }
-void pstr(std::string& o, const std::string& s) { p32(o, uint32_t(s.size())); o += s; }
-void pdbl(std::string& o, double d) { uint64_t u; memcpy(&u, &d, 8); p64(o, u); }
-struct Rd {
-    const std::string& s; size_t& at;
-    void need(size_t n) { if (at + n > s.size()) throw std::runtime_error("the region's copy is cut short"); }
-    uint64_t u64() { need(8); uint64_t v = 0; for (int k = 7; k >= 0; k--) v = v << 8 | uint8_t(s[at + k]); at += 8; return v; }
-    uint32_t u32() { need(4); uint32_t v = 0; for (int k = 3; k >= 0; k--) v = v << 8 | uint8_t(s[at + k]); at += 4; return v; }
-    std::string str() { uint32_t n = u32(); need(n); std::string v = s.substr(at, n); at += n; return v; }
-    double dbl() { uint64_t u = u64(); double d; memcpy(&d, &u, 8); return d; }
-};
-}
-void Memory::dump(const std::vector<std::string>& services, std::string& o) const {
-    ebr::Guard g;
-    p64(o, next_id_.load());
-    for (auto& svc : services) {
-        Region& R = region(svc);
-        std::vector<Var*> vs; R.by_born.walk_all([&](LFMap<uint64_t, Var*>::Node* n) { if (!n->val->dead.load()) vs.push_back(n->val); return true; });
-        p32(o, uint32_t(vs.size()));
-        for (Var* v : vs) {
-            pstr(o, v->name); p64(o, v->born); p64(o, v->last.load());
-            std::vector<std::pair<std::string, CellPtr>> cs;
-            v->each_all([&](const std::string& i, const CellPtr& c) { cs.emplace_back(i, c); return true; });
-            p32(o, uint32_t(cs.size()));
-            for (auto& [i, c] : cs) {
-                pstr(o, i); p64(o, c->id); p64(o, c->born); p64(o, uint64_t(c->written_ms));
-                const Bag& b = *c->bag; o += char(b.kind); pstr(o, b.s); p64(o, uint64_t(b.n)); pdbl(o, b.d); o += char(b.indexed ? 1 : 0);
-                p64(o, uint64_t(c->acc.load())); pdbl(o, c->facc.load()); p32(o, c->adds.load());
-            }
-        }
-    }
-}
-void Memory::load(const std::vector<std::string>& services, const std::string& in, size_t& at) {
-    ebr::Guard g;
-    Rd r{in, at};
-    const uint64_t next = r.u64();
-    for (auto& svc : services) {
-        Region& R = region(svc);
-        const uint32_t nv = r.u32();
-        for (uint32_t k = 0; k < nv; k++) {
-            std::string name = r.str(); const uint64_t born = r.u64(), last = r.u64();
-            const size_t h = Region::hash_of(name);
-            Var* v = var_or_create(R, name, born, h);
-            const uint32_t nc = r.u32();
-            for (uint32_t j = 0; j < nc; j++) {
-                std::string inst = r.str(); const uint64_t id = r.u64(), cborn = r.u64(); const int64_t wms = int64_t(r.u64());
-                Bag b; r.need(1); b.kind = Kind(uint8_t(in[at++])); b.s = r.str(); b.n = int64_t(r.u64()); b.d = r.dbl(); r.need(1); b.indexed = in[at++] != 0;
-                const int64_t acc = int64_t(r.u64()); const double facc = r.dbl(); const uint32_t adds = r.u32();
-                CellNode* n = apply_value(R, *v, inst, std::move(b), id, wms);
-                n->born = cborn; n->acc.store(acc); n->facc.store(facc); n->adds.store(adds);
-            }
-            v->last.store(last);
-        }
-    }
-    next_id_.store(next);
-}
 
 }  // namespace rr

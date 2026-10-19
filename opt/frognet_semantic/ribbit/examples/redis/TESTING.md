@@ -1,15 +1,16 @@
-# Testing Redis on Ribbit -- what is run, what the numbers mean (2026-09-29; tools updated 2026-10-17 for boxes on the memory)
+# Testing Redis on Ribbit -- what is run, what the numbers mean (2026-09-29; tools updated 2026-10-19 for one keyspace, fronts on the memory)
 
 ## The test tools and what each one proves
 | tool | what it proves | how to read it |
 |---|---|---|
-| `tests/run_concurrency.py build PORT BOXES THREADS` | every read-modify-write family (39) holds Redis's guarantee when commands from several boxes on one memory run at once | GREEN n/n. A FAIL names the family and the violation (lost increments, an element delivered twice, two SETNX winners). One CPU hides races: run it on a multi-core machine. |
+| `tests/run_concurrency.py build PORT BOXES THREADS` | every read-modify-write family (39) holds Redis's guarantee when commands from several fronts on one memory run at once | GREEN n/n. A FAIL names the family and the violation (lost increments, an element delivered twice, two SETNX winners). One CPU hides races: run it on a multi-core machine. |
 | `tests/coordinated.py participate / coordinate` | machines across the Internet share one region; the Go signal is a Redis list | counter check: region total == acknowledged INCRs (nothing lost, nothing applied twice); visibility check: every machine reads every other machine's writes |
-| `tests/run_two_boxes.py build PORT` (qualify `oracles`) | two boxes on one memory: a write on A read at once on B, blocking served across boxes, timeouts, arrival order, CLIENT UNBLOCK/LIST/KILL across boxes, MULTI atomic against the other box, a hang-up while blocked, a box gone, a late box joining by copy (values, expiry, SCAN order, a parked client and an open MULTI across the copy) | RESULT PASS 15/15 |
-| `tools/accept.sh` / `tools/qualify.sh` stage `suite` | Redis 7.2.11's own tests through a box on a memory of its own (each test server gets a fresh region) | ok / err per file; the table below says what every err is |
-| `tools/qualify.sh` stage `inet` | the same suite with box and memory 24 ms apart (simulated) | as `suite`; slower, same classes |
-| `tools/qualify.sh` stage `deploy` | a box on the real memory (streamingfrog), latency and redis-benchmark through it | numbers |
-| `tools/bench_boxes.sh` | redis-benchmark side by side: stock, one box, two boxes; interleaved, medians | ratio to stock per shape |
+| `tests/run_two_fronts.py build PORT` (qualify `two-fronts`) | two fronts on one memory: a write on A read at once on B, blocking served across fronts, timeouts, arrival order, CLIENT UNBLOCK/LIST/KILL across fronts, MULTI/EXEC beside the other front (nothing lost; no isolation, ruled), a hang-up while blocked, a front gone (its clients leave), a front started later serving the one keyspace at once | RESULT PASS 15/15 |
+| `tests/run_same_after_raw.py build PORT` (qualify `same-after-raw`) | the session's answer references stay equal on both ends when an answer goes RAW and comes again as SAME (QUESTION-3 entry 13) | RESULT PASS |
+| `tools/accept.sh` / `tools/qualify.sh` stage `suite` | Redis 7.2.11's own tests through a front on a memory of its own (each test server gets a fresh region) | ok / err per file; the table below says what every err is |
+| `tools/qualify.sh` stage `inet` | the same suite with front and memory 24 ms apart (simulated) | as `suite`; slower, same classes |
+| `tools/qualify.sh` stage `deploy` | a front on the real memory (streamingfrog), latency and redis-benchmark through it | numbers |
+| `tools/bench_boxes.sh` | redis-benchmark side by side: stock, one front, two fronts; interleaved, medians | ratio to stock per shape |
 
 ## How to read Redis's suite numbers
 Every failing test is in one of these classes -- a number alone means nothing without its class:

@@ -816,6 +816,7 @@ static thread_local bool tl_deferred = false;             // the region took its
 namespace ribbit {
 void* defer_answer() { if (!tl_current) return nullptr; tl_deferred = true;   // the Work is copied only here, when deferred
     return new RinaDeferred{*tl_current->s, tl_current->seq, *tl_current->w, tl_current->mine}; }
+uint64_t current_session() { return tl_session_id; }   // [SESSION_OF_THE_CALL_V1]
 void answer_later(void* h, const std::string& body) {
     RinaDeferred* d = static_cast<RinaDeferred*>(h); if (!d) return;
     Reply r{200, body};

@@ -159,26 +159,24 @@ Every one of these was built, measured and then thrown out. Check your design ag
    were the product. A design that cannot span machines is not the product; measure the shape that ships.
 9. **A naming convention nobody asked for.** The three indices are free; choose them for the reads.
 
-## 6b. Redis: when the truth a participant owns is a request
+## 6b. Redis: one owner for the keyspace, and no copies
 
-Redis's state is contested read-modify-write (INCR, LPOP, MULTI/EXEC, a blocked client's place in line), and every
-box may touch every key. So no box owns a key. What a box owns is what its clients asked: it writes each request
-once as an intent `(redis, cmd, <box>/<n mod RING>)`, and every box applies every box's intents in write-order id to
-its own copy of the keyspace (§4b, the second form). The reply comes from applying one's own intent -- a read of the
-order, not a message. What had to be made the same on every box, and how (examples/redis/DESIGN.md):
+Redis's state is read-modify-write on keys every client may touch (INCR, LPOP, MULTI/EXEC, a blocked client's place in
+line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is the RAM
+call, and the region applies it at the key's tuple, one request at a time per tuple, every connection's in parallel
+(examples/redis/DESIGN.md). Two INCRs on one key are two requests to one owner, not two writers.
 
-| would differ between boxes | made the same by |
-|---|---|
-| the clock (expiry, TTL, XADD `*`) | the intent's writer clock, never backwards in the order |
-| randomness (SPOP, RANDOMKEY ...) | a generator seeded by the intent's write id |
-| connection ids | assigned when the connection's open intent is applied |
-| a blocked command waiting | parked in the order; retried after every command that touches its keys; its timeout is an intent |
-| a slow reader missing an intent | the writer never overwrites a slot every live reader has not applied; a gap stops the box |
+Two earlier designs each kept a second copy of something and needed a layer to keep it true -- that layer is the
+pub/sub class of code, and it is what to look for and remove in any conversion:
 
-What it removed: the host's operations, its connection tokens, its parked threads, the fronts' coherent read caches,
-a vendored platform and 40 patch scripts. What it costs: each box executes every command (one core's worth of
-commands for the whole region). A late box asks for the region with an intent and the smallest live box answers with a
-copy as a truth -- Redis's full sync, without anyone being asked.
+| design | the copy | what kept it true | removed |
+|---|---|---|---|
+| RAM host + fronts with read caches (main, `[READS_AT_THE_FRONT_V1]`) | each front's cache of values it had read | per-front invalidation feeds, register-before-read ordering | `coherence.*`, the feeds |
+| every box a copy, one order (2026-10-17) | the whole keyspace in every box | intent rings, pacing to the slowest reader, heartbeats, gap checks, a snapshot join, the same clock and seed on every copy | `apply.cpp`, rings, heartbeats, the join, dump/load |
+| one keyspace (2026-10-19) | none | nothing to keep true | -- |
+
+The test: if a design needs any mechanism whose only job is to keep two copies equal, the second copy is the bug.
+A blocked command does not need a thread either: it keeps its call's answer, and the write that readies it wakes it.
 
 ## 7. For an AI doing a conversion
 

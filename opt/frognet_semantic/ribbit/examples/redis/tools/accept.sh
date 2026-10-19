@@ -42,7 +42,7 @@ fi
 if file "$REDIS_SRC/src/redis-server" | grep -q ELF; then mv "$REDIS_SRC/src/redis-server" "$STOCK"; fi
 cat > "$REDIS_SRC/src/redis-server" <<EOF
 #!/bin/sh
-# accept.sh: runs the arm ACCEPT_SERVER names -- stock ($STOCK) or ribbit ($ROOT/build/ribbit-redis-front, a box on a memory of its own)
+# accept.sh: runs the arm ACCEPT_SERVER names -- stock ($STOCK) or ribbit ($ROOT/build/ribbit-redis-front, a front on a memory of its own)
 case "\${ACCEPT_SERVER:-stock}" in
   stock)  exec "$STOCK" "\$@" ;;
   ribbit) exec "$ROOT/build/ribbit-redis-front" "\$@" \${RIBBIT_ARGS:-} ;;
@@ -171,8 +171,8 @@ if has warmscale; then
   for k in $(seq 1 $K); do BENCH_WARM=1 BENCH_TESTS=get measure_k $k warmscale; done; report warmscale
 fi
 if has inet; then
-  note "== inet: the two-box checks with both boxes here and the memory they share deployed elsewhere"
+  note "== inet: the two-front checks with both fronts here and the memory deployed elsewhere"
   if [ -z "${RAM_ENDPOINT:-}" ]; then note "  RESULT FAIL inet: RAM_ENDPOINT is not set"
-  else MEMORY=$RAM_ENDPOINT python3 tests/run_two_boxes.py build 9900 > "$OUT/inet.txt" 2>&1; pick "$OUT/inet.txt"; fi
+  else MEMORY=$RAM_ENDPOINT python3 tests/run_two_fronts.py build 9900 > "$OUT/inet.txt" 2>&1; pick "$OUT/inet.txt"; fi
 fi
 note "## results in $OUT"

@@ -16,13 +16,13 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-# Redis boxes on the memory -- qualification. Each stage's raw output goes to results/<stamp>/<stage>.txt; SUMMARY.txt
+# Redis fronts on the memory -- qualification. Each stage's raw output goes to results/<stamp>/<stage>.txt; SUMMARY.txt
 # collects the RESULT lines. Compiler output goes to the terminal as it happens.
 #   REDIS_SRC     a built redis-7.2.11 tree (its tests/ and src/redis-cli, src/redis-benchmark), required for suite stages
 #   STAGES        subset of: build oracles suite inet deploy     (default: all)
 #   SUITE         suite files for the suite and inet stages (default: the ones this package has matched the control on)
 #   RAM_ENDPOINT  host:port of the deployment's memory (ribbit-redis-host on streamingfrog) -- required by the deploy
-#                 stage; there is no local substitute. A box joins it only while its history is complete (DESIGN.md).
+#                 stage; there is no local substitute.
 set -u -o pipefail
 cd "$(dirname "$0")/.."; ROOT=$PWD
 STAGES=${STAGES:-"build oracles suite inet deploy"}; RAM_ENDPOINT=${RAM_ENDPOINT:-}; REDIS_SRC=${REDIS_SRC:-}
@@ -30,12 +30,13 @@ SUITE=${SUITE:-"unit/type/incr unit/type/string unit/type/hash unit/type/set uni
 OUT=results/$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"; SUMMARY=$OUT/SUMMARY.txt
 has() { [[ " $STAGES " == *" $1 "* ]]; }
 note() { echo "$*" | tee -a "$SUMMARY"; }
-note "## Redis boxes on the memory, qualification $(basename $OUT) on $(uname -srm), $(nproc) cores"
+note "## Redis fronts on the memory, qualification $(basename $OUT) on $(uname -srm), $(nproc) cores"
 if has build; then note "== build"; if bash tools/build.sh |& tee "$OUT/build.txt"; then note "$(tail -1 "$OUT/build.txt")"; else note "RESULT FAIL build"; exit 1; fi; fi
 CLI=${REDIS_SRC:+$REDIS_SRC/src/redis-cli}
 stage() { local name=$1; shift; note "== $name"; "$@" > "$OUT/$name.txt" 2>&1; grep -aE "^(FAIL|RESULT)" "$OUT/$name.txt" | sed "s/^/  /" | tee -a "$SUMMARY"; }
 if has oracles; then
-  stage two-boxes python3 tests/run_two_boxes.py build 9611
+  stage two-fronts python3 tests/run_two_fronts.py build 9611
+  stage same-after-raw python3 tests/run_same_after_raw.py build 9620
   stage concurrency python3 tests/run_concurrency.py build 9631
 fi
 suite() {   # $1 name, $2 the program Redis's suite starts as src/redis-server
@@ -50,7 +51,7 @@ suite() {   # $1 name, $2 the program Redis's suite starts as src/redis-server
 if has suite; then suite suite "$ROOT/build/ribbit-redis-front"; fi
 if has inet; then SUITE=${INET_SUITE:-"unit/type/incr unit/type/string"} suite inet "$ROOT/tests/internet_wrapper.py"; fi
 if has deploy; then
-  note "== deploy (a box here, on the deployment's memory)"
+  note "== deploy (a front here, on the deployment's memory)"
   if [ -z "$RAM_ENDPOINT" ]; then note "  RESULT FAIL deploy: RAM_ENDPOINT is not set (the deployment's Redis RAM host, e.g. streamingfrog:PORT); no local substitute"
   elif [ -z "$CLI" ]; then note "  RESULT FAIL deploy: REDIS_SRC not set"
   else

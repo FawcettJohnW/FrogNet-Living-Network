@@ -16,8 +16,8 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-# Build Redis on the memory [ONE_ORDER_V1]: ribbit-redis-host (the memory the boxes share: the platform's RamHost, no
-# operations of its own) and ribbit-redis-front (a box: RESP to clients, the region applied in write order).
+# Build Redis on the memory [ONE_KEYSPACE_V1]: ribbit-redis-host (the memory, holding the Redis region -- the keyspace,
+# once) and ribbit-redis-front (a front: RESP to clients, one call per pipeline).
 # Incremental and parallel: a file is recompiled only if it, or a header it includes, changed since its object was
 # built (the compiler's own dependency files, -MMD, compared by CONTENT); everything compiles at once, one job per core
 # (JOBS=N to override). Compiler output goes to the terminal as it happens.
@@ -69,20 +69,21 @@ echo "== compiling (up to $JOBS at once; only what changed)"
 job build/obj/frogram.o $CXX -std=c++20 -Wno-free-nonheap-object -I$P/include -c $P/src/frogram.cpp
 job build/obj/ram_host.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ram_host.cpp
 job build/obj/lf_ebr.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/lf_ebr.cpp
-job build/obj/redis_ram.o $CXX -std=c++20 $W -Werror -I$P/include -c src/redis_ram.cpp
+VER=$(cat VERSION 2>/dev/null || echo unversioned)
+job build/obj/redis_ram.o $CXX -std=c++20 $W -Werror -DREDIS_RAM_VERSION="\"$VER\"" -Isrc -I$P/include -c src/redis_ram.cpp
 job build/obj/ribbit_space.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ribbit_space.cpp   # [SPACE_V1]
 # the box's sources, named: a tree unpacked over the RAM-host design keeps its old files (src/redis_region.cpp,
 # src/coherence.cpp ...), and those are not part of this build
-SRCS="apply front server resp util ebr memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
+SRCS="region front server resp util ebr memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
 for b in $SRCS; do
   f=src/$b.cpp
-  E=""; case "$b" in apply|front) E="-Werror";; esac           # the new code builds warning-free, always
+  E=""; case "$b" in region|front) E="-Werror -DRIBBIT_REDIS_VERSION=\"$VER\"";; esac   # the new code builds warning-free, always
   job build/obj/$b.o $CXX -std=c++20 $W $E -Isrc -I$P/include -c "$f"
 done
 settle
 
 echo "== linking"
-ENGINE=$(for b in $SRCS; do [ $b = front ] || echo build/obj/$b.o; done)
-$CXX -o build/ribbit-redis-host build/obj/redis_ram.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+ENGINE=$(for b in $SRCS; do case $b in front|region) ;; *) echo build/obj/$b.o;; esac; done)
+$CXX -o build/ribbit-redis-host build/obj/redis_ram.o build/obj/region.o $ENGINE build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
 $CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/ribbit_space.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
 echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1), box $(cat VERSION 2>/dev/null || echo unversioned)"
