@@ -25,6 +25,12 @@ ap.add_argument("--rina-host", default=None, help="default: beside this file, el
 ap.add_argument("--player", default="", help="(a player's machine) whose game this agent belongs to")
 a = ap.parse_args()
 ME = a.machine
+JOIN = os.environ.get("FDF_JOIN_ENV", "/opt/fdf/var/join.env")
+if not a.advertise and not a.fdf and os.path.exists(JOIN):
+    # [KART_HOST_REGION_ADDRESS_V1] a member of a FrogNet region is reached at the address it announced to the region
+    # (10.x on the mesh). The address the kart memory sees is the site's NAT address, which no racer can open a port on.
+    _ram = next((l.split("=", 1)[1].strip().strip("'\"") for l in open(JOIN) if l.replace("export ", "").startswith("RINA_RAM=")), None)
+    if _ram: a.fdf = _ram; say(f"kart_host[{ME}]", f"this machine is a member of the region at {_ram} ({JOIN}): racers reach it at the address it announced there")
 def log(m): say(f"kart_host[{ME}]", m)
 if os.name != "nt" and a.kind == "player":                     # a player's agent goes with its game, however the game ends
     import ctypes; ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)

@@ -51,10 +51,11 @@ game() { local m=$1 log=$2; shift 2; inns $m "env KART_TEST_FPS=1 KART_TEST_READ
 G1=$(game 1 g1 --name red --kart $KM --bots 3 --autodrive --laps 2 --rina-host $HB)
 G2=$(KT="KART_TEST_CHAT='hi from blue'" game 2 g2 --name blue --kart $KM --bots 1 --autodrive --laps 2 --rina-host /nonexistent)
 G3=$(game 3 g3 --name nyc --kart $KM --bots 4 --autodrive --laps 4 --rina-host $HB)
-sleep 2.5
-# 1-2 the lobby, chat, and the agreed parameters (read before anyone is ready)
-LOB=$(rd lobby | live); CH=$(rd chat | live); AG=$(rd agreed | live)
-NL=$(echo "$LOB" | python3 -c "import json,sys; print(sorted(json.load(sys.stdin)))"); BL=$(echo "$CH" | python3 -c "import json,sys; print(any(b['who']=='blue' and b['text']=='hi from blue' for b in json.load(sys.stdin).values()))")
+# 1-2 the lobby, chat, and the agreed parameters: waited for (up to 8 s), not read at a fixed moment
+for i in $(seq 80); do
+  LOB=$(rd lobby | live); CH=$(rd chat | live); AG=$(rd agreed | live)
+  NL=$(echo "$LOB" | python3 -c "import json,sys; print(sorted(json.load(sys.stdin)))"); BL=$(echo "$CH" | python3 -c "import json,sys; print(any(b['who']=='blue' and b['text']=='hi from blue' for b in json.load(sys.stdin).values()))")
+  [ "$NL" = "['blue', 'nyc', 'red']" ] && [ "$BL" = True ] && break; sleep 0.1; done
 SL=$(echo "$CH" | python3 -c "import json,sys; print(any(b['who']=='kart service' for b in json.load(sys.stdin).values()))"); LAPS=$(echo "$AG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('lobby',{}).get('laps'))")
 echo "  lobby $NL; blue's chat line there: $BL; the service's: $SL; agreed laps: $LAPS"
 [ "$NL" = "['blue', 'nyc', 'red']" ] && [ "$BL" = True ] && [ "$SL" = True ]; check $? "1 the lobby and chat are in the kart memory"
