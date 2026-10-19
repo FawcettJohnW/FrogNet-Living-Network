@@ -117,6 +117,15 @@ R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participant
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"; kart_tree "$R" "$H/kart/libkartram.so"
 build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
 tarit "$R" > "$OUT/fdf-droplet.tgz"
+# ---- [KART_PLAYER_TARBALLS_V1] the players' files, from the same kart_tree as the node bundles (they cannot drift): one
+# tarball per machine type, each with its own architecture's libkartram.so and static rina-host; and the Windows zip.
+R=$W/kx86; kart_tree "$R" "$H/kart/libkartram.so"; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/kart/rina-host"
+tarit "$R" > "$OUT/kart-$TAG-linux-x86_64.tgz"
+R=$W/karm; kart_tree "$R" "$H/kart/arm64/libkartram.so"; cp "$H/build/arm64/rina-host" "$R/opt/fdf/kart/rina-host"
+tarit "$R" > "$OUT/kart-$TAG-linux-aarch64.tgz"
+WD=$TOP/../../windows; [ -f "$H/kart/kartram.dll" ] || { echo "make_deliverables: kart/kartram.dll missing (kart/build_kartram.sh --windows)" >&2; exit 1; }
+R=$W/kwin; mkdir -p "$R"; cp "$H/kart/"{kartdemo.py,ribbit.py,kartmem.py,kartram.dll} "$WD/README-windows.txt" "$R/"
+(cd "$R" && rm -f "$OUT/kart-$TAG-windows.zip" && zip -q -X "$OUT/kart-$TAG-windows.zip" kartdemo.py ribbit.py kartmem.py kartram.dll README-windows.txt)
 chmod +x "$OUT"/*.run
-for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz "$OUT"/kart-$TAG-*; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"

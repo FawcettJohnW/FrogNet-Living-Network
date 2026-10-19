@@ -137,4 +137,15 @@ grep -h "is up on\|is over" $D/f2.log | sed 's/^/  /' | cut -c1-150; echo "  lob
 grep -q "is up on nyc at 10.61.0.13" $D/f2.log && [ "$LOB10" = "['blue', 'nyc']" ] && ! grep -q "is up on" $D/f1.log; check $? "10 through FD&F: only members are in the lobby, and they race"
 for m in 1 2 3; do ip netns pids km${R}_$m | xargs -r ps -o pid=,args= -p | grep -v fdf-client | awk '{print $1}' | xargs -r kill 2>/dev/null; done; kill $FP 2>/dev/null; wait $FP 2>/dev/null
 python3 $H/kart/test_owned_cells.py $B/rina-host 18899 | sed 's/^/  /'; check ${PIPESTATUS[0]} "11 owned and permanent cells"
+# 12 [KART_HOST_REGION_ADDRESS_V1] [KART_HOST_MEMBER_NAME_V1] a FrogNet node: its hostname is FrogNetHost.<x>, its member name
+# (facts.json) is <x>; with a join.env its host agent offers the address fdf-client announced to the region
+mkdir -p $D/n12; echo '{"name":"Seattle3B"}' > $D/n12/facts.json; echo 'export RINA_RAM=127.0.0.1:18843' > $D/n12/join.env
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/r.perm $B/rina-host --listen 127.0.0.1:18843 --api $FAPI > $D/n12/region.log 2>&1 & P12A=$!
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/k.perm $B/rina-host --listen 127.0.0.1:18797 --api /ram.php > $D/n12/kart.log 2>&1 & P12B=$!; sleep 1
+FDF_FACTS=$D/n12/facts.json $B/fdf-client 127.0.0.1:18843 > $D/n12/client.log 2>&1 & P12C=$!; sleep 2
+FDF_FACTS=$D/n12/facts.json FDF_JOIN_ENV=$D/n12/join.env python3 $K/kart_host.py --memory 127.0.0.1:18797 --kind player --machine FrogNetHost.Seattle3B --player NY1 --rina-host $HB > $D/n12/agent.log 2>&1 & P12D=$!
+ANN=$(grep -o 'announced \["[0-9.]*' $D/n12/client.log | cut -d'"' -f2)
+for i in $(seq 50); do GH=$(curl -s "http://127.0.0.1:18797/ram.php?op=read&service=kart&variable=gamehost" | live | python3 -c "import json,sys; print(json.load(sys.stdin).get('FrogNetHost.Seattle3B',{}).get('addr'))"); [ "$GH" = "$ANN" ] && break; sleep 0.1; done
+kill $P12D $P12C $P12A $P12B 2>/dev/null; grep -h "member name\|lists" $D/n12/agent.log | sed 's/^/  /'; echo "  announced to the region: $ANN; offered in the kart memory: $GH"
+[ -n "$ANN" ] && [ "$GH" = "$ANN" ]; check $? "12 a FrogNet node's host agent offers the address its member name announced to the region"
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo "FAIL ($FAILS)")"; exit $FAILS

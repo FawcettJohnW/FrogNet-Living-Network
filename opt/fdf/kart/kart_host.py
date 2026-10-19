@@ -18,19 +18,30 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ap = argparse.ArgumentParser()
 ap.add_argument("--memory", required=True); ap.add_argument("--api", default="/ram.php")
 ap.add_argument("--kind", choices=["dedicated", "player"], required=True)
-ap.add_argument("--machine", default=os.environ.get("COMPUTERNAME") or socket.gethostname())
+ap.add_argument("--machine", default=None, help="default: with a region, this machine's member name there; else the hostname")
 ap.add_argument("--advertise", default=None, help="the address racers reach this machine at")
 ap.add_argument("--fdf", default=None, help="FD&F RAM server: the address is the one this machine announced to FD&F")
 ap.add_argument("--rina-host", default=None, help="default: beside this file, else /opt/fdf/bin/rina-host")
 ap.add_argument("--player", default="", help="(a player's machine) whose game this agent belongs to")
 a = ap.parse_args()
-ME = a.machine
+ME = a.machine or os.environ.get("COMPUTERNAME") or socket.gethostname()
 JOIN = os.environ.get("FDF_JOIN_ENV", "/opt/fdf/var/join.env")
 if not a.advertise and not a.fdf and os.path.exists(JOIN):
     # [KART_HOST_REGION_ADDRESS_V1] a member of a FrogNet region is reached at the address it announced to the region
     # (10.x on the mesh). The address the kart memory sees is the site's NAT address, which no racer can open a port on.
     _ram = next((l.split("=", 1)[1].strip().strip("'\"") for l in open(JOIN) if l.replace("export ", "").startswith("RINA_RAM=")), None)
     if _ram: a.fdf = _ram; say(f"kart_host[{ME}]", f"this machine is a member of the region at {_ram} ({JOIN}): racers reach it at the address it announced there")
+def member_name():
+    """[KART_HOST_MEMBER_NAME_V1] the name this machine's fdf-client announces ([MEMBER_IDENTITY_V1]): FDF_NAME, else
+    facts.json's name, else the hostname. Every FrogNet node's hostname is FrogNetHost.<x>, so the hostname is not it."""
+    if os.environ.get("FDF_NAME"): return os.environ["FDF_NAME"]
+    try:
+        with open(os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")) as f: n = json.load(f).get("name")
+        if n: return n
+    except (OSError, ValueError): pass
+    return socket.gethostname()
+MEMBER = member_name() if a.fdf else None
+if a.fdf: say(f"kart_host[{ME}]", f"its member name in the region: {MEMBER}")
 def log(m): say(f"kart_host[{ME}]", m)
 if os.name != "nt" and a.kind == "player":                     # a player's agent goes with its game, however the game ends
     import ctypes; ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)
@@ -63,12 +74,12 @@ def fdf_follow():
             while True:
                 ps = f.call("POST", FAPI + "?op=rina", json.dumps({"op": "participants"})).get("participants", [])
                 if bad is not None: log("FD&F participant watch working again"); bad = None
-                mine = next((p for p in ps if p.get("name") == ME and p.get("alive") and p.get("ips")), None)
+                mine = next((p for p in ps if p.get("name") == MEMBER and p.get("alive") and p.get("ips")), None)
                 addr = mine["ips"][0] if mine else None
                 if addr != FDF["addr"]:
                     FDF["addr"] = addr
                     log(f"FD&F lists this machine alive at {addr}: it can serve games" if addr else
-                        "FD&F does not list this machine alive: it serves no game until it does")
+                        f"FD&F does not list {MEMBER} alive: it serves no game until it does")
                     on_change()
                 t = f.call_text("POST", FAPI + "?op=rina_block", json.dumps({"op": "wait", "proc": proc, "after": after}), 3.0e8)
                 for line in t.split("\n")[1:]:
