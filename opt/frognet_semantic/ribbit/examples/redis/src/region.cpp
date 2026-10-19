@@ -306,7 +306,10 @@ std::string call(const std::string& text) {
         if (!k->answer) throw std::runtime_error("redis region: a pipeline is answered later, and this call cannot be");
         k->pend.fetch_or(PIPE, std::memory_order_acq_rel);
         DIAG("region", "p-deferred", key, "answer=" + std::to_string(k->answer != nullptr));
-        ribbit::pool_run([key] { DIAG("region", "job", key); job(key); });
+        // [NO_SECOND_HOP_V1] run here: the platform already runs this call on a pool thread, in the session's order. A
+        // second hand-off to the pool cost a thread switch per command (measured: 1.97 switches per command in the
+        // memory against 0.28 for the copy design). One front's connections run in its session's order; fronts in parallel.
+        DIAG("region", "job", key); job(key);
         return std::string();
     }
     case 'w': {                                   // a parked call's held read for the rest of its pipeline
@@ -316,7 +319,7 @@ std::string call(const std::string& text) {
         k->waiter = ribbit::defer_answer();
         if (!k->waiter) throw std::runtime_error("redis region: a held read is answered later, and this call cannot be");
         k->pend.fetch_or(WAIT, std::memory_order_acq_rel);
-        ribbit::pool_run([key] { job(key); });
+        job(key);                                 // [NO_SECOND_HOP_V1]
         return std::string();
     }
     case 'g': {                                   // the client hung up

@@ -99,3 +99,21 @@ the benchmark rule (2026-10-18) is two boxes on separate machines with traffic c
 
 git, the Redis example: against the copy design (cc87622) src/ 584 insertions, 1,019 deletions; against main (which
 vendored the v0.63 platform and 40 patch scripts) 1,518 insertions, 15,974 deletions.
+
+## Throughput as fronts are added, and the second hop (2026-10-19, after [NO_SECOND_HOP_V1])
+
+redis-benchmark -c 50 -P 1 incr, the 50 clients split across K boxes/fronts on one memory, all on one 2-core machine
+(scratchpad cpu_k.sh; requests/s in all):
+
+| K | copy design | one keyspace |
+|---|---|---|
+| 1 | 52,122 | 36,816 |
+| 2 | 51,216 | 43,690 |
+| 3 | 41,439 | 39,320 |
+| 5 | 32,104 | 44,379 |
+
+The copy design slows as boxes are added (every box executes every command); one keyspace holds and is ahead at 5.
+One front behind: a request and an answer per pipeline through the session, where the copy design sent unanswered
+writes and read batched rows. Measured thread switches per command, one front: copy design front 0.61 / memory 0.28;
+one keyspace before [NO_SECOND_HOP_V1] 1.37 / 1.97, after 1.31 / 1.06 (one front: ~33,000 -> 36,800-38,300 req/s).
+Next lever: many connections' pipelines in one call (fan-in). Not claimed: separate machines.
