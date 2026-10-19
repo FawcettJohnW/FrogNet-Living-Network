@@ -333,7 +333,7 @@ def draw_lobby(lob, servers, recs, agreed, chats):
 
 # ----------------------------------------------------------------------------- the main loop
 state="lobby"; my_race=None; placed=False; start_at=0; trail=[]
-fps_t=time.time(); fps_n=0; fps=0.0; w_n0=0; T0=time.time(); test_chat_sent=False
+fps_t=time.time(); fps_n=0; fps=0.0; w_n0=0; frame_said=0.0; T0=time.time(); test_chat_sent=False
 while running:
     dt=clock.tick(60)/1000.0; now=time.time()
     for e in pygame.event.get():
@@ -433,6 +433,11 @@ while running:
             w=main.writes+comm.writes+(race.writes if race else 0)
             say(f"[KART_TEST_FPS] {NAME} {state} {fps:.1f} fps, {n_seen} other kart(s) seen, {(w-w_n0)/(now-fps_t):.1f} writes/s")
             w_n0=w
+        elif state=="racing" and now-frame_said>=5.0:          # [KART_FRAME_V1] said in every race, every 5 s, without a test switch
+            frame_said=now; n_seen=len([k for k in race.family("kart") if k not in MINE]) if race else 0
+            say(f"[KART_FRAME_V1] {NAME} {fps:.1f} fps, {n_seen} other kart(s) seen" + ("" if fps>=20 else
+                f" -- the frame loop is slow: drawing this {W}x{H} window takes {1000/max(fps,0.01):.0f} ms a frame"
+                + (f" (DISPLAY={os.environ['DISPLAY']}: an X display over the network)" if ":" in os.environ.get("DISPLAY","") and not os.environ.get("DISPLAY","").startswith(":") else "")))
         fps_n=0; fps_t=now
 pygame.quit()
 # The sessions end with the process: the memory writes this game's lobby tuple, tile and karts {} for everyone.
