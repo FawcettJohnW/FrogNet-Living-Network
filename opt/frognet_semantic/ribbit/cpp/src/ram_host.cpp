@@ -537,6 +537,12 @@ private:
 struct Session;
 void run_in_order(const std::shared_ptr<Session>& s, std::function<void()> f);
 static std::atomic<uint64_t> g_session_epoch{1};   // [SESSION_EPOCH_V1] unique per session for the life of the process
+// [DIAG-ROWS] rows given to readers: by forwarding their writer's changes, or by comparing ([FORWARD_CHANGES_V1]); said at exit
+std::atomic<uint64_t> g_rows_fwd{0}, g_rows_cmp{0}, g_rows_shared{0};
+const bool g_rows_said = [] { std::atexit([] { const uint64_t f = g_rows_fwd.load(), c = g_rows_cmp.load();
+    if (f + c) fprintf(stderr, "[DIAG-ROWS] rows to readers: forwarded %llu (packet made by another reader's encoder: %llu), compared %llu\n",
+                       (unsigned long long)f, (unsigned long long)g_rows_shared.load(), (unsigned long long)c); }); return true; }();
+
 struct Session {
     const uint64_t epoch = g_session_epoch.fetch_add(1, std::memory_order_relaxed);   // [SESSION_EPOCH_V1] the session's id
     int req = -1, ret = -1, data = -1;
@@ -604,8 +610,12 @@ struct Session {
         std::vector<rowcodec::Encoder::RowIn> in; in.reserve(rows.size());
         for (auto& c : rows) { if (!c.arr) c.arr = ribbit::BagArr::parse(c.bag);   // a row written as text: decoded once, here
                                if (!c.arr) continue;
-                               in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, c.arr}); }
-        try { return std::string(MAGIC, 4) + char(op) + rowenc.encode_rows(in); }
+                               in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, c.arr, c.prev, c.changed.get()}); }
+        try { const uint64_t f0 = rowenc.c_forwarded, c0 = rowenc.c_compared, s0 = rowenc.c_shared;
+              std::string out = std::string(MAGIC, 4) + char(op) + rowenc.encode_rows(in);
+              g_rows_fwd.fetch_add(rowenc.c_forwarded - f0, std::memory_order_relaxed); g_rows_cmp.fetch_add(rowenc.c_compared - c0, std::memory_order_relaxed);
+              g_rows_shared.fetch_add(rowenc.c_shared - s0, std::memory_order_relaxed);
+              return out; }
         catch (const std::exception& e) { return std::string(MAGIC, 4) + char(0x30) + be16(500) + "rows: " + e.what(); }
     }
     void reply(uint32_t seq, const std::string& frame) {
@@ -722,6 +732,7 @@ struct Ordered::Impl {
         return nullptr;
     }
 };
+void pool_run(std::function<void()> f) { work_ring().push(std::move(f)); }   // [ADAPTIVE_POOL_V1]
 Ordered::Ordered() : d_(new Impl) {}
 Ordered::~Ordered() { delete d_; }
 void Ordered::run(std::function<void()> f) {
@@ -974,13 +985,15 @@ static void cell_write_step(const std::shared_ptr<Session>& s, uint32_t seq, cel
                         std::to_string(x.counter - 1) + " of its writer, which the memory does not have");
         if (private_service(nm->sv)) return fail(403, "service " + nm->sv + " is not served");
         ribbit::BagArrP bag;                              // [DECODE_ONCE_V1] decoded once, stored as it is
-        std::unique_ptr<cellwire::Ref> mine = cellwire::decode(x, ref, bag);
+        cellwire::Changed changed;                        // [FORWARD_CHANGES_V1] and what it changed against its reference
+        ribbit::BagArrP prev = (ref && !(x.flags & cellwire::F_KEYS)) ? ref->arr : nullptr;
+        std::unique_ptr<cellwire::Ref> mine = cellwire::decode(x, ref, bag, &changed);
         if (x.inst.empty()) return fail(400, "cell write: missing coordinate: instance");
         ch.last = std::move(mine); ch.last_c = x.counter;
         { static const bool tr = getenv("FROGRAM_DIAG") && atoi(getenv("FROGRAM_DIAG")) >= 2;   // [DIAG-CELL] each write stored
           if (tr) fprintf(stderr, "[DIAG-CELL] %s/%s/%s chain %llu.%llu #%u %zu fields%s\n", nm->sv.c_str(), nm->var.c_str(), x.inst.c_str(), (unsigned long long)x.slot,
                           (unsigned long long)x.fam, x.counter, bag->vals.size(), (x.flags & cellwire::F_KEYS) ? " whole" : ""); }
-        MEM.write(nm->sv, nm->var, x.inst, std::move(bag), wall());
+        MEM.write(nm->sv, nm->var, x.inst, std::move(bag), wall(), std::move(prev), std::move(changed));
         g_cell_writes.fetch_add(1, std::memory_order_relaxed);
     } catch (const std::exception& e) { fail(400, std::string("cell write: ") + e.what()); }
 }

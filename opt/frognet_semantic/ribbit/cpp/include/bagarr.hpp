@@ -7,6 +7,7 @@
 // takes its values from it -- nobody prints it as JSON text to have it parsed again. The text is made only for a
 // reader that asks for text (the HTTP API, a participant that reads bags as text).
 #pragma once
+#include <atomic>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -51,5 +52,15 @@ struct BagArr {
     }
 };
 using BagArrP = std::shared_ptr<const BagArr>;
+// [FORWARD_CHANGES_V1] what a write changed against its writer's previous write -- the field indices, ascending -- and
+// [SHARED_ENCODE_V1] the difference packet a reader's encoder made from them, kept here for every other reader's: the
+// packet depends only on this write and the array it was against, never on the reader. Set once (CAS), freed with it.
+struct Fwd {
+    std::vector<uint16_t> idx;
+    mutable std::atomic<const std::string*> pkt{nullptr};
+    Fwd() = default; Fwd(const Fwd&) = delete; Fwd& operator=(const Fwd&) = delete;
+    ~Fwd() { delete pkt.load(std::memory_order_acquire); }
+};
+using FwdP = std::shared_ptr<const Fwd>;
 
 }  // namespace ribbit

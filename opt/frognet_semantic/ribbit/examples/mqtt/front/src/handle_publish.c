@@ -27,6 +27,7 @@ Contributors:
 #include "packet_mosq.h"
 #include "property_mosq.h"
 #include "read_handle.h"
+#include "region_client.h"
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
@@ -152,6 +153,27 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			break;
 		case 1:
 			util__decrement_receive_quota(context);
+			if(context->protocol == mosq_p_mqtt5 && rgn_on_memory()){
+				/* [ASYNC_PUBACK_V1] MQTT 5's "no matching subscribers" covers every box: when this box has none, the
+				 * PUBACK waits for the answer from the memory -- off this thread -- and goes out in PUBLISH order */
+				char *topic = mosquitto_strdup(stored->data.topic);
+				if(!topic){
+					rc = MOSQ_ERR_NOMEM;
+					break;
+				}
+				rc2 = sub__messages_queue(context->id, stored->data.topic, stored->data.qos, stored->data.retain, &stored);
+				/* stored may now be free, so don't refer to it */
+				if(rc2 == MOSQ_ERR_SUCCESS){
+					rc2 = sub__puback(context, mid, 0);
+				}else if(rc2 == MOSQ_ERR_NO_SUBSCRIBERS){
+					rc2 = sub__puback_ask(context, mid, topic);
+				}
+				mosquitto_FREE(topic);
+				if(rc2){
+					rc = rc2;
+				}
+				break;
+			}
 			rc2 = sub__messages_queue(context->id, stored->data.topic, stored->data.qos, stored->data.retain, &stored);
 			/* stored may now be free, so don't refer to it */
 			if(rc2 == MOSQ_ERR_SUCCESS || context->protocol != mosq_p_mqtt5){

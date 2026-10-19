@@ -42,6 +42,9 @@ public:
 private:
     struct Impl; Impl* d_;
 };
+// [ADAPTIVE_POOL_V1] a task for the process's one pool, in parallel with every other: a thread starts when a task has
+// waited past the trigger and none is free, and retires after a minute idle. Never waits.
+void pool_run(std::function<void()> f);
 // [DEFERRED_ANSWER_V1] A region operation that cannot answer yet takes its request's continuation (non-null only on
 // the thread running a request) and answers later, from any thread; the session's writer sends it.
 void* defer_answer();

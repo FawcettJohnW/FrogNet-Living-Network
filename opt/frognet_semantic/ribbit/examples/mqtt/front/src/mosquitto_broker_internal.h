@@ -782,6 +782,11 @@ void sub__hold_announce(void);
 bool sub__own_held_any(void);
 void sub__own_held_stats(uint64_t *held, uint64_t *paused, uint64_t *forced, int *now);
 int sub__messages_queue(const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg **base_msg);
+/* [ASYNC_PUBACK_V1] a QoS 1 PUBACK now, or behind the ones still waiting; one that waits for "any subscriber on another
+ * box?"; and a client's waiting PUBACKs let go (it is gone: nothing is sent) */
+int sub__puback(struct mosquitto *context, uint16_t mid, uint8_t reason);
+int sub__puback_ask(struct mosquitto *context, uint16_t mid, const char *topic);
+void sub__acks_forget(struct mosquitto *context);
 int sub__topic_tokenise(const char *subtopic, char **local_sub, char ***topics, const char **sharename);
 void sub__topic_tokens_free(struct sub__token *tokens);
 

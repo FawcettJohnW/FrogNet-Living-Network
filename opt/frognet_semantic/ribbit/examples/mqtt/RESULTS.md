@@ -346,3 +346,100 @@ What moved it, measured on the same run at 2,000/s (539 -> 193 B a message): B w
 ([APPLIED_IN_STEPS_V1]); B asked for rows once a message ([TRIGGERS_FOLLOW_V1]); rows were 147 B ([NUMBER_DELTA_V1],
 [ROW_REFERENCE_OF_K_V1], [ROW_RECORD_COMPACT_V1]). QoS 0 went from 29,800 lost to 0 with the standing triggers.
 Mosquitto's suite (region in `mqtt-ram`): 272/276, the 4 IPv6-only tests as stock. two_boxes 7/7. Redis 15/15, 39/39.
+
+## v31: subscriptions addressed by filter, MQTT 5's answer off the front thread (2026-10-19)
+
+`tools/bench_across.py`, veth, publishers on A, subscribers on B, 8 s per cell. Files: `results/across-20261019-080818.jsonl`
+(v30 as received, 1 run), `results/across-20261019-084122.jsonl` (v31, 3 runs; median, range in brackets). The "v30
+before the sub read" column is from the 2026-10-19 transition, measured in an earlier sandbox; it is quoted, not re-run.
+
+| load | stock (v31 run, median) | v30 before the sub read | v30 as received (whole-family scan) | v31 |
+|---|---|---|---|---|
+| QoS 1 flat out, msgs/s (lost) | 23,427 (1,706,843) | 103,978 (49,758) | 6,012 (0) | 87,770 [62,959–99,160] (83,640) |
+| QoS 0 flat out, msgs/s (lost) | 161,966 (4,186,120) | 105,876 (0) | 441 (0) | 104,202 [92,080–106,368] (0) |
+| QoS 1 at 2,000/s, CPU ms/1k A/B/mem | 43.8 / 39.4 / – | 56 / 104 / 114 | 149 / 136 / 234 | 67.5 / 117.5 / 125.0 |
+| QoS 1 flat out, MQTT 5, msgs/s (lost) | 21,055 (1,499,110) | not run | 3,398 (0) | 28,356 [28,125–28,451] (0) |
+
+The MQTT 5 row is new: the bench's client spoke 3.1.1 only, which never consumes "no matching subscribers".
+
+What changed:
+- **[SUBS_BY_FILTER_V1]** `(mqtt.box, sub, <client>␟<filter>␟<box>)` is gone. A subscription is
+  `(mqtt.subs, <filter>, <client>␟<box>␟<group>)`, and each filter shape a box uses goes once into
+  `(mqtt.subs.shapes, all, <shape>␟<box>)`. A topic plus a shape gives one filter or none, so the lookup reads the
+  manifest and then one family per shape that fits. `region/test_sub_address.cpp`: 758,200 filter/topic pairs agree with
+  `mosquitto_topic_matches_sub`.
+- **Measured after addressing alone** (two_boxes load, v3, `[DIAG-SUBLOOKUP]`): still 3,456/s. Each lookup made 2 reads,
+  blocked the front thread for 283 µs on average, and added up to 5.8 s of front-thread time in the run. The cost was
+  the synchronous read on the publish path, not the scan's size.
+- **[ASYNC_PUBACK_V1]** The only consumer of the answer is the MQTT 5 QoS 1 PUBACK. `rgn_pub` asks nothing of other
+  boxes. An MQTT 5 QoS 1 publish with no subscriber on this box asks the memory on the process's adaptive pool
+  (`ribbit::pool_run`, [ADAPTIVE_POOL_V1]), and that client's PUBACK waits in an in-order list (MQTT 5 4.6). The front
+  thread never waits.
+  - Last v5 run (`results/across-20261019-084122/ribbit-A.log`): 270,531 asked, 270,531 answered, 0 failed, 541,062
+    reads. Lookup 1,814 µs average and 78.5 ms max on the pool: 2 reads on a CPU-saturated 2-core box.
+  - The v5 rate is the client's window (20 in flight × 4 publishers) over that latency.
+- two_boxes: 13/13, including 5 new checks:
+  - v5 PUBACK 0 with the subscriber on B (exact, `+`, `$share` `#`);
+  - 16 with none anywhere;
+  - 16 after B's subscriber leaves;
+  - PUBACK order kept across remote/local/none answers on one connection.
+- Suite 272/276 (the same 4 http-api); Redis two-box 15/15, concurrency 39/39; platform unit tests pass.
+
+Not claimed:
+- The QoS 1 flat-out loss (83,640 median) is B falling behind on a CPU-saturated 2-core box. It is the known open item,
+  not addressed here.
+- The QoS 1 flat-out spread (62,959–99,160) is run-to-run on this sandbox; that path did not change between runs.
+
+## v32: the memory forwards its writers' changes (2026-10-19)
+
+`tools/bench_across.py`, veth, publishers on A, subscribers on B, 8 s per cell, 3 runs each, median. Stock was run in the
+same session: `results/across-20261019-111333.jsonl`. v31's numbers are from `results/across-20261019-084122.jsonl`.
+
+| load | stock | v31 | v32 |
+|---|---|---|---|
+| QoS 1 flat out, msgs/s (lost) | 27,485 (1,728,573) | 87,770 (83,640) | 101,483 [100,473–103,243] (165,344) |
+| QoS 0 flat out, msgs/s (lost) | 156,130 (4,587,081) | 104,202 (0) | 131,794 [122,330–134,593] (0) |
+| QoS 0, memory CPU ms per 1k msgs | – | 9.32 | 6.15 |
+| QoS 1 at 2,000/s, CPU ms/1k A/B/mem | 40.6 / 36.9 / – | 67.5 / 117.5 / 125.0 | 67.5 / 118.8 / 116.3 |
+| QoS 1 flat out, MQTT 5, msgs/s (lost) | 23,624 (1,596,276) | 28,356 (0) | 29,521 [27,293–31,216] (0) |
+
+Where the memory's CPU went before (perf with frame pointers, QoS 0, inclusive):
+- writes in: 47% (`cellwire::decode` 26%);
+- rows out: 40% (`encode_rows` 34%, of which copying every value 9%, the 8-reference search 11%, the diff encode 17%).
+
+What changed:
+- **[LOCKFREE_READS_V1]** A row's value is one immutable `RowVal` behind an atomic pointer, published before its
+  window slot and retired to epoch reclamation. Reads take no lock. The writer keeps the row lock, and so does the one
+  bounded rows walk ([ROW_SCAN_BOUND_V1]), which must wait for a write in flight. Measured alone: no change in QoS 0
+  (104,038/s, memory 9.30 ms/1k); the read lock was 2.7%.
+- **[LZ4_FLOOR_V1]** Nothing of 64 bytes or less is compressed. Measured first (`[DIAG-LZ4]`, QoS 0): inputs of 25–64
+  bytes were tried 2,232,831 times and came out smaller 0 times. The same floor went into FrogNet's `core/codec.py`, so
+  the C++ codec stays byte-identical to it.
+- **[POSITIONAL_WRITE_V1]** The memory decodes a cell write by position: the chain's previous array is copied once and
+  the changed fields are put in place by index. The chain's reference is the stored array, with no Dict. The decode
+  also returns which indices changed.
+- **[FORWARD_CHANGES_V1]** A stored row keeps its writer's reference array and its changed indices. The reader's
+  session encoder keeps positional references (the arrays it gave that reader). When the writer's reference is one of
+  them, the writer's changes ARE the row's difference: no compare and no copies. Otherwise it compares by position, in
+  place. Measured: 273,414 rows forwarded and 52,920 compared in a v5 run; the wire is 1.5% larger in
+  `tests/test_rows_forward.cpp` (351,222 B against 346,039 B).
+- **[SHARED_ENCODE_V1]** A forwarded row's packet depends only on the row and its reference, so the first reader's
+  encoder keeps it with the row and every other reader's reuses it. This bench has one reading box, so: 358 reused.
+  `test_rows_forward`: 4,874 reused between two readers.
+- **[ENCODE_CHANGED_V1]** `semcodec::detail::encode_diff` was split so that a known change list encodes to the same
+  bytes. The codec tests' bytes per row are unchanged (43.6 B, 82.4 B).
+
+Tests: platform units (rowcodec, window_wire, cellwire, ram_memory incl. the lock gate, row_scan_bound, write_window,
+family_hooks, rows_forward), two_boxes 13/13, suite 272/276 (the same 4 http-api), Redis two-box 15/15 and
+concurrency 39/39.
+
+Also measured and reverted (front-thread send moved off the front):
+- **Pool tasks:** QoS 0 85,600/s with 103,093 lost.
+- **One send thread per front, disconnecting a full client:** QoS 0 20,560/s; the four subscribers were disconnected
+  for full sockets, where stock keeps them and drops QoS 0.
+
+The front thread's coalesced `writev` stays.
+
+Not claimed:
+- QoS 1 flat-out loss is B falling behind on 2 saturated cores, the known open item.
+- The 2,000/s CPU is still 3.9× stock in total (302.6 against 77.5 ms per 1k).

@@ -164,7 +164,9 @@ int main() {
         catch (const std::bad_alloc&) { out = "raise memory"; }   // the frame declared a size that cannot be allocated
         catch (const Lz4Error&) { out = "raise lz4"; }
         catch (const std::exception& e) { out = std::string("raise other:") + e.what(); }
-        std::cout << out << '\n';
+        // [ONE_LINE_PER_ANSWER_V1] a message may carry a field name with a newline in it: one answer is one line
+        std::string esc; esc.reserve(out.size()); for (char ch : out) { if (ch == '\\') esc += "\\\\"; else if (ch == '\n') esc += "\\n"; else if (ch == '\r') esc += "\\r"; else esc += ch; }
+        std::cout << esc << '\n';
     }
     return 0;
 }

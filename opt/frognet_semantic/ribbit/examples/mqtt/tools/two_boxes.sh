@@ -68,6 +68,20 @@ c2=$!; sleep 0.5
 timeout 3 $SUB -p $PB -i C2 -c -t nothing/here -q 1 -W 2 > /dev/null 2>&1
 wait $c2
 check "A drops C2 when it connects to B" "$(tail -1 "$LOGS/c2.out")" "closed"
+# 4c. [SUBS_BY_FILTER_V1] MQTT 5's "no matching subscribers" across boxes: a QoS 1 PUBACK from A says 0 when the only
+# subscriber is on B (exact and wildcard filters, and a shared subscription), and 16 when there is none anywhere
+rc_of() { $PUB -p $PA -V 5 -q 1 -d -t "$1" -m x 2>&1 | sed -n 's/.*received PUBACK.*RC:\([0-9]*\).*/\1/p' | head -1; }
+timeout 6 $SUB -p $PB -V 5 -q 1 -t nm/exact -t 'nm/+/w' -t '$share/g/nm/s/#' -C 99 > /dev/null & SUBPID=$!; sleep 0.7
+check "v5 PUBACK on A: subscriber on B (exact filter)" "$(rc_of nm/exact)" "0"
+check "v5 PUBACK on A: subscriber on B (+ filter)" "$(rc_of nm/x/w)" "0"
+check "v5 PUBACK on A: subscriber on B (\$share # filter)" "$(rc_of nm/s/deep/er)" "0"
+check "v5 PUBACK on A: no subscriber anywhere" "$(rc_of nm/nobody)" "16"
+# [ASYNC_PUBACK_V1] the PUBACKs of one connection keep PUBLISH order: one waiting on B's answer, one A knows at once
+timeout 6 $SUB -p $PA -V 5 -q 1 -t ord/local -C 99 > /dev/null & SUBA=$!; sleep 0.5
+check "v5 PUBACKs keep PUBLISH order (remote, local, none, remote)" "$(python3 tools/v5_puback_order.py $PA nm/exact ord/local nm/nobody nm/x/w)" "1:0 2:0 3:16 4:0"
+kill $SUBA 2>/dev/null; wait $SUBA 2>/dev/null
+kill $SUBPID 2>/dev/null; wait $SUBPID 2>/dev/null; sleep 0.3
+check "v5 PUBACK on A: B's subscriber gone (withdrawn)" "$(rc_of nm/exact)" "16"
 # 5. load: publishers on A, subscribers on B -- and one box for comparison
 echo "== load, qos1, 4 publishers on A, 4 subscribers on B"
 harness/mqtt-load --port $PB --pub-port $PA --pubs 4 --subs 4 --topics 4 --qos 1 --seconds ${SECS:-5} --warmup 1 --threads 2 | tee "$LOGS/load-across.json" | tr ',' '\n' | grep -E '"received_per_s"|"lost"|"lat_us_p50"'

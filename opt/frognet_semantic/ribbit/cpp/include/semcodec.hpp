@@ -36,6 +36,9 @@
 // depends on its stack, about 1000); C++ strings that are not UTF-8/WTF-8 at all have no Python form and raise
 // EncodeError where Python would encode.
 #pragma once
+#include <cstdlib>
+#include <cstdio>
+#include <atomic>
 #include "pyval.hpp"
 #include "pyuni_tables.hpp"
 #include <lz4frame.h>
@@ -486,11 +489,27 @@ inline std::string lz4_decompress(std::string_view data) {
     dst.resize(written);
     return dst;
 }
+// [DIAG-LZ4] what compression attempts won, by input size (bucket k: sizes up to 2^(k+5)), said at exit
+struct Lz4Diag {
+    std::atomic<uint64_t> tried[12] = {}, won[12] = {}, in_bytes[12] = {}, saved[12] = {};
+    Lz4Diag() { std::atexit([] { Lz4Diag& d = lz4_diag(); uint64_t any = 0; for (auto& t : d.tried) any += t.load();
+        if (!any) return;
+        std::fprintf(stderr, "[DIAG-LZ4] size<=: tried won bytes_in bytes_saved\n");
+        for (int k = 0; k < 12; k++) if (d.tried[k].load()) std::fprintf(stderr, "[DIAG-LZ4] %6u: %llu %llu %llu %llu\n", 1u << (k + 5),
+            (unsigned long long)d.tried[k].load(), (unsigned long long)d.won[k].load(), (unsigned long long)d.in_bytes[k].load(), (unsigned long long)d.saved[k].load()); }); }
+    static Lz4Diag& lz4_diag();
+};
+inline Lz4Diag& Lz4Diag::lz4_diag() { static Lz4Diag* d = new Lz4Diag; return *d; }
 // _lz4_smart: compress only when the frame is smaller than the input
 inline std::pair<std::string, bool> lz4_smart(std::string_view payload) {
-    if (payload.size() <= 24) return {std::string(payload), false};   // [LZ4_NEVER_SMALLER_SKIPPED_V1] a frame is >= 24 B
+    // [LZ4_NEVER_SMALLER_SKIPPED_V1] a frame is >= 24 B. [LZ4_FLOOR_V1] 2026-10-19, MQTT QoS 0 across two boxes, 8 s:
+    // inputs of 25-64 bytes were tried 2,232,831 times (box A and the memory) and smaller 0 times; 65-128 won 11,105 of
+    // 12,972. Nothing at or under 64 bytes is tried.
+    if (payload.size() <= 64) return {std::string(payload), false};
     std::string c = lz4_compress(payload);
-    if (c.size() < payload.size()) return {std::move(c), true};
+    int k = 0; while (k < 11 && payload.size() > (size_t(1) << (k + 5))) ++k;
+    Lz4Diag& d = Lz4Diag::lz4_diag(); d.tried[k].fetch_add(1, std::memory_order_relaxed); d.in_bytes[k].fetch_add(payload.size(), std::memory_order_relaxed);
+    if (c.size() < payload.size()) { d.won[k].fetch_add(1, std::memory_order_relaxed); d.saved[k].fetch_add(payload.size() - c.size(), std::memory_order_relaxed); return {std::move(c), true}; }
     return {std::string(payload), false};
 }
 
@@ -618,9 +637,14 @@ inline std::string encode_full(uint64_t opcode, const Fields& a, const Fields* b
     merged(a, b, [&](size_t idx, const std::pair<std::string, Obj>& f) { encode_field(fb, idx, f.second); n = idx + 1; });
     return finish(opcode, 0, n, std::move(fb), compress);
 }
+// [ENCODE_CHANGED_V1] a difference from the fields that changed: index, new value, the reference's value (null: none).
+// encode_diff finds them by comparing; a caller that already knows them (the memory forwarding its writer's changes) gives
+// them here and the packet is the same bytes.
+struct ChangedField { size_t first; const Obj* second; const Obj* ref; };
+inline std::string encode_changed(uint64_t opcode, const std::vector<ChangedField>& changed, bool compress);
 inline DiffResult encode_diff(uint64_t opcode, const Fields& a, const Fields* b, const Dict* reference, bool compress) {
     DiffResult r;
-    struct Changed { size_t first; const Obj* second; const Obj* ref; };
+    using Changed = ChangedField;
     std::vector<Changed> changed;
     static const Obj none{None{}};
     // [FIELDS_FOUND_IN_PLACE_V1] a reference is built in its template's field order, so field idx is looked for at idx
@@ -628,7 +652,10 @@ inline DiffResult encode_diff(uint64_t opcode, const Fields& a, const Fields* b,
     const bool fresh_ref = a.empty();                   // no URL fields: names are the template's, distinct
     if (fresh_ref) { r.reference.keys.reserve(b ? b->size() : 0); r.reference.vals.reserve(b ? b->size() : 0); }
     merged(a, b, [&](size_t idx, const std::pair<std::string, Obj>& f) {
-        if (fresh_ref) { r.reference.keys.push_back(f.first); r.reference.vals.push_back(f.second); }
+        // [DUPLICATE_NAMES_LAST_WINS_V1] a name given twice is one field: its last value, in its first place, as a dict
+        // holds it (core/codec.py's new_reference). Names are distinct in a template, so the scan finds nothing.
+        if (fresh_ref && std::find(r.reference.keys.begin(), r.reference.keys.end(), f.first) == r.reference.keys.end()) {
+            r.reference.keys.push_back(f.first); r.reference.vals.push_back(f.second); }
         else r.reference.set(f.first, f.second);
         if (reference) {
             long at = (idx < reference->size() && reference->keys[idx] == f.first) ? long(idx) : reference->find(f.first);
@@ -639,6 +666,10 @@ inline DiffResult encode_diff(uint64_t opcode, const Fields& a, const Fields* b,
         }
     });
     if (changed.empty() && reference) { r.identical = true; return r; }
+    r.bytes = encode_changed(opcode, changed, compress);
+    return r;
+}
+inline std::string encode_changed(uint64_t opcode, const std::vector<ChangedField>& changed, bool compress) {
     std::string fb;
     for (auto& c : changed) {
         const Obj& v = *c.second;
@@ -674,8 +705,7 @@ inline DiffResult encode_diff(uint64_t opcode, const Fields& a, const Fields* b,
         }
         encode_field(fb, c.first, v);
     }
-    r.bytes = finish(opcode, FLAG_DIFF, changed.size(), std::move(fb), compress);
-    return r;
+    return finish(opcode, FLAG_DIFF, changed.size(), std::move(fb), compress);
 }
 
 using Vals = std::vector<std::pair<size_t, Obj>>;   // Python dict idx -> value; a repeated idx overwrites

@@ -57,7 +57,15 @@ int rgn_clean(const char *client);
  * Mosquitto's order, while the publish runs ([LAZY_MESSAGE_V1]: resident, the client id points into the region and
  * nothing is copied; the message itself is copied only if another front or the retained slot keeps it). */
 typedef void (*rgn_own_cb)(const char *client, uint8_t qos, uint8_t retain, uint32_t sid, void *ud);
+/* has_subscribers: this box's own subscribers. Another box's are asked separately, by rgn_ask_subscribers. */
 int rgn_pub(const struct rgn_msg *m, bool *has_subscribers, rgn_own_cb own, void *ud, bool *had_retained);
+/* [ASYNC_PUBACK_V1] MQTT 5's "no matching subscribers" when this box has none: are there any on another box? Asked of
+ * the one memory on the process's pool, never on the front thread; the answer comes back to this front (its eventfd
+ * fires) and rgn_answers gives it, on this front's thread. token/seq are the caller's, handed back as they were. */
+bool rgn_on_memory(void);
+int rgn_ask_subscribers(const char *topic, const char *client, uint64_t token, uint64_t seq);
+typedef void (*rgn_answer_cb)(const char *client, uint64_t token, uint64_t seq, bool has_subscribers, void *ud);
+int rgn_answers(rgn_answer_cb cb, void *ud);
 /* [QOS0_BACKLOG_V1] QoS 0 deliveries to other fronts the last rgn_pub on this thread dropped: their front was backlogged */
 int rgn_pub_dropped(void);
 

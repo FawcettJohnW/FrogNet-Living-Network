@@ -142,7 +142,13 @@ public:
     }
     // [DECODE_ONCE_V1] rows given as decoded bags (the memory's arrays): nothing parsed. A new shape travels as kind 3 --
     // its field names, then all its values as one packet -- so the reader learns it without parsing text either.
-    struct RowIn { uint64_t id; double updated; const std::string* service; const std::string* variable; const std::string* instance; ribbit::BagArrP bag; };
+    // [FORWARD_CHANGES_V1] prev/changed: the array the row's writer made its difference against, and the fields it
+    // changed (the memory keeps them with the row). The references here are positional: the arrays this session gave
+    // its reader, newest first -- the same rows the reader's Decoder holds. When the writer's array is one of them, the
+    // writer's changed fields ARE this row's difference against it: nothing is compared and nothing is copied. Otherwise
+    // the row is compared with each reference by position, in place. Same records, same bytes, as comparing Dicts did.
+    struct RowIn { uint64_t id; double updated; const std::string* service; const std::string* variable; const std::string* instance; ribbit::BagArrP bag;
+                   ribbit::BagArrP prev = nullptr; const ribbit::Fwd* changed = nullptr; };
     std::string encode_rows(const std::vector<RowIn>& rows) {
         std::string out; out.reserve(rows.size() * 48 + 64);
         for (const RowIn& r : rows) {
@@ -162,41 +168,86 @@ public:
                 } else sn = it->second;
                 by_ptr_.emplace(names, sn); keep_.push_back(b.names);   // the pointer stays valid while it is a key
             }
+            if (pring_.size() <= sn) pring_.resize(size_t(sn) + 1);
             detail::Refs& sh = shapes_[sn];
-            semcodec::Fields f; f.reserve(sh.fo.size());
-            for (size_t k = 0; k < b.vals.size() && k < sh.fo.size(); ++k) f.emplace_back(sh.fo[k], b.vals[k]);
             const size_t nb = names->size();
-            f.emplace_back(sh.fo[nb], pyv::Int::of(int64_t(r.id))); f.emplace_back(sh.fo[nb + 1], Str{*r.instance});
-            f.emplace_back(sh.fo[nb + 2], Str{*r.service}); f.emplace_back(sh.fo[nb + 3], r.updated); f.emplace_back(sh.fo[nb + 4], Str{*r.variable});
+            // the row's coordinates as values, in the shape's order after the bag: id instance service updated variable
+            PRef me; me.bag = r.bag;
+            me.co[0] = pyv::Int::of(int64_t(r.id)); me.co[1] = Str{*r.instance}; me.co[2] = Str{*r.service};
+            me.co[3] = r.updated; me.co[4] = Str{*r.variable};
+            auto& ring = pring_[sn];
             if (fresh_[sn]) {                                 // a new shape: names, then the whole row as values
                 fresh_[sn] = false;
+                semcodec::Fields f; f.reserve(sh.fo.size());
+                for (size_t k = 0; k < b.vals.size() && k < sh.fo.size(); ++k) f.emplace_back(sh.fo[k], b.vals[k]);
+                for (int c = 0; c < 5; ++c) f.emplace_back(sh.fo[nb + size_t(c)], me.co[c]);
                 const std::string pkt = semcodec::encode_request(0, {}, f, true);
                 out += char(3); semcodec::detail::put_varint(out, sn); semcodec::detail::put_varint(out, sh.fo.size());
                 for (auto& n : sh.fo) { semcodec::detail::put_varint(out, n.size()); out += n; }
                 out += pkt[1]; semcodec::detail::put_varint(out, uint8_t(pkt[6]) | uint8_t(pkt[7]) << 8);
                 semcodec::detail::put_varint(out, pkt.size() - 8); out.append(pkt, 8, std::string::npos);
-                detail::push_ref(sh, detail::dict_of(f));
+                push_pref(ring, std::move(me));
                 continue;
             }
-            size_t best = 0, most = 0;
-            for (size_t k = 0; k < sh.ring.size(); ++k) {
-                const Dict& rf = sh.ring[k]; size_t eq = 0;
-                for (size_t i = 0; i < f.size() && i < rf.vals.size(); ++i) if (semcodec::values_equal(f[i].second, rf.vals[i])) ++eq;
-                if (eq > most || k == 0) { most = eq; best = k; }
-                if (eq == f.size()) break;
+            static const Obj none{pyv::None{}};
+            auto bag_at = [&](const PRef& x, size_t i) -> const Obj& { return i < x.bag->vals.size() ? x.bag->vals[i] : none; };
+            std::vector<semcodec::detail::ChangedField> ch; ch.reserve(nb + 5);
+            size_t best = 0; bool forwarded = false;
+            if (r.prev && r.changed && b.vals.size() == nb && r.prev->vals.size() == nb)
+                for (size_t k = 0; k < ring.size(); ++k) if (ring[k].bag.get() == r.prev.get()) { best = k; forwarded = true; break; }
+            if (forwarded) {                                  // the writer's difference is this row's: only its fields
+                const PRef& rf = ring[best];
+                // [SHARED_ENCODE_V1] another reader's encoder made this row's packet already: the same bytes
+                if (const std::string* pk = r.changed->pkt.load(std::memory_order_acquire)) {
+                    c_forwarded++; c_shared++;
+                    if (pk->empty()) { out += char(2 | best << 2); semcodec::detail::put_varint(out, sn); }
+                    else { out += char(1 | best << 2); semcodec::detail::put_varint(out, sn);
+                           out += (*pk)[1]; semcodec::detail::put_varint(out, uint8_t((*pk)[6]) | uint8_t((*pk)[7]) << 8);
+                           semcodec::detail::put_varint(out, pk->size() - 8); out.append(*pk, 8, std::string::npos); }
+                    push_pref(ring, std::move(me));
+                    continue;
+                }
+                for (uint16_t i : r.changed->idx) if (i < nb) ch.push_back(semcodec::detail::ChangedField{i, &b.vals[i], &bag_at(rf, i)});
+                c_forwarded++;
+            } else {                                          // compared by position, in place
+                size_t most = 0;
+                for (size_t k = 0; k < ring.size(); ++k) {
+                    const PRef& rf = ring[k]; size_t eq = 0;
+                    for (size_t i = 0; i < nb; ++i) if (semcodec::values_equal(i < b.vals.size() ? b.vals[i] : none, bag_at(rf, i))) ++eq;
+                    for (int c = 0; c < 5; ++c) if (semcodec::values_equal(me.co[c], rf.co[c])) ++eq;
+                    if (eq > most || k == 0) { most = eq; best = k; }
+                    if (eq == nb + 5) break;
+                }
+                const PRef& rf = ring[best];
+                for (size_t i = 0; i < nb; ++i) { const Obj& v = i < b.vals.size() ? b.vals[i] : none;
+                    if (!semcodec::values_equal(v, bag_at(rf, i))) ch.push_back(semcodec::detail::ChangedField{i, &v, &bag_at(rf, i)}); }
+                c_compared++;
             }
-            semcodec::DiffResult d = semcodec::encode_request_diff(0, {}, f, &sh.ring[best], true);
-            if (d.identical) { out += char(2 | best << 2); semcodec::detail::put_varint(out, sn); }
+            const PRef& rf = ring[best];
+            for (int c = 0; c < 5; ++c) if (!semcodec::values_equal(me.co[c], rf.co[c])) ch.push_back(semcodec::detail::ChangedField{nb + size_t(c), &me.co[c], &rf.co[c]});
+            if (forwarded) {                                  // [SHARED_ENCODE_V1] kept for the other readers ("" = identical)
+                auto* mine = new std::string(ch.empty() ? std::string() : semcodec::detail::encode_changed(0, ch, true));
+                const std::string* none = nullptr;
+                if (!r.changed->pkt.compare_exchange_strong(none, mine, std::memory_order_acq_rel)) delete mine;
+            }
+            if (ch.empty()) { out += char(2 | best << 2); semcodec::detail::put_varint(out, sn); }
             else {
+                const std::string* shared = forwarded ? r.changed->pkt.load(std::memory_order_acquire) : nullptr;
+                const std::string pkt = shared ? *shared : semcodec::detail::encode_changed(0, ch, true);
                 out += char(1 | best << 2); semcodec::detail::put_varint(out, sn);
-                out += d.bytes[1]; semcodec::detail::put_varint(out, uint8_t(d.bytes[6]) | uint8_t(d.bytes[7]) << 8);
-                semcodec::detail::put_varint(out, d.bytes.size() - 8); out.append(d.bytes, 8, std::string::npos);
+                out += pkt[1]; semcodec::detail::put_varint(out, uint8_t(pkt[6]) | uint8_t(pkt[7]) << 8);
+                semcodec::detail::put_varint(out, pkt.size() - 8); out.append(pkt, 8, std::string::npos);
             }
-            detail::push_ref(sh, std::move(d.reference));
+            push_pref(ring, std::move(me));
         }
         return out;
     }
+    // [DIAG-ROWS] rows sent by forwarding their writer's changes, and by comparing
+    uint64_t c_forwarded = 0, c_compared = 0, c_shared = 0;   // c_shared: forwarded rows whose packet another reader made
 private:
+    struct PRef { ribbit::BagArrP bag; Obj co[5]; };   // a row given: its bag array and its coordinates as values
+    static void push_pref(std::vector<PRef>& ring, PRef x) { ring.insert(ring.begin(), std::move(x)); if (ring.size() > ROW_REFS) ring.pop_back(); }
+    std::vector<std::vector<PRef>> pring_;               // per shape (rows given as arrays): newest first
     std::vector<detail::Refs> shapes_; std::unordered_map<std::string, uint16_t> idx_;
     std::unordered_map<const void*, uint16_t> by_ptr_; std::vector<std::shared_ptr<const std::vector<std::string>>> keep_; std::vector<bool> fresh_;
 };

@@ -46,7 +46,7 @@ import core.codec as C  # noqa: E402
 import lz4.frame  # noqa: E402
 
 codec = C.SemanticCodec()
-JOHN = ('TYPE_', 'Unknown type_id', 'Unsupported semantic wire version')
+JOHN = ('TYPE_', 'Unknown type_id', 'Unsupported semantic wire version', 'semcodec: ')   # 'semcodec: ': the splice/delta errors, core/codec.py's too since [STRING_SPLICE_V1] [NUMBER_DELTA_V1] were ported to it
 rng = random.Random(a.seed)
 
 
@@ -94,7 +94,7 @@ def err(e):
     k = kind(e)
     if k == 'value':
         t = str(e)
-        return 'raise value ' + (t if t.startswith(JOHN) else '*')
+        return 'raise value ' + (t.replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r') if t.startswith(JOHN) else '*')   # [ONE_LINE_PER_ANSWER_V1] as the driver writes it
     return 'raise ' + k
 
 
@@ -446,7 +446,7 @@ cases += dec
 lines = [wire(*c) for c in cases]
 r = subprocess.run([a.driver], input='\n'.join(lines) + '\n', capture_output=True, text=True)
 got = r.stdout.split('\n')
-if r.returncode != 0 or len(got) < len(lines):
+if r.returncode != 0 or len(got) != len(lines) + 1:   # [ONE_LINE_PER_ANSWER_V1] exactly one answer per case (and the final newline)
     print('FAIL driver exit %d, %d of %d answers; stderr: %s' % (r.returncode, len(got) - 1, len(lines), r.stderr[-3000:]))
     sys.exit(1)
 count, bad, outcomes = Counter(), Counter(), Counter()

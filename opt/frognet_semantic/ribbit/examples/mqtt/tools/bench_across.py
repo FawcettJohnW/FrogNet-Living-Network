@@ -50,7 +50,11 @@ LOADS = [  # name, mqtt-load options: rate is per publisher (0 = as fast as it g
     ("qos1-4x4", dict(pubs=4, subs=4, topics=4, qos=1)),
     ("qos0-4x4", dict(pubs=4, subs=4, topics=4, qos=0)),
     ("qos1-4x4-500/s", dict(pubs=4, subs=4, topics=4, qos=1, rate=500)),
+    # [ASK_WHEN_CONSUMED_V1] MQTT 5: every QoS 1 PUBACK carries "no matching subscribers" -- the one case that asks
+    ("qos1-4x4-v5", dict(pubs=4, subs=4, topics=4, qos=1, proto=5)),
 ]
+import glob
+PERF_BIN = (sorted(glob.glob("/usr/lib/linux-tools*/perf")) + sorted(glob.glob("/usr/lib/linux-tools/*/perf")) + ["perf"])[0]
 SECS = float(os.environ.get("SECS", "8")); REPEAT = int(os.environ.get("REPEAT", "1"))
 ARMS = os.environ.get("ARMS", "stock,ribbit").split(",")
 ONLY = os.environ.get("LOADS")  # comma list of load names; default all
@@ -152,7 +156,7 @@ def run(arm, link, load, opts, logs):
     c0 = {k: sum(cpu(x) for x in v) for k, v in pids.items()}; b0 = link_bytes()
     prf = None
     if os.environ.get("PERF"):                                 # each process, sampled through the measured window
-        prf = {k: subprocess.Popen(["/usr/lib/linux-tools/6.8.0-147-generic/perf", "record", "-F", "999", "-g", "-p", str(p.pid),
+        prf = {k: subprocess.Popen([PERF_BIN, "record", "-F", "999", "-g", "-p", str(p.pid),
                                     "-o", f"{logs}/perf-{arm}-{k}-{load.replace('/','')}.data", "--", "sleep", str(SECS + 2)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for k, p in procs.items()}
     args = [LOAD, "--host", B2, "--port", str(PORT), "--pub-host", A2, "--pub-port", str(PORT), "--seconds", str(SECS),

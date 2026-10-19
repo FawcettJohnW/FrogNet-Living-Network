@@ -395,6 +395,9 @@ struct mosquitto {
 	bool region_claimed;                     /* this front has claimed the client in the region */
 	/* [HOLD_FOR_ROOM_V1] back-pressure on this front */
 	int region_held;                         /* deliveries held for this client: its queue had no room */
+	/* [ASYNC_PUBACK_V1] QoS 1 PUBACKs not yet sent, in the order their PUBLISHes came: the head waits on its answer */
+	struct region_ack *region_acks, *region_acks_tail;
+	uint64_t region_ack_token, region_ack_seq;
 	uint32_t region_pass;                    /* the retry pass that last found it still without room */
 	bool region_paused;                      /* its socket is not read: it published into a full queue */
 	bool out_dirty;                          /* [WRITE_COALESCED_V1] queued packets not yet written: on this loop's flush list */

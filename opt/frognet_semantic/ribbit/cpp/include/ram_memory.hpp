@@ -24,8 +24,12 @@
 //   to a.b.c fires its own envelope's triggers and the space's triggers at a.*.*, *.b.*, *.*.c, a.b.*, a.*.c, *.b.c.
 //   Nothing is built until someone waits.
 //
-// Locks: each row has a std::shared_mutex (readers share it, a writer holds it alone). There is no other lock on the
-// memory. Which rows exist, which variables a service has, and the trigger lists are lock-free singly linked lists:
+// Locks: each row has a std::shared_mutex that its WRITER holds; only a write blocks, and only for its one row
+// ([LOCKFREE_READS_V1], 2026-10-19). A row's value is one immutable RowVal behind an atomic pointer: a write makes a new
+// one, publishes it before its window slot, and retires the old one to epoch reclamation (lf/ebr.hpp); a read loads the
+// pointer inside an epoch guard and takes no lock. One read still shares the row lock: the rows walk that continues a
+// held read past an id when the window has lapped ([ROW_SCAN_BOUND_V1]) -- it must wait for a write in flight, and the
+// writer's lock is what it waits on. There is no other lock on the memory. Which rows exist, which variables a service has, and the trigger lists are lock-free singly linked lists:
 // nodes are appended with a compare-and-swap and never unlinked -- a row that is removed is marked dead and revived
 // when its address is written again; a trigger whose waiter has gone is marked free and claimed by the next waiter on
 // the same key -- so no reader ever follows freed memory and nothing needs reclamation. A trigger's condition
@@ -47,12 +51,17 @@
 #include <unordered_map>
 #include <vector>
 #include "bagarr.hpp"
+#include "lf/ebr.hpp"
 
 namespace ramm {
 
 // [DECODE_ONCE_V1] a row read: its bag decoded once (arr) when it was written as fields; bag holds the text only for a
 // row written as text. text() is the bag as JSON text either way, for a reader that asks for text.
+// [FORWARD_CHANGES_V1] prev: the array this write was a difference against (its writer's previous write of the family);
+// changed: the field indices it changed. A reader's encoder that last gave its reader that very array sends only those.
+using Changed = ribbit::FwdP;
 struct Cell { uint64_t id; std::string service, variable, instance, bag; double updated; ribbit::BagArrP arr;
+              ribbit::BagArrP prev = nullptr; Changed changed = nullptr;
               std::string text() const { return arr ? arr->json() : bag; } };
 
 // A trigger: one waiter's condition. fired is set by a writer and cleared by the waiter.
@@ -80,12 +89,15 @@ struct TriggerList {
     }
 };
 
+// [LOCKFREE_READS_V1] a row's value: immutable once published; replaced whole by the next write
+struct RowVal { bool live = false; uint64_t id = 0; std::string bag; double updated = 0;
+                ribbit::BagArrP arr;               // [DECODE_ONCE_V1] the bag as decoded, when written as fields
+                ribbit::BagArrP prev; Changed changed; };   // [FORWARD_CHANGES_V1]
 // A row: one storage location. Its envelope carries its write time and its exact-location triggers.
 struct Row {
     std::string service, variable, instance;      // the address, set once
-    std::shared_mutex m;                          // THE lock: many readers or one writer
-    bool live = false; uint64_t id = 0; std::string bag; double updated = 0;   // guarded by m
-    ribbit::BagArrP arr;                          // [DECODE_ONCE_V1] the bag as decoded, when written as fields (guarded by m)
+    std::shared_mutex m;                          // THE lock: its writer's (and the bounded rows walk's)
+    std::atomic<const RowVal*> val{nullptr};      // read without a lock, inside an epoch guard
     TriggerList triggers;
     Row* next_in_bucket = nullptr;                // set once, before publication
     Row* next_in_variable = nullptr;              // set once, before publication
@@ -180,7 +192,14 @@ public:
     uint64_t write(const std::string& s, const std::string& v, const std::string& i, ribbit::BagArrP arr, double now) {
         return write(s, v, i, std::string(), now, std::move(arr));
     }
-    uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now, ribbit::BagArrP arr) {
+    // [FORWARD_CHANGES_V1] a write that was a difference: the array it was against and the indices it changed, kept for
+    // the readers' encoders
+    uint64_t write(const std::string& s, const std::string& v, const std::string& i, ribbit::BagArrP arr, double now,
+                   ribbit::BagArrP prev, Changed changed) {
+        return write(s, v, i, std::string(), now, std::move(arr), std::move(prev), std::move(changed));
+    }
+    uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now, ribbit::BagArrP arr,
+                   ribbit::BagArrP prev = nullptr, Changed changed = nullptr) {
         Row* r = row(s, v, i, true);
         Variable* var = variable(s, v);
         Service* svc = service_of(var);
@@ -195,10 +214,11 @@ public:
               id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
               if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
           }
+          // the row's value first, then its slots: a reader that meets the slot finds the value there
+          set_val(r, new RowVal{true, id, bag, now, std::move(arr), std::move(prev), std::move(changed)});
           fill(wnd->slot[p % WINDOW], p, id, r);
           const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
-          fill(swnd->slot[sp % WINDOW], sp, id, r, var);
-          r->id = id; r->bag = bag; r->updated = now; r->live = true; r->arr = std::move(arr); }
+          fill(swnd->slot[sp % WINDOW], sp, id, r, var); }
         var->hooks.fire(); svc->hooks.fire();          // [FAMILY_HOOKS_V1] its readers' words; they read it themselves
         fire(r);
         return id;
@@ -210,7 +230,9 @@ public:
             for (Row* r = slot.load(std::memory_order_acquire); r; r = r->next_in_bucket) {
                 if (!private_too && !r->service.empty() && r->service[0] == '#') continue;
                 bool hit = false;
-                { std::unique_lock<std::shared_mutex> w(r->m); if (r->live && r->id == id) { r->live = false; hit = true; } }
+                { std::unique_lock<std::shared_mutex> w(r->m);
+                  const RowVal* x = r->val.load(std::memory_order_acquire);
+                  if (x && x->live && x->id == id) { set_val(r, new RowVal{false, x->id, x->bag, x->updated, x->arr, nullptr, nullptr}); hit = true; } }
                 if (hit) { fire(r); return 1; }
             }
         return 0;
@@ -239,17 +261,21 @@ public:
             }
         }
     }
-    // ---- read: the query's rows (copied under each row's shared lock), id order
+    // ---- read: the query's rows, id order. [LOCKFREE_READS_V1] each row's value loaded inside one epoch guard, no lock
+    // -- except the bounded rows walk below, which shares each row's lock to wait for a write in flight
     std::vector<Cell> match(const std::string& s, const std::string& v, const std::string& i, long long after, int fresh, double now) const {
         std::vector<Cell> out; const double cutoff = now - fresh;
+        ribbit::lf::ebr::Guard eg;
         uint64_t scan_lim = 0; bool bounded = false;    // [ROW_SCAN_BOUND_V1] set when a held read falls back to the rows
         auto take = [&](Row* r) {
-            std::shared_lock<std::shared_mutex> g(r->m);
-            if (!r->live) return;
+            std::shared_lock<std::shared_mutex> g(r->m, std::defer_lock);
+            if (bounded) g.lock();                       // only the bounded walk waits for a write in flight
+            const RowVal* x = r->val.load(std::memory_order_acquire);
+            if (!x || !x->live) return;
             if (!i.empty() && r->instance != i) return;
-            if (after >= 0 && (long long)r->id <= after) return;
-            if (fresh > 0 && r->updated < cutoff) return;
-            out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+            if (after >= 0 && (long long)x->id <= after) return;
+            if (fresh > 0 && x->updated < cutoff) return;
+            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
         };
         if (!v.empty() && !i.empty()) { if (Row* r = find_row(s, v, i)) take(r); return out; }
         if (!v.empty() && after >= 0) {                // [WRITE_WINDOW_V1] only what was written past `after`
@@ -273,12 +299,11 @@ public:
                 if (p < cut) got.emplace_back(id, r);
             }
             if (!reused && (reached || lo == 0)) {
-                for (auto& e : got) {
-                    std::shared_lock<std::shared_mutex> g(e.second->m);
-                    Row* r = e.second;
-                    if (!r->live || r->id != e.first) continue;     // written again since: that write answers for it
-                    if (fresh > 0 && r->updated < cutoff) continue;
-                    out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+                for (auto& e : got) {                       // a published slot: its row already holds that value
+                    Row* r = e.second; const RowVal* x = r->val.load(std::memory_order_acquire);
+                    if (!x || !x->live || x->id != e.first) continue;   // written again since: that write answers for it
+                    if (fresh > 0 && x->updated < cutoff) continue;
+                    out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
                 }
                 std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
                 return out;
@@ -351,6 +376,7 @@ public:
     // -- every row with an id past the newest the reader has read there, bounded as row_scan_bound says -- and the
     // window is read on from where that bound was taken. Nothing is lost and nothing is read twice.
     void read(Cursor& c, std::vector<Cell>& out) {
+        ribbit::lf::ebr::Guard eg;                     // [LOCKFREE_READS_V1]
         if (!c.sw) { read_var(c, c.one, out); return; }
         auto vc_of = [&](Variable* var) -> VarCursor& {
             auto it = c.vars.find(var);
@@ -411,6 +437,11 @@ public:
     static Hook* hook(Cursor& c, WakeWord* w) { return c.hooks->add(w); }
     static void unhook(Hook* h) { h->live.store(false, std::memory_order_release); }
 private:
+    // [LOCKFREE_READS_V1] under the row's write lock: the new value in, the old one to epoch reclamation
+    static void set_val(Row* r, const RowVal* nv) {
+        const RowVal* old = r->val.exchange(nv, std::memory_order_acq_rel);
+        if (old) ribbit::lf::ebr::retire(const_cast<RowVal*>(old));
+    }
     static void fill(WindowSlot& sl, uint64_t p, uint64_t id, Row* r, Variable* var = nullptr) {
         sl.pos.store(~0ull, std::memory_order_release);          // being filled
         sl.id.store(id, std::memory_order_relaxed); sl.row.store(r, std::memory_order_relaxed); sl.var.store(var, std::memory_order_relaxed);
@@ -441,10 +472,11 @@ private:
             uint64_t h0 = 0; const uint64_t bound = row_scan_bound(w, &h0);
             std::vector<Cell> got;
             for (Row* r = vc.var->rows.load(std::memory_order_acquire); r; r = r->next_in_variable) {
-                std::shared_lock<std::shared_mutex> g(r->m);
-                if (!r->live || r->id <= vc.last || r->id > bound) continue;
+                std::shared_lock<std::shared_mutex> g(r->m);    // the bounded walk: waits for a write in flight
+                const RowVal* x = r->val.load(std::memory_order_acquire);
+                if (!x || !x->live || x->id <= vc.last || x->id > bound) continue;
                 if (!c.instance.empty() && r->instance != c.instance) continue;
-                got.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+                got.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
             }
             std::sort(got.begin(), got.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
             c.recovered += got.size();
@@ -463,10 +495,10 @@ private:
             }
             if (id <= vc.last) continue;                      // read already (from the rows)
             vc.last = id;
-            std::shared_lock<std::shared_mutex> g(r->m);
-            if (!r->live || r->id != id) continue;            // written again since: read at its newer slot
+            const RowVal* x = r->val.load(std::memory_order_acquire);   // published before its slot: no lock
+            if (!x || !x->live || x->id != id) continue;      // written again since: read at its newer slot
             if (!c.instance.empty() && r->instance != c.instance) continue;
-            out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
         }
     }
     std::atomic<uint64_t> next_id_{0};

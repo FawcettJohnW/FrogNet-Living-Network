@@ -742,8 +742,117 @@ static void session_from_region(int kind, const char *client, int from, bool cle
 }
 
 
+/* [ASYNC_PUBACK_V1] An MQTT 5 client is told "no matching subscribers" only when no box has one. When this box has none
+ * the question goes to the memory, off this thread (rgn_ask_subscribers), and the PUBACK waits for the answer: in a
+ * list on the client, in PUBLISH order (MQTT 5 4.6), so a PUBACK whose answer this box knew at once waits behind any
+ * still asked. Nothing else on this front waits. */
+struct region_ack {
+	struct region_ack *next;
+	uint64_t seq;
+	uint16_t mid;
+	uint8_t reason;
+	bool ready;
+};
+static uint64_t ack_token_next = 0;
+
+static int acks_flush(struct mosquitto *context)
+{
+	int rc = MOSQ_ERR_SUCCESS;
+	while(context->region_acks && context->region_acks->ready){
+		struct region_ack *a = context->region_acks;
+		context->region_acks = a->next;
+		if(!context->region_acks){
+			context->region_acks_tail = NULL;
+		}
+		if(!rc){
+			rc = send__puback(context, a->mid, a->reason, NULL);
+		}
+		mosquitto_FREE(a);
+	}
+	return rc;
+}
+
+static struct region_ack *acks_append(struct mosquitto *context, uint16_t mid, uint8_t reason, bool ready)
+{
+	struct region_ack *a = mosquitto_calloc(1, sizeof(struct region_ack));
+	if(!a){
+		return NULL;
+	}
+	a->seq = ++context->region_ack_seq;
+	a->mid = mid;
+	a->reason = reason;
+	a->ready = ready;
+	if(context->region_acks_tail){
+		context->region_acks_tail->next = a;
+	}else{
+		context->region_acks = a;
+	}
+	context->region_acks_tail = a;
+	return a;
+}
+
+int sub__puback(struct mosquitto *context, uint16_t mid, uint8_t reason)
+{
+	if(!context->region_acks){
+		return send__puback(context, mid, reason, NULL);
+	}
+	return acks_append(context, mid, reason, true) ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
+}
+
+int sub__puback_ask(struct mosquitto *context, uint16_t mid, const char *topic)
+{
+	struct region_ack *a;
+
+	if(!context->region_ack_token){
+		context->region_ack_token = __atomic_add_fetch(&ack_token_next, 1, __ATOMIC_RELAXED);
+	}
+	a = acks_append(context, mid, 0, false);
+	if(!a){
+		return MOSQ_ERR_NOMEM;
+	}
+	if(rgn_ask_subscribers(topic, context->id, context->region_ack_token, a->seq)){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error: asking for subscribers to %s: %s", topic, rgn_error());
+		return MOSQ_ERR_UNKNOWN;
+	}
+	return MOSQ_ERR_SUCCESS;
+}
+
+void sub__acks_forget(struct mosquitto *context)
+{
+	while(context->region_acks){
+		struct region_ack *a = context->region_acks;
+		context->region_acks = a->next;
+		mosquitto_FREE(a);
+	}
+	context->region_acks_tail = NULL;
+	context->region_ack_token = 0;                /* an answer still on its way finds no one */
+}
+
+static void on_answer(const char *client, uint64_t token, uint64_t seq, bool has_subscribers, void *ud)
+{
+	struct mosquitto *context;
+	struct region_ack *a;
+
+	UNUSED(ud);
+	HASH_FIND(hh_id, db.contexts_by_id, client, strlen(client), context);
+	if(!context || context->region_ack_token != token || mosquitto__get_state(context) != mosq_cs_active){
+		return;                                     /* that connection is gone: nothing to acknowledge */
+	}
+	for(a = context->region_acks; a; a = a->next){
+		if(a->seq == seq){
+			a->ready = true;
+			a->reason = has_subscribers ? 0 : MQTT_RC_NO_MATCHING_SUBSCRIBERS;
+			break;
+		}
+	}
+	if(acks_flush(context)){
+		log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s: a PUBACK could not be sent.", client);
+	}
+}
+
 void sub__region_drain(void)
 {
+	rgn_answers(on_answer, NULL);                 /* [ASYNC_PUBACK_V1] */
 	rgn_drain(deliver_from_region, session_from_region, NULL);
 }
 

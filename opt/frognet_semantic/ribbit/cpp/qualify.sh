@@ -62,9 +62,9 @@ if has build; then
   run bin/ramrows-driver -std=c++20 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
   run bin/test-lockfree-snapshot -std=c++20 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
   run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
-  run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp
-  run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp
-  run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp
+  run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp src/lf_ebr.cpp
+  run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp src/lf_ebr.cpp
+  run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp src/lf_ebr.cpp
   run bin/test-family-hooks -std=c++20 -O2 -pthread $WERR $I tests/test_family_hooks.cpp
   run bin/test-fnwp-e2e -std=c++20 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp -llz4 -lcrypto
   run bin/test-session-tcp -std=c++20 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp -llz4 -lcrypto

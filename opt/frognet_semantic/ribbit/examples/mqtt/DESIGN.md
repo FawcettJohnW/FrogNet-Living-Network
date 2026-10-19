@@ -129,32 +129,39 @@ The rules every conversion keeps: it rides the permanent socket, and its state i
 (one broker process, any number of fronts) answers every client from its own region, in this process: a call is a
 call, a publish fans out to this box's clients there and then, and the client is answered at once. Between boxes there
 is no server and no message. Each box writes its own truths to its own tuples (service `mqtt`), once, never waiting,
-and reads the other boxes' truths through triggers -- held reads on tuple families -- that apply them to its region:
+and reads the other boxes' truths where they are, when it needs them. Nothing another box owns is copied into this box
+([ONE_MEMORY_V1]): one RAM, one copy of every fact, one owner per tuple. As of 2026-10-19 (`region_client.cpp` header is
+the authority):
 
-| tuple | written by (its one writer) | read by: the trigger |
+| tuple | written by (its one owner) | read by |
 |---|---|---|
-| `msg.<box>` / `<n mod 16384>` | the box a publish was made on: the message, in the next cell of its moving window | every other box: delivers it to its own clients |
-| `retain` / `<topic>` | the box a retained publish or clear was made on | every box, its own too: retained state in write order |
-| `sub` / `<client>\x1f<filter>` | the box holding the client | every other box: the subscriber exists (MQTT 5's no-subscribers, counts) |
-| `at` / `<client>` | the box the client connected to | the box that held it: hands the session on |
-| `session` / `<client>` | the box that gave the session up | the box that took the client over (written after its claim's write id) |
-| `sys` / `<box>` | each box: its counts | every box: broker-wide limits; and the boxes -- a new box is a trigger on its `msg.<box>` |
-| `applied.<box>` / `<reader>` | each reader: how far it has read box's publishes | the box: its publishers paced by the slowest reader |
+| `(mqtt, <topic>, <box>.<n mod 16384>)` | the box a publish was made on (n: its count on the topic) | every box whose clients subscribe to the topic: a held read per topic, its own thread ([READERS_IN_PARALLEL_V1]) |
+| `(mqtt.topics, all, <topic>␟<box>)` | a box, the first time it publishes on a topic | boxes with wildcard subscribers: which topics to hold reads on |
+| `(mqtt.retained, <topic>, hwm)` | the topic's retained message (or its clear) | a box whose client subscribes: looked up at its address, handed over for that delivery, never stored |
+| `(mqtt.subs, <filter>, <client>␟<box>␟<group>)` | the box holding the client; `<filter>` without `$share/<group>/` | a box answering MQTT 5's "no matching subscribers" ([SUBS_BY_FILTER_V1]) |
+| `(mqtt.subs.shapes, all, <shape>␟<box>)` | a box, the first time it uses a filter shape | the same: which filters to look up |
+| `(mqtt.box, at, <client>␟<box>)` | the box the client connected to | the box that held it: gives the session up |
+| `(mqtt.box, session.<client>, <box>)` | the box that gave the session up (fields `b f k s`; `f` its subscriptions) | the box that took the client over |
+| `(mqtt.box, sys, <box>)` | each box: its counts | every box, when it checks a broker-wide limit |
 
-- **Write once, read the rest.** A publish is written once, to its own box's family, whoever listens; a box with
-  subscribers to it is woken by its own trigger. Nobody asks who is listening.
+- **Write once, read the rest.** A publish is written once at its topic, whoever listens; a box whose clients
+  subscribe holds a read on that topic and is woken. The publisher never looks up who reads it.
 - **Answered from the write.** PUBACK, PUBREC, PUBCOMP and SUBACK go when the box has set its truth, as Mosquitto
-  sends them. MQTT 5's "no matching subscribers" comes from the box's region, which holds every box's subscriptions.
-- **Paced as stock is paced ([PUBLISHER_PACED_BY_READERS_V1]).** Stock Mosquitto's publisher is paced by its
-  subscribers. Every reading box writes how far it has read; a QoS 1/2 publisher more than 768 ahead of the slowest
-  reader is paused at its socket and woken when the reader is back under 384 -- inside the memory's write window, so
-  every read is of new rows. A reader that has not moved for 2 s while behind is gone, and said. A reader writes its
-  `applied` cell when it has moved 64 since the last time ([APPLIED_IN_STEPS_V1]), not after every read: at 2,000
-  msgs/s every read held about one row, and the cell was a write per message. "Behind" means more than 64 behind.
-- **Takeover across boxes.** Connecting writes `at`; the box that held the client reads it, hands the session (its
-  messages and subscriptions list) to the memory as `session`, and drops the connection; the new box reads it.
-- **Lost is said ([LOST_IS_SAID_V1]).** A reader that falls 16,384 publishes behind a box loses the overwritten ones
-  and says how many ([RING_SIZED_BY_PACING_V1]: QoS 1/2 publishers are held within 768 of the slowest reader).
+  sends them. The one exception is MQTT 5's "no matching subscribers" on a QoS 1 PUBACK ([ASYNC_PUBACK_V1]): when this
+  box has no subscriber to the topic, the answer covers the other boxes, so it is asked of the memory -- on the
+  process's adaptive pool, never on the front thread -- and that client's PUBACK waits for it, in PUBLISH order (MQTT 5
+  section 4.6). A PUBACK this box can answer at once waits only behind its own client's earlier ones. No other client and
+  no other publish waits.
+- **Subscriptions are addressed by filter ([SUBS_BY_FILTER_V1]).** A filter's shape is its levels with each literal
+  replaced by `L` (`load/+` is `L/+`). A topic and a shape give exactly one filter, or none, so the lookup reads the
+  shapes manifest and then one family per shape in use that fits the topic: no scan of subscriptions, and not 2^depth
+  candidates. `region/test_sub_address.cpp` checks the address math against `mosquitto_topic_matches_sub` on 758,200
+  filter/topic pairs ($ topics, empty levels, `#` parents, `$share`).
+- **Takeover across boxes.** Connecting writes `at`; the box that held the client reads it, writes the session (its
+  messages and its subscriptions) as `session.<client>`, withdraws its own `subs` tuples and drops the connection; the
+  new box reads the session and writes the subscriptions as its own.
+- **Lost is said ([LOST_IS_SAID_V1]).** A reader more than 16,384 publishes behind a writer on a topic finds the
+  writer's count jumping and says how many it missed. Nothing paces the writer.
 - **One line per subscriber ([ONE_LINE_PER_SUBSCRIBER_V1]).** While deliveries from another front are held for a
   client whose queue is full, this front's own deliveries to it wait behind them. Measured before (16 publishers into
   one subscriber, QoS 1, 2 fronts): the own front took every slot the queue freed, the held were forced in after 1 s and

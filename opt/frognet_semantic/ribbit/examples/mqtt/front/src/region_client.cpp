@@ -7,8 +7,9 @@
 // thread shares the box's region (mqtt_region.hpp) in this process: a call is a call, a publish fans out to this box's
 // clients there and then, and the client is answered at once. Between boxes there is no server and no message: each
 // box writes its own truths to its own tuples in the memory (MQTT_REGION=host:port, or "own": a memory beside this
-// broker), and reads the other boxes' truths from there, through triggers -- held reads on tuple families -- that
-// apply what another box wrote to this box's region. Nothing is acknowledged, confirmed or asked for.
+// broker), and reads the other boxes' truths there, where they are, when it needs them ([ONE_MEMORY_V1]): nothing
+// another box owns is copied into this box. A box's clients' subscriptions are held reads on the topics they match;
+// what lands is delivered to those clients. Nothing is acknowledged or confirmed between boxes.
 //
 // [SPACE_V1] [TOPIC_IS_THE_ADDRESS_V1] Producers write and consumers read (ribbit_space): the boxes and libmosquitto's
 // own clients ([CLIENT_ON_THE_MEMORY_V1]) share one tuple space, addressed by topic.
@@ -19,7 +20,10 @@
 //   (mqtt.topics, all, <topic>␟<box>)             a box, the first time it uses one  boxes with wildcard subscribers
 //   (mqtt.retained, <topic>, hwm)                 the topic's retained message       looked up by a box when one of
 //                                                                                    its clients subscribes
-//   (mqtt.box, sub, <client>␟<filter>␟<box>)      the box holding the client         every other box: the subscriber
+//   (mqtt.subs, <filter>, <client>␟<box>␟<group>) the box holding the client         a box with no local subscriber
+//                                                 ([SUBS_BY_FILTER_V1]: <filter>     to a topic it publishes: the
+//                                                 without $share/<group>/)           filters that can match, looked up
+//   (mqtt.subs.shapes, all, <shape>␟<box>)        a box, the first time it uses one  the same: which filters to look up
 //   (mqtt.box, at, <client>␟<box>)                the box the client connected to    the box that held it before
 //   (mqtt.box, session.<client>, <box>)           the box that gave the session up   the box that took the client over
 //   (mqtt.box, sys, <box>)                        each box: its counts               every box: the broker-wide limits
@@ -49,6 +53,8 @@
 #include <unordered_map>
 #include <vector>
 #include "mqtt_region.hpp"
+#include "sub_address.hpp"
+#include "ribbit_mqtt_version.h"                         // made by tools/build.sh from VERSION
 #include "frogram.hpp"
 #include "ribbit_space.hpp"
 extern "C" int mosquitto_topic_matches_sub(const char* sub, const char* topic, bool* result);   // libcommon
@@ -68,6 +74,22 @@ mqttr::Region* resident() {
 }
 
 // ---- per front (per thread) ---------------------------------------------------------------------------------------
+// [ASYNC_PUBACK_V1] answers to "any subscriber on another box?", pushed by the pool's threads, taken by the front's own
+// thread: an intrusive MPSC list (lock-free: one exchange to push; only the front pops)
+struct Answer { std::atomic<Answer*> next{nullptr}; std::string client; uint64_t token = 0, seq = 0; bool has = false; };
+struct AnswerList {
+    Answer stub; std::atomic<Answer*> head{&stub}; Answer* tail = &stub;
+    void push(Answer* n) { n->next.store(nullptr, std::memory_order_relaxed); Answer* prev = head.exchange(n, std::memory_order_acq_rel); prev->next.store(n, std::memory_order_release); }
+    Answer* pop() {                                    // the front only
+        Answer* t = tail; Answer* next = t->next.load(std::memory_order_acquire);
+        if (t == &stub) { if (!next) return nullptr; tail = next; t = next; next = next->next.load(std::memory_order_acquire); }
+        if (next) { tail = next; return t; }
+        if (t != head.load(std::memory_order_acquire)) return nullptr;
+        stub.next.store(nullptr, std::memory_order_relaxed); Answer* prev = head.exchange(&stub, std::memory_order_acq_rel); prev->next.store(&stub, std::memory_order_release);
+        next = t->next.load(std::memory_order_acquire); if (next) { tail = next; return t; }
+        return nullptr;
+    }
+};
 // [FIELDS_NOT_TEXT_V1] a publish as the fields of its bag, in its shape's order; n (index 2) is set when it is numbered
 struct PendMsg { semcodec::Fields f; bool su = false; size_t bytes = 0; };
 struct Front {
@@ -84,6 +106,7 @@ struct Front {
     // this pass's PUBACKs leave (out__flush)
     std::vector<PendMsg> pend; size_t pend_bytes = 0;
     std::unordered_map<std::string, int> held_for;      // [ONE_LINE_PER_SUBSCRIBER_V1] deliveries from other fronts held, by client
+    AnswerList answers;                                  // [ASYNC_PUBACK_V1]
 };
 thread_local Front* F = nullptr;
 Front& me() { if (!F) F = new Front(); return *F; }
@@ -133,10 +156,15 @@ mqttr::Msg* make(mqttr::Region* r, const rgn_msg* m) {
 }
 const int64_t RHOLD_MS = [] { const char* v = getenv("RIBBIT_HOLD_MAX_MS"); long n = v ? atol(v) : 0; return int64_t(n > 0 ? n : 1000); }();
 int64_t mono_ms() { timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return int64_t(ts.tv_sec) * 1000 + ts.tv_nsec / 1000000; }
+// [DIAG-SUBLOOKUP] per lookup: reads made, rows seen, time the calling front thread spent in them
+std::atomic<uint64_t> SL_calls{0}, SL_reads{0}, SL_rows{0}, SL_us{0}, SL_max_us{0}, SL_hits{0};
+std::atomic<uint64_t> SL_asked{0}, SL_answered{0}, SL_failed{0};   // [ASYNC_PUBACK_V1]
+int64_t mono_us() { timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return int64_t(ts.tv_sec) * 1000000 + ts.tv_nsec / 1000; }
 
 // ---- [MEMORY_IS_MEMORY_V1] the box in the tuple space ------------------------------------------------------------
-// One per process. Its fronts write through it (each write put on the session's socket by the thread that makes it);
-// the reads it holds are given to it on the space's one reader thread. A client of another box is marked in this
+// One per process. Its fronts write through it (each write encoded by the thread that makes it and handed to the
+// session's sender thread, which owns the socket);
+// each read it holds runs on a thread of its own ([READERS_IN_PARALLEL_V1]). A client of another box is marked in this
 // box's region as held by REMOTE (< 0: no front of this box delivers to it).
 constexpr int REMOTE = -2;                 // a client another box holds
 constexpr int FROM_ELSEWHERE = -3;         // the publishing "front" of a publish another box made
@@ -145,6 +173,8 @@ const char* const SVC = "mqtt";
 const char* const SVC_RET = "mqtt.retained";
 const char* const SVC_TOPICS = "mqtt.topics";
 const char* const SVC_BOX = "mqtt.box";
+const char* const SVC_SUBS = "mqtt.subs";              // [SUBS_BY_FILTER_V1]
+const char* const SVC_SHAPES = "mqtt.subs.shapes";
 const char* const HWM = "hwm";
 // a writer's cells on one topic: its publish n there is cell <writer>.<n mod RING>. A reader further behind than this
 // loses what was overwritten, and says so ([LOST_IS_SAID_V1]).
@@ -226,6 +256,7 @@ const std::vector<std::string> FO_MSG_SU = {"b", "e", "n", "o", "p", "pr", "prq"
 const std::vector<std::string> FO_AT = {"b", "cs", "f", "k"};
 const std::vector<std::string> FO_SUB = {"b", "live", "o", "sid"};
 const std::vector<std::string> FO_SYS = {"c", "l", "n"};
+const std::vector<std::string> FO_SHAPE = {"s"};
 const std::vector<std::string> FO_SESSION = {"b", "f", "k", "s"};   // f: its subscriptions, "<options>\x1f<identifier>\x1f<filter>"
 const std::vector<std::string> FO_DIR = {"t"};
 const std::vector<std::string> FO_RET = {"b", "e", "live", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
@@ -411,15 +442,22 @@ Box* the_box(const char* host, int port) {
                     const uint64_t p = b->published.load(), a = b->applied_msgs.load();
                     fprintf(stderr, "[DIAG-QUEUE] box %s: published %llu/s, read from others %llu/s, missed %llu\n", b->id.c_str(),
                             (unsigned long long)(p - lp), (unsigned long long)(a - la), (unsigned long long)b->lost.load());
+                    fprintf(stderr, "[DIAG-SUBLOOKUP] box %s: lookups %llu reads %llu front_us %llu (cumulative)\n", b->id.c_str(),
+                            (unsigned long long)SL_calls.load(), (unsigned long long)SL_reads.load(), (unsigned long long)SL_us.load());
                     lp = p; la = a; } }).detach();
             std::atexit([] {                            // [DIAG-WIRE] what this box's session put on the wire, said at exit
                 Box* x = BOX.load(std::memory_order_acquire); if (!x || !x->sp) return;
                 uint64_t on, oms, xn, xms, xf; sub__pace_stats(&on, &oms, &xn, &xms, &xf);   // [DIAG-PACE]
                 fprintf(stderr, "[DIAG-PACE] box %s: publishers paused for own held %llu times %llu ms\n", x->id.c_str(), (unsigned long long)on, (unsigned long long)oms);
+                fprintf(stderr, "[DIAG-SUBLOOKUP] box %s: asked=%llu answered=%llu failed=%llu\n", x->id.c_str(), (unsigned long long)SL_asked.load(),
+                        (unsigned long long)SL_answered.load(), (unsigned long long)SL_failed.load());
+                fprintf(stderr, "[DIAG-SUBLOOKUP] box %s: lookups=%llu hits=%llu reads=%llu rows=%llu pool_thread_us_total=%llu avg_us=%.1f max_us=%llu\n", x->id.c_str(),
+                        (unsigned long long)SL_calls.load(), (unsigned long long)SL_hits.load(), (unsigned long long)SL_reads.load(), (unsigned long long)SL_rows.load(),
+                        (unsigned long long)SL_us.load(), SL_calls.load() ? double(SL_us.load()) / double(SL_calls.load()) : 0.0, (unsigned long long)SL_max_us.load());
                 fprintf(stderr, "[DIAG-WIRE] box %s: published=%llu read_from_others=%llu missed=%llu %s\n", x->id.c_str(),
                         (unsigned long long)x->published.load(), (unsigned long long)x->applied_msgs.load(), (unsigned long long)x->lost.load(), x->sp->stats().c_str());
             });
-            fprintf(stderr, "region: box %s on the memory at %s:%d -- producers write, consumers read [SPACE_V1]\n", b->id.c_str(), host, port);
+            fprintf(stderr, "region: box %s (MQTT on Ribbit %s) on the memory at %s:%d -- producers write, consumers read [SPACE_V1]\n", b->id.c_str(), RIBBIT_MQTT_VERSION, host, port);
         } catch (const std::exception& x) { BOX_err = x.what(); }
     });
     Box* b = BOX.load(std::memory_order_acquire);
@@ -438,11 +476,55 @@ void put(const char* space, const char* variable, const std::string& instance, c
     }
 }
 void put(const char* variable, const std::string& instance, const std::vector<std::string>& order, semcodec::Fields f) { put(SVC_BOX, variable, instance, order, std::move(f)); }
-semcodec::Fields at_fields(const std::string& box, int front, const std::string& key) {
-    return {{"b", pyv::Str{box}}, {"cs", pyv::Int::of(0)}, {"f", pyv::Int::of(front)}, {"k", pyv::Str{key}}};
-}
 semcodec::Fields sub_fields(const std::string& box, bool live, int64_t o, int64_t sid) {
     return {{"b", pyv::Str{box}}, {"live", pyv::Int::of(live)}, {"o", pyv::Int::of(o)}, {"sid", pyv::Int::of(sid)}};
+}
+// [SUBS_BY_FILTER_V1] a subscription of this box's, at its filter: (mqtt.subs, <filter>, <client>␟<box>␟<group>).
+// The filter's shape goes in the manifest the first time this box uses it (insert-only: found by CAS, no lock).
+struct ShapeSeen { std::string shape; ShapeSeen* next; };
+std::atomic<ShapeSeen*> SHAPES{nullptr};
+void put_sub(const std::string& client, const std::string& filter0, bool live, int64_t o, int64_t sid) {
+    Box* b = box(); if (!b) return;
+    std::string group, filter; subaddr::split_share(filter0, group, filter);
+    const std::string shape = subaddr::shape_of(filter);
+    for (ShapeSeen* h = SHAPES.load(std::memory_order_acquire);;) {
+        bool have = false; for (ShapeSeen* x = h; x; x = x->next) if (x->shape == shape) { have = true; break; }
+        if (have) break;
+        auto* n = new ShapeSeen{shape, h};
+        if (SHAPES.compare_exchange_strong(h, n, std::memory_order_acq_rel)) {
+            put(SVC_SHAPES, "all", shape + '\x1f' + b->id, FO_SHAPE, {{"s", pyv::Str{shape}}});   // written before the sub below
+            break;
+        }
+        delete n;                                         // h reloaded: look again
+    }
+    put(SVC_SUBS, filter.c_str(), client + '\x1f' + b->id + '\x1f' + group, FO_SUB, sub_fields(b->id, live, o, sid));
+}
+// [SUBS_BY_FILTER_V1] MQTT 5's "no matching subscribers", asked of the one memory: for each shape in use, the one filter
+// of that shape that matches the topic, read at its address. Nothing is scanned: the reads are the shapes in use.
+bool subscriber_elsewhere(Box* b, const std::string& topic) {
+    const int64_t t0 = mono_us(); uint64_t reads = 0, rows = 0; bool hit = false;
+    const std::vector<std::string_view> tl = subaddr::levels(topic);
+    std::vector<std::string> seen; std::string f;
+    ++reads; auto shapes = b->sp->read(SVC_SHAPES, "all"); rows += shapes.size();
+    for (auto& row : shapes) {
+        const std::string shape = row.instance.substr(0, row.instance.find('\x1f'));
+        if (std::find(seen.begin(), seen.end(), shape) != seen.end()) continue;
+        seen.push_back(shape);
+        if (!subaddr::filter_for(tl, shape, f)) continue;
+        ++reads; auto subs = b->sp->read(SVC_SUBS, f); rows += subs.size();
+        for (auto& s : subs) {
+            ribbit::BagArrP g = s.fields();
+            if (g && g->num("live") && sval(*g, "b") != b->id) { hit = true; break; }
+        }
+        if (hit) break;
+    }
+    const uint64_t us = uint64_t(mono_us() - t0);
+    SL_calls++; SL_reads += reads; SL_rows += rows; SL_us += us; SL_hits += hit;
+    for (uint64_t m = SL_max_us.load(); us > m && !SL_max_us.compare_exchange_weak(m, us);) {}
+    return hit;
+}
+semcodec::Fields at_fields(const std::string& box, int front, const std::string& key) {
+    return {{"b", pyv::Str{box}}, {"cs", pyv::Int::of(0)}, {"f", pyv::Int::of(front)}, {"k", pyv::Str{key}}};
 }
 // A publish is one cell at its topic, (mqtt, <topic>, <box>.<n mod RING>): a DIFF against the box's previous write of
 // that topic, so only what changed travels. A front's publishes of one loop pass are written from the front's own thread
@@ -511,7 +593,7 @@ int rgn_sub(const char* client, const char* filter, uint8_t options, uint32_t id
         f.r->client(client)->front.store(f.front, std::memory_order_release);
         *is_new = f.r->subscribe(client, filter, options, identifier);
         if (Box* b = box()) hold_filter(b, filter);   // [READERS_IN_PARALLEL_V1] the topics this subscription reads
-        if (Box* b = box()) put("sub", std::string(client) + '\x1f' + filter + '\x1f' + b->id, FO_SUB, sub_fields(b->id, true, options, identifier));
+        put_sub(client, filter, true, options, identifier);   // [SUBS_BY_FILTER_V1]
         return 0;
     } catch (const std::exception& x) { return fail(x); }
 }
@@ -519,18 +601,18 @@ int rgn_unsub(const char* client, const char* filter, bool* had, bool* root) {
     Front& f = me();
     try {
         *had = f.r->unsubscribe(client, filter, root);
-        if (*had) if (Box* b = box()) put("sub", std::string(client) + '\x1f' + filter + '\x1f' + b->id, FO_SUB, sub_fields(b->id, false, 0, 0));   // withdrawal is a truth
+        if (*had) put_sub(client, filter, false, 0, 0);   // withdrawal is a truth
         return 0;
     } catch (const std::exception& x) { return fail(x); }
 }
 int rgn_clean(const char* client) {
     Front& f = me();
     try {
-        if (Box* b = box()) {
+        if (box()) {
             if (mqttr::Client* c = f.r->find_client(client)) {
                 std::vector<std::string> fs;
                 { ribbit::lf::ebr::Guard g; c->filters.walk_all([&](ribbit::lf::LFMap<std::string, int>::Node* x) { fs.push_back(x->key); return true; }); }
-                for (auto& flt : fs) put("sub", std::string(client) + '\x1f' + flt + '\x1f' + b->id, FO_SUB, sub_fields(b->id, false, 0, 0));
+                for (auto& flt : fs) put_sub(client, flt, false, 0, 0);
             }
         }
         f.r->clean(client);
@@ -574,14 +656,10 @@ int rgn_pub(const struct rgn_msg* m, bool* has_subscribers, rgn_own_cb own, void
                 auto* p = static_cast<Pass*>(u); p->cb(client.c_str(), qos, retain, sid, p->ud);
             }, &pass, &had);
         if (had_retained && !box()) *had_retained = had;
-        // [ONE_MEMORY_V1] no subscriber on this box: the subscriptions of every other box are read where they are, in
-        // the one memory -- MQTT 5's "no matching subscribers" is answered from them
-        if (!*has_subscribers) if (Box* b = box())
-            for (auto& row : b->sp->read(SVC_BOX, "sub")) {
-                ribbit::BagArrP g = row.fields(); if (!g || !g->num("live") || sval(*g, "b") == b->id) continue;
-                const size_t z = row.instance.find('\x1f'), z2 = row.instance.rfind('\x1f'); if (z == std::string::npos || z2 == z) continue;
-                if (matches(share_free(row.instance.substr(z + 1, z2 - z - 1)), m->topic)) { *has_subscribers = true; break; }
-            }
+        // [SUBS_BY_FILTER_V1] no subscriber on this box: MQTT 5's "no matching subscribers" is answered from the
+        // other boxes' subscriptions, looked up at the filters that can match this topic
+        // [ASYNC_PUBACK_V1] another box's subscribers are not asked here, on the front thread: the one caller that uses the
+        // answer (an MQTT 5 QoS 1 PUBACK) asks with rgn_ask_subscribers and its PUBACK waits for the answer, in order
         f.dropped = mqttr::Region::last_dropped();
         // [MEMORY_IS_MEMORY_V1] written once; another box with subscribers to it is woken by its own trigger
         if (Box* b = box()) {
@@ -591,6 +669,30 @@ int rgn_pub(const struct rgn_msg* m, bool* has_subscribers, rgn_own_cb own, void
         }
         return 0;
     } catch (const std::exception& x) { return fail(x); }
+}
+// [ASYNC_PUBACK_V1] Asked on the process's pool ([ADAPTIVE_POOL_V1]): each ask is its own task, its reads its own
+// requests in flight on the box's one session with every other ask's (FNWP fan-in; identical reads coalesce). The front
+// thread never waits for it. The answer goes on this front's list and its eventfd fires.
+bool rgn_on_memory(void) { return box() != nullptr; }
+int rgn_ask_subscribers(const char* topic, const char* client, uint64_t token, uint64_t seq) {
+    Front* fp = &me(); Box* b = box();
+    if (!b) { fp->err = "no memory: this box alone answers"; return 1; }
+    SL_asked++;
+    ribbit::pool_run([fp, b, t = std::string(topic), c = std::string(client), token, seq] {
+        auto* a = new Answer; a->client = c; a->token = token; a->seq = seq;
+        try { a->has = subscriber_elsewhere(b, t); }
+        catch (const std::exception& x) {               // the memory is gone: this box knows only its own (it had none)
+            if (SL_failed++ == 0) fprintf(stderr, "region: another box's subscribers to %s could not be read (%s): the PUBACK says what this box knows\n", t.c_str(), x.what());
+        }
+        fp->answers.push(a);
+        const uint64_t one = 1; ssize_t w = write(fp->efd, &one, sizeof one); (void)w;
+    });
+    return 0;
+}
+int rgn_answers(rgn_answer_cb cb, void* ud) {
+    Front& f = me(); int n = 0;
+    while (Answer* a = f.answers.pop()) { cb(a->client.c_str(), a->token, a->seq, a->has, ud); delete a; ++n; SL_answered++; }
+    return n;
 }
 int rgn_pub_async(const struct rgn_msg* m, rgn_own_cb own, rgn_pub_done_cb done, void* ud) {
     Front& f = me();
@@ -657,7 +759,7 @@ static void session_from_elsewhere(Box* b, std::string client, int to, std::stri
                 const uint8_t o = uint8_t(std::stoul(s.substr(0, a))); const uint32_t sid = uint32_t(std::stoul(s.substr(a + 1, z - a - 1)));
                 const std::string fl = s.substr(z + 1);
                 r->subscribe(client, fl, o, sid);
-                put("sub", client + '\x1f' + fl + '\x1f' + b->id, FO_SUB, sub_fields(b->id, true, o, sid));
+                put_sub(client, fl, true, o, sid);
             }
         r->give_session(client, to, std::move(blob));
         r->flush_wakes();
@@ -689,7 +791,7 @@ int rgn_give_session(const char* client, int to, const void* blob, uint32_t len)
                 for (auto& fl : fs) { uint8_t o = 0; uint32_t sid = 0;
                     if (f.r->sub_of(client, fl, o, sid)) subs.push_back(pyv::Str{std::to_string(o) + '\x1f' + std::to_string(sid) + '\x1f' + fl}); }
                 put(("session." + std::string(client)).c_str(), b->id, FO_SESSION, {{"b", pyv::Str{b->id}}, {"f", std::move(subs)}, {"k", pyv::Str{claim_key_of(b, client)}}, {"s", pyv::Str{b64(blob, len)}}});
-                for (auto& fl : fs) put("sub", std::string(client) + '\x1f' + fl + '\x1f' + b->id, FO_SUB, sub_fields(b->id, false, 0, 0));
+                for (auto& fl : fs) put_sub(client, fl, false, 0, 0);
                 f.r->clean(client);
             }
             return 0;

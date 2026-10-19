@@ -35,7 +35,9 @@
 #include "bagarr.hpp"
 #include "semcodec.hpp"
 #include "semtpl.hpp"
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <chrono>
 #include <functional>
 #include <memory>
@@ -48,8 +50,10 @@ using pyv::Dict; using pyv::Obj; using pyv::List;
 constexpr uint8_t OP_CELL_WRITE = 0x7C;
 constexpr uint8_t F_NAMES = 1, F_DIFF = 2, F_KEYS = 4, F_NEXT = 8;
 
-// a chain's reference: the bag's fields as its last write left them, and that write's instance
-struct Ref { std::shared_ptr<const std::vector<std::string>> fo; Dict vals; std::string inst; };
+// a chain's reference: its last write's bag -- the very array the memory stored for it ([POSITIONAL_WRITE_V1]) -- and
+// that write's instance
+struct Ref { std::shared_ptr<const std::vector<std::string>> fo; ribbit::BagArrP arr; std::string inst; };
+using Changed = ribbit::FwdP;   // the field indices a write changed, ascending (and its shared packet)
 
 namespace detail {
 using semcodec::detail::put_varint; using semcodec::detail::get_varint;
@@ -161,17 +165,45 @@ inline Frame parse(std::string_view f, size_t p) {            // p: just past th
 }
 // the bag and the chain's new reference, from the frame and (for a difference) write c-1's reference
 // [DECODE_ONCE_V1] the write's bag, decoded once: its values against its chain's reference, as the array the memory
-// stores (the field names shared with the chain); no text is made
-inline std::unique_ptr<Ref> decode(Frame& x, const Ref* ref, ribbit::BagArrP& arr_out) {
+// stores (the field names shared with the chain); no text is made.
+// [POSITIONAL_WRITE_V1] by position, as the reader's rowcodec::Decoder does: write c-1's array copied once and the fields
+// the difference carries put in place by index -- no dictionary is built, nothing is looked up by name, and the chain's
+// reference is the stored array itself. The same values as semcodec::decode_reply against that reference. changed_out:
+// the indices the write changed (every index for a whole value), for the memory to give its readers.
+inline std::unique_ptr<Ref> decode(Frame& x, const Ref* ref, ribbit::BagArrP& arr_out, Changed* changed_out = nullptr) {
+    using namespace semcodec::detail;
     auto out = std::make_unique<Ref>();
     const bool keys = x.flags & F_KEYS;
     if (!keys && !ref) throw std::runtime_error("cellwire: a difference without its reference");
     if (x.flags & F_NEXT) { int64_t a; if (!semcodec::detail::decstr(ref->inst, a)) throw std::runtime_error("cellwire: next of an instance that is not a number"); x.inst = std::to_string(a + 1); }
     out->fo = keys ? std::make_shared<const std::vector<std::string>>(std::move(x.keys)) : ref->fo;
-    semcodec::Fields dec = semcodec::decode_reply(x.pkt, *out->fo, keys ? nullptr : &ref->vals);
-    out->vals = detail::dict(dec); out->inst = x.inst;
-    auto a = std::make_shared<ribbit::BagArr>(); a->names = out->fo; a->vals.reserve(dec.size());
-    for (auto& kv : dec) a->vals.push_back(std::move(kv.second));
+    const size_t nf = out->fo->size();
+    Decoded d = decode_packet(x.pkt);
+    const std::vector<Obj>* rv = (!keys && ref->arr) ? &ref->arr->vals : nullptr;   // the reference, by index
+    auto a = std::make_shared<ribbit::BagArr>(); a->names = out->fo;
+    if (d.diff && rv && !rv->empty()) { a->vals = *rv; a->vals.resize(nf, Obj(pyv::None{})); }
+    else a->vals.assign(nf, Obj(pyv::None{}));
+    std::vector<uint16_t> ch; ch.reserve(d.vals.size() + d.splices.size());
+    for (auto& kv : d.vals) if (kv.first < nf) { a->vals[kv.first] = std::move(kv.second); ch.push_back(uint16_t(kv.first)); }
+    for (auto& sp : d.splices) {                     // [STRING_SPLICE_V1] [NUMBER_DELTA_V1] against the reference's value
+        if (!rv || sp.idx >= nf || sp.idx >= rv->size() || (sp.kind == semcodec::TYPE_SPLICE && !(*rv)[sp.idx].is<pyv::Str>()))
+            throw semcodec::ValueError("semcodec: a splice without its reference string (field " + (sp.idx < nf ? (*out->fo)[sp.idx] : std::string("?")) + ")");
+        const Obj& r = (*rv)[sp.idx];
+        if (sp.kind == semcodec::TYPE_INT_DELTA) { if (!r.is<pyv::Int>() || r.as<pyv::Int>().big) throw semcodec::ValueError("semcodec: an integer delta without its reference integer");
+            a->vals[sp.idx] = pyv::Int::of(int64_t(uint64_t(r.as<pyv::Int>().v) + uint64_t(sp.d))); }
+        else if (sp.kind == semcodec::TYPE_FLOAT_DELTA) { if (!r.is<double>()) throw semcodec::ValueError("semcodec: a float delta without its reference float");
+            uint64_t u; const double y = r.as<double>(); std::memcpy(&u, &y, 8); u += uint64_t(sp.d); double z; std::memcpy(&z, &u, 8); a->vals[sp.idx] = z; }
+        else if (sp.kind == semcodec::TYPE_DECSTR_DELTA) { int64_t bb; if (!r.is<pyv::Str>() || !decstr(r.as<pyv::Str>().s, bb)) throw semcodec::ValueError("semcodec: a decimal delta without its reference number");
+            a->vals[sp.idx] = pyv::Str{std::to_string(bb + sp.d)}; }
+        else { const std::string& o = r.as<pyv::Str>().s;
+            if (sp.pre + sp.suf > o.size()) throw semcodec::ValueError("semcodec: a splice longer than its reference");
+            a->vals[sp.idx] = pyv::Str{o.substr(0, sp.pre) + sp.mid + o.substr(o.size() - sp.suf)}; }
+        ch.push_back(uint16_t(sp.idx));
+    }
+    if (keys || !d.diff) { ch.clear(); for (size_t i = 0; i < nf; ++i) ch.push_back(uint16_t(i)); }   // a whole value: all of it
+    else { std::sort(ch.begin(), ch.end()); ch.erase(std::unique(ch.begin(), ch.end()), ch.end()); }
+    if (changed_out) { auto fw = std::make_shared<ribbit::Fwd>(); fw->idx = std::move(ch); *changed_out = std::move(fw); }
+    out->arr = a; out->inst = x.inst;
     arr_out = std::move(a);
     return out;
 }

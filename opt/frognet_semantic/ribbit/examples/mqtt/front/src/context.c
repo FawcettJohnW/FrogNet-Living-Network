@@ -163,6 +163,7 @@ void context__cleanup(struct mosquitto *context, bool force_free)
 		context->clean_start = true;
 	}
 	out__forget(context);                               /* [WRITE_COALESCED_V1] off the flush list before it can be freed */
+	sub__acks_forget(context);                          /* [ASYNC_PUBACK_V1] */
 
 #ifdef WITH_BRIDGE
 	if(context->bridge){
@@ -252,6 +253,7 @@ void context__disconnect(struct mosquitto *context, int reason)
 	if(mosquitto__get_state(context) == mosq_cs_disconnected){
 		return;
 	}
+	sub__acks_forget(context);                          /* [ASYNC_PUBACK_V1] the connection is going: its PUBACKs with it */
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_BUILTIN
 	if(context->transport == mosq_t_ws){

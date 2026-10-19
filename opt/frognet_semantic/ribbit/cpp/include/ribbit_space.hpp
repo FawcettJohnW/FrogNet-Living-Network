@@ -14,8 +14,9 @@
 // Where the memory is:
 //   "here"             this process holds the memory: writes, reads and watches are calls on it -- no frame, no socket
 //   "here:HOST:PORT"   the same, and other nodes reach it at HOST:PORT
-//   "HOST:PORT"        a memory elsewhere: one FNWP session; a write is encoded and put on the session's request socket
-//                      by the thread that makes it; watches are answered on the session's reader thread
+//   "HOST:PORT"        a memory elsewhere: one FNWP session; a write is encoded by the thread that makes it and handed
+//                      to the session's sender thread, the one thread that owns the request socket; each read and each
+//                      held read is its own request in flight on the session, answered through its reader thread
 #pragma once
 #include <cstdint>
 #include <functional>
