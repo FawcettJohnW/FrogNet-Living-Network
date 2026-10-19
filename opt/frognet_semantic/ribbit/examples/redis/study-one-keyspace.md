@@ -117,3 +117,18 @@ One front behind: a request and an answer per pipeline through the session, wher
 writes and read batched rows. Measured thread switches per command, one front: copy design front 0.61 / memory 0.28;
 one keyspace before [NO_SECOND_HOP_V1] 1.37 / 1.97, after 1.31 / 1.06 (one front: ~33,000 -> 36,800-38,300 req/s).
 Next lever: many connections' pipelines in one call (fan-in). Not claimed: separate machines.
+
+## Requests/s at 1-5 fronts, v33 (writes and one standing read, piece cells, follow fix) -- 2026-10-19
+
+`cpu_k.sh`: one memory, K fronts, `redis-benchmark -c 50/K -P 1 -t incr`, 180,000 requests in all. Copy design = cc87622
+(v32); one keyspace = this build. Three rounds, interleaved, one 2-core machine (everything on it). Median of three:
+
+| K | copy design | one keyspace | ratio |
+|---|---|---|---|
+| 1 | 57,405 | 61,909 | 1.08 |
+| 2 | 64,625 | 80,589 | 1.25 |
+| 3 | 47,521 | 84,926 | 1.79 |
+| 5 | 34,673 | 77,062 | 2.22 |
+
+The copy design falls as fronts are added (each write is copied to every front); one keyspace holds. All processes
+share 2 cores here, so these are not separate-machine numbers.
