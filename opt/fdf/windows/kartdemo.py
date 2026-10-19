@@ -43,6 +43,9 @@ if sum(bool(x) for x in (a.fdf, a.kart, a.solo)) != 1: sys.exit("kartdemo: say w
 import pygame
 from ribbit import Memory, RibbitError
 from kartmem import Region, say as _say, hp
+import ribbit as _rb                                       # [KART_SAYS_THE_ARCH_V1] the library, loaded once, here: a wrong one stops the game and says why
+try: _rb._lib = _rb._load()
+except (RibbitError, OSError) as _e: sys.exit(f"kartdemo: {_e}")
 
 NAME = a.name or random.choice(["red","blue","green","yellow","pink","cyan"])
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -55,6 +58,9 @@ def tool(base):
     return None
 # --rina-host, when given, is the one: if it is not there this machine does not host (said), nothing else is looked for
 RINA_HOST = (a.rina_host if os.path.exists(a.rina_host) else None) if a.rina_host else tool("rina-host")
+if RINA_HOST and os.name != "nt" and _rb.elf_arch(RINA_HOST) not in (None, _rb.this_arch()):   # [KART_SAYS_THE_ARCH_V1]
+    print(f"kartdemo: {RINA_HOST} is built for {_rb.elf_arch(RINA_HOST)}; this machine is {_rb.this_arch()}: this machine does not serve games", flush=True)
+    RINA_HOST = None
 CAN_HOST = os.name != "nt" and RINA_HOST is not None
 children = []                                            # what this game started; they end with it
 

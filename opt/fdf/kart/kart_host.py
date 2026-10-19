@@ -30,6 +30,9 @@ if os.name != "nt" and a.kind == "player":                     # a player's agen
     import ctypes; ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)
 RH = a.rina_host if a.rina_host else next((c for c in (os.path.join(HERE, "rina-host"), "/opt/fdf/bin/rina-host") if os.path.exists(c)), None)
 if not RH or not os.path.exists(RH): sys.exit(f"kart_host[{ME}]: no rina-host ({a.rina_host or 'beside kart_host.py or in /opt/fdf/bin'}): this machine cannot serve a game")
+from ribbit import elf_arch, this_arch
+if os.name != "nt" and elf_arch(RH) not in (None, this_arch()):        # [KART_SAYS_THE_ARCH_V1]
+    sys.exit(f"kart_host[{ME}]: {RH} is built for {elf_arch(RH)}; this machine is {this_arch()}: this machine cannot serve a game with it")
 H, P = hp(a.memory)
 
 FAPI = "/FawcettInnovations.RINA.ram_interface.php"

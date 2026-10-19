@@ -18,12 +18,26 @@ class RibbitError(Exception):
     pass
 
 
+_ELF_MACHINES = {0x3e: "x86_64", 0xb7: "aarch64", 0x28: "arm", 0x03: "i386"}
+def elf_arch(path):
+    """[KART_SAYS_THE_ARCH_V1] the machine a Linux binary or library was built for (None if it is not ELF)."""
+    with open(path, "rb") as f: h = f.read(20)
+    if h[:4] != b"\x7fELF": return None
+    return _ELF_MACHINES.get(int.from_bytes(h[18:20], "little"), hex(int.from_bytes(h[18:20], "little")))
+def this_arch():
+    import platform; m = platform.machine().lower()
+    return {"amd64": "x86_64", "arm64": "aarch64"}.get(m, m)
+
 def _load():
     here = os.path.dirname(os.path.abspath(__file__))
     name = "kartram.dll" if os.name == "nt" else "libkartram.so"
     path = os.path.join(os.environ.get("KARTRAM_LIB") or here, name)
     if not os.path.exists(path):
         raise RibbitError(f"{path} is not there: the game needs it beside ribbit.py (or KARTRAM_LIB=<its directory>)")
+    if os.name != "nt":
+        built = elf_arch(path)
+        if built and built != this_arch():
+            raise RibbitError(f"{path} is built for {built}; this machine is {this_arch()}: use the {this_arch()} kart tarball")
     lib = ctypes.CDLL(path)
     c, p, e = ctypes.c_char_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)
     lib.kr_open.restype = p;  lib.kr_open.argtypes = [c, ctypes.c_int, c, e]
