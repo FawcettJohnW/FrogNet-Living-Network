@@ -1,7 +1,7 @@
 #!/bin/bash
 # fdf-services.sh start|stop|status -- the droplet's services, together:
 #   fdf     FD&F's RAM server            port 8840   (fdf-ram-server.sh)
-#   kart    the race region              port 8799   (fdf-kart-ram.sh)
+#   kart    the kart memory and service  port 8799   (fdf-kart-ram.sh)
 #   comms   the Communicator's memory    port 8800   (fdf-comms.sh, from COMMS_BIN)
 #           and media server             port 8994
 # start: each in the background, its output still to THIS terminal (no log files), each in its own process group,

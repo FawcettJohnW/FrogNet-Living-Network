@@ -6,7 +6,7 @@ FD&F on Windows: the FD&F client, and the kart demo
 Needs: nothing for fdf-client.exe (one static program, no DLLs).
        Python 3 and pygame for the kart demo:  pip install pygame
        kartram.dll beside kartdemo.py and ribbit.py: the game's one session to each region (static, no other DLLs).
-       The main memory (the droplet's rina-host, FD&F or the kart region) must be fdf-2026-10-18-r22 or later.
+       The droplet must be fdf-2026-10-19-r23 or later (its kart memory and kart service, fdf-kart-ram.sh).
 
 1. Join the FD&F region (leave this window open; while it runs, this machine is a member):
 
@@ -14,14 +14,17 @@ Needs: nothing for fdf-client.exe (one static program, no DLLs).
 
    It prints:  fdf-client: <COMPUTERNAME> joined the region at <droplet-ip>:8840, announced [...]
 
-2. The kart lobby, in a second window (FD&F's memory is the lobby; a race starts when enough players are there, or
-   when someone presses Start, and runs on a player's Linux machine -- Windows plays but does not host):
+2. The kart lobby, in a second window. FD&F says where the kart memory is (the droplet's, port 8799); everyone
+   connects there first. The kart service beside it agrees the laps, says when a game launches (all free players
+   ready, or someone presses Start), and picks the machine that serves it: a dedicated game-serving machine if the
+   network has one, else a player's Linux machine. Windows plays, chats and calls, but does not serve games.
 
      python kartdemo.py --name <your-name> --fdf <droplet-ip>:8840
+     python kartdemo.py --name <your-name> --kart <droplet-ip>:8799     (straight to the kart memory, no FD&F)
 
-   Start (or S / Enter) in the lobby; arrow keys or WASD to drive. --bots 4 puts four robot karts of yours in each
-   race; --autodrive (or P) drives your own kart; --min-players N (default 2); --headless runs with no window.
-   Results and records stay in FD&F's memory across races and restarts.
+   Lobby: type and press Enter to chat; Ready; Start (once ready); - / + the laps you want. Racing: arrow keys or WASD;
+   P (or --autodrive) drives your kart. --bots 4 puts four robot karts of yours in each race; --headless, no window.
+   Results and records stay in the kart memory across races and restarts.
 
 If the droplet restarts, start fdf-client.exe again.
 

@@ -1,59 +1,53 @@
 #!/usr/bin/env python3
-# kartdemo.py -- shared memory creating and managing games (DESIGN.md is the truth table).  [KART_LOBBY_V1]
-# Each game maps the MAIN memory and waits in its lobby until enough players are there or someone presses Start.
-# Then a race server (kart_server.py) is started, already filled, on one of the machines; its tuple appears in the
-# main memory, every racer's game sees it and maps the race memory, they race, and before the race server exits it
-# writes the result and every racer's record back into the main memory, permanently.
+# kartdemo.py -- a player of shared-memory-managed games (DESIGN.md is the truth table).  [KART_LOBBY_V1]
+# Every game connects first to the kart memory, where the kart service is (kart_service.py: the lobby's
+# intelligence). The game writes its own truths there -- here, ready, the laps it wants, its chat lines -- and reads
+# the service's: the agreed parameters, the lobby's state, and which machine serves each game. When the service has
+# launched a race with this player in it and the race server announces itself, the game maps that race's memory and
+# races; afterwards it is back in the lobby. If this machine can serve games, the game runs a host agent for it
+# (kart_host.py --kind player), so the service can choose it when no dedicated machine is up.
 #
-#   python kartdemo.py --name red --fdf H:8840            the main memory is FD&F's RAM manager
-#   python kartdemo.py --name red --memory H:P            the main memory is that rina-host
-#   python kartdemo.py --name red --solo                  this machine alone: the game starts its own main memory
-#   [--bots N] [--autodrive] [--headless] [--min-players N] [--laps N]
+#   python kartdemo.py --name red --fdf H:8840     FD&F says where the kart memory is (fdf.where "race"), and who is a member
+#   python kartdemo.py --name red --kart H:8799    the kart memory is there (the kart service must be beside it)
+#   python kartdemo.py --name red --solo           this machine alone: the game starts the kart memory and the kart service
+#   [--bots N] [--laps N] [--autodrive] [--headless] [--min-players N (solo)]
 #
-# Keys: Start (or S / Enter) in the lobby; arrows / WASD to drive; P toggles the autopilot. Deps: pygame, and
-# libkartram (kartram.dll on Windows) beside ribbit.py. Hosting a race needs rina-host (beside this file or in
-# /opt/fdf/bin, Linux); a machine without it plays, and someone else's machine hosts.
+# In the lobby: type and Enter to chat; Ready; Start (launches the ready players now); - / + the laps you want.
+# Racing: arrows / WASD; P toggles the autopilot. Deps: pygame, and libkartram (kartram.dll on Windows) beside ribbit.py.
 #
-# The memory is memory:
 # [KART_ON_THE_SESSION_V1] one permanent FNW1 session per memory and service; writes are posted, never waited for.
-# [KART_HELD_READS_V1] each family is read once, then held: the memory answers when something is written to it.
+# [KART_HELD_READS_V1] each service is read once, then held: the memory answers when something is written to it.
 # [KART_WRITES_ON_CHANGE_V1] a kart is written when it departs from where readers draw it; everything else when it changes.
 # [OWNED_CELL_GOES_WITH_THE_SESSION_V1] what a game writes goes with its session: gone is gone, no timeouts.
-# [PERMANENT_CELL_V1] results and records are written permanent by the race server, so they outlive the main memory.
 # [KART_AUTODRIVE_V1] --bots N: robot karts this game owns and drives; --autodrive (or P): your own kart too.
-import sys, os, time, math, random, argparse, threading, subprocess, json, socket
+import sys, os, time, math, random, argparse, threading, subprocess, json, socket, signal
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--name", default=None, help="your player id")
-ap.add_argument("--fdf", default=None, help="FD&F RAM server host:port: the main memory, and who is a member")
+ap.add_argument("--fdf", default=None, help="FD&F RAM server host:port: where the kart memory is, and who is a member")
 ap.add_argument("--fdf-client", default=None, help="the FD&F client program (default: next to this script, or /opt/fdf/bin)")
-ap.add_argument("--memory", default=None, help="the main memory, host:port of a rina-host (instead of --fdf)")
-ap.add_argument("--solo", action="store_true", help="start a main memory on this machine (~/.frognet-kart/main.perm keeps it)")
-ap.add_argument("--min-players", type=int, default=2, help="a race starts by itself when this many players are free")
-ap.add_argument("--laps", type=int, default=3)
+ap.add_argument("--kart", default=None, help="the kart memory, host:port (the kart service is beside it)")
+ap.add_argument("--solo", action="store_true", help="start the kart memory and the kart service here (~/.frognet-kart keeps the memory)")
+ap.add_argument("--min-players", type=int, default=1, help="--solo: the kart service launches by itself at this many ready players")
+ap.add_argument("--laps", type=int, default=3, help="the laps you want (the service agrees the laps the most players want)")
 ap.add_argument("--bots", type=int, default=0, help="robot karts this game owns and drives")
 ap.add_argument("--autodrive", action="store_true", help="your own kart starts on the autopilot (P toggles it)")
 ap.add_argument("--headless", action="store_true", help="no window, no sound")
-ap.add_argument("--rina-host", default=None, help="the rina-host a race server runs (default: beside this file, or /opt/fdf/bin)")
-# [KART_CALLS_V1] the real Communicator
-ap.add_argument("--comms-ram", default=None); ap.add_argument("--comms-media", default=None)
+ap.add_argument("--rina-host", default=None, help="what a race server on this machine runs (default: beside this file, or /opt/fdf/bin)")
+ap.add_argument("--comms-ram", default=None); ap.add_argument("--comms-media", default=None)      # [KART_CALLS_V1]
 ap.add_argument("--comms-app", default="comms-app.exe" if os.name == "nt" else "comms-app")
 ap.add_argument("--comms-args", default="")
 a = ap.parse_args()
 if a.headless: os.environ["SDL_VIDEODRIVER"] = "dummy"; os.environ["SDL_AUDIODRIVER"] = "dummy"
-if sum(bool(x) for x in (a.fdf, a.memory, a.solo)) != 1: sys.exit("kartdemo: say where the main memory is: --fdf H:P, --memory H:P or --solo")
+if sum(bool(x) for x in (a.fdf, a.kart, a.solo)) != 1: sys.exit("kartdemo: say where the kart memory is: --fdf H:P, --kart H:P or --solo")
 import pygame
 from ribbit import Memory, RibbitError
+from kartmem import Region, say as _say, hp
 
 NAME = a.name or random.choice(["red","blue","green","yellow","pink","cyan"])
 HERE = os.path.dirname(os.path.abspath(__file__))
 MACHINE = os.environ.get("COMPUTERNAME") or socket.gethostname()
-_say_lock = threading.Lock()
-def say(m):
-    with _say_lock: sys.stdout.write(f"kartdemo: {m}\n"); sys.stdout.flush()
-def hp(s, p=8799):
-    if ":" in s: h, pp = s.rsplit(":", 1); return h, int(pp)
-    return s, p
+def say(m): _say("kartdemo", m)
 def tool(base):
     exe = base + (".exe" if os.name == "nt" else "")
     for c in [os.path.join(HERE, exe), os.path.join("/opt/fdf/bin", exe)]:
@@ -62,97 +56,54 @@ def tool(base):
 # --rina-host, when given, is the one: if it is not there this machine does not host (said), nothing else is looked for
 RINA_HOST = (a.rina_host if os.path.exists(a.rina_host) else None) if a.rina_host else tool("rina-host")
 CAN_HOST = os.name != "nt" and RINA_HOST is not None
+children = []                                            # what this game started; they end with it
 
-# ----------------------------------------------------------------------------- where the main memory is
-FDF_API = "/FawcettInnovations.RINA.ram_interface.php"
-if a.fdf: MAIN_H, MAIN_P = hp(a.fdf, 8840); MAIN_API = FDF_API
-elif a.memory: MAIN_H, MAIN_P = hp(a.memory); MAIN_API = "/ram.php"
-else:                                            # --solo: this machine's own main memory, kept across runs
-    if not RINA_HOST: sys.exit("kartdemo: --solo needs rina-host beside kartdemo.py or in /opt/fdf/bin")
-    keep = os.path.join(os.path.expanduser("~"), ".frognet-kart"); os.makedirs(keep, exist_ok=True)
-    env = dict(os.environ, RINA_REGION_FILE=os.path.join(keep, "main.perm")); env.pop("RINA_MAP_AREA", None)
-    solo = subprocess.Popen([RINA_HOST, "--listen", "127.0.0.1:0", "--api", "/ram.php"], env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    MAIN_P = None
-    for line in solo.stderr:
-        if "[PERMANENT_CELL_V1]" in line: say(line.strip())
-        if "[FDF_VERSION_V1]" in line and "listening on" in line: MAIN_P = int(line.rsplit(":", 1)[1])
-        if MAIN_P and "[PERMANENT_CELL_V1]" in line: break
-    if not MAIN_P: sys.exit("kartdemo: the solo main memory did not start")
-    threading.Thread(target=lambda: [None for _ in solo.stderr], daemon=True).start()
-    MAIN_H, MAIN_API = "127.0.0.1", "/ram.php"
-    say(f"solo: main memory on this machine, 127.0.0.1:{MAIN_P}, kept in {keep}/main.perm")
-WHERE = {}
+# ----------------------------------------------------------------------------- where the kart memory is
+FDF_API = "/FawcettInnovations.RINA.ram_interface.php"; WHERE = {}
+FDF_H, FDF_P = hp(a.fdf, 8840) if a.fdf else (None, None)
 if a.fdf:
     try:
-        f = Memory(MAIN_H, MAIN_P, api=FDF_API)
+        f = Memory(FDF_H, FDF_P, api=FDF_API)
         for c in f.read("fdf", "where"): WHERE[c["instance"]] = c["bag"]
         f.close()
     except RibbitError as e: sys.exit(f"kartdemo: cannot read FD&F: {e}")
-COMMS_RAM = a.comms_ram or (WHERE.get("comms", {}).get("ram")) or f"{MAIN_H}:8800"     # [KART_CALLS_V1]
-COMMS_MEDIA = a.comms_media or (WHERE.get("comms", {}).get("media")) or f"{MAIN_H}:8994"
-say(f"{NAME} on {MACHINE}: main memory {MAIN_H}:{MAIN_P}{MAIN_API}; {a.bots} robot(s); "
-    f"{'can host races (' + RINA_HOST + ')' if CAN_HOST else ('cannot host races: ' + (a.rina_host + ' is not there' if a.rina_host else 'no rina-host here'))}")
+    if "race" not in WHERE: sys.exit(f"kartdemo: FD&F at {a.fdf} does not say where the kart memory is (fdf.where race: run fdf-services.sh start on the droplet)")
+    KART_H, KART_P = WHERE["race"]["host"], int(WHERE["race"]["port"])
+elif a.kart: KART_H, KART_P = hp(a.kart)
+else:                                                    # --solo: the kart memory and the kart service, here
+    if not RINA_HOST: sys.exit("kartdemo: --solo needs rina-host beside kartdemo.py or in /opt/fdf/bin")
+    keep = os.path.join(os.path.expanduser("~"), ".frognet-kart"); os.makedirs(keep, exist_ok=True)
+    env = dict(os.environ, RINA_REGION_FILE=os.path.join(keep, "main.perm")); env.pop("RINA_MAP_AREA", None)
+    import ctypes; _libc = ctypes.CDLL("libc.so.6")
+    def with_the_game(): _libc.prctl(1, signal.SIGTERM)    # PR_SET_PDEATHSIG: the solo memory and service end with this game, even killed -9
+    solo = subprocess.Popen([RINA_HOST, "--listen", "127.0.0.1:0", "--api", "/ram.php"], env=env, preexec_fn=with_the_game,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True); children.append(solo)
+    KART_P = None
+    for line in solo.stderr:
+        if "[FDF_VERSION_V1]" in line and "listening on" in line: KART_P = int(line.rsplit(":", 1)[1])
+        if "[PERMANENT_CELL_V1]" in line: say(line.strip())
+        if KART_P and "[PERMANENT_CELL_V1]" in line: break
+    if not KART_P: sys.exit("kartdemo: the solo kart memory did not start")
+    threading.Thread(target=lambda: [None for _ in solo.stderr], daemon=True).start()
+    KART_H = "127.0.0.1"
+    children.append(subprocess.Popen([sys.executable, os.path.join(HERE, "kart_service.py"), "--memory", f"127.0.0.1:{KART_P}",
+                                      "--min-players", str(a.min_players)], preexec_fn=with_the_game))
+    say(f"solo: the kart memory on this machine, 127.0.0.1:{KART_P}, kept in {keep}/main.perm, and the kart service beside it")
+KART_API = "/ram.php"
+COMMS_RAM = a.comms_ram or (WHERE.get("comms", {}).get("ram")) or f"{KART_H}:8800"     # [KART_CALLS_V1]
+COMMS_MEDIA = a.comms_media or (WHERE.get("comms", {}).get("media")) or f"{KART_H}:8994"
+say(f"{NAME} on {MACHINE}: kart memory {KART_H}:{KART_P}; {a.bots} robot(s); "
+    f"{'this machine can serve games (' + RINA_HOST + ')' if CAN_HOST else ('this machine does not serve games: ' + (a.rina_host + ' is not there' if a.rina_host else 'no rina-host here'))}")
 
-# ----------------------------------------------------------------------------- a memory the game maps
 running = True
-class Region:
-    """One service of one memory: one session, its family read once and then held. The view holds every tuple of the
-    service, (variable, instance) -> (bag, when it arrived); {} is gone. A broken session is said and a new one opened
-    a second later (and the game writes its own truths again: gen changes) -- until the region is stopped."""
-    def __init__(self, name, host, port, api, service, ends=None):
-        self.name, self.host, self.port, self.api, self.service = name, host, port, api, service
-        self.ends = ends          # a rule on the view: when it holds, the memory has said this region is over
-        self.mem = None; self.gen = 0; self.view = {}; self.lock = threading.Lock(); self.bad = None
-        self.writes = 0; self.stopped = False; self.refused_said = 0
-        threading.Thread(target=self.follower, daemon=True).start()
-    def failing(self, e):
-        if self.bad != str(e): say(f"{self.name} FAILING: {e}"); self.bad = str(e)
-    def write(self, v, i, bag):
-        m = self.mem
-        if m is None or self.stopped: return False
-        try:
-            m.write(self.service, v, i, bag, own=True); self.writes += 1
-            r = m.refused()
-            if r != self.refused_said: say(f"{self.name} refused {r - self.refused_said} write(s)"); self.refused_said = r
-            return True
-        except RibbitError as e: self.failing(e); return False
-    def follower(self):
-        retired = []
-        while running and not self.stopped:
-            try: m = Memory(self.host, self.port, api=self.api)
-            except RibbitError as e: self.failing(e); time.sleep(1.0); continue
-            first = True
-            try:
-                for cells in m.follow(self.service, ""):
-                    if self.stopped: break
-                    now = time.time()
-                    with self.lock:
-                        if first: self.view = {}
-                        for c in cells:
-                            k = (c["variable"], c["instance"])
-                            if c["bag"]: self.view[k] = (c["bag"], now)
-                            else: self.view.pop(k, None)
-                    if self.ends and self.ends(self.view): self.stop(); break
-                    if first:
-                        self.mem = m; self.gen += 1; first = False
-                        if self.bad is not None: say(f"{self.name} working again (a new session)"); self.bad = None
-                        for r in retired: r.close()
-                        retired = []
-            except RibbitError as e:
-                if not self.stopped: self.failing(e)
-            if self.mem is m: self.mem = None
-            retired.append(m); time.sleep(1.0)
-    def stop(self): self.stopped = True; self.mem = None
-    def family(self, variable):
-        with self.lock: return {i: b for (v, i), (b, _) in self.view.items() if v == variable}
-    def family_t(self, variable):
-        with self.lock: return {i: (b, t) for (v, i), (b, t) in self.view.items() if v == variable}
-
-main = Region("main memory", MAIN_H, MAIN_P, MAIN_API, "kart")     # lobby, servers, records, results
-comm = Region("comm", MAIN_H, MAIN_P, MAIN_API, "comm")             # call tiles
-race = None                                                          # the race memory, while racing
-
+main = Region("kart memory", KART_H, KART_P, KART_API, "kart", say)     # lobby, chat, the service's truths, servers, records
+comm = Region("comm", KART_H, KART_P, KART_API, "comm", say)            # call tiles
+race = None                                                            # the race memory, while racing
+if CAN_HOST:                                                           # [KART_HOST_AGENT_V1] this machine, for the service to choose
+    cmd = [sys.executable, os.path.join(HERE, "kart_host.py"), "--memory", f"{KART_H}:{KART_P}", "--kind", "player",
+           "--machine", MACHINE, "--player", NAME, "--rina-host", RINA_HOST]
+    cmd += ["--advertise", "127.0.0.1"] if a.solo else (["--fdf", f"{FDF_H}:{FDF_P}"] if a.fdf else [])
+    children.append(subprocess.Popen(cmd))
 # ----------------------------------------------------------------------------- look
 pygame.init()
 W, H = 1180, 720; TRACK_W = 860
@@ -248,50 +199,20 @@ bots=[Owned(f"{NAME}-bot{i+1}", BOT_COLORS[(seed+i)%len(BOT_COLORS)], True, skil
 MINE={o.name: o for o in [me]+bots}
 autodrive=a.autodrive
 
-# ----------------------------------------------------------------------------- the lobby: my truth, the rules
-lobby_written=None; lobby_gen=-1; my_intent=None; ready_at=0.0   # back from a race: counted for an automatic start from ready_at
+
+# ----------------------------------------------------------------------------- the lobby: my truths
+ready=False; start=False; my_laps=max(1,a.laps); lobby_written=None; lobby_gen=-1; chat_n=0
 def publish_lobby():
+    """[KART_WRITES_ON_CHANGE_V1] here, ready, Start pressed, the laps I want -- written when they change"""
     global lobby_written, lobby_gen
-    bag={"name":NAME,"machine":MACHINE,"bots":len(bots),"can_host":CAN_HOST,"ready_at":ready_at}
-    if my_intent: bag["start"]=my_intent
+    if not member(MACHINE): return                       # [FDF_GATED_V1] not an FD&F member: not in the lobby
+    bag={"name":NAME,"machine":MACHINE,"bots":len(bots),"ready":ready,"start":start,"laps":my_laps}
     if bag == lobby_written and lobby_gen == main.gen: return
     gen=main.gen
     if main.write("lobby",NAME,bag): lobby_written=bag; lobby_gen=gen
-def running_servers(): return {r: b for r, b in main.family("server").items()}
-def busy_players(servers): return {p for b in servers.values() for p in b.get("players", [])}
-def free_players(lob, servers):
-    busy=busy_players(servers); return sorted(n for n, b in lob.items() if n not in busy and member(b.get("machine","")))
-def winning_intent(lob):
-    ins=[b["start"] for b in lob.values() if b.get("start")]
-    return min(ins, key=lambda i: i["race"]) if ins else None
-def make_intent(lob, servers):
-    free=free_players(lob, servers)
-    if NAME not in free: free=sorted(free+[NAME])
-    hosts=([NAME] if CAN_HOST else [])+[n for n in free if n != NAME and lob.get(n,{}).get("can_host")]
-    if not hosts: return None, "no machine in the lobby can host a race (it needs rina-host, on Linux)"
-    roster=[{"name":n, "bots":int(lob.get(n,{}).get("bots",0)) if n != NAME else len(bots)} for n in free]
-    return {"race": f"{int(time.time()*1000):013d}-{NAME}", "host": hosts[0], "roster": roster, "laps": a.laps}, ""
-launched=set(); server_procs=[]
-def my_address():
-    """the address the racers reach this machine at: FD&F's own record of it, or what the main memory sees, or (solo) here"""
-    if a.solo: return "127.0.0.1"
-    if a.fdf:
-        for p in fdf_participants:                              # the addresses this machine announced to FD&F
-            if p.get("name") == MACHINE and p.get("alive") and p.get("ips"): return p["ips"][0]
-        raise RibbitError(f"FD&F has no address for {MACHINE}")
-    r=main.mem.call("POST", MAIN_API+"?op=rina", json.dumps({"op":"seen"})) if main.mem else {}
-    if not r.get("ok"): raise RibbitError(f"the main memory did not say where it sees this machine: {r}")
-    return r["addr"].split(":")[0]
-def host_race(intent):
-    """[KART_RACE_SERVER_V1] the winning intent names this game host: start the race server here, once"""
-    launched.add(intent["race"])
-    try: addr=my_address()
-    except RibbitError as e: say(f"cannot host race {intent['race']}: {e}"); return
-    cmd=[sys.executable, os.path.join(HERE,"kart_server.py"), "--main", f"{MAIN_H}:{MAIN_P}", "--main-api", MAIN_API,
-         "--intent", json.dumps(intent), "--advertise", addr, "--rina-host", RINA_HOST]
-    try: server_procs.append(subprocess.Popen(cmd, start_new_session=True)); say(f"hosting race {intent['race']} here, at {addr}")
-    except OSError as e: say(f"cannot start the race server: {e}")
-
+def send_chat(text):
+    global chat_n
+    chat_n+=1; main.write("chat", f"{NAME}#{chat_n % 40}", {"who":NAME,"text":text,"at":time.time()}, own=False)
 # ----------------------------------------------------------------------------- calls (unchanged)
 calling=""; answered={}; call_id=""; comms_proc=None; call_buttons={}
 def comms_running(): return comms_proc is not None and comms_proc.poll() is None
@@ -318,7 +239,7 @@ def fdf_reader():
     me_proc=f"kart:{MACHINE}:{NAME}:{os.getpid()}"; bad=None
     while running:
         try:
-            f=Memory(MAIN_H, MAIN_P, api=FDF_API)
+            f=Memory(FDF_H, FDF_P, api=FDF_API)
             r=f.call("POST", FDF_API+"?op=rina", json.dumps({"op":"watch_participants","proc":me_proc}))
             if not r.get("ok"): raise RibbitError(f"FD&F refused the participant watch: {r}")
             after=0
@@ -343,8 +264,8 @@ def ensure_fdf_member():      # [FDF_AUTOCLIENT_V1]
     fdf_client_t=time.time(); exe=a.fdf_client or tool("fdf-client") or "fdf-client"   # given: that one, exactly
     try:
         flags=subprocess.CREATE_NEW_CONSOLE if os.name=="nt" else 0
-        fdf_client_proc=subprocess.Popen([exe,f"{MAIN_H}:{MAIN_P}"],creationflags=flags) if os.name=="nt" else subprocess.Popen([exe,f"{MAIN_H}:{MAIN_P}"],start_new_session=True)
-        say(f"{MACHINE} was not an FD&F member: started {exe} {MAIN_H}:{MAIN_P}")
+        fdf_client_proc=subprocess.Popen([exe,f"{FDF_H}:{FDF_P}"],creationflags=flags) if os.name=="nt" else subprocess.Popen([exe,f"{FDF_H}:{FDF_P}"],start_new_session=True)
+        say(f"{MACHINE} was not an FD&F member: started {exe} {FDF_H}:{FDF_P}")
     except OSError as e: fdf_client_proc=False; say(f"{MACHINE} is not an FD&F member, and the FD&F client could not start ({exe}): {e}")
 if a.fdf: threading.Thread(target=fdf_reader,daemon=True).start()
 
@@ -372,86 +293,91 @@ def draw_strip(tiles):
         draw_tile(sx0+16, ty, tw, th, n, tiles.get(n), n in tiles); ty+=th+10
         if ty>H-th: break
 
+
 # ----------------------------------------------------------------------------- the lobby screen
-start_btn=pygame.Rect(40, H-110, 200, 56); lobby_msg=""; last_result=None
-def draw_lobby(lob, servers, recs, results):
-    screen.fill((30,34,40)); text("Lobby", 40, 24, BIG)
-    text(f"main memory {MAIN_H}:{MAIN_P}   -   a race starts at {a.min_players} free players, or on Start", 40, 64, SMALL, (180,180,190))
-    y=100; text("in the lobby", 40, y, FONT, (200,220,255)); y+=28
-    busy=busy_players(servers)
+ready_btn=pygame.Rect(40, H-70, 130, 44); start_btn=pygame.Rect(180, H-70, 130, 44)
+minus_btn=pygame.Rect(330, H-70, 36, 44); plus_btn=pygame.Rect(440, H-70, 36, 44)
+chat_text=""; last_result=None
+def button(r, label, on=True, lit=False):
+    pygame.draw.rect(screen,(36,140,72) if lit else ((60,100,160) if on else (70,70,75)),r,border_radius=8)
+    text(label, r.x+(r.w-FONT.size(label)[0])//2, r.y+12, FONT)
+def draw_lobby(lob, servers, recs, agreed, chats):
+    screen.fill((30,34,40)); text("Lobby", 40, 20, BIG)
+    text(f"kart memory {KART_H}:{KART_P}   -   {agreed.get('state','the kart service has not spoken yet') if agreed else 'the kart service has not spoken yet'}", 40, 58, SMALL, (240,200,120))
+    if agreed: text(f"agreed: {agreed.get('laps')} lap(s)    game-serving machines: " +
+                    (", ".join(f"{m} ({k})" for m, k in sorted(agreed.get('hosts',{}).items())) or "none"), 40, 76, SMALL, (180,200,220))
+    y=104; text("players", 40, y, FONT, (200,220,255)); y+=26
+    busy={p for b in servers.values() for p in b.get("players", [])}
     for n in sorted(lob):
-        b=lob[n]; st="racing" if n in busy else ("wants to start" if b.get("start") else "waiting")
-        text(f"{n:12s} {b.get('machine','')[:16]:16s} robots {b.get('bots',0)}   {'can host' if b.get('can_host') else '         '}   {st}", 40, y, SMALL); y+=20
-    y+=10; text("races running", 40, y, FONT, (200,220,255)); y+=28
-    for r, b in sorted(servers.items()):
-        text(f"{r}  on {b.get('host')} ({b.get('addr')}:{b.get('port')})  {', '.join(b.get('players',[]))}", 40, y, SMALL); y+=20
-    if not servers: text("none", 40, y, SMALL, (150,150,155)); y+=20
-    x2=470; y2=100; text("records (permanent)", x2, y2, FONT, (200,220,255)); y2+=28
-    for n, r in sorted(recs.items(), key=lambda kv: (-kv[1].get("wins",0), kv[1].get("best_lap") or 1e9))[:12]:
-        bl=r.get("best_lap"); text(f"{n:12s} races {r.get('races',0):3d}  wins {r.get('wins',0):3d}  best lap {bl if bl else '-'}", x2, y2, SMALL); y2+=20
-    y2+=10
+        b=lob[n]; st="racing" if n in busy else ("ready" if b.get("ready") else "not ready")
+        text(f"{n:12s} {b.get('machine','')[:14]:14s} robots {b.get('bots',0)}  wants {b.get('laps',3)} lap(s)  {st}", 40, y, SMALL); y+=19
+    y+=8; text("races running", 40, y, FONT, (200,220,255)); y+=26
+    for r, b in sorted(servers.items()): text(f"{r} on {b.get('host')} ({b.get('addr')}:{b.get('port')})", 40, y, SMALL); y+=19
+    if not servers: text("none", 40, y, SMALL, (150,150,155))
+    x2=470; y2=104; text("chat", x2, y2, FONT, (200,220,255)); y2+=26
+    for c in chats[-13:]: text(f"{c.get('who','?')}: {c.get('text','')}"[:58], x2, y2, SMALL, (200,200,170) if c.get('who')=='kart service' else (230,230,235)); y2+=19
+    pygame.draw.rect(screen,(20,22,26),(x2,y2+4,380,26),border_radius=4); text(chat_text+"_", x2+6, y2+8, SMALL); y2+=40
+    text("records (permanent)", x2, y2, FONT, (200,220,255)); y2+=24
+    for n, r in sorted(recs.items(), key=lambda kv: (-kv[1].get("wins",0), kv[1].get("best_lap") or 1e9))[:6]:
+        text(f"{n:12s} races {r.get('races',0):3d}  wins {r.get('wins',0):3d}  best lap {r.get('best_lap') or '-'}", x2, y2, SMALL); y2+=19
     if last_result:
-        text(f"last race {last_result.get('race')}", x2, y2, FONT, (200,220,255)); y2+=24
-        text(f"on {last_result.get('host')}: {last_result.get('why','')}", x2, y2, SMALL, (170,170,180)); y2+=22
-        for i, s in enumerate(last_result.get("order", [])[:10]):
-            text(f"{i+1:2d}. {s['kart']:14s} laps {s['laps']}  time {s['time'] if s['time'] else '-'}  best {s['best_lap'] if s['best_lap'] else '-'}", x2, y2, SMALL); y2+=20
-    pygame.draw.rect(screen,(36,140,72),start_btn,border_radius=10); text("Start", start_btn.x+70, start_btn.y+16, FONT)
-    if lobby_msg: text(lobby_msg, 260, H-96, SMALL, (240,200,120))
+        text(f"last race {last_result.get('race')}: " + ", ".join(s['kart'] for s in last_result.get('order',[])[:4]), x2, y2+6, SMALL, (170,170,180))
+    button(ready_btn, "Ready" if not ready else "Ready ✓", lit=ready); button(start_btn, "Start", on=ready)
+    button(minus_btn, "-"); button(plus_btn, "+"); text(f"{my_laps} lap(s)", 372, H-58, SMALL)
 
 # ----------------------------------------------------------------------------- the main loop
-state="lobby"; my_race=None; joined_at=0; placed=False; start_at=0; trail=[]
-fps_t=time.time(); fps_n=0; fps=0.0; w_n0=0; T0=time.time(); want_start=False
+state="lobby"; my_race=None; placed=False; start_at=0; trail=[]
+fps_t=time.time(); fps_n=0; fps=0.0; w_n0=0; T0=time.time(); test_chat_sent=False
 while running:
     dt=clock.tick(60)/1000.0; now=time.time()
     for e in pygame.event.get():
         if e.type==pygame.QUIT: running=False
-        if e.type==pygame.KEYDOWN and e.key==pygame.K_p: autodrive=not autodrive
-        if e.type==pygame.KEYDOWN and e.key in (pygame.K_s, pygame.K_RETURN) and state=="lobby": want_start=True
+        if e.type==pygame.KEYDOWN and e.key==pygame.K_p and state=="racing": autodrive=not autodrive
+        if e.type==pygame.KEYDOWN and state=="lobby":
+            if e.key==pygame.K_RETURN:
+                if chat_text.strip(): send_chat(chat_text.strip())
+                chat_text=""
+            elif e.key==pygame.K_BACKSPACE: chat_text=chat_text[:-1]
+            elif e.unicode and e.unicode.isprintable() and len(chat_text)<120: chat_text+=e.unicode
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
-            if state=="lobby" and start_btn.collidepoint(e.pos): want_start=True
+            if state=="lobby":
+                if ready_btn.collidepoint(e.pos): ready=not ready; start=start and ready
+                if start_btn.collidepoint(e.pos) and ready: start=True
+                if minus_btn.collidepoint(e.pos): my_laps=max(1,my_laps-1)
+                if plus_btn.collidepoint(e.pos): my_laps=min(20,my_laps+1)
             for who,r in list(call_buttons.items()):
                 if r.collidepoint(e.pos): launch_comms(who); break
-    if os.environ.get("KART_TEST_START") == NAME and now-T0 > float(os.environ.get("KART_TEST_START_AFTER","3")) and state=="lobby" and not my_intent:
-        want_start=True                                         # test only: press Start
+    if state=="lobby":                                       # test only: what a player's hands would do
+        if os.environ.get("KART_TEST_READY_AFTER") and now-T0 > float(os.environ["KART_TEST_READY_AFTER"]) and not ready and not my_race: ready=True
+        if os.environ.get("KART_TEST_START_AFTER") and now-T0 > float(os.environ["KART_TEST_START_AFTER"]) and ready: start=True
+        if os.environ.get("KART_TEST_CHAT") and now-T0 > 2 and not test_chat_sent: send_chat(os.environ["KART_TEST_CHAT"]); test_chat_sent=True
     lob={n: b for n, b in main.family("lobby").items() if member(b.get("machine",""))}
-    servers=running_servers(); tiles={n: b for n, b in comm.family("tile").items() if n==NAME or member(b.get("machine",""))}
+    servers=main.family("server"); tiles={n: b for n, b in comm.family("tile").items() if n==NAME or member(b.get("machine",""))}
     for who,b in tiles.items():                                 # someone is calling ME
         if who!=NAME and b.get("calling")==NAME and answered.get(who)!=b.get("call_id") and member(MACHINE):
             answered[who]=b.get("call_id"); launch_comms("")
-
     if state=="lobby":
         mine=[r for r, b in servers.items() if NAME in b.get("players",[])]
-        if mine:                                                # my race is up: map the race memory
+        if mine:                                                # the service launched my race and its server is up
             my_race=min(mine); b=servers[my_race]
-            race=Region("race memory", b["addr"], int(b["port"]), b.get("api","/ram.php"), "race",
+            race=Region("race memory", b["addr"], int(b["port"]), b.get("api","/ram.php"), "race", say,
                         ends=lambda v: ("meta","info") not in v)   # the race memory says the race is over: meta {}
-            state="racing"; joined_at=now; placed=False; start_at=float(b.get("start_at", now)); trail=[]
+            state="racing"; placed=False; start_at=float(b.get("start_at", now)); trail=[]
+            ready=False; start=False; publish_lobby()             # ready means ready for the NEXT race: spent on joining this one
             say(f"race {my_race} is up on {b['host']} at {b['addr']}:{b['port']}: racing")
-            if my_intent and my_intent["race"]==my_race: my_intent=None
-        else:
-            win=winning_intent(lob)
-            if my_intent and (not win or win["race"]!=my_intent["race"] or my_intent["host"] not in lob): my_intent=None   # lost, or its host left
-            if win and win["host"]==NAME and win["race"] not in launched and win["race"] not in servers: host_race(win)
-            free=free_players(lob, servers); ready=[n for n in free if now >= float(lob[n].get("ready_at",0))]
-            auto=len(ready)>=a.min_players and not win and ready[0]==NAME
-            if (want_start or auto) and not win and not my_intent:
-                my_intent, lobby_msg = make_intent(lob, servers)
-                if my_intent: say(f"start: race {my_intent['race']}, host {my_intent['host']}, {len(my_intent['roster'])} player(s)" + (" (enough players)" if auto and not want_start else " (Start)"))
-            want_start=False
-            if win: lobby_msg=f"race {win['race']} starting on {win['host']}'s machine..."
-            elif not my_intent and not lobby_msg.startswith("no machine"): lobby_msg=f"waiting: {len(ready)} of {a.min_players} players ready"
         publish_lobby(); publish_tile()
         if state=="lobby":
-            recs=main.family("record"); res=main.family("result")
+            res=main.family("result")
             if res and (not last_result or max(res)!=last_result.get("race")): last_result=res[max(res)]
-            draw_lobby(lob, servers, recs, res); draw_strip(tiles); pygame.display.flip()
+            chats=sorted(main.family("chat").values(), key=lambda c: c.get("at",0))
+            draw_lobby(lob, servers, main.family("record"), main.family("agreed").get("lobby"), chats); draw_strip(tiles); pygame.display.flip()
     if state=="racing":
         b=servers.get(my_race)
         if not b:                                               # the race server wrote its tuple {} or is gone
             race.stop(); race=None; state="lobby"; res=main.family("result")
             if my_race in res: last_result=res[my_race]
             say(f"race {my_race} is over ({last_result.get('why') if last_result and last_result.get('race')==my_race else 'its server is gone, no result'}): back in the lobby")
-            my_race=None; ready_at=time.time()+10.0; publish_lobby(); continue
+            my_race=None; publish_lobby(); continue
         grid=race.family("grid"); meta=race.family("meta").get("info")
         if not placed and meta and all(k in grid for k in MINE):
             for k, o in MINE.items(): o.place(grid[k])
@@ -504,3 +430,6 @@ while running:
         fps_n=0; fps_t=now
 pygame.quit()
 # The sessions end with the process: the memory writes this game's lobby tuple, tile and karts {} for everyone.
+for c in children:                         # the solo kart memory and service, and this machine's host agent, end with the game
+    try: c.terminate()
+    except OSError: pass

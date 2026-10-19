@@ -1,66 +1,62 @@
 # FrogNet Kart: shared memory creating and managing games
 
-This is not a game demonstration. It shows shared memory doing what a game company's servers do: a lobby, matchmaking,
-starting a game server on some machine, everyone finding it, the game, and the results kept across runs. There is no
-lobby server, no matchmaker, no master server and no database server: there is one shared memory everyone maps (the
-**main memory**), a memory that a race server brings with it (the **race memory**), and programs that write their own
-truths and act on the others'.
+This is not a game demonstration. It shows shared memory doing what a game company's servers do: a lobby, chat,
+agreeing a game's parameters, choosing a machine to serve the game, starting it there, everyone finding it, the game,
+and the results kept across runs.
 
-Every participant writes its own truths at its own tuples, once, and never waits. It reads the others' from the
-memory; held reads (triggers) on tuple families are its callbacks. Nothing asks another machine for anything.
+There are three kinds of participant and two memories:
 
-## The main memory
+- **The kart service** (`kart_service.py`) is where the lobby's intelligence is. It runs beside the **kart memory**
+  (the kart region, a rina-host: on the droplet `fdf-kart-ram.sh` starts both), which is where everyone connects
+  first. It reads the players' truths and writes its decisions: the agreed parameters, the lobby's state, and which
+  machine serves each game.
+- **Game-serving machines** (`kart_host.py`) say they can serve a game's memory, and start a race server when the
+  service names them. A network can have dedicated ones; a player's game that can host runs one for its own machine.
+- **Players' games** (`kartdemo.py`) write their own truths (here, chat lines, the parameters they want, ready), read
+  the service's, and race in the game's memory when the service has one up for them.
 
-With `--fdf`, FD&F's RAM manager (the one the network already has). With `--memory H:P`, any rina-host. With `--solo`,
-the game starts one on this machine, its file in `~/.frognet-kart/main.perm`, so what it keeps survives across runs.
+Every participant writes its own truths at its own tuples, once, and never waits. Everyone else reads them from the
+memory; held reads on tuple families are the callbacks. Nobody asks anybody anything: the service decides by reading,
+and acts by writing.
 
-| truth | its one writer | tuple (service, variable, instance) | kept | readers | trigger family |
-|---|---|---|---|---|---|
-| I am in the lobby: name, machine, robots, whether this machine can host a race, and my start intent if I made one | that player's game | (`kart`, `lobby`, *player*) | with its session | every game | (`kart`, `lobby`, *) |
-| a race server is running: where (address, port), the race, its roster, laps, the start time | that race server | (`kart`, `server`, *race*) | with its session | every game | (`kart`, `server`, *) |
-| a player's record: races, wins, best lap, last place, laps | the server of the player's latest race, before it exits | (`kart`, `record`, *player*) | **permanent** | every game (the board); each race server as it starts | (`kart`, `record`, *) |
-| a race's result: the finishing order, times, best laps | that race's server, once, before it exits | (`kart`, `result`, *race*) | **permanent** | every game | (`kart`, `result`, *) |
-| a player's call tile | that player's game | (`comm`, `tile`, *player*) | with its session | every game | (`comm`, `tile`, *) |
+## The kart memory (service `kart`)
 
-"With its session" is `[OWNED_CELL_GOES_WITH_THE_SESSION_V1]`: when the writer's session ends, the memory writes the
-tuple `{}` and every hold on it fires. "Permanent" is `[PERMANENT_CELL_V1]`: the memory files it before publishing it
-and writes it back when it starts again.
+| truth | its one writer | tuple (service, variable, instance) | kept | readers |
+|---|---|---|---|---|
+| I am here: name, machine, robots, ready, the laps I want | that player's game | (`kart`, `lobby`, *player*) | with its session | the service; every game |
+| a chat line: text, when | its writer (a player, or the service) | (`kart`, `chat`, *writer*`#`*n mod 40*) | until overwritten | every game |
+| this machine can serve a game's memory: kind (`dedicated` or `player`), address, rina-host | that machine's host agent | (`kart`, `gamehost`, *machine*) | with its session | the service |
+| the agreed parameters and the lobby's state (waiting, launching, why) | the service | (`kart`, `agreed`, `lobby`) | with its session | every game |
+| launch this race here: race, roster, parameters, the machine chosen | the service | (`kart`, `launch`, *race*) | with its session; `{}` when done | the named machine's host agent; every game |
+| what became of a launch: starting, or failed and why | the host agent the launch named | (`kart`, `hosting`, *race*) | with its session | the service |
+| a race server is running: address, port, race, roster, laps, start time | that race server | (`kart`, `server`, *race*) | with its session | every game; the service |
+| a player's record; a race's result | the race's server, before it exits | (`kart`, `record`, *player*), (`kart`, `result`, *race*) | **permanent** | every game; the next race servers |
+| a player's call tile | that player's game | (`comm`, `tile`, *player*) | with its session | every game |
 
-## The race memory (a rina-host the race server starts, on the hosting machine, on a port the system picks)
+## The game's memory (a rina-host the race server starts on the chosen machine, on a port its system picks)
 
-| truth | its one writer | tuple | readers |
-|---|---|---|---|
-| the race: id, laps, roster, the karts, the start time | the race server, before anyone is told it exists | (`race`, `meta`, `info`) | every racing game |
-| each kart's starting slot (ordered by the players' best laps from their records) | the race server, the same | (`race`, `grid`, *kart*) | the kart's owner |
-| each racer's record as the race began | the race server, the same | (`race`, `record`, *player*) | every racing game (shown on screen) |
-| a kart: x, y, heading, speed, turn rate, lap | the game that drives it | (`race`, `kart`, *kart*) | every racing game; the race server (lap times) |
+As before: (`race`, `meta`, `info`), (`race`, `grid`, *kart*), (`race`, `record`, *player*) written by the race server
+before it is announced; (`race`, `kart`, *kart*) by the game that drives each kart.
 
-## Who starts a race, and where it runs
+## The service's rules
 
-Determinism, not coordination: every game reads the same lobby and applies the same rules.
+1. **Agreed parameters.** Laps: the value most players in the lobby want (a tie goes to the shorter race). The
+   service writes them, with the lobby's state, in (`kart`, `agreed`, `lobby`) whenever either changes.
+2. **When a game launches.** When every player in the lobby who is not racing is ready and there are at least
+   `--min-players` of them; or when a ready player presses Start, which launches the ready players now.
+3. **Where it runs.** The service inspects the game-serving machines: a `dedicated` one if any is up (the one serving
+   the fewest running races, then by name), else a player machine that can host (the same order). None: it says so
+   in its state and in the chat, and launches nothing.
+4. **Launching.** It writes (`kart`, `launch`, *race*) naming the machine and says so in the chat. The named
+   machine's host agent writes (`kart`, `hosting`, *race*) `starting` and starts the race server, which fills the
+   game's memory and only then writes (`kart`, `server`, *race*); every racer's game sees it and goes. If the agent
+   writes `failed`, or its session ends before the server is up, the service names the next machine (said, never
+   silently). When the server is up, the service writes the launch `{}`.
+5. **Afterwards.** The race server writes the result and the records back, permanent, before it exits, and writes
+   its server tuple `{}`. The racers are back in the lobby, not ready; the service posts the winner in the chat.
 
-1. **A start intent.** A player presses Start, or the lobby holds at least `--min-players` players who are not in a
-   running race, in which case the lowest-named of them is the one to say it. That game writes, in its OWN lobby
-   tuple, `start = {race, host, roster, laps}`: the race id is the time in ms and its name; the roster is every lobby
-   player not in a running race; the host is itself if its machine can host, else the first player in the roster
-   whose machine can. If none can, it says so on screen and writes nothing.
-2. **One intent wins.** If several are written, the one with the lowest race id is the race; every game computes the
-   same answer.
-3. **The host acts.** The game named host by the winning intent starts the race server on its machine, once per race.
-   The server reads the racers' records from the main memory, starts its memory, writes the race into it (meta, grid,
-   records) and only then writes `(kart, server, race)`. Nobody sees a race server that is not ready.
-4. **Everyone else sees it happen.** Each game in the roster holds a read on `(kart, server, *)`; when its race
-   appears it opens its sessions to the race memory and races. The intent's writer removes the intent once the race
-   is up.
-5. **Before it exits, the server writes back.** When every kart in the race has finished or is gone, or the server is
-   told to stop, it writes the result and each racer's updated record to the main memory as permanent tuples, writes
-   its `(kart, server, race)` `{}`, stops its memory and exits. Every game's hold fires and it is back in the lobby,
-   showing the result. If the server is killed outright, its server tuple goes with its session and no result is
-   written: gone is gone.
+## What each game writes, and when
 
-## What each game writes, and when (pay for change)
-
-- Its lobby tuple when it joins and when its start intent changes; its tile when what the tile says changes.
-- A kart when it departs from where readers draw it: they carry its last write forward along its heading at its
-  speed and turn rate, and the owner writes again when its truth is 2 px or 0.05 rad from that, or its lap changes.
-- Nothing to stay fresh: a participant is there while its session is up.
+Its lobby tuple when ready or the laps it wants change; a chat line when its player sends one; its tile when it
+changes; a kart when it departs from where readers draw it (heading, speed and turn rate carried forward, 2 px /
+0.05 rad). Nothing is written to stay fresh: a participant is there while its session is up.
