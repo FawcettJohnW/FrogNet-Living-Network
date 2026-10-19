@@ -33,6 +33,7 @@ ap.add_argument("--laps", type=int, default=3, help="the laps you want (the serv
 ap.add_argument("--bots", type=int, default=0, help="robot karts this game owns and drives")
 ap.add_argument("--autodrive", action="store_true", help="your own kart starts on the autopilot (P toggles it)")
 ap.add_argument("--headless", action="store_true", help="no window, no sound")
+ap.add_argument("--window", default=None, help="the window's size, WxH (e.g. 590x360): the game is drawn at 1180x720 and scaled into it; an X display over the network sends far fewer pixels a frame")
 ap.add_argument("--rina-host", default=None, help="what a race server on this machine runs (default: beside this file, or /opt/fdf/bin)")
 ap.add_argument("--comms-ram", default=None); ap.add_argument("--comms-media", default=None)      # [KART_CALLS_V1]
 ap.add_argument("--comms-app", default="comms-app.exe" if os.name == "nt" else "comms-app")
@@ -113,7 +114,18 @@ if CAN_HOST:                                                           # [KART_H
 # ----------------------------------------------------------------------------- look
 pygame.init()
 W, H = 1180, 720; TRACK_W = 860
-screen = pygame.display.set_mode((W, H))
+# [KART_WINDOW_V1] the game is laid out at W x H; --window shows it scaled into a smaller (or larger) window
+if a.window:
+    try: WIN_W, WIN_H = (int(v) for v in a.window.lower().split("x"))
+    except ValueError: sys.exit(f"kartdemo: --window {a.window}: give it as WxH, e.g. 590x360")
+else: WIN_W, WIN_H = W, H
+if (WIN_W, WIN_H) == (W, H):
+    screen = pygame.display.set_mode((W, H))
+    def show(): pygame.display.flip()
+else:
+    _window = pygame.display.set_mode((WIN_W, WIN_H)); screen = pygame.Surface((W, H))
+    def show(): pygame.transform.smoothscale(screen, (WIN_W, WIN_H), _window); pygame.display.flip()
+def layout_pos(p): return (p[0] * W // WIN_W, p[1] * H // WIN_H)     # a click in the window, in the game's layout
 pygame.display.set_caption(f"FrogNet Kart -- {NAME}  (shared memory: lobby, race server, records)")
 clock = pygame.time.Clock()
 FONT = pygame.font.SysFont("Arial", 18, bold=True); BIG = pygame.font.SysFont("Arial", 30, bold=True)
@@ -346,13 +358,14 @@ while running:
             elif e.key==pygame.K_BACKSPACE: chat_text=chat_text[:-1]
             elif e.unicode and e.unicode.isprintable() and len(chat_text)<120: chat_text+=e.unicode
         if e.type==pygame.MOUSEBUTTONDOWN and e.button==1:
+            pos=layout_pos(e.pos)
             if state=="lobby":
-                if ready_btn.collidepoint(e.pos): ready=not ready; start=start and ready
-                if start_btn.collidepoint(e.pos) and ready: start=True
-                if minus_btn.collidepoint(e.pos): my_laps=max(1,my_laps-1)
-                if plus_btn.collidepoint(e.pos): my_laps=min(20,my_laps+1)
+                if ready_btn.collidepoint(pos): ready=not ready; start=start and ready
+                if start_btn.collidepoint(pos) and ready: start=True
+                if minus_btn.collidepoint(pos): my_laps=max(1,my_laps-1)
+                if plus_btn.collidepoint(pos): my_laps=min(20,my_laps+1)
             for who,r in list(call_buttons.items()):
-                if r.collidepoint(e.pos): launch_comms(who); break
+                if r.collidepoint(pos): launch_comms(who); break
     if state=="lobby":                                       # test only: what a player's hands would do
         if os.environ.get("KART_TEST_READY_AFTER") and now-T0 > float(os.environ["KART_TEST_READY_AFTER"]) and not ready and not my_race: ready=True
         if os.environ.get("KART_TEST_START_AFTER") and now-T0 > float(os.environ["KART_TEST_START_AFTER"]) and ready: start=True
@@ -376,7 +389,7 @@ while running:
             res=main.family("result")
             if res and (not last_result or max(res)!=last_result.get("race")): last_result=res[max(res)]
             chats=sorted(main.family("chat").values(), key=lambda c: c.get("at",0))
-            draw_lobby(lob, servers, main.family("record"), main.family("agreed").get("lobby"), chats); draw_strip(tiles); pygame.display.flip()
+            draw_lobby(lob, servers, main.family("record"), main.family("agreed").get("lobby"), chats); draw_strip(tiles); show()
     if state=="racing":
         b=servers.get(my_race)
         if not b:                                               # the race server wrote its tuple {} or is gone
@@ -422,7 +435,7 @@ while running:
         rec=race.family("record").get(NAME, {})
         text(f"race {my_race} on {b.get('host')}   |   my record: races {rec.get('races',0)}, wins {rec.get('wins',0)}, best lap {rec.get('best_lap') or '-'}   |   {fps:.0f} fps",
              16, H-24, SMALL, (210,210,210))
-        draw_strip(tiles); pygame.display.flip()
+        draw_strip(tiles); show()
     if os.environ.get("KART_TEST_SHOT") and now-T0 > float(os.environ.get("KART_TEST_SHOT_AT","6")) and not getattr(sys.modules[__name__], "_shot", False):   # test only
         pygame.image.save(screen, os.environ["KART_TEST_SHOT"]); _shot = True
     fps_n+=1
@@ -436,8 +449,8 @@ while running:
         elif state=="racing" and now-frame_said>=5.0:          # [KART_FRAME_V1] said in every race, every 5 s, without a test switch
             frame_said=now; n_seen=len([k for k in race.family("kart") if k not in MINE]) if race else 0
             say(f"[KART_FRAME_V1] {NAME} {fps:.1f} fps, {n_seen} other kart(s) seen" + ("" if fps>=20 else
-                f" -- the frame loop is slow: drawing this {W}x{H} window takes {1000/max(fps,0.01):.0f} ms a frame"
-                + (f" (DISPLAY={os.environ['DISPLAY']}: an X display over the network)" if ":" in os.environ.get("DISPLAY","") and not os.environ.get("DISPLAY","").startswith(":") else "")))
+                f" -- the frame loop is slow: drawing this {WIN_W}x{WIN_H} window takes {1000/max(fps,0.01):.0f} ms a frame"
+                + (f" (DISPLAY={os.environ['DISPLAY']}: an X display over the network; a smaller --window sends fewer pixels)" if ":" in os.environ.get("DISPLAY","") and not os.environ.get("DISPLAY","").startswith(":") else "")))
         fps_n=0; fps_t=now
 pygame.quit()
 # The sessions end with the process: the memory writes this game's lobby tuple, tile and karts {} for everyone.
