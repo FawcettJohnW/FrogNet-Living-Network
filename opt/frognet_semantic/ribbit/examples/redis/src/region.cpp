@@ -16,6 +16,7 @@
 #include "blocking.hpp"
 #include "ram_host.hpp"
 #include "bytes_text.hpp"
+#include "chunks.hpp"
 #include "diag.hpp"
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -24,22 +25,21 @@
 #include <chrono>
 #include <queue>
 #include <thread>
+#include <unordered_map>
 
 namespace rr {
 namespace region {
 
-void (*write_kill)(const std::string& front, uint64_t n) = nullptr;
+void (*write_reply)(const std::string& front, const std::string& instance, ribbit::BagArrP bag) = nullptr;
 
 namespace {
-enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16, WAIT = 32 };
+enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16 };
 
 struct Conn {
     std::string key, front; uint64_t n = 0, session = 0;
     Client* c = nullptr;
     std::atomic<uint32_t> busy{0}, pend{0};
-    std::string pipeline; void* answer = nullptr;      // PIPE: set before the bit
-    void* waiter = nullptr;                            // WAIT: a parked call's held read for the rest, set before the bit
-    std::string stash; bool stashed = false;          // the runner's: an answer made before its held read arrived
+    std::string pipeline;                              // PIPE: set before the bit
     std::atomic<uint64_t> due{0};                     // TIMEOUT: the parking whose time ran out
     bool dead = false;                                 // the runner's
     // parked: the runner's, except `word` and `park_no` (read by writers and the deadline thread)
@@ -49,6 +49,8 @@ struct Conn {
 LFMap<std::string, Conn*> conns;                 // "<front>/<n>"
 LFMap<uint64_t, Conn*> by_client;                // by Redis client id (CLIENT KILL)
 LFMap<std::string, Conn*> parked;                // the parked ones, for the writers' wakes
+LFMap<std::string, uint64_t> front_session;      // a front's session (its `h` call): the session's end takes its connections
+LFMap<std::string, int> killed;                  // CLIENT KILL: a pipeline already on its way is not run (its front's g<n> clears it)
 std::atomic<uint64_t> parkings{0};
 
 int64_t mono_us() { return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -69,7 +71,6 @@ void serve_woken() {
     for (size_t i = 0; i < woken.size(); i++) { ebr::Guard e; if (auto* nd = conns.get(woken[i])) try_run(nd->val); }
     woken.clear(); serving = false;
 }
-void job(const std::string& key) { { ebr::Guard e; if (auto* nd = conns.get(key)) try_run(nd->val); } serve_woken(); }
 
 // ---- deadlines: one thread for every parked command --------------------------------------------------------------
 struct Due { int64_t at; std::string key; uint64_t no; bool operator>(const Due& o) const { return at > o.at; } };
@@ -103,18 +104,30 @@ void deadlines() {
 }
 
 // ---- the runner --------------------------------------------------------------------------------------------------
-// The answer: "<authenticated><0 open | 1 close | 2 parked: more follows>\n" and the replies. [REPLIES_BEFORE_THE_BLOCK_V1]
-// A command that parks answers the call with the replies before it (Redis sends them as the command blocks), and its
-// front makes one more call for the connection, `w`: a held read for the rest. An answer made before that read has
-// arrived is kept (stash) and given to it when it does.
+// [REPLIES_AS_TRUTH_V1] The region's answer is a cell it writes, (redis.rep, <front>, <n>): "f" is
+// "<authenticated><0 open | 1 close | 2 parked: more follows>", "r" the replies (bytes as code points). The front holds
+// one standing read on its family and gets them as rows, batched; nothing is answered per request. The replies before
+// a command that parks go to their own cell, <n>.b, so the final reply cannot overwrite them before they are read
+// [REPLIES_BEFORE_THE_BLOCK_V1]. One pipeline is in flight per connection, so <n> is read before it is written again.
 void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
-    std::string b; b.reserve(out.size() + 3);
-    b += k->c->authed ? '1' : '0'; b += close ? '1' : parked_more ? '2' : '0'; b += '\n'; b += out;
-    if (!k->answer) { DIAG("region", "answer-stashed", k->key, "close=" + std::to_string(close)); k->stash = std::move(b); k->stashed = true; return; }
-    DIAG("region", "answer", k->key, "bytes=" + std::to_string(out.size()) + " close=" + std::to_string(close) + " parked=" + std::to_string(k->parked));
-    // taken out BEFORE it is sent: once the front has the answer it may send the next call, which sets k->answer anew
-    void* a = k->answer; k->answer = nullptr;
-    ribbit::answer_later(a, bytes_to_text(b));
+    std::string f; f += k->c->authed ? '1' : '0'; f += close ? '1' : parked_more ? '2' : '0';
+    DIAG("region", "answer", k->key, "bytes=" + std::to_string(out.size()) + " f=" + f);
+    // as fields, not JSON text: no parse and no template analysis of the bag on either end [DECODE_ONCE_V1]
+    static ChunkNames names({"f"}, "r");          // [PAYLOAD_IN_FIELDS_V1] a reply past one wire string: in pieces
+    static ChunkNames piece_names({}, "r");
+    const std::string inst = std::to_string(k->n) + (parked_more ? ".b" : "");
+    std::vector<std::string> parts = cells(bytes_to_text(out));   // [PAYLOAD_IN_CELLS_V1] past one frame: piece cells first
+    for (size_t i = 0; i + 1 < parts.size(); ++i) {
+        std::vector<std::string> ps = cut(parts[i]);
+        auto pa = std::make_shared<ribbit::BagArr>(); pa->names = piece_names.of(ps.size());
+        for (auto& x : ps) pa->vals.emplace_back(pyv::Str{std::move(x)});
+        write_reply(k->front, inst + ":" + std::to_string(i), std::move(pa));
+    }
+    std::vector<std::string> pieces = cut(parts.back());
+    auto a = std::make_shared<ribbit::BagArr>(); a->names = names.of(pieces.size());
+    a->vals.reserve(1 + pieces.size()); a->vals.emplace_back(pyv::Str{f});
+    for (auto& x : pieces) a->vals.emplace_back(pyv::Str{std::move(x)});
+    write_reply(k->front, inst, std::move(a));
 }
 void unpark(Conn* k) {
     Client& c = *k->c;
@@ -128,7 +141,7 @@ void unpark(Conn* k) {
     drop_claim(c);                                // timed out, unblocked or gone: its place in line goes (served: already gone)
 }
 void drop(Conn* k) {                              // the connection leaves the region
-    DIAG("region", "drop", k->key, "parked=" + std::to_string(k->parked) + " answer=" + std::to_string(k->answer != nullptr));
+    DIAG("region", "drop", k->key, "parked=" + std::to_string(k->parked));
     if (k->parked) unpark(k);
     k->dead = true;
     { Conn* x = nullptr; conns.remove(k->key, &x); by_client.remove(k->c->id, &x); }
@@ -205,18 +218,13 @@ void serve(Conn* k, uint32_t p) {
     finish_park(k, std::move(r.out));
 }
 void handle(Conn* k, uint32_t p) {
-    DIAG("region", "handle", k->key, "pend=" + std::to_string(p) + " dead=" + std::to_string(k->dead) + " parked=" + std::to_string(k->parked) + " answer=" + std::to_string(k->answer != nullptr));
-    if (p & WAIT) {                               // the parked call's held read for the rest
-        k->answer = k->waiter; k->waiter = nullptr;
-        if (k->stashed) { k->stashed = false; void* a = k->answer; k->answer = nullptr; ribbit::answer_later(a, bytes_to_text(k->stash)); k->stash.clear(); }
-    }
-    if (k->dead) { if (p & (PIPE | WAIT)) answer(k, std::string(), true); return; }
-    if (p & (GONE | KILL)) {
-        const bool had_call = k->parked || (p & (PIPE | WAIT));
-        if (k->parked) { std::string o = std::move(k->out); unpark(k); answer(k, std::move(o), true); }
-        if (p & PIPE) answer(k, std::string(), true);
-        if ((p & KILL) && !(p & GONE) && !had_call && write_kill) write_kill(k->front, k->n);   // its front closes the socket
-        drop(k); return;
+    DIAG("region", "handle", k->key, "pend=" + std::to_string(p) + " dead=" + std::to_string(k->dead) + " parked=" + std::to_string(k->parked));
+    if (k->dead) return;
+    if (p & GONE) { if (k->parked) unpark(k); drop(k); return; }   // the client hung up: nobody to answer
+    if (p & KILL) {                               // CLIENT KILL: the reply cell says close; its front closes the socket
+        std::string o; if (k->parked) { o = std::move(k->out); unpark(k); }
+        answer(k, std::move(o), true);
+        killed.add(k->key, 1); drop(k); return;
     }
     if (k->parked && (p & (WAKE | TIMEOUT))) serve(k, p);
     if (p & PIPE) {
@@ -238,11 +246,6 @@ void try_run(Conn* k) {                           // inside an epoch
     }
 }
 
-std::vector<std::string> words(const std::string& s) {
-    std::vector<std::string> v; size_t a = 0;
-    while (a < s.size()) { size_t b = s.find(' ', a); if (b == std::string::npos) b = s.size(); if (b > a) v.push_back(s.substr(a, b - a)); a = b + 1; }
-    return v;
-}
 void apply_config(const std::string& resp) {
     RespParser parser; parser.max_bulk = INT64_MAX; parser.feed(resp.data(), resp.size());
     ParseResult pr = parser.drain();
@@ -271,64 +274,48 @@ void init() {
     std::thread(deadlines).detach();
 }
 
-std::string call(const std::string& text) {
-    std::string body; if (!text_to_bytes(text, body)) throw std::runtime_error("redis region: a call's body is bytes as code points");
-    const size_t nl = body.find('\n');
-    const std::vector<std::string> head = words(body.substr(0, nl));
-    if (head.empty() || head[0].size() != 1) throw std::runtime_error("redis region: not a call");
-    const char kind = head[0][0];
-    DIAG("region", "call", head.size() > 1 ? head[1] : std::string("-"), std::string("kind=") + kind + " bytes=" + std::to_string(body.size()) + " session=" + std::to_string(ribbit::current_session()));
-    if (kind == 'x') { apply_config(nl == std::string::npos ? std::string() : body.substr(nl + 1)); return std::string(); }
-    if (head.size() < 2) throw std::runtime_error("redis region: a call names its connection");
-    const std::string& key = head[1];
-    ebr::Guard e;
-    switch (kind) {
-    case 'o': {                                   // a connection opens (before its first pipeline: the same session, in order)
-        if (conns.get(key)) return std::string();
-        const size_t sl = key.rfind('/'); if (sl == std::string::npos) throw std::runtime_error("redis region: a connection is <front>/<n>");
-        auto* k = new Conn; k->key = key; k->front = key.substr(0, sl); k->n = strtoull(key.c_str() + sl + 1, nullptr, 10);
-        k->session = ribbit::current_session();
-        k->c = new Client; Client& c = *k->c;
-        c.id = g.next_client_id++;
-        c.addr = head.size() > 2 ? head[2] : std::string(); c.laddr = head.size() > 3 ? head[3] : std::string();
-        c.authed = g.requirepass.empty(); c.user = "default";
-        c.created_ms = c.last_cmd_ms = Memory::now_ms();
-        g.clients.add(c.id, &c); by_client.add(c.id, k); conns.add(key, k);
-        g.stats.connections_received++;
-        return std::string();
+void bind(const std::string& front) {           // the `h` call: this session is that front's
+    front_session.add(front, ribbit::current_session());
+    DIAG("region", "bind", front, "session=" + std::to_string(ribbit::current_session()));
+}
+
+std::unordered_map<std::string, std::string> request_pieces;   // [PAYLOAD_IN_CELLS_V1] the reader's: piece cells so far
+void request(const std::string& front, const std::string& instance, const ribbit::BagArr& bag) {
+    auto str = [&](const char* f) { return bag.str(f); };
+    const size_t colon = instance.find(':');
+    if (colon != std::string::npos) { request_pieces[front + "/" + instance.substr(0, colon)] += joined(bag, "p"); return; }
+    std::string text = joined(bag, "p");
+    { auto pc = request_pieces.find(front + "/" + instance); if (pc != request_pieces.end()) { text = std::move(pc->second) + text; request_pieces.erase(pc); } }
+    std::string p;
+    if (!text_to_bytes(text, p)) { logmsg('#', "redis region: a request from " + front + " is not bytes as code points"); return; }
+    DIAG("region", "request", front + "/" + instance, "bytes=" + std::to_string(p.size()));
+    {   ebr::Guard e;
+        if (instance == "x") { apply_config(p); return; }              // the configuration: before its first pipeline
+        if (!instance.empty() && instance[0] == 'g') {                 // g<n>: the client hung up (after its last pipeline)
+            const std::string key = front + "/" + instance.substr(1);
+            { int x = 0; killed.remove(key, &x); }
+            if (auto* nd = conns.get(key)) { nd->val->pend.fetch_or(GONE, std::memory_order_acq_rel); try_run(nd->val); }
+        } else {                                                        // <n>: its pipeline
+            const std::string key = front + "/" + instance;
+            if (killed.get(key)) return;
+            Conn* k;
+            if (auto* nd = conns.get(key)) k = nd->val;
+            else {                                                      // its first: the connection opens
+                k = new Conn; k->key = key; k->front = front; k->n = strtoull(instance.c_str(), nullptr, 10);
+                if (auto* fs = front_session.get(front)) k->session = fs->val;
+                k->c = new Client; Client& c = *k->c;
+                c.id = g.next_client_id++; c.addr = str("a"); c.laddr = str("l");
+                c.authed = g.requirepass.empty(); c.user = "default";
+                c.created_ms = c.last_cmd_ms = Memory::now_ms();
+                g.clients.add(c.id, &c); by_client.add(c.id, k); conns.add(key, k);
+                g.stats.connections_received++;
+            }
+            k->pipeline = std::move(p);
+            k->pend.fetch_or(PIPE, std::memory_order_acq_rel);
+            try_run(k);
+        }
     }
-    case 'p': {                                   // its pipeline: run on the pool, answered when it is done
-        auto* nd = conns.get(key);
-        if (!nd) { DIAG("region", "p-no-conn", key); return std::string("01\n"); }      // ended (killed, or its session gone): closed (ASCII: the same as text)
-        Conn* k = nd->val;
-        k->pipeline = nl == std::string::npos ? std::string() : body.substr(nl + 1);
-        k->answer = ribbit::defer_answer();
-        if (!k->answer) throw std::runtime_error("redis region: a pipeline is answered later, and this call cannot be");
-        k->pend.fetch_or(PIPE, std::memory_order_acq_rel);
-        DIAG("region", "p-deferred", key, "answer=" + std::to_string(k->answer != nullptr));
-        // [NO_SECOND_HOP_V1] run here: the platform already runs this call on a pool thread, in the session's order. A
-        // second hand-off to the pool cost a thread switch per command (measured: 1.97 switches per command in the
-        // memory against 0.28 for the copy design). One front's connections run in its session's order; fronts in parallel.
-        DIAG("region", "job", key); job(key);
-        return std::string();
-    }
-    case 'w': {                                   // a parked call's held read for the rest of its pipeline
-        auto* nd = conns.get(key);
-        if (!nd) return std::string("01\n");
-        Conn* k = nd->val;
-        k->waiter = ribbit::defer_answer();
-        if (!k->waiter) throw std::runtime_error("redis region: a held read is answered later, and this call cannot be");
-        k->pend.fetch_or(WAIT, std::memory_order_acq_rel);
-        job(key);                                 // [NO_SECOND_HOP_V1]
-        return std::string();
-    }
-    case 'g': {                                   // the client hung up
-        auto* nd = conns.get(key);
-        if (nd) { nd->val->pend.fetch_or(GONE, std::memory_order_acq_rel); ribbit::pool_run([key] { job(key); }); }
-        return std::string();
-    }
-    default: throw std::runtime_error(std::string("redis region: no such call: ") + kind);
-    }
+    serve_woken();
 }
 
 void session_down(uint64_t session) {

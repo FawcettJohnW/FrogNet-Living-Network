@@ -25,21 +25,31 @@ the tuple). The answer is the call's reply. Nothing is copied, cached, fed, inva
 | which session a connection came on | the region, when the connection opens (`o`) | the connection | for the session's life | the region: a session that ends takes its connections with it (invariant 5) | session down | -- |
 | the region's configuration | the front that starts the memory (its file), then CONFIG SET | the region's config | latest | every request | -- | -- |
 
-## The call
+## Writes and one standing read -- nothing is a request answered by a response [REPLIES_AS_TRUTH_V1]
 
-One kind of request, `op=redis`, its body a line naming what it is, then its bytes -- each byte carried as the code point
-of the same number, since the session carries text (`[BYTES_AS_CODE_POINTS_V1]`).
+The front writes its truth and the region writes its own; each reads the other's from the memory. One session per
+front, nothing waits.
 
-| request | runs | answer |
+| cell | written by | holds |
 |---|---|---|
-| `o <front>/<n> <addr> <laddr>`: a connection opens | inline, in wire order (before its first pipeline) | none awaited |
-| `p <front>/<n>` + the pipeline's RESP | on the pool | `<authenticated><close>` then the replies' RESP |
-| `g <front>/<n>`: the client hung up | inline | none awaited |
-| `x` + the configuration as RESP | inline | none awaited |
+| `(redis.req, <front>, <n>)` | the front, unanswered | connection n's pipeline (`p`), with its addresses (`a`, `l`): the region opens the connection on its first |
+| `(redis.req, <front>, g<n>)` | the front, unanswered | connection n hung up -- read after its last pipeline (one variable: write order) |
+| `(redis.req, <front>, x)` | the front that owns the configuration | the configuration, before its first pipeline |
+| `(redis.rep, <front>, <n>)` | the region | `f` (authenticated; 0 open, 1 close, 2 more follows) and `r`, the replies -- or a close (CLIENT KILL) |
+| `(redis.rep, <front>, <n>.b)` | the region | the replies before a command that parked: its own cell, so the final reply cannot overwrite it unread |
 
-A connection has at most one pipeline in the region: its front reads the client's next bytes only after the answer
-(Redis's own order for one connection). A blocked command keeps its call unanswered; the front holds the socket open for
-hang-ups only.
+- The region reads `redis.req` with one reader thread, woken by the writes (the memory's family hook), in each front's
+  write order. The front reads `(redis.rep, <front>, *)` with one standing read (the session's follow stream): the
+  replies of all its connections arrive as rows, batched.
+- One pipeline per connection is in flight, so `<n>` is read before it is written again (a cell's reader gets its
+  latest value).
+- Bags are fields, not JSON text: no parse and no template analysis of a bag on either end (`[DECODE_ONCE_V1]`).
+- A payload past one wire string (65,535 bytes) is consecutive fields `p`, `p1` ... in one cell
+  (`[PAYLOAD_IN_FIELDS_V1]`); past one frame (1 MB) it is piece cells `<n>:0`, `<n>:1` ... then `<n>`
+  (`[PAYLOAD_IN_CELLS_V1]`). Tested to 20 MB of random bytes, exact.
+- Bytes travel as code points of the same number (`[BYTES_AS_CODE_POINTS_V1]`).
+- A front's one call, at start: `op=redis`, `h <front>` -- its session is that front's, so the session's end takes its
+  connections (invariant 5).
 
 ## Blocked commands, without a thread
 

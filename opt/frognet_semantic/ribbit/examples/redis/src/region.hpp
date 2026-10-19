@@ -3,24 +3,26 @@
 //
 // region.hpp -- the Redis region, in the memory [ONE_KEYSPACE_V1] (DESIGN.md).
 //
-// The keyspace is here, once. A front's call is one request: a connection opening, its pipeline, its end. A pipeline
-// runs on the memory's pool, in parallel with every other connection's; a blocked command keeps its call's answer and
-// is run again when a write moves what it waits on.
+// The keyspace is here, once. A front writes its truth -- each connection's pipeline -- as cells, unanswered:
+// (redis.req, <front>, <n>), (redis.req, <front>, g<n>) when the client hangs up, (redis.req, <front>, x) its
+// configuration. The memory's reader (redis_ram.cpp) is woken by those writes and hands each to request(). The region
+// writes its truth -- the replies -- as cells, (redis.rep, <front>, <n>); the front holds one standing read on them.
+// Nothing is a request answered by a response. [REPLIES_AS_TRUTH_V1]
 #pragma once
 #include <cstdint>
 #include <string>
+#include "bagarr.hpp"
 
 namespace rr {
 namespace region {
 
-void init();                                    // the region as Redis starts it; before the first call
-// One call (op=redis). Its body: "<kind> <args>\n" then its bytes -- h <front> | o <n> <addr> <laddr> | p <n> + RESP |
-// g <n> | x + the configuration as RESP. A pipeline's answer comes later (ribbit::answer_later): "<authed><close>\n"
-// and the replies. Anything else is answered here: "" (nothing awaited) or an error (thrown).
-std::string call(const std::string& body);
+void init();                                    // the region as Redis starts it; before the first request
+// one write to (redis.req, front, instance), as the memory's reader read it; on that one reader thread
+void request(const std::string& front, const std::string& instance, const ribbit::BagArr& bag);   // its fields, decoded once [DECODE_ONCE_V1]
+void bind(const std::string& front);            // the front's one call (op=redis, "h <front>"): its session is this one
 void session_down(uint64_t session);            // a front's session ended: its connections leave the region
-// a connection killed (CLIENT KILL) while its front has no call here: written for its front to read (the host sets it)
-extern void (*write_kill)(const std::string& front, uint64_t n);
+// the region writes its replies here (the host sets it: a write to its own memory)
+extern void (*write_reply)(const std::string& front, const std::string& instance, ribbit::BagArrP bag);
 
 }  // namespace region
 }  // namespace rr
