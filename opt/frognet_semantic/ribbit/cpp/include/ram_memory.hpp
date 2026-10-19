@@ -424,6 +424,9 @@ public:
         WriteWindow* w = c.one.var ? c.one.var->window.load(std::memory_order_acquire) : nullptr;
         return w ? w->head.load(std::memory_order_acquire) : 0;
     }
+    // [SEEN_IS_WHAT_WAS_READ_V1] where the cursor's last read got to: a read stops at a slot still being filled, short of
+    // head_of(). A reader that takes this, not head_of(), as what it has seen is woken again by that write's own wake.
+    static uint64_t read_to(const Cursor& c) { return c.sw ? c.spos : c.one.pos; }
     // a reader's word: one per reading thread, released when it is done (and reused)
     WakeWord* wake_word() {
         for (WakeWord* w = words_.load(std::memory_order_acquire); w; w = w->next) {

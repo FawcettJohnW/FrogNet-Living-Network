@@ -137,6 +137,7 @@ void on_replies(std::vector<frogram::RawCell>& rows, const std::string& err) {
     static std::unordered_map<std::string, std::string> pieces;   // [PAYLOAD_IN_CELLS_V1] a reply's piece cells so far (this reader's)
     for (auto& row : rows) {                      // the region writes fields: the session decoded them once [DECODE_ONCE_V1]
         ribbit::BagArrP a = row.arr ? row.arr : ribbit::BagArr::parse(row.bag);
+        DIAG("front", "row", ME + "/" + row.instance, "id=" + std::to_string(row.id) + " arr=" + std::to_string(row.arr != nullptr) + " fields=" + std::to_string(a ? a->vals.size() : 0));
         if (!a) { logmsg('#', "region: a reply that is not a bag: " + row.instance); continue; }
         const size_t colon = row.instance.find(':');
         if (colon != std::string::npos) { pieces[row.instance.substr(0, colon)] += joined(*a, "r"); continue; }
@@ -199,6 +200,8 @@ void event_loop(int ep) {
             f.emplace_back("a", pyv::Str{c->addr}); f.emplace_back("l", pyv::Str{c->laddr});
             for (size_t i = 0; i < pieces.size(); ++i) f.emplace_back(order[2 + i], pyv::Str{std::move(pieces[i])});
             S->post_write_fields("redis.req", ME, std::to_string(c->local), order, std::move(f));
+            if (diag_fp()) { static std::atomic<uint64_t> seen{0}; const auto st = S->stats(); const uint64_t r = st.posts_refused;
+                if (r != seen.exchange(r)) DIAG("front", "REFUSED", c->key, "posts_refused=" + std::to_string(r) + " body=" + std::to_string(body.size())); }
         }
     }
 }

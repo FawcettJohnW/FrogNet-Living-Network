@@ -915,8 +915,11 @@ std::atomic<int> g_followers{0};
 static void follow_task(const std::shared_ptr<Session>& s, Session::Follow* f) {
     for (;;) {
         f->busy.store(false, std::memory_order_seq_cst);
-        f->seen.store(ramm::Memory::head_of(f->c), std::memory_order_release);
         std::vector<Cell> rows; MEM.read(f->c, rows);
+        // [SEEN_IS_WHAT_WAS_READ_V1] what the read got to, not the head before it: a write whose slot was reserved but
+        // not yet filled stopped the read, and counted as seen it found nothing new when its own wake came -- its row
+        // waited for the next write (examples/redis/tests/run_big_replies.py: red before, green after)
+        f->seen.store(ramm::Memory::read_to(f->c), std::memory_order_release);
         if (rows.empty() && !f->first) return;
         f->first = false;                                       // the first answer is the family's state now, rows or none
         const bool had = !rows.empty();

@@ -121,12 +121,14 @@ void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
         std::vector<std::string> ps = cut(parts[i]);
         auto pa = std::make_shared<ribbit::BagArr>(); pa->names = piece_names.of(ps.size());
         for (auto& x : ps) pa->vals.emplace_back(pyv::Str{std::move(x)});
+        DIAG("region", "write-piece", k->key, inst + ":" + std::to_string(i));
         write_reply(k->front, inst + ":" + std::to_string(i), std::move(pa));
     }
     std::vector<std::string> pieces = cut(parts.back());
     auto a = std::make_shared<ribbit::BagArr>(); a->names = names.of(pieces.size());
     a->vals.reserve(1 + pieces.size()); a->vals.emplace_back(pyv::Str{f});
     for (auto& x : pieces) a->vals.emplace_back(pyv::Str{std::move(x)});
+    DIAG("region", "write-main", k->key, inst + " pieces=" + std::to_string(parts.size()));
     write_reply(k->front, inst, std::move(a));
 }
 void unpark(Conn* k) {
