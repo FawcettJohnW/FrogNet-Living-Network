@@ -1,25 +1,25 @@
-# The Redis region's supported contract (boxes on the memory, v29-semantic, 2026-10-18)
+# The Redis region's supported contract (one keyspace, fronts on the memory, v33-one-keyspace, 2026-10-19)
 
 What a client can rely on, measured by `tools/accept.sh` against stock Redis 7.2.11 on the same machine. Every class
-of difference below comes from a test that is green on stock and not green on a box.
+of difference below comes from a test that is green on stock and not green on a front.
 
 ## Supported, as Redis
 - The commands of strings, hashes, sets, lists, sorted sets, streams (with consumer groups), keyspace commands and
   MULTI/EXEC/WATCH, as Redis 7.2.11's own tests for them check -- except the classes below.
-- **One order, across every box.** Every command from every box is applied in one order (the memory's write order),
-  one at a time, as stock Redis applies its clients' commands: a write acknowledged through any box is seen by the
-  next command through any box; MULTI/EXEC is isolated; a multi-key read sees one moment; blocked clients are served
-  first-blocked first, in the turn of the command that readied them (`tests/run_two_boxes.py`, ten checks).
+- **One keyspace, any front.** A write acknowledged through any front is seen by the next command through any front;
+  blocked clients are served first-blocked first, by the write that readies them; the replies before a blocking
+  command in a pipeline are sent as it blocks (`tests/run_two_fronts.py`, fifteen checks).
 - Redis's guarantees under concurrency for every read-modify-write family `tests/run_concurrency.py` checks (39),
-  from three boxes at once: no increment lost, no element delivered twice, each APPEND answering the length after it.
-- RESP2 from stock clients (redis-cli, redis-benchmark, redis-py, ...), to any box.
-- **Boxes come and go.** A box that stops is not waited for after 3 s; a box started on a running region takes a copy
-  of it and serves at once (acceptance `endpoints` and `loss`: PASS; stock without Sentinel refuses writes on its
-  replicas, and stock-aof without Sentinel stops taking writes when its primary dies).
+  from three fronts at once: no increment lost, no element delivered twice, each APPEND answering the length after it.
+- RESP2 from stock clients (redis-cli, redis-benchmark, redis-py, ...), to any front; any bytes as values.
+- **Fronts come and go.** A front holds nothing: one started on a running region serves the keyspace at once; one
+  that stops takes its clients with it and nothing else.
 
 ## Different from Redis, by design
-- **Many writable endpoints, one keyspace.** Every box takes reads and writes for the whole keyspace. Stock Redis
+- **Many writable endpoints, one keyspace.** Every front takes reads and writes for the whole keyspace. Stock Redis
   replicas refuse writes (READONLY).
+- **MULTI/EXEC is not isolated** (ruled 2026-09-29): another connection's write may land between an EXEC's commands;
+  its own commands run in order and a parked reader wakes once, after it. **Multi-key reads are best-effort** (ruled).
 - **Replication is not offered.** REPLICAOF, the replication stream, min-replicas-to-write and replica-state checks
   answer "not applicable".
 - **Lua scripting, pub/sub and SHUTDOWN are not offered.**
@@ -27,16 +27,14 @@ of difference below comes from a test that is green on stock and not green on a 
   points at which an approximate trim (`~`, `LIMIT`) stops differ; exact trims and the data itself match.
 
 ## Not supported -- a client must not rely on it
-- **Persistence.** The region is the intents in the memory and the copies in the boxes. When the memory stops, the
-  region is gone and every box on it stops. DEBUG RELOAD, SAVE, BGREWRITEAOF, AOF/RDB loading and DUMP-based checks
-  fail.
-- **Throughput comparable to stock on one endpoint.** Measured (TESTING.md, v29, 2 cores): 0.17-0.20x stock with 50
-  clients one command at a time, 0.15-0.20x pipelined, 0.15-0.17x for one client: every intent and every row is a
-  semantic DIFF on the wire, and the engine's CPU per command is the cost.
-  More boxes add clients and places, not command throughput: every box applies every command.
+- **Persistence.** The region is in the memory. When the memory stops, the region is gone. DEBUG RELOAD, SAVE,
+  BGREWRITEAOF, AOF/RDB loading and DUMP-based checks fail.
+- **Throughput comparable to stock on one endpoint.** Measured (study-one-keyspace.md, 2 cores, front, memory and
+  redis-benchmark on one machine): 0.22-0.28x stock pipelined, 0.31-0.42x with 50 clients one command at a time,
+  0.19-0.23x for one client.
 
-## Suite parity (x86 sandbox, 2 cores, `--clients 1`), the ten core files
-| file | stock | box | the reds |
+## Suite parity (x86 sandbox, 2 cores, `--clients 1`), the ten core files -- v33-one-keyspace identical to the copy design file by file (2026-10-19)
+| file | stock | front | the reds |
 |---|---|---|---|
 | unit/type/incr | 32 | 31 | shared-object refcount (encoding) |
 | unit/type/string | 82 | 79 | propagation 2; one test skipped on the box (big-value trim, an encoding check) |

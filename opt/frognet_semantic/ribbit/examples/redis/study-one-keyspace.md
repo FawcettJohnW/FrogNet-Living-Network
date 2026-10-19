@@ -56,3 +56,46 @@ Stock, same tool, Redis 7.2.11 from github.com/redis/redis tag 7.2.11:
 
     stock Redis 7.2.11 src/ (no deps/)           nloc  95870  functions 4113  CCN total 24662  max 208  over-10 525
     stock Redis deps/ (lua, hiredis, ...)        nloc  79576  functions 4522  CCN total 14379  max 319  over-10 165
+
+## Results, v33-one-keyspace (2026-10-19, 2-core x86 sandbox; everything on one machine)
+
+### Contract
+- Redis 7.2.11's own suite, the ten core files, stock vs a front: identical to the copy design file by file --
+  incr 31/32, string 79/82, hash 70/73, set 114/119, list 261/274, zset 316/320, keyspace 56/56, stream 60/75,
+  stream-cgroups 56/66, multi 35/63 (every red in the classes of SUPPORTED-CONTRACT.md).
+- `run_concurrency.py` 39/39 from three fronts; `run_two_fronts.py` 15/15; `run_same_after_raw.py` PASS.
+
+### Throughput, redis-benchmark (tools/bench_boxes.sh: medians of 3, interleaved with stock in the same run;
+### ratio to that run's stock -- stock itself moved between the two runs, so compare the ratios)
+
+| shape | cmd | copy design, 1 box | one keyspace, 1 front | copy design, 2 boxes | one keyspace, 2 fronts |
+|---|---|---|---|---|---|
+| -c 50 -P 16 | get | 0.36 | 0.27 | 0.33 | 0.27 |
+| -c 50 -P 16 | incr | 0.37 | 0.28 | 0.29 | 0.29 |
+| -c 50 -P 16 | lpush | 0.32 | 0.22 | 0.25 | 0.24 |
+| -c 50 -P 16 | set | 0.37 | 0.24 | 0.29 | 0.30 |
+| -c 50 -P 1 | get | 0.50 | 0.42 | 0.50 | 0.41 |
+| -c 50 -P 1 | incr | 0.40 | 0.31 | 0.41 | 0.32 |
+| -c 50 -P 1 | lpush | 0.49 | 0.35 | 0.51 | 0.34 |
+| -c 50 -P 1 | set | 0.45 | 0.34 | 0.42 | 0.38 |
+| -c 1 -P 1 | get | 0.22 | 0.19 | 0.36 | 0.53 |
+| -c 1 -P 1 | incr | 0.25 | 0.21 | 0.38 | 0.57 |
+| -c 1 -P 1 | lpush | 0.24 | 0.23 | 0.38 | 0.63 |
+| -c 1 -P 1 | set | 0.24 | 0.21 | 0.42 | 0.62 |
+
+Raw runs: results/bench-boxes-20261019-151338 (copy design, built from cc87622) and results/bench-boxes-20261019-151732
+(one keyspace). On this machine one keyspace is slower than the copy design with 50 clients (roughly 0.75x of its ratio)
+and faster with two single clients on two fronts; not yet profiled. Not claimed: anything about separate machines --
+the benchmark rule (2026-10-18) is two boxes on separate machines with traffic crossing, and this is one machine.
+
+### Size and complexity (lizard 1.24.1, the same script as the baseline above)
+
+    copy design: front+apply+host                nloc    883  functions   67  CCN total   388  max  34  over-10  13
+    one keyspace: front+region+host+bytes+diag   nloc    619  functions   52  CCN total   263  max  30  over-10   7
+    copy design: all src                         nloc   8168  functions  831  CCN total  4749  max 105  over-10 113
+    one keyspace: all src                        nloc   7756  functions  795  CCN total  4546  max 105  over-10 105
+    main (RAM host + read caches): all src       nloc   8394  functions  863  CCN total  4910  max 105  over-10 111
+    stock Redis 7.2.11 src/                      nloc  95870  functions 4113  CCN total 24662  max 208  over-10 525
+
+git, the Redis example: against the copy design (cc87622) src/ 584 insertions, 1,019 deletions; against main (which
+vendored the v0.63 platform and 40 patch scripts) 1,518 insertions, 15,974 deletions.
