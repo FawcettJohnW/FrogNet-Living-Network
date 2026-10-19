@@ -1,92 +1,44 @@
-# Redis on Ribbit -- a Redis that works across the Internet
+# Redis on Ribbit -- boxes on the memory
 
-Stock Redis clients (redis-cli, redis-py, Jedis, redis-benchmark...) talk to a **front** on their own machine or any
-reachable one. Every front connects UP to one **RAM host** on a neutral machine (streamingfrog), which holds the Redis
-**region**: the keyspace, resident in memory. Fronts hold no data -- start one, stop one, start ten; they all serve the
-same keyspace. Nothing connects into another machine.
+Stock Redis clients (redis-cli, redis-py, Jedis, redis-benchmark ...) talk RESP to a **box** on their own machine or
+any reachable one. Every box holds the whole Redis region and shares one **memory** with the others: each box writes
+what its clients ask, once, as intents in the memory, and applies every box's intents in write order to its own copy.
+Every copy is the same; any box takes reads and writes for the whole keyspace. Nothing is asked of another machine.
 
-    stock client --RESP--> front --FNW1 (semantic wire)--> RAM host: the Redis region, in memory
+    stock client --RESP--> box --intents--> memory (ribbit-redis-host) <--held read, write order-- every box
 
-Build: `bash tools/build.sh` (one job per core; rebuilds what changed by CONTENT, not timestamps; `CLEAN=1` for from
-scratch). Needs g++ 11 or newer, liblz4-dev, libssl-dev, python3. Run: RUN-ACROSS-THE-INTERNET.md.
-Tests: tests/run_concurrency.py (every read-modify-write family under contention), tests/coordinated.py (machines
-across the Internet, Go signal in Redis), tools/qualify.sh (oracles, Redis 7.2.11's own suite, deploy).
+How and why: DESIGN.md (the truth table, deciding the same on every box, what changed from the RAM-host design).
+The reference process for any conversion: ../../docs/CONVERTING-TO-RIBBIT.md.
 
-## The server does the work: we extended the bases the platform provides
+## Build
+    bash tools/build.sh          # build/ribbit-redis-host (the memory), build/ribbit-redis-front (a box)
+Links ribbit/cpp as it is. Needs g++ 11 or newer, liblz4-dev, libssl-dev, libjemalloc-dev, python3 (installed when
+missing). Incremental by content; `CLEAN=1` for from scratch.
 
-The design principle of this system: **data is consolidated and worked on directly in the server, where it lives** --
-not fetched to a client, decided on there, and written back. We get that by extending the bases the platform gives us,
-not by building around them.
+## Run
+    build/ribbit-redis-front --port 6379                       # one box, on a memory of its own (dies with it)
+    build/ribbit-redis-host --listen 0.0.0.0:8886              # a memory for many boxes (a neutral machine)
+    RIBBIT_RAM=memhost:8886 RIBBIT_REDIS_CONFIG_OWNER=1 build/ribbit-redis-front --port 6379 my.conf   # first box: its config is the region's
+    RIBBIT_RAM=memhost:8886 build/ribbit-redis-front --port 6379                                     # any number more
+A box started on a running region replays its history when the memory still holds all of it, and otherwise takes a
+copy of the region from a live box (DESIGN.md); it serves once it holds the region.
 
-**The API is a base, and the Redis host inherits it.** The RAM host's interface -- the endpoint
-`/Fawcett.Redis.ram_interface.php` -- is the platform's RAM interface taken whole: every base operation it offers
-(read, write, remove, held reads, the semantic wire, sessions, data sockets) is inherited unchanged, and the Redis
-region adds its own operations on top: `op=redis` (a pipeline of Redis commands, executed in the region, inline --
-it never waits) and `op=redis_block` (a blocking command, parked on its own request thread in the region).
-`tools/make_host.sh` builds the host from the platform's unmodified ram_server.cpp plus one include and one dispatch
-line: the base is inherited, not copied or forked. This is the same pattern as Discovery's API.php, which is itself a
-base class: an application inherits it and adds operations that work on the data in the server.
-
-**The memory is a base, and we extended it with operations that decide in the server.** The platform's memory
-contract (write -> write-order id, read, partial indexes, held reads, remove, batches) is inherited; we added
-operations that consolidate and decide inside the memory itself, each one atomic there -- no lock, no read-then-write
-in the command code ([THE_MEMORY_DECIDES_V1], src/memory.{hpp,cpp}):
-
-| memory operation | what the server decides | Redis commands built on it |
-|---|---|---|
-| `add(cell, delta)` | the total: one fetch_add on the cell's accumulator; every adder gets its own total | INCR DECR INCRBY DECRBY HINCRBY |
-| `replace_if(cell, expected, new)` | whether this write lands: only if the cell still holds what was read (nothing expected = insert only if absent) | SETNX, SET NX/XX, HSETNX, MSETNX, XADD ids, INCRBYFLOAT, HINCRBYFLOAT, APPEND, SETRANGE, SETBIT, BITFIELD, ZADD INCR/NX/XX/GT/LT, ZINCRBY, XREADGROUP delivery |
-| `exchange(value, new)` | which value was replaced, handed back | GETSET, SET ... GET |
-| `take_variable(key)` | who removed the key, and its value, handed to that one caller | GETDEL |
-| `remove_if(value, expected)` | taking back only what this caller wrote | MSETNX losing a later key |
-| removal counts (existing) | who took an element: the removal is the answer | LPOP RPOP SPOP ZPOPMIN SMOVE LMOVE LREM, HDEL SREM ZREM, XACK XDEL XTRIM |
-| `replace_if` on the ttl cell | whether an expiry lands on the ttl that was compared | EXPIRE/PEXPIRE(AT) NX XX GT LT |
-| batches (existing), used whole | a replacement appears in one step | the *STORE commands, SET over another kind, COPY REPLACE, RENAME |
-| pieces: each edit its own cell, folded in ticket order on read (reduce-by-read) | nothing -- no edit reads-then-writes, so none can lose | APPEND SETRANGE SETBIT BITFIELD, PFADD PFMERGE (register maxima) |
-
-A command takes the memory's answer as final; where a claim is lost it takes the NEXT item (pops, SPOP, LREM,
-XREADGROUP), never the same one again. Where a command's new value depends on the old one and no accumulator can carry
-it (ZADD INCR/NX/XX/GT/LT and ZINCRBY, whose score is indexed; APPEND, whose reply is the length after it), the memory
-decides it with `update`: the value is decided from the live cell and lands only on that cell, and if another writer
-replaced the cell first it is decided again on the new one -- the compare-and-swap loop of every lock-free structure
-in the memory, serialising the command with that writer as Redis serialises commands ([ONE_CELL_SERIALISED_V1]). The
-same mechanism, never a second one.
-PROGRESS-NO-FALLBACKS.md records how each read-modify-write became a memory operation.
-
-Why it matters: the region runs commands from every front truly in parallel (one host thread per front session).
-When the command code read a value, decided, and wrote back, concurrent commands overwrote each other: across two
-machines on the Internet, 473 of 34,362 INCRs were lost; on one multi-core host, 22 of 27 command families broke their
-Redis guarantee (lost increments, lost pushes, entries delivered twice, several SETNX winners). With the server
-deciding, tests/run_concurrency.py holds all 38 families it checks (AUDIT-ONE-WRITER.md has the audit, pattern by pattern, and what is
-still open).
-
-**The client is equivalent to the platform's Python client.** The C++ client coalesces identical in-flight requests
-and applies each instance's replies in arrival order in the caller's turn, exactly as the Python proxy does
-([CLIENT_COALESCES_V1], [WIRE_ORDER_TURNS_V1]); an answer the far end named as SAME but the near end no longer holds is
-fetched from the far end's cache, never re-run ([SAME_MISS_FROM_CACHE_V1]). CLIENT-EQUIVALENCE.md.
-
-## Across the Internet
-- Trust: the region issues every connection an id and a random token; authentication is held in the region, never
-  taken from a call ([REGION_HELD_AUTH_V1]); configuration comes from the host's operator ([REGION_CONFIG_IS_THE_HOSTS_V1]).
-- A front survives losing the host: in-flight calls fail loudly, the next call opens a new session ([FRONT_RECONNECTS_V1]).
-- Measured AI-Host -> streamingfrog (~23 ms round trip): 1 client ~44/s, 50 clients ~1,900/s, 50 clients pipelined
-  x16 ~31,500/s -- 85-90% of what the round trip itself allows.
-- Not here: encryption on the front-host link (run it inside WireGuard or FrogNet's transport); persistence (a host
-  restart is a new, empty region).
+## Test and measure
+    python3 tests/run_two_boxes.py build 7820          # fifteen checks across boxes (blocking, kill, unblock, MULTI, a box gone, a box joining by copy)
+    python3 tests/run_concurrency.py build 7710 3 6    # 39 read-modify-write families from three boxes at once
+    REDIS_SRC=/srv/redis-7.2.11 STAGES=suite bash tools/accept.sh   # Redis 7.2.11's own suite, stock and boxes, side by side
+    tools/bench_boxes.sh                               # redis-benchmark: stock, one box, two boxes -- interleaved, medians
+    REDIS_SRC=... RAM_ENDPOINT=memhost:8886 bash tools/qualify.sh   # build, oracles, suite, simulated Internet, deploy
 
 ## Layout
-    src/memory.{hpp,cpp}     the memory, extended with the deciding operations
-    src/redis_region.cpp     the door: the Redis region's operations added to the inherited RAM interface
-    src/front.cpp            the RESP front (a participant connecting up)
-    src/db.cpp, src/cmd_*.cpp  Redis's data model and commands, in the region
-    tools/make_host.sh       the host = the platform's ram_server + one include + one dispatch line
-    tools/apply_*.py         platform patches applied at build (vendored v0.63 untouched)
-    tests/                   run_concurrency.py (the one-writer audit), coordinated.py (multi-machine test, Go signal
-                             in Redis), run_two_fronts / run_trust / run_reconnect / run_same_miss, internet_wrapper
-    tools/qualify.sh         build, oracles, Redis's own suite (local and across a simulated 24 ms path), deploy
+    src/front.cpp            a box: clients, its intents (paced by the slowest reader), the trigger that applies the order
+    src/apply.{hpp,cpp}      the region as every box holds it: connections, pipelines, parked commands
+    src/redis_ram.cpp        the memory: the platform's RamHost, no operations of its own
+    src/memory.*, db.cpp, cmd_*.cpp   Redis's data model and commands (the apply clock and seed: memory.hpp)
+    tests/                   run_two_boxes, run_concurrency, coordinated (machines across the Internet), accept_*
+    tools/                   build, accept, qualify, bench_boxes, latency_relay (a simulated path)
 
 ## Documents
-AUDIT-ONE-WRITER.md (concurrency, by pattern) - PROGRESS-NO-FALLBACKS.md - TRIAGE-SUITE-REDS.md (every red in
-Redis's suite, traced) - RUN-ACROSS-THE-INTERNET.md - MEMORY-V3.md -
-QUESTION-3.md (what Redis's contract assumes that a shared region answers differently) - CHECKPOINT-STEP*.md (history)
-- HISTORY-ONE-PROCESS-README.md (the earlier one-process build).
+DESIGN.md - QUESTION-3.md (what Redis's contract forced, entry by entry; the one-order section) - SUPPORTED-CONTRACT.md
+- TESTING.md - TRIAGE-SUITE-REDS.md - AUDIT-ONE-WRITER.md - HISTORY-RAM-HOST-README.md (the design this replaced) -
+HISTORY-ONE-PROCESS-README.md - CHECKPOINT-STEP*.md (history).

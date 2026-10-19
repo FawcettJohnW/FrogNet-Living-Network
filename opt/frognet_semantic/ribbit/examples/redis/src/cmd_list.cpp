@@ -351,6 +351,7 @@ bool peer_gone(int fd) { char b; ssize_t n = recv(fd, &b, 1, MSG_PEEK | MSG_DONT
 // the timeout passes, CLIENT UNBLOCK, or the peer hangs up. Sliced so the client watches its own connection.
 bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::chrono::steady_clock::time_point deadline) {
     if (c.in_exec) return false;                    // inside EXEC a blocking command is its non-blocking self
+    if (c.try_block) { c.would_block = true; c.park_timeout_ms = timeout_ms; c.park_word = &w; c.park_seen = seen; return false; }   // [PARKED_IN_THE_ORDER_V1]
     c.waiting_on = &w;
     if (!c.region_blocked) g.blocked_clients++;
     else if (!c.counted_blocked) { g.blocked_clients++; c.counted_blocked = true; }   // the door takes it off, after accounting
@@ -378,7 +379,7 @@ bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::ch
 }
 static bool list_ready(Client& c, const std::string& k, bool first, VarPtr& v, Reply& r, bool& err) {
     err = false;
-    if (first) { int st = list_var(c, k, v, r); if (st < 0) { err = true; return false; } return st == 1; }
+    if (first && !c.retrying) { int st = list_var(c, k, v, r); if (st < 0) { err = true; return false; } return st == 1; }
     v = db::live_var(c.db, k);                      // once parked, a key of another type is simply not ready
     return db::kind_of(v) == Kind::ListElem;
 }

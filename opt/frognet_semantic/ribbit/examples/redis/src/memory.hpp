@@ -36,7 +36,14 @@
 #include <optional>
 #include <functional>
 #include <cstdint>
+#include <random>
 namespace rr {
+
+// [ONE_ORDER_V1] Every box applies every intent, in write order, to its own copy of the keyspace. While one is applied,
+// the clock is the intent's time and the random generator is seeded by its write id, so every box decides the same.
+extern thread_local int64_t apply_now_ms;     // 0: the wall clock
+extern thread_local int64_t apply_clock_advance;   // DEBUG SLEEP: how far the order's clock moves after the command
+std::mt19937_64& apply_rng();
 
 // live-object counters: what the memory is made of right now (INFO ribbit)
 struct MemStats {
@@ -341,6 +348,12 @@ public:
 
     uint64_t last_id() const { return next_id_.load() - 1; }
     static int64_t now_ms();
+    // [JOIN_BY_COPY_V1] the whole memory of these services as bytes, and back: every variable in creation order with
+    // its creation id and last-change id, every cell with its write id, creation id, time, bag and accumulators, and
+    // the next write id -- so the copy answers every command (WATCH's versions, SCAN's order) as the original does.
+    // load() goes into an empty memory, on the applier, before anything else runs.
+    void dump(const std::vector<std::string>& services, std::string& out) const;
+    void load(const std::vector<std::string>& services, const std::string& in, size_t& at);
 
 private:
     alignas(64) std::atomic<uint64_t> next_id_{1};   // its own line: every writer bumps it

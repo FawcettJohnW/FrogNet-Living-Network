@@ -19,6 +19,7 @@
 #include <chrono>
 #include <random>
 #include <stdexcept>
+#include <cstring>
 #include <algorithm>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -32,7 +33,12 @@ void memstats_map(int d) { memstats().maps.fetch_add(d, std::memory_order_relaxe
 static const std::string VAL_INST = "";
 static const std::string TTL_INST = std::string("\x01ttl", 4);
 
+// [ONE_ORDER_V1] while an intent is applied, its time is the time: every box applies it at the same instant
+thread_local int64_t apply_now_ms = 0;
+thread_local int64_t apply_clock_advance = 0;
+std::mt19937_64& apply_rng() { static thread_local std::mt19937_64 r{std::random_device{}()}; return r; }
 int64_t Memory::now_ms() {
+    if (apply_now_ms) return apply_now_ms;
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
@@ -516,7 +522,7 @@ std::vector<std::string> Memory::variables(const std::string& service) const {
 bool Memory::random_variable(const std::string& service, std::string& out) const {
     Region& R = region(service);
     size_t n = R.by_born.size(); if (!n) return false;
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    std::mt19937_64& rng = apply_rng();
     auto* x = R.by_born.nth(rng() % n); if (!x) return false;
     out = x->val->name; return true;
 }
@@ -704,4 +710,65 @@ bool Memory::remove_if(const std::string& service, const std::string& variable, 
     maybe_die(R, v); R.touched(variable);
     return true;
 }
+
+// ---------------------------------------------------------------- [JOIN_BY_COPY_V1] the memory as bytes
+namespace {
+void p64(std::string& o, uint64_t v) { for (int k = 0; k < 8; k++) o += char(v >> (8 * k)); }
+void p32(std::string& o, uint32_t v) { for (int k = 0; k < 4; k++) o += char(v >> (8 * k)); }
+void pstr(std::string& o, const std::string& s) { p32(o, uint32_t(s.size())); o += s; }
+void pdbl(std::string& o, double d) { uint64_t u; memcpy(&u, &d, 8); p64(o, u); }
+struct Rd {
+    const std::string& s; size_t& at;
+    void need(size_t n) { if (at + n > s.size()) throw std::runtime_error("the region's copy is cut short"); }
+    uint64_t u64() { need(8); uint64_t v = 0; for (int k = 7; k >= 0; k--) v = v << 8 | uint8_t(s[at + k]); at += 8; return v; }
+    uint32_t u32() { need(4); uint32_t v = 0; for (int k = 3; k >= 0; k--) v = v << 8 | uint8_t(s[at + k]); at += 4; return v; }
+    std::string str() { uint32_t n = u32(); need(n); std::string v = s.substr(at, n); at += n; return v; }
+    double dbl() { uint64_t u = u64(); double d; memcpy(&d, &u, 8); return d; }
+};
+}
+void Memory::dump(const std::vector<std::string>& services, std::string& o) const {
+    ebr::Guard g;
+    p64(o, next_id_.load());
+    for (auto& svc : services) {
+        Region& R = region(svc);
+        std::vector<Var*> vs; R.by_born.walk_all([&](LFMap<uint64_t, Var*>::Node* n) { if (!n->val->dead.load()) vs.push_back(n->val); return true; });
+        p32(o, uint32_t(vs.size()));
+        for (Var* v : vs) {
+            pstr(o, v->name); p64(o, v->born); p64(o, v->last.load());
+            std::vector<std::pair<std::string, CellPtr>> cs;
+            v->each_all([&](const std::string& i, const CellPtr& c) { cs.emplace_back(i, c); return true; });
+            p32(o, uint32_t(cs.size()));
+            for (auto& [i, c] : cs) {
+                pstr(o, i); p64(o, c->id); p64(o, c->born); p64(o, uint64_t(c->written_ms));
+                const Bag& b = *c->bag; o += char(b.kind); pstr(o, b.s); p64(o, uint64_t(b.n)); pdbl(o, b.d); o += char(b.indexed ? 1 : 0);
+                p64(o, uint64_t(c->acc.load())); pdbl(o, c->facc.load()); p32(o, c->adds.load());
+            }
+        }
+    }
+}
+void Memory::load(const std::vector<std::string>& services, const std::string& in, size_t& at) {
+    ebr::Guard g;
+    Rd r{in, at};
+    const uint64_t next = r.u64();
+    for (auto& svc : services) {
+        Region& R = region(svc);
+        const uint32_t nv = r.u32();
+        for (uint32_t k = 0; k < nv; k++) {
+            std::string name = r.str(); const uint64_t born = r.u64(), last = r.u64();
+            const size_t h = Region::hash_of(name);
+            Var* v = var_or_create(R, name, born, h);
+            const uint32_t nc = r.u32();
+            for (uint32_t j = 0; j < nc; j++) {
+                std::string inst = r.str(); const uint64_t id = r.u64(), cborn = r.u64(); const int64_t wms = int64_t(r.u64());
+                Bag b; r.need(1); b.kind = Kind(uint8_t(in[at++])); b.s = r.str(); b.n = int64_t(r.u64()); b.d = r.dbl(); r.need(1); b.indexed = in[at++] != 0;
+                const int64_t acc = int64_t(r.u64()); const double facc = r.dbl(); const uint32_t adds = r.u32();
+                CellNode* n = apply_value(R, *v, inst, std::move(b), id, wms);
+                n->born = cborn; n->acc.store(acc); n->facc.store(facc); n->adds.store(adds);
+            }
+            v->last.store(last);
+        }
+    }
+    next_id_.store(next);
+}
+
 }  // namespace rr

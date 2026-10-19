@@ -24,11 +24,28 @@
 #include <string>
 #include "frogram.hpp"
 
+namespace ramm { class Memory; }
 namespace ribbit {
 
 struct Reply { int status; std::string body; };
 // {"ok":false,"error":msg} with an HTTP status
 Reply error_reply(int status, const std::string& msg);
+
+// [SESSION_ORDER_V1] Work for the host's pool, in order: tasks run one at a time, in the order run() was called, on
+// the pool's threads; different Ordered run in parallel. Lock-free (one list, one flag); run() never waits. A vendor
+// keeps one per thing whose work must stay in order .
+class Ordered {
+public:
+    Ordered(); ~Ordered();
+    Ordered(const Ordered&) = delete; Ordered& operator=(const Ordered&) = delete;
+    void run(std::function<void()> f);
+private:
+    struct Impl; Impl* d_;
+};
+// [DEFERRED_ANSWER_V1] A region operation that cannot answer yet takes its request's continuation (non-null only on
+// the thread running a request) and answers later, from any thread; the session's writer sends it.
+void* defer_answer();
+void answer_later(void* continuation, const std::string& body);
 
 class RamHost {
 public:
@@ -50,17 +67,27 @@ public:
     // request's own thread, in the memory itself (see resident_operation). A host without a region answers none.
     virtual bool handles(const std::string& op) const { (void)op; return false; }
     virtual Reply operation(const std::string& op, const std::string& body);
+    // [INLINE_REGION_OP_V1] A region operation that never waits may run on the session's own thread, in wire order,
+    // instead of on a request thread of its own: no thread is created per call. Default: none do.
+    virtual bool inline_operation(const std::string& op) const { (void)op; return false; }
     // A service the network API never serves: the region's secrets. Default: a name beginning with '#'.
     virtual bool private_service(const std::string& service) const { return !service.empty() && service[0] == '#'; }
     // The service whose cells a region operation returns to its caller whole, so the caller holds its own writes at
     // once ([OWN_WRITES_HELD_V1]). Default: the vendor's id.
     virtual std::string region_service() const { return vendor_id(); }
+    // [SESSION_IS_LIVENESS_V1] [SESSION_PEER_V1] A session is up (its id, unique for the life of the process, and the
+    // address it arrived from) / has ended. Default: nothing to do.
+    virtual void session_up(uint64_t id, const std::string& peer) { (void)id; (void)peer; }
+    virtual void session_down(uint64_t id) { (void)id; }
 
     // ---- the platform -------------------------------------------------------------------------------------------
     // Parses --listen HOST:PORT, --version and --help; serves until SIGTERM or SIGINT. A vendor's main() calls this.
     int run(int argc, char** argv);
     // Starts serving on listen_on and returns (0, or an errno): for tests that embed a host in their own process.
     int start(const std::string& listen_on, bool quiet);
+    // [NODE_IS_ITS_OWN_RAM_V1] The memory this process holds (ram_memory.hpp): a process that hosts it reads and
+    // writes it directly -- no session, no frame -- while other nodes reach it at the address start() listens on.
+    static ramm::Memory& memory();
 
 protected:
     // Runs one region operation with the memory itself as its memory. `f` receives a MemoryApi whose reads are of the

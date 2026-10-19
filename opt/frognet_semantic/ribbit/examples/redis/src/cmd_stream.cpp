@@ -267,8 +267,9 @@ static void cmd_xread(Client& c, const Argv& a, Reply& r) {
     }
     // resolve $ to the current last id; exclusive lower bounds
     for (size_t k = 0; k < n; k++) {
+        if (c.retrying) break;            // [PARKED_IN_THE_ORDER_V1] parked: its ids are fixed, and a key of another type is only not ready
         VarPtr v; if (svar(c, keys[k], v, r) < 0) return;
-        if (dollar[k]) ids[k] = meta_of(v).last;
+        if (dollar[k]) { ids[k] = meta_of(v).last; if (c.try_block) c.park_rewrite.emplace_back(i + n + k, sid_str(ids[k])); }   // [PARKED_IN_THE_ORDER_V1]
     }
     WaitReg wreg(wait_word_for(c, keys)); WaitWord& w = wreg.w;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout > 0 ? timeout : 0);

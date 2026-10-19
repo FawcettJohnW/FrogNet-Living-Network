@@ -33,7 +33,7 @@ struct Claim {
     Client& c; std::vector<std::string> keys; std::string ticket; bool placed = false;
     Claim(Client& cl, std::vector<std::string> ks) : c(cl), keys(std::move(ks)) { ticket = claim_ticket(); }
     void place() {
-        if (placed) return;
+        if (placed || c.try_block) return;           // [PARKED_IN_THE_ORDER_V1] the order is the line
         std::vector<Memory::W> ws; Bag b; b.kind = Kind::None; auto bp = std::make_shared<const Bag>(b);
         for (auto& k : keys) ws.push_back(Memory::W{k, ticket, bp});
         g.mem.write_many(db::claims(c.db), ws); placed = true;

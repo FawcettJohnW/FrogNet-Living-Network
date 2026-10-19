@@ -16,43 +16,23 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-# Build the RAM host with the Redis region resident, and the RESP front.
+# Build Redis on the memory [ONE_ORDER_V1]: ribbit-redis-host (the memory the boxes share: the platform's RamHost, no
+# operations of its own) and ribbit-redis-front (a box: RESP to clients, the region applied in write order).
 # Incremental and parallel: a file is recompiled only if it, or a header it includes, changed since its object was
-# built (the compiler's own dependency files, -MMD); the platform is re-copied and re-patched only if the platform or
-# a patch script changed; everything compiles at once, one job per core (JOBS=N to override). Compiler output goes to
-# the terminal as it happens (never into a pipe that can close early, never into a file alone).
+# built (the compiler's own dependency files, -MMD, compared by CONTENT); everything compiles at once, one job per core
+# (JOBS=N to override). Compiler output goes to the terminal as it happens.
 #   bash tools/build.sh           incremental
 #   CLEAN=1 bash tools/build.sh   from scratch
 set -e -o pipefail
 cd "$(dirname "$0")/.."
-PLAT=${PLAT:-platform/ribbit-v0.63}
+P=$(cd ../../cpp && pwd)                    # the platform: ribbit/cpp, linked as it is
 JOBS=${JOBS:-$(nproc)}
 CXX="${CXX_BIN:-g++} -O2 -pthread"          # CXX_BIN=g++-11 etc.; GCC 11 and newer
-# [SAME_ALLOCATOR_AS_STOCK_V1] stock Redis is built with jemalloc; the host and the front are too. glibc malloc takes a
-# lock that every thread contends for on every allocation (measured: futex waits in free() on the reader threads).
-source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; RIBBIT_EXTRA_DEPS="jemalloc/jemalloc.h:libjemalloc-dev" CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
+# [SAME_ALLOCATOR_AS_STOCK_V1] stock Redis is built with jemalloc; the boxes and the memory are too.
+source "$P/ensure_build_deps.sh"; RIBBIT_EXTRA_DEPS="jemalloc/jemalloc.h:libjemalloc-dev" CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
 W="-Wall -Wextra -Wno-unused-parameter -Wno-free-nonheap-object"   # GCC 12 aarch64 false positive in libstdc++; see ribbit/cpp/qualify.sh
 [ "${CLEAN:-0}" = 1 ] && rm -rf build
 mkdir -p build/obj
-P=build/platform
-
-# ---- the platform, patched: redone only when the platform or a patch script changed
-PATCHES="tools/apply_reply_proof.py tools/apply_same_miss.py tools/apply_coalesce.py tools/apply_wire_order.py tools/apply_row_scan_bound.py tools/apply_call_bytes.py tools/apply_call_async.py tools/apply_shape_fastpath.py"
-STAMP=$( (find "$PLAT" -type f -print0 | sort -z | xargs -0 sha256sum; sha256sum $PATCHES tools/make_host.sh) | sha256sum | cut -c1-16)
-if [ "$(cat build/platform.stamp 2>/dev/null)" != "$STAMP" ]; then
-  echo "== platform: copying and patching"
-  rm -rf "$P" && cp -r "$PLAT" "$P"
-  python3 tools/apply_reply_proof.py $P/ribbit_cpp/fnwp_engine.hpp        # [REPLY_EXTRACTION_PROVEN_V1]
-  python3 tools/apply_same_miss.py $P/ribbit_cpp                          # [SAME_MISS_FROM_CACHE_V1]
-  python3 tools/apply_coalesce.py $P/ribbit_cpp                           # [CLIENT_COALESCES_V1]
-  python3 tools/apply_wire_order.py $P/ribbit_cpp                         # [WIRE_ORDER_TURNS_V1]
-  python3 tools/apply_row_scan_bound.py $P/ribbit_cpp                     # [ROW_SCAN_BOUND_V1]
-  python3 tools/apply_call_bytes.py $P/ribbit_cpp                         # [RESP_ON_THE_WIRE_V1]
-  python3 tools/apply_call_async.py $P/ribbit_cpp                         # [NOBODY_WAITS_V1]
-  python3 tools/apply_shape_fastpath.py $P/ribbit_cpp                     # [SHAPE_NEEDS_AN_OBJECT_V1]
-  tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_redis.cpp
-  echo "$STAMP" > build/platform.stamp
-fi
 
 # ---- one compile: rebuilt when the object is missing, or when the CONTENT of its source or of any header it includes
 # changed. Content, not timestamps: files copied or unpacked keep the time they were written, which can be older than
@@ -86,18 +66,23 @@ settle() {  # wait for every compile; any failure fails the build (and its objec
 }
 
 echo "== compiling (up to $JOBS at once; only what changed)"
-job build/obj/frogram.o $CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp
-for f in src/*.cpp; do
-  b=$(basename "${f%.cpp}")
-  E=""; case "$b" in redis_region|front) E="-Werror";; esac        # the new code builds warning-free, always
-  job build/obj/$b.o $CXX -std=c++20 $W $E -Isrc -I$P/ribbit_cpp -c "$f"
+job build/obj/frogram.o $CXX -std=c++20 -Wno-free-nonheap-object -I$P/include -c $P/src/frogram.cpp
+job build/obj/ram_host.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ram_host.cpp
+job build/obj/lf_ebr.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/lf_ebr.cpp
+job build/obj/redis_ram.o $CXX -std=c++20 $W -Werror -I$P/include -c src/redis_ram.cpp
+job build/obj/ribbit_space.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ribbit_space.cpp   # [SPACE_V1]
+# the box's sources, named: a tree unpacked over the RAM-host design keeps its old files (src/redis_region.cpp,
+# src/coherence.cpp ...), and those are not part of this build
+SRCS="apply front server resp util ebr memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
+for b in $SRCS; do
+  f=src/$b.cpp
+  E=""; case "$b" in apply|front) E="-Werror";; esac           # the new code builds warning-free, always
+  job build/obj/$b.o $CXX -std=c++20 $W $E -Isrc -I$P/include -c "$f"
 done
-job build/ram_server_redis.o $CXX -std=c++20 -I$P/ribbit_cpp -I$P/ramsrv -Isrc/door -c build/ram_server_redis.cpp
 settle
 
 echo "== linking"
-ENGINE=$(ls build/obj/*.o | grep -v -e frogram.o -e front.o)
-$CXX -o build/ribbit-redis-host build/ram_server_redis.o $ENGINE build/obj/frogram.o -llz4 -lcrypto -ljemalloc
-$CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/frogram.o -llz4 -lcrypto -ljemalloc
-$CXX -std=c++17 $W -Werror -I$P/ribbit_cpp tests/raw_call.cpp build/obj/frogram.o -o build/raw-call -llz4 -lcrypto   # the trust test's attacker
-echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1)"
+ENGINE=$(for b in $SRCS; do [ $b = front ] || echo build/obj/$b.o; done)
+$CXX -o build/ribbit-redis-host build/obj/redis_ram.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+$CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/ribbit_space.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1), box $(cat VERSION 2>/dev/null || echo unversioned)"

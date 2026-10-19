@@ -46,11 +46,12 @@ class Ebr {
     // record is for by that Ebr's serial, never by its address: a later Ebr at a reused address is a different one.
     static uint64_t next_serial(){ static std::atomic<uint64_t> n{0}; return ++n; }
     const uint64_t serial_=next_serial();
-    Reader*local_reader(){
+    Reader*local_reader(){                       // [EBR_READER_PER_INSTANCE_V1] one record per (thread, Ebr)
         struct Local{uint64_t owner=0;Reader*reader=nullptr;};
-        thread_local Local local;
-        if(local.owner!=serial_){local.owner=serial_;local.reader=register_reader();}
-        return local.reader;
+        thread_local Local local[8]; thread_local unsigned next_victim=0;
+        for(auto&l:local) if(l.owner==serial_) return l.reader;
+        Local&l=local[next_victim++%8]; l.owner=serial_; l.reader=register_reader();
+        return l.reader;
     }
     void push_retired(Retired*n){
         Retired*head=retired_.load(std::memory_order_relaxed);

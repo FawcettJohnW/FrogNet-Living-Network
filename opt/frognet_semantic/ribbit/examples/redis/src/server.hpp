@@ -86,6 +86,12 @@ struct Client {
     BlockKeys block_keys;                          // the blocking command being served (own thread only)
     std::atomic<const BlockKeys*> blocked_keys{nullptr};   // published while parked (INFO total_blocking_keys[_on_nokey])
     std::atomic<int> unblock{0};                   // 0 none, 1 timeout, 2 error
+    // [PARKED_IN_THE_ORDER_V1] the applier tries a blocking command without blocking: when it would wait, block_on says
+    // so here (and what it would wait on and for how long) and the command answers as on a timeout; the applier parks
+    // it, in the order, and tries it again when what it waits on changes. XREAD's "$" is fixed at the id it meant.
+    bool try_block = false, would_block = false, retrying = false;   // retrying: tried again, parked before -- not its first pass
+    int64_t park_timeout_ms = 0; WaitWord* park_word = nullptr; uint32_t park_seen = 0;
+    std::vector<std::pair<size_t, std::string>> park_rewrite;
     // In the region, a blocked command counts in blocked_clients once for its whole life, and leaves the count only
     // after its accounting (commandstats) is done: INFO never sees it unblocked but not yet counted.
     bool region_blocked = false, counted_blocked = false;
@@ -132,6 +138,7 @@ struct Server {
     std::atomic<uint64_t> blocked_clients{0};
     std::string executable;
     std::string config_file;
+    void (*on_kill)(Client*) = nullptr;     // [PARKED_IN_THE_ORDER_V1] CLIENT KILL of a connection the applier holds
 };
 extern Server g;
 

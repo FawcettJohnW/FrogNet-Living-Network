@@ -201,7 +201,7 @@ static void cmd_xreadgroup(Client& c, const Argv& a, Reply& r) {
     WaitReg wreg(wait_word_for(c, keys)); WaitWord& w = wreg.w; c.block_keys.nokey = true;
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout > 0 ? timeout : 0);
     Claim claim(c, keys);                 // delivery of '>' to parked readers is served in arrival order: a claim, not a queue
-    bool first = true;                    // the consumer's seen-time is written on the first pass only when blocking: a rewrite per wake would wake the others
+    bool first = !c.retrying;             // the consumer's seen-time is written on the first pass only when blocking: a rewrite per wake would wake the others
     for (;;) {
         uint32_t seen = w.gen.load(std::memory_order_acquire);
         std::vector<std::pair<std::string, std::vector<std::pair<SID, std::string>>>> found;

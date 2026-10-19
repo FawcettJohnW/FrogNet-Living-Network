@@ -127,3 +127,40 @@ participants interleave, WATCH is checked when EXEC arrives. Not a defect; the a
 ## Multi-key reads at one moment -- RULED (John 2026-09-29)
 "We will do a best-effort, but if the store underneath is changed by another thread, then the store is changed."
 A multi-key read reads each key as it is when read; concurrent changes are the store changing. Not a defect.
+
+---
+
+## One order (2026-10-17) [ONE_ORDER_V1] -- what the boxes change in this register
+
+The RAM-host design ran commands from different fronts truly at once, in one memory, and the entries above are what
+that forced. Boxes on the memory (DESIGN.md) apply every box's intents in write order, one at a time, each box to its
+own copy: Redis's own execution model, reached without a server. What that does to each entry:
+
+- **Entry 1 (lazy expiry)** stands: liveness is still derived from value + ttl + now; "now" is the intent's time.
+- **Entries 2/4 (a batch is a value)** stand and matter less: an EXEC is applied in one turn of the applier, so no
+  other command sees its middle.
+- **Entries 3/5 (claims decide who is served)** are now the order itself: a parked command waits in a line in every
+  copy, first parked first served. The claim code stays (it is how a command finds its turn) and is not placed while
+  the applier tries a command (`[PARKED_IN_THE_ORDER_V1]`).
+- **Entry 6 (Linked LMOVEs, unblock inside CLIENT UNBLOCK)** is gone: a parked command is served in the same turn as
+  the write that readied it, before any later intent is applied -- what Redis does inside the writer's call.
+- **The two rulings (MULTI/EXEC isolation, multi-key reads at one moment)** now hold by construction, at no cost:
+  nothing waits for a transaction that would not wait anyway, because every command is applied in its turn.
+
+New entries:
+
+7. **A box joining late.** When every box's ring no longer holds that box's first intent, the history cannot be
+   replayed. Redis's answer is a replica's full sync, asked of the primary. Here the request is an intent (`j`) and the
+   answer a truth: the smallest live box writes the region as it stands right after that intent, and the joiner loads it
+   and follows the order from there (`[JOIN_BY_COPY_V1]`; `run_two_boxes.py` check 10; acceptance `loss`: a box killed
+   mid-write and started again reads every acknowledged write, 58,024 of 58,024).
+
+8. **Bytes that are not UTF-8.** The wire holds a bag as text; a pipeline carrying such bytes went unanswered and the
+   next intent's gap stopped the box (GETRANGE fuzzing, string.tcl). Such a pipeline now goes as base64, and a write
+   the memory refuses stops the box loudly (`[BINARY_SAFE_INTENTS_V1]`).
+
+9. **An intent larger than a write frame.** A 4 MB SET is one pipeline; a write frame is at most 16 KB, and a large
+   request taken off the request socket onto the data socket executes when its body lands -- out of the session's
+   order, so a box's intents could arrive as n+1 before n. Such an intent now goes as pieces, each an intent of its own
+   in the box's order, gathered per connection and applied whole when the intent itself arrives
+   (`[BIG_INTENTS_IN_PIECES_V1]`; string.tcl "Very big payload in GET/SET").

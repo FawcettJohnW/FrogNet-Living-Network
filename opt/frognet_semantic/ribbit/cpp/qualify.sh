@@ -45,29 +45,30 @@ if has build; then
   # [AUTO_INSTALL_BUILD_DEPS_V1] missing lz4 / OpenSSL headers are installed, not reported
   source "$(dirname "$(readlink -f "$0")")/ensure_build_deps.sh"; ribbit_ensure_build_deps
   echo "  $JOBS parallel jobs"; t_all=$(date +%s)
-  build_one bin/frogram.o -std=c++17 $NOFP -O2 -pthread -Iinclude -c src/frogram.cpp || { note "build FAIL"; exit 1; }
+  build_one bin/frogram.o -std=c++20 $NOFP -O2 -pthread -Iinclude -c src/frogram.cpp || { note "build FAIL"; exit 1; }
   FO=bin/frogram.o
   pids=()
   run(){ while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done; build_one "$@" & pids+=($!); }
   I="-Iinclude -Itests"
-  run bin/ram_client.o -std=c++17 $NOFP -O2 -pthread $WERR $I -c src/ram_client.cpp
-  run bin/ribbit-ram -std=c++17 $NOFP -O2 -pthread $WERR $I tools/ribbit_ram.cpp src/ram_host.cpp $FO -llz4 -lcrypto
-  run bin/tuple-write -std=c++17 -O2 -pthread $WERR $I tools/tuple_write.cpp $FO -llz4 -lcrypto
-  run bin/semwire-driver -std=c++17 -O2 $WERR $I tests/semwire_driver.cpp
-  run bin/bench-semwire -std=c++17 $NOFP -O2 $I tests/bench_semwire.cpp
-  run bin/semcodec-driver -std=c++17 -O2 $WERR $I tests/semcodec_driver.cpp -llz4
-  run bin/bench-semcodec -std=c++17 $NOFP -O2 $I tests/bench_semcodec.cpp -llz4
-  run bin/semtpl-driver -std=c++17 -O2 $WERR $I tests/semtpl_driver.cpp -llz4 -lcrypto
-  run bin/bench-semtpl -std=c++17 $NOFP -O2 $I tests/bench_semtpl.cpp -llz4 -lcrypto
-  run bin/ramrows-driver -std=c++17 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
-  run bin/test-lockfree-snapshot -std=c++17 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
-  run bin/test-ebr-stress -std=c++17 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
-  run bin/test-ram-memory -std=c++17 -O2 -pthread $WERR $I tests/test_ram_memory.cpp
-  run bin/test-write-window -std=c++17 -O2 -pthread $WERR $I tests/test_write_window.cpp
-  run bin/test-row-scan-bound -std=c++17 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp
-  run bin/test-fnwp-e2e -std=c++17 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp -llz4 -lcrypto
-  run bin/test-session-tcp -std=c++17 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp -llz4 -lcrypto
-  run bin/test-fanin-data -std=c++17 -O2 -pthread $WERR $I tests/test_fanin_data.cpp src/frogram.cpp -llz4 -lcrypto
+  run bin/ram_client.o -std=c++20 $NOFP -O2 -pthread $WERR $I -c src/ram_client.cpp
+  run bin/ribbit-ram -std=c++20 $NOFP -O2 -pthread $WERR $I tools/ribbit_ram.cpp src/ram_host.cpp $FO -llz4 -lcrypto
+  run bin/tuple-write -std=c++20 -O2 -pthread $WERR $I tools/tuple_write.cpp $FO -llz4 -lcrypto
+  run bin/semwire-driver -std=c++20 -O2 $WERR $I tests/semwire_driver.cpp
+  run bin/bench-semwire -std=c++20 $NOFP -O2 $I tests/bench_semwire.cpp
+  run bin/semcodec-driver -std=c++20 -O2 $WERR $I tests/semcodec_driver.cpp -llz4
+  run bin/bench-semcodec -std=c++20 $NOFP -O2 $I tests/bench_semcodec.cpp -llz4
+  run bin/semtpl-driver -std=c++20 -O2 $WERR $I tests/semtpl_driver.cpp -llz4 -lcrypto
+  run bin/bench-semtpl -std=c++20 $NOFP -O2 $I tests/bench_semtpl.cpp -llz4 -lcrypto
+  run bin/ramrows-driver -std=c++20 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
+  run bin/test-lockfree-snapshot -std=c++20 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
+  run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
+  run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp
+  run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp
+  run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp
+  run bin/test-family-hooks -std=c++20 -O2 -pthread $WERR $I tests/test_family_hooks.cpp
+  run bin/test-fnwp-e2e -std=c++20 -O2 -pthread $WERR $I tests/test_fnwp_e2e.cpp src/frogram.cpp -llz4 -lcrypto
+  run bin/test-session-tcp -std=c++20 -O2 -pthread $WERR $I tests/test_session_tcp.cpp src/frogram.cpp -llz4 -lcrypto
+  run bin/test-fanin-data -std=c++20 -O2 -pthread $WERR $I tests/test_fanin_data.cpp src/frogram.cpp -llz4 -lcrypto
   bfail=0; for pid in "${pids[@]}"; do wait "$pid" || bfail=1; done
   cat "$BLOG"/*.txt >> "$OUT/build.txt"
   echo "  build took $(( $(date +%s)-t_all ))s"
@@ -108,13 +109,14 @@ if has dataplane; then
   $PY tests/shaped_relay.py --listen 127.0.0.1:8933 --to 127.0.0.1:8932 --rate 4000000 --delay-ms 10 > "$OUT/relay.txt" 2>&1 & RPID=$!
   # [RELAY_READY_BEFORE_FANIN_V1] Wait until the relay is LISTENING, not a fixed half second: on a Raspberry Pi the
   # Python relay was not up in 0.5 s, the test's connect to 8933 was refused, and it aborted with frogram::Unreachable
-  # (20261001-102146). Checked with ss, not by connecting -- a probe connection would itself be relayed to 8932, where
+  # (20261001-102146). Checked in /proc/net/tcp, not by connecting -- a probe connection would itself be relayed to 8932, where
   # nothing listens until the test starts. A relay that exits, or is not listening within 30 s, stops the stage with
   # its log; the test never runs against a relay that is not there.
   relay_up=0
   for _i in $(seq 1 300); do
     kill -0 "$RPID" 2>/dev/null || break
-    if ss -ltnH 'sport = :8933' 2>/dev/null | grep -q .; then relay_up=1; break; fi
+    # read from /proc, not ss (not every machine has it): a socket in state 0A (LISTEN) on port 8933 (0x22E5)
+    if grep -qE '^ *[0-9]+: [0-9A-F]+:22E5 [0-9A-F]+:0000 0A ' /proc/net/tcp /proc/net/tcp6 2>/dev/null; then relay_up=1; break; fi
     sleep 0.1
   done
   if [ "$relay_up" != 1 ]; then
@@ -145,6 +147,7 @@ if has memory; then
     else note "$label FAIL: $ok of $runs runs passed -- first failure: ${first:-see $OUT/memory.txt}"; fi; }
   repeat_race WRITE-WINDOW 20 ./bin/test-write-window
   repeat_race ROW-SCAN-BOUND 5 ./bin/test-row-scan-bound
+  repeat_race FAMILY-HOOKS 10 ./bin/test-family-hooks
 fi
 
 if has lockfree; then

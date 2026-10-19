@@ -14,7 +14,7 @@ Arms (each gives K endpoints a client can connect to, on base+1..base+K):
                   the persistence an operator would turn on.
   stock-sentinel  stock-aof plus one Sentinel watching the primary (down-after 1000 ms, failover-timeout 5000 ms)
                   -- stock with automatic recovery: Sentinel promotes a replica when the primary dies.
-  ribbit          one RAM host on base, K fronts connected up to it. The host keeps the region in memory only.
+  ribbit          one memory on base, K boxes on it, each holding the region (DESIGN.md). Nothing is persisted.
 Stock's arms reach more than one endpoint without Cluster. Cluster splits the keyspace across nodes; a cluster-aware
 client follows MOVED to the owner, so with such a client Cluster serves one keyspace from several nodes -- not tested
 here, and nothing here claims the region beats it.
@@ -27,10 +27,10 @@ Tests (each prints PASS/FAIL/MEASURE lines and one RESULT line):
              Measured: writes endpoint 2 accepted after the loss and the time to the first one; then, polling up to 30 s
              after the restart, how many acknowledged writes each endpoint reads. PASS needs endpoint 2 to keep
              taking writes and every acknowledged write readable everywhere.
-  hostloss   failure of the place the data lives: stock's primary, the region's RAM host. Writers on endpoint 1 for
+  hostloss   failure of the place the data lives: stock's primary, the region's memory. Writers on endpoint 1 for
              2 s; the data's home is killed and started again; every acknowledged write must be readable through
-             endpoint 1 within 30 s. The region keeps its memory in the host process: this test is expected to show
-             what that costs.
+             endpoint 1 within 30 s. The region's intents live in the memory process and every box stops when it goes:
+             this test is expected to show what that costs.
   scale      redis-benchmark (-c 50 -P 16 -n 200000, SET then GET, 100k random keys) against all K endpoints at
              once, requests/s summed. SET goes where the arm takes writes (stock: the primary only).
 No fallbacks: a server that does not come up stops the test with its name.
@@ -97,13 +97,13 @@ def wait_synced(i, t=15):
         time.sleep(0.1)
 
 def start_host():
-    procs[0] = subprocess.Popen([BUILD + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE, "--api", API, "--quiet"],
+    procs[0] = subprocess.Popen([BUILD + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE],
                                 env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     t0 = time.time()
     while True:
         try: socket.create_connection(("127.0.0.1", BASE), timeout=1).close(); return
         except OSError:
-            if time.time() - t0 > 15: sys.exit("RAM host never listened on %d" % BASE)
+            if time.time() - t0 > 15: sys.exit("the memory never listened on %d" % BASE)
             time.sleep(0.05)
 
 def start_sentinel():
@@ -225,7 +225,7 @@ def t_hostloss():
         start_endpoint(1)
     got, waited = poll_readable([BASE + 1], keys)
     check(got[BASE + 1] == len(keys), "after the data's home (%s) was killed and started again, endpoint 1 reads %d of %d acknowledged writes (polled %.1f s)"
-          % ("the RAM host" if ARM == "ribbit" else "the primary", got[BASE + 1], len(keys), waited))
+          % ("the memory" if ARM == "ribbit" else "the primary", got[BASE + 1], len(keys), waited))
 
 def bench(port, test):
     if os.environ.get("BENCH_WARM") == "1":                       # [WARM_READS_V1] the same run once first, not measured

@@ -26,7 +26,6 @@
 #include <cerrno>
 namespace rr {
 
-static thread_local std::mt19937_64 rng{std::random_device{}()};
 
 // -1 wrong type (error sent), 0 absent, 1 hash
 static int hash_var(Client& c, const std::string& key, VarPtr& v, Reply& r) {
@@ -143,11 +142,11 @@ static void cmd_hincrbyfloat(Client& c, const Argv& a, Reply& r) {
 std::vector<size_t> random_picks(size_t size, long long count) {
     std::vector<size_t> out;
     if (!size) return out;
-    if (count < 0) { for (long long i = 0; i < -count; i++) out.push_back(rng() % size); return out; }
+    if (count < 0) { for (long long i = 0; i < -count; i++) out.push_back(apply_rng()() % size); return out; }
     size_t n = (size_t)count < size ? (size_t)count : size;
     if (n == size) { for (size_t i = 0; i < size; i++) out.push_back(i); return out; }
     std::unordered_set<size_t> seen;
-    while (out.size() < n) { size_t i = rng() % size; if (seen.insert(i).second) out.push_back(i); }
+    while (out.size() < n) { size_t i = apply_rng()() % size; if (seen.insert(i).second) out.push_back(i); }
     return out;
 }
 static void cmd_hrandfield(Client& c, const Argv& a, Reply& r) {
@@ -167,7 +166,7 @@ static void cmd_hrandfield(Client& c, const Argv& a, Reply& r) {
     };
     if (!has_count) {
         if (!size) { r.null(); return; }
-        auto x = nth(rng() % size); r.bulk(x->key.data() + 1, x->key.size() - 1); return;
+        auto x = nth(apply_rng()() % size); r.bulk(x->key.data() + 1, x->key.size() - 1); return;
     }
     if (!size || count == 0) { r.array(0); return; }
     auto picks = random_picks(size, count);

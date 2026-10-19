@@ -455,8 +455,9 @@ static void cmd_debug(Client& c, const Argv& a, Reply& r) {
     std::string sub = lower(a[1]);
     if (sub == "sleep") {
         double s = a.size() > 2 ? atof(a[2].c_str()) : 0;
-        // this participant sleeps; nobody else does
+        // [ONE_ORDER_V1] the order sleeps, as Redis does; the order's clock moves on by the sleep once the command is done
         std::this_thread::sleep_for(std::chrono::microseconds((int64_t)(s * 1e6)));
+        if (apply_now_ms) apply_clock_advance += (int64_t)(s * 1000);
         r.ok();
     } else if (sub == "set-active-expire" && a.size() == 3) {
         r.ok();      // accepted, no effect: liveness is derived and there is no reaper to switch off

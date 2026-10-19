@@ -39,14 +39,21 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
 #include <string>
+#include <unordered_map>
 #include <vector>
+#include "bagarr.hpp"
 
 namespace ramm {
 
-struct Cell { uint64_t id; std::string service, variable, instance, bag; double updated; };
+// [DECODE_ONCE_V1] a row read: its bag decoded once (arr) when it was written as fields; bag holds the text only for a
+// row written as text. text() is the bag as JSON text either way, for a reader that asks for text.
+struct Cell { uint64_t id; std::string service, variable, instance, bag; double updated; ribbit::BagArrP arr;
+              std::string text() const { return arr ? arr->json() : bag; } };
 
 // A trigger: one waiter's condition. fired is set by a writer and cleared by the waiter.
 struct Trigger {
@@ -78,9 +85,11 @@ struct Row {
     std::string service, variable, instance;      // the address, set once
     std::shared_mutex m;                          // THE lock: many readers or one writer
     bool live = false; uint64_t id = 0; std::string bag; double updated = 0;   // guarded by m
+    ribbit::BagArrP arr;                          // [DECODE_ONCE_V1] the bag as decoded, when written as fields (guarded by m)
     TriggerList triggers;
     Row* next_in_bucket = nullptr;                // set once, before publication
     Row* next_in_variable = nullptr;              // set once, before publication
+    std::string pkey[6]; size_t phash[6] = {0, 0, 0, 0, 0, 0};   // [FIRE_KEYS_ONCE_V1] set once, before publication
 };
 
 // [WRITE_WINDOW_V1] A variable's recent writes, in the order their ids were taken: a fixed ring of WINDOW slots, so it
@@ -91,14 +100,45 @@ struct Row {
 // (more than WINDOW writes since), or a slot it needs has been reused, the rows themselves are the answer: every row of
 // the variable with an id past X -- the definition, read directly.
 static constexpr uint64_t WINDOW = 1024;
-struct WindowSlot { std::atomic<uint64_t> pos{~0ull}, id{0}; std::atomic<struct Row*> row{nullptr}; };
+struct WindowSlot { std::atomic<uint64_t> pos{~0ull}, id{0}; std::atomic<struct Row*> row{nullptr}; std::atomic<void*> var{nullptr}; };
 struct WriteWindow { std::atomic<uint64_t> head{0}; WindowSlot slot[WINDOW]; };
+// [FAMILY_HOOKS_V1] A reader of a family is woken by the family's writes and reads them itself, by position, on its
+// own thread. A WakeWord is one reader's (one thread waits on it with a futex, for every family it reads); a Hook ties
+// it to one family. A write bumps the word of every live hook on its variable and its service and returns: it does not
+// know who reads, gives nobody anything, and nothing is queued. Both are insert-only and never freed (a gone reader's
+// hook is marked dead and claimed by the next one; a word is released and reused), so a writer never touches freed
+// memory; a hook being reassigned may wake the wrong word once -- a spurious wake, which a reader shrugs off.
+struct WakeWord { std::atomic<uint32_t> n{0}; std::atomic<bool> in_use{true}; WakeWord* next = nullptr;
+    void bump() { n.fetch_add(1, std::memory_order_release); n.notify_all(); } };
+struct Hook { std::atomic<WakeWord*> w{nullptr}; std::atomic<bool> live{true}; Hook* next = nullptr; };
+struct HookList {
+    std::atomic<Hook*> head{nullptr};
+    Hook* add(WakeWord* w) {
+        for (Hook* h = head.load(std::memory_order_acquire); h; h = h->next) {
+            bool f = false;
+            if (h->live.compare_exchange_strong(f, true, std::memory_order_acq_rel)) { h->w.store(w, std::memory_order_release); return h; }
+        }
+        Hook* h = new Hook; h->w.store(w, std::memory_order_relaxed); Hook* o = head.load(std::memory_order_relaxed);
+        do { h->next = o; } while (!head.compare_exchange_weak(o, h, std::memory_order_release, std::memory_order_relaxed));
+        return h;
+    }
+    void fire() const {
+        for (Hook* h = head.load(std::memory_order_acquire); h; h = h->next)
+            if (h->live.load(std::memory_order_acquire)) if (WakeWord* w = h->w.load(std::memory_order_acquire)) w->bump();
+    }
+};
+struct Service;
 struct Variable {                                 // the rows one (service, variable) has ever had
     std::string service, variable; std::atomic<Row*> rows{nullptr};
-    std::atomic<WriteWindow*> window{nullptr};     // made on the variable's first write
+    std::atomic<WriteWindow*> window{nullptr};     // made on the variable's first write or first reader
+    std::atomic<Service*> svc{nullptr};            // its service, found once
+    HookList hooks;                                // [FAMILY_HOOKS_V1] readers of (service, variable, *)
     Variable* next_in_bucket = nullptr; Variable* next_in_service = nullptr;
 };
-struct Service { std::string service; std::atomic<Variable*> vars{nullptr}; Service* next_in_bucket = nullptr; };
+struct Service { std::string service; std::atomic<Variable*> vars{nullptr};
+    std::atomic<WriteWindow*> window{nullptr};     // [FAMILY_HOOKS_V1] the service's writes, in the order they claimed it
+    HookList hooks;                                // readers of (service, *, *)
+    Service* next_in_bucket = nullptr; };
 struct Pattern { std::string key; TriggerList triggers; Pattern* next_in_bucket = nullptr; };
 
 template <class N, size_t BUCKETS>
@@ -131,23 +171,35 @@ inline std::string pattern_key(const std::string& s, const std::string& v, const
 class Memory {
 public:
     // ---- write: one row's lock, then that row's triggers and the space's matching patterns
+    // A row has one owner, its one writer, whose writes arrive in its own order: the row's lock is the only thing a
+    // write waits for, and nothing here decides between writers -- there is never more than one.
     uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now) {
+        return write(s, v, i, bag, now, nullptr);
+    }
+    // the bag decoded once: stored as it is, its text made only for a reader that asks for text
+    uint64_t write(const std::string& s, const std::string& v, const std::string& i, ribbit::BagArrP arr, double now) {
+        return write(s, v, i, std::string(), now, std::move(arr));
+    }
+    uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now, ribbit::BagArrP arr) {
         Row* r = row(s, v, i, true);
         Variable* var = variable(s, v);
+        Service* svc = service_of(var);
+        WriteWindow* wnd = window_of(var->window);
+        WriteWindow* swnd = window_of(svc->window);
         uint64_t id;
-        WriteWindow* wnd = var->window.load(std::memory_order_acquire);
-        if (!wnd) {
-            WriteWindow* fresh = new WriteWindow;
-            if (var->window.compare_exchange_strong(wnd, fresh, std::memory_order_acq_rel)) wnd = fresh; else delete fresh;
-        }
+        // No order across families: a write takes its variable's next position (its id inside that claim, so a
+        // variable's ids rise with its positions) and its service's next position, and is done. [FAMILY_HOOKS_V1]
         { std::unique_lock<std::shared_mutex> w(r->m);
           uint64_t p = wnd->head.load(std::memory_order_acquire);
-          do { id = ++next_id_; } while (!wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire));
-          WindowSlot& sl = wnd->slot[p % WINDOW];
-          sl.pos.store(~0ull, std::memory_order_release);          // being filled
-          sl.id.store(id, std::memory_order_relaxed); sl.row.store(r, std::memory_order_relaxed);
-          sl.pos.store(p, std::memory_order_release);              // published at position p
-          r->id = id; r->bag = bag; r->updated = now; r->live = true; }
+          for (;;) {
+              id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
+              if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
+          }
+          fill(wnd->slot[p % WINDOW], p, id, r);
+          const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
+          fill(swnd->slot[sp % WINDOW], sp, id, r, var);
+          r->id = id; r->bag = bag; r->updated = now; r->live = true; r->arr = std::move(arr); }
+        var->hooks.fire(); svc->hooks.fire();          // [FAMILY_HOOKS_V1] its readers' words; they read it themselves
         fire(r);
         return id;
     }
@@ -171,9 +223,10 @@ public:
     // -- its writer already held the row's lock when h0 was read, so the walk waits for it -- and every write at h0 or
     // later has a larger id (ids rise with position). Reporting only ids up to that one leaves nothing behind a
     // reader's "after": a row rewritten mid-walk is reported by the next read.
-    static uint64_t row_scan_bound(WriteWindow* wnd) {
+    static uint64_t row_scan_bound(WriteWindow* wnd, uint64_t* at = nullptr) {
         for (;;) {
             const uint64_t h0 = wnd->head.load(std::memory_order_acquire);
+            if (at) *at = h0;
             if (h0 == 0) return 0;
             WindowSlot& sl = wnd->slot[(h0 - 1) % WINDOW];
             for (;;) {
@@ -196,7 +249,7 @@ public:
             if (!i.empty() && r->instance != i) return;
             if (after >= 0 && (long long)r->id <= after) return;
             if (fresh > 0 && r->updated < cutoff) return;
-            out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated});
+            out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
         };
         if (!v.empty() && !i.empty()) { if (Row* r = find_row(s, v, i)) take(r); return out; }
         if (!v.empty() && after >= 0) {                // [WRITE_WINDOW_V1] only what was written past `after`
@@ -225,7 +278,7 @@ public:
                     Row* r = e.second;
                     if (!r->live || r->id != e.first) continue;     // written again since: that write answers for it
                     if (fresh > 0 && r->updated < cutoff) continue;
-                    out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated});
+                    out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
                 }
                 std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
                 return out;
@@ -259,7 +312,163 @@ public:
         return ok(rows) ? rows : eval();
     }
 
+
+    // ---- [FAMILY_HOOKS_V1] reading a family, on the reader's own thread ------------------------------------------
+    // A family: (s, v, *) or (s, *, *); an instance, when given, filters. A variable's window is the order of its
+    // writes (its ids rise with its positions), and a reader reads it by position: VarCursor, the position it has read
+    // to and the newest id it has read there. A service has no order of its own -- its writes to different variables
+    // are not ordered against each other -- so its window only says WHICH variables were written: a service reader
+    // reads, for each of those, that variable's window from its own VarCursor. A Cursor belongs to its reader's thread.
+    struct VarCursor { Variable* var = nullptr; uint64_t pos = 0, last = 0; bool rows_first = false; };
+    struct Cursor {
+        std::string s, v, instance; HookList* hooks = nullptr;
+        VarCursor one;                                      // a variable family
+        WriteWindow* sw = nullptr; uint64_t spos = 0;       // a service family: the service's window of hints
+        std::unordered_map<Variable*, VarCursor> vars;      //   and each variable's place
+        long long after_new = -1;                           //   a variable met for the first time: from this id (-1: all)
+        uint64_t recovered = 0, laps = 0;                   // rows read from the rows because a window had moved on
+    };
+    // from_after < 0: from now on (what is written after this call); else every row with an id past from_after
+    Cursor cursor(const std::string& s, const std::string& v, const std::string& i, long long from_after) {
+        Cursor c; c.s = s; c.v = v; c.instance = i;
+        auto start = [&](Variable* var) {
+            VarCursor vc; vc.var = var; WriteWindow* w = window_of(var->window);
+            if (from_after < 0) vc.last = row_scan_bound(w, &vc.pos);   // the newest there now, and where it ends
+            else { vc.last = uint64_t(from_after); vc.rows_first = true; }
+            return vc;
+        };
+        if (!v.empty()) { Variable* var = variable(s, v); c.hooks = &var->hooks; c.one = start(var); return c; }
+        Service* sv = service(s); c.hooks = &sv->hooks; c.sw = window_of(sv->window);
+        c.spos = c.sw->head.load(std::memory_order_acquire);   // hints from here; the variables there now start now
+        for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service) c.vars[var] = start(var);
+        c.after_new = from_after < 0 ? 0 : from_after;       // a variable made after this: all of it is new
+        return c;
+    }
+    // What has been written to the family since the cursor's last read, appended to out: each write once, each
+    // variable's in the order written, each row copied under its shared lock. A window is read from the cursor's
+    // position and the read stops at a slot still being filled (its writer wakes the reader again when it is done).
+    // If a variable's window has moved more than WINDOW past the cursor, the rows answer for what it no longer holds
+    // -- every row with an id past the newest the reader has read there, bounded as row_scan_bound says -- and the
+    // window is read on from where that bound was taken. Nothing is lost and nothing is read twice.
+    void read(Cursor& c, std::vector<Cell>& out) {
+        if (!c.sw) { read_var(c, c.one, out); return; }
+        auto vc_of = [&](Variable* var) -> VarCursor& {
+            auto it = c.vars.find(var);
+            if (it != c.vars.end()) return it->second;
+            VarCursor vc; vc.var = var; vc.last = uint64_t(c.after_new); vc.rows_first = true;   // new since the cursor
+            return c.vars.emplace(var, vc).first->second;
+        };
+        const uint64_t h = c.sw->head.load(std::memory_order_acquire);
+        if (h > c.spos + WINDOW) {                           // the hints have moved on: every variable is looked at
+            c.laps++; c.spos = h;
+            if (Service* sv = services_.find(H(c.s), [&](Service* n) { return n->service == c.s; }))
+                for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service) read_var(c, vc_of(var), out);
+            return;
+        }
+        Variable* seen[64]; size_t ns = 0;
+        for (; c.spos < h; ++c.spos) {
+            WindowSlot& sl = c.sw->slot[c.spos % WINDOW];
+            const uint64_t p1 = sl.pos.load(std::memory_order_acquire);
+            Variable* var = static_cast<Variable*>(sl.var.load(std::memory_order_acquire));
+            const uint64_t p2 = sl.pos.load(std::memory_order_acquire);
+            if (p1 != c.spos || p2 != c.spos) {
+                if (c.sw->head.load(std::memory_order_acquire) > c.spos + WINDOW) return read(c, out);
+                break;                                       // still being filled: its writer wakes us when done
+            }
+            bool dup = false; for (size_t k = 0; k < ns; ++k) if (seen[k] == var) { dup = true; break; }
+            if (dup) continue;
+            read_var(c, vc_of(var), out);
+            if (ns < 64) seen[ns++] = var;
+        }
+    }
+    // the newest id written to a family now ((s, v, *), or (s, *, *) for v ""): where a reader starts "from now"
+    uint64_t newest(const std::string& s, const std::string& v) {
+        if (!v.empty()) { Variable* var = vars_.find(H(s, v), [&](Variable* n) { return n->service == s && n->variable == v; });
+                          WriteWindow* w = var ? var->window.load(std::memory_order_acquire) : nullptr; return w ? row_scan_bound(w) : 0; }
+        uint64_t m = 0;
+        if (Service* sv = services_.find(H(s), [&](Service* n) { return n->service == s; }))
+            for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service)
+                if (WriteWindow* w = var->window.load(std::memory_order_acquire)) m = std::max(m, row_scan_bound(w));
+        return m;
+    }
+    // where the family's writes have reached (atomics only: any thread may ask, while the cursor's reader reads it).
+    // It moving past what a reader last saw says there may be something new to read. [READERS_IN_PARALLEL_V1]
+    static uint64_t head_of(const Cursor& c) {
+        if (c.sw) return c.sw->head.load(std::memory_order_acquire);
+        WriteWindow* w = c.one.var ? c.one.var->window.load(std::memory_order_acquire) : nullptr;
+        return w ? w->head.load(std::memory_order_acquire) : 0;
+    }
+    // a reader's word: one per reading thread, released when it is done (and reused)
+    WakeWord* wake_word() {
+        for (WakeWord* w = words_.load(std::memory_order_acquire); w; w = w->next) {
+            bool f = false; if (w->in_use.compare_exchange_strong(f, true, std::memory_order_acq_rel)) return w;
+        }
+        WakeWord* w = new WakeWord; WakeWord* o = words_.load(std::memory_order_relaxed);
+        do { w->next = o; } while (!words_.compare_exchange_weak(o, w, std::memory_order_release, std::memory_order_relaxed));
+        return w;
+    }
+    static void release(WakeWord* w) { w->in_use.store(false, std::memory_order_release); }
+    static Hook* hook(Cursor& c, WakeWord* w) { return c.hooks->add(w); }
+    static void unhook(Hook* h) { h->live.store(false, std::memory_order_release); }
 private:
+    static void fill(WindowSlot& sl, uint64_t p, uint64_t id, Row* r, Variable* var = nullptr) {
+        sl.pos.store(~0ull, std::memory_order_release);          // being filled
+        sl.id.store(id, std::memory_order_relaxed); sl.row.store(r, std::memory_order_relaxed); sl.var.store(var, std::memory_order_relaxed);
+        sl.pos.store(p, std::memory_order_release);              // published at position p
+    }
+    static WriteWindow* window_of(std::atomic<WriteWindow*>& a) {
+        WriteWindow* w = a.load(std::memory_order_acquire);
+        if (w) return w;
+        WriteWindow* fresh = new WriteWindow;
+        if (a.compare_exchange_strong(w, fresh, std::memory_order_acq_rel)) return fresh;
+        delete fresh; return w;
+    }
+    Service* service(const std::string& s) {
+        return services_.find_or_create(H(s), [&](Service* x) { return x->service == s; },
+            [&] { Service* x = new Service; x->service = s; return x; }, [](Service*) {});
+    }
+    Service* service_of(Variable* var) {
+        Service* sv = var->svc.load(std::memory_order_acquire);
+        if (!sv) { sv = service(var->service); var->svc.store(sv, std::memory_order_release); }
+        return sv;
+    }
+    std::atomic<WakeWord*> words_{nullptr};
+    void read_var(Cursor& c, VarCursor& vc, std::vector<Cell>& out) {
+        WriteWindow* w = window_of(vc.var->window);
+        if (vc.rows_first || w->head.load(std::memory_order_acquire) > vc.pos + WINDOW) {
+            if (!vc.rows_first) c.laps++;
+            vc.rows_first = false;
+            uint64_t h0 = 0; const uint64_t bound = row_scan_bound(w, &h0);
+            std::vector<Cell> got;
+            for (Row* r = vc.var->rows.load(std::memory_order_acquire); r; r = r->next_in_variable) {
+                std::shared_lock<std::shared_mutex> g(r->m);
+                if (!r->live || r->id <= vc.last || r->id > bound) continue;
+                if (!c.instance.empty() && r->instance != c.instance) continue;
+                got.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+            }
+            std::sort(got.begin(), got.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
+            c.recovered += got.size();
+            for (auto& x : got) out.push_back(std::move(x));
+            vc.last = std::max(vc.last, bound); vc.pos = h0;
+        }
+        const uint64_t h = w->head.load(std::memory_order_acquire);
+        for (; vc.pos < h; ++vc.pos) {
+            WindowSlot& sl = w->slot[vc.pos % WINDOW];
+            const uint64_t p1 = sl.pos.load(std::memory_order_acquire);
+            const uint64_t id = sl.id.load(std::memory_order_acquire); Row* r = sl.row.load(std::memory_order_acquire);
+            const uint64_t p2 = sl.pos.load(std::memory_order_acquire);
+            if (p1 != vc.pos || p2 != vc.pos) {
+                if (w->head.load(std::memory_order_acquire) > vc.pos + WINDOW) return read_var(c, vc, out);   // lapped while reading
+                return;                                       // still being filled
+            }
+            if (id <= vc.last) continue;                      // read already (from the rows)
+            vc.last = id;
+            std::shared_lock<std::shared_mutex> g(r->m);
+            if (!r->live || r->id != id) continue;            // written again since: read at its newer slot
+            if (!c.instance.empty() && r->instance != c.instance) continue;
+            out.push_back(Cell{r->id, r->service, r->variable, r->instance, r->bag, r->updated, r->arr});
+        }
+    }
     std::atomic<uint64_t> next_id_{0};
     LockFreeTable<Row, 1 << 16> rows_;
     LockFreeTable<Variable, 1 << 14> vars_;
@@ -272,7 +481,11 @@ private:
     Row* row(const std::string& s, const std::string& v, const std::string& i, bool create) {
         if (!create) return find_row(s, v, i);
         return rows_.find_or_create(H(s, v, i), [&](Row* n) { return n->service == s && n->variable == v && n->instance == i; },
-            [&] { Row* r = new Row; r->service = s; r->variable = v; r->instance = i; return r; },
+            [&] { Row* r = new Row; r->service = s; r->variable = v; r->instance = i;
+                  const std::string k6[6] = {pattern_key(s, "", ""), pattern_key("", v, ""), pattern_key("", "", i),
+                                             pattern_key(s, v, ""), pattern_key(s, "", i), pattern_key("", v, i)};
+                  for (int j = 0; j < 6; ++j) { r->pkey[j] = k6[j]; r->phash[j] = std::hash<std::string>()(k6[j]); }   // [FIRE_KEYS_ONCE_V1]
+                  return r; },
             [&](Row* r) {                         // a new row joins its variable's list (and the variable its service's)
                 Variable* var = vars_.find_or_create(H(s, v), [&](Variable* n) { return n->service == s && n->variable == v; },
                     [&] { Variable* n = new Variable; n->service = s; n->variable = v; return n; },
@@ -302,11 +515,8 @@ private:
     }
     void fire(Row* r) {
         r->triggers.fire();
-        const std::string& s = r->service; const std::string& v = r->variable; const std::string& i = r->instance;
-        const std::string keys[6] = {pattern_key(s, "", ""), pattern_key("", v, ""), pattern_key("", "", i),
-                                     pattern_key(s, v, ""), pattern_key(s, "", i), pattern_key("", v, i)};
-        for (const auto& k : keys)
-            if (Pattern* p = patterns_.find(std::hash<std::string>()(k), [&](Pattern* n) { return n->key == k; })) p->triggers.fire();
+        for (int j = 0; j < 6; ++j) { const std::string& k = r->pkey[j];   // [FIRE_KEYS_ONCE_V1] made with the row
+            if (Pattern* p = patterns_.find(r->phash[j], [&](Pattern* n) { return n->key == k; })) p->triggers.fire(); }
     }
 };
 

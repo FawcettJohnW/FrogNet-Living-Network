@@ -2,6 +2,7 @@
 
 | document | what it is |
 |---|---|
+| `CONVERTING-TO-RIBBIT.md` | the reference process for every conversion: the five-sentence model, what is kept (the contract) and what is thrown away, phase 1 (mechanical conversion to learn the incumbent's algorithms and contract, with its own tests and good and bad data), phase 2 (greenfield on the memory: the truth table, triggers, answers from the write), the checkpoint files a next thread picks up from, and how the MQTT conversion's first design went wrong |
 | `PROGRAMMING-RIBBIT-BEST-PRACTICES.md` | how to write Ribbit: what is yours to change, addressing, holding truth instead of fetching it, writing your own truth once, coordination as state, participants, the region's API, testing with the incumbent's own tests as oracle, measuring honestly, packaging, and what first implementers get wrong |
 | `RAM-HOST-LOCKING-DESIGN.md` | the memory: row-level multi-reader/single-writer locks and no other lock |
 | `TRANSPORT-ARCHITECTURE.md` | how participants reach a RAM host: one session, its connections, the dedicated data socket |

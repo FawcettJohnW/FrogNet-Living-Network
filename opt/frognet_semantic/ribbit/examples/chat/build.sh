@@ -11,7 +11,7 @@ DEFAULTS=${DEFAULTS:-$(cd ../../defaults/api && pwd)}   # the default API (tuple
 CXX=${CXX:-g++}
 source "$(dirname "$(readlink -f "$0")")/../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
 mkdir -p build
-F="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -Wno-free-nonheap-object -I$RIBBIT/include -I$DEFAULTS -Iclient"
+F="-std=c++20 -O2 -pthread -Wall -Wextra -Werror -Wno-free-nonheap-object -I$RIBBIT/include -I$DEFAULTS -Iclient"
 echo "== chat-ram";          $CXX $F chat_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/chat-ram
 echo "== libchat.so";        $CXX $F -shared -fPIC client/chat_c.cpp client/chat_client.cpp "$DEFAULTS/tuples.cpp" "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/libchat.so
 echo "== test-chat-client";  $CXX $F tests/test_chat_client.cpp client/chat_client.cpp "$DEFAULTS/tuples.cpp" "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto -o build/test-chat-client
