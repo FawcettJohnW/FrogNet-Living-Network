@@ -41,6 +41,10 @@ ap.add_argument("--comms-args", default="")
 a = ap.parse_args()
 if a.headless: os.environ["SDL_VIDEODRIVER"] = "dummy"; os.environ["SDL_AUDIODRIVER"] = "dummy"
 if sum(bool(x) for x in (a.fdf, a.kart, a.solo)) != 1: sys.exit("kartdemo: say where the kart memory is: --fdf H:P, --kart H:P or --solo")
+if os.name == "nt":                                       # [KART_WINDOW_V1] Windows: the window is the size asked, in real pixels.
+    import ctypes                                          # Without this, display scaling (125%, 150%) stretches the window:
+    try: ctypes.windll.shcore.SetProcessDpiAwareness(2)    # 590x360 would show as 885x540. Per-monitor DPI aware (Windows 8.1+).
+    except (AttributeError, OSError) as _e: print(f"kartdemo: could not make the window DPI-aware ({_e}): Windows display scaling will stretch it", flush=True)
 import pygame
 from ribbit import Memory, RibbitError
 from kartmem import Region, say as _say, hp
@@ -125,6 +129,7 @@ if (WIN_W, WIN_H) == (W, H):
 else:
     _window = pygame.display.set_mode((WIN_W, WIN_H)); screen = pygame.Surface((W, H))
     def show(): pygame.transform.smoothscale(screen, (WIN_W, WIN_H), _window); pygame.display.flip()
+if not a.headless: print(f"kartdemo: window {pygame.display.get_window_size()[0]}x{pygame.display.get_window_size()[1]} (asked {WIN_W}x{WIN_H}; the game is laid out at {W}x{H})", flush=True)
 def layout_pos(p): return (p[0] * W // WIN_W, p[1] * H // WIN_H)     # a click in the window, in the game's layout
 pygame.display.set_caption(f"FrogNet Kart -- {NAME}  (shared memory: lobby, race server, records)")
 clock = pygame.time.Clock()
