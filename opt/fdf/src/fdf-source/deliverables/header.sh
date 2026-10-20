@@ -24,7 +24,10 @@ for b in python3 wg systemctl tar inotifywait apache2ctl curl; do command -v $b 
 # [NODE_HAS_THE_VENV_V1] the bundle's FrogNet files (runMerge.bash, the tunnel daemon's region code) run on the venv the
 # FrogNet installer builds ([SERVICES_ON_THE_VENV_V1]). A node installed before that has none: unpacking would leave its
 # merges failing "status=no_python". Stop before anything is written, and say what to do.
-[ -x /opt/frognet_semantic/venv/bin/python3 ] || { echo "fdf-install: /opt/frognet_semantic/venv/bin/python3 not found: this node's FrogNet predates the venv its files now run on. Nothing was changed. Upgrade FrogNet first (sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve, from a checkout of the repository), then run this again."; exit 1; }
+# [NODE_HAS_THE_BASE_V1] and /opt/frognet_semantic/BUILD, the release stamp the bundle's web pages read (frognet_node.inc.php)
+for need in /opt/frognet_semantic/venv/bin/python3 /opt/frognet_semantic/BUILD; do
+  [ -e "$need" ] || { echo "fdf-install: $need not found: this node's FrogNet is older than the files in this bundle (they run on the venv and read BUILD). Nothing was changed. Upgrade FrogNet first: unpack frognet-tree-<tag>.tgz into an empty directory and run  bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve  from it (no git needed), then run this again."; exit 1; }
+done
 echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
 tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }

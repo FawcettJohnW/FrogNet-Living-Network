@@ -126,6 +126,13 @@ tarit "$R" > "$OUT/kart-$TAG-linux-aarch64.tgz"
 WD=$TOP/../../windows; [ -f "$H/kart/kartram.dll" ] || { echo "make_deliverables: kart/kartram.dll missing (kart/build_kartram.sh --windows)" >&2; exit 1; }
 R=$W/kwin; mkdir -p "$R"; cp "$H/kart/"{kartdemo.py,ribbit.py,kartmem.py,kartram.dll} "$WD/README-windows.txt" "$R/"
 (cd "$R" && rm -f "$OUT/kart-$TAG-windows.zip" && zip -q -X "$OUT/kart-$TAG-windows.zip" kartdemo.py ribbit.py kartmem.py kartram.dll README-windows.txt)
+# ---- [FROGNET_TREE_TARBALL_V1] the FrogNet base for a node with no git: the tree's node file set (the manifest's
+# frognet_node_files, what frognet_install.sh --from-repo copies), laid out as the checkout is. On the node:
+#   mkdir /tmp/fntree && cd /tmp/fntree && tar xzf /tmp/frognet-tree-<tag>.tgz && bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve
+RR=$(cd "$TOP/../../../.." && pwd); [ -f "$RR/usr/local/lib/frognet_world_manifest.sh" ] || { echo "make_deliverables: no FrogNet tree at $RR" >&2; exit 1; }
+grep -qx "build=$TAG" "$RR/opt/frognet_semantic/BUILD" || { echo "make_deliverables: $RR/opt/frognet_semantic/BUILD does not say build=$TAG" >&2; exit 1; }
+( . "$RR/usr/local/lib/frognet_world_manifest.sh"; frognet_node_files "$RR" ) > "$W/tree.list"
+tar -C "$RR" --owner=0 --group=0 -czf "$OUT/frognet-tree-$TAG.tgz" -T "$W/tree.list"
 chmod +x "$OUT"/*.run
-for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz "$OUT"/kart-$TAG-*; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz "$OUT"/kart-$TAG-* "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"

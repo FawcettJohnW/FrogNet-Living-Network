@@ -181,9 +181,20 @@ tar -rf "$_TAR" -C "$_STAGE" LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST
 gzip -c "$_TAR" > "$OUT"
 rm -f "$_TAR"
 
+# [FULL_TAR_SAYS_ITS_RELEASE_V1] the tarball carries THIS node's FrogNet: say which release that is, and say it loudly
+# when this node has no release stamp. A node installed from such a tarball has no /opt/frognet_semantic/BUILD either,
+# and its monitor shows "/opt/frognet_semantic/BUILD: cannot be read" (Seattle3B, 2026-10-20). Reported, not refused.
+if [ -f /opt/frognet_semantic/BUILD ]; then
+    echo "release: $(grep -vE '^#' /opt/frognet_semantic/BUILD | tr '\n' ' ')"
+else
+    echo "WARNING: this node has no /opt/frognet_semantic/BUILD: the tarball carries no release stamp. Make it on a node" >&2
+    echo "         whose FrogNet was installed by the current installer (it writes BUILD), or the target's monitor says so." >&2
+fi
 _BYTES="$(stat -c %s "$OUT")"
 _MB=$(( _BYTES / 1048576 ))
 echo "wrote $OUT (${_MB} MB)"
+echo "install it on a node (no git needed; it builds the venv there and keeps the node's identity, databases and key):"
+echo "  rm -rf /tmp/fntree && mkdir /tmp/fntree && cd /tmp/fntree && tar xzf /tmp/$(basename "$OUT") && bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve"
 
 echo "contents:"
 tar tzf "$OUT" > /tmp/.ft_list.$$
