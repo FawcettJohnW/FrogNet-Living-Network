@@ -132,3 +132,18 @@ Next lever: many connections' pipelines in one call (fan-in). Not claimed: separ
 
 The copy design falls as fronts are added (each write is copied to every front); one keyspace holds. All processes
 share 2 cores here, so these are not separate-machine numbers.
+
+## Beside stock Redis 7.2.11 -- 2026-10-19
+
+Same load (`redis-benchmark -c 50/K -P 1 -t incr`, 180,000 in all, K benchmark processes at once). Stock is one
+redis-server, persistence off, all K benchmarks on it (`stock_k.sh`); one keyspace is K fronts on one memory
+(`cpu_k.sh`). Interleaved, three rounds, one 2-core machine. Median requests/s, and CPU microseconds per command:
+
+| K | stock | one keyspace | one keyspace / stock | CPU us/cmd stock | CPU us/cmd fronts+memory |
+|---|---|---|---|---|---|
+| 1 | 101,870 | 54,009 | 0.53 | 7.2 | 20.2 |
+| 2 | 107,863 | 74,122 | 0.69 | 6.3 | 17.5 |
+| 3 | 113,881 | 72,161 | 0.63 | 5.8 | 18.9 |
+| 5 | 120,961 | 66,429 | 0.55 | 5.6 | 21.0 |
+
+Stock is 1.5-1.9x faster on one machine. A command here costs about 3x stock's CPU (fronts + memory together).
