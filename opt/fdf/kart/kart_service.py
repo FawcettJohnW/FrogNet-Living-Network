@@ -96,7 +96,15 @@ def evaluate():
         if agreed != st["agreed"]:
             mem.write("agreed", "lobby", agreed); st["agreed"] = agreed; log(f"agreed: {laps} lap(s); {state}")
 
-mem = Region("kart memory", H, P, a.api, "kart", log, on_change=lambda: evaluate())
+def on_change():
+    """[KART_SERVICE_UNIT_V1] an error in the service's reading or deciding ends the service with its traceback (exit 1):
+    the unit starts it again. A follower thread that died quietly left a lobby nobody decided for (2026-10-20)."""
+    try: evaluate()
+    except BaseException:
+        import traceback
+        try: sys.stderr.write("kart_service: FATAL in evaluate -- exiting for a restart\n" + traceback.format_exc()); sys.stderr.flush()
+        finally: os._exit(1)
+mem = Region("kart memory", H, P, a.api, "kart", log, on_change=on_change)
 mem.up.wait()
 log(f"the kart service, on the kart memory {H}:{P}{a.api}; a game launches at {a.min_players} ready players, or on Start")
 chat("the kart service is up")

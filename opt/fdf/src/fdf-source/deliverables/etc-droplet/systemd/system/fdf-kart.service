@@ -1,0 +1,21 @@
+# fdf-kart.service -- [KART_SERVICE_UNIT_V1] the kart memory (rina-host :8799, /opt/fdf/var/kart.perm) and the kart
+# service beside it (kart_service.py), as fdf-kart-ram.sh runs them. Ships in fdf-droplet.tgz; fdf-services.sh starts,
+# stops and reports it. Its output is in the journal (journalctl -u fdf-kart -f), not in whatever terminal started it:
+# run from an ssh session, the service died when that session closed (2026-10-20). If either process ends, the unit
+# ends and systemd starts both again; the memory comes back from its file.
+[Unit]
+Description=FrogNet kart: the kart memory (port 8799) and the kart service, the lobby's intelligence
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/opt/fdf/var/kart.env
+ExecStart=/opt/fdf/bin/fdf-kart-ram.sh
+KillMode=control-group
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

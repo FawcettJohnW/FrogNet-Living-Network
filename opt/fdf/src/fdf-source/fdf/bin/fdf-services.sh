@@ -1,7 +1,7 @@
 #!/bin/bash
 # fdf-services.sh start|stop|status -- the droplet's services, together:
 #   fdf     FD&F's RAM server            port 8840   (fdf-ram-server.sh)
-#   kart    the kart memory and service  port 8799   (fdf-kart-ram.sh)
+#   kart    the kart memory and service  port 8799   (fdf-kart-ram.sh, as the systemd unit fdf-kart)
 #   comms   the Communicator's memory    port 8800   (fdf-comms.sh, from COMMS_BIN)
 #           and media server             port 8994
 # start: each in the background, its output still to THIS terminal (no log files), each in its own process group,
@@ -14,9 +14,17 @@ declare -A PORTS=( [fdf]="8840" [kart]="8799" [comms]="8800 8994" )
 ORDER="fdf kart comms"
 up() { ss -ltn 2>/dev/null | grep -q ":$1 "; }
 running() { [ -f $V/$1.pgid ] && kill -0 -- -"$(cat $V/$1.pgid)" 2>/dev/null; }
+# [KART_SERVICE_UNIT_V1] kart runs as the systemd unit fdf-kart (journalctl -u fdf-kart -f): started from an ssh session,
+# its Python service died when the session closed. A process group left by an earlier fdf-services.sh is stopped first.
+kart_unit() { case $1 in
+  start) if running kart; then kill -- -"$(cat $V/kart.pgid)" 2>/dev/null; sleep 1; fi; rm -f $V/kart.pgid
+         systemctl daemon-reload && systemctl enable --now fdf-kart >/dev/null 2>&1 && echo "kart: started (systemd unit fdf-kart; its log: journalctl -u fdf-kart -f)" || echo "kart: NOT started: $(systemctl status fdf-kart --no-pager 2>&1 | tail -3)" ;;
+  stop)  systemctl stop fdf-kart 2>/dev/null; if running kart; then kill -- -"$(cat $V/kart.pgid)" 2>/dev/null; fi; rm -f $V/kart.pgid; echo "kart: stopped" ;;
+esac; }
 case "${1:-}" in
 start)
     for s in $ORDER; do
+        if [ $s = kart ]; then kart_unit start; continue; fi
         if running $s; then echo "$s: already running"; continue; fi
         busy=""; for p in ${PORTS[$s]}; do up $p && busy="$busy $p"; done
         if [ -n "$busy" ]; then echo "$s: NOT started -- port(s)$busy already in use by: $(ss -ltnp | grep -E "$(echo $busy | sed 's/ /|:/g;s/^/:/')" | grep -o 'users:(("[^"]*' | cut -d'"' -f2 | sort -u | tr '\n' ' ')"; continue; fi
@@ -37,6 +45,7 @@ start)
     "$0" status ;;
 stop)
     for s in $ORDER; do
+        if [ $s = kart ]; then kart_unit stop; continue; fi
         if running $s; then kill -- -"$(cat $V/$s.pgid)" 2>/dev/null; echo "$s: stopped"; else echo "$s: not running"; fi
         rm -f $V/$s.pgid
     done ;;
@@ -45,6 +54,7 @@ status)
         st=""; for p in ${PORTS[$s]}; do
             who=$(ss -ltnp 2>/dev/null | grep ":$p " | grep -o 'users:(("[^"]*' | head -1 | cut -d'"' -f2)
             if [ -n "$who" ]; then st="$st $p:$who"; else st="$st $p:DOWN"; fi; done
+        [ $s = kart ] && st="$st  service:$(pgrep -f /opt/fdf/kart/kart_service.py >/dev/null && echo running || echo DOWN) unit:$(systemctl is-active fdf-kart 2>/dev/null)"
         echo "$s:$st"
     done ;;
 *) echo "usage: fdf-services.sh start|stop|status"; exit 2 ;;
