@@ -44,24 +44,24 @@ content_of() {   # $1 object: a hash of the source and every header it includes 
 stale() {   # $1 object
   local o=$1
   [ -f "$o" ] && [ -f "${o%.o}.d" ] && [ -f "$o.hash" ] || return 0
-  [ "$(content_of "$o")" = "$(cat "$o.hash")" ] && return 1
+  [ "$(content_of "$o")" = "$(cat "$o.hash")" ] && [ "$(cat "$o.cmd" 2>/dev/null)" = "$CMD" ] && return 1
   return 0
 }
-PIDS=(); NAMES=()
+PIDS=(); NAMES=(); CMDS=()
 job() {     # $1 object, rest: the compile command (without -o)
   local o=$1; shift
-  stale "$o" || return 0
+  CMD="$*"; stale "$o" || return 0                 # [BUILT_FROM_THIS_V1] the flags count too: the version is one
   while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n || true; done
   echo "   compiling ${o#build/}"
-  "$@" -MMD -MF "${o%.o}.d" -o "$o" & PIDS+=($!); NAMES+=("$o")
+  rm -f "$o.cmd"; "$@" -MMD -MF "${o%.o}.d" -o "$o" & PIDS+=($!); NAMES+=("$o"); CMDS+=("$CMD")
 }
 settle() {  # wait for every compile; any failure fails the build (and its object is removed so it is retried)
   local i rc=0
   for i in "${!PIDS[@]}"; do
     if ! wait "${PIDS[$i]}"; then rc=1; rm -f "${NAMES[$i]}" "${NAMES[$i]}.hash"; echo "FAILED: ${NAMES[$i]}"
-    else content_of "${NAMES[$i]}" > "${NAMES[$i]}.hash"; fi
+    else content_of "${NAMES[$i]}" > "${NAMES[$i]}.hash"; printf '%s' "${CMDS[$i]}" > "${NAMES[$i]}.cmd"; fi
   done
-  PIDS=(); NAMES=()
+  PIDS=(); NAMES=(); CMDS=()
   [ $rc = 0 ] || { echo "BUILD FAILED"; exit 1; }
 }
 
@@ -86,4 +86,5 @@ echo "== linking"
 ENGINE=$(for b in $SRCS; do case $b in front|region) ;; *) echo build/obj/$b.o;; esac; done)
 $CXX -o build/ribbit-redis-host build/obj/redis_ram.o build/obj/region.o $ENGINE build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
 $CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/ribbit_space.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+cat VERSION > build/BUILT_FROM 2>/dev/null || echo unversioned > build/BUILT_FROM   # [BUILT_FROM_THIS_V1] run.sh checks it
 echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1), box $(cat VERSION 2>/dev/null || echo unversioned)"

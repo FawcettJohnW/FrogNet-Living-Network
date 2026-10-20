@@ -23,6 +23,15 @@ build)
   echo "== Redis on the memory (the box and the memory)"; bash "$TOP/ribbit/examples/redis/tools/build.sh" || { echo "FAIL: the box did not build"; exit 1; }
   echo "== built: $("$REDIS_SRC/src/redis-server" --version 2>/dev/null || "$REDIS_SRC/src/redis-server.stock" --version) / region $(cat ribbit/examples/redis/VERSION)"
   ;;
+node|lan)   # [BUILT_FROM_THIS_V1] never run binaries this package did not build
+  B=ribbit/examples/redis
+  if [ "$(cat $B/build/BUILT_FROM 2>/dev/null)" != "$(cat $B/VERSION)" ] || [ ! -x "$REDIS_SRC/src/redis-benchmark" ]; then
+    echo "== the binaries here were built from $(cat $B/build/BUILT_FROM 2>/dev/null || echo nothing), this package is $(cat $B/VERSION): building first"
+    bash "$0" build || exit 1
+  fi ;;
+esac
+case "${1:-}" in
+build) ;;
 node) shift; exec bash "$TOP/ribbit/examples/redis/tools/accept.sh" "$@" ;;
 lan)  shift; exec bash "$TOP/ribbit/examples/redis/tools/lan.sh" "$@" ;;
 *) sed -n '4,14p' "$0"; exit 2 ;;
