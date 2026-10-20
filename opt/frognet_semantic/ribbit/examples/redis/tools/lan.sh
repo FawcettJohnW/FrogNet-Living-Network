@@ -17,8 +17,7 @@
 #   region  every node's clients talk to the box on their own machine; every box holds the region, on the memory
 # Each run checks that no INCR was lost or applied twice and that every node reads every other node's markers, and
 # reports each node's operations per second. Then the benchmark: on the host's word, every node runs the same
-# redis-benchmark at the same moment (INCR on one key, SET and GET over 100000 keys, GET over 1000 hot keys; -P 1 and
-# -P 16), stock then region, REPEAT rounds
+# redis-benchmark at the same moment (INCR on one key, SET, GET; -P 1 and -P 16), stock then region, REPEAT rounds
 # interleaved; the host prints the total req/s of all nodes together and the median table. REQS (per node, -P 1;
 # x5 at -P 16), CLIENTS (per node), REPEAT.
 set -u
@@ -78,10 +77,9 @@ print('%.6f' % ((time.time() - t) / 20))")
     set -- $spec
     if [ -n "${1:-}" ] && [ "$1" != "$last" ]; then
       last=$1; arm=$2; t=$3; P=$4; n=$5; R=""; [ "$t" != incr ] && R="-r 100000"
-      [ "$t" = hotget ] && { t=get; R="-r 1000"; }   # [CACHED_UNTIL_TOLD_V1] 1000 keys read over and over
       if [ "$arm" = stock ]; then th=$HOST; tp=7491; else th=127.0.0.1; tp=$FP; fi
       r=$("$BENCH" -h $th -p $tp -q -c ${CLIENTS:-50} -P $P -n $n $R -t $t | tr '\r' '\n' | grep -o '[0-9.]* requests per' | tail -1 | cut -d' ' -f1)
-      echo "MEASURE $NAME run $1 $arm $3 -P $P: ${r:-0} req/s"
+      echo "MEASURE $NAME run $1 $arm ${t^^} -P $P: ${r:-0} req/s"
       $B rpush lanbench:res:$1 "$NAME ${r:-0}" >/dev/null
     fi
     sleep 0.05
@@ -108,7 +106,7 @@ coordinate)
   N1=$(python3 -c "print(int(max(1000, min($REQS, $C*$RUN/$RTT))))"); N16=$(python3 -c "print(int(max(1000, min($REQS*5, $C*16*$RUN/$RTT))))")
   echo "== slowest round trip to this machine: $(python3 -c "print('%.1f' % ($RTT*1000))") ms; per node per run: $N1 requests at -P 1, $N16 at -P 16"
   seq=0; OUTL=""
-  for r in $(seq 1 $REPEAT); do for t in incr set get hotget; do for P in 1 16; do for arm in stock region; do
+  for r in $(seq 1 $REPEAT); do for t in incr set get; do for P in 1 16; do for arm in stock region; do
     seq=$((seq+1)); n=$N1; [ $P = 16 ] && n=$N16
     $B del lanbench:res:$seq >/dev/null
     t0=$(date +%s.%N); $B set lanbench:go "$seq $arm $t $P $n" >/dev/null
