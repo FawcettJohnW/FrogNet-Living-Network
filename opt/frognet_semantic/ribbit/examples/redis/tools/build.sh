@@ -29,7 +29,7 @@ P=$(cd ../../cpp && pwd)                    # the platform: ribbit/cpp, linked a
 JOBS=${JOBS:-$(nproc)}
 CXX="${CXX_BIN:-g++} -O2 -pthread"          # CXX_BIN=g++-11 etc.; GCC 11 and newer
 # [SAME_ALLOCATOR_AS_STOCK_V1] stock Redis is built with jemalloc; the boxes and the memory are too.
-source "$P/ensure_build_deps.sh"; RIBBIT_EXTRA_DEPS="jemalloc/jemalloc.h:libjemalloc-dev" CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps   # [AUTO_INSTALL_BUILD_DEPS_V1]
+source "$P/ensure_build_deps.sh"; CXX="${CXX_BIN:-g++}" ribbit_ensure_build_deps "jemalloc/jemalloc.h:libjemalloc-dev"   # [AUTO_INSTALL_BUILD_DEPS_V1]
 W="-Wall -Wextra -Wno-unused-parameter -Wno-free-nonheap-object"   # GCC 12 aarch64 false positive in libstdc++; see ribbit/cpp/qualify.sh
 [ "${CLEAN:-0}" = 1 ] && rm -rf build
 mkdir -p build/obj
