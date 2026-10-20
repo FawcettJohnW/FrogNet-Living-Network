@@ -30,6 +30,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <cstring>
+#include <strings.h>
 #include <cerrno>
 #include <thread>
 #include <atomic>
@@ -64,6 +65,8 @@ struct Conn {
     struct Chunk { std::atomic<Chunk*> next{nullptr}; std::string b; size_t off = 0; bool close = false; };
     Chunk stub; Chunk* ohead = &stub; std::atomic<Chunk*> otail{&stub}; std::atomic<bool> sending{false};
     std::atomic<int> refs{1};                     // the table holds one; a writing thread holds one while it waits
+    // [CACHED_UNTIL_TOLD_V1] after its last answer: plain (bit 0), proto (bits 1-2), db (bits 8+); 0 = not plain
+    std::atomic<uint32_t> st{0};
     ~Conn() { if (fd >= 0) ::close(fd); for (Chunk* h = ohead; h;) { Chunk* n = h->next.load(); if (h != &stub) delete h; h = n; } }
 };
 void release(Conn* c) { if (c->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) ebr::retire(c); }
@@ -114,9 +117,75 @@ void send_out(Conn* c, std::string bytes, bool close = false) {
     pump(c);
 }
 
+// ---- the cache [CACHED_UNTIL_TOLD_V1] ---------------------------------------------------------------------------
+// What a GET read, kept until the region says the key changed. Written by the one reader of the replies (on_replies),
+// read by the event loops: a slot per key, its entry swapped whole, the old one retired by epoch -- no lock.
+struct Entry { std::string resp; int proto; };
+struct Slot { std::atomic<const Entry*> e{nullptr}; };
+LFMap<std::string, Slot*> cache;                  // "<db>\n<key>"
+std::unordered_map<std::string, uint64_t> told;   // the reader's: the newest notice tick per key
+std::unordered_map<int, uint64_t> told_all;       // the reader's: the newest whole-db notice tick
+std::string ckey(int db, const std::string& key) { return std::to_string(db) + "\n" + key; }
+void cache_put(const std::string& k, std::string resp, int proto) {
+    Slot* sl; if (auto* nd = cache.get(k)) sl = nd->val;
+    else { auto* n = new Slot; LFMap<std::string, Slot*>::Node* ex = nullptr; if (cache.add(k, n, &ex)) sl = n; else { delete n; sl = ex->val; } }
+    if (const Entry* old = sl->e.exchange(new Entry{std::move(resp), proto}, std::memory_order_acq_rel)) ebr::retire(const_cast<Entry*>(old));
+}
+void cache_drop(Slot* sl) { if (const Entry* old = sl->e.exchange(nullptr, std::memory_order_acq_rel)) ebr::retire(const_cast<Entry*>(old)); }
+// a notice: "i" = "<db> <tick> <key>" one key changed, "a" = "<db> <tick>" every key of the db
+void noticed(const ribbit::BagArr& a) {
+    ebr::Guard g;
+    if (const pyv::Obj* v = a.get("i"); v && v->is<pyv::Str>()) {
+        const std::string& t = v->as<pyv::Str>().s; size_t p1 = t.find(' '), p2 = t.find(' ', p1 + 1);
+        if (p1 == std::string::npos || p2 == std::string::npos) return;
+        std::string key; if (!text_to_bytes(t.substr(p2 + 1), key)) return;
+        const std::string k = ckey(atoi(t.c_str()), key); const uint64_t tk = strtoull(t.c_str() + p1 + 1, nullptr, 10);
+        uint64_t& w = told[k]; if (tk > w) w = tk;
+        if (auto* nd = cache.get(k)) cache_drop(nd->val);
+        DIAG("front", "notice", k, "tick=" + std::to_string(tk));
+        return;
+    }
+    if (const pyv::Obj* v = a.get("a"); v && v->is<pyv::Str>()) {
+        const std::string& t = v->as<pyv::Str>().s; const int db = atoi(t.c_str()); size_t p1 = t.find(' ');
+        const uint64_t tk = p1 == std::string::npos ? 0 : strtoull(t.c_str() + p1 + 1, nullptr, 10);
+        uint64_t& w = told_all[db]; if (tk > w) w = tk;
+        const std::string pre = std::to_string(db) + "\n";
+        cache.walk_all([&](LFMap<std::string, Slot*>::Node* nd) { if (nd->key.compare(0, pre.size(), pre) == 0) cache_drop(nd->val); return true; });
+    }
+}
+// the cacheable GETs of one answer: "<db> <tick> <proto> <off> <len> <klen>:<key>" ...; `out` is the answer's bytes
+void keep(const std::string& ents, const std::string& out) {
+    ebr::Guard g;
+    for (size_t at = 0; at < ents.size();) {
+        int db, proto; unsigned long long tk, off, len, kl; int used = 0;
+        if (sscanf(ents.c_str() + at, "%d %llu %d %llu %llu %llu:%n", &db, &tk, &proto, &off, &len, &kl, &used) != 6 || !used) return;
+        at += size_t(used); if (at + kl > ents.size()) return;
+        std::string key; if (!text_to_bytes(ents.substr(at, kl), key)) return;
+        at += kl;
+        if (off + len > out.size()) return;
+        const std::string k = ckey(db, key);
+        auto t = told.find(k); if (t != told.end() && t->second > tk) continue;          // a write raced the read
+        auto ta = told_all.find(db); if (ta != told_all.end() && ta->second > tk) continue;
+        cache_put(k, out.substr(off, len), proto);
+    }
+}
+// a pipeline of GETs only, every one kept, on a plain connection: its answer, here; empty when it must go to the region
+bool answer_here(Conn* c, const std::vector<Argv>& cmds, std::string& out) {
+    const uint32_t st = c->st.load(std::memory_order_acquire);
+    if (!(st & 1)) return false;
+    const int proto = int((st >> 1) & 3), db = int(st >> 8);
+    for (auto& a : cmds) {
+        if (a.size() != 2 || strcasecmp(a[0].c_str(), "get")) return false;
+        auto* nd = cache.get(ckey(db, a[1])); if (!nd) return false;
+        const Entry* e = nd->val->e.load(std::memory_order_acquire); if (!e || e->proto != proto) return false;
+        out += e->resp;
+    }
+    return true;
+}
+
 // ---- the replies: the region's cells, read by one standing read [REPLIES_AS_TRUTH_V1] ----------------------------
 // f: "<authenticated><0 open | 1 close | 2 parked: more follows>"; r: the replies (bytes as code points)
-void replied(uint64_t local, const std::string& f, const std::string& r) {
+void replied(uint64_t local, const std::string& f, const std::string& r, const std::string& st, const std::string& ents) {
     std::string out;
     ebr::Guard g;
     auto* x = conns.get(local); Conn* c = x ? x->val : nullptr;
@@ -125,6 +194,12 @@ void replied(uint64_t local, const std::string& f, const std::string& r) {
     bool close = false;
     if (f.size() != 2 || !text_to_bytes(r, out)) { Reply e; e.error("ERR region: a reply that is not one"); out = e.out; close = true; }
     else { c->authed = f[0] == '1'; close = f[1] == '1'; }
+    if (!close) {                                 // [CACHED_UNTIL_TOLD_V1]
+        int pl = 0, pr = 0, db = 0;
+        if (f[1] != '2' && sscanf(st.c_str(), "%d %d %d", &pl, &pr, &db) == 3 && pl == 1 && db >= 0) c->st.store(1u | (uint32_t(pr & 3) << 1) | (uint32_t(db) << 8), std::memory_order_release);
+        else if (f[1] != '2') c->st.store(0, std::memory_order_release);
+        if (!ents.empty()) keep(ents, out);
+    }
     if (!close && f[1] == '2') { send_out(c, std::move(out)); return; }   // parked: the replies before it now [REPLIES_BEFORE_THE_BLOCK_V1]
     if (c->fatal) { Reply e; e.error("ERR " + c->fatal_err); out += e.out; close = true; }
     c->inflight.store(false, std::memory_order_release);
@@ -139,11 +214,12 @@ void on_replies(std::vector<frogram::RawCell>& rows, const std::string& err) {
         ribbit::BagArrP a = row.arr ? row.arr : ribbit::BagArr::parse(row.bag);
         DIAG("front", "row", ME + "/" + row.instance, "id=" + std::to_string(row.id) + " arr=" + std::to_string(row.arr != nullptr) + " fields=" + std::to_string(a ? a->vals.size() : 0));
         if (!a) { logmsg('#', "region: a reply that is not a bag: " + row.instance); continue; }
+        if (!row.instance.empty() && row.instance[0] == 'i') { noticed(*a); continue; }   // [CACHED_UNTIL_TOLD_V1]
         const size_t colon = row.instance.find(':');
         if (colon != std::string::npos) { pieces[row.instance.substr(0, colon)] += joined(*a, "r"); continue; }
         std::string r = joined(*a, "r");          // [PAYLOAD_IN_FIELDS_V1]
         auto pc = pieces.find(row.instance); if (pc != pieces.end()) { r = std::move(pc->second) + r; pieces.erase(pc); }
-        replied(strtoull(row.instance.c_str(), nullptr, 10), a->str("f"), r);
+        replied(strtoull(row.instance.c_str(), nullptr, 10), a->str("f"), r, a->str("s"), a->str("c"));
     }
 }
 std::string resp_of(const Argv& a) {
@@ -178,6 +254,10 @@ void event_loop(int ep) {
                 if (pr.fatal) { Reply e; e.error("ERR " + pr.err); send_out(c, e.out, true); }
                 else arm(c, EPOLLIN | EPOLLRDHUP);   // a partial command: wait for the rest
                 continue;
+            }
+            if (!pr.fatal) {                            // [CACHED_UNTIL_TOLD_V1] every GET kept: answered here, nothing crosses
+                std::string here;
+                if (answer_here(c, pr.cmds, here)) { DIAG("front", "here", c->key, "cmds=" + std::to_string(pr.cmds.size())); arm(c, EPOLLIN | EPOLLRDHUP); send_out(c, std::move(here)); continue; }
             }
             c->fatal = pr.fatal; c->fatal_err = pr.err;
             std::string body; for (auto& a : pr.cmds) body += resp_of(a);

@@ -75,11 +75,14 @@ void Region::end_quiet() {
     held->clear();
 }
 void Region::touched(const std::string& variable) { touched_h(hash_of(variable), variable); }
+void (*Region::on_touch)(Region&, const std::string&) = nullptr;
+void (*Region::on_touch_all)(Region&) = nullptr;
 void Region::touched_h(size_t h, const std::string& variable) {
     if (quiet_span) { quiet_span->emplace_back(this, variable); return; }
     bump(word_h(h)); bump(any);
+    if (on_touch) on_touch(*this, variable);
 }
-void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
+void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); if (on_touch_all) on_touch_all(*this); }
 
 // ---------------------------------------------------------------- Var
 // A node that landed alone is retired on its own. A node that landed as a batch member belongs to its batch:

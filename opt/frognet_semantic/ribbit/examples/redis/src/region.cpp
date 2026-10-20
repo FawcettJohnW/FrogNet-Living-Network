@@ -45,6 +45,8 @@ struct Conn {
     // parked: the runner's, except `word` and `park_no` (read by writers and the deadline thread)
     bool parked = false, recheck = false; Argv cmd; std::vector<Argv> rest; std::string out, timeout_reply; uint32_t seen = 0;
     std::atomic<WaitWord*> word{nullptr}; std::atomic<uint64_t> park_no{0};
+    int fi = -1;                                       // its front's number (the cache's holders) [CACHED_UNTIL_TOLD_V1]
+    std::string ents;                                  // the cacheable GETs in the answer being built (the runner's)
 };
 LFMap<std::string, Conn*> conns;                 // "<front>/<n>"
 LFMap<uint64_t, Conn*> by_client;                // by Redis client id (CLIENT KILL)
@@ -52,6 +54,58 @@ LFMap<std::string, Conn*> parked;                // the parked ones, for the wri
 LFMap<std::string, uint64_t> front_session;      // a front's session (its `h` call): the session's end takes its connections
 LFMap<std::string, int> killed;                  // CLIENT KILL: a pipeline already on its way is not run (its front's g<n> clears it)
 std::atomic<uint64_t> parkings{0};
+
+// ---- the fronts' caches [CACHED_UNTIL_TOLD_V1] ------------------------------------------------------------------
+// A front keeps what a GET read and answers the next GET of that key itself, until the region tells it the key changed.
+// The region keeps, per key, which fronts hold it (one bit each); a write to the key clears the bits and writes each of
+// those fronts a notice, (redis.rep, <front>, i<n>), into the same family as its replies, so the front reads it in order
+// with them. Every GET answer and notice carries a tick: a front does not keep a GET's value when a notice newer than the
+// GET's tick has come for the key (the write raced the read).
+constexpr int MAX_FRONTS = 256;
+LFMap<std::string, int> front_idx;
+std::atomic<const std::string*> front_names[MAX_FRONTS];
+std::atomic<int> nfronts{0};
+struct Track { std::atomic<uint64_t> m[MAX_FRONTS / 64]; Track() { for (auto& x : m) x.store(0); } };
+LFMap<std::string, Track*> tracked;                // "<db>\n<key>"
+std::atomic<long> ntracked{0};
+std::atomic<uint64_t> tick{0};
+std::atomic<uint64_t> notices{0};
+std::string tkey(int db, const std::string& key) { return std::to_string(db) + "\n" + key; }
+void hold(int db, const std::string& key, int fi) {   // before the read: a write after this sees the bit
+    std::string tk = tkey(db, key); Track* t;
+    if (auto* nd = tracked.get(tk)) t = nd->val;
+    else { auto* n = new Track; LFMap<std::string, Track*>::Node* ex = nullptr;
+           if (tracked.add(tk, n, &ex)) { t = n; ntracked.fetch_add(1, std::memory_order_seq_cst); } else { delete n; t = ex->val; } }
+    t->m[fi / 64].fetch_or(1ull << (fi % 64), std::memory_order_seq_cst);
+}
+void notice(int fi, const char* field, std::string text) {
+    const std::string* name = front_names[fi].load(std::memory_order_acquire); if (!name) return;
+    static const auto names_i = std::make_shared<const std::vector<std::string>>(std::vector<std::string>{"i"});
+    static const auto names_a = std::make_shared<const std::vector<std::string>>(std::vector<std::string>{"a"});
+    auto a = std::make_shared<ribbit::BagArr>(); a->names = field[0] == 'i' ? names_i : names_a;
+    a->vals.emplace_back(pyv::Str{std::move(text)});
+    write_reply(*name, "i" + std::to_string(notices.fetch_add(1, std::memory_order_relaxed) + 1), std::move(a));
+}
+void on_touch(Region& R, const std::string& variable) {
+    if (R.dbi < 0 || ntracked.load(std::memory_order_seq_cst) == 0) return;
+    ebr::Guard e;
+    auto* nd = tracked.get(tkey(R.dbi, variable)); if (!nd) return;
+    uint64_t bits[MAX_FRONTS / 64]; bool any = false;
+    for (int w = 0; w < MAX_FRONTS / 64; w++) { bits[w] = nd->val->m[w].exchange(0, std::memory_order_seq_cst); any |= bits[w] != 0; }
+    if (!any) return;
+    const uint64_t v = tick.fetch_add(1, std::memory_order_seq_cst) + 1;
+    const std::string text = std::to_string(R.dbi) + " " + std::to_string(v) + " " + bytes_to_text(variable);
+    DIAG("region", "notice", variable, "db=" + std::to_string(R.dbi) + " tick=" + std::to_string(v));
+    for (int w = 0; w < MAX_FRONTS / 64; w++) for (uint64_t b = bits[w]; b; b &= b - 1) notice(w * 64 + __builtin_ctzll(b), "i", text);
+}
+void on_touch_all(Region& R) {                     // FLUSHALL, FLUSHDB, SWAPDB: every copy of this db goes
+    if (R.dbi < 0) return;
+    const uint64_t v = tick.fetch_add(1, std::memory_order_seq_cst) + 1;
+    const std::string text = std::to_string(R.dbi) + " " + std::to_string(v);
+    for (int i = 0, n = std::min(nfronts.load(std::memory_order_acquire), MAX_FRONTS); i < n; i++) notice(i, "a", text);
+}
+// a connection whose replies are plain: what a front may answer for it itself
+bool plain(const Client& c) { return c.authed && !c.in_multi && c.reply_mode == 0 && c.skip_count == 0; }
 
 int64_t mono_us() { return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
 
@@ -111,9 +165,13 @@ void deadlines() {
 // [REPLIES_BEFORE_THE_BLOCK_V1]. One pipeline is in flight per connection, so <n> is read before it is written again.
 void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
     std::string f; f += k->c->authed ? '1' : '0'; f += close ? '1' : parked_more ? '2' : '0';
+    // [CACHED_UNTIL_TOLD_V1] s: "<plain> <proto> <db>" after this answer; c: the cacheable GETs in it
+    const Client& cl = *k->c;
+    std::string st = plain(cl) && !parked_more ? "1 " + std::to_string(cl.proto) + " " + std::to_string(cl.db) : std::string("0");
+    std::string ents = std::move(k->ents); k->ents.clear();
     DIAG("region", "answer", k->key, "bytes=" + std::to_string(out.size()) + " f=" + f);
     // as fields, not JSON text: no parse and no template analysis of the bag on either end [DECODE_ONCE_V1]
-    static ChunkNames names({"f"}, "r");          // [PAYLOAD_IN_FIELDS_V1] a reply past one wire string: in pieces
+    static ChunkNames names({"f", "s", "c"}, "r");   // [PAYLOAD_IN_FIELDS_V1] a reply past one wire string: in pieces
     static ChunkNames piece_names({}, "r");
     const std::string inst = std::to_string(k->n) + (parked_more ? ".b" : "");
     std::vector<std::string> parts = cells(bytes_to_text(out));   // [PAYLOAD_IN_CELLS_V1] past one frame: piece cells first
@@ -126,7 +184,7 @@ void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
     }
     std::vector<std::string> pieces = cut(parts.back());
     auto a = std::make_shared<ribbit::BagArr>(); a->names = names.of(pieces.size());
-    a->vals.reserve(1 + pieces.size()); a->vals.emplace_back(pyv::Str{f});
+    a->vals.reserve(3 + pieces.size()); a->vals.emplace_back(pyv::Str{f}); a->vals.emplace_back(pyv::Str{std::move(st)}); a->vals.emplace_back(pyv::Str{std::move(ents)});
     for (auto& x : pieces) a->vals.emplace_back(pyv::Str{std::move(x)});
     DIAG("region", "write-main", k->key, inst + " pieces=" + std::to_string(parts.size()));
     write_reply(k->front, inst, std::move(a));
@@ -186,7 +244,17 @@ void run(Conn* k, std::vector<Argv>& cmds, size_t from, std::string o) {
         Reply r; r.proto = c.proto;
         const bool blocking = !c.in_multi && is_blocking_class(argv);
         if (blocking) { c.try_block = true; c.would_block = false; c.park_rewrite.clear(); }
+        // [CACHED_UNTIL_TOLD_V1] a plain GET: the front is marked as holding the key before the read
+        const bool cget = k->fi >= 0 && argv.size() == 2 && plain(c) && !strcasecmp(argv[0].c_str(), "get");
+        const int gdb = c.db; uint64_t gtick = 0;
+        if (cget) { hold(gdb, argv[1], k->fi); gtick = tick.load(std::memory_order_seq_cst); }
         execute_command(c, argv, r);
+        if (cget && !r.out.empty() && (r.out[0] == '$' || r.out[0] == '_') && db::expire_at(gdb, argv[1]) < 0) {
+            std::string kt = bytes_to_text(argv[1]);
+            std::string e = std::to_string(gdb) + " " + std::to_string(gtick) + " " + std::to_string(c.proto) + " " + std::to_string(o.size()) + " "
+                          + std::to_string(r.out.size()) + " " + std::to_string(kt.size()) + ":" + kt;
+            if (k->ents.size() + e.size() <= CHUNK) k->ents += e;   // one wire string: past it, those GETs are just not kept
+        }
         c.try_block = false;
         if (blocking && c.would_block) { park(k, argv, cmds, i, std::move(r.out), std::move(o)); return; }
         if (c.reply_mode == 1) {} else if (c.skip_count > 0) c.skip_count--; else o += r.out;
@@ -273,11 +341,16 @@ void init() {
     register_all_commands();
     g.on_kill = on_kill;
     Region::on_wake = on_wake;
+    Region::on_touch = on_touch; Region::on_touch_all = on_touch_all;
     std::thread(deadlines).detach();
 }
 
 void bind(const std::string& front) {           // the `h` call: this session is that front's
     front_session.add(front, ribbit::current_session());
+    if (!front_idx.get(front)) {                   // its number, for the caches (past MAX_FRONTS: its GETs are not kept)
+        const int i = nfronts.fetch_add(1, std::memory_order_acq_rel);
+        if (i < MAX_FRONTS) { front_names[i].store(new std::string(front), std::memory_order_release); front_idx.add(front, i); }
+    }
     DIAG("region", "bind", front, "session=" + std::to_string(ribbit::current_session()));
 }
 
@@ -305,6 +378,7 @@ void request(const std::string& front, const std::string& instance, const ribbit
             else {                                                      // its first: the connection opens
                 k = new Conn; k->key = key; k->front = front; k->n = strtoull(instance.c_str(), nullptr, 10);
                 if (auto* fs = front_session.get(front)) k->session = fs->val;
+            if (auto* fx = front_idx.get(front)) k->fi = fx->val;
                 k->c = new Client; Client& c = *k->c;
                 c.id = g.next_client_id++; c.addr = str("a"); c.laddr = str("l");
                 c.authed = g.requirepass.empty(); c.user = "default";
