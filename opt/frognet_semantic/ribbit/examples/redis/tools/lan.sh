@@ -112,8 +112,11 @@ coordinate)
     t0=$(date +%s.%N); $B set lanbench:go "$seq $arm $t $P $n" >/dev/null
     for i in $(seq 1 12000); do [ "$($B llen lanbench:res:$seq)" -ge "$N" ] && break; sleep 0.05; done
     t1=$(date +%s.%N); got=$($B llen lanbench:res:$seq)
-    tot=$(python3 -c "print('%.0f' % ($got*$n/($t1-$t0)))")
-    line="MEASURE round $r ${t^^} -P $P $arm: $tot req/s total ($got nodes x $n requests in $(python3 -c "print('%.1f' % ($t1-$t0))") s)"
+    # the total is the sum of every node's own rate: nodes on faster links finish their share sooner, and dividing
+    # all requests by the slowest node's time would charge them its link [SUM_OF_THE_NODES_V1]
+    per=$($B lrange lanbench:res:$seq 0 -1 | tr '\n' ' ')
+    tot=$(python3 -c "v='$per'.split(); print('%.0f' % sum(float(x) for x in v[1::2]))")
+    line="MEASURE round $r ${t^^} -P $P $arm: $tot req/s total, the sum of $got nodes ($per; $n requests each, last done at $(python3 -c "print('%.1f' % ($t1-$t0))") s)"
     [ "$got" -lt "$N" ] && line="$line  FAIL: $got of $N nodes reported"
     echo "$line"; OUTL="$OUTL$t $P $arm $tot
 "
