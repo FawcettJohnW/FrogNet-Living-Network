@@ -11,7 +11,8 @@ Across machines (IPs only, no names):
   host machine:   /opt/redis-ribbit-accept/run.sh lan coordinate <number of nodes>    (a second terminal)
 
 The coordinate step runs the cross-machine correctness check on both arms, then the benchmark: every node runs the same
-redis-benchmark at the same moment (INCR on one key, SET, GET; -P 1 and -P 16), stock then region, 3 rounds
+redis-benchmark at the same moment (INCR on one key, SET and GET over 100000 keys, GET over 1000 hot keys
+(HOTGET: a front answers a GET it has read until it is told the key changed); -P 1 and -P 16), stock then region, 3 rounds
 interleaved, and prints the total req/s of all nodes together with a median table at the end.
   stock:  every node's clients -> stock redis-server on the host machine
   region: every node's clients -> the box on their own machine -> the memory on the host machine
