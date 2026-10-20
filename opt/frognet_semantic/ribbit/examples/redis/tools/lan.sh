@@ -28,7 +28,10 @@ STOCK=$REDIS_SRC/src/redis-server.stock; [ -x "$STOCK" ] || STOCK=$REDIS_SRC/src
 REPEAT=${REPEAT:-3}
 echo "== lan.sh $* on $(uname -n) $(uname -m), $(nproc) cores, build $(cat "$ROOT/VERSION" 2>/dev/null || echo unknown)"
 
-up() { for i in $(seq 1 150); do "$CLI" -h "$1" -p "$2" ping >/dev/null 2>&1 && return 0; sleep 0.1; done; echo "FAIL: nothing answers on $1:$2"; exit 1; }
+# [SAYS_WHY_V1] what the connection got: refused (nothing listening there), timed out (dropped on the way), or the reply
+up() { local e; for i in $(seq 1 150); do e=$(timeout 3 "$CLI" -h "$1" -p "$2" ping 2>&1) && [ "$e" = PONG ] && return 0; sleep 0.1; done
+       [ -z "$e" ] && e="no reply in 3 s (timed out: the SYN or its answer is dropped on the way)"
+       echo "FAIL: nothing answers on $1:$2 -- $e"; exit 1; }
 taken() { (exec 3<>/dev/tcp/127.0.0.1/$1) 2>/dev/null; }
 
 case "${1:-}" in
@@ -59,6 +62,14 @@ node)
   # [LAN_BENCH_TOGETHER_V1] the benchmark, on the host's word: every node starts the same run at once
   echo "== $NAME: ready for the benchmark (the host runs it: lan.sh coordinate)"
   B="$CLI -h $HOST -p 7491"; last=""
+  # [RUNS_SIZED_BY_THE_LINK_V1] this node's round trip to the host, measured: the host sizes every run from it
+  rtt=$(python3 -c "
+import socket, time
+s = socket.create_connection(('$HOST', 7491)); s.sendall(b'PING\\r\\n'); s.recv(64); t = time.time()
+for i in range(20): s.sendall(b'PING\\r\\n'); s.recv(64)
+print('%.6f' % ((time.time() - t) / 20))")
+  echo "== $NAME: round trip to $HOST measured $(python3 -c "print('%.1f' % ($rtt*1000))") ms"
+  $B hset lanbench:rtt "$NAME" "$rtt" >/dev/null
   $B sadd lanbench:ready "$NAME" >/dev/null
   while :; do
     spec=$($B get lanbench:go)
@@ -78,7 +89,7 @@ node)
 coordinate)
   N=${2:?coordinate needs how many nodes}; SECS=${3:-20}; REQS=${REQS:-200000}
   B="$CLI -h 127.0.0.1 -p 7491"
-  $B del lanbench:go >/dev/null
+  $B del lanbench:go lanbench:rtt lanbench:ready >/dev/null
   echo "== stock arm: $N nodes, $SECS s"
   python3 tests/coordinated.py coordinate --run lan-stock --expect "$N" --seconds "$SECS" --host 127.0.0.1 --port 7491
   echo "== region arm: $N nodes, $SECS s"
@@ -89,9 +100,14 @@ coordinate)
   echo "   stock: every node -> stock redis-server on this machine.  region: every node -> its own box -> the memory on this machine"
   for i in $(seq 1 600); do [ "$($B scard lanbench:ready)" -ge "$N" ] && break; sleep 0.5; done
   [ "$($B scard lanbench:ready)" -ge "$N" ] || { echo "FAIL: only $($B scard lanbench:ready) of $N nodes reached the benchmark"; exit 1; }
+  # [RUNS_SIZED_BY_THE_LINK_V1] requests per node per run: about RUN_SECS at the slowest node's measured round trip,
+  # one request per client per round trip (x16 pipelined), at most REQS (x5 pipelined)
+  RTT=$($B hvals lanbench:rtt | sort -g | tail -1); RUN=${RUN_SECS:-10}; C=${CLIENTS:-50}
+  N1=$(python3 -c "print(int(max(1000, min($REQS, $C*$RUN/$RTT))))"); N16=$(python3 -c "print(int(max(1000, min($REQS*5, $C*16*$RUN/$RTT))))")
+  echo "== slowest round trip to this machine: $(python3 -c "print('%.1f' % ($RTT*1000))") ms; per node per run: $N1 requests at -P 1, $N16 at -P 16"
   seq=0; OUTL=""
   for r in $(seq 1 $REPEAT); do for t in incr set get; do for P in 1 16; do for arm in stock region; do
-    seq=$((seq+1)); n=$REQS; [ $P = 16 ] && n=$((REQS*5))
+    seq=$((seq+1)); n=$N1; [ $P = 16 ] && n=$N16
     $B del lanbench:res:$seq >/dev/null
     t0=$(date +%s.%N); $B set lanbench:go "$seq $arm $t $P $n" >/dev/null
     for i in $(seq 1 12000); do [ "$($B llen lanbench:res:$seq)" -ge "$N" ] && break; sleep 0.05; done
