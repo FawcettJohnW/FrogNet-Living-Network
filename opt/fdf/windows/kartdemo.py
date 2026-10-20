@@ -352,7 +352,7 @@ def draw_lobby(lob, servers, recs, agreed, chats):
         text(f"{n:12s} races {r.get('races',0):3d}  wins {r.get('wins',0):3d}  best lap {r.get('best_lap') or '-'}", x2, y2, SMALL); y2+=19
     if last_result:
         text(f"last race {last_result.get('race')}: " + ", ".join(s['kart'] for s in last_result.get('order',[])[:4]), x2, y2+6, SMALL, (170,170,180))
-    button(ready_btn, "Ready" if not ready else "Ready ✓", lit=ready); button(start_btn, "Start", on=ready)
+    button(ready_btn, "Ready" if not ready else "Ready ✓", lit=ready); button(start_btn, "Start" if not start else "Starting…", lit=start)
     button(minus_btn, "-"); button(plus_btn, "+"); text(f"{my_laps} lap(s)", 372, H-58, SMALL)
 
 # ----------------------------------------------------------------------------- the main loop
@@ -373,7 +373,7 @@ while running:
             pos=layout_pos(e.pos)
             if state=="lobby":
                 if ready_btn.collidepoint(pos): ready=not ready; start=start and ready
-                if start_btn.collidepoint(pos) and ready: start=True
+                if start_btn.collidepoint(pos): ready=True; start=True     # [KART_START_IS_ONE_CLICK_V1] Start: me in, launch now
                 if minus_btn.collidepoint(pos): my_laps=max(1,my_laps-1)
                 if plus_btn.collidepoint(pos): my_laps=min(20,my_laps+1)
             for who,r in list(call_buttons.items()):
