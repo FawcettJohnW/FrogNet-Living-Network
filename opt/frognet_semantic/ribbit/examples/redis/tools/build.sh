@@ -77,8 +77,8 @@ job build/obj/ribbit_space.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/r
 SRCS="region front server resp util ebr memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
 for b in $SRCS; do
   f=src/$b.cpp
-  E=""; case "$b" in region|front) E="-Werror -DRIBBIT_REDIS_VERSION=\"$VER\"";; esac   # the new code builds warning-free, always
-  job build/obj/$b.o $CXX -std=c++20 $W $E -Isrc -I$P/include -c "$f"
+  E=(); case "$b" in region|front) E=(-Werror "-DRIBBIT_REDIS_VERSION=\"$VER\"");; esac   # the new code builds warning-free, always; the version may hold spaces
+  job build/obj/$b.o $CXX -std=c++20 $W "${E[@]}" -Isrc -I$P/include -c "$f"
 done
 settle
 
