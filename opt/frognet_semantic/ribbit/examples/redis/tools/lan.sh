@@ -16,13 +16,16 @@
 #   stock   every node's clients talk to stock Redis on the host machine, across the network
 #   region  every node's clients talk to the box on their own machine; every box holds the region, on the memory
 # Each run checks that no INCR was lost or applied twice and that every node reads every other node's markers, and
-# reports each node's operations per second. Then each node runs redis-benchmark against both, REPEAT times, interleaved.
+# reports each node's operations per second. Then the benchmark: on the host's word, every node runs the same
+# redis-benchmark at the same moment (INCR on one key, SET, GET; -P 1 and -P 16), stock then region, REPEAT rounds
+# interleaved; the host prints the total req/s of all nodes together and the median table. REQS (per node, -P 1;
+# x5 at -P 16), CLIENTS (per node), REPEAT.
 set -u
 cd "$(dirname "$0")/.."; ROOT=$PWD
 REDIS_SRC=${REDIS_SRC:-$(cd .. && pwd)/redis-7.2.11}
 CLI=$REDIS_SRC/src/redis-cli; BENCH=$REDIS_SRC/src/redis-benchmark
 STOCK=$REDIS_SRC/src/redis-server.stock; [ -x "$STOCK" ] || STOCK=$REDIS_SRC/src/redis-server
-REPEAT=${REPEAT:-5}
+REPEAT=${REPEAT:-3}
 echo "== lan.sh $* on $(uname -n) $(uname -m), $(nproc) cores, build $(cat "$ROOT/VERSION" 2>/dev/null || echo unknown)"
 
 up() { for i in $(seq 1 150); do "$CLI" -h "$1" -p "$2" ping >/dev/null 2>&1 && return 0; sleep 0.1; done; echo "FAIL: nothing answers on $1:$2"; exit 1; }
@@ -53,20 +56,63 @@ node)
   python3 tests/coordinated.py participate --run lan-stock --name "$NAME" --host "$HOST" --port 7491 || echo "RESULT FAIL $NAME stock arm"
   echo "== $NAME: region arm (clients -> the box on this machine, on the memory at $HOST:7490)"
   python3 tests/coordinated.py participate --run lan-region --name "$NAME" --host 127.0.0.1 --port $FP || echo "RESULT FAIL $NAME region arm"
-  echo "== $NAME: redis-benchmark -c 50 -P 16 -n 200000, $REPEAT runs interleaved (req/s)"
-  for t in set get; do for r in $(seq 1 $REPEAT); do
-    s=$("$BENCH" -h "$HOST" -p 7491 -q -c 50 -P 16 -n 200000 -r 100000 -t $t | tr '\r' '\n' | grep -o '[0-9.]* requests per' | tail -1 | cut -d' ' -f1)
-    g=$("$BENCH" -h 127.0.0.1 -p $FP -q -c 50 -P 16 -n 200000 -r 100000 -t $t | tr '\r' '\n' | grep -o '[0-9.]* requests per' | tail -1 | cut -d' ' -f1)
-    echo "MEASURE $NAME ${t^^} run $r  stock(remote) ${s:-0}  region(local box) ${g:-0}"
-  done; done
+  # [LAN_BENCH_TOGETHER_V1] the benchmark, on the host's word: every node starts the same run at once
+  echo "== $NAME: ready for the benchmark (the host runs it: lan.sh coordinate)"
+  B="$CLI -h $HOST -p 7491"; last=""
+  $B sadd lanbench:ready "$NAME" >/dev/null
+  while :; do
+    spec=$($B get lanbench:go)
+    [ "$spec" = end ] && break
+    set -- $spec
+    if [ -n "${1:-}" ] && [ "$1" != "$last" ]; then
+      last=$1; arm=$2; t=$3; P=$4; n=$5; R=""; [ "$t" != incr ] && R="-r 100000"
+      if [ "$arm" = stock ]; then th=$HOST; tp=7491; else th=127.0.0.1; tp=$FP; fi
+      r=$("$BENCH" -h $th -p $tp -q -c ${CLIENTS:-50} -P $P -n $n $R -t $t | tr '\r' '\n' | grep -o '[0-9.]* requests per' | tail -1 | cut -d' ' -f1)
+      echo "MEASURE $NAME run $1 $arm ${t^^} -P $P: ${r:-0} req/s"
+      $B rpush lanbench:res:$1 "$NAME ${r:-0}" >/dev/null
+    fi
+    sleep 0.05
+  done
   echo "== $NAME done"
   ;;
 coordinate)
-  N=${2:?coordinate needs how many nodes}; SECS=${3:-20}
+  N=${2:?coordinate needs how many nodes}; SECS=${3:-20}; REQS=${REQS:-200000}
+  B="$CLI -h 127.0.0.1 -p 7491"
+  $B del lanbench:go >/dev/null
   echo "== stock arm: $N nodes, $SECS s"
   python3 tests/coordinated.py coordinate --run lan-stock --expect "$N" --seconds "$SECS" --host 127.0.0.1 --port 7491
   echo "== region arm: $N nodes, $SECS s"
   python3 tests/coordinated.py coordinate --run lan-region --expect "$N" --seconds "$SECS" --host 127.0.0.1 --port 7492
+  # [LAN_BENCH_TOGETHER_V1] every node runs the same redis-benchmark at the same moment; the total is the requests of
+  # all nodes over the time from GO until the last node reports, on this machine's clock
+  echo "== benchmark: $N nodes at once, redis-benchmark -c ${CLIENTS:-50} per node, $REPEAT rounds interleaved"
+  echo "   stock: every node -> stock redis-server on this machine.  region: every node -> its own box -> the memory on this machine"
+  for i in $(seq 1 600); do [ "$($B scard lanbench:ready)" -ge "$N" ] && break; sleep 0.5; done
+  [ "$($B scard lanbench:ready)" -ge "$N" ] || { echo "FAIL: only $($B scard lanbench:ready) of $N nodes reached the benchmark"; exit 1; }
+  seq=0; OUTL=""
+  for r in $(seq 1 $REPEAT); do for t in incr set get; do for P in 1 16; do for arm in stock region; do
+    seq=$((seq+1)); n=$REQS; [ $P = 16 ] && n=$((REQS*5))
+    $B del lanbench:res:$seq >/dev/null
+    t0=$(date +%s.%N); $B set lanbench:go "$seq $arm $t $P $n" >/dev/null
+    for i in $(seq 1 12000); do [ "$($B llen lanbench:res:$seq)" -ge "$N" ] && break; sleep 0.05; done
+    t1=$(date +%s.%N); got=$($B llen lanbench:res:$seq)
+    tot=$(python3 -c "print('%.0f' % ($got*$n/($t1-$t0)))")
+    line="MEASURE round $r ${t^^} -P $P $arm: $tot req/s total ($got nodes x $n requests in $(python3 -c "print('%.1f' % ($t1-$t0))") s)"
+    [ "$got" -lt "$N" ] && line="$line  FAIL: $got of $N nodes reported"
+    echo "$line"; OUTL="$OUTL$t $P $arm $tot
+"
+  done; done; done; done
+  $B set lanbench:go end >/dev/null
+  echo "== median of $REPEAT rounds, total req/s across $N nodes"
+  printf "%s" "$OUTL" | python3 -c "
+import sys, statistics as st
+d = {}
+for l in sys.stdin:
+    t, P, arm, v = l.split(); d.setdefault((t, P), {}).setdefault(arm, []).append(float(v))
+print('%-6s %-6s %12s %12s %8s' % ('test', 'pipe', 'stock', 'region', 'ratio'))
+for (t, P), a in d.items():
+    s, g = st.median(a['stock']), st.median(a['region'])
+    print('%-6s -P %-3s %12.0f %12.0f %8.2f' % (t.upper(), P, s, g, g / s if s else 0))"
   ;;
 *) sed -n '4,20p' "$0"; exit 2 ;;
 esac
