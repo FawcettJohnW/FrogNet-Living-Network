@@ -247,10 +247,6 @@ public:
     // the word moved: the region serves its parked commands from here (region.cpp). Set once at start.
     static void (*on_wake)(WaitWord& w);
     static void wake(WaitWord& w);        // move the word whether or not anyone is registered (CLIENT UNBLOCK, KILL)
-    // [CACHED_UNTIL_TOLD_V1] every change to a variable, and every change to all of them (FLUSH*, SWAPDB), after it
-    // landed, on the writer's thread: the region tells the fronts holding a copy (region.cpp). Set once at start.
-    static void (*on_touch)(Region& r, const std::string& variable);
-    static void (*on_touch_all)(Region& r);
     static size_t hash_of(const std::string& variable) { return std::hash<std::string>{}(variable); }
     WaitWord& word(const std::string& variable) const { return words[hash_of(variable) & (WORDS - 1)]; }
     Bucket& bucket(const std::string& variable) const { return buckets()[hash_of(variable) & (BUCKETS - 1)]; }
