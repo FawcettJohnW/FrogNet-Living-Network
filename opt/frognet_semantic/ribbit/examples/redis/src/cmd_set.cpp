@@ -28,7 +28,6 @@ namespace rr {
 
 std::vector<size_t> random_picks(size_t size, long long count);
 void elem_scan(Client& c, const Argv& a, Reply& r, Kind kind, bool with_values);
-static thread_local std::mt19937_64 rng{std::random_device{}()};
 
 static int set_var(Client& c, const std::string& key, VarPtr& v, Reply& r) {
     v = db::live_var(c.db, key);
@@ -101,7 +100,7 @@ static void cmd_spop(Client& c, const Argv& a, Reply& r) {
             VarPtr cur = g.mem.var(db::svc(c.db), a[1]);
             size_t size = (cur && db::kind_of(cur) == Kind::SetMember) ? db::elem_count(cur) : 0;
             if (!size) { r.null(); return; }
-            auto x = nth_member(cur, rng() % size); if (!x) continue;
+            auto x = nth_member(cur, apply_rng()() % size); if (!x) continue;
             std::string m = x->key.substr(1);
             if (db::drop_elems(c.db, a[1], {m}) == 1) { r.bulk(m); return; }
         }
@@ -112,7 +111,7 @@ static void cmd_spop(Client& c, const Argv& a, Reply& r) {
         VarPtr cur = g.mem.var(db::svc(c.db), a[1]);
         size_t size = (cur && db::kind_of(cur) == Kind::SetMember) ? db::elem_count(cur) : 0;
         if (!size) break;
-        auto x = nth_member(cur, rng() % size); if (!x) continue;
+        auto x = nth_member(cur, apply_rng()() % size); if (!x) continue;
         std::string m = x->key.substr(1);
         if (db::drop_elems(c.db, a[1], {m}) == 1) ms.push_back(std::move(m));
     }
@@ -124,7 +123,7 @@ static void cmd_srandmember(Client& c, const Argv& a, Reply& r) {
     if (with_count) { if (!string2ll(a[2], count)) { err_notint(r); return; } if (count == LLONG_MIN) { r.error("ERR value is out of range"); return; } }
     VarPtr v; int st = set_var(c, a[1], v, r); if (st < 0) return;
     size_t size = st ? db::elem_count(v) : 0;
-    if (!with_count) { if (!size) { r.null(); return; } r.bulk(nth_member(v, rng() % size)->key.substr(1)); return; }
+    if (!with_count) { if (!size) { r.null(); return; } r.bulk(nth_member(v, apply_rng()() % size)->key.substr(1)); return; }
     if (!size || count == 0) { r.array(0); return; }
     auto picks = random_picks(size, count);
     r.array(picks.size()); for (size_t i : picks) r.bulk(nth_member(v, i)->key.substr(1));

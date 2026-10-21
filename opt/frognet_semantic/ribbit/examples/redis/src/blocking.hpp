@@ -27,11 +27,23 @@ std::string claim_ticket();
 // what makes a writer bump the word at all, so it must exist before the first data check
 struct WaitReg { WaitWord& w; WaitReg(WaitWord& ww) : w(ww) { Region::watch(w); } ~WaitReg() { Region::unwatch(w); } WaitReg(const WaitReg&) = delete; };
 WaitWord& wait_word_for(Client& c, const std::vector<std::string>& keys);
-bool peer_gone(int fd);
 bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::chrono::steady_clock::time_point deadline);
+// A blocked command's place in line: its ticket under each key it waits on. [CLAIM_OUTLIVES_THE_TRY_V1] A command that
+// would wait keeps its ticket when it returns (c.park_ticket): it is tried again, with the same place, when what it waits
+// on changes. Served, timed out, unblocked or gone, the ticket is removed (here, or by drop_claim).
+inline void drop_claim(Client& c) {
+    if (c.park_ticket.empty()) return;
+    std::vector<std::pair<std::string, std::string>> rs; for (auto& k : c.park_claim_keys) rs.emplace_back(k, c.park_ticket);
+    g.mem.remove_many(db::claims(c.park_claim_db), rs);
+    Region& R = g.mem.region(db::svc(c.park_claim_db)); for (auto& k : c.park_claim_keys) R.touched(k);   // the next in line should look
+    c.park_ticket.clear(); c.park_claim_keys.clear();
+}
 struct Claim {
     Client& c; std::vector<std::string> keys; std::string ticket; bool placed = false;
-    Claim(Client& cl, std::vector<std::string> ks) : c(cl), keys(std::move(ks)) { ticket = claim_ticket(); }
+    Claim(Client& cl, std::vector<std::string> ks) : c(cl), keys(std::move(ks)) {
+        if (!c.park_ticket.empty()) { ticket = c.park_ticket; placed = true; }   // tried again: the same place in line
+        else ticket = claim_ticket();
+    }
     void place() {
         if (placed) return;
         std::vector<Memory::W> ws; Bag b; b.kind = Kind::None; auto bp = std::make_shared<const Bag>(b);
@@ -45,9 +57,9 @@ struct Claim {
     }
     ~Claim() {
         if (!placed) return;
-        std::vector<std::pair<std::string, std::string>> rs; for (auto& k : keys) rs.emplace_back(k, ticket);
-        g.mem.remove_many(db::claims(c.db), rs);
-        Region& R = g.mem.region(db::svc(c.db)); for (auto& k : keys) R.touched(k);   // the next in line should look
+        if (c.would_block) { c.park_ticket = ticket; c.park_claim_keys = keys; c.park_claim_db = c.db; return; }   // parked: kept
+        c.park_ticket = ticket; c.park_claim_keys = keys; c.park_claim_db = c.db;
+        drop_claim(c);
     }
 };
 

@@ -56,7 +56,6 @@ Key::Key(int dbi_, const std::string& name_) : dbi(dbi_), name(name_), R(g.mem.r
     k = kind_of(v);
 }
 CellPtr Key::val() const { return v ? Memory::inst(v, VAL) : nullptr; }
-uint64_t Key::write(const std::string& instance, BagPtr bag) { return g.mem.write(R, name, h, instance, std::move(bag)); }
 long long Key::push_count() const { VarPtr cur = g.mem.var(R, name, h); return cur ? (long long)elem_count(cur) : 0; }
 uint64_t Key::set_string(const std::string& val, bool keepttl) {
     int64_t delta = (int64_t)val.size();
@@ -422,15 +421,6 @@ void flush(int dbi) {
     g.stats.dirty++;
 }
 
-void copy_key(int sdb, const std::string& skey, int ddb, const std::string& dkey) {
-    std::vector<Memory::W> ws;
-    for (auto& c : g.mem.read_all(svc(sdb), skey)) {
-        if (c.instance == VAL && c.bag().kind == Kind::String) g.used_memory += (int64_t)c.bag().s.size();
-        ws.push_back(Memory::W{dkey, c.instance, copy_bag(c.node)});
-    }
-    if (!ws.empty()) g.mem.write_many(svc(ddb), ws);      // every instance of the key appears in one step
-    g.stats.dirty++;
-}
 
 // several string keys in one step (MSET)
 void set_strings(int dbi, const std::vector<std::pair<std::string, std::string>>& kvs) {

@@ -41,6 +41,13 @@
 // have either.
 #pragma once
 
+#include <sys/stat.h>
+#ifdef _WIN32                                       // [WINDOWS_PORTABLE_V1]
+#include <direct.h>
+inline int fr_mkdir_755(const char* p) { return ::_mkdir(p); }
+#else
+inline int fr_mkdir_755(const char* p) { return ::mkdir(p, 0755); }
+#endif
 #include "pyval.hpp"
 #include "pyuni_s3_tables.hpp"
 #include "semcodec.hpp"
@@ -329,6 +336,7 @@ inline std::string extract_metric_name(const Obj* sensor_name) {
 }  // namespace detail
 // defined below (json_handler)
 inline Obj sanitize_nonfinite(const Obj& o);
+inline bool has_nonfinite(const Obj& o);
 inline Obj infer_schema(const Obj& v, std::string_view path);
 inline std::pair<std::vector<std::string>, Dict> field_order_and_type_map(const Obj& schema);
 // [BODY_FIELD_SET_IS_PART_OF_THE_IDENTITY_V1] proxy/templates.py _with_body_shape: the crc32 of a JSON object body's
@@ -340,9 +348,10 @@ inline std::string with_body_shape(const std::string& key, std::string_view body
     while (a < b && ws(body[a])) ++a;
     while (b > a && ws(body[b - 1])) --b;
     if (a == b) return key;
+    if (body[a] != '{') return key;                     // [SHAPE_NEEDS_AN_OBJECT_V1] only an object has a field set
     std::optional<Obj> j;
     try { j = semcodec::json_loads(u::decode_replace(body.substr(a, b - a))); } catch (const pyv::JsonError&) { return key; }
-    Obj obj = sanitize_nonfinite(*j);
+    Obj obj = has_nonfinite(*j) ? sanitize_nonfinite(*j) : std::move(*j);   // [NONFINITE_COPY_ONLY_IF_NEEDED_V1]
     if (!obj.is<Dict>()) return key;
     auto fo = field_order_and_type_map(infer_schema(obj, "")).first;
     std::string joined; for (size_t i = 0; i < fo.size(); ++i) joined += (i ? "," : "") + fo[i];
@@ -435,6 +444,13 @@ inline std::vector<std::string> str_list(const Obj* o) {              // a list 
     std::vector<std::string> r; if (!truthy(o)) return r;
     for (const Obj& x : o->as<List>()) r.push_back(x.as<Str>().s);
     return r;
+}
+// [NONFINITE_COPY_ONLY_IF_NEEDED_V1] does the tree hold a NaN or an infinity anywhere? (a walk, no copy)
+inline bool has_nonfinite(const Obj& o) {
+    if (o.is<double>()) return !std::isfinite(o.as<double>());
+    if (o.is<Dict>()) { for (const Obj& v : o.as<Dict>().vals) if (has_nonfinite(v)) return true; return false; }
+    if (o.is<List>()) { for (const Obj& v : o.as<List>()) if (has_nonfinite(v)) return true; return false; }
+    return false;
 }
 inline Obj sanitize_nonfinite(const Obj& o) {
     if (o.is<double>()) return std::isfinite(o.as<double>()) ? o : Obj(None{});
@@ -683,7 +699,7 @@ inline std::string id_for(std::string_view data) {
 inline std::string store(std::string_view data) {
     std::string id = id_for(data), dir = root(), path = dir + "/" + id; struct stat st {};
     if (::stat(path.c_str(), &st) == 0) return id;
-    if (::mkdir(dir.c_str(), 0755) != 0 && errno != EEXIST) throw std::runtime_error("blob store: mkdir " + dir + ": " + std::strerror(errno));
+    if (fr_mkdir_755(dir.c_str()) != 0 && errno != EEXIST) throw std::runtime_error("blob store: mkdir " + dir + ": " + std::strerror(errno));
     std::string tmp = path + ".tmp";
     { std::ofstream f(tmp, std::ios::binary); if (!f) throw std::runtime_error("blob store: cannot write " + tmp);
       f.write(data.data(), std::streamsize(data.size())); if (!f) throw std::runtime_error("blob store: short write " + tmp); }
@@ -710,6 +726,8 @@ inline Dict text_frag(const char* mode, const std::string& body) {
     d.set("tokens", tokens()); return d;
 }
 inline std::optional<Obj> json_try(std::string_view text) {           // json.loads, or none where the Python's except fires
+    {   size_t a = 0; while (a < text.size() && (text[a] == ' ' || text[a] == '\t' || text[a] == '\n' || text[a] == '\r')) ++a;
+        if (a < text.size() && !std::strchr("{[\"-0123456789tfnNI", text[a])) return std::nullopt; }   // [SHAPE_NEEDS_AN_OBJECT_V1]
     try { return semcodec::json_loads(text); }
     catch (const pyv::JsonError&) { return std::nullopt; }
     catch (const pyv::RecursionError&) { return std::nullopt; }
@@ -737,7 +755,7 @@ inline Dict learn(std::string_view mode, std::string_view body, bool /*reply: th
     if (text.empty()) return detail::json_frag(Dict{}, List{}, Dict{}, Dict{}, Dict{});
     auto parsed = detail::json_try(text);
     if (!parsed) throw Declined("json_unparsable");
-    Obj obj = sanitize_nonfinite(*parsed);
+    Obj obj = has_nonfinite(*parsed) ? sanitize_nonfinite(*parsed) : std::move(*parsed);   // [NONFINITE_COPY_ONLY_IF_NEEDED_V1]
     if (obj.is<List>()) { Dict tm, base; tm.set("value", Str{"array"}); base.set("value", obj);
         return detail::json_frag(infer_schema(obj, ""), List{Str{"value"}}, tm, base, Dict{}); }
     if (obj.is<Dict>()) {
@@ -764,10 +782,44 @@ inline std::optional<Fields> extract(const Dict& frag, std::string_view body, bo
     std::string text = u::strip(body); std::vector<std::string> fo = str_list(get(frag, "field_order"));
     if (text.empty() || fo.empty()) return Fields{};
     auto parsed = detail::json_try(text); if (!parsed) return std::nullopt;
-    Obj obj = sanitize_nonfinite(*parsed);
+    Obj obj = has_nonfinite(*parsed) ? sanitize_nonfinite(*parsed) : std::move(*parsed);   // [NONFINITE_COPY_ONLY_IF_NEEDED_V1]
     if (obj.is<List>() && fo == std::vector<std::string>{"value"}) return Fields{{"value", obj}};
     if (!obj.is<Dict>()) return std::nullopt;
     Fields f; for (const auto& p : fo) f.emplace_back(p, p == "value" ? obj : get_by_path(obj, p)); return f;
+}
+// [EXTRACT_PRECOMPUTED_V1] extract for a template whose mode and field order are already known (the client's request
+// templates hold both): the same values as extract, without copying the field order, the body or each value -- the
+// parsed body is the call's own, so each field's value is moved out of it (fields are leaves: no path is inside
+// another). Measured: a fifth of a box's CPU was extract's copies and per-field path splitting.
+inline Obj* path_ptr(Obj& obj, std::string_view path) {
+    Obj* cur = &obj; size_t a = 0;
+    for (;;) {
+        const size_t dot = path.find('.', a); const std::string_view part = path.substr(a, dot == std::string_view::npos ? std::string_view::npos : dot - a);
+        if (!cur->is<Dict>()) return nullptr;
+        Dict& d = cur->as<Dict>(); Obj* next = nullptr;
+        for (size_t i = 0; i < d.size(); ++i) if (d.keys[i] == part) { next = &d.vals[i]; break; }   // the first, as get() finds
+        if (!next) return nullptr;
+        cur = next;
+        if (dot == std::string_view::npos) return cur;
+        a = dot + 1;
+    }
+}
+inline std::optional<Fields> extract_pre(const std::string& mode, const std::vector<std::string>& fo, std::string_view body) {
+    if (body.empty()) return Fields{};
+    if (mode != "json") return std::nullopt;             // the caller uses extract for every other mode
+    const std::string text = u::strip(body);
+    if (text.empty() || fo.empty()) return Fields{};
+    auto parsed = detail::json_try(text); if (!parsed) return std::nullopt;
+    Obj obj = has_nonfinite(*parsed) ? sanitize_nonfinite(*parsed) : std::move(*parsed);
+    if (obj.is<List>() && fo.size() == 1 && fo[0] == "value") return Fields{{"value", std::move(obj)}};
+    if (!obj.is<Dict>()) return std::nullopt;
+    Fields f; f.reserve(fo.size());
+    for (const auto& p : fo) {
+        if (p == "value") { f.emplace_back(p, obj); continue; }
+        Obj* v = path_ptr(obj, p);
+        f.emplace_back(p, v ? std::move(*v) : Obj(None{}));
+    }
+    return f;
 }
 namespace detail {
 inline List coerce_array(const Obj& v) {                                // a list, or JSON text of one; anything else is declined
@@ -794,7 +846,7 @@ inline std::string rebuild_reply(const Dict& frag, const List& values) {
     if (fo == std::vector<std::string>{"value"} && get(tm, "value") && is_str(*get(tm, "value"), "array")) {
         const Obj* a = get(valmap, "value"); Obj arr = a ? *a : Obj(None{});
         if (arr.is<None>()) { const Obj* b = get(frag, "baseline"); const Obj* bv = truthy(b) ? get(b->as<Dict>(), "value") : nullptr; arr = bv ? *bv : Obj(List{}); }
-        return dumps_ascii(sanitize_nonfinite(Obj(detail::coerce_array(arr))), false);
+        { Obj ca(detail::coerce_array(arr)); return dumps_ascii(has_nonfinite(ca) ? sanitize_nonfinite(ca) : ca, false); }   // [NONFINITE_COPY_ONLY_IF_NEEDED_V1]
     }
     const Obj* bbo = get(frag, "baseline_blobs"); Dict blobs = truthy(bbo) ? bbo->as<Dict>() : Dict{};
     Dict arrays; std::vector<std::string> sfo;
@@ -819,7 +871,7 @@ inline std::string rebuild_reply(const Dict& frag, const List& values) {
         for (size_t k = 0; k + 1 < parts.size(); ++k) cur = &detail::child_dict(*cur, parts[k]);
         cur->set(parts.back(), arrays.vals[i]);
     }
-    return dumps_ascii(sanitize_nonfinite(obj), false);
+    return has_nonfinite(obj) ? dumps_ascii(sanitize_nonfinite(obj), false) : dumps_ascii(obj, false);   // [NONFINITE_COPY_ONLY_IF_NEEDED_V1]
 }
 
 // ---------------------------------------------------------------------------------------------- core/template.py
@@ -832,6 +884,52 @@ inline std::string build_url(std::string_view url_static, const Fields& url_vals
     }
     std::string qs = q.empty() ? "" : urlencode(q), path = p.path.empty() ? "/" : p.path;
     return qs.empty() ? path : path + "?" + qs;
+}
+// [TEMPLATE_PRECOMPUTED_V1] build_url and rebuild_body with the template-constant parts computed once
+inline std::string build_url_pre(const std::string& path0, const Pairs& static_q, const Fields& url_vals) {
+    Pairs q; q.reserve(static_q.size() + url_vals.size()); q = static_q;
+    for (const auto& kv : url_vals) {
+        if (kv.second.is<None>()) throw pyv::ValueError("build_url: " + kv.first + " is None for " + path0 + " - refusing to drop the parameter");
+        q.emplace_back(kv.first, detail::py_str(kv.second));
+    }
+    std::string qs = q.empty() ? "" : urlencode(q);
+    return qs.empty() ? path0 : path0 + "?" + qs;
+}
+// [BODY_PLAN_V1] a JSON request body's SHAPE depends only on the template's field order, so it is built once: rebuild_json
+// run on placeholders ("\x00<n>" for field n) gives the exact tree rebuild_json would build -- key order, nesting, the
+// rows list, a field given twice -- and each request renders that tree straight into a buffer that keeps its high-water
+// mark, writing field n's value where placeholder n stands. No tree is built per request.
+inline Obj body_skeleton(const std::vector<std::string>& fo) {
+    List ph; ph.reserve(fo.size()); for (size_t n = 0; n < fo.size(); ++n) ph.push_back(Str{std::string(1, '\0') + std::to_string(n)});
+    return rebuild_json(ph, fo);
+}
+template <class V> inline void render_skeleton(std::string& o, const Obj& sk, const V& value_of) {
+    if (sk.is<Str>()) { const std::string& s = sk.as<Str>().s;
+        if (!s.empty() && s[0] == '\0') { detail::dumps_ascii(o, value_of(size_t(std::stoul(s.substr(1)))), false); return; } }
+    if (sk.is<Dict>()) { const Dict& d = sk.as<Dict>(); o += '{';
+        for (size_t i = 0; i < d.size(); ++i) { if (i) o += ','; detail::dumps_ascii_str(o, d.keys[i]); o += ':'; render_skeleton(o, d.vals[i], value_of); } o += '}'; return; }
+    if (sk.is<List>()) { o += '['; bool f = true; for (const Obj& x : sk.as<List>()) { if (!f) o += ','; f = false; render_skeleton(o, x, value_of); } o += ']'; return; }
+    detail::dumps_ascii(o, sk, false);
+}
+inline std::string rebuild_body_pre(const std::string& mode, const std::vector<std::string>& fo, const Fields& json_vals, const Obj* skel = nullptr) {
+    // as Dict::set did: a key given twice keeps its LAST value
+    auto find = [&](const std::string& k) -> const Obj* { for (size_t i = json_vals.size(); i-- > 0;) if (json_vals[i].first == k) return &json_vals[i].second; return nullptr; };
+    if (mode == "json" && skel) {                        // [BODY_PLAN_V1]
+        static const Obj none{None{}};
+        thread_local std::string buf; buf.clear();          // keeps its high-water mark: no growth once warm
+        render_skeleton(buf, *skel, [&](size_t n) -> const Obj& { const Obj* v = n < fo.size() ? find(fo[n]) : nullptr; return v ? *v : none; });
+        return buf;
+    }
+    if (mode == "json") {
+        List vals; vals.reserve(fo.size());
+        for (const auto& f : fo) { const Obj* v = find(f); vals.push_back(v ? *v : Obj(None{})); }
+        return dumps_ascii(rebuild_json(vals, fo), false);
+    }
+    if (mode == "raw" || mode == "text" || mode == "html" || mode == "xml") {
+        const Obj* r = find("raw"); if (!r) return ""; return r->is<None>() ? "" : detail::py_str(*r);
+    }
+    if (json_vals.size()) { const Obj& v0 = json_vals[0].second; return v0.is<None>() ? "" : detail::py_str(v0); }
+    return "";
 }
 inline std::string rebuild_body(const Dict& frag, const Fields& json_vals) {
     Dict mapping; for (const auto& kv : json_vals) mapping.set(kv.first, kv.second);

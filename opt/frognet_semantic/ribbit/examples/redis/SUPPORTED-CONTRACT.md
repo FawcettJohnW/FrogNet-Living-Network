@@ -1,48 +1,52 @@
-# The Redis region's supported contract
+# The Redis region's supported contract (one keyspace, fronts on the memory, v33-one-keyspace, 2026-10-19)
 
-What a client of the region can rely on, measured by `tools/accept.sh` against stock Redis 7.2.11. Every class of
-difference below comes from a test that is green on stock and not green on the region; `PARITY-TRIAGE-<date>.md`
-lists each one with the rule that classed it.
+What a client can rely on, measured by `tools/accept.sh` against stock Redis 7.2.11 on the same machine. Every class
+of difference below comes from a test that is green on stock and not green on a front.
 
 ## Supported, as Redis
 - The commands of strings, hashes, sets, lists, sorted sets, streams (with consumer groups), keyspace commands and
   MULTI/EXEC/WATCH, as Redis 7.2.11's own tests for them check -- except the classes below.
-- Redis's guarantees under concurrency for every read-modify-write family `tests/run_concurrency.py` checks (39):
-  no increment lost, no element delivered twice, each APPEND answering the length after it.
-- RESP2 from stock clients (redis-cli, redis-benchmark, redis-py, ...), to any front.
+- **One keyspace, any front.** A write acknowledged through any front is seen by the next command through any front;
+  blocked clients are served first-blocked first, by the write that readies them; the replies before a blocking
+  command in a pipeline are sent as it blocks (`tests/run_two_fronts.py`, fifteen checks).
+- Redis's guarantees under concurrency for every read-modify-write family `tests/run_concurrency.py` checks (39),
+  from three fronts at once: no increment lost, no element delivered twice, each APPEND answering the length after it.
+- RESP2 from stock clients (redis-cli, redis-benchmark, redis-py, ...), to any front; any bytes as values.
+- **Fronts come and go.** A front holds nothing: one started on a running region serves the keyspace at once; one
+  that stops takes its clients with it and nothing else.
 
 ## Different from Redis, by design
 - **Many writable endpoints, one keyspace.** Every front takes reads and writes for the whole keyspace. Stock Redis
   replicas refuse writes (READONLY).
-- **Reads are answered at the front from what it has read** ([READS_AT_THE_FRONT_V1]). A front keeps the reply to a
-  plain read of one key (GET, HGET, LRANGE, ZRANGE, ... -- `coherence.cpp` lists them) and answers the same read again
-  itself, until the key changes. What a client can rely on:
-  - *its own writes*: a client reads back what it wrote, through its own front, every time (the changes a batch made
-    reach its front inside the batch's answer, before any reply of that batch is written);
-  - *anything it was told OK*: once a write is acknowledged to anyone through a front, every read through that front
-    sees it;
-  - *other fronts*: a read through another front sees the write once that front has heard of it on its feed -- what a
-    Redis replica gives. Measured by `tests/run_coherence.py`: reads never go backwards, every key converged within
-    2 ms of the last write, a FLUSHALL was seen at once.
-  Not kept: keys with an expiry, replies that are errors, anything inside MULTI or with replies switched off. A front
-  that loses its feed keeps nothing until it has a new one. INFO's keyspace_hits/misses count only reads that reached
-  the RAM host.
+- **MULTI/EXEC is not isolated** (ruled 2026-09-29): another connection's write may land between an EXEC's commands;
+  its own commands run in order and a parked reader wakes once, after it. **Multi-key reads are best-effort** (ruled).
 - **Replication is not offered.** REPLICAOF, the replication stream, min-replicas-to-write and replica-state checks
-  answer "not applicable". (35 suite tests.)
-- **Lua scripting and SHUTDOWN are not offered.** (5 suite tests.)
+  answer "not applicable".
+- **Lua scripting, pub/sub and SHUTDOWN are not offered.**
 - **Internal representation is not Redis's.** OBJECT ENCODING, shared integers, hash-table chain statistics and the
-  points at which an approximate trim (`~`, `LIMIT`) stops differ; exact trims and the data itself match. (13 tests.)
+  points at which an approximate trim (`~`, `LIMIT`) stops differ; exact trims and the data itself match.
 
 ## Not supported -- a client must not rely on it
-- **Persistence.** The region lives in the RAM host's memory only. When the RAM host process stops, every key is
-  gone; a front restart loses nothing. DEBUG RELOAD, SAVE, BGREWRITEAOF, AOF/RDB loading and DUMP-based checks fail.
-  (21 suite tests; acceptance `hostloss`: 0 of the acknowledged writes readable after the host restarts, against
-  all of them for stock with AOF.)
-- **Throughput comparable to stock Redis on one endpoint**, except reads of keys already read. Measured on the
-  Raspberry Pi 5 (build ddc5465, 2026-10-14): one endpoint gave 0.51x stock with pipelining, 0.43x with 100 clients
-  one command at a time, 0.15x for one client; with four endpoints the region's write total equals stock's (1.00x,
-  stock's primary feeding three replicas). Kept reads: `warm` and `warmscale` stages.
+- **Persistence.** The region is in the memory. When the memory stops, the region is gone. DEBUG RELOAD, SAVE,
+  BGREWRITEAOF, AOF/RDB loading and DUMP-based checks fail.
+- **Throughput comparable to stock on one endpoint.** Measured (study-one-keyspace.md, 2 cores, front, memory and
+  redis-benchmark on one machine): 0.22-0.28x stock pipelined, 0.31-0.42x with 50 clients one command at a time,
+  0.19-0.23x for one client.
 
-## Not measured yet
-- Across a LAN or the Internet with fronts on other machines (`STAGES=inet`, `tests/coordinated.py`).
-- Stock Redis Cluster with a cluster-aware client, which also serves one keyspace from several nodes.
+## Suite parity (x86 sandbox, 2 cores, `--clients 1`), the ten core files -- v33-one-keyspace identical to the copy design file by file (2026-10-19)
+| file | stock | front | the reds |
+|---|---|---|---|
+| unit/type/incr | 32 | 31 | shared-object refcount (encoding) |
+| unit/type/string | 82 | 79 | propagation 2; one test skipped on the box (big-value trim, an encoding check) |
+| unit/type/hash | 73 | 70 | ziplist encoding 2, DUMP |
+| unit/type/set | 119 | 114 | DEBUG RELOAD 3, propagation, HTSTATS |
+| unit/type/list | 274 | 261 | DEBUG RELOAD 5, RDB loading, encodings 2, propagation (the replication stream) 5 |
+| unit/type/zset | 320 | 316 | propagation 2, DEBUG RELOAD 2 |
+| unit/keyspace | 56 | 56 | -- |
+| unit/type/stream | 75 | 60 | propagation 7, AOF 2, radix-tree node size for `~`/LIMIT 6 |
+| unit/type/stream-cgroups | 66 | 56 | propagation 4, AOF 2, legacy RDB 2, consumer seen/active time and NOACK consumer (2, as before) |
+| unit/multi | 63 | 35 | propagation 12, Lua 4, persistence 5, REPLICAOF/min-replicas 2, SHUTDOWN, and their knock-ons |
+
+The same counts as the RAM-host build on every file (accept-20261017-111032), with every red in the same class; the
+blocking-order tests that passed there only when the woken client got a core first ("Linked LMOVEs", "Circular
+BRPOPLPUSH", unblock inside CLIENT UNBLOCK) now pass by construction.

@@ -58,6 +58,11 @@ def _lz4_smart(payload: bytes) -> Tuple[bytes, bool]:
     """
     if not payload:
         return payload, False
+    # [LZ4_FLOOR_V1] 2026-10-19, measured on the C++ port (ribbit semcodec.hpp) under MQTT QoS 0 across two boxes:
+    # inputs of 25-64 bytes were tried 2,232,831 times and came out smaller 0 times. Nothing at or under 64 bytes is
+    # tried. The C++ codec applies the same floor, so the two stay byte-identical (test_semcodec_oracle.py).
+    if len(payload) <= 64:
+        return payload, False
     compressed = lz4.frame.compress(payload)
     if len(compressed) < len(payload):
         return compressed, True
@@ -81,6 +86,11 @@ class SemanticCodec:
     TYPE_FLOAT = 4
     TYPE_BOOL  = 5
     TYPE_JSON  = 7   # dict / list ONLY
+    # [STRING_SPLICE_V1] [NUMBER_DELTA_V1] (ribbit platform 0.66/0.67) -- in a DIFFERENCE only, against the reference:
+    TYPE_SPLICE       = 8    # u16 pre, u16 suf, u16 len, the middle: the reference's string with its middle replaced
+    TYPE_INT_DELTA    = 9    # varint zigzag(new - ref) of an int64, mod 2**64
+    TYPE_FLOAT_DELTA  = 10   # varint zigzag(bits(new) - bits(ref)) of the IEEE-754 bits, mod 2**64
+    TYPE_DECSTR_DELTA = 11   # varint zigzag(new - ref) of a canonical decimal string that fits int64
 
     # ========================================================================
     # DIFF Encoding
@@ -130,9 +140,8 @@ class SemanticCodec:
 
         fb = bytearray()
         for idx, field, value in changed:
-            type_id = self._type_to_id(value)
-            fb.extend(struct.pack("<HB", idx, type_id))
-            fb.extend(self._encode_value(type_id, value))
+            has_ref = reference is not None and field in reference
+            fb.extend(self._encode_changed(idx, value, has_ref, reference[field] if has_ref else None))
 
         flags = FLAG_DIFF
         payload = bytes(fb)
@@ -181,9 +190,8 @@ class SemanticCodec:
 
         fb = bytearray()
         for idx, field, value in changed:
-            type_id = self._type_to_id(value)
-            fb.extend(struct.pack("<HB", idx, type_id))
-            fb.extend(self._encode_value(type_id, value))
+            has_ref = reference is not None and field in reference
+            fb.extend(self._encode_changed(idx, value, has_ref, reference[field] if has_ref else None))
 
         flags = FLAG_DIFF
         payload = bytes(fb)
@@ -198,19 +206,18 @@ class SemanticCodec:
         return header + payload, new_reference, False
 
     def _values_equal(self, a: Any, b: Any) -> bool:
-        """Compare values with tolerance for floats."""
-        if a is None and b is None:
+        """[EXACT_DIFF_V1] Equal means the receiver would rebuild the same value: same type (bool is not int, int is
+        not float), floats bit for bit (NaN equals the same NaN; 0.0 is not -0.0), dict keys in the same order. The old
+        tolerance (1e-9, and 1 == 1.0, True == 1) left real changes out of a difference: the receiver kept a value the
+        sender no longer had. The C++ codec (ribbit semcodec.hpp values_equal) is the same test."""
+        if type(a) is not type(b):
+            return False
+        if a is None:
             return True
-        if a is None or b is None:
-            return False
-        if type(a) != type(b):
-            if isinstance(a, (int, float)) and isinstance(b, (int, float)):
-                return abs(float(a) - float(b)) < 1e-9
-            return False
         if isinstance(a, float):
-            return abs(a - b) < 1e-9
+            return struct.pack("<d", a) == struct.pack("<d", b)
         if isinstance(a, dict):
-            if set(a.keys()) != set(b.keys()):
+            if list(a.keys()) != list(b.keys()):
                 return False
             return all(self._values_equal(a[k], b[k]) for k in a)
         if isinstance(a, list):
@@ -218,6 +225,77 @@ class SemanticCodec:
                 return False
             return all(self._values_equal(x, y) for x, y in zip(a, b))
         return a == b
+
+    # [STRING_SPLICE_V1] [NUMBER_DELTA_V1] one changed field of a difference: a delta or a splice against the reference
+    # when that is shorter than the whole value, else the whole value. Byte for byte the C++ codec's encode_changed.
+    @staticmethod
+    def _zz(d: int) -> int:
+        return ((d << 1) ^ (d >> 63)) & 0xFFFFFFFFFFFFFFFF
+
+    @staticmethod
+    def _varint(v: int) -> bytes:
+        out = bytearray()
+        while v >= 0x80:
+            out.append((v & 0x7F) | 0x80); v >>= 7
+        out.append(v)
+        return bytes(out)
+
+    @staticmethod
+    def _s64(v: int) -> int:
+        v &= 0xFFFFFFFFFFFFFFFF
+        return v - (1 << 64) if v >= (1 << 63) else v
+
+    @staticmethod
+    def _decstr(s: str):
+        """A canonical decimal integer that fits int64, or None."""
+        if not s or len(s) > 19:
+            return None
+        i = 1 if s[0] == "-" else 0
+        if i == len(s):
+            return None
+        if s[i] == "0" and (len(s) > i + 1 or i):
+            return None
+        if not all("0" <= ch <= "9" for ch in s[i:]):
+            return None
+        v = int(s)
+        return v if -(1 << 63) <= v < (1 << 63) else None
+
+    def _encode_changed(self, idx: int, value: Any, has_ref: bool, ref: Any) -> bytes:
+        I64 = (-(1 << 63), (1 << 63) - 1)
+        if has_ref:
+            t = 0; z = 0; whole = 0
+            if type(value) is int and type(ref) is int and I64[0] <= value <= I64[1] and I64[0] <= ref <= I64[1]:
+                t, z, whole = self.TYPE_INT_DELTA, self._zz(self._s64(value - ref)), 8
+            elif type(value) is float and type(ref) is float:
+                a = struct.unpack("<Q", struct.pack("<d", value))[0]; b = struct.unpack("<Q", struct.pack("<d", ref))[0]
+                t, z, whole = self.TYPE_FLOAT_DELTA, self._zz(self._s64(a - b)), 8
+            elif type(value) is str and type(ref) is str:
+                a, b = self._decstr(value), self._decstr(ref)
+                if a is not None and b is not None and I64[0] <= a - b <= I64[1]:
+                    t, z, whole = self.TYPE_DECSTR_DELTA, self._zz(a - b), 2 + len(value.encode("utf-8"))
+            if t and len(self._varint(z)) < whole:
+                return struct.pack("<HB", idx, t) + self._varint(z)
+            if type(value) is str and type(ref) is str:
+                try:
+                    o = ref.encode("utf-8"); x = value.encode("utf-8")
+                except UnicodeEncodeError:
+                    o = x = None                   # not UTF-8: sent whole (and refused there, as a TYPE_STR)
+                if o is not None:
+                    lim = min(len(o), len(x)); pre = 0
+                    while pre < lim and o[pre] == x[pre]:
+                        pre += 1
+                    while pre > 0 and pre < len(x) and (x[pre] & 0xC0) == 0x80:
+                        pre -= 1
+                    suf = 0
+                    while suf < lim - pre and o[len(o) - 1 - suf] == x[len(x) - 1 - suf]:
+                        suf += 1
+                    while suf > 0 and (x[len(x) - suf] & 0xC0) == 0x80:
+                        suf -= 1
+                    mid = len(x) - pre - suf
+                    if pre <= 0xFFFF and suf <= 0xFFFF and mid <= 0xFFFF and 6 + mid < 2 + len(x):
+                        return struct.pack("<HBHHH", idx, self.TYPE_SPLICE, pre, suf, mid) + x[pre:pre + mid]
+        type_id = self._type_to_id(value)
+        return struct.pack("<HB", idx, type_id) + self._encode_value(type_id, value)
 
     # ========================================================================
     # FULL Encoding (original - for bootstrap/RAW)
@@ -300,17 +378,17 @@ class SemanticCodec:
         stripped the signal the proxy uses to trigger a RAW re-bootstrap, so a
         template-less opcode 503'd forever. Returns (status, msg) or None if not an
         error frame. Layout: header(BBIH,8) + <HB idx,type>(3) + <H len>(2) + payload."""
-        try:
-            if not blob or len(blob) < 13:
-                return None
-            if struct.unpack("<I", blob[2:6])[0] != 0xFFFFFFFF:
-                return None
-            n = struct.unpack("<H", blob[11:13])[0]
-            payload = blob[13:13 + n].decode("utf-8", "replace")
-            status_str, _, msg = payload.partition(":")
-            return int(status_str), msg
-        except (struct.error, ValueError, IndexError):
+        # [NO_FALLBACK_ERROR_REPLY_V1] None answers only "not an error frame" (too short, or not the error opcode). An
+        # error frame whose status is not an integer raises: it used to read as "not an error" and lose the reason. The
+        # length check covers every unpack below, so nothing else can fail. (The C++ codec is the same.)
+        if not blob or len(blob) < 13:
             return None
+        if struct.unpack("<I", blob[2:6])[0] != 0xFFFFFFFF:
+            return None
+        n = struct.unpack("<H", blob[11:13])[0]
+        payload = blob[13:13 + n].decode("utf-8", "replace")
+        status_str, _, msg = payload.partition(":")
+        return int(status_str), msg
 
     # ========================================================================
     # Decoding (with DIFF support)
@@ -330,11 +408,13 @@ class SemanticCodec:
         if flags & FLAG_COMPRESSED:
             fb = lz4.frame.decompress(fb)
 
-        vals = self._decode_fieldblock(fb, n)
         is_diff = bool(flags & FLAG_DIFF)
+        splices = [] if is_diff else None
+        vals = self._decode_fieldblock(fb, n, splices)
 
         url_keys = getattr(req_tpl, "url_query_keys", []) or []
         json_fields = (getattr(req_tpl, "fragment", {}) or {}).get("field_order", []) or []
+        self._merge_splices(vals, splices, url_keys + json_fields, reference)
 
         if is_diff and reference:
             all_fields = url_keys + json_fields
@@ -362,11 +442,13 @@ class SemanticCodec:
         if flags & FLAG_COMPRESSED:
             fb = lz4.frame.decompress(fb)
 
-        vals = self._decode_fieldblock(fb, n)
         is_diff = bool(flags & FLAG_DIFF)
+        splices = [] if is_diff else None
+        vals = self._decode_fieldblock(fb, n, splices)
 
         frag = getattr(resp_tpl, "fragment", {}) or {}
         field_order = frag.get("field_order", []) or []
+        self._merge_splices(vals, splices, field_order, reference)
 
         if is_diff and reference:
             for idx, field in enumerate(field_order):
@@ -451,12 +533,72 @@ class SemanticCodec:
             return struct.pack("<B", 1 if value else 0)
         raise ValueError(f"Unknown type_id {type_id}")
 
-    def _decode_fieldblock(self, fb: bytes, n: int) -> Dict[int, Any]:
+    def _get_varint(self, fb: bytes, p: int) -> Tuple[int, int]:
+        v = 0
+        for sh in range(0, 64, 7):
+            if p >= len(fb):
+                raise struct.error("semcodec: short varint")
+            b = fb[p]; p += 1
+            v |= (b & 0x7F) << sh
+            if not b & 0x80:
+                return v & 0xFFFFFFFFFFFFFFFF, p
+        raise struct.error("semcodec: varint too long")
+
+    def _merge_splices(self, vals: Dict[int, Any], splices, fields: List[str], reference) -> None:
+        """[STRING_SPLICE_V1] [NUMBER_DELTA_V1] each splice or delta made whole against the reference's value of its field.
+        Without a reference (a receiver reading only the location out of a difference) they are not read here."""
+        if not splices or reference is None:
+            return
+        for idx, kind, a, b, mid in splices:
+            name = fields[idx] if idx < len(fields) else None
+            have = name is not None and name in reference
+            rv = reference.get(name) if have else None
+            if not have or (kind == self.TYPE_SPLICE and not isinstance(rv, str)):
+                raise ValueError("semcodec: a splice without its reference string (field " + (name if name is not None else "?") +
+                                 (", absent from the reference" if not have else ", not a string in the reference") + ")")
+            if kind == self.TYPE_INT_DELTA:
+                if type(rv) is not int or not (-(1 << 63) <= rv < (1 << 63)):
+                    raise ValueError("semcodec: an integer delta without its reference integer")
+                vals[idx] = self._s64(rv + a)
+            elif kind == self.TYPE_FLOAT_DELTA:
+                if type(rv) is not float:
+                    raise ValueError("semcodec: a float delta without its reference float")
+                u = (struct.unpack("<Q", struct.pack("<d", rv))[0] + a) & 0xFFFFFFFFFFFFFFFF
+                vals[idx] = struct.unpack("<d", struct.pack("<Q", u))[0]
+            elif kind == self.TYPE_DECSTR_DELTA:
+                bb = self._decstr(rv) if isinstance(rv, str) else None
+                if bb is None:
+                    raise ValueError("semcodec: a decimal delta without its reference number")
+                vals[idx] = str(bb + a)
+            else:
+                o = rv.encode("utf-8", "surrogatepass")
+                if a + b > len(o):
+                    raise ValueError("semcodec: a splice longer than its reference")
+                vals[idx] = (o[:a] + mid + o[len(o) - b:]).decode("utf-8", "replace")
+
+    def _decode_fieldblock(self, fb: bytes, n: int, splices=None) -> Dict[int, Any]:
         vals: Dict[int, Any] = {}
         p = 0
         for _ in range(n):
             idx, type_id = struct.unpack("<HB", fb[p:p+3])
             p += 3
+            if type_id == self.TYPE_SPLICE:          # [STRING_SPLICE_V1] (idx, kind, pre, suf, middle)
+                if splices is None:
+                    raise ValueError("semcodec: a splice outside a difference")
+                if len(fb) - p < 6:
+                    raise struct.error("semcodec: short splice")
+                pre, suf, L = struct.unpack("<HHH", fb[p:p+6]); p += 6
+                if len(fb) - p < L:
+                    raise struct.error("semcodec: short splice")
+                vals.pop(idx, None)
+                splices.append((idx, type_id, pre, suf, bytes(fb[p:p+L]))); p += L
+                continue
+            if type_id in (self.TYPE_INT_DELTA, self.TYPE_FLOAT_DELTA, self.TYPE_DECSTR_DELTA):   # [NUMBER_DELTA_V1]
+                if splices is None:
+                    raise ValueError("semcodec: a delta outside a difference")
+                z, p = self._get_varint(fb, p)
+                vals.pop(idx, None)
+                splices.append((idx, type_id, (z >> 1) ^ -(z & 1), 0, b"")); continue
             if type_id == self.TYPE_NULL:
                 vals[idx] = None
             elif type_id == self.TYPE_JSON:

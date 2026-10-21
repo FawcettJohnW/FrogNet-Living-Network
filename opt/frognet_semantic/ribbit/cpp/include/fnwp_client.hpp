@@ -33,17 +33,37 @@ namespace fnwp {
 using pyv::Dict; using pyv::Obj; using semcodec::Fields;
 struct Built { std::string req_type, frame, req_hash; Dict new_reference; };
 namespace detail {
-inline Obj sorted_keys(const Obj& o) {                  // json.dumps(sort_keys=True) sorts every dict, recursively
-    if (o.is<Dict>()) { const Dict& d = o.as<Dict>(); std::vector<size_t> ix(d.size()); for (size_t i = 0; i < ix.size(); ++i) ix[i] = i;
+// [REQ_HASH_IN_PLACE_V1] The same text as json.dumps({"_dst", "_path", "_op", **reference}, sort_keys=True), byte for
+// byte, written without building it: measured (MQTT, a batch of 37 writes, ~500 fields), a third of the client's CPU
+// went to copying the reference twice (Dict h, then sorted_keys' sorted copy) and to Dict::set's linear search per key --
+// quadratic in the fields. Now: one index sorted per dict, the values dumped where they lie.
+inline void dumps_sorted(std::string& o, const Obj& v) {
+    if (v.is<Dict>()) {
+        const Dict& d = v.as<Dict>(); std::vector<size_t> ix(d.size()); for (size_t i = 0; i < ix.size(); ++i) ix[i] = i;
         std::sort(ix.begin(), ix.end(), [&](size_t x, size_t y) { return d.keys[x] < d.keys[y]; });
-        Dict r; for (size_t i : ix) r.set(d.keys[i], sorted_keys(d.vals[i])); return r; }
-    if (o.is<pyv::List>()) { pyv::List l; for (const Obj& x : o.as<pyv::List>()) l.push_back(sorted_keys(x)); return l; }
-    return o;
+        o += '{';
+        for (size_t k = 0; k < ix.size(); ++k) { if (k) o += ", "; semtpl::detail::dumps_ascii_str(o, d.keys[ix[k]]); o += ": "; dumps_sorted(o, d.vals[ix[k]]); }
+        o += '}'; return;
+    }
+    if (v.is<pyv::List>()) { o += '['; bool f = true; for (const Obj& x : v.as<pyv::List>()) { if (!f) o += ", "; f = false; dumps_sorted(o, x); } o += ']'; return; }
+    semtpl::detail::dumps_ascii(o, v, true);
 }
 inline std::string req_hash(const std::string& target, const std::string& path, uint64_t opcode, const Dict& ref) {
-    Dict h; h.set("_dst", pyv::Str{target}); h.set("_path", pyv::Str{path}); h.set("_op", pyv::Int::of(int64_t(opcode)));
-    for (size_t i = 0; i < ref.size(); ++i) h.set(ref.keys[i], ref.vals[i]);          // **reference: its keys win
-    std::string text = semtpl::dumps_ascii(sorted_keys(Obj(h)), true);                  // default separators, ensure_ascii
+    // the top level: the three fixed keys unless the reference has them (its keys win), and every reference key, sorted
+    const Obj dst{pyv::Str{target}}, pth{pyv::Str{path}}, op{pyv::Int::of(int64_t(opcode))};
+    std::vector<std::pair<const std::string*, const Obj*>> top; top.reserve(ref.size() + 3);
+    static const std::string K_DST = "_dst", K_PATH = "_path", K_OP = "_op";
+    bool has_dst = false, has_path = false, has_op = false;
+    for (size_t i = 0; i < ref.size(); ++i) { const std::string& k = ref.keys[i];
+        if (k == K_DST) has_dst = true; else if (k == K_PATH) has_path = true; else if (k == K_OP) has_op = true;
+        top.emplace_back(&k, &ref.vals[i]); }
+    if (!has_dst) top.emplace_back(&K_DST, &dst);
+    if (!has_path) top.emplace_back(&K_PATH, &pth);
+    if (!has_op) top.emplace_back(&K_OP, &op);
+    std::sort(top.begin(), top.end(), [](const auto& x, const auto& y) { return *x.first < *y.first; });
+    thread_local std::string text; text.clear(); text += '{';
+    for (size_t k = 0; k < top.size(); ++k) { if (k) text += ", "; semtpl::detail::dumps_ascii_str(text, *top[k].first); text += ": "; dumps_sorted(text, *top[k].second); }
+    text += '}';
     unsigned char d[SHA256_DIGEST_LENGTH]; SHA256(reinterpret_cast<const unsigned char*>(text.data()), text.size(), d);
     return std::string(reinterpret_cast<const char*>(d), 16);
 }
@@ -54,10 +74,15 @@ inline std::string origin_trailer(const std::string& origin_ip, const std::strin
     return ob + hb + char(uint8_t(ob.size())) + char(uint8_t(hb.size())) + char(1) + "\xFA\xCE";
 }
 }  // namespace detail
+// unanswered: [NO_WRITE_ACK_V1] a write nobody waits for is never coalesced with another (nothing answers it) and is not a
+// REPEAT; its frame carries a zero request hash instead of the SHA-256 (measured: a tenth of a box's CPU). A later
+// REQ_REPEAT naming its request is a REQ_MISS at the far end and is resent whole -- answered, as every REPEAT is.
 inline Built build_request(const std::string& target_ip, const std::string& path, uint64_t opcode, const Fields& url_vals,
-                           const Fields& json_vals, const Dict* reference, const std::string& origin_ip, const std::string& dest_host) {
+                           const Fields& json_vals, const Dict* reference, const std::string& origin_ip, const std::string& dest_host,
+                           bool unanswered = false) {
     semcodec::DiffResult d = semcodec::encode_request_diff(opcode, url_vals, json_vals, reference, true);
-    Built b; b.new_reference = d.reference; b.req_hash = detail::req_hash(target_ip, path, opcode, d.reference);
+    Built b; b.new_reference = d.reference;
+    b.req_hash = (unanswered && !d.identical) ? std::string(16, '\0') : detail::req_hash(target_ip, path, opcode, d.reference);
     if (d.identical) { b.req_type = "REQ_REPEAT"; b.frame = semwire::wrap_req_repeat(b.req_hash); return b; }
     std::string sem = d.bytes + detail::origin_trailer(origin_ip, dest_host);
     if (!reference) { b.req_type = "REQ_FULL"; b.frame = semwire::wrap_req_full(b.req_hash, sem); }

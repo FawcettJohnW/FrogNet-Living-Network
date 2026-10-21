@@ -44,7 +44,7 @@ else:
     for p in range(BASE, BASE + NF + 1):
         try: socket.create_connection(("127.0.0.1", p), timeout=0.5).close(); sys.exit("port %d is already in use by a server this run did not start" % p)
         except OSError: pass
-    procs = [subprocess.Popen([B + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE, "--api", API, "--quiet"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
+    procs = [subprocess.Popen([B + "/ribbit-redis-host", "--listen", "127.0.0.1:%d" % BASE], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
     up(BASE)
     for i in range(NF):
         procs.append(subprocess.Popen([B + "/ribbit-redis-front", "--port", str(BASE + 1 + i), "--save", ""], env=dict(env, RIBBIT_RAM="127.0.0.1:%d" % BASE), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))

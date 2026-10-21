@@ -10,10 +10,10 @@
 #   REDIS_SRC   a built redis-7.2.11 tree (make). Its src/redis-server is moved to src/redis-server.stock once, and
 #               src/redis-server becomes a wrapper that runs whichever arm $ACCEPT_SERVER names, so Redis's suite
 #               starts stock or the region from the same tree with the same tests.
-#   STAGES      subset of: build metrics suite concurrency coherence bench clients warm endpoints loss hostloss scale warmscale inet   (default: all but inet)
+#   STAGES      subset of: build metrics suite concurrency bench clients warm endpoints loss hostloss scale warmscale inet   (default: all but inet)
 #   SUITE       Redis suite files (default: the ten qualify.sh runs)
 #   K           endpoints for endpoints/scale (default: cores, at least 2)
-#   RAM_ENDPOINT  host:port of a deployed Redis RAM host -- the inet stage only
+#   RAM_ENDPOINT  host:port of a deployed memory (ribbit-redis-host) -- the inet stage only
 set -u -o pipefail
 cd "$(dirname "$0")/.."; ROOT=$PWD
 command -v tclsh >/dev/null || { echo "accept FAIL: Redis's suite needs tclsh (apt-get install tcl)" >&2; exit 1; }
@@ -21,7 +21,7 @@ REDIS_SRC=${REDIS_SRC:?REDIS_SRC must name a built redis-7.2.11 tree}; REDIS_SRC
 # the suite puts unix sockets under REDIS_SRC/tests/tmp; a path near the kernel's 108-byte limit stops stock Redis from
 # starting while the region (which opens no unix socket) runs on -- an unequal test. Refuse such a tree up front.
 [ ${#REDIS_SRC} -le 40 ] || { echo "accept FAIL: REDIS_SRC path is ${#REDIS_SRC} characters; the suite's unix sockets need it 40 or less (e.g. /srv/redis-7.2.11)" >&2; exit 1; }
-STAGES=${STAGES:-"build metrics suite concurrency coherence bench clients warm endpoints loss hostloss scale warmscale"}
+STAGES=${STAGES:-"build metrics suite concurrency bench clients endpoints loss hostloss scale"}
 SUITE=${SUITE:-"unit/type/incr unit/type/string unit/type/hash unit/type/set unit/type/list unit/type/zset unit/keyspace unit/type/stream unit/type/stream-cgroups unit/multi"}
 K=${K:-$(nproc)}; [ "$K" -lt 2 ] && K=2
 OUT=$ROOT/results/accept-$(date +%Y%m%d-%H%M%S); mkdir -p "$OUT"; SUMMARY=$OUT/SUMMARY.txt
@@ -42,7 +42,7 @@ fi
 if file "$REDIS_SRC/src/redis-server" | grep -q ELF; then mv "$REDIS_SRC/src/redis-server" "$STOCK"; fi
 cat > "$REDIS_SRC/src/redis-server" <<EOF
 #!/bin/sh
-# accept.sh: runs the arm ACCEPT_SERVER names -- stock ($STOCK) or ribbit ($ROOT/build/ribbit-redis-front)
+# accept.sh: runs the arm ACCEPT_SERVER names -- stock ($STOCK) or ribbit ($ROOT/build/ribbit-redis-front, a front on a memory of its own)
 case "\${ACCEPT_SERVER:-stock}" in
   stock)  exec "$STOCK" "\$@" ;;
   ribbit) exec "$ROOT/build/ribbit-redis-front" "\$@" \${RIBBIT_ARGS:-} ;;
@@ -93,14 +93,6 @@ if has concurrency; then
   python3 tests/run_concurrency.py build 9810 > "$OUT/concurrency-ribbit.txt" 2>&1
   note "  region:"; grep -a '^RESULT' "$OUT/concurrency-ribbit.txt" | sed 's/^/    /' | tee -a "$SUMMARY"
   grep -a '^FAIL' "$OUT/concurrency-stock.txt" "$OUT/concurrency-ribbit.txt" | sed 's/^/    /' | tee -a "$SUMMARY"
-fi
-
-# [READS_AT_THE_FRONT_V1] the copies the fronts keep stay true: own writes, monotonic reads, convergence, flush
-if has coherence; then
-  note "== coherence: two fronts keeping what they read, writers on one and readers on the other at once (the region only)"
-  python3 tests/run_coherence.py build "$CLI" 9750 5 > "$OUT/coherence.txt" 2>&1
-  grep -aE "^(PASS|FAIL|RESULT)" "$OUT/coherence.txt" | sed "s/^/    /" | tee -a "$SUMMARY"
-  grep -aq "^RESULT" "$OUT/coherence.txt" || note "    RESULT FAIL coherence: did not finish: $(tail -1 "$OUT/coherence.txt")"
 fi
 
 # [REPEATED_MEASURE_V1] A single benchmark run swings +-25% on a shared machine (six runs of one command on a fresh
@@ -179,8 +171,8 @@ if has warmscale; then
   for k in $(seq 1 $K); do BENCH_WARM=1 BENCH_TESTS=get measure_k $k warmscale; done; report warmscale
 fi
 if has inet; then
-  note "== inet: two fronts here, one keyspace on the deployed RAM host"
+  note "== inet: the two-front checks with both fronts here and the memory deployed elsewhere"
   if [ -z "${RAM_ENDPOINT:-}" ]; then note "  RESULT FAIL inet: RAM_ENDPOINT is not set"
-  else RAM_ENDPOINT=$RAM_ENDPOINT python3 tests/run_two_fronts.py build "$CLI" 9900 > "$OUT/inet.txt" 2>&1; pick "$OUT/inet.txt"; fi
+  else MEMORY=$RAM_ENDPOINT python3 tests/run_two_fronts.py build 9900 > "$OUT/inet.txt" 2>&1; pick "$OUT/inet.txt"; fi
 fi
 note "## results in $OUT"

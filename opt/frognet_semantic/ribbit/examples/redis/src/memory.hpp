@@ -36,7 +36,14 @@
 #include <optional>
 #include <functional>
 #include <cstdint>
+#include <random>
 namespace rr {
+
+// [ONE_ORDER_V1] Every box applies every intent, in write order, to its own copy of the keyspace. While one is applied,
+// the clock is the intent's time and the random generator is seeded by its write id, so every box decides the same.
+extern thread_local int64_t apply_now_ms;     // 0: the wall clock
+extern thread_local int64_t apply_clock_advance;   // DEBUG SLEEP: how far the order's clock moves after the command
+std::mt19937_64& apply_rng();
 
 // live-object counters: what the memory is made of right now (INFO ribbit)
 struct MemStats {
@@ -181,7 +188,6 @@ struct Var {
     ~Var();
 
     CellPtr get(const std::string& instance) const;
-    size_t count() const;                             // instances present (val and ttl included when present)
     size_t inst_count() const { auto* m = inst_c(); return m ? m->size() : 0; }
     size_t rank(const std::string& lo) const { auto* m = inst_c(); return m ? m->rank(lo) : 0; }
     std::optional<Ent> nth(size_t i) const;
@@ -237,9 +243,10 @@ public:
 
     explicit Region(size_t words_n = 4096) : WORDS(words_n), words(new WaitWord[words_n]) {}
     int dbi = -1;                                    // the Redis db this region is ("dbN"), -1 for any other region
-    // [READS_AT_THE_FRONT_V1] called after every change a reader could see, from the thread that made it: the variable
-    // changed, or nullptr for the whole region (FLUSHDB, SWAPDB). Set once at start; the fronts' copies follow it.
-    static void (*on_change)(Region& R, const std::string* variable);
+    // [WOKEN_BY_THE_WRITE_V1] called when a write moves a word someone is registered on, on the writer's thread, after
+    // the word moved: the region serves its parked commands from here (region.cpp). Set once at start.
+    static void (*on_wake)(WaitWord& w);
+    static void wake(WaitWord& w);        // move the word whether or not anyone is registered (CLIENT UNBLOCK, KILL)
     static size_t hash_of(const std::string& variable) { return std::hash<std::string>{}(variable); }
     WaitWord& word(const std::string& variable) const { return words[hash_of(variable) & (WORDS - 1)]; }
     Bucket& bucket(const std::string& variable) const { return buckets()[hash_of(variable) & (BUCKETS - 1)]; }
@@ -250,7 +257,6 @@ public:
     void touched_all();
     static void begin_quiet(std::vector<std::pair<Region*, std::string>>& held);   // hold wakes on this thread
     static void end_quiet();                                                      // deliver them, once each
-    static void wait(WaitWord& w, uint32_t seen, int64_t timeout_ms);
     static void watch(WaitWord& w);       // register as a waiter BEFORE reading seen and checking the data
     static void unwatch(WaitWord& w);
 };
@@ -268,7 +274,6 @@ public:
     uint64_t write(Region& R, const std::string& variable, size_t hash, const std::string& instance, BagPtr bag);
     uint64_t write(Region& R, const std::string& variable, size_t hash, const std::string& instance, Bag bag);   // the value lands inside the node
     VarPtr var(Region& R, const std::string& variable, size_t hash) const;
-    bool read(const std::string& service, const std::string& variable, const std::string& instance, Cell& out) const;
     VarPtr var(const std::string& service, const std::string& variable) const;     // the live variable, or null
     static CellPtr inst(const VarPtr& v, const std::string& instance) { return v ? v->get(instance) : nullptr; }
     // a member of a batch: a write, a removal of one instance (remove), or of the whole variable (whole)
@@ -323,9 +328,6 @@ public:
                                  bool reverse = false, size_t offset = 0, size_t limit = 0, bool hi_unbounded = false) const;
     std::vector<Cell> read_indexed(const std::string& service, int64_t lo, int64_t hi, size_t limit = 0) const;   // ttl cells by expiry
     size_t indexed_count(const std::string& service) const;
-    std::vector<Cell> read_after(const std::string& service, const std::string& variable, const std::string* instance,
-                                 uint64_t after, int64_t wait_ms) const;
-    size_t count(const std::string& service, const std::string& variable) const;
     uint64_t remove(const std::string& service, const std::string& variable, const std::string& instance);
     size_t remove_variable(const std::string& service, const std::string& variable, std::vector<BagPtr>* removed = nullptr);
 
@@ -333,7 +335,6 @@ public:
     size_t variable_count(const std::string& service) const;
     std::vector<std::string> variables(const std::string& service) const;
     bool random_variable(const std::string& service, std::string& out) const;
-    std::vector<std::string> instances(const std::string& service, const std::string& variable) const;
     void each_cell(const std::string& service, const std::function<bool(const Cell&)>& f) const;
 
     uint64_t clear(const std::string& service);

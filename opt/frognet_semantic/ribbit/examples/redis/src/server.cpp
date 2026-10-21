@@ -180,23 +180,13 @@ void Stats::reset() {
 }
 
 // ---------------------------------------------------------------- Client
-bool Client::send(const std::string& bytes) {
-    std::lock_guard<std::mutex> lk(wmu);
-    if (closing) return false;
-    size_t off = 0;
-    while (off < bytes.size()) {
-        ssize_t n = ::write(fd, bytes.data() + off, bytes.size() - off);
-        if (n < 0) { if (errno == EINTR) continue; closing = true; return false; }
-        off += (size_t)n;
-    }
-    return true;
-}
 
 void Client::kill() {
     closing = true;
-    ::shutdown(fd, SHUT_RDWR);
+    if (fd >= 0) ::shutdown(fd, SHUT_RDWR);
+    if (g.on_kill) g.on_kill(this);
     WaitWord* w = waiting_on.load();
-    if (w) { w->gen.fetch_add(1, std::memory_order_release); syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w->gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0); }
+    if (w) Region::wake(*w);
 }
 
 // ---------------------------------------------------------------- registry / dispatch
@@ -304,8 +294,11 @@ static void dispatch_command(Client& c, const Argv& argv, Reply& r, const std::s
     size_t before = r.out.size();
     e->fn(c, argv, r);
     auto us = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t0).count();
-    g.stats.commands++;
     bool failed = r.out.size() > before && r.out[before] == '-';
+    // [PARKED_IN_THE_ORDER_V1] a parked command is one call: counted when it first ran; a try that waits again counts
+    // nothing, and the one that finishes counts only how it ended (an error it answers is an error once)
+    if (c.retrying) { if (c.would_block) return; e->usec += (uint64_t)us; if (failed) { count_error(r.out.substr(before, r.out.find("\r\n", before) - before)); e->failed++; } return; }
+    g.stats.commands++;
     if (failed) count_error(r.out.substr(before, r.out.find("\r\n", before) - before));
     e->calls++; e->usec += (uint64_t)us; if (failed) e->failed++;
 }

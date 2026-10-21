@@ -36,6 +36,9 @@
 // depends on its stack, about 1000); C++ strings that are not UTF-8/WTF-8 at all have no Python form and raise
 // EncodeError where Python would encode.
 #pragma once
+#include <cstdlib>
+#include <cstdio>
+#include <atomic>
 #include "pyval.hpp"
 #include "pyuni_tables.hpp"
 #include <lz4frame.h>
@@ -51,7 +54,17 @@ namespace semcodec {
 using namespace pyv;
 constexpr uint8_t WIRE_VERSION = 5, FLAG_COMPRESSED = 0x01, FLAG_DIFF = 0x02;
 constexpr size_t REQ_HASH_LEN = 16, MAX_WIRE_FIELD_BYTES = 0xFFFF, MAX_INT_DIGITS = 4300, MAX_DEPTH = 900;
-enum : uint8_t { TYPE_NULL = 0, TYPE_RAW = 1, TYPE_STR = 2, TYPE_INT = 3, TYPE_FLOAT = 4, TYPE_BOOL = 5, TYPE_JSON = 7 };
+enum : uint8_t { TYPE_NULL = 0, TYPE_RAW = 1, TYPE_STR = 2, TYPE_INT = 3, TYPE_FLOAT = 4, TYPE_BOOL = 5, TYPE_JSON = 7,
+                 TYPE_SPLICE = 8, TYPE_INT_DELTA = 9, TYPE_FLOAT_DELTA = 10, TYPE_DECSTR_DELTA = 11 };
+// [NUMBER_DELTA_V1] in a DIFF only, like a splice: a number as its reference's number moved by a signed amount, the
+// amount zigzag varint (1 B for a counter that moved by one, 8 B were sent). INT_DELTA: an integer against an integer.
+// FLOAT_DELTA: a float as the difference of its IEEE bits from the reference's (a timestamp a millisecond on: 2-3 B).
+// DECSTR_DELTA: a string that is a canonical decimal integer against one that is too (a window instance "N").
+// Sent only when shorter than the value itself; applied by the receiver against the same reference.
+// [STRING_SPLICE_V1] TYPE_SPLICE, in a DIFF only: a string field as its reference's string with its middle replaced --
+// u16 bytes kept from the front, u16 bytes kept from the back, u16 length and the new middle's bytes. Sent when it is
+// shorter than the string itself: a value that changes in a few characters (a counter, a timestamp in a payload)
+// costs those characters, not the whole string again. Front and back are cut at character boundaries.
 constexpr uint32_t ERROR_OPCODE = 0xFFFFFFFFu;
 using Fields = std::vector<std::pair<std::string, Obj>>;
 struct DiffResult { std::string bytes; Dict reference; bool identical = false; };
@@ -476,11 +489,27 @@ inline std::string lz4_decompress(std::string_view data) {
     dst.resize(written);
     return dst;
 }
+// [DIAG-LZ4] what compression attempts won, by input size (bucket k: sizes up to 2^(k+5)), said at exit
+struct Lz4Diag {
+    std::atomic<uint64_t> tried[12] = {}, won[12] = {}, in_bytes[12] = {}, saved[12] = {};
+    Lz4Diag() { std::atexit([] { Lz4Diag& d = lz4_diag(); uint64_t any = 0; for (auto& t : d.tried) any += t.load();
+        if (!any) return;
+        std::fprintf(stderr, "[DIAG-LZ4] size<=: tried won bytes_in bytes_saved\n");
+        for (int k = 0; k < 12; k++) if (d.tried[k].load()) std::fprintf(stderr, "[DIAG-LZ4] %6u: %llu %llu %llu %llu\n", 1u << (k + 5),
+            (unsigned long long)d.tried[k].load(), (unsigned long long)d.won[k].load(), (unsigned long long)d.in_bytes[k].load(), (unsigned long long)d.saved[k].load()); }); }
+    static Lz4Diag& lz4_diag();
+};
+inline Lz4Diag& Lz4Diag::lz4_diag() { static Lz4Diag* d = new Lz4Diag; return *d; }
 // _lz4_smart: compress only when the frame is smaller than the input
 inline std::pair<std::string, bool> lz4_smart(std::string_view payload) {
-    if (payload.empty()) return {std::string(payload), false};
+    // [LZ4_NEVER_SMALLER_SKIPPED_V1] a frame is >= 24 B. [LZ4_FLOOR_V1] 2026-10-19, MQTT QoS 0 across two boxes, 8 s:
+    // inputs of 25-64 bytes were tried 2,232,831 times (box A and the memory) and smaller 0 times; 65-128 won 11,105 of
+    // 12,972. Nothing at or under 64 bytes is tried.
+    if (payload.size() <= 64) return {std::string(payload), false};
     std::string c = lz4_compress(payload);
-    if (c.size() < payload.size()) return {std::move(c), true};
+    int k = 0; while (k < 11 && payload.size() > (size_t(1) << (k + 5))) ++k;
+    Lz4Diag& d = Lz4Diag::lz4_diag(); d.tried[k].fetch_add(1, std::memory_order_relaxed); d.in_bytes[k].fetch_add(payload.size(), std::memory_order_relaxed);
+    if (c.size() < payload.size()) { d.won[k].fetch_add(1, std::memory_order_relaxed); d.saved[k].fetch_add(payload.size() - c.size(), std::memory_order_relaxed); return {std::move(c), true}; }
     return {std::string(payload), false};
 }
 
@@ -567,6 +596,23 @@ inline void encode_field(std::string& fb, size_t idx, const Obj& v) {
     put(fb, idx, 2); fb.push_back(char(t));
     encode_value(fb, t, v);
 }
+inline void put_varint(std::string& o, uint64_t v) { while (v >= 0x80) { o.push_back(char(v | 0x80)); v >>= 7; } o.push_back(char(v)); }
+inline uint64_t get_varint(std::string_view s, size_t& p) {
+    uint64_t v = 0; for (int sh = 0; sh < 64; sh += 7) { if (p >= s.size()) throw StructError("semcodec: short varint");
+        const uint8_t b = uint8_t(s[p++]); v |= uint64_t(b & 0x7F) << sh; if (!(b & 0x80)) return v; }
+    throw StructError("semcodec: varint too long");
+}
+inline uint64_t zz(int64_t v) { return (uint64_t(v) << 1) ^ uint64_t(v >> 63); }
+inline int64_t unzz(uint64_t v) { return int64_t(v >> 1) ^ -int64_t(v & 1); }
+inline size_t varint_len(uint64_t v) { size_t n = 1; while (v >= 0x80) { v >>= 7; ++n; } return n; }
+// a canonical decimal integer that fits int64: what DECSTR_DELTA may stand for
+inline bool decstr(const std::string& s, int64_t& v) {
+    if (s.empty() || s.size() > 19) return false;
+    size_t i = s[0] == '-' ? 1 : 0; if (i == s.size()) return false;
+    if (s[i] == '0' && (s.size() > i + 1 || i)) return false;
+    for (size_t k = i; k < s.size(); ++k) if (s[k] < '0' || s[k] > '9') return false;
+    auto r = std::from_chars(s.data(), s.data() + s.size(), v); return r.ec == std::errc() && r.ptr == s.data() + s.size();
+}
 inline std::string finish(uint64_t opcode, uint8_t flags, size_t n, std::string payload, bool compress) {
     if (compress && !payload.empty()) {
         auto c = lz4_smart(payload);
@@ -591,25 +637,75 @@ inline std::string encode_full(uint64_t opcode, const Fields& a, const Fields* b
     merged(a, b, [&](size_t idx, const std::pair<std::string, Obj>& f) { encode_field(fb, idx, f.second); n = idx + 1; });
     return finish(opcode, 0, n, std::move(fb), compress);
 }
+// [ENCODE_CHANGED_V1] a difference from the fields that changed: index, new value, the reference's value (null: none).
+// encode_diff finds them by comparing; a caller that already knows them (the memory forwarding its writer's changes) gives
+// them here and the packet is the same bytes.
+struct ChangedField { size_t first; const Obj* second; const Obj* ref; };
+inline std::string encode_changed(uint64_t opcode, const std::vector<ChangedField>& changed, bool compress);
 inline DiffResult encode_diff(uint64_t opcode, const Fields& a, const Fields* b, const Dict* reference, bool compress) {
     DiffResult r;
-    std::vector<std::pair<size_t, const Obj*>> changed;
+    using Changed = ChangedField;
+    std::vector<Changed> changed;
     static const Obj none{None{}};
+    // [FIELDS_FOUND_IN_PLACE_V1] a reference is built in its template's field order, so field idx is looked for at idx
+    // first (measured: Dict::find's scan per field, and set's, made each write's difference quadratic in its fields)
+    const bool fresh_ref = a.empty();                   // no URL fields: names are the template's, distinct
+    if (fresh_ref) { r.reference.keys.reserve(b ? b->size() : 0); r.reference.vals.reserve(b ? b->size() : 0); }
     merged(a, b, [&](size_t idx, const std::pair<std::string, Obj>& f) {
-        r.reference.set(f.first, f.second);
+        // [DUPLICATE_NAMES_LAST_WINS_V1] a name given twice is one field: its last value, in its first place, as a dict
+        // holds it (core/codec.py's new_reference). Names are distinct in a template, so the scan finds nothing.
+        if (fresh_ref && std::find(r.reference.keys.begin(), r.reference.keys.end(), f.first) == r.reference.keys.end()) {
+            r.reference.keys.push_back(f.first); r.reference.vals.push_back(f.second); }
+        else r.reference.set(f.first, f.second);
         if (reference) {
-            long at = reference->find(f.first);
+            long at = (idx < reference->size() && reference->keys[idx] == f.first) ? long(idx) : reference->find(f.first);
             const Obj& ref = at >= 0 ? reference->vals[size_t(at)] : none;
-            if (!values_equal(f.second, ref)) changed.emplace_back(idx, &f.second);
+            if (!values_equal(f.second, ref)) changed.push_back(Changed{idx, &f.second, at >= 0 ? &ref : nullptr});
         } else {
-            changed.emplace_back(idx, &f.second);
+            changed.push_back(Changed{idx, &f.second, nullptr});
         }
     });
     if (changed.empty() && reference) { r.identical = true; return r; }
-    std::string fb;
-    for (auto& c : changed) encode_field(fb, c.first, *c.second);
-    r.bytes = finish(opcode, FLAG_DIFF, changed.size(), std::move(fb), compress);
+    r.bytes = encode_changed(opcode, changed, compress);
     return r;
+}
+inline std::string encode_changed(uint64_t opcode, const std::vector<ChangedField>& changed, bool compress) {
+    std::string fb;
+    for (auto& c : changed) {
+        const Obj& v = *c.second;
+        if (c.ref) {                                    // [NUMBER_DELTA_V1]
+            uint8_t t = 0; uint64_t z = 0; size_t whole = 0;
+            if (v.is<Int>() && c.ref->is<Int>() && !v.as<Int>().big && !c.ref->as<Int>().big) {
+                t = TYPE_INT_DELTA; z = zz(int64_t(uint64_t(v.as<Int>().v) - uint64_t(c.ref->as<Int>().v))); whole = 8;
+            } else if (v.is<double>() && c.ref->is<double>() && !v.is<bool>()) {
+                uint64_t a, b; const double x = v.as<double>(), y = c.ref->as<double>(); std::memcpy(&a, &x, 8); std::memcpy(&b, &y, 8);
+                t = TYPE_FLOAT_DELTA; z = zz(int64_t(a - b)); whole = 8;
+            } else if (v.is<Str>() && c.ref->is<Str>()) {
+                int64_t a, b;
+                if (decstr(v.as<Str>().s, a) && decstr(c.ref->as<Str>().s, b) && !__builtin_sub_overflow(a, b, &a)) {
+                    t = TYPE_DECSTR_DELTA; z = zz(a); whole = 2 + v.as<Str>().s.size(); }
+            }
+            if (t && varint_len(z) < whole) { put(fb, c.first, 2); fb.push_back(char(t)); put_varint(fb, z); continue; }
+        }
+        if (c.ref && v.is<Str>() && c.ref->is<Str>()) {   // [STRING_SPLICE_V1]
+            {
+                const std::string& o = c.ref->as<Str>().s; const std::string& x = v.as<Str>().s;
+                size_t pre = 0; const size_t lim = std::min(o.size(), x.size());
+                while (pre < lim && o[pre] == x[pre]) ++pre;
+                while (pre > 0 && pre < x.size() && (uint8_t(x[pre]) & 0xC0) == 0x80) --pre;
+                size_t suf = 0;
+                while (suf < lim - pre && o[o.size() - 1 - suf] == x[x.size() - 1 - suf]) ++suf;
+                while (suf > 0 && (uint8_t(x[x.size() - suf]) & 0xC0) == 0x80) --suf;
+                const size_t mid = x.size() - pre - suf;
+                if (pre <= 0xFFFF && suf <= 0xFFFF && mid <= 0xFFFF && 6 + mid < 2 + x.size()) {
+                    put(fb, c.first, 2); fb.push_back(char(TYPE_SPLICE)); put(fb, pre, 2); put(fb, suf, 2); put(fb, mid, 2);
+                    fb.append(x, pre, mid); continue;
+                }
+            }
+        }
+        encode_field(fb, c.first, v);
+    }
+    return finish(opcode, FLAG_DIFF, changed.size(), std::move(fb), compress);
 }
 
 using Vals = std::vector<std::pair<size_t, Obj>>;   // Python dict idx -> value; a repeated idx overwrites
@@ -621,7 +717,8 @@ inline const Obj* vget(const Vals& vals, size_t idx) {
     for (auto& p : vals) if (p.first == idx) return &p.second;
     return nullptr;
 }
-inline Vals decode_fieldblock(std::string_view fb, size_t n) {
+struct Splice { size_t idx, pre, suf; std::string mid; uint8_t kind = TYPE_SPLICE; int64_t d = 0; };   // [STRING_SPLICE_V1] [NUMBER_DELTA_V1] against the reference
+inline Vals decode_fieldblock(std::string_view fb, size_t n, std::vector<Splice>* splices = nullptr) {
     Vals vals;
     size_t p = 0;
     for (size_t k = 0; k < n; ++k) {
@@ -642,12 +739,23 @@ inline Vals decode_fieldblock(std::string_view fb, size_t n) {
         case TYPE_BOOL:
             if (p >= fb.size()) throw IndexError("semcodec: index out of range");
             vset(vals, idx, bool(fb[p] != 0)); p += 1; break;
+        case TYPE_SPLICE: {
+            if (!splices) throw ValueError("semcodec: a splice outside a difference");
+            if (fb.size() - p < 6) throw StructError("semcodec: short splice");
+            size_t pre = size_t(get(fb, p, 2)), suf = size_t(get(fb, p + 2, 2)), L = size_t(get(fb, p + 4, 2)); p += 6;
+            if (fb.size() - p < L) throw StructError("semcodec: short splice");
+            splices->push_back(Splice{idx, pre, suf, std::string(slice(fb, p, p + L))}); p += L; break;
+        }
+        case TYPE_INT_DELTA: case TYPE_FLOAT_DELTA: case TYPE_DECSTR_DELTA: {   // [NUMBER_DELTA_V1]
+            if (!splices) throw ValueError("semcodec: a delta outside a difference");
+            Splice sp{idx, 0, 0, {}, t, unzz(get_varint(fb, p))}; splices->push_back(std::move(sp)); break;
+        }
         default: throw ValueError("Unknown type_id " + std::to_string(t));
         }
     }
     return vals;
 }
-struct Decoded { bool diff; size_t n; Vals vals; };
+struct Decoded { bool diff; size_t n; Vals vals; std::vector<Splice> splices; };
 inline Decoded decode_packet(std::string_view packet) {
     if (packet.size() < 8) throw StructError("semcodec: unpack requires a buffer of 8 bytes");
     uint8_t version = uint8_t(packet[0]), flags = uint8_t(packet[1]);
@@ -656,12 +764,31 @@ inline Decoded decode_packet(std::string_view packet) {
     std::string_view fb = packet.substr(8);
     std::string plain;
     if (flags & FLAG_COMPRESSED) { plain = lz4_decompress(fb); fb = plain; }
-    return Decoded{(flags & FLAG_DIFF) != 0, n, decode_fieldblock(fb, n)};
+    Decoded d{(flags & FLAG_DIFF) != 0, n, {}, {}};
+    d.vals = decode_fieldblock(fb, n, (flags & FLAG_DIFF) ? &d.splices : nullptr);
+    return d;
 }
 inline void merge_reference(Decoded& d, const std::vector<std::string>& fields, const Dict* reference) {
+    // [STRING_SPLICE_V1] the reference's string, its middle replaced. Without a reference (a receiver reading only the
+    // location out of a difference, before it knows which reference the difference is against) a spliced field is not
+    // read here: it is read when the difference is decoded against its reference.
+    for (auto& sp : reference ? d.splices : std::vector<Splice>{}) {
+        const long at = (reference && sp.idx < fields.size()) ? reference->find(fields[sp.idx]) : -1;
+        if (at < 0 || (sp.kind == TYPE_SPLICE && !reference->vals[size_t(at)].is<Str>())) throw ValueError("semcodec: a splice without its reference string (field " + (sp.idx < fields.size() ? fields[sp.idx] : std::string("?")) + (reference ? (at < 0 ? ", absent from the reference" : ", not a string in the reference") : ", no reference") + ")");
+        const Obj& rv = reference->vals[size_t(at)];
+        if (sp.kind == TYPE_INT_DELTA) { if (!rv.is<Int>() || rv.as<Int>().big) throw ValueError("semcodec: an integer delta without its reference integer");
+            vset(d.vals, sp.idx, Int::of(int64_t(uint64_t(rv.as<Int>().v) + uint64_t(sp.d)))); continue; }
+        if (sp.kind == TYPE_FLOAT_DELTA) { if (!rv.is<double>()) throw ValueError("semcodec: a float delta without its reference float");
+            uint64_t u; const double y = rv.as<double>(); std::memcpy(&u, &y, 8); u += uint64_t(sp.d); double x; std::memcpy(&x, &u, 8); vset(d.vals, sp.idx, x); continue; }
+        if (sp.kind == TYPE_DECSTR_DELTA) { int64_t b; if (!rv.is<Str>() || !decstr(rv.as<Str>().s, b)) throw ValueError("semcodec: a decimal delta without its reference number");
+            vset(d.vals, sp.idx, Str{std::to_string(b + sp.d)}); continue; }
+        const std::string& o = rv.as<Str>().s;
+        if (sp.pre + sp.suf > o.size()) throw ValueError("semcodec: a splice longer than its reference");
+        vset(d.vals, sp.idx, Str{o.substr(0, sp.pre) + sp.mid + o.substr(o.size() - sp.suf)});
+    }
     if (!(d.diff && reference && reference->size())) return;
     for (size_t idx = 0; idx < fields.size(); ++idx) {
-        long at = reference->find(fields[idx]);
+        long at = (idx < reference->size() && reference->keys[idx] == fields[idx]) ? long(idx) : reference->find(fields[idx]);   // [FIELDS_FOUND_IN_PLACE_V1]
         if (!vget(d.vals, idx) && at >= 0) d.vals.emplace_back(idx, reference->vals[size_t(at)]);
     }
 }

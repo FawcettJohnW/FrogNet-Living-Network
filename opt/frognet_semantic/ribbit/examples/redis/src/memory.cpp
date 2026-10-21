@@ -19,6 +19,7 @@
 #include <chrono>
 #include <random>
 #include <stdexcept>
+#include <cstring>
 #include <algorithm>
 #include <linux/futex.h>
 #include <sys/syscall.h>
@@ -32,18 +33,17 @@ void memstats_map(int d) { memstats().maps.fetch_add(d, std::memory_order_relaxe
 static const std::string VAL_INST = "";
 static const std::string TTL_INST = std::string("\x01ttl", 4);
 
+// [ONE_ORDER_V1] while an intent is applied, its time is the time: every box applies it at the same instant
+thread_local int64_t apply_now_ms = 0;
+thread_local int64_t apply_clock_advance = 0;
+std::mt19937_64& apply_rng() { static thread_local std::mt19937_64 r{std::random_device{}()}; return r; }
 int64_t Memory::now_ms() {
+    if (apply_now_ms) return apply_now_ms;
     using namespace std::chrono;
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
 // ---------------------------------------------------------------- wait words
-static void futex_wait(std::atomic<uint32_t>& w, uint32_t seen, int64_t timeout_ms) {
-    if (timeout_ms == 0) return;
-    struct timespec ts, *tp = nullptr;
-    if (timeout_ms > 0) { ts.tv_sec = timeout_ms / 1000; ts.tv_nsec = (timeout_ms % 1000) * 1000000L; tp = &ts; }
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w), FUTEX_WAIT_PRIVATE, seen, tp, nullptr, 0);
-}
 // A writer bumps a word only when someone is registered on it. The waiter registers (a full-barrier RMW)
 // BEFORE it reads `seen` and checks the data; the writer publishes, fences, then reads the registration.
 // One of them sees the other: either the writer bumps, or the waiter's data check sees the write.
@@ -53,8 +53,14 @@ static void bump(WaitWord& w) {
     if (w.waiters.load(std::memory_order_seq_cst) == 0) return;
     w.gen.fetch_add(1, std::memory_order_release);
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    if (Region::on_wake) Region::on_wake(w);
 }
-void Region::wait(WaitWord& w, uint32_t seen, int64_t timeout_ms) { futex_wait(w.gen, seen, timeout_ms); }   // caller is registered
+void (*Region::on_wake)(WaitWord& w) = nullptr;
+void Region::wake(WaitWord& w) {
+    w.gen.fetch_add(1, std::memory_order_release);
+    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    if (on_wake) on_wake(w);
+}
 void Region::watch(WaitWord& w) { w.waiters.fetch_add(1, std::memory_order_seq_cst); }
 void Region::unwatch(WaitWord& w) { w.waiters.fetch_sub(1, std::memory_order_seq_cst); }
 // A quiet span: the wakes of every write inside it are held and delivered once at its end, so a held read
@@ -68,14 +74,12 @@ void Region::end_quiet() {
     for (auto& h : *held) h.first->touched(h.second);
     held->clear();
 }
-void (*Region::on_change)(Region& R, const std::string* variable) = nullptr;
 void Region::touched(const std::string& variable) { touched_h(hash_of(variable), variable); }
 void Region::touched_h(size_t h, const std::string& variable) {
     if (quiet_span) { quiet_span->emplace_back(this, variable); return; }
-    if (on_change) on_change(*this, &variable);      // [READS_AT_THE_FRONT_V1] after the change, before anyone is told
     bump(word_h(h)); bump(any);
 }
-void Region::touched_all() { if (on_change) on_change(*this, nullptr); for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
+void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
 
 // ---------------------------------------------------------------- Var
 // A node that landed alone is retired on its own. A node that landed as a batch member belongs to its batch:
@@ -126,7 +130,6 @@ CellPtr Var::get(const std::string& instance) const {
     auto* n = m->get(instance);
     return n ? Memory::resolve(n->val.node.load(std::memory_order_acquire)) : nullptr;
 }
-size_t Var::count() const { return inst_count() + (val.load(std::memory_order_acquire) ? 1 : 0) + (ttl.load(std::memory_order_acquire) ? 1 : 0); }
 std::optional<Ent> Var::nth(size_t i) const { auto* m = inst_c(); if (!m) return std::nullopt; auto* n = m->nth(i); if (!n) return std::nullopt; CellPtr c = Memory::resolve(n->val.node.load(std::memory_order_acquire)); if (!c) return std::nullopt; return Ent{n->key, c}; }
 void Var::range(const std::string& lo, const std::string& hi, bool hi_unbounded, const std::function<bool(const std::string&, const CellPtr&)>& f) const {
     auto* m = inst_c(); if (!m) return;
@@ -370,11 +373,6 @@ uint64_t Memory::write_many(const std::string& service, const std::vector<W>& ws
 // ---------------------------------------------------------------- reads
 static Cell mk_cell(const std::string& s, const std::string& v, const std::string& i, const CellPtr& n) { Cell c; c.service = s; c.variable = v; c.instance = i; c.node = n; return c; }
 
-bool Memory::read(const std::string& service, const std::string& variable, const std::string& instance, Cell& out) const {
-    VarPtr v = var(service, variable); if (!v) return false;
-    CellPtr n = v->get(instance); if (!n) return false;
-    out = mk_cell(service, variable, instance, n); return true;
-}
 std::vector<Cell> Memory::read_all(const std::string& service, const std::string& variable) const {
     std::vector<Cell> r; VarPtr v = var(service, variable); if (!v) return r;
     v->each_all([&](const std::string& i, const CellPtr& c) { r.push_back(mk_cell(service, variable, i, c)); return true; });
@@ -399,31 +397,6 @@ std::vector<Cell> Memory::read_indexed(const std::string& service, int64_t lo, i
 }
 size_t Memory::indexed_count(const std::string& service) const { return region(service).by_ttl.size(); }
 
-std::vector<Cell> Memory::read_after(const std::string& service, const std::string& variable, const std::string* instance,
-                                     uint64_t after, int64_t wait_ms) const {
-    Region& R = region(service);
-    WaitWord& w = R.word(variable);
-    Region::watch(w); struct Un { WaitWord& w; ~Un() { Region::unwatch(w); } } un{w};
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms > 0 ? wait_ms : 0);
-    for (;;) {
-        uint32_t seen = w.gen.load(std::memory_order_acquire);
-        std::vector<Cell> out;
-        VarPtr v = var(service, variable);
-        if (v && v->last.load(std::memory_order_acquire) > after) {
-            v->each_all([&](const std::string& i, const CellPtr& c) { if (c->id > after && (!instance || i == *instance)) out.push_back(mk_cell(service, variable, i, c)); return true; });
-            std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id() < b.id(); });
-        }
-        if (!out.empty() || wait_ms == 0) return out;
-        int64_t left = -1;
-        if (wait_ms > 0) {           // [NEVER_BEFORE_THE_DEADLINE_V1] ends only once the deadline has passed (rounded up)
-            auto now = std::chrono::steady_clock::now();
-            if (now >= deadline) return out;
-            left = (std::chrono::duration_cast<std::chrono::microseconds>(deadline - now).count() + 999) / 1000;
-        }
-        ebr::exit(); Region::wait(w, seen, left); ebr::enter();     // a parked participant holds nobody's garbage
-    }
-}
-size_t Memory::count(const std::string& service, const std::string& variable) const { VarPtr v = var(service, variable); return v ? v->count() : 0; }
 
 // ---------------------------------------------------------------- remove
 bool Memory::drop(Region& R, Var& v, const std::string& instance, uint64_t id, CellPtr* gone) {
@@ -516,14 +489,9 @@ std::vector<std::string> Memory::variables(const std::string& service) const {
 bool Memory::random_variable(const std::string& service, std::string& out) const {
     Region& R = region(service);
     size_t n = R.by_born.size(); if (!n) return false;
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    std::mt19937_64& rng = apply_rng();
     auto* x = R.by_born.nth(rng() % n); if (!x) return false;
     out = x->val->name; return true;
-}
-std::vector<std::string> Memory::instances(const std::string& service, const std::string& variable) const {
-    std::vector<std::string> r; VarPtr v = var(service, variable); if (!v) return r;
-    v->each_all([&](const std::string& i, const CellPtr&) { r.push_back(i); return true; });
-    return r;
 }
 void Memory::each_cell(const std::string& service, const std::function<bool(const Cell&)>& f) const {
     Region& R = region(service);
@@ -704,4 +672,6 @@ bool Memory::remove_if(const std::string& service, const std::string& variable, 
     maybe_die(R, v); R.touched(variable);
     return true;
 }
+
+
 }  // namespace rr

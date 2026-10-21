@@ -8,7 +8,7 @@
 #   ./run.sh build                       build stock Redis and the region here (installs make, g++, tcl if missing)
 #   ./run.sh node                        acceptance on this machine: suite, concurrency, throughput, failure tests
 #   STAGES="bench scale" ./run.sh node   only the throughput stages (REPEAT=5 runs each, interleaved; K = cores)
-#   ./run.sh lan host                    on the machine that holds the data (RAM host :7490, stock :7491, front :7492)
+#   ./run.sh lan host                    on the machine that holds the memory (memory :7490, stock :7491, box :7492)
 #   ./run.sh lan node <HOST_IP> <NAME>   on every other machine
 #   ./run.sh lan coordinate <N> [SECS]   on the host machine, once the N nodes are up
 set -u
@@ -20,9 +20,18 @@ build)
   if [ ${#need[@]} -gt 0 ]; then echo "== installing ${need[*]}"; apt-get install -y -q "${need[@]}" || { echo "FAIL: apt-get install ${need[*]}"; exit 1; }; fi
   python3 -c "import lizard" 2>/dev/null || { echo "== installing lizard (the metrics stage counts lines and complexity with it)"; pip3 install -q --root-user-action=ignore --break-system-packages lizard || { echo "FAIL: pip3 install lizard"; exit 1; }; }
   echo "== stock Redis 7.2.11"; make -C "$REDIS_SRC" -j"$(nproc)" || { echo "FAIL: stock Redis did not build"; exit 1; }
-  echo "== the Redis region"; bash "$TOP/ribbit/examples/redis/tools/build.sh" || { echo "FAIL: the region did not build"; exit 1; }
+  echo "== Redis on the memory (the box and the memory)"; bash "$TOP/ribbit/examples/redis/tools/build.sh" || { echo "FAIL: the box did not build"; exit 1; }
   echo "== built: $("$REDIS_SRC/src/redis-server" --version 2>/dev/null || "$REDIS_SRC/src/redis-server.stock" --version) / region $(cat ribbit/examples/redis/VERSION)"
   ;;
+node|lan)   # [BUILT_FROM_THIS_V1] never run binaries this package did not build
+  B=ribbit/examples/redis
+  if [ "$(cat $B/build/BUILT_FROM 2>/dev/null)" != "$(cat $B/VERSION)" ] || [ ! -x "$REDIS_SRC/src/redis-benchmark" ]; then
+    echo "== the binaries here were built from $(cat $B/build/BUILT_FROM 2>/dev/null || echo nothing), this package is $(cat $B/VERSION): building first"
+    bash "$0" build || exit 1
+  fi ;;
+esac
+case "${1:-}" in
+build) ;;
 node) shift; exec bash "$TOP/ribbit/examples/redis/tools/accept.sh" "$@" ;;
 lan)  shift; exec bash "$TOP/ribbit/examples/redis/tools/lan.sh" "$@" ;;
 *) sed -n '4,14p' "$0"; exit 2 ;;

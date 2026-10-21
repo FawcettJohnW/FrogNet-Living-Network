@@ -109,22 +109,22 @@ if has build; then
   source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps
   echo "  $JOBS parallel jobs"
   t_all=$(date +%s)
-  build_one ribbit_cpp/frogram.o -std=c++17 $NOFP -O2 -pthread -I"$RIBBIT/include" -c "$RIBBIT/src/frogram.cpp" || { cat "$BLOG"/*.txt >> "$OUT/build.txt"; note "build FAIL"; exit 1; }
+  build_one ribbit_cpp/frogram.o -std=c++20 $NOFP -O2 -pthread -I"$RIBBIT/include" -c "$RIBBIT/src/frogram.cpp" || { cat "$BLOG"/*.txt >> "$OUT/build.txt"; note "build FAIL"; exit 1; }
   FO=ribbit_cpp/frogram.o
   pids=()
   run(){ while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done; build_one "$@" & pids+=($!); }
-  run ribbit_cpp/lisper-ram -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/lisper_ram.cpp "$RIBBIT/src/ram_host.cpp" $FO -llz4 -lcrypto
-  run ribbit_cpp/ribbit-lisp -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/ribbit_lisp.cpp $FO -llz4 -lcrypto
-  run tools/lisp-handler-driver -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_handler_driver.cpp $FO -lcrypto -llz4
-  run tools/check-ms-secret -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_ms_secret.cpp $FO -llz4 -lcrypto
-  run tools/check-site-secret -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_site_secret.cpp $FO -llz4 -lcrypto
-  run tools/lisp-boundary -std=c++17 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_boundary.cpp $FO -lcrypto -llz4
-  run tools/tuple-write -std=c++17 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" "$RIBBIT/tools/tuple_write.cpp" $FO -llz4 -lcrypto
+  run ribbit_cpp/lisper-ram -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/lisper_ram.cpp "$RIBBIT/src/ram_host.cpp" $FO -llz4 -lcrypto
+  run ribbit_cpp/ribbit-lisp -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/ribbit_lisp.cpp $FO -llz4 -lcrypto
+  run tools/lisp-handler-driver -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_handler_driver.cpp $FO -lcrypto -llz4
+  run tools/check-ms-secret -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_ms_secret.cpp $FO -llz4 -lcrypto
+  run tools/check-site-secret -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_site_secret.cpp $FO -llz4 -lcrypto
+  run tools/lisp-boundary -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_boundary.cpp $FO -lcrypto -llz4
+  run tools/tuple-write -std=c++20 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" "$RIBBIT/tools/tuple_write.cpp" $FO -llz4 -lcrypto
   # [VENDOR_CLIENT_V1] the LISP vendor's client library: lisper::Client, its C interface client/lisper.h
   mkdir -p build
-  run build/liblisper.so -std=c++17 $NOFP -O2 -pthread -shared -fPIC $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/lisper_c.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto
-  run build/test-lisper-client -std=c++17 $NOFP -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/tests/test_lisper_client.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" $FO -llz4 -lcrypto
-  run tools/lisp-service -std=c++17 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_service.cpp $FO -lcrypto -llz4
+  run build/liblisper.so -std=c++20 $NOFP -O2 -pthread -shared -fPIC $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/lisper_c.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" "$RIBBIT/src/frogram.cpp" -llz4 -lcrypto
+  run build/test-lisper-client -std=c++20 $NOFP -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" -Iclient client/tests/test_lisper_client.cpp client/lisper_client.cpp "$RIBBIT/src/ram_client.cpp" $FO -llz4 -lcrypto
+  run tools/lisp-service -std=c++20 -O2 -pthread $WERR -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_service.cpp $FO -lcrypto -llz4
   bfail=0; for pid in "${pids[@]}"; do wait "$pid" || bfail=1; done
   cat "$BLOG"/*.txt >> "$OUT/build.txt"
   echo "  build took $(( $(date +%s)-t_all ))s"

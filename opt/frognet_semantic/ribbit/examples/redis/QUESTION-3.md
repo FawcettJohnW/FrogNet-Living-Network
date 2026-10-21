@@ -127,3 +127,60 @@ participants interleave, WATCH is checked when EXEC arrives. Not a defect; the a
 ## Multi-key reads at one moment -- RULED (John 2026-09-29)
 "We will do a best-effort, but if the store underneath is changed by another thread, then the store is changed."
 A multi-key read reads each key as it is when read; concurrent changes are the store changing. Not a defect.
+
+---
+
+## One keyspace (2026-10-19) [ONE_KEYSPACE_V1] -- what it changes in this register
+
+The keyspace is in the memory once; a front's pipeline is one call, run on the memory's pool in parallel with every
+other connection's, each key's tuple taking one request at a time (DESIGN.md). It replaces ONE_ORDER_V1 (2026-10-17:
+every box a copy, applying every box's intents in write order), whose own entries 7-9 -- a box joining late by a copy,
+intents that were not UTF-8, intents larger than a write frame -- are gone with the copies and the intents. What it
+does to the entries above:
+
+- **Entry 1 (lazy expiry)** stands: liveness is derived from value + ttl + the memory's clock.
+- **Entries 2/4 (a batch is a value)** stand for the *STORE family and RENAME; an EXEC's writes land one by one with
+  every wake held to its end, so a parked reader wakes once, after it. Another connection's write can land between an
+  EXEC's commands -- the 2026-09-29 ruling (nothing stops for one transaction). `run_two_fronts.py` check 7 asserts no
+  increment is lost and measures how many transactions saw another write in their middle.
+- **Entries 3/5 (claims decide who is served)** are the line again: a parked command keeps its ticket while it waits
+  (`[CLAIM_OUTLIVES_THE_TRY_V1]`), and the lowest ticket under a key is served (`run_two_fronts.py` check 4).
+- **Entry 6 (served right after the write that readied it)** holds without a thread: the writer's own thread serves
+  the parked commands its command woke, before its next command (`[WOKEN_BY_THE_WRITE_V1]`).
+- **The two rulings (no MULTI/EXEC isolation; multi-key reads best-effort)** are in force again, as ruled 2026-09-29.
+  (Under ONE_ORDER_V1 they held by construction, because one applier ran everything.)
+
+New entries:
+
+10. **Bytes on the session.** The session carries a call as text; Redis values are any bytes. Each byte travels as the
+    code point of the same number (`[BYTES_AS_CODE_POINTS_V1]`): exact for any bytes, ASCII unchanged, no base64.
+
+11. **Answers that finish out of order -- a misdiagnosis, withdrawn.** A blocked command's answer comes after the calls
+    behind it, and a failure under that load was first blamed on the session's answer references; per-connection slot
+    instances were added to the front to work around it. Wrong layer and wrong cause: the session applies answers in the
+    order they arrive (the host's send order, `[WIRE_ORDER_TURNS_V1]`), and the failure was entry 13. The slots are
+    removed; the front's calls carry no instance; the families that failed (GETDEL, ZINCRBY) are green 6 of 6 without them.
+
+12. **Platform: the moving window after a REQ_MISS -- observed, not reproduced alone, not fixed.** With the slot
+    instances above (numeric, taken out of order and reused), a trace showed a frame sent for instance=4 decoded as
+    instance=2: a "next in window" frame carries its instance as a delta against the last cell, and after a REQ_MISS on
+    the frame before, the sender's last cell had moved and the host's had not. An in-process test of the two engines
+    with out-of-order numeric instances produced no REQ_MISS at all (references release in lockstep there), so the fix
+    was not shipped without a failing test. Redis no longer sends instances. Open for any writer whose window frames can
+    meet a REQ_MISS while later frames are in flight.
+
+13. **Platform: SAME after RAW** (fixed, `[SAME_ONLY_WHEN_BOTH_MOVE_V1]`, `cpp/include/fnwp_engine.hpp`). An answer the
+    reply template cannot hold goes RAW and moves neither end's reference; the same answer again came as RESP_SAME, which
+    moves the client's reference and did not move the host's. The next difference broke the front (incr.tcl: "a splice
+    longer than its reference"). The host now moves its reference exactly as the client will before it says SAME, and
+    does not say SAME when the client could not. `tests/run_same_after_raw.py`: red before, green after. The Python
+    daemon's RAW-path SAME (`_build_raw_reply`) has the same shape; it diverges only if the proxy extracts what the
+    daemon's proof refused -- not yet shown, not changed.
+
+14. **Platform: a follow lost its wakeup** (fixed, `[SEEN_IS_WHAT_WAS_READ_V1]`, `cpp/src/ram_host.cpp`,
+    `cpp/include/ram_memory.hpp`). The memory's follow task took "seen" as the family's head before reading. A write whose
+    slot was reserved but not yet filled stopped the read, yet counted as seen; its own wake then found nothing new, and
+    the row waited for the next write. Replies written as piece cells and then their cell (a reply past one frame) made
+    it frequent: string.tcl "Very big payload random access" stalled. "seen" is now the cursor's read position after the
+    read. `tests/run_big_replies.py`: red before, green 3/3 after. MQTT two_boxes 13/13 after; its cross-box qos1 load
+    "lost" is intermittent (3 of 4 runs on cc87622, 2 of 3 on this tree) -- pre-existing, open, not this fix.

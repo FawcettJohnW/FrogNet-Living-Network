@@ -10,8 +10,9 @@ RSRC=$1; OUT=$2; HERE=$(cd "$(dirname "$0")" && pwd); TREE=$(cd "$HERE/../../../
 W=$(mktemp -d); P=$W/opt/redis-ribbit-accept; mkdir -p $P/ribbit/examples $P/ribbit/cpp
 git -C "$RSRC" archive --prefix=redis-7.2.11/ HEAD | tar -x -C $P
 git -C "$TREE" archive HEAD opt/frognet_semantic/ribbit/examples/redis | tar -x -C $W
-mv $W/opt/frognet_semantic/ribbit/examples/redis $P/ribbit/examples/redis; rm -rf $W/opt/frognet_semantic
-cp "$TREE/opt/frognet_semantic/ribbit/cpp/ensure_build_deps.sh" $P/ribbit/cpp/
-cp "$HERE/run.sh" "$HERE/README.txt" $P/; rm -rf $P/ribbit/examples/redis/package
+mv $W/opt/frognet_semantic/ribbit/examples/redis $P/ribbit/examples/redis
+git -C "$TREE" archive HEAD opt/frognet_semantic/ribbit/cpp/ensure_build_deps.sh opt/frognet_semantic/ribbit/cpp/include opt/frognet_semantic/ribbit/cpp/src | tar -x -C $W   # [ONE_KEYSPACE_V1] the front and the memory link ribbit/cpp
+cp -r $W/opt/frognet_semantic/ribbit/cpp/. $P/ribbit/cpp/
+rm -rf $W/opt/frognet_semantic; cp "$HERE/run.sh" "$HERE/README.txt" $P/; rm -rf $P/ribbit/examples/redis/package
 echo "$(git -C "$TREE" rev-parse --short HEAD) $(date -u +%Y-%m-%dT%H:%MZ)" > $P/ribbit/examples/redis/VERSION
 tar czf "$OUT" -C $W opt; rm -rf $W; echo "built $OUT"

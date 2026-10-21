@@ -338,12 +338,11 @@ static void cmd_client_unblock(Client&, const Argv& a, Reply& r) {
         logmsg('#', "[DIAG-UNBLOCK] id=" + std::to_string(id) + " target=" + (target ? "found" : "MISSING") + " waiting_on=" + (w ? "set" : "null")
                     + " blocked_clients=" + std::to_string(g.blocked_clients.load()) + " registry_size=" + std::to_string(g.clients.size()) + " walked=" + std::to_string(nreg)
                     + " target_closing=" + (target ? std::to_string((int)target->closing) : "-") + " target_lastcmd=" + (target ? target->lastcmd : "-")
-                    + " target_worker=" + (target ? std::to_string(target->worker) : "-") + " ids:" + all);
+                    + " ids:" + all);
         r.integer(0); return;
     }
     target->unblock = err ? 2 : 1;
-    w->gen.fetch_add(1, std::memory_order_release);
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w->gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
+    Region::wake(*w);
     r.integer(1);
 }
 static void cmd_client_help(Client&, const Argv&, Reply& r) {
@@ -455,8 +454,9 @@ static void cmd_debug(Client& c, const Argv& a, Reply& r) {
     std::string sub = lower(a[1]);
     if (sub == "sleep") {
         double s = a.size() > 2 ? atof(a[2].c_str()) : 0;
-        // this participant sleeps; nobody else does
+        // [ONE_ORDER_V1] the order sleeps, as Redis does; the order's clock moves on by the sleep once the command is done
         std::this_thread::sleep_for(std::chrono::microseconds((int64_t)(s * 1e6)));
+        if (apply_now_ms) apply_clock_advance += (int64_t)(s * 1000);
         r.ok();
     } else if (sub == "set-active-expire" && a.size() == 3) {
         r.ok();      // accepted, no effect: liveness is derived and there is no reaper to switch off

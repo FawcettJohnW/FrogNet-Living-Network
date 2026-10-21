@@ -440,7 +440,7 @@ static void cmd_zmpop(Client& c, const Argv& a, Reply& r) {
 }
 static bool zready(Client& c, const std::string& k, bool first, VarPtr& v, Reply& r, bool& err) {
     err = false;
-    if (first) { int st = zvar(c, k, v, r); if (st < 0) { err = true; return false; } return st == 1; }
+    if (first && !c.retrying) { int st = zvar(c, k, v, r); if (st < 0) { err = true; return false; } return st == 1; }
     v = db::live_var(c.db, k); return db::kind_of(v) == Kind::ZMember;
 }
 static void bzpop_generic(Client& c, const Argv& a, Reply& r, bool min) {
@@ -499,7 +499,7 @@ static void cmd_zrandmember(Client& c, const Argv& a, Reply& r) {
     if (count < -LLONG_MAX / 2 || count > LLONG_MAX / 2) { r.error("ERR value is out of range"); return; }
     VarPtr v; int st = zvar(c, a[1], v, r); if (st < 0) return;
     auto all = all_ordered(v);
-    static thread_local std::mt19937_64 rng{std::random_device{}()};
+    std::mt19937_64& rng = apply_rng();
     if (!has_count) { if (all.empty()) r.null(); else r.bulk(all[rng() % all.size()].first); return; }
     if (!st || count == 0) { r.array(0); return; }
     std::vector<std::pair<std::string, double>> out;
@@ -540,7 +540,6 @@ void register_zset_commands() {
 // ---- shared with geo
 int z_var(Client& c, const std::string& key, VarPtr& v, Reply& r) { return zvar(c, key, v, r); }
 bool z_score(const VarPtr& v, const std::string& m, double& d) { return zscore(v, m, d); }
-std::vector<std::pair<std::string, double>> z_all(const VarPtr& v) { return all_ordered(v); }
 // members whose score lies in [lo, hi], through the numeric index (geo's cell ranges)
 void z_range_scores(const VarPtr& v, double lo, double hi, const std::function<bool(const std::string&, double)>& f) {
     v->n_range(NumInst{score_key(lo), ""}, NumInst{score_key(hi), std::string(1, '\xff')}, [&](const NumInst& k, const CellPtr& c) { return f(member_of(k.instance), score_of(c)); });

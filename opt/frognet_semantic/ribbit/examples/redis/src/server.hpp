@@ -70,7 +70,6 @@ struct Config {
 
 struct Client {
     int fd = -1;
-    size_t worker = 0;             // the event thread that owns this connection (io-mode event)
     uint64_t id = 0;
     std::string addr, laddr, name, libname, libver;
     int db = 0;
@@ -79,16 +78,18 @@ struct Client {
     std::string user = "default";
     int64_t created_ms = 0, last_cmd_ms = 0;
     std::atomic<bool> closing{false};
-    std::atomic<bool> blocked{false};
-    std::atomic<bool> handed_off{false};   // served by a hand-off thread; the event thread only watches for hangup
     std::atomic<WaitWord*> waiting_on{nullptr};   // the word this client is parked on, for CLIENT UNBLOCK
     struct BlockKeys { std::vector<std::string> keys; bool nokey = false; };   // nokey: XREADGROUP, unblocks when the key goes
     BlockKeys block_keys;                          // the blocking command being served (own thread only)
     std::atomic<const BlockKeys*> blocked_keys{nullptr};   // published while parked (INFO total_blocking_keys[_on_nokey])
     std::atomic<int> unblock{0};                   // 0 none, 1 timeout, 2 error
-    // In the region, a blocked command counts in blocked_clients once for its whole life, and leaves the count only
-    // after its accounting (commandstats) is done: INFO never sees it unblocked but not yet counted.
-    bool region_blocked = false, counted_blocked = false;
+    // [PARKED_IN_THE_ORDER_V1] the applier tries a blocking command without blocking: when it would wait, block_on says
+    // so here (and what it would wait on and for how long) and the command answers as on a timeout; the applier parks
+    // it, in the order, and tries it again when what it waits on changes. XREAD's "$" is fixed at the id it meant.
+    bool try_block = false, would_block = false, retrying = false;   // retrying: tried again, parked before -- not its first pass
+    int64_t park_timeout_ms = 0; WaitWord* park_word = nullptr; uint32_t park_seen = 0;
+    std::vector<std::pair<size_t, std::string>> park_rewrite;
+    std::string park_ticket; std::vector<std::string> park_claim_keys; int park_claim_db = 0;   // [CLAIM_OUTLIVES_THE_TRY_V1]
     // MULTI/EXEC/WATCH
     bool in_multi = false, multi_err = false, in_exec = false;
     std::vector<Argv> queued;
@@ -102,9 +103,7 @@ struct Client {
     std::string lastcmd = "";
     std::string flags = "N";
     size_t obuf_pending = 0;
-    std::mutex wmu;                // serializes writes to the socket (blocking commands + pushes later)
     RespParser parser;
-    bool send(const std::string& bytes);   // false when the socket is gone
     void kill();                            // CLIENT KILL: close from another thread
 };
 
@@ -132,6 +131,7 @@ struct Server {
     std::atomic<uint64_t> blocked_clients{0};
     std::string executable;
     std::string config_file;
+    void (*on_kill)(Client*) = nullptr;     // [PARKED_IN_THE_ORDER_V1] CLIENT KILL of a connection the applier holds
 };
 extern Server g;
 
@@ -170,7 +170,6 @@ namespace db {
         int dbi; const std::string& name; Region& R; size_t h; VarPtr v = nullptr; Kind k = Kind::None;
         Key(int dbi_, const std::string& name_);            // resolves the live variable and its kind
         CellPtr val() const;                                // the value cell (String / stream meta), or null
-        uint64_t write(const std::string& instance, BagPtr bag);
         uint64_t set_string(const std::string& val, bool keepttl);
         long long push_count() const;                       // elements now (a list/set/hash), for length replies
     };
@@ -229,7 +228,6 @@ namespace db {
     bool randomkey(int dbi, std::string& out);
     void flush(int dbi);
     // copy every instance of key from one db/key to another (COPY/RENAME/MOVE build on it)
-    void copy_key(int sdb, const std::string& skey, int ddb, const std::string& dkey);
     size_t expired_count(int dbi);
     uint64_t version(int dbi, const std::string& key);   // newest write id under the key, 0 if absent: what WATCH compares
     int64_t used_bytes();
@@ -240,7 +238,6 @@ namespace db {
 // sorted-set primitives shared with geo (cmd_zset.cpp)
 int z_var(Client& c, const std::string& key, VarPtr& v, Reply& r);
 bool z_score(const VarPtr& v, const std::string& m, double& d);
-std::vector<std::pair<std::string, double>> z_all(const VarPtr& v);
 void z_range_scores(const VarPtr& v, double lo, double hi, const std::function<bool(const std::string&, double)>& f);
 std::pair<long long, long long> z_put(int dbi, const std::string& key, const VarPtr& v, const std::vector<std::pair<std::string, double>>& ms);
 void z_store(int dbi, const std::string& key, const std::vector<std::pair<std::string, double>>& ms);

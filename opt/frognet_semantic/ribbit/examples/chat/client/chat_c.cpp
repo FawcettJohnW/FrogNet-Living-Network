@@ -38,16 +38,5 @@ char* chat_receive(chat_client* c, const char* me, int64_t* after, double wait_s
         return dup(o + "]");
     } catch (const std::exception& x) { fail(err, x); return nullptr; }
 }
-int chat_here(chat_client* c, const char* me, char** err) {
-    try { c->c.here(me); return 0; } catch (const std::exception& x) { fail(err, x); return -1; }
-}
-char* chat_list(chat_client* c, char** err) {
-    try {
-        auto who = c->c.list();
-        std::string o = "[";
-        for (size_t k = 0; k < who.size(); ++k) o += (k ? "," : "") + frogram::Json::quote(who[k]);
-        return dup(o + "]");
-    } catch (const std::exception& x) { fail(err, x); return nullptr; }
-}
 void chat_free(char* s) { std::free(s); }
 }
