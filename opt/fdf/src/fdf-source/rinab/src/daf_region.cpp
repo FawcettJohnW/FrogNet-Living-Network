@@ -347,11 +347,17 @@ bool pass(const Json& facts, const Json& c) {
     if (x.type == Json::Str && v.type == Json::Str) return op == "=" ? x.s == v.s : op == "!=" ? x.s != v.s : false;
     return false;
 }
-// a name's version: the newest change to its entries, or to the enrollment of a member it lists (gone records included)
+// [NAME_REV_COVERS_ANSWER_V1] a name's version: the newest change to anything its answer is computed from -- its
+// entries, the enrollment of a member it lists (gone records included), its designation and its rule. The designation
+// and the rule were missing: `designate` changed what the name resolved to while its version, and so every held read
+// on it, stood still (experiments/day-claims E1, "designation changed: a held read on the name wakes").
+// name_vars is the same list as variables, for the reads that park on a name: the two must not diverge.
+std::vector<std::string> name_vars(const std::string& D, const std::string& name) { return {"e|" + D + "|" + name, "m|" + D, "des|" + D, "n|" + D}; }
 uint64_t name_rev(const std::string& D, const std::string& name) {
-    uint64_t r = 0; std::set<std::string> in_name;
+    uint64_t r = 0; std::set<std::string> in_name; const std::string own = name + SEP;
     for (auto& e : dmem::rows("e|" + D + "|" + name, "", 0, true)) { r = std::max(r, e.id); in_name.insert(e.instance.substr(0, e.instance.find(SEP))); }
     for (auto& m : dmem::rows("m|" + D, "", 0, true)) if (in_name.count(m.instance)) r = std::max(r, m.id);
+    for (const char* v : {"des|", "n|"}) for (auto& x : dmem::rows(v + D, "", 0, true)) if (x.instance.compare(0, own.size(), own) == 0) r = std::max(r, x.id);
     return r;
 }
 // [DAF_RESOLVE_V1] a name, resolved by its rule (or the caller's), against the members as they are now
@@ -843,7 +849,7 @@ std::string wait(const Json& in) {
     const uint64_t after = in["after"].type == Json::Num ? uint64_t(in["after"].n) : 0; const bool now_only = in["now"].b;
     std::vector<std::string> vars; std::function<std::string(bool)> answer;
     if (what == "name") { must(D, w, "resolve", key); name_of(D, key);
-        vars = {"e|" + D + "|" + key, "m|" + D};
+        vars = name_vars(D, key);                                   // [NAME_REV_COVERS_ANSWER_V1]
         answer = [D, key, after](bool always) { const uint64_t r = name_rev(D, key); return r > after || always ? "{\"ok\":true,\"rev\":" + std::to_string(r) + "}" : std::string(); }; }
     else if (what == "sub") { must(D, w, "subscribe", key);
         Json s; if (!get("sub|" + D, key, s)) refuse("ENOENT", "no subscription " + key);
@@ -853,7 +859,7 @@ std::string wait(const Json& in) {
                 if (!dmem::get("sub|" + D, key, b)) return std::string("{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"the subscription ended\"}");
                 if (!always && t < after + uint64_t(period * 1000)) return std::string();
                 return one_row(key, t, "{\"t\":" + nows() + ",\"data\":" + sub_data(D, s) + "}"); }; }
-        else { vars = {"m|" + D, "sub|" + D}; for (auto& n : s["names"].a) vars.push_back("e|" + D + "|" + n.s);
+        else { vars = {"sub|" + D}; for (auto& n : s["names"].a) for (auto& v : name_vars(D, n.s)) vars.push_back(v);   // [NAME_REV_COVERS_ANSWER_V1]
             answer = [D, key, s, after](bool always) { std::string b;
                 if (!dmem::get("sub|" + D, key, b)) return std::string("{\"ok\":false,\"error\":\"ENOENT\",\"why\":\"the subscription ended\"}");
                 const uint64_t r = names_rev(D, s["names"]); if (r <= after && !always) return std::string();
@@ -861,7 +867,7 @@ std::string wait(const Json& in) {
     else if (what == "out") { must(D, w, "read_out", key);
         std::string id; Json j; if (!script_for(D, key, id, j)) refuse("ENOENT", "no script writes " + key);
         vars = {"scr|" + D, "scrs|" + D, "outs|" + D};
-        if (j["on_change"].b) { vars.push_back("e|" + D + "|" + j["from"].s); vars.push_back("m|" + D); }
+        if (j["on_change"].b) for (auto& v : name_vars(D, j["from"].s)) vars.push_back(v);   // [NAME_REV_COVERS_ANSWER_V1]
         if (j["every_s"].n > 0) vars.push_back("tick");
         const std::string from = j["from"].s; const double every = j["every_s"].n;
         answer = [D, key, from, every, after](bool always) { const uint64_t r = every > 0 ? now_ms() : std::max(names_rev(D, Json::parse("[" + Json::quote(from) + "]")), dmem::newest("outs|" + D));

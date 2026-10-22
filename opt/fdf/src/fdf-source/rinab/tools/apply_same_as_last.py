@@ -36,6 +36,15 @@ rep('''        if (a.status < 400) cache_put(w.req_hash, CacheE{w.sem_in, "", si
         return a.status < 400 ? remember(ik, int(a.status), a.body, sid, semwire::wrap_resp_raw(sid, uint16_t(a.status), "", a.body))
                               : semwire::wrap_resp_raw(sid, uint16_t(a.status), "", a.body);
     }''')
+# [SAME_KEEPS_LAST_ANSWER_V1] the request-hash SAME moves the response reference to THIS answer's fields; the last answer
+# must move with it, or the invariant above breaks. Two requests at one location (resolve svc rule one, ranked on
+# capacity vs on cpu) alternate: a request-hash SAME moved the reference to A while last_ans_ still held B; B's next
+# repeat matched last_ans_ and went SAME without moving the reference, the client moved its own to B, and the next
+# DIFF was applied by the client to B and encoded by the server against A -- a wrong answer at the right rev
+# (experiments/day-claims E1, seed 1, events 8-12; a fresh session got the right one).
+rep('''        respref_[ik] = ref; return semwire::wrap_resp_same(c->second.same_id);''',
+    '''        respref_[ik] = ref;
+        return remember(ik, int(a.status), a.body, c->second.same_id, semwire::wrap_resp_same(c->second.same_id));   // [SAME_KEEPS_LAST_ANSWER_V1]''')
 rep('''    if (a.status < 400) cache_put(w.req_hash, CacheE{w.sem_in, "", sid, int(a.status), a.body});
     return semwire::wrap_resp_diff(sid, enc.first);''',
     '''    if (a.status < 400) cache_put(w.req_hash, CacheE{w.sem_in, "", sid, int(a.status), a.body});
