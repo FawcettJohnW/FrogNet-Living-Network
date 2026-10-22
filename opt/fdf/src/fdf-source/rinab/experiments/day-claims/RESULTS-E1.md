@@ -42,7 +42,8 @@ rule `one` ranked on cpu: same shape, same DAF and name) then desynchronised the
 Read from the raw call trace (`runs/e1-20261022T231340Z/raw-1.jsonl`, `E1_TRACE_CALLS=1`).
 
 **Fix** ([SAME_KEEPS_LAST_ANSWER_V1], in the same patch file): the request-hash SAME records its answer as the last
-answer. Only the FD&F RINA host builds this patch; `ribbit/cpp`, the Redis example and the v0.63 platform do not contain
+answer. **Superseded in r24** by [SAME_MOVES_BOTH_REFERENCES_V1] (RESULTS-E2.md, finding 4): this was one path of a
+general defect; every server SAME now moves the reference as the client's does. E1 re-run on r24: 3 seeds, 11 of 11. Only the FD&F RINA host builds this patch; `ribbit/cpp`, the Redis example and the v0.63 platform do not contain
 [SAME_AS_LAST_ANSWER_V1].
 
 **Not yet done.** `repro_stale_diff` variant f, a hand-built sequence meant to drive the same steps, does not reproduce

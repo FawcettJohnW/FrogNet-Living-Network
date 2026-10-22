@@ -34,6 +34,7 @@ python3 tools/apply_host_fanout.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_engine_lockless.py $P/ribbit_cpp/fnwp_engine.hpp $P/ramsrv/ram_server.cpp
 python3 tools/apply_decode_alloc.py $P/ribbit_cpp/fnwp_engine.hpp
 python3 tools/apply_same_as_last.py $P/ribbit_cpp/fnwp_engine.hpp
+python3 tools/apply_same_moves_reference.py $P/ribbit_cpp/fnwp_engine.hpp   # [SAME_MOVES_BOTH_REFERENCES_V1] after same_as_last
 python3 tools/apply_session_order.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_host_coalesce.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_deferred_answer.py $P/ramsrv/ram_server.cpp

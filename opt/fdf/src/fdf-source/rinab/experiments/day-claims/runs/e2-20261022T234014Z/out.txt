@@ -1,0 +1,4 @@
+E2  160 scenarios, 960 steps: every participant's trees equal the reference      ok  960 of 960
+E2  convergence after a change (all participants): p50 5.46 ms p99 21.66 ms max 32.16 ms (n=800); 0 timeouts
+E2  wire: 4796 bytes per change, all participants' sessions together (800 changes)
+E2  RESULT PASS

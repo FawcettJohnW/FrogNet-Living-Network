@@ -1,0 +1,3 @@
+hand case 0: dw 6 enum 6 spt 6 (want opt 6, spt 6) ok
+hand case 1: dw 6 enum 6 spt 8 (want opt 6, spt 8) ok
+selfcheck: 200 generated instances + 2 hand cases; 0 failures
