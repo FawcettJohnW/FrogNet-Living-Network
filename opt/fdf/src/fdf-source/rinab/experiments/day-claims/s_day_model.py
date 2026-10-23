@@ -11,8 +11,8 @@ from rlite's link-state routing as written (rlite user/uipcps, commit as cloned)
   - every 30 s (kRIBRefreshIntvalSecs) every member re-sends its own objects to every neighbour.
 Sizes are real encodings: PB_DIR holds BaseRIB_pb2/CDAP_pb2 compiled from rlite's own .proto files; each CDAP message
 is counted with the RINA management PCI and its shim (UDP/IPv4/Ethernet) as WIRE_HDR bytes, stated below.
-Two layouts of the egress level: "star" (every egress node's N-1 flow goes to the hub: the bed's physical paths) and
-"mesh" (an N-1 flow between every pair of egress nodes: RINA over the Internet with no relay).
+Five physical shapes of the egress level ([S_TOPOLOGY_FAMILIES_V1]): chain, binary tree, star (every egress node's N-1
+flow to a hub: the bed's paths), partial mesh (ring plus chords, degree 4), full mesh (every pair of egress nodes).
 Writes one JSON line per (layout, E) to stdout."""
 import json, math, sys, collections
 sys.path.insert(0, sys.argv[1])
@@ -50,11 +50,24 @@ def graph(S, E, layout):
     """nodes and N-1 adjacencies, the bed's graph: hub (star only), egress e1..eE, child c<k> on egress ((k-1)%E)+1"""
     adj = collections.defaultdict(set)
     eg = ["e%d" % i for i in range(1, E + 1)]
-    if layout == "star":
-        for e in eg: adj["hub"].add(e); adj[e].add("hub")
-    else:
+    def link(a, b): adj[a].add(b); adj[b].add(a)
+    # [S_TOPOLOGY_FAMILIES_V1] the egress level's physical shape; the children's LANs are the same in every family
+    if layout == "star":                                     # every egress node to a hub (the bed's paths)
+        for e in eg: link("hub", e)
+    elif layout == "chain":                                  # e1 - e2 - ... - eE
+        for a, b in zip(eg, eg[1:]): link(a, b)
+    elif layout == "tree":                                   # binary tree: e_i's parent is e_(i//2)
+        for i in range(2, E + 1): link("e%d" % i, "e%d" % (i // 2))
+    elif layout == "partial":                                # a ring plus chords to i+2: degree 4 (fewer at small E)
+        for i in range(E):
+            for d in (1, 2):
+                j = (i + d) % E
+                if j != i: link(eg[i], eg[j])
+    elif layout == "mesh":                                   # every pair of egress nodes
         for i, a in enumerate(eg):
-            for b in eg[i + 1:]: adj[a].add(b); adj[b].add(a)
+            for b in eg[i + 1:]: link(a, b)
+    else:
+        raise SystemExit("unknown layout " + layout)
     for k in range(E + 1, S + 1):
         c, e = "c%d" % k, "e%d" % ((k - 1) % E + 1); adj[c].add(e); adj[e].add(c)
     for e in eg: adj[e]                                      # E=1 mesh: the lone egress node exists
@@ -80,13 +93,13 @@ def model(S, E, layout):
     per_obj = (lf_msg([("a", "b")] * LIMIT) - WIRE_HDR) / LIMIT      # a full message's bytes per object
     src = "c%d" % S if S > E else "e%d" % E
     hops = bfs(adj, src); ecc = max(hops.values())
-    diam = max(max(bfs(adj, u).values()) for u in (["hub"] if layout == "star" else []) + ["e1", src])
+    diam = max(max(bfs(adj, u).values()) for u in adj)
     # one change: a new name (DFTEntry) at the last child, flooded
     tr = flood_transfers(adj)
     change = {"transfers": tr, "bytes": tr * one_dft, "members_processing": N, "max_hops": ecc,
               # crossings of the egress level (the WAN): star -- the source egress node to the hub once, the hub to the
               # E-1 others; mesh -- the source egress node to E-1, each of them on to the E-2 others but the sender
-              "wan_transfers": E if layout == "star" else (E - 1) ** 2}
+              "wan_transfers": sum(1 for u in adj if not u.startswith("c") for v in adj[u] if not v.startswith("c"))}  # egress-level links, both ways (an upper bound on its crossings)
     # cold start: members enroll in BFS order from e1 (star: from the hub); each gets the whole RIB its neighbour holds
     root = "hub" if layout == "star" else "e1"; order = sorted(bfs(adj, root).items(), key=lambda x: x[1])
     joined = set(); objs = 0; msgs = 0; bts = 0; lfdb = 0; names = 0
@@ -115,5 +128,5 @@ def model(S, E, layout):
 if __name__ == "__main__":
     S = int(sys.argv[2]) if len(sys.argv) > 2 else 200
     Es = [int(x) for x in sys.argv[3:]] or [1, 2, 5, 10, 20, 50, 100]
-    for layout in ("star", "mesh"):
+    for layout in ("chain", "tree", "star", "partial", "mesh"):
         for E in Es: print(json.dumps(model(S, E, layout)))
