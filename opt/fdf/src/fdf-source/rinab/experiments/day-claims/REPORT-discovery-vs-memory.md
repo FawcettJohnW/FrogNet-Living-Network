@@ -26,6 +26,26 @@ every egress count tried, and nothing moves at rest. Only the routes computed fr
 network, so an algorithm written against it does not have to change with the topology (Appendix B; physical numbers
 marked **[physical: …]**).
 
+## Suggestions for further investigation
+
+Offered, not yet run:
+
+1. **When the tree is near-optimal.** Which properties of topology, costs and group placement explain the good results,
+   and can "very close" become a bounded claim under explicit conditions? A starting point is already in the data: on
+   acyclic topologies (chain, star) the tree was exactly optimal in all 470 graphs, under any costs, as it must be,
+   since a tree offers only one path between any two nodes. Every deviation needs a cycle that some member's shortest
+   path bypasses.
+2. **The least coordination that guarantees a tree.** Is one deterministic next hop per node necessary, or can a more
+   general rule keep multipath choice while preventing cycles and duplicates?
+3. **Determining the group's center dynamically.** The question left open in §2.3: how the root should be chosen as
+   membership and demand change, and when moving it is worth the disruption.
+4. **Construction during change.** Whether the properties found on a fixed graph survive when membership or routes
+   change while the tree is being built.
+5. **RIB placement apart from routing policy.** Which results follow from canonical shared state itself, and which from
+   where it resides or how members reach it.
+6. **Recursive scopes.** Whether the same construction rules and guarantees hold when members span several layers whose
+   membership and addresses change independently.
+
 ---
 
 ## Appendix A: the tree, in detail
