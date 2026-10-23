@@ -41,11 +41,11 @@ case "${1:-all}" in
     for i in $(seq 200); do (exec 3<>/dev/tcp/127.0.0.1/$P) 2>/dev/null && break
       kill -0 $HP 2>/dev/null || { echo "day-claims: the RAM host did not start" >&2; exit 1; }; sleep 0.05; done
     "$B/e2-dist" agent "127.0.0.1:$P" local & AP=$!
-    trap 'kill $AP $HP 2>/dev/null; wait 2>/dev/null' EXIT
+    trap 'kill $AP $HP 2>/dev/null; wait $AP $HP 2>/dev/null' EXIT
     cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
     echo "E2: other machines may join at any step with: day-claims agent $(hostname -I 2>/dev/null | awk '{print $1}')"
     "$B/e2-dist" driver "127.0.0.1:$P" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
-    kill $AP $HP 2>/dev/null; wait 2>/dev/null; trap - EXIT
+    kill $AP $HP 2>/dev/null; wait $AP $HP 2>/dev/null; exec 4>&-; trap - EXIT   # [ALL_WAITS_ON_ITS_OWN_V1] a bare wait also waits on the host-log tee, which never ends
     echo "E2 evidence: $OUT"
     "$H/scale/scale-series"; rs=$?
     echo "E2 evidence: $OUT"; [ $rc = 0 ] && exit $rs; exit $rc ;;
