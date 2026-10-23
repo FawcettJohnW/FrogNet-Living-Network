@@ -58,6 +58,14 @@ static uint64_t bytes_of(daf::Client& c) { auto s = c.stats(); return s.bytes_in
 
 
 // ================================================================ agent
+static std::string utc() { char b[40]; const double t = wall(); time_t s = time_t(t); struct tm g; gmtime_r(&s, &g);
+    strftime(b, sizeof b, "%Y-%m-%dT%H:%M:%S", &g); char o[48]; snprintf(o, sizeof o, "%s.%03dZ", b, int((t - double(s)) * 1000)); return o; }
+// [DIAG-E2D-LOSS] when a session to the host dies: when (UTC), why, and the route this machine uses to the host right
+// then -- the evidence for telling the path from the host from this machine
+static std::string g_host_ip;
+static std::string route_now() {
+    std::string out; FILE* f = popen(("ip route get " + g_host_ip + " 2>&1").c_str(), "r"); if (!f) return "(ip route get: cannot run)";
+    char b[512]; while (fgets(b, sizeof b, f)) out += b; pclose(f); while (!out.empty() && out.back() == '\n') out.pop_back(); return out; }
 struct Node {
     int id; std::unique_ptr<daf::Client> w, r; std::thread th; std::atomic<bool> stop{false};
     std::mutex mu; std::map<int, int> out; bool ready = false;   // its links as the plan has them; written once enrolled
@@ -98,16 +106,24 @@ static void node_loop(Node* n, std::string D, int role, std::string view) {
             rev = uint64_t(wv["rev"].n);
         }
     } catch (const std::exception& e) {
-        if (!n->stop) { fprintf(stderr, "e2-dist agent: node %d ended: %s\n", n->id, e.what()); fflush(stderr); }
+        if (!n->stop) { fprintf(stderr, "e2-dist agent %s: node %d ended: %s; route to host now: %s\n", utc().c_str(), n->id, e.what(), route_now().c_str()); fflush(stderr); }
     }
 }
 static void stop_node(Node& n) { n.stop = true; n.r->shutdown(); n.w->shutdown(); if (n.th.joinable()) n.th.join(); }
+static int agent_run(const std::string& where, std::string name);
 static int agent(const std::string& where, std::string name) {
+    g_host_ip = where.substr(0, where.rfind(':'));
+    try { return agent_run(where, name); }
+    catch (const std::exception& e) {   // [E2D_AGENT_SAYS_WHY_V1] its own session is gone: say when, why and the route; its nodes went with it
+        fprintf(stderr, "e2-dist agent %s: session to the host ended: %s; route to host now: %s\n", utc().c_str(), e.what(), route_now().c_str());
+        fflush(stderr); _exit(1); }
+}
+static int agent_run(const std::string& where, std::string name) {
     if (name.empty()) name = my_ip();
     const std::string me = "a-" + name;
     daf::Client c(where); control(c, me);
     must(c.call("join", "\"daf\":" + q(C) + ",\"name\":\"agents\",\"facts\":{\"cores\":" + std::to_string(std::thread::hardware_concurrency()) + "}"), "join agents");
-    printf("e2-dist agent %s on %s (build %s): advertised; waiting for a plan\n", me.c_str(), where.c_str(), FDF_BUILD_TAG); fflush(stdout);
+    printf("e2-dist agent %s on %s (build %s): advertised; waiting for a plan (a controller writes it: day-claims e2 HOST)\n", me.c_str(), where.c_str(), FDF_BUILD_TAG); fflush(stdout);
     std::string D; std::map<int, std::unique_ptr<Node>> nodes; uint64_t prev = 0; std::string last_key;
     auto stop_all = [&] { for (auto& [id, n] : nodes) { n->stop = true; n->r->shutdown(); n->w->shutdown(); } for (auto& [id, n] : nodes) if (n->th.joinable()) n->th.join(); nodes.clear(); D.clear(); };
     for (;;) {
@@ -119,7 +135,8 @@ static int agent(const std::string& where, std::string name) {
             if (key == last_key) continue; last_key = key;
             if (p["end"].b) { stop_all(); printf("e2-dist agent: run %s ended\n", p["run"].s.c_str()); fflush(stdout); continue; }
             std::map<int, std::map<int, int>> L; for (auto& l : p["links"].a) L[int(l.a[0].n)][int(l.a[1].n)] = int(l.a[2].n);
-            if (p["D"].s != D) { stop_all(); D = p["D"].s; }
+            if (p["D"].s != D) { stop_all(); D = p["D"].s;
+                const int sc = int(p["scn"].n); if (sc == 1 || sc % 20 == 0) { printf("e2-dist agent %s: run %s scenario %d\n", utc().c_str(), p["run"].s.c_str(), sc); fflush(stdout); } }
             std::set<int> mine; for (auto& [k, v] : p["assign"].o) if (v.s == me) mine.insert(atoi(k.c_str()));
             for (auto it = nodes.begin(); it != nodes.end();) { if (mine.count(it->first)) { ++it; continue; } stop_node(*it->second); it = nodes.erase(it); }   // given to another agent
             std::set<int> mem; for (auto& x : p["members"].a) mem.insert(int(x.n)); const int root = int(p["root"].n);
@@ -191,7 +208,7 @@ static int driver(const std::string& where, const std::string& scen, const std::
             auto departed = [&]() -> bool {   // a departure: re-plan this step at once, over whoever is still there
                 auto now_agents = live_agents(c, &arev); bool gone = false; for (auto& a : agents) if (!std::count(now_agents.begin(), now_agents.end(), a)) gone = true;
                 if (!gone || now_agents.empty()) return false;
-                printf("e2-dist driver: agents now %s; re-planning scenario %d step %zu\n", names(now_agents).c_str(), idx, k); fflush(stdout);
+                printf("e2-dist driver %s: agents now %s; re-planning scenario %d step %zu\n", utc().c_str(), names(now_agents).c_str(), idx, k); fflush(stdout);
                 agents = now_agents; ++epoch; ++replans; publish(); return true; };
             publish();
             double last = -1; std::map<int, bool> match; std::string last_trees; uint64_t topo_rev = 0; std::set<std::string> acked;
