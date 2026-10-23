@@ -2,14 +2,32 @@
 
 *2026-10-23 · John Fawcett*
 
-The claims about the tree formed by converging Create Flow Responses (Ch. 12 §2.8.1, draft of 2026-10-13) hold only
-under conditions the text does not state; each is shown below on a graph small enough to check by hand. A second part
-measures what it costs to learn the network as it grows and changes shape: rlite's policies, modelled, against a shared
-region in which every member publishes only its own facts.
+§2.8.1 of the Chapter 12 draft (2026-10-13) says the converging Create Flow Responses "will create a spanning tree",
+and that "because the responses follow the current optimal routing, it's going to be very close" to optimal. Tested
+against the exact optimum, each part holds only under a condition the text does not state:
 
-Fields marked **[physical: …]** are filled from the hardware runs.
+1. **It is a tree** only with one deterministic next hop per node. With a per-flow choice among equal paths, two
+   members on a shared node each receive the message twice, at twice the cost.
+2. **Used outward from the requester, it reaches every member** only if each link a response used works both ways.
+   With some one-way links it missed members in 30 of 42 graphs.
+3. **It is near-optimal** only with symmetric costs and no cheaper shared path that members' own shortest paths
+   bypass. A shared trunk makes the ratio as large as one likes; asymmetric costs made it 4.5× for one member.
 
-## Part 1: the tree
+All three come from one source: the data path is the reverse of the path a response happened to take. A requester that
+reads the topology as state and resolves each member's path forward needs none of the three conditions (Appendix A has
+a graph small enough to check by hand for each finding).
+
+The second result is about learning the network. Under rlite's policies, modelled on one 200-subnet network, every cost
+of knowing the network follows its physical shape: from 2 to 101 member hops to the farthest member, 199 to 9,901
+transfers per change, and a refresh of 169 KB to 31.6 MB every 30 s for as long as the network exists. In a shared
+region, measured on the real FrogNet daemon, each member publishes only its own facts, the region holds about 200 KB at
+every egress count tried, and nothing moves at rest. Only the routes computed from that state reflect the physical
+network, so an algorithm written against it does not have to change with the topology (Appendix B; physical numbers
+marked **[physical: …]**).
+
+---
+
+## Appendix A: the tree, in detail
 
 The passage (§2.8.1, p. 16):
 
@@ -96,7 +114,8 @@ of the 1,500. It is not optimal either: within 1.9× on the generated graphs, bu
 defeats the converging tree (3.2× at k = 8). The exact tree is computable from the same state; which tree to build is
 policy.
 
-## Part 2: what it costs to learn the network
+
+## Appendix B: the cost of learning the network, in detail
 
 One network of 200 subnets, its egress level given 1, 2, 5, 10, 20, 50 and 100 egress points. In both cases what each
 member contributes is the same: its own interfaces, addresses and leases. The difference is how the others come to know
@@ -174,7 +193,8 @@ state every member carries all change with it. In the shared region, what an alg
 whatever the shape; only the routes computed from it reflect the physical network. An algorithm written against that
 state does not have to change with the topology.
 
-## Limits, and how to reproduce it
+
+## Appendix C: limits, how to reproduce it, sources
 
 - The passage is quoted from the draft of 2026-10-13; it does not say which way data uses the tree, so finding 2 is
   stated for data flowing from the requester outward.
