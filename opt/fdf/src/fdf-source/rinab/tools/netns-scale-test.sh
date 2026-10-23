@@ -118,6 +118,10 @@ NSF() { local n=$1; shift; local F=$T/$n/fs m=""
      sh -c "$m cd $FN && exec \"\$@\"" sh "$@"; }
 for i in $(seq $E); do fsnode $(eg $i) $(eg $i); done
 # ---- start: every daemon node, then every child (the clock starts at the first daemon)
+# [HUB_WIRE_BYTES_V1] every member's region session and every tunnel cross the hub's one link to the "Internet": its
+# counters (rx+tx bytes and packets) are the memory arm's traffic on the wire, cold and per change
+hubw() { ip netns exec s-hub sh -c 'd=/sys/class/net/v-s-hub/statistics; echo $(( $(cat $d/rx_bytes) + $(cat $d/tx_bytes) )) $(( $(cat $d/rx_packets) + $(cat $d/tx_packets) ))'; }
+read WB0 WP0 < <(hubw)
 T0=$(ms)
 for i in $(seq $E); do n=$(eg $i)
   NSF $n python3 -u -m internet_tunnels_v3 2>&1 | python3 -u $T/stamp.py > $T/$n/daemon.log &
@@ -158,6 +162,7 @@ declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((CO
   for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; if ready $(eg $i) $i; then DONE[$i]=$(( $(ms) - T0 )); left=$((left-1)); fi; done
   sleep 0.5; done
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
+read WB1 WP1 < <(hubw); echo "RESULT wire_cold S=$S E=$E bytes=$((WB1-WB0)) packets=$((WP1-WP0)) (hub link, start -> all ready)"
 # [DAEMON_CPU_V1] each daemon's CPU, not its wall time: utime+stime+cutime+cstime of the daemon process (its waited-for
 # ip/wg children included), from /proc. Wall time on this bed includes waiting for a CPU; this does not.
 TICK=$(getconf CLK_TCK); declare -A DPID
@@ -198,10 +203,12 @@ echo "RESULT size S=$S E=$E participants_bytes=${#PJ} mappings_bytes=${#MJ} bed_
 # ---- event: N changes on the last child; each daemon's timed line
 LAST=$(ch $S); [ $S -gt $E ] || LAST=$(eg $S)
 ip netns exec $LAST ip link add lan1 type veth peer name lan1p; ip netns exec $LAST ip link set lan1 up; ip netns exec $LAST ip link set lan1p up
-sleep 3; : > $T/samples; : > $T/cpu_event
+sleep 3; : > $T/samples; : > $T/cpu_event; : > $T/wire_event
 for k in $(seq $N); do
   declare -A L0; for i in $(seq $E); do L0[$i]=$(wc -l < $T/$(eg $i)/daemon.log); done
-  declare -A C0; for i in $(seq $E); do C0[$i]=$(cpu_ms ${DPID[$i]:-0}); done
+  # [DIAG-WIRE] CAPTURE=1: the first change's packets on the hub link, for the per-conversation breakdown
+  [ "${CAPTURE:-}" = 1 ] && [ $k = 1 ] && { ip netns exec s-hub tcpdump -q -n -s ${SNAP:-96} -i v-s-hub -w $T/change1.pcap > /dev/null 2>&1 & CAP=$!; sleep 1; }
+  declare -A C0; for i in $(seq $E); do C0[$i]=$(cpu_ms ${DPID[$i]:-0}); done; read XB0 XP0 < <(hubw)
   T_CHANGE=$(ms); if [ $((k % 2)) = 1 ]; then ip netns exec $LAST ip addr add 10.21.0.1/24 dev lan1; else ip netns exec $LAST ip addr del 10.21.0.1/24 dev lan1; fi
   declare -A GOT; got=0; while [ $got -lt $E ] && [ $(( $(ms) - T_CHANGE )) -lt 20000 ]; do
     for i in $(seq $E); do [ -n "${GOT[$i]:-}" ] && continue
@@ -210,9 +217,16 @@ for k in $(seq $N); do
       echo "$k $i $((t - T_CHANGE)) $(echo "$line" | sed -E 's/.*world=([0-9]+)ms.*bringup=([0-9]+)ms apply=([0-9]+)ms.*publish=([0-9]+)ms total=([0-9]+)ms.*/\1 \2 \3 \4 \5/')" >> $T/samples; done
     sleep 0.05; done
   sleep 1                                              # the daemons finish the event (publish) before the CPU is read
+  read XB1 XP1 < <(hubw); echo "$k $((XB1-XB0)) $((XP1-XP0))" >> $T/wire_event
+  [ -n "${CAP:-}" ] && { kill $CAP; wait $CAP 2>/dev/null; CAP=""; }
   for i in $(seq $E); do echo "$k $i $(( $(cpu_ms ${DPID[$i]:-0}) - ${C0[$i]} ))" >> $T/cpu_event; done
   echo "  change #$k: $got/$E daemons applied"; unset GOT; unset L0; unset C0; sleep 2
 done
+python3 - $T/wire_event $S $E <<'PY'
+import sys, statistics as st
+r = [list(map(int, l.split())) for l in open(sys.argv[1]) if len(l.split()) == 3]
+print("RESULT wire_event S=%s E=%s bytes_p50=%d bytes_max=%d packets_p50=%d (hub link, one change, 1 s after the last daemon)" % (sys.argv[2], sys.argv[3], st.median(x[1] for x in r), max(x[1] for x in r), st.median(x[2] for x in r)) if r else "RESULT wire_event none")
+PY
 python3 - $T/cpu_event $S $E <<'PY'
 import sys, statistics as st, collections
 r = [list(map(int, l.split())) for l in open(sys.argv[1]) if len(l.split()) == 3]
