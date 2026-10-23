@@ -11,6 +11,9 @@
 #                                   whichever agents have advertised -- nobody says how many. An agent that arrives is
 #                                   given nodes at the next step; one that leaves has its nodes moved at once. Evidence:
 #                                   /opt/fdf/experiments/day-claims/runs/e2-<UTC time>/.
+#   day-claims scale [S] [E ...]    one machine, root: experiment S -- S subnets (default 200) across E egress points
+#                                   (default 1 2 5 10 20 50 100) on the real tunnel daemon, every node in its own network
+#                                   namespace; ends with one table. x86_64 only. Evidence: runs/scale-<UTC>/ here.
 #   day-claims version              the build every binary here is.
 #
 # Nothing connects the machines but the host's shared memory: agents advertise in it, take their work from the
@@ -39,6 +42,9 @@ case "${1:-}" in
     echo "evidence: $OUT"
     "$B/e2-dist" driver "$(where "$2")" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
     echo "evidence: $OUT"; exit $rc ;;
+  scale)
+    [ "$(uname -m)" = x86_64 ] || { echo "day-claims scale: x86_64 only (this is $(uname -m))" >&2; exit 2; }
+    shift; exec "$H/scale/scale-series" "$@" ;;
   version) cat "$H/BUILD"; for b in "$B"/*; do printf '%s: %s\n' "${b##*/}" "$(strings "$b" | grep -m1 -o 'fdf-[0-9-]*-r[0-9]*')"; done ;;
-  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

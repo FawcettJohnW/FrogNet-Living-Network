@@ -40,7 +40,11 @@ cleanup() { local L; L=$(NSLIST); for n in $L; do ip netns pids $n 2>/dev/null |
 # instance (the daemon more): the default 128 runs out near 70 children, which is this bed's limit, not a node's. Raised
 # for the run, put back on exit.
 INO0=$(cat /proc/sys/fs/inotify/max_user_instances); sysctl -q -w fs.inotify.max_user_instances=$(( INO0 > 8 * S ? INO0 : 8 * S ))
-trap 'cleanup; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
+MADE=""                                               # [MOUNT_POINTS_PUT_BACK_V1] mount points this run had to create
+unmade() { local d k; for d in $MADE; do                # wireguard-go removes its socket as it exits: wait for it
+  for k in $(seq 50); do rmdir "$d" 2>/dev/null && break; [ -d "$d" ] || break; sleep 0.1; done
+  [ -d "$d" ] && echo "netns-scale-test: could not remove $d, which this run created: $(ls -A "$d" | tr '\n' ' ')"; done; }
+trap 'cleanup; unmade; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
 cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
 cat > $T/bin/capability-probe <<'EOF'
 #!/bin/sh
@@ -101,7 +105,9 @@ for k in $(seq $((E+1)) $S); do n=$(ch $k); e=$(egress_of $k); mkdir -p $T/$n; J
 # ---- a daemon node's private filesystem (as netns-region-loop-test.sh)
 BINDS="etc:/etc var-lib-frognet:/var/lib/frognet var-lib-frognet-tunnel:/var/lib/frognet-tunnel run-frognet:/run/frognet
        run-wireguard:/run/wireguard opt-fdf-var:/opt/fdf/var"
-for b in $BINDS; do mkdir -p ${b#*:}; done
+# [MOUNT_POINTS_PUT_BACK_V1] each node's private copy is mounted over these inside its own mount namespace; a target
+# that did not exist is created for the run and removed at the end (deepest first), so the host is left as found
+for b in $BINDS; do d=${b#*:}; while [ ! -d "$d" ]; do MADE="$MADE $d"; [ -d "$(dirname $d)" ] && break; d=$(dirname $d); done; mkdir -p ${b#*:}; done
 fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   for b in $BINDS; do mkdir -p $F/${b%%:*}; done
   cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
