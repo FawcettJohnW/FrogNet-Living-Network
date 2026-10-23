@@ -169,12 +169,31 @@ ready() { local n=$1 i=$2 r h
 try: print(len({x["ip"] for x in json.load(open(sys.argv[1])) if x["ip"].startswith("10.20.") and x["ip"].endswith(".1")}))
 except Exception: print(0)' $T/$n/fs/var-lib-frognet/region_hosts.json)
   [ $r -ge $S ] && [ $h -ge $S ]; }          # S /24 routes: S-1 others plus its own connected 10.20.i.0/24
+# [DIAG-HUB] the hub's region host: does it answer, and if not, what is it doing. Everything about the process that
+# could explain a host that has stopped serving: its fds against its limit, its listen queue, its threads' states and
+# kernel wait channels, and (gdb present) every thread's stack, saved whole in hub/stacks.txt.
+hub_answers() { ip netns exec s-hub curl -s -m 5 -X POST -d '{"op":"map_list"}' "$U" > /dev/null; }
+hub_diag() { local p; p=$(for q in $(ip netns pids s-hub); do tr '\0' ' ' < /proc/$q/cmdline 2>/dev/null | grep -q "rina-host --listen $RAM" && echo $q; done | head -1)
+  echo "[DIAG-HUB] $(date -u +%FT%T.%3NZ) region host at $RAM does not answer; pid ${p:-none}"
+  [ -n "$p" ] || return 0
+  echo "[DIAG-HUB] state $(awk '{print $3}' /proc/$p/stat) cpu_ms $(awk -v t=$(getconf CLK_TCK) '{print int(($14+$15)*1000/t)}' /proc/$p/stat) rss_kb $(awk '/VmRSS/{print $2}' /proc/$p/status) threads $(ls /proc/$p/task | wc -l) fds $(ls /proc/$p/fd | wc -l) limit '$(grep 'open files' /proc/$p/limits | awk '{print $4"/"$5}')'"
+  echo "[DIAG-HUB] listen: $(ip netns exec s-hub ss -ltn "sport = :${RAM##*:}" | tail -n +2 | tr -s ' ')"
+  echo "[DIAG-HUB] established to it: $(ip netns exec s-hub ss -tn state established "sport = :${RAM##*:}" | tail -n +2 | wc -l), syn-recv: $(ip netns exec s-hub ss -tn state syn-recv "sport = :${RAM##*:}" | tail -n +2 | wc -l), close-wait: $(ip netns exec s-hub ss -tn state close-wait "sport = :${RAM##*:}" | tail -n +2 | wc -l)"
+  echo "[DIAG-HUB] threads by state/wchan: $(for t in /proc/$p/task/*; do echo "$(awk '{print $3}' $t/stat)/$(cat $t/wchan 2>/dev/null)"; done | sort | uniq -c | sort -rn | tr -s ' ' | tr '\n' ';')"
+  echo "[DIAG-HUB] last host.log lines:"; grep -v "session \(up\|down\)\|data socket up" $T/hub/host.log | tail -5 | cut -c1-300 | sed 's/^/    /'
+  if command -v gdb > /dev/null; then gdb -p $p -batch -ex "thread apply all bt 40" > $T/hub/stacks.txt 2>&1
+    echo "[DIAG-HUB] stacks (all threads: $T/hub/stacks.txt), frames that are not waiting, by count:"
+    grep -E "^#[0-9]+ " $T/hub/stacks.txt | sed -E 's/^#[0-9]+ +(0x[0-9a-f]+ in )?//; s/ \(.*//' | grep -vE "^(\?\?|syscall|__futex|futex|__GI_|___pthread|__pthread|pthread_|start_thread|clone|thread_start|std::thread|epoll|poll|read|recv|__libc|nanosleep|clock_nanosleep)" | sort | uniq -c | sort -rn | head -15 | sed 's/^/    /'
+  else echo "[DIAG-HUB] gdb not installed: no stacks (kernel stacks only)"; for t in /proc/$p/task/*; do cat $t/stack 2>/dev/null | head -3; done | sort | uniq -c | sort -rn | head -10 | sed 's/^/    /'; fi; }
+HUB_DOWN=0
 declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((COLD_MAX*1000)) ]; do
   for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; if ready $(eg $i) $i; then DONE[$i]=$(( $(ms) - T0 )); left=$((left-1)); fi; done
   # [COLD_PROGRESS_V1] every 10 s while waiting: how far the slowest egress node is (its last readiness check)
   if [ $left -gt 0 ] && [ $(( ($(ms) - T0) / 10000 )) -gt ${PR:-0} ]; then PR=$(( ($(ms) - T0) / 10000 )); w=""; wn=999999
     for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; r=$(cut -d'|' -f1 $T/$(eg $i)/right 2>/dev/null); [ "${r:-0}" -lt $wn ] && { wn=${r:-0}; w=$(eg $i); }; done
-    echo "cold $((PR*10)) s: $((E-left))/$E egress nodes ready; slowest $w: $(cut -d'|' -f1,2 $T/$w/right 2>/dev/null | tr '|' '/') routes right, first wrong: $(cut -d'|' -f3 $T/$w/right 2>/dev/null)"; fi
+    echo "cold $((PR*10)) s: $((E-left))/$E egress nodes ready; slowest $w: $(cut -d'|' -f1,2 $T/$w/right 2>/dev/null | tr '|' '/') routes right, first wrong: $(cut -d'|' -f3 $T/$w/right 2>/dev/null)"
+    # a region host that has stopped answering will not start again: say what it is doing, and end the wait now
+    if ! hub_answers; then hub_diag; HUB_DOWN=1; break; fi; fi
   sleep 0.5; done
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
 read WB1 WP1 < <(hubw); echo "RESULT wire_cold S=$S E=$E bytes=$((WB1-WB0)) packets=$((WP1-WP0)) (hub link, start -> all ready)"
