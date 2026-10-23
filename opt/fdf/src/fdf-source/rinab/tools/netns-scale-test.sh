@@ -68,7 +68,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 EOF
-echo "=== S=$S subnets, E=$E egress points, $((S-E)) children; $(date -u +%FT%TZ)"
+echo "=== S=$S subnets, E=$E egress points, $((S-E)) children; $(date -u +%FT%TZ); open-file limit $(ulimit -n) (hard $(ulimit -Hn))"
 # ---- the Internet: hub at .1, egress node i at 198.18.0.(2+i)
 ip link add br-s-inet type bridge && ip link set br-s-inet up || { echo "FAIL  setup: br-s-inet exists"; exit 1; }
 ip netns add s-hub; ip netns exec s-hub ip link set lo up
@@ -76,7 +76,7 @@ ip link add v-s-hub type veth peer name v-s-hub-b; ip link set v-s-hub netns s-h
 ip netns exec s-hub ip addr add 198.18.0.1/24 dev v-s-hub; ip netns exec s-hub ip link set v-s-hub up
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 "$@"; }
 NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
-sleep 1; NS s-hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
+sleep 1; NS s-hub curl -s -m 10 -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 NS s-hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
 sleep 0.5
 NS s-hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
@@ -218,7 +218,7 @@ check $([ $left = 0 ] && echo 0 || echo 1) "cold: all $E egress nodes route all 
   w=$(cut -d'|' -f3 $T/$n/right | awk '{print $1}'); k=$(echo "$w" | cut -d. -f3); c=$(ch $k)
   echo "--- [DIAG-SCALE-MISS] $w (child $c): $n routes it: $(ip netns exec $n ip -4 route | grep "^$w" | tr '\n' ' ')"
   for f in client.log facts.log; do echo "    $c/$f:"; sed 's/^/      /' $T/$c/$f 2>/dev/null | cut -c1-300 | tail -8; done
-  NS s-hub curl -s -X POST -d '{"op":"participants"}' "$U" | python3 -c 'import sys,json
+  NS s-hub curl -s -m 10 -X POST -d '{"op":"participants"}' "$U" | python3 -c 'import sys,json
 P=json.load(sys.stdin)["participants"]; x=[p for p in P if p.get("name")==sys.argv[1]]
 print("    region:", json.dumps(x[0])[:600] if x else "NOT IN THE REGION")' $c
   grep "GRAPH build" $T/$n/daemon.log | tail -1 | grep -o "links=[0-9]*" | sed 's/^/    graph /'; break; done
@@ -230,7 +230,7 @@ P=0; Q=0; for s in $(seq 1 $(( S > 10 ? S/10 : 1 )) $S | head -10); do d=$(( (s 
 check $([ $P = $Q ] && echo 0 || echo 1) "reach: $P/$Q pings between .1s on different egress nodes"
 echo "RESULT reach S=$S E=$E ok=$P/$Q"
 # ---- size: the region, and the bed
-PJ=$(NS s-hub curl -s -X POST -d '{"op":"participants"}' "$U"); MJ=$(NS s-hub curl -s -X POST -d '{"op":"map_list"}' "$U")
+PJ=$(NS s-hub curl -s -m 10 -X POST -d '{"op":"participants"}' "$U"); MJ=$(NS s-hub curl -s -m 10 -X POST -d '{"op":"map_list"}' "$U")
 echo "$PJ" > $T/participants.json; echo "$MJ" > $T/mappings.json
 RSS=$(for n in $(NSLIST); do ip netns pids $n; done | xargs -r ps -o rss= -p 2>/dev/null | awk '{s+=$1} END{print int(s/1024)}')
 echo "RESULT size S=$S E=$E participants_bytes=${#PJ} mappings_bytes=${#MJ} bed_rss_mb=$RSS"
