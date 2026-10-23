@@ -61,21 +61,31 @@ equal-cost paths breaks it.
 
 ## Day's against FrogNet's
 
-- **Steady-state cost: FrogNet loses unless the host is well placed.** FrogNet doesn't build a distribution tree. Every
-  member's read brings its own copy from the host, so shared links carry several copies. Host at the source: near-optimal
-  in 28% (symmetric) and 28% (asymmetric) of graphs, against Day R1's 88% and 74%. Host at the best node: 61% and 59%,
-  better than Day on asymmetric links in the worst case (2.7× against 6×). Host at the worst node: up to 39–54×. **Where
-  the RAM host sits decides FrogNet's distribution cost**, which is E3's question (the group's center), made concrete.
-- **Delay:** with the host at the source, every member gets its copy at shortest-path delay (stretch 1.0). With the host
-  elsewhere, the detour through it can be long (worst stretch 21× at the cost-best host). Cost and delay pull the host
-  in different directions.
-- **Duplicates: none for FrogNet in any graph.** Each member's read brings exactly one copy. Day R2 delivers duplicates
-  where it isn't a tree.
-- **Reachability under one-way links: FrogNet reached every member (42 of 42); Day's tree 12 of 42.**
-- **Construction (model, hop-messages, p50):** Day builds with a request out and a response back per member (12 on
-  symmetric graphs). FrogNet builds with each member's subscription to the host and its answer (12 with the host at the
-  source, 8–10 at the best host). The requester's tree and the exact tree need no messages; they are computed from the
-  shared state.
+**What FrogNet claims, and only that:** traffic takes the graph's best route that actually resolves. That holds in
+every graph: each member's copy travelled the shortest path from the RAM host (stretch 1.0 from the host, every graph),
+FrogNet delivered **no duplicates in any graph**, and it reached every member wherever a path existed, including **42 of
+42 one-way graphs, where Day's tree reached all members in only 12**.
+
+**What FrogNet does not claim:** an optimal distribution tree, or an optimal place for the RAM host. FrogNet builds no
+tree (every member's held read brings its own copy from the host), and where the host sits is the network
+administrator's decision, or a capability election at each level. Optimal placement in a dynamic network isn't
+achievable unless each level elects its host on capabilities that say where it should be. The cost of one message by
+host position is therefore **placement guidance, not a verdict**:
+
+| host position | near-optimal cost (<=1.10), symmetric / asymmetric | cost/opt p90, symmetric / asymmetric | delay |
+|---|---|---|---|
+| at the source | 28% / 28% | 2.280 / 2.444 | shortest-path to every member (stretch 1.0) |
+| at the best node for cost | 61% / 59% | 1.692 / 1.667 | detour through the host (worst stretch 21x / 41x) |
+| at the worst node | 0% / 1% | 5.000 / 5.095 | worst stretch 75x |
+
+- **Cost and delay pull the host in opposite directions.** At the source: shortest delay, more copies on shared links.
+  Where the members' paths join (the Steiner point): least cost. In the `trunk` family a host on the trunk node is
+  exactly optimal at every k, where every tree built from shortest paths (Day's included) is 1.5 to 3.2x.
+- **Construction (model, hop-messages, p50):** FrogNet: each member's subscription to the host and its answer
+  (12 at the source, 8-10 at the cost-best host); Day: a request out and a response back per member (12).
+
+E3 changes accordingly: not "find the optimal center" but "what a capability-based election per level yields, against
+the bounds above, as members and demand move".
 
 ## What this tells Day
 
@@ -85,7 +95,9 @@ equal-cost paths breaks it.
    shared trunks make it unboundedly worse. Asymmetric costs make it 4.5–6× worse even for one member. "Very close"
    needs both conditions stated.
 4. The tree's quality is a matter of **policy**: from the same shared state, an implementation can compute the
-   requester's tree (never worse than 1.9× here), the exact tree, or place a RAM host as the Steiner point.
+   requester's tree (never worse than 1.9x here) or the exact tree. FrogNet makes no optimality claim beyond routing on
+   the best resolving path; its distribution cost follows where the RAM host is placed, which is the administrator's
+   (or a per-level capability election's) choice.
 
 ## Not done yet
 
