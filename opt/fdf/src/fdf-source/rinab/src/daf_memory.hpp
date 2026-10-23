@@ -44,7 +44,7 @@ public:
     explicit Grow(size_t cap = 1024) : cap_(cap), slot_(new std::atomic<Entry*>[cap]) { for (size_t i = 0; i < cap_; ++i) slot_[i].store(nullptr, std::memory_order_relaxed); }
     T* get(const std::string& key, bool create) {
         const size_t h0 = std::hash<std::string>()(key);
-        for (size_t i = 0; i < cap_ / 2; ++i) {                       // half full, then the next table: probes stay short
+        for (size_t i = 0; i < cap_ / 2 && i < rmem::PROBE; ++i) {    // [BOUNDED_PROBE_V1] a few slots, then the next table
             std::atomic<Entry*>& s = slot_[(h0 + i) & (cap_ - 1)];
             Entry* e = s.load(std::memory_order_acquire);
             if (!e) {

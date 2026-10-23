@@ -171,6 +171,10 @@ except Exception: print(0)' $T/$n/fs/var-lib-frognet/region_hosts.json)
   [ $r -ge $S ] && [ $h -ge $S ]; }          # S /24 routes: S-1 others plus its own connected 10.20.i.0/24
 declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((COLD_MAX*1000)) ]; do
   for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; if ready $(eg $i) $i; then DONE[$i]=$(( $(ms) - T0 )); left=$((left-1)); fi; done
+  # [COLD_PROGRESS_V1] every 10 s while waiting: how far the slowest egress node is (its last readiness check)
+  if [ $left -gt 0 ] && [ $(( ($(ms) - T0) / 10000 )) -gt ${PR:-0} ]; then PR=$(( ($(ms) - T0) / 10000 )); w=""; wn=999999
+    for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; r=$(cut -d'|' -f1 $T/$(eg $i)/right 2>/dev/null); [ "${r:-0}" -lt $wn ] && { wn=${r:-0}; w=$(eg $i); }; done
+    echo "cold $((PR*10)) s: $((E-left))/$E egress nodes ready; slowest $w: $(cut -d'|' -f1,2 $T/$w/right 2>/dev/null | tr '|' '/') routes right, first wrong: $(cut -d'|' -f3 $T/$w/right 2>/dev/null)"; fi
   sleep 0.5; done
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
 read WB1 WP1 < <(hubw); echo "RESULT wire_cold S=$S E=$E bytes=$((WB1-WB0)) packets=$((WP1-WP0)) (hub link, start -> all ready)"
