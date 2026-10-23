@@ -139,6 +139,19 @@ public class PhoneTest {
         MainActivity a = ac.get();
         View root = a.getWindow().getDecorView();
 
+        // [KART_BANNER_IN_THE_LOG_V1] a kart memory that is not there: the red banner, and the same words in the log
+        Game g0 = new Game("nobody", "robolectric", "127.0.0.1", 1, 0, false, 1, null);
+        GameView v0 = new GameView(a, g0, null, new GameView.Host() {
+            public void chatDialog(boolean t) { } public void leave() { } public void placeVideo(RectF r, RectF sf) { }
+            public boolean vpnUp() { return true; } public String tunnel() { return null; } });
+        v0.surfaceChanged(v0.getHolder(), 0, SW, SH);
+        assertTrue("the kart memory at port 1 fails", waitFor(5000, () -> g0.memoryState() != null && !g0.memoryState().startsWith("connecting")));
+        shot(v0, "00-banner");
+        String said = null; for (String l : g0.log()) if (l.startsWith("[KART_BANNER_IN_THE_LOG_V1] banner: ")) said = l;
+        say("the banner, logged: " + said);
+        assertTrue("the red banner is in the log, word for word", said != null && said.endsWith(g0.memoryState()));
+        v0.end(); g0.stop();
+
         // the setup screen
         List<EditText> fields = all(root, EditText.class, new ArrayList<EditText>());
         assertEquals("setup: name, kart memory, robots, laps, Communicator memory, media", 6, fields.size());
@@ -158,7 +171,7 @@ public class PhoneTest {
         say("a kart memory with no port: '" + err + "'");
         assertTrue(err != null && err.contains("host:port"));
         fields.get(1).setText(kart);
-        join.performClick(); idle(100);
+        join.performClick();
 
         // the game view
         Field gv = MainActivity.class.getDeclaredField("view"); gv.setAccessible(true);
@@ -167,6 +180,14 @@ public class PhoneTest {
         Field gf = MainActivity.class.getDeclaredField("game"); gf.setAccessible(true);
         final Game g = (Game) gf.get(a);
         v.surfaceChanged(v.getHolder(), 0, SW, SH);
+        boolean early = g.memoryState() != null;                           // drawn before the kart memory answers: the banner says so
+        shot(v, "00-connecting");
+        say("drawn at once after Connect: kart memory " + (early ? "not answered yet" : "already answered"));
+        idle(100);
+        if (early) {
+            boolean logged = false; for (String l : g.log()) if (l.startsWith("[KART_BANNER_IN_THE_LOG_V1] banner: ")) { logged = true; say("logged: " + l); }
+            assertTrue("the red banner is in the log", logged);
+        }
         Field cf = MainActivity.class.getDeclaredField("calls"); cf.setAccessible(true);
         final net.frognet.communicator.GameCalls k = (net.frognet.communicator.GameCalls) cf.get(a);
         // [KART_HOME_V1] connected: the kart memory and the Communicator's, and the home screen; not in the game's lobby
@@ -175,6 +196,18 @@ public class PhoneTest {
         idle(1500);
         assertEquals("home", v.screen);
         assertTrue("connected is not playing: no lobby tuple", !g.lobby().containsKey("phone"));
+        // [KART_STARTS_FROGNET_V1] no FrogNet app here (Robolectric resolves no other app's activity): asked once at Connect;
+        // coming back to the front does not ask again in a loop (r5 asked ~550 times a second)
+        android.content.Intent ji = shadowOf(a).getNextStartedActivityForResult().intent;
+        assertEquals("the FrogNet app's join", "net.frognet.action.JOIN", ji.getAction());
+        assertEquals("com.fawcettinnovations.fdf.android", ji.getPackage());
+        shadowOf(a).receiveResult(ji, android.app.Activity.RESULT_CANCELED, null);     // as r5 saw on the phone: cancelled, then onResume
+        int asks0 = 0; for (String l : g.log()) if (l.contains("asked the FrogNet app to join")) asks0++;
+        for (int i = 0; i < 5; i++) { ac.pause(); ac.resume(); idle(50); }
+        int asks1 = 0; for (String l : g.log()) if (l.contains("[KART_STARTS_FROGNET_V1]")) say("FrogNet: " + l);
+        for (String l : g.log()) if (l.contains("asked the FrogNet app to join")) asks1++;
+        say("FrogNet asks: " + asks0 + " at Connect, " + asks1 + " after 5 trips to the background and back");
+        assertTrue("the FrogNet app is asked once, not in a loop", asks0 == 1 && asks1 == 1);
         say("home: kart memory up, " + k.roomState() + "; tiles " + g.tiles().keySet() + "; lobby " + g.lobby().keySet() + " (the phone is not in it)");
         shot(v, "0-home");
         turn(v, true);

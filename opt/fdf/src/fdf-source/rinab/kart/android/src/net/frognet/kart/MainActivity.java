@@ -149,6 +149,7 @@ public final class MainActivity extends Activity implements GameView.Host {
         stage.addView(remoteTV, new FrameLayout.LayoutParams(1, 1)); remoteTV.setVisibility(View.GONE);
         stage.addView(selfBox, new FrameLayout.LayoutParams(1, 1)); selfBox.setVisibility(View.GONE);
         setContentView(stage);
+        joinAsked = false; frogNetMissing = false; joinAskedAt = 0;
         joinFrogNet("connected");
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -215,25 +216,31 @@ public final class MainActivity extends Activity implements GameView.Host {
     /** what the game knows of the FrogNet tunnel, for the banner: null when it is up or not asked about */
     public volatile String tunnel = null;
     @Override public String tunnel() { return vpnUp() ? null : tunnel; }
-    private boolean joinAsked = false;
+    private boolean joinAsked = false, frogNetMissing = false;
+    private long joinAskedAt = 0;
+    static final long JOIN_AGAIN_MS = 60000;                     // back in front without a tunnel: asked again at most once a minute
 
     private void joinFrogNet(String why) {
-        if (game == null || vpnUp() || joinAsked) return;
-        joinAsked = true;
+        if (game == null || vpnUp() || joinAsked || frogNetMissing) return;
+        joinAsked = true; joinAskedAt = System.currentTimeMillis();
         Intent i = new Intent(JOIN_ACTION).setPackage(FROGNET);
         try {
             startActivityForResult(i, JOIN);
             tunnel = "starting the FrogNet membership (no tunnel yet)";
             note("[KART_STARTS_FROGNET_V1] " + why + ", no FrogNet tunnel: asked the FrogNet app to join");
         } catch (android.content.ActivityNotFoundException e) {
-            tunnel = "the FrogNet app (" + FROGNET + ") is not installed, or too old to be started from here (needs fdf-kt-2026-10-23-a16)";
+            frogNetMissing = true;                                    // not asked again until the next Connect
+            String have;
+            try { have = "is " + getPackageManager().getPackageInfo(FROGNET, 0).versionName + ": too old to be started from here"; }
+            catch (android.content.pm.PackageManager.NameNotFoundException n) { have = "is not installed"; }
+            tunnel = "the FrogNet app (" + FROGNET + ") " + have + " (the game needs fdf-kt-2026-10-23-a16 or later)";
             note("[KART_STARTS_FROGNET_V1] " + tunnel);
         }
     }
     private void note(String l) { Log.i(TAG, l); Game g = game; if (g != null) g.note(l); }
 
     @Override protected void onActivityResult(int code, int result, Intent data) {
-        if (code != JOIN) return;
+        if (code != JOIN || frogNetMissing) return;                  // a failed start is answered "cancelled" too: said already
         String why = data == null ? "" : String.valueOf(data.getStringExtra("why"));
         if (result == RESULT_OK) { tunnel = "FrogNet: " + why + "; waiting for the tunnel"; note("[KART_STARTS_FROGNET_V1] the FrogNet app: " + why); }
         else { tunnel = "FrogNet did not join: " + (why.isEmpty() ? "cancelled" : why); note("[KART_STARTS_FROGNET_V1] " + tunnel); }
@@ -241,6 +248,7 @@ public final class MainActivity extends Activity implements GameView.Host {
 
     @Override protected void onResume() {
         super.onResume();
-        if (game != null && !vpnUp()) { joinAsked = false; joinFrogNet("back in front"); }
+        // the result of the join comes back through onResume too: only a minute after the last ask is it asked again
+        if (game != null && !vpnUp() && System.currentTimeMillis() - joinAskedAt > JOIN_AGAIN_MS) { joinAsked = false; joinFrogNet("back in front"); }
     }
 }

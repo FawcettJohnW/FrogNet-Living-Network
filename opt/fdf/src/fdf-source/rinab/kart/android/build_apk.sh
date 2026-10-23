@@ -14,7 +14,7 @@ cd "$(dirname "$0")"; HERE=$PWD
 COMMS_SRC=${COMMS_SRC:-$HERE/../../../../frognet-android/app/src/main/java/net/frognet/communicator}
 [ -f "$COMMS_SRC/core/Room.java" ] || { echo "build_apk: no Communicator source at $COMMS_SRC (COMMS_SRC=<dir>)" >&2; exit 1; }
 OUT=${1:-$HERE/build/FrogNetKart.apk}; T=${TOOLS:-$HERE/.tools}; M=https://repo1.maven.org/maven2
-VERSION_CODE=5; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
+VERSION_CODE=6; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
 [ -n "$VERSION_NAME" ] || { echo "build_apk: no BUILD in Game.java" >&2; exit 1; }
 mkdir -p "$T" build
 get() { [ -s "$T/$2" ] || curl -sSf --retry 5 --retry-delay 3 -o "$T/$2" "$M/$1"; }

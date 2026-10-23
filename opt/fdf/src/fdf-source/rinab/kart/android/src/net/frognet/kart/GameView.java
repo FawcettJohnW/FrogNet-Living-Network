@@ -305,6 +305,10 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 trouble = "no FrogNet tunnel yet (the race is on " + addr + ")" + (t == null ? "" : ": " + t);
             }
         }
+        if (!eqs(trouble, bannerSaid)) {                                    // [KART_BANNER_IN_THE_LOG_V1] what the red banner says, in the log
+            game.say(trouble == null ? "[KART_BANNER_IN_THE_LOG_V1] banner cleared (was: " + bannerSaid + ")" : "[KART_BANNER_IN_THE_LOG_V1] banner: " + trouble);
+            bannerSaid = trouble;
+        }
         if (trouble != null) {
             p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(220, 120, 20, 20)); c.drawRect(0, 0, W, 34, p);
             fit(c, trouble, 12, 6, 20, Color.WHITE, true, W - 24);
@@ -329,6 +333,8 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         placedRemote = r; placedSelf = sf;
         host.placeVideo(r, sf);
     }
+    private String bannerSaid = null;
+    private static boolean eqs(String a, String b) { return a == null ? b == null : a.equals(b); }
     private static boolean eq(RectF a, RectF b) { return a == null ? b == null : a.equals(b); }
 
     private void drawCall(Canvas c) {

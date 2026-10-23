@@ -21,7 +21,7 @@ import java.util.Random;
  * tick() is called from one thread (the game loop); the getters are safe from the drawing thread.
  */
 public final class Game {
-    public static final String BUILD = "kart-android-2026-10-23-r5";
+    public static final String BUILD = "kart-android-2026-10-23-r6";
     static final Map<String, int[]> COLORS = new HashMap<String, int[]>();
     static final int[][] BOT_COLORS = {{240,140,40},{150,90,220},{120,200,40},{40,170,150},{200,60,110},{110,110,240},{220,220,120},{170,120,80}};
     static {
@@ -112,6 +112,8 @@ public final class Game {
 
     /** a line for the game's Log screen only (the caller has logged it already) */
     public void note(String l) { keep(l); }
+    /** a line for the log (logcat FrogNetKart) and the Log screen */
+    public void say(String l) { log.say(l); }
     private void keep(String l) { synchronized (lines) { lines.addLast(l); while (lines.size() > 200) lines.removeFirst(); } }
     public List<String> log() { synchronized (lines) { return new ArrayList<String>(lines); } }
 

@@ -25,7 +25,7 @@
           <configuration><sources><source>../../../../../../frognet-android/app/src/main/java</source></sources></configuration></execution></executions></plugin>
       <plugin><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version>
         <configuration><redirectTestOutputToFile>false</redirectTestOutputToFile><trimStackTrace>false</trimStackTrace>
-          <systemPropertyVariables><kart>${kart}</kart><shots>${shots}</shots><comms>${comms}</comms><probe>${probe}</probe><ivf>${ivf}</ivf><opus>${opus}</opus><tmp>${tmp}</tmp><robolectric.offline>true</robolectric.offline><robolectric.dependency.dir>${project.build.directory}/robo-deps</robolectric.dependency.dir></systemPropertyVariables></configuration></plugin>
+          <systemPropertyVariables><kart>${kart}</kart><shots>${shots}</shots><comms>${comms}</comms><probe>${probe}</probe><ivf>${ivf}</ivf><opus>${opus}</opus><tmp>${tmp}</tmp><robolectric.logging>stdout</robolectric.logging><robolectric.offline>true</robolectric.offline><robolectric.dependency.dir>${project.build.directory}/robo-deps</robolectric.dependency.dir></systemPropertyVariables></configuration></plugin>
     </plugins>
   </build>
 </project>
