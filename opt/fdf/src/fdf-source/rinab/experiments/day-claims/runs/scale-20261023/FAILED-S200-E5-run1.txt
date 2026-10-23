@@ -1,0 +1,20 @@
+=== S=200 subnets, E=5 egress points, 195 children; 2026-10-23T07:00:14Z
+PASS  hub up on 51820
+started 5 daemon nodes and 195 children in 12596 ms
+FAIL  cold: all 5 egress nodes route all 200 /24s and name all 200 (last at 21795 ms; 1 not ready)
+--- not ready: e4 right/expected|first wrong: 198|199|10.20.169.0/24 via 10.20.4.52 dev l-e4 hosts 200
+    1792738850785 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=0 list=[] already_up=['hub-hubA'] skipped_lan_reachable=0
+    1792738850934 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: e1 keys=['gen', 'maps', 'view'] | e2 keys=['gen', 'maps', 'view'] | e3 keys=['gen', 'maps', 'view'] | e4 keys=['gen', 'gen_why', 'maps'] | e5 keys=['gen', 'gen_why', 'maps']
+    1792738850940 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-16-r21 rebuild=10 gen=13 hosts=200 links=194 uplinks=['e1', 'e2', 'e3', 'e4', 'e5'] hubs=['vm'] conflicts=[] me=e4 exit=e4 default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.20.104.0/24', '10.20.109.0/24', '10.20.11
+    1792738850945 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 55 -> 62 (e1 10->12, e2 8->10, e3 10->12, e5 14->15) after event p
+    1792738850945 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=22ms (participants+mappings, one read) +0ms bringup=49ms apply=146ms (probes=0/0ms routes=0/0ms) publish=1ms total=225ms
+RESULT cold S=200 E=5 last_ms=21795 ready=4/5 p50_ms=21119
+PASS  reach: 10/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=5 ok=10/10
+RESULT size S=200 E=5 participants_bytes=165058 mappings_bytes=16433 bed_rss_mb=5640
+  change #1: 5/5 daemons applied
+  change #2: 5/5 daemons applied
+  change #3: 5/5 daemons applied
+  change #4: 5/5 daemons applied
+RESULT event S=200 E=5 changes=4 samples=20 to_last_daemon_p50_ms=342 max_ms=353 per_daemon_p50_ms=278 daemon_world=21 bringup=37 apply=119 publish=1 total=193
+RESULT FAIL: 1

@@ -22,7 +22,7 @@
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; S=${S:-200}; E=${E:-2}; N=${N:-4}; COLD_MAX=${COLD_MAX:-600}
 [ $E -ge 1 ] && [ $E -le 120 ] && [ $S -ge $E ] && [ $S -le 250 ] || { echo "need 1 <= E <= 120, E <= S <= 250"; exit 2; }
-T=${T:-/tmp/claude-0/netns-scale}; rm -rf $T; mkdir -p $T/hub $T/bin
+T=${T:-/tmp/claude-0/netns-scale-S$S-E$E}; rm -rf $T; mkdir -p $T/hub $T/bin      # one directory per (S,E): a run keeps its logs
 export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
@@ -161,7 +161,16 @@ TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && T
 check $([ $left = 0 ] && echo 0 || echo 1) "cold: all $E egress nodes route all $S /24s and name all $S (last at $TL ms; $left not ready)"
 [ $left = 0 ] || for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; n=$(eg $i)
   echo "--- not ready: $n right/expected|first wrong: $(cat $T/$n/right) hosts $(python3 -c 'import sys,json;print(len(json.load(open(sys.argv[1]))))' $T/$n/fs/var-lib-frognet/region_hosts.json 2>&1)"
-  tail -5 $T/$n/daemon.log | cut -c1-300 | sed 's/^/    /'; break; done
+  tail -5 $T/$n/daemon.log | cut -c1-300 | sed 's/^/    /'
+  # [DIAG-SCALE-MISS] the first wrong route's subnet: what that child logged, what the region holds for it, what this
+  # node routes it by, and what the graph line says about links
+  w=$(cut -d'|' -f3 $T/$n/right | awk '{print $1}'); k=$(echo "$w" | cut -d. -f3); c=$(ch $k)
+  echo "--- [DIAG-SCALE-MISS] $w (child $c): $n routes it: $(ip netns exec $n ip -4 route | grep "^$w" | tr '\n' ' ')"
+  for f in client.log facts.log; do echo "    $c/$f:"; sed 's/^/      /' $T/$c/$f 2>/dev/null | cut -c1-300 | tail -8; done
+  NS hub curl -s -X POST -d '{"op":"participants"}' "$U" | python3 -c 'import sys,json
+P=json.load(sys.stdin)["participants"]; x=[p for p in P if p.get("name")==sys.argv[1]]
+print("    region:", json.dumps(x[0])[:600] if x else "NOT IN THE REGION")' $c
+  grep "GRAPH build" $T/$n/daemon.log | tail -1 | grep -o "links=[0-9]*" | sed 's/^/    graph /'; break; done
 echo "RESULT cold S=$S E=$E last_ms=$TL ready=$((E-left))/$E p50_ms=$(for i in $(seq $E); do echo ${DONE[$i]:-}; done | grep . | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')"
 # ---- reach: up to 10 sources, each to a .1 on another egress node's side
 P=0; Q=0; for s in $(seq 1 $(( S > 10 ? S/10 : 1 )) $S | head -10); do d=$(( (s + S/2 - 1) % S + 1 ))
