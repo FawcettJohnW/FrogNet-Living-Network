@@ -182,6 +182,7 @@ static int agent_run(const std::string& where, std::string name) {
 }
 
 // ================================================================ driver
+static std::string g_at = "start";   // [E2D_SAYS_WHERE_V1] where the driver is, for a failure's report
 static std::vector<std::string> live_agents(daf::Client& c, uint64_t* rev = nullptr) {
     Json a = c.call("resolve", "\"daf\":" + q(C) + ",\"name\":\"agents\",\"rule\":\"all\",\"live\":true");
     std::vector<std::string> v; for (auto& m : a["members"].a) v.push_back(m["apn"].s); std::sort(v.begin(), v.end());
@@ -203,6 +204,7 @@ static int driver(const std::string& where, const std::string& scen, const std::
     std::map<std::string, uint64_t> agent_bytes; std::set<std::string> ever(agents.begin(), agents.end()); std::map<size_t, int> steps_by_count;
     while (std::getline(in, line)) {
         Json s = Json::parse(line); ++idx;
+        g_at = "scenario " + std::to_string(idx) + " (setting up its DAF)";
         const std::string dan = "e2d-" + std::string(run) + "-" + std::to_string(idx), D = dan + "#1";
         must(c.call("create_daf", "\"dan\":" + q(dan) + ",\"daii\":\"1\",\"owner\":\"e2d\""), "create " + dan);
         daf::Client dc(where); must(dc.call("enroll", "\"daf\":" + q(D) + ",\"apn\":\"coordinator\""), "enroll coordinator");
@@ -213,6 +215,7 @@ static int driver(const std::string& where, const std::string& scen, const std::
         std::map<int, std::map<int, int>> L; for (auto& l : s["steps"].a[0]["links"].a) L[int(l.a[0].n)][int(l.a[1].n)] = int(l.a[2].n);
         auto& st = s["steps"].a;
         for (size_t k = 0; k < st.size(); ++k) {
+            g_at = "scenario " + std::to_string(idx) + " step " + std::to_string(k);
             const auto L_before = L;
             if (k > 0) { const Json& ch = st[k]["change"]; L[int(ch.a[0].n)][int(ch.a[1].n)] = int(ch.a[2].n); if (!s["asym"].b) L[int(ch.a[1].n)][int(ch.a[0].n)] = int(ch.a[2].n); }
             Edges want_r, want_s; for (auto& e : st[k]["rpt"].a) want_r.insert({int(e.a[0].n), int(e.a[1].n)}); for (auto& e : st[k]["spt"].a) want_s.insert({int(e.a[0].n), int(e.a[1].n)});
@@ -292,6 +295,10 @@ static int driver(const std::string& where, const std::string& scen, const std::
 int main(int argc, char** argv) {
     const std::string mode = argc > 1 ? argv[1] : "";
     if (mode == "agent" && argc >= 3) return agent(argv[2], argc > 3 ? argv[3] : "");
-    if (mode == "driver" && argc >= 5) return driver(argv[2], argv[3], argv[4]);
+    if (mode == "driver" && argc >= 5) {
+        try { return driver(argv[2], argv[3], argv[4]); }
+        catch (const std::exception& e) {   // [E2D_SAYS_WHERE_V1] a call that failed: what, where, when -- not an abort
+            fprintf(stderr, "e2-dist driver %s: FAILED at %s: %s (build %s, host %s)\n", utc().c_str(), g_at.c_str(), e.what(), FDF_BUILD_TAG, argv[2]);
+            printf("E2D  RESULT FAIL at %s: %s\n", g_at.c_str(), e.what()); fflush(stdout); return 1; } }
     fprintf(stderr, "usage: e2-dist agent HOST:PORT [NAME] | e2-dist driver HOST:PORT SCENARIOS.jsonl OUTDIR\n"); return 2;
 }

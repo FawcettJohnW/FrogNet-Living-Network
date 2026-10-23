@@ -32,6 +32,8 @@ API=/FawcettInnovations.RINA.ram_interface.php
 where() { case "$1" in *:*) echo "$1" ;; *) echo "$1:52500" ;; esac; }
 case "${1:-all}" in
   all)
+    # [ALL_CLEANS_FIRST_V1] a killed S run's namespaces and ~400 processes would share the machine with E2: removed first
+    [ "$(id -u)" = 0 ] && [ -x "$H/scale/scale-series" ] && "$H/scale/scale-series" clean
     P=52500; mkdir -p "$H/var/blob"; rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"
     echo "day-claims: $(cat "$H/BUILD" | tr '\n' ' ')"
     OUT=$H/runs/e2-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
