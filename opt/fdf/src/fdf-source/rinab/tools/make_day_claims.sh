@@ -27,7 +27,7 @@ mkdir -p "$D/bin/x86_64" "$D/bin/aarch64" "$D/scenarios"
 cp build/bin/rina-host-static "$D/bin/x86_64/rina-host"; cp build/static/e2-dist "$D/bin/x86_64/e2-dist"
 cp build/arm64/rina-host "$D/bin/aarch64/rina-host"; cp build/arm64/e2-dist "$D/bin/aarch64/e2-dist"
 cp experiments/day-claims/dist/day-claims "$D/day-claims"; cp "$SCEN" "$D/scenarios/e2.jsonl"
-cp experiments/day-claims/EXPERIMENTS.md experiments/day-claims/RESULTS-E1.md experiments/day-claims/RESULTS-E2.md "$D/"
+cp experiments/day-claims/EXPERIMENTS.md experiments/day-claims/RESULTS-E1.md experiments/day-claims/RESULTS-E2.md experiments/day-claims/REPORT-discovery-vs-memory.md "$D/"; mkdir -p "$D/runs/scale-20261023"; cp experiments/day-claims/runs/scale-20261023/S-discovery-vs-memory-S200.png "$D/runs/scale-20261023/"
 # ---- scale/: experiment S, x86_64 ([SCALE_IN_DAY_CLAIMS_V1])
 TOP=$(cd "$H/.." && pwd); FN=$(cd "$H/../../../../frognet_semantic" && pwd); SC=$D/scale
 SBINS="rina-host fdf-client fdf-events fdf-where fdf-participants fdf-attention ram"    # what the bed and fdf-hub run

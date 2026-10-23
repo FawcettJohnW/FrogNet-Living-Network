@@ -1,54 +1,93 @@
-# The converging tree, and the cost of learning the network
+# Test report: the converging tree, and the cost of learning the network
 
 *2026-10-23 · John Fawcett*
 
-§2.8.1 of the Chapter 12 draft (2026-10-13) says the converging Create Flow Responses "will create a spanning tree",
-and that "because the responses follow the current optimal routing, it's going to be very close" to optimal. Tested
-against the exact optimum, each part holds only under a condition the text does not state:
+## 1. Objective
 
-1. **It is a tree** only with one deterministic next hop per node. With a per-flow choice among equal paths, two
-   members on a shared node each receive the message twice, at twice the cost.
-2. **Used outward from the requester, it reaches every member** only if each link a response used works both ways.
-   With some one-way links it missed members in 30 of 42 graphs.
-3. **It is near-optimal** only with symmetric costs and no cheaper shared path that members' own shortest paths
-   bypass. A shared trunk makes the ratio as large as one likes; asymmetric costs made it 4.5× for one member.
+Day's chapters keep asking whether a property follows from the underlying structure or only from an implementation
+choice. This report puts that question to two of his claims.
 
-All three come from one source: the data path is the reverse of the path a response happened to take. Resolving forward
-from shared topology state avoids the reverse-path reachability problem and permits constructing a consistent tree.
-Near-optimality remains a separate question of tree-selection policy. Tree structure, reachability and efficiency are
-separate properties with separate conditions (Appendix A has a graph small enough to check by hand for each).
+The first is §2.8.1 of the Chapter 12 draft (2026-10-13, p. 16). It says the converging Create Flow Responses "will
+create a spanning tree", and that "because the responses follow the current optimal routing, it's going to be very
+close" to optimal. The objective is to find out whether tree structure, reach and near-optimality follow from the
+construction, or from conditions the construction happens to meet.
 
-The second result is about learning the network. Under rlite's policies, modelled on one 200-subnet network, every cost
-of knowing the network follows its physical shape: from 2 to 101 member hops to the farthest member, 199 to 9,901
-transfers per change, and a refresh of 169 KB to 31.6 MB every 30 s for as long as the network exists. In a shared
-region, measured on the real FrogNet daemon, each member publishes only its own facts, the region holds about 200 KB at
-every egress count tried, and nothing moves at rest. Only the routes computed from that state reflect the physical
-network, so an algorithm written against it does not have to change with the topology (Appendix B; physical numbers
-marked **[physical: …]**).
+The second is the cost of learning the network. RINA leaves where the RIB lives to policy. The objective is to find
+out whether the cost of every member knowing the network follows from RINA's structure, or from the replicated,
+flooded RIB that rlite chose. The alternative tested is a shared region in which each member writes only its own facts.
 
-## Suggestions for further investigation
+## 2. Summary of results
 
-Offered, not yet run:
+**Tree structure comes from a choice.** The converging responses form a tree only when every node has one
+deterministic next hop. With a per-flow choice among equal paths, two members on a shared node each received the
+message twice, at twice the cost. 16 of 1,500 generated graphs were not trees under that rule.
 
-1. **When the tree is near-optimal.** Which properties of topology, costs and group placement explain the good results,
-   and can "very close" become a bounded claim under explicit conditions? A starting point is already in the data: on
-   acyclic topologies (chain, star) the tree was exactly optimal in all 470 graphs, under any costs, as it must be,
-   since a tree offers only one path between any two nodes. Every deviation needs a cycle that some member's shortest
-   path bypasses.
-2. **The least coordination that guarantees a tree.** Is one deterministic next hop per node necessary, or can a more
-   general rule keep multipath choice while preventing cycles and duplicates?
-3. **Determining the group's center dynamically.** The question left open in §2.3: how the root should be chosen as
-   membership and demand change, and when moving it is worth the disruption.
-4. **Construction during change.** Whether the properties found on a fixed graph survive when membership or routes
-   change while the tree is being built.
-5. **RIB placement apart from routing policy.** Which results follow from canonical shared state itself, and which from
-   where it resides or how members reach it.
-6. **Recursive scopes.** Whether the same construction rules and guarantees hold when members span several layers whose
-   membership and addresses change independently.
+**Reach comes from an assumption about the links.** Used outward from the requester, the tree reaches every member
+only if each link a response used also works in the other direction. With about 30% of links one-way, reversed paths
+missed members in 30 of 42 graphs. Resolving forward from shared topology state reached every member in all 42.
 
----
+**Near-optimality comes from neither.** With symmetric links the tree was within 10% of optimal in 88% of 600 graphs.
+A shared trunk that members' own shortest paths bypass makes the ratio as large as one likes (3.2× with 8 members in
+the example). Asymmetric costs gave 4.5× for one member. The shared-state shortest-path tree is defeated by the same
+trunk. Only on acyclic topologies is the tree exactly optimal (470 of 470), and there the topology leaves one path
+between any two nodes. Which tree to build is a policy question.
 
-## Appendix A: the tree, in detail
+**The topology-dependence of learning the network comes from a policy.** Under rlite's policies, modelled on a
+200-subnet network, every cost of knowing the network follows its physical shape. From 1 to 100 egress points: 2 to
+101 member hops to the farthest member, 199 to 9,901 transfers per change, and a refresh of 169 KB to 31.6 MB every
+30 s for as long as the network exists. In the shared region, measured on the real FrogNet daemon, each member
+publishes only its own facts, and the region held 181 to 203 KB from 1 to 50 egress points. Nothing moves at rest.
+Only the routes computed from that state reflect the physical network, so an algorithm written against it does not
+have to change with the topology.
+
+Physical-network numbers are marked **[physical: …]** where they are still to be filled in.
+
+## 3. Methodology
+
+### 3.1 The tree
+
+The passage is tested as written. Each member's response takes its routed path to the requester, and the tree is the
+union of those paths. Three arms run on the same graphs:
+
+1. the converging tree, under one deterministic next hop per node and under a per-flow choice among equal paths;
+2. a shortest-path tree resolved forward by the requester from the topology held as shared state;
+3. the exact optimum: the cheapest tree connecting the requester to every member, which is a Steiner tree (on directed
+   costs, the minimum Steiner arborescence rooted at the requester). It is computed by Dreyfus–Wagner and cross-checked
+   by exhaustive search on every instance; an instance where the two disagree counts as a reference failure.
+
+Cost is one message, summed over the links it crosses. The passage does not say which direction the group's data uses
+the tree, so reach is tested for data flowing from the requester outward. Graphs are chains, stars, rings, branching
+graphs and asymmetric graphs, with seeds recorded. Each failure is also given as a graph small enough to check by hand.
+
+Each finding is classed by the test in the objective: a property that holds whatever the policy follows from the
+construction; one that holds under one policy and fails under another comes from the choice.
+
+### 3.2 The cost of learning the network
+
+One network of 200 subnets, its egress level given 1, 2, 5, 10, 20, 50 and 100 egress points. What each member
+contributes is the same in both arms: its own interfaces, addresses and leases. The arms differ in how the others come
+to know it.
+
+| | rlite's policies, modelled | Shared region (FD&F) |
+| --- | --- | --- |
+| How a member's facts reach the others | enrollment, then flooding: each member forwards each new object to every neighbour but the sender; every member's own objects re-sent every 30 s | the member writes its facts once into the region; each reader is woken on change and reads it there |
+| What every member holds | the whole link-state database, directory and address table | nothing beyond its own facts: the region holds one copy |
+| Implementation | rlite `user/uipcps` as written (link-state routing, fully replicated directory, distributed address allocation); sizes from rlite's own `.proto` encodings | the FD&F region and the FrogNet tunnel daemon, unchanged |
+| Obtained by | computation on the graphs | runs: every node in its own network namespace, real kernel routes, real WireGuard |
+| Physical layouts | chain, binary tree, star (hub), partial mesh (ring plus chords, degree 4), full mesh | star through the hub only (a FrogNet region's physical layout) |
+| Where | the model | sandbox (one machine, 2 CPUs) and **[physical: machines, sites, WAN legs]** |
+
+Two things differ between the columns at once, the coordination mechanism and, for four of the five layouts, the
+physical shape. The comparison is between deployments; it does not attribute every difference to one cause.
+
+
+**Correctness before speed.** A shared-region run counts only when every node holds a route on its expected next hop to
+every reachable /24, and every name resolves on every node. Both are checked on every node, by kernel routes and real
+lookups.
+
+## 4. Detailed results
+
+### 4.1 The tree
 
 The passage (§2.8.1, p. 16):
 
@@ -58,15 +97,7 @@ The passage (§2.8.1, p. 16):
 > It might not be perfectly optimal spanning tree, but because the responses follow the current optimal routing, it's
 > going to be very close.
 
-Two claims: the converging responses form a tree, and because each follows current optimal routing the tree is very
-close to optimal. Tested as written: each member's response takes its routed path to the requester, and the tree is the
-union of those paths. "Optimal" is the cheapest tree connecting the requester to every member (it spans the group, not
-the whole network: a Steiner tree, on directed costs the minimum Steiner arborescence rooted at the requester), computed
-exactly by Dreyfus–Wagner and cross-checked by exhaustive search on every instance. Costs below are one message, summed
-over the links it crosses. The passage does not say in which direction the group's data then uses the tree; finding 2
-applies when data flows from the requester outward along it.
-
-### 1. Converging paths form a tree only with one next hop per node
+#### 1. Converging paths form a tree only with one next hop per node
 
     r ─3─ x ─3─ z ─1─ m1
     r ─3─ y ─3─ z ─1─ m2
@@ -85,7 +116,7 @@ graphs, 16 were not trees under the per-flow rule.
 
 **Condition needed:** destination-based forwarding with one deterministic next hop per node.
 
-### 2. Used outward from the requester, the tree reaches every member only if each link it used works both ways
+#### 2. Used outward from the requester, the tree reaches every member only if each link it used works both ways
 
     r ⇄ a ⇄ m      (cost 1 each way)
     m → r          (cost 1, one way only)
@@ -98,7 +129,7 @@ forward resolution reached every member in all 42.
 
 **Condition needed:** every link a response used must carry data in the other direction.
 
-### 3. Near-optimal is not a property of the construction
+#### 3. Near-optimal is not a property of the construction
 
 Shared trunk, symmetric links: r has a direct link of cost 10 to each of k members, and a trunk of cost 9 to a hub h
 that reaches each member at cost 2.
@@ -126,35 +157,19 @@ costs, 74%, worst 6.0×.
 **Condition needed:** symmetric costs, and members whose individually shortest paths do not bypass a cheaper shared
 path. Even then "very close" needs a number.
 
-### What follows for the tree
 
-The three conditions have one source: the data path is taken by reversing the path a response happened to travel. A
-requester that reads the topology as state and resolves each member's path forward needs none of them: in the same
-graphs its shortest-path tree reached every member, including all 42 one-way graphs, and delivered no duplicates in any
-of the 1,500. It is not optimal either: within 1.9× on the generated graphs, but the shared trunk defeats it as it
-defeats the converging tree (3.2× at k = 8). The exact tree is computable from the same state; which tree to build is
-policy.
+#### Structure or choice
 
+All three conditions come from taking the data path by reversing the path a response happened to travel. Forward
+resolution from shared topology state removes the reach condition: it reached every member in all 42 one-way graphs.
+It also permits a consistent tree: there were no duplicates in any of the 1,500. It does not remove the efficiency
+question. It was within 1.9× on the generated graphs, but the shared trunk defeats it as it defeats the converging tree
+(3.2× at k = 8). The exact tree is computable from the same state; which tree to build is policy. Tree structure,
+reach and efficiency are separate properties with separate conditions.
 
-## Appendix B: the cost of learning the network, in detail
+### 4.2 The cost of learning the network
 
-One network of 200 subnets, its egress level given 1, 2, 5, 10, 20, 50 and 100 egress points. In both cases what each
-member contributes is the same: its own interfaces, addresses and leases. The difference is how the others come to know
-it.
-
-| | rlite's policies, modelled | Shared region (FD&F) |
-| --- | --- | --- |
-| How a member's facts reach the others | enrollment, then flooding: each member forwards each new object to every neighbour but the sender; every member's own objects re-sent every 30 s | the member writes its facts once into the region; each reader is woken on change and reads it there |
-| What every member holds | the whole link-state database, directory and address table | nothing beyond its own facts: the region holds one copy |
-| Implementation | rlite `user/uipcps` as written (link-state routing, fully replicated directory, distributed address allocation); sizes from rlite's own `.proto` encodings | the FD&F region and the FrogNet tunnel daemon, unchanged |
-| Obtained by | computation on the graphs | runs: every node in its own network namespace, real kernel routes, real WireGuard |
-| Physical layouts | chain, binary tree, star (hub), partial mesh (ring plus chords, degree 4), full mesh | star through the hub only (a FrogNet region's physical layout) |
-| Where | the model | sandbox (one machine, 2 CPUs) and **[physical: machines, sites, WAN legs]** |
-
-Two things differ between the columns at once, the coordination mechanism and, for four of the five layouts, the
-physical shape. The comparison is between deployments; it does not attribute every difference to one cause.
-
-### rlite's policies, modelled
+#### rlite's policies, modelled
 
 With N members and L adjacencies:
 
@@ -175,7 +190,8 @@ At 200 subnets, from the smallest to the largest value across E = 1 to 100:
 Every term is a property of the physical graph, and the refresh is paid for as long as the network exists. These are
 rlite's policy choices, not the only ones RINA allows: where the RIB lives is itself policy.
 
-### The shared region, measured
+
+#### The shared region, measured
 
 A change is two logical operations, a write to the region and a wake of each reader; each crosses whatever links lie
 between that member and the region host. No member relays another's facts, and at rest nothing is sent.
@@ -205,37 +221,63 @@ On your machines:
 | --- | --- | --- | --- | --- | --- |
 | **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** |
 
-![rlite's policies, modelled, across five physical layouts, against the shared region, at 200 subnets](S-discovery-vs-memory-S200.png)
 
-### What the comparison shows
+![rlite's policies, modelled, across five physical layouts, against the shared region, at 200 subnets](runs/scale-20261023/S-discovery-vs-memory-S200.png)
+
+#### Structure or choice
 
 Under rlite's policies the cost of knowing the network follows its physical shape: hops, transfers, refresh and the
-state every member carries all change with it. In the shared region, what an algorithm reads is the same set of facts
-whatever the shape; only the routes computed from it reflect the physical network. An algorithm written against that
-state does not have to change with the topology.
+state every member carries all change with it. Those are rlite's policy choices. RINA's structure does not require
+them, because where the RIB lives is itself policy. In the shared region, what an algorithm reads is the same set of
+facts whatever the shape; only the routes computed from it reflect the physical network.
 
+## 5. Limits
 
-## Appendix C: limits, how to reproduce it, sources
-
-- The passage is quoted from the draft of 2026-10-13; it does not say which way data uses the tree, so finding 2 is
-  stated for data flowing from the requester outward.
+- The passage is quoted from the draft of 2026-10-13. It does not say which way data uses the tree, so the reach
+  finding is stated for data flowing from the requester outward.
 - rlite's side is computed from its policies as written, not run.
 - The chart's delay panel assumes 10 ms per WAN link, 0.1 ms per LAN link and 1 ms of processing per member that
   handles a change, for both columns.
-- The shared region was measured on the hub layout only; its state does not depend on the layout by construction, but
+- The shared region was measured on the hub layout only. Its state does not depend on the layout by construction, but
   other layouts were not run.
 - The sandbox's elapsed times include contention for 2 CPUs. E = 100 did not run in the sandbox: the machine ran out of
   memory.
 
-Shared region, on any x86-64 Linux machine as root:
+## 6. Suggestions for further investigation
 
-    cd / && tar xvzf - < /tmp/scale-test.tgz
-    /opt/fdf/experiments/scale/scale-series
+Offered, not yet run:
 
-The tree experiments and the rlite model: `e2_compare.py`, `e2_ref.py`, `s_day_model.py` and `s_plot.py` in
+1. **When the tree is near-optimal.** Which properties of topology, costs and group placement explain the good results,
+   and can "very close" become a bounded claim under explicit conditions? A starting point is already in the data: on
+   acyclic topologies (chain, star) the tree was exactly optimal in all 470 graphs, under any costs, as it must be,
+   since a tree offers only one path between any two nodes. Every deviation needs a cycle that some member's shortest
+   path bypasses.
+2. **The least coordination that guarantees a tree.** Is one deterministic next hop per node necessary, or can a more
+   general rule keep multipath choice while preventing cycles and duplicates?
+3. **Determining the group's center dynamically.** The question left open in §2.3: how the root should be chosen as
+   membership and demand change, and when moving it is worth the disruption.
+4. **Construction during change.** Whether the properties found on a fixed graph survive when membership or routes
+   change while the tree is being built.
+5. **RIB placement apart from routing policy.** Which results follow from canonical shared state itself, and which from
+   where it resides or how members reach it.
+6. **Recursive scopes.** Whether the same construction rules and guarantees hold when members span several layers whose
+   membership and addresses change independently.
+
+`EXPERIMENTS.md` defines further tests, also not yet run, drawn from Chapters 1 and 3, their appendices, and the
+hourglass note: multihoming and mobility as consequences of routing to the node, reach without a global address space,
+renumbering one scope, scaling by repeated scopes, instability under a controller against delay in the loop, two-step
+forwarding, fragmentation across the IP/TCP split, and whether shared memory keeps its properties on a computing system
+when members lose the region.
+
+## Reproduction and sources
+
+On any x86-64 Linux machine as root:
+
+    cd / && tar xvzf - < /tmp/day-claims.tgz
+    /opt/fdf/experiments/day-claims/day-claims scale
+
+The tree experiments and the rlite model are `e2_compare.py`, `e2_ref.py`, `s_day_model.py` and `s_plot.py` in
 `experiments/day-claims/`.
-
-Sources:
 
 - [rlite](https://github.com/rlite/rlite): `user/uipcps/uipcp-normal-lower-flows.cpp`, `uipcp-normal-enroll.cpp`,
   `uipcp-normal.cpp`, `uipcp-gpb/BaseRIB.proto`, `user/libs/CDAP.proto`

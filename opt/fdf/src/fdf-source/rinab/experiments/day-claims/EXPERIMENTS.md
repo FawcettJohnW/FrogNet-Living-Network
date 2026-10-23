@@ -8,14 +8,18 @@ they read. A result about the property is a result about his architecture; it sa
 
 ## Sources and how they are cited
 
-- **Ch12** — Day, *Chapter 12, Fundamentals of Data Transfer II*, draft dated 2026-10-13 (.docx he sent John). Not
-  present in this workspace. The two verbatim fragments below were quoted from it in the 2026-10-16 reading; every
-  other Ch12 statement here is a paraphrase from that reading and is marked *(paraphrase)*. Verbatim passages are to
-  be inserted from the .docx before any finding goes to Day.
-- **P2-1** — RINA Reference Model Part 2-1. Line numbers refer to `RINARefModelPart2-1-230419.txt` (pandoc of his file).
+- **Ch12**: Day, *Chapter 12, Fundamentals of Data Transfer II*, draft of 2026-10-13 (PDF he sent John).
+- **Ch1**: *Chapter 1, Symmetry Requires an Invariant*, draft of 2026-10-13. **Ch1-App**: its appendix, *The Symmetry
+  of Semaphores*, 2026-09-11.
+- **Ch3**: *Chapter 3, Broken Invariances*, draft of 2026-10-13. **Ch3-A**: Appendix A (ARPANET, CYCLADES and the
+  Internet compared), 2026-09-03. **Ch3-B**: Appendix B (TCP's design), 2026-09-11.
+- **HG**: *Abner Doubleday Comes to Networking*, the hourglass note, 2019 revised 2023.
+- **P2-1**: RINA Reference Model Part 2-1. Line numbers refer to `RINARefModelPart2-1-230419.txt` (pandoc of his file).
+
+Page numbers are the PDF's. Quotations are verbatim; anything else is marked *(paraphrase)*.
 
 Simulator results (one machine, loopback, scripted topology) are labelled **sim**. Physical-network results are
-labelled **phys**. None of the results so far are phys.
+labelled **phys**.
 
 ---
 
@@ -53,8 +57,9 @@ Allocator's search, any message exchange that carries the rule to the members.
 
 ## E2. Group distribution tree
 
-**Passage.** Ch12 §2.8.1 *(paraphrase, one word verbatim)*: the Create Flow Responses converge through the border
-routers and form a spanning tree that is "very close" to optimal; he says this was a surprise and gives no numbers.
+**Passage.** Ch12 §2.8.1, p. 16: "Some responses will go through the same border routers, and they will create a
+spanning tree! Whoa! It might not be perfectly optimal spanning tree, but because the responses follow the current
+optimal routing, it's going to be very close." HG p. 10 gives the same construction for a single-sender group.
 
 **Prediction.** The tree formed by the responses' paths is close in cost to the optimal tree for the group.
 
@@ -121,8 +126,234 @@ on every node; a pair the graph cannot reach must be reported unreachable.
 
 ---
 
-## E3–E6 (later)
+## Claims from Chapters 1 and 3, their appendices, and the hourglass note
 
-- **E3 Group center.** Ch12 §2.3, verbatim: "<Has the problem of dynamically determining the center of gravity of the
-  group been solved?>". Built on E2's references (the center-rooted shared tree versus the per-source SPT).
-- **E4 Mobility as multihoming. E5 Scoped renumbering. E6 Routing stability.** Passages to be taken from the .docx.
+Across these documents Day keeps asking one question: does a property follow from the structure, or only from an
+implementation choice? Ch1 p. 6 says that in his model multihoming, mobility, multicast and security "fell out for
+free, i.e., the capabilities were inherent to the structure". Ch3 and HG trace the opposite case, properties the
+Internet has, or lacks, because of a choice that broke an invariance. The experiments below are grouped that way. E3
+to E8 test properties he says follow from structure. E9 to E12 test properties he attributes to a choice. E13 turns
+his distinction on our own claim. Each experiment states what structure predicts and which result would show the
+property comes from a choice instead.
+
+For every experiment the change under test is made in two ways that keep the structure and differ in policy, and once
+in a way that keeps the policy and breaks the structure. A property that survives the first and fails the second follows
+from the structure. A property that changes with the policy comes from the choice.
+
+All of these are defined and not yet run.
+
+### Properties Day says follow from structure
+
+#### E3. The group's center
+
+**Passage.** Ch12 §2.3: "<Has the problem of dynamically determining the center of gravity of the group been
+solved?>"
+
+**Prediction.** A center can be chosen from the group's own state, and moving it as membership changes costs less than
+it saves.
+
+**How tested here.** Built on E2's references: the center-rooted shared tree against each source's SPT and the exact
+optimum, as members join and leave. The root is a fact in the region, so moving it is one write.
+
+**Contradicting result.** No center choice computed from the shared state beats a fixed root over a membership
+sequence once the cost of moving the root is counted.
+
+#### E4. Multihoming comes from routing to the node
+
+**Passage.** Ch3 p. 7: "multihoming committed a network architecture to routing to the node, not the interface."
+Ch3 p. 8: "multihoming is about delivering packets, not sending them. Solve the first, the second is solved for
+free." Ch3 p. 9: "An address names the entity that processes the address."
+
+**Prediction.** If what a route leads to is the node, a node with two attachments stays reachable when one fails, and
+nothing that names the node changes. No multihoming mechanism is needed.
+
+**Our interpretation.** In FrogNet a site with two egress points is a multihomed destination. The node's facts (its
+name, its subnet) are written once; the attachments are separate facts. Structure: routes are computed to the
+subnet/node. Policy: which attachment is preferred (planner hysteresis, `SWITCH_MIN_ABS_MS`, `SWITCH_MIN_REL`).
+
+**How tested here.** `tier4_egress.py` (the second egress), on the TIER 4 bed and on the living network. Fail the
+preferred attachment, restore it, and repeat with the planner's thresholds changed. Then the structure-breaking arm:
+routes written to an interface address instead of the subnet.
+
+**Measured.** Pairs that lose reach, time to the last pair restored, facts rewritten (expected: only the failed
+attachment's own), flows that break.
+
+**Contradicting result.** Reach is lost or a node-naming fact must change in the routes-to-node arm. Or recovery
+depends on the preference policy beyond its timing, which would mean the multihoming comes from the policy.
+
+#### E5. Mobility is multihoming over time
+
+**Passage.** Ch1 p. 8, note 17: "it was discovered that mobility was inherent to the model, nothing additional were
+required". Ch3-A p. 3 records mobility as needing "home and foreign routers, tunnels, and specialized protocols" in
+the Internet but "no additional protocols" in CYCLADES.
+
+**Prediction.** A node that moves is a node that gains a new attachment and loses the old one. The same mechanism as E4
+covers it, with nothing mobility-specific.
+
+**How tested here.** On the TIER 4 bed the relay is roaming-safe (`wg_bearer_relay.py`): move a node from one site to
+another, make-before-break and break-before-make. On the living network, move a client between Seattle and New York.
+
+**Measured.** As E4, plus whether any fact other than the attachment facts changes, and whether any component handles
+the move other than the ones that handle E4's failure.
+
+**Contradicting result.** The move needs state or code that E4's failure does not use, such as a home address,
+a forwarding agent or a binding update.
+
+#### E6. Reach without a global address space
+
+**Passage.** Ch1 p. 6: "we found that a global network address space was not required yet all applications could be
+reached." HG p. 7: "While a global address space is convenient, it isn't necessary in order to reach all
+destinations."
+
+**Prediction.** With addresses unique only within each scope, every application that can be named is reached.
+
+**Our interpretation.** Closed LANs behind different sites given the *same* private subnet (10.20.k.0/24 reused), with
+names resolved in the region. Structure: names resolve to a member in a scope, and the scope is part of the path.
+The structure-breaking arm: one flat routing table that must hold every subnet once.
+
+**How tested here.** `netns-scale-test.sh` with overlapping subnets per site, on the bed and on two sites of the living
+network.
+
+**Measured.** Pairs reached by name, pairs unreachable, which component failed for each.
+
+**Contradicting result.** A pair reached when the subnets are unique but not when they overlap, in the scoped arm.
+
+#### E7. Addresses belong to the layer: renumbering one scope
+
+**Passage.** HG p. 7: "Addresses are used to deliver data to another member of the layer for layers with more than two
+members. They should be used entirely within the layer. Hence, we can observe that addresses belong to layers, not to
+protocols." Ch3 p. 9: "An address names the entity that processes the address."
+
+**Prediction.** Renumbering one scope changes nothing outside it: no name, no flow above it, no fact in another scope.
+
+**How tested here.** Renumber one site's LAN while flows cross it, then a site's tunnel addresses. Diff the region
+before and after, and watch flows by name.
+
+**Measured.** Facts changed outside the renumbered scope (expected: none), flows broken, time to every pair restored.
+
+**Contradicting result.** A fact outside the scope must change, or a flow addressed by name breaks.
+
+#### E8. Only a repeating structure scales
+
+**Passage.** HG p. 9: "it is well-know that only a repeating structure scales." Ch3-A p. 3: "Repeating layers to
+enable scaling, otherwise nothing. It is inherent to the architecture."
+
+**Prediction.** One flat scope's per-member cost grows with N. Nested scopes, each the same structure, hold it bounded.
+
+**How tested here.** Extends S. The same 200 to N subnets, once as one region and once as regions of regions, each inner
+region a member of the outer.
+
+**Measured.** Per-member CPU per change, the state a member reads, time to the last member correct, against N.
+
+**Contradicting result.** The flat region's per-member cost stays flat over the range the beds reach (so nesting is
+not what bounds it), or the nested arm grows as fast as the flat one.
+
+### Properties Day attributes to an implementation choice
+
+#### E9. Instability from a controller, or from delay in the loop?
+
+**Passage.** Ch3 p. 15: "the delay in updating routers from a controller may lead to instabilities. The routers will
+have reported local conditions, the controller will calculate routes based on that information and send it back to the
+routers. By that time, local conditions at some routers may have changed significantly that the update is totally wrong
+and will cause instabilities in network traffic."
+
+**Why it matters here.** FD&F keeps state in one place, as a controller does, but every member computes its own routes
+from it, as distributed routing does. Day blames centralization. The experiment separates who computes the routes from
+how long the loop takes.
+
+**Arms.** (1) FD&F as it is: facts written, each daemon computes. (2) A controller: one process reads the same facts,
+computes everyone's routes, writes them back. (3) Distributed routing with no shared state: the rlite policies as
+modelled in S. Each arm at the same loop delay (hub legs 10 to 35 ms, then WAN delays), with link conditions that
+change faster than, at, and slower than the loop.
+
+**Measured.** Route flaps per change, time spent on a route worse than the current best, oscillations (A→B→A), and the
+same with the planner's hysteresis set to zero.
+
+**Contradicting result.** Arms 1 and 2 show the same instability at the same loop delay. That would mean the delay in
+the loop causes it, not where the routes are computed. A second result to watch: instability that disappears with
+hysteresis would mean a policy fixes it, not a structure.
+
+#### E10. Two-step forwarding: next hop, then line
+
+**Passage.** Ch3 p. 16: "the forwarding process can be a two-step process: first determine the next hop, then
+determine what line to the next hop. ... if the preferred line to the next hop goes down, the router could choose an
+alternate without doing a routing update."
+
+**Prediction.** With two lines to the same next hop, losing one is repaired locally, with no change to the shared
+state and no route computed anywhere else.
+
+**How tested here.** TIER 4 bed: two parallel bearers between a node and the hub (two relayed legs with different
+delays). Fail the preferred one. Arm 1 keeps the next hop and switches the line locally. Arm 2 treats each line as its
+own route, so the failure is a topology change.
+
+**Measured.** Writes to the region, daemons woken, packets lost, time to restored.
+
+**Contradicting result.** Arm 1 cannot recover without a write, or recovers no faster than arm 2.
+
+#### E11. Management for stability, not dynamic change
+
+**Passage.** Ch3 p. 16: "Monitoring, collecting data on the network's operation, is fundamentally a centralized
+function. However, this is management, not control." Ch3 p. 17: "The management configuration should be trying to
+ensure stability, not dynamic change."
+
+**Prediction.** In steady operation the configuration does not move. Only events move it, and monitoring can be
+gathered centrally without entering the control loop.
+
+**How tested here.** S already showed nothing moves in the region at rest. Add a monitoring reader (`fdf-facts --watch` on every
+fact) and measure whether it changes any member's timing. Then run a day on the living network and count configuration
+writes not caused by an event.
+
+**Contradicting result.** Writes at rest without an event, or the monitor's reads measurably delaying members' wakes.
+
+#### E12. The narrow waist and fragmentation
+
+**Passage.** HG p. 8: "separating IP broke fragmentation/reassembly. It has never worked." HG p. 7: "If this layer has
+a procedure for creating a flow, then the layer can chose the protocol". HG p. 9: "The separation of IP from TCP to
+create the 'narrow waist' was a poor design choice."
+
+**Why it matters here.** FrogNet's tunnels carry IP inside UDP, so an inner packet that is too large fragments the
+outer one. That puts the claim into our own data path.
+
+**How tested here.** TIER 4 bed: a path whose MTU drops mid-path, ICMP "fragmentation needed" blocked (as Day notes
+PMTUD usually is), and loss on the fragmented leg. Kernel TCP across a WireGuard tunnel.
+
+**Measured.** Reassembly failures and fragment memory at the receiver (`/proc/net/snmp`, `ipfrag_*`), goodput, stalls.
+
+**Contradicting result.** No stranded partial reassemblies and no goodput loss beyond the fragment loss rate itself.
+The other arm, fragmentation inside a sequenced protocol as CYCLADES split it, does not exist on this system. It would
+have to be written first.
+
+### Our claim, tested against his distinction
+
+#### E13. Shared memory on a computing system
+
+**Passage.** Ch1 p. 8: "The only difference is the distinction between a processing system (shared memory can be used
+for synchronization) and a computing system (without shared memory and distributed methods must be used for
+synchronization)." Ch1 p. 8, the third meta-principle: "Always try to prove our conclusions wrong."
+
+**Why it matters here.** "Day uses discovery; FD&F uses memory" presents a processing-system abstraction to members
+that sit on a computing system. Day's distinction predicts that the memory is itself built by distributed methods,
+and holds only where those methods hold.
+
+**How tested here.** Partition members from the region host, one at a time and by site, for longer than any timer. Then
+partition the region host itself. Watch what each member still resolves, whether it acts on stale state, and how it
+recovers.
+
+**Measured.** Wrong routes installed during and after the partition, time to correct after heal, held reads that wake
+wrongly or never.
+
+**Contradicting result for our claim.** A member acting on stale state as if current, or failing to recover on heal
+without a restart. Either would show that the property comes from the region staying reachable, not from the
+structure, and the report must say so.
+
+### Claims this system does not test
+
+- **Watson's three timers** (Ch3 p. 11: synchronization is "to enforce upper bounds on 3 times: Maximum Packet
+  Lifetime, MPL, Maximum Time to Send an Ack, A, and Maximum time to Exhaust Retries, R", and "3-way handshake is not why
+  it works"). Those bounds live in the kernel's TCP. Nothing FrogNet builds changes them, so a run would test Linux, not
+  the claim.
+- **Data transfer and feedback "barely interact"** (Ch3-B p. 1) and **PDU types against control bits** (Ch3-B). There
+  is no data-transfer protocol of ours to split.
+- **Symmetry of P and V** (Ch1-App). A property of the operation's definition, not of a running network.
+- **Multicast as a set plus a rule** (HG p. 9: "a multicast group is a set of unicast addresses with a rule") is E1, and
+  its tree is E2.

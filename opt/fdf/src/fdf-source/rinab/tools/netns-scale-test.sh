@@ -41,10 +41,14 @@ cleanup() { local L; L=$(NSLIST); for n in $L; do ip netns pids $n 2>/dev/null |
 # for the run, put back on exit.
 INO0=$(cat /proc/sys/fs/inotify/max_user_instances); sysctl -q -w fs.inotify.max_user_instances=$(( INO0 > 8 * S ? INO0 : 8 * S ))
 MADE=""                                               # [MOUNT_POINTS_PUT_BACK_V1] mount points this run had to create
+# recorded BEFORE anything starts: the hub's wireguard-go makes /run/wireguard itself, so a check made later would
+# find it present and leave it behind
+for d0 in /etc /var/lib/frognet /var/lib/frognet-tunnel /run/frognet /run/wireguard /opt/fdf/var; do d=$d0
+  while [ ! -d "$d" ]; do MADE="$MADE $d"; [ -d "$(dirname $d)" ] && break; d=$(dirname $d); done; done
 unmade() { local d k; for d in $MADE; do                # wireguard-go removes its socket as it exits: wait for it
   for k in $(seq 50); do rmdir "$d" 2>/dev/null && break; [ -d "$d" ] || break; sleep 0.1; done
   [ -d "$d" ] && echo "netns-scale-test: could not remove $d, which this run created: $(ls -A "$d" | tr '\n' ' ')"; done; }
-trap 'cleanup; unmade; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
+trap 'cleanup; unmade; sleep 1; unmade; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
 cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
 cat > $T/bin/capability-probe <<'EOF'
 #!/bin/sh
@@ -107,7 +111,7 @@ BINDS="etc:/etc var-lib-frognet:/var/lib/frognet var-lib-frognet-tunnel:/var/lib
        run-wireguard:/run/wireguard opt-fdf-var:/opt/fdf/var"
 # [MOUNT_POINTS_PUT_BACK_V1] each node's private copy is mounted over these inside its own mount namespace; a target
 # that did not exist is created for the run and removed at the end (deepest first), so the host is left as found
-for b in $BINDS; do d=${b#*:}; while [ ! -d "$d" ]; do MADE="$MADE $d"; [ -d "$(dirname $d)" ] && break; d=$(dirname $d); done; mkdir -p ${b#*:}; done
+for b in $BINDS; do mkdir -p ${b#*:}; done           # MADE recorded which of these were missing, before anything ran
 fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   for b in $BINDS; do mkdir -p $F/${b%%:*}; done
   cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
