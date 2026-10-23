@@ -89,6 +89,38 @@ change, bytes on the wire, RAM manager load.
 
 ---
 
+## S. Discovery against memory, as the network grows
+
+**Statement under test.** Day's construction gets the data path from discovery: messages sent out, the path they took
+believed and reversed. FD&F gets it from memory: membership (RINA), location (LISP) and resolving routes (FrogNet) as
+shared state, each delivery resolved forward from it. E2 showed the consequences on small graphs (reach, stretch,
+duplicates, construction messages); S measures them as N grows.
+
+**Arms.** (1) Discovery: FrogNet's own discovery through the real planner and committer (the simulator's TIER 4 bed,
+`tier4_transport.py`), every node finding the network by probing and asking its neighbours. (2) Memory: the FD&F
+region (rina-host, fdf-facts, fdf-client, apply_once, fdf-hub), every node publishing its rows and reading the graph.
+(3) Day's construction, in the graph model only (no RINA stack runs here): hop-messages to build the tree.
+
+**Graphs.** The same generated graphs in every arm: sites behind gateways, closed LANs behind sites, tunnels relayed
+by the hub with a delay per uplink. N = 4, 8, 16, 32, 64 and up to what the bed holds; seeds recorded.
+
+**Events.** Cold start; a node joins; a node's uplink fails; it comes back.
+
+**Measures.**
+1. *Time to full resolution:* from the event until the LAST node holds a correct route to every reachable /24 and
+   resolves every name (checked by real packets and getent on every node), wall-clock.
+2. *Route efficiency:* every pair's route taken (both directions, from the kernel) against the lowest-delay route in
+   the graph; measured RTT against its floor.
+3. *Graph efficiency with growth:* messages and bytes per node per event, and (1) and (2), against N.
+
+**Contradicting result.** Memory's time or per-node cost growing faster with N than discovery's; or memory's routes
+less efficient than discovery's on the same graphs.
+
+**Correctness before speed.** A run counts only when every arm reaches every reachable pair by name; a pair the
+graph cannot reach must be reported unreachable by every arm.
+
+---
+
 ## E3–E6 (later)
 
 - **E3 Group center.** Ch12 §2.3, verbatim: "<Has the problem of dynamically determining the center of gravity of the
