@@ -13,9 +13,10 @@ against the exact optimum, each part holds only under a condition the text does 
 3. **It is near-optimal** only with symmetric costs and no cheaper shared path that members' own shortest paths
    bypass. A shared trunk makes the ratio as large as one likes; asymmetric costs made it 4.5× for one member.
 
-All three come from one source: the data path is the reverse of the path a response happened to take. A requester that
-reads the topology as state and resolves each member's path forward needs none of the three conditions (Appendix A has
-a graph small enough to check by hand for each finding).
+All three come from one source: the data path is the reverse of the path a response happened to take. Resolving forward
+from shared topology state avoids the reverse-path reachability problem and permits constructing a consistent tree.
+Near-optimality remains a separate question of tree-selection policy. Tree structure, reachability and efficiency are
+separate properties with separate conditions (Appendix A has a graph small enough to check by hand for each).
 
 The second result is about learning the network. Under rlite's policies, modelled on one 200-subnet network, every cost
 of knowing the network follows its physical shape: from 2 to 101 member hops to the farthest member, 199 to 9,901
