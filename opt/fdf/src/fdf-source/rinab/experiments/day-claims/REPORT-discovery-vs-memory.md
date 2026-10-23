@@ -2,8 +2,8 @@
 
 *2026-10-23 · John Fawcett*
 
-Three of the claims about the tree formed by converging Create Flow Responses (Ch. 12 §2.8.1) hold only under
-conditions the text does not state; each is shown below on a graph small enough to check by hand. A second part
+The claims about the tree formed by converging Create Flow Responses (Ch. 12 §2.8.1, draft of 2026-10-13) hold only
+under conditions the text does not state; each is shown below on a graph small enough to check by hand. A second part
 measures what it costs to learn the network as it grows and changes shape: rlite's policies, modelled, against a shared
 region in which every member publishes only its own facts.
 
@@ -11,11 +11,21 @@ Fields marked **[physical: …]** are filled from the hardware runs.
 
 ## Part 1: the tree
 
-Reading of the passage (a paraphrase until checked against the chapter's text): each member's response travels its
-shortest path to the requester; the responses merge where their paths meet; data then flows from the requester to the
-members over the reverse of those paths. "Optimal" is the cheapest tree that reaches every member (on directed costs,
-the minimum Steiner arborescence rooted at the requester), computed exactly by Dreyfus–Wagner and cross-checked by
-exhaustive search on every instance. Costs below are one message, summed over the links it crosses.
+The passage (§2.8.1, p. 16):
+
+> The Create_Flow Responses are sent back to the IPC Process that generated the Request. Some responses will go
+> through the same border routers, and they will create a spanning tree! Whoa!
+>
+> It might not be perfectly optimal spanning tree, but because the responses follow the current optimal routing, it's
+> going to be very close.
+
+Two claims: the converging responses form a tree, and because each follows current optimal routing the tree is very
+close to optimal. Tested as written: each member's response takes its routed path to the requester, and the tree is the
+union of those paths. "Optimal" is the cheapest tree connecting the requester to every member (it spans the group, not
+the whole network: a Steiner tree, on directed costs the minimum Steiner arborescence rooted at the requester), computed
+exactly by Dreyfus–Wagner and cross-checked by exhaustive search on every instance. Costs below are one message, summed
+over the links it crosses. The passage does not say in which direction the group's data then uses the tree; finding 2
+applies when data flows from the requester outward along it.
 
 ### 1. Converging paths form a tree only with one next hop per node
 
@@ -36,7 +46,7 @@ graphs, 16 were not trees under the per-flow rule.
 
 **Condition needed:** destination-based forwarding with one deterministic next hop per node.
 
-### 2. The tree reaches every member only if each link it used works both ways
+### 2. Used outward from the requester, the tree reaches every member only if each link it used works both ways
 
     r ⇄ a ⇄ m      (cost 1 each way)
     m → r          (cost 1, one way only)
@@ -166,7 +176,8 @@ state does not have to change with the topology.
 
 ## Limits, and how to reproduce it
 
-- The chapter passage is paraphrased; the conditions above are stated against that reading.
+- The passage is quoted from the draft of 2026-10-13; it does not say which way data uses the tree, so finding 2 is
+  stated for data flowing from the requester outward.
 - rlite's side is computed from its policies as written, not run.
 - The chart's delay panel assumes 10 ms per WAN link, 0.1 ms per LAN link and 1 ms of processing per member that
   handles a change, for both columns.
