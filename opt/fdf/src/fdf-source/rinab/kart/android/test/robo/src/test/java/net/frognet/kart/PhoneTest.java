@@ -50,7 +50,7 @@ import java.util.Map;
 @LooperMode(LooperMode.Mode.PAUSED)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 public class PhoneTest {
-    static final int SW = 2400, SH = 1080;                     // a Galaxy S21's screen, landscape
+    static int SW = 2400, SH = 1080;                           // a Galaxy S21's screen: landscape, or turned (portrait)
 
     static void say(String s) { System.out.println("[PHONE_TEST] " + s); System.out.flush(); }
 
@@ -95,10 +95,19 @@ public class PhoneTest {
 
     /** a tap at a layout point (kartdemo's 1180 x 720), mapped to the screen the way the view maps the screen to the layout */
     static void tap(GameView v, float lx, float ly) {
-        float s = Math.min(SW / GameView.W, SH / GameView.H), x = (SW - GameView.W * s) / 2 + lx * s, y = (SH - GameView.H * s) / 2 + ly * s;
+        float s = Math.min(SW / v.W, SH / v.H), x = (SW - v.W * s) / 2 + lx * s, y = (SH - v.H * s) / 2 + ly * s;
         long t = SystemClock.uptimeMillis();
         MotionEvent d = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0), u = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0);
         v.onTouchEvent(d); v.onTouchEvent(u); d.recycle(); u.recycle();
+    }
+
+    /** [KART_ROTATES_V1] the phone turned: the surface's new shape, as Android reports it to the view */
+    static void turn(GameView v, boolean portrait) throws Exception {
+        SW = portrait ? 1080 : 2400; SH = portrait ? 2400 : 1080;
+        v.surfaceChanged(v.getHolder(), 0, SW, SH);
+        idle(300);
+        assertEquals("the layout follows the turn", portrait, v.portrait);
+        say("turned " + (portrait ? "portrait" : "landscape") + ": layout " + (int) v.W + " x " + (int) v.H);
     }
 
     /** what the view draws, at the phone's size (its own drawFrame with its own screen matrix) */
@@ -168,16 +177,18 @@ public class PhoneTest {
         assertTrue("connected is not playing: no lobby tuple", !g.lobby().containsKey("phone"));
         say("home: kart memory up, " + k.roomState() + "; tiles " + g.tiles().keySet() + "; lobby " + g.lobby().keySet() + " (the phone is not in it)");
         shot(v, "0-home");
-        tap(v, GameView.H_GAME.centerX(), GameView.H_GAME.centerY());
+        turn(v, true);
+        shot(v, "0p-home");
+        tap(v, v.H_GAME.centerX(), v.H_GAME.centerY());                   // the portrait layout's Kart racing card
         assertEquals("game", v.screen);
         assertTrue("in the lobby", waitFor(10000, () -> g.lobby().containsKey("phone")));
         say("in the lobby: players " + g.lobby().keySet() + ", agreed " + g.agreed().get("state"));
         idle(1500);
-        Bitmap lobby = shot(v, "1-lobby");
+        Bitmap lobby = shot(v, "1p-lobby");
         assertTrue("the lobby draws", distinct(lobby) > 8);
 
         // Chat: the dialog, typed, Send
-        tap(v, GameView.B_CHAT.centerX(), GameView.B_CHAT.centerY());
+        tap(v, v.B_CHAT.centerX(), v.B_CHAT.centerY());
         assertTrue("Chat opens the dialog", waitFor(3000, () -> ShadowAlertDialog.getLatestAlertDialog() != null));
         AlertDialog d = ShadowAlertDialog.getLatestAlertDialog();
         EditText box = all(d.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).get(0);
@@ -189,8 +200,8 @@ public class PhoneTest {
         say("chat: 'hello from the phone' is in the lobby's chat");
 
         // laps: - then + (2 -> 1 -> 2)
-        tap(v, GameView.B_MINUS.centerX(), GameView.B_MINUS.centerY()); assertEquals(1, g.laps());
-        tap(v, GameView.B_PLUS.centerX(), GameView.B_PLUS.centerY()); assertEquals(2, g.laps());
+        tap(v, v.B_MINUS.centerX(), v.B_MINUS.centerY()); assertEquals(1, g.laps());
+        tap(v, v.B_PLUS.centerX(), v.B_PLUS.centerY()); assertEquals(2, g.laps());
 
         // ---- [KART_CALLS_IN_THE_GAME_V1] the third memory: the Communicator's, held beside the kart memory
         assertTrue("in the Communicator room", k.inRoom());
@@ -201,7 +212,7 @@ public class PhoneTest {
         Process home = probe(homeOut, "answer", cm[0], "Home", "phone", ivf, opus, "8", tmp + "/home.opus");
         assertTrue("Home is in the lobby's Communicator list", waitFor(10000, () -> { for (String[] m : k.people()) if (m[0].equals("Home")) return true; return false; }));
         idle(700);
-        shot(v, "2-lobby-communicator");
+        shot(v, "2p-lobby-communicator");
         Field cb = GameView.class.getDeclaredField("callButtons"); cb.setAccessible(true);
         RectF callHome = null;
         for (Object[] b : (List<Object[]>) cb.get(v)) if ("Home".equals(b[1])) callHome = (RectF) b[0];
@@ -214,18 +225,20 @@ public class PhoneTest {
         say("the phone's tiles view: " + g.tiles());
         assertTrue("the phone's call tile says it", tiled);
         say("the phone's tile in the kart memory: " + g.tiles().get("phone"));
-        shot(v, "3-lobby-call");
+        shot(v, "3p-lobby-call");
         home.waitFor();
         String ho = slurp(homeOut);
         say("Home: " + lines(ho, "ANSWERING") + " | " + lines(ho, "VIDEO") + " | " + lines(ho, "AUDIO"));
         assertTrue("Home answered the phone's call", ho.contains("ANSWERING phone"));
-        tap(v, GameView.C_END_L.centerX(), GameView.C_END_L.centerY());
+        tap(v, v.C_END_L.centerX(), v.C_END_L.centerY());
         assertTrue("End ends the call", waitFor(3000, () -> k.inCallWith().isEmpty()));
         assertTrue("the room stays", k.inRoom());
+        turn(v, false);
+        shot(v, "3-lobby");
         say("call ended; still in the room: " + k.roomState());
 
         // Start (blue sits in the lobby not ready: only Start launches a race for the ready ones)
-        tap(v, GameView.B_START.centerX(), GameView.B_START.centerY());
+        tap(v, v.B_START.centerX(), v.B_START.centerY());
         assertTrue("Start", g.ready() && g.started());
         assertTrue("the race starts and the phone is placed on its grid", waitFor(40000, () -> g.state.equals("racing") && g.placed()));
         say("racing: race " + g.myRace() + " on " + g.myServer().get("host") + ", " + g.lapsTotal() + " lap(s)");
@@ -236,16 +249,23 @@ public class PhoneTest {
         assertTrue("it rings while racing", waitFor(10000, () -> "blue".equals(k.ringingFrom())));
         say("ringing while racing: " + k.ringingFrom() + " is calling");
         shot(v, "4-race-ringing");
-        tap(v, GameView.RING_ANSWER.centerX(), GameView.RING_ANSWER.centerY());
+        tap(v, v.RING_ANSWER.centerX(), v.RING_ANSWER.centerY());
         assertTrue("answered while racing", waitFor(10000, () -> k.connected()));
         final String raceSession = k.session();
         assertTrue("media from blue while racing", waitFor(8000, () -> k.mediaIn() > 100));
         assertTrue("still racing", g.state.equals("racing"));
         say("in a call with " + k.inCallWith() + " while racing (session " + raceSession + "): " + k.mediaLine());
-        tap(v, GameView.R_AUTO.centerX(), GameView.R_AUTO.centerY());
+        tap(v, v.R_AUTO.centerX(), v.R_AUTO.centerY());
         assertTrue("Autopilot on", g.autodrive);
         assertTrue("the start", waitFor(15000, () -> System.currentTimeMillis() / 1000.0 > g.startAt() + 3));
         Bitmap race = shot(v, "5-race-call");
+        turn(v, true);                                                     // turned mid-race, in a call
+        shot(v, "5p-race-call");
+        Field pr = GameView.class.getDeclaredField("placedRemote"); pr.setAccessible(true);
+        RectF pv = (RectF) pr.get(v);
+        say("portrait race: the call's picture at " + pv + " on a " + SW + " x " + SH + " screen");
+        assertTrue("the call's picture is on the portrait screen", pv != null && pv.right <= SW && pv.bottom <= SH);
+        turn(v, false);
         assertTrue("the race draws", distinct(race) > 8);
         assertTrue("other karts are seen", waitFor(5000, () -> !g.others(System.currentTimeMillis() / 1000.0).isEmpty()));
         say("other karts seen: " + g.others(System.currentTimeMillis() / 1000.0).keySet() + "; me lap " + g.me.lap + " at (" + (int) g.me.x + "," + (int) g.me.y + ")");
@@ -260,18 +280,19 @@ public class PhoneTest {
         assertTrue("media still coming after the race", m1 > m0 + 50);
         shot(v, "6-lobby-call-after-race");
         // the Communicator's screen, still in the game; Race! races the call's people
-        tap(v, GameView.B_COMMS.centerX(), GameView.B_COMMS.centerY());
+        tap(v, v.B_COMMS.centerX(), v.B_COMMS.centerY());
         assertEquals("comms", v.screen);
+        turn(v, true);
         assertTrue("the call's people", waitFor(5000, () -> k.participants().contains("blue")));
         idle(1000);
-        shot(v, "7-comms-call");
+        shot(v, "7p-comms-call");
         say("Communicator screen: in a call with " + k.participants() + "; " + k.mediaLine());
         // [KART_RACE_INVITE_V1] Race!: blue (in the call, running FrogNet Kart) is invited; blue's game answers in the kart memory
-        tap(v, GameView.K_RACE.centerX(), GameView.K_RACE.centerY());
+        tap(v, v.K_RACE.centerX(), v.K_RACE.centerY());
         assertTrue("invited", waitFor(3000, () -> g.inviteState.startsWith("invited [blue]")));
         say("Race!: " + g.inviteState);
         idle(600);
-        shot(v, "8-comms-invited");
+        shot(v, "8p-comms-invited");
         assertTrue("everyone said yes", waitFor(10000, () -> { for (String l : g.log()) if (l.contains("everyone said yes ([blue])")) return true; return false; }));
         for (String l : g.log()) if (l.contains("[KART_RACE_INVITE_V1]")) say(l);
         assertEquals("all yes: the phone launches into the game", "game", v.screen);
@@ -280,28 +301,29 @@ public class PhoneTest {
         say("race " + g.myRace() + " players " + g.myServer().get("players") + "; the call goes on: " + k.inCallWith() + ", " + k.mediaLine());
         assertTrue("told in the call's chat", waitFor(5000, () -> { for (String l : k.chat()) if (l.contains("invites [blue] to a kart race")) return true; return false; }));
         idle(6000);
-        shot(v, "9-invited-race-call");
-        tap(v, GameView.R_LEAVE.centerX(), GameView.R_LEAVE.centerY());
+        shot(v, "9p-invited-race-call");
+        tap(v, v.R_LEAVE.centerX(), v.R_LEAVE.centerY());
         assertTrue("Leave: out of the race, in the lobby", waitFor(5000, () -> g.state.equals("lobby") && g.playing));
         assertTrue("the call goes on", !k.inCallWith().isEmpty());
-        tap(v, GameView.C_END_L.centerX(), GameView.C_END_L.centerY());
+        tap(v, v.C_END_L.centerX(), v.C_END_L.centerY());
         assertTrue("End ends the call", waitFor(3000, () -> k.inCallWith().isEmpty()));
         julie.destroy(); julie.waitFor();
         say("blue's Communicator: " + lines(slurp(julieOut), "CALLING"));
         idle(1500);
         idle(1500);
+        turn(v, false);
         shot(v, "10-lobby-after");
         assertTrue("a record for the phone", g.records().containsKey("phone"));
         say("phone's record: " + g.records().get("phone"));
 
         // Log, then Leave: back to the setup screen, out of the lobby
-        tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
+        tap(v, v.B_LOG.centerX(), v.B_LOG.centerY());
         shot(v, "11-log");
-        tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
-        tap(v, GameView.B_HOME.centerX(), GameView.B_HOME.centerY());
+        tap(v, v.B_LOG.centerX(), v.B_LOG.centerY());
+        tap(v, v.B_HOME.centerX(), v.B_HOME.centerY());
         assertEquals("home", v.screen);
         assertTrue("Home: out of the lobby", waitFor(5000, () -> !g.lobby().containsKey("phone")));
-        tap(v, GameView.H_SETTINGS.centerX(), GameView.H_SETTINGS.centerY());
+        tap(v, v.H_SETTINGS.centerX(), v.H_SETTINGS.centerY());
         idle(500);
         assertTrue("Leave shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
         idle(500);

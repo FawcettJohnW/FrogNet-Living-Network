@@ -12,7 +12,7 @@ T_REF, T_STRING, T_DEC, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
 # The attributes the manifest uses, and how each is written. Anything else in AndroidManifest.xml is refused.
 KIND = {"name": T_STRING, "label": T_STRING, "theme": T_REF, "hardwareAccelerated": T_BOOL, "exported": T_BOOL,
         "required": T_BOOL, "screenOrientation": T_DEC, "configChanges": T_HEX}
-ORIENT = {"sensorLandscape": 6, "landscape": 0, "portrait": 1}
+ORIENT = {"sensorLandscape": 6, "landscape": 0, "portrait": 1, "fullUser": 13, "fullSensor": 10}
 CONFIG = {"orientation": 0x80, "keyboardHidden": 0x20, "screenSize": 0x400, "screenLayout": 0x100, "smallestScreenSize": 0x800}
 
 def manifest(path, vcode, vname, ids):

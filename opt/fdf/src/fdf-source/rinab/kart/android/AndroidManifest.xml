@@ -4,6 +4,8 @@
      not here: Gradle takes them from build.gradle.kts, build_apk.sh from Game.BUILD and its own lines (both say 29/33). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- is the FrogNet tunnel (a VPN) up: the game says so when a 10.x race memory cannot be reached -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- the Communicator in the game: camera, microphone, call audio routing -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -15,7 +17,7 @@
     <application android:label="FrogNet Kart" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
         android:hardwareAccelerated="true">
         <activity android:name="net.frognet.kart.MainActivity" android:label="FrogNet Kart" android:exported="true"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="fullUser"
             android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

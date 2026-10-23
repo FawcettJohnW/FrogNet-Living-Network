@@ -175,6 +175,15 @@ public final class MainActivity extends Activity implements GameView.Host {
         } });
     }
 
+    @Override public boolean vpnUp() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+            if (nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) return true;
+        }
+        return false;
+    }
+
     @Override public void placeVideo(final RectF r, final RectF sf) {
         runOnUiThread(new Runnable() { public void run() {
             if (remoteTV == null) return;
