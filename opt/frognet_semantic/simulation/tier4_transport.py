@@ -5,9 +5,10 @@ planner and committer, same netns provisioning as live_engine's TIER 4; four thi
 
   1. Each WireGuard tunnel's UDP runs through wg_bearer_relay.py, which delays it: the edge carries a bearer
      parameter (AI_README: "A topology edge cannot carry bearer parameters ... That join is the missing piece").
-     Delay per tunnel: a site is the served /24's second octet; a tunnel inside a site gets INTRA_MS one way, one
-     between sites gets the topology's WAN table below (default WAN_MS). Ethernet segments are kernel bridges (no
-     delay added).
+     Delay per tunnel: a site is the served /24's second octet. BEARER=hub (default, as hardware): the tunnel is
+     relayed by the hub, so it pays both sites' legs to the hub ([TUNNEL_VIA_THE_HUB_V1]). BEARER=p2p: a tunnel inside
+     a site gets INTRA_MS one way, one between sites the topology's WAN table below (default WAN_MS). Ethernet
+     segments are kernel bridges (no delay added).
   2. The planner's RTTs are MEASURED: before converging, every node pings every L2 peer over each device (min of 5),
      and the model's probes (frognet_sim._probe_direct / _trace_rtt_via) sum those measurements instead of
      EDGE_RTT_BY_KIND. Everything after the probe -- plan, commit, the kernel -- is the real code.
@@ -17,7 +18,7 @@ planner and committer, same netns provisioning as live_engine's TIER 4; four thi
      lowest-delay path in the graph. "best" = the taken path's floor equals the lowest-delay path's.
 
 Writes OUT/<topo>.jsonl (one line per pair) and OUT/summary.txt. Env: OUT (default ./tier4-transport-out),
-WAN_MS (20), INTRA_MS (1), FDF_WG_IMPL (wireguard-go).
+BEARER (hub), HUB_LEGS, WAN_MS (20), INTRA_MS (1), FDF_WG_IMPL (wireguard-go).
 A served /24 with nothing else on it gets a veth pair (no dummy driver here) carrying its address ([SERVED_LAN_DUMMY_V1]): the
 provisioner only builds devices that sit on a segment, and a node's own .1 must exist for it to send from it."""
 import heapq, ipaddress, json, os, re, statistics, subprocess, sys, time
@@ -60,8 +61,26 @@ def site(node):
     return int(next(iter(node.ifaces.values())).ip.split(".")[1])
 
 
-def one_way(bname, topo, na, nb):
+# [TUNNEL_VIA_THE_HUB_V1] BEARER=hub (default): as on hardware, every tunnel's UDP goes through the hub ("ALL
+# endpoints = broker ... hub-relayed, NOT node-to-node", docs/history/SIM_STATUS-2026-06.md): a tunnel between sites a
+# and b pays leg(a) + leg(b) one way, a tunnel inside a site 2 x leg. Legs per site in order of first appearance,
+# HUB_LEGS (default 10,35,20,5,15,25 ms: Seattle-, New York-, Austin-like, then others). BEARER=p2p: the WAN table.
+BEARER = os.environ.get("BEARER", "hub")
+HUB_LEGS = [float(x) for x in os.environ.get("HUB_LEGS", "10,35,20,5,15,25").split(",")]
+
+
+def legs(topo):
+    order = []
+    for n in topo.nodes.values():
+        if site(n) not in order: order.append(site(n))
+    return {s: HUB_LEGS[i % len(HUB_LEGS)] for i, s in enumerate(order)}
+
+
+def one_way(bname, topo, na, nb, node_leg=None):
     sa, sb = site(topo.nodes[na]), site(topo.nodes[nb])
+    if BEARER == "hub":                      # node_leg: a node with an uplink of its own (a second egress point)
+        L = legs(topo); nl = node_leg or {}
+        return nl.get(na, L[sa]) + nl.get(nb, L[sb])
     if sa == sb: return INTRA_MS
     table = WAN.get("pond" if bname.startswith("topo_pond") else bname, {})
     return float(table.get((sa, sb), table.get((sb, sa), WAN_MS)))
@@ -81,9 +100,9 @@ def ping(ns, target, src=None, dev=None, n=5, interval=0.2):
 
 class Bed:
     """One topology on the real kernel with delayed bearers."""
-    def __init__(self, bname, out):
-        self.bname, self.out = bname, out
-        self.topo = getattr(H, bname)(); H.assign_identities(self.topo)
+    def __init__(self, bname, out, topo=None, node_leg=None):
+        self.bname, self.out, self.node_leg = bname, out, node_leg
+        self.topo = topo or getattr(H, bname)(); H.assign_identities(self.topo)
         self.prov = NetnsProvisioner(self.topo, runner=ShellRunner())
         self.prov.endpoint = lambda node, iface, peer_port: f"127.0.0.1:{peer_port + OFF}"
         self.relay = None
@@ -108,7 +127,7 @@ class Bed:
                 sh("ip", "netns", "exec", self.ns(name), "sysctl", "-qw", f"{k}={v}")
         links = []
         for (na, ia, pa, nb, ib, pb) in self.prov.wg_links:
-            d = one_way(self.bname, t, na, nb)
+            d = one_way(self.bname, t, na, nb, self.node_leg)
             links.append([pa, pb, d, d]); self.delay[(na, ia, nb)] = d; self.delay[(nb, ib, na)] = d
         for seg in t.segments:
             for (n, i) in seg:
@@ -272,7 +291,7 @@ def main(argv):
     names = argv or ALL
     summ = open(os.path.join(out, "summary.txt"), "a")
     def say(s): print(s, flush=True); summ.write(s + "\n"); summ.flush()
-    say(f"=== TIER 4 + bearer delay + real packets: WAN_MS={WAN_MS} INTRA_MS={INTRA_MS} "
+    say(f"=== TIER 4 + bearer delay + real packets: BEARER={BEARER} " + (f"HUB_LEGS={HUB_LEGS} " if BEARER == "hub" else f"WAN_MS={WAN_MS} INTRA_MS={INTRA_MS} ") +
         f"{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} ===")
     allok = True
     for bname in names:
@@ -298,7 +317,7 @@ def main(argv):
                 f"model trace {ok}/{total}; packets {got}/{n} pairs all 10 answered ({some} any); by name {named}/{n}; "
                 f"lowest-delay route {best}/{n}; different path back {asym}/{n}; RTT min p50 {q([r['rtt_min'] for r in rows], .5):.2f} "
                 f"max {q([r['rtt_min'] for r in rows], 1):.2f} ms; over floor p50 {q(over, .5):.2f} max {q(over, 1):.2f} ms; "
-                f"tunnel one-way ms {wan or '-'}")
+                f"tunnel one-way ms {wan or '-'}" + (f"; site legs to hub {legs(bed.topo)}" if BEARER == "hub" and wan else ""))
             for r in worse[:6]:
                 say(f"        not lowest-delay: {r['src']}->{r['dst']} took {' '.join(r['path'])} one-way {r['fwd_ms']:.0f} "
                     f"vs lowest {r['best_rtt'] / 2:.0f} ms ({r['best_hops']} hops); return {' '.join(r['back'] or [])} "
