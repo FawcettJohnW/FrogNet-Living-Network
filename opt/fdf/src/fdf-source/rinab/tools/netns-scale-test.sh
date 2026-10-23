@@ -32,7 +32,8 @@ ms() { date +%s%3N; }
 eg() { echo s-e$1; }; ch() { echo s-c$1; }                   # namespace names: egress s-e<i>, child s-c<k> (s-: never a name already in use)
 egress_of() { echo $(( ($1 - 1) % E + 1 )); }
 NSLIST() { echo s-hub; for i in $(seq $E); do eg $i; done; for k in $(seq $((E+1)) $S); do ch $k; done; }
-cleanup() { local L; L=$(NSLIST); for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
+cleanup() { local L; L=$( { NSLIST; ip netns list | awk '{print $1}' | grep "^s-"; } | sort -u);   # [EARLIER_RUN_PUT_BACK_V1] every s-*, whatever S and E made it
+            for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; done
             for i in $(seq 120); do ip link del v-s-e$i-b 2>/dev/null; ip link del br-s$i 2>/dev/null; done
@@ -46,9 +47,13 @@ MADE=""                                               # [MOUNT_POINTS_PUT_BACK_V
 # find it present and leave it behind
 for d0 in /etc /var/lib/frognet /var/lib/frognet-tunnel /run/frognet /run/wireguard /opt/fdf/var; do d=$d0
   while [ ! -d "$d" ]; do MADE="$MADE $d"; [ -d "$(dirname $d)" ] && break; d=$(dirname $d); done; done
-unmade() { local d k; for d in $MADE; do                # wireguard-go removes its socket as it exits: wait for it
+# [EARLIER_RUN_PUT_BACK_V1] a run that was killed before its exit trap leaves what it made: its list is kept beside the
+# runs' working directories, taken over here, and removed when this run has put everything back
+MF=${T%/*}/scale-made-dirs; [ -f $MF ] && MADE="$(cat $MF) $MADE"; MADE=$(echo $MADE | tr ' ' '\n' | sort -u | tr '\n' ' '); echo "$MADE" > $MF
+unmade() { local d k rest; for d in $MADE; do                # wireguard-go removes its socket as it exits: wait for it
   for k in $(seq 50); do rmdir "$d" 2>/dev/null && break; [ -d "$d" ] || break; sleep 0.1; done
-  [ -d "$d" ] && echo "netns-scale-test: could not remove $d, which this run created: $(ls -A "$d" | tr '\n' ' ')"; done; }
+  [ -d "$d" ] && echo "netns-scale-test: could not remove $d, which this run created: $(ls -A "$d" | tr '\n' ' ')"; done
+  rest=""; for d in $MADE; do [ -d "$d" ] && rest="$rest $d"; done; [ -n "$rest" ] && echo "$rest" > $MF || rm -f $MF; }
 trap 'cleanup; unmade; sleep 1; unmade; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
 cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
 cat > $T/bin/capability-probe <<'EOF'
@@ -115,7 +120,12 @@ BINDS="etc:/etc var-lib-frognet:/var/lib/frognet var-lib-frognet-tunnel:/var/lib
 for b in $BINDS; do mkdir -p ${b#*:}; done           # MADE recorded which of these were missing, before anything ran
 fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   for b in $BINDS; do mkdir -p $F/${b%%:*}; done
-  cp -a /etc/. $F/etc/; mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
+  cp -a /etc/. $F/etc/
+  # [BED_OWNS_ITS_FROGNET_STATE_V1] the rest of /etc is the machine's, but none of its FrogNet state may come along: on a
+  # FrogNet node /etc holds that node's tunnel peers, route snapshots, forced default route, WireGuard and dnsmasq
+  # config, and a bed node that read them would act as the host, not as itself
+  rm -rf $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d $F/etc/netns $F/etc/lispers.d
+  mkdir -p $F/etc/frognet $F/etc/wireguard $F/etc/sentinels $F/etc/dnsmasq.d
   printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$NAME" > $F/etc/fnid
   echo "domain=$NAME" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns scale test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
@@ -186,6 +196,20 @@ hub_diag() { local p; p=$(for q in $(ip netns pids s-hub); do tr '\0' ' ' < /pro
     grep -E "^#[0-9]+ " $T/hub/stacks.txt | sed -E 's/^#[0-9]+ +(0x[0-9a-f]+ in )?//; s/ \(.*//' | grep -vE "^(\?\?|syscall|__futex|futex|__GI_|___pthread|__pthread|pthread_|start_thread|clone|thread_start|std::thread|epoll|poll|read|recv|__libc|nanosleep|clock_nanosleep)" | sort | uniq -c | sort -rn | head -15 | sed 's/^/    /'
   else echo "[DIAG-HUB] gdb not installed: no stacks (kernel stacks only)"; for t in /proc/$p/task/*; do cat $t/stack 2>/dev/null | head -3; done | sort | uniq -c | sort -rn | head -10 | sed 's/^/    /'; fi; }
 HUB_DOWN=0
+node_diag() { local n=$1
+  echo "[DIAG-NODE] $(date -u +%FT%T.%3NZ) $n: its daemon says the region at $RAM is not reachable; the hub answers"
+  echo "[DIAG-NODE] tcp connect from $n to $RAM: $(ip netns exec $n timeout 5 bash -c "exec 3<>/dev/tcp/${RAM%:*}/${RAM##*:}" 2>&1 && echo ok || echo FAILED)"
+  echo "[DIAG-NODE] http from $n: $(ip netns exec $n curl -s -m 5 -o /dev/null -w '%{http_code} in %{time_total}s' -X POST -d '{"op":"map_list"}' "$U" 2>&1)"
+  echo "[DIAG-NODE] addresses: $(ip netns exec $n ip -4 -br addr | tr -s ' ' | tr '\n' ';')"
+  echo "[DIAG-NODE] routes (first 12):"; ip netns exec $n ip -4 route | head -12 | sed 's/^/    /'
+  echo "[DIAG-NODE] rules: $(ip netns exec $n ip rule | tr -s ' \t' ' ' | tr '\n' ';')"
+  echo "[DIAG-NODE] wireguard: $(ip netns exec $n wg show 2>&1 | grep -E 'interface|endpoint|allowed' | tr -s ' ' | tr '\n' ';' | cut -c1-600)"
+  echo "[DIAG-NODE] iptables filter: $(ip netns exec $n iptables -S 2>&1 | tr '\n' ';' | cut -c1-400)"
+  echo "[DIAG-NODE] iptables nat: $(ip netns exec $n iptables -t nat -S 2>&1 | tr '\n' ';' | cut -c1-400)"
+  echo "[DIAG-NODE] this machine's own FrogNet state (left out of the bed): /etc/frognet: $(ls /etc/frognet 2>/dev/null | tr '\n' ' ') /etc/sentinels: $(ls /etc/sentinels 2>/dev/null | head -20 | tr '\n' ' ') /etc/wireguard: $(ls /etc/wireguard 2>/dev/null | tr '\n' ' ')"
+  echo "[DIAG-NODE] $n daemon.log, first 30 and last 15 lines (all of it: $T/$n/daemon.log):"
+  grep -v '^\s*$' $T/$n/daemon.log | head -30 | cut -c1-300 | sed 's/^/    /'; echo "    ..."
+  grep -v '^\s*$' $T/$n/daemon.log | tail -15 | cut -c1-300 | sed 's/^/    /'; }
 declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((COLD_MAX*1000)) ]; do
   for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; if ready $(eg $i) $i; then DONE[$i]=$(( $(ms) - T0 )); left=$((left-1)); fi; done
   # [COLD_PROGRESS_V1] every 10 s while waiting: how far the slowest egress node is (its last readiness check)
@@ -193,7 +217,11 @@ declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((CO
     for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; r=$(cut -d'|' -f1 $T/$(eg $i)/right 2>/dev/null); [ "${r:-0}" -lt $wn ] && { wn=${r:-0}; w=$(eg $i); }; done
     echo "cold $((PR*10)) s: $((E-left))/$E egress nodes ready; slowest $w: $(cut -d'|' -f1,2 $T/$w/right 2>/dev/null | tr '|' '/') routes right, first wrong: $(cut -d'|' -f3 $T/$w/right 2>/dev/null)"
     # a region host that has stopped answering will not start again: say what it is doing, and end the wait now
-    if ! hub_answers; then hub_diag; HUB_DOWN=1; break; fi; fi
+    if ! hub_answers; then hub_diag; HUB_DOWN=1; break; fi
+    # [DIAG-NODE] an egress node whose daemon says the region is not reachable while the hub answers: its side of it
+    for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; n=$(eg $i)
+      grep -q "REGION: not reachable" $T/$n/daemon.log 2>/dev/null && { node_diag $n; NODE_DOWN=1; break; }; done
+    [ "${NODE_DOWN:-0}" = 1 ] && break; fi
   sleep 0.5; done
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
 read WB1 WP1 < <(hubw); echo "RESULT wire_cold S=$S E=$E bytes=$((WB1-WB0)) packets=$((WP1-WP0)) (hub link, start -> all ready)"

@@ -26,7 +26,15 @@ S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
 miss=""; for c in ip wg wg-quick python3 curl iptables sysctl mount getconf strings; do command -v $c > /dev/null || miss="$miss $c"; done
 [ -z "$miss" ] || { echo "scale-series: missing on this machine:$miss"; exit 2; }
 ip link add br-s-probe type bridge 2>/dev/null && ip link del br-s-probe || { echo "scale-series: cannot create a bridge here (or br-s-probe exists)"; exit 2; }
-ip netns list | grep -q '^s-' && { echo "scale-series: namespaces s-* exist from an earlier run; they are this tool's: ip netns list | grep ^s-"; exit 2; }
+# [EARLIER_RUN_PUT_BACK_V1] another run going now is refused; what a killed run left (namespaces s-*, its bridges and
+# veths, its processes, the mount points it made) is this tool's, and the bed removes it before it starts
+for q in $(pgrep -f "^bash $P/rinab/tools/netns-scale-test.sh"); do echo "scale-series: a run is going now (pid $q); one at a time"; exit 2; done
+if ip netns list | grep -q '^s-'; then L=$(ip netns list | awk '{print $1}' | grep '^s-')
+  echo "scale-series: an earlier run was killed before it put things back: $(echo "$L" | wc -l) namespaces s-* and their processes; removing them"
+  for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 1
+  for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done; ip netns del $n 2>/dev/null; done
+  for l in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -E '^(br-s|v-s-)'); do ip link del $l 2>/dev/null; done
+  echo "scale-series: removed; $(ip netns list | grep -c '^s-') left"; fi
 export PATH=$P/bin/$A:$PATH FROGNET_DIR=$P/frognet_semantic PKG_FDF=$P/fdf
 DC=$(cd $P/.. && pwd)                                  # /opt/fdf/experiments/day-claims
 OUT=$DC/runs/scale-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p $OUT
