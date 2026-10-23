@@ -11,8 +11,8 @@ android {
         applicationId = "com.fawcettinnovations.fdf.android"
         minSdk = 29                       // Android 10: the Communicator's camera/codec paths (it was minSdk 29 on its own)
         targetSdk = 34
-        versionCode = 1
-        versionName = "fdf-kt-2026-10-11-a15"
+        versionCode = 16
+        versionName = "fdf-kt-2026-10-23-a16"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

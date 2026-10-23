@@ -36,7 +36,9 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         /** [KART_CALLS_IN_THE_GAME_V1] where the far end's picture and this camera's go on the screen; null: hidden */
         void placeVideo(RectF remote, RectF self);
         /** a VPN (the FrogNet app's tunnel) is up on this phone: the 10.x race memories are reached only through it */
-        boolean vpnUp(); }
+        boolean vpnUp();
+        /** what the game did about the tunnel (started the FrogNet membership, or could not): null when nothing to say */
+        String tunnel(); }
     static final float TW = (float) Kart.TRACK_W, TH = (float) Kart.H;   // the track, in its own (shared) units
 
     private final Game game;
@@ -298,8 +300,10 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         if (trouble == null && (trouble = game.raceState()) != null) {
             Map<String, Object> srv = game.myServer();
             String addr = srv == null ? "" : Json.str(srv.get("addr"));
-            if (addr.startsWith("10.") && !host.vpnUp())                    // [KART_SAYS_NO_TUNNEL_V1]
-                trouble = "no FrogNet tunnel on this phone: start the FrogNet app and join (the race is on " + addr + "): " + trouble;
+            if (addr.startsWith("10.") && !host.vpnUp()) {                  // [KART_SAYS_NO_TUNNEL_V1]
+                String t = host.tunnel();
+                trouble = "no FrogNet tunnel yet (the race is on " + addr + ")" + (t == null ? "" : ": " + t);
+            }
         }
         if (trouble != null) {
             p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(220, 120, 20, 20)); c.drawRect(0, 0, W, 34, p);

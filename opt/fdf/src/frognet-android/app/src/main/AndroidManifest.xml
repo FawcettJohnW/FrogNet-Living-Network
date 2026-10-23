@@ -21,6 +21,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- [JOIN_FROM_ANOTHER_APP_V1] another app (FrogNet Kart) starts the membership: no screen; the VPN consent once -->
+        <activity android:name=".JoinActivity" android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:noHistory="true" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="net.frognet.action.JOIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <!-- [COMMS_FROM_THE_POND_V1] the Communicator, opened by MainActivity with the forward pond's comms servers -->
         <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"
             android:label="FrogNet Communicator" android:launchMode="singleTask" android:resizeableActivity="true"

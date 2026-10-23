@@ -14,6 +14,10 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <!-- [KART_STARTS_FROGNET_V1] the FrogNet app, started by this one (its JoinActivity) when there is no tunnel -->
+    <queries>
+        <package android:name="com.fawcettinnovations.fdf.android" />
+    </queries>
     <application android:label="FrogNet Kart" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
         android:hardwareAccelerated="true">
         <activity android:name="net.frognet.kart.MainActivity" android:label="FrogNet Kart" android:exported="true"
