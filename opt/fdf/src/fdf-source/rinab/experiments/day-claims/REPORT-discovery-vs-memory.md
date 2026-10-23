@@ -35,12 +35,19 @@ between any two nodes. Which tree to build is a policy question.
 **The topology-dependence of learning the network comes from a policy.** Under rlite's policies, modelled on a
 200-subnet network, every cost of knowing the network follows its physical shape. From 1 to 100 egress points: 2 to
 101 member hops to the farthest member, 199 to 9,901 transfers per change, and a refresh of 169 KB to 31.6 MB every
-30 s for as long as the network exists. In the shared region, measured on the real FrogNet daemon, each member
+30 s for as long as the network exists. In the shared region, measured on the real FrogNet daemon in the sandbox, each member
 publishes only its own facts, and the region held 181 to 203 KB from 1 to 50 egress points. Nothing moves at rest.
 Only the routes computed from that state reflect the physical network, so an algorithm written against it does not
 have to change with the topology.
 
-Physical-network numbers are marked **[physical: …]** where they are still to be filled in.
+**On hardware, from memory, at 200 subnets.** The same discovery ran as the simulator's TIER 3 on four of the
+author's machines: an x86 laptop, a Raspberry Pi 5 and two Raspberry Pi 4s. It used a real RAM host, a real
+`fdf-client` session per node, and FD&F's own graph code planning every node. At every egress count from 1 to 100,
+every node's path to every one of the 200 subnets was walked and verified: 40,000 of 40,000, and 40,200 of 40,200
+after a node began serving one more subnet. The memory held all 201 members within 2.6 to 10.6 s. The change reached
+the memory in 23 to 183 ms and the hub's table in 0.14 to 0.86 s. Each member's read of the whole network was 142 to
+156 KB. The tree participants (E2) computed the reference trees on five machines, 960 of 960 steps wherever the run
+finished.
 
 ## 3. Methodology
 
@@ -75,7 +82,7 @@ to know it.
 | Implementation | rlite `user/uipcps` as written (link-state routing, fully replicated directory, distributed address allocation); sizes from rlite's own `.proto` encodings | the FD&F region and the FrogNet tunnel daemon, unchanged |
 | Obtained by | computation on the graphs | runs: every node in its own network namespace, real kernel routes, real WireGuard |
 | Physical layouts | chain, binary tree, star (hub), partial mesh (ring plus chords, degree 4), full mesh | star through the hub only (a FrogNet region's physical layout) |
-| Where | the model | sandbox (one machine, 2 CPUs) and **[physical: machines, sites, WAN legs]** |
+| Where | the model | sandbox (one machine, 2 CPUs); and the simulator's TIER 3 on four of the author's machines (3.3) |
 
 Two things differ between the columns at once, the coordination mechanism and, for four of the five layouts, the
 physical shape. The comparison is between deployments; it does not attribute every difference to one cause.
@@ -85,7 +92,27 @@ physical shape. The comparison is between deployments; it does not attribute eve
 every reachable /24, and every name resolves on every node. Both are checked on every node, by kernel routes and real
 lookups.
 
-## 4. Detailed results
+### 3.3 On hardware
+
+Two runs went to the author's machines, each machine running the whole experiment by itself.
+
+**Learning the network: the simulator's TIER 3** (`simulation/s_scale_tier.py`, the S tier of the FrogNet
+simulator). Discovery from memory, with no probe sent and no route followed until the end:
+- **The facts:** each node's facts are its rows exactly as `fdf-facts` writes them: its own `.1`; the lease it holds
+  on its egress's LAN, with that interface's MAC; its uplink; and, on each egress, every lease it gave and its hub edge.
+- **The memory:** a real `fdf-client` session per node announces those facts into a real `rina-host`. The hub
+  announces itself the same way.
+- **The plans:** every node's plan is `fdf_graph.Graph(participants).plan(node)`, the code FrogNet's `graph_apply`
+  turns into the kernel. The egress nodes then publish their plans' maps, and the maps come back through the memory.
+- **The verification plan:** this is the only place routes are followed, and it is complete. Every node is walked to
+  every served /24 over the nodes' plans and the hub's table, and each path's hops are checked against what the
+  topology allows. It is written whole for every run.
+- **The event:** the last child starts serving one more /24. Its new facts go through the memory, every plan is
+  recomputed, the maps are republished, and the verification plan is walked again.
+
+**The tree participants: E2 distributed** (`e2-dist`). Each node of each of the 160 scenario graphs is a participant
+on its own session against the machine's own RAM host. Each step is checked against the reference trees.
+
 
 ### 4.1 The tree
 
@@ -158,6 +185,18 @@ costs, 74%, worst 6.0×.
 path. Even then "very close" needs a number.
 
 
+#### The tree participants on hardware (E2 distributed)
+
+| Machine | Build | Result | Convergence p50 / p99 |
+| --- | --- | --- | --- |
+| x86 laptop | r30 | 960 of 960 steps equal the reference | 6.4 / 13.9 ms |
+| Raspberry Pi 5, 8 GB | r27 | 960 of 960 | 18.7 / 55.6 ms |
+| Raspberry Pi 4, 8 GB | r30 | 960 of 960 | 21.2 / 48.0 ms |
+| Raspberry Pi 4, 4 GB | r30 | 960 of 960 | 20.4 / 55.3 ms |
+| Raspberry Pi 4, 2 GB | r27 | 960 of 960 | 60.8 / 257.4 ms |
+
+On the Pi 5, later builds stopped at scenarios 49, 57 and 90 while setting up a scenario's DAF (5).
+
 #### Structure or choice
 
 All three conditions come from taking the data path by reversing the path a response happened to travel. Forward
@@ -205,21 +244,55 @@ between that member and the region host. No member relays another's facts, and a
 | 5 | yes | 21.3 s | 348 ms | 140 ms | 680 ms | 182 KB |
 | 10 | yes | 36.7 s | 417 ms | 85 ms | 935 ms | 184 KB |
 | 20 | yes | 73.0 s | 697 ms | 85 ms | 1,725 ms | 189 KB |
-| 50 | yes | 219 s | 1,532 ms | **[physical]** | **[physical]** | 203 KB |
-| 100 | **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** |
+| 50 | yes | 219 s | 1,532 ms | not measured | not measured | 203 KB |
+| 100 | did not run (the sandbox ran out of memory) | | | | | |
 
 Sandbox numbers, one machine with 2 CPUs running every node. As E grows, one daemon's CPU per change falls from 275 to
 85 ms while the elapsed time to the last daemon rises from 211 to 697 ms; the CPU of all daemons together reaches
 1,725 ms per change at E = 20, about 860 ms on two CPUs. That is consistent with the rise being the daemons queuing for
-the machine's two CPUs; the physical runs, one node per machine, measure it directly. The region's mapping table is
+the machine's two CPUs; a run with one node per machine would measure it directly, and none has been made. The region's mapping table is
 16.5 KB at every E; the participant rows grow by each egress point's own rows. CPU figures come from a second run of the
 same build on the same bed, which measured them.
 
-On your machines:
+#### On hardware: TIER 3, S = 200 (build r30)
 
-| E | Machines / sites | Cold start to last node correct | Change to last daemon (p50) | One daemon's CPU per change (p50) | Region state |
+Every run verified every path: 40,000 of 40,000 at cold start, and 40,200 of 40,200 after the event, at every E on
+every machine.
+
+| Machine | E | Memory holds all 201 members | Maps round | Plan CPU per node, p50 | Each member's read |
 | --- | --- | --- | --- | --- | --- |
-| **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** | **[physical]** |
+| x86 laptop, 4 cores | 1 | 2.7 s | 259 ms | 0.66 ms | 156.1 KB |
+| | 10 | 2.6 s | 258 ms | 0.26 ms | 154.9 KB |
+| | 100 | 2.7 s | 1,337 ms | 0.55 ms | 145.7 KB |
+| Raspberry Pi 5, 8 GB | 1 | 2.9 s | 292 ms | 0.72 ms | 152.6 KB |
+| | 10 | 3.0 s | 250 ms | 0.28 ms | 151.3 KB |
+| | 100 | 2.6 s | 1,580 ms | 0.54 ms | 142.1 KB |
+| Raspberry Pi 4, 8 GB | 1 | 9.2 s | 782 ms | 1.98 ms | 152.8 KB |
+| | 10 | 8.3 s | 744 ms | 0.73 ms | 151.5 KB |
+| | 100 | 7.8 s | 4,188 ms | 1.78 ms | 142.3 KB |
+| Raspberry Pi 4, 4 GB | 1 | 10.6 s | 755 ms | 1.88 ms | 152.6 KB |
+| | 10 | 10.2 s | 694 ms | 0.70 ms | 151.3 KB |
+| | 100 | 10.3 s | 3,859 ms | 1.97 ms | 142.1 KB |
+
+The event, across all seven E on each machine:
+
+| Machine | Change to the memory | Change to the hub's table |
+| --- | --- | --- |
+| x86 laptop | 23–25 ms | 138–287 ms |
+| Raspberry Pi 5 | 27–39 ms | 158–331 ms |
+| Raspberry Pi 4, 8 GB | 66–94 ms | 428–862 ms |
+| Raspberry Pi 4, 4 GB | 66–183 ms | 448–842 ms |
+
+**Why the numbers move as they do.**
+- **The time to fill the memory doesn't grow with E.** Each member announces only its own facts, so 200 members cost
+  the same at any egress count. What it depends on is the machine: about 3 s on the laptop and the Pi 5, about 8 to
+  11 s on the Pi 4s, where 201 sessions start on four slower cores.
+- **The maps round does grow with E.** Each egress publishes its own maps, so at E = 100 a hundred members re-announce
+  at once.
+- **Each member's read shrinks slightly as E grows.** With more egress points there are fewer children, so fewer
+  lease rows and fewer given-lease rows.
+- **A change costs one member's write.** It reached the memory in tens of milliseconds and the hub's table in under a
+  second, at every E.
 
 
 ![rlite's policies, modelled, across five physical layouts, against the shared region, at 200 subnets](runs/scale-20261023/S-discovery-vs-memory-S200.png)
@@ -242,6 +315,18 @@ facts whatever the shape; only the routes computed from it reflect the physical 
   other layouts were not run.
 - The sandbox's elapsed times include contention for 2 CPUs. E = 100 did not run in the sandbox: the machine ran out of
   memory.
+- **The hardware runs are one machine each.** In TIER 3, all 201 members and the RAM host run on the same machine over
+  loopback. The times are those of a member, the memory and FD&F's planning on that machine. No run yet spans several
+  machines over real WAN legs.
+- **The real tunnel daemon was measured only in the sandbox.** The namespace bed that runs it (the measured table in
+  4.2) did not work on the author's machines. Each daemon wrote its facts and then lost the bed's hub after 50 to 130 s,
+  so no route was ever built. The cause was not found. TIER 3 replaced it on hardware, so its numbers come from FD&F's
+  planning code, not from the daemon applying routes to a kernel.
+- **On the Pi 5, E2 depended on its SD card.** The harness makes a new DAF for each of the 160 scenarios. A DAF's
+  definition and names are permanent records, each fdatasync'd before it is published, and every claim in the region
+  waits behind them. One fdatasync on that card took more than 15 s; the stuck thread was caught in it.
+  The other machines passed. This comes from the harness's design, not from the property under test: one DAF per run
+  would make four such writes in all.
 
 ## 6. Suggestions for further investigation
 
@@ -274,7 +359,10 @@ when members lose the region.
 On any x86-64 Linux machine as root:
 
     cd / && tar xvzf - < /tmp/day-claims.tgz
-    /opt/fdf/experiments/day-claims/day-claims scale
+    /opt/fdf/experiments/day-claims/day-claims
+
+That runs E2 and then S (TIER 3, S = 200, E = 1 to 100) on the machine, and writes every verification plan to
+`runs/scale-<time>/`.
 
 The tree experiments and the rlite model are `e2_compare.py`, `e2_ref.py`, `s_day_model.py` and `s_plot.py` in
 `experiments/day-claims/`.
