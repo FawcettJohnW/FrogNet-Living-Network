@@ -1,0 +1,31 @@
+=== S=200 subnets, E=10 egress points, 190 children; 2026-10-23T07:18:08Z
+PASS  hub up on 51820
+started 10 daemon nodes and 190 children in 12898 ms
+FAIL  cold: all 10 egress nodes route all 200 /24s and name all 200 (last at 36083 ms; 2 not ready)
+--- not ready: e5 right/expected|first wrong: 198|199|10.20.95.0/24 via 10.20.5.28 dev l-e5 hosts 200
+    1792739929099 [frognet:frognet.tunnel-daemon] WARNING BRINGUP_PHASE: to_bring_up count=0 list=[] already_up=['hub-hubA'] skipped_lan_reachable=0
+    1792739929272 [frognet:frognet.tunnel-daemon] WARNING GRAPH changed: e10 keys=['gen', 'gen_why', 'view']
+    1792739929273 [frognet:frognet.tunnel-daemon] WARNING GRAPH build=fdf-2026-10-16-r21 rebuild=10 gen=10 hosts=200 links=188 uplinks=['e1', 'e10', 'e2', 'e3', 'e4', 'e5', 'e6', 'e7', 'e8', 'e9'] hubs=['vm'] conflicts=[] me=e5 exit=e5 default=None routes=+0/-0 refused=0 hosts=+0/-0 maps=['10.20.105.0/2
+    1792739929287 [frognet:frognet.tunnel-daemon] WARNING REGION: world gen 104 -> 105 (e10 13->14) after event p
+    1792739929287 [frognet:frognet.tunnel-daemon] WARNING REGION: event p timed: world=50ms (participants+mappings, one read) +0ms bringup=83ms apply=155ms (probes=0/0ms routes=0/0ms) publish=1ms total=304ms
+--- [DIAG-SCALE-MISS] 10.20.95.0/24 (child c95): e5 routes it: 10.20.95.0/24 dev wg0 scope link src 10.20.5.1 metric 22  
+    c95/client.log:
+      [PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/fawcettjohnw/daf/opt/fdf/src/fdf-source/rinab/../fdf/templates/fdf.prime
+      fdf-client: build fdf-2026-10-23-r26; region at 198.18.0.1:8840 is build fdf-2026-10-23-r26
+      fdf-client: c95 joined the region at 198.18.0.1:8840, announced ["10.20.95.1","10.20.5.28"] with facts
+    c95/facts.log:
+      fdf-facts: build fdf-2026-10-12-r20 facts=/tmp/claude-0/netns-scale-S200-E10/c95/facts.json leases=/tmp/claude-0/netns-scale-S200-E10/c95/leases uplink target=10.20.5.1
+      fdf-facts: wrote 3 rows {'held': 1, 'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /tmp/claude-0/netns-scale-S200-E10/c95/facts.json
+    region: {"ns": "w:g-c95", "name": "c95", "ips": ["10.20.95.1", "10.20.5.28"], "cap": {"cores": 2, "mem_total_kb": 8220244, "os": "linux", "client": "fdf-client"}, "facts": {"role": "node", "name": "c95", "guid": "g-c95", "subnet": "10.20.95.0/24", "pubkey": "", "transit": [], "maps": []}, "alive": true, "id": 561}
+    graph links=188
+    graph links=
+RESULT cold S=200 E=10 last_ms=36083 ready=8/10 p50_ms=33895
+PASS  reach: 10/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=10 ok=10/10
+RESULT size S=200 E=10 participants_bytes=167033 mappings_bytes=16351 bed_rss_mb=5975
+  change #1: 10/10 daemons applied
+  change #2: 10/10 daemons applied
+  change #3: 10/10 daemons applied
+  change #4: 10/10 daemons applied
+RESULT event S=200 E=10 changes=4 samples=40 to_last_daemon_p50_ms=439 max_ms=973 per_daemon_p50_ms=381 daemon_world=42 bringup=74 apply=171 publish=1 total=291
+RESULT FAIL: 1
