@@ -1,0 +1,1 @@
+=== TIER 4 + bearer delay + real packets: BEARER=hub HUB_LEGS=[10.0, 35.0, 20.0, 5.0, 15.0, 25.0] 2026-10-23T06:19:06Z ===

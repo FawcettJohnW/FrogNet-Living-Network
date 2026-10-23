@@ -36,3 +36,5 @@
         not lowest-delay: G4_gw->G2_t took G4_gw/wgBR BR_gw/wgG2 G2_gw/wg1 G2_t one-way 36 vs lowest 26 ms (4 hops); return G2_t/wg0 G2_gw/wgG1 G1_gw/wgBR BR_gw/wgG4 G4_gw 26.0 ms; measured RTT 64.658
 [FAIL] isolated wlan0 AP: served on wlan0, 2 DHCP clients, no internet (topo_solo_wlan0_ap): 1 cycles; model trace 8/8; packets 6/6 pairs all 10 answered (6 any); by name 0/6; lowest-delay route 6/6; different path back 0/6; RTT min p50 0.01 max 0.02 ms; over floor p50 0.01 max 0.02 ms; tunnel one-way ms -
 [FAIL] two wlan0-AP FrogNets, peered by ham0 radio (no internet) (topo_two_aps_ham_radio): 3 cycles; model trace 18/18; packets 12/12 pairs all 10 answered (12 any); by name 4/12; lowest-delay route 12/12; different path back 0/12; RTT min p50 0.02 max 0.04 ms; over floor p50 0.02 max 0.04 ms; tunnel one-way ms -
+[FAIL] mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker (topo_mixed_iface_no_router): 4 cycles; model trace 32/32; packets 20/20 pairs all 10 answered (20 any); by name 10/20; lowest-delay route 20/20; different path back 0/20; RTT min p50 0.02 max 0.05 ms; over floor p50 0.02 max 0.05 ms; tunnel one-way ms -
+FAILURES
