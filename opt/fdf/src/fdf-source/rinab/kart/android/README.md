@@ -22,8 +22,9 @@ not reachable. The game logs to logcat under the tag `FrogNetKart`.
 
 Android Studio: open this directory (`kart/android`) as the project. `build.gradle.kts` compiles `src/` and the
 Communicator's code from `opt/fdf/src/frognet-android/app/src/main/java` (it stays there: one source), with
-`AndroidManifest.xml`; AGP 8.5.2 and Gradle 8.9, as frognet-android. Debug and release are signed with
-`tools/frognet-kart.p12`, so either build installs over the other.
+`AndroidManifest.xml`; AGP 8.5.2 and Gradle 8.9, as frognet-android. Debug builds are signed with Studio's own
+debug key (as frognet-android's); release with `tools/frognet-kart.p12`, build_apk.sh's key. Switching between a debug
+build and a sideloaded APK needs `adb uninstall net.frognet.kart` first.
 
 Build without Android Studio (a JDK and Maven Central only; no Android SDK): `./build_apk.sh` -> `build/FrogNetKart.apk`
 (the same sources and the same AndroidManifest.xml, written in binary by tools/axml.py). It signs with

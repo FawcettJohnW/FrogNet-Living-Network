@@ -2,7 +2,7 @@
 //   sources     src/ (the game) and frognet-android's net.frognet.communicator (the Communicator, compiled in unchanged)
 //   manifest    AndroidManifest.xml (build_apk.sh writes its binary form from the same file)
 //   version     versionName from Game.BUILD, versionCode from build_apk.sh's VERSION_CODE
-//   signing     tools/frognet-kart.p12 for debug and release, so a build from here installs over build_apk.sh's and back
+//   signing     debug: Studio's debug key; release: tools/frognet-kart.p12, build_apk.sh's key
 // AGP and Gradle are frognet-android's (8.5.2, 8.9). Plain Java: no Kotlin, no AndroidX, no resources.
 plugins { id("com.android.application") version "8.5.2" }
 
@@ -33,7 +33,8 @@ android {
         }
     }
     buildTypes {
-        getByName("debug") { signingConfig = signingConfigs.getByName("frognet") }
+        // debug: Android Studio's own debug key, as frognet-android's builds (which install). release: the kart key, the
+        // one build_apk.sh signs with. A debug build and a sideloaded APK do not install over each other: uninstall first.
         getByName("release") { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("frognet") }
     }
     sourceSets {
