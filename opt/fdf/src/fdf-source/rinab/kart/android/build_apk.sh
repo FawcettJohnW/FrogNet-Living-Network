@@ -6,10 +6,15 @@
 # The binary manifest is written by tools/axml.py with framework ids read here from the jar (javap). The app has no
 # resources.arsc (it uses none). Signed with tools/frognet-kart.p12 (password frognet): later builds must use it to
 # install over this one. TOOLS=<dir> caches the jars (default ./.tools).
+# [KART_CALLS_IN_THE_GAME_V1] The Communicator's code is compiled in from frognet-android, as it is there (one source):
+# net.frognet.communicator and its core, all but CommunicatorActivity (the game is the call screen: GameCalls).
+# COMMS_SRC=<dir> names that package directory (default: ../../../../frognet-android/app/src/main/java/net/frognet/communicator).
 set -euo pipefail
 cd "$(dirname "$0")"; HERE=$PWD
+COMMS_SRC=${COMMS_SRC:-$HERE/../../../../frognet-android/app/src/main/java/net/frognet/communicator}
+[ -f "$COMMS_SRC/core/Room.java" ] || { echo "build_apk: no Communicator source at $COMMS_SRC (COMMS_SRC=<dir>)" >&2; exit 1; }
 OUT=${1:-$HERE/build/FrogNetKart.apk}; T=${TOOLS:-$HERE/.tools}; M=https://repo1.maven.org/maven2
-VERSION_CODE=1; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
+VERSION_CODE=2; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
 [ -n "$VERSION_NAME" ] || { echo "build_apk: no BUILD in Game.java" >&2; exit 1; }
 mkdir -p "$T" build
 get() { [ -s "$T/$2" ] || curl -sSf --retry 5 --retry-delay 3 -o "$T/$2" "$M/$1"; }
@@ -18,13 +23,14 @@ get com/jakewharton/android/repackaged/dalvik-dx/16.0.1/dalvik-dx-16.0.1.jar dal
 get com/android/tools/build/apksig/2.3.0/apksig-2.3.0.jar apksig-2.3.0.jar
 rm -rf build/classes build/apk build/sign && mkdir -p build/classes build/apk build/sign
 echo "== javac (Java 8 API, against the API 33 framework)"
-javac --release 8 -Xlint:-options -encoding UTF-8 -classpath "$T/android-all-33.jar" -d build/classes $(find src -name '*.java')
+javac --release 8 -Xlint:-options -nowarn -encoding UTF-8 -classpath "$T/android-all-33.jar" -d build/classes $(find src -name '*.java') \
+    $(find "$COMMS_SRC" -name '*.java' ! -name CommunicatorActivity.java)
 echo "== dx"
 java -cp "$T/dalvik-dx-16.0.1.jar" com.android.dx.command.Main --dex --min-sdk-version=26 --output=build/apk/classes.dex build/classes
 echo "== manifest ($VERSION_NAME)"
-{ javap -constants -cp "$T/android-all-33.jar" 'android.R$attr' | awk '/ (versionCode|versionName|minSdkVersion|targetSdkVersion|name|label|theme|screenOrientation|exported|configChanges|hardwareAccelerated) =/ {gsub(";","",$NF); print $(NF-2), $NF}'
+{ javap -constants -cp "$T/android-all-33.jar" 'android.R$attr' | awk '/ (versionCode|versionName|minSdkVersion|targetSdkVersion|name|label|theme|screenOrientation|exported|configChanges|hardwareAccelerated|required) =/ {gsub(";","",$NF); print $(NF-2), $NF}'
   javap -constants -cp "$T/android-all-33.jar" 'android.R$style' | awk '/ Theme_Material_NoActionBar_Fullscreen =/ {gsub(";","",$NF); print $(NF-2), $NF}'; } > build/ids.txt
-[ "$(wc -l < build/ids.txt)" = 12 ] || { echo "build_apk: expected 12 framework ids, got: $(cat build/ids.txt)" >&2; exit 1; }
+[ "$(wc -l < build/ids.txt)" = 13 ] || { echo "build_apk: expected 13 framework ids, got: $(cat build/ids.txt)" >&2; exit 1; }
 python3 tools/axml.py build/apk/AndroidManifest.xml "$VERSION_CODE" "$VERSION_NAME" build/ids.txt
 echo "== zip"
 python3 - <<'EOF'

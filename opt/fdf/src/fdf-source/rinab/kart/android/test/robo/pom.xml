@@ -19,9 +19,13 @@
   <build>
     <sourceDirectory>../../src</sourceDirectory>
     <plugins>
+      <!-- [KART_CALLS_IN_THE_GAME_V1] the Communicator's own code, from frognet-android, as build_apk.sh compiles it in -->
+      <plugin><groupId>org.codehaus.mojo</groupId><artifactId>build-helper-maven-plugin</artifactId><version>3.5.0</version>
+        <executions><execution><id>communicator</id><phase>generate-sources</phase><goals><goal>add-source</goal></goals>
+          <configuration><sources><source>../../../../../../frognet-android/app/src/main/java</source></sources></configuration></execution></executions></plugin>
       <plugin><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version>
         <configuration><redirectTestOutputToFile>false</redirectTestOutputToFile><trimStackTrace>false</trimStackTrace>
-          <systemPropertyVariables><kart>${kart}</kart><shots>${shots}</shots><robolectric.offline>true</robolectric.offline><robolectric.dependency.dir>${project.build.directory}/robo-deps</robolectric.dependency.dir></systemPropertyVariables></configuration></plugin>
+          <systemPropertyVariables><kart>${kart}</kart><shots>${shots}</shots><comms>${comms}</comms><probe>${probe}</probe><ivf>${ivf}</ivf><opus>${opus}</opus><tmp>${tmp}</tmp><robolectric.offline>true</robolectric.offline><robolectric.dependency.dir>${project.build.directory}/robo-deps</robolectric.dependency.dir></systemPropertyVariables></configuration></plugin>
     </plugins>
   </build>
 </project>

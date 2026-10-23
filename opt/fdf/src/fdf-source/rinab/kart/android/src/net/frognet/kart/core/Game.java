@@ -21,7 +21,7 @@ import java.util.Random;
  * tick() is called from one thread (the game loop); the getters are safe from the drawing thread.
  */
 public final class Game {
-    public static final String BUILD = "kart-android-2026-10-22-r1";
+    public static final String BUILD = "kart-android-2026-10-23-r2";
     static final Map<String, int[]> COLORS = new HashMap<String, int[]>();
     static final int[][] BOT_COLORS = {{240,140,40},{150,90,220},{120,200,40},{40,170,150},{200,60,110},{110,110,240},{220,220,120},{170,120,80}};
     static {
@@ -36,6 +36,10 @@ public final class Game {
     public final List<Kart> bots = new ArrayList<Kart>();
     private final Map<String, Kart> mine = new LinkedHashMap<String, Kart>();
     private final Region main;
+    private final Region comm;                                 // [KART_CALLS_IN_THE_GAME_V1] call tiles: (comm, tile, NAME), as kartdemo
+    private volatile String callStatus = "", callCalling = "", callId = "";
+    private Map<String, Object> tileWritten = null;
+    private int tileGen = -1;
     private volatile Region race = null;
     private final Region.Log log;
     private final ArrayDeque<String> lines = new ArrayDeque<String>();
@@ -69,8 +73,27 @@ public final class Game {
         }
         log.say(BUILD + ": " + name + " on " + machine + ": kart memory " + kartHost + ":" + kartPort + "; " + bots.size() + " robot(s); this device does not serve games");
         main = new Region("kart memory", kartHost, kartPort, "/ram.php", "kart", log, null, null);
+        comm = new Region("comm", kartHost, kartPort, "/ram.php", "comm", log, null, null);
     }
 
+    /** the call, as kartdemo's tile says it: status "calling X" / "in a call" / "" (then racing or in the lobby); calling X
+     *  with a call id is what makes a desktop kart game open its Communicator for X's call */
+    public void setCall(String status, String calling, String id) { callStatus = status; callCalling = calling; callId = id; }
+    /** everyone's call tiles, this game's too */
+    public Map<String, Map<String, Object>> tiles() { return comm.family("tile"); }
+
+    private void publishTile() {
+        int[] c = me.color;
+        List<Object> col = new ArrayList<Object>(); for (int v : c) col.add((long) v);
+        String st = !callStatus.isEmpty() ? callStatus : (state.equals("racing") ? "racing" : "in the lobby");
+        Map<String, Object> bag = Json.o("name", name, "color", col, "status", st, "calling", callCalling, "call_id", callId, "machine", machine);
+        if (bag.equals(tileWritten) && tileGen == comm.gen()) return;
+        int g = comm.gen();
+        if (comm.write("tile", name, bag, true)) { tileWritten = bag; tileGen = g; }
+    }
+
+    /** a line for the game's Log screen only (the caller has logged it already) */
+    public void note(String l) { keep(l); }
     private void keep(String l) { synchronized (lines) { lines.addLast(l); while (lines.size() > 200) lines.removeFirst(); } }
     public List<String> log() { synchronized (lines) { return new ArrayList<String>(lines); } }
 
@@ -136,6 +159,7 @@ public final class Game {
 
     /** One frame: steer/gas are the player's hands (ignored on the autopilot). now in seconds. */
     public void tick(double now, double dt, double steer, double gas) {
+        publishTile();
         Map<String, Map<String, Object>> servers = main.family("server");
         if (state.equals("lobby")) {
             String found = null;
@@ -198,6 +222,7 @@ public final class Game {
     /** Ends both sessions: the memory writes this game's lobby tuple and karts {} for everyone. */
     public void stop() {
         Region r = race; if (r != null) r.stop();
+        comm.stop();
         main.stop();
     }
 }

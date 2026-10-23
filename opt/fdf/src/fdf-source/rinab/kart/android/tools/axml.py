@@ -12,8 +12,16 @@ T_REF, T_STRING, T_DEC, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
 def manifest(vcode, vname, theme):
     A = lambda n, t, v: (ANDROID, n, t, v)
     return ("manifest", [A("versionCode", T_DEC, vcode), A("versionName", T_STRING, vname), (None, "package", T_STRING, "net.frognet.kart")], [
-        ("uses-sdk", [A("minSdkVersion", T_DEC, 26), A("targetSdkVersion", T_DEC, 33)], []),
+        ("uses-sdk", [A("minSdkVersion", T_DEC, 29), A("targetSdkVersion", T_DEC, 33)], []),    # 29: the Communicator's codecs
         ("uses-permission", [A("name", T_STRING, "android.permission.INTERNET")], []),
+        # [KART_CALLS_IN_THE_GAME_V1] the Communicator in the game: camera, microphone, call audio routing
+        ("uses-permission", [A("name", T_STRING, "android.permission.CAMERA")], []),
+        ("uses-permission", [A("name", T_STRING, "android.permission.RECORD_AUDIO")], []),
+        ("uses-permission", [A("name", T_STRING, "android.permission.MODIFY_AUDIO_SETTINGS")], []),
+        ("uses-permission", [A("name", T_STRING, "android.permission.WAKE_LOCK")], []),
+        ("uses-feature", [A("name", T_STRING, "android.hardware.camera"), A("required", T_BOOL, False)], []),
+        ("uses-feature", [A("name", T_STRING, "android.hardware.camera.front"), A("required", T_BOOL, False)], []),
+        ("uses-feature", [A("name", T_STRING, "android.hardware.microphone"), A("required", T_BOOL, False)], []),
         ("application", [A("label", T_STRING, "FrogNet Kart"), A("theme", T_REF, theme), A("hardwareAccelerated", T_BOOL, True)], [
             ("activity", [A("name", T_STRING, "net.frognet.kart.MainActivity"), A("label", T_STRING, "FrogNet Kart"),
                           A("exported", T_BOOL, True), A("screenOrientation", T_DEC, 6),          # 6 = sensorLandscape

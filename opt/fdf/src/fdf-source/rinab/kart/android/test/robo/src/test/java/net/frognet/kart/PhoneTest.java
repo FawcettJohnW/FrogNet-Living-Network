@@ -9,6 +9,7 @@ import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.RectF;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.MotionEvent;
@@ -58,15 +59,36 @@ public class PhoneTest {
         return out;
     }
 
+    /** the main looper's posted work, its clock kept with real time (the Communicator's ticks are posted 500 ms ahead) */
+    static long lastStep = 0;
+    static void step() {
+        long now = System.currentTimeMillis(), d = lastStep == 0 ? 0 : Math.min(200, now - lastStep); lastStep = now;
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(d));
+    }
+
+    /** the far end of a call: the Communicator's reference core (frognet-android's communicator-test/Probe) as its own program */
+    static Process probe(String out, String... args) throws Exception {
+        List<String> cmd = new ArrayList<String>(java.util.Arrays.asList("java", "-cp", System.getProperty("probe"), "Probe"));
+        cmd.addAll(java.util.Arrays.asList(args));
+        say("the far end: Probe " + String.join(" ", args));
+        return new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(new File(out)).start();
+    }
+    static String slurp(String f) throws Exception { return new String(java.nio.file.Files.readAllBytes(new File(f).toPath()), "UTF-8"); }
+    static String lines(String text, String prefix) {
+        StringBuilder b = new StringBuilder();
+        for (String l : text.split("\n")) if (l.startsWith(prefix)) b.append(b.length() == 0 ? "" : " | ").append(l);
+        return b.toString();
+    }
+
     static void idle(long ms) throws Exception {
         long end = System.currentTimeMillis() + ms;
-        while (System.currentTimeMillis() < end) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(20); }
+        while (System.currentTimeMillis() < end) { step(); Thread.sleep(20); }
     }
 
     interface Until { boolean now() throws Exception; }
     static boolean waitFor(long ms, Until u) throws Exception {
         long end = System.currentTimeMillis() + ms;
-        while (System.currentTimeMillis() < end) { shadowOf(Looper.getMainLooper()).idle(); if (u.now()) return true; Thread.sleep(50); }
+        while (System.currentTimeMillis() < end) { step(); if (u.now()) return true; Thread.sleep(50); }
         return false;
     }
 
@@ -109,10 +131,13 @@ public class PhoneTest {
 
         // the setup screen
         List<EditText> fields = all(root, EditText.class, new ArrayList<EditText>());
-        assertEquals("setup: name, kart memory, robots, laps", 4, fields.size());
+        assertEquals("setup: name, kart memory, robots, laps, Communicator memory, media", 6, fields.size());
         say("setup screen: name '" + fields.get(0).getText() + "', kart memory '" + fields.get(1).getText() + "', robots " + fields.get(2).getText() + ", laps " + fields.get(3).getText());
         assertEquals("165.232.153.144:8799", fields.get(1).getText().toString());
         fields.get(0).setText("phone"); fields.get(1).setText(kart); fields.get(2).setText("1"); fields.get(3).setText("2");
+        String[] cm = System.getProperty("comms").split(",");             // the Communicator's memory and media server ports
+        fields.get(4).setText("127.0.0.1:" + cm[0]); fields.get(5).setText("127.0.0.1:" + cm[1]);
+        String ivf = System.getProperty("ivf"), opus = System.getProperty("opus"), tmp = System.getProperty("tmp");
         Button join = null;
         for (Button b : all(root, Button.class, new ArrayList<Button>())) if (b.getText().toString().equals("Join the lobby")) join = b;
         assertNotNull(join);
@@ -154,38 +179,92 @@ public class PhoneTest {
         tap(v, GameView.B_MINUS.centerX(), GameView.B_MINUS.centerY()); assertEquals(1, g.laps());
         tap(v, GameView.B_PLUS.centerX(), GameView.B_PLUS.centerY()); assertEquals(2, g.laps());
 
+        // ---- [KART_CALLS_IN_THE_GAME_V1] the third memory: the Communicator's, held beside the kart memory
+        Field cf = MainActivity.class.getDeclaredField("calls"); cf.setAccessible(true);
+        final net.frognet.communicator.GameCalls k = (net.frognet.communicator.GameCalls) cf.get(a);
+        assertTrue("in the Communicator room", waitFor(10000, () -> k.inRoom()));
+        say("Communicator: " + k.roomState());
+
+        // a call from the lobby: Home (the reference core, answering) is in the room; tap Call beside Home
+        String homeOut = tmp + "/probe-home.txt";
+        Process home = probe(homeOut, "answer", cm[0], "Home", "phone", ivf, opus, "8", tmp + "/home.opus");
+        assertTrue("Home is in the lobby's Communicator list", waitFor(10000, () -> { for (String[] m : k.people()) if (m[0].equals("Home")) return true; return false; }));
+        idle(700);
+        shot(v, "2-lobby-communicator");
+        Field cb = GameView.class.getDeclaredField("callButtons"); cb.setAccessible(true);
+        RectF callHome = null;
+        for (Object[] b : (List<Object[]>) cb.get(v)) if ("Home".equals(b[1])) callHome = (RectF) b[0];
+        assertNotNull("a Call button beside Home", callHome);
+        tap(v, callHome.centerX(), callHome.centerY());
+        assertTrue("the call with Home is up", waitFor(10000, () -> k.connected()));
+        assertTrue("media from Home", waitFor(8000, () -> k.mediaIn() > 100));
+        say("in a call with " + k.inCallWith() + ": " + k.mediaLine());
+        boolean tiled = waitFor(5000, () -> g.tiles().get("phone") != null && "calling Home".equals(g.tiles().get("phone").get("status")));
+        say("the phone's tiles view: " + g.tiles());
+        assertTrue("the phone's call tile says it", tiled);
+        say("the phone's tile in the kart memory: " + g.tiles().get("phone"));
+        shot(v, "3-lobby-call");
+        home.waitFor();
+        String ho = slurp(homeOut);
+        say("Home: " + lines(ho, "ANSWERING") + " | " + lines(ho, "VIDEO") + " | " + lines(ho, "AUDIO"));
+        assertTrue("Home answered the phone's call", ho.contains("ANSWERING phone"));
+        tap(v, GameView.C_END_L.centerX(), GameView.C_END_L.centerY());
+        assertTrue("End ends the call", waitFor(3000, () -> k.inCallWith().isEmpty()));
+        assertTrue("the room stays", k.inRoom());
+        say("call ended; still in the room: " + k.roomState());
+
         // Ready
         tap(v, GameView.B_READY.centerX(), GameView.B_READY.centerY());
         assertTrue("Ready", g.ready());
-        idle(800);
-        shot(v, "2-after-ready");
         assertTrue("the race starts and the phone is placed on its grid", waitFor(40000, () -> g.state.equals("racing") && g.placed()));
         say("racing: race " + g.myRace() + " on " + g.myServer().get("host") + ", " + g.lapsTotal() + " lap(s)");
+        // a call while racing: Julie (the reference core) calls the phone
+        String julieOut = tmp + "/probe-julie.txt";
+        Process julie = probe(julieOut, "call", cm[0], cm[1], "Julie", "phone", ivf, opus, "40", tmp + "/julie.opus");
+        assertTrue("it rings while racing", waitFor(10000, () -> "Julie".equals(k.ringingFrom())));
+        say("ringing while racing: " + k.ringingFrom() + " is calling");
+        shot(v, "4-race-ringing");
+        tap(v, GameView.RING_ANSWER.centerX(), GameView.RING_ANSWER.centerY());
+        assertTrue("answered while racing", waitFor(10000, () -> k.connected()));
+        final String raceSession = k.session();
+        assertTrue("media from Julie while racing", waitFor(8000, () -> k.mediaIn() > 100));
+        assertTrue("still racing", g.state.equals("racing"));
+        say("in a call with " + k.inCallWith() + " while racing (session " + raceSession + "): " + k.mediaLine());
         tap(v, GameView.R_AUTO.centerX(), GameView.R_AUTO.centerY());
         assertTrue("Autopilot on", g.autodrive);
         assertTrue("the start", waitFor(15000, () -> System.currentTimeMillis() / 1000.0 > g.startAt() + 3));
-        Bitmap race = shot(v, "3-race");
+        Bitmap race = shot(v, "5-race-call");
         assertTrue("the race draws", distinct(race) > 8);
         assertTrue("other karts are seen", waitFor(5000, () -> !g.others(System.currentTimeMillis() / 1000.0).isEmpty()));
         say("other karts seen: " + g.others(System.currentTimeMillis() / 1000.0).keySet() + "; me lap " + g.me.lap + " at (" + (int) g.me.x + "," + (int) g.me.y + ")");
-        idle(6000);
-        shot(v, "4-race-later");
-        say("me lap " + g.me.lap + " at (" + (int) g.me.x + "," + (int) g.me.y + ")");
+        idle(4000);
+        say("me lap " + g.me.lap + " at (" + (int) g.me.x + "," + (int) g.me.y + "), the call: " + k.mediaLine());
         assertTrue("the race ends and the phone is back in the lobby", waitFor(120000, () -> g.state.equals("lobby") && g.myRace() == null));
         say("race over: " + g.lastResult());
+        // the race memory is gone; the Communicator's is not: the same call goes on
+        long m0 = k.mediaIn(); idle(3000); long m1 = k.mediaIn();
+        say("back in the lobby, the call: session " + k.session() + " with " + k.inCallWith() + ", media in " + m0 + " -> " + m1 + " in 3 s");
+        assertEquals("the same call", raceSession, k.session());
+        assertTrue("media still coming after the race", m1 > m0 + 50);
+        shot(v, "6-lobby-call-after-race");
+        tap(v, GameView.C_END_L.centerX(), GameView.C_END_L.centerY());
+        assertTrue("End ends the call", waitFor(3000, () -> k.inCallWith().isEmpty()));
+        julie.destroy(); julie.waitFor();
+        say("Julie: " + lines(slurp(julieOut), "CALLING"));
         idle(1500);
-        shot(v, "5-lobby-after");
+        shot(v, "7-lobby-after");
         assertTrue("a record for the phone", g.records().containsKey("phone"));
         say("phone's record: " + g.records().get("phone"));
 
         // Log, then Leave: back to the setup screen, out of the lobby
         tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
-        shot(v, "6-log");
+        shot(v, "8-log");
         tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
         tap(v, GameView.B_LEAVE.centerX(), GameView.B_LEAVE.centerY());
         idle(500);
-        assertTrue("Leave shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 4);
-        say("left: setup screen again");
+        assertTrue("Leave shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
+        idle(500);
+        say("left: setup screen again; the Communicator: " + (cf.get(a) == null ? "left the room" : "STILL HELD"));
         ac.pause().stop().destroy();
     }
 }

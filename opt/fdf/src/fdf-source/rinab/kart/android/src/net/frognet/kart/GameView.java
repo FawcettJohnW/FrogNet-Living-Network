@@ -13,6 +13,7 @@ import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 
+import net.frognet.communicator.GameCalls;
 import net.frognet.kart.core.Game;
 import net.frognet.kart.core.Json;
 import net.frognet.kart.core.Kart;
@@ -31,11 +32,16 @@ import java.util.Set;
  * shared x/y are the same numbers on every game. Touch: lobby buttons; racing, steer / gas / brake (multi-touch) and Auto.
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
-    public interface Host { void chatDialog(); void leave(); }
+    public interface Host { void chatDialog(); void leave();
+        /** [KART_CALLS_IN_THE_GAME_V1] where the far end's picture and this camera's go on the screen; null: hidden */
+        void placeVideo(RectF remote, RectF self); }
     static final float W = 1180, H = 720, TW = (float) Kart.TRACK_W;
 
     private final Game game;
     private final Host host;
+    private final GameCalls calls;
+    private RectF placedRemote = null, placedSelf = null;
+    private final List<Object[]> callButtons = new ArrayList<Object[]>();     // {RectF, name}: the lobby's Call buttons, as drawn
     private volatile boolean running = true, haveSurface = false;
     private Thread loop;
     private final Matrix toScreen = new Matrix(), toLayout = new Matrix();
@@ -52,10 +58,15 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     static final RectF R_LEFT = new RectF(16, 540, 146, 704), R_RIGHT = new RectF(160, 540, 290, 704),
             R_AUTO = new RectF(880, 150, 1160, 230), R_GAS = new RectF(880, 410, 1160, 560), R_BRAKE = new RectF(880, 576, 1160, 704),
             R_LEAVE = new RectF(880, 60, 1160, 130);
+    // [KART_CALLS_IN_THE_GAME_V1] the call: the ring banner (both screens), the call's buttons, where the pictures go
+    static final RectF RING = new RectF(250, 40, 870, 124), RING_ANSWER = new RectF(600, 52, 726, 112), RING_DECLINE = new RectF(734, 52, 860, 112);
+    static final RectF C_MUTE_L = new RectF(680, 286, 790, 330), C_CAM_L = new RectF(800, 286, 910, 330), C_END_L = new RectF(1010, 286, 1160, 330),
+            C_MUTE_R = new RectF(884, 290, 966, 350), C_CAM_R = new RectF(972, 290, 1054, 350), C_END_R = new RectF(1060, 290, 1160, 350);
+    static final RectF V_LOBBY = new RectF(680, 340, 1160, 610), V_RACE = new RectF(240, 253, 620, 467);   // V_RACE: inside the infield
 
-    public GameView(Context c, Game game, Host host) {
+    public GameView(Context c, Game game, GameCalls calls, Host host) {
         super(c);
-        this.game = game; this.host = host;
+        this.game = game; this.host = host; this.calls = calls;
         getHolder().addCallback(this);
         setFocusable(true);
         loop = new Thread(this, "kart-loop");
@@ -84,7 +95,12 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             Set<String> h; synchronized (held) { h = new HashSet<String>(held); }
             double steer = (h.contains("right") ? 1 : 0) - (h.contains("left") ? 1 : 0);
             double gas = (h.contains("gas") ? 1 : 0) - (h.contains("brake") ? 1 : 0);
+            if (calls != null) {
+                String w = calls.inCallWith(), cl = calls.calling();
+                game.setCall(w.isEmpty() ? "" : (!cl.isEmpty() ? "calling " + cl : "in a call"), w.isEmpty() ? "" : cl, w.isEmpty() || cl.isEmpty() ? "" : calls.session());
+            }
             game.tick(System.currentTimeMillis() / 1000.0, dt, steer, gas);
+            placeVideo();
             if (haveSurface) {
                 Canvas c = null;
                 try {
@@ -102,8 +118,32 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     // ---- touch
     private float[] layout(MotionEvent e, int i) { float[] q = {e.getX(i), e.getY(i)}; toLayout.mapPoints(q); return q; }
 
+    /** the ring banner and the call's buttons come first, on either screen */
+    private boolean callTouch(float[] q) {
+        if (calls == null) return false;
+        boolean racing = game.state.equals("racing");
+        if (calls.ringingFrom() != null && RING.contains(q[0], q[1])) {
+            if (RING_ANSWER.contains(q[0], q[1])) calls.answer();
+            else if (RING_DECLINE.contains(q[0], q[1])) calls.decline();
+            return true;
+        }
+        if (!calls.inCallWith().isEmpty()) {
+            if ((racing ? C_MUTE_R : C_MUTE_L).contains(q[0], q[1])) { calls.toggleMute(); return true; }
+            if ((racing ? C_CAM_R : C_CAM_L).contains(q[0], q[1])) { calls.toggleCamera(); return true; }
+            if ((racing ? C_END_R : C_END_L).contains(q[0], q[1])) { calls.end(); return true; }
+        } else if (!racing) {
+            synchronized (callButtons) {
+                for (Object[] b : callButtons) if (((RectF) b[0]).contains(q[0], q[1])) { calls.call((String) b[1]); return true; }
+            }
+        }
+        return false;
+    }
+
     @Override public boolean onTouchEvent(MotionEvent e) {
         int a = e.getActionMasked();
+        if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_POINTER_DOWN) {
+            if (callTouch(layout(e, e.getActionIndex()))) return true;
+        }
         if (game.state.equals("racing")) {
             Set<String> now = new HashSet<String>();
             for (int i = 0; i < e.getPointerCount(); i++) {
@@ -160,7 +200,79 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(220, 120, 20, 20)); c.drawRect(0, 0, W, 34, p);
             text(c, trouble.length() > 110 ? trouble.substring(0, 110) : trouble, 12, 6, 20, Color.WHITE, true);
         }
+        drawCall(c);
         if (showLog) drawLog(c);
+    }
+
+    // ---- the call [KART_CALLS_IN_THE_GAME_V1]
+    private void placeVideo() {
+        RectF r = null, sf = null;
+        if (calls != null && !calls.inCallWith().isEmpty()) {
+            RectF v = game.state.equals("racing") ? V_RACE : V_LOBBY;
+            r = new RectF(); toScreen.mapRect(r, v);
+            float w = v.width() * 0.3f, h = w * 9 / 16;
+            sf = new RectF(); toScreen.mapRect(sf, new RectF(v.right - w - 6, v.bottom - h - 6, v.right - 6, v.bottom - 6));
+            if (!calls.cameraOn()) sf = null;
+        }
+        if (eq(r, placedRemote) && eq(sf, placedSelf)) return;
+        placedRemote = r; placedSelf = sf;
+        host.placeVideo(r, sf);
+    }
+    private static boolean eq(RectF a, RectF b) { return a == null ? b == null : a.equals(b); }
+
+    private void drawCall(Canvas c) {
+        if (calls == null) return;
+        boolean racing = game.state.equals("racing");
+        String w = calls.inCallWith();
+        if (!w.isEmpty()) {
+            RectF v = racing ? V_RACE : V_LOBBY;
+            p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(10, 10, 12)); c.drawRect(v, p);       // under the picture
+            if (!calls.connected()) text(c, "connecting…", v.left + 12, v.top + 10, 20, Color.rgb(200, 200, 200), false);
+            long t = calls.callSeconds();
+            String head = (calls.calling().isEmpty() ? "call with " : "calling ") + w + (calls.connected() ? String.format(java.util.Locale.ROOT, "  %d:%02d", t / 60, t % 60) : "");
+            if (racing) text(c, head, 884, 360, 17, Color.rgb(140, 230, 160), true);
+            else text(c, head, 680, 258, 20, Color.rgb(140, 230, 160), true);
+            button(c, racing ? C_MUTE_R : C_MUTE_L, calls.muted() ? "Unmute" : "Mute", calls.muted(), true);
+            button(c, racing ? C_CAM_R : C_CAM_L, calls.cameraOn() ? "Cam off" : "Cam on", false, true);
+            p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(190, 50, 50)); c.drawRoundRect(racing ? C_END_R : C_END_L, 12, 12, p);
+            RectF e = racing ? C_END_R : C_END_L;
+            p.setColor(Color.WHITE); p.setTextSize(24); p.setFakeBoldText(true);
+            c.drawText("End", e.centerX() - p.measureText("End") / 2, e.centerY() + 9, p);
+        }
+        else if (racing) text(c, calls.inRoom() ? "Communicator: ready for calls" : "Communicator: not connected", 884, 300, 16,
+                calls.inRoom() ? Color.rgb(110, 220, 130) : Color.rgb(240, 90, 80), false);
+        String from = calls.ringingFrom();
+        if (from != null) {
+            p.setStyle(Paint.Style.FILL); p.setColor(Color.argb(235, 20, 60, 30)); c.drawRoundRect(RING, 16, 16, p);
+            text(c, from + " is calling", RING.left + 18, RING.top + 26, 28, Color.WHITE, true);
+            p.setColor(Color.rgb(36, 160, 72)); c.drawRoundRect(RING_ANSWER, 12, 12, p);
+            p.setColor(Color.rgb(190, 50, 50)); c.drawRoundRect(RING_DECLINE, 12, 12, p);
+            p.setColor(Color.WHITE); p.setTextSize(24); p.setFakeBoldText(true);
+            c.drawText("Answer", RING_ANSWER.centerX() - p.measureText("Answer") / 2, RING_ANSWER.centerY() + 9, p);
+            c.drawText("Decline", RING_DECLINE.centerX() - p.measureText("Decline") / 2, RING_DECLINE.centerY() + 9, p);
+        }
+    }
+
+    /** the lobby's Communicator section: the room's state and everyone to call, from the room and the kart games' tiles */
+    private float drawPeople(Canvas c, float y) {
+        List<Object[]> btns = new ArrayList<Object[]>();
+        text(c, "Communicator", 40, y, 24, Color.rgb(200, 220, 255), true); y += 30;
+        text(c, calls.roomState(), 40, y, 16, calls.inRoom() ? Color.rgb(110, 220, 130) : Color.rgb(240, 90, 80), false); y += 24;
+        java.util.TreeMap<String, String> who = new java.util.TreeMap<String, String>();
+        for (Map.Entry<String, Map<String, Object>> e : game.tiles().entrySet()) if (!e.getKey().equals(game.name)) who.put(e.getKey(), Json.str(e.getValue().get("status")));
+        for (String[] m : calls.people()) who.put(m[0], m[1] + " (in the Communicator)");
+        boolean free = calls.inRoom() && calls.inCallWith().isEmpty();
+        for (Map.Entry<String, String> e : who.entrySet()) {
+            if (y > 600) break;
+            text(c, e.getKey() + "   " + e.getValue(), 40, y, 19, Color.WHITE, false);
+            RectF b = new RectF(520, y - 4, 620, y + 28);
+            button(c, b, "Call", false, free);
+            if (free) btns.add(new Object[]{b, e.getKey()});
+            y += 36;
+        }
+        if (who.isEmpty()) { text(c, "nobody else yet", 40, y, 18, Color.rgb(150, 150, 155), false); y += 26; }
+        synchronized (callButtons) { callButtons.clear(); callButtons.addAll(btns); }
+        return y;
     }
 
     private void drawLobby(Canvas c) {
@@ -191,23 +303,26 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         text(c, "races running", 40, y, 24, Color.rgb(200, 220, 255), true); y += 34;
         if (servers.isEmpty()) text(c, "none", 40, y, 20, Color.rgb(150, 150, 155), false);
         for (Map.Entry<String, Map<String, Object>> e : servers.entrySet()) { text(c, e.getKey() + " on " + Json.str(e.getValue().get("host")), 40, y, 20, Color.WHITE, false); y += 26; }
+        if (calls != null) drawPeople(c, y + 34);
+        boolean inCall = calls != null && !calls.inCallWith().isEmpty();
 
         float x2 = 640, y2 = 124;
         text(c, "chat (tap Chat to say something)", x2, y2, 24, Color.rgb(200, 220, 255), true); y2 += 34;
         List<Map<String, Object>> chats = game.chats();
-        for (Map<String, Object> m : chats.subList(Math.max(0, chats.size() - 11), chats.size())) {
+        int keep = inCall ? 3 : 11;
+        for (Map<String, Object> m : chats.subList(Math.max(0, chats.size() - keep), chats.size())) {
             String line = Json.str(m.get("who")) + ": " + Json.str(m.get("text"));
             text(c, line.length() > 44 ? line.substring(0, 44) : line, x2, y2, 19, Json.str(m.get("who")).equals("kart service") ? Color.rgb(200, 200, 170) : Color.WHITE, false);
             y2 += 25;
         }
         y2 += 8;
-        text(c, "records (permanent)", x2, y2, 24, Color.rgb(200, 220, 255), true); y2 += 32;
+        if (!inCall) text(c, "records (permanent)", x2, y2, 24, Color.rgb(200, 220, 255), true); y2 += 32;
         List<Map.Entry<String, Map<String, Object>>> recs = new ArrayList<Map.Entry<String, Map<String, Object>>>(game.records().entrySet());
         Collections.sort(recs, new Comparator<Map.Entry<String, Map<String, Object>>>() {
             public int compare(Map.Entry<String, Map<String, Object>> a, Map.Entry<String, Map<String, Object>> b) {
                 return Long.compare(Json.num(b.getValue().get("wins")), Json.num(a.getValue().get("wins"))); }
         });
-        for (Map.Entry<String, Map<String, Object>> e : recs.subList(0, Math.min(4, recs.size()))) {
+        for (Map.Entry<String, Map<String, Object>> e : recs.subList(0, inCall ? 0 : Math.min(4, recs.size()))) {
             Object bl = e.getValue().get("best_lap");
             text(c, e.getKey() + "  races " + Json.num(e.getValue().get("races")) + "  wins " + Json.num(e.getValue().get("wins")) + "  best lap " + (bl == null ? "-" : Json.str(bl)), x2, y2, 19, Color.WHITE, false);
             y2 += 25;
