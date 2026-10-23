@@ -1,0 +1,18 @@
+[E=1] RESULT wire_cold S=200 E=1 bytes=23409146 packets=115937 (hub link, start -> all ready)
+[E=1] RESULT cpu_cold S=200 E=1 per_daemon_p50_ms=1740 max_ms=1740 all_daemons_ms=1740
+[E=1] RESULT cold S=200 E=1 last_ms=14560 ready=1/1 p50_ms=14560
+[E=1] RESULT reach S=200 E=1 ok=10/10
+[E=1] RESULT size S=200 E=1 participants_bytes=168153 mappings_bytes=16516 bed_rss_mb=5461
+[E=1] RESULT wire_event S=200 E=1 bytes_p50=776099 bytes_max=1347205 packets_p50=2293 (hub link, one change, 1 s after the last daemon)
+[E=1] RESULT cpu_event S=200 E=1 per_daemon_p50_ms=275 max_ms=390 all_daemons_per_change_p50_ms=275
+[E=1] RESULT event S=200 E=1 changes=4 samples=4 to_last_daemon_p50_ms=224 max_ms=319 per_daemon_p50_ms=224 daemon_world=9 bringup=16 apply=105 publish=2 total=135
+[E=1] RESULT PASS
+[E=2] RESULT wire_cold S=200 E=2 bytes=61922980 packets=129140 (hub link, start -> all ready)
+[E=2] RESULT cpu_cold S=200 E=2 per_daemon_p50_ms=1680 max_ms=1720 all_daemons_ms=3360
+[E=2] RESULT cold S=200 E=2 last_ms=15443 ready=2/2 p50_ms=15292
+[E=2] RESULT reach S=200 E=2 ok=10/10
+[E=2] RESULT size S=200 E=2 participants_bytes=168284 mappings_bytes=16516 bed_rss_mb=5537
+[E=2] RESULT wire_event S=200 E=2 bytes_p50=1365234 bytes_max=3685994 packets_p50=2749 (hub link, one change, 1 s after the last daemon)
+[E=2] RESULT cpu_event S=200 E=2 per_daemon_p50_ms=185 max_ms=310 all_daemons_per_change_p50_ms=375
+[E=2] RESULT event S=200 E=2 changes=4 samples=8 to_last_daemon_p50_ms=260 max_ms=384 per_daemon_p50_ms=254 daemon_world=13 bringup=23 apply=106 publish=1 total=152
+[E=2] RESULT PASS
