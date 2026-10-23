@@ -1,76 +1,38 @@
 #!/bin/bash
-# scale-series -- [SCALE_SERIES_V1] experiment S on one Linux machine: S subnets crossing E egress points, the memory
-# arm (the FD&F region) on the REAL tunnel daemon, every node in its own network namespace. Part of the day-claims
-# package: run as `day-claims scale [S] [E ...]`, installed at /opt/fdf/experiments/day-claims/scale. Every file it
-# writes is under /opt/fdf/experiments/day-claims: evidence in runs/scale-<UTC>/, each run's working files in
-# var/scale-S<S>-E<E>/ (replaced by the next run of the same S and E). Outside that directory, for the run only:
-# network namespaces s-*, bridges br-s*, veths v-s-* / l-s-*, fs.inotify.max_user_instances (put back), and any of
-# /var/lib/frognet, /var/lib/frognet-tunnel, /run/frognet, /run/wireguard, /opt/fdf/var that did not exist (the
-# nodes' private copies are mounted over them, inside their own mount namespaces; removed again at the end).
+# scale-series -- [SCALE_SERIES_V2] experiment S: the simulator's TIER 3 S tier ([S_SCALE_TIER_V1]) on this machine.
+# S subnets crossing E egress points, discovered the FD&F way, from memory: a real rina-host, a real fdf-client per
+# node announcing that node's facts, FD&F's fdf_graph planning every node. No probe, no route followed, until the
+# final verification plan: every node to every served /24 over the plans and the hub's table, written whole.
+# Part of the day-claims package: run as `day-claims scale [S] [E ...]` (or plainly `day-claims`).
 #
 #   day-claims scale [S] [E ...]    default: 200 1 2 5 10 20 50 100
 #   day-claims scale version        the build every binary here is
 #
-# Per E it prints the run as it goes, then one table for all of them.
-# Needs root; ip, wg, wg-quick, python3, curl, iptables (wireguard-go is shipped here, and is the WireGuard used).
-# Memory: about 26 MB per subnet plus 70 MB per egress node; an E that will not fit is refused with the numbers.
-# Every node shares this machine's CPUs: wall times grow with E from that alone, so each daemon's CPU time is reported.
+# Evidence in /opt/fdf/experiments/day-claims/runs/scale-<UTC>/: the console, s-scale-S<S>.json, and per E the
+# verification plans verify-S<S>-E<E>.tsv (before and after the event). Working files in var/scale-tier/ (replaced by
+# the next run). Needs python3. No root, no namespaces; as root it raises fs.inotify.max_user_instances for the run
+# (every member here is one kernel user) and puts it back.
 set -u
-P=$(cd "$(dirname "$0")" && pwd)
-# [SCALE_BOTH_ARCHES_V1] one package for both: this machine's binaries and wireguard-go, chosen by architecture
-A=$(uname -m); export SCALE_BIN=$P/rinab/build/static-$A
-[ -d "$SCALE_BIN" ] || { echo "scale-series: no build here for $A"; exit 2; }
-[ "${1:-}" = version ] && { cat $P/BUILD; for b in $SCALE_BIN/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done; echo "wireguard-go: $($P/bin/$A/wireguard-go --version | head -1)"; exit 0; }
-S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
-[ "$(id -u)" = 0 ] || { echo "scale-series: run as root (network namespaces, mounts, WireGuard)"; exit 2; }
-miss=""; for c in ip wg wg-quick python3 curl iptables sysctl mount getconf strings; do command -v $c > /dev/null || miss="$miss $c"; done
-[ -z "$miss" ] || { echo "scale-series: missing on this machine:$miss"; exit 2; }
-ip link add br-s-probe type bridge 2>/dev/null && ip link del br-s-probe || { echo "scale-series: cannot create a bridge here (or br-s-probe exists)"; exit 2; }
-# [EARLIER_RUN_PUT_BACK_V1] another run going now is refused; what a killed run left (namespaces s-*, its bridges and
-# veths, its processes, the mount points it made) is this tool's, and the bed removes it before it starts
-for q in $(pgrep -f "^bash $P/rinab/tools/netns-scale-test.sh"); do echo "scale-series: a run is going now (pid $q); one at a time"; exit 2; done
-clean_earlier() { ip netns list | grep -q '^s-' || return 0; local L n k p l d rest=""; L=$(ip netns list | awk '{print $1}' | grep '^s-')
+P=$(cd "$(dirname "$0")" && pwd); DC=$(cd $P/.. && pwd); A=$(uname -m); B=$P/bin/$A
+[ -d "$B" ] || { echo "scale-series: no build here for $A"; exit 2; }
+[ "${1:-}" = version ] && { cat $P/BUILD; for b in $B/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done
+  echo "fdf_graph: $(grep -o 'BUILD_TAG = "[^"]*"' $P/fdf/lib/python/fdf_graph.py)"; exit 0; }
+# [EARLIER_RUN_PUT_BACK_V1] the namespace bed this replaced (scale-series V1) may have left namespaces s-*, their
+# processes, bridges and mount points from a killed run: they are this package's, and are removed here
+clean_earlier() { ip netns list 2>/dev/null | grep -q '^s-' || return 0; local L n k p l d rest=""; L=$(ip netns list | awk '{print $1}' | grep '^s-')
   echo "scale-series: an earlier run was killed before it put things back: $(echo "$L" | wc -l) namespaces s-* and their processes; removing them"
   for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 1
   for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done; ip netns del $n 2>/dev/null; done
   for l in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -E '^(br-s|v-s-)'); do ip link del $l 2>/dev/null; done
-  MF=$P/../var/scale-made-dirs; if [ -f $MF ]; then for d in $(tr ' ' '\n' < $MF | grep . | sort -r); do rmdir "$d" 2>/dev/null; done
-    rest=""; for d in $(cat $MF); do [ -d "$d" ] && rest="$rest $d"; done; [ -n "$rest" ] && echo "$rest" > $MF || rm -f $MF; fi
+  MF=$DC/var/scale-made-dirs; if [ -f $MF ]; then for d in $(tr ' ' '\n' < $MF | grep . | sort -r); do rmdir "$d" 2>/dev/null; done
+    for d in $(cat $MF); do [ -d "$d" ] && rest="$rest $d"; done; [ -n "$rest" ] && echo "$rest" > $MF || rm -f $MF; fi
   echo "scale-series: removed; $(ip netns list | grep -c '^s-') namespaces left${rest:+; directories it made still there:$rest}"; }
-[ "$S" = clean ] && { clean_earlier; exit 0; }       # day-claims runs this first, before E2 shares the machine
-clean_earlier
-export PATH=$P/bin/$A:$PATH FROGNET_DIR=$P/frognet_semantic PKG_FDF=$P/fdf
-DC=$(cd $P/.. && pwd)                                  # /opt/fdf/experiments/day-claims
-OUT=$DC/runs/scale-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p $OUT
+[ "${1:-}" = clean ] && { [ "$(id -u)" = 0 ] && clean_earlier; exit 0; }
+[ "$(id -u)" = 0 ] && clean_earlier
+command -v python3 > /dev/null || { echo "scale-series: python3 is missing on this machine"; exit 2; }
+S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
+OUT=$DC/runs/scale-$(date -u +%Y%m%dT%H%M%SZ); W=$DC/var/scale-tier; rm -rf $W; mkdir -p $OUT $W
 { cat $P/BUILD; uname -a; echo "cpus $(nproc)"; grep -E 'MemTotal|MemAvailable' /proc/meminfo; } | tee $OUT/machine.txt
-echo "S=$S E: $ES -> $OUT"
-for E in $ES; do
-  need=$(( 26 * S + 70 * E + 200 )); have=$(( $(awk '/MemAvailable/{print $2}' /proc/meminfo) / 1024 ))
-  if [ $E -gt $S ] || [ $E -gt 120 ]; then echo "=== E=$E: refused (needs 1 <= E <= min(S,120))" | tee -a $OUT/series.txt; continue; fi
-  if [ $(( need * 11 / 10 )) -gt $have ]; then echo "=== E=$E: refused: needs ~$need MB, $have MB available" | tee -a $OUT/series.txt; continue; fi
-  echo "=== E=$E: S=$S ($need MB estimated, $have MB available)"
-  T=$DC/var/scale-S$S-E$E S=$S E=$E N=${N:-4} COLD_MAX=${COLD_MAX:-1800} bash $P/rinab/tools/netns-scale-test.sh $P/rinab 2>&1 | tee $OUT/S$S-E$E.txt
-  grep '^RESULT' $OUT/S$S-E$E.txt | sed "s/^/[E=$E] /" >> $OUT/series.txt
-done
-python3 - $OUT/series.txt $S <<'PY' | tee $OUT/table.md
-import re, sys
-rows = {}
-for l in open(sys.argv[1]):
-    m = re.match(r"\[E=(\d+)\] RESULT (\w+):?\s*(.*)", l)
-    if m: rows.setdefault(int(m.group(1)), {})[m.group(2)] = {**dict(re.findall(r"(\w+)=(\S+)", m.group(3))), "_": m.group(3)}
-    m = re.match(r"=== E=(\d+): refused(.*)", l)
-    if m: rows.setdefault(int(m.group(1)), {})["refused"] = m.group(2).strip(": ")
-g = lambda r, k, f: r.get(k, {}).get(f, "-")
-print("\n| E | result | cold: last node correct (s) | daemon CPU to come up, p50 (ms) | daemon CPU per change, p50 (ms) | all daemons' CPU per change (ms) | change -> last daemon, p50 (ms) | participants / mappings (KB) | RSS (MB) |")
-print("|---|---|---|---|---|---|---|---|---|")
-for E in sorted(rows):
-    r = rows[E]
-    if "refused" in r: print(f"| {E} | refused: {r['refused']} | | | | | | | |"); continue
-    res = "PASS" if "PASS" in r else ("FAIL " + r.get("FAIL", {}).get("_", "")).strip()
-    cold = g(r, "cold", "last_ms"); cold = f"{int(cold) / 1000:.1f}" if cold not in ("-", "0") else "-"
-    kb = lambda f: f"{int(g(r, 'size', f)) / 1024:.1f}" if g(r, "size", f) != "-" else "-"
-    print(f"| {E} | {res} | {cold} | {g(r, 'cpu_cold', 'per_daemon_p50_ms')} | {g(r, 'cpu_event', 'per_daemon_p50_ms')} | "
-          f"{g(r, 'cpu_event', 'all_daemons_per_change_p50_ms')} | {g(r, 'event', 'to_last_daemon_p50_ms')} | "
-          f"{kb('participants_bytes')} / {kb('mappings_bytes')} | {g(r, 'size', 'bed_rss_mb')} |")
-PY
-echo "evidence: $OUT"
+python3 -u $P/simulation/s_scale_tier.py --bin $B --fdfpy $P/fdf/lib/python --S $S --E $ES --out $OUT --work $W 2>&1 | tee $OUT/console.txt
+rc=${PIPESTATUS[0]}
+echo "evidence: $OUT"; exit $rc

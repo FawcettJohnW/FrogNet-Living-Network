@@ -434,6 +434,22 @@ def main():
         return 1 if (rc1 or rc2) else 0
     results.append(_run_tier("regression (learned baselines + scenario replay)", _regress))
 
+    # [S_SCALE_TIER_V1] TIER 3: a complex topology belongs here, not in TIER 4 (TIER 4 validates TIER 3's inputs against
+    # the kernel). FD&F discovery from memory -- a real rina-host, a real fdf-client per node, fdf_graph's plans -- and
+    # the complete verification plan as the output. The gate runs it small; `day-claims scale` runs S=200 x E=1..100.
+    # Needs rina-host, fdf-client, fdf-events: FDF_SIM_BIN, else the day-claims package's, else rinab's build/static.
+    # Without them it FAILS (it does not skip).
+    print("\nTIER 3 - complex topologies, FD&F discovery from memory (S=20, E=1 2 5)")
+    _arch = os.uname().machine
+    _sbin = next((d for d in (os.environ.get("FDF_SIM_BIN", ""),
+                               f"/opt/fdf/experiments/day-claims/scale/bin/{_arch}",
+                               os.path.join(_PARENT, "../fdf/src/fdf-source/rinab/build/static"))
+                  if d and all(os.path.isfile(os.path.join(d, b)) for b in ("rina-host", "fdf-client", "fdf-events"))), "")
+    _sout = _tmpf.mkdtemp(prefix="frogsim_s3_")
+    results.append(_run_proc("S scale: memory discovery + complete verification plan",
+                             ["simulation/s_scale_tier.py", "--bin", _sbin or "(rina-host/fdf-client/fdf-events not found)",
+                              "--S", "20", "--E", "1", "2", "5", "--out", _sout, "--work", _sout], retry=False))
+
     print("\nTIER 4 - real kernel in netns (M2)")
     if os.environ.get("FROGNET_SIM_BACKEND") == "real":
         results.append(_run_tier("real-kernel converge", live_engine.main, quiet=False))
