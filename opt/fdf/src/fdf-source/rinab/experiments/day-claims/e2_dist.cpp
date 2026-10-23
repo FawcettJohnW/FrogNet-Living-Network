@@ -66,7 +66,7 @@ struct Node {
     int id; std::unique_ptr<daf::Client> w, r; std::thread th; std::atomic<bool> stop{false};
     std::mutex mu; std::map<int, int> out; int step = 0; bool ready = false;   // its links as the plan has them, and the step that set them
 };
-// [E2D_CALL_TIMES_V1] every write this machine makes to the host, timed on this machine's clock: the round trip to the
+// [E2D_CALL_TIMES_V1] the acknowledgement this machine makes for each plan, timed on this machine's clock: the round trip to the
 // host, measured where it is paid. Reported with the agent's acknowledgement (off the critical path).
 static std::mutex g_rtt_mu; static std::vector<double> g_rtt;
 static Json timed(daf::Client& c, const std::string& fn, const std::string& fields) {
@@ -74,7 +74,7 @@ static Json timed(daf::Client& c, const std::string& fn, const std::string& fiel
     { std::lock_guard<std::mutex> g(g_rtt_mu); g_rtt.push_back(ms); } return r; }
 static void write_links(Node* n, const std::string& D) {   // under n->mu; [E2D_STEP_STAMP_V1] the links say which step set them
     std::string f = adj_facts(n->out); f.insert(f.size() - 1, ",\"step\":" + std::to_string(n->step));
-    must(timed(*n->w, "join", "\"daf\":" + q(D) + ",\"name\":\"topo\",\"facts\":" + f), "join topo"); }
+    n->w->post("join", "\"daf\":" + q(D) + ",\"name\":\"topo\",\"facts\":" + f); }   // [E2D_REPORT_POSTED_V1] a write waits for no answer
 // one graph node: becomes its member, writes what it owns, then computes on every change to what it reads
 static void node_loop(Node* n, std::string D, int role, std::string view) {
     try {
@@ -108,8 +108,11 @@ static void node_loop(Node* n, std::string D, int role, std::string view) {
             for (auto& m : data["grp"].a) if (m["live"].b) grp.push_back(&m);
             Trees t = compute_members(topo, grp);
             std::string seen = "{"; { bool f = true; for (const Json* m : topo) { seen += (f ? "" : ",") + q((*m)["apn"].s) + ":" + std::to_string(int((*m)["facts"]["step"].n)); f = false; } } seen += "}";
-            timed(*n->w, "join", "\"daf\":" + q(D) + ",\"name\":\"trees\",\"facts\":{\"rev\":" + std::to_string(rev) + ",\"ok\":" + (t.ok ? "true" : "false") +
-                  ",\"seen\":" + seen + ",\"rpt\":" + edges_s(t.rpt) + ",\"spt\":" + edges_s(t.spt) + "}");
+            // [E2D_REPORT_POSTED_V1] the report is posted, not called: the node re-arms its held read at once instead of
+            // waiting a round trip for an answer it does not need (on a 35 ms leg the wait cost every missed change a
+            // full round trip: p50 285 ms where the chain is two one-way trips)
+            n->w->post("join", "\"daf\":" + q(D) + ",\"name\":\"trees\",\"facts\":{\"rev\":" + std::to_string(rev) + ",\"ok\":" + (t.ok ? "true" : "false") +
+                       ",\"seen\":" + seen + ",\"rpt\":" + edges_s(t.rpt) + ",\"spt\":" + edges_s(t.spt) + "}");
         }
     } catch (const std::exception& e) {
         if (!n->stop) { fprintf(stderr, "e2-dist agent %s: node %d ended: %s; route to host now: %s\n", utc().c_str(), n->id, e.what(), route_now().c_str()); fflush(stderr); }
@@ -171,7 +174,7 @@ static int agent_run(const std::string& where, std::string name) {
             std::vector<double> rt; { std::lock_guard<std::mutex> g(g_rtt_mu); rt = g_rtt; } std::sort(rt.begin(), rt.end());   // over the run so far
             auto rq = [&](double f) { return rt.empty() ? 0.0 : rt[std::min(rt.size() - 1, size_t(f * double(rt.size())))]; };
             char rb[160]; snprintf(rb, sizeof rb, ",\"calls\":%zu,\"rtt_min\":%.2f,\"rtt_p50\":%.2f,\"rtt_p90\":%.2f", rt.size(), rq(0), rq(.5), rq(.9));
-            must(c.call("join", "\"daf\":" + q(C) + ",\"name\":\"acks\",\"facts\":{\"run\":" + q(p["run"].s) + ",\"scn\":" + std::to_string(int(p["scn"].n)) +
+            must(timed(c, "join", "\"daf\":" + q(C) + ",\"name\":\"acks\",\"facts\":{\"run\":" + q(p["run"].s) + ",\"scn\":" + std::to_string(int(p["scn"].n)) +
                         ",\"step\":" + std::to_string(int(p["step"].n)) + ",\"epoch\":" + std::to_string(int(p["epoch"].n)) + ",\"nodes\":" + std::to_string(nodes.size()) +
                         ",\"bytes\":" + std::to_string(b) + rb + "}"), "ack");
         }

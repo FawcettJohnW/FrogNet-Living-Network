@@ -30,6 +30,10 @@ public:
         const std::string body = "{\"fn\":" + q(fn) + (fields.empty() ? "" : "," + fields) + "}";
         return Json::parse(s_->call_text("POST", api() + "?op=daf", body));   // the answer whole, error and why included
     }
+    // one DAF operation, sent without waiting for its answer: a writer that need not know the outcome does not hold
+    // its thread for a round trip (the session keeps its order; a refusal is counted in the session's stats)
+    void post(const std::string& fn, const std::string& fields = "") {
+        s_->post("POST", api() + "?op=daf", "{\"fn\":" + q(fn) + (fields.empty() ? "" : "," + fields) + "}"); }
     // one DAF operation from a whole body ({"fn":...,...}); the answer's text as it came
     std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
     // [DAF_WAIT_V1] a held read: what = name | sub | ans | box | fd | in | req | out (daf_region.cpp, wait). The answer
