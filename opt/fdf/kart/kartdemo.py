@@ -54,6 +54,7 @@ except (RibbitError, OSError) as _e: sys.exit(f"kartdemo: {_e}")
 
 NAME = a.name or random.choice(["red","blue","green","yellow","pink","cyan"])
 HERE = os.path.dirname(os.path.abspath(__file__))
+KART_BUILD = "kartdemo-2026-10-23-r3"                         # [KART_SAYS_ITS_BUILD_V1] r3: race invitations [KART_RACE_INVITE_V1]
 MACHINE = os.environ.get("COMPUTERNAME") or socket.gethostname()
 def say(m): _say("kartdemo", m)
 def tool(base):
@@ -103,7 +104,7 @@ else:                                                    # --solo: the kart memo
 KART_API = "/ram.php"
 COMMS_RAM = a.comms_ram or (WHERE.get("comms", {}).get("ram")) or f"{KART_H}:8800"     # [KART_CALLS_V1]
 COMMS_MEDIA = a.comms_media or (WHERE.get("comms", {}).get("media")) or f"{KART_H}:8994"
-say(f"{NAME} on {MACHINE}: kart memory {KART_H}:{KART_P}; {a.bots} robot(s); "
+say(f"{KART_BUILD}: {NAME} on {MACHINE}: kart memory {KART_H}:{KART_P}; {a.bots} robot(s); "
     f"{'this machine can serve games (' + RINA_HOST + ')' if CAN_HOST else ('this machine does not serve games: ' + (a.rina_host + ' is not there' if a.rina_host else 'no rina-host here'))}")
 
 running = True
