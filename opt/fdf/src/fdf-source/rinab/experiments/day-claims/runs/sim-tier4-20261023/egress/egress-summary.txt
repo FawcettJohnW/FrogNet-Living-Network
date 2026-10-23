@@ -1,2 +1,17 @@
 === second egress point: BEARER=hub site legs [10.0, 35.0] 2026-10-23T06:22:35Z ===
 --- faster: A1 leg 5.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 80.7, A2/wg0->B1 90.8, B1/wg0->A2 91.0, B1/wg1->A1 81.1
+  [converged] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg1 A1 | RTT 80.905 ms (floor 80.0, lowest 80.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg1 A1 | RTT 80.831 ms (floor 80.0, lowest 80.0)
+      B2->A1: B2/eth1 B1/wg1 A1 | back A1/wg1 B1/eth1 B2 | RTT 80.82 ms (floor 80.0, lowest 80.0)
+      A2->B1: A2/eth1 A1/wg1 B1 | back B1/wg1 A1/eth1 A2 | RTT 80.688 ms (floor 80.0, lowest 80.0)
+  [cut A1/wg1] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 91.021 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.976 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.776 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.71 ms (floor 90.0, lowest 90.0)
+  [restored] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg0 A2/eth1 A1 | RTT 85.761 ms (floor 85.0, lowest 80.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 85.835 ms (floor 85.0, lowest 80.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/wg1 B1/eth1 B2 | RTT 85.644 ms (floor 85.0, lowest 80.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.668 ms (floor 90.0, lowest 80.0)
