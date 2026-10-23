@@ -2,6 +2,9 @@
 # day-claims -- [DAY_CLAIMS_DIST_V1] John Day's claims tested on FrogNet shared RAM, across machines. Installed at
 # /opt/fdf/experiments/day-claims; touches nothing else (its own RAM host, its own port, its own files).
 #
+#   day-claims                      [DAY_CLAIMS_ALL_V1] everything, from this machine: starts its own RAM host and one
+#                                   agent here, runs E2, then experiment S (root). Other machines join E2 at any
+#                                   step with: day-claims agent THIS-MACHINE. Ends with both evidence directories.
 #   day-claims host [PORT]          one machine: the experiment's own RAM host (port 52500 unless given). Starts on an
 #                                   empty memory every time. Leave it running; Ctrl-C ends it.
 #   day-claims agent HOST[:PORT] [NAME]   every machine that runs participants (the host machine may run one too). It
@@ -13,7 +16,7 @@
 #                                   /opt/fdf/experiments/day-claims/runs/e2-<UTC time>/.
 #   day-claims scale [S] [E ...]    one machine, root: experiment S -- S subnets (default 200) across E egress points
 #                                   (default 1 2 5 10 20 50 100) on the real tunnel daemon, every node in its own network
-#                                   namespace; ends with one table. x86_64 only. Evidence: runs/scale-<UTC>/ here.
+#                                   namespace; ends with one table. Evidence: runs/scale-<UTC>/ here.
 #   day-claims version              the build every binary here is.
 #
 # Nothing connects the machines but the host's shared memory: agents advertise in it, take their work from the
@@ -27,7 +30,26 @@ case $(uname -m) in
 esac
 API=/FawcettInnovations.RINA.ram_interface.php
 where() { case "$1" in *:*) echo "$1" ;; *) echo "$1:52500" ;; esac; }
-case "${1:-}" in
+case "${1:-all}" in
+  all)
+    P=52500; mkdir -p "$H/var/blob"; rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"
+    echo "day-claims: $(cat "$H/BUILD" | tr '\n' ' ')"
+    OUT=$H/runs/e2-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
+    # [ALL_HOST_LOG_V1] the host's every line goes to the evidence; its per-session up/down lines stay off the terminal
+    exec 4> >(tee "$OUT/host.log" | grep --line-buffered -vE 'session (up|down)|data socket up' >&2)
+    FROGNET_BLOB_ROOT=$H/var/blob RINA_REGION_FILE=$H/var/region-$P.perm "$B/rina-host" --listen "0.0.0.0:$P" --api "$API" >&4 2>&4 & HP=$!
+    for i in $(seq 200); do (exec 3<>/dev/tcp/127.0.0.1/$P) 2>/dev/null && break
+      kill -0 $HP 2>/dev/null || { echo "day-claims: the RAM host did not start" >&2; exit 1; }; sleep 0.05; done
+    "$B/e2-dist" agent "127.0.0.1:$P" local & AP=$!
+    trap 'kill $AP $HP 2>/dev/null; wait 2>/dev/null' EXIT
+    cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
+    echo "E2: other machines may join at any step with: day-claims agent $(hostname -I 2>/dev/null | awk '{print $1}')"
+    "$B/e2-dist" driver "127.0.0.1:$P" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
+    kill $AP $HP 2>/dev/null; wait 2>/dev/null; trap - EXIT
+    echo "E2 evidence: $OUT"
+    "$H/scale/scale-series"; rs=$?
+    echo "E2 evidence: $OUT"; [ $rc = 0 ] && exit $rs; exit $rc ;;
+  help|-h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//' ;;
   host)
     P=${2:-52500}; mkdir -p "$H/var/blob"
     rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"          # every run starts on an empty memory
@@ -43,8 +65,7 @@ case "${1:-}" in
     "$B/e2-dist" driver "$(where "$2")" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
     echo "evidence: $OUT"; exit $rc ;;
   scale)
-    [ "$(uname -m)" = x86_64 ] || { echo "day-claims scale: x86_64 only (this is $(uname -m))" >&2; exit 2; }
     shift; exec "$H/scale/scale-series" "$@" ;;
   version) cat "$H/BUILD"; for b in "$B"/*; do printf '%s: %s\n' "${b##*/}" "$(strings "$b" | grep -m1 -o 'fdf-[0-9-]*-r[0-9]*')"; done ;;
-  *) sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

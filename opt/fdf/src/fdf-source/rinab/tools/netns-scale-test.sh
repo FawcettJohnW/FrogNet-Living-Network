@@ -19,7 +19,8 @@
 # Two CPUs run every daemon here: an event wakes all E daemons on the same cores, so time-to-last grows with E from
 # the bed's contention alone; each daemon's own `total` is the per-node cost. Both are reported.
 # Needs root, ip, wg, wg-quick, wireguard-go, python3, curl. usage: S=200 E=10 N=4 tools/netns-scale-test.sh [RINAB_DIR]
-set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
+set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=${SCALE_BIN:-$H/build/static}; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
+# [SCALE_BOTH_ARCHES_V1] SCALE_BIN: the package points it at this machine's architecture (static-x86_64 or static-aarch64)
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; S=${S:-200}; E=${E:-2}; N=${N:-4}; COLD_MAX=${COLD_MAX:-600}
 [ $E -ge 1 ] && [ $E -le 120 ] && [ $S -ge $E ] && [ $S -le 250 ] || { echo "need 1 <= E <= 120, E <= S <= 250"; exit 2; }
 T=${T:-/tmp/claude-0/netns-scale-S$S-E$E}; rm -rf $T; mkdir -p $T/hub $T/bin      # one directory per (S,E): a run keeps its logs

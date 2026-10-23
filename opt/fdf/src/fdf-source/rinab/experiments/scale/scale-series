@@ -17,14 +17,17 @@
 # Every node shares this machine's CPUs: wall times grow with E from that alone, so each daemon's CPU time is reported.
 set -u
 P=$(cd "$(dirname "$0")" && pwd)
-[ "${1:-}" = version ] && { cat $P/BUILD; for b in $P/rinab/build/static/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done; exit 0; }
+# [SCALE_BOTH_ARCHES_V1] one package for both: this machine's binaries and wireguard-go, chosen by architecture
+A=$(uname -m); export SCALE_BIN=$P/rinab/build/static-$A
+[ -d "$SCALE_BIN" ] || { echo "scale-series: no build here for $A"; exit 2; }
+[ "${1:-}" = version ] && { cat $P/BUILD; for b in $SCALE_BIN/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done; echo "wireguard-go: $($P/bin/$A/wireguard-go --version | head -1)"; exit 0; }
 S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
 [ "$(id -u)" = 0 ] || { echo "scale-series: run as root (network namespaces, mounts, WireGuard)"; exit 2; }
 miss=""; for c in ip wg wg-quick python3 curl iptables sysctl mount getconf strings; do command -v $c > /dev/null || miss="$miss $c"; done
 [ -z "$miss" ] || { echo "scale-series: missing on this machine:$miss"; exit 2; }
 ip link add br-s-probe type bridge 2>/dev/null && ip link del br-s-probe || { echo "scale-series: cannot create a bridge here (or br-s-probe exists)"; exit 2; }
 ip netns list | grep -q '^s-' && { echo "scale-series: namespaces s-* exist from an earlier run; they are this tool's: ip netns list | grep ^s-"; exit 2; }
-export PATH=$P/bin:$PATH FROGNET_DIR=$P/frognet_semantic PKG_FDF=$P/fdf
+export PATH=$P/bin/$A:$PATH FROGNET_DIR=$P/frognet_semantic PKG_FDF=$P/fdf
 DC=$(cd $P/.. && pwd)                                  # /opt/fdf/experiments/day-claims
 OUT=$DC/runs/scale-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p $OUT
 { cat $P/BUILD; uname -a; echo "cpus $(nproc)"; grep -E 'MemTotal|MemAvailable' /proc/meminfo; } | tee $OUT/machine.txt
