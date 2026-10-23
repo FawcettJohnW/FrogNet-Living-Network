@@ -20,7 +20,13 @@ Setup screen: name, kart memory, robots, laps, autopilot. In the lobby: Ready, S
 Racing: left / right (bottom left), GAS / BRAKE (right, multi-touch), Autopilot, Leave. A red banner says what is
 not reachable. The game logs to logcat under the tag `FrogNetKart`.
 
-Build (a JDK and Maven Central only; no Android SDK): `./build_apk.sh` -> `build/FrogNetKart.apk`. It signs with
+Android Studio: open this directory (`kart/android`) as the project. `build.gradle.kts` compiles `src/` and the
+Communicator's code from `opt/fdf/src/frognet-android/app/src/main/java` (it stays there: one source), with
+`AndroidManifest.xml`; AGP 8.5.2 and Gradle 8.9, as frognet-android. Debug and release are signed with
+`tools/frognet-kart.p12`, so either build installs over the other.
+
+Build without Android Studio (a JDK and Maven Central only; no Android SDK): `./build_apk.sh` -> `build/FrogNetKart.apk`
+(the same sources and the same AndroidManifest.xml, written in binary by tools/axml.py). It signs with
 `tools/frognet-kart.p12` (password frognet); keep that key, or the next build will not install over this one.
 
 Test (no phone): `test/phone-test.sh [SHOTS_DIR]` starts a kart memory, the kart service, a dedicated kart_host and a

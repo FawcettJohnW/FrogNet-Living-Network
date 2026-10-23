@@ -1,3 +1,7 @@
 build/
 .tools/
 test/robo/target/
+.gradle/
+.idea/
+local.properties
+*.iml

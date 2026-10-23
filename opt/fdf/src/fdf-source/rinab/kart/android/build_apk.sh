@@ -3,7 +3,7 @@
 #   org.robolectric:android-all:13-robolectric-9030017   the API 33 framework classes to compile against
 #   com.jakewharton.android.repackaged:dalvik-dx:16.0.1  dx: class files -> classes.dex
 #   com.android.tools.build:apksig:2.3.0                 v2 signing (minSdk 26), and apksig's own verifier
-# The binary manifest is written by tools/axml.py with framework ids read here from the jar (javap). The app has no
+# The binary manifest is written by tools/axml.py from AndroidManifest.xml (the one Android Studio uses) with framework ids read here from the jar (javap). The app has no
 # resources.arsc (it uses none). Signed with tools/frognet-kart.p12 (password frognet): later builds must use it to
 # install over this one. TOOLS=<dir> caches the jars (default ./.tools).
 # [KART_CALLS_IN_THE_GAME_V1] The Communicator's code is compiled in from frognet-android, as it is there (one source):
@@ -31,7 +31,7 @@ echo "== manifest ($VERSION_NAME)"
 { javap -constants -cp "$T/android-all-33.jar" 'android.R$attr' | awk '/ (versionCode|versionName|minSdkVersion|targetSdkVersion|name|label|theme|screenOrientation|exported|configChanges|hardwareAccelerated|required) =/ {gsub(";","",$NF); print $(NF-2), $NF}'
   javap -constants -cp "$T/android-all-33.jar" 'android.R$style' | awk '/ Theme_Material_NoActionBar_Fullscreen =/ {gsub(";","",$NF); print $(NF-2), $NF}'; } > build/ids.txt
 [ "$(wc -l < build/ids.txt)" = 13 ] || { echo "build_apk: expected 13 framework ids, got: $(cat build/ids.txt)" >&2; exit 1; }
-python3 tools/axml.py build/apk/AndroidManifest.xml "$VERSION_CODE" "$VERSION_NAME" build/ids.txt
+python3 tools/axml.py AndroidManifest.xml build/apk/AndroidManifest.xml "$VERSION_CODE" "$VERSION_NAME" build/ids.txt
 echo "== zip"
 python3 - <<'EOF'
 import zipfile

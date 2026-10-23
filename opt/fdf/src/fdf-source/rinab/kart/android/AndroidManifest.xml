@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FrogNet Kart [KART_ANDROID_V1] [KART_CALLS_IN_THE_GAME_V1]: the one manifest. Android Studio (build.gradle.kts) reads it as
+     it is; build_apk.sh hands it to tools/axml.py, which writes the binary form. The package, version and SDK levels are
+     not here: Gradle takes them from build.gradle.kts, build_apk.sh from Game.BUILD and its own lines (both say 29/33). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- the Communicator in the game: camera, microphone, call audio routing -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <application android:label="FrogNet Kart" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+        android:hardwareAccelerated="true">
+        <activity android:name="net.frognet.kart.MainActivity" android:label="FrogNet Kart" android:exported="true"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

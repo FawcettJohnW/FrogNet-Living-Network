@@ -2,37 +2,46 @@
 # axml.py -- writes FrogNet Kart's AndroidManifest.xml in Android's binary XML (what aapt would write), with no Android
 # SDK: Google's Maven (aapt2) is not reachable from where this is built. The framework attribute and style ids are read
 # from the android-all jar (javap) by build_apk.sh and passed in, never typed here. [KART_ANDROID_V1]
-#   axml.py OUT.xml VERSION_CODE VERSION_NAME ID_FILE
+#   axml.py IN.xml OUT.xml VERSION_CODE VERSION_NAME ID_FILE     (IN.xml: AndroidManifest.xml, as Android Studio reads it)
 # ID_FILE: lines "name value" for the attributes used below and Theme_Material_NoActionBar_Fullscreen.
 import struct, sys
 
 ANDROID = "http://schemas.android.com/apk/res/android"
 T_REF, T_STRING, T_DEC, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
 
-def manifest(vcode, vname, theme):
+# The attributes the manifest uses, and how each is written. Anything else in AndroidManifest.xml is refused.
+KIND = {"name": T_STRING, "label": T_STRING, "theme": T_REF, "hardwareAccelerated": T_BOOL, "exported": T_BOOL,
+        "required": T_BOOL, "screenOrientation": T_DEC, "configChanges": T_HEX}
+ORIENT = {"sensorLandscape": 6, "landscape": 0, "portrait": 1}
+CONFIG = {"orientation": 0x80, "keyboardHidden": 0x20, "screenSize": 0x400, "screenLayout": 0x100, "smallestScreenSize": 0x800}
+
+def manifest(path, vcode, vname, ids):
+    """AndroidManifest.xml (the one Android Studio builds from) -> the element tree, with what Gradle would add:
+    package, versionCode, versionName, uses-sdk (29 / 33)."""
+    import xml.etree.ElementTree as ET
+    def conv(e):
+        attrs = []
+        for k, v in e.attrib.items():
+            if not k.startswith("{" + ANDROID + "}"): raise SystemExit("axml: %s: attribute %s is not android:" % (e.tag, k))
+            n = k.split("}", 1)[1]
+            if n not in KIND: raise SystemExit("axml: %s: android:%s is not one axml.py writes (add it to KIND)" % (e.tag, n))
+            t = KIND[n]
+            if t == T_BOOL: v = v == "true"
+            elif t == T_REF:
+                if not v.startswith("@android:style/"): raise SystemExit("axml: android:%s=%s: only @android:style/ references" % (n, v))
+                v = ids[v.split("/", 1)[1].replace(".", "_")]
+            elif n == "screenOrientation": v = ORIENT[v]
+            elif n == "configChanges":
+                f = 0
+                for x in v.split("|"): f |= CONFIG[x]
+                v = f
+            attrs.append((ANDROID, n, t, v))
+        return (e.tag, attrs, [conv(c) for c in e])
+    root = conv(ET.parse(path).getroot())
     A = lambda n, t, v: (ANDROID, n, t, v)
-    return ("manifest", [A("versionCode", T_DEC, vcode), A("versionName", T_STRING, vname), (None, "package", T_STRING, "net.frognet.kart")], [
-        ("uses-sdk", [A("minSdkVersion", T_DEC, 29), A("targetSdkVersion", T_DEC, 33)], []),    # 29: the Communicator's codecs
-        ("uses-permission", [A("name", T_STRING, "android.permission.INTERNET")], []),
-        # [KART_CALLS_IN_THE_GAME_V1] the Communicator in the game: camera, microphone, call audio routing
-        ("uses-permission", [A("name", T_STRING, "android.permission.CAMERA")], []),
-        ("uses-permission", [A("name", T_STRING, "android.permission.RECORD_AUDIO")], []),
-        ("uses-permission", [A("name", T_STRING, "android.permission.MODIFY_AUDIO_SETTINGS")], []),
-        ("uses-permission", [A("name", T_STRING, "android.permission.WAKE_LOCK")], []),
-        ("uses-feature", [A("name", T_STRING, "android.hardware.camera"), A("required", T_BOOL, False)], []),
-        ("uses-feature", [A("name", T_STRING, "android.hardware.camera.front"), A("required", T_BOOL, False)], []),
-        ("uses-feature", [A("name", T_STRING, "android.hardware.microphone"), A("required", T_BOOL, False)], []),
-        ("application", [A("label", T_STRING, "FrogNet Kart"), A("theme", T_REF, theme), A("hardwareAccelerated", T_BOOL, True)], [
-            ("activity", [A("name", T_STRING, "net.frognet.kart.MainActivity"), A("label", T_STRING, "FrogNet Kart"),
-                          A("exported", T_BOOL, True), A("screenOrientation", T_DEC, 6),          # 6 = sensorLandscape
-                          A("configChanges", T_HEX, 0x0DA0)], [                                   # orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize
-                ("intent-filter", [], [
-                    ("action", [A("name", T_STRING, "android.intent.action.MAIN")], []),
-                    ("category", [A("name", T_STRING, "android.intent.category.LAUNCHER")], []),
-                ]),
-            ]),
-        ]),
-    ])
+    head = [A("versionCode", T_DEC, vcode), A("versionName", T_STRING, vname), (None, "package", T_STRING, "net.frognet.kart")]
+    sdk = ("uses-sdk", [A("minSdkVersion", T_DEC, 29), A("targetSdkVersion", T_DEC, 33)], [])   # 29: the Communicator's codecs
+    return ("manifest", head + root[1], [sdk] + root[2])
 
 def build(root, ids):
     # string pool: every attribute name that has a resource id first (in resource-map order), then everything else
@@ -99,6 +108,6 @@ def build(root, ids):
     return struct.pack("<HHI", 0x0003, 8, 8 + len(inner)) + inner
 
 if __name__ == "__main__":
-    out, vcode, vname, idfile = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+    src, out, vcode, vname, idfile = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
     ids = {l.split()[0]: int(l.split()[1]) for l in open(idfile) if l.strip()}
-    with open(out, "wb") as f: f.write(build(manifest(vcode, vname, ids["Theme_Material_NoActionBar_Fullscreen"]), ids))
+    with open(out, "wb") as f: f.write(build(manifest(src, vcode, vname, ids), ids))
