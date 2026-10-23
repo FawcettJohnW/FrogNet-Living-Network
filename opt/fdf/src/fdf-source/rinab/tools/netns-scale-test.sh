@@ -182,9 +182,13 @@ except Exception: print(0)' $T/$n/fs/var-lib-frognet/region_hosts.json)
 # [DIAG-HUB] the hub's region host: does it answer, and if not, what is it doing. Everything about the process that
 # could explain a host that has stopped serving: its fds against its limit, its listen queue, its threads' states and
 # kernel wait channels, and (gdb present) every thread's stack, saved whole in hub/stacks.txt.
-hub_answers() { ip netns exec s-hub curl -s -m 5 -X POST -d '{"op":"map_list"}' "$U" > /dev/null; }
+# answers = both of its doors: plain HTTP (curl) and an FNW1 session (the one every member uses), each within 10 s
+hub_answers() { HUB_HTTP=ok; HUB_FNW1=ok
+  ip netns exec s-hub curl -s -m 10 -X POST -d '{"op":"map_list"}' "$U" > /dev/null || HUB_HTTP=FAILED
+  ip netns exec s-hub env RINA_RAM=$RAM timeout 10 $B/ram read bed probe > /dev/null 2>&1 || HUB_FNW1=FAILED
+  [ $HUB_HTTP = ok ] && [ $HUB_FNW1 = ok ]; }
 hub_diag() { local p; p=$(for q in $(ip netns pids s-hub); do tr '\0' ' ' < /proc/$q/cmdline 2>/dev/null | grep -q "rina-host --listen $RAM" && echo $q; done | head -1)
-  echo "[DIAG-HUB] $(date -u +%FT%T.%3NZ) region host at $RAM does not answer; pid ${p:-none}"
+  echo "[DIAG-HUB] $(date -u +%FT%T.%3NZ) region host at $RAM does not answer (http $HUB_HTTP, fnw1 $HUB_FNW1); pid ${p:-none}"
   [ -n "$p" ] || return 0
   echo "[DIAG-HUB] state $(awk '{print $3}' /proc/$p/stat) cpu_ms $(awk -v t=$(getconf CLK_TCK) '{print int(($14+$15)*1000/t)}' /proc/$p/stat) rss_kb $(awk '/VmRSS/{print $2}' /proc/$p/status) threads $(ls /proc/$p/task | wc -l) fds $(ls /proc/$p/fd | wc -l) limit '$(grep 'open files' /proc/$p/limits | awk '{print $4"/"$5}')'"
   echo "[DIAG-HUB] listen: $(ip netns exec s-hub ss -ltn "sport = :${RAM##*:}" | tail -n +2 | tr -s ' ')"

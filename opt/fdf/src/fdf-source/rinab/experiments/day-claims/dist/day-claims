@@ -47,6 +47,16 @@ case "${1:-all}" in
     cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
     echo "E2: other machines may join at any step with: day-claims agent $(hostname -I 2>/dev/null | awk '{print $1}')"
     "$B/e2-dist" driver "127.0.0.1:$P" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
+    # [DIAG-E2-HOST] E2 failed: the RAM host's state before it is stopped -- fds, threads by state and kernel wait
+    # channel, and (gdb present) every thread's stack in $OUT/host-stacks.txt
+    if [ $rc != 0 ] && kill -0 $HP 2>/dev/null; then
+      echo "[DIAG-E2-HOST] pid $HP state $(awk '{print $3}' /proc/$HP/stat) cpu_ms $(awk -v t=$(getconf CLK_TCK) '{print int(($14+$15)*1000/t)}' /proc/$HP/stat) rss_kb $(awk '/VmRSS/{print $2}' /proc/$HP/status) threads $(ls /proc/$HP/task | wc -l) fds $(ls /proc/$HP/fd | wc -l)"
+      echo "[DIAG-E2-HOST] threads by state/wchan: $(for t in /proc/$HP/task/*; do echo "$(awk '{print $3}' $t/stat)/$(cat $t/wchan 2>/dev/null)"; done | sort | uniq -c | sort -rn | tr -s ' ' | tr '\n' ';')"
+      if command -v gdb > /dev/null; then gdb -p $HP -batch -ex "thread apply all bt 40" > "$OUT/host-stacks.txt" 2>&1
+        echo "[DIAG-E2-HOST] stacks in $OUT/host-stacks.txt; frames that are not waiting, by count:"
+        grep -E "^#[0-9]+ " "$OUT/host-stacks.txt" | sed -E 's/^#[0-9]+ +(0x[0-9a-f]+ in )?//; s/ \(.*//' | grep -vE "^(\?\?|syscall|__futex|futex|__GI_|___pthread|__pthread|pthread_|start_thread|clone|thread_start|std::thread|epoll|poll|read|recv|__libc|nanosleep|clock_nanosleep|execute_native)" | sort | uniq -c | sort -rn | head -20 | sed 's/^/    /'
+      else echo "[DIAG-E2-HOST] gdb not installed (apt install gdb): kernel stacks only"; cat /proc/$HP/task/*/stack 2>/dev/null | sort | uniq -c | sort -rn | head -10 | sed 's/^/    /'; fi
+      echo "[DIAG-E2-HOST] last host lines (all: $OUT/host.log):"; grep -vE 'session (up|down)|data socket up' "$OUT/host.log" | tail -8 | cut -c1-300 | sed 's/^/    /'; fi
     kill $AP $HP 2>/dev/null; wait $AP $HP 2>/dev/null; exec 4>&-; trap - EXIT   # [ALL_WAITS_ON_ITS_OWN_V1] a bare wait also waits on the host-log tee, which never ends
     echo "E2 evidence: $OUT"
     "$H/scale/scale-series"; rs=$?
