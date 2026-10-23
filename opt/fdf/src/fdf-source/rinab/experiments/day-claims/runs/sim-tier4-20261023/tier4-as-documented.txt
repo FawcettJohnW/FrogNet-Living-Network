@@ -1,0 +1,149 @@
+SIM: using live patched code from /home/claude/fawcettjohnw/daf/opt/frognet_semantic (proxy) and /home/claude/fawcettjohnw/daf/opt/frognet_semantic/../../usr/local/bin (bin)
+=== REAL planner+committer over REAL kernel (netns) [sim_build 2026-06-05-v9], all harness topologies ===
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_BlackBox :: Cannot remove namespace file "/run/netns/fns_BlackBox": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_IronBox :: Cannot remove namespace file "/run/netns/fns_IronBox": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] two-node LAN (each serves own /24, peering LAN between): all 4/4 pairs reach (2cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A :: Cannot remove namespace file "/run/netns/fns_A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B :: Cannot remove namespace file "/run/netns/fns_B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C :: Cannot remove namespace file "/run/netns/fns_C": No such file or directory
+  [PASS] 3-node chain via dedicated link /24s: all 12/12 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A :: Cannot remove namespace file "/run/netns/fns_A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B :: Cannot remove namespace file "/run/netns/fns_B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C :: Cannot remove namespace file "/run/netns/fns_C": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_D :: Cannot remove namespace file "/run/netns/fns_D": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_E :: Cannot remove namespace file "/run/netns/fns_E": No such file or directory
+  [PASS] 5-node chain: all 40/40 pairs reach (5cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Hub :: Cannot remove namespace file "/run/netns/fns_Hub": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A :: Cannot remove namespace file "/run/netns/fns_A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B :: Cannot remove namespace file "/run/netns/fns_B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C :: Cannot remove namespace file "/run/netns/fns_C": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_D :: Cannot remove namespace file "/run/netns/fns_D": No such file or directory
+  [PASS] 4-spoke star: all 40/40 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A :: Cannot remove namespace file "/run/netns/fns_A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B :: Cannot remove namespace file "/run/netns/fns_B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C :: Cannot remove namespace file "/run/netns/fns_C": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_D :: Cannot remove namespace file "/run/netns/fns_D": No such file or directory
+  [PASS] 4-node ring: all 24/24 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Hub :: Cannot remove namespace file "/run/netns/fns_Hub": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A :: Cannot remove namespace file "/run/netns/fns_A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B :: Cannot remove namespace file "/run/netns/fns_B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A1 :: Cannot remove namespace file "/run/netns/fns_A1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A2 :: Cannot remove namespace file "/run/netns/fns_A2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B1 :: Cannot remove namespace file "/run/netns/fns_B1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B2 :: Cannot remove namespace file "/run/netns/fns_B2": No such file or directory
+  [PASS] snowflake (depth 2): all 84/84 pairs reach (4cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_X :: Cannot remove namespace file "/run/netns/fns_X": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Y :: Cannot remove namespace file "/run/netns/fns_Y": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Z :: Cannot remove namespace file "/run/netns/fns_Z": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] LAN-only triangle (3 hosts on one /24): all 12/12 pairs reach (2cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Seattle :: Cannot remove namespace file "/run/netns/fns_Seattle": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_NewYork :: Cannot remove namespace file "/run/netns/fns_NewYork": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Austin :: Cannot remove namespace file "/run/netns/fns_Austin": No such file or directory
+  [PASS] 3-site pond (full WG mesh): all 12/12 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Seattle :: Cannot remove namespace file "/run/netns/fns_Seattle": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_NewYork :: Cannot remove namespace file "/run/netns/fns_NewYork": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Austin :: Cannot remove namespace file "/run/netns/fns_Austin": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Seattle-W1 :: Cannot remove namespace file "/run/netns/fns_Seattle-W1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_NewYork-W1 :: Cannot remove namespace file "/run/netns/fns_NewYork-W1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Austin-W1 :: Cannot remove namespace file "/run/netns/fns_Austin-W1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr3 :: Cannot find device "fbr3"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr4 :: Cannot find device "fbr4"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr5 :: Cannot find device "fbr5"
+  [PASS] 3-site pond with workers: all 45/45 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Seattle :: Cannot remove namespace file "/run/netns/fns_Seattle": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_NewYork :: Cannot remove namespace file "/run/netns/fns_NewYork": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Austin :: Cannot remove namespace file "/run/netns/fns_Austin": No such file or directory
+  [PASS] 3-site pond hub-spoke (no NY<->Austin link): all 12/12 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_X :: Cannot remove namespace file "/run/netns/fns_X": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Y :: Cannot remove namespace file "/run/netns/fns_Y": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Z :: Cannot remove namespace file "/run/netns/fns_Z": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] mixed LAN+WG: all 12/12 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A1 :: Cannot remove namespace file "/run/netns/fns_A1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A2 :: Cannot remove namespace file "/run/netns/fns_A2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B1 :: Cannot remove namespace file "/run/netns/fns_B1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B2 :: Cannot remove namespace file "/run/netns/fns_B2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B3 :: Cannot remove namespace file "/run/netns/fns_B3": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr2 :: Cannot find device "fbr2"
+  [PASS] asymmetric: A=2-host LAN <-> WG <-> B=3-host LAN: all 40/40 pairs reach (4cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Ca1 :: Cannot remove namespace file "/run/netns/fns_Ca1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Ca2 :: Cannot remove namespace file "/run/netns/fns_Ca2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Ca3 :: Cannot remove namespace file "/run/netns/fns_Ca3": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_HubB :: Cannot remove namespace file "/run/netns/fns_HubB": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Bs1 :: Cannot remove namespace file "/run/netns/fns_Bs1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Bs2 :: Cannot remove namespace file "/run/netns/fns_Bs2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Bs3 :: Cannot remove namespace file "/run/netns/fns_Bs3": No such file or directory
+  [PASS] asymmetric: A=3-chain <-> WG <-> B=3-spoke star: all 84/84 pairs reach (5cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Ra :: Cannot remove namespace file "/run/netns/fns_Ra": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Rb :: Cannot remove namespace file "/run/netns/fns_Rb": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Rc :: Cannot remove namespace file "/run/netns/fns_Rc": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Rd :: Cannot remove namespace file "/run/netns/fns_Rd": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Lb1 :: Cannot remove namespace file "/run/netns/fns_Lb1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Lb2 :: Cannot remove namespace file "/run/netns/fns_Lb2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Lb3 :: Cannot remove namespace file "/run/netns/fns_Lb3": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr5 :: Cannot find device "fbr5"
+  [PASS] asymmetric: A=4-node WG ring <-> WG <-> B=3-host LAN cluster: all 84/84 pairs reach (4cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A_w1 :: Cannot remove namespace file "/run/netns/fns_A_w1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A_gw :: Cannot remove namespace file "/run/netns/fns_A_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_end1 :: Cannot remove namespace file "/run/netns/fns_B_end1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_gw :: Cannot remove namespace file "/run/netns/fns_B_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_end2 :: Cannot remove namespace file "/run/netns/fns_B_end2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_hub :: Cannot remove namespace file "/run/netns/fns_C_hub": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_s1 :: Cannot remove namespace file "/run/netns/fns_C_s1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_s2 :: Cannot remove namespace file "/run/netns/fns_C_s2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] asymmetric: 3 sites, each different shape, full WG mesh between gateways: all 112/112 pairs reach (4cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A_gw :: Cannot remove namespace file "/run/netns/fns_A_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A_w1 :: Cannot remove namespace file "/run/netns/fns_A_w1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_A_w2 :: Cannot remove namespace file "/run/netns/fns_A_w2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_gw :: Cannot remove namespace file "/run/netns/fns_B_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_m :: Cannot remove namespace file "/run/netns/fns_B_m": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_B_t :: Cannot remove namespace file "/run/netns/fns_B_t": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_hub :: Cannot remove namespace file "/run/netns/fns_C_hub": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_s1 :: Cannot remove namespace file "/run/netns/fns_C_s1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_s2 :: Cannot remove namespace file "/run/netns/fns_C_s2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_C_s3 :: Cannot remove namespace file "/run/netns/fns_C_s3": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_D_gw :: Cannot remove namespace file "/run/netns/fns_D_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] multi-LAN, /30 full mesh between 4 gateways (asymmetric shapes): all 220/220 pairs reach (5cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G1_gw :: Cannot remove namespace file "/run/netns/fns_G1_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G1_w1 :: Cannot remove namespace file "/run/netns/fns_G1_w1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G2_gw :: Cannot remove namespace file "/run/netns/fns_G2_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G2_t :: Cannot remove namespace file "/run/netns/fns_G2_t": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_BR_gw :: Cannot remove namespace file "/run/netns/fns_BR_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_BR_w1 :: Cannot remove namespace file "/run/netns/fns_BR_w1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G3_hub :: Cannot remove namespace file "/run/netns/fns_G3_hub": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G3_s1 :: Cannot remove namespace file "/run/netns/fns_G3_s1": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G3_s2 :: Cannot remove namespace file "/run/netns/fns_G3_s2": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_G4_gw :: Cannot remove namespace file "/run/netns/fns_G4_gw": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr2 :: Cannot find device "fbr2"
+  [PASS] two /30 admin mesh groups, bridged by BR_gw (asymmetric LANs): all 180/180 pairs reach (5cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Farm :: Cannot remove namespace file "/run/netns/fns_Farm": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Sensor-A :: Cannot remove namespace file "/run/netns/fns_Sensor-A": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Sensor-B :: Cannot remove namespace file "/run/netns/fns_Sensor-B": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+  [PASS] isolated wlan0 AP: served on wlan0, 2 DHCP clients, no internet: all 8/8 pairs reach (1cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_HillCrest :: Cannot remove namespace file "/run/netns/fns_HillCrest": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Valley :: Cannot remove namespace file "/run/netns/fns_Valley": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_HC-client :: Cannot remove namespace file "/run/netns/fns_HC-client": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_V-client :: Cannot remove namespace file "/run/netns/fns_V-client": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr1 :: Cannot find device "fbr1"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr2 :: Cannot find device "fbr2"
+  [PASS] two wlan0-AP FrogNets, peered by ham0 radio (no internet): all 18/18 pairs reach (3cyc) [REAL planner+committer]
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Barn :: Cannot remove namespace file "/run/netns/fns_Barn": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Forest :: Cannot remove namespace file "/run/netns/fns_Forest": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Tower :: Cannot remove namespace file "/run/netns/fns_Tower": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Barn-sensor :: Cannot remove namespace file "/run/netns/fns_Barn-sensor": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip netns del fns_Forest-ranger :: Cannot remove namespace file "/run/netns/fns_Forest-ranger": No such file or directory
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr0 :: Cannot find device "fbr0"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr1 :: Cannot find device "fbr1"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr2 :: Cannot find device "fbr2"
+[frognet:frognet.simulation.netns_backend] WARNING cmd failed rc=1: ip link del fbr3 :: Cannot find device "fbr3"
+  [PASS] mixed iface types (eth0/wlan0/wlan1/ham0), no internet, no broker: all 32/32 pairs reach (4cyc) [REAL planner+committer]
+
+ALL REAL-ENGINE TOPOLOGIES PASS

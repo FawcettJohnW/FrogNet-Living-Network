@@ -111,6 +111,11 @@ class NetnsProvisioner:
                             or os.environ.get("FROGNET_SIM_NETNS_DIR")
                             or os.path.join("/tmp", "frogsim_netns"))
         self._wg_port = 51820
+        # [WG_BEARER_HOOK_V1] Every tunnel's ends, as provisioned: (node_a, iface_a, port_a, node_b, iface_b, port_b).
+        # endpoint(node, iface, peer_port) is where that end sends: by default straight to the peer's port on
+        # loopback, as before. tier4_transport.py points it at a delay relay so the bearer carries a delay.
+        self.wg_links = []
+        self.endpoint = lambda node, iface, peer_port: f"127.0.0.1:{peer_port}"
 
     def _ns(self, node):
         return f"fns_{node}"
@@ -182,6 +187,7 @@ class NetnsProvisioner:
             ipb = t.nodes[nb].ifaces[ib].addr_cidr
             pa, pb = self._wg_port, self._wg_port + 1
             self._wg_port += 2
+            self.wg_links.append((na, ia, pa, nb, ib, pb))
             ka_priv, ka_pub = self._genkey(na, ia)
             kb_priv, kb_pub = self._genkey(nb, ib)
             ends = ((na, ia, ipa, pa, ka_priv, kb_pub, pb),
@@ -240,7 +246,7 @@ class NetnsProvisioner:
                             self._keyfile(node, iface), "listen-port", str(port))
                     self._r("wg", "set", tmpif, "peer", peer_pub,
                             "allowed-ips", "10.0.0.0/8",
-                            "endpoint", f"127.0.0.1:{peer_port}")
+                            "endpoint", self.endpoint(node, iface, peer_port))
                     self._r("ip", "link", "set", tmpif, "netns", ns)
                     self._r("ip", "netns", "exec", ns, "ip", "link", "set",
                             tmpif, "name", iface)
@@ -250,7 +256,7 @@ class NetnsProvisioner:
                             "listen-port", str(port))
                     self._r("ip", "netns", "exec", ns, "wg", "set", iface,
                             "peer", peer_pub, "allowed-ips", "10.0.0.0/8",
-                            "endpoint", f"127.0.0.1:{peer_port}")
+                            "endpoint", self.endpoint(node, iface, peer_port))
                 self._r("ip", "netns", "exec", ns, "ip", "addr", "add", ip,
                         "dev", iface)
                 self._r("ip", "netns", "exec", ns, "ip", "link", "set", iface,
