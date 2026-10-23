@@ -1,7 +1,7 @@
 # FrogNet Kart for Android  [KART_ANDROID_V1] [KART_HOME_V1] [KART_CALLS_IN_THE_GAME_V1]
 
 A player of the kart service's games, the same game as kartdemo.py: lobby, chat, Ready/Start, laps, races, records.
-It never serves a race. Android 8.0+ (minSdk 26), landscape.
+It never serves a race. Android 10+ (minSdk 29: the Communicator's codecs), landscape. Permissions: camera, microphone.
 
 Install: copy `FrogNetKart.apk` to the phone and open it (allow "Install unknown apps" for the app you open it with),
 or `adb install -r FrogNetKart.apk`.
@@ -16,7 +16,7 @@ into the lobby, ready, and yours presses Start. kartdemo.py (Windows, Linux) sho
 
 Run: the FrogNet app must be running and joined. The kart memory (default 165.232.153.144:8799) is reached directly;
 the race memories are on game-serving machines' region addresses (10.x) and are reached through the FrogNet tunnel.
-Setup screen: name, kart memory, robots, laps, autopilot. In the lobby: Ready, Start, - / +, Chat, Log, Leave.
+Setup screen: name, kart memory, robots, laps, autopilot. In the lobby: Ready, Start, - / +, Chat, Comms, Log, Home.
 Racing: left / right (bottom left), GAS / BRAKE (right, multi-touch), Autopilot, Leave. A red banner says what is
 not reachable. The game logs to logcat under the tag `FrogNetKart`.
 
