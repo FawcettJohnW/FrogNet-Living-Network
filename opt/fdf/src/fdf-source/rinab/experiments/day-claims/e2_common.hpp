@@ -28,17 +28,21 @@ static std::map<int, int> dijkstra_pred(const std::map<int, std::map<int, int>>&
     return pred;
 }
 struct Trees { Edges spt, rpt; uint64_t rev = 0; bool ok = true; };
-static Trees compute(const Json& topo, const Json& grp) {
+// from the members' records of the two names (only the live ones are passed in)
+static inline Trees compute_members(const std::vector<const Json*>& topo, const std::vector<const Json*>& grp) {
     Trees t; std::map<int, std::map<int, int>> out; int root = -1; std::vector<int> members;
-    for (auto& m : topo["members"].a) for (auto& [nb, c] : m["facts"]["adj"].o) out[id_of(m["apn"].s)][id_of(nb)] = int(c.n);
-    for (auto& m : grp["members"].a) { if (m["facts"]["role"].s == "requester") root = id_of(m["apn"].s); else members.push_back(id_of(m["apn"].s)); }
+    for (const Json* m : topo) for (auto& [nb, c] : (*m)["facts"]["adj"].o) out[id_of((*m)["apn"].s)][id_of(nb)] = int(c.n);
+    for (const Json* m : grp) { if ((*m)["facts"]["role"].s == "requester") root = id_of((*m)["apn"].s); else members.push_back(id_of((*m)["apn"].s)); }
     if (root < 0) { t.ok = false; return t; }
     auto pf = dijkstra_pred(out, root, false), pr = dijkstra_pred(out, root, true);
     for (int m : members) {
         for (int v = m, guard = 0; v != root && guard < 1000; ++guard) { auto p = pf.find(v); if (p == pf.end()) { t.ok = false; break; } t.spt.insert({p->second, v}); v = p->second; }
         for (int v = m, guard = 0; v != root && guard < 1000; ++guard) { auto p = pr.find(v); if (p == pr.end()) { t.ok = false; break; } t.rpt.insert({p->second, v}); v = p->second; }
     }
-    t.rev = std::max(uint64_t(topo["rev"].n), uint64_t(grp["rev"].n));
     return t;
 }
-
+// from two resolve answers ({members, rev})
+static inline Trees compute(const Json& topo, const Json& grp) {
+    std::vector<const Json*> a, b; for (auto& m : topo["members"].a) a.push_back(&m); for (auto& m : grp["members"].a) b.push_back(&m);
+    Trees t = compute_members(a, b); t.rev = std::max(uint64_t(topo["rev"].n), uint64_t(grp["rev"].n)); return t;
+}
