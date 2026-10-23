@@ -14,6 +14,8 @@
 //             (RINA_SITE_KEY) under the site RINA_AREA. Changed -> re-registered; dropped from the file -> withdrawn.
 #include "frogram.hpp"
 #include "fdf_version.hpp"
+#include <cerrno>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -333,8 +335,14 @@ int main(int argc, char** argv) {
         // which would orphan a watch on the inode); react to our file's name only. Held in the kernel; nothing polls.
         std::thread([&s, api, ns, name, &have_maps] {
             const std::string path = facts_path(), dir = path.substr(0, path.rfind('/')), base = path.substr(path.rfind('/') + 1);
-            int ifd = inotify_init1(IN_CLOEXEC); if (ifd < 0) return;
-            if (inotify_add_watch(ifd, dir.empty() ? "." : dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE) < 0) { close(ifd); return; }
+            // [WATCH_FAILURE_SAYS_SO_V1] without this watch the node stays in the region and never re-announces a changed
+            // fact: a member that looks alive and is wrong. Say so, with the reason and the limit to raise.
+            int ifd = inotify_init1(IN_CLOEXEC);
+            if (ifd < 0) { fprintf(stderr, "fdf-client: FACTS WATCH FAILED: inotify_init1: %s%s -- %s's facts will NOT be re-announced when they change\n",
+                                   strerror(errno), errno == EMFILE ? " (fs.inotify.max_user_instances reached)" : "", name.c_str()); fflush(stderr); return; }
+            if (inotify_add_watch(ifd, dir.empty() ? "." : dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE) < 0) {
+                fprintf(stderr, "fdf-client: FACTS WATCH FAILED: inotify_add_watch %s: %s%s -- %s's facts will NOT be re-announced when they change\n",
+                        dir.c_str(), strerror(errno), errno == ENOSPC ? " (fs.inotify.max_user_watches reached)" : "", name.c_str()); fflush(stderr); close(ifd); return; }
             { const std::string fp = forward_path(), fdir = fp.substr(0, fp.rfind('/'));          // [FORWARD_IS_A_FACT_V1]
               if (fdir != dir) inotify_add_watch(ifd, fdir.empty() ? "." : fdir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE); }
             char buf[4096]; std::string last = read_facts(); int was_fwd = is_forward() ? 1 : 0;   // [FORWARD_IS_A_FACT_V1]

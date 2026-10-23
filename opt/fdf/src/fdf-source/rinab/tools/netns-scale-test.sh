@@ -8,7 +8,8 @@
 #   subnets 10.20.k.0/24, k = 1..S; egress node i serves 10.20.i.0/24 (i = 1..E); child k (k > E) sits on egress
 #   ((k-1) mod E)+1's LAN with the lease 10.20.<egress>.<20+j>.
 # Measured (one line each, prefixed RESULT so a driver can collect them):
-#   cold:   start of the first daemon -> every egress node routes all S-1 other /24s AND its region_hosts.json names
+#   cold:   start of the first daemon -> every egress node routes all S-1 other /24s, each by its expected next hop
+#           (a child of its own via the child's lease, everything else over wg0), AND its region_hosts.json names
 #           all S subnets' .1 (the last node to get there sets the time)
 #   event:  N changes on child S's lan1 (10.21.0.1/24 added / removed); per change, change -> each daemon's
 #           `REGION: event p timed` line; reported: time to the LAST daemon, p50 over daemons, and the daemons' own
@@ -35,7 +36,11 @@ cleanup() { local L; L=$(NSLIST); for n in $L; do ip netns pids $n 2>/dev/null |
               ip netns del $n 2>/dev/null; done
             for i in $(seq 120); do ip link del v-e$i-b 2>/dev/null; ip link del br-e$i 2>/dev/null; done
             ip link del v-hub-b 2>/dev/null; ip link del br-inet 2>/dev/null; }
-trap cleanup EXIT; cleanup
+# [BED_INOTIFY_V1] every node here is the same kernel user, and each one's fdf-client and fdf-facts holds an inotify
+# instance (the daemon more): the default 128 runs out near 70 children, which is this bed's limit, not a node's. Raised
+# for the run, put back on exit.
+INO0=$(cat /proc/sys/fs/inotify/max_user_instances); sysctl -q -w fs.inotify.max_user_instances=$(( INO0 > 8 * S ? INO0 : 8 * S ))
+trap 'cleanup; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
 cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
 cat > $T/bin/capability-probe <<'EOF'
 #!/bin/sh
@@ -130,8 +135,21 @@ for k in $(seq $((E+1)) $S); do n=$(ch $k); read e ip < $T/$n/egress
 done
 T1=$(ms); echo "started $E daemon nodes and $((S-E)) children in $((T1-T0)) ms"
 # ---- cold: every egress node routes all S-1 other /24s and names all S
+# [READY_MEANS_RIGHT_NEXT_HOP_V1] a route counts only with the expected next hop: a child of this node via its lease
+# address on this node's LAN, every other subnet over the hub tunnel (wg0). A child routed over the hub is NOT ready.
+for i in $(seq $E); do : > $T/$(eg $i)/expect; done
+for k in $(seq $((E+1)) $S); do read e ip < $T/$(ch $k)/egress; echo "10.20.$k.0/24 via $ip dev l-$(eg $e)" >> $T/$(eg $e)/expect
+  for i in $(seq $E); do [ $i = $e ] || echo "10.20.$k.0/24 dev wg0" >> $T/$(eg $i)/expect; done; done
+for i in $(seq $E); do for j in $(seq $E); do [ $i = $j ] || echo "10.20.$j.0/24 dev wg0" >> $T/$(eg $i)/expect; done; done
+right() { ip netns exec $1 ip -4 route | python3 -c 'import sys
+exp=[l.split() for l in open(sys.argv[1]) if l.strip()]; got=[l.split() for l in sys.stdin]
+def ok(e):
+    for g in got:
+        if g[0]==e[0] and all(t in g and g[g.index(t)+1]==v for t,v in zip(e[1::2],e[2::2])): return True
+    return False
+bad=[" ".join(e) for e in exp if not ok(e)]; print(len(exp)-len(bad), len(exp), *bad[:3], sep="|")' $T/$1/expect; }
 ready() { local n=$1 i=$2 r h
-  r=$(ip netns exec $n ip -4 route | grep -c '^10\.20\.[0-9]*\.0/24 ' )
+  r=$(right $n); echo "$r" > $T/$n/right; [ "${r%%|*}" = "$(echo "$r" | cut -d'|' -f2)" ] && r=$S || r=0
   h=$(python3 -c 'import sys,json
 try: print(len({x["ip"] for x in json.load(open(sys.argv[1])) if x["ip"].startswith("10.20.") and x["ip"].endswith(".1")}))
 except Exception: print(0)' $T/$n/fs/var-lib-frognet/region_hosts.json)
@@ -142,7 +160,7 @@ declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((CO
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
 check $([ $left = 0 ] && echo 0 || echo 1) "cold: all $E egress nodes route all $S /24s and name all $S (last at $TL ms; $left not ready)"
 [ $left = 0 ] || for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; n=$(eg $i)
-  echo "--- not ready: $n routes $(ip netns exec $n ip -4 route | grep -c '^10\.20\.') hosts $(python3 -c 'import sys,json;print(len(json.load(open(sys.argv[1]))))' $T/$n/fs/var-lib-frognet/region_hosts.json 2>&1)"
+  echo "--- not ready: $n right/expected|first wrong: $(cat $T/$n/right) hosts $(python3 -c 'import sys,json;print(len(json.load(open(sys.argv[1]))))' $T/$n/fs/var-lib-frognet/region_hosts.json 2>&1)"
   tail -5 $T/$n/daemon.log | cut -c1-300 | sed 's/^/    /'; break; done
 echo "RESULT cold S=$S E=$E last_ms=$TL ready=$((E-left))/$E p50_ms=$(for i in $(seq $E); do echo ${DONE[$i]:-}; done | grep . | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')"
 # ---- reach: up to 10 sources, each to a .1 on another egress node's side
@@ -153,6 +171,7 @@ check $([ $P = $Q ] && echo 0 || echo 1) "reach: $P/$Q pings between .1s on diff
 echo "RESULT reach S=$S E=$E ok=$P/$Q"
 # ---- size: the region, and the bed
 PJ=$(NS hub curl -s -X POST -d '{"op":"participants"}' "$U"); MJ=$(NS hub curl -s -X POST -d '{"op":"map_list"}' "$U")
+echo "$PJ" > $T/participants.json; echo "$MJ" > $T/mappings.json
 RSS=$(for n in $(NSLIST); do ip netns pids $n; done | xargs -r ps -o rss= -p 2>/dev/null | awk '{s+=$1} END{print int(s/1024)}')
 echo "RESULT size S=$S E=$E participants_bytes=${#PJ} mappings_bytes=${#MJ} bed_rss_mb=$RSS"
 # ---- event: N changes on the last child; each daemon's timed line

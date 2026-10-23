@@ -8,3 +8,7 @@ RESULT reach S=200 E=1 ok=0/10
 RESULT size S=200 E=1 participants_bytes=109476 mappings_bytes=6247 bed_rss_mb=3179
   change #1: 0/1 daemons applied
   change #2: 0/1 daemons applied
+  change #3: 0/1 daemons applied
+  change #4: 0/1 daemons applied
+RESULT event S=200 E=1 none
+RESULT FAIL: 1

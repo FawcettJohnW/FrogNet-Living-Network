@@ -19,6 +19,7 @@ Modes:  fdf-facts            write once and exit (says what it wrote)
         fdf-facts --show     print the rows, write nothing
 Nothing here reads the region; this is the writer only. Build fdf-2026-10-12-r20.
 """
+import errno
 import json
 import os
 import re
@@ -330,7 +331,15 @@ def watch():
     ifd = libc.inotify_init1(0o2000000)                                                         # IN_CLOEXEC
     ldir, lbase = os.path.split(os.path.abspath(LEASES))
     os.makedirs(ldir, exist_ok=True)
-    libc.inotify_add_watch(ifd, (ldir or ".").encode(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MODIFY)
+    # [WATCH_FAILURE_SAYS_SO_V1] no watch, no wake: say why and stop, not a select() traceback on fd -1
+    if ifd < 0:
+        e = ctypes.get_errno()
+        sys.exit("fdf-facts: WATCH FAILED: inotify_init1: %s%s -- this node's rows will not follow its leases; exiting"
+                 % (os.strerror(e), " (fs.inotify.max_user_instances reached)" if e == errno.EMFILE else ""))
+    if libc.inotify_add_watch(ifd, (ldir or ".").encode(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE | IN_MODIFY) < 0:
+        e = ctypes.get_errno()
+        sys.exit("fdf-facts: WATCH FAILED: inotify_add_watch %s: %s%s -- exiting"
+                 % (ldir, os.strerror(e), " (fs.inotify.max_user_watches reached)" if e == errno.ENOSPC else ""))
     # [FACTS_IGNORE_OWN_ROUTES_V1] labelled lines; a [ROUTE] line wakes us only if it is a default route -- the one route
     # rows() reads. Every /24 the daemon installs or withdraws was a wake-up and a full rows() pass that ended
     # "unchanged" (the brief, §3); on a node applying three routes that is three passes for nothing.
