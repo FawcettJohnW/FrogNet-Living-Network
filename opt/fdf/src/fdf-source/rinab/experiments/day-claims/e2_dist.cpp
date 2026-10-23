@@ -28,6 +28,7 @@
 #include <netinet/in.h>
 #include <thread>
 #include <unistd.h>
+#include <utility>
 static double wall() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 static const std::string C = "dayctl#1";
 static std::string links_s(const std::map<int, std::map<int, int>>& L) {
@@ -143,6 +144,7 @@ static int agent_run(const std::string& where, std::string name) {
             const Json& p = m["facts"]; if (p.type != Json::Obj) continue;
             const std::string key = p["run"].s + "/" + std::to_string(int(p["scn"].n)) + "/" + std::to_string(int(p["step"].n)) + "/" + std::to_string(int(p["epoch"].n)) + (p["end"].b ? "/end" : "");
             if (key == last_key) continue; last_key = key;
+            if (getenv("E2D_TRACE")) { fprintf(stderr, "[DIAG-E2D-PLAN] %s plan %s wake rev %llu\n", utc().c_str(), key.c_str(), (unsigned long long)prev); fflush(stderr); }
             if (p["end"].b) { stop_all(); { std::lock_guard<std::mutex> g(g_rtt_mu); g_rtt.clear(); } printf("e2-dist agent: run %s ended\n", p["run"].s.c_str()); fflush(stdout); continue; }
             std::map<int, std::map<int, int>> L; for (auto& l : p["links"].a) L[int(l.a[0].n)][int(l.a[1].n)] = int(l.a[2].n);
             if (p["D"].s != D) { stop_all(); D = p["D"].s;
@@ -160,6 +162,8 @@ static int agent_run(const std::string& where, std::string name) {
                     nodes[id] = std::move(n);
                 } else {                                          // kept: it writes its own links if they moved
                     Node& n = *f->second; std::lock_guard<std::mutex> g(n.mu);
+                    if (getenv("E2D_TRACE")) { std::string o, w; for (auto& [x, y] : n.out) o += std::to_string(x) + ":" + std::to_string(y) + " "; for (auto& [x, y] : L[id]) w += std::to_string(x) + ":" + std::to_string(y) + " ";
+                        fprintf(stderr, "[DIAG-E2D-PLAN]   node %d had [%s] plan [%s] ready %d\n", id, o.c_str(), w.c_str(), int(n.ready)); }
                     if (n.out != L[id]) { n.out = L[id]; n.step = int(p["step"].n); if (n.ready) write_links(&n, D); }
                 }
             }
@@ -206,13 +210,15 @@ static int driver(const std::string& where, const std::string& scen, const std::
         std::map<int, std::map<int, int>> L; for (auto& l : s["steps"].a[0]["links"].a) L[int(l.a[0].n)][int(l.a[1].n)] = int(l.a[2].n);
         auto& st = s["steps"].a;
         for (size_t k = 0; k < st.size(); ++k) {
+            const auto L_before = L;
             if (k > 0) { const Json& ch = st[k]["change"]; L[int(ch.a[0].n)][int(ch.a[1].n)] = int(ch.a[2].n); if (!s["asym"].b) L[int(ch.a[1].n)][int(ch.a[0].n)] = int(ch.a[2].n); }
             Edges want_r, want_s; for (auto& e : st[k]["rpt"].a) want_r.insert({int(e.a[0].n), int(e.a[1].n)}); for (auto& e : st[k]["spt"].a) want_s.insert({int(e.a[0].n), int(e.a[1].n)});
             // an arrival is picked up here, at the step; a departure below, at once
             { auto now_agents = live_agents(c, &arev); if (now_agents != agents && !now_agents.empty()) { agents = now_agents; ++epoch; ++replans; for (auto& a : agents) ever.insert(a); } }
             const double t0 = wall(), deadline = t0 + 15;
             // the writers of this step: their links must be in what a node read before its tree counts ([E2D_STEP_STAMP_V1])
-            std::vector<int> writers; if (k > 0) { writers.push_back(int(st[k]["change"].a[0].n)); if (!s["asym"].b) writers.push_back(int(st[k]["change"].a[1].n)); }
+            // only an owner whose links actually moved writes; a change to the cost a link already had writes nothing
+            std::vector<int> writers; if (k > 0) for (int v = 0; v < n; ++v) { auto a = L_before.find(v); auto b = std::as_const(L).find(v); if ((a == L_before.end()) != (b == L.end()) || (a != L_before.end() && a->second != b->second)) writers.push_back(v); }
             auto publish = [&] {
                 std::string assign = "{"; for (int v = 0; v < n; ++v) assign += (v ? "," : "") + q(std::to_string(v)) + ":" + q(agents[size_t(v) % agents.size()]); assign += "}";
                 must(c.call("join", "\"daf\":" + q(C) + ",\"name\":\"plan\",\"facts\":{\"run\":" + q(run) + ",\"scn\":" + std::to_string(idx) + ",\"step\":" + std::to_string(k) +
@@ -237,6 +243,7 @@ static int driver(const std::string& where, const std::string& scen, const std::
                     Edges r, sp; for (auto& e : f["rpt"].a) r.insert({int(e.a[0].n), int(e.a[1].n)}); for (auto& e : f["spt"].a) sp.insert({int(e.a[0].n), int(e.a[1].n)});
                     match[id] = f["ok"].b && fresh && r == want_r && sp == want_s;
                     last_trees += (last_trees.empty() ? "" : ",") + ("{\"node\":" + std::to_string(id) + ",\"ok\":" + (f["ok"].b ? "true" : "false") + ",\"fresh\":" + (fresh ? "true" : "false") +
+                                  ",\"seen\":{" + [&] { std::string x; for (auto& [kk, vv] : f["seen"].o) x += (x.empty() ? "" : ",") + q(kk) + ":" + std::to_string(int(vv.n)); return x; }() + "}" +
                                   ",\"rpt\":" + edges_s(r) + ",\"spt\":" + edges_s(sp) + "}"); }
                 int ok = 0; for (int v = 0; v < n; ++v) ok += match.count(v) && match[v];
                 if (ok == n) { last = now; break; }
@@ -246,7 +253,7 @@ static int driver(const std::string& where, const std::string& scen, const std::
             std::string missing; for (int v = 0; v < n; ++v) if (!match.count(v) || !match[v]) missing += " " + std::to_string(v) + "@" + agents[size_t(v) % agents.size()];
             if (last < 0) { ++bad; printf("E2D  scenario %d (%s n=%d %s seed %d) step %zu: not every node reached the reference within 15 s; agents %zu; missing:%s\n",
                                     idx, s["kind"].s.c_str(), n, s["asym"].b ? "asym" : "sym", int(s["seed"].n), k, agents.size(), missing.c_str()); fflush(stdout);
-                raw("{\"k\":\"DIAG-E2D\",\"scn\":" + std::to_string(idx) + ",\"step\":" + std::to_string(k) +
+                raw("{\"k\":\"DIAG-E2D\",\"scn\":" + std::to_string(idx) + ",\"step\":" + std::to_string(k) + ",\"writers\":[" + [&] { std::string x; for (int w : writers) x += (x.empty() ? "" : ",") + std::to_string(w); return x; }() + "]" +
                     ",\"want_rpt\":" + edges_s(want_r) + ",\"trees\":[" + last_trees + "]}"); }
             else if (k > 0) conv.push_back((last - t0) * 1000);
             if (k > 0) ++changes;
