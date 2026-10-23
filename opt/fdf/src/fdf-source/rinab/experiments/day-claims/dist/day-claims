@@ -4,8 +4,9 @@
 #
 #   day-claims host [PORT]          one machine: the experiment's own RAM host (port 52500 unless given). Starts on an
 #                                   empty memory every time. Leave it running; Ctrl-C ends it.
-#   day-claims agent HOST[:PORT]    every machine that runs participants (the host machine may run one too). It
-#                                   advertises itself and waits on the controller's plan; Ctrl-C ends it.
+#   day-claims agent HOST[:PORT] [NAME]   every machine that runs participants (the host machine may run one too). It
+#                                   advertises itself as a-NAME (default: this machine's 10.x address) and waits on the
+#                                   controller's plan; a second agent on one machine needs its own NAME. Ctrl-C ends it.
 #   day-claims e2 HOST[:PORT] N     one machine: the controller. Waits until N agents have advertised, then runs E2
 #                                   (160 graphs x 6 steps, references shipped) and writes its evidence to
 #                                   /opt/fdf/experiments/day-claims/runs/e2-<UTC time>/.
@@ -29,8 +30,8 @@ case "${1:-}" in
     echo "day-claims host: $(cat "$H/BUILD" | tr '\n' ' ')port $P"
     FROGNET_BLOB_ROOT=$H/var/blob RINA_REGION_FILE=$H/var/region-$P.perm exec "$B/rina-host" --listen "0.0.0.0:$P" --api "$API" ;;
   agent)
-    [ $# -ge 2 ] || { echo "usage: day-claims agent HOST[:PORT]" >&2; exit 2; }
-    exec "$B/e2-dist" agent "$(where "$2")" ;;
+    [ $# -ge 2 ] || { echo "usage: day-claims agent HOST[:PORT] [NAME]" >&2; exit 2; }
+    exec "$B/e2-dist" agent "$(where "$2")" ${3:+"$3"} ;;
   e2)
     [ $# -ge 3 ] || { echo "usage: day-claims e2 HOST[:PORT] AGENTS" >&2; exit 2; }
     OUT=$H/runs/e2-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"; cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
@@ -38,5 +39,5 @@ case "${1:-}" in
     "$B/e2-dist" driver "$(where "$2")" "$H/scenarios/e2.jsonl" "$OUT" "$3"; rc=$?
     echo "evidence: $OUT"; exit $rc ;;
   version) cat "$H/BUILD"; for b in "$B"/*; do printf '%s: %s\n' "${b##*/}" "$(strings "$b" | grep -m1 -o 'fdf-[0-9-]*-r[0-9]*')"; done ;;
-  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
