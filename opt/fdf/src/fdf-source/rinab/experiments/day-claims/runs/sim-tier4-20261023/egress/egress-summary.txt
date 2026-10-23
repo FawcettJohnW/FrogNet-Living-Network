@@ -1,0 +1,2 @@
+=== second egress point: BEARER=hub site legs [10.0, 35.0] 2026-10-23T06:22:35Z ===
+--- faster: A1 leg 5.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 80.7, A2/wg0->B1 90.8, B1/wg0->A2 91.0, B1/wg1->A1 81.1
