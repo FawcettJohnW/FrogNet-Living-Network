@@ -28,14 +28,14 @@ export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPAC
 API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 ms() { date +%s%3N; }
-eg() { echo e$1; }; ch() { echo c$1; }                       # namespace names: egress e<i>, child c<k>
+eg() { echo s-e$1; }; ch() { echo s-c$1; }                   # namespace names: egress s-e<i>, child s-c<k> (s-: never a name already in use)
 egress_of() { echo $(( ($1 - 1) % E + 1 )); }
-NSLIST() { echo hub; for i in $(seq $E); do eg $i; done; for k in $(seq $((E+1)) $S); do ch $k; done; }
+NSLIST() { echo s-hub; for i in $(seq $E); do eg $i; done; for k in $(seq $((E+1)) $S); do ch $k; done; }
 cleanup() { local L; L=$(NSLIST); for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; done
-            for i in $(seq 120); do ip link del v-e$i-b 2>/dev/null; ip link del br-e$i 2>/dev/null; done
-            ip link del v-hub-b 2>/dev/null; ip link del br-inet 2>/dev/null; }
+            for i in $(seq 120); do ip link del v-s-e$i-b 2>/dev/null; ip link del br-s$i 2>/dev/null; done
+            ip link del v-s-hub-b 2>/dev/null; ip link del br-s-inet 2>/dev/null; }
 # [BED_INOTIFY_V1] every node here is the same kernel user, and each one's fdf-client and fdf-facts holds an inotify
 # instance (the daemon more): the default 128 runs out near 70 children, which is this bed's limit, not a node's. Raised
 # for the run, put back on exit.
@@ -61,25 +61,25 @@ http.server.HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 EOF
 echo "=== S=$S subnets, E=$E egress points, $((S-E)) children; $(date -u +%FT%TZ)"
 # ---- the Internet: hub at .1, egress node i at 198.18.0.(2+i)
-ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists"; exit 1; }
-ip netns add hub; ip netns exec hub ip link set lo up
-ip link add v-hub type veth peer name v-hub-b; ip link set v-hub netns hub; ip link set v-hub-b master br-inet up
-ip netns exec hub ip addr add 198.18.0.1/24 dev v-hub; ip netns exec hub ip link set v-hub up
+ip link add br-s-inet type bridge && ip link set br-s-inet up || { echo "FAIL  setup: br-s-inet exists"; exit 1; }
+ip netns add s-hub; ip netns exec s-hub ip link set lo up
+ip link add v-s-hub type veth peer name v-s-hub-b; ip link set v-s-hub netns s-hub; ip link set v-s-hub-b master br-s-inet up
+ip netns exec s-hub ip addr add 198.18.0.1/24 dev v-s-hub; ip netns exec s-hub ip link set v-s-hub up
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 "$@"; }
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
-sleep 1; NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
-NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
+NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+sleep 1; NS s-hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
+NS s-hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
 sleep 0.5
-NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
+NS s-hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
    --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json > $T/hub/hub.log 2>&1 &
-sleep 2; NS hub sysctl -q -w net.ipv4.ip_forward=1
-check $([ "$(NS hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub up on 51820"
-# ---- egress nodes: uplink, served /24 on its LAN bridge br-e<i> (children join it), NAT out, echo
+sleep 2; NS s-hub sysctl -q -w net.ipv4.ip_forward=1
+check $([ "$(NS s-hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub up on 51820"
+# ---- egress nodes: uplink, served /24 on its LAN bridge br-s<i> (children join it), NAT out, echo
 for i in $(seq $E); do n=$(eg $i); mkdir -p $T/$n; ip netns add $n; ip netns exec $n ip link set lo up
-  ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-inet up
+  ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-s-inet up
   ip netns exec $n ip addr add 198.18.0.$((2+i))/24 dev v-$n; ip netns exec $n ip link set v-$n up
-  ip link add br-e$i type bridge; ip link set br-e$i up
-  ip link add l-$n type veth peer name l-$n-b; ip link set l-$n netns $n; ip link set l-$n-b master br-e$i up
+  ip link add br-s$i type bridge; ip link set br-s$i up
+  ip link add l-$n type veth peer name l-$n-b; ip link set l-$n netns $n; ip link set l-$n-b master br-s$i up
   ip netns exec $n ip addr add 10.20.$i.1/24 dev l-$n; ip netns exec $n ip link set l-$n up
   ip netns exec $n ip route add default via 198.18.0.1 dev v-$n
   ip netns exec $n iptables -t nat -A POSTROUTING -o v-$n -j MASQUERADE 2>/dev/null
@@ -90,7 +90,7 @@ for i in $(seq $E); do n=$(eg $i); mkdir -p $T/$n; ip netns add $n; ip netns exe
 declare -A J
 for k in $(seq $((E+1)) $S); do n=$(ch $k); e=$(egress_of $k); mkdir -p $T/$n; J[$e]=$(( ${J[$e]:-0} + 1 )); a=$((19 + ${J[$e]}))
   ip netns add $n; ip netns exec $n ip link set lo up
-  ip link add l-$n type veth peer name l-$n-b; ip link set l-$n netns $n; ip link set l-$n-b master br-e$e up
+  ip link add l-$n type veth peer name l-$n-b; ip link set l-$n netns $n; ip link set l-$n-b master br-s$e up
   ip netns exec $n ip addr add 10.20.$e.$a/24 dev l-$n; ip netns exec $n ip link set l-$n up
   ip netns exec $n ip route add default via 10.20.$e.1 dev l-$n metric 600
   ip netns exec $n ip link add lan0 type veth peer name lan0p; ip netns exec $n ip link set lan0 up; ip netns exec $n ip link set lan0p up
@@ -158,6 +158,18 @@ declare -A DONE; left=$E; while [ $left -gt 0 ] && [ $(( $(ms) - T0 )) -lt $((CO
   for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; if ready $(eg $i) $i; then DONE[$i]=$(( $(ms) - T0 )); left=$((left-1)); fi; done
   sleep 0.5; done
 TL=0; for i in $(seq $E); do v=${DONE[$i]:-}; [ -n "$v" ] && [ $v -gt $TL ] && TL=$v; done
+# [DAEMON_CPU_V1] each daemon's CPU, not its wall time: utime+stime+cutime+cstime of the daemon process (its waited-for
+# ip/wg children included), from /proc. Wall time on this bed includes waiting for a CPU; this does not.
+TICK=$(getconf CLK_TCK); declare -A DPID
+for i in $(seq $E); do for p in $(ip netns pids $(eg $i)); do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q '^python3 -u -m internet_tunnels_v3' && DPID[$i]=$p; done; done
+cpu_ms() { awk -v t=$TICK '{print int(($14+$15+$16+$17)*1000/t)}' /proc/$1/stat 2>/dev/null || echo 0; }
+: > $T/cpu_cold; for i in $(seq $E); do echo "$i $(cpu_ms ${DPID[$i]:-0})" >> $T/cpu_cold; done
+echo "daemon pids found: ${#DPID[@]}/$E"
+python3 - $T/cpu_cold $S $E <<'PY'
+import sys, statistics as st
+v = [int(l.split()[1]) for l in open(sys.argv[1]) if len(l.split()) == 2]
+print("RESULT cpu_cold S=%s E=%s per_daemon_p50_ms=%d max_ms=%d all_daemons_ms=%d" % (sys.argv[2], sys.argv[3], st.median(v), max(v), sum(v)) if v else "RESULT cpu_cold none")
+PY
 check $([ $left = 0 ] && echo 0 || echo 1) "cold: all $E egress nodes route all $S /24s and name all $S (last at $TL ms; $left not ready)"
 [ $left = 0 ] || for i in $(seq $E); do [ -n "${DONE[$i]:-}" ] && continue; n=$(eg $i)
   echo "--- not ready: $n right/expected|first wrong: $(cat $T/$n/right) hosts $(python3 -c 'import sys,json;print(len(json.load(open(sys.argv[1]))))' $T/$n/fs/var-lib-frognet/region_hosts.json 2>&1)"
@@ -167,7 +179,7 @@ check $([ $left = 0 ] && echo 0 || echo 1) "cold: all $E egress nodes route all 
   w=$(cut -d'|' -f3 $T/$n/right | awk '{print $1}'); k=$(echo "$w" | cut -d. -f3); c=$(ch $k)
   echo "--- [DIAG-SCALE-MISS] $w (child $c): $n routes it: $(ip netns exec $n ip -4 route | grep "^$w" | tr '\n' ' ')"
   for f in client.log facts.log; do echo "    $c/$f:"; sed 's/^/      /' $T/$c/$f 2>/dev/null | cut -c1-300 | tail -8; done
-  NS hub curl -s -X POST -d '{"op":"participants"}' "$U" | python3 -c 'import sys,json
+  NS s-hub curl -s -X POST -d '{"op":"participants"}' "$U" | python3 -c 'import sys,json
 P=json.load(sys.stdin)["participants"]; x=[p for p in P if p.get("name")==sys.argv[1]]
 print("    region:", json.dumps(x[0])[:600] if x else "NOT IN THE REGION")' $c
   grep "GRAPH build" $T/$n/daemon.log | tail -1 | grep -o "links=[0-9]*" | sed 's/^/    graph /'; break; done
@@ -179,16 +191,17 @@ P=0; Q=0; for s in $(seq 1 $(( S > 10 ? S/10 : 1 )) $S | head -10); do d=$(( (s 
 check $([ $P = $Q ] && echo 0 || echo 1) "reach: $P/$Q pings between .1s on different egress nodes"
 echo "RESULT reach S=$S E=$E ok=$P/$Q"
 # ---- size: the region, and the bed
-PJ=$(NS hub curl -s -X POST -d '{"op":"participants"}' "$U"); MJ=$(NS hub curl -s -X POST -d '{"op":"map_list"}' "$U")
+PJ=$(NS s-hub curl -s -X POST -d '{"op":"participants"}' "$U"); MJ=$(NS s-hub curl -s -X POST -d '{"op":"map_list"}' "$U")
 echo "$PJ" > $T/participants.json; echo "$MJ" > $T/mappings.json
 RSS=$(for n in $(NSLIST); do ip netns pids $n; done | xargs -r ps -o rss= -p 2>/dev/null | awk '{s+=$1} END{print int(s/1024)}')
 echo "RESULT size S=$S E=$E participants_bytes=${#PJ} mappings_bytes=${#MJ} bed_rss_mb=$RSS"
 # ---- event: N changes on the last child; each daemon's timed line
 LAST=$(ch $S); [ $S -gt $E ] || LAST=$(eg $S)
 ip netns exec $LAST ip link add lan1 type veth peer name lan1p; ip netns exec $LAST ip link set lan1 up; ip netns exec $LAST ip link set lan1p up
-sleep 3; : > $T/samples
+sleep 3; : > $T/samples; : > $T/cpu_event
 for k in $(seq $N); do
   declare -A L0; for i in $(seq $E); do L0[$i]=$(wc -l < $T/$(eg $i)/daemon.log); done
+  declare -A C0; for i in $(seq $E); do C0[$i]=$(cpu_ms ${DPID[$i]:-0}); done
   T_CHANGE=$(ms); if [ $((k % 2)) = 1 ]; then ip netns exec $LAST ip addr add 10.21.0.1/24 dev lan1; else ip netns exec $LAST ip addr del 10.21.0.1/24 dev lan1; fi
   declare -A GOT; got=0; while [ $got -lt $E ] && [ $(( $(ms) - T_CHANGE )) -lt 20000 ]; do
     for i in $(seq $E); do [ -n "${GOT[$i]:-}" ] && continue
@@ -196,8 +209,17 @@ for k in $(seq $N); do
       [ -z "$line" ] && continue; GOT[$i]=1; got=$((got+1)); t=${line%% *}
       echo "$k $i $((t - T_CHANGE)) $(echo "$line" | sed -E 's/.*world=([0-9]+)ms.*bringup=([0-9]+)ms apply=([0-9]+)ms.*publish=([0-9]+)ms total=([0-9]+)ms.*/\1 \2 \3 \4 \5/')" >> $T/samples; done
     sleep 0.05; done
-  echo "  change #$k: $got/$E daemons applied"; unset GOT; unset L0; sleep 3
+  sleep 1                                              # the daemons finish the event (publish) before the CPU is read
+  for i in $(seq $E); do echo "$k $i $(( $(cpu_ms ${DPID[$i]:-0}) - ${C0[$i]} ))" >> $T/cpu_event; done
+  echo "  change #$k: $got/$E daemons applied"; unset GOT; unset L0; unset C0; sleep 2
 done
+python3 - $T/cpu_event $S $E <<'PY'
+import sys, statistics as st, collections
+r = [list(map(int, l.split())) for l in open(sys.argv[1]) if len(l.split()) == 3]
+per = [x[2] for x in r]; byk = collections.defaultdict(int)
+for k, i, c in r: byk[k] += c
+print("RESULT cpu_event S=%s E=%s per_daemon_p50_ms=%d max_ms=%d all_daemons_per_change_p50_ms=%d" % (sys.argv[2], sys.argv[3], st.median(per), max(per), st.median(byk.values())) if r else "RESULT cpu_event none")
+PY
 python3 - $T/samples $S $E <<'PY'
 import sys, statistics as st
 rows = [list(map(int, l.split())) for l in open(sys.argv[1]) if len(l.split()) == 8]

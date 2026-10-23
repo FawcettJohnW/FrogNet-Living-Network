@@ -1,0 +1,56 @@
+#!/bin/bash
+# scale-series -- [SCALE_SERIES_V1] experiment S on one Linux machine: S subnets crossing E egress points, the memory
+# arm (the FD&F region) on the REAL tunnel daemon, every node in its own network namespace. Installed at
+# /opt/fdf/experiments/scale; touches nothing outside it except: network namespaces named s-*, bridges br-s*, veths
+# v-s-* / l-s-*, per-run files under /tmp/fdf-scale-*, and fs.inotify.max_user_instances (raised for the run, put back).
+#
+#   scale-series [S] [E ...]        default: 200 1 2 5 10 20 50 100
+#   scale-series version            the build every binary here is
+#
+# Per E it prints the run as it goes, then one table for all of them. Evidence: /opt/fdf/experiments/scale/runs/<UTC>/.
+# Needs root; ip, wg, wg-quick, python3, curl, iptables (wireguard-go is shipped here, and is the WireGuard used).
+# Memory: about 26 MB per subnet plus 70 MB per egress node; an E that will not fit is refused with the numbers.
+# Every node shares this machine's CPUs: wall times grow with E from that alone, so each daemon's CPU time is reported.
+set -u
+P=$(cd "$(dirname "$0")" && pwd)
+[ "${1:-}" = version ] && { cat $P/BUILD; for b in $P/rinab/build/static/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done; exit 0; }
+S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
+[ "$(id -u)" = 0 ] || { echo "scale-series: run as root (network namespaces, mounts, WireGuard)"; exit 2; }
+miss=""; for c in ip wg wg-quick python3 curl iptables sysctl mount getconf strings; do command -v $c > /dev/null || miss="$miss $c"; done
+[ -z "$miss" ] || { echo "scale-series: missing on this machine:$miss"; exit 2; }
+ip link add br-s-probe type bridge 2>/dev/null && ip link del br-s-probe || { echo "scale-series: cannot create a bridge here (or br-s-probe exists)"; exit 2; }
+ip netns list | grep -q '^s-' && { echo "scale-series: namespaces s-* exist from an earlier run; they are this tool's: ip netns list | grep ^s-"; exit 2; }
+export PATH=$P/bin:$PATH FROGNET_DIR=$P/frognet_semantic PKG_FDF=$P/fdf
+OUT=$P/runs/$(date -u +%Y%m%dT%H%M%SZ); mkdir -p $OUT
+{ cat $P/BUILD; uname -a; echo "cpus $(nproc)"; grep -E 'MemTotal|MemAvailable' /proc/meminfo; } | tee $OUT/machine.txt
+echo "S=$S E: $ES -> $OUT"
+for E in $ES; do
+  need=$(( 26 * S + 70 * E + 200 )); have=$(( $(awk '/MemAvailable/{print $2}' /proc/meminfo) / 1024 ))
+  if [ $E -gt $S ] || [ $E -gt 120 ]; then echo "=== E=$E: refused (needs 1 <= E <= min(S,120))" | tee -a $OUT/series.txt; continue; fi
+  if [ $(( need * 11 / 10 )) -gt $have ]; then echo "=== E=$E: refused: needs ~$need MB, $have MB available" | tee -a $OUT/series.txt; continue; fi
+  echo "=== E=$E: S=$S ($need MB estimated, $have MB available)"
+  T=/tmp/fdf-scale-S$S-E$E S=$S E=$E N=${N:-4} COLD_MAX=${COLD_MAX:-1800} bash $P/rinab/tools/netns-scale-test.sh $P/rinab 2>&1 | tee $OUT/S$S-E$E.txt
+  grep '^RESULT' $OUT/S$S-E$E.txt | sed "s/^/[E=$E] /" >> $OUT/series.txt
+done
+python3 - $OUT/series.txt $S <<'PY' | tee $OUT/table.md
+import re, sys
+rows = {}
+for l in open(sys.argv[1]):
+    m = re.match(r"\[E=(\d+)\] RESULT (\w+):?\s*(.*)", l)
+    if m: rows.setdefault(int(m.group(1)), {})[m.group(2)] = {**dict(re.findall(r"(\w+)=(\S+)", m.group(3))), "_": m.group(3)}
+    m = re.match(r"=== E=(\d+): refused(.*)", l)
+    if m: rows.setdefault(int(m.group(1)), {})["refused"] = m.group(2).strip(": ")
+g = lambda r, k, f: r.get(k, {}).get(f, "-")
+print("\n| E | result | cold: last node correct (s) | daemon CPU to come up, p50 (ms) | daemon CPU per change, p50 (ms) | all daemons' CPU per change (ms) | change -> last daemon, p50 (ms) | participants / mappings (KB) | RSS (MB) |")
+print("|---|---|---|---|---|---|---|---|---|")
+for E in sorted(rows):
+    r = rows[E]
+    if "refused" in r: print(f"| {E} | refused: {r['refused']} | | | | | | | |"); continue
+    res = "PASS" if "PASS" in r else ("FAIL " + r.get("FAIL", {}).get("_", "")).strip()
+    cold = g(r, "cold", "last_ms"); cold = f"{int(cold) / 1000:.1f}" if cold not in ("-", "0") else "-"
+    kb = lambda f: f"{int(g(r, 'size', f)) / 1024:.1f}" if g(r, "size", f) != "-" else "-"
+    print(f"| {E} | {res} | {cold} | {g(r, 'cpu_cold', 'per_daemon_p50_ms')} | {g(r, 'cpu_event', 'per_daemon_p50_ms')} | "
+          f"{g(r, 'cpu_event', 'all_daemons_per_change_p50_ms')} | {g(r, 'event', 'to_last_daemon_p50_ms')} | "
+          f"{kb('participants_bytes')} / {kb('mappings_bytes')} | {g(r, 'size', 'bed_rss_mb')} |")
+PY
+echo "evidence: $OUT"
