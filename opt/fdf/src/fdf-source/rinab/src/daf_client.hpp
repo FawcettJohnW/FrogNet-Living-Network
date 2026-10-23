@@ -34,10 +34,12 @@ public:
     std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
     // [DAF_WAIT_V1] a held read: what = name | sub | ans | box | fd | in | req | out (daf_region.cpp, wait). The answer
     // {ok, rev, rows:[{i, id, v}]} comes when something there is past `after`; now=true answers at once (a plain read).
-    Json wait(const std::string& D, const std::string& what, const std::string& key, uint64_t after, bool now = false, const std::string& extra = "") {
+    // timeout_s: how long THIS caller waits for the answer (default: until answered or the session ends). On expiry the
+    // call throws; the read stays parked at the host, and an identical wait joins it ([CLIENT_COALESCES_V1]).
+    Json wait(const std::string& D, const std::string& what, const std::string& key, uint64_t after, bool now = false, const std::string& extra = "", double timeout_s = 1e9) {
         const std::string body = "{\"fn\":\"wait\",\"daf\":" + q(D) + ",\"what\":" + q(what) + ",\"key\":" + q(key) + ",\"after\":" + std::to_string((unsigned long long)after) +
                                  (now ? ",\"now\":true" : "") + (extra.empty() ? "" : "," + extra) + "}";
-        return Json::parse(s_->call_text("POST", api() + "?op=daf", body, 1e9));   // held until answered, or the session ends
+        return Json::parse(s_->call_text("POST", api() + "?op=daf", body, timeout_s));   // held until answered, the session ends, or timeout_s
     }
     Json peek(const std::string& D, const std::string& what, const std::string& key, uint64_t after = 0, const std::string& extra = "") { return wait(D, what, key, after, true, extra); }
     // watch a name: its new rev once it changes after `rev`; a refusal (the name or the DAF is gone, or not ours) throws

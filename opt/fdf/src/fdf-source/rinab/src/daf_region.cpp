@@ -167,9 +167,18 @@ bool claim_first(const std::string& key, const std::string& actor, const std::st
 
 // ---- the DAF
 struct Daf { std::string D; Json j; };
+// [DAF_EXISTS_BY_ITS_CLAIM_V1] a DAF exists from its first claim: the claim is the decision ([DAF_FROG_V1]), and its bag is
+// the DAF's. The creator writes the "dafs" record (Permanent, so it outlives a restart) after its built-in names; reading
+// only that record gave a losing creator EEXIST and then, on its very next call, "not found" (experiments/day-claims,
+// three racers, 3 of 3 runs: 2 refused enrolls each).
+bool daf_bag(const std::string& D, Json& j) {
+    if (get("dafs", D, j)) return true;
+    auto rs = claims_upto("c|dafs|" + D, 0); if (rs.empty()) return false;
+    j = Json::parse(rs[0].bag); return true;
+}
 Daf daf_of(const Json& in) {
     const std::string D = in["daf"].s; if (D.empty()) refuse("EINVAL", "no daf named");
-    Daf d{D, {}}; if (!get("dafs", D, d.j)) refuse("ENOENT", "not found"); return d;   // [DAF_NOT_FOUND_IS_ONE_ANSWER_V1]
+    Daf d{D, {}}; if (!daf_bag(D, d.j)) refuse("ENOENT", "not found"); return d;   // [DAF_NOT_FOUND_IS_ONE_ANSWER_V1]
 }
 struct Who { std::string apn, role; Json mem; };
 Who caller(const std::string& D) {
@@ -271,9 +280,13 @@ std::string assign_synonym(const std::string& D, const std::string& set, const s
 // ---- section B: whatevercast names
 struct Name { std::string rule, lifetime, designated; bool builtin = false; };
 Name name_of(const std::string& D, const std::string& name) {
-    Json l; if (!get("nl|" + D, name, l)) refuse("ENOENT", "no name " + name + " in " + D);
+    // [DAF_EXISTS_BY_ITS_CLAIM_V1] the three built-in names are what they are by definition (Part 2-1 4.2), from the DAF's
+    // first claim on, whether or not its creator has written their records yet
+    const char* const* bi = nullptr; for (auto& b : BUILTIN) if (name == b[0]) bi = b;
+    Json l; if (!get("nl|" + D, name, l)) { if (!bi) refuse("ENOENT", "no name " + name + " in " + D);
+                                            l = Json::parse(std::string("{\"lifetime\":\"") + bi[2] + "\",\"builtin\":true}"); }
     Name n; n.lifetime = l["lifetime"].s; n.builtin = l["builtin"].b;
-    Json r; if (says("n|" + D, name, r)) n.rule = r["rule"].s;
+    Json r; if (says("n|" + D, name, r)) n.rule = r["rule"].s; else if (bi) n.rule = bi[1];
     Json d; if (says("des|" + D, name, d)) n.designated = d["apn"].s;
     return n;
 }
@@ -478,7 +491,7 @@ void answer_gone(const std::string& D, const std::string& rid, const std::string
 // a member's leaving, by its own word or its session's end; only the session holding the member makes it leave
 void depart(const std::string& D, const std::string& apn, const std::string& s, bool keep, const std::string& actor) {
     Json m; if (!get("m|" + D, apn, m) || m["sess"].s != s) return;
-    Json d; get("dafs", D, d); const double until = now() + d["syn_lifetime_s"].n;
+    Json d; daf_bag(D, d); const double until = now() + d["syn_lifetime_s"].n;   // [DAF_EXISTS_BY_ITS_CLAIM_V1]
     if (keep) put("ret|" + D, apn, "{\"syn\":" + dump(m["syn"]) + ",\"role\":" + Json::quote(m["role"].s) + ",\"until\":" + std::to_string(until) + "}");
     for (auto& [set, v] : m["syn"].o) claim("c|s|" + D + "|" + set + "|" + v.s, actor, "{\"k\":\"r\",\"a\":" + Json::quote(apn) + ",\"u\":" + std::to_string(keep ? until : 0) + "}");
     gone("m|" + D, apn);
