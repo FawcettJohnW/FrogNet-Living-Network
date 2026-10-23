@@ -1,2 +1,11 @@
 === S=200 subnets, E=20 egress points, 180 children; 2026-10-23T10:38:22Z
 PASS  hub up on 51820
+started 20 daemon nodes and 180 children in 16521 ms
+RESULT wire_cold S=200 E=20 bytes=1625868496 packets=471449 (hub link, start -> all ready)
+daemon pids found: 20/20
+RESULT cpu_cold S=200 E=20 per_daemon_p50_ms=3310 max_ms=3450 all_daemons_ms=66020
+PASS  cold: all 20 egress nodes route all 200 /24s and name all 200 (last at 71689 ms; 0 not ready)
+RESULT cold S=200 E=20 last_ms=71689 ready=20/20 p50_ms=70962
+PASS  reach: 10/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=20 ok=10/10
+RESULT size S=200 E=20 participants_bytes=176750 mappings_bytes=16516 bed_rss_mb=6751
