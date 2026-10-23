@@ -12,7 +12,7 @@ Scenarios (one-way leg to the hub, ms; site B's leg 35):
   under    A1 30, A2 10   A1's own exit is worse by 40 ms RTT: under the planner's switch bar (>=100 ms AND >=20%)
   over     A1 120, A2 10  A1's own exit is worse by 220 ms RTT: over it
 For each: converge; every pair by name; then cut the tunnel A1's traffic to B1 leaves on (the bearer stops and the
-segment goes, as live_failures.drop_link), re-converge, every pair again. Then restore it and re-converge once more.
+segment goes, as live_failures.drop_link), re-converge from the learned state (keep_state, [CONVERGE_CONTINUES_V1]), every pair again. Then restore it and re-converge once more.
 OUT/egress.jsonl gets one line per (scenario, phase, pair); OUT/egress-summary.txt the readable lines."""
 import json, os, subprocess, sys, time
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -90,14 +90,14 @@ def main():
             restart_relay(bed, drop=cut)
             seg_saved = list(bed.topo.segments)
             bed.topo.segments = [s for s in bed.topo.segments if cut not in s]
-            bed.cycles = LE.converge_real(bed.topo, ipr_factory=make_ipr_factory("real", bed.prov))
+            bed.cycles = LE.converge_real(bed.topo, ipr_factory=make_ipr_factory("real", bed.prov), keep_state=True)
             _, ok2 = phase(f"cut {cut[0]}/{cut[1]}")
             restart_relay(bed); bed.topo.segments = seg_saved
             for _ in range(15):                     # the restored tunnel handshakes before the probes measure it
                 if T.ping(bed.ns(cut[0]), bed.topo.nodes[peer].ifaces["wg1" if cut[0] == "A1" else "wg0"].ip,
                           dev=cut[1], n=3)["rx"]: break
                 time.sleep(1)
-            bed.cycles = LE.converge_real(bed.topo, ipr_factory=make_ipr_factory("real", bed.prov))
+            bed.cycles = LE.converge_real(bed.topo, ipr_factory=make_ipr_factory("real", bed.prov), keep_state=True)
             _, ok3 = phase("restored")
             allok &= ok1 and ok2 and ok3
         except Exception as e:

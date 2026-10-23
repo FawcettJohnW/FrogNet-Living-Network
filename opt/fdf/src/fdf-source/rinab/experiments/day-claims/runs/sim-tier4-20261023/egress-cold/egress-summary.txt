@@ -26,3 +26,25 @@
       A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.826 ms (floor 90.0, lowest 90.0)
       B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.62 ms (floor 90.0, lowest 90.0)
       A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.663 ms (floor 90.0, lowest 90.0)
+  [restored] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg0 A2/eth1 A1 | RTT 110.759 ms (floor 110.0, lowest 90.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 110.749 ms (floor 110.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/wg1 B1/eth1 B2 | RTT 110.651 ms (floor 110.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.577 ms (floor 90.0, lowest 90.0)
+--- over: A1 leg 120.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 311.3, A2/wg0->B1 91.2, B1/wg0->A2 91.3, B1/wg1->A1 311.4
+  [converged] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.714 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.698 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.483 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.705 ms (floor 90.0, lowest 90.0)
+  [cut A2/wg0] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg1 A1 | RTT 310.571 ms (floor 310.0, lowest 310.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg1 A1 | RTT 310.776 ms (floor 310.0, lowest 310.0)
+      B2->A1: B2/eth1 B1/wg1 A1 | back A1/wg1 B1/eth1 B2 | RTT 310.811 ms (floor 310.0, lowest 310.0)
+      A2->B1: A2/eth1 A1/wg1 B1 | back B1/wg1 A1/eth1 A2 | RTT 310.511 ms (floor 310.0, lowest 310.0)
+  [restored] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.733 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.95 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.687 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.737 ms (floor 90.0, lowest 90.0)
+ALL PASS
