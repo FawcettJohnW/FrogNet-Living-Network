@@ -1,2 +1,14 @@
 === S=200 subnets, E=2 egress points, 198 children; 2026-10-23T06:59:04Z
 PASS  hub up on 51820
+started 2 daemon nodes and 198 children in 10750 ms
+PASS  cold: all 2 egress nodes route all 200 /24s and name all 200 (last at 15111 ms; 0 not ready)
+RESULT cold S=200 E=2 last_ms=15111 ready=2/2 p50_ms=14987
+PASS  reach: 10/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=2 ok=10/10
+RESULT size S=200 E=2 participants_bytes=164299 mappings_bytes=16516 bed_rss_mb=5410
+  change #1: 2/2 daemons applied
+  change #2: 2/2 daemons applied
+  change #3: 2/2 daemons applied
+  change #4: 2/2 daemons applied
+RESULT event S=200 E=2 changes=4 samples=8 to_last_daemon_p50_ms=270 max_ms=309 per_daemon_p50_ms=243 daemon_world=13 bringup=23 apply=109 publish=1 total=159
+RESULT PASS
