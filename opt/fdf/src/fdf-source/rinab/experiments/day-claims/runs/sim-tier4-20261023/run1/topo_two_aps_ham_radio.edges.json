@@ -1,0 +1,8 @@
+{
+"HillCrest/wlan0->HC-client": 0.025,
+"HillCrest/ham0->Valley": 0.022,
+"Valley/wlan0->V-client": 0.022,
+"Valley/ham0->HillCrest": 0.016,
+"HC-client/wlan0->HillCrest": 0.017,
+"V-client/wlan0->Valley": 0.022
+}
