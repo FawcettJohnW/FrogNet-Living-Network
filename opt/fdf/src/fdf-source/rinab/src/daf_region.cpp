@@ -38,6 +38,7 @@
 #include "daf_memory.hpp"
 #include "frogram.hpp"
 #include "fdf_version.hpp"
+#include <algorithm>
 #include <chrono>
 #include <functional>
 #include <thread>
@@ -108,6 +109,37 @@ public:
         fd_ = ::open(path_.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC | O_CREAT, 0600);
         if (fd_ < 0) { fprintf(stderr, "rina-host: [DAF_FILE_V1] opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         fprintf(stderr, "rina-host: [DAF_FILE_V1] %zu Permanent DAF record(s) restored from %s ([DAF_MODEL_V1] [DAF_FROG_V1] op=daf, build %s)\n", kept, path_.c_str(), FDF_BUILD_TAG);
+        disk_check();
+    }
+    // [DISK_SPEED_SAID_V1] once at start: how long this disk takes to make a line durable (write + fdatasync, as append
+    // does), measured on a scratch file beside the DAF file and removed. Every Permanent write holds the region's
+    // published watermark until its fdatasync returns, so every claim in the region waits that long behind it. Where
+    // the file lives is the operator's choice (RINA_DAF_FILE / RINA_REGION_FILE); a slow disk is said, loudly, once.
+    void disk_check() {
+        const std::string p = path_ + ".speed";
+        const int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (fd < 0) { fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] could not measure %s: %s\n", p.c_str(), strerror(errno)); return; }
+        std::vector<double> ms; const std::string l(96, 'x');
+        for (int k = 0; k < 8; ++k) { const auto t0 = std::chrono::steady_clock::now();
+            if (::write(fd, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd) != 0) { fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] write to %s failed: %s\n", p.c_str(), strerror(errno)); break; }
+            ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); }
+        ::close(fd); ::unlink(p.c_str());
+        if (ms.empty()) return;
+        std::vector<double> s = ms; std::sort(s.begin(), s.end());
+        const double med = s[s.size() / 2], mx = s.back();
+        fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] a Permanent record takes %.1f ms to be durable here (median of %zu, max %.1f ms): %s\n", med, s.size(), mx, path_.c_str());
+        if (med > 5.0 || mx > 50.0) {
+            fprintf(stderr,
+                "rina-host: ******************************************************************************************\n"
+                "rina-host: [DISK_SPEED_SAID_V1] WARNING: SLOW DISK under %s\n"
+                "rina-host:   making one Permanent record durable took %.1f ms (median), %.1f ms at worst, in 8 tries at start.\n"
+                "rina-host:   Every Permanent write (create_daf, enroll, define_name, policies, persistent entries) holds the\n"
+                "rina-host:   region's published order until its fdatasync returns: EVERY claim in the region waits that long\n"
+                "rina-host:   behind it, and a disk that stalls for seconds stalls the region for seconds.\n"
+                "rina-host:   Where the file lives is your choice: RINA_DAF_FILE (or RINA_REGION_FILE + .daf).\n"
+                "rina-host: ******************************************************************************************\n",
+                path_.c_str(), med, mx);
+        }
     }
     // one write() per line (O_APPEND: whole lines, never interleaved), then fdatasync; a failure is said and fatal
     void append(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) {
