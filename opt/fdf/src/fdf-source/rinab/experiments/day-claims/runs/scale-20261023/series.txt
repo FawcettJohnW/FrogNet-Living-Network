@@ -8,3 +8,8 @@
 [E=2] RESULT size S=200 E=2 participants_bytes=164296 mappings_bytes=16516 bed_rss_mb=5409
 [E=2] RESULT event S=200 E=2 changes=4 samples=8 to_last_daemon_p50_ms=276 max_ms=336 per_daemon_p50_ms=240 daemon_world=11 bringup=25 apply=104 publish=1 total=145
 [E=2] RESULT PASS
+[E=5] RESULT cold S=200 E=5 last_ms=21317 ready=5/5 p50_ms=20761
+[E=5] RESULT reach S=200 E=5 ok=10/10
+[E=5] RESULT size S=200 E=5 participants_bytes=165524 mappings_bytes=16516 bed_rss_mb=5607
+[E=5] RESULT event S=200 E=5 changes=4 samples=20 to_last_daemon_p50_ms=348 max_ms=625 per_daemon_p50_ms=289 daemon_world=24 bringup=41 apply=139 publish=1 total=200
+[E=5] RESULT PASS
