@@ -1,6 +1,6 @@
 #!/bin/bash
 # phone-test.sh [SHOTS_DIR] -- the Android game, tested with no phone: a kart memory (rina-host), the kart service, a
-# dedicated game-serving machine (kart_host.py) and a Python player (red, 1 robot) on this machine, then [KART_ANDROID_V1]
+# dedicated game-serving machine (kart_host.py) and Python players (red, 1 robot; blue) on this machine, then [KART_ANDROID_V1]
 #   1. core: test/Headless.java -- the game core (core/*.java) on a JVM, racing red, 40 s
 #   2. phone: test/robo (Robolectric, the Android 14 framework) -- MainActivity and GameView, tapped the way a person does
 #      (setup screen, Join, Chat + Send, laps, Ready, Autopilot, the race, Log, Leave), with screenshots in SHOTS_DIR, and
@@ -24,6 +24,8 @@ sleep 1
 python3 $K/kart_service.py --memory $KM > $D/svc.log 2>&1 & PIDS+=($!)
 python3 $K/kart_host.py --memory $KM --kind dedicated --machine vm --advertise 127.0.0.1 --rina-host "$B/rina-host" > $D/host.log 2>&1 & PIDS+=($!)
 env KART_TEST_FPS=1 KART_TEST_READY_AFTER=3 SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name red --kart $KM --bots 1 --autodrive --laps 2 --rina-host /nonexistent > $D/red.log 2>&1 & PIDS+=($!)
+# blue: in the lobby, never ready by itself; it says yes to an invitation (KART_TEST_ANSWER), as a person would by clicking
+env KART_TEST_ANSWER=yes SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name blue --kart $KM --autodrive --laps 2 --rina-host /nonexistent > $D/blue.log 2>&1 & PIDS+=($!)
 echo "== the Communicator on 127.0.0.1:$CRAM (memory) and :$CMED (media)"
 "$CB/comms-ram" --listen 127.0.0.1:$CRAM > $D/comms-ram.log 2>&1 & PIDS+=($!)
 sleep 1
@@ -74,4 +76,5 @@ if [ $R = 0 ] && grep -q "Tests run: 1, Failures: 0, Errors: 0" $D/robo.log; the
 echo "== the other side: what red and the kart service saw"
 grep -E "hello from the phone|phone" $D/svc.log | head -4 | sed 's/^/  svc: /'
 grep -E "race .* up|result" $D/red.log | tail -3 | sed 's/^/  red: /'
+grep -E "KART_RACE_INVITE|race .* up" $D/blue.log | tail -4 | sed 's/^/  blue: /'
 [ $FAILS = 0 ] && echo "ALL PASS" || { echo "$FAILS FAIL(S); logs in $D"; exit 1; }

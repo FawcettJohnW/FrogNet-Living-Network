@@ -132,6 +132,33 @@ public final class GameCalls {
     public long mediaIn() { CallCore c = core; return c == null ? 0 : c.stats.vRecv + c.stats.aRecv; }
     public long mediaOut() { CallCore c = core; return c == null ? 0 : c.stats.vSent + c.stats.aSent; }
 
+    /** the others in this call (the room's CallsJoined rows that name its session) */
+    public List<String> participants() {
+        List<String> out = new ArrayList<String>();
+        Room r = room; String s = session;
+        if (r == null || s.isEmpty()) return out;
+        for (Room.Member m : roster) if (!m.name.equals(name) && r.callsOf(m.name).contains(s)) out.add(m.name);
+        if (out.isEmpty() && !with.isEmpty()) out.add(with);
+        return out;
+    }
+    /** the call's chat, oldest first: "who: text" */
+    public List<String> chat() {
+        List<String> out = new ArrayList<String>();
+        Room r = room; String s = session;
+        if (r == null || s.isEmpty()) return out;
+        for (Room.Line l : r.readChat(s)) out.add(l.fromName + ": " + l.text);
+        return out;
+    }
+    public void sendChat(final String text) {
+        final Room r = room; final String s = session;
+        if (r == null || s.isEmpty() || text.trim().isEmpty()) return;
+        ops.execute(new Runnable() { public void run() {
+            try { r.sendChat(s, text.trim()); } catch (Exception e) { say("[calls] chat not sent: " + e.getMessage()); }
+        } });
+    }
+    public boolean speaker() { return audio.speaker(); }
+    public void toggleSpeaker() { ui.post(new Runnable() { public void run() { audio.setSpeaker(!audio.speaker()); } }); }
+
     // ---- the room: joined once, rejoined when its session is gone (the Activity's join and rejoinIfLost)
     private void join() {
         final String ram = ramAddr;

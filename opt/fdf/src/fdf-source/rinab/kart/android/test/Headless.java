@@ -7,10 +7,11 @@ public class Headless {
         String host = a[0]; int port = Integer.parseInt(a[1]); String name = a[2];
         int bots = Integer.parseInt(a[3]); double readyAfter = Double.parseDouble(a[4]); double runFor = Double.parseDouble(a[5]);
         Game g = new Game(name, "jvm-phone", host, port, bots, true, 2, new Region.Log() { public void say(String l) { System.out.println("phone: " + l); System.out.flush(); } });
+        g.play(true);
         double t0 = System.nanoTime() / 1e9, last = t0, said = t0; long w0 = 0; int frames = 0; boolean readied = false;
         while (System.nanoTime() / 1e9 - t0 < runFor) {
             double now = System.currentTimeMillis() / 1000.0, mono = System.nanoTime() / 1e9, dt = mono - last; last = mono;
-            if (g.state.equals("lobby") && !g.ready() && g.myRace() == null && mono - t0 > readyAfter) g.setReady(true);
+            if (g.state.equals("lobby") && !g.ready() && g.myRace() == null && mono - t0 > readyAfter) g.pressStart();
             g.tick(now, dt, 0, 0); frames++;
             if (mono - said >= 1.0) {
                 long w = g.writes();

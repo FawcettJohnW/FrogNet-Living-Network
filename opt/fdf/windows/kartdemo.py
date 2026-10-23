@@ -238,6 +238,24 @@ def send_chat(text):
     chat_n+=1; main.write("chat", f"{NAME}#{chat_n % 40}", {"who":NAME,"text":text,"at":time.time()}, own=False)
 # ----------------------------------------------------------------------------- calls (unchanged)
 calling=""; answered={}; call_id=""; comms_proc=None; call_buttons={}
+# [KART_RACE_INVITE_V1] an invitation to a race from a call (the phone's Communicator screen): (kart, invite, FROM)
+# {members, at, go}; this game's answer is its own (kart, answer, NAME) {invite, at, yes}; go and a yes: ready
+inv_ask=None; inv_answered={}; inv_yes={}; inv_launched={}; ask_yes_btn=pygame.Rect(0,0,0,0); ask_no_btn=pygame.Rect(0,0,0,0)
+def answer_invite(yes):
+    global inv_ask
+    f,at,_=inv_ask; inv_ask=None; inv_answered[f]=at
+    if yes: inv_yes[f]=at
+    main.write("answer", NAME, {"invite":f,"at":at,"yes":bool(yes)})
+    say(f"[KART_RACE_INVITE_V1] answered {f}'s invitation: {'yes' if yes else 'no'}")
+def draw_invite():
+    global ask_yes_btn, ask_no_btn
+    if not inv_ask: return
+    f,at,ms=inv_ask; r=pygame.Rect(140,120,580,96)
+    pygame.draw.rect(screen,(24,44,90),r,border_radius=12)
+    text(f"{f} invites you to a race", r.x+16, r.y+12, FONT); text("with "+", ".join(m for m in ms if m!=NAME), r.x+16, r.y+50, SMALL, (190,205,235))
+    ask_yes_btn=pygame.Rect(r.right-210,r.y+24,94,48); ask_no_btn=pygame.Rect(r.right-108,r.y+24,94,48)
+    pygame.draw.rect(screen,(36,160,72),ask_yes_btn,border_radius=8); text("Yes", ask_yes_btn.x+28, ask_yes_btn.y+14, FONT)
+    pygame.draw.rect(screen,(190,50,50),ask_no_btn,border_radius=8); text("No", ask_no_btn.x+32, ask_no_btn.y+14, FONT)
 def comms_running(): return comms_proc is not None and comms_proc.poll() is None
 def launch_comms(callee=""):
     global comms_proc, calling, call_id
@@ -306,6 +324,7 @@ def draw_tile(x, y, w, h, name, bag, live):
         r=pygame.Rect(x+w-72,y+10,60,26); call_buttons[name]=r
         pygame.draw.rect(screen,(36,140,72) if not comms_running() else (90,90,95),r,border_radius=6); text("Call", r.x+16, r.y+5, SMALL)
 def draw_strip(tiles):
+    draw_invite()
     sx0=TRACK_W; pygame.draw.rect(screen,PANEL,(sx0,0,W-TRACK_W,H)); text("Communicator", sx0+16, 12)
     if a.fdf:
         if member(MACHINE): text(f"FD&F: {MACHINE} is a member ({len(fdf_alive)} alive)", sx0+16, 34, SMALL, (110,220,130))
@@ -376,8 +395,23 @@ while running:
                 if start_btn.collidepoint(pos): ready=True; start=True     # [KART_START_IS_ONE_CLICK_V1] Start: me in, launch now
                 if minus_btn.collidepoint(pos): my_laps=max(1,my_laps-1)
                 if plus_btn.collidepoint(pos): my_laps=min(20,my_laps+1)
+            if inv_ask and ask_yes_btn.collidepoint(pos): answer_invite(True)
+            elif inv_ask and ask_no_btn.collidepoint(pos): answer_invite(False)
             for who,r in list(call_buttons.items()):
                 if r.collidepoint(pos): launch_comms(who); break
+    invites=main.family("invite")                            # [KART_RACE_INVITE_V1]
+    if inv_ask and (inv_ask[0] not in invites or float(invites[inv_ask[0]].get("at",0))!=inv_ask[1] or now-inv_ask[1]>30):
+        say(f"[KART_RACE_INVITE_V1] {inv_ask[0]}'s invitation is gone"); inv_ask=None
+    for who,b in invites.items():
+        if who==NAME or NAME not in b.get("members",[]): continue
+        at=float(b.get("at",0))
+        if b.get("go"):
+            if inv_yes.get(who)==at and inv_launched.get(who)!=at and state=="lobby" and not my_race:
+                inv_launched[who]=at; ready=True; say(f"[KART_RACE_INVITE_V1] {who}'s race: everyone said yes; ready")
+            continue
+        if inv_answered.get(who)!=at and now-at<=30 and not inv_ask:
+            inv_ask=(who,at,list(b.get("members",[]))); say(f"[KART_RACE_INVITE_V1] {who} invites {NAME} to a race with {inv_ask[2]}")
+    if inv_ask and os.environ.get("KART_TEST_ANSWER") and now-inv_ask[1] > 1.5: answer_invite(os.environ["KART_TEST_ANSWER"]=="yes")   # test only
     if state=="lobby":                                       # test only: what a player's hands would do
         if os.environ.get("KART_TEST_READY_AFTER") and now-T0 > float(os.environ["KART_TEST_READY_AFTER"]) and not ready and not my_race: ready=True
         if os.environ.get("KART_TEST_START_AFTER") and now-T0 > float(os.environ["KART_TEST_START_AFTER"]) and ready: start=True

@@ -21,7 +21,7 @@ import java.util.Random;
  * tick() is called from one thread (the game loop); the getters are safe from the drawing thread.
  */
 public final class Game {
-    public static final String BUILD = "kart-android-2026-10-23-r2";
+    public static final String BUILD = "kart-android-2026-10-23-r3";
     static final Map<String, int[]> COLORS = new HashMap<String, int[]>();
     static final int[][] BOT_COLORS = {{240,140,40},{150,90,220},{120,200,40},{40,170,150},{200,60,110},{110,110,240},{220,220,120},{170,120,80}};
     static {
@@ -51,6 +51,24 @@ public final class Game {
     private int lobbyGen = -1, chatN = 0;
 
     public volatile String state = "lobby";
+    /** [KART_HOME_V1] connected is not playing: in the lobby (a lobby tuple) only while the player is in the game */
+    public volatile boolean playing = false;
+    // [KART_RACE_INVITE_V1] a race for the people in a call, by invitation, all in the kart memory:
+    //   (kart, invite, INVITER) {members, at, go}   the inviter's: who is asked; go: true once everyone said yes; {} when off
+    //   (kart, answer, NAME) {invite, at, yes}       each one's own answer to that invitation (at names which one)
+    // The inviter's follower holds its read on the kart memory: the answers arrive by it, and the inviter waits for them
+    // with a timeout. Everyone yes: go, and each game launches itself (into the lobby, ready); the inviter Starts.
+    public static final long INVITE_S = 30;
+    public static final class Invite {
+        public final String from; public final double at; public final List<String> members;
+        Invite(String f, double a, List<String> m) { from = f; at = a; members = m; }
+    }
+    private volatile List<String> invited = null, goMembers = null;
+    private volatile double inviteAt = 0, inviteBy = 0, startBy = 0;
+    public volatile String inviteState = "";
+    private volatile Invite asked = null;
+    private final Map<String, Double> answered = new HashMap<String, Double>(), saidYes = new HashMap<String, Double>(), launched = new HashMap<String, Double>();
+    private volatile String partyFrom = null;
     private volatile String myRace = null;
     private volatile Map<String, Object> myServer = null;
     private volatile boolean placed = false;
@@ -85,7 +103,7 @@ public final class Game {
     private void publishTile() {
         int[] c = me.color;
         List<Object> col = new ArrayList<Object>(); for (int v : c) col.add((long) v);
-        String st = !callStatus.isEmpty() ? callStatus : (state.equals("racing") ? "racing" : "in the lobby");
+        String st = !callStatus.isEmpty() ? callStatus : (state.equals("racing") ? "racing" : playing ? "in the lobby" : "in the Communicator");
         Map<String, Object> bag = Json.o("name", name, "color", col, "status", st, "calling", callCalling, "call_id", callId, "machine", machine);
         if (bag.equals(tileWritten) && tileGen == comm.gen()) return;
         int g = comm.gen();
@@ -99,6 +117,42 @@ public final class Game {
 
     // ---- the player's hands
     public void setReady(boolean r) { ready = r; if (!r) start = false; }
+    /** into the game (the lobby tuple) or out of it (its lobby tuple and any race gone); the kart memory stays */
+    public void play(boolean on) {
+        if (on == playing) return;
+        playing = on;
+        if (!on) { ready = false; start = false; goMembers = null; }
+        log.say(on ? "into the game: " + name + " is in the lobby" : "out of the game: " + name + " left the lobby");
+    }
+    private volatile boolean quitRace = false;
+    private volatile String leftRace = null;                         // the race this game left: not joined again
+    /** out of this race, still in the game (the lobby) */
+    public void leaveRace() { quitRace = true; }
+    /** invite these players (kart games) to a race; their answers come back in the kart memory */
+    public void invite(List<String> members) {
+        double now = System.currentTimeMillis() / 1000.0;
+        if (members.isEmpty()) { inviteState = "nobody in the call runs FrogNet Kart"; return; }
+        invited = new ArrayList<String>(members); inviteAt = now; inviteBy = now + INVITE_S;
+        writeInvite(false);
+        inviteState = "invited " + members + " to a race: waiting for their answers (" + INVITE_S + " s)";
+        log.say("[KART_RACE_INVITE_V1] " + inviteState);
+    }
+    private void writeInvite(boolean go) {
+        main.write("invite", name, Json.o("members", new ArrayList<Object>(invited != null ? invited : goMembers), "at", inviteAt, "go", go), true);
+    }
+    /** the invitation waiting for this player's answer, or null */
+    public Invite asked() { return asked; }
+    /** this player's answer, written in the kart memory as its own */
+    public void answer(boolean yes) {
+        Invite i = asked; asked = null;
+        if (i == null) return;
+        answered.put(i.from, i.at);
+        if (yes) saidYes.put(i.from, i.at);
+        main.write("answer", name, Json.o("invite", i.from, "at", i.at, "yes", yes), true);
+        log.say("[KART_RACE_INVITE_V1] answered " + i.from + "'s invitation: " + (yes ? "yes" : "no"));
+    }
+    /** who launched this game into a race by invitation (once each), or null */
+    public String takePartyFrom() { String f = partyFrom; partyFrom = null; return f; }
     public void pressStart() { ready = true; start = true; }                     // [KART_START_IS_ONE_CLICK_V1]
     public void lapsUp() { laps = Math.min(20, laps + 1); }
     public void lapsDown() { laps = Math.max(1, laps - 1); }
@@ -151,20 +205,95 @@ public final class Game {
     public long writes() { Region r = race; return main.writes() + (r == null ? 0 : r.writes()); }
 
     private void publishLobby() {
+        if (!playing) {                                                   // not in the game: no lobby tuple
+            if (lobbyWritten != null && !lobbyWritten.isEmpty() || lobbyGen != main.gen()) {
+                int g = main.gen();
+                if (main.write("lobby", name, new LinkedHashMap<String, Object>(), true)) { lobbyWritten = new LinkedHashMap<String, Object>(); lobbyGen = g; }
+            }
+            return;
+        }
         Map<String, Object> bag = Json.o("name", name, "machine", machine, "bots", (long) bots.size(), "ready", ready, "start", start, "laps", (long) laps);
         if (bag.equals(lobbyWritten) && lobbyGen == main.gen()) return;
         int g = main.gen();
         if (main.write("lobby", name, bag, true)) { lobbyWritten = bag; lobbyGen = g; }
     }
 
+    /** [KART_RACE_INVITE_V1] both sides of an invitation, from this game's view of the kart memory */
+    private void invitations(double now) {
+        Map<String, Map<String, Object>> invites = main.family("invite");
+        // the inviter: the answers, or the timeout
+        List<String> inv = invited;
+        if (inv != null) {
+            Map<String, Map<String, Object>> ans = main.family("answer");
+            List<String> yes = new ArrayList<String>(), wait = new ArrayList<String>(); String no = null;
+            for (String m : inv) {
+                Map<String, Object> b = ans.get(m);
+                if (b == null || !name.equals(Json.str(b.get("invite"))) || Json.dbl(b.get("at")) != inviteAt) { wait.add(m); continue; }
+                if (Json.bool(b.get("yes"))) yes.add(m); else no = m;
+            }
+            if (no != null || (!wait.isEmpty() && now > inviteBy)) {
+                main.write("invite", name, new LinkedHashMap<String, Object>(), true);
+                inviteState = no != null ? no + " said no: no race" : "no answer from " + wait + " in " + INVITE_S + " s: no race";
+                invited = null;
+                log.say("[KART_RACE_INVITE_V1] " + inviteState);
+            } else if (wait.isEmpty()) {
+                goMembers = inv; invited = null;
+                writeInvite(true);
+                playing = true; ready = true; startBy = now + 12; partyFrom = name;
+                inviteState = "everyone said yes (" + yes + "): each launches its game; Start when they are in the lobby";
+                log.say("[KART_RACE_INVITE_V1] " + inviteState);
+            }
+        }
+        List<String> go = goMembers;
+        if (go != null && state.equals("lobby")) {
+            Map<String, Map<String, Object>> lob = main.family("lobby");
+            boolean all = true;
+            for (String n : go) if (!lob.containsKey(n) || !Json.bool(lob.get(n).get("ready"))) all = false;
+            if (all || now > startBy) {
+                start = true; ready = true; goMembers = null;
+                main.write("invite", name, new LinkedHashMap<String, Object>(), true);
+                inviteState = all ? "Start: everyone invited is in the lobby, ready" : "Start: 12 s passed (" + go + " not all ready)";
+                log.say("[KART_RACE_INVITE_V1] " + inviteState);
+            }
+        }
+        // the invited: a fresh invitation to answer; a go for one this player said yes to
+        Invite a0 = asked;
+        if (a0 != null) {
+            Map<String, Object> b = invites.get(a0.from);
+            if (b == null || Json.dbl(b.get("at")) != a0.at || now - a0.at > INVITE_S) { asked = null; log.say("[KART_RACE_INVITE_V1] " + a0.from + "'s invitation is gone"); }
+        }
+        for (Map.Entry<String, Map<String, Object>> e : invites.entrySet()) {
+            String from = e.getKey(); Map<String, Object> b = e.getValue();
+            if (from.equals(name)) continue;
+            List<Object> members = Json.arr(b.get("members"));
+            if (!members.contains(name)) continue;
+            double at = Json.dbl(b.get("at"));
+            if (Json.bool(b.get("go"))) {
+                Double y = saidYes.get(from), l = launched.get(from);
+                if (y != null && y == at && (l == null || l != at) && !state.equals("racing")) {
+                    launched.put(from, at); playing = true; ready = true; partyFrom = from;
+                    log.say("[KART_RACE_INVITE_V1] " + from + "'s race: everyone said yes; into the game, ready");
+                }
+                continue;
+            }
+            Double ad = answered.get(from);
+            if ((ad != null && ad == at) || now - at > INVITE_S || asked != null) continue;
+            List<String> ms = new ArrayList<String>(); for (Object o : members) ms.add(Json.str(o));
+            asked = new Invite(from, at, ms);
+            log.say("[KART_RACE_INVITE_V1] " + from + " invites " + name + " to a race with " + ms);
+        }
+    }
+
     /** One frame: steer/gas are the player's hands (ignored on the autopilot). now in seconds. */
     public void tick(double now, double dt, double steer, double gas) {
         publishTile();
         Map<String, Map<String, Object>> servers = main.family("server");
+        invitations(now);
+        if (state.equals("lobby") && !playing) { publishLobby(); return; }
         if (state.equals("lobby")) {
             String found = null;
             for (Map.Entry<String, Map<String, Object>> e : servers.entrySet())
-                if (Json.arr(e.getValue().get("players")).contains(name) && (found == null || e.getKey().compareTo(found) < 0)) found = e.getKey();
+                if (Json.arr(e.getValue().get("players")).contains(name) && !e.getKey().equals(leftRace) && (found == null || e.getKey().compareTo(found) < 0)) found = e.getKey();
             if (found != null) {                                      // the service launched my race and its server is up
                 Map<String, Object> b = servers.get(found);
                 myRace = found; myServer = b;
@@ -188,6 +317,13 @@ public final class Game {
         // racing
         Map<String, Object> b = servers.get(myRace);
         Region r = race;
+        if (!playing || quitRace) {                                    // left the game (or the race) mid-race: this game's karts go with the race session
+            if (r != null) r.stop();
+            race = null; state = "lobby";
+            log.say("left race " + myRace + " before its end"); quitRace = false; leftRace = myRace;
+            myRace = null; myServer = null; publishLobby();
+            return;
+        }
         if (b == null) {                                              // the race server wrote its tuple {} or is gone
             if (r != null) r.stop();
             race = null; state = "lobby";

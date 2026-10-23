@@ -20,6 +20,7 @@ import android.widget.EditText;
 import android.widget.TextView;
 
 import net.frognet.kart.core.Game;
+import net.frognet.kart.core.Json;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -139,7 +140,7 @@ public class PhoneTest {
         fields.get(4).setText("127.0.0.1:" + cm[0]); fields.get(5).setText("127.0.0.1:" + cm[1]);
         String ivf = System.getProperty("ivf"), opus = System.getProperty("opus"), tmp = System.getProperty("tmp");
         Button join = null;
-        for (Button b : all(root, Button.class, new ArrayList<Button>())) if (b.getText().toString().equals("Join the lobby")) join = b;
+        for (Button b : all(root, Button.class, new ArrayList<Button>())) if (b.getText().toString().equals("Connect")) join = b;
         assertNotNull(join);
         fields.get(1).setText("no-port-here");
         join.performClick(); idle(50);
@@ -157,7 +158,19 @@ public class PhoneTest {
         Field gf = MainActivity.class.getDeclaredField("game"); gf.setAccessible(true);
         final Game g = (Game) gf.get(a);
         v.surfaceChanged(v.getHolder(), 0, SW, SH);
-        assertTrue("in the lobby", waitFor(10000, () -> g.memoryState() == null && g.lobby().containsKey("phone") && g.agreed() != null));
+        Field cf = MainActivity.class.getDeclaredField("calls"); cf.setAccessible(true);
+        final net.frognet.communicator.GameCalls k = (net.frognet.communicator.GameCalls) cf.get(a);
+        // [KART_HOME_V1] connected: the kart memory and the Communicator's, and the home screen; not in the game's lobby
+        assertTrue("connected to the kart memory and the Communicator", waitFor(10000, () -> g.memoryState() == null && k.inRoom() && g.agreed() != null));
+        assertTrue("home: others seen", waitFor(8000, () -> g.tiles().containsKey("red") && g.tiles().containsKey("blue")));
+        idle(1500);
+        assertEquals("home", v.screen);
+        assertTrue("connected is not playing: no lobby tuple", !g.lobby().containsKey("phone"));
+        say("home: kart memory up, " + k.roomState() + "; tiles " + g.tiles().keySet() + "; lobby " + g.lobby().keySet() + " (the phone is not in it)");
+        shot(v, "0-home");
+        tap(v, GameView.H_GAME.centerX(), GameView.H_GAME.centerY());
+        assertEquals("game", v.screen);
+        assertTrue("in the lobby", waitFor(10000, () -> g.lobby().containsKey("phone")));
         say("in the lobby: players " + g.lobby().keySet() + ", agreed " + g.agreed().get("state"));
         idle(1500);
         Bitmap lobby = shot(v, "1-lobby");
@@ -180,9 +193,7 @@ public class PhoneTest {
         tap(v, GameView.B_PLUS.centerX(), GameView.B_PLUS.centerY()); assertEquals(2, g.laps());
 
         // ---- [KART_CALLS_IN_THE_GAME_V1] the third memory: the Communicator's, held beside the kart memory
-        Field cf = MainActivity.class.getDeclaredField("calls"); cf.setAccessible(true);
-        final net.frognet.communicator.GameCalls k = (net.frognet.communicator.GameCalls) cf.get(a);
-        assertTrue("in the Communicator room", waitFor(10000, () -> k.inRoom()));
+        assertTrue("in the Communicator room", k.inRoom());
         say("Communicator: " + k.roomState());
 
         // a call from the lobby: Home (the reference core, answering) is in the room; tap Call beside Home
@@ -213,21 +224,22 @@ public class PhoneTest {
         assertTrue("the room stays", k.inRoom());
         say("call ended; still in the room: " + k.roomState());
 
-        // Ready
-        tap(v, GameView.B_READY.centerX(), GameView.B_READY.centerY());
-        assertTrue("Ready", g.ready());
+        // Start (blue sits in the lobby not ready: only Start launches a race for the ready ones)
+        tap(v, GameView.B_START.centerX(), GameView.B_START.centerY());
+        assertTrue("Start", g.ready() && g.started());
         assertTrue("the race starts and the phone is placed on its grid", waitFor(40000, () -> g.state.equals("racing") && g.placed()));
         say("racing: race " + g.myRace() + " on " + g.myServer().get("host") + ", " + g.lapsTotal() + " lap(s)");
         // a call while racing: Julie (the reference core) calls the phone
-        String julieOut = tmp + "/probe-julie.txt";
-        Process julie = probe(julieOut, "call", cm[0], cm[1], "Julie", "phone", ivf, opus, "40", tmp + "/julie.opus");
-        assertTrue("it rings while racing", waitFor(10000, () -> "Julie".equals(k.ringingFrom())));
+        // blue calls (blue's Communicator, the reference core; blue's kart game sits in the lobby)
+        String julieOut = tmp + "/probe-blue.txt";
+        Process julie = probe(julieOut, "call", cm[0], cm[1], "blue", "phone", ivf, opus, "90", tmp + "/blue.opus");
+        assertTrue("it rings while racing", waitFor(10000, () -> "blue".equals(k.ringingFrom())));
         say("ringing while racing: " + k.ringingFrom() + " is calling");
         shot(v, "4-race-ringing");
         tap(v, GameView.RING_ANSWER.centerX(), GameView.RING_ANSWER.centerY());
         assertTrue("answered while racing", waitFor(10000, () -> k.connected()));
         final String raceSession = k.session();
-        assertTrue("media from Julie while racing", waitFor(8000, () -> k.mediaIn() > 100));
+        assertTrue("media from blue while racing", waitFor(8000, () -> k.mediaIn() > 100));
         assertTrue("still racing", g.state.equals("racing"));
         say("in a call with " + k.inCallWith() + " while racing (session " + raceSession + "): " + k.mediaLine());
         tap(v, GameView.R_AUTO.centerX(), GameView.R_AUTO.centerY());
@@ -247,20 +259,49 @@ public class PhoneTest {
         assertEquals("the same call", raceSession, k.session());
         assertTrue("media still coming after the race", m1 > m0 + 50);
         shot(v, "6-lobby-call-after-race");
+        // the Communicator's screen, still in the game; Race! races the call's people
+        tap(v, GameView.B_COMMS.centerX(), GameView.B_COMMS.centerY());
+        assertEquals("comms", v.screen);
+        assertTrue("the call's people", waitFor(5000, () -> k.participants().contains("blue")));
+        idle(1000);
+        shot(v, "7-comms-call");
+        say("Communicator screen: in a call with " + k.participants() + "; " + k.mediaLine());
+        // [KART_RACE_INVITE_V1] Race!: blue (in the call, running FrogNet Kart) is invited; blue's game answers in the kart memory
+        tap(v, GameView.K_RACE.centerX(), GameView.K_RACE.centerY());
+        assertTrue("invited", waitFor(3000, () -> g.inviteState.startsWith("invited [blue]")));
+        say("Race!: " + g.inviteState);
+        idle(600);
+        shot(v, "8-comms-invited");
+        assertTrue("everyone said yes", waitFor(10000, () -> { for (String l : g.log()) if (l.contains("everyone said yes ([blue])")) return true; return false; }));
+        for (String l : g.log()) if (l.contains("[KART_RACE_INVITE_V1]")) say(l);
+        assertEquals("all yes: the phone launches into the game", "game", v.screen);
+        assertTrue("a race for the call: blue's kart game is in it", waitFor(40000, () -> g.state.equals("racing") && g.myServer() != null
+                && Json.arr(g.myServer().get("players")).contains("blue")));
+        say("race " + g.myRace() + " players " + g.myServer().get("players") + "; the call goes on: " + k.inCallWith() + ", " + k.mediaLine());
+        assertTrue("told in the call's chat", waitFor(5000, () -> { for (String l : k.chat()) if (l.contains("invites [blue] to a kart race")) return true; return false; }));
+        idle(6000);
+        shot(v, "9-invited-race-call");
+        tap(v, GameView.R_LEAVE.centerX(), GameView.R_LEAVE.centerY());
+        assertTrue("Leave: out of the race, in the lobby", waitFor(5000, () -> g.state.equals("lobby") && g.playing));
+        assertTrue("the call goes on", !k.inCallWith().isEmpty());
         tap(v, GameView.C_END_L.centerX(), GameView.C_END_L.centerY());
         assertTrue("End ends the call", waitFor(3000, () -> k.inCallWith().isEmpty()));
         julie.destroy(); julie.waitFor();
-        say("Julie: " + lines(slurp(julieOut), "CALLING"));
+        say("blue's Communicator: " + lines(slurp(julieOut), "CALLING"));
         idle(1500);
-        shot(v, "7-lobby-after");
+        idle(1500);
+        shot(v, "10-lobby-after");
         assertTrue("a record for the phone", g.records().containsKey("phone"));
         say("phone's record: " + g.records().get("phone"));
 
         // Log, then Leave: back to the setup screen, out of the lobby
         tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
-        shot(v, "8-log");
+        shot(v, "11-log");
         tap(v, GameView.B_LOG.centerX(), GameView.B_LOG.centerY());
-        tap(v, GameView.B_LEAVE.centerX(), GameView.B_LEAVE.centerY());
+        tap(v, GameView.B_HOME.centerX(), GameView.B_HOME.centerY());
+        assertEquals("home", v.screen);
+        assertTrue("Home: out of the lobby", waitFor(5000, () -> !g.lobby().containsKey("phone")));
+        tap(v, GameView.H_SETTINGS.centerX(), GameView.H_SETTINGS.centerY());
         idle(500);
         assertTrue("Leave shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
         idle(500);

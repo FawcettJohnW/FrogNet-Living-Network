@@ -61,28 +61,44 @@ public final class MainActivity extends Activity implements GameView.Host {
 
     private int dp(float v) { return (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()); }
 
+    private static android.graphics.drawable.GradientDrawable round(int color, float r) {
+        android.graphics.drawable.GradientDrawable d = new android.graphics.drawable.GradientDrawable(); d.setColor(color); d.setCornerRadius(r); return d;
+    }
     private EditText field(LinearLayout col, String label, String value, int type) {
-        TextView t = new TextView(this); t.setText(label); t.setTextColor(Color.rgb(200, 220, 255)); t.setTextSize(16);
-        t.setPadding(0, dp(10), 0, 0); col.addView(t);
-        EditText e = new EditText(this); e.setText(value); e.setInputType(type); e.setTextColor(Color.WHITE); e.setTextSize(18);
-        e.setSingleLine(true); col.addView(e);
+        TextView t = new TextView(this); t.setText(label); t.setTextColor(Color.rgb(170, 178, 192)); t.setTextSize(13);
+        t.setPadding(dp(4), dp(12), 0, dp(4)); col.addView(t);
+        EditText e = new EditText(this); e.setText(value); e.setInputType(type); e.setTextColor(Color.WHITE); e.setTextSize(17);
+        e.setSingleLine(true); e.setBackground(round(Color.rgb(40, 48, 64), dp(10))); e.setPadding(dp(14), dp(10), dp(14), dp(10));
+        col.addView(e);
         return e;
     }
 
     private void showSetup() {
         getWindow().getDecorView().setSystemUiVisibility(0);
         ScrollView sv = new ScrollView(this);
-        sv.setBackgroundColor(Color.rgb(30, 34, 40));
+        sv.setBackgroundColor(Color.rgb(16, 20, 28));
+        LinearLayout outer = new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(outer);
+        LinearLayout head = new LinearLayout(this); head.setOrientation(LinearLayout.VERTICAL);
+        head.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{Color.rgb(40, 120, 70), Color.rgb(30, 70, 140)}));
+        head.setPadding(dp(28), dp(18), dp(28), dp(18));
+        TextView title = new TextView(this); title.setText("FrogNet"); title.setTextSize(34); title.setTextColor(Color.WHITE);
+        title.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); head.addView(title);
+        TextView sub = new TextView(this);
+        sub.setText("Kart racing and the Communicator, on shared memory  ·  " + Game.BUILD);
+        sub.setTextColor(Color.rgb(220, 235, 225)); sub.setTextSize(14); head.addView(sub);
+        outer.addView(head);
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(dp(24), dp(20), dp(24), dp(20));
-        sv.addView(col);
-        TextView title = new TextView(this); title.setText("FrogNet Kart"); title.setTextSize(28); title.setTextColor(Color.WHITE);
-        col.addView(title);
-        TextView sub = new TextView(this);
-        sub.setText(Game.BUILD + "\nThe lobby, the chat, the race and the records are all shared memory: this game writes its own truths and reads everyone else's.\nRaces run on a game-serving machine on the FrogNet region; the FrogNet app must be running and joined so this phone can reach it.");
-        sub.setTextColor(Color.rgb(170, 175, 185)); sub.setTextSize(14); sub.setPadding(0, dp(6), 0, dp(6));
-        col.addView(sub);
+        col.setBackground(round(Color.rgb(30, 36, 48), dp(18)));
+        col.setPadding(dp(22), dp(10), dp(22), dp(20));
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(-1, -2); clp.setMargins(dp(20), dp(16), dp(20), dp(20));
+        outer.addView(col, clp);
+        TextView how = new TextView(this);
+        how.setText("Connect to the kart memory (the players), then choose the Communicator or the game. Races run on a game-serving machine on the FrogNet region: the FrogNet app must be running and joined so this phone reaches it.");
+        how.setTextColor(Color.rgb(170, 178, 192)); how.setTextSize(13); how.setPadding(dp(4), dp(8), dp(4), 0);
+        col.addView(how);
         final EditText name = field(col, "Your name", prefs.getString("name", "phone"), InputType.TYPE_CLASS_TEXT);
         final EditText mem = field(col, "Kart memory (host:port)", prefs.getString("kart", "165.232.153.144:8799"), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final EditText bots = field(col, "Robot karts of yours in each race", String.valueOf(prefs.getInt("bots", 0)), InputType.TYPE_CLASS_NUMBER);
@@ -90,10 +106,12 @@ public final class MainActivity extends Activity implements GameView.Host {
         final EditText cram = field(col, "Communicator memory (host:port; empty: the kart memory's host, port 8800)", prefs.getString("comms_ram", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final EditText cmed = field(col, "Communicator media server (host:port; empty: the kart memory's host, port 8994)", prefs.getString("comms_media", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final CheckBox auto = new CheckBox(this); auto.setText("Start on the autopilot (toggle it in the race)"); auto.setTextColor(Color.WHITE);
-        auto.setChecked(prefs.getBoolean("auto", false)); col.addView(auto);
+        auto.setChecked(prefs.getBoolean("auto", false)); auto.setPadding(dp(4), dp(10), 0, 0); col.addView(auto);
         final TextView err = new TextView(this); err.setTextColor(Color.rgb(255, 120, 120)); col.addView(err);
-        Button go = new Button(this); go.setText("Join the lobby"); go.setTextSize(20);
-        col.addView(go);
+        Button go = new Button(this); go.setText("Connect"); go.setTextSize(20); go.setTextColor(Color.WHITE); go.setAllCaps(false);
+        go.setBackground(round(Color.rgb(36, 150, 72), dp(14)));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, dp(56)); glp.setMargins(0, dp(14), 0, 0);
+        col.addView(go, glp);
         go.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 String n = name.getText().toString().trim(), hp = mem.getText().toString().trim();
@@ -142,14 +160,15 @@ public final class MainActivity extends Activity implements GameView.Host {
         if (g != null) new Thread(new Runnable() { public void run() { g.stop(); } }, "kart-stop").start();
     }
 
-    @Override public void chatDialog() {
+    @Override public void chatDialog(final boolean toTheCall) {
         runOnUiThread(new Runnable() { public void run() {
-            final Game g = game; if (g == null) return;
-            final EditText e = new EditText(MainActivity.this); e.setSingleLine(true); e.setHint("say something to the lobby");
+            final Game g = game; final GameCalls k = calls; if (g == null) return;
+            final EditText e = new EditText(MainActivity.this); e.setSingleLine(true); e.setHint(toTheCall ? "say something to the call" : "say something to the lobby");
             e.setGravity(Gravity.START);
-            new AlertDialog.Builder(MainActivity.this).setTitle("Chat").setView(e)
+            new AlertDialog.Builder(MainActivity.this).setTitle(toTheCall ? "Chat in the call" : "Chat").setView(e)
                     .setPositiveButton("Send", new DialogInterface.OnClickListener() { public void onClick(DialogInterface d, int w) {
                         final String t = e.getText().toString();
+                        if (toTheCall) { if (k != null) k.sendChat(t); return; }                    // the Communicator's own thread
                         new Thread(new Runnable() { public void run() { g.chat(t); } }, "kart-chat").start();     // no network on the UI thread
                     } })
                     .setNegativeButton("Cancel", null).show();
