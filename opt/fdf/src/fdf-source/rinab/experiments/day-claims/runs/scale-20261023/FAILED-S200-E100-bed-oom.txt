@@ -45,3 +45,6 @@ RESULT size S=200 E=100 participants_bytes=0 mappings_bytes=0 bed_rss_mb=6641
   change #1: 0/100 daemons applied
   change #2: 0/100 daemons applied
   change #3: 0/100 daemons applied
+  change #4: 0/100 daemons applied
+RESULT event S=200 E=100 none
+RESULT FAIL: 2
