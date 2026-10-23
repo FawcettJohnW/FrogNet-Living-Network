@@ -1,0 +1,2 @@
+=== S=200 subnets, E=5 egress points, 195 children; 2026-10-23T07:40:12Z
+PASS  hub up on 51820
