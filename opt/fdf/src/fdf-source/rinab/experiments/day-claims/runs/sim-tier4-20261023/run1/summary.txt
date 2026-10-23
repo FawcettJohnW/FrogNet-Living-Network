@@ -20,3 +20,10 @@
         not lowest-delay: A_gw->C_hub took A_gw/wg1 C_hub one-way 30 vs lowest 20 ms (2 hops); return C_hub/wg1 B_gw/wg2 A_gw 20.0 ms; measured RTT 50.907
         not lowest-delay: A_gw->C_s1 took A_gw/wg1 C_hub/wg2 C_s1 one-way 31 vs lowest 21 ms (3 hops); return C_s1/wg0 C_hub/wg1 B_gw/wg2 A_gw 21.0 ms; measured RTT 53.591
         not lowest-delay: A_gw->C_s2 took A_gw/wg1 C_hub/wg3 C_s2 one-way 31 vs lowest 21 ms (3 hops); return C_s2/wg0 C_hub/wg1 B_gw/wg2 A_gw 21.0 ms; measured RTT 53.434
+[PASS] multi-LAN, /30 full mesh between 4 gateways (asymmetric shapes) (topo_multilan_shared_wg_transit): 5 cycles; model trace 220/220; packets 110/110 pairs all 10 answered (110 any); by name 110/110; lowest-delay route 95/110; different path back 28/110; RTT min p50 23.32 max 46.15 ms; over floor p50 1.26 max 2.97 ms; tunnel one-way ms [1.0, 5.0, 10.0, 25.0, 30.0]
+        not lowest-delay: A_gw->C_hub took A_gw/wgC C_hub one-way 25 vs lowest 10 ms (2 hops); return C_hub/wgB B_gw/wgA A_gw 20.0 ms; measured RTT 45.832
+        not lowest-delay: A_w1->C_hub took A_w1/eth1 A_gw/wgC C_hub one-way 25 vs lowest 10 ms (3 hops); return C_hub/wgB B_gw/wgA A_gw/eth1 A_w1 20.0 ms; measured RTT 45.822
+        not lowest-delay: A_w2->C_hub took A_w2/eth1 A_gw/wgC C_hub one-way 25 vs lowest 10 ms (3 hops); return C_hub/wgB B_gw/wgA A_gw/eth1 A_w2 20.0 ms; measured RTT 46.152
+        not lowest-delay: C_hub->A_gw took C_hub/wgB B_gw/wgA A_gw one-way 20 vs lowest 10 ms (2 hops); return A_gw/wgC C_hub 25.0 ms; measured RTT 46.079
+        not lowest-delay: C_hub->A_w1 took C_hub/wgB B_gw/wgA A_gw/eth1 A_w1 one-way 20 vs lowest 10 ms (3 hops); return A_w1/eth1 A_gw/wgC C_hub 25.0 ms; measured RTT 46.072
+        not lowest-delay: C_hub->A_w2 took C_hub/wgB B_gw/wgA A_gw/eth1 A_w2 one-way 20 vs lowest 10 ms (3 hops); return A_w2/eth1 A_gw/wgC C_hub 25.0 ms; measured RTT 45.967
