@@ -1,1 +1,4 @@
 wg_bearer_relay: 2 tunnels, offset -20000: 51820<->51821 45/45 ms, 51822<->51823 65/65 ms
+wg_bearer_relay 51820->51821:86 51821->51820:141 51822->51823:86 51823->51822:31
+wg_bearer_relay: 1 tunnels, offset -20000: 51820<->51821 45/45 ms
+wg_bearer_relay: 2 tunnels, offset -20000: 51820<->51821 45/45 ms, 51822<->51823 65/65 ms
