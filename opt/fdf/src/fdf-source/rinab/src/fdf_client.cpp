@@ -22,6 +22,9 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+#include <chrono>
+#include <cmath>
+#include <ctime>
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -37,6 +40,7 @@
 #include <arpa/inet.h>
 #include <net/if.h>
 #include <sys/sysinfo.h>
+#include <sys/statvfs.h>
 #include <sys/wait.h>
 #include <signal.h>
 #include <cstring>
@@ -259,6 +263,89 @@ static void sync_maps(frogram::Session& s, const std::string& api, std::map<std:
     fflush(stdout);
 }
 #endif
+// [TELEMETRY_IS_A_TUPLE_V1] what this machine reports, (pond, telem, <its ns>): written on THIS session with own:true,
+// so it is the session's and goes with the member ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]). Looked at every FDF_TELEM_S
+// seconds (default 30; 0: nothing reported) -- CPU, memory, disk, battery and addresses have no event to wait on -- and
+// written only when it moved: memory 5 %, disk 1 %, battery 1 % or plugged/unplugged, CPU 10 points, load 0.5, addresses.
+// Position: none on these machines (no GPS); the phone's member reports its own.
+struct Telem { double mem_total_mb = 0, mem_avail_mb = 0, disk_total_gb = 0, disk_free_gb = 0, cpu_pct = -1, load1 = -1, up_s = 0;
+               int bat_pct = -1; bool charging = false; std::string os, ips; };
+static std::string num(double v, int prec = 1) { char b[64]; snprintf(b, sizeof b, "%.*f", prec, v); return b; }
+#ifdef _WIN32
+static unsigned long long ft(const FILETIME& f) { return (static_cast<unsigned long long>(f.dwHighDateTime) << 32) | f.dwLowDateTime; }
+#endif
+static Telem telem_now() {
+    Telem t; t.ips = ipv4s();
+#ifdef _WIN32
+    MEMORYSTATUSEX m; m.dwLength = sizeof m;
+    if (GlobalMemoryStatusEx(&m)) { t.mem_total_mb = m.ullTotalPhys / 1048576.0; t.mem_avail_mb = m.ullAvailPhys / 1048576.0; }
+    ULARGE_INTEGER fr, tot, tf; if (GetDiskFreeSpaceExA("C:\\", &fr, &tot, &tf)) { t.disk_free_gb = fr.QuadPart / 1073741824.0; t.disk_total_gb = tot.QuadPart / 1073741824.0; }
+    SYSTEM_POWER_STATUS ps; if (GetSystemPowerStatus(&ps) && ps.BatteryLifePercent != 255) { t.bat_pct = ps.BatteryLifePercent; t.charging = ps.ACLineStatus == 1; }
+    static unsigned long long pi = 0, pk = 0, pu = 0; FILETIME i, k, u;          // CPU busy since the last look
+    if (GetSystemTimes(&i, &k, &u)) { const unsigned long long I = ft(i), K = ft(k), U = ft(u);
+        if (pk + pu) { const double total = double((K - pk) + (U - pu)), idle = double(I - pi); if (total > 0) t.cpu_pct = 100.0 * (total - idle) / total; }
+        pi = I; pk = K; pu = U; }
+    t.up_s = GetTickCount64() / 1000.0;
+    t.os = "Windows";
+#else
+    struct sysinfo si; if (sysinfo(&si) == 0) { t.mem_total_mb = double(si.totalram) * si.mem_unit / 1048576.0; t.up_s = si.uptime; t.load1 = si.loads[0] / 65536.0; }
+    { std::ifstream mi("/proc/meminfo"); std::string k; unsigned long long v; std::string unit;
+      while (mi >> k >> v >> unit) if (k == "MemAvailable:") { t.mem_avail_mb = v / 1024.0; break; } }
+    struct statvfs fs; if (statvfs("/", &fs) == 0) { t.disk_free_gb = double(fs.f_bavail) * fs.f_frsize / 1073741824.0; t.disk_total_gb = double(fs.f_blocks) * fs.f_frsize / 1073741824.0; }
+    for (const char* b : {"/sys/class/power_supply/BAT0", "/sys/class/power_supply/BAT1"}) {
+        std::ifstream c(std::string(b) + "/capacity"), st(std::string(b) + "/status"); int pct; std::string s2;
+        if (c >> pct) { t.bat_pct = pct; if (st >> s2) t.charging = s2 == "Charging" || s2 == "Full"; break; } }
+    { std::ifstream o("/etc/os-release"); std::string l; while (std::getline(o, l)) if (l.compare(0, 12, "PRETTY_NAME=") == 0) { t.os = l.substr(12); if (t.os.size() > 1 && t.os[0] == '"') t.os = t.os.substr(1, t.os.size() - 2); } }
+    if (t.os.empty()) t.os = "Linux";
+#endif
+    return t;
+}
+static std::string telem_moved(const Telem& a, const Telem* b) {
+    if (!b) return "first";
+    if (a.ips != b->ips) return "addresses";
+    if (std::abs(a.mem_avail_mb - b->mem_avail_mb) >= 0.05 * (a.mem_total_mb > 0 ? a.mem_total_mb : 1)) return "memory";
+    if (std::abs(a.disk_free_gb - b->disk_free_gb) >= 0.01 * (a.disk_total_gb > 0 ? a.disk_total_gb : 1)) return "disk";
+    if (a.bat_pct != b->bat_pct || a.charging != b->charging) return "battery";
+    if (a.cpu_pct >= 0 && b->cpu_pct >= 0 && std::abs(a.cpu_pct - b->cpu_pct) >= 10) return "cpu";
+    if (a.load1 >= 0 && std::abs(a.load1 - b->load1) >= 0.5) return "load";
+    return "";
+}
+static void telemetry_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
+    const char* e = getenv("FDF_TELEM_S"); const int every = e ? atoi(e) : 30;
+    if (every <= 0) { printf("fdf-client: telemetry off (FDF_TELEM_S=0)\n"); return; }
+    printf("fdf-client: [TELEMETRY_IS_A_TUPLE_V1] reporting (pond, telem, %s) on this session, looked at every %d s, written when it moved\n", ns.c_str(), every); fflush(stdout);
+#ifdef _WIN32
+    telem_now();                                                                 // the first CPU sample: the next one has a delta
+#endif
+    Telem last; bool have = false; unsigned long long writes = 0;
+    for (;;) {
+        Telem t = telem_now();
+        const std::string why = telem_moved(t, have ? &last : nullptr);
+        if (!why.empty()) {
+            std::string bag = "{\"name\":" + frogram::Json::quote(name) +
+#ifdef _WIN32
+                ",\"kind\":\"windows\"" +
+#else
+                ",\"kind\":\"linux\"" +
+#endif
+                ",\"build\":" + frogram::Json::quote(FDF_BUILD_TAG) + ",\"model\":" + frogram::Json::quote(host_name()) + ",\"os\":" + frogram::Json::quote(t.os) +
+                ",\"cores\":" + std::to_string(std::thread::hardware_concurrency()) +
+                ",\"mem\":{\"total_mb\":" + num(t.mem_total_mb, 0) + ",\"avail_mb\":" + num(t.mem_avail_mb, 0) + "}" +
+                ",\"disk\":{\"total_gb\":" + num(t.disk_total_gb) + ",\"free_gb\":" + num(t.disk_free_gb) + "}" +
+                (t.bat_pct >= 0 ? ",\"battery\":{\"pct\":" + std::to_string(t.bat_pct) + ",\"charging\":" + (t.charging ? "true" : "false") + "}" : std::string()) +
+                (t.cpu_pct >= 0 ? ",\"cpu_pct\":" + num(t.cpu_pct) : std::string()) + (t.load1 >= 0 ? ",\"load1\":" + num(t.load1, 2) : std::string()) +
+                ",\"net\":{\"ips\":" + t.ips + "},\"up_s\":" + num(t.up_s, 0) + ",\"at\":" + num(double(time(nullptr)), 0) + "}";
+            try {
+                s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) +
+                       ",\"bag\":" + bag + ",\"own\":true}");
+                last = t; have = true; ++writes;
+                if (writes <= 2 || writes % 100 == 0) { printf("fdf-client: telemetry written (#%llu, %s): %s\n", writes, why.c_str(), bag.c_str()); fflush(stdout); }
+            } catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry write failed (%s): %s -- written again when it next moves\n", why.c_str(), x.what()); }
+        }
+        std::this_thread::sleep_for(std::chrono::seconds(every));
+    }
+}
+
 static frogram::Json announce(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
     const std::string facts = read_facts();
     return s.call("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
@@ -327,6 +414,7 @@ int main(int argc, char** argv) {
           printf("fdf-client: build %s; region at %s is build %s\n", FDF_BUILD_TAG, where.c_str(), v["ok"].b ? v["server"].s.c_str() : "(no version op: older than fdf-2026-10-09-r2)"); }
         printf("fdf-client: %s joined the region at %s, announced %s%s%s\n", name.c_str(), where.c_str(), ipv4s().c_str(),
                read_facts().empty() ? "" : " with facts", is_forward() ? "" : " as a PARTICIPANT (not the forward pond)"); fflush(stdout);
+        std::thread([&s, api, ns, name] { telemetry_loop(s, api, ns, name); }).detach();     // [TELEMETRY_IS_A_TUPLE_V1]
 #ifndef _WIN32
         std::map<std::string, std::string> have_maps; sync_maps(s, api, have_maps);       // [MAP_FROM_FACTS_V1]
         // [IPCP_FACTS_V1] re-announce when the facts file changes. Watch the DIRECTORY (editors and `mv` replace the file,

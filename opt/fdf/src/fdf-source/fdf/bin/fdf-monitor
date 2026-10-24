@@ -166,10 +166,10 @@ def detail_lines(m):
                 l.get("lat"), l.get("lon")))
         else:
             out.append("  %-20s none reported (no permission, location off, or not asked)" % "position")
-        for k in ("env", "battery", "net", "mem"):
+        for k in ("env", "battery", "net", "mem", "disk"):
             if t.get(k):
                 out.append("  %-20s %s" % (k, "  ".join("%s=%s" % kv_ for kv_ in t[k].items())))
-        for k in sorted(set(t) - {"loc", "env", "battery", "net", "mem", "name", "kind", "model", "at"}):
+        for k in sorted(set(t) - {"loc", "env", "battery", "net", "mem", "disk", "name", "kind", "model", "at"}):
             out.append("  %-20s %s" % (k, json.dumps(t[k]) if isinstance(t[k], (dict, list)) else t[k]))
     else:
         out.append("telemetry     none (the device reports no (pond, telem) tuple)")
