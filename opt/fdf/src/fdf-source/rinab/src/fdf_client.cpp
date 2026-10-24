@@ -21,6 +21,7 @@
 #include <string>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <vector>
 #include <chrono>
 #include <cmath>
@@ -310,15 +311,60 @@ static std::string telem_moved(const Telem& a, const Telem* b) {
     if (a.load1 >= 0 && std::abs(a.load1 - b->load1) >= 0.5) return "load";
     return "";
 }
+// [SETTINGS_ARE_TUPLES_V1] this machine's settings are its tuple (pond, cap, <ns>), permanent: whoever writes it (a
+// settings page, fdf-monitor --set, any program) this client follows it -- telem_on, telem_period_s -- with a held read on
+// its own session. None yet: written once from what it has (FDF_TELEM_S, default 30), so every monitor shows it.
+static std::mutex telem_mu; static std::condition_variable telem_cv;
+static bool telem_on = true; static int telem_every = 30; static unsigned telem_gen = 0;
+
+static void settings_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
+    frogram::Memory mem(s, api); int64_t after = -1;
+    for (;;) {
+        std::vector<frogram::Cell> rows;
+        try { rows = mem.read("pond", "cap", ns, after, after < 0 ? 0 : 600); }
+        catch (const std::exception& x) { fprintf(stderr, "fdf-client: [SETTINGS_ARE_TUPLES_V1] reading (pond, cap, %s) failed: %s -- the next session follows it again\n", ns.c_str(), x.what()); return; }
+        bool found = false; frogram::Json bag;
+        for (auto& c : rows) { if (int64_t(c.id) > after) after = int64_t(c.id); if (c.instance == ns) { found = true; bag = c.bag; } }
+        if (after < 0 && !found) {
+            bool on; int every; { std::lock_guard<std::mutex> lk(telem_mu); on = telem_on; every = telem_every; }
+            const std::string b = "{\"name\":" + frogram::Json::quote(name) + ",\"telem_on\":" + (on ? "true" : "false") + ",\"telem_period_s\":" + std::to_string(every) +
+                                  ",\"at\":" + std::to_string(time(nullptr)) + ",\"by\":\"fdf-client, from what it had (FDF_TELEM_S)\"}";
+            try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"cap\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":" + b + ",\"permanent\":true}");
+                  printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s) did not exist: written from this machine's own: %s\n", ns.c_str(), b.c_str()); fflush(stdout); }
+            catch (const std::exception& x) { fprintf(stderr, "fdf-client: [SETTINGS_ARE_TUPLES_V1] writing (pond, cap, %s) failed: %s\n", ns.c_str(), x.what()); }
+            after = 0; continue;
+        }
+        if (after < 0) after = 0;
+        if (!found || bag.size() == 0) continue;
+        std::lock_guard<std::mutex> lk(telem_mu);
+        const bool was_on = telem_on; const int was_every = telem_every;
+        if (bag["telem_on"].type == frogram::Json::Bool) telem_on = bag["telem_on"].b;
+        if (bag["telem_period_s"].type == frogram::Json::Num && bag["telem_period_s"].n >= 1) telem_every = int(bag["telem_period_s"].n);
+        if (telem_on != was_on || telem_every != was_every) {
+            printf("fdf-client: [SETTINGS_ARE_TUPLES_V1] (pond, cap, %s): telemetry %s, every %d s (was %s, %d s)\n", ns.c_str(), telem_on ? "on" : "off", telem_every, was_on ? "on" : "off", was_every);
+            fflush(stdout); ++telem_gen; telem_cv.notify_all();
+        }
+    }
+}
+
 static void telemetry_loop(frogram::Session& s, const std::string& api, const std::string& ns, const std::string& name) {
-    const char* e = getenv("FDF_TELEM_S"); const int every = e ? atoi(e) : 30;
-    if (every <= 0) { printf("fdf-client: telemetry off (FDF_TELEM_S=0)\n"); return; }
-    printf("fdf-client: [TELEMETRY_IS_A_TUPLE_V1] reporting (pond, telem, %s) on this session, looked at every %d s, written when it moved\n", ns.c_str(), every); fflush(stdout);
+    { const char* e = getenv("FDF_TELEM_S"); std::lock_guard<std::mutex> lk(telem_mu);
+      if (e) { telem_every = atoi(e) > 0 ? atoi(e) : 30; telem_on = atoi(e) > 0; } }
+    std::thread([&s, api, ns, name] { settings_loop(s, api, ns, name); }).detach();
 #ifdef _WIN32
     telem_now();                                                                 // the first CPU sample: the next one has a delta
 #endif
-    Telem last; bool have = false; unsigned long long writes = 0;
+    printf("fdf-client: [TELEMETRY_IS_A_TUPLE_V1] reporting (pond, telem, %s) on this session, written when it moved; what and how often: (pond, cap, %s)\n", ns.c_str(), ns.c_str()); fflush(stdout);
+    Telem last; bool have = false, reported = false; unsigned long long writes = 0; unsigned gen = 0;
     for (;;) {
+        bool on; int every;
+        { std::lock_guard<std::mutex> lk(telem_mu); on = telem_on; every = telem_every; if (gen != telem_gen) { gen = telem_gen; have = false; } }
+        if (!on) {                                                                   // off: taken back now, not at session end
+            if (reported) try { s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) + ",\"bag\":{},\"own\":true}");
+                                printf("fdf-client: telemetry off: (pond, telem, %s) emptied\n", ns.c_str()); fflush(stdout); reported = false; }
+                           catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry off, emptying (pond, telem) failed: %s (it goes with the session)\n", x.what()); }
+            std::unique_lock<std::mutex> lk(telem_mu); telem_cv.wait(lk, [&] { return telem_gen != gen; }); continue;
+        }
         Telem t = telem_now();
         const std::string why = telem_moved(t, have ? &last : nullptr);
         if (!why.empty()) {
@@ -338,11 +384,12 @@ static void telemetry_loop(frogram::Session& s, const std::string& api, const st
             try {
                 s.call("POST", api + "?op=write", "{\"service\":\"pond\",\"variable\":\"telem\",\"instance\":" + frogram::Json::quote(ns) +
                        ",\"bag\":" + bag + ",\"own\":true}");
-                last = t; have = true; ++writes;
+                last = t; have = true; reported = true; ++writes;
                 if (writes <= 2 || writes % 100 == 0) { printf("fdf-client: telemetry written (#%llu, %s): %s\n", writes, why.c_str(), bag.c_str()); fflush(stdout); }
             } catch (const std::exception& x) { fprintf(stderr, "fdf-client: telemetry write failed (%s): %s -- written again when it next moves\n", why.c_str(), x.what()); }
         }
-        std::this_thread::sleep_for(std::chrono::seconds(every));
+        std::unique_lock<std::mutex> lk(telem_mu);                                  // the period, or at once when the settings change
+        telem_cv.wait_for(lk, std::chrono::seconds(every), [&] { return telem_gen != gen; });
     }
 }
 

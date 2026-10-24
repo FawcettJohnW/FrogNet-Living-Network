@@ -2,6 +2,7 @@
 # phone-test.sh [SHOTS_DIR] -- the Android game, tested with no phone: a kart memory (rina-host), the kart service, a
 # dedicated game-serving machine (kart_host.py) and Python players (red, 1 robot; blue) on this machine, then [KART_ANDROID_V1]
 #   1. core: test/Headless.java -- the game core (core/*.java) on a JVM, racing red, 40 s
+#   3. tuples: the member's (pond, telem) and (pond, cap) semantics, Telem/SettingsTupleTest.kt, against rina-host
 #   2. phone: test/robo (Robolectric, the Android 14 framework) -- MainActivity and GameView, tapped the way a person does
 #      (setup screen, Join, Chat + Send, laps, Ready, Autopilot, the race, Log, Leave), with screenshots in SHOTS_DIR, and
 #      [KART_CALLS_IN_THE_GAME_V1] the Communicator in the game: comms-ram and comms-media here, the far end the
@@ -59,6 +60,10 @@ grep -E "race .* up|placed on the grid|\[TEST\].*racing" $D/core.log | head -4 |
 if grep -q "\[TEST\] jvm racing.*[1-9][0-9]* other kart" $D/core.log && grep -q "placed on the grid" $D/core.log; then echo "PASS 1 the core races"; else echo "FAIL 1 the core races (see $D/core.log)"; FAILS=$((FAILS+1)); fi
 
 echo "== 2. the phone's Activity and view (Robolectric)"
+# the member (Kotlin) the app's Java calls: build_apk.sh's own compile of it, as a jar for Maven
+[ -d "$A/build/kclasses" ] || "$A/build_apk.sh" > $D/apk.log 2>&1 || { echo "FAIL 2 build_apk.sh (the member's classes; see $D/apk.log)"; exit 1; }
+mkdir -p test/robo/target/robo-deps
+jar cf test/robo/target/robo-deps/member.jar -C "$A/build/kclasses" . -C "$A/build/wg-all" . && cp "$A/.tools/kotlin-stdlib.jar" test/robo/target/robo-deps/kotlin-stdlib.jar
 cd test/robo
 mvn -B -q dependency:copy -Dartifact=org.robolectric:android-all-instrumented:14-robolectric-10818077-i4 -DoutputDirectory=target/robo-deps > $D/mvn-deps.log 2>&1 \
     || { echo "FAIL 2 fetching the Android 14 framework for Robolectric (see $D/mvn-deps.log)"; exit 1; }
@@ -72,6 +77,19 @@ cd "$A"
 grep "\[PHONE_TEST\]" $D/robo.log | sed 's/^/  /'
 if [ $R = 0 ] && grep -q "Tests run: 1, Failures: 0, Errors: 0" $D/robo.log; then echo "PASS 2 the phone plays a race"; else
     echo "FAIL 2 the phone plays a race (see $D/robo.log)"; grep -E "AssertionError|Exception|FAIL" $D/robo.log | head -8 | sed 's/^/  /'; FAILS=$((FAILS+1)); fi
+
+echo "== 3. the member's own tuples: telemetry and settings (the phone's member code on a JVM, a region's RAM interface)"
+# [TELEMETRY_IS_A_TUPLE_V1] [SETTINGS_ARE_TUPLES_V1] frognet-android communicator-test/{Telem,Settings}TupleTest.kt
+FA=$K/../../../frognet-android; T=$A/.tools; RP=$(( PORT + 400 ))
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/m.perm "$B/rina-host" --listen 127.0.0.1:$RP --api /FawcettInnovations.RINA.ram_interface.php > $D/m.log 2>&1 & PIDS+=($!)
+java -cp "$T/kotlinc.jar:$T/kotlin-stdlib.jar:$T/kotlin-script-runtime.jar:$T/kotlin-daemon.jar:$T/kotlin-reflect.jar:$T/trove4j.jar:$T/annotations.jar:$T/coroutines.jar" \
+    org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -classpath $T/kotlin-stdlib.jar -jvm-target 1.8 -d $D/tuples \
+    $FA/member/src/main/kotlin/com/fawcettinnovations/fdf/member/*.kt $FA/communicator-test/TelemTupleTest.kt $FA/communicator-test/SettingsTupleTest.kt > $D/tuples-build.log 2>&1
+for t in TelemTupleTestKt SettingsTupleTestKt; do
+    java -cp $D/tuples:$T/kotlin-stdlib.jar $t 127.0.0.1 $RP > $D/$t.log 2>&1
+    grep -E "^(PASS|FAIL)" $D/$t.log | sed 's/^/  /'
+    if grep -q "^ALL PASS" $D/$t.log; then echo "PASS 3 $t"; else echo "FAIL 3 $t (see $D/$t.log, $D/tuples-build.log)"; FAILS=$((FAILS+1)); fi
+done
 
 echo "== the other side: what red and the kart service saw"
 grep -E "hello from the phone|phone" $D/svc.log | head -4 | sed 's/^/  svc: /'

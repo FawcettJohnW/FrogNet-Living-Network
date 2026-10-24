@@ -20,7 +20,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 const val API = "/FawcettInnovations.RINA.ram_interface.php"
-const val MEMBER_BUILD = "fdf-kt-2026-10-23-a16"            // [FDF_VERSION_V1] on every log line that says what runs
+const val MEMBER_BUILD = "fdf-kt-2026-10-23-a17"            // [FDF_VERSION_V1] on every log line that says what runs
 
 class MemberConfig(
     val ramHost: String, val ramPort: Int,

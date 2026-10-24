@@ -60,16 +60,61 @@ class Telemetry(private val ctx: Context, private val ident: Identity, private v
     private var sensorsOn = false
     private var writes = 0L
 
-    /** the forward pond's member joined: report there */
+    /** the forward pond's member joined: report there, and follow this device's own settings tuple */
     fun attach(m: Member) = h.post {
         member = m; written = null
+        follow(m)
         if (!ident.telemOn) { log("telemetry: off (telem_on false): nothing reported"); return@post }
         if (!sensorsOn) startSources()
         log("telemetry: reporting to (pond, telem, ${m.ns}) on this member's session, every change (period ${ident.telemPeriodS} s for what has no event)")
         changed("joined")
     }
+    // ---- [SETTINGS_ARE_TUPLES_V1] this device's settings are its tuple (pond, cap, w:<guid>), permanent: whatever writes it
+    // (this app's settings page, fdf-monitor, any program), the device follows. None yet: written from what it has.
+    @Volatile private var followed: Member? = null
+    private fun follow(m: Member) {
+        if (followed === m) return
+        followed = m
+        Thread({
+            var after = -1L
+            try {
+                while (followed === m) {
+                    val r = m.read("pond", "cap", m.ns, after, if (after < 0) 0.0 else 600.0)
+                    val cs = r["cells"].takeIf { it.type == Json.Type.ARR } ?: r["rows"]
+                    var bag: Json? = null
+                    for (i in 0 until cs.a.size) { val c = cs[i]; val id = c["id"].num?.toLong() ?: 0L; if (id > after) after = id; if (c["instance"].str == m.ns) bag = c["bag"] }
+                    if (after < 0) {                                        // none: this device says what it has, once
+                        after = 0
+                        m.write("pond", "cap", m.ns, systemTuple(), permanent = true)
+                        log("settings: (pond, cap, ${m.ns}) written from this device's own: ${systemTuple()}")
+                        continue
+                    }
+                    if (bag != null && bag.o.isNotEmpty()) h.post { apply(bag) }
+                }
+            } catch (e: Exception) { if (followed === m) log("settings: following (pond, cap, ${m.ns}) ended: ${e.message} (the next session follows again)") }
+        }, "fdf-settings").apply { isDaemon = true; start() }
+    }
+    private fun systemTuple(): String = toJson(linkedMapOf("name" to ident.name, "telem_on" to ident.telemOn, "telem_gps" to ident.telemGps,
+        "telem_period_s" to ident.telemPeriodS, "at" to System.currentTimeMillis() / 1000.0))
+    private fun apply(b: Json) {
+        val was = Triple(ident.telemOn, ident.telemGps, ident.telemPeriodS)
+        if (b["telem_on"].type == Json.Type.BOOL) ident.telemOn = b["telem_on"].bool
+        if (b["telem_gps"].type == Json.Type.BOOL) ident.telemGps = b["telem_gps"].bool
+        b["telem_period_s"].num?.let { ident.telemPeriodS = it.toInt() }
+        val nm = b["name"].str
+        if (nm.isNotEmpty() && nm != ident.name) { ident.name = nm; log("settings: member name is now $nm (announced from the next session)") }
+        val now = Triple(ident.telemOn, ident.telemGps, ident.telemPeriodS)
+        if (now == was) return
+        log("settings: telemetry on=${now.first} gps=${now.second} period=${now.third} s (was ${was.first}/${was.second}/${was.third})")
+        stopSources(); if (!ident.telemGps) loc = null
+        if (ident.telemOn) { startSources(); written = null; changed("settings"); return }
+        val m = member ?: return                                   // off: what this device said is taken back now, not at session end
+        try { m.write("pond", "telem", m.ns, "{}", own = true); written = null; log("telemetry: off: (pond, telem, ${m.ns}) emptied") }
+        catch (e: Exception) { log("telemetry: off, but emptying (pond, telem, ${m.ns}) failed: ${e.message} (it goes with the session)") }
+    }
+
     /** its session ended: the tuple went with it; nothing to write until the next session */
-    fun detach() = h.post { member = null; written = null }
+    fun detach() = h.post { member = null; written = null; followed = null }
     fun stop() = h.post { stopSources(); member = null; th.quitSafely() }
 
     // ---- the sources

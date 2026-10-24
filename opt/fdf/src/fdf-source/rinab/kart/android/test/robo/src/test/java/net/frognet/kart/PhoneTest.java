@@ -2,6 +2,7 @@ package net.frognet.kart;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.robolectric.Shadows.shadowOf;
 
@@ -142,7 +143,7 @@ public class PhoneTest {
         // [KART_BANNER_IN_THE_LOG_V1] a kart memory that is not there: the red banner, and the same words in the log
         Game g0 = new Game("nobody", "robolectric", "127.0.0.1", 1, 0, false, 1, null);
         GameView v0 = new GameView(a, g0, null, new GameView.Host() {
-            public void chatDialog(boolean t) { } public void leave() { } public void exitApp() { } public void placeVideo(RectF r, RectF sf) { }
+            public void chatDialog(boolean t) { } public void leave() { } public void settings() { } public void exitApp() { } public void placeVideo(RectF r, RectF sf) { }
             public boolean vpnUp() { return true; } public String tunnel() { return null; } });
         v0.surfaceChanged(v0.getHolder(), 0, SW, SH);
         assertTrue("the kart memory at port 1 fails", waitFor(5000, () -> g0.memoryState() != null && !g0.memoryState().startsWith("connecting")));
@@ -359,9 +360,24 @@ public class PhoneTest {
         tap(v, v.B_HOME.centerX(), v.B_HOME.centerY());
         assertEquals("home", v.screen);
         assertTrue("Home: out of the lobby", waitFor(5000, () -> !g.lobby().containsKey("phone")));
+        // [SETTINGS_ARE_TUPLES_V1] Settings: pages over the home screen, each a tuple; not a member here (no MemberService
+        // under Robolectric), so each page says so instead of showing values it does not have
         tap(v, v.H_SETTINGS.centerX(), v.H_SETTINGS.centerY());
+        idle(1500);
+        View set = a.getWindow().getDecorView().findViewWithTag("settings");
+        assertNotNull("Settings opens its pages", set);
+        String txt = ""; for (TextView t : all(set, TextView.class, new ArrayList<TextView>())) txt += t.getText() + " | ";
+        say("Settings, Device page: " + txt.substring(0, Math.min(240, txt.length())));
+        assertTrue("not joined: the page says the settings are tuples, shown once a member", txt.contains("Not joined to FrogNet yet"));
+        set.findViewWithTag("tab:kart").performClick(); idle(1500);
+        assertTrue("the Kart tab", txt.length() > 0 && set.findViewWithTag("tab:comms") != null);
+        set.findViewWithTag("close").performClick(); idle(500);
+        assertNull("Close: the home screen again", a.getWindow().getDecorView().findViewWithTag("settings"));
+        assertEquals("home", v.screen);
+        tap(v, v.H_SETTINGS.centerX(), v.H_SETTINGS.centerY()); idle(1000);
+        a.getWindow().getDecorView().findViewWithTag("settings").findViewWithTag("disconnect").performClick();
         idle(500);
-        assertTrue("Leave shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
+        assertTrue("Disconnect shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
         idle(500);
         say("left: setup screen again; the Communicator: " + (cf.get(a) == null ? "left the room" : "STILL HELD"));
         // [APP_EXIT_V1] Exit (on the setup screen here; the home screen has one too): the app closes

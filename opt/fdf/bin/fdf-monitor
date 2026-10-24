@@ -11,6 +11,8 @@
 #   term.hosts  it accepts browser logins (fdf-term-serve), since when;  term: browser sessions open to it now
 #   telem       [TELEMETRY_IS_A_TUPLE_V1] what the device reports, (pond, telem, <its ns>): position, battery, environment,
 #               network, memory -- the member's own tuple, gone with its session
+#   settings    [SETTINGS_ARE_TUPLES_V1] (pond, cap, <ns>) the device's, (pond, cap, <ns>:<app>) each app's: permanent
+#               tuples the device and its apps follow, whoever writes them (its settings pages, --set here)
 # Network-wide: fdf/where (where the race and the Communicator are), the RAM manager's round trip from here.
 #
 # Interactive (curses): redrawn when something changes -- a member joins, leaves or announces (fdf-watch, held), a
@@ -18,6 +20,8 @@
 #   Up/Down select   Enter details   Esc/Left back   r re-read now   q quit
 #   --once   print the table and every member's details once, then exit (also: Windows, pipes, logs)
 #   --json   everything gathered, as JSON
+#   --set NAME|NS[:APP] KEY=VALUE ...   write that settings tuple (the keys given; the others kept), permanent; the
+#            device or app follows it. VALUE is JSON (30, true, "x") or else a string. e.g. --set pixel telem_period_s=60
 # The network is HOST:PORT, else RINA_RAM, else what fdf-join wrote.
 import json, os, select, subprocess, sys, threading, time
 BIN = os.path.dirname(os.path.realpath(__file__))
@@ -60,6 +64,9 @@ def gather(ram):
             telem[c["instance"]] = c["bag"]
         else:
             telem.pop(c["instance"], None)
+    caps = {}                                         # [SETTINGS_ARE_TUPLES_V1] the newest cell per instance
+    for c in sorted(ram.read("pond", "cap"), key=lambda c: c["id"]):
+        caps[c["instance"]] = c["bag"]
     t0 = time.time()                                  # the round trip: one small request, after the client is warm
     ram._do("GET", {"op": "version"})
     rtt_ms = (time.time() - t0) * 1000.0
@@ -70,7 +77,8 @@ def gather(ram):
              "session": sid, "seen_from": speer.get(sid, ""), "attached": sess.get(sid, ""),
              "procs": sorted(k for k, v in procs.items() if kv(v).get("ns") == ns),
              "apps": sorted(k for k, v in apps.items() if kv(v).get("ns") == ns),
-             "term": None, "term_sessions": sorted(open_s.get(p["name"], ())), "telem": telem.get(ns)}
+             "term": None, "term_sessions": sorted(open_s.get(p["name"], ())), "telem": telem.get(ns),
+             "settings": {i: b for i, b in sorted(caps.items()) if b and (i == ns or i.startswith(ns + ":"))}}
         t = terms.get(p["name"])
         if t:
             m["term"] = {"since": t["bag"].get("since"), "row": t["id"]}
@@ -173,6 +181,14 @@ def detail_lines(m):
             out.append("  %-20s %s" % (k, json.dumps(t[k]) if isinstance(t[k], (dict, list)) else t[k]))
     else:
         out.append("telemetry     none (the device reports no (pond, telem) tuple)")
+    out.append("")
+    if m.get("settings"):
+        for i, b in m["settings"].items():
+            out.append("settings (pond, cap, %s)%s:" % (i, (", written %s ago" % ago(b["at"])) if b.get("at") else ""))
+            for k in sorted(set(b) - {"at"}):
+                out.append("  %-20s %s" % (k, json.dumps(b[k]) if isinstance(b[k], (dict, list, bool)) else b[k]))
+    else:
+        out.append("settings      none (no (pond, cap, <ns>) tuple: the device has not written its own)")
     out.append("")
     out.append("capability (as announced%s):" % ((", measured " + ago(m["cap"]["ts"]) + " ago") if m["cap"].get("ts") else ""))
     for k in sorted(m["cap"]):
@@ -336,8 +352,50 @@ def interactive(ram):
     curses.wrapper(ui)
 
 
+def set_cap(ram, who, pairs):
+    """[SETTINGS_ARE_TUPLES_V1] --set: write (pond, cap, NS[:APP]) permanent, the given keys over what is there"""
+    if who.startswith("w:"):
+        parts = who.split(":")
+        base, app = "w:" + parts[1], ":".join(parts[2:])
+    else:
+        base, _, app = who.partition(":")
+    if not base.startswith("w:"):
+        hits = [p["ns"] for p in ram.participants() if p["name"] == base]
+        if len(hits) != 1:
+            sys.exit("fdf-monitor --set: %d members named %s%s" % (len(hits), base, (": " + ", ".join(hits)) if hits else ""))
+        base = hits[0]
+    inst = base + (":" + app if app else "")
+    bag = {}
+    for c in sorted(ram.read("pond", "cap", inst), key=lambda c: c["id"]):
+        if c["instance"] == inst:
+            bag = dict(c["bag"])
+    for kvp in pairs:
+        if "=" not in kvp:
+            sys.exit("fdf-monitor --set: %s is not KEY=VALUE" % kvp)
+        k, v = kvp.split("=", 1)
+        try:
+            bag[k] = json.loads(v)
+        except ValueError:
+            bag[k] = v
+    bag["at"] = time.time()
+    import socket
+    bag["by"] = "fdf-monitor on %s" % socket.gethostname()
+    rid = ram.write("pond", "cap", inst, bag, permanent=True)
+    print("(pond, cap, %s) #%s = %s" % (inst, rid, json.dumps(bag)))
+
+
 def main():
     a = sys.argv[1:]
+    if "--set" in a:
+        i = a.index("--set")
+        if len(a) < i + 3:
+            sys.exit("usage: fdf-monitor [HOST:PORT] --set NAME|NS[:APP] KEY=VALUE ...")
+        try:
+            hp = [x for x in a[:i] if not x.startswith("--")]
+            set_cap(fdfram.Ram(hp[0] if hp else None), a[i + 1], a[i + 2:])
+        except fdfram.RamError as e:
+            sys.exit("fdf-monitor: %s" % e)
+        return
     rest = [x for x in a if not x.startswith("--")]
     try:
         ram = fdfram.Ram(rest[0] if rest else None)

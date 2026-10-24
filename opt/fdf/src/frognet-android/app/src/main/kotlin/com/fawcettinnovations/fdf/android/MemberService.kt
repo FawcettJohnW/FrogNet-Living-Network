@@ -173,13 +173,13 @@ class MemberService : Service() {
             val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
                 { if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() }, area, "", 30, AndroidTuner, say,
                 prepare = { mm -> if (id.forward == area) leaf.place(mm, mm.world()) },
-                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm) else telemetry.attach(mm); status() },
+                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm) else { telemetry.attach(mm); forwardJoined(mm) }; status() },
                 onRegionChange = { mm -> leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
                 onAttention = { _, cell -> attention(area, cell) }))
             members[area] = m
             val why = m.runOnce()
             members.remove(area)
-            if (id.forward == area) telemetry.detach()
+            if (id.forward == area) { telemetry.detach(); if (joinedForward === m) forwardJoined(null) }
             if (id.forward == area) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
             reach.ended(why)
             if (refused.containsKey(area)) { AppLog.add("member: $area is not rejoined: its reach was refused (${refused[area]})"); status(); break }
@@ -237,8 +237,38 @@ class MemberService : Service() {
         return listOf(area, from, ram, media, ident.name)
     }
 
+    // ---- [SETTINGS_ARE_TUPLES_V1] for a settings page in this process: it reads tuples and writes tuples in the forward
+    // pond's memory, on this member's session, and keeps nothing of its own. The device's (pond, cap, w:<guid>) is
+    // followed by Telemetry; an app's (pond, cap, w:<guid>:<app>) by that app. Strings, so Java needs no Kotlin types.
+    /** this device's ns in its forward pond, or null when not joined */
+    fun ns(): String? = joinedForward?.ns
+    @Volatile private var joinedForward: Member? = null
+    private fun forwardJoined(m: Member?) = synchronized(JOINED) { joinedForward = m; JOINED.notifyAll() }
+    fun forwardArea(): String = ident.forward
+    /** the bag of (pond, variable, instance) as JSON text; "{}" when there is none; null (logged) when not joined or failed */
+    fun tuple(variable: String, instance: String): String? = held(variable, instance, -1, 0.0)?.get(1)
+    /** [HELD_READ_V1] (pond, variable, instance) once something newer than `after` is written (or waitS passes):
+     *  [newest id, bag JSON]; id -1 and "{}" when there is none; null (logged) when not joined or failed */
+    fun held(variable: String, instance: String, after: Long, waitS: Double): Array<String>? {
+        val m = joinedForward ?: run { AppLog.add("settings: reading (pond, $variable, $instance): not joined to ${ident.forward}"); return null }
+        return try {
+            val r = m.read("pond", variable, instance, after, waitS); val cs = if (r["cells"].type == Json.Type.ARR) r["cells"] else r["rows"]
+            var bag = "{}"; var id = after
+            for (i in 0 until cs.a.size) if (cs[i]["instance"].str == instance) { bag = cs[i]["bag"].toString(); id = maxOf(id, cs[i]["id"].num?.toLong() ?: id) }
+            arrayOf(id.toString(), bag)
+        } catch (e: Exception) { AppLog.add("settings: reading (pond, $variable, $instance) failed: ${e.message}"); null }
+    }
+    /** writes (pond, cap, instance) permanent; false (logged) when not joined or refused */
+    fun setCap(instance: String, bagJson: String): Boolean {
+        val m = joinedForward ?: run { AppLog.add("settings: writing (pond, cap, $instance): not joined to ${ident.forward}"); return false }
+        return try { val id = m.write("pond", "cap", instance, bagJson, permanent = true); AppLog.add("settings: (pond, cap, $instance) = $bagJson (#$id)"); id >= 0 }
+        catch (e: Exception) { AppLog.add("settings: writing (pond, cap, $instance) failed: ${e.message}"); false }
+    }
+
     companion object {
         @Volatile var instance: MemberService? = null
+        /** notified when the forward pond's session joins or ends: wait on it (synchronized) for ns() to change */
+        @JvmField val JOINED = Object()
         const val ACTION_STOP = "com.fawcettinnovations.fdf.android.STOP"
         const val ACTION_FORWARD = "com.fawcettinnovations.fdf.android.FORWARD"
     }

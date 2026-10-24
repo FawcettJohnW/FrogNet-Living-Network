@@ -43,7 +43,8 @@ import net.frognet.kart.core.Region;
  * second program; here GameCalls runs the Communicator's own code inside the game, so a call can be made from the lobby
  * and answered at any time, racing too, and a race ending leaves the call as it is.
  */
-public final class MainActivity extends Activity implements GameView.Host {
+public final class MainActivity extends Activity implements GameView.Host, Settings.Host {
+    interface Alive { boolean alive(); }
     static final String TAG = "FrogNetKart";
     private Game game;
     private GameView view;
@@ -52,6 +53,7 @@ public final class MainActivity extends Activity implements GameView.Host {
     private TextureView remoteTV, selfTV;
     private FrameLayout selfBox;
     private SharedPreferences prefs;
+    private Settings settings;
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
@@ -159,10 +161,51 @@ public final class MainActivity extends Activity implements GameView.Host {
         stage.addView(remoteTV, new FrameLayout.LayoutParams(1, 1)); remoteTV.setVisibility(View.GONE);
         stage.addView(selfBox, new FrameLayout.LayoutParams(1, 1)); selfBox.setVisibility(View.GONE);
         setContentView(stage);
+        follow(g);
         if (!askedPermissions) startMember("connected");      // else after the permission answer: one system question at a time
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
+
+    // ---- [SETTINGS_ARE_TUPLES_V1] Settings (home screen): pages that show and write tuples; the app follows its own
+    private void follow(final Game g) {
+        Alive alive = new Alive() { public boolean alive() { return game == g; } };
+        Settings.follow("kart", prefs, new String[]{"laps", "auto", "bots", "kart"}, new Settings.Apply() { public void apply(java.util.Map<String, Object> b) {
+            SharedPreferences.Editor e = prefs.edit();
+            if (b.containsKey("laps")) { int n = (int) net.frognet.kart.core.Json.num(b.get("laps")); e.putInt("laps", Math.max(1, n)); g.setLaps(n); }
+            if (b.containsKey("auto")) e.putBoolean("auto", net.frognet.kart.core.Json.bool(b.get("auto")));
+            if (b.containsKey("bots")) e.putInt("bots", (int) net.frognet.kart.core.Json.num(b.get("bots")));
+            if (b.containsKey("kart") && net.frognet.kart.core.Json.str(b.get("kart")).matches(".+:\\d+")) e.putString("kart", net.frognet.kart.core.Json.str(b.get("kart")));
+            e.apply();
+            note("[SETTINGS_ARE_TUPLES_V1] kart settings applied: laps " + g.laps() + " now; autopilot, robots and the kart memory from the next race / Connect");
+        } }, alive);
+        Settings.follow("comms", prefs, new String[]{"comms_ram", "comms_media"}, new Settings.Apply() { public void apply(java.util.Map<String, Object> b) {
+            SharedPreferences.Editor e = prefs.edit();
+            for (String k : new String[]{"comms_ram", "comms_media"}) if (b.containsKey(k)) { String v = net.frognet.kart.core.Json.str(b.get(k)); if (v.isEmpty() || v.matches(".+:\\d+")) e.putString(k, v); }
+            e.apply();
+            note("[SETTINGS_ARE_TUPLES_V1] Communicator settings applied (from the next Connect): memory " + prefs.getString("comms_ram", "") + ", media " + prefs.getString("comms_media", ""));
+        } }, alive);
+    }
+    @Override public void settings() {
+        runOnUiThread(new Runnable() { public void run() {
+            if (stage == null || settings != null) return;
+            settings = new Settings(MainActivity.this, MainActivity.this);
+            stage.addView(settings.root, new FrameLayout.LayoutParams(-1, -1));
+            getWindow().getDecorView().setSystemUiVisibility(0);
+            settings.show("device");
+            Log.i(TAG, "[SETTINGS_ARE_TUPLES_V1] Settings opened");
+        } });
+    }
+    @Override public void closeSettings() {
+        runOnUiThread(new Runnable() { public void run() {
+            if (settings == null) return;
+            if (stage != null) stage.removeView(settings.root);
+            settings = null;
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        } });
+    }
+    @Override public void disconnect() { settings = null; leave(); }
 
     private void stopGame() {
         final GameView v = view; final Game g = game; final GameCalls k = calls;
@@ -221,7 +264,7 @@ public final class MainActivity extends Activity implements GameView.Host {
         runOnUiThread(new Runnable() { public void run() { stopGame(); showSetup(); } });
     }
 
-    @Override public void onBackPressed() { if (game != null) leave(); else super.onBackPressed(); }
+    @Override public void onBackPressed() { if (settings != null) closeSettings(); else if (game != null) leave(); else super.onBackPressed(); }
 
     @Override protected void onDestroy() { stopGame(); super.onDestroy(); }
 

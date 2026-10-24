@@ -19,7 +19,15 @@ BridgeVpn and fdf-tun compiled in -- so Connect also joins FrogNet (the pond `fr
 brings up the tunnel the race memories (game-serving machines' region addresses, 10.x) are reached through. Android
 asks its VPN question once, the first time; nothing else is asked. The member logs to logcat tag `FDF`. The kart
 memory (default 165.232.153.144:8799) is reached directly.
-Setup screen: name, kart memory, robots, laps, autopilot. In the lobby: Ready, Start, - / +, Chat, Comms, Log, Home.
+Settings (home screen) [SETTINGS_ARE_TUPLES_V1]: the pages keep nothing of their own; each shows a tuple in the forward
+pond's memory and Save writes it there, permanent: **Device** (pond, cap, w:<guid>) {name, telem_on, telem_gps,
+telem_period_s} -- followed by the member's telemetry -- with what the device reports, (pond, telem, w:<guid>), shown
+as every monitor reads it; **Kart** (pond, cap, w:<guid>:kart) {laps, auto, bots, kart}; **Communicator** (pond, cap,
+w:<guid>:comms) {comms_ram, comms_media}. The device and the app follow their tuples with a held read, whoever writes
+them: `fdf-monitor --set NAME telem_period_s=60`, `fdf-monitor --set NAME:kart laps=5` do the same from any machine
+(fdf-client on Windows and Linux follows its (pond, cap, <ns>) too). A tuple not there yet is written once from what
+the device or app has. Disconnect (on Settings) goes back to the connect screen.
+Connect screen: name, kart memory, robots, laps, autopilot (what is needed before this device is a member). In the lobby: Ready, Start, - / +, Chat, Comms, Log, Home.
 Racing: left / right (bottom left), GAS / BRAKE (right, multi-touch), Autopilot, Leave. A red banner says what is
 not reachable. The game logs to logcat under the tag `FrogNetKart`.
 

@@ -33,6 +33,8 @@ import java.util.Set;
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
     public interface Host { void chatDialog(boolean toTheCall); void leave();
+        /** [SETTINGS_ARE_TUPLES_V1] the settings pages: tuples in the pond's memory */
+        void settings();
         /** [APP_EXIT_V1] everything ends -- race, Communicator, the FrogNet membership and its tunnel -- and the app closes */
         void exitApp();
         /** [KART_CALLS_IN_THE_GAME_V1] where the far end's picture and this camera's go on the screen; null: hidden */
@@ -249,7 +251,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             if (screen.equals("home")) {
                 if (H_COMMS.contains(q[0], q[1])) { game.play(false); screen = "comms"; }
                 else if (H_GAME.contains(q[0], q[1])) { game.play(true); screen = "game"; }
-                else if (H_SETTINGS.contains(q[0], q[1])) host.leave();
+                else if (H_SETTINGS.contains(q[0], q[1])) host.settings();
                 else if (H_EXIT.contains(q[0], q[1])) host.exitApp();
             } else {
                 if (K_GAME.contains(q[0], q[1])) { game.play(true); screen = "game"; }
