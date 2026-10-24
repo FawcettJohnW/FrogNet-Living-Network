@@ -13,7 +13,7 @@ T_REF, T_STRING, T_DEC, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
 KIND = {"name": T_STRING, "label": T_STRING, "theme": T_REF, "hardwareAccelerated": T_BOOL, "exported": T_BOOL,
         "required": T_BOOL, "screenOrientation": T_DEC, "configChanges": T_HEX,
         "permission": T_STRING, "value": T_STRING, "foregroundServiceType": T_HEX, "extractNativeLibs": T_BOOL}
-FGS = {"specialUse": 0x40000000, "dataSync": 0x1}
+FGS = {"specialUse": 0x40000000, "dataSync": 0x1, "location": 0x8}
 ORIENT = {"sensorLandscape": 6, "landscape": 0, "portrait": 1, "fullUser": 13, "fullSensor": 10}
 CONFIG = {"orientation": 0x80, "keyboardHidden": 0x20, "screenSize": 0x400, "screenLayout": 0x100, "smallestScreenSize": 0x800}
 

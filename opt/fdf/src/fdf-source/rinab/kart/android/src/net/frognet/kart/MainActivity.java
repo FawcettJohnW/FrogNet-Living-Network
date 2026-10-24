@@ -113,6 +113,11 @@ public final class MainActivity extends Activity implements GameView.Host {
         go.setBackground(round(Color.rgb(36, 150, 72), dp(14)));
         LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, dp(56)); glp.setMargins(0, dp(14), 0, 0);
         col.addView(go, glp);
+        Button ex = new Button(this); ex.setText("Exit"); ex.setTextSize(18); ex.setTextColor(Color.WHITE); ex.setAllCaps(false);
+        ex.setBackground(round(Color.rgb(150, 40, 40), dp(14)));
+        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(-1, dp(48)); elp.setMargins(0, dp(10), 0, 0);
+        col.addView(ex, elp);
+        ex.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { exitApp(); } });   // [APP_EXIT_V1]
         go.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 String n = name.getText().toString().trim(), hp = mem.getText().toString().trim();
@@ -137,10 +142,13 @@ public final class MainActivity extends Activity implements GameView.Host {
         game = new Game(name, Build.MODEL, host, port, bots, auto, laps, new Region.Log() { public void say(String l) { Log.i(TAG, l); } });
         final Game g = game;
         askedPermissions = checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED;
+                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                || (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && !getSharedPreferences("kart", MODE_PRIVATE).getBoolean("asked_location", false));
+        getSharedPreferences("kart", MODE_PRIVATE).edit().putBoolean("asked_location", true).apply();   // asked once; the person's no stands
         if (askedPermissions)
-            requestPermissions(Build.VERSION.SDK_INT >= 33 ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA, "android.permission.POST_NOTIFICATIONS"}
-                    : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}, 1);   // now, not mid-race
+            requestPermissions(Build.VERSION.SDK_INT >= 33 ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA, "android.permission.POST_NOTIFICATIONS",
+                        Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}
+                    : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1);   // now, not mid-race; location: [TELEMETRY_IS_A_TUPLE_V1]
         stage = new FrameLayout(this);
         remoteTV = new TextureView(this); selfTV = new TextureView(this);
         selfBox = new FrameLayout(this); selfBox.setPadding(3, 3, 3, 3); selfBox.setBackgroundColor(0xCCFFFFFF);
@@ -200,6 +208,13 @@ public final class MainActivity extends Activity implements GameView.Host {
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Math.round(r.width()), Math.round(r.height()));
         lp.leftMargin = Math.round(r.left); lp.topMargin = Math.round(r.top);
         v.setLayoutParams(lp); v.setVisibility(View.VISIBLE);
+    }
+
+    @Override public void exitApp() {
+        runOnUiThread(new Runnable() { public void run() {
+            Log.i(TAG, "[APP_EXIT_V1] Exit: the race, the Communicator and the FrogNet membership end; the app closes");
+            stopGame(); finishAndRemoveTask();
+        } });
     }
 
     @Override public void leave() {

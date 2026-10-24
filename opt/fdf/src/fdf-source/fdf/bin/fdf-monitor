@@ -9,6 +9,8 @@
 #   speer   the address the RAM manager sees that session come from (the public / NAT address)
 #   sess    what is attached to the session;  proc / app: RINA processes and registered applications on that machine
 #   term.hosts  it accepts browser logins (fdf-term-serve), since when;  term: browser sessions open to it now
+#   telem       [TELEMETRY_IS_A_TUPLE_V1] what the device reports, (pond, telem, <its ns>): position, battery, environment,
+#               network, memory -- the member's own tuple, gone with its session
 # Network-wide: fdf/where (where the race and the Communicator are), the RAM manager's round trip from here.
 #
 # Interactive (curses): redrawn when something changes -- a member joins, leaves or announces (fdf-watch, held), a
@@ -52,6 +54,12 @@ def gather(ram):
     for c in ram.read("term"):
         open_s.setdefault(c["variable"], set()).add(c["instance"].rsplit(".", 1)[0])
     where = {c["instance"]: c["bag"] for c in ram.read("fdf", "where")}
+    telem = {}                                        # [TELEMETRY_IS_A_TUPLE_V1] the newest non-empty cell per ns
+    for c in sorted(ram.read("pond", "telem"), key=lambda c: c["id"]):
+        if c["bag"]:
+            telem[c["instance"]] = c["bag"]
+        else:
+            telem.pop(c["instance"], None)
     t0 = time.time()                                  # the round trip: one small request, after the client is warm
     ram._do("GET", {"op": "version"})
     rtt_ms = (time.time() - t0) * 1000.0
@@ -62,7 +70,7 @@ def gather(ram):
              "session": sid, "seen_from": speer.get(sid, ""), "attached": sess.get(sid, ""),
              "procs": sorted(k for k, v in procs.items() if kv(v).get("ns") == ns),
              "apps": sorted(k for k, v in apps.items() if kv(v).get("ns") == ns),
-             "term": None, "term_sessions": sorted(open_s.get(p["name"], ()))}
+             "term": None, "term_sessions": sorted(open_s.get(p["name"], ())), "telem": telem.get(ns)}
         t = terms.get(p["name"])
         if t:
             m["term"] = {"since": t["bag"].get("since"), "row": t["id"]}
@@ -89,7 +97,17 @@ def load(cap):
 
 
 COLS = [("NAME", 16), ("ALIVE", 5), ("SEEN FROM", 15), ("IPS", 22), ("OS", 7), ("CORES", 5), ("CPU", 8),
-        ("MEM", 6), ("LOAD", 5), ("TERM", 6), ("SESS", 4)]
+        ("MEM", 6), ("LOAD", 5), ("TERM", 6), ("SESS", 4), ("POSITION", 19), ("BATT", 5)]
+
+
+def position(t):
+    l = (t or {}).get("loc") or {}
+    return "%.4f,%.4f" % (l["lat"], l["lon"]) if "lat" in l and "lon" in l else "-"
+
+
+def battery(t):
+    b = (t or {}).get("battery") or {}
+    return ("%d%%%s" % (b["pct"], "+" if b.get("charging") else "")) if "pct" in b else "-"
 
 
 def row(m):
@@ -97,7 +115,8 @@ def row(m):
     return [m["name"], "yes" if m["alive"] else "no", m["seen_from"] or "-", ",".join(m["ips"]) or "-",
             c.get("os") or ("linux" if c.get("arch") else "-"), str(c.get("cores", "-")),
             ("%.0f" % c["cpu_bench_total"]) if c.get("cpu_bench_total") else "-", gb(c.get("mem_total_kb", 0)),
-            load(c), ("up " + ago(m["term"]["since"])) if m["term"] else "-", str(len(m["term_sessions"])) if m["term"] else "-"]
+            load(c), ("up " + ago(m["term"]["since"])) if m["term"] else "-", str(len(m["term_sessions"])) if m["term"] else "-",
+            position(m["telem"]), battery(m["telem"])]
 
 
 def fit(s, w):
@@ -134,6 +153,26 @@ def detail_lines(m):
         out.append("terminal      no (fdf-term-serve not running)")
     out.append("processes     %s" % (", ".join(m["procs"]) or "-"))
     out.append("applications  %s" % (", ".join(m["apps"]) or "-"))
+    t = m["telem"]
+    out.append("")
+    if t:
+        out.append("telemetry (reported %s ago, %s %s):" % (ago(t.get("at")), t.get("kind", "?"), t.get("model", "")))
+        l = t.get("loc") or {}
+        if l:
+            out.append("  %-20s %s, %s  +-%.0f m%s%s  (%s, fix %s ago)  https://maps.google.com/?q=%s,%s" % (
+                "position", l.get("lat"), l.get("lon"), l.get("acc_m") or 0,
+                ("  alt %.0f m" % l["alt_m"]) if l.get("alt_m") is not None else "",
+                ("  %.1f m/s" % l["speed_mps"]) if l.get("speed_mps") else "", l.get("provider", "?"), ago(l.get("fix_at")),
+                l.get("lat"), l.get("lon")))
+        else:
+            out.append("  %-20s none reported (no permission, location off, or not asked)" % "position")
+        for k in ("env", "battery", "net", "mem"):
+            if t.get(k):
+                out.append("  %-20s %s" % (k, "  ".join("%s=%s" % kv_ for kv_ in t[k].items())))
+        for k in sorted(set(t) - {"loc", "env", "battery", "net", "mem", "name", "kind", "model", "at"}):
+            out.append("  %-20s %s" % (k, json.dumps(t[k]) if isinstance(t[k], (dict, list)) else t[k]))
+    else:
+        out.append("telemetry     none (the device reports no (pond, telem) tuple)")
     out.append("")
     out.append("capability (as announced%s):" % ((", measured " + ago(m["cap"]["ts"]) + " ago") if m["cap"].get("ts") else ""))
     for k in sorted(m["cap"]):
@@ -194,11 +233,27 @@ def watch_terms(ram, ev):
         ev.poke("error")
 
 
+def watch_telem(ram, ev):
+    """[TELEMETRY_IS_A_TUPLE_V1] a held read on (pond, telem): a device reported, or its tuple went with it"""
+    last = 0
+    try:
+        last = max([c["id"] for c in ram.read("pond", "telem")] + [0])
+        while True:
+            cells = ram.read("pond", "telem", after=last, wait_s=fdfram.HOLD_S)
+            if cells:
+                last = max(c["id"] for c in cells)
+                ev.poke("telemetry")
+    except fdfram.RamError as e:
+        ev.error = "(pond, telem) read failed: %s" % e
+        ev.poke("error")
+
+
 def interactive(ram):
     import curses
     ev = Events()
     threading.Thread(target=watch_members, args=(ram, ev), daemon=True).start()
     threading.Thread(target=watch_terms, args=(ram, ev), daemon=True).start()
+    threading.Thread(target=watch_telem, args=(ram, ev), daemon=True).start()
 
     def ui(scr):
         curses.curs_set(0)

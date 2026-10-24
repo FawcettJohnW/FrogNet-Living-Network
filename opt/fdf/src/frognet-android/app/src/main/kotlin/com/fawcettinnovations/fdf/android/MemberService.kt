@@ -58,6 +58,7 @@ class MemberService : Service() {
     private lateinit var bridge: Bridge
     private lateinit var tunnel: BridgeForwardDriver
     private lateinit var ident: Identity
+    private lateinit var telemetry: Telemetry
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +69,7 @@ class MemberService : Service() {
             extraScope = { carrier.associate { "$it/32" to "this device's own network uses it (carrier-grade NAT)" } },
             onLost = { members.values.forEach { it.leave() } })
         tunnel = BridgeForwardDriver(bridge)
+        telemetry = Telemetry(this, ident, AppLog::add)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("fdf", "FrogNet membership", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel("fdf-attention", "FrogNet pond notices", NotificationManager.IMPORTANCE_HIGH))
@@ -137,7 +139,12 @@ class MemberService : Service() {
             ACTION_STOP -> { stopMembership("stopped by the user"); stopSelf(); return START_NOT_STICKY }
             ACTION_FORWARD -> { intent.getStringExtra("area")?.let { a -> Thread({ bringForward(a) }, "fdf-forward").start() }; return START_STICKY }
         }
-        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification("joining"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // [TELEMETRY_IS_A_TUPLE_V1] with location permission the service is also a location one, so the position keeps
+        // coming while the app is in the background (a type it may not hold is refused by Android: only when held)
+        val locOk = ident.telemGps && (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            || checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification("joining"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+            (if (locOk) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
         else startForeground(1, notification("joining"))
         running = true; refused.clear()
         for (pond in ident.ponds) if (workers[pond.area]?.isAlive != true)
@@ -166,12 +173,13 @@ class MemberService : Service() {
             val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
                 { if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() }, area, "", 30, AndroidTuner, say,
                 prepare = { mm -> if (id.forward == area) leaf.place(mm, mm.world()) },
-                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm); status() },
+                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm) else telemetry.attach(mm); status() },
                 onRegionChange = { mm -> leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
                 onAttention = { _, cell -> attention(area, cell) }))
             members[area] = m
             val why = m.runOnce()
             members.remove(area)
+            if (id.forward == area) telemetry.detach()
             if (id.forward == area) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
             reach.ended(why)
             if (refused.containsKey(area)) { AppLog.add("member: $area is not rejoined: its reach was refused (${refused[area]})"); status(); break }
@@ -201,7 +209,7 @@ class MemberService : Service() {
     private fun stopMembership(why: String) {
         running = false; AppLog.add("member: leaving every pond ($why)")
         members.values.forEach { it.leave() }; workers.values.forEach { it.interrupt() }
-        runCatching { tunnel.down(why) }; bridge.close()
+        runCatching { tunnel.down(why) }; bridge.close(); telemetry.detach()
     }
 
     /** the VPN was taken away: nothing of it stands; the sessions end so the next ones decide again ([GONE_IS_GONE_V1]) */
@@ -211,7 +219,7 @@ class MemberService : Service() {
     fun resolve(ep: String): String? = try { bridge.resolve(ep, HashMap(members), ident.forward) }
         catch (e: Ambiguous) { AppLog.add("resolve: ${e.message}"); null } catch (e: Exception) { AppLog.add("resolve $ep: ${e.message}"); null }
 
-    override fun onDestroy() { if (running) stopMembership("service destroyed"); instance = null; super.onDestroy() }
+    override fun onDestroy() { if (running) stopMembership("service destroyed"); telemetry.stop(); instance = null; super.onDestroy() }
 
     /** [COMMS_FROM_THE_POND_V1] the Communicator the forward pond's members say they run, read now on that pond's
      *  session: (pond, area, from, ram, media), or null with the reason logged (not joined; nobody runs one). */

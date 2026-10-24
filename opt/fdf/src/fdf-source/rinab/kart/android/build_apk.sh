@@ -21,7 +21,7 @@ COMMS_SRC=$FN/app/src/main/java/net/frognet/communicator; MK=$FN/member/src/main
 [ -f "$AK/MemberService.kt" ] && [ -d "$MK" ] || { echo "build_apk: no FrogNet member source at $FN (FN=<frognet-android>)" >&2; exit 1; }
 for abi in arm64-v8a armeabi-v7a x86_64; do [ -s "$FN/app/src/main/jniLibs/$abi/libfdftun.so" ] || { echo "build_apk: no $abi libfdftun.so in $FN/app/src/main/jniLibs" >&2; exit 1; }; done
 OUT=${1:-$HERE/build/FrogNetKart.apk}; T=${TOOLS:-$HERE/.tools}; M=https://repo1.maven.org/maven2
-VERSION_CODE=7; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
+VERSION_CODE=8; VERSION_NAME=$(sed -n 's/.*BUILD = "kart-android-\([^"]*\)".*/\1/p' src/net/frognet/kart/core/Game.java)
 [ -n "$VERSION_NAME" ] || { echo "build_apk: no BUILD in Game.java" >&2; exit 1; }
 mkdir -p "$T" build
 get() { [ -s "$T/$2" ] || curl -sSf --retry 5 --retry-delay 3 -o "$T/$2" "$M/$1"; }
@@ -51,7 +51,7 @@ echo "== kotlinc: the FrogNet member (frognet-android, as it is there)"
 java -cp "$T/kotlinc.jar:$T/kotlin-stdlib.jar:$T/kotlin-script-runtime.jar:$T/kotlin-daemon.jar:$T/kotlin-reflect.jar:$T/trove4j.jar:$T/annotations.jar:$T/coroutines.jar" \
     org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -jvm-target 1.8 -Xlambdas=class -Xsam-conversions=class -nowarn \
     -classpath "$AA:$T/kotlin-stdlib.jar:build/wg" -d build/kclasses \
-    $(find "$MK" -name '*.kt') "$AK/AppLog.kt" "$AK/Identity.kt" "$AK/MemberService.kt" "$AK/BridgeVpn.kt" "$AK/AndroidTuner.kt"
+    $(find "$MK" -name '*.kt') "$AK/AppLog.kt" "$AK/Identity.kt" "$AK/MemberService.kt" "$AK/BridgeVpn.kt" "$AK/AndroidTuner.kt" "$AK/Telemetry.kt"
 echo "== javac (Java 8 API, against the API 34 framework)"
 javac --release 8 -Xlint:-options -nowarn -encoding UTF-8 -classpath "$AA:build/kclasses:$T/kotlin-stdlib.jar" -d build/classes $(find src -name '*.java') \
     $(find "$COMMS_SRC" -name '*.java' ! -name CommunicatorActivity.java)

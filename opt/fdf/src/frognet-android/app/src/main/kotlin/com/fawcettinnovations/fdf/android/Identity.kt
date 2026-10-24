@@ -36,6 +36,16 @@ class Identity(ctx: Context) {
         get() = (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").lines().filter { '|' in it }
             .map { Pond(it.substringBefore('|'), it.substringAfter('|')) }
         set(v) = p.edit().putString("ponds", v.joinToString("\n") { it.area + "|" + it.ram }).apply()
+    // [TELEMETRY_IS_A_TUPLE_V1] what this device reports ((pond, telem, w:<guid>)); [SETTINGS_ARE_TUPLES_V1] sets them
+    var telemOn: Boolean
+        get() = p.getBoolean("telem_on", true)
+        set(v) = p.edit().putBoolean("telem_on", v).apply()
+    var telemGps: Boolean
+        get() = p.getBoolean("telem_gps", true)
+        set(v) = p.edit().putBoolean("telem_gps", v).apply()
+    var telemPeriodS: Int
+        get() = p.getInt("telem_period_s", 30).coerceIn(5, 3600)
+        set(v) = p.edit().putInt("telem_period_s", v.coerceIn(5, 3600)).apply()
     var forward: String
         get() = p.getString("forward", null)?.takeIf { f -> ponds.any { it.area == f } } ?: ponds.firstOrNull()?.area ?: ""
         set(v) = p.edit().putString("forward", v).apply()

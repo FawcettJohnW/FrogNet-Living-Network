@@ -33,6 +33,8 @@ import java.util.Set;
  */
 public final class GameView extends SurfaceView implements SurfaceHolder.Callback, Runnable {
     public interface Host { void chatDialog(boolean toTheCall); void leave();
+        /** [APP_EXIT_V1] everything ends -- race, Communicator, the FrogNet membership and its tunnel -- and the app closes */
+        void exitApp();
         /** [KART_CALLS_IN_THE_GAME_V1] where the far end's picture and this camera's go on the screen; null: hidden */
         void placeVideo(RectF remote, RectF self);
         /** a VPN (the FrogNet app's tunnel) is up on this phone: the 10.x race memories are reached only through it */
@@ -62,7 +64,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
     public volatile boolean portrait = false;
     float W = 1180, H = 720;
     RectF B_READY, B_START, B_MINUS, B_PLUS, B_CHAT, B_COMMS, B_LOG, B_HOME, LAPS_AT;
-    RectF H_COMMS, H_GAME, H_SETTINGS;
+    RectF H_COMMS, H_GAME, H_SETTINGS, H_EXIT;
     RectF K_GAME, K_HOME, K_MUTE, K_CAM, K_SPK, K_CHAT, K_RACE, K_END, V_COMMS, PEOPLE;
     RectF R_LEFT, R_RIGHT, R_AUTO, R_GAS, R_BRAKE, R_LEAVE;
     RectF RING, RING_ANSWER, RING_DECLINE, ASK, ASK_YES, ASK_NO;
@@ -79,7 +81,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             B_READY = r(40, 632, 200, 702); B_START = r(210, 632, 370, 702); B_MINUS = r(380, 632, 450, 702); B_PLUS = r(560, 632, 630, 702);
             LAPS_AT = r(458, 652, 550, 680);
             B_CHAT = r(640, 632, 750, 702); B_COMMS = r(760, 632, 900, 702); B_LOG = r(910, 632, 1010, 702); B_HOME = r(1020, 632, 1160, 702);
-            H_COMMS = r(80, 300, 570, 600); H_GAME = r(610, 300, 1100, 600); H_SETTINGS = r(960, 30, 1150, 84);
+            H_COMMS = r(80, 300, 570, 600); H_GAME = r(610, 300, 1100, 600); H_SETTINGS = r(800, 30, 970, 84); H_EXIT = r(990, 30, 1150, 84);
             K_GAME = r(820, 22, 990, 72); K_HOME = r(1000, 22, 1160, 72);
             K_MUTE = r(450, 500, 560, 552); K_CAM = r(570, 500, 690, 552); K_SPK = r(700, 500, 840, 552);
             K_CHAT = r(850, 500, 940, 552); K_RACE = r(950, 500, 1060, 552); K_END = r(1070, 500, 1160, 552);
@@ -97,7 +99,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
             B_READY = r(20, 1000, 190, 1070); B_START = r(200, 1000, 370, 1070); B_MINUS = r(390, 1000, 460, 1070); B_PLUS = r(630, 1000, 700, 1070);
             LAPS_AT = r(468, 1020, 620, 1050);
             B_CHAT = r(20, 1090, 180, 1160); B_COMMS = r(190, 1090, 370, 1160); B_LOG = r(380, 1090, 530, 1160); B_HOME = r(540, 1090, 700, 1160);
-            H_COMMS = r(40, 400, 680, 670); H_GAME = r(40, 700, 680, 970); H_SETTINGS = r(500, 30, 690, 84);
+            H_COMMS = r(40, 400, 680, 670); H_GAME = r(40, 700, 680, 970); H_SETTINGS = r(360, 30, 520, 84); H_EXIT = r(540, 30, 690, 84);
             K_GAME = r(330, 22, 530, 72); K_HOME = r(540, 22, 700, 72);
             K_MUTE = r(20, 545, 180, 600); K_CAM = r(190, 545, 350, 600); K_SPK = r(360, 545, 530, 600); K_CHAT = r(540, 545, 700, 600);
             K_RACE = r(20, 610, 350, 665); K_END = r(370, 610, 700, 665);
@@ -248,6 +250,7 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
                 if (H_COMMS.contains(q[0], q[1])) { game.play(false); screen = "comms"; }
                 else if (H_GAME.contains(q[0], q[1])) { game.play(true); screen = "game"; }
                 else if (H_SETTINGS.contains(q[0], q[1])) host.leave();
+                else if (H_EXIT.contains(q[0], q[1])) host.exitApp();
             } else {
                 if (K_GAME.contains(q[0], q[1])) { game.play(true); screen = "game"; }
                 else if (K_HOME.contains(q[0], q[1])) { game.play(false); screen = "home"; }
@@ -407,9 +410,11 @@ public final class GameView extends SurfaceView implements SurfaceHolder.Callbac
         p.setShader(new android.graphics.LinearGradient(0, 0, W, 0, Color.rgb(40, 120, 70), Color.rgb(30, 70, 140), android.graphics.Shader.TileMode.CLAMP));
         p.setStyle(Paint.Style.FILL); c.drawRect(0, 0, W, 110, p); p.setShader(null);
         text(c, "FrogNet", portrait ? 30 : 60, 22, 52, Color.WHITE, true);
-        if (portrait) fit(c, game.name + " · " + Game.BUILD, 30, 84, 16, Color.rgb(220, 235, 225), false, 440);
+        if (portrait) fit(c, game.name + " · " + Game.BUILD, 30, 84, 16, Color.rgb(220, 235, 225), false, 320);
         else text(c, game.name + " · " + Game.BUILD, 300, 46, 20, Color.rgb(220, 235, 225), false);
         button(c, H_SETTINGS, "Settings", false, true, 22);
+        p.setStyle(Paint.Style.FILL); p.setColor(Color.rgb(150, 40, 40)); c.drawRoundRect(H_EXIT, 12, 12, p);
+        p.setColor(Color.WHITE); p.setTextSize(22); p.setFakeBoldText(true); c.drawText("Exit", H_EXIT.centerX() - p.measureText("Exit") / 2, H_EXIT.centerY() + 8, p);
         // the memories this game holds
         float x0 = portrait ? 30 : 60, tw = W - x0 - 40;
         boolean km = game.memoryState() == null, cm = calls != null && calls.inRoom();

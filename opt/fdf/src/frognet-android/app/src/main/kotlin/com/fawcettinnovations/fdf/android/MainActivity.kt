@@ -101,7 +101,9 @@ class MainActivity : Activity() {
         logView = TextView(this).apply { textSize = 11f; setTextIsSelectable(true) }
         root.addView(ScrollView(this).apply { addView(logView) }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
-        if (Build.VERSION.SDK_INT >= 33) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
+        // [TELEMETRY_IS_A_TUPLE_V1] the position the member reports: asked with the notifications, once
+        requestPermissions((if (Build.VERSION.SDK_INT >= 33) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()) +
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 2)
         // a held session needs the network while the screen is off: ask once to be left out of battery optimization
         val pm = getSystemService(PowerManager::class.java)
         if (!pm.isIgnoringBatteryOptimizations(packageName))

@@ -208,6 +208,25 @@ class Member(private val c: MemberConfig) {
     /** Leave the region now: the session closes, every member sees one `p` (13 ms measured, netns). */
     fun leave() { s?.close() }
 
+    /** [MEMBER_WRITES_TUPLES_V1] a tuple in this pond's memory, written on this member's own session. own: it is this
+     *  session's, so it goes when the member does ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]: telemetry). permanent: filed,
+     *  it outlives the session and the RAM manager's restarts ([PERMANENT_CELL_V1]: settings). The id, or -1 with no
+     *  session (said by the caller's log, not here). */
+    fun write(service: String, variable: String, instance: String, bagJson: String, own: Boolean = false, permanent: Boolean = false): Long {
+        val sess = s ?: return -1
+        val body = "{\"service\":" + Json.quote(service) + ",\"variable\":" + Json.quote(variable) + ",\"instance\":" + Json.quote(instance) +
+            ",\"bag\":" + bagJson + (if (own) ",\"own\":true" else "") + (if (permanent) ",\"permanent\":true" else "") + "}"
+        return Json.parse(sess.call("POST", "$API?op=write", body).body)["id"].num?.toLong() ?: -1
+    }
+    /** the cells of (service, variable[, instance]); after/waitS: a held read ([HELD_READ_V1]) -- returns when one is written */
+    fun read(service: String, variable: String, instance: String = "", after: Long = -1, waitS: Double = 0.0): Json {
+        val sess = s ?: throw ProtocolError("no session")
+        val q = "$API?op=read&service=" + java.net.URLEncoder.encode(service, "UTF-8") + "&variable=" + java.net.URLEncoder.encode(variable, "UTF-8") +
+            (if (instance.isEmpty()) "" else "&instance=" + java.net.URLEncoder.encode(instance, "UTF-8")) +
+            (if (after >= 0) "&after=$after&wait_s=$waitS" else "")
+        return Json.parse(sess.call("GET", q, "", 15.0 + waitS).body)
+    }
+
     private fun hmacHex(key: String, msg: String): String {
         val m = Mac.getInstance("HmacSHA256"); m.init(SecretKeySpec(key.toByteArray(), "HmacSHA256"))
         return m.doFinal(msg.toByteArray()).joinToString("") { "%02x".format(it) }

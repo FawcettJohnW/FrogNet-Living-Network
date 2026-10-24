@@ -14,6 +14,11 @@
     <!-- [KART_IS_A_MEMBER_V1] the FrogNet member, in this app: its session is a foreground service; its tunnel a VPN -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- [TELEMETRY_IS_A_TUPLE_V1] the device's position, its Wi-Fi signal, and the membership keeping them in the background -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
@@ -34,7 +39,7 @@
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
         </service>
         <service android:name="com.fawcettinnovations.fdf.android.MemberService" android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|location">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
         </service>

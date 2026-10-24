@@ -21,7 +21,7 @@ import java.util.Random;
  * tick() is called from one thread (the game loop); the getters are safe from the drawing thread.
  */
 public final class Game {
-    public static final String BUILD = "kart-android-2026-10-23-r7";
+    public static final String BUILD = "kart-android-2026-10-23-r8";
     static final Map<String, int[]> COLORS = new HashMap<String, int[]>();
     static final int[][] BOT_COLORS = {{240,140,40},{150,90,220},{120,200,40},{40,170,150},{200,60,110},{110,110,240},{220,220,120},{170,120,80}};
     static {
