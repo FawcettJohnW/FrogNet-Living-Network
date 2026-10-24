@@ -196,18 +196,21 @@ public class PhoneTest {
         idle(1500);
         assertEquals("home", v.screen);
         assertTrue("connected is not playing: no lobby tuple", !g.lobby().containsKey("phone"));
-        // [KART_STARTS_FROGNET_V1] no FrogNet app here (Robolectric resolves no other app's activity): asked once at Connect;
-        // coming back to the front does not ask again in a loop (r5 asked ~550 times a second)
-        android.content.Intent ji = shadowOf(a).getNextStartedActivityForResult().intent;
-        assertEquals("the FrogNet app's join", "net.frognet.action.JOIN", ji.getAction());
-        assertEquals("com.fawcettinnovations.fdf.android", ji.getPackage());
-        shadowOf(a).receiveResult(ji, android.app.Activity.RESULT_CANCELED, null);     // as r5 saw on the phone: cancelled, then onResume
-        int asks0 = 0; for (String l : g.log()) if (l.contains("asked the FrogNet app to join")) asks0++;
+        // [KART_IS_A_MEMBER_V1] the FrogNet membership is this app's own: started once the permission question is answered
+        // (one system question at a time), and not again when the game comes back to the front
+        a.onRequestPermissionsResult(1, new String[0], new int[0]);
+        org.robolectric.shadows.ShadowActivity.IntentForResult vc = shadowOf(a).getNextStartedActivityForResult();
+        assertNotNull("Android's VPN question, once", vc);
+        say("asked: " + vc.intent.getComponent());
+        shadowOf(a).receiveResult(vc.intent, android.app.Activity.RESULT_OK, null);   // the person says OK
+        android.content.Intent ms = shadowOf(org.robolectric.RuntimeEnvironment.getApplication()).getNextStartedService();
+        assertNotNull("the membership is started", ms);
+        assertEquals("com.fawcettinnovations.fdf.android.MemberService", ms.getComponent().getClassName());
+        assertEquals("this app's own", a.getPackageName(), ms.getComponent().getPackageName());
         for (int i = 0; i < 5; i++) { ac.pause(); ac.resume(); idle(50); }
-        int asks1 = 0; for (String l : g.log()) if (l.contains("[KART_STARTS_FROGNET_V1]")) say("FrogNet: " + l);
-        for (String l : g.log()) if (l.contains("asked the FrogNet app to join")) asks1++;
-        say("FrogNet asks: " + asks0 + " at Connect, " + asks1 + " after 5 trips to the background and back");
-        assertTrue("the FrogNet app is asked once, not in a loop", asks0 == 1 && asks1 == 1);
+        int starts = 0; for (String l : g.log()) if (l.contains("starting the FrogNet membership")) { starts++; say("FrogNet: " + l); }
+        assertEquals("started once", 1, starts);
+        assertTrue("and once only", shadowOf(org.robolectric.RuntimeEnvironment.getApplication()).getNextStartedService() == null);
         say("home: kart memory up, " + k.roomState() + "; tiles " + g.tiles().keySet() + "; lobby " + g.lobby().keySet() + " (the phone is not in it)");
         shot(v, "0-home");
         turn(v, true);

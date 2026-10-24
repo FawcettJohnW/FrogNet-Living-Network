@@ -1,7 +1,7 @@
 # FrogNet Kart for Android  [KART_ANDROID_V1] [KART_HOME_V1] [KART_CALLS_IN_THE_GAME_V1]
 
 A player of the kart service's games, the same game as kartdemo.py: lobby, chat, Ready/Start, laps, races, records.
-It never serves a race. Android 10+ (minSdk 29: the Communicator's codecs), landscape. Permissions: camera, microphone.
+It never serves a race. Android 10+ (minSdk 29), target 34; rotates. Permissions: camera, microphone, notifications, VPN.
 
 Install: copy `FrogNetKart.apk` to the phone and open it (allow "Install unknown apps" for the app you open it with),
 or `adb install -r FrogNetKart.apk`.
@@ -14,8 +14,11 @@ Kart [KART_RACE_INVITE_V1]: (kart, invite, YOU) {members, at, go}; each answers 
 {invite, at, yes}; your game's held read brings the answers (30 s timeout); all yes, `go`, and each game launches itself
 into the lobby, ready, and yours presses Start. kartdemo.py (Windows, Linux) shows the same invitation and answers it.
 
-Run: the FrogNet app must be running and joined. The kart memory (default 165.232.153.144:8799) is reached directly;
-the race memories are on game-serving machines' region addresses (10.x) and are reached through the FrogNet tunnel.
+Run: one app, self-contained [KART_IS_A_MEMBER_V1]. It is a FrogNet member itself -- frognet-android's MemberService,
+BridgeVpn and fdf-tun compiled in -- so Connect also joins FrogNet (the pond `frognet`, 165.232.153.144:51888) and
+brings up the tunnel the race memories (game-serving machines' region addresses, 10.x) are reached through. Android
+asks its VPN question once, the first time; nothing else is asked. The member logs to logcat tag `FDF`. The kart
+memory (default 165.232.153.144:8799) is reached directly.
 Setup screen: name, kart memory, robots, laps, autopilot. In the lobby: Ready, Start, - / +, Chat, Comms, Log, Home.
 Racing: left / right (bottom left), GAS / BRAKE (right, multi-touch), Autopilot, Leave. A red banner says what is
 not reachable. The game logs to logcat under the tag `FrogNetKart`.

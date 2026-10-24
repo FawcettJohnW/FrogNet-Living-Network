@@ -136,9 +136,11 @@ public final class MainActivity extends Activity implements GameView.Host {
     private void startGame(String name, String host, int port, int bots, int laps, boolean auto, String commsRam, String commsMedia) {
         game = new Game(name, Build.MODEL, host, port, bots, auto, laps, new Region.Log() { public void say(String l) { Log.i(TAG, l); } });
         final Game g = game;
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}, 1);   // now, not mid-race
+        askedPermissions = checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
+                || checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED;
+        if (askedPermissions)
+            requestPermissions(Build.VERSION.SDK_INT >= 33 ? new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA, "android.permission.POST_NOTIFICATIONS"}
+                    : new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA}, 1);   // now, not mid-race
         stage = new FrameLayout(this);
         remoteTV = new TextureView(this); selfTV = new TextureView(this);
         selfBox = new FrameLayout(this); selfBox.setPadding(3, 3, 3, 3); selfBox.setBackgroundColor(0xCCFFFFFF);
@@ -149,14 +151,14 @@ public final class MainActivity extends Activity implements GameView.Host {
         stage.addView(remoteTV, new FrameLayout.LayoutParams(1, 1)); remoteTV.setVisibility(View.GONE);
         stage.addView(selfBox, new FrameLayout.LayoutParams(1, 1)); selfBox.setVisibility(View.GONE);
         setContentView(stage);
-        joinAsked = false; frogNetMissing = false; joinAskedAt = 0;
-        joinFrogNet("connected");
+        if (!askedPermissions) startMember("connected");      // else after the permission answer: one system question at a time
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
     }
 
     private void stopGame() {
         final GameView v = view; final Game g = game; final GameCalls k = calls;
+        stopMember();
         view = null; game = null; calls = null;
         if (v != null) v.end();
         if (k != null) k.stop();
@@ -208,47 +210,51 @@ public final class MainActivity extends Activity implements GameView.Host {
 
     @Override protected void onDestroy() { stopGame(); super.onDestroy(); }
 
-    // ---- [KART_STARTS_FROGNET_V1] the 10.x race memories are reached through the FrogNet app's tunnel: when there is no
-    // VPN, the game starts the FrogNet membership itself (its JoinActivity: no screen; Android's VPN question only the
-    // first time ever). Asked once per Connect, and again when the game comes back to the front without a tunnel.
-    static final int JOIN = 7;
-    static final String FROGNET = "com.fawcettinnovations.fdf.android", JOIN_ACTION = "net.frognet.action.JOIN";
-    /** what the game knows of the FrogNet tunnel, for the banner: null when it is up or not asked about */
+    // ---- [KART_IS_A_MEMBER_V1] this app is the FrogNet member itself (frognet-android's MemberService, BridgeVpn and
+    // fdf-tun, compiled in): Connect starts the membership, and with it the tunnel that reaches the 10.x race memories.
+    // Android asks its VPN question once, the first time; after that nothing is asked. The member's own log is logcat
+    // tag FDF (and files/fdf-member.log); what the game did about it is here, tag FrogNetKart, [KART_IS_A_MEMBER_V1].
+    static final int VPN_CONSENT = 7;
+    static final String MEMBER = "com.fawcettinnovations.fdf.android.MemberService", MEMBER_STOP = "com.fawcettinnovations.fdf.android.STOP";
+    /** what the game knows of the tunnel, for the banner: null when it is up */
     public volatile String tunnel = null;
     @Override public String tunnel() { return vpnUp() ? null : tunnel; }
-    private boolean joinAsked = false, frogNetMissing = false;
-    private long joinAskedAt = 0;
-    static final long JOIN_AGAIN_MS = 60000;                     // back in front without a tunnel: asked again at most once a minute
+    private boolean memberStarted = false, askedPermissions = false;
+    @Override public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == 1 && askedPermissions) { askedPermissions = false; startMember("connected"); }
+    }
 
-    private void joinFrogNet(String why) {
-        if (game == null || vpnUp() || joinAsked || frogNetMissing) return;
-        joinAsked = true; joinAskedAt = System.currentTimeMillis();
-        Intent i = new Intent(JOIN_ACTION).setPackage(FROGNET);
-        try {
-            startActivityForResult(i, JOIN);
-            tunnel = "starting the FrogNet membership (no tunnel yet)";
-            note("[KART_STARTS_FROGNET_V1] " + why + ", no FrogNet tunnel: asked the FrogNet app to join");
-        } catch (android.content.ActivityNotFoundException e) {
-            frogNetMissing = true;                                    // not asked again until the next Connect
-            String have;
-            try { have = "is " + getPackageManager().getPackageInfo(FROGNET, 0).versionName + ": too old to be started from here"; }
-            catch (android.content.pm.PackageManager.NameNotFoundException n) { have = "is not installed"; }
-            tunnel = "the FrogNet app (" + FROGNET + ") " + have + " (the game needs fdf-kt-2026-10-23-a16 or later)";
-            note("[KART_STARTS_FROGNET_V1] " + tunnel);
+    private void startMember(String why) { startMember(why, false); }
+    /** consented: Android just said OK to the VPN question (asked again, prepare could ask again: it is not asked twice) */
+    private void startMember(String why, boolean consented) {
+        if (game == null || memberStarted) return;
+        // the member's name in the region: the player's (set once; the FrogNet member keeps its own afterwards)
+        SharedPreferences id = getSharedPreferences("fdf-identity", MODE_PRIVATE);
+        if (!id.contains("name")) id.edit().putString("name", game.name).apply();
+        Intent consent = consented ? null : android.net.VpnService.prepare(this);
+        if (consent != null) {
+            tunnel = "waiting for Android's VPN permission (asked once)";
+            note("[KART_IS_A_MEMBER_V1] " + why + ": this app has no VPN permission yet: asking Android, once");
+            try { startActivityForResult(consent, VPN_CONSENT); } catch (android.content.ActivityNotFoundException e) { tunnel = "Android gave no VPN permission screen: " + e.getMessage(); note("[KART_IS_A_MEMBER_V1] " + tunnel); }
+            return;
         }
+        memberStarted = true;
+        tunnel = "joining FrogNet (the membership is starting; the tunnel comes up when it is placed)";
+        note("[KART_IS_A_MEMBER_V1] " + why + ": starting the FrogNet membership (" + MEMBER + ")");
+        try { startForegroundService(new Intent().setClassName(this, MEMBER)); }
+        catch (RuntimeException e) { memberStarted = false; tunnel = "the FrogNet membership did not start: " + e; note("[KART_IS_A_MEMBER_V1] " + tunnel); }
+    }
+    private void stopMember() {
+        if (!memberStarted) return;
+        memberStarted = false;
+        note("[KART_IS_A_MEMBER_V1] stopping the FrogNet membership");
+        try { startService(new Intent(MEMBER_STOP).setClassName(this, MEMBER)); } catch (RuntimeException e) { note("[KART_IS_A_MEMBER_V1] stop: " + e); }
     }
     private void note(String l) { Log.i(TAG, l); Game g = game; if (g != null) g.note(l); }
 
     @Override protected void onActivityResult(int code, int result, Intent data) {
-        if (code != JOIN || frogNetMissing) return;                  // a failed start is answered "cancelled" too: said already
-        String why = data == null ? "" : String.valueOf(data.getStringExtra("why"));
-        if (result == RESULT_OK) { tunnel = "FrogNet: " + why + "; waiting for the tunnel"; note("[KART_STARTS_FROGNET_V1] the FrogNet app: " + why); }
-        else { tunnel = "FrogNet did not join: " + (why.isEmpty() ? "cancelled" : why); note("[KART_STARTS_FROGNET_V1] " + tunnel); }
-    }
-
-    @Override protected void onResume() {
-        super.onResume();
-        // the result of the join comes back through onResume too: only a minute after the last ask is it asked again
-        if (game != null && !vpnUp() && System.currentTimeMillis() - joinAskedAt > JOIN_AGAIN_MS) { joinAsked = false; joinFrogNet("back in front"); }
+        if (code != VPN_CONSENT) return;
+        if (result == RESULT_OK) startMember("VPN permission given", true);
+        else { tunnel = "the VPN permission was refused: no tunnel, so no 10.x race (Settings, then Connect, asks again)"; note("[KART_IS_A_MEMBER_V1] " + tunnel); }
     }
 }

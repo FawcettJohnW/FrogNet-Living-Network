@@ -11,7 +11,9 @@ T_REF, T_STRING, T_DEC, T_HEX, T_BOOL = 0x01, 0x03, 0x10, 0x11, 0x12
 
 # The attributes the manifest uses, and how each is written. Anything else in AndroidManifest.xml is refused.
 KIND = {"name": T_STRING, "label": T_STRING, "theme": T_REF, "hardwareAccelerated": T_BOOL, "exported": T_BOOL,
-        "required": T_BOOL, "screenOrientation": T_DEC, "configChanges": T_HEX}
+        "required": T_BOOL, "screenOrientation": T_DEC, "configChanges": T_HEX,
+        "permission": T_STRING, "value": T_STRING, "foregroundServiceType": T_HEX, "extractNativeLibs": T_BOOL}
+FGS = {"specialUse": 0x40000000, "dataSync": 0x1}
 ORIENT = {"sensorLandscape": 6, "landscape": 0, "portrait": 1, "fullUser": 13, "fullSensor": 10}
 CONFIG = {"orientation": 0x80, "keyboardHidden": 0x20, "screenSize": 0x400, "screenLayout": 0x100, "smallestScreenSize": 0x800}
 
@@ -31,6 +33,10 @@ def manifest(path, vcode, vname, ids):
                 if not v.startswith("@android:style/"): raise SystemExit("axml: android:%s=%s: only @android:style/ references" % (n, v))
                 v = ids[v.split("/", 1)[1].replace(".", "_")]
             elif n == "screenOrientation": v = ORIENT[v]
+            elif n == "foregroundServiceType":
+                f = 0
+                for x in v.split("|"): f |= FGS[x]
+                v = f
             elif n == "configChanges":
                 f = 0
                 for x in v.split("|"): f |= CONFIG[x]
@@ -40,7 +46,7 @@ def manifest(path, vcode, vname, ids):
     root = conv(ET.parse(path).getroot())
     A = lambda n, t, v: (ANDROID, n, t, v)
     head = [A("versionCode", T_DEC, vcode), A("versionName", T_STRING, vname), (None, "package", T_STRING, "net.frognet.kart")]
-    sdk = ("uses-sdk", [A("minSdkVersion", T_DEC, 29), A("targetSdkVersion", T_DEC, 33)], [])   # 29: the Communicator's codecs
+    sdk = ("uses-sdk", [A("minSdkVersion", T_DEC, 29), A("targetSdkVersion", T_DEC, 34)], [])   # 29: the Communicator's codecs; 34: the member's FGS type
     return ("manifest", head + root[1], [sdk] + root[2])
 
 def build(root, ids):
@@ -108,6 +114,12 @@ def build(root, ids):
     return struct.pack("<HHI", 0x0003, 8, 8 + len(inner)) + inner
 
 if __name__ == "__main__":
+    if sys.argv[1] == "--attrs":                     # the android: attribute names AndroidManifest.xml uses (for the id lookup)
+        import xml.etree.ElementTree as ET
+        names = set()
+        for e in ET.parse(sys.argv[2]).iter():
+            for k in e.attrib: names.add(k.split("}", 1)[1])
+        print(" ".join(sorted(names))); sys.exit(0)
     src, out, vcode, vname, idfile = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4], sys.argv[5]
     ids = {l.split()[0]: int(l.split()[1]) for l in open(idfile) if l.strip()}
     with open(out, "wb") as f: f.write(build(manifest(src, vcode, vname, ids), ids))
