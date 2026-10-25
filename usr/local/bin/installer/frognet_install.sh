@@ -22,7 +22,7 @@
 # Handles fresh installs AND unclean/cloned boxes. All configuration
 # happens AFTER the world tar is extracted, so nothing gets overwritten.
 #
-# Two modes. Without --region the node is LAN-only. With --region it is also a
+# Two modes. Without --invite the node is LAN-only. With --invite it is also a
 # member of an FD&F region: at the end (after phase F, before the reboot) the
 # installer runs the FD&F node installer for this machine's architecture from
 # the payload, opt/fdf/dist/fdf-install-$(uname -m).run, with the site key, the
@@ -37,7 +37,7 @@
 #        --name <NODE> \
 #        --ip   <10.X.Y.1> \
 #        [--lan-iface <IFACE>]                      # the interface this node serves
-#        [--region <RAM_HOST:PORT> --site-key <KEY> --area <NAME>]
+#        [--invite fdfinv1.<...>]                   # join the FD&F region that invited it
 #        [--no-ssid-projection]                     # disable AP fallback
 #   sudo bash frognet_install.sh --uninstall [--keep-identity] [--keep-db]
 #
@@ -51,13 +51,10 @@
 #                            would delete its connection profile and cut the
 #                            machine off (and an SSH session with it). With no
 #                            other wired interface the install stops and says so.
-#   --region <HOST:PORT>     The region's RAM manager, an IPv4 address and port as
-#                            this node reaches it (e.g. 192.0.2.10:51888). Omitted:
-#                            the node is LAN-only.
-#   --site-key <KEY>         The region's site key (fdf-region-create printed it).
-#                            Required with --region; omitted -> prompted (hidden).
-#   --area <NAME>            The region's area name (fdf-region-create's AREA).
-#                            Required with --region; omitted -> prompted.
+#   --invite fdfinv1.<...>   This node's invitation to an FD&F region: `fdf-invite NAME`
+#                            on the region's machine prints it (a secret: it holds this
+#                            node's WireGuard key and the region's site key).
+#                            Omitted: the node is LAN-only. [ADMITTED_BY_INVITE_V1]
 #   --uninstall              Remove FrogNet from this machine: everything the reset
 #                            removes (frognet_reset.sh), and also the region
 #                            membership and /opt/fdf, the crontab lines, froguser,
@@ -163,7 +160,7 @@ WIFI_PSK=""
 AP_IFACE=""
 LAN_IFACE=""
 REGION_RAM=""
-REGION_KEY=""
+REGION_INV=""
 REGION_AREA=""
 UNINSTALL=0
 KEEP_IDENTITY=0
@@ -197,12 +194,10 @@ while [[ $# -gt 0 ]]; do
         --ap-iface=*)        AP_IFACE="${1#*=}"; shift ;;
         --lan-iface)         LAN_IFACE="$2"; shift 2 ;;
         --lan-iface=*)       LAN_IFACE="${1#*=}"; shift ;;
-        --region)            REGION_RAM="$2"; shift 2 ;;
-        --region=*)          REGION_RAM="${1#*=}"; shift ;;
-        --site-key)          REGION_KEY="$2"; shift 2 ;;
-        --site-key=*)        REGION_KEY="${1#*=}"; shift ;;
-        --area)              REGION_AREA="$2"; shift 2 ;;
-        --area=*)            REGION_AREA="${1#*=}"; shift ;;
+        --invite)            REGION_INV="$2"; shift 2 ;;
+        --invite=*)          REGION_INV="${1#*=}"; shift ;;
+        --region|--region=*|--site-key|--site-key=*|--area|--area=*)
+            echo "ERROR: $1: a region is joined by invitation now (--invite fdfinv1.<...>; fdf-invite NAME on the region's machine prints it) [ADMITTED_BY_INVITE_V1]" >&2; exit 2 ;;
         --uninstall)         UNINSTALL=1; shift ;;
         --keep-identity)     KEEP_IDENTITY=1; shift ;;
         --keep-db)           KEEP_DB=1; shift ;;
@@ -242,26 +237,19 @@ if [[ -n "$LAN_IFACE" ]]; then
     [[ -e "/sys/class/net/${LAN_IFACE}" ]] || {
         echo "ERROR: --lan-iface ${LAN_IFACE}: no such interface (this machine has: $(ls /sys/class/net | grep -v '^lo$' | tr '\n' ' '))" >&2; exit 1; }
 fi
-# [REGION_FROM_THE_INSTALLER_V1] --region: the FD&F node installer for this
+# [REGION_FROM_THE_INSTALLER_V1] --invite: the FD&F node installer for this
 # architecture must be in the payload, and the key and area must be known, BEFORE
 # phase A - a missing piece found after ten minutes of apt is ten minutes lost.
 # The .run is the one way a node joins a region (the same file John's existing
 # nodes take); there is no second path.
 FDF_RUN=""
-if [[ -n "$REGION_RAM" ]]; then
-    [[ "$REGION_RAM" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]] || {
-        echo "ERROR: --region must be IPV4:PORT, the RAM manager's address as this node reaches it (got: $REGION_RAM)" >&2; exit 1; }
-    if [[ -z "$REGION_AREA" || -z "$REGION_KEY" ]]; then
-        (: <>/dev/tty) 2>/dev/null || {
-            echo "ERROR: --region needs --site-key and --area (no terminal to ask for them on)" >&2; exit 1; }
-        exec 3<>/dev/tty
-        while [[ -z "$REGION_AREA" ]]; do printf '  Region area name (fdf-region-create AREA): ' >&3; IFS= read -r REGION_AREA <&3 || exit 1; done
-        while [[ -z "$REGION_KEY" ]]; do printf '  Region site key (hidden): ' >&3; IFS= read -rs REGION_KEY <&3 || exit 1; printf '\n' >&3; done
-        exec 3>&-
-    fi
-    [[ "$REGION_AREA" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "ERROR: --area must be letters/numbers/._- (got: $REGION_AREA)" >&2; exit 1; }
-elif [[ -n "$REGION_KEY" || -n "$REGION_AREA" ]]; then
-    echo "ERROR: --site-key / --area go with --region RAM_HOST:PORT" >&2; exit 1
+REGION_RAM=""; REGION_AREA=""
+if [[ -n "${REGION_INV:-}" ]]; then
+    [[ "$REGION_INV" == fdfinv1.* ]] || { echo "ERROR: --invite must be the fdfinv1.<...> line fdf-invite printed" >&2; exit 1; }
+    # what the invitation names, for the log lines below (the secrets in it are never printed)
+    read -r REGION_AREA REGION_RAM < <(python3 -c 'import base64,json,sys; t=sys.argv[1][8:]; i=json.loads(base64.urlsafe_b64decode(t+"="*(-len(t)%4))); print(i["area"], i["ram"])' "$REGION_INV" 2>/dev/null) \
+        || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
+    [[ -n "$REGION_RAM" ]] || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
 fi
 
 die_early() { echo "ERROR: $*" >&2; exit 1; }
@@ -321,7 +309,7 @@ fi
 # release root), at the path it has in the repository.
 if [[ -n "$REGION_RAM" ]]; then
     FDF_RUN="${SCRIPT_DIR}/opt/fdf/dist/fdf-install-$(uname -m).run"
-    [[ -f "$FDF_RUN" ]] || die_early "--region: $FDF_RUN not found. This machine is $(uname -m); a region member needs the FD&F node installer built for it (opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh puts it in opt/fdf/dist)."
+    [[ -f "$FDF_RUN" ]] || die_early "--invite: $FDF_RUN not found. This machine is $(uname -m); a region member needs the FD&F node installer built for it (opt/fdf/src/fdf-source/rinab/tools/make_deliverables.sh puts it in opt/fdf/dist)."
 fi
 
 LOG=/var/log/frognet_install.log
@@ -2182,21 +2170,22 @@ TUNE="/usr/local/bin/frognet-system-tune.sh"
 bash "$TUNE" || warn "F7: $TUNE failed (above); the node runs untuned until it is run again"
 
 phase "R: Region ($( [[ -n "$REGION_RAM" ]] && echo "join $REGION_AREA at $REGION_RAM" || echo "none: LAN-only" ))"
-# [REGION_FROM_THE_INSTALLER_V1 - T4a] With --region, this machine joins the region the
+# [REGION_FROM_THE_INSTALLER_V1 - T4a] With --invite, this machine joins the region the
 # one way any FrogNet node does: the FD&F node installer for its architecture
-# (opt/fdf/dist/fdf-install-$(uname -m).run, checked before phase A), given the site key,
-# the RAM manager's address and the area. It lays down /opt/fdf, runs fdf-region-join
-# (site.env, join.env, fdf-client + fdf-facts, the tunnel daemon restarted into region
-# mode, which makes its WireGuard key) and shows what happened. Without --region the
+# (opt/fdf/dist/fdf-install-$(uname -m).run, checked before phase A), given the node's
+# invitation (fdf-invite NAME). It lays down /opt/fdf, runs fdf-region-join (the
+# invitation's key and hub, site.env, join.env, fdf-client + fdf-facts, the tunnel daemon
+# restarted into region mode: hub channel first, then the region through it) and shows
+# what happened. Without --invite the
 # node is LAN-only: no /opt/fdf, no WireGuard, FrogNet discovery and the election.
 if [[ -z "$REGION_RAM" ]]; then
-    log "LAN-only node (no --region): nothing to join"
+    log "LAN-only node (no --invite): nothing to join"
 elif (( FAIL > 0 )); then
-    warn "F6 found $FAIL failure(s): NOT joining the region on a node that did not verify. Fix them and re-run the installer (with --preserve) and --region."
+    warn "F6 found $FAIL failure(s): NOT joining the region on a node that did not verify. Fix them and re-run the installer (with --preserve) and --invite."
 else
-    log "Joining region: $FDF_RUN <key ${#REGION_KEY} chars> $REGION_RAM $REGION_AREA"
-    bash "$FDF_RUN" "$REGION_KEY" "$REGION_RAM" "$REGION_AREA" \
-        || die "the FD&F node installer failed (output above): FrogNet is installed, the join of $REGION_AREA did not complete. Re-run it when the cause is fixed (it is re-runnable): sudo bash $FDF_RUN <SITE KEY> $REGION_RAM $REGION_AREA   (or leave: /opt/fdf/bin/fdf-leave)"
+    log "Joining region: $FDF_RUN <invitation> (area $REGION_AREA, its RAM manager $REGION_RAM inside the hub's tunnel)"
+    bash "$FDF_RUN" "$REGION_INV" \
+        || die "the FD&F node installer failed (output above): FrogNet is installed, the join of $REGION_AREA did not complete. Re-run it when the cause is fixed (it is re-runnable): sudo bash $FDF_RUN fdfinv1.<...>   (or leave: /opt/fdf/bin/fdf-leave)"
     log "Region: joined $REGION_AREA at $REGION_RAM ($(sed -n 's/^build=//p' /opt/fdf/BUILD 2>/dev/null))"
 fi
 

@@ -1,18 +1,20 @@
 #!/bin/bash
-# fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw]
+# fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw] [--replace]
 #   -- [FDF_REGION_CREATE_V1 - T4a] make THIS machine the holder of a new FD&F region: its RAM manager and its hub.
 #
 #   AREA      the region's name (letters, digits, '.', '_', '-'; at most 12, the hub's interface is wg-AREA)
 #   PUBLIC_IP the IPv4 address the members reach this machine at: a public address for a droplet, a LAN address for a
-#             region with no internet at all (the RAM manager and the hub need nothing else; members only need to
-#             reach PUBLIC_IP:RAM_PORT/tcp and PUBLIC_IP:HUB_PORT/udp)
-#   --ufw     also run the firewall lines (ufw); without it they are printed for the operator, and nothing is changed
+#             region with no internet at all. Members need to reach ONE thing: PUBLIC_IP:HUB_PORT/udp, the hub's
+#             WireGuard port, which answers nothing to a packet from a key it was not given ([RAM_IN_THE_TUNNEL_V1]:
+#             the RAM manager listens only on the hub's tunnel address, 10.253.253.254, reached through the tunnel)
+#   --ufw     also run the firewall lines (ufw: default deny incoming, the hub's UDP port, the tunnel); without it they
+#             are printed for the operator, and nothing is changed. ufw is not enabled and ssh is not touched here.
 #
 # In order, saying each step: the site key (made once, stored root-only in /opt/fdf/var/site-key-AREA, printed once at
-# the end); the RAM manager unit fdf-ram-AREA (rina-host on RAM_PORT, its records in
-# /opt/fdf/var/area-AREA.perm) started; map_site AREA KEY on it; /opt/fdf/hub/hub.env (no tarball carries one: this is
+# the end); the RAM manager unit fdf-ram-AREA (the region's WireGuard interface made first, then rina-host on
+# 10.253.253.254:RAM_PORT, its records in /opt/fdf/var/area-AREA.perm) started; map_site AREA KEY on it; /opt/fdf/hub/hub.env (no tarball carries one: this is
 # the one place it is made); fdf-hub started; fdf-client-AREA (the hub's own membership, named after this machine)
-# started; what each said. Then the command a member runs to join.
+# started; what each said. Then how a member is invited (fdf-invite NAME) and joins (fdf-region-join fdfinv1.<...>).
 # The machine needs /opt/fdf (fdf-droplet.tgz, or a node bundle), python3, wireguard-tools (wg) and, where the kernel has
 # no WireGuard, wireguard-go. Run as root. A machine holds one region: a second run stops and says where the first is.
 set -u
@@ -20,30 +22,42 @@ set -u
 # umask (a shell with umask 0000 made /opt/fdf and its bin/ world-writable, in the T4a container).
 umask 022
 [ "$(id -u)" = 0 ] || { echo "fdf-region-create: run as root" >&2; exit 1; }
-usage() { echo "usage: fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw]" >&2; exit 2; }
+usage() { echo "usage: fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw] [--replace]" >&2; exit 2; }
 [ $# -ge 2 ] || usage
 AREA=$1; ADDR=$2; shift 2
-RAM_PORT=51888; HUB_PORT=50889; UFW=0
+RAM_PORT=51888; HUB_PORT=50889; UFW=0; REPLACE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --ram-port) RAM_PORT=${2:?}; shift 2 ;;
     --hub-port) HUB_PORT=${2:?}; shift 2 ;;
     --ufw)      UFW=1; shift ;;
+    --replace)  REPLACE=1; shift ;;
     *) usage ;;
   esac
 done
 [[ "$AREA" =~ ^[A-Za-z0-9._-]{1,12}$ ]] || { echo "fdf-region-create: AREA '$AREA': letters, digits, . _ -, at most 12 (the hub's interface is wg-$AREA)" >&2; exit 2; }
 [[ "$ADDR" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "fdf-region-create: PUBLIC_IP '$ADDR' is not an IPv4 address (members reach this machine at it)" >&2; exit 2; }
 [[ "$RAM_PORT" =~ ^[0-9]+$ && "$HUB_PORT" =~ ^[0-9]+$ ]] || usage
-echo "== fdf-region-create $AREA at $ADDR (RAM manager tcp $RAM_PORT, hub udp $HUB_PORT); $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
-for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl; do
+HUB_ADDR=10.253.253.254; IFACE=wg-${AREA//./-}
+echo "== fdf-region-create $AREA at $ADDR (hub udp $HUB_PORT; RAM manager tcp $RAM_PORT on $HUB_ADDR, inside the tunnel only); $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
+for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl /opt/fdf/bin/fdf-invite; do
   [ -x "$f" ] || { echo "fdf-region-create: $f missing: install /opt/fdf first (cd / && tar xvzf - < /tmp/fdf-droplet.tgz)" >&2; exit 1; }; done
 for b in python3 wg ip systemctl; do command -v $b >/dev/null || { echo "fdf-region-create: $b is required and missing (wg: apt-get install wireguard-tools)" >&2; exit 1; }; done
 # [WG_IMPL_RECORDED_V1 - T4b] the hub's WireGuard implementation, chosen here once, by platform, and recorded
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-region-create: no usable WireGuard implementation (above)" >&2; exit 1; }
 HUBENV=/opt/fdf/hub/hub.env
+# [RAM_IN_THE_TUNNEL_V1] --replace: a region made by an earlier build (its RAM manager on the Internet) is re-made the
+# new way: its units stopped, hub.env removed; the site key and the region's records are kept (the same AREA keeps them).
+# Every member then needs an invitation (fdf-invite NAME): the old join line named a RAM manager that no longer answers.
+if [ -e "$HUBENV" ] && [ "$REPLACE" = 1 ]; then
+  OLD=$(sed -n 's/^FDF_AREA=//p' "$HUBENV")
+  echo "== --replace: stopping the region $OLD made by an earlier build (fdf-hub, fdf-ram-$OLD, fdf-client-$OLD); its site key and records stay"
+  systemctl disable --now fdf-hub.service "fdf-ram-$OLD.service" "fdf-client-$OLD.service" 2>&1 | grep -v "^Removed" | sed "s/^/   /"
+  OLDIF=wg-${OLD//./-}; ip link show "$OLDIF" >/dev/null 2>&1 && ip link del "$OLDIF" && echo "   $OLDIF removed (made again below)"
+  rm -f "$HUBENV"
+fi
 if [ -e "$HUBENV" ]; then
-  echo "fdf-region-create: this machine already holds a region: $HUBENV says $(grep -E '^FDF_AREA=' "$HUBENV"). A machine holds one; its site key is in /opt/fdf/var/site-key-<area>." >&2; exit 1
+  echo "fdf-region-create: this machine already holds a region (re-make it the new way with --replace): $HUBENV says $(grep -E '^FDF_AREA=' "$HUBENV"). A machine holds one; its site key is in /opt/fdf/var/site-key-<area>." >&2; exit 1
 fi
 V=/opt/fdf/var; mkdir -p "$V" /opt/fdf/hub; chmod 700 "$V"
 KEYF=$V/site-key-$AREA
@@ -60,14 +74,20 @@ RAMU=fdf-ram-$AREA; CLIU=fdf-client-$AREA; FACTS=$V/facts-$AREA.json
 cat > /etc/systemd/system/$RAMU.service <<EOF
 # made by fdf-region-create $AREA $ADDR: the region's RAM manager
 [Unit]
-Description=FD&F RAM manager (rina-host) for the $AREA region, TCP $RAM_PORT
+Description=FD&F RAM manager (rina-host) for the $AREA region, TCP $RAM_PORT on $HUB_ADDR (inside the tunnel only)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Environment=RINA_REGION_FILE=$V/area-$AREA.perm
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
-ExecStart=/opt/fdf/bin/rina-host --listen 0.0.0.0:$RAM_PORT --api /FawcettInnovations.RINA.ram_interface.php
+Environment=FDF_PY=/opt/fdf/lib/python
+# [RAM_IN_THE_TUNNEL_V1] the region's interface (its key, its UDP port, the hub address) before the RAM manager, which
+# listens on that address and nowhere else. KillMode=process: a userspace WireGuard (wireguard-go) started here is not
+# taken down with a RAM manager restart.
+ExecStartPre=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area $AREA --iface $IFACE --endpoint $ADDR:$HUB_PORT --listen $HUB_PORT --iface-only
+ExecStart=/opt/fdf/bin/rina-host --listen $HUB_ADDR:$RAM_PORT --api /FawcettInnovations.RINA.ram_interface.php
+KillMode=process
 Restart=always
 RestartSec=1
 
@@ -82,11 +102,11 @@ After=$RAMU.service fdf-hub.service
 Wants=$RAMU.service
 
 [Service]
-Environment=RINA_RAM=127.0.0.1:$RAM_PORT
+Environment=RINA_RAM=$HUB_ADDR:$RAM_PORT
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
 Environment=FDF_FACTS=$FACTS
 Environment=FDF_NAME=$NAME
-ExecStart=/opt/fdf/bin/fdf-client 127.0.0.1:$RAM_PORT
+ExecStart=/opt/fdf/bin/fdf-client $HUB_ADDR:$RAM_PORT
 Restart=always
 RestartSec=1
 
@@ -98,22 +118,22 @@ systemctl daemon-reload
 # [START_FAILURE_IS_SEEN_V1 - final gates] `systemctl enable --now` exits 0 when the start job fails (systemd 255, seen
 # on the region host); `systemctl start` exits 1. So: enable, then start, and the start's status is the check.
 systemctl enable $RAMU.service && systemctl start $RAMU.service || { echo "fdf-region-create: $RAMU did not start: journalctl -u $RAMU" >&2; exit 1; }
-echo "== $RAMU started; waiting for it to answer on 127.0.0.1:$RAM_PORT"
+echo "== $RAMU started; waiting for it to answer on $HUB_ADDR:$RAM_PORT"
 call() {   # call JSON -> the RAM manager's answer
   python3 - "$RAM_PORT" "$1" <<'PY'
 import json, sys, urllib.request
-req = urllib.request.Request("http://127.0.0.1:%s/FawcettInnovations.RINA.ram_interface.php?op=rina" % sys.argv[1],
+req = urllib.request.Request("http://10.253.253.254:%s/FawcettInnovations.RINA.ram_interface.php?op=rina" % sys.argv[1],
                              data=sys.argv[2].encode(), headers={"Content-Type": "application/json"})
 print(urllib.request.urlopen(req, timeout=5).read().decode())
 PY
 }
 for i in $(seq 1 40); do call '{"op":"version"}' >/dev/null 2>&1 && break; sleep 0.5; done
-call '{"op":"version"}' 2>/dev/null | sed 's/^/   RAM manager: /' || { echo "fdf-region-create: the RAM manager does not answer on 127.0.0.1:$RAM_PORT: journalctl -u $RAMU" >&2; exit 1; }
+call '{"op":"version"}' 2>/dev/null | sed 's/^/   RAM manager: /' || { echo "fdf-region-create: the RAM manager does not answer on $HUB_ADDR:$RAM_PORT: journalctl -u $RAMU" >&2; exit 1; }
 R=$(call "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" 2>&1)
 case "$R" in *'"ok":true'*) echo "== map_site $AREA: $R" ;; *) echo "fdf-region-create: map_site $AREA was refused: $R" >&2; exit 1 ;; esac
 cat > "$HUBENV.tmp" <<EOF
 # /opt/fdf/hub/hub.env -- made by fdf-region-create $AREA $ADDR on $(date -u +%Y-%m-%dT%H:%MZ). fdf-hub.service reads it.
-RINA_RAM=127.0.0.1:$RAM_PORT
+RINA_RAM=$HUB_ADDR:$RAM_PORT
 FDF_AREA=$AREA
 FDF_HUB_NAME=$NAME
 FDF_ENDPOINT=$ADDR:$HUB_PORT
@@ -133,11 +153,16 @@ journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'
 [ "$ADOPT" = 1 ] || { echo "fdf-region-create: fdf-hub did not say 'start (adopt)' within 15 s: journalctl -u fdf-hub" >&2; exit 1; }
 echo "== $CLIU"
 journalctl -u $CLIU --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -3 | sed 's/^/   /'
-FW=("ufw allow $RAM_PORT/tcp" "ufw allow $HUB_PORT/udp" "ufw route allow in on wg-${AREA//./-} out on wg-${AREA//./-}")
+# [NOTHING_LISTENS_OUTSIDE_V1] with the firewall's default deny (a drop: no RST, no ICMP), a closed port is silent too,
+# so the machine itself does not answer the Internet. Nothing here touches ssh: an ssh port left open is a port the
+# Internet sees (fdf-hub's start line names it); the invisible way to administer this machine is through the region
+# (ssh to $HUB_ADDR from a member).
+FW=("ufw default deny incoming" "ufw allow $HUB_PORT/udp" "ufw route allow in on $IFACE out on $IFACE" "ufw allow in on $IFACE to $HUB_ADDR port $RAM_PORT proto tcp")
 if [ "$UFW" = 1 ]; then
   for l in "${FW[@]}"; do echo "== $l"; $l; done
 else
-  echo "== firewall: members must reach $ADDR:$RAM_PORT/tcp and $ADDR:$HUB_PORT/udp, and the hub forwards member to member."
+  echo "== firewall: members must reach $ADDR:$HUB_PORT/udp (nothing else), the RAM manager on $IFACE, and the hub forwards member to member."
+  echo "   With default deny, every other port is silent (no reset, no ICMP). Allow ssh first if you administer this machine over the Internet (that port is then visible)."
   echo "   With ufw, run (or re-run this with --ufw):"; for l in "${FW[@]}"; do echo "     $l"; done
 fi
 echo
@@ -145,6 +170,11 @@ echo "== region $AREA is held here. Its site key (shown this once; it stays in $
 echo
 echo "     $KEY"
 echo
-echo "== a FrogNet node joins it at install:"
-echo "     sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --region $ADDR:$RAM_PORT --site-key <KEY> --area $AREA"
-echo "   or, on a node already installed:  sudo bash fdf-install-\$(uname -m).run <KEY> $ADDR:$RAM_PORT $AREA"
+echo "== nothing here listens to the Internet but udp $HUB_PORT (fdf-hub's [NOTHING_LISTENS_OUTSIDE_V1] line says what else does):"
+journalctl -u fdf-hub --since "$T0" --no-pager -o cat | grep -A6 NOTHING_LISTENS_OUTSIDE | head -8 | sed 's/^/   /'
+echo
+echo "== a member is invited here, once per member (it prints the one line the member joins with):"
+echo "     /opt/fdf/bin/fdf-invite NAME"
+echo "   and joins with it, on the member:"
+echo "     sudo /opt/fdf/bin/fdf-region-join fdfinv1.<...>"
+echo "   or at install:  sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --invite fdfinv1.<...>"

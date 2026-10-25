@@ -18,8 +18,10 @@
 ################################################################
 """test_region_oracle.py -- [REGION_V1] oracle: this node's side of the region, with controls.
   1 register_node writes the facts file (the node's fdf-client announces it): pubkey is the daemon's, pond is RINA_AREA
-  2 my_channels: one channel per LIVE hub that holds my key (facts.peers); a dead hub, or one without my key yet, yields none (controls)
-  3 remote_subnets come ONLY from verified mappings naming that hub; a prefix mapped to another hub is absent (control)
+  2 my_channels: the invitation's hub, one channel, built without asking the region (it is reached through it); no
+    invitation, no channel (control)
+  3 remote_subnets, in an event, come ONLY from verified mappings naming that hub (and its own /24); a prefix mapped to
+    another hub is absent (control)
   5 publish_plan_maps: locator set ordered by handshake RTT, prio 1 = fastest; a hub without a tunnel is not a locator
 """
 import json, os, sys, tempfile
@@ -53,25 +55,31 @@ f = json.load(open(os.environ["FDF_FACTS"]))
 check(f["role"] == "node" and f["guid"] == "g-9" and f["name"] == "Seattle9" and f["subnet"] == "10.9.9.0/24" and f["pubkey"] == "PK9"
       and f["pond"] == "frognet.test", "1 register_node wrote the facts file (pubkey the daemon's, pond = RINA_AREA)")
 
-# 2 my-channels, one per live hub
+# 2 my-channels: [RAM_IN_THE_TUNNEL_V1][ADMITTED_BY_INVITE_V1] the hub channel comes from the invitation, not the region
+hj = os.path.join(tempfile.mkdtemp(), "hub.json"); region.HUB_JSON = hj
+ch0 = region.my_channels()
+check(ch0["channels"] == [], "2c control: no invitation -> no channel (and it says so)")
+json.dump({"area": "frognet.test", "ram": "10.253.253.254:51888",
+           "hub": {"name": "hubA", "pubkey": "HPA", "endpoint": "203.0.113.1:51820", "addr": "10.253.253.254"},
+           "member": {"name": "Seattle9", "edge": "10.253.1.9", "kind": "node"}}, open(hj, "w"))
+calls = []
+real_call = region._call
+region._call = lambda body: (calls.append(body["op"]), real_call(body))[1]
 ch = region.my_channels()
-names = sorted(c["channel_name"] for c in ch["channels"])
-check(names == ["hub-hubA", "hub-hubB"], "2 one channel per live hub")
+check([c["channel_name"] for c in ch["channels"]] == ["hub-hubA"] and not calls,
+      "2 outside an event (before joining): one channel, from the invitation, and the region is NOT asked (%s)" % calls)
 w = {c["channel_name"]: c["wg_config"] for c in ch["channels"]}
-check(w["hub-hubA"]["edge_ip"] == "10.253.9.9" and w["hub-hubA"]["edge_mask"] == 16 and w["hub-hubA"]["droplet_pubkey"] == "HPA"
-      and w["hub-hubA"]["droplet_endpoint"] == "203.0.113.1:51820" and w["hub-hubA"]["allowed_ips"] == "10.0.0.0/8", "2 wg_config: edge from our /24, hub's pubkey/endpoint, 10/8")
-state["parts"] = [dict(HUBS[0], alive=False), HUBS[1]] + NODES
-ch2 = region.my_channels()
-check([c["channel_name"] for c in ch2["channels"]] == ["hub-hubB"], "2c control: a hub whose session is down yields no channel")
-check(ch2["digest"] != ch["digest"], "2 digest changes with the channel set")
-state["parts"] = [dict(HUBS[0], facts=dict(HUBS[0]["facts"], peers=["PK1"])), HUBS[1]] + NODES
-check([c["channel_name"] for c in region.my_channels()["channels"]] == ["hub-hubB"],
-      "2h control: a live hub whose facts.peers does not hold my key yet yields no channel ([HUB_SAYS_ITS_PEERS_V1])")
-state["parts"] = HUBS + NODES
-
-# 3 remote_subnets only from verified mappings naming that hub, never ours
-check(w["hub-hubA"]["remote_subnets"] == ["10.1.1.0/24", "10.123.123.0/24", "10.77.77.0/24"], "3 hubA reaches 10.1.1, its own /24 (it is a node), the transit 10.77.77; not 10.2.2 (mapped to hubB only); not ours")
-check(w["hub-hubB"]["remote_subnets"] == ["10.1.1.0/24", "10.2.2.0/24"], "3 hubB reaches 10.1.1 and 10.2.2; not 10.77.77")
+check(w["hub-hubA"]["edge_ip"] == "10.253.1.9" and w["hub-hubA"]["edge_mask"] == 16 and w["hub-hubA"]["droplet_pubkey"] == "HPA"
+      and w["hub-hubA"]["droplet_endpoint"] == "203.0.113.1:51820" and w["hub-hubA"]["allowed_ips"] == "10.0.0.0/8" and w["hub-hubA"]["remote_subnets"] == [],
+      "2 wg_config: the invitation's edge (not one derived from the /24), the hub's pubkey/endpoint, 10/8, nothing carried yet")
+region._call = real_call
+# 3 inside an event: remote_subnets ONLY from verified mappings naming that hub (and the hub's own /24), never ours
+with region.world_in_hand(HUBS + NODES, MAPS):
+    w = {c["channel_name"]: c["wg_config"] for c in region.my_channels()["channels"]}
+check(w["hub-hubA"]["remote_subnets"] == ["10.1.1.0/24", "10.123.123.0/24", "10.77.77.0/24"], "3 in an event: hubA reaches 10.1.1, its own /24 (it is a node), the transit 10.77.77; not 10.2.2 (mapped to hubB only); not ours")
+with region.world_in_hand([dict(HUBS[0], alive=False)] + NODES, MAPS):
+    w = {c["channel_name"]: c["wg_config"] for c in region.my_channels()["channels"]}
+check(list(w) == ["hub-hubA"] and "10.123.123.0/24" not in w["hub-hubA"]["remote_subnets"], "3c the hub's session down: the channel stays (the region is reached through it); its own /24 is not carried")
 
 # 5 publish_plan_maps ordering by rtt; a hub without a tunnel is not a locator
 PLAN = ["10.9.9.0/24", "10.88.88.0/24"]

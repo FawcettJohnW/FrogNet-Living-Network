@@ -47,6 +47,7 @@ python3 tools/apply_http_front.py $P/ramsrv/ram_server.cpp         # [HTTP_FRONT
 python3 tools/apply_windows_portable.py $P/ribbit_cpp                      # [WINDOWS_PORTABLE_V1] last: the Windows client
 python3 tools/apply_keepalive.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_20S_V1] both ends: silent loss = dead at 20 s
 python3 tools/apply_keepalive_5s.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_5S_V1] after the 20 s block it replaces
+python3 tools/apply_connect_timeout.py $P/ribbit_cpp/frogram.cpp   # [CONNECT_BOUNDED_V1] a connect is bounded at 5 s too
 python3 tools/apply_session_epoch.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_net_config.py $P/ramsrv/ram_server.cpp $P/ribbit_cpp/ram_memory.hpp   # [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
 tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_rina.cpp

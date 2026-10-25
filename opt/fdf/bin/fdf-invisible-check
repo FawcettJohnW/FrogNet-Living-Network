@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-invisible-check -- [NOTHING_LISTENS_OUTSIDE_V1][RAM_IN_THE_TUNNEL_V1][ADMITTED_BY_INVITE_V1] does the region
+disappear from the Internet? Three views, one per kind of machine; each prints PASS/FAIL lines and what it saw, and
+exits nonzero on any FAIL.
+
+  fdf-invisible-check hub
+        on the machine that holds the region: what listens outside loopback and the tunnel (ss), where the RAM manager
+        listens, the input firewall's default (ufw / nftables / iptables), who is admitted, fdf-hub's own start line.
+  fdf-invisible-check member
+        on a member: the region is reached only through the hub channel (join.env names the hub's tunnel address; the
+        sessions to it run from the edge address; 10.253.0.0/16 is unreachable but through the tunnel), the handshake.
+  fdf-invisible-check outside HUB_IP HUB_PORT [--hub-key KEY] [--ram-port PORT]
+        on a machine that is NOT in the region, ideally on another network (a laptop on a phone hotspot): a TCP
+        connect to every port of HUB_IP (1-65535, 1000 at a time), ICMP echo, UDP to the hub's port and others, and --
+        with --hub-key (the hub's WireGuard public key: `wg show wg-AREA public-key` on the hub) and root -- a
+        WireGuard peer with a key of its own, never invited, trying to handshake. Each port is OPEN (something answers:
+        visible), REFUSED (the machine answered with a reset: it exists), or SILENT (nothing came back).
+        PASS needs: nothing OPEN; no handshake for the uninvited key. Reported, not failed: REFUSED ports and ICMP
+        replies (they show the machine exists; the input firewall's default deny makes them SILENT).
+"""
+import asyncio
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+
+HUB_ADDR = "10.253.253.254"
+FAILS = 0
+
+
+def check(ok, what):
+    global FAILS
+    print(("PASS  " if ok else "FAIL  ") + what, flush=True)
+    if not ok:
+        FAILS += 1
+
+
+def note(what):
+    print("NOTE  " + what, flush=True)
+
+
+def sh(*cmd):
+    try:
+        r = subprocess.run(list(cmd), capture_output=True, text=True)
+    except FileNotFoundError:
+        return "", 127                                  # not installed: said by the caller where it matters
+    return r.stdout.strip(), r.returncode
+
+
+def listeners():
+    out, _ = sh("ss", "-H", "-lntup")
+    rows = []
+    for ln in out.splitlines():
+        f = ln.split()
+        if len(f) >= 5:
+            rows.append((f[0], f[4], f[6] if len(f) > 6 else ""))
+    return rows
+
+
+def env_file(path):
+    d = {}
+    try:
+        for ln in open(path):
+            ln = ln.strip()
+            if ln.startswith("export "):
+                ln = ln[7:]
+            if "=" in ln and not ln.startswith("#"):
+                k, v = ln.split("=", 1)
+                d[k.strip()] = v.strip().strip('"')
+    except OSError:
+        pass
+    return d
+
+
+# ---------------------------------------------------------------- hub
+def hub():
+    h = env_file("/opt/fdf/hub/hub.env")
+    check(bool(h), "this machine holds a region (/opt/fdf/hub/hub.env: area %s, endpoint %s)" % (h.get("FDF_AREA"), h.get("FDF_ENDPOINT")))
+    if not h:
+        return
+    port = h.get("FDF_LISTEN", "")
+    check(h.get("RINA_RAM", "").startswith(HUB_ADDR + ":"), "the RAM manager is addressed inside the tunnel: RINA_RAM=%s" % h.get("RINA_RAM"))
+    rows = listeners()
+    outside = [r for r in rows if not (r[1].rsplit(":", 1)[0].strip("[]").split("%")[0].startswith(("127.", "10.253."))
+                                        or r[1].rsplit(":", 1)[0].strip("[]") == "::1")]
+    expected = [r for r in outside if r[0] == "udp" and r[1].rsplit(":", 1)[1] == port]
+    others = [r for r in outside if r not in expected]
+    check(bool(expected), "the hub's WireGuard port listens: %s" % ([r[1] for r in expected] or "none on udp %s" % port))
+    check(not others, "nothing else listens outside loopback and the tunnel: %s" % (
+        "; ".join("%s %s %s" % r for r in others) if others else "nothing"))
+    ram = [r for r in rows if r[0] == "tcp" and "rina-host" in r[2]]
+    check(bool(ram) and all(r[1].startswith(HUB_ADDR + ":") for r in ram), "rina-host listens only on %s: %s" % (HUB_ADDR, [r[1] for r in ram]))
+    # the input firewall's default: drop makes every closed port silent
+    ufw, rc = sh("ufw", "status", "verbose")
+    if rc == 0 and ufw:
+        st = [l for l in ufw.splitlines() if l.startswith(("Status:", "Default:"))]
+        note("ufw: %s" % " | ".join(st))
+        silent = "Status: active" in ufw and "deny (incoming)" in ufw
+    else:
+        nft, _ = sh("nft", "list", "ruleset")
+        silent = any("hook input" in l and ("policy drop" in l) for l in nft.splitlines())
+        note("no ufw; nftables input chain with policy drop: %s" % silent)
+    note("input default %s: closed ports %s" % ("DROP" if silent else "ACCEPT", "are SILENT (the machine does not answer)" if silent
+                                                   else "answer with a reset / ICMP (the machine is seen to exist; nothing is OPEN)"))
+    adm = sorted(f[:-5] for f in os.listdir("/opt/fdf/hub/admitted") if f.endswith(".json")) if os.path.isdir("/opt/fdf/hub/admitted") else []
+    note("admitted (fdf-invite): %d: %s" % (len(adm), " ".join(adm)))
+    iface = "wg-" + h.get("FDF_AREA", "").replace(".", "-")
+    peers, _ = sh("wg", "show", iface, "latest-handshakes")
+    now = time.time()
+    note("peers on %s: %s" % (iface, "; ".join("%s.. %s" % (l.split()[0][:10], ("never" if l.split()[1] == "0" else "%ds ago" % (now - int(l.split()[1]))))
+                                              for l in peers.splitlines() if len(l.split()) == 2) or "none"))
+    j, _ = sh("journalctl", "-u", "fdf-hub", "--no-pager", "-o", "cat", "-n", "400")
+    lines = [l for l in j.splitlines() if "NOTHING_LISTENS_OUTSIDE" in l or l.lstrip().startswith("[FDF-HUB] #")]
+    if lines:
+        note("fdf-hub's own start check (last): " + lines[-1].split("[FDF-HUB] ", 1)[-1][:160])
+
+
+# ---------------------------------------------------------------- member
+def member():
+    j = env_file("/opt/fdf/var/join.env")
+    ram = j.get("RINA_RAM", "")
+    check(ram.startswith(HUB_ADDR + ":"), "join.env: the region is the hub's tunnel address (RINA_RAM=%s)" % (ram or "absent"))
+    try:
+        inv = json.load(open("/opt/fdf/var/hub.json"))
+    except (OSError, ValueError) as e:
+        inv = {}
+        check(False, "the invitation's hub (/opt/fdf/var/hub.json): %s" % e)
+    edge = (inv.get("member") or {}).get("edge", "")
+    if inv:
+        check(bool(edge), "invited: edge %s, hub %s at %s" % (edge, (inv.get("hub") or {}).get("name"), (inv.get("hub") or {}).get("endpoint")))
+    rg, _ = sh("ip", "-4", "route", "get", HUB_ADDR)
+    check(" dev wg" in rg and ("src " + edge) in rg, "the route to the region goes through the hub channel from the edge: %s" % rg.splitlines()[0] if rg else "no route")
+    ur, _ = sh("ip", "-4", "route", "show", "type", "unreachable")
+    check("10.253.0.0/16" in ur, "10.253.0.0/16 is unreachable except through the tunnel (nothing for the region leaves by the Internet): %s" % (ur.replace("\n", "; ") or "no unreachable route"))
+    port = ram.rsplit(":", 1)[-1] if ram else ""
+    est, _ = sh("ss", "-H", "-tn", "state", "established", "( dport = :%s )" % port)
+    srcs = sorted({l.split()[2].rsplit(":", 1)[0] for l in est.splitlines() if len(l.split()) >= 4 and l.split()[3].startswith(HUB_ADDR)})
+    check(bool(srcs) and all(s == edge for s in srcs), "sessions to the region: %d, every one from the edge %s: %s" % (len(est.splitlines()), edge, srcs))
+    hs, _ = sh("wg", "show", "all", "latest-handshakes")
+    now = time.time()
+    ages = [now - int(l.split()[2]) for l in hs.splitlines() if len(l.split()) == 3 and l.split()[2] != "0"]
+    check(bool(ages) and min(ages) < 180, "hub channel handshake: %s" % ("%d s ago" % min(ages) if ages else "none"))
+    rows = listeners()
+    pub = [r for r in rows if not r[1].rsplit(":", 1)[0].strip("[]").split("%")[0].startswith(("127.", "10.")) and r[1].rsplit(":", 1)[0].strip("[]") != "::1"]
+    note("this member listens on non-10.x addresses (its LAN services are its own business; these are what its uplink "
+         "network could reach): %s" % ("; ".join("%s %s %s" % r for r in pub) or "nothing"))
+
+
+# ---------------------------------------------------------------- outside
+async def _scan(host, ports, conc, tmo):
+    res = {"open": [], "refused": 0, "silent": 0}
+    sem = asyncio.Semaphore(conc)
+
+    async def one(p):
+        async with sem:
+            try:
+                r, w = await asyncio.wait_for(asyncio.open_connection(host, p), tmo)
+                res["open"].append(p)
+                w.close()
+            except ConnectionRefusedError:
+                res["refused"] += 1
+            except (asyncio.TimeoutError, OSError):
+                res["silent"] += 1
+    await asyncio.gather(*(one(p) for p in ports))
+    res["open"].sort()
+    return res
+
+
+def outside(a):
+    if len(a) < 2:
+        print(__doc__.strip()); sys.exit(2)
+    host, port = a[0], int(a[1])
+    key = a[a.index("--hub-key") + 1] if "--hub-key" in a else ""
+    ram = int(a[a.index("--ram-port") + 1]) if "--ram-port" in a else 0
+    ip = socket.gethostbyname(host)
+    rt, _ = sh("ip", "-4", "route", "get", ip)
+    note("scanning %s from %s" % (ip, rt.split("src ")[1].split()[0] if "src " in rt else "?"))
+    if " dev wg" in rt:
+        note("this machine reaches %s through a WireGuard interface: run this from a machine outside the region" % ip)
+    import resource
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 4096), hard)); soft = min(hard, 4096)
+    except (ValueError, OSError):
+        pass
+    t0 = time.time()
+    res = asyncio.run(_scan(ip, range(1, 65536), max(50, min(1000, soft - 64)), 2.0))
+    check(not res["open"], "TCP 1-65535 on %s: OPEN %s, REFUSED %d, SILENT %d (%.0f s)" % (ip, res["open"] or "none", res["refused"], res["silent"], time.time() - t0))
+    if res["refused"]:
+        note("%d ports answered with a reset: the machine is seen to exist (the input firewall's default deny makes them silent)" % res["refused"])
+    if ram:
+        r = asyncio.run(_scan(ip, [ram], 1, 3.0))
+        check(not r["open"], "the old region port %d: %s" % (ram, "OPEN" if r["open"] else "REFUSED" if r["refused"] else "SILENT"))
+    _, rc = sh("ping", "-c", "3", "-W", "2", ip)
+    note("ICMP echo: %s" % ("answered (the machine is seen to exist)" if rc == 0 else "no answer"))
+    # UDP: the hub's port gets junk; a connected UDP socket sees ICMP port-unreachable as ECONNREFUSED
+    for p in sorted({port, 53, 123, 1194, 51820, 50820}):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2.0)
+        s.connect((ip, p))
+        try:
+            s.send(os.urandom(148)); d = s.recv(2048); what = "ANSWERED (%d bytes)" % len(d)
+        except ConnectionRefusedError:
+            what = "port unreachable (ICMP: the machine exists)"
+        except socket.timeout:
+            what = "silent"
+        finally:
+            s.close()
+        if p == port:
+            check(not what.startswith("ANSWERED"), "UDP %d (the hub's WireGuard port), 148 random bytes: %s" % (p, what))
+        else:
+            note("UDP %d: %s" % (p, what))
+    if not key:
+        note("no --hub-key: the uninvited-peer handshake is not tried")
+        return
+    if os.geteuid() != 0:
+        note("not root: the uninvited-peer handshake is not tried"); return
+    dev = "wgprobe%d" % (os.getpid() % 1000)
+    kf = "/tmp/.%s.key" % dev
+    old = os.umask(0o077)
+    open(kf, "w").write(sh("wg", "genkey")[0] + "\n")
+    os.umask(old)
+    made = sh("ip", "link", "add", dev, "type", "wireguard")[1] == 0
+    if not made:
+        made = subprocess.run(["wireguard-go", dev], capture_output=True).returncode == 0
+    if not made:
+        note("could not make a WireGuard interface here (no kernel module, no wireguard-go): handshake not tried"); os.remove(kf); return
+    try:
+        sh("wg", "set", dev, "private-key", kf, "peer", key, "endpoint", "%s:%d" % (ip, port), "allowed-ips", HUB_ADDR + "/32",
+           "persistent-keepalive", "1")
+        sh("ip", "addr", "add", "10.253.254.%d/32" % (os.getpid() % 250 + 1), "dev", dev)
+        sh("ip", "link", "set", dev, "up")
+        for _ in range(3):
+            sh("ping", "-c", "1", "-W", "2", "-I", dev, HUB_ADDR)
+        time.sleep(3)
+        hs, _ = sh("wg", "show", dev, "latest-handshakes")
+        tr, _ = sh("wg", "show", dev, "transfer")
+        got = hs.split()[1] if len(hs.split()) == 2 else "0"
+        rx = tr.split()[1] if len(tr.split()) == 3 else "?"
+        check(got == "0" and rx == "0", "an uninvited WireGuard key, knowing the hub's public key: handshake %s, bytes from the hub %s" % (
+            "none" if got == "0" else "AT " + got, rx))
+    finally:
+        sh("ip", "link", "del", dev)
+        os.remove(kf)
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] not in ("hub", "member", "outside"):
+        print(__doc__.strip()); return 2
+    {"hub": lambda: hub(), "member": lambda: member(), "outside": lambda: outside(a[1:])}[a[0]]()
+    print("RESULT " + ("PASS" if FAILS == 0 else "FAIL: %d" % FAILS))
+    return 1 if FAILS else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

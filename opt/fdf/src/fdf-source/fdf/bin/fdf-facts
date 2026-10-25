@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-BUILD_TAG = "fdf-2026-10-12-r20"
+BUILD_TAG = "fdf-2026-10-25-r31"
 FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
 LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
 # [UPLINK_JUDGED_LOCALLY_V1] No hard-coded public address (it was 8.8.8.8: somebody else's server, and a network that
@@ -36,6 +36,7 @@ LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
 # one, else the default route's own next hop -- the uplink's own state.
 PING_TARGET = os.environ.get("FDF_UPLINK_PING", "")
 OVERLAY = ("253", "254")
+HUB_JSON = os.environ.get("FDF_HUB_JSON", "/opt/fdf/var/hub.json")
 
 
 def sh(*cmd):
@@ -250,11 +251,19 @@ def rows():
                 served[ip.rsplit(".", 1)[0]] = dev
             elif ip.startswith("10.") and o[1] not in OVERLAY:
                 out.append({"iface": dev, "ip": ip, "value": name.split(".", 1)[-1], "kind": "held", "mac": i["mac"]})
-    # [HUB_ROW_IS_THE_REGION_EDGE_V1] the region tunnel edge of a served 10.A.B.0/24 is exactly 10.253.A.B. Only a wg
-    # interface holding that address is a hub row. FrogNet's broker-mode tunnels (wgN with other 10.253.x addresses,
+    # [HUB_ROW_IS_THE_REGION_EDGE_V1] the region tunnel edge is exactly one address. Only a wg interface holding that
+    # address is a hub row. FrogNet's broker-mode tunnels (wgN with other 10.253.x addresses,
     # created and torn down by its own bring-up) are not region edges; counting them made every flap a facts change
     # and a region-wide replan (Seattle7 with five 10.253.205.x addresses, HappyDog re-registered with the broker 15:31).
-    edges = {"10.253.%s.%s" % tuple(pfx.split(".")[1:3]) for pfx in served}
+    # [ADMITTED_BY_INVITE_V1] the edge is the one this node's invitation gave it (/opt/fdf/var/hub.json, written by
+    # fdf-region-join), no longer 10.253.A.B derived from the /24: the hub admitted that address before the node spoke.
+    edges = set()
+    try:
+        e = json.load(open(HUB_JSON)).get("member", {}).get("edge", "")
+        if e:
+            edges.add(e)
+    except (OSError, ValueError):
+        pass
     for dev, i in ifs.items():
         if i["wg"]:
             for ip in i["addrs"]:
