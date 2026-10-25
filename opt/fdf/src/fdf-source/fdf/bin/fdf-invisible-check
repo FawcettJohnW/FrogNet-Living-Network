@@ -78,6 +78,48 @@ def env_file(path):
     return d
 
 
+def firewall():
+    """{"active": default-deny input in force, "allows": f(proto, port) for a non-tunnel interface, "allowed": [text],
+    "what": text}. ufw (status verbose: app profiles come expanded, "80,443/tcp (Apache Full)"); else an nftables input
+    chain with policy drop is reported as active with nothing parsed as allowed (said)."""
+    import re as _re
+    ufw, rc = sh("ufw", "status", "verbose")
+    if rc == 0 and "Status: active" in ufw:
+        rules = []
+        for ln in ufw.splitlines():
+            import re as _re
+            m = _re.search(r"\s(ALLOW|LIMIT)(\s+IN)?\s", ln)
+            if not m:
+                continue                                        # DENY / REJECT / headers
+            to = ln[:m.start()].strip()
+            if " on " in to:
+                to, iface = to.split(" on ", 1)
+                if iface.strip().startswith("wg"):
+                    continue                                    # the tunnel's own rules: not the Internet
+            to = to.split("(")[0].strip()
+            if to.startswith("Anywhere"):
+                rules.append(("any", 0, 65535, ln.strip())); continue
+            proto = "any"
+            if "/" in to:
+                to, proto = to.rsplit("/", 1)
+            for part in to.split(","):
+                part = part.strip()
+                try:
+                    lo, hi = (int(x) for x in part.split(":")) if ":" in part else (int(part), int(part))
+                except ValueError:
+                    continue
+                rules.append((proto, lo, hi, ln.strip()))
+        allows = lambda proto, port: any((p == "any" or p == proto) and lo <= port <= hi for p, lo, hi, _ in rules)
+        deny = "deny (incoming)" in ufw or "reject (incoming)" in ufw
+        return {"active": deny, "allows": allows if deny else (lambda pr, po: True),
+                "allowed": sorted({_re.split(r"\s(?:ALLOW|LIMIT)", r[3])[0].strip() for r in rules}), "what": "ufw active, default %s" % ("deny" if deny else "ALLOW")}
+    nft, _ = sh("nft", "list", "ruleset")
+    if any("hook input" in l and "policy drop" in l for l in nft.splitlines()):
+        return {"active": True, "allows": lambda pr, po: True, "allowed": [],
+                "what": "nftables input chain, policy drop (its accept rules are not parsed here: every listener counted as reachable)"}
+    return {"active": False, "allows": lambda pr, po: True, "allowed": [], "what": "no default-deny input firewall found (ufw inactive or absent, no nftables drop policy)"}
+
+
 # ---------------------------------------------------------------- hub
 def hub():
     h = env_file("/opt/fdf/hub/hub.env")
@@ -92,22 +134,24 @@ def hub():
     expected = [r for r in outside if r[0] == "udp" and r[1].rsplit(":", 1)[1] == port]
     others = [r for r in outside if r not in expected]
     check(bool(expected), "the hub's WireGuard port listens: %s" % ([r[1] for r in expected] or "none on udp %s" % port))
-    check(not others, "nothing else listens outside loopback and the tunnel: %s" % (
-        "; ".join("%s %s %s" % r for r in others) if others else "nothing"))
+    # [EXPOSED_IS_LISTENING_AND_ALLOWED_V1] a socket the Internet can reach = it listens outside loopback/the tunnel AND
+    # the input firewall lets that port in on a non-tunnel interface. Listening behind a default deny is filtered: silent.
+    fw = firewall()
+    exposed, filtered = [], []
+    for r in others:
+        (filtered if fw["active"] and not fw["allows"](r[0], int(r[1].rsplit(":", 1)[1])) else exposed).append(r)
+    name = lambda r: "%s %s %s" % (r[0], r[1], r[2].split('"')[1] if '"' in r[2] else r[2])
+    check(not exposed, "nothing else the Internet can reach (listening AND allowed in by the firewall): %s" % (
+        "; ".join(name(r) for r in exposed) if exposed else "nothing"))
+    if filtered:
+        note("listening outside loopback/the tunnel but filtered by the firewall (silent from the Internet): %s" % "; ".join(name(r) for r in filtered))
     ram = [r for r in rows if r[0] == "tcp" and "rina-host" in r[2]]
     check(bool(ram) and all(r[1].startswith(HUB_ADDR + ":") for r in ram), "rina-host listens only on %s: %s" % (HUB_ADDR, [r[1] for r in ram]))
-    # the input firewall's default: drop makes every closed port silent
-    ufw, rc = sh("ufw", "status", "verbose")
-    if rc == 0 and ufw:
-        st = [l for l in ufw.splitlines() if l.startswith(("Status:", "Default:"))]
-        note("ufw: %s" % " | ".join(st))
-        silent = "Status: active" in ufw and "deny (incoming)" in ufw
-    else:
-        nft, _ = sh("nft", "list", "ruleset")
-        silent = any("hook input" in l and ("policy drop" in l) for l in nft.splitlines())
-        note("no ufw; nftables input chain with policy drop: %s" % silent)
-    note("input default %s: closed ports %s" % ("DROP" if silent else "ACCEPT", "are SILENT (the machine does not answer)" if silent
-                                                   else "answer with a reset / ICMP (the machine is seen to exist; nothing is OPEN)"))
+    note("firewall: %s" % fw["what"])
+    if fw["allowed"]:
+        note("allowed in from the Internet: %s" % ", ".join(fw["allowed"]))
+    note("input default %s: closed ports %s" % ("DROP" if fw["active"] else "ACCEPT", "are SILENT (the machine does not answer)" if fw["active"]
+                                                   else "answer with a reset / ICMP (the machine is seen to exist)"))
     adm = sorted(f[:-5] for f in os.listdir("/opt/fdf/hub/admitted") if f.endswith(".json")) if os.path.isdir("/opt/fdf/hub/admitted") else []
     note("admitted (fdf-invite): %d: %s" % (len(adm), " ".join(adm)))
     iface = "wg-" + h.get("FDF_AREA", "").replace(".", "-")
