@@ -49,10 +49,13 @@ def sh(*argv, check=True, ns=None, quiet=False):
     return r
 
 
-def plan(S, E, machines):
+def plan(S, E, machines, ring=False):
+    """ring: [S4_RING_V1] also a point-to-point link between neighbouring egress nodes (e1-e2, e2-e3, ..., eE-e1;
+    one link when E = 2), so every egress has a second path to the hub and a cut hub link can be routed around.
+    The hub also holds ram0 = 198.51.100.1/32 (the region's RAM manager, for the layered run; a passive IS-IS circuit)."""
     assert 1 <= E < S <= 250 and machines
     nodes, links, placement, seats = {}, [], {}, {}
-    nodes["hub"] = {"role": "hub", "ifaces": {}}
+    nodes["hub"] = {"role": "hub", "ifaces": {"ram0": "198.51.100.1/32"}}
     placement["hub"] = machines[0]["name"]
     for i in range(1, E + 1):
         n = f"e{i}"
@@ -62,6 +65,12 @@ def plan(S, E, machines):
         placement[n] = machines[(i - 1) % len(machines)]["name"]
         seats[i] = 0
         links.append({"kind": "hub", "a": ["hub", f"hl{i}"], "b": [n, "hl0"], "vni": 4000 + i})
+    if ring and E >= 2:
+        pairs = [(1, 2)] if E == 2 else [(i, i % E + 1) for i in range(1, E + 1)]
+        for j, (x, y) in enumerate(pairs):
+            nodes[f"e{x}"]["ifaces"][f"rn{y}"] = f"172.31.{j}.1/30"
+            nodes[f"e{y}"]["ifaces"][f"rn{x}"] = f"172.31.{j}.2/30"
+            links.append({"kind": "ring", "a": [f"e{x}", f"rn{y}"], "b": [f"e{y}", f"rn{x}"], "vni": 5000 + j})
     for k in range(E + 1, S + 1):
         e = (k - E - 1) % E + 1
         seats[e] += 1
@@ -69,7 +78,7 @@ def plan(S, E, machines):
         nodes[n] = {"role": "child", "egress": f"e{e}", "served": f"10.20.{k}.0/24",
                     "ifaces": {"lan0": f"10.20.{k}.1/24", "eth1": f"10.20.{e}.{19 + seats[e]}/24"}}
         placement[n] = placement[f"e{e}"]
-    return {"S": S, "E": E, "machines": machines, "nodes": nodes, "links": links, "placement": placement}
+    return {"S": S, "E": E, "ring": ring, "machines": machines, "nodes": nodes, "links": links, "placement": placement}
 
 
 def adjacency(p):
@@ -86,6 +95,10 @@ def adjacency(p):
     for members in lans.values():
         for a in members:
             adj[a].update(m for m in members if m != a)
+    for l in p["links"]:
+        if l["kind"] == "ring":
+            x, y = l["a"][0], l["b"][0]
+            adj[x].add(y); adj[y].add(x)
     return adj
 
 
@@ -112,10 +125,14 @@ def owners(p):
     for n, d in p["nodes"].items():
         for cidr in d["ifaces"].values():
             o[cidr.split("/")[0]] = n
+        if d["role"] == "egress":                             # its overlay edge (the RAM arm's tunnels; FrogNet's rule)
+            a, b = d["served"].split(".")[1:3]
+            o[f"10.253.{a}.{b}"] = n
+    o["10.253.253.254"] = "hub"
     return o
 
 
-def walk(p, tables, src, net, own=None):
+def walk(p, tables, src, net, own=None, dead=frozenset()):
     """[S4_VERIFY_WALK_V1] the one place a route is followed: from src toward net over the kernel tables every node
     reported ({node: {dest: (via, dev)}}), hop by hop. -> (path, verdict)."""
     own = own or owners(p)
@@ -127,11 +144,25 @@ def walk(p, tables, src, net, own=None):
         if len(path) > 12:
             return path, "LOOP"
         r = tables.get(at, {}).get(net)
+        dflt = False
+        if not r:
+            r = tables.get(at, {}).get("default")
+            dflt = True
         if not r:
             return path, "NO ROUTE"
         via, dev = r
-        # a connected route (no via): the destination's own server is on that link
-        nxt = own.get(via) if via else served.get(net)
+        if (at, dev) in dead:
+            # [S4_DEAD_LINK_V1] the table still sends it over a silenced link: the packet is lost there
+            return path, f"DEAD LINK {at}:{dev}"
+        if dflt and p["nodes"][at]["role"] != "child":
+            # [S4_UNDERLAY_IS_NOT_A_PATH_V1] an egress's default is its Internet uplink: it routes no 10/8 (the hub's
+            # machine drops 10/8 from the underlay, as the Internet does). Only a child's default (its exit's LAN) counts
+            return path, "NO ROUTE"
+        if dev.startswith("wg") and not via:
+            nxt = "hub"                                       # an overlay route: the tunnel's far end is the hub
+        else:
+            # a connected route (no via): the destination's own server is on that link
+            nxt = own.get(via) if via else served.get(net)
         if not nxt:
             return path, f"NO HOLDER OF {via}"
         path.append(nxt)
@@ -159,6 +190,7 @@ class Bed:
         self.mine = [n for n, m in p["placement"].items() if m == me]
         self.ip = {m["name"]: m["ip"] for m in p["machines"]}
         self.made_links = []
+        self.silenced = set()                 # (node, dev) silenced now: the walk treats a hop over one as lost
 
     def _veth(self, a, ai, b, bi):
         t1, t2 = f"qv{len(self.made_links)}a", f"qv{len(self.made_links)}b"
@@ -182,6 +214,9 @@ class Bed:
             d = p["nodes"][n]
             if d["role"] == "egress":
                 sh("ip", "link", "add", "eth0", "type", "bridge", ns=n)
+            if d["role"] == "hub":
+                sh("ip", "link", "add", "ram0", "type", "veth", "peer", "name", "ram0p", ns=n)
+                sh("ip", "link", "set", "ram0p", "up", ns=n)
             if d["role"] == "child":
                 # lan0: a veth whose far end stays in the node (the served /24 needs a link that is up)
                 sh("ip", "link", "add", "lan0", "type", "veth", "peer", "name", "lan0p", ns=n)
@@ -234,14 +269,14 @@ class Bed:
             sh("ip", "netns", "del", NS + n, check=False)
 
     def routes(self, n):
-        """{dest: (via, dev)} for /24s in n's kernel table (any protocol)."""
+        """{dest: (via, dev)} for the bed's /24s and the default route in n's kernel table (any protocol)."""
         out = {}
         for ln in sh("ip", "-4", "route", "show", ns=n).stdout.splitlines():
             q = ln.split()
-            if q and q[0].endswith("/24") and q[0].startswith("10.20."):
+            if q and ((q[0].endswith("/24") and q[0].startswith("10.20.")) or q[0] == "default"):
                 via = q[q.index("via") + 1] if "via" in q else ""
                 dev = q[q.index("dev") + 1] if "dev" in q else ""
-                out[q[0]] = (via, dev)
+                out.setdefault(q[0], (via, dev))            # the first listed is the one the kernel uses (lowest metric)
         return out
 
     def silence(self, n, dev, on=True):
@@ -250,6 +285,7 @@ class Bed:
         the arm must find it itself; a carrier drop would let the kernel flush the routes before the arm does anything.
         Egress, not ingress: a routing daemon's packet socket sees frames before an ingress hook could drop them."""
         t = f"s4cut_{dev}"
+        (self.silenced.add if on else self.silenced.discard)((n, dev))
         if on:
             sh("nft", "add", "table", "netdev", t, ns=n)
             sh("nft", "add", "chain", "netdev", t, "out", f"{{ type filter hook egress device {dev} priority 0 ; }}", ns=n)
@@ -315,7 +351,7 @@ def wire_bytes(bed):
     this is the arm's control traffic (each packet counted once, by its sender)."""
     b = pk = 0
     for n in bed.mine:
-        r = sh("sh", "-c", "for d in /sys/class/net/*; do i=${d##*/}; case $i in lo|lan0p|lp*) continue;; esac; "
+        r = sh("sh", "-c", "for d in /sys/class/net/*; do i=${d##*/}; case $i in lo|lan0p|ram0p|lp*) continue;; esac; "
                "echo $(cat $d/statistics/tx_bytes) $(cat $d/statistics/tx_packets); done", ns=n, check=False)
         for ln in r.stdout.splitlines():
             x, y = ln.split()

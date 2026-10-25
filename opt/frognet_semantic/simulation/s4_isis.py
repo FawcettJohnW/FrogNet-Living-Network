@@ -62,11 +62,11 @@ class Isis:
                  f" net 49.0001.{self.sysid(n)}.00"] + PROFILES[self.profile] + [" is-type level-2-only", " metric-style wide", "!"]
         for i in d["ifaces"]:
             lines += [f"interface {i}", " ip router isis D"]
-            if i == "lan0":
+            if i in ("lan0", "ram0"):
                 lines.append(" isis passive")
-            elif i.startswith("hl"):
+            elif i.startswith(("hl", "rn")):
                 lines.append(" isis network point-to-point")
-            if i != "lan0":
+            if i not in ("lan0", "ram0"):
                 lines += CIRCUIT[self.profile]
             lines.append("!")
         return "\n".join(lines) + "\n"

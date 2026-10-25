@@ -22,6 +22,9 @@ sys.path.insert(0, _HERE)
 import s4_bed as B          # noqa: E402
 
 
+BED = None
+
+
 def verify(p, tables, sp, own, cut=frozenset()):
     """-> (ok pairs, on-shortest pairs, total, bad[:5]). With `cut`, pairs across it must have NO route."""
     served = {d["served"]: n for n, d in p["nodes"].items() if d.get("served")}
@@ -32,7 +35,7 @@ def verify(p, tables, sp, own, cut=frozenset()):
             if dst == src:
                 continue
             tot += 1
-            path, v = B.walk(p, tables, src, net, own)
+            path, v = B.walk(p, tables, src, net, own, frozenset(BED.silenced) if BED else frozenset())
             across = (src in cut) != (dst in cut)
             if across:
                 if v == "NO ROUTE" or (v.startswith("NO HOLDER") and False):
@@ -59,13 +62,16 @@ def main():
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument("--out", default=".")
     ap.add_argument("--frr-bin", default=None)
+    ap.add_argument("--ram-bin", default=None, help="rina-host, fdf-client, fdf-events, wireguard-go")
+    ap.add_argument("--fdf", default=None, help="the FD&F tree: bin/fdf-hub, bin/fdf-facts, lib/python")
     ap.add_argument("--cut", default="silent", choices=["silent", "carrier"],
                     help="silent: the link stays up and carries nothing (a WAN failure); carrier: the link goes down")
     a = ap.parse_args()
     p = B.plan(a.S, a.E, [{"name": "local", "ip": "127.0.0.1"}])
     sp, own = B.shortest(p), B.owners(p)
     work = tempfile.mkdtemp(prefix=f"s4-{a.arm}-S{a.S}E{a.E}-", dir=a.out)
-    bed = B.Bed(p, "local").build()
+    global BED
+    bed = BED = B.Bed(p, "local").build()
     res = {"arm": a.arm, "profile": a.profile, "S": a.S, "E": a.E, "nodes": len(p["nodes"]), "cut": a.cut}
     w = None
     arm = None
@@ -75,8 +81,11 @@ def main():
         if a.arm == "isis":
             import s4_isis
             arm = s4_isis.Isis(bed, work, a.profile, a.frr_bin)
+        elif a.arm == "ram":
+            import s4_ram
+            arm = s4_ram.Ram(bed, work, a.ram_bin, a.fdf)
         else:
-            raise SystemExit(f"arm {a.arm} not built yet")
+            raise SystemExit(f"arm {a.arm}: isis or ram")
         t0 = arm.start()
 
         def all_ok(t):
