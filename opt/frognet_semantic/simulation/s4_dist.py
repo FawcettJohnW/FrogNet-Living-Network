@@ -106,6 +106,27 @@ def my_addr_toward(host):
     return r[r.index("src") + 1] if "src" in r else ""
 
 
+def diag(st):
+    """[DIAG-S4-RAM] every node here, as the region sees it from inside the node: the route to the RAM manager, a TCP
+    connect to it, the last lines of its reader, fdf-client and fdf-facts; on the hub, rina-host's state and log."""
+    import s4_layer as L
+    out = {}
+    bed, work = st["bed"], st["work"]
+    for n in bed.mine:
+        d = os.path.join(work, n)
+        tail = lambda f, k=3: (open(os.path.join(d, f)).read().strip().splitlines()[-k:] if os.path.exists(os.path.join(d, f)) else ["(no %s)" % f])
+        rt = B.sh("ip", "-4", "route", "get", L.RAM_IP, ns=n, check=False)
+        cn = B.sh("timeout", "4", "bash", "-c", f"exec 3<>/dev/tcp/{L.RAM_IP}/{L.RAM_PORT} && echo connected", ns=n, check=False)
+        out[n] = {"route": (rt.stdout or rt.stderr).strip().splitlines()[:1], "connect": (cn.stdout + cn.stderr).strip()[-160:] or "rc=%d" % cn.returncode,
+                  "reader": tail("reader.log"), "client": tail("fdf-client.log"), "facts": tail("fdf-facts.log", 2)}
+        if n == "hub":
+            pids = B.sh("ip", "netns", "pids", B.NS + n, check=False).stdout.split()
+            comms = sorted({open(f"/proc/{p}/comm").read().strip() for p in pids if os.path.exists(f"/proc/{p}/comm")})
+            out[n].update(processes=comms, host=tail("rina-host.log", 6),
+                          listen=B.sh("ss", "-H", "-lnt", ns=n, check=False).stdout.strip().splitlines())
+    return out
+
+
 def agent(ctl, name):
     import s4_isis
     import s4_layer as L
@@ -144,7 +165,7 @@ def agent(ctl, name):
                     reg.cv.wait(1.0)
                 seen = len(reg.lines)
                 st["restarts_seen"] = len(reg.restarts)
-                view = {n: {k: d.get(k) for k in ("ev", "alive", "with_facts") if k in d} for n, d in reg.view.items()}
+                view = {n: {k: d.get(k) for k in ("ev", "alive", "with_facts", "why", "error") if k in d} for n, d in reg.view.items()}
                 restarts = [[n, nm] for _t, n, nm, _rc in reg.restarts]
             if st.get("ending"):
                 return
@@ -160,7 +181,13 @@ def agent(ctl, name):
             done.add(key)
             act, out, err = f["action"], {}, ""
             try:
-                if act == "build":
+                if st.get("idle") and act != "build":
+                    pass                                     # [S4_NOT_IN_THIS_RUN_V1] a run over other machines: nothing here
+                elif act == "build" and me not in set(f["plan"]["placement"].values()):
+                    st.clear(); st.update(run=f["run"], idle=True)
+                    out = {"nodes": [], "note": "not one of this run's machines"}
+                    print(f"s4-dist agent {me}: run {f['run']} is over other machines; idle for it", flush=True)
+                elif act == "build":
                     for k in ("reg", "isis"):
                         if st.get(k):
                             st[k].stop()
@@ -194,6 +221,8 @@ def agent(ctl, name):
                             st["bed"].silence(n, dev, on)
                 elif act == "count":
                     out = {"wire": B.wire_bytes(st["bed"])[0], "ram": L.ram_bytes(st["bed"])}
+                elif act == "diag":
+                    out = diag(st)
                 elif act == "usage":
                     out = {"isis": st["isis"].usage() if st.get("isis") else {}}
                 elif act == "end":
@@ -357,6 +386,20 @@ def run(a):
         ctl.step("members")
         ok = ctl.wait(lambda: all(full(n, ctl.views.get(n, {})) for n in names), a.timeout)
         res["ram_cold_s"] = round(time.time() - t1, 2) if ok else None
+        if not ok:
+            # [DIAG-S4-RAM] the applications never all saw the region: why, from inside every node, in the evidence
+            dg, _ = ctl.step("diag")
+            res["ram_cold_diag"] = dg
+            print("[DIAG-S4-RAM] the region was not ready on every node in %d s; views now: %s" % (a.timeout, {
+                n: (v.get("ev"), len(v.get("with_facts") or []), v.get("why") or v.get("error")) for n, v in sorted(ctl.views.items())}), flush=True)
+            for ag, nodes in dg.items():
+                for n, d in sorted(nodes.items()):
+                    print("[DIAG-S4-RAM] %s %s: route %s | connect %s | reader %s | client %s" % (ag, n, d["route"], d["connect"],
+                          d["reader"][-1:], d["client"][-1:]), flush=True)
+                    if n == "hub":
+                        print("[DIAG-S4-RAM] %s hub processes %s listen %s" % (ag, d.get("processes"), d.get("listen")), flush=True)
+                        for l in d.get("host", []):
+                            print("[DIAG-S4-RAM] %s hub rina-host: %s" % (ag, l[:200]), flush=True)
         w3, r3 = counts()
         res["ram_cold_bytes"] = r3 - r2
         time.sleep(a.steady)
