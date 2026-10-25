@@ -21,9 +21,35 @@ WANT_ARCH="__ARCH__"; M=$(uname -m)
 # NetworkManager hook's merges are requests to it); a node installed before T4c may not have it [WATCHER_HAS_INOTIFY_V1]
 for b in python3 wg systemctl tar inotifywait apache2ctl curl; do command -v $b >/dev/null || { echo "fdf-install: $b is required and missing$( [ $b = inotifywait ] && echo ' (apt-get install inotify-tools)')"; exit 1; }; done
 [ -d /opt/frognet_semantic/internet_tunnels_v3 ] || { echo "fdf-install: /opt/frognet_semantic/internet_tunnels_v3 not found: this is not a FrogNet node (install FrogNet first)"; exit 1; }
-echo "== unpacking the node bundle into /"
 LINE=$(awk '/^__PAYLOAD_BELOW__$/ {print NR + 1; exit 0}' "$0")
-tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed"; exit 1; }
+# [BACKUP_BEFORE_INSTALL_V1] (John 2026-10-25: "This had better work, or fall back if it doesn't") -- before anything is
+# written: every file this bundle would replace, and the node's region state (site.env, join.env, hub.json, facts.json,
+# the WireGuard key, the fdf units), saved as it is now; and a restore script that puts all of it back, removes what this
+# bundle added, and restarts the daemon and the units on the old files. Nothing else does the restoring: you run it.
+STAMP=$(date -u +%Y%m%dT%H%M%SZ); BK=/opt/fdf-backup-$STAMP
+tail -n +$LINE "$0" | tar tzf - | sed 's|^\./||' | grep -v '/$' > "$BK.list" || { echo "fdf-install: cannot read the bundle"; exit 1; }
+STATE="/opt/fdf/var/site.env /opt/fdf/var/join.env /opt/fdf/var/hub.json /opt/fdf/var/facts.json /var/lib/frognet-tunnel/node_private.key /var/lib/frognet-tunnel/node_public.key /etc/systemd/system/fdf-client.service /etc/systemd/system/fdf-facts.service"
+( cd / && { cat "$BK.list"; for f in $STATE; do echo "${f#/}"; done; } | sort -u | while read -r f; do [ -e "/$f" ] && echo "$f"; done ) > "$BK.had"
+( cd / && { cat "$BK.list"; for f in $STATE; do echo "${f#/}"; done; } | sort -u | while read -r f; do [ -e "/$f" ] || echo "$f"; done ) > "$BK.new"
+( cd / && tar czf "$BK.tgz" -T "$BK.had" ) || { echo "fdf-install: backup to $BK.tgz failed: nothing was installed"; exit 1; }
+cat > "$BK.restore" <<RESTORE
+#!/bin/bash
+# $BK.restore -- put this node back exactly as it was before fdf-install ran at $STAMP [BACKUP_BEFORE_INSTALL_V1]
+set -u
+[ "\$(id -u)" = 0 ] || { echo "run as root"; exit 1; }
+systemctl stop fdf-client.service fdf-facts.service frognet-tunnel-daemon-v3 2>/dev/null
+cd / && while read -r f; do rm -f "/\$f"; done < "$BK.new" && echo "== removed the \$(wc -l < $BK.new) file(s) the install added"
+cd / && tar xzf "$BK.tgz" && echo "== restored the \$(wc -l < $BK.had) file(s) it replaced"
+ip route del unreachable 10.253.0.0/16 metric 4253 2>/dev/null
+systemctl daemon-reload
+for u in fdf-client.service fdf-facts.service; do [ -e /etc/systemd/system/\$u ] && systemctl start \$u; done
+systemctl start frognet-tunnel-daemon-v3
+echo "== restored; the daemon and the fdf units restarted on the old files: \$(cat /opt/fdf/BUILD 2>/dev/null | tr '\\n' ' ')"
+RESTORE
+chmod 700 "$BK.restore"
+echo "== backup: $BK.tgz ($(wc -l < "$BK.had") files as they were); to undo this install: sudo bash $BK.restore"
+echo "== unpacking the node bundle into /"
+tail -n +$LINE "$0" | tar xzf - -C / || { echo "fdf-install: unpack failed; to undo: sudo bash $BK.restore"; exit 1; }
 cat /opt/fdf/BUILD
 # [ONE_MONITOR_TRUTH_V1 - T5] the bundle's sudoers fragment: getSnapshot.php (www-data) reads the hub link's handshake
 # with exactly `wg show all latest-handshakes`. sudo wants it 0440; one that visudo refuses is taken out again (a bad
