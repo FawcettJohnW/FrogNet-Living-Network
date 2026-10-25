@@ -89,8 +89,8 @@ def firewall():
         for ln in ufw.splitlines():
             import re as _re
             m = _re.search(r"\s(ALLOW|LIMIT)(\s+IN)?\s", ln)
-            if not m:
-                continue                                        # DENY / REJECT / headers
+            if not m or _re.search(r"\s(ALLOW|LIMIT)\s+(FWD|OUT)\s", ln):
+                continue                                        # DENY / REJECT / headers; routed and outgoing rules
             to = ln[:m.start()].strip()
             if " on " in to:
                 to, iface = to.split(" on ", 1)
