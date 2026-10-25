@@ -13,7 +13,7 @@ exits nonzero on any FAIL.
   fdf-invisible-check member
         on a member: the region is reached only through the hub channel (join.env names the hub's tunnel address; the
         sessions to it run from the edge address; 10.253.0.0/16 is unreachable but through the tunnel), the handshake.
-  fdf-invisible-check outside HUB_IP HUB_PORT [--hub-key KEY] [--ram-port PORT]
+  fdf-invisible-check outside HUB_IP HUB_PORT [--hub-key KEY] [--ram-port PORT] [--skip-scan]
         on a machine that is NOT in the region, ideally on another network (a laptop on a phone hotspot): a TCP
         connect to every port of HUB_IP (1-65535, 1000 at a time), ICMP echo, UDP to the hub's port and others, and --
         with --hub-key (the hub's WireGuard public key: `wg show wg-AREA public-key` on the hub) and root -- a
@@ -122,8 +122,10 @@ def firewall():
 
 # ---------------------------------------------------------------- hub
 def hub():
-    h = env_file("/opt/fdf/hub/hub.env")
-    check(bool(h), "this machine holds a region (/opt/fdf/hub/hub.env: area %s, endpoint %s)" % (h.get("FDF_AREA"), h.get("FDF_ENDPOINT")))
+    hub_env = os.environ.get("FDF_HUB_ENV", "/opt/fdf/hub/hub.env")
+    admitted_dir = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
+    h = env_file(hub_env)
+    check(bool(h), "this machine holds a region (%s: area %s, endpoint %s)" % (hub_env, h.get("FDF_AREA"), h.get("FDF_ENDPOINT")))
     if not h:
         return
     port = h.get("FDF_LISTEN", "")
@@ -152,9 +154,9 @@ def hub():
         note("allowed in from the Internet: %s" % ", ".join(fw["allowed"]))
     note("input default %s: closed ports %s" % ("DROP" if fw["active"] else "ACCEPT", "are SILENT (the machine does not answer)" if fw["active"]
                                                    else "answer with a reset / ICMP (the machine is seen to exist)"))
-    adm = sorted(f[:-5] for f in os.listdir("/opt/fdf/hub/admitted") if f.endswith(".json")) if os.path.isdir("/opt/fdf/hub/admitted") else []
+    adm = sorted(f[:-5] for f in os.listdir(admitted_dir) if f.endswith(".json")) if os.path.isdir(admitted_dir) else []
     note("admitted (fdf-invite): %d: %s" % (len(adm), " ".join(adm)))
-    iface = "wg-" + h.get("FDF_AREA", "").replace(".", "-")
+    iface = h.get("FDF_IFACE") or "wg-" + h.get("FDF_AREA", "").replace(".", "-")
     peers, _ = sh("wg", "show", iface, "latest-handshakes")
     now = time.time()
     note("peers on %s: %s" % (iface, "; ".join("%s.. %s" % (l.split()[0][:10], ("never" if l.split()[1] == "0" else "%ds ago" % (now - int(l.split()[1]))))
@@ -234,8 +236,12 @@ def outside(a):
     except (ValueError, OSError):
         pass
     t0 = time.time()
-    res = asyncio.run(_scan(ip, range(1, 65536), max(50, min(1000, soft - 64)), 2.0))
-    check(not res["open"], "TCP 1-65535 on %s: OPEN %s, REFUSED %d, SILENT %d (%.0f s)" % (ip, res["open"] or "none", res["refused"], res["silent"], time.time() - t0))
+    if "--skip-scan" in a:
+        note("--skip-scan: the 65535-port TCP scan is not run (this machine's other services are not the region's)")
+        res = {"open": [], "refused": 0}
+    else:
+        res = asyncio.run(_scan(ip, range(1, 65536), max(50, min(1000, soft - 64)), 2.0))
+        check(not res["open"], "TCP 1-65535 on %s: OPEN %s, REFUSED %d, SILENT %d (%.0f s)" % (ip, res["open"] or "none", res["refused"], res["silent"], time.time() - t0))
     if res["refused"]:
         note("%d ports answered with a reset: the machine is seen to exist (the input firewall's default deny makes them silent)" % res["refused"])
     if ram:
