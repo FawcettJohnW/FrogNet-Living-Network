@@ -18,6 +18,14 @@
 #                                   E egress points (default 1 2 5 10 20 50 100), FD&F discovery from memory (a real
 #                                   rina-host, an fdf-client per node, fdf_graph); the complete verification plan per E.
 #                                   Evidence: runs/scale-<UTC>/ here.
+#   day-claims layered-agent HOST[:PORT] [NAME]   [S4_DIST_V1] (root) every machine of the layered run: real IS-IS
+#                                   (FRR isisd + zebra per namespace) builds the routes, shared RAM runs above them.
+#                                   Advertises itself to the control host and does the steps the controller writes.
+#   day-claims layered HOST[:PORT] --machines N [--profile tuned|default] [--S 20] [--E 2] [--ring]
+#                                   one machine: the controller. Holds a read until N agents are there, builds the bed
+#                                   over them (hub links between machines are VXLAN), measures IS-IS and the region
+#                                   through cold start, steady state, reroute (--ring), partition and heal.
+#                                   Evidence: runs/s4-dist-*.json here. HOST is a `day-claims host`.
 #   day-claims version              the build every binary here is.
 #
 # Nothing connects the machines but the host's shared memory: agents advertise in it, take their work from the
@@ -62,7 +70,7 @@ case "${1:-all}" in
     echo "E2 evidence: $OUT"
     "$H/scale/scale-series"; rs=$?
     echo "E2 evidence: $OUT"; [ $rc = 0 ] && exit $rs; exit $rc ;;
-  help|-h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' ;;
+  help|-h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//' ;;
   host)
     P=${2:-52500}; mkdir -p "$H/var/blob"
     rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"          # every run starts on an empty memory
@@ -79,6 +87,14 @@ case "${1:-all}" in
     echo "evidence: $OUT"; exit $rc ;;
   scale)
     shift; exec "$H/scale/scale-series" "$@" ;;
+  layered-agent)
+    [ $# -ge 2 ] || { echo "usage: day-claims layered-agent HOST[:PORT] [NAME]" >&2; exit 2; }
+    [ "$(id -u)" = 0 ] || { echo "day-claims layered-agent: needs root (it builds network namespaces)" >&2; exit 2; }
+    for t in ip nft python3 bash; do command -v $t > /dev/null || { echo "day-claims layered-agent: \`$t\` is not installed" >&2; exit 2; }; done
+    exec python3 "$H/s4/s4_dist.py" agent "$(where "$2")" ${3:+"$3"} ;;
+  layered)
+    [ $# -ge 2 ] || { echo "usage: day-claims layered HOST[:PORT] --machines N [options]" >&2; exit 2; }
+    h=$(where "$2"); shift 2; exec python3 "$H/s4/s4_dist.py" run "$h" "$@" ;;
   version) cat "$H/BUILD"; for b in "$B"/*; do printf '%s: %s\n' "${b##*/}" "$(strings "$b" | grep -m1 -o 'fdf-[0-9-]*-r[0-9]*')"; done ;;
-  *) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

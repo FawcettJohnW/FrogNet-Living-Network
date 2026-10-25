@@ -6,6 +6,7 @@
 // given no host.
 //   stdin, one JSON object per line:  {"fn": ..., ...}           -> one op=daf call; its answer, one line, on stdout
 //                                      {"watch": [D, name, rev]}  -> a held read, answered by the change: {"rev": N}
+//                                      {"fn":"wait",...}          -> a held read, held until answered (no call timeout)
 //   end of input, or the process killed: the session ends, and with it everything the node held.
 // usage: daf_agent
 #include "daf_client.hpp"
@@ -25,6 +26,10 @@ int main(int argc, char**) {
             if (line.compare(0, 9, "{\"watch\":") == 0) {
                 Json w = Json::parse(line)["watch"];
                 out = "{\"rev\":" + std::to_string((unsigned long long)c.watch(w[0].s, w[1].s, uint64_t(w[2].n))) + "}";
+            } else if (line.find("\"fn\":\"wait\"") != std::string::npos) {
+                // [DAF_AGENT_WAIT_HELD_V1] a held read is held until it is answered or the session ends -- not cut off at
+                // the session's ordinary call timeout (a step that takes a minute is not a failure of the read)
+                out = c.raw(line, 1e9);
             } else out = c.raw(line);
         } catch (const std::exception& e) { out = "{\"ok\":false,\"error\":\"EAGENT\",\"why\":" + daf::q(e.what()) + "}"; }   // said, on its line
         std::cout << out << '\n' << std::flush;

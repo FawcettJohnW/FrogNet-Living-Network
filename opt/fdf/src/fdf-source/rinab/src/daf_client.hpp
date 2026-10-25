@@ -35,7 +35,7 @@ public:
     void post(const std::string& fn, const std::string& fields = "") {
         s_->post("POST", api() + "?op=daf", "{\"fn\":" + q(fn) + (fields.empty() ? "" : "," + fields) + "}"); }
     // one DAF operation from a whole body ({"fn":...,...}); the answer's text as it came
-    std::string raw(const std::string& body) { return s_->call_text("POST", api() + "?op=daf", body); }
+    std::string raw(const std::string& body, double timeout_s = 15.0) { return s_->call_text("POST", api() + "?op=daf", body, timeout_s); }
     // [DAF_WAIT_V1] a held read: what = name | sub | ans | box | fd | in | req | out (daf_region.cpp, wait). The answer
     // {ok, rev, rows:[{i, id, v}]} comes when something there is past `after`; now=true answers at once (a plain read).
     // timeout_s: how long THIS caller waits for the answer (default: until answered or the session ends). On expiry the

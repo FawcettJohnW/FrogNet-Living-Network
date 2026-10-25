@@ -121,7 +121,11 @@ class Region:
                 self.cv.notify_all()
 
     def start(self):
-        open(os.path.join(self.work, "leases.none"), "w").close()
+        if "hub" in self.bed.mine:
+            self.start_host()
+        self.start_members()
+
+    def start_host(self):
         h = os.path.join(self.work, "hub")
         os.makedirs(h, exist_ok=True)
         self.spawn("hub", "rina-host", [f"{self.bins}/rina-host", "--listen", f"{RAM_IP}:{RAM_PORT}", "--api", API],
@@ -132,6 +136,8 @@ class Region:
             time.sleep(0.02)
         else:
             raise RuntimeError(f"rina-host did not listen in 5 s: see {h}/rina-host.log")
+
+    def start_members(self):
         for n in self.bed.mine:
             d = os.path.join(self.work, n)
             os.makedirs(d, exist_ok=True)
@@ -204,8 +210,8 @@ def main():
     ap.add_argument("--fdf", default=None)
     a = ap.parse_args()
     arch = os.uname().machine
-    ram_bin = a.ram_bin or f"/opt/fdf/experiments/day-claims/ram/bin/{arch}"
-    fdf = a.fdf or "/opt/fdf/experiments/day-claims/ram/fdf"
+    ram_bin = a.ram_bin or f"/opt/fdf/experiments/day-claims/scale/bin/{arch}"
+    fdf = a.fdf or "/opt/fdf/experiments/day-claims/s4/fdf"
     p = B.plan(a.S, a.E, [{"name": "local", "ip": "127.0.0.1"}], ring=a.ring)
     sp, own = B.shortest(p), B.owners(p)
     work = tempfile.mkdtemp(prefix=f"s4-layer-{a.profile}-S{a.S}E{a.E}-", dir=a.out)

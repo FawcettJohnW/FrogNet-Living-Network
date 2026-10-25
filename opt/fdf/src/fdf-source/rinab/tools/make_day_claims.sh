@@ -41,6 +41,23 @@ for x in $SBINS; do cp build/static/$x "$SC/bin/x86_64/"; cp build/arm64/$x "$SC
 cp experiments/scale/scale-series "$SC/"; cp "$FN/simulation/s_scale_tier.py" "$SC/simulation/"
 cp "$H/../fdf/lib/python/fdf_graph.py" "$SC/fdf/lib/python/"
 { echo "$TAG"; git -C "$H" log -1 --format='commit %h %cI'; } > "$SC/BUILD"
+# ---- [S4_DIST_V1] the layered run: real IS-IS (FRR 9.1 isisd + zebra, static, tools/build_frr.sh) below, shared RAM
+# above (rina-host, fdf-client, fdf-events from scale/bin; fdf-facts; daf-agent for the control memory), across machines
+for a in x86_64 aarch64; do for x in zebra isisd; do [ -x build/frr/$a/$x ] || { echo "make_day_claims: build/frr/$a/$x missing (tools/build_frr.sh)" >&2; exit 1; }; done; done
+[ -d build/frr/yang ] || { echo "make_day_claims: build/frr/yang missing" >&2; exit 1; }
+g++ -std=c++20 -O2 -pthread -D_GNU_SOURCE -I$P/ribbit_cpp -Isrc -static examples/sim/daf_agent.cpp build/obj/frogram.o \
+    $L/liblz4.a $L/libcrypto.a -lresolv -o build/static/daf-agent 2>&1 | grep -v "statically linked applications\|in function" || true
+aarch64-linux-gnu-g++ -std=c++20 -O2 -pthread -D_GNU_SOURCE -I$ARM/lz4/lib -I$ARM/openssl/include -I$P/ribbit_cpp -Isrc -static \
+    examples/sim/daf_agent.cpp build/arm64/frogram.o $ARM/lz4/lib/liblz4.a $ARM/openssl/libcrypto.a -lresolv -o build/arm64/daf-agent 2>&1 \
+    | grep -v "statically linked applications\|in function" || true
+file build/static/daf-agent | grep -q "x86-64.*statically linked" && file build/arm64/daf-agent | grep -q "ARM aarch64.*statically linked" || { echo "make_day_claims: daf-agent not static" >&2; exit 1; }
+cp build/static/daf-agent "$D/bin/x86_64/"; cp build/arm64/daf-agent "$D/bin/aarch64/"
+mkdir -p "$D/isis/bin/x86_64" "$D/isis/bin/aarch64" "$D/isis/yang" "$D/s4/fdf/bin"
+for a in x86_64 aarch64; do cp build/frr/$a/zebra build/frr/$a/isisd "$D/isis/bin/$a/"; done
+cp build/frr/yang/*.yang "$D/isis/yang/"
+for f in s4_bed.py s4_isis.py s4_layer.py s4_reader.py s4_dist.py s4_local.py; do cp "$FN/simulation/$f" "$D/s4/"; done
+cp "$H/../fdf/bin/fdf-facts" "$D/s4/fdf/bin/"
+chmod 755 "$D"/isis/bin/*/* "$D/s4/fdf/bin/fdf-facts" "$D/s4/s4_dist.py"
 chmod 755 "$SC/scale-series" "$SC"/bin/*/*
 chmod 755 "$D/day-claims" "$D"/bin/*/*
 printf 'package=day-claims.tgz\nbuild=%s\nbuilt=%s\nfor=every machine (x86_64 and aarch64): the distributed Day-claims experiments\nscenarios=%s\n' "$TAG" "$NOW" "$(sha256sum "$SCEN" | cut -c1-16)" > "$D/BUILD"

@@ -49,7 +49,7 @@ def sh(*argv, check=True, ns=None, quiet=False):
     return r
 
 
-def plan(S, E, machines, ring=False):
+def plan(S, E, machines, ring=False, mtu=1500):
     """ring: [S4_RING_V1] also a point-to-point link between neighbouring egress nodes (e1-e2, e2-e3, ..., eE-e1;
     one link when E = 2), so every egress has a second path to the hub and a cut hub link can be routed around.
     The hub also holds ram0 = 198.51.100.1/32 (the region's RAM manager, for the layered run; a passive IS-IS circuit)."""
@@ -78,7 +78,7 @@ def plan(S, E, machines, ring=False):
         nodes[n] = {"role": "child", "egress": f"e{e}", "served": f"10.20.{k}.0/24",
                     "ifaces": {"lan0": f"10.20.{k}.1/24", "eth1": f"10.20.{e}.{19 + seats[e]}/24"}}
         placement[n] = placement[f"e{e}"]
-    return {"S": S, "E": E, "ring": ring, "machines": machines, "nodes": nodes, "links": links, "placement": placement}
+    return {"S": S, "E": E, "ring": ring, "mtu": mtu, "machines": machines, "nodes": nodes, "links": links, "placement": placement}
 
 
 def adjacency(p):
@@ -257,14 +257,28 @@ class Bed:
         for n in self.mine:
             for i, cidr in p["nodes"][n]["ifaces"].items():
                 sh("ip", "addr", "add", cidr, "dev", i, ns=n)
+                if i.startswith(("hl", "rn")):
+                    # [S4_LINK_MTU_V1] one MTU on every hub and ring link, local or not: a VXLAN link across the machines
+                    # carries 50 bytes of its own inside whatever path joins them (a WireGuard overlay: 1420)
+                    sh("ip", "link", "set", i, "mtu", p.get("mtu", 1500), ns=n)
                 sh("ip", "link", "set", i, "up", ns=n)
         return self
 
     def teardown(self):
+        """[S4_TEARDOWN_LEAVES_NOTHING_V1] every process in the bed's namespaces ends (TERM, then KILL after 3 s for any
+        that did not): a namespace deleted under a live daemon leaves the daemon running with no network at all."""
+        import time as _t
+        pids = []
         for n in self.mine:
-            r = sh("ip", "netns", "pids", NS + n, check=False)
-            for pid in r.stdout.split():
-                subprocess.run(["kill", pid], capture_output=True)
+            pids += sh("ip", "netns", "pids", NS + n, check=False).stdout.split()
+        for pid in pids:
+            subprocess.run(["kill", pid], capture_output=True)
+        t_end = _t.time() + 3
+        while _t.time() < t_end and any(os.path.exists(f"/proc/{pid}") for pid in pids):
+            _t.sleep(0.1)
+        for pid in pids:
+            if os.path.exists(f"/proc/{pid}"):
+                subprocess.run(["kill", "-9", pid], capture_output=True)
         for n in self.mine:
             sh("ip", "netns", "del", NS + n, check=False)
 
