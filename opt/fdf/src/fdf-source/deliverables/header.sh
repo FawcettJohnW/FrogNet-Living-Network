@@ -57,12 +57,19 @@ cat /opt/fdf/BUILD
 chmod 0440 /etc/sudoers.d/frognet-snapshot && visudo -cf /etc/sudoers.d/frognet-snapshot >/dev/null \
   || { rm -f /etc/sudoers.d/frognet-snapshot; echo "fdf-install: /etc/sudoers.d/frognet-snapshot refused by visudo; removed"; exit 1; }
 # [FDF_WEB_UNDER_APACHE_V1 - T5b] the bundle's vhost (the tree's 000-default.conf) serves /opt/fdf/www/fdf at /fdf/ on
-# the node's Apache: checked, reloaded, and asked once. Any step that fails stops this install, and says which.
+# the node's Apache. The vhost we install must be valid -- a bad one stops the install. But applying it to the running
+# Apache, and the web view itself, are independent of region membership: a node is a member whether or not its local
+# /fdf/ dashboard renders. So a failed apply is logged and the join goes ahead; the view catches up on the next restart.
 apache2ctl configtest >/dev/null 2>&1 || { echo "fdf-install: apache2ctl configtest refuses the vhost:"; apache2ctl configtest; exit 1; }
-systemctl reload apache2 || { echo "fdf-install: systemctl reload apache2 failed (systemctl status apache2)"; exit 1; }
-C=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/fdf/fdf_dashboard.html)
-[ "$C" = 200 ] || { echo "fdf-install: http://127.0.0.1:8080/fdf/fdf_dashboard.html answered HTTP $C, not 200"; exit 1; }
-echo "== FD&F region view: http://<this node>/fdf/ (Apache, /opt/fdf/www/fdf)"
+# restart, not reload: `apachectl graceful` builds a transient mount namespace that systemd refuses on a long-up box
+# (status=226/NAMESPACE); a restart recreates the service with a fresh namespace. One mechanism, applied once.
+if systemctl restart apache2; then
+  C=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/fdf/fdf_dashboard.html)
+  [ "$C" = 200 ] && echo "== FD&F region view: http://<this node>/fdf/ (Apache, /opt/fdf/www/fdf)" \
+    || echo "fdf-install: the region view answered HTTP $C, not 200; the join goes ahead -- the view is not part of membership (systemctl status apache2)"
+else
+  echo "fdf-install: systemctl restart apache2 failed; the join goes ahead -- the web view is not part of membership (systemctl status apache2)"
+fi
 # [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
 echo "== joining the region that invited this node"
