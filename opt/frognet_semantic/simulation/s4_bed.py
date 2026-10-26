@@ -203,6 +203,17 @@ class Bed:
 
     def build(self):
         p = self.p
+        # [S4_CLEANS_FIRST_V1] a run that crashed before teardown leaves q-* namespaces -- and the VXLAN devices moved
+        # into them -- holding their VNIs, so a rebuild collides with its own leftovers ("VNI already exists"). Delete
+        # every q-* namespace on this machine (not just this plan's), and any qx* VXLAN still dangling in root, first.
+        for ns in sh("ip", "-o", "netns", "list", check=False).stdout.splitlines():
+            ns = (ns.split() or [""])[0]
+            if ns.startswith(NS):
+                sh("ip", "netns", "del", ns, check=False)
+        for ln in sh("ip", "-o", "link", "show", "type", "vxlan", check=False).stdout.splitlines():
+            name = ln.split(":", 2)[1].strip().split("@")[0] if ":" in ln else ""
+            if name.startswith("qx"):
+                sh("ip", "link", "del", name, check=False)
         for n in self.mine:
             sh("ip", "netns", "del", NS + n, check=False)
             sh("ip", "netns", "add", NS + n)

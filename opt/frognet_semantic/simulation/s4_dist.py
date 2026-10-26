@@ -140,7 +140,7 @@ def agent(ctl, name):
     st = {}                                                  # this run's bed, watcher, arms
 
     def publish_tables():
-        bed, wt = st["bed"], st["watcher"]
+        bed, wt, run, tables = st["bed"], st["watcher"], st["run"], st["tables"]   # captured: st is cleared at run end
         while not st.get("ending"):
             with wt.cv:
                 while not wt.dirty and not st.get("ending"):
@@ -153,11 +153,11 @@ def agent(ctl, name):
                 d |= wt.dirty
                 wt.dirty = set()
             for n in d:
-                st["tables"][n] = {k: f"{v[0]}|{v[1]}" for k, v in bed.routes(n).items()}
-            w.join("tables", {"run": st["run"], "t": dict(st["tables"])})
+                tables[n] = {k: f"{v[0]}|{v[1]}" for k, v in bed.routes(n).items()}
+            w.join("tables", {"run": run, "t": dict(tables)})
 
     def publish_views():
-        reg = st["reg"]
+        reg, run = st["reg"], st["run"]                      # captured: st is cleared at run end
         seen = 0
         while not st.get("ending"):
             with reg.cv:
@@ -169,7 +169,7 @@ def agent(ctl, name):
                 restarts = [[n, nm] for _t, n, nm, _rc in reg.restarts]
             if st.get("ending"):
                 return
-            w.join("views", {"run": st["run"], "v": view, "restarts": restarts, "lines": seen})
+            w.join("views", {"run": run, "v": view, "restarts": restarts, "lines": seen})
 
     while True:
         rev, data = r.wait(sub, rev, now=(rev == 0))
