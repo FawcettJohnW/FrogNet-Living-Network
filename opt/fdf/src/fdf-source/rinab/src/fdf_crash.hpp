@@ -48,11 +48,18 @@ inline void handler(int sig, siginfo_t* si, void*) {
 
 inline void install(const char* prog) {
     g_prog = prog;
+    // [FDF_CRASH_ALTSTACK_V1] run the handler on a DEDICATED stack. A stack overflow faults on the guard page, and a
+    // handler on the (exhausted) normal stack cannot run -- it double-faults and the process dies SILENTLY, which is
+    // exactly how this reporter looked useless. With an alt stack the handler still runs and prints the recursion.
+    static char altstk[64 * 1024];
+    stack_t ss; memset(&ss, 0, sizeof ss);
+    ss.ss_sp = altstk; ss.ss_size = sizeof altstk; ss.ss_flags = 0;
+    sigaltstack(&ss, nullptr);
     struct sigaction sa;
     memset(&sa, 0, sizeof sa);
     sa.sa_sigaction = handler;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_SIGINFO | SA_RESETHAND;             // one shot: after it fires, the default disposition is restored
+    sa.sa_flags = SA_SIGINFO | SA_RESETHAND | SA_ONSTACK;  // one shot, on the alt stack so a stack overflow is caught
     for (int s : {SIGSEGV, SIGBUS, SIGABRT, SIGFPE, SIGILL}) sigaction(s, &sa, nullptr);
 }
 
