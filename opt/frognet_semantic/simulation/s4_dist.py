@@ -597,8 +597,7 @@ def run(a):
                     "isis_per_node_p50": p50(isis_cpu), "isis_total": sum(isis_cpu),
                     "ram_per_node_p50": p50([c for c, _ in ram_nodes.values()]),
                     "ram_total": sum(c for c, _ in ram_nodes.values()), "ram_host": host[0],
-                    "spb_model_per_node_p50": (lambda m: [m, m and m * 16])(p50(isis_cpu)),
-                    "spb_model_note": "one SPF per node x ECT tree count (1..16); same SPF as IS-IS, no 2nd protocol"},
+                    "spb_measured": "see res['spb']: the 802.1aq control plane timed over this run's LSDB, not a model"},
                 "memory_kb": {
                     "isis_lsdb_per_node_p50": p50([r for _c, r in isis]),
                     "ram_rss_per_node_p50": p50([r for _c, r in ram_nodes.values()]), "ram_host_rss": host[1],
@@ -626,6 +625,15 @@ def run(a):
                            "reversed_asymmetric_trunk": T.reversed_case()}
         except Exception as e:
             res["tree_error"] = str(e)[:300]
+        # [S4_SPB_IN_THE_RUN_V1] the 802.1aq IS-IS modifications as a MEASURED control plane over this run's converged
+        # LSDB (FRR is L3-only, so the SPB data plane can't run here; the modifications -- the SPF that yields the ECT
+        # tree set -- are an algorithm we time): plain SPF vs one SPB tree vs the full 16-tree set, reconvergence after
+        # a cut, path symmetry, unicast/multicast congruence, and how many ECT trees are actually distinct here.
+        try:
+            import s4_spb as SPB
+            res["spb"] = SPB.measure(T.from_plan(p))
+        except Exception as e:
+            res["spb_error"] = str(e)[:300]
     finally:
         try:
             ctl.step("end")
