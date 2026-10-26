@@ -55,7 +55,7 @@ cp build/static/daf-agent "$D/bin/x86_64/"; cp build/arm64/daf-agent "$D/bin/aar
 mkdir -p "$D/isis/bin/x86_64" "$D/isis/bin/aarch64" "$D/isis/yang" "$D/s4/fdf/bin"
 for a in x86_64 aarch64; do cp build/frr/$a/zebra build/frr/$a/isisd "$D/isis/bin/$a/"; done
 cp build/frr/yang/*.yang "$D/isis/yang/"
-for f in s4_bed.py s4_isis.py s4_layer.py s4_reader.py s4_dist.py s4_local.py s4_tree.py s4_spb.py; do cp "$FN/simulation/$f" "$D/s4/"; done
+for f in s4_bed.py s4_isis.py s4_layer.py s4_reader.py s4_dist.py s4_local.py s4_tree.py s4_spb.py s4_loopfree.py s4_microloop.py; do cp "$FN/simulation/$f" "$D/s4/"; done
 cp "$H/../fdf/bin/fdf-facts" "$D/s4/fdf/bin/"
 chmod 755 "$D"/isis/bin/*/* "$D/s4/fdf/bin/fdf-facts" "$D/s4/s4_dist.py"
 chmod 755 "$SC/scale-series" "$SC"/bin/*/*
