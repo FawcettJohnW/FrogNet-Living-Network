@@ -14,6 +14,7 @@
 //             (RINA_SITE_KEY) under the site RINA_AREA. Changed -> re-registered; dropped from the file -> withdrawn.
 #include "frogram.hpp"
 #include "fdf_version.hpp"
+#include "fdf_crash.hpp"
 #include <cerrno>
 #include <cstring>
 #include <cstdio>
@@ -268,6 +269,7 @@ static frogram::Json announce(frogram::Session& s, const std::string& api, const
 }
 
 int main(int argc, char** argv) {
+    fdf_crash::install("fdf-client");                                             // [FDF_CRASH_HANDLER_V1] self-report a fatal signal
     const char* e = getenv("RINA_RAM"); const std::string where = argc > 1 ? argv[1] : (e ? e : "");
     const size_t c = where.rfind(':');
     if (where.empty() || c == std::string::npos) { fprintf(stderr, "usage: fdf-client <ram-server>:<port>   (or set RINA_RAM)\n"); return 2; }

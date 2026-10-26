@@ -181,28 +181,33 @@ class Region:
             return True
 
     def _crash_report(self, log, prog, sig):
-        """[S4_CRASH_REPORT_V1] a unit died on a signal (segfault etc.): pull the kernel's own record -- the only place
-        the fault address and the offset into the binary live -- into the log, so the crash self-reports and nobody has
-        to grep dmesg by hand. The last line is the segfault line itself, so the controller's one-line tail surfaces it."""
+        """[S4_CRASH_REPORT_V1] a unit died on a signal: surface its OWN crash line. The binary's in-process handler
+        ([FDF_CRASH_HANDLER_V1]) already wrote the signal, fault address and backtrace frames to its stderr -- i.e. to
+        this unit's log -- so there is no dependence on dmesg (off by default), coredumpctl or a core ulimit. We re-emit
+        that summary line LAST, so the controller's one-line tail carries it; the kernel log is only a fallback."""
         import signal as _sig
         try:
             nm = _sig.Signals(sig).name
         except ValueError:
             nm = f"signal {sig}"
         base = os.path.basename(prog)
-        seg = "(no segfault line in dmesg)"
+        line = None
         try:
-            dm = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=5).stdout.splitlines()
-            hits = [l for l in dm if any(k in l for k in ("segfault", "general protection", "trap ", base))][-8:]
-            segs = [l for l in dm if "segfault" in l or "general protection" in l]
-            if segs:
-                seg = segs[-1].strip()
-        except Exception as e:
-            hits = [f"(dmesg unavailable: {e})"]
-        log.write(f"[S4-CRASH] {base} killed by {nm}; kernel record(s):\n")
-        for l in hits:
-            log.write("  " + l.strip() + "\n")
-        log.write(f"[S4-CRASH] {base}: {seg}\n")
+            log.flush()
+            with open(log.name) as f:
+                crash = [l.strip() for l in f if l.startswith("[FDF-CRASH]") and " frames" in l]
+            if crash:
+                line = crash[-1]
+        except OSError:
+            pass
+        if not line:                                             # the binary has no handler, or stderr went elsewhere
+            try:
+                dm = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=5).stdout.splitlines()
+                segs = [l.strip() for l in dm if "segfault" in l or "general protection" in l]
+                line = segs[-1] if segs else f"(no in-process crash line; no kernel segfault record for {base})"
+            except Exception as e:
+                line = f"(crash detail unavailable: {e})"
+        log.write(f"[S4-CRASH] {base} killed by {nm}: {line}\n")
         log.flush()
 
     def usage(self):

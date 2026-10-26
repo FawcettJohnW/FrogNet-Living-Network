@@ -7,11 +7,13 @@
 // is gone. Reaches the RAM manager like every client (RINA_RAM or RINA_AREA).
 #include "rina_region_client.hpp"
 #include "fdf_version.hpp"
+#include "fdf_crash.hpp"
 #include <chrono>
 #include <cstdio>
 #include <string>
 #include <unistd.h>
 int main() {
+    fdf_crash::install("fdf-events");                                             // [FDF_CRASH_HANDLER_V1] self-report a fatal signal
     try {
         rina_region::Client c; const std::string me = "ev:" + std::to_string(getpid());
         frogram::Json r = c.call("{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(me) + "}");
