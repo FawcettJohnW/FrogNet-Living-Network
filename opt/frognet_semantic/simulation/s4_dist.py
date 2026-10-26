@@ -570,6 +570,18 @@ def run(a):
         u, _ = ctl.step("usage")
         rss = sorted(v[1] for x in u.values() for v in x["isis"].values())
         res["isis_rss_kb_p50"] = rss[len(rss) // 2] if rss else None
+        # [S4_TREE_IN_THE_RUN_V1] Chapter 12's distribution tree on this run's live, converged topology. heal_isis_ok
+        # 400/400 means the FIB realises these shortest paths, so the converged plan graph IS the live topology and the
+        # converging construction's single next hop is the live FIB's. Three ways -- converging responses, forward from
+        # the shared link-state, exact min-cost -- plus the two controlled cases that separate John Day's choices from
+        # the construction's properties (per-flow ECMP -> duplicates; a reversed asymmetric trunk -> cost blow-up).
+        try:
+            import s4_tree as T
+            res["tree"] = {"isis_realised": res.get("heal_isis_ok"), **T.on_plan(p),
+                           "ecmp_two_border_routers": T.ecmp_case(),
+                           "reversed_asymmetric_trunk": T.reversed_case()}
+        except Exception as e:
+            res["tree_error"] = str(e)[:300]
     finally:
         try:
             ctl.step("end")
