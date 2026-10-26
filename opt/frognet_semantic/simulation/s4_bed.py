@@ -204,16 +204,35 @@ class Bed:
     def build(self):
         p = self.p
         # [S4_CLEANS_FIRST_V1] a run that crashed before teardown leaves q-* namespaces -- and the VXLAN devices moved
-        # into them -- holding their VNIs, so a rebuild collides with its own leftovers ("VNI already exists"). Delete
-        # every q-* namespace on this machine (not just this plan's), and any qx* VXLAN still dangling in root, first.
-        for ns in sh("ip", "-o", "netns", "list", check=False).stdout.splitlines():
-            ns = (ns.split() or [""])[0]
-            if ns.startswith(NS):
-                sh("ip", "netns", "del", ns, check=False)
+        # into them -- holding their VNIs, so a rebuild collides with its own leftovers ("VNI already exists"). A
+        # namespace with a live process in it does NOT go away on `ip netns del` (it survives anonymously, device and
+        # all), so -- exactly as teardown does -- every process in a stale q-* namespace is killed FIRST (TERM, then
+        # KILL after 3 s), then the namespace is deleted, then any qx* VXLAN still dangling in root.
+        import time as _t
+        stale = [(ns.split() or [""])[0] for ns in sh("ip", "-o", "netns", "list", check=False).stdout.splitlines()]
+        stale = [ns for ns in stale if ns.startswith(NS)]
+        pids = []
+        for ns in stale:
+            pids += sh("ip", "netns", "pids", ns, check=False).stdout.split()
+        for pid in pids:
+            subprocess.run(["kill", pid], capture_output=True)
+        t_end = _t.time() + 3
+        while _t.time() < t_end and any(os.path.exists(f"/proc/{pid}") for pid in pids):
+            _t.sleep(0.1)
+        for pid in pids:
+            if os.path.exists(f"/proc/{pid}"):
+                subprocess.run(["kill", "-9", pid], capture_output=True)
+        for ns in stale:
+            sh("ip", "netns", "del", ns, check=False)
+        vx = []
         for ln in sh("ip", "-o", "link", "show", "type", "vxlan", check=False).stdout.splitlines():
             name = ln.split(":", 2)[1].strip().split("@")[0] if ":" in ln else ""
             if name.startswith("qx"):
                 sh("ip", "link", "del", name, check=False)
+                vx.append(name)
+        if stale or vx or pids:
+            print("[S4_CLEANS_FIRST] removed %d stale namespace(s) (%d process(es) killed), %d root vxlan(s): %s %s"
+                  % (len(stale), len(pids), len(vx), " ".join(stale), " ".join(vx)), flush=True)
         for n in self.mine:
             sh("ip", "netns", "del", NS + n, check=False)
             sh("ip", "netns", "add", NS + n)
