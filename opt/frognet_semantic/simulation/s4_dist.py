@@ -36,6 +36,7 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -226,6 +227,12 @@ def agent(ctl, name):
                         st["watcher"].close()
                         st["bed"].teardown()
                     p = f["plan"]
+                    # [S4_RUN_OWN_PORT_V1] the VXLAN dstport is derived HERE, on the agent, from the run id -- not taken
+                    # from the plan. The run id is identical on every agent in a run, so both ends of every link agree
+                    # on the port without the controller mediating it; an old controller (whose plan still carries the
+                    # 4789 default) can no longer force the agents onto a port where a dead run leaked a (VNI, 4789)
+                    # kernel binding. Each run gets a fresh port, so a leaked binding can never block the next run.
+                    p["dstport"] = 40000 + (zlib.crc32(f["run"].encode()) % 20000)
                     work = tempfile.mkdtemp(prefix=f"s4-dist-{f['run']}-", dir=f.get("workdir") or "/tmp")
                     bed = B.Bed(p, me).build()
                     st.clear()
@@ -366,13 +373,7 @@ class Controller:
 def run(a):
     ctl = Controller(where(a.ctl), a.machines, a.timeout)
     machines = [{"name": apn, "ip": f["ip"]} for apn, f in ctl.agents]
-    # [S4_RUN_OWN_PORT_V1] a per-run VXLAN dstport, not the IANA default 4789: a run that crashed with a namespace
-    # torn down uncleanly leaves the kernel's (VNI, 4789) registration behind with no device to delete, and every later
-    # run on 4789 then fails "VNI already exists". Deriving the port from the run id means each run uses a fresh port,
-    # so a leaked binding from a dead run can never block the next one.
-    import zlib
-    port = 40000 + (zlib.crc32(ctl.run.encode()) % 20000)
-    p = B.plan(a.S, a.E, machines, ring=a.ring, mtu=a.mtu, dstport=port)
+    p = B.plan(a.S, a.E, machines, ring=a.ring, mtu=a.mtu)   # dstport is set per-run on each agent, from f["run"]
     own = B.owners(p)
     names = sorted(p["nodes"])
     cut = {n for n, d in p["nodes"].items() if n == "e1" or d.get("egress") == "e1"}
