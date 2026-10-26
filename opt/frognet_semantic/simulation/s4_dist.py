@@ -106,6 +106,29 @@ def my_addr_toward(host):
     return r[r.index("src") + 1] if "src" in r else ""
 
 
+def native_frognet_ip():
+    """This node's own FrogNet identity: the address it bears on its own /24 (FrogNet gives each node the .1 of its
+    segment). That is what peers reach it at on the native mesh -- and what the bed's VXLAN underlay must use. NOT the
+    source toward the control host: a node that reaches the controller through the region would offer its region edge
+    (10.253/16), and the bed would build the tunnel over the hub instead of the direct mesh. The region overlay
+    (10.253/16 edges, 10.252/16 leaves) and non-FrogNet addresses are excluded; a .1 on a connected /24 wins."""
+    import ipaddress
+    overlay = [ipaddress.ip_network(n) for n in ("10.252.0.0/16", "10.253.0.0/16")]
+    frognet = ipaddress.ip_network("10.0.0.0/8")
+    out = subprocess.run(["ip", "-o", "-4", "addr", "show", "scope", "global"], capture_output=True, text=True).stdout
+    cands = []
+    for ln in out.splitlines():
+        p = ln.split()
+        if len(p) < 4 or p[2] != "inet":
+            continue
+        ip = p[3].split("/")[0]
+        a = ipaddress.ip_address(ip)
+        if a in frognet and not any(a in o for o in overlay):
+            cands.append((not ip.endswith(".1"), ip))       # a .1 (the node's own segment identity) sorts first
+    cands.sort()
+    return cands[0][1] if cands else ""
+
+
 def diag(st):
     """[DIAG-S4-RAM] every node here, as the region sees it from inside the node: the route to the RAM manager, a TCP
     connect to it, the last lines of its reader, fdf-client and fdf-facts; on the hub, rina-host's state and log."""
@@ -132,7 +155,12 @@ def agent(ctl, name):
     import s4_layer as L
     me = "a-" + (name or os.uname().nodename)
     w, r = Daf(ctl, me), Daf(ctl, me + ".r")
-    ip = os.environ.get("S4_IP") or my_addr_toward(ctl)      # the address the bed's VXLAN links use here
+    ip = os.environ.get("S4_IP") or native_frognet_ip()      # the address the bed's VXLAN links use here (this node's own .1)
+    if not ip:
+        sys.stderr.write("s4-dist agent: this node has no native FrogNet address (only region/overlay 10.252-253/16); "
+                         "it has no place on the mesh this bed measures. Set S4_IP to its real address, or run the "
+                         "agent on a node that bears a FrogNet .1.\n")
+        return 2
     w.join("agents", {"ip": ip, "arch": ARCH, "cores": os.cpu_count(), "host": os.uname().nodename})
     print(f"s4-dist agent {me} ({ip}, {ARCH}) on {ctl}: advertised; holding a read on the plan", flush=True)
     sub = r.subscribe("plan")
