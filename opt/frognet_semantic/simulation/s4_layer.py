@@ -73,7 +73,14 @@ class Region:
     def env(self, n, **more):
         d = os.path.join(self.work, n)
         e = {k: v for k, v in os.environ.items() if not k.startswith(("RINA_", "FDF_"))}
-        e.update(RINA_RAM=f"{RAM_IP}:{RAM_PORT}", FDF_BIN=self.bins, FDF_FACTS=f"{d}/facts.json", FDF_VAR=d,
+        # [S4_RAM_IN_THIS_NETNS_V1] the region client (rina_region_client) hops to RINA_RAM_NETNS -- else /proc/1/ns/net,
+        # the machine ROOT netns -- to open its session, for the real deployment where the RAM lives in the tunnel netns.
+        # In the bed the RAM (198.51.100.1) is reachable ONLY inside this node's namespace; root routes it out the host's
+        # wlan to the home gateway and the connect times out. The process already runs in the node ns (ip netns exec), so
+        # we point RINA_RAM_NETNS at its own ns: the hop becomes a no-op and the client dials from where the RAM lives.
+        # (fdf-client uses the non-hopping daf_client and was unaffected either way; fdf-events/region.py hop, and flapped.)
+        e.update(RINA_RAM=f"{RAM_IP}:{RAM_PORT}", RINA_RAM_NETNS="/proc/self/ns/net",
+                 FDF_BIN=self.bins, FDF_FACTS=f"{d}/facts.json", FDF_VAR=d,
                  FDF_NAME=n, FDF_LEASES=f"{d}/leases", PYTHONUNBUFFERED="1")
         e.update(more)
         return e
