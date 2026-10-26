@@ -181,12 +181,14 @@ def agent(ctl, name):
             done.add(key)
             act, out, err = f["action"], {}, ""
             try:
-                if st.get("idle") and act != "build":
-                    pass                                     # [S4_NOT_IN_THIS_RUN_V1] a run over other machines: nothing here
-                elif act == "build" and me not in set(f["plan"]["placement"].values()):
-                    st.clear(); st.update(run=f["run"], idle=True)
+                if "roster" in f and me not in f["roster"]:
+                    # [S4_NOT_IN_THIS_RUN_V1] the roster is the authority on EVERY step, not only build: an agent that
+                    # advertised after build was issued still knows at once it is not one of this run's machines, so it
+                    # never builds, counts, or acks an error into a run it has no bed for.
+                    if not st.get("idle") or st.get("run") != f["run"]:
+                        st.clear(); st.update(run=f["run"], idle=True)
+                        print(f"s4-dist agent {me}: run {f['run']} is over other machines; idle for it", flush=True)
                     out = {"nodes": [], "note": "not one of this run's machines"}
-                    print(f"s4-dist agent {me}: run {f['run']} is over other machines; idle for it", flush=True)
                 elif act == "build":
                     for k in ("reg", "isis"):
                         if st.get(k):
@@ -260,6 +262,7 @@ class Controller:
                   "holding a read on agents", flush=True)
             rev, data = self.ra.wait(sub, rev)
         self.agents = sorted((m["apn"], m["facts"]) for m in data["agents"] if m.get("live"))[:n_machines]
+        self.roster = {a for a, _ in self.agents}           # the run's machines; a stray agent's records are ignored
         self.asub = self.ra.subscribe("acks")
         self.arev = 0
         self.tsub, self.trev, self.tables = self.rt.subscribe("tables"), 0, {}
@@ -276,7 +279,7 @@ class Controller:
             merged = {}
             for m in data.get("tables", []):
                 f = m.get("facts") or {}
-                if m.get("live") and f.get("run") == self.run:
+                if m.get("live") and f.get("run") == self.run and m["apn"] in self.roster:
                     for n, t in f["t"].items():
                         merged[n] = {k: tuple(v.split("|", 1)) for k, v in t.items()}
             with self.tcv:
@@ -291,7 +294,7 @@ class Controller:
                 self.vrev = rev
                 for m in data.get("views", []):
                     f = m.get("facts") or {}
-                    if not (m.get("live") and f.get("run") == self.run):
+                    if not (m.get("live") and f.get("run") == self.run and m["apn"] in self.roster):
                         continue
                     self.restarts[m["apn"]] = f.get("restarts", [])
                     for n, v in f["v"].items():
@@ -304,14 +307,14 @@ class Controller:
         """Write the step into the plan; held read on acks until every agent has acknowledged it."""
         self.k += 1
         t0 = time.time()
-        self.w.join("plan", dict(run=self.run, step=self.k, action=action, **kw))
-        want = {a for a, _ in self.agents}
+        self.w.join("plan", dict(run=self.run, step=self.k, action=action, roster=sorted(self.roster), **kw))
+        want = self.roster
         while True:
             self.arev, data = self.ra.wait(self.asub, self.arev, now=(self.arev == 0))
             got = {}
             for m in data.get("acks", []):
                 f = m.get("facts") or {}
-                if m.get("live") and f.get("run") == self.run and f.get("step") == self.k:
+                if m.get("live") and f.get("run") == self.run and f.get("step") == self.k and m["apn"] in self.roster:
                     got[m["apn"]] = f
             bad = [f"{a}: {f['error']}" for a, f in got.items() if not f["ok"]]
             if bad:
