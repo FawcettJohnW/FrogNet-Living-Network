@@ -96,14 +96,21 @@ class Isis:
                 raise RuntimeError(f"isisd did not start on {n}: see {d}/isisd.out")
         for n in self.bed.mine:
             d = os.path.join(self.work, n)
-            for _ in range(250):
-                if os.path.exists(f"{d}/isisd.pid"):
-                    break
-                time.sleep(0.02)
-            else:
-                raise RuntimeError(f"isisd on {n} did not come up: see {d}/isisd.log")
-            self.pids[n] = [int(open(f"{d}/{x}.pid").read()) for x in ("zebra", "isisd")]
+            # [S4_PIDFILE_NONEMPTY_V1] a -d daemon creates its pidfile, then writes the pid a moment later: wait for
+            # CONTENT, not mere existence, or read() returns '' and int('') crashes the whole run (seen on a loaded box)
+            self.pids[n] = [self._pidfile(f"{d}/{x}.pid", n, d) for x in ("zebra", "isisd")]
         return t0
+
+    def _pidfile(self, path, n, d):
+        for _ in range(250):
+            try:
+                s = open(path).read().strip()
+                if s:
+                    return int(s)
+            except OSError:
+                pass
+            time.sleep(0.02)
+        raise RuntimeError(f"{os.path.basename(path)} on {n} wrote no pid in 5 s: see {d}/isisd.log, {d}/zebra.log")
 
     def _daemon(self, n, prog, args):
         """FRR daemonises: its output goes to a file, never to a pipe this process would wait on until the daemon ends."""
