@@ -122,6 +122,8 @@ class Region:
                 delay = 0.0 if up >= self.STABLE_S else min(self.RETRY_CAP, delay * 2 if delay else self.RETRY_MIN)
                 log.write(f"[S4-SUPERVISOR] {time.strftime('%H:%M:%S')} {name} ended rc={rc} after {up:.1f}s; "
                           f"restart in {delay:.2f} s\n"); log.flush()
+                if rc < 0:                                            # killed by signal -rc: the OS knows why, the log doesn't
+                    self._crash_report(log, argv[-1] if argv[0] in ("ip", "python3") else argv[0], -rc)
                 if delay:
                     time.sleep(delay)
                 if self.stopping:
@@ -177,6 +179,31 @@ class Region:
                     return False
                 self.cv.wait(left)
             return True
+
+    def _crash_report(self, log, prog, sig):
+        """[S4_CRASH_REPORT_V1] a unit died on a signal (segfault etc.): pull the kernel's own record -- the only place
+        the fault address and the offset into the binary live -- into the log, so the crash self-reports and nobody has
+        to grep dmesg by hand. The last line is the segfault line itself, so the controller's one-line tail surfaces it."""
+        import signal as _sig
+        try:
+            nm = _sig.Signals(sig).name
+        except ValueError:
+            nm = f"signal {sig}"
+        base = os.path.basename(prog)
+        seg = "(no segfault line in dmesg)"
+        try:
+            dm = subprocess.run(["dmesg"], capture_output=True, text=True, timeout=5).stdout.splitlines()
+            hits = [l for l in dm if any(k in l for k in ("segfault", "general protection", "trap ", base))][-8:]
+            segs = [l for l in dm if "segfault" in l or "general protection" in l]
+            if segs:
+                seg = segs[-1].strip()
+        except Exception as e:
+            hits = [f"(dmesg unavailable: {e})"]
+        log.write(f"[S4-CRASH] {base} killed by {nm}; kernel record(s):\n")
+        for l in hits:
+            log.write("  " + l.strip() + "\n")
+        log.write(f"[S4-CRASH] {base}: {seg}\n")
+        log.flush()
 
     def usage(self):
         """[S4_RAM_USAGE_V1] {node: {unit: (cpu_ms, rss_kb)}} for the RAM-layer units and their children (the reader's
