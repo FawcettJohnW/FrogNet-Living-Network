@@ -169,6 +169,10 @@ public:
     frogram::Json held(const std::string& body, double t) { return answer([&] { return s_->call("POST", api() + "?op=rina_block", body, t); }); }
     // [WAIT_ANSWER_IS_TEXT_V1] a held call whose answer is the region's own text (the wait's event lines), not JSON
     std::string held_text(const std::string& body, double t) { return s_->call_text("POST", api() + "?op=rina_block", body, t); }
+    // [CALL_TEXT_OVER_SESSION_V1] a plain (non-held) call whose answer comes back as its raw text, over THIS session --
+    // so a held-read owner (fdf-events) can pull a snapshot (participants/world) on its own one connection, never a
+    // second channel. Same op=rina path as call(); the text is the region's reply verbatim, for the caller to ship on.
+    std::string call_text(const std::string& body, double t = 15.0) { return s_->call_text("POST", api() + "?op=rina", body, t); }
 private:
     template <class F> static frogram::Json answer(F f) {
         try { return f(); }

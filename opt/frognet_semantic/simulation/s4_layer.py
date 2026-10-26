@@ -15,8 +15,9 @@ s4_layer.py - [S4_LAYERED_V1] TIER 4, one machine: shared RAM ABOVE a working ro
   region   rina-host on the hub at 198.51.100.1:8840, reached over the IS-IS routes; nothing else is configured
   members  every node: fdf-facts --watch (its rows from its own kernel), fdf-client (announce, re-announce on change,
            ends its session when the far end stops answering: its 5 s keepalive / user timeout), s4_reader.py (the
-           application: one held read, a participants read per event, its view out as a line). Each restarts as its
-           unit does (fdf-client 2 s, fdf-facts 5 s; the reader 2 s, as an application's unit would)
+           application: one held read and nothing else -- fdf-events pulls each snapshot over that same session, no
+           second channel). Each restarts as its unit does, reconnect paced by the path (immediate after a stable
+           session, backing off to the keepalive while the region stays unreachable), not on a blind timer
   ready    a node's application is ready when its view holds every member alive, each with its facts rows
 
 Phases (each timed from the moment it starts; bytes are tx counters over every node's interfaces):
@@ -55,7 +56,12 @@ API = "/FawcettInnovations.RINA.ram_interface.php"
 
 
 class Region:
-    RESTART = {"fdf-client": 2, "fdf-facts": 5, "reader": 2, "rina-host": 2}
+    # [S4_RECONNECT_PACED_BY_THE_PATH_V1] reconnect backoff: a unit that held a session for at least STABLE_S and lost
+    # it is retried at once (RETRY_MIN == 0: the path may already be back); one that dies as fast as it starts -- the
+    # region is still unreachable, a partition -- backs off, doubling to RETRY_CAP (the session keepalive), so it is
+    # not spun. No blind per-unit timer: gone stays gone until the path returns, and the first attempt after it does
+    # succeeds, instead of a fixed 2 s that could fire mid-reconvergence and then wait the full 2 s again.
+    RETRY_MIN, RETRY_CAP, STABLE_S = 0.25, 5.0, 3.0
 
     def __init__(self, bed, work, bins, fdf):
         self.bed, self.work, self.bins, self.fdf = bed, work, bins, fdf
@@ -100,19 +106,25 @@ class Region:
             return p
 
         def supervise():
-            p = run()
+            delay = 0.0
+            p = run(); started = time.time()
             while True:
                 rc = p.wait()
                 if self.stopping:
                     return
+                up = time.time() - started
                 with self.cv:
                     self.restarts.append((time.time(), n, name, rc))
-                log.write(f"[S4-SUPERVISOR] {time.strftime('%H:%M:%S')} {name} ended rc={rc}; restart in "
-                          f"{self.RESTART.get(name, 2)} s\n"); log.flush()
-                time.sleep(self.RESTART.get(name, 2))
+                # a loss after a stable session restarts at once (the path may already be back); a unit that dies as
+                # fast as it starts is still cut off, so back off (doubling, capped) rather than spin or wait blindly.
+                delay = 0.0 if up >= self.STABLE_S else min(self.RETRY_CAP, delay * 2 if delay else self.RETRY_MIN)
+                log.write(f"[S4-SUPERVISOR] {time.strftime('%H:%M:%S')} {name} ended rc={rc} after {up:.1f}s; "
+                          f"restart in {delay:.2f} s\n"); log.flush()
+                if delay:
+                    time.sleep(delay)
                 if self.stopping:
                     return
-                p = run()
+                p = run(); started = time.time()
         threading.Thread(target=supervise, daemon=True).start()
 
     def _read(self, n, p, log):

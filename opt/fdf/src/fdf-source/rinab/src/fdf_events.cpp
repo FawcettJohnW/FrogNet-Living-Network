@@ -1,11 +1,15 @@
 // fdf-events -- [FDF_EVENTS_V1] one held session that reports the region's changes as lines on stdout, for programs that
-// are not FNWP clients themselves (fdf-hub, region.py): "p" when the participant set changed (a session up or down, an
-// announcement, re-announced facts), "m" when any mapping was registered or removed. One line per event, flushed;
-// nothing polls. Exits (status 1) when the session ends, which is the reader's signal that the region is gone.
-// Reaches the RAM manager like every client (RINA_RAM or RINA_AREA).
+// are not FNWP clients themselves (fdf-hub, region.py): on a participant change it pulls the current snapshot over THIS
+// same session and prints it ("p\t<ms>\t<participants-json>"); "m" when any mapping was registered or removed. One line
+// per event, flushed; nothing polls, and there is no second channel -- the snapshot rides the one held connection, so a
+// reader that reconnects after a cut gets the authoritative set in the same round trip (no out-of-band poll to race).
+// [SNAPSHOT_OVER_HELD_SESSION_V1] Exits (status 1) when the session ends, which is the reader's signal that the region
+// is gone. Reaches the RAM manager like every client (RINA_RAM or RINA_AREA).
 #include "rina_region_client.hpp"
 #include "fdf_version.hpp"
+#include <chrono>
 #include <cstdio>
+#include <string>
 #include <unistd.h>
 int main() {
     try {
@@ -15,7 +19,15 @@ int main() {
         r = c.call("{\"op\":\"map_watch\",\"name\":\"*\",\"proc\":" + frogram::Json::quote(me) + "}");
         if (!r["ok"].b) { fprintf(stderr, "fdf-events: map_watch refused: %s\n", r["error"].s.c_str()); return 1; }
         { frogram::Json v = c.call("{\"op\":\"version\"}"); fprintf(stderr, "fdf-events: build %s; region is build %s\n", FDF_BUILD_TAG, v["ok"].b ? v["server"].s.c_str() : "(older than fdf-2026-10-09-r3)"); }
-        printf("ready\n"); fflush(stdout);
+        // the current participant snapshot, pulled over this session; ms is the round trip the caller would have paid.
+        // Shipped as one tab-delimited line; the JSON is the region's reply verbatim and carries no literal tab/newline.
+        auto emit = [&](const char* kind) {
+            const auto t0 = std::chrono::steady_clock::now();
+            const std::string snap = c.call_text("{\"op\":\"participants\"}");
+            const long ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+            printf("%s\t%ld\t%s\n", kind, ms, snap.c_str()); fflush(stdout);
+        };
+        emit("ready");
         for (unsigned long long at = 0;;) {
             const std::string t = c.held_text("{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(me) + ",\"after\":" + std::to_string(at) + "}", 3.0e8);
             bool p = false, m = false;                        // the wait's event lines: "<n>\t<bag>\n" after a 2-byte header
@@ -28,9 +40,8 @@ int main() {
                 if (bag.find("\"k\":\"x\"") != std::string::npos) { printf("gone\n"); fflush(stdout); return 1; }
                 i = nl + 1;
             }
-            if (p) printf("p\n");
-            if (m) printf("m\n");
-            fflush(stdout);
+            if (p) emit("p");                                 // the snapshot, over this same session -- not a poll
+            if (m) { printf("m\n"); fflush(stdout); }
         }
     } catch (const std::exception& e) { fprintf(stderr, "fdf-events: the session ended: %s\n", e.what()); printf("gone\n"); fflush(stdout); return 1; }
 }
