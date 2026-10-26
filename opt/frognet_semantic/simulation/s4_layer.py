@@ -72,6 +72,7 @@ class Region:
             if not os.path.exists(os.path.join(fdf, f)):
                 raise RuntimeError(f"{fdf}/{f} is missing: the layered run needs it")
         self.procs, self.stopping, self.restarts = [], False, []     # restarts: (t, node, name, rc)
+        self.units = {}                                               # (node, name) -> the current Popen, for usage()
         self.cv = threading.Condition()
         self.view = {}                                                # node -> its reader's last line
         self.lines = []                                               # (node, line) every reader line, in order
@@ -101,6 +102,7 @@ class Region:
             p = subprocess.Popen(["ip", "netns", "exec", B.NS + n] + argv, env=env, stdin=subprocess.DEVNULL,
                                  stdout=subprocess.PIPE if reader else log, stderr=log, text=True, bufsize=1)
             self.procs.append(p)
+            self.units[(n, name)] = p                                 # the live pid for this unit (a restart replaces it)
             if reader:
                 threading.Thread(target=self._read, args=(n, p, log), daemon=True).start()
             return p
@@ -175,6 +177,49 @@ class Region:
                     return False
                 self.cv.wait(left)
             return True
+
+    def usage(self):
+        """[S4_RAM_USAGE_V1] {node: {unit: (cpu_ms, rss_kb)}} for the RAM-layer units and their children (the reader's
+        fdf-events, fdf-facts' ip monitor): the compute and memory the coordination layer costs, the counterpart to
+        s4_isis.usage() for the underlay. node 'hub' carries rina-host (the shared store itself)."""
+        tick = os.sysconf("SC_CLK_TCK")
+        kids = {}
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                kids.setdefault(int(open(f"/proc/{pid}/stat").read().rsplit(")", 1)[1].split()[1]), []).append(int(pid))
+            except (OSError, IndexError):
+                pass
+        def acct(pid):
+            cpu = rss = 0
+            stack, seen = [pid], []
+            while stack:                                              # the unit and everything it forked
+                x = stack.pop(); seen.append(x); stack += kids.get(x, [])
+            for q in seen:
+                try:
+                    f = open(f"/proc/{q}/stat").read().rsplit(")", 1)[1].split()
+                    cpu += (int(f[11]) + int(f[12])) * 1000 // tick
+                    rss += int(next(l for l in open(f"/proc/{q}/status") if l.startswith("VmRSS")).split()[1])
+                except (OSError, StopIteration, IndexError):
+                    pass
+            return cpu, rss
+        out = {}
+        for (n, name), p in self.units.items():
+            if p.poll() is None:
+                out.setdefault(n, {})[name] = acct(p.pid)
+        return out
+
+    def facts_bytes(self):
+        """[S4_FACTS_BYTES_V1] {node: bytes} each node holds -- its own facts, the whole of what it contributes to the
+        shared state. The memory-axis counterpart to the IS-IS LSDB each node holds (no node holds the others')."""
+        out = {}
+        for n in self.bed.mine:
+            try:
+                out[n] = os.path.getsize(os.path.join(self.work, n, "facts.json"))
+            except OSError:
+                out[n] = 0
+        return out
 
     def stop(self):
         self.stopping = True

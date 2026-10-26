@@ -327,7 +327,9 @@ def agent(ctl, name):
                 elif act == "diag":
                     out = diag(st)
                 elif act == "usage":
-                    out = {"isis": st["isis"].usage() if st.get("isis") else {}}
+                    out = {"isis": st["isis"].usage() if st.get("isis") else {},
+                           "ram": st["reg"].usage() if st.get("reg") else {},
+                           "facts": st["reg"].facts_bytes() if st.get("reg") else {}}
                 elif act == "end":
                     st["ending"] = True
                     for k in ("reg", "isis"):
@@ -568,8 +570,50 @@ def run(a):
         phase("partition", hub_link + ring, [], frozenset(cut), partitioned)
         phase("heal", [], hub_link + ring, frozenset(), full)
         u, _ = ctl.step("usage")
-        rss = sorted(v[1] for x in u.values() for v in x["isis"].values())
-        res["isis_rss_kb_p50"] = rss[len(rss) // 2] if rss else None
+        def p50(xs):
+            xs = sorted(xs)
+            return xs[len(xs) // 2] if xs else None
+        isis = [v for x in u.values() for v in x.get("isis", {}).values()]          # (cpu_ms, rss_kb) per node
+        res["isis_rss_kb_p50"] = p50([r for _c, r in isis])
+        # [S4_EFFICIENCY_MULTI_AXIS_V1] the cost of learning/holding the network, four axes, three ways: the IS-IS
+        # underlay (measured), the memory-centric coordination layer (measured), and 802.1aq SPB (modelled -- FRR is
+        # L3-only). SPB is one SPF per node over the same LSDB producing every tree, so its compute is the measured
+        # IS-IS SPF x the ECT tree count (1 unicast .. up to 16), and its wire is IS-IS plus the small I-SID TLVs: no
+        # second protocol. convergence is the phase settle times already recorded above.
+        try:
+            ram_nodes = {}                                                          # node -> summed (cpu, rss) of its units
+            host = (0, 0)
+            for x in u.values():
+                for n, units in x.get("ram", {}).items():
+                    c = sum(cpu for cpu, _ in units.values()); r = sum(rss for _, rss in units.values())
+                    ram_nodes[n] = (ram_nodes.get(n, (0, 0))[0] + c, ram_nodes.get(n, (0, 0))[1] + r)
+                    if "rina-host" in units:
+                        host = units["rina-host"]
+            facts = {n: b for x in u.values() for n, b in x.get("facts", {}).items()}
+            isis_cpu = [c for c, _ in isis]
+            res["efficiency"] = {
+                "nodes": len(names), "machines": len(machines),
+                "compute_cpu_ms": {
+                    "isis_per_node_p50": p50(isis_cpu), "isis_total": sum(isis_cpu),
+                    "ram_per_node_p50": p50([c for c, _ in ram_nodes.values()]),
+                    "ram_total": sum(c for c, _ in ram_nodes.values()), "ram_host": host[0],
+                    "spb_model_per_node_p50": (lambda m: [m, m and m * 16])(p50(isis_cpu)),
+                    "spb_model_note": "one SPF per node x ECT tree count (1..16); same SPF as IS-IS, no 2nd protocol"},
+                "memory_kb": {
+                    "isis_lsdb_per_node_p50": p50([r for _c, r in isis]),
+                    "ram_rss_per_node_p50": p50([r for _c, r in ram_nodes.values()]), "ram_host_rss": host[1],
+                    "facts_held_per_node_bytes_p50": p50(list(facts.values())),
+                    "facts_held_total_bytes": sum(facts.values()),
+                    "note": "IS-IS holds the whole LSDB at every node; memory-centric holds only each node's own facts"},
+                "wire_bytes": {
+                    "isis_cold_learn": res.get("isis_cold_bytes"), "isis_steady": res.get("isis_steady_bytes"),
+                    "ram_cold_learn": res.get("ram_cold_bytes"), "ram_steady": res.get("steady_bytes_ram"),
+                    "note": "IS-IS floods every LSP to every node + refresh; memory-centric: each node writes its own"},
+                "convergence_s": {ph: res.get(f"{ph}_apps_settled_s") for ph in
+                                  ("reroute", "restore", "partition", "heal")},
+            }
+        except Exception as e:
+            res["efficiency_error"] = str(e)[:300]
         # [S4_TREE_IN_THE_RUN_V1] Chapter 12's distribution tree on this run's live, converged topology. heal_isis_ok
         # 400/400 means the FIB realises these shortest paths, so the converged plan graph IS the live topology and the
         # converging construction's single next hop is the live FIB's. Three ways -- converging responses, forward from
