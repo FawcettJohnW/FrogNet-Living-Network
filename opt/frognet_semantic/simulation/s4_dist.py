@@ -131,23 +131,89 @@ def native_frognet_ip():
 
 
 def diag(st):
-    """[DIAG-S4-RAM] every node here, as the region sees it from inside the node: the route to the RAM manager, a TCP
-    connect to it, the last lines of its reader, fdf-client and fdf-facts; on the hub, rina-host's state and log."""
+    """[DIAG-S4-RAM] A FULL snapshot of this agent's slice of the bed -- enough to reconstruct the whole run from the
+    evidence, not a pinpoint. Per node: its netns id, every address, the WHOLE routing table (not just the route to the
+    RAM), rules, neighbours, link stats, every TCP and UDP socket, the nft ruleset, the bridge fdb, a connect to the RAM
+    from INSIDE the node's netns, every process in the namespace with its cmdline/state/net-namespace and FULL
+    environment, and the complete contents of every log in the node's work dir. Plus, once, the machine: this agent's
+    netns vs pid 1's, a connect to the RAM from the MACHINE ROOT netns (where the region client hops to connect -- it
+    uses RINA_RAM_NETNS, else /proc/1/ns/net), the netns list, every root VXLAN, the plan's placement and dstport, and
+    this process's environment. Written to a file on the box (diag-<run>.json) and returned whole into the evidence."""
     import s4_layer as L
-    out = {}
+    import glob
+    import time as _t
     bed, work = st["bed"], st["work"]
+    p = bed.p if bed else {}
+
+    def cap(args, ns=None):                                   # a command, its rc and full output, in the node ns or root
+        r = B.sh(*args, ns=ns, check=False)
+        return {"cmd": (("[q-%s] " % ns) if ns else "[root] ") + " ".join(args),
+                "rc": r.returncode, "out": (r.stdout or "").rstrip("\n"), "err": (r.stderr or "").rstrip("\n")}
+
+    def probe(ns=None):                                       # a raw TCP connect to the RAM, from this netns
+        return cap(["timeout", "4", "bash", "-c",
+                    "exec 3<>/dev/tcp/%s/%s && echo connected" % (L.RAM_IP, L.RAM_PORT)], ns=ns)
+
+    def rl(path):
+        try:
+            return os.readlink(path)
+        except OSError as e:
+            return "err:%s" % e
+
+    out = {"_machine": {
+        "at": _t.strftime("%Y-%m-%dT%H:%M:%SZ", _t.gmtime()), "host": os.uname().nodename, "arch": ARCH,
+        "self_ns": rl("/proc/self/ns/net"), "pid1_ns": rl("/proc/1/ns/net"),
+        "RINA_RAM": os.environ.get("RINA_RAM"), "RINA_RAM_NETNS": os.environ.get("RINA_RAM_NETNS"),
+        "connect_from_root_ns": probe(),                      # the netns the client hops to; its failure is the cause
+        "root_route_to_ram": cap(["ip", "-4", "route", "get", L.RAM_IP]),
+        "root_netns_list": cap(["ip", "-o", "netns", "list"]),
+        "root_vxlan": cap(["ip", "-d", "link", "show", "type", "vxlan"]),
+        "placement": p.get("placement"), "dstport": p.get("dstport"), "mine": sorted(bed.mine) if bed else [],
+    }}
     for n in bed.mine:
         d = os.path.join(work, n)
-        tail = lambda f, k=3: (open(os.path.join(d, f)).read().strip().splitlines()[-k:] if os.path.exists(os.path.join(d, f)) else ["(no %s)" % f])
-        rt = B.sh("ip", "-4", "route", "get", L.RAM_IP, ns=n, check=False)
-        cn = B.sh("timeout", "4", "bash", "-c", f"exec 3<>/dev/tcp/{L.RAM_IP}/{L.RAM_PORT} && echo connected", ns=n, check=False)
-        out[n] = {"route": (rt.stdout or rt.stderr).strip().splitlines()[:1], "connect": (cn.stdout + cn.stderr).strip()[-160:] or "rc=%d" % cn.returncode,
-                  "reader": tail("reader.log"), "client": tail("fdf-client.log"), "facts": tail("fdf-facts.log", 2)}
-        if n == "hub":
-            pids = B.sh("ip", "netns", "pids", B.NS + n, check=False).stdout.split()
-            comms = sorted({open(f"/proc/{p}/comm").read().strip() for p in pids if os.path.exists(f"/proc/{p}/comm")})
-            out[n].update(processes=comms, host=tail("rina-host.log", 6),
-                          listen=B.sh("ss", "-H", "-lnt", ns=n, check=False).stdout.strip().splitlines())
+        node = {
+            "ns_net": cap(["readlink", "/proc/self/ns/net"], ns=n),
+            "addr": cap(["ip", "-d", "addr", "show"], ns=n),
+            "route_all": cap(["ip", "route", "show", "table", "all"], ns=n),
+            "route_to_ram": cap(["ip", "-4", "route", "get", L.RAM_IP], ns=n),
+            "rule": cap(["ip", "rule", "show"], ns=n),
+            "neigh": cap(["ip", "neigh", "show"], ns=n),
+            "link_stats": cap(["ip", "-s", "link"], ns=n),
+            "tcp": cap(["ss", "-tanp"], ns=n),
+            "udp": cap(["ss", "-uanp"], ns=n),
+            "nft": cap(["nft", "list", "ruleset"], ns=n),
+            "fdb": cap(["bridge", "fdb", "show"], ns=n),
+            "connect_from_node_ns": probe(ns=n),
+            "procs": [], "logs": {},
+        }
+        for pid in B.sh("ip", "netns", "pids", B.NS + n, check=False).stdout.split():
+            pr = {"pid": pid, "ns_net": rl("/proc/%s/ns/net" % pid)}
+            for k, path in (("comm", "/proc/%s/comm" % pid), ("cmdline", "/proc/%s/cmdline" % pid),
+                            ("stat", "/proc/%s/stat" % pid)):
+                try:
+                    pr[k] = open(path, "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+                except OSError:
+                    pr[k] = None
+            try:
+                pr["environ"] = sorted(e for e in open("/proc/%s/environ" % pid, "rb").read()
+                                       .decode(errors="replace").split("\0") if e)
+            except OSError:
+                pr["environ"] = None
+            node["procs"].append(pr)
+        for lf in sorted(glob.glob(os.path.join(d, "*"))):
+            if os.path.isfile(lf):
+                try:
+                    node["logs"][os.path.basename(lf)] = open(lf, errors="replace").read()
+                except OSError as e:
+                    node["logs"][os.path.basename(lf)] = "err:%s" % e
+        out[n] = node
+    try:                                                      # the whole snapshot on the box, in case the ack is too big
+        fp = os.path.join(work, "diag-%s.json" % st.get("run", "run"))
+        json.dump(out, open(fp, "w"), indent=1)
+        out["_machine"]["snapshot_file"] = fp
+    except OSError as e:
+        out["_machine"]["snapshot_file"] = "err:%s" % e
     return out
 
 
@@ -430,14 +496,22 @@ def run(a):
             res["ram_cold_diag"] = dg
             print("[DIAG-S4-RAM] the region was not ready on every node in %d s; views now: %s" % (a.timeout, {
                 n: (v.get("ev"), len(v.get("with_facts") or []), v.get("why") or v.get("error")) for n, v in sorted(ctl.views.items())}), flush=True)
-            for ag, nodes in dg.items():
-                for n, d in sorted(nodes.items()):
-                    print("[DIAG-S4-RAM] %s %s: route %s | connect %s | reader %s | client %s" % (ag, n, d["route"], d["connect"],
-                          d["reader"][-1:], d["client"][-1:]), flush=True)
-                    if n == "hub":
-                        print("[DIAG-S4-RAM] %s hub processes %s listen %s" % (ag, d.get("processes"), d.get("listen")), flush=True)
-                        for l in d.get("host", []):
-                            print("[DIAG-S4-RAM] %s hub rina-host: %s" % (ag, l[:200]), flush=True)
+            # The full per-node snapshot is in res["ram_cold_diag"] (the evidence JSON) and in each agent's
+            # diag-<run>.json on the box. Here we print only the reconstruction keys: whether the RAM answers a connect
+            # from the node's own netns versus from the machine root netns the client hops to, and where the full file is.
+            for ag, snap in dg.items():
+                m = snap.get("_machine", {})
+                print("[DIAG-S4-RAM] %s machine: RINA_RAM_NETNS=%r self_ns=%s pid1_ns=%s connect_from_root_ns=%r full=%s"
+                      % (ag, m.get("RINA_RAM_NETNS"), m.get("self_ns"), m.get("pid1_ns"),
+                         (m.get("connect_from_root_ns") or {}).get("out") or (m.get("connect_from_root_ns") or {}).get("rc"),
+                         m.get("snapshot_file")), flush=True)
+                for n, d in sorted((k, v) for k, v in snap.items() if k != "_machine"):
+                    node_c = (d.get("connect_from_node_ns") or {})
+                    reader_tail = (d.get("logs", {}).get("reader.log", "").rstrip().splitlines() or ["(no reader.log)"])[-1]
+                    client_tail = (d.get("logs", {}).get("fdf-client.log", "").rstrip().splitlines() or ["(no fdf-client.log)"])[-1]
+                    print("[DIAG-S4-RAM] %s %s: connect_from_node_ns=%r route_to_ram=%r | reader: %s | client: %s"
+                          % (ag, n, node_c.get("out") or node_c.get("rc"),
+                             (d.get("route_to_ram") or {}).get("out", "").splitlines()[:1], reader_tail, client_tail), flush=True)
         w3, r3 = counts()
         res["ram_cold_bytes"] = r3 - r2
         time.sleep(a.steady)
