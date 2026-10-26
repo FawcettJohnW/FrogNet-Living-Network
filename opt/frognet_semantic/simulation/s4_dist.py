@@ -366,7 +366,13 @@ class Controller:
 def run(a):
     ctl = Controller(where(a.ctl), a.machines, a.timeout)
     machines = [{"name": apn, "ip": f["ip"]} for apn, f in ctl.agents]
-    p = B.plan(a.S, a.E, machines, ring=a.ring, mtu=a.mtu)
+    # [S4_RUN_OWN_PORT_V1] a per-run VXLAN dstport, not the IANA default 4789: a run that crashed with a namespace
+    # torn down uncleanly leaves the kernel's (VNI, 4789) registration behind with no device to delete, and every later
+    # run on 4789 then fails "VNI already exists". Deriving the port from the run id means each run uses a fresh port,
+    # so a leaked binding from a dead run can never block the next one.
+    import zlib
+    port = 40000 + (zlib.crc32(ctl.run.encode()) % 20000)
+    p = B.plan(a.S, a.E, machines, ring=a.ring, mtu=a.mtu, dstport=port)
     own = B.owners(p)
     names = sorted(p["nodes"])
     cut = {n for n, d in p["nodes"].items() if n == "e1" or d.get("egress") == "e1"}

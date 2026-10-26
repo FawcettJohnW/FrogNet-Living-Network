@@ -49,7 +49,7 @@ def sh(*argv, check=True, ns=None, quiet=False):
     return r
 
 
-def plan(S, E, machines, ring=False, mtu=1500):
+def plan(S, E, machines, ring=False, mtu=1500, dstport=4789):
     """ring: [S4_RING_V1] also a point-to-point link between neighbouring egress nodes (e1-e2, e2-e3, ..., eE-e1;
     one link when E = 2), so every egress has a second path to the hub and a cut hub link can be routed around.
     The hub also holds ram0 = 198.51.100.1/32 (the region's RAM manager, for the layered run; a passive IS-IS circuit)."""
@@ -78,7 +78,8 @@ def plan(S, E, machines, ring=False, mtu=1500):
         nodes[n] = {"role": "child", "egress": f"e{e}", "served": f"10.20.{k}.0/24",
                     "ifaces": {"lan0": f"10.20.{k}.1/24", "eth1": f"10.20.{e}.{19 + seats[e]}/24"}}
         placement[n] = placement[f"e{e}"]
-    return {"S": S, "E": E, "ring": ring, "mtu": mtu, "machines": machines, "nodes": nodes, "links": links, "placement": placement}
+    return {"S": S, "E": E, "ring": ring, "mtu": mtu, "dstport": dstport, "machines": machines, "nodes": nodes,
+            "links": links, "placement": placement}
 
 
 def adjacency(p):
@@ -280,7 +281,7 @@ class Bed:
                 t = f"qx{l['vni']}"
                 sh("ip", "link", "del", t, check=False)
                 sh("ip", "link", "add", t, "type", "vxlan", "id", l["vni"], "remote", self.ip[other],
-                   "local", self.ip[self.me], "dstport", 4789 + 0, "nolearning")
+                   "local", self.ip[self.me], "dstport", p.get("dstport", 4789), "nolearning")
                 sh("ip", "link", "set", t, "netns", NS + n)
                 sh("ip", "link", "set", t, "name", i, ns=n)
                 sh("bridge", "fdb", "append", "00:00:00:00:00:00", "dev", i, "dst", self.ip[other], ns=n, check=False)
