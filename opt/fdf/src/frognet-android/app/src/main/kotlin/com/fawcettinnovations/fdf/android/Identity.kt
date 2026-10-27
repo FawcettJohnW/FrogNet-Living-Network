@@ -8,12 +8,17 @@
 //   ponds    [PONDS_V1] (PLAN-PONDS) every pond this device takes part in: area + its RAM manager (host:port); one session
 //            each, held all the time
 //   forward  the one pond whose network the device uses (placement, tunnel); the others are participant ponds
+//   invite   [ADMITTED_BY_INVITE_V1] [RAM_IN_THE_TUNNEL_V1] the fdfinv1.<...> line `fdf-invite NAME --leaf` printed on the
+//            region's machine: the region's area and RAM manager (inside its tunnel), the hub (key, endpoint), this
+//            device's edge address and WireGuard key. With one, it IS the pond, the forward pond and the key: the hub
+//            answers that key only, and the region is reached only through the hub channel it describes.
 //   (no address here: on a FrogNet LAN the device's own address is its address, [ADDRESS_IS_THE_ONE_IT_HAS_V1]; off the
 //   mesh the RAM manager gives the leaf its /32 with the announcement, [LEAF_ADDR_FROM_THE_REGION_V1]. Nobody types one.)
 package com.fawcettinnovations.fdf.android
 
 import android.content.Context
 import android.os.Build
+import com.fawcettinnovations.fdf.member.Hub
 import com.fawcettinnovations.fdf.member.Json
 import com.fawcettinnovations.fdf.member.Placement
 import com.wireguard.crypto.Key
@@ -22,10 +27,38 @@ import java.util.UUID
 
 class Pond(val area: String, val ram: String)
 
+/** [ADMITTED_BY_INVITE_V1] an fdf-invite line, decoded (fdf-region-join's reading of it, field for field). */
+class Invitation(val raw: String, val area: String, val siteKey: String, val ram: String, val hub: Hub,
+                 val name: String, val edge: String, val kind: String, val privkey: String) {
+    companion object {
+        /** the line, or IllegalArgumentException saying what is wrong with it */
+        fun parse(line: String): Invitation {
+            val t = line.trim()
+            require(t.startsWith("fdfinv1.")) { "not an invitation (it starts fdfinv1.; fdf-invite NAME --leaf on the region's machine prints one)" }
+            val j = try { Json.parse(String(java.util.Base64.getUrlDecoder().decode(t.substring(8)), Charsets.UTF_8)) }
+                    catch (e: Exception) { throw IllegalArgumentException("the invitation does not decode (${e.message}): copy the whole line fdf-invite printed") }
+            val h = j["hub"]; val m = j["member"]
+            for ((k, v) in listOf("area" to j["area"], "ram" to j["ram"], "hub.pubkey" to h["pubkey"], "hub.endpoint" to h["endpoint"],
+                                  "member.name" to m["name"], "member.edge" to m["edge"], "member.privkey" to m["privkey"]))
+                require(v.str.isNotEmpty()) { "the invitation has no $k" }
+            try { Key.fromBase64(m["privkey"].str); Key.fromBase64(h["pubkey"].str) } catch (e: Exception) { throw IllegalArgumentException("the invitation's keys are not WireGuard keys (${e.message})") }
+            val area = j["area"].str
+            return Invitation(t, area, j["site_key"].str, j["ram"].str,
+                Hub(h["name"].str.ifEmpty { "hub" }, h["pubkey"].str, h["endpoint"].str, h["addr"].str.ifEmpty { "10.253.253.254" }, area),
+                m["name"].str, m["edge"].str, m["kind"].str.ifEmpty { "node" }, m["privkey"].str)
+        }
+    }
+}
+
 class Identity(ctx: Context) {
     private val p = ctx.getSharedPreferences("fdf-identity", Context.MODE_PRIVATE)
     val guid: String = p.getString("guid", null) ?: ("android-" + UUID.randomUUID()).also { p.edit().putString("guid", it).apply() }
-    val keys: KeyPair = p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
+    /** [ADMITTED_BY_INVITE_V1] the invitation this device joins with, or null (none yet, or not readable: said once) */
+    val invite: Invitation? get() = p.getString("invite", null)?.let { try { Invitation.parse(it) } catch (e: IllegalArgumentException) { null } }
+    /** keeps the line if it reads; else IllegalArgumentException with why (nothing kept) */
+    fun setInvite(line: String) { val i = Invitation.parse(line); p.edit().putString("invite", i.raw).apply() }
+    /** the WireGuard key: the invitation's (the only one the hub answers); without one, the key made once here */
+    val keys: KeyPair get() = invite?.let { KeyPair(Key.fromBase64(it.privkey)) } ?: p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
         ?: KeyPair().also { p.edit().putString("wg_private", it.privateKey.toBase64()).apply() }
     var name: String
         get() = p.getString("name", null) ?: Build.MODEL
@@ -33,7 +66,8 @@ class Identity(ctx: Context) {
 
     /** "area|host:port" per line; the first install's default is the droplet's pond. */
     var ponds: List<Pond>
-        get() = (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").lines().filter { '|' in it }
+        get() = invite?.let { listOf(Pond(it.area, it.ram)) }                // [RAM_IN_THE_TUNNEL_V1] the invited region, at its tunnel address
+            ?: (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").lines().filter { '|' in it }
             .map { Pond(it.substringBefore('|'), it.substringAfter('|')) }
         set(v) = p.edit().putString("ponds", v.joinToString("\n") { it.area + "|" + it.ram }).apply()
     // [TELEMETRY_IS_A_TUPLE_V1] what this device reports ((pond, telem, w:<guid>)); [SETTINGS_ARE_TUPLES_V1] sets them
@@ -58,7 +92,10 @@ class Identity(ctx: Context) {
         return when (val pl = placement) {
             is Placement.OnMesh -> head + ",\"lan\":{\"ip\":" + Json.quote(pl.ip) + ",\"subnet\":" + Json.quote(pl.subnet) +
                 ",\"served_by\":" + Json.quote(pl.servedBy) + "}}"
-            Placement.OffMesh -> head + ",\"pubkey\":" + Json.quote(keys.publicKey.toBase64()) + "}"
+            // [ADMITTED_BY_INVITE_V1] invited: the edge the invitation gave is its /32 (fdf_graph's leaf row, so every node
+            // routes it through the hub); the hub peers this key with that edge from its admitted list
+            Placement.OffMesh -> head + ",\"pubkey\":" + Json.quote(keys.publicKey.toBase64()) +
+                (invite?.let { ",\"addr\":" + Json.quote(it.edge + "/32") + ",\"pond\":" + Json.quote(it.area) } ?: "") + "}"
         }
     }
     /** [FORWARD_IS_A_FACT_V1] [REACH_IS_A_LEAF_HERE_V1] a participant pond's facts: presence, and reach:true with this

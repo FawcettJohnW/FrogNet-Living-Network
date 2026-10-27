@@ -108,6 +108,11 @@ public final class MainActivity extends Activity implements GameView.Host, Setti
         final EditText laps = field(col, "Laps you want", String.valueOf(prefs.getInt("laps", 3)), InputType.TYPE_CLASS_NUMBER);
         final EditText cram = field(col, "Communicator memory (host:port; empty: the kart memory's host, port 8800)", prefs.getString("comms_ram", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         final EditText cmed = field(col, "Communicator media server (host:port; empty: the kart memory's host, port 8994)", prefs.getString("comms_media", ""), InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        // [ADMITTED_BY_INVITE_V1] the FrogNet region answers invited devices only: the line `fdf-invite NAME --leaf` printed
+        com.fawcettinnovations.fdf.android.Invitation have = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
+        final EditText inv = field(col, have == null ? "FrogNet invitation (paste the fdfinv1.… line from fdf-invite NAME --leaf on the region's machine)"
+                : "FrogNet invitation: " + have.getName() + " in " + have.getArea() + ", " + have.getEdge() + " (paste a new line to replace it)", "", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        inv.setHint(have == null ? "fdfinv1.…" : "kept");
         final CheckBox auto = new CheckBox(this); auto.setText("Start on the autopilot (toggle it in the race)"); auto.setTextColor(Color.WHITE);
         auto.setChecked(prefs.getBoolean("auto", false)); auto.setPadding(dp(4), dp(10), 0, 0); col.addView(auto);
         final TextView err = new TextView(this); err.setTextColor(Color.rgb(255, 120, 120)); col.addView(err);
@@ -131,6 +136,11 @@ public final class MainActivity extends Activity implements GameView.Host, Setti
                 catch (NumberFormatException e) { err.setText("port, robots and laps are numbers"); return; }
                 String cr = cram.getText().toString().trim(), cm = cmed.getText().toString().trim();
                 if ((!cr.isEmpty() && !cr.matches(".+:\\d+")) || (!cm.isEmpty() && !cm.matches(".+:\\d+"))) { err.setText("the Communicator's addresses are host:port (or empty)"); return; }
+                String il = inv.getText().toString().trim();
+                if (!il.isEmpty()) {
+                    try { new com.fawcettinnovations.fdf.android.Identity(MainActivity.this).setInvite(il); Log.i(TAG, "[ADMITTED_BY_INVITE_V1] the FrogNet invitation is kept"); }
+                    catch (IllegalArgumentException e) { err.setText("FrogNet invitation: " + e.getMessage()); return; }
+                }
                 prefs.edit().putString("name", n).putString("kart", hp).putInt("bots", nb).putInt("laps", Math.max(1, nl)).putBoolean("auto", auto.isChecked())
                         .putString("comms_ram", cr).putString("comms_media", cm).apply();
                 String kh = hp.substring(0, c);
@@ -286,6 +296,12 @@ public final class MainActivity extends Activity implements GameView.Host, Setti
     /** consented: Android just said OK to the VPN question (asked again, prepare could ask again: it is not asked twice) */
     private void startMember(String why, boolean consented) {
         if (game == null || memberStarted) return;
+        com.fawcettinnovations.fdf.android.Invitation iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
+        if (iv == null) {                               // [ADMITTED_BY_INVITE_V1] the region answers invited keys only: not joined, and said
+            tunnel = "no FrogNet invitation: on the region's machine run fdf-invite <name> --leaf and paste the line in Setup";
+            note("[ADMITTED_BY_INVITE_V1] " + why + ": " + tunnel); return;
+        }
+        note("[ADMITTED_BY_INVITE_V1] invited as " + iv.getName() + " (edge " + iv.getEdge() + ") to " + iv.getArea() + ": hub " + iv.getHub().getEndpoint() + ", region " + iv.getRam() + " inside the tunnel");
         // the member's name in the region: the player's (set once; the FrogNet member keeps its own afterwards)
         SharedPreferences id = getSharedPreferences("fdf-identity", MODE_PRIVATE);
         if (!id.contains("name")) id.edit().putString("name", game.name).apply();

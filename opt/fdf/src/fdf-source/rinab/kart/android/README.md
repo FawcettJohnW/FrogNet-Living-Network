@@ -14,6 +14,12 @@ Kart [KART_RACE_INVITE_V1]: (kart, invite, YOU) {members, at, go}; each answers 
 {invite, at, yes}; your game's held read brings the answers (30 s timeout); all yes, `go`, and each game launches itself
 into the lobby, ready, and yours presses Start. kartdemo.py (Windows, Linux) shows the same invitation and answers it.
 
+FrogNet invitation [ADMITTED_BY_INVITE_V1] [RAM_IN_THE_TUNNEL_V1]: the region (r31 and later) answers invited keys
+only, and its RAM manager listens only inside the hub's tunnel (10.253.253.254:51888). On the region's machine run
+`/opt/fdf/bin/fdf-invite <name> --leaf` and paste the fdfinv1.<...> line into Setup, once (it is kept; a new line
+replaces it). The app then brings up the hub's WireGuard channel first, with the invitation's key and edge address, and
+joins the region through it, every time (the rejoin too); the channel stays up across sessions. No invitation: no
+membership, and the banner says so.
 Run: one app, self-contained [KART_IS_A_MEMBER_V1]. It is a FrogNet member itself -- frognet-android's MemberService,
 BridgeVpn and fdf-tun compiled in -- so Connect also joins FrogNet (the pond `frognet`, 165.232.153.144:51888) and
 brings up the tunnel the race memories (game-serving machines' region addresses, 10.x) are reached through. Android

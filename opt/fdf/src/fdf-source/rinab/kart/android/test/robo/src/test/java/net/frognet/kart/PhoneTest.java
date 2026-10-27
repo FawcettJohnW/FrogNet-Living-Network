@@ -155,7 +155,7 @@ public class PhoneTest {
 
         // the setup screen
         List<EditText> fields = all(root, EditText.class, new ArrayList<EditText>());
-        assertEquals("setup: name, kart memory, robots, laps, Communicator memory, media", 6, fields.size());
+        assertEquals("setup: name, kart memory, robots, laps, Communicator memory, media, FrogNet invitation", 7, fields.size());
         say("setup screen: name '" + fields.get(0).getText() + "', kart memory '" + fields.get(1).getText() + "', robots " + fields.get(2).getText() + ", laps " + fields.get(3).getText());
         assertEquals("165.232.153.144:8799", fields.get(1).getText().toString());
         fields.get(0).setText("phone"); fields.get(1).setText(kart); fields.get(2).setText("1"); fields.get(3).setText("2");
@@ -172,7 +172,25 @@ public class PhoneTest {
         say("a kart memory with no port: '" + err + "'");
         assertTrue(err != null && err.contains("host:port"));
         fields.get(1).setText(kart);
+        // [ADMITTED_BY_INVITE_V1] the invitation: a broken line is refused (said), a good one kept (fdf-invite's shape)
+        fields.get(6).setText("fdfinv1.not-json");
+        join.performClick(); idle(50);
+        err = null;
+        for (TextView t : all(root, TextView.class, new ArrayList<TextView>())) if (t.getCurrentTextColor() == Color.rgb(255, 120, 120)) err = t.getText().toString();
+        say("a broken invitation: '" + err + "'");
+        assertTrue("a broken invitation is said, nothing joins", err != null && err.startsWith("FrogNet invitation:") && MainActivity.class.getDeclaredField("view") != null);
+        com.wireguard.crypto.KeyPair mk = new com.wireguard.crypto.KeyPair(), hk = new com.wireguard.crypto.KeyPair();
+        String invJson = "{\"v\":1,\"area\":\"frognet\",\"site_key\":\"k\",\"ram\":\"10.253.253.254:51888\",\"hub\":{\"name\":\"StreamingFrog\",\"pubkey\":\"" + hk.getPublicKey().toBase64()
+                + "\",\"endpoint\":\"165.232.153.144:50889\",\"addr\":\"10.253.253.254\"},\"member\":{\"name\":\"johns-phone\",\"edge\":\"10.253.1.9\",\"kind\":\"leaf\",\"privkey\":\"" + mk.getPrivateKey().toBase64() + "\"}}";
+        String invLine = "fdfinv1." + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(invJson.getBytes("UTF-8"));
+        fields.get(6).setText(invLine);
         join.performClick();
+        com.fawcettinnovations.fdf.android.Invitation kept = new com.fawcettinnovations.fdf.android.Identity(a).getInvite();
+        assertNotNull("the invitation is kept", kept);
+        assertEquals("10.253.1.9", kept.getEdge());
+        assertEquals("the device's key is the invitation's", mk.getPublicKey().toBase64(), new com.fawcettinnovations.fdf.android.Identity(a).getKeys().getPublicKey().toBase64());
+        assertEquals("its pond is the invited region, inside the tunnel", "10.253.253.254:51888", new com.fawcettinnovations.fdf.android.Identity(a).getPonds().get(0).getRam());
+        say("invitation kept: " + kept.getName() + " edge " + kept.getEdge() + " hub " + kept.getHub().getEndpoint() + "; pond " + kept.getArea() + " at " + kept.getRam());
 
         // the game view
         Field gv = MainActivity.class.getDeclaredField("view"); gv.setAccessible(true);
@@ -377,7 +395,7 @@ public class PhoneTest {
         tap(v, v.H_SETTINGS.centerX(), v.H_SETTINGS.centerY()); idle(1000);
         a.getWindow().getDecorView().findViewWithTag("settings").findViewWithTag("disconnect").performClick();
         idle(500);
-        assertTrue("Disconnect shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 6);
+        assertTrue("Disconnect shows the setup screen", gv.get(a) == null && all(a.getWindow().getDecorView(), EditText.class, new ArrayList<EditText>()).size() == 7);
         idle(500);
         say("left: setup screen again; the Communicator: " + (cf.get(a) == null ? "left the room" : "STILL HELD"));
         // [APP_EXIT_V1] Exit (on the setup screen here; the home screen has one too): the app closes

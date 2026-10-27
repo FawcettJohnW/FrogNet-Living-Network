@@ -117,7 +117,7 @@ class MemberService : Service() {
         val f = ident.forward; val leaf = leaves[f]; val m = members[f]
         status("forward $f: " + when (val pl = leaf?.placement) {
             is Placement.OnMesh -> "at ${pl.ip} on ${pl.servedBy}'s LAN"
-            Placement.OffMesh -> tunnel.current?.let { "${m?.regionAddr} via ${it.name}" } ?: "off the mesh, no tunnel"
+            Placement.OffMesh -> tunnel.current?.let { "${ident.invite?.edge ?: m?.regionAddr} via ${it.name}" } ?: "off the mesh, no tunnel"
             null -> "joining" } + "; ponds ${ident.ponds.joinToString(" ") { it.area + (if (it.area in bridge.areas()) "(reached)" else if (refused.containsKey(it.area)) "(refused)" else "") }}")
     }
 
@@ -162,17 +162,30 @@ class MemberService : Service() {
                "\"android_sdk\":${Build.VERSION.SDK_INT},\"client\":\"fdf-member-kt\"}"
     }
 
+    private val saidNoInvite = java.util.concurrent.atomic.AtomicBoolean(false)
     private fun loop(pond: Pond) {
         val id = ident; val area = pond.area; val c = pond.ram.lastIndexOf(':')
         AppLog.add("member: ${id.name} guid=${id.guid} pond $area at ${pond.ram} (${if (id.forward == area) "forward" else "participant"})")
         while (running && id.ponds.any { it.area == area } && !refused.containsKey(area)) {
             val say = { t: String -> AppLog.add("[$area] $t") }
-            val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area })
+            // [RAM_IN_THE_TUNNEL_V1] [ADMITTED_BY_INVITE_V1] invited: the region's RAM manager listens only inside the hub's
+            // tunnel, so the hub channel the invitation describes comes up FIRST, before every join (the rejoin too), and
+            // stays up across sessions; the region is then reached through it. The leaf does not place itself or drive
+            // the tunnel: the invitation, not the region, says where the hub is and what this device's address is.
+            val inv = id.invite?.takeIf { it.area == area && id.forward == area }
+            if (inv != null) {
+                if (tunnel.current?.pubkey != inv.hub.pubkey || tunnel.current?.endpoint != inv.hub.endpoint) {
+                    try { tunnel.up(inv.hub, inv.edge); say("[RAM_IN_THE_TUNNEL_V1] hub channel up: ${inv.hub.name} at ${inv.hub.endpoint} (key ${inv.hub.pubkey.take(12)}...), this device ${inv.edge} (invited as ${inv.name}, ${inv.kind}); joining the region at ${pond.ram} through it") }
+                    catch (e: Exception) { say("[RAM_IN_THE_TUNNEL_V1] the hub channel did not come up: ${e.message}; tried again in 5 s"); try { Thread.sleep(5000) } catch (_: InterruptedException) { break }; continue }
+                }
+            } else if (id.forward == area && id.invite == null && !saidNoInvite.getAndSet(true))
+                say("[ADMITTED_BY_INVITE_V1] no invitation: the region's RAM manager is reached only through its hub's tunnel, which answers invited keys only (fdf-invite NAME --leaf on the region's machine; paste the line in Setup). Trying ${pond.ram} directly")
+            val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area && inv == null })
             val reach = Reach(area, bridge, { id.keys.publicKey.toBase64() }, say) { why -> refused[area] = why }
             leaves[area] = leaf; reaches[area] = reach
             val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
                 { if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() }, area, "", 30, AndroidTuner, say,
-                prepare = { mm -> if (id.forward == area) leaf.place(mm, mm.world()) },
+                prepare = { mm -> if (id.forward == area && inv == null) leaf.place(mm, mm.world()) },
                 onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm) else { telemetry.attach(mm); forwardJoined(mm) }; status() },
                 onRegionChange = { mm -> leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
                 onAttention = { _, cell -> attention(area, cell) }))
@@ -180,7 +193,7 @@ class MemberService : Service() {
             val why = m.runOnce()
             members.remove(area)
             if (id.forward == area) { telemetry.detach(); if (joinedForward === m) forwardJoined(null) }
-            if (id.forward == area) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
+            if (id.forward == area && inv == null) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
             reach.ended(why)
             if (refused.containsKey(area)) { AppLog.add("member: $area is not rejoined: its reach was refused (${refused[area]})"); status(); break }
             if (!running) break
