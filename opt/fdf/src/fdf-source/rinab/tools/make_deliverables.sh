@@ -1,5 +1,6 @@
 #!/bin/bash
 # make_deliverables.sh -- [ONE_TARBALL_PER_MACHINE_V1] the three r-builds from this tree, every time, all three:
+# Each file carries the build tag in its name (fdf-install-x86_64-<tag>.run ...): a re-sent file never lands as "name (1)".
 #   fdf-install-aarch64.run   Pi nodes      /opt/fdf (aarch64 binaries) + the FrogNet region patch, behind header.sh
 #   fdf-install-x86_64.run    x86 nodes     /opt/fdf (x86 static binaries) + the FrogNet region patch, behind header.sh
 #   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + fdf-hub.service; the
@@ -83,9 +84,7 @@ cmp -s "$TOP/fdf/bin/fdf-hub" "$H/tools/fdf-hub" || { echo "make_deliverables: f
 for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram} "$H/build/bin/rina-host-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram,rina-host}; do
   [ -x "$b" ] || { echo "make_deliverables: $b missing (build first)" >&2; exit 1; }
   [ "${b##*/}" = ram ] || strings "$b" | grep -q "$TAG" || { echo "make_deliverables: $b is not $TAG" >&2; exit 1; }; done
-# [COMMS_ON_A_NODE_V1] the Communicator's servers (static, tools/build_comms_static.sh) go in every node bundle, /opt/fdf/comms
-for b in "$H/build/comms-"{x86_64,arm64}/{comms-ram,comms-media}; do
-  [ -x "$b" ] || { echo "make_deliverables: $b missing (tools/build_comms_deps.sh + tools/build_comms_static.sh)" >&2; exit 1; }; done
+# [ADDIN_V1] the Communicator's servers are an add-in now (src/bundles/make_addin.sh comms), not in the node bundles
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: rina-host-static -> rina-host)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
@@ -99,19 +98,17 @@ build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$N
 tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | tar --owner=0 --group=0 --no-recursion -czf - -T -); }
 # ---- x86 node
 R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
-mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-x86_64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
 frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
-tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64.run"
+tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
-mkdir -p "$R/opt/fdf/comms"; cp "$H/build/comms-arm64/"{comms-ram,comms-media} "$R/opt/fdf/comms/"
 frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
-tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64.run"
+tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
 # ---- droplet
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
 build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
-tarit "$R" > "$OUT/fdf-droplet.tgz"
+tarit "$R" > "$OUT/fdf-droplet-$TAG.tgz"
 chmod +x "$OUT"/*.run
-for f in "$OUT"/fdf-install-x86_64.run "$OUT"/fdf-install-aarch64.run "$OUT"/fdf-droplet.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"
