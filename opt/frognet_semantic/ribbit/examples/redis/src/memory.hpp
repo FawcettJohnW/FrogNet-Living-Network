@@ -33,7 +33,7 @@
 #include <atomic>
 #include <memory>
 #include "lf/lfmap.hpp"
-#include "lf/apipp.hpp"   // [API_PLUS_PLUS_V1] the platform's EBR, map and primitives: Redis keeps no copy of its own
+#include "lf/primitives.hpp"   // [LF_PRIMITIVES_V1] the platform's EBR, map and primitives: Redis keeps no copy of its own
 #include <optional>
 #include <functional>
 #include <cstdint>
@@ -207,7 +207,7 @@ struct Var {
 };
 using VarPtr = Var*;
 
-using WaitWord = ribbit::lf::WaitWord;   // [API_PLUS_PLUS_V1]
+using WaitWord = ribbit::lf::WaitWord;   // [LF_PRIMITIVES_V1]
 
 class Region {
 public:
@@ -258,7 +258,7 @@ public:
     void touched_h(size_t h, const std::string& variable);
     void touched(const std::string& variable);
     void touched_all();
-    // a quiet span (API++): the wakes of every write inside it held on this thread and delivered once each at its end
+    // a quiet span (lf/primitives.hpp): the wakes of every write inside it held on this thread and delivered once each at its end
     using Quiet = ribbit::lf::QuietSpan<std::pair<Region*, std::string>>;
 };
 

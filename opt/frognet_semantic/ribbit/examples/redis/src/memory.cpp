@@ -39,7 +39,7 @@ int64_t Memory::now_ms() {
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-// ---------------------------------------------------------------- wait words (API++: lf/apipp.hpp)
+// ---------------------------------------------------------------- wait words (lf/primitives.hpp)
 // A writer bumps a word only when someone is registered on it (WaitWord::bump); a word that moved serves the
 // region's parked commands (on_wake).
 static void bump(WaitWord& w) { if (w.bump() && Region::on_wake) Region::on_wake(w); }

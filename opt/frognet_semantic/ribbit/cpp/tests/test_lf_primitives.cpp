@@ -1,15 +1,15 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 //
-// test_apipp.cpp -- [API_PLUS_PLUS_V1] the API++ primitives (lf/apipp.hpp) under real contention, one check per
-// promise each makes. Built with -DAPIPP_BROKEN=<n> it breaks primitive n on purpose, and that check must go red:
+// test_lf_primitives.cpp -- [LF_PRIMITIVES_V1] the in-process lock-free primitives (lf/primitives.hpp) under real contention, one check per
+// promise each makes. Built with -DLF_BROKEN=<n> it breaks primitive n on purpose, and that check must go red:
 //   1 TakeStack push as a plain store (pushes are lost)       2 update as load-then-store (adds are lost)
 //   3 take as load-then-null (two takers get the same value)  4 a writer that reads the registration before it
 //     publishes (a waiter registering in between sleeps on)
 //   5 QuietSpan::end without the dedupe (a key delivered twice)
 //
-//   test-apipp [threads] [rounds]
-#include "lf/apipp.hpp"
+//   test-lf-primitives [threads] [rounds]
+#include "lf/primitives.hpp"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -17,8 +17,8 @@
 #include <set>
 #include <thread>
 #include <vector>
-#ifndef APIPP_BROKEN
-#define APIPP_BROKEN 0
+#ifndef LF_BROKEN
+#define LF_BROKEN 0
 #endif
 using namespace ribbit::lf;
 
@@ -35,7 +35,7 @@ template <class T> struct BrokenStack {             // 1: push is a load and a s
     std::vector<T*> take() { T* l = head.exchange(nullptr); std::vector<T*> o; for (T* x = l; x; x = x->next) o.push_back(x); std::reverse(o.begin(), o.end()); return o; }
 };
 struct Item { uint64_t producer, seq; Item* next = nullptr; };
-#if APIPP_BROKEN == 1
+#if LF_BROKEN == 1
 using Stack = BrokenStack<Item>;
 #else
 using Stack = TakeStack<Item>;
@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
     setvbuf(stdout, nullptr, _IOLBF, 0);
     const int T = argc > 1 ? atoi(argv[1]) : int(std::max(4u, std::thread::hardware_concurrency()));
     const int R = argc > 2 ? atoi(argv[2]) : 20000;
-    std::printf("== API++ primitives, %d threads, %d rounds each%s\n", T, R, APIPP_BROKEN ? " (BROKEN on purpose)" : "");
+    std::printf("== lock-free primitives, %d threads, %d rounds each%s\n", T, R, LF_BROKEN ? " (BROKEN on purpose)" : "");
 
     // 1. TakeStack: every push taken exactly once, each producer's pushes in its own order
     {
@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         for (int t = 0; t < T; ++t) th.emplace_back([&, t] {
             for (int i = 0; i < R; ++i) {
                 ebr::Guard g;
-#if APIPP_BROKEN == 2
+#if LF_BROKEN == 2
                 const Num* cur = slot.load(); const Num* nx = new Num{cur->v + 1}; std::this_thread::yield();
                 const Num* old = slot.exchange(nx); retire_default(old); totals[t].push_back(nx->v);
 #else
@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
         for (int t = 0; t < T; ++t) th.emplace_back([&] {
             for (int r = 0; r < R / 10; ++r) {
                 while (round.load() != r) { if (round.load() == -2) return; std::this_thread::yield(); }
-#if APIPP_BROKEN == 3
+#if LF_BROKEN == 3
                 const Num* p = slot.load(); std::this_thread::yield(); if (p) slot.store(nullptr);
 #else
                 const Num* p = take(slot);
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
             } });
         for (int i = 1; i <= N; ++i) {
             while (consumed.load(std::memory_order_seq_cst) < i - 1) std::this_thread::yield();
-#if APIPP_BROKEN == 4
+#if LF_BROKEN == 4
             // the registration read before the data is published: a waiter registering in between is never woken
             const bool parked = w.waiters.load(std::memory_order_seq_cst) != 0;
             std::this_thread::yield();                     // a preemption right here
@@ -158,7 +158,7 @@ int main(int argc, char** argv) {
         std::vector<int> delivered;
         QuietSpan<int>::begin();
         bool held = true; for (int k : {3, 1, 3, 2, 1, 3}) held &= QuietSpan<int>::hold(k);
-#if APIPP_BROKEN == 5
+#if LF_BROKEN == 5
         // no dedupe: every hold delivered
         delivered = {3, 1, 3, 2, 1, 3}; QuietSpan<int>::end([](int) {});
 #else

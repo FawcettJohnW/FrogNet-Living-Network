@@ -1,9 +1,9 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 //
-// lf/apipp.hpp -- API++ [API_PLUS_PLUS_V1]: the lock-free primitives the Redis and MQTT regions each wrote for
-// themselves, once, in the platform. Every region builds its memory from these; the platform memory (ram_memory.hpp)
-// offers the same operations on tuples, over the wire (API-PLUS-PLUS.md).
+// lf/primitives.hpp -- [LF_PRIMITIVES_V1]: the lock-free primitives the Redis and MQTT regions each wrote for
+// themselves, once, in the platform: thread plumbing inside one process (a vendor's region memory). Not API++ and never
+// on the wire -- API++ is ribbit_pp.hpp, writes and held reads (API-PLUS-PLUS.md).
 //
 //   WaitWord     a held read's word: a writer pays only when someone is parked on it
 //   QuietSpan    a batch's wakes held on this thread and delivered once each at its end

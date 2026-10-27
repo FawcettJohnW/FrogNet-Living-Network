@@ -62,7 +62,8 @@ if has build; then
   run bin/ramrows-driver -std=c++20 $NOFP -O2 $I tests/ramrows_driver.cpp $FO -llz4 -lcrypto
   run bin/test-lockfree-snapshot -std=c++20 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
   run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
-  run bin/test-apipp -std=c++20 -O2 -pthread $WERR $I tests/test_apipp.cpp src/lf_ebr.cpp   # [API_PLUS_PLUS_V1]
+  run bin/test-lf-primitives -std=c++20 -O2 -pthread $WERR $I tests/test_lf_primitives.cpp src/lf_ebr.cpp   # [LF_PRIMITIVES_V1]
+  run bin/test-ribbit-pp -std=c++20 -O2 -pthread $WERR $I tests/test_ribbit_pp.cpp src/ribbit_pp.cpp src/ribbit_space.cpp src/frogram.cpp src/ram_host.cpp src/lf_ebr.cpp -llz4 -lcrypto   # [API_PLUS_PLUS_V2]
   run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp src/lf_ebr.cpp
   run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp src/lf_ebr.cpp
   run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp src/lf_ebr.cpp
@@ -155,8 +156,10 @@ if has lockfree; then
   note "== runtime lock-freedom and reclamation"
   note "$(./bin/test-lockfree-snapshot 2>&1 | tail -1)"
   note "$(timeout 300 ./bin/test-ebr-stress 2>&1 | tail -1)"
-  note "== API++ primitives under contention (lf/apipp.hpp) [API_PLUS_PLUS_V1]"
-  timeout 300 ./bin/test-apipp > "$OUT/apipp.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/apipp.txt" | tee -a "$SUMMARY"
+  note "== lock-free primitives under contention (lf/primitives.hpp) [LF_PRIMITIVES_V1]"
+  timeout 300 ./bin/test-lf-primitives > "$OUT/lf-primitives.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/lf-primitives.txt" | tee -a "$SUMMARY"
+  note "== API++ through real sessions: publish/subscribe, capabilities, last value, ask/answer [API_PLUS_PLUS_V2]"
+  timeout 300 ./bin/test-ribbit-pp 8937 > "$OUT/ribbit-pp.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/ribbit-pp.txt" | tee -a "$SUMMARY"
 fi
 
 if has ramrows; then
