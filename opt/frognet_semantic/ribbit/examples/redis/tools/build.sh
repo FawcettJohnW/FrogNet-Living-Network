@@ -73,6 +73,7 @@ VER=$(cat VERSION 2>/dev/null || echo unversioned)
 job build/obj/redis_ram.o $CXX -std=c++20 $W -Werror -DREDIS_RAM_VERSION="\"$VER\"" -Isrc -I$P/include -c src/redis_ram.cpp
 job build/obj/ribbit_space.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ribbit_space.cpp   # [SPACE_V1]
 job build/obj/ribbit_pp.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ribbit_pp.cpp   # [API_PLUS_PLUS_V2] Asker, Answerer
+job build/obj/lanbench.o $CXX -std=c++20 $W -Werror -I$P/include -c tools/lanbench.cpp   # [LAN_BENCH_ON_THE_RAM_V1]
 # the box's sources, named: a tree unpacked over the RAM-host design keeps its old files (src/redis_region.cpp,
 # src/coherence.cpp ...), and those are not part of this build
 SRCS="region front server resp util memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
@@ -87,5 +88,6 @@ echo "== linking"
 ENGINE=$(for b in $SRCS; do case $b in front|region) ;; *) echo build/obj/$b.o;; esac; done)
 $CXX -o build/ribbit-redis-host build/obj/redis_ram.o build/obj/region.o $ENGINE build/obj/ribbit_space.o build/obj/ribbit_pp.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
 $CXX -o build/ribbit-redis-front build/obj/front.o $ENGINE build/obj/ribbit_space.o build/obj/ribbit_pp.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -ljemalloc
+$CXX -o build/ribbit-lanbench build/obj/lanbench.o build/obj/ribbit_space.o build/obj/ribbit_pp.o build/obj/ram_host.o build/obj/lf_ebr.o build/obj/frogram.o -llz4 -lcrypto -lpthread
 cat VERSION > build/BUILT_FROM 2>/dev/null || echo unversioned > build/BUILT_FROM   # [BUILT_FROM_THIS_V1] run.sh checks it
 echo "BUILD OK $(build/ribbit-redis-host --version 2>&1 | head -1), box $(cat VERSION 2>/dev/null || echo unversioned)"
