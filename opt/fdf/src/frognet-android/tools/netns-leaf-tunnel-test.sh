@@ -145,10 +145,10 @@ fi
 # ---- [ADDIN_V1] the add-ins, each its own bundle, on the stand-alone core (l6) and the leaf core (l5)
 if [ -n "${CORE_TGZ:-}" ] && [ -n "${ADDINS:-}" ]; then
   RD() { NS $1 curl -s -m 2 "http://$2$API?op=read&service=pond&variable=where"; }      # the where cells, as read there
-  for n in l5 l6; do for a in kart comms; do mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf $ADDINS/fdf-addin-$a-*.tgz
+  for n in l5 l6; do for a in kart comms; do mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf "$(ls $ADDINS/fdf-addin-$a-linux-$(uname -m)-*.tgz $ADDINS/fdf-addin-$a-linux-any-*.tgz 2>/dev/null | head -1)"
     NS $n env FDF_HOME=$T/$n/fdf FDF_NO_SYSTEMD=1 sh $T/$n/$a/fdf-addin-*/install > $T/$n/$a/install.out 2>&1; done; done
   check "add-ins installed on both cores: $(grep -h -m1 'files in' $T/l5/kart/install.out | cut -c1-80)" "grep -q 'files in' $T/l5/kart/install.out && grep -q 'files in' $T/l6/comms/install.out"
-  mkdir -p $T/l7/kart; tar -C $T/l7/kart -xzf $ADDINS/fdf-addin-kart-*.tgz
+  mkdir -p $T/l7/kart; tar -C $T/l7/kart -xzf "$(ls $ADDINS/fdf-addin-kart-linux-any-*.tgz | head -1)"
   FDF_HOME=$T/l7/fdf FDF_NO_SYSTEMD=1 sh $T/l7/kart/fdf-addin-*/install > $T/l7/kart/install.out 2>&1
   check "an add-in refuses a machine with no core: $(grep -m1 -o 'no FD&F core.*' $T/l7/kart/install.out | cut -c1-70)" "grep -q 'no FD&F core' $T/l7/kart/install.out"
   # stand-alone: the race's own RAM, its tuple in this machine's own control RAM, a player finds it

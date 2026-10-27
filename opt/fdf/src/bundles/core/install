@@ -45,12 +45,36 @@ if [ -n "$LINE" ]; then
 fi
 MODE=standalone; [ -s "$H/var/invite" ] && MODE=leaf
 say "this machine starts as: $MODE"
-if [ -n "${FDF_NO_SYSTEMD:-}" ] || ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
-  # [CORE_ON_WSL_V1] a Windows first client is WSL 2: systemd is off there until /etc/wsl.conf turns it on
-  if grep -qi microsoft /proc/version 2>/dev/null && [ -z "${FDF_NO_SYSTEMD:-}" ]; then
-    say "this is WSL without systemd: add these two lines to /etc/wsl.conf, run  wsl --shutdown  in Windows, open WSL, run ./install again:"
-    say "  [boot]"; say "  systemd=true"; exit 1; fi
-  say "no systemd here: start it with  $H/bin/fdf-start   (foreground; as root)"; exit 0; fi
+[ -n "${FDF_NO_SYSTEMD:-}" ] && { say "FDF_NO_SYSTEMD: no unit; start it with  $H/bin/fdf-start"; exit 0; }
+WSL=""; grep -qi microsoft /proc/version 2>/dev/null && WSL=1
+if ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
+  [ -n "$WSL" ] || { say "no systemd here: start it with  $H/bin/fdf-start   (foreground; as root)"; exit 0; }
+  # [CORE_ON_WSL_V1] WSL 2 (a Windows first client) keeps systemd off unless /etc/wsl.conf turns it on: asked, then done
+  ask() { printf 'install: %s [y/N] ' "$1" > /dev/tty; read -r a < /dev/tty || a=""; case "$a" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac; }
+  [ -r /dev/tty ] || no "this is WSL with systemd off, and there is no terminal to ask in: run ./install from a WSL terminal"
+  ask "This is WSL with systemd off. FD&F starts from systemd. Turn systemd on in /etc/wsl.conf?" || no "systemd left off: FD&F is installed in $H; start it by hand with  $H/bin/fdf-start"
+  python3 -I - <<'PY'
+import re
+p = "/etc/wsl.conf"
+try: t = open(p).read()
+except FileNotFoundError: t = ""
+lines = t.splitlines(); out = []; sec = None; done = False
+for ln in lines:
+    m = re.match(r"\s*\[(.+)\]\s*$", ln)
+    if m:
+        if sec == "boot" and not done: out.append("systemd=true"); done = True
+        sec = m.group(1).strip().lower()
+    elif sec == "boot" and re.match(r"\s*systemd\s*=", ln):
+        if not done: out.append("systemd=true"); done = True
+        continue
+    out.append(ln)
+if not done:
+    if sec != "boot": out += ([""] if out else []) + ["[boot]"]
+    out.append("systemd=true")
+open(p, "w").write("\n".join(out) + "\n")
+PY
+  say "/etc/wsl.conf: [boot] systemd=true"
+fi
 cat > /etc/systemd/system/fdf-core.service <<EOF
 # fdf-core.service -- made by fdf-core $B's install: [CORE_STARTS_WHAT_THIS_MACHINE_IS_V1] fdf-start brings up what this
 # machine is (a leaf by its kept invitation, or stand-alone), and writes $H/var/control.env for the add-ins.
@@ -68,6 +92,16 @@ RestartSec=2
 [Install]
 WantedBy=multi-user.target
 EOF
+if [ ! -d /run/systemd/system ]; then
+  # WSL, systemd on from the next start: the unit is enabled now and starts by itself then
+  mkdir -p /etc/systemd/system/multi-user.target.wants
+  ln -sf /etc/systemd/system/fdf-core.service /etc/systemd/system/multi-user.target.wants/fdf-core.service
+  say "fdf-core.service is enabled; it starts when WSL starts again with systemd on"
+  W=$(command -v wsl.exe || ls /mnt/c/Windows/System32/wsl.exe 2>/dev/null || true)
+  if [ -n "$W" ] && ask "Restart WSL now? (every WSL window closes; open one again and FD&F is running)"; then
+    say "restarting WSL"; exec "$W" --shutdown; fi
+  say "it starts the next time WSL starts (in Windows:  wsl --shutdown, then open WSL)"; exit 0
+fi
 systemctl daemon-reload
 systemctl enable fdf-core.service >/dev/null 2>&1
 systemctl restart fdf-core.service || no "fdf-core did not start: journalctl -u fdf-core"
