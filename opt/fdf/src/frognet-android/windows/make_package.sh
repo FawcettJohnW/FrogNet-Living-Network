@@ -6,8 +6,11 @@
 # (strip_module_hashes.py: jlink cannot hash exploded modules), and relinked by this machine's `jlink` -- a Windows
 # image, since java.base says windows-amd64. The Windows natives of only those modules are kept.
 # Needs: JDK 21 (jimage, jlink), Go (tun/build.sh), gradle, pip, zip. usage: windows/make_package.sh OUTDIR
+# Output: OUTDIR/fdf-windows-<member build>.zip (a unique name per build: a re-sent file never lands as "name (1).zip").
+# FDF_TUN_PREBUILT=1: use tun/out/fdf-tun.exe as it is (no Go rebuild, so the app's jniLibs are not rewritten).
 set -eu; A=$(cd "$(dirname "$0")/.." && pwd); O=${1:?usage: make_package.sh OUTDIR}; mkdir -p "$O"; T=$(mktemp -d); trap 'rm -rf $T' EXIT
-"$A/tun/build.sh"; (cd "$A" && /opt/gradle/bin/gradle -q --offline -Pfdf.jvmOnly=true :member-cli:installDist)
+[ -n "${FDF_TUN_PREBUILT:-}" ] && [ -x "$A/tun/out/fdf-tun.exe" ] || "$A/tun/build.sh"
+(cd "$A" && /opt/gradle/bin/gradle -q --offline -Pfdf.jvmOnly=true :member-cli:installDist)
 pip download "jdk4py>=21,<22" --platform win_amd64 --only-binary=:all: --no-deps -d $T/whl -q
 mkdir $T/x && (cd $T/x && unzip -q $T/whl/jdk4py-*.whl); S=$T/x/jdk4py/java-runtime
 jimage extract --dir $T/ex $S/lib/modules; python3 "$A/windows/strip_module_hashes.py" $T/ex/java.base/module-info.class
@@ -20,10 +23,11 @@ mkdir -p $R/legal; for m in java.base jdk.net jdk.crypto.ec; do cp -a $S/legal/$
    management*.dll instrument.dll prefs.dll j2gss.dll j2pcsc.dll j2pkcs11.dll sunmscapi.dll w2k_lsa_auth.dll dt_socket.dll dt_shmem.dll \
    rmi.dll jsound.dll jaas.dll sspi_bridge.dll javaaccessbridge.dll *.exe.tmp jabswitch.exe jfr.exe jcmd.exe jrunscript.exe rmiregistry.exe \
    kinit.exe klist.exe ktab.exe jinfo.exe jmap.exe jps.exe jstack.exe jstat.exe jwebserver.exe keytool.exe)
-cp "$A/windows/fdf-bridge.cmd" "$A/windows/README.txt" $W/; cp "$A/windows/etc/ponds.txt" $W/etc/; cp "$A/tun/out/fdf-tun.exe" $W/
+cp "$A/windows/fdf-bridge.cmd" "$A/windows/setup.cmd" "$A/windows/README.txt" $W/; cp "$A/windows/etc/ponds.txt" $W/etc/; cp "$A/tun/out/fdf-tun.exe" $W/
 cp "$A"/member-cli/build/install/fdf-member-kt/lib/*.jar $W/lib/
 B=$(sed -n 's/.*MEMBER_BUILD = "\(.*\)".*/\1/p' "$A/member/src/main/kotlin/com/fawcettinnovations/fdf/member/Member.kt")
 F=$(sed -n 's/^const build = "\(.*\)"/\1/p' "$A/tun/main.go")
 echo "$B + $F, Java $(sed -n 's/JAVA_VERSION="\(.*\)"/\1/p' $R/release) (java.base, jdk.net, jdk.crypto.ec)" > $W/BUILD.txt
-for f in $W/fdf-bridge.cmd $W/README.txt $W/etc/ponds.txt $W/BUILD.txt; do sed -i 's/\r$//; s/$/\r/' $f; done
-(cd $T/pkg && rm -f "$O/fdf-windows.zip" && zip -qr9 "$O/fdf-windows.zip" fdf-windows); ls -la "$O/fdf-windows.zip"; cat $W/BUILD.txt
+for f in $W/fdf-bridge.cmd $W/setup.cmd $W/README.txt $W/etc/ponds.txt $W/BUILD.txt; do sed -i 's/\r$//; s/$/\r/' $f; done
+Z="$O/fdf-windows-$B.zip"
+(cd $T/pkg && rm -f "$Z" && zip -qr9 "$Z" fdf-windows); ls -la "$Z"; cat $W/BUILD.txt

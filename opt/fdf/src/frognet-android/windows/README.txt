@@ -14,12 +14,14 @@ Once:
   3. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
      fdfinv1.<...> (a secret: it holds this computer's key). Then, in a terminal opened as Administrator:
        cd C:\fdf
-       fdf-bridge.cmd join fdfinv1.<...>
-     It is kept in var\invite; the region, this computer's key, name and address are the invitation's.
+       setup.cmd fdfinv1.<...>
+     setup.cmd checks first (Administrator, x64, wintun.dll, the invitation decodes), keeps the invitation in
+     var\invite, and makes the scheduled task "FrogNet member": fdf-bridge.cmd at every startup, as SYSTEM, its output
+     in var\fdf-bridge.log. It starts it now. The region, this computer's key, name and address are the invitation's.
+     After an update (unzip over C:\fdf): setup.cmd again, no argument. setup.cmd remove: the task goes.
 
-Every later run, in a terminal opened as Administrator:
-  cd C:\fdf
-  fdf-bridge.cmd
+To run it in a terminal instead (as Administrator; Ctrl-C leaves): fdf-bridge.cmd join fdfinv1.<...> once, then
+fdf-bridge.cmd.
 
 (Without an invitation, etc\ponds.txt lists ponds by <area>=<RAM host:port>, as before; with one, ponds.txt only adds
 ponds and its example line is ignored.)
