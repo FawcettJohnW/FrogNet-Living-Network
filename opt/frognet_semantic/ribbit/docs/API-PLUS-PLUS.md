@@ -87,6 +87,7 @@ The same, before and after:
 | | main | API++ |
 |---|---|---|
 | Redis two_fronts / same_after_raw / big_replies / concurrency | 15/15, PASS, PASS, 39/39 | 15/15, PASS, PASS, 39/39 |
+| Redis 7.2.11's own suite, 10 files | incr 31, string 79, hash 70, set 114, list 261, zset 316, keyspace 56, stream 60, stream-cgroups 56, multi 35 | the same, file for file |
 | MQTT two_boxes | 13/13 | 13/13 (twice) |
 | Mosquitto 2.1.2's suite, through the fronts | 272 of 292 runs pass (the 4 `22-http-api-*` tests fail) | 272 of 292, the same 4 |
 | platform qualify | FNWP e2e 1 fail per seed, ramrows FAIL | the same, and the three API++ tests PASS |
