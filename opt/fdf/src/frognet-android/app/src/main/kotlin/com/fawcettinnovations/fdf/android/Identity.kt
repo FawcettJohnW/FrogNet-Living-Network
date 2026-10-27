@@ -14,6 +14,7 @@ package com.fawcettinnovations.fdf.android
 
 import android.content.Context
 import android.os.Build
+import com.fawcettinnovations.fdf.member.Invite
 import com.fawcettinnovations.fdf.member.Json
 import com.fawcettinnovations.fdf.member.Placement
 import com.wireguard.crypto.Key
@@ -25,17 +26,24 @@ class Pond(val area: String, val ram: String)
 class Identity(ctx: Context) {
     private val p = ctx.getSharedPreferences("fdf-identity", Context.MODE_PRIVATE)
     val guid: String = p.getString("guid", null) ?: ("android-" + UUID.randomUUID()).also { p.edit().putString("guid", it).apply() }
-    val keys: KeyPair = p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
+    /** [LEAF_BY_INVITE_V1] the line fdf-invite NAME --leaf (or fdf-identity NAME --leaf) printed, pasted once and kept here
+     *  (app-private storage). With one, this device's key, name, address, hub and region are the invitation's. */
+    val invite: Invite? = p.getString("invite", null)?.let { runCatching { Invite.parse(it) }.getOrNull() }
+    /** Kept only if it decodes; the service starts again to use it (its key is the tunnel's). Throws with the reason. */
+    fun keepInvite(line: String) { val inv = Invite.parse(line); p.edit().putString("invite", inv.line).putString("forward", inv.area).apply() }
+    val keys: KeyPair = invite?.let { KeyPair(Key.fromBase64(it.privkey)) } ?: p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
         ?: KeyPair().also { p.edit().putString("wg_private", it.privateKey.toBase64()).apply() }
     var name: String
-        get() = p.getString("name", null) ?: Build.MODEL
+        get() = invite?.name ?: p.getString("name", null) ?: Build.MODEL
         set(v) = p.edit().putString("name", v).apply()
 
-    /** "area|host:port" per line; the first install's default is the droplet's pond. */
+    /** "area|host:port" per line. With an invitation its region is a pond (first); without one there is none until one
+     *  is added (the region listens only inside its tunnel: a host:port typed here reaches only an older region). */
     var ponds: List<Pond>
-        get() = (p.getString("ponds", null) ?: "frognet|165.232.153.144:51888").lines().filter { '|' in it }
-            .map { Pond(it.substringBefore('|'), it.substringAfter('|')) }
-        set(v) = p.edit().putString("ponds", v.joinToString("\n") { it.area + "|" + it.ram }).apply()
+        get() = (listOfNotNull(invite?.let { Pond(it.area, "${it.ramHost}:${it.ramPort}") }) +
+                 (p.getString("ponds", null) ?: "").lines().filter { '|' in it }.map { Pond(it.substringBefore('|'), it.substringAfter('|')) })
+                .distinctBy { it.area }
+        set(v) = p.edit().putString("ponds", v.filter { it.area != invite?.area }.joinToString("\n") { it.area + "|" + it.ram }).apply()
     var forward: String
         get() = p.getString("forward", null)?.takeIf { f -> ponds.any { it.area == f } } ?: ponds.firstOrNull()?.area ?: ""
         set(v) = p.edit().putString("forward", v).apply()

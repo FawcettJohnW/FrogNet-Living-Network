@@ -65,6 +65,15 @@ class MainActivity : Activity() {
             })
         }
         drawPonds()
+        // [LEAF_BY_INVITE_V1] the one thing an operator gives this device: the invitation line, pasted once
+        val invLine = field(root, "Invitation (fdfinv1..., from fdf-identity NAME --leaf)" + (ident.invite?.let { " -- now: ${it.name} in ${it.area}, edge ${it.edge}" } ?: ""), "")
+        root.addView(Button(this).apply { text = "Use invitation"; setOnClickListener {
+            try { ident.keepInvite(invLine.text.toString()) } catch (e: Exception) { AppLog.add("invitation refused: ${e.message}"); return@setOnClickListener }
+            invLine.setText(""); AppLog.add("invitation kept; the membership starts again with it")
+            startService(Intent(this@MainActivity, MemberService::class.java).setAction(MemberService.ACTION_STOP))
+            ui.postDelayed({ ident = Identity(this@MainActivity); drawPonds()
+                val consent = VpnService.prepare(this@MainActivity)
+                if (consent != null) startActivityForResult(consent, VPN_CONSENT) else start() }, 500) } })
         val newArea = field(root, "Add a pond: area", ""); val newRam = field(root, "its RAM manager (host:port)", "")
         root.addView(Button(this).apply { text = "Add pond"; setOnClickListener {
             val a = newArea.text.toString().trim(); val r = newRam.text.toString().trim()

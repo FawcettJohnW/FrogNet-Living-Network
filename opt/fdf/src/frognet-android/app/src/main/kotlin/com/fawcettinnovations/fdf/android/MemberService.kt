@@ -163,16 +163,22 @@ class MemberService : Service() {
             val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area })
             val reach = Reach(area, bridge, { id.keys.publicKey.toBase64() }, say) { why -> refused[area] = why }
             leaves[area] = leaf; reaches[area] = reach
+            // [LEAF_BY_INVITE_V1] the invited pond: its tunnel is the invitation's (key, edge, hub) and comes up BEFORE the
+            // session, which reaches the region inside it; placement and the region's hub choice do not apply to it
+            val inv = id.invite?.takeIf { it.area == area }
+            if (inv != null) try { tunnel.up(inv.hub, "${inv.edge}/32"); say("tunnel: ${inv.edge} to ${inv.hub.name} at ${inv.hub.endpoint} (the invitation's)") }
+                catch (e: Exception) { say("tunnel: ${e.message}") }
             val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
-                { if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() }, area, "", 30, AndroidTuner, say,
-                prepare = { mm -> if (id.forward == area) leaf.place(mm, mm.world()) },
-                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm); status() },
-                onRegionChange = { mm -> leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
+                { if (inv != null) inv.facts(id.keys.publicKey.toBase64()) else if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() },
+                area, inv?.siteKey ?: "", 30, AndroidTuner, say,
+                prepare = { mm -> if (inv == null && id.forward == area) leaf.place(mm, mm.world()) },
+                onJoined = { mm -> if (inv == null) leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm); status() },
+                onRegionChange = { mm -> if (inv == null) leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
                 onAttention = { _, cell -> attention(area, cell) }))
             members[area] = m
             val why = m.runOnce()
             members.remove(area)
-            if (id.forward == area) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
+            if (id.forward == area || inv != null) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
             reach.ended(why)
             if (refused.containsKey(area)) { AppLog.add("member: $area is not rejoined: its reach was refused (${refused[area]})"); status(); break }
             if (!running) break
