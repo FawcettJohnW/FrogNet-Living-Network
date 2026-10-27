@@ -25,6 +25,8 @@ import com.fawcettinnovations.fdf.member.ReachPlan
 import com.fawcettinnovations.fdf.member.ReachPlanner
 import com.fawcettinnovations.fdf.member.ReachRefused
 import com.fawcettinnovations.fdf.member.Hub
+import com.fawcettinnovations.fdf.member.Invite
+import com.fawcettinnovations.fdf.member.InviteTunnel
 import com.fawcettinnovations.fdf.member.Hubs
 import com.fawcettinnovations.fdf.member.Leaf
 import com.fawcettinnovations.fdf.member.Placement
@@ -401,6 +403,59 @@ fun selftest(): Int {
     println("RESULT " + if (fails == 0) "PASS" else "FAIL: $fails"); return fails
 }
 
+// a secret on disk: 0600 from its first byte, replaced whole
+fun writeSecret(f: File, text: String) {
+    val dir = (f.absoluteFile.parentFile ?: File(".")).also { it.mkdirs() }.toPath()
+    val tmp = java.nio.file.Files.createTempFile(dir, f.name, ".tmp", java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+        java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")))
+    java.nio.file.Files.write(tmp, (text.trim() + "\n").toByteArray())
+    java.nio.file.Files.move(tmp, f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+}
+
+// [LEAF_BY_INVITE_V1] the invitation's tunnel, driven by `wg` on an interface the start-up made (kernel or wireguard-go,
+// as fdf-wg-impl records): key, address (edge/16), the hub as the one peer for 10.0.0.0/8, then the route
+class WgInviteTunnel(private val iface: String, private val keyDir: File) : InviteTunnel {
+    private fun run(vararg a: String): String { val p = ProcessBuilder(a.toList()).redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText().trim(); val rc = p.waitFor()
+        if (rc != 0) throw IllegalStateException("${a.joinToString(" ")}: rc=$rc $out"); return out }
+    @Volatile private var hub: Hub? = null
+    override fun up(inv: Invite) {
+        val key = File(keyDir, "leaf.key"); writeSecret(key, inv.privkey)
+        run("wg", "set", iface, "private-key", key.path)
+        hub?.let { if (it.pubkey != inv.hub.pubkey) run("wg", "set", iface, "peer", it.pubkey, "remove") }
+        run("ip", "addr", "replace", inv.address, "dev", iface)
+        run("ip", "link", "set", iface, "up")
+        run("wg", "set", iface, "peer", inv.hub.pubkey, "endpoint", inv.hub.endpoint, "allowed-ips", Hubs.LEAF_ALLOWED,
+            "persistent-keepalive", Hubs.PERSISTENT_KEEPALIVE.toString())
+        run("ip", "route", "replace", Hubs.LEAF_ALLOWED, "dev", iface)
+        hub = inv.hub
+        log("tunnel: $iface ${inv.address}, peer ${inv.hub.name} ${inv.hub.pubkey.take(12)} at ${inv.hub.endpoint} for ${Hubs.LEAF_ALLOWED}")
+    }
+    override fun down(why: String) { val h = hub ?: return; runCatching { run("wg", "set", iface, "peer", h.pubkey, "remove") }; hub = null; log("tunnel: $iface peer ${h.name} removed ($why)") }
+}
+
+// leaf [fdfinv1.<...>]: [LEAF_BY_INVITE_V1] given a line, it is kept (FDF_INVITE, 0600) for every later start; without
+// one, the kept line is used. The tunnel first, then the region inside it; the member announces role leaf, its name,
+// its key and its edge. Nothing else is configured: the invitation is the whole of it.
+fun invitedLeaf(given: String?) {
+    val file = File(System.getenv("FDF_INVITE")?.takeIf { it.isNotEmpty() } ?: "/opt/fdf/var/invite")
+    val text = if (given != null) {
+        val inv = Invite.parse(given)                                   // refused before anything is written
+        writeSecret(file, inv.line)
+        log("invitation kept in $file"); inv.line
+    } else if (file.exists()) file.readText() else { System.err.println("fdf-member-kt leaf: no invitation in $file: run it once with the fdfinv1.<...> line fdf-invite NAME --leaf printed"); exitProcess(2) }
+    val inv = Invite.parse(text)
+    log(inv.toString())
+    val iface = System.getenv("FDF_LEAF_WG")?.takeIf { it.isNotEmpty() } ?: "fdf-leaf"
+    val tun = WgInviteTunnel(iface, file.absoluteFile.parentFile ?: File("."))
+    tun.up(inv)
+    val pub = publicKey(inv.privkey)
+    val m = Member(MemberConfig(inv.ramHost, inv.ramPort, inv.name, "", ::ipv4s, ::capability, { inv.facts(pub) },
+        inv.area, inv.siteKey, System.getenv("FDF_ASSERT_SEC")?.toIntOrNull()?.takeIf { it > 0 } ?: 30, jvmTuner, ::log,
+        onAttention = { _, cell -> log("ATTENTION ${inv.area}: ${cell["bag"]["why"].str} (from ${cell["bag"]["from"].str.ifEmpty { cell["instance"].str }})") }))
+    log("ended: ${m.runOnce()}")
+}
+
 fun main(args: Array<String>) {
     if (args.firstOrNull() == "ponds") { ponds(); exitProcess(0) }
     if (args.firstOrNull() == "bridge") { bridgeMode(); exitProcess(0) }
@@ -412,6 +467,7 @@ fun main(args: Array<String>) {
                 so.getInputStream().bufferedReader().readLine() ?: "ERR no answer" } } catch (e: Exception) { "ERR the bridge is not running here (127.0.0.1:$port: ${e.message})" }
         println(a); exitProcess(if (a.startsWith("OK ")) 0 else if (a.startsWith("AMBIGUOUS")) 7 else 3) }
     if (args.firstOrNull() == "selftest") exitProcess(if (selftest() == 0) 0 else 1)
+    if (args.firstOrNull() == "leaf") { invitedLeaf(args.getOrNull(1)); exitProcess(1) }
     if (args.firstOrNull() == "probe") { probe(args[1], args.getOrElse(2) { "frognet" }, args.getOrElse(3) { "200" }.toInt()); exitProcess(0) }
     val where = args.firstOrNull() ?: System.getenv("RINA_RAM") ?: ""
     val c = where.lastIndexOf(':')

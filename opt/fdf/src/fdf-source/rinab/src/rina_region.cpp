@@ -12,6 +12,7 @@
 #include <openssl/hmac.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 #include <cstddef>
 #include <ctime>
 #include <unistd.h>
@@ -622,9 +623,18 @@ std::string resident(const std::string& op, const Json& in) {
                 if (fj["addr"].type != Json::Null)
                     return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"a leaf's address is the region's to give: facts.addr is not the member's to say (leave it out)\"}";
                 const std::string sid = sess_key(rina_session_id());
-                for (auto& r : scan(m, "laddr", "")) if (r.value == sid) { given = r.rest; break; }
-                const bool wants = !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
-                if (!wants && !given.empty()) { put(m, "laddr", given, ""); given.clear(); }        // on a LAN now: freed
+                // [LEAF_BY_INVITE_V1] an invited leaf's address is its edge: fdf-invite gave it with the key the hub admitted,
+                // the hub routes that /32 to that key alone, and the leaf reached this region through it. Nothing is
+                // allocated here for it; the edge is written as its addr (fdf_graph places the leaf by it).
+                const bool invited = fj["role"].s == "leaf" && !fj["edge"].s.empty();
+                if (invited) {
+                    in_addr ia;
+                    if (inet_pton(AF_INET, fj["edge"].s.c_str(), &ia) != 1) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts.edge is not an IPv4 address\"}";
+                }
+                for (auto& r : scan(m, "laddr", "")) if (!invited && r.value == sid) { given = r.rest; break; }
+                const bool wants = !invited && !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
+                if (invited) given = fj["edge"].s;
+                if (!invited && !wants && !given.empty()) { put(m, "laddr", given, ""); given.clear(); }        // on a LAN now: freed
                 if (wants && given.empty()) {
                     std::set<std::string> held;
                     for (auto& r : scan(m, "laddr", "")) if (!r.value.empty() && !get(m, "sess", r.value).empty()) held.insert(r.rest);
@@ -633,7 +643,7 @@ std::string resident(const std::string& op, const Json& in) {
                     if (given.empty()) return "{\"ok\":false,\"error\":\"ENOSPC\",\"why\":\"every leaf address in 10.252.0.0/16 is held by a live session\"}";
                     put(m, "laddr", given, sid);
                 }
-                if (wants) {
+                if (wants || invited) {
                     size_t b = facts.find_first_not_of(" \t\r\n", 1);
                     facts = "{\"addr\":" + Json::quote(given + "/32") + (b != std::string::npos && facts[b] == '}' ? "" : ",") + facts.substr(1);
                 }
