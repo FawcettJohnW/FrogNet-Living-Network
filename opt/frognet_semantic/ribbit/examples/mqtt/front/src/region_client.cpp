@@ -313,7 +313,7 @@ void watch(Box* b, const std::string& variable, int64_t from, BoxApply apply) {
     auto first = std::make_shared<bool>(true);
     b->sp->watch(SVC_BOX, variable, from == -1 ? 0 : from == -2 ? -1 : from, [apply, first](std::vector<ribbit::SpaceRow>& rows) {
         const bool initial = *first; *first = false;
-        for (auto& r : rows) if (ribbit::BagArrP a = r.fields()) apply(r.instance, *a, initial);
+        for (auto& r : rows) if (!r.gone) if (ribbit::BagArrP a = r.fields()) apply(r.instance, *a, initial);   // [GONE_WITH_ITS_WRITER_V1]
     });
 }
 // [READERS_IN_PARALLEL_V1] FNWP's reader model: each topic this box's clients subscribe to -- a topic filter's topic,
@@ -338,6 +338,7 @@ void hold_topic(Box* b, const std::string& topic, long long from) {
     b->sp->watch(SVC, topic, from, [b, r, last](std::vector<ribbit::SpaceRow>& rows) {
         thread_local BagMsg m;
         for (auto& row : rows) {
+            if (row.gone) continue;                      // [GONE_WITH_ITS_WRITER_V1] a box that went took its publishes: not a publish
             ribbit::BagArrP gp = row.fields(); if (!gp) continue;
             const ribbit::BagArr& g = *gp;
             const std::string& writer = sval(g, "b");
@@ -386,7 +387,8 @@ void hold_filter(Box* b, const std::string& filter0) {
     }
     if (DIRECTORY.exchange(true)) return;
     b->sp->watch(SVC_TOPICS, "all", (long long)d0, [b](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { const std::string t = topic_of(r.instance);
+        for (auto& r : rows) { if (r.gone) continue;   // [GONE_WITH_ITS_WRITER_V1] a writer gone from a topic: not a new topic
+            const std::string t = topic_of(r.instance);
             for (WildFilter* x = WILD.load(std::memory_order_acquire); x; x = x->next) if (matches(x->filter, t)) { hold_topic(b, t, 0); break; } } });
 }
 // [ONE_MEMORY_V1] the retained messages a filter matches, looked up at their address, (mqtt.retained, <topic>, hwm),

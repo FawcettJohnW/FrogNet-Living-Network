@@ -78,11 +78,13 @@ std::vector<SpaceRow> Space::read(const std::string& sp, const std::string& topi
         if (cells.empty() && after >= 0 && wait_s > 0)
             cells = d_->M->wait(sp, topic, inst, std::chrono::steady_clock::now() + std::chrono::duration<double>(wait_s), eval,
                                 [](const std::vector<ramm::Cell>& r) { return !r.empty(); });
-        for (auto& c : cells) out.push_back(SpaceRow{c.id, std::move(c.variable), std::move(c.instance), std::move(c.bag), std::move(c.arr)});
+        for (auto& c : cells) out.push_back(SpaceRow{c.id, std::move(c.variable), std::move(c.instance), std::move(c.bag), std::move(c.arr), c.gone});
         return out;
     }
-    for (auto& r : d_->mem->read_raw(sp, topic, inst, after < 0 ? 0 : after, wait_s, 0))
-        out.push_back(SpaceRow{r.id, std::move(r.variable), std::move(r.instance), std::move(r.bag), std::move(r.arr)});
+    for (auto& r : d_->mem->read_raw(sp, topic, inst, after < 0 ? 0 : after, wait_s, 0)) {
+        if (r.gone && after < 0) continue;            // [GONE_WITH_ITS_WRITER_V1] what is there now: only the live
+        out.push_back(SpaceRow{r.id, std::move(r.variable), std::move(r.instance), std::move(r.bag), std::move(r.arr), r.gone});
+    }
     return out;
 }
 // [READERS_IN_PARALLEL_V1] FNWP's own reader model: each held read is a thread of its own that asks the memory for what

@@ -37,6 +37,10 @@
 // [SESSION_EPOCH_V1]); the vendor hears when a session starts (its peer address) and when it ends (RamHost::session_up,
 // session_down)
 static thread_local uint64_t tl_session_id = 0;
+#ifndef GONE_BROKEN
+#define GONE_BROKEN 0   // [GONE_WITH_ITS_WRITER_V1] tests only: 1 a session's rows stay when it ends; 2 the wire drops a gone row
+#endif
+#define GONE_BROKEN_WIRE (GONE_BROKEN == 2)
 
 #ifdef _WIN32
 #  ifndef _WIN32_WINNT
@@ -167,10 +171,10 @@ ramm::Memory MEM;
 std::string ok_rows(const std::vector<Cell>& rows) { std::string o = "{\"ok\":true,\"rows\":[";
     for (size_t k = 0; k < rows.size(); ++k) { const Cell& c = rows[k]; char u[40]; snprintf(u, sizeof u, "%.3f", c.updated);
         o += (k ? "," : "") + std::string("{\"id\":") + std::to_string(c.id) + ",\"service\":" + Json::quote(c.service) + ",\"variable\":" + Json::quote(c.variable) +
-             ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + c.text() + ",\"updated_epoch\":" + u + "}"; }
+             ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + (c.gone ? std::string("null,\"gone\":true") : c.text()) + ",\"updated_epoch\":" + u + "}"; }
     return o + "]}"; }
 }  // (anonymous) -- the platform's public functions are outside it
-#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.67"   // 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.67 together
+#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.68"   // 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.68 together
 namespace ribbit {
 Reply error_reply(int status, const std::string& msg) { return Reply{status, "{\"ok\":false,\"error\":" + Json::quote(msg) + "}"}; }
 const char* platform_version() { return RIBBIT_PLATFORM_VERSION; }
@@ -215,7 +219,7 @@ public:
         if (wait_s > 0) throw std::logic_error("a resident region operation holds nothing: no blocking read (" + s + "/" + v + ")");
         std::vector<frogram::Cell> out;
         for (auto& c : MEM.match(s, v, i, after, fresh_s, wall()))
-            out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, Json::parse(c.text()), c.updated});
+            out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, c.gone ? Json() : Json::parse(c.text()), c.updated, c.gone});
         return out;
     }
     void remove(uint64_t id) override { MEM.remove(id, true); }
@@ -332,6 +336,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     }
     if (op == "write") {
         if (method != "POST") { out = bad(405, "write is POST"); return true; }
+        ramm::WritingFor wf(tl_session_id);               // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
         {   // [WRITE_BODY_SKIMMED_V1] the body read in place: its three coordinates, and the bag's text as written, checked
             // to be one JSON object -- no tree built and serialised again (measured: a quarter of the memory host's CPU)
             std::string sv, vv, iv; size_t b0 = 0, b1 = 0;
@@ -608,7 +613,10 @@ struct Session {
         OutItem* o = new OutItem; o->seq = seq; o->rows_op = op; o->rows = std::move(rows); outq.push(o); }
     std::string rows_frame(uint8_t op, std::vector<Cell>& rows) {
         std::vector<rowcodec::Encoder::RowIn> in; in.reserve(rows.size());
-        for (auto& c : rows) { if (!c.arr) c.arr = ribbit::BagArr::parse(c.bag);   // a row written as text: decoded once, here
+        for (auto& c : rows) { if (c.gone) {            // [GONE_WITH_ITS_WRITER_V1] its own record: no bag
+                                   if (GONE_BROKEN_WIRE) continue;   // tests only
+                                   in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, nullptr, nullptr, nullptr, true}); continue; }
+                               if (!c.arr) c.arr = ribbit::BagArr::parse(c.bag);   // a row written as text: decoded once, here
                                if (!c.arr) continue;
                                in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, c.arr, c.prev, c.changed.get()}); }
         try { const uint64_t f0 = rowenc.c_forwarded, c0 = rowenc.c_compared, s0 = rowenc.c_shared;
@@ -977,6 +985,7 @@ static void cell_refuse(const std::shared_ptr<Session>& s, uint32_t seq, int st,
     g_cell_refused.fetch_add(1, std::memory_order_relaxed); s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(uint16_t(st)) + why);
 }
 static void cell_write_step(const std::shared_ptr<Session>& s, uint32_t seq, cellwire::Frame& x, Session::Fam* nm) {
+    ramm::WritingFor wf(s->epoch);                        // [GONE_WITH_ITS_WRITER_V1] this session's write
     cellwire::Chain& ch = nm->chain;
     const cellwire::Ref* ref = (ch.last && ch.last_c + 1 == x.counter) ? ch.last.get() : nullptr;
     auto fail = [&](int st, const std::string& why) { ch.last.reset(); ch.last_c = x.counter;   // the writer is told which chain
@@ -1136,6 +1145,9 @@ void serve(int fd, std::string peer) {
     s->outq.wake->bump();
     if (s->writer.joinable()) s->writer.join();                 // [HOST_FANOUT_V1] replies after this have no socket to go to
     ramm::Memory::release(s->outq.wake);
+    // [GONE_WITH_ITS_WRITER_V1] the session is gone, and everything it wrote goes with it: each of its rows is removed in
+    // its family's write order, so every read held on those families is given it as gone -- before the vendor hears
+    if (GONE_BROKEN != 1) { const size_t n = MEM.gone_with(s->epoch, wall()); if (n) logline("session gone " + peer + " " + token + ": " + std::to_string(n) + " rows it wrote are gone"); }
     HOST->session_down(s->epoch);   // [SESSION_IS_LIVENESS_V1] before s can be freed and its address reused
     s->landed.close();
     if (s->dsend) s->dsend->stop();

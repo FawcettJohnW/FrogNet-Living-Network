@@ -657,6 +657,7 @@ void Session::read_loop(int fd, bool data) {
                 auto rows = std::make_shared<std::vector<RawCell>>();
                 for (auto& r : d_->rowdec.decode_rows(std::string_view(reply).substr(5))) {
                     RawCell c; c.id = r.id; c.updated = r.updated; c.variable = std::move(r.variable); c.instance = std::move(r.instance); c.arr = std::move(r.bag);
+                    c.gone = r.gone;                          // [GONE_WITH_ITS_WRITER_V1]
                     rows->push_back(std::move(c)); }
                 tl_rows = std::move(rows); reply.resize(5);
                 d_->c_rows_wire.fetch_add(wire, std::memory_order_relaxed); }
@@ -981,7 +982,7 @@ std::vector<Cell> Memory::read(const std::string& sv, const std::string& var, co
         s_.call_frame(std::move(f), 15.0 + wait_s, &rows);
         std::vector<Cell> out;
         if (rows) for (auto& r : *rows) { Cell c; c.id = r.id; c.updated = r.updated; c.service = sv; c.variable = r.variable; c.instance = r.instance;
-                                          c.bag = Json::parse(r.text()); out.push_back(std::move(c)); }
+                                          c.gone = r.gone; if (!r.gone) c.bag = Json::parse(r.text()); out.push_back(std::move(c)); }
         return out;
     }
     std::string q = api_ + "?op=read&service=" + urlenc(sv) + "&variable=" + urlenc(var);
@@ -991,7 +992,7 @@ std::vector<Cell> Memory::read(const std::string& sv, const std::string& var, co
     if (fresh_s > 0) q += "&fresh_s=" + std::to_string(fresh_s);
     Json o = s_.call("GET", q, "", 15.0 + wait_s); std::vector<Cell> out;
     for (auto& r : o["rows"].a) { Cell c; c.id = uint64_t(r["id"].n); c.service = r["service"].s; c.variable = r["variable"].s;
-        c.instance = r["instance"].s; c.bag = r["bag"]; c.updated = r["updated_epoch"].n; out.push_back(c); }
+        c.instance = r["instance"].s; c.bag = r["bag"]; c.updated = r["updated_epoch"].n; c.gone = r["gone"].b; out.push_back(c); }
     return out;
 }
 void Memory::remove(uint64_t id) { s_.call("DELETE", api_ + "?op=remove&id=" + std::to_string(id)); }

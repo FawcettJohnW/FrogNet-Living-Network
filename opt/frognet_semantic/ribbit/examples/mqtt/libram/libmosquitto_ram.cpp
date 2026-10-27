@@ -205,7 +205,8 @@ void hold_topic(Proc* p, mosquitto* m, const std::string& topic, long long from)
     if (!made) return;
     auto last = std::make_shared<std::unordered_map<std::string, uint64_t>>();   // this read's alone: one thread
     p->sp->watch(SVC, topic, from, [p, m, last](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { const size_t dot = r.instance.rfind('.'); if (ribbit::BagArrP a = r.fields()) give(p, m, *a, (*last)[r.instance.substr(0, dot)]); } });
+        for (auto& r : rows) { if (r.gone) continue;   // [GONE_WITH_ITS_WRITER_V1] a publisher's session ended: not a publish
+            const size_t dot = r.instance.rfind('.'); if (ribbit::BagArrP a = r.fields()) give(p, m, *a, (*last)[r.instance.substr(0, dot)]); } });
 }
 bool matches_wild(mosquitto* m, const std::string& topic) {
     const Subs* ss = m->subs.load(std::memory_order_acquire); if (!ss) return false;
@@ -226,7 +227,8 @@ void hold(Proc* p, mosquitto* m, const std::string& filter) {
     }
     if (m->directory.exchange(true)) return;          // its directory read is running: it matches against every filter
     p->sp->watch(SVC_TOPICS, ALL, (long long)d0, [p, m](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { const std::string t = topic_of(r.instance); if (matches_wild(m, t)) hold_topic(p, m, t, 0); } });
+        for (auto& r : rows) { if (r.gone) continue;   // [GONE_WITH_ITS_WRITER_V1] a writer gone from a topic: not a new topic
+            const std::string t = topic_of(r.instance); if (matches_wild(m, t)) hold_topic(p, m, t, 0); } });
 }
 int reg(Proc* p, mosquitto* m) {
     const int n = p->n_insts.load(std::memory_order_acquire);

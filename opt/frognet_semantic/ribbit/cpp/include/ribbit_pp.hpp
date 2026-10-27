@@ -52,7 +52,7 @@ using OnDelivery = std::function<void(const Delivery&)>;
 // a writer's ring moved past what this read had not read yet: `gap` publishes of it on the topic were not delivered
 using OnMissed = std::function<void(const std::string& topic, const std::string& writer, uint64_t gap)>;
 // A read held on a topic, from now on (from < 0) or past an id. Every publish is given to `on`, on the read's own
-// thread, in the topic's write order.
+// thread, in the topic's write order. A publisher's cells that went with its session are not publishes: not given.
 void subscribe(Space& sp, const std::string& space, const std::string& topic, long long from, OnDelivery on, OnMissed missed = {});
 
 // ---- capabilities -----------------------------------------------------------------------------------------------
@@ -60,9 +60,10 @@ void subscribe(Space& sp, const std::string& space, const std::string& topic, lo
 // whatever it wants a finder to know (a bag, JSON text).
 void announce(Space& sp, const std::string& directory, const std::string& capability, const std::string& who,
               const std::string& about = "{}");
-struct Capable { uint64_t id = 0; std::string capability, who; ribbit::BagArrP about; };
+struct Capable { uint64_t id = 0; std::string capability, who; ribbit::BagArrP about; bool gone = false; };
 // every participant whose capability `match` accepts: those announced now, at once, then each one announced from
-// then on -- the directory read past the newest id the first read saw, so none falls between the two
+// then on -- the directory read past the newest id the first read saw, so none falls between the two. gone: the
+// participant's session ended and its announcement went with it ([GONE_WITH_ITS_WRITER_V1]).
 void capable(Space& sp, const std::string& directory, std::function<bool(const std::string& capability)> match,
              std::function<void(const Capable&)> on);
 
@@ -86,7 +87,9 @@ private:
 };
 class Answerer {
 public:
-    // on_request: every asker's every request, in each asker's write order, on the answerer's read's own thread
+    // on_request: every asker's every request, in each asker's write order, on the answerer's read's own thread. A
+    // request with gone set: the asker's session ended and its requests went with it -- the asker is gone
+    // ([GONE_WITH_ITS_WRITER_V1]).
     Answerer(Space& sp, std::string service, std::function<void(const std::string& asker, const SpaceRow&)> on_request);
     void answer(const std::string& asker, const std::string& key, const std::string& bag);              // written: done
     void answer(const std::string& asker, const std::string& key, const std::vector<std::string>& order, semcodec::Fields fields);

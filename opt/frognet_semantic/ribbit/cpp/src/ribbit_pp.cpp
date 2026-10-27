@@ -50,6 +50,7 @@ void subscribe(Space& sp, const std::string& space, const std::string& topic, lo
     if (from < 0) from = (long long)sp.newest(space, topic);     // "from now on" is now, at the call: nothing after it is missed
     sp.watch(space, topic, from, [last, on = std::move(on), missed = std::move(missed)](std::vector<SpaceRow>& rows) {
         for (auto& r : rows) {
+            if (r.gone) continue;                        // a publisher that has gone took its cells: not a publish
             ribbit::BagArrP a = r.fields(); if (!a) continue;
             Delivery d; d.id = r.id; d.topic = r.topic; d.writer = a->str("_b"); d.n = uint64_t(a->num("_n")); d.fields = a;
             uint64_t& l = (*last)[d.writer];
@@ -67,7 +68,8 @@ void announce(Space& sp, const std::string& directory, const std::string& capabi
 }
 static bool to_capable(const SpaceRow& r, Capable& c) {
     const size_t s = r.instance.find(SEP); if (s == std::string::npos) return false;
-    c.id = r.id; c.capability = r.instance.substr(0, s); c.who = r.instance.substr(s + 1); c.about = r.fields();
+    c.id = r.id; c.capability = r.instance.substr(0, s); c.who = r.instance.substr(s + 1); c.gone = r.gone;
+    if (!r.gone) c.about = r.fields();
     return true;
 }
 void capable(Space& sp, const std::string& directory, std::function<bool(const std::string&)> match, std::function<void(const Capable&)> on) {

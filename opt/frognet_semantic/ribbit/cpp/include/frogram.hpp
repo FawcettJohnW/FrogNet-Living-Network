@@ -126,10 +126,12 @@ private:
     std::unique_ptr<Impl> d_;
 };
 
-struct Cell { uint64_t id = 0; std::string service, variable, instance; Json bag; double updated = 0; };
+struct Cell { uint64_t id = 0; std::string service, variable, instance; Json bag; double updated = 0;
+              bool gone = false; };   // [GONE_WITH_ITS_WRITER_V1] the row is gone (its writer's session ended): bag null
 // [RAW_ROWS_V1] a row as the memory holds it: the bag's text, not parsed (a reader that has its own format for it)
 // [DECODE_ONCE_V1] arr: the bag as the session decoded it, once (bag is then empty); bag: text, for a row given as text
 struct RawCell { uint64_t id = 0; std::string instance, bag; double updated = 0; std::string variable; ribbit::BagArrP arr;
+                 bool gone = false;   // [GONE_WITH_ITS_WRITER_V1] the row is gone: no bag
                  std::string text() const { return arr ? arr->json() : bag; } };
 
 uint64_t calls_this_thread();

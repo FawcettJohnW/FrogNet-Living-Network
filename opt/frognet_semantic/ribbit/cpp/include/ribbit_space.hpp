@@ -31,6 +31,7 @@ namespace ribbit {
 // [DECODE_ONCE_V1] arr: the bag decoded once (its values by field name: arr->get, arr->str, arr->num); bag: text, only
 // for a row that came as text. text(): the bag as JSON text either way, for a reader that wants text.
 struct SpaceRow { uint64_t id = 0; std::string topic, instance, bag; ribbit::BagArrP arr;
+                  bool gone = false;   // [GONE_WITH_ITS_WRITER_V1] its writer's session ended: the row is gone (a held read is told)
                   std::string text() const { return arr ? arr->json() : bag; }
                   ribbit::BagArrP fields() const { return arr ? arr : ribbit::BagArr::parse(bag); } };
 

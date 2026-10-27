@@ -51,6 +51,45 @@ Not in API++, because they are the base API:
 - `read` (get);
 - `watch` (a held read).
 
+## Gone with its writer (platform) [GONE_WITH_ITS_WRITER_V1]
+
+When a participant's session ends, everything it wrote disappears: the entire family it wrote is gone.
+
+This is the platform's own behaviour (`ram_memory.hpp`, `ram_host.cpp`, `rowcodec.hpp`, `frogram`, `ribbit::Space`),
+not something API++ adds.
+
+**Who owns a row.** A row belongs to the session that wrote it last. Only that session's own writes count:
+
+- its cell writes;
+- the platform's `write` operation.
+
+A vendor operation's writes are the region's, and stay.
+
+**How readers learn of it.** When the session ends, the host removes each of its rows before the vendor's
+`session_down`.
+
+- Each removal takes its place in the family's write order, exactly as a write does: an id, the variable's and the
+  service's windows, the readers' words, the row's triggers.
+- Every read held on that family is handed the row with `gone` set, in order.
+- On the wire, a gone row is its own record (row codec head `GONE`): its id and coordinates, with no bag.
+- A read of what is there now never returns a gone row.
+
+**What API++ does with it:**
+
+- `subscribe` skips gone rows (they are not publishes).
+- `capable` reports a capability that went away (`Capable::gone`).
+- The answerer is handed each request of an asker that is gone, with `SpaceRow::gone` set.
+
+That last point is how a region learns a front has died, with nothing but writes and held reads.
+
+**Two consequences:**
+
+- **A publish lives as long as its publisher's session.** A subscriber that has not read it by then gets it as gone,
+  not as a publish. For a box (a broker node) that is the box's life. For a client linking `libmosquitto_ram`
+  directly, it is the client's.
+- **Truth that must outlive a participant is not that participant's to write.** MQTT's retained message today is
+  written by the publishing box, so it now goes when that box does.
+
 ## What moving Redis and MQTT onto it fixes
 
 - **MQTT's retained message breaks "producers only write into their own space".** Every publisher writes the same
@@ -77,7 +116,7 @@ does not do.
 
 | test | what it holds | broken on purpose |
 |---|---|---|
-| `tests/test_ribbit_pp.cpp` (`test-ribbit-pp PORT`) | One process holds the memory, and every participant is its own session to it, as on separate machines. No check waits by re-reading the memory: each waits on what its held reads were given. | `-DPP_BROKEN=1..5`, each red on its own check (below) |
+| `tests/test_ribbit_pp.cpp` (`test-ribbit-pp PORT`) | One process holds the memory, and every participant is its own session to it, as on separate machines. No check waits by re-reading the memory: each waits on what its held reads were given. | `-DPP_BROKEN=1..5` (`ribbit_pp.cpp`) and `-DGONE_BROKEN=1..2` (`ram_host.cpp`), each red on its own check (below) |
 | `tests/test_lf_primitives.cpp` (`test-lf-primitives`) | Each in-process primitive under 4 threads. | `-DLF_BROKEN=1..5` |
 
 `test-ribbit-pp`:
@@ -89,5 +128,7 @@ does not do.
 | "resize" announced by A and B before the finder, C and D after (plus two "print") | ABCD, once each | 3 (directory read from now on) | CD |
 | three writers offer, then the first offers again | w3, then w1 | 4 (first writer's, not newest) | wrong writer |
 | 3 askers × 200 requests made before the answerer exists | 600 replies, each to its own asker | 5 (answerer reads from now on) | 0 |
+| An asker makes 3 requests and announces itself, then its session ends | The answerer is told 3 requests gone and the finder 1 capability gone; a fresh read finds nothing left | `GONE_BROKEN=1` (host keeps a session's rows) | 0 gone, rows left behind |
+| (same) | (same) | `GONE_BROKEN=2` (wire drops the gone record) | 0 gone |
 
 Both tests run in `cpp/qualify.sh` (stages `build`, `lockfree`).

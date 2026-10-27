@@ -49,6 +49,7 @@ static void requests() {
         const uint32_t seen = w->n.load(std::memory_order_acquire);
         rows.clear(); M.read(c, rows);
         for (auto& r : rows) {                       // a front writes fields: decoded once, by the session [DECODE_ONCE_V1]
+            if (r.gone) continue;                    // [GONE_WITH_ITS_WRITER_V1] a front's session ended: its requests went with it
             ribbit::BagArrP a = r.arr ? r.arr : ribbit::BagArr::parse(r.bag);
             if (!a) { fprintf(stderr, "redis region: a request %s/%s that is not a bag\n", r.variable.c_str(), r.instance.c_str()); continue; }
             rr::region::request(r.variable, r.instance, *a);

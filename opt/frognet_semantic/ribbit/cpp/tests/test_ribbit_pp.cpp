@@ -5,7 +5,7 @@
 // other sessions on a port; every participant here is its own session to it, as on separate machines. Nothing waits
 // by reading the memory again: each check waits on what its held reads were given.
 //
-//   test-ribbit-pp [PORT]          -DPP_BROKEN=1..5 (ribbit_pp.cpp): each check below goes red
+//   test-ribbit-pp [PORT]          -DPP_BROKEN=1..5 (ribbit_pp.cpp), -DGONE_BROKEN=1..2 (ram_host.cpp): each check goes red
 #include "ribbit_pp.hpp"
 #include <chrono>
 #include <condition_variable>
@@ -29,16 +29,23 @@ struct Seen {
 };
 
 static std::string at;
-static std::unique_ptr<Space> session() { return std::make_unique<Space>(at, "pp"); }
+// Every session stays open until the process exits: a session that ends takes what it wrote with it, and the held reads
+// on those families are told -- into callbacks whose checks have returned. The one check that ends a session on purpose
+// opens its own (gone_with_its_writer).
+static std::vector<std::shared_ptr<Space>>* kept = new std::vector<std::shared_ptr<Space>>;
+static std::mutex kept_m;
+static std::shared_ptr<Space> session() { auto x = std::make_shared<Space>(at, "pp"); std::lock_guard<std::mutex> l(kept_m); kept->push_back(x); return x; }
 
 static void pubsub() {
     const int W = 4, N = 1000;
     auto sub = session(); Seen s; std::map<std::string, std::vector<uint64_t>> got; uint64_t missed = 0;
     pp::subscribe(*sub, "pp.msg", "t", -1, [&](const pp::Delivery& d) { s.add([&] { got[d.writer].push_back(d.n); }); },
                   [&](const std::string&, const std::string&, uint64_t g) { s.add([&] { missed += g; }); });
+    // the publishers stay connected until everything is read: a publisher's cells go with its session
+    std::vector<std::shared_ptr<Space>> pubs; for (int w = 0; w < W; ++w) pubs.push_back(session());
     std::vector<std::thread> ts;
-    for (int w = 0; w < W; ++w) ts.emplace_back([w] {
-        auto me = session(); pp::Publisher p(*me, "pp.msg", "w" + std::to_string(w), {"v"});
+    for (int w = 0; w < W; ++w) ts.emplace_back([w, me = pubs[w].get()] {
+        pp::Publisher p(*me, "pp.msg", "w" + std::to_string(w), {"v"});
         for (int k = 0; k < N; ++k) p.publish("t", {{"v", pyv::Int::of(k)}});
         me->flush(10);
     });
@@ -90,15 +97,19 @@ static void last_value() {
     pp::offer(*w1, "pp.last", "t", "w1", "{\"v\":1}"); w1->flush(10);
     pp::offer(*w2, "pp.last", "t", "w2", "{\"v\":2}"); w2->flush(10);
     pp::offer(*w3, "pp.last", "t", "w3", "{\"v\":3}"); w3->flush(10);
-    SpaceRow x; bool ok = pp::latest(*r, "pp.last", "t", x) && x.instance == "w3";
+    // flush says the write has left its writer, not that it has landed: the reader holds a read until it has
+    const auto w3row = r->read("pp.last", "t", "w3", 0, 10);
+    SpaceRow x; bool ok = !w3row.empty() && pp::latest(*r, "pp.last", "t", x) && x.instance == "w3";
+    const auto w1row = r->read("pp.last", "t", "w1", 0, 10);
     pp::offer(*w1, "pp.last", "t", "w1", "{\"v\":4}"); w1->flush(10);
-    SpaceRow y; ok = ok && pp::latest(*r, "pp.last", "t", y) && y.instance == "w1" && y.fields() && y.fields()->num("v") == 4;
+    const bool landed = !w1row.empty() && !r->read("pp.last", "t", "w1", (long long)w1row.front().id, 10).empty();
+    SpaceRow y; ok = ok && landed && pp::latest(*r, "pp.last", "t", y) && y.instance == "w1" && y.fields() && y.fields()->num("v") == 4;
     check(ok, "offer/latest: three writers' own cells, the newest wins (w3, then w1 again)");
 }
 
 static void ask_answer() {
     const int A = 3, N = 200;
-    std::vector<std::unique_ptr<Space>> ss; std::vector<std::unique_ptr<pp::Asker>> as;
+    std::vector<std::shared_ptr<Space>> ss; std::vector<std::unique_ptr<pp::Asker>> as;
     Seen s; std::map<std::string, std::set<std::string>> got; bool wrong = false;
     for (int k = 0; k < A; ++k) {
         ss.push_back(session()); const std::string me = "a" + std::to_string(k);
@@ -115,11 +126,38 @@ static void ask_answer() {
     check(n == size_t(A * N) && !wrong, "ask/answer: 3 askers x 200 asked before the answerer existed; replies to each its own: " + std::to_string(n) + " (600)");
 }
 
+
+// [GONE_WITH_ITS_WRITER_V1] a participant's session ends: everything it wrote is gone, and every read held on those
+// families is told so, in order -- the answerer learns its asker is gone, the finder that a capability went away
+static void gone_with_its_writer() {
+    auto ans_s = session(), fin_s = session();
+    Seen s; int asked = 0, req_gone = 0, cap_live = 0, cap_gone = 0; std::string gone_asker;
+    pp::Answerer ans(*ans_s, "pp.g", [&](const std::string& asker, const SpaceRow& r) {
+        s.add([&] { if (r.gone) { req_gone++; gone_asker = asker; } else asked++; }); });
+    pp::capable(*fin_s, "pp.gcap", [](const std::string& c) { return c == "resize"; },
+                [&](const pp::Capable& c) { s.add([&] { if (c.gone) cap_gone++; else cap_live++; }); });
+    {
+        auto a = std::make_unique<Space>(at, "pp");     // not kept: its session ends at the end of this block
+        pp::Asker asker(*a, "pp.g", "front-a", [](const SpaceRow&) {});
+        for (int k = 0; k < 3; ++k) asker.ask(std::to_string(k), "{}");
+        pp::announce(*a, "pp.gcap", "resize", "front-a");
+        a->flush(10);
+        s.until([&] { return asked == 3 && cap_live == 1; });
+    }                                                   // its session ends here: the far end sees it close
+    s.until([&] { return req_gone == 3 && cap_gone == 1; });
+    auto r = session();
+    const bool none_left = r->read("pp.g.ask", "front-a").empty() && r->read("pp.gcap", "all").empty();
+    check(asked == 3 && req_gone == 3 && gone_asker == "front-a" && cap_gone == 1 && none_left,
+          "gone with its writer: an asker's 3 requests and its announcement, its session ended; held reads told: " +
+          std::to_string(req_gone) + " requests gone (3), " + std::to_string(cap_gone) + " capability gone (1); left behind: " +
+          (none_left ? "none" : "some"));
+}
+
 int main(int argc, char** argv) {
     const std::string port = argc > 1 ? argv[1] : "8937";
     Space host("here:127.0.0.1:" + port, "pp");
     at = "127.0.0.1:" + port;
-    pubsub(); pubsub_missed(); capabilities(); last_value(); ask_answer();
+    pubsub(); pubsub_missed(); capabilities(); last_value(); ask_answer(); gone_with_its_writer();
     printf("RESULT %s API++ (%d failed)\n", fails ? "FAIL" : "PASS", fails); fflush(stdout);
     _exit(fails ? 1 : 0);   // the held reads' threads are still parked in the memory
 }
