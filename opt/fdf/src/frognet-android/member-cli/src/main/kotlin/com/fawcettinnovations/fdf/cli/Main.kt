@@ -488,6 +488,9 @@ fun main(args: Array<String>) {
                 so.getInputStream().bufferedReader().readLine() ?: "ERR no answer" } } catch (e: Exception) { "ERR the bridge is not running here (127.0.0.1:$port: ${e.message})" }
         println(a); exitProcess(if (a.startsWith("OK ")) 0 else if (a.startsWith("AMBIGUOUS")) 7 else 3) }
     if (args.firstOrNull() == "selftest") exitProcess(if (selftest() == 0) 0 else 1)
+    // keep-invite fdfinv1.<...>: [LEAF_BY_INVITE_V1] kept in FDF_INVITE if it decodes (an installer's step); nothing started
+    if (args.firstOrNull() == "keep-invite") { try { keptInvite(args.getOrNull(1) ?: error("usage: keep-invite fdfinv1.<...>"))?.let { println(it) } }
+        catch (e: Exception) { System.err.println("fdf-member-kt: ${e.message}"); exitProcess(2) }; exitProcess(0) }
     if (args.firstOrNull() == "leaf") { invitedLeaf(args.getOrNull(1)); exitProcess(1) }
     if (args.firstOrNull() == "probe") { probe(args[1], args.getOrElse(2) { "frognet" }, args.getOrElse(3) { "200" }.toInt()); exitProcess(0) }
     val where = args.firstOrNull() ?: System.getenv("RINA_RAM") ?: ""

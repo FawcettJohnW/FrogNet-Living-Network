@@ -1,0 +1,47 @@
+#!/bin/sh
+# fdf-start -- [CORE_STARTS_WHAT_THIS_MACHINE_IS_V1] the core's one start, on a Linux machine that is not a FrogNet node
+# (a node's core is fdf-install-<arch>.run and its own units). It looks at what this machine has, every start, and
+# brings up that:
+#   leaf        $FDF_HOME/var/invite is kept (fdf-core-install --invite, or `fdf-start --invite LINE` once): this
+#               machine is a member of the region that invited it. fdf-member-kt bridge: the tunnel from the invitation
+#               (fdf-tun: WireGuard in user space on its own TUN, no kernel module, no wg tools), then the region inside it.
+#   standalone  no invitation: nothing outside this machine. A RAM manager on 127.0.0.1 is the control RAM, so the
+#               add-ins (the Communicator, the kart race) run here with nothing else.
+# Either way it writes $FDF_HOME/var/control.env (FDF_MODE, FDF_CONTROL_RAM, FDF_NAME) before it starts anything: an
+# add-in reads it to find the control RAM, writes its own capability tuple there, and uses its own RAM for the rest.
+# Foreground (systemd's fdf-core.service runs it; Restart=always). FDF_HOME: default the directory above this bin/.
+#   fdf-start                 start
+#   fdf-start --invite LINE   keep LINE (refused before anything is written if it does not decode), then start as a leaf
+set -eu
+H=${FDF_HOME:-$(cd "$(dirname "$0")/.." && pwd)}; V=$H/var; mkdir -p "$V"
+STANDALONE_RAM=${FDF_STANDALONE_RAM:-127.0.0.1:8840}
+API=/FawcettInnovations.RINA.ram_interface.php
+LINE=""; [ "${1:-}" = "--invite" ] && { LINE=${2:?usage: fdf-start --invite fdfinv1.<...>}; }
+say() { echo "fdf-start: $*"; }
+say "build $(sed -n 's/^build=//p' "$H/BUILD" 2>/dev/null), $(uname -m), FDF_HOME $H"
+control() { umask 022; printf 'FDF_MODE=%s\nFDF_CONTROL_RAM=%s\nFDF_NAME=%s\n' "$1" "$2" "$3" > "$V/control.env.tmp"; mv "$V/control.env.tmp" "$V/control.env"
+            say "control: mode $1, control RAM $2, name $3 ($V/control.env)"; }
+member() { exec env FDF_INVITE="$V/invite" FDF_FORWARD_FILE="$V/forward" FDF_LEDGER="$V/aliases.json" FDF_PONDS_FILE="$V/ponds.txt" \
+               FDF_TUN_BIN="$H/bin/fdf-tun" FDF_TUN_NAME="${FDF_TUN_NAME:-frognet}" FDF_CTL_PORT="${FDF_CTL_PORT:-7999}" \
+               "$H/bin/fdf-member-kt" bridge "$@"; }
+if [ -n "$LINE" ] || [ -s "$V/invite" ]; then
+    # the invitation names the region and this machine; read here only for control.env (the member decodes it itself)
+    INV=$(python3 -I - "${LINE:-$(cat "$V/invite")}" <<'PY'
+import base64, json, sys
+t = sys.argv[1].strip()
+if not t.startswith("fdfinv1."): sys.exit("not an invitation (it starts fdfinv1.)")
+t = t[8:]
+try: j = json.loads(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)))
+except Exception as e: sys.exit("the invitation does not decode (%s)" % e)
+print(j["ram"], j["member"]["name"])
+PY
+) || { say "refused: $INV"; exit 2; }
+    set -- $INV
+    control leaf "$1" "$2"
+    if [ -n "$LINE" ]; then member "$LINE"; else member; fi
+fi
+# standalone: the control RAM is this machine's own, on loopback only
+[ -x "$H/bin/rina-host" ] || { say "no $H/bin/rina-host: this core bundle is incomplete"; exit 1; }
+control standalone "$STANDALONE_RAM" "$(hostname)"
+exec env RINA_REGION_FILE="$V/standalone.perm" RINA_NET_CONFIG="$V/none" RIBBIT_TEMPLATES="$H/templates/fdf.prime" \
+     "$H/bin/rina-host" --listen "$STANDALONE_RAM" --api "$API"

@@ -1,0 +1,71 @@
+#!/bin/sh
+# install -- [CORE_INSTALL_LOOKS_FIRST_V1] the FD&F core for a Linux machine that is not a FrogNet node, from this
+# unpacked fdf-core-linux-<arch>-<build>.tgz. It looks at the machine before it writes anything, and refuses -- saying
+# which bundle is the right one -- when this is not that machine:
+#   a FrogNet node (frognet-tunnel-daemon-v3 / /opt/frognet_semantic)   -> fdf-install-<arch>.run
+#   the region's holder (/opt/fdf/hub/hub.env)                          -> fdf-droplet.tgz
+#   another processor than this bundle's                                -> fdf-core-linux-<its arch>-*.tgz
+# Then: $FDF_HOME (default /opt/fdf) from this bundle (var/ -- the invitation, the forward pond -- is kept across an
+# update), the invitation if one is given, and fdf-core.service (systemd) running fdf-start, enabled and started.
+# Without systemd it says how to start it. Nothing goes into /usr/local/bin. Run as root.
+#   sudo ./install [--invite fdfinv1.<...>]      fdf-identity NAME --leaf, on any machine of the region, prints the line;
+#                                                without one this machine runs stand-alone (its own RAM on 127.0.0.1)
+#   FDF_HOME=<dir> FDF_NO_SYSTEMD=1 ./install    (tests: another directory, no unit)
+set -eu
+D=$(cd "$(dirname "$0")" && pwd); H=${FDF_HOME:-/opt/fdf}
+say() { echo "install: $*"; }
+no() { echo "install: $*" >&2; exit 1; }
+LINE=""; [ "${1:-}" = "--invite" ] && LINE=${2:?usage: ./install [--invite fdfinv1.<...>]}
+[ -n "${FDF_NO_SYSTEMD:-}" ] || [ "$(id -u)" = 0 ] || no "run as root (sudo ./install)"
+B=$(sed -n 's/^build=//p' "$D/opt/fdf/BUILD"); A=$(sed -n 's/^arch=//p' "$D/opt/fdf/BUILD")
+say "fdf-core $B for $A, into $H"
+# ---- what this machine is
+M=$(uname -m)
+[ "$M" = "$A" ] || no "this bundle is for $A; this machine is $M: use fdf-core-linux-$M-*.tgz"
+if [ -z "${FDF_NO_SYSTEMD:-}" ]; then
+  if [ -e /etc/systemd/system/frognet-tunnel-daemon-v3.service ] || [ -d /opt/frognet_semantic ]; then
+    no "this is a FrogNet node: its FD&F core is fdf-install-$M.run (fdf-region-join takes the invitation there)"; fi
+  [ -s /opt/fdf/hub/hub.env ] && no "this machine holds a region (/opt/fdf/hub/hub.env): its bundle is fdf-droplet.tgz"
+fi
+command -v ip >/dev/null || no "no 'ip' (iproute2): the leaf's TUN is set up with it"
+command -v python3 >/dev/null || no "no python3: fdf-identity and the add-ins' tools use it"
+[ -c /dev/net/tun ] || no "no /dev/net/tun: the leaf's tunnel needs a TUN device (a container must be given one)"
+if [ -n "$LINE" ]; then
+  case "$LINE" in fdfinv1.*) ;; *) no "'$(echo "$LINE" | cut -c1-12)...' is not an invitation (it starts fdfinv1.)";; esac
+fi
+# ---- the files; var/ is this machine's and stays
+OLD=""; [ -f "$H/BUILD" ] && OLD=$(sed -n 's/^build=//p' "$H/BUILD")
+mkdir -p "$H/var"
+for d in bin lib runtime templates; do rm -rf "$H/$d.new"; cp -a "$D/opt/fdf/$d" "$H/$d.new"; rm -rf "$H/$d"; mv "$H/$d.new" "$H/$d"; done
+cp "$D/opt/fdf/BUILD" "$H/BUILD"
+say "files: $H/{bin,lib,runtime,templates}${OLD:+ (was $OLD)}; $H/var kept"
+if [ -n "$LINE" ]; then
+  # kept by the member itself (it refuses a line that does not decode before anything is written)
+  FDF_INVITE="$H/var/invite" "$H/bin/fdf-member-kt" keep-invite "$LINE" || no "the invitation was refused (above); nothing else changed"
+fi
+MODE=standalone; [ -s "$H/var/invite" ] && MODE=leaf
+say "this machine starts as: $MODE"
+if [ -n "${FDF_NO_SYSTEMD:-}" ] || ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
+  say "no systemd here: start it with  $H/bin/fdf-start   (foreground; as root)"; exit 0; fi
+cat > /etc/systemd/system/fdf-core.service <<EOF
+# fdf-core.service -- made by fdf-core $B's install: [CORE_STARTS_WHAT_THIS_MACHINE_IS_V1] fdf-start brings up what this
+# machine is (a leaf by its kept invitation, or stand-alone), and writes $H/var/control.env for the add-ins.
+[Unit]
+Description=FD&F core: this machine's membership (leaf) or its own control RAM (stand-alone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=FDF_HOME=$H
+ExecStart=$H/bin/fdf-start
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable fdf-core.service >/dev/null 2>&1
+systemctl restart fdf-core.service || no "fdf-core did not start: journalctl -u fdf-core"
+sleep 3
+say "fdf-core.service: $(systemctl is-active fdf-core.service)"; journalctl -u fdf-core.service -n 8 --no-pager -o cat

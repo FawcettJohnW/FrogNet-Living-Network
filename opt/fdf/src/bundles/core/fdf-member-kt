@@ -1,0 +1,5 @@
+#!/bin/sh
+# fdf-member-kt -- the member (the same code as the Android app and the Windows bridge) on the core's own Java runtime
+# (runtime/: java.base, jdk.net, jdk.crypto.ec only). FDF_HOME: default /opt/fdf.
+H=${FDF_HOME:-$(cd "$(dirname "$0")/.." && pwd)}
+exec "$H/runtime/bin/java" -cp "$H/lib/*" com.fawcettinnovations.fdf.cli.MainKt "$@"

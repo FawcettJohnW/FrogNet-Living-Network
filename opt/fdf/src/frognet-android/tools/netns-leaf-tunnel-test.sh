@@ -9,22 +9,24 @@
 # edge (the region allocates nothing for it); leaf <-> hub and leaf <-> leaf through the hub; the invitation is kept
 # (0600) and a start with no line uses it; a line that is not an invitation is refused before anything is written.
 # Needs root, ip, wg, wireguard-go, python3, curl.
+# CORE_TGZ=<fdf-core-linux-<arch>-<build>.tgz>: also the core bundle, installed and started as a machine would: a leaf by
+# its invitation (l5) and stand-alone (l6).
 # usage: netns-leaf-tunnel-test.sh <dir with rina-host, fdf-client> <fdf-member-kt launcher> <fdf package dir (bin/, lib/python/, templates/)>
 set -u
-B=$1; K=$2; PK=$3; T=${T:-/tmp/claude-0/netns-leaf-invite}; rm -rf $T; mkdir -p $T/hub/admitted $T/l1 $T/l2 $T/l3 $T/l4 $T/bin
+B=$1; K=$2; PK=$3; T=${T:-/tmp/claude-0/netns-leaf-invite}; rm -rf $T; mkdir -p $T/hub/admitted $T/l1 $T/l2 $T/l3 $T/l4 $T/l5 $T/l6 $T/bin
 API=/FawcettInnovations.RINA.ram_interface.php; AREA=D; KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
 HA=10.253.253.254; RAM=$HA:8840; U="http://$RAM$API?op=rina"; PUB=198.18.0.1
 export FDF_WG_IMPL=wireguard-go FDF_PY=$PK/lib/python RIBBIT_TEMPLATES=$PK/templates/fdf.prime
 ms() { date +%s%3N; }
 FAILS=0; PASSES=0; check() { if eval "$2"; then echo "PASS  $1"; PASSES=$((PASSES+1)); else echo "FAIL  $1"; FAILS=$((FAILS+1)); fi; }
 cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/svc.pids
-            for n in hub l1 l2 l3 l4; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
+            for n in hub l1 l2 l3 l4 l5 l6; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; ip link del v-$n-b 2>/dev/null; done; ip link del br-leaf 2>/dev/null; }
 [ -n "${KEEP:-}" ] || trap cleanup EXIT; cleanup
 cp $B/fdf-client $B/fdf-events $B/fdf-where $B/rina-host $T/bin/; cp $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-identity $T/bin/; cp "$(command -v wireguard-go)" $T/bin/
 export PATH=$T/bin:$PATH
 ip link add br-leaf type bridge && ip link set br-leaf up
-i=1; for n in hub l1 l2 l3 l4; do ip netns add $n; ip netns exec $n ip link set lo up
+i=1; for n in hub l1 l2 l3 l4 l5 l6; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-leaf up
   ip netns exec $n ip addr add 198.18.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
 NS() { local n=$1; shift; ip netns exec $n "$@"; }
@@ -117,6 +119,27 @@ for j in $(seq 400); do grep -q "joined the region" $T/l4/member.log && break; s
 check "bridge l4 joins with its invitation: $(grep -m1 -o 'tunnel: .*invitation.*' $T/l4/member.log | cut -c1-90)" "grep -q 'joined the region' $T/l4/member.log"
 check "bridge l4 -> l1 $E1" "NS l4 ping -c3 -W1 -q $E1 >/dev/null"
 check "l1 -> bridge l4 $E4" "NS l1 ping -c3 -W1 -q $E4 >/dev/null"
+# ---- [CORE_BUNDLE_LINUX_V1] the core bundle: unpacked, installed, started by fdf-start, as on a machine
+if [ -n "${CORE_TGZ:-}" ]; then
+  for n in l5 l6; do mkdir -p $T/$n/pkg; tar -C $T/$n/pkg -xzf "$CORE_TGZ"; done
+  ID l1 l5 --leaf > $T/l1/id5.out 2>&1; grep -m1 '^fdfinv1\.' $T/l1/id5.out > $T/l5/line
+  E5=$(python3 -c "import json;print(json.load(open('$T/hub/admitted/l5.json'))['edge'])")
+  NS l5 env FDF_HOME=$T/l5/fdf FDF_NO_SYSTEMD=1 sh $T/l5/pkg/fdf-core-*/install --invite "$(cat $T/l5/line)" > $T/l5/install.out 2>&1
+  check "core install (leaf): $(grep -m1 'starts as' $T/l5/install.out)" "grep -q 'starts as: leaf' $T/l5/install.out && [ \"\$(stat -c %a $T/l5/fdf/var/invite)\" = 600 ]"
+  NS l5 env FDF_HOME=$T/l5/fdf FDF_NO_SYSTEMD=1 sh $T/l6/pkg/fdf-core-*/install --invite "fdfinv1.bm90" > $T/l5/bad.out 2>&1
+  check "core install refuses a bad invitation and keeps the good one" "grep -q 'refused' $T/l5/bad.out && cmp -s <(tr -d '\n' < $T/l5/fdf/var/invite) <(tr -d '\n' < $T/l5/line)"
+  svc $T/l5/start.log ip netns exec l5 env FDF_TUN_NAME=fdft5 $T/l5/fdf/bin/fdf-start
+  for j in $(seq 400); do grep -q "joined the region" $T/l5/start.log && break; sleep 0.05; done
+  check "core leaf: fdf-start joins by the kept invitation: $(grep -m1 'control:' $T/l5/start.log | cut -c1-90)" "grep -q 'joined the region' $T/l5/start.log && grep -q '^FDF_MODE=leaf' $T/l5/fdf/var/control.env"
+  check "core leaf l5 -> l1 $E1" "NS l5 ping -c3 -W1 -q $E1 >/dev/null"
+  check "l1 -> core leaf l5 $E5" "NS l1 ping -c3 -W1 -q $E5 >/dev/null"
+  NS l6 env FDF_HOME=$T/l6/fdf FDF_NO_SYSTEMD=1 sh $T/l6/pkg/fdf-core-*/install > $T/l6/install.out 2>&1
+  check "core install (no invitation): $(grep -m1 'starts as' $T/l6/install.out)" "grep -q 'starts as: standalone' $T/l6/install.out"
+  svc $T/l6/start.log ip netns exec l6 $T/l6/fdf/bin/fdf-start
+  for j in $(seq 100); do NS l6 curl -s -m 1 -X POST -d '{"op":"version"}' "http://127.0.0.1:8840$API?op=rina" > /dev/null && break; sleep 0.05; done
+  check "core stand-alone: its own control RAM answers on 127.0.0.1:8840" "NS l6 curl -s -m 1 -X POST -d '{\"op\":\"version\"}' 'http://127.0.0.1:8840$API?op=rina' | grep -q '\"ok\":true' && grep -q '^FDF_MODE=standalone' $T/l6/fdf/var/control.env"
+  check "core stand-alone: nothing listens outside loopback: $(NS l6 ss -H -lntu | awk '{print $5}' | tr '\n' ' ')" "! NS l6 ss -H -lntu | awk '{print \$5}' | grep -vq '^127\.'"
+fi
 echo "--- identity answerer"; grep -v "^\[svc" $T/hub/identity.log | tail -5
 echo "--- l1 log"; grep -v JAVA_TOOL $T/l1/member.log | cut -c1-170 | head -12
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo FAIL) ($PASSES passed, $FAILS failed) $T"
