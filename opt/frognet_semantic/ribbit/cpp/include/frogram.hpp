@@ -184,6 +184,27 @@ public:
     // [RAW_ROWS_V1] the held read (after >= 0) with each bag left as text
     std::vector<RawCell> read_raw(const std::string& service, const std::string& variable, const std::string& instance,
                                   int64_t after, double wait_s = 0, int fresh_s = 0);
+
+    // ---- API++ [API_PLUS_PLUS_V1] (API-PLUS-PLUS.md): one call each, decided in the memory at the tuple -- the whole
+    // read-modify-write happens there, so nothing between a read and a write can be lost
+    struct Was { bool live = false; uint64_t id = 0; Json bag; };          // what the row held
+    struct Outcome { bool done = false; uint64_t id = 0; Was was; };       // done: this call's bag landed, as id
+    // lands bag only if the row's live write is `expect` (0: only if the row is absent)
+    Outcome cas(const std::string& service, const std::string& variable, const std::string& instance,
+                uint64_t expect, const std::string& bag_json);
+    // lands bag whatever is there; was: what it replaced
+    Outcome swap(const std::string& service, const std::string& variable, const std::string& instance, const std::string& bag_json);
+    // adds `by` to the bag's numeric field (created if absent); the total after this add -- every caller its own
+    double add(const std::string& service, const std::string& variable, const std::string& instance, double by,
+               const std::string& field = "n", uint64_t* id_out = nullptr);
+    // removes the row's value and hands it back: exactly one caller gets it
+    Was take(const std::string& service, const std::string& variable, const std::string& instance);
+    // the family's oldest live row, taken (a queue's pop); wait_s > 0: held until there is one, or the time is up
+    struct Taken { bool got = false; uint64_t id = 0; std::string instance; Json bag; };
+    Taken take_first(const std::string& service, const std::string& variable, double wait_s = 0);
+    // several writes landed together, their readers woken once each at the end; the ids, in order
+    struct Write { std::string service, variable, instance, bag_json; };
+    std::vector<uint64_t> batch(const std::vector<Write>& writes);
 private:
     Session& s_; std::string api_;
 };

@@ -44,6 +44,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
@@ -202,26 +203,88 @@ public:
                    ribbit::BagArrP prev = nullptr, Changed changed = nullptr) {
         Row* r = row(s, v, i, true);
         Variable* var = variable(s, v);
-        Service* svc = service_of(var);
-        WriteWindow* wnd = window_of(var->window);
-        WriteWindow* swnd = window_of(svc->window);
         uint64_t id;
-        // No order across families: a write takes its variable's next position (its id inside that claim, so a
-        // variable's ids rise with its positions) and its service's next position, and is done. [FAMILY_HOOKS_V1]
         { std::unique_lock<std::shared_mutex> w(r->m);
-          uint64_t p = wnd->head.load(std::memory_order_acquire);
-          for (;;) {
-              id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
-              if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
-          }
-          // the row's value first, then its slots: a reader that meets the slot finds the value there
-          set_val(r, new RowVal{true, id, bag, now, std::move(arr), std::move(prev), std::move(changed)});
-          fill(wnd->slot[p % WINDOW], p, id, r);
-          const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
-          fill(swnd->slot[sp % WINDOW], sp, id, r, var); }
-        var->hooks.fire(); svc->hooks.fire();          // [FAMILY_HOOKS_V1] its readers' words; they read it themselves
-        fire(r);
+          id = land(r, var, bag, now, std::move(arr), std::move(prev), std::move(changed)); }
+        announce(r, var);
         return id;
+    }
+
+    // ---- API++ [API_PLUS_PLUS_V1] (API-PLUS-PLUS.md): operations the memory decides, atomic at the tuple. Each runs
+    // under the one row's writer lock -- the memory's only lock, the one every write of that row already takes -- so it
+    // is ordered with every other writer of the row and with nothing else. What lands goes exactly as a write goes
+    // (an id, the family's window, its readers' words, the row's triggers).
+    struct Was { bool live = false; uint64_t id = 0; std::string bag; };   // what the row held when the op ran
+    struct Outcome { bool done = false; uint64_t id = 0; std::string bag; Was was; };   // done: this call landed `bag` as `id`
+    // decide is shown the row's live value (nullptr: absent) and returns the bag to land, or nothing to leave the row
+    Outcome update(const std::string& s, const std::string& v, const std::string& i,
+                   const std::function<std::optional<std::string>(const RowVal* live)>& decide, double now) {
+        Row* r = row(s, v, i, true);
+        Variable* var = variable(s, v);
+        Outcome o;
+        { ribbit::lf::ebr::Guard eg;
+          std::unique_lock<std::shared_mutex> w(r->m);
+          const RowVal* cur = r->val.load(std::memory_order_acquire);
+          if (cur && !cur->live) cur = nullptr;
+          if (cur) { o.was.live = true; o.was.id = cur->id; o.was.bag = cur->arr ? cur->arr->json() : cur->bag; }
+          std::optional<std::string> nb = decide(cur);
+          if (!nb) return o;
+          o.bag = std::move(*nb);
+          o.id = land(r, var, o.bag, now, nullptr, nullptr, nullptr); o.done = true; }
+        announce(r, var);
+        return o;
+    }
+    // compare-and-swap on the row's write id: lands `bag` only if the live write is `expect` (0: only if absent)
+    Outcome cas(const std::string& s, const std::string& v, const std::string& i, uint64_t expect, const std::string& bag, double now) {
+        return update(s, v, i, [&](const RowVal* cur) -> std::optional<std::string> {
+            if ((cur ? cur->id : 0) != expect) return std::nullopt;
+            return bag; }, now);
+    }
+    // lands `bag` whatever is there; was: what it replaced
+    Outcome swap(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now) {
+        return update(s, v, i, [&](const RowVal*) -> std::optional<std::string> { return bag; }, now);
+    }
+    // removes the row's live value and hands it back: exactly one caller gets it (was.live), every other gets nothing
+    Was take(const std::string& s, const std::string& v, const std::string& i) {
+        Row* r = row(s, v, i, false);
+        return r ? take_row(r, 0) : Was{};
+    }
+    // the oldest live row of a family (by write id), taken: a queue's pop. Exactly one caller gets each row.
+    struct Taken { bool got = false; uint64_t id = 0; std::string instance, bag; };
+    Taken take_first(const std::string& s, const std::string& v) {
+        Variable* var = vars_.find(H(s, v), [&](Variable* n) { return n->service == s && n->variable == v; });
+        if (!var) return {};
+        ribbit::lf::ebr::Guard eg;
+        for (;;) {
+            Row* best = nullptr; uint64_t best_id = 0;
+            for (Row* r = var->rows.load(std::memory_order_acquire); r; r = r->next_in_variable) {
+                const RowVal* x = r->val.load(std::memory_order_acquire);
+                if (x && x->live && (!best || x->id < best_id)) { best = r; best_id = x->id; }
+            }
+            if (!best) return {};
+            Was w = take_row(best, best_id);             // only if it is still that write: another taker may have won it
+            if (w.live) return Taken{true, w.id, best->instance, std::move(w.bag)};
+        }
+    }
+    // several writes, each landed as a write is, their readers woken once each at the end -- a held read wakes once
+    // and finds them all
+    struct W { std::string s, v, i, bag; };
+    std::vector<uint64_t> batch(const std::vector<W>& ws, double now) {
+        std::vector<uint64_t> ids; ids.reserve(ws.size());
+        std::vector<std::pair<Row*, Variable*>> landed; landed.reserve(ws.size());
+        for (const W& x : ws) {
+            Row* r = row(x.s, x.v, x.i, true); Variable* var = variable(x.s, x.v);
+            { std::unique_lock<std::shared_mutex> w(r->m); ids.push_back(land(r, var, x.bag, now, nullptr, nullptr, nullptr)); }
+            landed.emplace_back(r, var);
+        }
+        std::sort(landed.begin(), landed.end()); landed.erase(std::unique(landed.begin(), landed.end()), landed.end());
+        std::vector<Variable*> vars; for (auto& rv : landed) vars.push_back(rv.second);
+        std::sort(vars.begin(), vars.end()); vars.erase(std::unique(vars.begin(), vars.end()), vars.end());
+        std::vector<Service*> svcs; for (Variable* var : vars) { var->hooks.fire(); svcs.push_back(service_of(var)); }
+        std::sort(svcs.begin(), svcs.end()); svcs.erase(std::unique(svcs.begin(), svcs.end()), svcs.end());
+        for (Service* sv : svcs) sv->hooks.fire();
+        for (auto& rv : landed) fire(rv.first);
+        return ids;
     }
     // ---- remove by id: rare (no participant calls it); walks the rows, each under its own lock only
     // private_too: a caller inside this process may remove a row of a private ('#') service; the network API may not.
@@ -440,6 +503,37 @@ public:
     static Hook* hook(Cursor& c, WakeWord* w) { return c.hooks->add(w); }
     static void unhook(Hook* h) { h->live.store(false, std::memory_order_release); }
 private:
+    // Under the row's write lock: the value lands. No order across families: a write takes its variable's next position
+    // (its id inside that claim, so a variable's ids rise with its positions) and its service's next position, and is
+    // done. [FAMILY_HOOKS_V1] The row's value first, then its slots: a reader that meets the slot finds the value there.
+    uint64_t land(Row* r, Variable* var, const std::string& bag, double now, ribbit::BagArrP arr, ribbit::BagArrP prev, Changed changed) {
+        Service* svc = service_of(var);
+        WriteWindow* wnd = window_of(var->window);
+        WriteWindow* swnd = window_of(svc->window);
+        uint64_t id, p = wnd->head.load(std::memory_order_acquire);
+        for (;;) {
+            id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
+            if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
+        }
+        set_val(r, new RowVal{true, id, bag, now, std::move(arr), std::move(prev), std::move(changed)});
+        fill(wnd->slot[p % WINDOW], p, id, r);
+        const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
+        fill(swnd->slot[sp % WINDOW], sp, id, r, var);
+        return id;
+    }
+    // after the lock: its readers' words (they read it themselves), then the row's and the space's triggers
+    void announce(Row* r, Variable* var) { var->hooks.fire(); service_of(var)->hooks.fire(); fire(r); }
+    // [API_PLUS_PLUS_V1] the row's live value taken (marked gone, as remove does); only_id != 0: only if it is still that write
+    Was take_row(Row* r, uint64_t only_id) {
+        Was w;
+        { std::unique_lock<std::shared_mutex> l(r->m);
+          const RowVal* x = r->val.load(std::memory_order_acquire);
+          if (!x || !x->live || (only_id && x->id != only_id)) return w;
+          w.live = true; w.id = x->id; w.bag = x->arr ? x->arr->json() : x->bag;
+          set_val(r, new RowVal{false, x->id, x->bag, x->updated, x->arr, nullptr, nullptr}); }
+        fire(r);
+        return w;
+    }
     // [LOCKFREE_READS_V1] under the row's write lock: the new value in, the old one to epoch reclamation
     static void set_val(Row* r, const RowVal* nv) {
         const RowVal* old = r->val.exchange(nv, std::memory_order_acq_rel);

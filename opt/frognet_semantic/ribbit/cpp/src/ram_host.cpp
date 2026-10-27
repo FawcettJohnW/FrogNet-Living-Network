@@ -320,6 +320,79 @@ static bool skim_write(const std::string& t, std::string& sv, std::string& vv, s
         return bag && i >= t.size();
     }
 }
+// ---- API++ on the wire [API_PLUS_PLUS_V1] (API-PLUS-PLUS.md) -----------------------------------------------------
+// Each is one POST with a JSON body, decided in the memory at the tuple (ram_memory.hpp) and answered with what
+// happened. A participant's whole read-modify-write is one call: nothing is read back and written again across the
+// wire, so nothing between the two can be lost.
+std::string was_json(const ramm::Memory::Was& w) {
+    return w.live ? "{\"id\":" + std::to_string(w.id) + ",\"bag\":" + w.bag + "}" : std::string("null");
+}
+bool apipp(const std::string& op, const std::string& method, const std::string& body, bool may_wait, Reply& out) {
+    if (method != "POST") { out = bad(405, op + " is POST"); return true; }
+    Json in; try { in = Json::parse(body); } catch (const std::exception&) { out = bad(400, "body is not a JSON object"); return true; }
+    if (op == "batch") {
+        const Json& ws = in["writes"];
+        if (ws.type != Json::Arr || ws.a.empty()) { out = bad(400, "writes must be a non-empty array of {service, variable, instance, bag}"); return true; }
+        std::vector<ramm::Memory::W> v; v.reserve(ws.a.size());
+        for (const Json& w : ws.a) {
+            for (const char* k : {"service", "variable", "instance"}) if (w[k].type != Json::Str || w[k].s.empty()) { out = bad(400, std::string("a write is missing its ") + k); return true; }
+            if (w["bag"].type != Json::Obj) { out = bad(400, "a write's bag must be a JSON object"); return true; }
+            if (private_service(w["service"].s)) { out = bad(403, "service " + w["service"].s + " is not served"); return true; }
+            v.push_back({w["service"].s, w["variable"].s, w["instance"].s, dump(w["bag"])});
+        }
+        std::string o = "{\"ok\":true,\"ids\":[";
+        auto ids = MEM.batch(v, wall()); for (size_t k = 0; k < ids.size(); ++k) o += (k ? "," : "") + std::to_string(ids[k]);
+        out = Reply{200, o + "]}"}; return true;
+    }
+    const bool whole = op != "take_first";                  // take_first names a family: (service, variable)
+    for (const char* k : {"service", "variable", "instance"}) {
+        if (!whole && std::string(k) == "instance") break;
+        if (in[k].type != Json::Str || in[k].s.empty()) { out = bad(400, std::string("missing coordinate: ") + k); return true; }
+    }
+    const std::string sv = in["service"].s, vv = in["variable"].s, iv = in["instance"].s;
+    if (private_service(sv)) { out = bad(403, "service " + sv + " is not served"); return true; }
+    if (op == "cas" || op == "swap") {
+        if (in["bag"].type != Json::Obj) { out = bad(400, "bag must be a JSON object"); return true; }
+        ramm::Memory::Outcome o;
+        if (op == "cas") {
+            if (in["expect"].type != Json::Num || in["expect"].n < 0) { out = bad(400, "expect is the write id it must replace (0: only if absent)"); return true; }
+            o = MEM.cas(sv, vv, iv, uint64_t(in["expect"].n), dump(in["bag"]), wall());
+        } else o = MEM.swap(sv, vv, iv, dump(in["bag"]), wall());
+        out = Reply{200, "{\"ok\":true,\"done\":" + std::string(o.done ? "true" : "false") + ",\"id\":" + std::to_string(o.id) + ",\"was\":" + was_json(o.was) + "}"};
+        return true;
+    }
+    if (op == "add") {
+        const std::string field = in["field"].type == Json::Str && !in["field"].s.empty() ? in["field"].s : "n";
+        if (in["by"].type != Json::Num) { out = bad(400, "by is the number to add"); return true; }
+        const double by = in["by"].n; std::string err; double value = 0;
+        auto o = MEM.update(sv, vv, iv, [&](const ramm::RowVal* cur) -> std::optional<std::string> {
+            Json b; b.type = Json::Obj;
+            if (cur) { try { b = Json::parse(cur->arr ? cur->arr->json() : cur->bag); } catch (const std::exception&) { err = "the row's bag is not JSON"; return std::nullopt; } }
+            for (auto& kv : b.o) if (kv.first == field) {
+                if (kv.second.type != Json::Num) { err = "field " + field + " is not a number"; return std::nullopt; }
+                kv.second.n += by; value = kv.second.n; return dump(b);
+            }
+            Json n; n.type = Json::Num; n.n = by; b.o.emplace_back(field, n); value = by; return dump(b);
+        }, wall());
+        if (!o.done) { out = bad(409, err); return true; }
+        Json v; v.type = Json::Num; v.n = value;
+        out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(o.id) + ",\"value\":" + dump(v) + "}"}; return true;
+    }
+    if (op == "take") { out = Reply{200, "{\"ok\":true,\"taken\":" + was_json(MEM.take(sv, vv, iv)) + "}"}; return true; }
+    // take_first: the family's oldest live row; with wait_s, held until there is one to take (or the time is up)
+    auto taken_json = [](const ramm::Memory::Taken& t) {
+        return t.got ? "{\"id\":" + std::to_string(t.id) + ",\"instance\":" + Json::quote(t.instance) + ",\"bag\":" + t.bag + "}" : std::string("null"); };
+    ramm::Memory::Taken t = MEM.take_first(sv, vv);
+    double wait = in["wait_s"].type == Json::Num ? in["wait_s"].n : 0; if (wait > WAIT_MAX_S) wait = WAIT_MAX_S;
+    if (!t.got && wait > 0) {
+        if (!may_wait) return false;                       // parked: its own request thread
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(wait);
+        MEM.wait(sv, vv, "", deadline, [&] { std::vector<Cell> r; if (!t.got) t = MEM.take_first(sv, vv); if (t.got) r.push_back(Cell{t.id, sv, vv, t.instance, t.bag, 0, nullptr}); return r; },
+                 [](const std::vector<Cell>& r) { return !r.empty(); });
+    }
+    out = Reply{200, "{\"ok\":true,\"taken\":" + taken_json(t) + "}"}; return true;
+}
+
 bool api(const std::string& method, const std::string& path, const std::string& body, bool may_wait, Reply& out) {
     if (path.compare(0, API_PATH.size(), API_PATH)) { out = bad(403, "not this service's API"); return true; }
     auto q = query(path); const std::string op = q["op"];
@@ -370,6 +443,8 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         long long id = atoll(q["id"].c_str()); if (id <= 0) { out = bad(400, "missing id"); return true; }
         out = Reply{200, "{\"ok\":true,\"removed\":" + std::to_string(MEM.remove(uint64_t(id), false)) + "}"}; return true;
     }
+    if (op == "cas" || op == "swap" || op == "add" || op == "take" || op == "take_first" || op == "batch")
+        return apipp(op, method, body, may_wait, out);
     out = bad(400, "unknown op: " + op); return true;
 }
 
