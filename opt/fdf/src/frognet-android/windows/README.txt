@@ -11,12 +11,18 @@ Once:
   1. Unzip to C:\fdf (any folder).
   2. Get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into C:\fdf.
      (The only file not included: it carries Wintun's signed driver and comes only from its authors.)
-  3. Edit C:\fdf\etc\ponds.txt: replace the example line AREA=RAM-HOST:51888 with one <area>=<host:port> line
-     per pond (the area and RAM manager fdf-region-create printed). fdf-bridge.cmd refuses while the example is there.
+  3. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
+     fdfinv1.<...> (a secret: it holds this computer's key). Then, in a terminal opened as Administrator:
+       cd C:\fdf
+       fdf-bridge.cmd join fdfinv1.<...>
+     It is kept in var\invite; the region, this computer's key, name and address are the invitation's.
 
-Run, in a terminal opened as Administrator:
+Every later run, in a terminal opened as Administrator:
   cd C:\fdf
   fdf-bridge.cmd
+
+(Without an invitation, etc\ponds.txt lists ponds by <area>=<RAM host:port>, as before; with one, ponds.txt only adds
+ponds and its example line is ignored.)
 
 The first run makes var\wg.key and var\facts.json (name = this computer, guid made once, pubkey from the key); nothing
 is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as 10.252.x.y",

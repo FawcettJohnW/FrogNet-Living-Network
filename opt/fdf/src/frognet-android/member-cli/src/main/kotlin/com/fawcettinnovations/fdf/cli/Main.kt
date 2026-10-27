@@ -207,10 +207,24 @@ fun leafFacts(pl: Placement, name: String, guid: String, pub: String): String {
     }
 }
 
-fun bridgeMode() {
-    val ff = File(System.getenv("FDF_FORWARD_FILE")); fun forward() = if (ff.exists()) ff.readText().trim() else ""
-    val (f, key) = ensureIdentity(File(System.getenv("FDF_FACTS")), File(System.getenv("FDF_KEY_FILE")))
+// [LEAF_BY_INVITE_V1] the invitation kept for this machine (FDF_INVITE), given once on the command line: refused before
+// anything is written if it does not decode
+fun keptInvite(given: String?): Invite? {
+    val file = File(System.getenv("FDF_INVITE")?.takeIf { it.isNotEmpty() } ?: return given?.let { Invite.parse(it) })
+    if (given != null) { val inv = Invite.parse(given); writeSecret(file, inv.line); log("invitation kept in $file") }
+    return if (file.exists()) Invite.parse(file.readText()) else null
+}
+
+fun bridgeMode(given: String? = null) {
+    // [LEAF_BY_INVITE_V1] with an invitation, this machine's key, name and forward pond are the invitation's, and that
+    // pond's tunnel comes up from it before its session (the region is inside it). Without one: as before.
+    val inv = keptInvite(given)
+    val ff = File(System.getenv("FDF_FORWARD_FILE")); fun forward() = if (ff.exists()) ff.readText().trim() else inv?.area ?: ""
+    val (f, key) = if (inv != null) Json.parse("{\"name\":" + Json.quote(inv.name) + ",\"guid\":\"\",\"pubkey\":" + Json.quote(publicKey(inv.privkey)) + "}") to inv.privkey
+                   else ensureIdentity(File(System.getenv("FDF_FACTS")), File(System.getenv("FDF_KEY_FILE")))
     val name = f["name"].str; val guid = f["guid"].str; val pub = f["pubkey"].str
+    inv?.let { log(it.toString()) }
+    if (given != null && inv != null) { ff.absoluteFile.parentFile?.mkdirs(); ff.writeText(inv.area + "\n") }   // a new invitation: its region is forward
     val tun = System.getenv("FDF_TUN_NAME") ?: "fdft0"; val net = TunNet(tun)
     // the JVM's host: one fdf-tun and its TUN for as long as there is anything to carry; 10/8 routed while the forward
     // tunnel is up (a TUN made here can be re-routed in place; Android's cannot, and makes a new one)
@@ -237,8 +251,10 @@ fun bridgeMode() {
     val fwdDriver = BridgeForwardDriver(bridge)            // ONE forward tunnel, whichever pond is forward (as the app's)
     val reaches = java.util.concurrent.ConcurrentHashMap<String, Reach>(); val refused = java.util.concurrent.ConcurrentHashMap<String, String>()
     // FDF_PONDS="a=host:port,..." or FDF_PONDS_FILE (one area=host:port per line, # comments): every pond this machine is in
-    val ponds = (System.getenv("FDF_PONDS")?.split(",") ?: File(System.getenv("FDF_PONDS_FILE") ?: error("set FDF_PONDS or FDF_PONDS_FILE")).readLines())
-        .map { it.substringBefore('#').trim() }.filter { '=' in it && ':' in it }.map { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+    val listed = (System.getenv("FDF_PONDS")?.split(",") ?: System.getenv("FDF_PONDS_FILE")?.let { pf -> File(pf).takeIf { it.exists() || inv == null }?.readLines() }
+                  ?: if (inv != null) emptyList() else error("set FDF_PONDS or FDF_PONDS_FILE"))
+        .map { it.substringBefore('#').trim() }.filter { '=' in it && ':' in it && !it.startsWith("AREA=RAM-HOST") }.map { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+    val ponds = (listOfNotNull(inv?.let { it.area to "${it.ramHost}:${it.ramPort}" }) + listed).distinctBy { it.first }
     if (ponds.isEmpty()) { log("bridge: no ponds listed (FDF_PONDS / FDF_PONDS_FILE): nothing to join"); exitProcess(2) }
     if (forward().isEmpty()) { ff.absoluteFile.parentFile?.mkdirs(); ff.writeText(ponds[0].first + "\n"); log("bridge: no forward pond named yet: ${ponds[0].first} (the first listed), written to $ff") }
     log("bridge: ponds ${ponds.joinToString { "${it.first} at ${it.second}" }}; forward ${forward()}; ${System.getProperty("os.name")}, Java ${System.getProperty("java.version")}")
@@ -247,16 +263,19 @@ fun bridgeMode() {
         while (!refused.containsKey(area)) {
             val leaf = Leaf(area, ::ipv4s, { pub }, fwdDriver, say, isForward = { forward() == area }); leaves[area] = leaf
             val reach = Reach(area, bridge, { pub }, say) { why -> refused[area] = why }; reaches[area] = reach
+            val invited = inv?.takeIf { it.area == area }           // its tunnel is the invitation's, up before the session
+            if (invited != null) runCatching { fwdDriver.up(invited.hub, "${invited.edge}/32"); say("tunnel: ${invited.edge} to ${invited.hub.name} at ${invited.hub.endpoint} (the invitation's)") }
+                .onFailure { say("tunnel: ${it.message}") }
             val m = Member(MemberConfig(ram.substring(0, c), ram.substring(c + 1).toInt(), name, guid, ::ipv4s, ::capability,
-                { if (forward() == area) leafFacts(leaf.placement, name, guid, pub)
+                { if (invited != null) invited.facts(pub) else if (forward() == area) leafFacts(leaf.placement, name, guid, pub)
                   else "{\"role\":\"participant\",\"name\":" + Json.quote(name) + ",\"guid\":" + Json.quote(guid) + ",\"pubkey\":" + Json.quote(pub) + ",\"reach\":true}" },
-                area, "", 30, jvmTuner, say,
-                prepare = { mm -> if (forward() == area) leaf.place(mm, mm.world()) },
-                onJoined = { mm -> leaf.tunnel(mm, mm.world()); if (forward() != area) reach.onRegionChange(mm) },
-                onRegionChange = { mm -> leaf.onRegionChange(mm); if (forward() != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now") },
+                area, invited?.siteKey ?: "", 30, jvmTuner, say,
+                prepare = { mm -> if (invited == null && forward() == area) leaf.place(mm, mm.world()) },
+                onJoined = { mm -> if (invited == null) leaf.tunnel(mm, mm.world()); if (forward() != area) reach.onRegionChange(mm) },
+                onRegionChange = { mm -> if (invited == null) leaf.onRegionChange(mm); if (forward() != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now") },
                 onAttention = { _, cell -> if (forward() != area) log("ATTENTION $area: ${cell["bag"]["why"].str} (from ${cell["bag"]["from"].str})") }))
             members[area] = m; val why = m.runOnce(); members.remove(area)
-            if (forward() == area) runCatching { fwdDriver.down("the session to $area ended: $why") }.onFailure { log("[$area] ${it.message}") }   // gone is gone
+            if (forward() == area || invited != null) runCatching { fwdDriver.down("the session to $area ended: $why") }.onFailure { log("[$area] ${it.message}") }   // gone is gone
             reach.ended(why)
             if (refused.containsKey(area)) { say("not rejoined: the reach was refused (${refused[area]})"); break }
             Thread.sleep(5000)
@@ -406,8 +425,10 @@ fun selftest(): Int {
 // a secret on disk: 0600 from its first byte, replaced whole
 fun writeSecret(f: File, text: String) {
     val dir = (f.absoluteFile.parentFile ?: File(".")).also { it.mkdirs() }.toPath()
-    val tmp = java.nio.file.Files.createTempFile(dir, f.name, ".tmp", java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
-        java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")))
+    // Linux: 0600 from its first byte. Windows has no POSIX modes: the file takes its folder's ACL (the bridge's var\)
+    val tmp = if (WINDOWS) java.nio.file.Files.createTempFile(dir, f.name, ".tmp")
+              else java.nio.file.Files.createTempFile(dir, f.name, ".tmp", java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                  java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")))
     java.nio.file.Files.write(tmp, (text.trim() + "\n").toByteArray())
     java.nio.file.Files.move(tmp, f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
 }
@@ -458,7 +479,7 @@ fun invitedLeaf(given: String?) {
 
 fun main(args: Array<String>) {
     if (args.firstOrNull() == "ponds") { ponds(); exitProcess(0) }
-    if (args.firstOrNull() == "bridge") { bridgeMode(); exitProcess(0) }
+    if (args.firstOrNull() == "bridge") { bridgeMode(args.getOrNull(1)); exitProcess(0) }
     if (args.firstOrNull() == "pubkey") { args.drop(1).forEach { println(publicKey(it)) }; exitProcess(0) }   // as `wg pubkey`
     // ask "resolve w:<guid>:<port>" | "status" | "set": one question to the running bridge (FDF_CTL_PORT, 127.0.0.1)
     if (args.firstOrNull() == "ask") {

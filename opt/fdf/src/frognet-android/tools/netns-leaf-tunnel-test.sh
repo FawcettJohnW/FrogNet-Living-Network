@@ -11,20 +11,20 @@
 # Needs root, ip, wg, wireguard-go, python3, curl.
 # usage: netns-leaf-tunnel-test.sh <dir with rina-host, fdf-client> <fdf-member-kt launcher> <fdf package dir (bin/, lib/python/, templates/)>
 set -u
-B=$1; K=$2; PK=$3; T=${T:-/tmp/claude-0/netns-leaf-invite}; rm -rf $T; mkdir -p $T/hub/admitted $T/l1 $T/l2 $T/l3 $T/bin
+B=$1; K=$2; PK=$3; T=${T:-/tmp/claude-0/netns-leaf-invite}; rm -rf $T; mkdir -p $T/hub/admitted $T/l1 $T/l2 $T/l3 $T/l4 $T/bin
 API=/FawcettInnovations.RINA.ram_interface.php; AREA=D; KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
 HA=10.253.253.254; RAM=$HA:8840; U="http://$RAM$API?op=rina"; PUB=198.18.0.1
 export FDF_WG_IMPL=wireguard-go FDF_PY=$PK/lib/python RIBBIT_TEMPLATES=$PK/templates/fdf.prime
 ms() { date +%s%3N; }
 FAILS=0; PASSES=0; check() { if eval "$2"; then echo "PASS  $1"; PASSES=$((PASSES+1)); else echo "FAIL  $1"; FAILS=$((FAILS+1)); fi; }
 cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/svc.pids
-            for n in hub l1 l2 l3; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
+            for n in hub l1 l2 l3 l4; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; ip link del v-$n-b 2>/dev/null; done; ip link del br-leaf 2>/dev/null; }
 [ -n "${KEEP:-}" ] || trap cleanup EXIT; cleanup
 cp $B/fdf-client $B/fdf-events $B/fdf-where $B/rina-host $T/bin/; cp $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-identity $T/bin/; cp "$(command -v wireguard-go)" $T/bin/
 export PATH=$T/bin:$PATH
 ip link add br-leaf type bridge && ip link set br-leaf up
-i=1; for n in hub l1 l2 l3; do ip netns add $n; ip netns exec $n ip link set lo up
+i=1; for n in hub l1 l2 l3 l4; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-leaf up
   ip netns exec $n ip addr add 198.18.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
 NS() { local n=$1; shift; ip netns exec $n "$@"; }
@@ -107,6 +107,16 @@ for j in $(seq 400); do grep -q "joined the region" $T/l3/member.log && break; s
 check "l3 joins with the identity l2 fetched" "grep -q 'joined the region' $T/l3/member.log"
 check "l3 -> l1 $E1" "NS l3 ping -c3 -W1 -q $E1 >/dev/null"
 check "l1 -> l3 $E3" "NS l1 ping -c3 -W1 -q $E3 >/dev/null"
+# ---- the bridge (the Windows bridge's and the phone's path: Bridge + fdf-tun on one TUN), from an invitation
+TUNB=$(dirname "$0")/../tun/out/fdf-tun-$(uname -m)
+ID l1 l4 --leaf > $T/l1/id4.out 2>&1; grep -m1 '^fdfinv1\.' $T/l1/id4.out > $T/l4/line
+E4=$(python3 -c "import json;print(json.load(open('$T/hub/admitted/l4.json'))['edge'])")
+svc $T/l4/member.log ip netns exec l4 env FDF_INVITE=$T/l4/kept FDF_FORWARD_FILE=$T/l4/forward FDF_LEDGER=$T/l4/aliases.json \
+   FDF_TUN_BIN=$TUNB FDF_TUN_NAME=fdft4 $K bridge "$(cat $T/l4/line)"
+for j in $(seq 400); do grep -q "joined the region" $T/l4/member.log && break; sleep 0.05; done
+check "bridge l4 joins with its invitation: $(grep -m1 -o 'tunnel: .*invitation.*' $T/l4/member.log | cut -c1-90)" "grep -q 'joined the region' $T/l4/member.log"
+check "bridge l4 -> l1 $E1" "NS l4 ping -c3 -W1 -q $E1 >/dev/null"
+check "l1 -> bridge l4 $E4" "NS l1 ping -c3 -W1 -q $E4 >/dev/null"
 echo "--- identity answerer"; grep -v "^\[svc" $T/hub/identity.log | tail -5
 echo "--- l1 log"; grep -v JAVA_TOOL $T/l1/member.log | cut -c1-170 | head -12
 echo "RESULT $([ $FAILS = 0 ] && echo PASS || echo FAIL) ($PASSES passed, $FAILS failed) $T"
