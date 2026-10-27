@@ -995,49 +995,6 @@ std::vector<Cell> Memory::read(const std::string& sv, const std::string& var, co
     return out;
 }
 void Memory::remove(uint64_t id) { s_.call("DELETE", api_ + "?op=remove&id=" + std::to_string(id)); }
-
-// ---- API++ [API_PLUS_PLUS_V1] -----------------------------------------------------------------------------------
-// [EACH_CALL_ITS_OWN_V1] Identical requests in flight are answered by one execution, on the session and on the host
-// ([CLIENT_COALESCES_V1], [HOST_COALESCE_V1]): right for a read, and the platform's rule is that a request which must
-// act twice carries its own value. Every API++ call acts, so each carries "call": this session's token and its own
-// number -- two takes, two adds, two pops are never the same request. The memory does not read it.
-static std::atomic<uint64_t> g_apipp_calls{0};
-static std::string coords(const std::string& sv, const std::string& var, const std::string& inst, const std::string& token) {
-    return "\"call\":\"" + token + "." + std::to_string(g_apipp_calls.fetch_add(1, std::memory_order_relaxed) + 1) + "\",\"service\":" +
-           Json::quote(sv) + ",\"variable\":" + Json::quote(var) + (inst.empty() ? std::string() : ",\"instance\":" + Json::quote(inst));
-}
-static Memory::Was was_of(const Json& w) { Memory::Was x; if (w.type == Json::Obj) { x.live = true; x.id = uint64_t(w["id"].n); x.bag = w["bag"]; } return x; }
-Memory::Outcome Memory::cas(const std::string& sv, const std::string& var, const std::string& inst, uint64_t expect, const std::string& bag) {
-    Json o = s_.call("POST", api_ + "?op=cas", "{" + coords(sv, var, inst, s_.token()) + ",\"expect\":" + std::to_string(expect) + ",\"bag\":" + bag + "}");
-    return Outcome{o["done"].b, uint64_t(o["id"].n), was_of(o["was"])};
-}
-Memory::Outcome Memory::swap(const std::string& sv, const std::string& var, const std::string& inst, const std::string& bag) {
-    Json o = s_.call("POST", api_ + "?op=swap", "{" + coords(sv, var, inst, s_.token()) + ",\"bag\":" + bag + "}");
-    return Outcome{o["done"].b, uint64_t(o["id"].n), was_of(o["was"])};
-}
-double Memory::add(const std::string& sv, const std::string& var, const std::string& inst, double by, const std::string& field, uint64_t* id_out) {
-    char n[40]; snprintf(n, sizeof n, "%.17g", by);
-    Json o = s_.call("POST", api_ + "?op=add", "{" + coords(sv, var, inst, s_.token()) + ",\"field\":" + Json::quote(field) + ",\"by\":" + n + "}");
-    if (id_out) *id_out = uint64_t(o["id"].n);
-    return o["value"].n;
-}
-Memory::Was Memory::take(const std::string& sv, const std::string& var, const std::string& inst) {
-    return was_of(s_.call("POST", api_ + "?op=take", "{" + coords(sv, var, inst, s_.token()) + "}")["taken"]);
-}
-Memory::Taken Memory::take_first(const std::string& sv, const std::string& var, double wait_s) {
-    char w[40]; snprintf(w, sizeof w, "%.3f", wait_s);
-    Json o = s_.call("POST", api_ + "?op=take_first", "{" + coords(sv, var, "", s_.token()) + ",\"wait_s\":" + w + "}", wait_s + 10);
-    const Json& t = o["taken"]; Taken x;
-    if (t.type == Json::Obj) { x.got = true; x.id = uint64_t(t["id"].n); x.instance = t["instance"].s; x.bag = t["bag"]; }
-    return x;
-}
-std::vector<uint64_t> Memory::batch(const std::vector<Write>& ws) {
-    std::string b = "{\"call\":\"" + s_.token() + "." + std::to_string(g_apipp_calls.fetch_add(1, std::memory_order_relaxed) + 1) + "\",\"writes\":[";
-    for (size_t k = 0; k < ws.size(); ++k) b += (k ? ",{" : "{") + coords(ws[k].service, ws[k].variable, ws[k].instance, s_.token()) + ",\"bag\":" + ws[k].bag_json + "}";
-    Json o = s_.call("POST", api_ + "?op=batch", b + "]}");
-    std::vector<uint64_t> ids; for (const Json& i : o["ids"].a) ids.push_back(uint64_t(i.n));
-    return ids;
-}
 void Memory::follow(const std::string& sv, const std::string& var, const std::string& inst, int64_t after,
                     std::function<void(std::vector<RawCell>&, const std::string&)> on) {
     std::string f; f.append(MAGIC, 4); f += char(OP_MEM_FOLLOW);

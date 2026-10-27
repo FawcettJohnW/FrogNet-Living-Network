@@ -63,8 +63,6 @@ if has build; then
   run bin/test-lockfree-snapshot -std=c++20 $NOFP -O2 -pthread $I tests/test_lockfree_snapshot.cpp
   run bin/test-ebr-stress -std=c++20 $NOFP -O2 -pthread $I tests/test_ebr_stress.cpp
   run bin/test-apipp -std=c++20 -O2 -pthread $WERR $I tests/test_apipp.cpp src/lf_ebr.cpp   # [API_PLUS_PLUS_V1]
-  run bin/test-ram-apipp -std=c++20 -O2 -pthread $WERR $I tests/test_ram_apipp.cpp src/lf_ebr.cpp
-  run bin/test-apipp-wire -std=c++20 -O2 -pthread $WERR $I tests/test_apipp_wire.cpp src/frogram.cpp src/lf_ebr.cpp -llz4 -lcrypto
   run bin/test-ram-memory -std=c++20 -O2 -pthread $WERR $I tests/test_ram_memory.cpp src/lf_ebr.cpp
   run bin/test-write-window -std=c++20 -O2 -pthread $WERR $I tests/test_write_window.cpp src/lf_ebr.cpp
   run bin/test-row-scan-bound -std=c++20 -O2 -pthread $WERR $I tests/test_row_scan_bound.cpp src/lf_ebr.cpp
@@ -159,10 +157,6 @@ if has lockfree; then
   note "$(timeout 300 ./bin/test-ebr-stress 2>&1 | tail -1)"
   note "== API++ primitives under contention (lf/apipp.hpp) [API_PLUS_PLUS_V1]"
   timeout 300 ./bin/test-apipp > "$OUT/apipp.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/apipp.txt" | tee -a "$SUMMARY"
-  note "== API++ in the platform memory, and over the wire (several sessions at once; FrogNet's endpoint and a vendor's)"
-  timeout 300 ./bin/test-ram-apipp > "$OUT/ram-apipp.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/ram-apipp.txt" | tee -a "$SUMMARY"
-  for ep in /ram.php /lisper-api; do tag=$(echo "$ep" | tr -c 'A-Za-z0-9.\n' '_')
-    timeout 300 ./bin/test-apipp-wire 8936 "$ep" > "$OUT/apipp-wire$tag.txt" 2>&1; grep -E '^FAIL|^RESULT' "$OUT/apipp-wire$tag.txt" | tee -a "$SUMMARY"; done
 fi
 
 if has ramrows; then
