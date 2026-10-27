@@ -91,6 +91,9 @@ public:
     void call_async(const std::string& method, const std::string& path, const std::string& body, Done done);
     // A write not waited for, by its coordinates: what Memory::write_nowait sends -- the cell's own request on the
     // semantic wire, a DIFF against that cell's reference ([EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1]).
+    // [LINGER_BY_FAMILY_V1] what happens to this session's rows of (service, variable) when it ends: 0 they go at once
+    // (the default), N > 0 they stay N seconds and are reaped, -1 they stay. Said before the family's first write.
+    void linger(const std::string& service, const std::string& variable, int32_t seconds);
     void post_write(const std::string& service, const std::string& variable, const std::string& instance, const std::string& bag);
     // [FIELDS_NOT_TEXT_V1] the same write with the bag as fields: its field order (one vector per shape, kept by the
     // caller for the session's life) and its values in that order

@@ -917,6 +917,7 @@ void Session::post_write_fields(const std::string& service, const std::string& v
     if (d_->stop.load()) throw Unreachable("session shut down");
     send_write(d_->cellenc.encode_fields(std::string(MAGIC, 4), service, variable, instance, order, std::move(fields)));
 }
+void Session::linger(const std::string& service, const std::string& variable, int32_t seconds) { d_->cellenc.linger(service, variable, seconds); }
 void Session::post_write(const std::string& service, const std::string& variable, const std::string& instance, const std::string& bag) {
     {   const std::string dead = d_->dead_why(); if (!dead.empty()) throw Unreachable(dead); }
     if (d_->stop.load()) throw Unreachable("session shut down");

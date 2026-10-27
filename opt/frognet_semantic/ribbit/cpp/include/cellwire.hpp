@@ -31,7 +31,11 @@
 // slot; varint number in the chain; if F_KEYS: varint count, varint+key each (the bag's field order: a whole value,
 // no reference); then the packet: u8 packet flags, varint field count, varint length, the field block (semcodec;
 // version and opcode are constants and do not travel). Without F_KEYS the packet is a difference against write c-1.
+// [LINGER_BY_FAMILY_V1] F_LINGER (only with F_NAMES): after the variable, varint linger+1 -- what happens to the family's
+// rows when the writer's session ends: 0 they go at once (the default, and then F_LINGER is not set), N > 0 they stay N
+// seconds and are reaped, -1 they stay. The writer says it each time it names the family.
 #pragma once
+#include <mutex>
 #include "bagarr.hpp"
 #include "semcodec.hpp"
 #include "semtpl.hpp"
@@ -45,10 +49,13 @@
 #include <unordered_map>
 #include <vector>
 
+#ifndef LINGER_BROKEN
+#define LINGER_BROKEN 0   // [LINGER_BY_FAMILY_V1] tests only: 1 the writer's linger never travels; 2 (ram_host.cpp) the reaper never reaps
+#endif
 namespace cellwire {
 using pyv::Dict; using pyv::Obj; using pyv::List;
 constexpr uint8_t OP_CELL_WRITE = 0x7C;
-constexpr uint8_t F_NAMES = 1, F_DIFF = 2, F_KEYS = 4, F_NEXT = 8;
+constexpr uint8_t F_NAMES = 1, F_DIFF = 2, F_KEYS = 4, F_NEXT = 8, F_LINGER = 16;
 
 // a chain's reference: its last write's bag -- the very array the memory stored for it ([POSITIONAL_WRITE_V1]) -- and
 // that write's instance
@@ -110,9 +117,10 @@ public:
         const uint32_t counter = ++w.counter;
         std::string o; o.reserve(32 + pkt.size() + (named ? sv.size() + var.size() : 0));
         o += magic; o += char(OP_CELL_WRITE);
-        o += char((named ? F_NAMES : 0) | (keys ? F_KEYS : 0) | (next ? F_NEXT : 0));
+        const int32_t lg = (named && LINGER_BROKEN != 1) ? linger_of(key) : 0;
+        o += char((named ? F_NAMES : 0) | (keys ? F_KEYS : 0) | (next ? F_NEXT : 0) | (lg ? F_LINGER : 0));
         detail::put_varint(o, w.fam);
-        if (named) { detail::put_str(o, sv); detail::put_str(o, var); }
+        if (named) { detail::put_str(o, sv); detail::put_str(o, var); if (lg) detail::put_varint(o, uint64_t(int64_t(lg) + 1)); }
         if (!next) detail::put_str(o, inst);
         detail::put_varint(o, m->slot); detail::put_varint(o, counter);
         if (keys) { detail::put_varint(o, fo.size()); for (auto& k : fo) detail::put_str(o, k); }
@@ -125,7 +133,14 @@ public:
     // write goes whole. Lock-free: an insert-only table of (chain, count), read by the chain's own thread.
     void refused(uint64_t slot, uint64_t fam) { if (auto* e = entry(slot, fam, true)) e->gen.fetch_add(1, std::memory_order_acq_rel); }
     uint64_t gen() const { return gen_; }                     // this session's: a thread's state for it is keyed by it
+    // [LINGER_BY_FAMILY_V1] the family's rows when this session ends (said before its first write; read only when a
+    // thread names the family -- once per thread per family)
+    void linger(const std::string& sv, const std::string& var, int32_t seconds) {
+        std::lock_guard<std::mutex> g(linger_m_); lingers_[sv + '\x1f' + var] = seconds; }
 private:
+    int32_t linger_of(const std::string& key) {
+        std::lock_guard<std::mutex> g(linger_m_); auto it = lingers_.find(key); return it == lingers_.end() ? 0 : it->second; }
+    std::mutex linger_m_; std::unordered_map<std::string, int32_t> lingers_;
     struct RE { std::atomic<uint64_t> key{0}; std::atomic<uint32_t> gen{0}; };
     static constexpr size_t RES = 4096;
     std::unique_ptr<RE[]> res_{new RE[RES]};
@@ -145,13 +160,15 @@ private:
 // The memory's side: what one frame says, before its reference is fetched
 struct Frame {
     uint8_t flags = 0; uint64_t fam = 0; std::string sv, var;   // sv/var only if F_NAMES
+    int32_t linger = 0;                                         // [LINGER_BY_FAMILY_V1] only if F_NAMES
     std::string inst; uint64_t slot = 0; uint32_t counter = 0;  // inst empty if F_NEXT (taken from the reference)
     std::vector<std::string> keys; std::string pkt;            // pkt: a whole semcodec packet
 };
 inline Frame parse(std::string_view f, size_t p) {            // p: just past the op byte
     Frame x; if (p >= f.size()) throw std::runtime_error("cellwire: cut short");
     x.flags = uint8_t(f[p++]); x.fam = detail::get_varint(f, p);
-    if (x.flags & F_NAMES) { x.sv = detail::get_str(f, p); x.var = detail::get_str(f, p); }
+    if (x.flags & F_NAMES) { x.sv = detail::get_str(f, p); x.var = detail::get_str(f, p);
+                             if (x.flags & F_LINGER) x.linger = int32_t(int64_t(detail::get_varint(f, p)) - 1); }
     if (!(x.flags & F_NEXT)) x.inst = detail::get_str(f, p);
     x.slot = detail::get_varint(f, p); x.counter = uint32_t(detail::get_varint(f, p));
     if (x.flags & F_KEYS) { const size_t n = size_t(detail::get_varint(f, p)); if (n > 4096) throw std::runtime_error("cellwire: too many keys");

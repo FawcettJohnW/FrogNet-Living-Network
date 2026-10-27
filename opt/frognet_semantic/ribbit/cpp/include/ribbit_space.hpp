@@ -49,6 +49,11 @@ public:
     // the bag as fields, in its shape's order (one vector per shape, kept for the Space's life)
     void write_fields(const std::string& space, const std::string& topic, const std::string& instance,
                       const std::vector<std::string>& order, semcodec::Fields fields);
+    // [LINGER_BY_FAMILY_V1] what happens to this process's cells of (space, topic) when its session ends: GOES (the
+    // default) at once, N > 0 seconds later, or STAYS. Said before the family's first write. (The memory here: this
+    // process's own writes, never gone.)
+    static constexpr int32_t GOES = 0, STAYS = -1;
+    void linger(const std::string& space, const std::string& topic, int32_t seconds);
     // a ring of a writer's cells on a topic: its write n is cell <writer>.<n mod ring>
     static std::string slot(const std::string& writer, uint64_t n, uint64_t ring) { return writer + "." + std::to_string(n % ring); }
 

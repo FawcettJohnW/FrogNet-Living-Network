@@ -70,6 +70,7 @@ void Space::write_fields(const std::string& sp, const std::string& topic, const 
     for (auto& kv : f) a->vals.push_back(std::move(kv.second));
     d_->M->write(sp, topic, inst, ribbit::BagArrP(std::move(a)), wall());
 }
+void Space::linger(const std::string& sp, const std::string& topic, int32_t seconds) { if (d_->s) d_->s->linger(sp, topic, seconds); }
 std::vector<SpaceRow> Space::read(const std::string& sp, const std::string& topic, const std::string& inst, long long after, double wait_s) {
     std::vector<SpaceRow> out;
     if (d_->local) {

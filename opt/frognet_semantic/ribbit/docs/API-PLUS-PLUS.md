@@ -82,13 +82,34 @@ A vendor operation's writes are the region's, and stay.
 
 That last point is how a region learns a front has died, with nothing but writes and held reads.
 
-**Two consequences:**
+## Linger, by family: the writer's choice [LINGER_BY_FAMILY_V1]
 
-- **A publish lives as long as its publisher's session.** A subscriber that has not read it by then gets it as gone,
-  not as a publish. For a box (a broker node) that is the box's life. For a client linking `libmosquitto_ram`
-  directly, it is the client's.
-- **Truth that must outlive a participant is not that participant's to write.** MQTT's retained message today is
-  written by the publishing box, so it now goes when that box does.
+What happens to a family's rows when the writer's session ends is the writer's choice. It is an application decision,
+not the platform's. The writer makes it per family, before the family's first write:
+
+| `Space::linger(space, topic, …)` / `Session::linger(service, variable, …)` | when the session ends |
+|---|---|
+| `Space::GOES` (0, the default) | the rows go at once, as above |
+| `N` seconds | the rows stay N seconds, then the host's reaper removes them, each as gone, in order |
+| `Space::STAYS` (−1) | the rows stay until written again or removed |
+
+**How it travels.** The choice rides on the frame that names the family on the wire: `F_LINGER` on a cell write's
+`F_NAMES`, once per writer thread per family. Nothing is added per write.
+
+**How the reaper works.** At session end the host:
+
+1. removes the rows that go at once;
+2. hands each linger the remaining rows chose to its reaper: one thread, a lock-free incoming list, and a condition
+   variable whose mutex guards only its own sleep.
+
+When an entry's time comes, the reaper removes only the rows that session still owns. A row written since by someone
+else is theirs, and is not reaped.
+
+**Typical choices:**
+
+- A front's requests to a region go at once: the region learns the front is gone.
+- A publish from a client that publishes and exits stays a few seconds, so a slow subscriber still gets it.
+- A retained message stays.
 
 ## What moving Redis and MQTT onto it fixes
 
@@ -116,7 +137,7 @@ does not do.
 
 | test | what it holds | broken on purpose |
 |---|---|---|
-| `tests/test_ribbit_pp.cpp` (`test-ribbit-pp PORT`) | One process holds the memory, and every participant is its own session to it, as on separate machines. No check waits by re-reading the memory: each waits on what its held reads were given. | `-DPP_BROKEN=1..5` (`ribbit_pp.cpp`) and `-DGONE_BROKEN=1..2` (`ram_host.cpp`), each red on its own check (below) |
+| `tests/test_ribbit_pp.cpp` (`test-ribbit-pp PORT`) | One process holds the memory, and every participant is its own session to it, as on separate machines. No check waits by re-reading the memory: each waits on what its held reads were given. | `-DPP_BROKEN=1..5` (`ribbit_pp.cpp`), `-DGONE_BROKEN=1..2` (`ram_host.cpp`) and `-DLINGER_BROKEN=1..2` (`cellwire.hpp`, `ram_host.cpp`), each red on its own check (below) |
 | `tests/test_lf_primitives.cpp` (`test-lf-primitives`) | Each in-process primitive under 4 threads. | `-DLF_BROKEN=1..5` |
 
 `test-ribbit-pp`:
@@ -130,5 +151,7 @@ does not do.
 | 3 askers × 200 requests made before the answerer exists | 600 replies, each to its own asker | 5 (answerer reads from now on) | 0 |
 | An asker makes 3 requests and announces itself, then its session ends | The answerer is told 3 requests gone and the finder 1 capability gone; a fresh read finds nothing left | `GONE_BROKEN=1` (host keeps a session's rows) | 0 gone, rows left behind |
 | (same) | (same) | `GONE_BROKEN=2` (wire drops the gone record) | 0 gone |
+| One session writes one row each to families marked goes, stays 2 s, and stays; the session ends | goes at 0.00 s; stays2 at 2.00 s; kept still there after 3.5 s | `LINGER_BROKEN=1` (the linger never travels) | stays2 at 0.00 s, kept gone |
+| (same) | (same) | `LINGER_BROKEN=2` (the reaper never reaps) | stays2 never goes |
 
 Both tests run in `cpp/qualify.sh` (stages `build`, `lockfree`).

@@ -5,7 +5,7 @@
 // other sessions on a port; every participant here is its own session to it, as on separate machines. Nothing waits
 // by reading the memory again: each check waits on what its held reads were given.
 //
-//   test-ribbit-pp [PORT]          -DPP_BROKEN=1..5 (ribbit_pp.cpp), -DGONE_BROKEN=1..2 (ram_host.cpp): each check goes red
+//   test-ribbit-pp [PORT]          -DPP_BROKEN=1..5 (ribbit_pp.cpp), -DGONE_BROKEN=1..2 (ram_host.cpp), -DLINGER_BROKEN=1..2 (cellwire.hpp, ram_host.cpp): each check goes red
 #include "ribbit_pp.hpp"
 #include <chrono>
 #include <condition_variable>
@@ -153,11 +153,37 @@ static void gone_with_its_writer() {
           (none_left ? "none" : "some"));
 }
 
+
+// [LINGER_BY_FAMILY_V1] the writer chooses, per family, what happens to its rows when its session ends: they go at once,
+// they stay N seconds and are reaped, or they stay
+static void linger_by_family() {
+    auto rd = session(); Seen s;
+    std::map<std::string, double> gone_at; std::set<std::string> seen_live;
+    using clk = std::chrono::steady_clock; clk::time_point ended;
+    for (const char* t : {"goes", "stays2", "kept"})
+        rd->watch("pp.l", t, (long long)rd->newest("pp.l", t), [&, t = std::string(t)](std::vector<SpaceRow>& rows) {
+            for (auto& r : rows) s.add([&] { if (r.gone) gone_at[t] = std::chrono::duration<double>(clk::now() - ended).count(); else seen_live.insert(t); }); });
+    {
+        auto w = std::make_unique<Space>(at, "pp");     // not kept: its session ends at the end of this block
+        w->linger("pp.l", "stays2", 2); w->linger("pp.l", "kept", Space::STAYS);
+        for (const char* t : {"goes", "stays2", "kept"}) w->write("pp.l", t, "w", "{\"v\":1}");
+        w->flush(10);
+        s.until([&] { return seen_live.size() == 3; });
+        ended = clk::now();
+    }
+    s.until([&] { return gone_at.count("goes") && gone_at.count("stays2"); }, 10);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));   // "kept" must not go
+    const double g = gone_at.count("goes") ? gone_at["goes"] : -1, l = gone_at.count("stays2") ? gone_at["stays2"] : -1;
+    const bool kept_there = !rd->read("pp.l", "kept").empty() && !gone_at.count("kept");
+    char b[160]; snprintf(b, sizeof b, "goes at %.2f s (< 1), stays2 at %.2f s (2..4), kept %s", g, l, kept_there ? "still there" : "GONE");
+    check(g >= 0 && g < 1 && l >= 1.9 && l < 4 && kept_there, std::string("linger by family: ") + b);
+}
+
 int main(int argc, char** argv) {
     const std::string port = argc > 1 ? argv[1] : "8937";
     Space host("here:127.0.0.1:" + port, "pp");
     at = "127.0.0.1:" + port;
-    pubsub(); pubsub_missed(); capabilities(); last_value(); ask_answer(); gone_with_its_writer();
+    pubsub(); pubsub_missed(); capabilities(); last_value(); ask_answer(); gone_with_its_writer(); linger_by_family();
     printf("RESULT %s API++ (%d failed)\n", fails ? "FAIL" : "PASS", fails); fflush(stdout);
     _exit(fails ? 1 : 0);   // the held reads' threads are still parked in the memory
 }
