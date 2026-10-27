@@ -141,7 +141,7 @@ class Region:
     def _events(self):
         for line in self.events.stdout:
             with self.ev:
-                if line.strip() in ("p", "m", "ready"):
+                if line.strip().split("\t", 1)[0] in ("p", "m", "ready"):   # [EVENT_KIND_FIRST_FIELD_V1]
                     self.nev += 1
                 self.ev.notify_all()
 

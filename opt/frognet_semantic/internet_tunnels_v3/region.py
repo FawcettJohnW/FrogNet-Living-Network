@@ -361,7 +361,9 @@ def events():
     _events_proc = p                    # [FORWARD_SWITCH_IN_PLACE_V1] end_events() ends this session
     try:
         for line in p.stdout:
-            line = line.strip()
+            # [EVENT_KIND_FIRST_FIELD_V1] fdf-events says "<ready|p>\t<ms>\t<snapshot>" since r32; the kind is yielded
+            # (the callers compare it to "ready", "p", "m", "gone" and read the world themselves)
+            line = line.strip().split("\t", 1)[0]
             yield line
             if line == "gone":
                 return

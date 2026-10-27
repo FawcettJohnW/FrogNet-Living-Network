@@ -122,7 +122,11 @@ class RealKernel:
         out = {}
         for ln in self.run("ip", "-o", "route", "show", "dev", self.iface, out=True).splitlines():
             p = ln.split()
-            if p and "/" in p[0] and "proto" not in p[:3]: out[p[0]] = p[p.index("via") + 1] if "via" in p else ""   # via, or on-link ("")
+            if not p or "proto" in p[:3]: continue
+            # [HOST_ROUTE_IS_A_SLASH_32_V1] ip prints a /32 without its length ("10.253.1.1 scope link"): read as the /32
+            # add_route wrote, so a leaf's on-link route is adopted, not replaced on every event
+            pfx = p[0] if "/" in p[0] else (p[0] + "/32" if p[0].count(".") == 3 else "")
+            if pfx: out[pfx] = p[p.index("via") + 1] if "via" in p else ""   # via, or on-link ("")
         return out
     def add_route(self, prefix, via):
         if via: self.run("ip", "route", "replace", prefix, "via", via, "dev", self.iface)
@@ -378,7 +382,7 @@ def main():
     ev = subprocess.Popen([os.path.join(fdf_bin, "fdf-events")], stdout=subprocess.PIPE, text=True, bufsize=1)
     # [WATCH_BEFORE_READ_V1] the start read happens after fdf-events says its watches are registered: a change between
     # the read and the watch would otherwise never be delivered (the hub's peers stale until some unrelated event).
-    first = ev.stdout.readline().strip()
+    first = ev.stdout.readline().strip().split("\t", 1)[0]          # [EVENT_KIND_FIRST_FIELD_V1] "ready\t<ms>\t<snapshot>" since r32
     if first != "ready":
         log("fdf-events registered no watch (%r); the region is not reachable" % first); sys.exit(1)
     seen_notes = set()
@@ -415,7 +419,7 @@ def main():
     q = queue.Queue()
     ino = Inotify(a.admitted)
     def _events():
-        for line in ev.stdout: q.put(("ev", line.strip()))
+        for line in ev.stdout: q.put(("ev", line.strip().split("\t", 1)[0]))   # the kind; the hub reads the world itself
         q.put(("ev", "gone"))
     def _admitted():
         while True: q.put(("admitted", ino.read()))
