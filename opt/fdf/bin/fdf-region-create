@@ -145,8 +145,11 @@ mv "$HUBENV.tmp" "$HUBENV"; echo "== $HUBENV written"
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 # A `systemctl start fdf-hub` before this run (no hub.env then) leaves the unit failed, and its restarts can use up
 # systemd's start limit: that failure is from before hub.env existed, so it is cleared before the start.
-systemctl reset-failed fdf-hub.service $CLIU.service 2>/dev/null
+systemctl reset-failed fdf-hub.service $CLIU.service fdf-identity.service 2>/dev/null
 systemctl enable fdf-hub.service $CLIU.service && systemctl start fdf-hub.service $CLIU.service || { echo "fdf-region-create: fdf-hub / $CLIU did not start: journalctl -u fdf-hub -u $CLIU" >&2; exit 1; }
+# [IDENTITY_FROM_ANY_MEMBER_V1] identities asked from any connected machine (fdf-identity NAME [--leaf]) are answered here
+[ -f /etc/systemd/system/fdf-identity.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-identity.service missing: it ships in fdf-droplet.tgz" >&2; exit 1; }
+systemctl enable fdf-identity.service && systemctl start fdf-identity.service || { echo "fdf-region-create: fdf-identity did not start: journalctl -u fdf-identity" >&2; exit 1; }
 ADOPT=0; for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
 echo "== fdf-hub (want: 'hub $NAME on wg-$AREA', 'start (adopt)')"
 journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'

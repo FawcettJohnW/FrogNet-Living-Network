@@ -1,0 +1,19 @@
+# fdf-identity.service -- [IDENTITY_FROM_ANY_MEMBER_V1] the region's side of `fdf-identity NAME [--leaf]`: an admin on any
+# machine connected to the region asks for a new identity; this answers by running fdf-invite here, where the region's
+# keys are. Ships in fdf-droplet.tgz; fdf-region-create enables it. Settings: /opt/fdf/hub/hub.env (RINA_RAM).
+[Unit]
+Description=FD&F identities for the region, asked from any connected machine (fdf-identity --serve)
+After=fdf-hub.service
+Wants=fdf-hub.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/opt/fdf/hub/hub.env
+Environment=FDF_PY=/opt/fdf/lib/python
+ExecStartPre=/bin/sh -c 'test -s /opt/fdf/hub/hub.env || { echo "fdf-identity: /opt/fdf/hub/hub.env does not exist: this machine holds no region" >&2; exit 1; }'
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-identity --serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

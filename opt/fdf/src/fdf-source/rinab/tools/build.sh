@@ -44,6 +44,7 @@ python3 tools/apply_host_announce.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_session_peer.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_accept_says_so.py $P/ramsrv/ram_server.cpp     # [ACCEPT_SAYS_SO_V1]
 python3 tools/apply_http_front.py $P/ramsrv/ram_server.cpp         # [HTTP_FRONT_V1] last: plain HTTP on the same port
+python3 tools/apply_http_delete.py $P/ramsrv/ram_server.cpp        # [HTTP_FRONT_DELETE_V1] DELETE ?op=remove is HTTP too
 python3 tools/apply_windows_portable.py $P/ribbit_cpp                      # [WINDOWS_PORTABLE_V1] last: the Windows client
 python3 tools/apply_keepalive.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_20S_V1] both ends: silent loss = dead at 20 s
 python3 tools/apply_keepalive_5s.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_server.cpp   # [KEEPALIVE_5S_V1] after the 20 s block it replaces
