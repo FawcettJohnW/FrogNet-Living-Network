@@ -9,6 +9,8 @@
 # edge (the region allocates nothing for it); leaf <-> hub and leaf <-> leaf through the hub; the invitation is kept
 # (0600) and a start with no line uses it; a line that is not an invitation is refused before anything is written.
 # Needs root, ip, wg, wireguard-go, python3, curl.
+# ADDINS=<dir with fdf-addin-kart-*.tgz and fdf-addin-comms-*.tgz> (with CORE_TGZ): the add-ins on those cores: their
+# own RAMs, their own tuples, and what each does on a network event.
 # CORE_TGZ=<fdf-core-linux-<arch>-<build>.tgz>: also the core bundle, installed and started as a machine would: a leaf by
 # its invitation (l5) and stand-alone (l6).
 # usage: netns-leaf-tunnel-test.sh <dir with rina-host, fdf-client> <fdf-member-kt launcher> <fdf package dir (bin/, lib/python/, templates/)>
@@ -128,7 +130,7 @@ if [ -n "${CORE_TGZ:-}" ]; then
   check "core install (leaf): $(grep -m1 'starts as' $T/l5/install.out)" "grep -q 'starts as: leaf' $T/l5/install.out && [ \"\$(stat -c %a $T/l5/fdf/var/invite)\" = 600 ]"
   NS l5 env FDF_HOME=$T/l5/fdf FDF_NO_SYSTEMD=1 sh $T/l6/pkg/fdf-core-*/install --invite "fdfinv1.bm90" > $T/l5/bad.out 2>&1
   check "core install refuses a bad invitation and keeps the good one" "grep -q 'refused' $T/l5/bad.out && cmp -s <(tr -d '\n' < $T/l5/fdf/var/invite) <(tr -d '\n' < $T/l5/line)"
-  svc $T/l5/start.log ip netns exec l5 env FDF_TUN_NAME=fdft5 $T/l5/fdf/bin/fdf-start
+  svc $T/l5/start.log ip netns exec l5 env FDF_TUN_NAME=fdft5 $T/l5/fdf/bin/fdf-start; L5SVC=$(tail -1 $T/svc.pids)
   for j in $(seq 400); do grep -q "joined the region" $T/l5/start.log && break; sleep 0.05; done
   check "core leaf: fdf-start joins by the kept invitation: $(grep -m1 'control:' $T/l5/start.log | cut -c1-90)" "grep -q 'joined the region' $T/l5/start.log && grep -q '^FDF_MODE=leaf' $T/l5/fdf/var/control.env"
   check "core leaf l5 -> l1 $E1" "NS l5 ping -c3 -W1 -q $E1 >/dev/null"
@@ -139,6 +141,43 @@ if [ -n "${CORE_TGZ:-}" ]; then
   for j in $(seq 100); do NS l6 curl -s -m 1 -X POST -d '{"op":"version"}' "http://127.0.0.1:8840$API?op=rina" > /dev/null && break; sleep 0.05; done
   check "core stand-alone: its own control RAM answers on 127.0.0.1:8840" "NS l6 curl -s -m 1 -X POST -d '{\"op\":\"version\"}' 'http://127.0.0.1:8840$API?op=rina' | grep -q '\"ok\":true' && grep -q '^FDF_MODE=standalone' $T/l6/fdf/var/control.env"
   check "core stand-alone: nothing listens outside loopback: $(NS l6 ss -H -lntu | awk '{print $5}' | tr '\n' ' ')" "! NS l6 ss -H -lntu | awk '{print \$5}' | grep -vq '^127\.'"
+fi
+# ---- [ADDIN_V1] the add-ins, each its own bundle, on the stand-alone core (l6) and the leaf core (l5)
+if [ -n "${CORE_TGZ:-}" ] && [ -n "${ADDINS:-}" ]; then
+  RD() { NS $1 curl -s -m 2 "http://$2$API?op=read&service=pond&variable=where"; }      # the where cells, as read there
+  for n in l5 l6; do for a in kart comms; do mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf $ADDINS/fdf-addin-$a-*.tgz
+    NS $n env FDF_HOME=$T/$n/fdf FDF_NO_SYSTEMD=1 sh $T/$n/$a/fdf-addin-*/install > $T/$n/$a/install.out 2>&1; done; done
+  check "add-ins installed on both cores: $(grep -h -m1 'files in' $T/l5/kart/install.out | cut -c1-80)" "grep -q 'files in' $T/l5/kart/install.out && grep -q 'files in' $T/l6/comms/install.out"
+  mkdir -p $T/l7/kart; tar -C $T/l7/kart -xzf $ADDINS/fdf-addin-kart-*.tgz
+  FDF_HOME=$T/l7/fdf FDF_NO_SYSTEMD=1 sh $T/l7/kart/fdf-addin-*/install > $T/l7/kart/install.out 2>&1
+  check "an add-in refuses a machine with no core: $(grep -m1 -o 'no FD&F core.*' $T/l7/kart/install.out | cut -c1-70)" "grep -q 'no FD&F core' $T/l7/kart/install.out"
+  # stand-alone: the race's own RAM, its tuple in this machine's own control RAM, a player finds it
+  svc $T/l6/kart.log ip netns exec l6 env FDF_HOME=$T/l6/fdf $T/l6/fdf/addins/kart/start
+  for j in $(seq 200); do RD l6 127.0.0.1:8840 | grep -q 'local/kart' && break; sleep 0.05; done
+  check "stand-alone: (pond, where, local/kart) in its own control RAM" "RD l6 127.0.0.1:8840 | grep -q '\"instance\":\"local/kart\"'"
+  NS l6 env FDF_HOME=$T/l6/fdf KART_PLAY_DRY=1 python3 $T/l6/fdf/addins/kart/kart-play > $T/l6/play.out 2>&1
+  check "stand-alone: kart-play finds the race: $(cat $T/l6/play.out | cut -c1-80)" "grep -q 'at 127.0.0.1:8799' $T/l6/play.out"
+  # leaf: both add-ins; their tuples in the region; a player on l5 finds the race, l1 reaches it
+  svc $T/l5/kart.log ip netns exec l5 env FDF_HOME=$T/l5/fdf $T/l5/fdf/addins/kart/start; L5KART=$(tail -1 $T/svc.pids)
+  svc $T/l5/comms.log ip netns exec l5 env FDF_HOME=$T/l5/fdf $T/l5/fdf/addins/comms/start
+  for j in $(seq 200); do RD hub $RAM | grep -q 'w:l5/comms' && RD hub $RAM | grep -q 'w:l5/kart' && break; sleep 0.05; done
+  check "leaf: (pond, where, w:l5/kart) and w:l5/comms in the region, each its own cell" "RD hub $RAM | grep -q '\"instance\":\"w:l5/kart\"' && RD hub $RAM | grep -q '\"instance\":\"w:l5/comms\"'"
+  NS l5 env FDF_HOME=$T/l5/fdf KART_PLAY_DRY=1 python3 $T/l5/fdf/addins/kart/kart-play > $T/l5/play.out 2>&1
+  check "leaf: kart-play resolves the race by identity: $(cut -c1-70 $T/l5/play.out)" "grep -q 'at $E5:8799' $T/l5/play.out"
+  check "l1 reaches l5's race RAM at $E5:8799" "NS l1 curl -s -m 2 'http://$E5:8799/ram.php?op=read&service=race' | grep -q '\"ok\":true'"
+  # a network event: l5's core goes (its member and tunnel); the region sweeps l5's add-in cells with its session
+  kill $L5SVC; for p in $(ip netns pids l5); do c=$(cat /proc/$p/comm 2>/dev/null); [ "$c" = java ] || [ "$c" = fdf-tun ] && kill -9 $p; done
+  for j in $(seq 300); do RD hub $RAM | grep -q 'w:l5/' || break; sleep 0.05; done
+  check "the region swept w:l5/kart and w:l5/comms with l5's session" "! RD hub $RAM | grep -q 'w:l5/'"
+  for j in $(seq 200); do grep -q 'on-loss stay' $T/l5/kart.log && grep -q 'on-loss rediscover' $T/l5/comms.log && break; sleep 0.05; done
+  check "kart (on-loss stay) keeps its race: $(grep -m1 -o 'on-loss stay.*' $T/l5/kart.log | cut -c1-60)" "grep -q 'on-loss stay' $T/l5/kart.log && NS l5 curl -s -m 2 'http://127.0.0.1:8799/ram.php?op=read&service=race' | grep -q '\"ok\":true'"
+  check "comms (on-loss rediscover) stops and is started again: $(grep -m1 -o 'on-loss rediscover.*' $T/l5/comms.log | cut -c1-50)" "grep -q 'on-loss rediscover' $T/l5/comms.log"
+  svc $T/l5/start2.log ip netns exec l5 env FDF_TUN_NAME=fdft5 $T/l5/fdf/bin/fdf-start
+  for j in $(seq 600); do RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms' && break; sleep 0.05; done
+  check "the core back: both tuples written again (kart stayed; comms rediscovered)" "RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms'"
+  KP=$(ps -o pid= --ppid $L5KART | head -1); kill $L5KART; [ -n "$KP" ] && kill -TERM $KP
+  for j in $(seq 200); do RD hub $RAM | grep -q 'w:l5/kart' || break; sleep 0.05; done
+  check "kart stopped: its tuple cleared by itself, comms' stays" "! RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms'"
 fi
 echo "--- identity answerer"; grep -v "^\[svc" $T/hub/identity.log | tail -5
 echo "--- l1 log"; grep -v JAVA_TOOL $T/l1/member.log | cut -c1-170 | head -12

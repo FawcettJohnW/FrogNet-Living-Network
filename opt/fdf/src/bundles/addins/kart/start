@@ -1,0 +1,13 @@
+#!/bin/bash
+# start -- [ADDIN_V1] the kart race as an add-in: its own RAM (rina-host on 8799, the /ram.php front the game's pure-Python
+# client speaks), its tuple (pond, where, <ns>/kart) {"kart":{"race":"self:8799"}} in the control RAM, and on a network
+# event it stays (the race goes on for whoever is in it; the tuple is written again when the control RAM is back).
+set -eu
+. "$(cd "$(dirname "$0")" && pwd)/../lib/addin.sh"
+addin_control
+PORT=${KART_PORT:-8799}
+env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "0.0.0.0:$PORT" --api /ram.php &
+addin_child $!
+for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
+asay "the race's RAM is on port $PORT (pid $ADDIN_PIDS)"
+addin_hold kart race=self:$PORT

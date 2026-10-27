@@ -11,6 +11,10 @@
 //          fdf-where <service> --clear                     this member no longer runs <service>
 //          fdf-where                                       prints this member's cell
 //   RINA_RAM = the pond's RAM manager (as fdf-client has it); FDF_FACTS = this machine's facts (name, guid)
+// [ADDIN_OWNS_ITS_CELL_V1] an add-in writes its OWN cell, one owner per tuple: FDF_ADDIN=<name> makes the instance
+// <ns>/<name> and the bag only that add-in's services (two add-ins never rewrite one cell). The region sweeps
+// <ns>/* with <ns> when the machine's session ends. FDF_NS=<ns> names the member when there is no facts.json (a leaf:
+// w:<its name>); FDF_STANDALONE=1: the machine's own control RAM, no member session (ns "local", nothing to be alive).
 #include "frogram.hpp"
 #include "fdf_version.hpp"
 #include <cstdio>
@@ -42,18 +46,23 @@ int main(int argc, char** argv) {
     const char* fe = getenv("FDF_FACTS"); std::ifstream in(fe && *fe ? fe : "/opt/fdf/var/facts.json");
     std::stringstream b; b << in.rdbuf(); std::string name, guid;
     try { frogram::Json f = frogram::Json::parse(b.str()); name = f["name"].s; guid = f["guid"].s; } catch (...) {}
-    if (guid.empty()) { fprintf(stderr, "fdf-where: no guid in facts.json: this machine is not a member (nothing written)\n"); return 1; }
-    const std::string ns = "w:" + guid;
+    const char* xns = getenv("FDF_NS"); const char* xa = getenv("FDF_ADDIN"); const char* xs = getenv("FDF_STANDALONE");
+    const bool standalone = xs && *xs && std::string(xs) != "0";
+    if (standalone) guid = "local"; else if (xns && *xns) guid = std::string(xns).compare(0, 2, "w:") == 0 ? std::string(xns).substr(2) : xns;
+    if (guid.empty()) { fprintf(stderr, "fdf-where: no guid in facts.json (and no FDF_NS): this machine is not a member (nothing written)\n"); return 1; }
+    const std::string ns = standalone ? std::string("local") : "w:" + guid;
+    const std::string addin = xa ? xa : "";
+    const std::string inst = addin.empty() ? ns : ns + "/" + addin;
     try {
         frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), API); frogram::Memory m(s, API);
         // this member's cell as it stands: service -> its raw JSON object (kept verbatim; only the named one changes)
         std::map<std::string, std::string> svc; std::vector<uint64_t> old;
-        for (auto& cell : m.read("pond", "where", ns)) {
+        for (auto& cell : m.read("pond", "where", inst)) {
             old.push_back(cell.id);
             for (auto& kv : cell.bag.o) if (kv.first != "from" && kv.second.type == frogram::Json::Obj) svc[kv.first] = dump(kv.second);
         }
         if (argc < 2) {
-            printf("fdf-where: build %s; %s at %s:", FDF_BUILD_TAG, ns.c_str(), where.c_str());
+            printf("fdf-where: build %s; %s at %s:", FDF_BUILD_TAG, inst.c_str(), where.c_str());
             if (svc.empty()) printf(" no services\n"); else { printf("\n"); for (auto& kv : svc) printf("  %s %s\n", kv.first.c_str(), kv.second.c_str()); }
             return 0;
         }
@@ -62,7 +71,8 @@ int main(int argc, char** argv) {
         // [WHERE_ONLY_WHILE_A_MEMBER_V1] the cell is this member's and goes with its session: written while that session
         // is down, it would outlive the member (nothing sweeps it until the member's NEXT session ends). So a service is
         // said only while this machine's ns is an alive participant; otherwise nothing is written and it says so.
-        if (!clearing) {
+        if (!clearing && !addin.empty() && service != addin) { fprintf(stderr, "fdf-where: FDF_ADDIN=%s writes only its own service, not %s (nothing written)\n", addin.c_str(), service.c_str()); return 2; }
+        if (!clearing && !standalone) {
             frogram::Json r = s.call("POST", std::string(API) + "?op=rina", "{\"op\":\"participants\"}");
             bool alive = false; for (auto& p : r["participants"].a) if (p["ns"].s == ns && p["alive"].b) alive = true;
             if (!alive) { fprintf(stderr, "fdf-where: %s is not an alive member at %s (its fdf-client is not joined): nothing written\n", ns.c_str(), where.c_str()); return 3; }
@@ -87,12 +97,12 @@ int main(int argc, char** argv) {
         if (!svc.empty()) {
             std::string bag = "{\"from\":" + frogram::Json::quote(name.empty() ? ns : name);
             for (auto& kv : svc) bag += "," + frogram::Json::quote(kv.first) + ":" + kv.second;
-            const uint64_t id = m.write("pond", "where", ns, bag + "}");
+            const uint64_t id = m.write("pond", "where", inst, bag + "}");
             for (uint64_t o : old) if (o != id) m.remove(o);
-            printf("fdf-where: build %s; %s at %s: %s\n", FDF_BUILD_TAG, ns.c_str(), where.c_str(), (bag + "}").c_str());
+            printf("fdf-where: build %s; %s at %s: %s\n", FDF_BUILD_TAG, inst.c_str(), where.c_str(), (bag + "}").c_str());
         } else {
             for (uint64_t o : old) m.remove(o);
-            printf("fdf-where: build %s; %s at %s: no services (cell removed)\n", FDF_BUILD_TAG, ns.c_str(), where.c_str());
+            printf("fdf-where: build %s; %s at %s: no services (cell removed)\n", FDF_BUILD_TAG, inst.c_str(), where.c_str());
         }
         return 0;
     } catch (const std::exception& x) { fprintf(stderr, "fdf-where: %s: %s\n", where.c_str(), x.what()); return 1; }

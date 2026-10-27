@@ -992,7 +992,9 @@ void rina_session_down(uint64_t sid) {
             // [ATTENTION_IS_A_TUPLE_V1] the member is gone, so are its notices: (pond, attention, <its ns>) -- gone is gone
             // [SERVICE_WHERE_IS_A_TUPLE_V1] and so are the services it said it runs: (pond, where, <its ns>)
             try { frogram::MemoryApi& ram = rina_resident_memory();
-                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove(c.id); } catch (...) {}   // the RAM, not the region's records
+                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove(c.id);
+                  // [ADDIN_OWNS_ITS_CELL_V1] and each add-in's own cell on that machine, (pond, where, <ns>/<add-in>)
+                  for (auto& c : ram.read("pond", "where", "")) if (c.instance.compare(0, ns.size() + 1, ns + "/") == 0) ram.remove(c.id); } catch (...) {}   // the RAM, not the region's records
         } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
     put(m, "sess", sess_key(sid), "");
     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]

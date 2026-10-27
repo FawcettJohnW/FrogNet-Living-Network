@@ -4,7 +4,8 @@
 #   fdf-core-<build>/install          looks at the machine, refuses the wrong one (saying which bundle is right), installs
 #   fdf-core-<build>/opt/fdf/bin      fdf-start (leaf by invitation, or stand-alone), fdf-member-kt (+ lib/ and runtime/:
 #                                     a Java runtime trimmed to java.base, jdk.net, jdk.crypto.ec), fdf-tun (WireGuard in
-#                                     user space on a TUN), rina-host (the stand-alone control RAM), fdf-identity
+#                                     user space on a TUN), rina-host (the stand-alone control RAM, and each add-in's own
+#                                     RAM), fdf-identity, fdf-where + fdf-events (what add-ins use: their tuple, events)
 #                        lib/python   fdfram.py (fdf-identity, the add-ins' tools)
 #                        templates    fdf.prime (rina-host's primed shapes)
 #                        BUILD        package, build, arch, member, built
@@ -19,8 +20,8 @@ S=$(cd "$(dirname "$0")" && pwd); A=$(cd "$S/../frognet-android" && pwd); R=$(cd
 O=$(mkdir -p "${1:?usage: make_core_linux.sh OUTDIR [arch]}" && cd "$1" && pwd); ARCH=${2:-$(uname -m)}
 T=$(mktemp -d); trap 'rm -rf $T' EXIT
 case "$ARCH" in
-  x86_64)  RH=$R/build/bin/rina-host-static ;;
-  aarch64) RH=$R/build/arm64/rina-host ;;
+  x86_64)  RH=$R/build/bin/rina-host-static; CL=$R/build/static ;;
+  aarch64) RH=$R/build/arm64/rina-host; CL=$R/build/arm64 ;;
   *) echo "make_core_linux: arch $ARCH: x86_64 or aarch64" >&2; exit 2 ;;
 esac
 [ -x "$RH" ] || { echo "make_core_linux: no $RH (build it first: rinab tools/build.sh, then build_static_host.sh or build_arm64.sh)" >&2; exit 1; }
@@ -44,6 +45,8 @@ fi
 cp "$S/core/fdf-start" "$S/core/fdf-member-kt" $H/bin/
 cp "$A"/member-cli/build/install/fdf-member-kt/lib/*.jar $H/lib/
 cp "$TUN" $H/bin/fdf-tun; cp "$RH" $H/bin/rina-host
+# what every add-in uses from its core: its tuple (fdf-where) and the region's events (fdf-events)
+for c in fdf-where fdf-events; do cp "$CL/$c" $H/bin/; done
 cp "$F/bin/fdf-identity" $H/bin/; cp "$F/lib/python/fdfram.py" $H/lib/python/; cp "$F/templates/fdf.prime" $H/templates/
 cp "$S/core/install" $P/install
 chmod 755 $H/bin/* $P/install

@@ -1,0 +1,48 @@
+#!/bin/sh
+# install -- [ADDIN_V1] one add-in (this unpacked fdf-addin-<name>-<platform>-<build>.tgz) on a machine that has an FD&F
+# core. It looks first and refuses, saying why, when:
+#   there is no core here ($FDF_HOME/var/control.env from the fdf-core bundle, or a FrogNet node's join.env)
+#   the core lacks what add-ins use (fdf-where, fdf-events, rina-host in $FDF_HOME/bin)
+#   the add-in is built for another processor
+# Then $FDF_HOME/addins/<name> (replaced whole; its own state is in $FDF_HOME/var) and fdf-addin-<name>.service, tied to
+# the core's unit (it starts after it and with it), enabled and started. Without systemd it says how to start it.
+#   sudo ./install            FDF_HOME=<dir> FDF_NO_SYSTEMD=1 ./install (tests)
+set -eu
+D=$(cd "$(dirname "$0")" && pwd); H=${FDF_HOME:-/opt/fdf}
+no() { echo "install: $*" >&2; exit 1; }
+N=$(ls "$D/opt/fdf/addins" | grep -v '^lib$'); A="$D/opt/fdf/addins/$N/ADDIN"
+B=$(sed -n 's/^build=//p' "$A"); ARCH=$(sed -n 's/^arch=//p' "$A")
+echo "install: add-in $N ($B) into $H/addins/$N"
+[ -n "${FDF_NO_SYSTEMD:-}" ] || [ "$(id -u)" = 0 ] || no "run as root (sudo ./install)"
+[ -z "$ARCH" ] || [ "$ARCH" = any ] || [ "$ARCH" = "$(uname -m)" ] || no "this add-in is built for $ARCH; this machine is $(uname -m)"
+CORE=""
+if [ -s "$H/var/control.env" ] || [ "$(sed -n 's/^package=//p' "$H/BUILD" 2>/dev/null)" = fdf-core ]; then CORE=fdf-core.service
+elif [ -s "$H/var/join.env" ]; then CORE=fdf-client.service
+else no "no FD&F core on this machine: install fdf-core-linux-$(uname -m)-*.tgz first (a FrogNet node: fdf-install-$(uname -m).run, then join)"; fi
+for b in fdf-where fdf-events rina-host; do [ -x "$H/bin/$b" ] || no "the core here has no $H/bin/$b: update the core first"; done
+mkdir -p "$H/addins" "$H/var"
+rm -rf "$H/addins/$N.new"; cp -a "$D/opt/fdf/addins/$N" "$H/addins/$N.new"; rm -rf "$H/addins/$N"; mv "$H/addins/$N.new" "$H/addins/$N"
+rm -rf "$H/addins/lib"; cp -a "$D/opt/fdf/addins/lib" "$H/addins/lib"
+echo "install: files in $H/addins/$N; the core's unit: $CORE"
+if [ -n "${FDF_NO_SYSTEMD:-}" ] || ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
+  echo "install: no systemd here: start it with  $H/addins/$N/start   (foreground)"; exit 0; fi
+cat > /etc/systemd/system/fdf-addin-$N.service <<UNIT
+# fdf-addin-$N.service -- made by the $N add-in's install ($B): [ADDIN_V1] its own RAM and servers, its own tuple in the
+# control RAM; on a network event it does what its ADDIN says (on-loss=$(sed -n 's/^on-loss=//p' "$A")).
+[Unit]
+Description=FD&F add-in $N ($(sed -n 's/^about=//p' "$A"))
+After=$CORE
+PartOf=$CORE
+
+[Service]
+Environment=FDF_HOME=$H
+ExecStart=$H/addins/$N/start
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=$CORE
+UNIT
+systemctl daemon-reload; systemctl enable fdf-addin-$N.service >/dev/null 2>&1
+systemctl restart fdf-addin-$N.service || no "fdf-addin-$N did not start: journalctl -u fdf-addin-$N"
+sleep 2; echo "install: fdf-addin-$N.service: $(systemctl is-active fdf-addin-$N.service)"; journalctl -u fdf-addin-$N -n 6 --no-pager -o cat

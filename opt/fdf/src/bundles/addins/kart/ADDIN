@@ -1,0 +1,4 @@
+name=kart
+build=kart-2026-10-27-k1
+on-loss=stay
+about=the kart race: its own RAM (rina-host, /ram.php, port 8799); players run kart-play (pygame)
