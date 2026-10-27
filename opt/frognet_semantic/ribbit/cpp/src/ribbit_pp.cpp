@@ -28,6 +28,18 @@ struct Publisher::Counts {
         if (m.add(topic, c, &found)) return c.get();
         return found->val.get();                        // another thread put the topic's count there first
     }
+    // a caller's shape with API++'s two fields in front: made once per shape, kept for the publisher's life
+    using O = std::shared_ptr<const std::vector<std::string>>;
+    lf::LFMap<uintptr_t, O> shapes;
+    const std::vector<std::string>& shape(const std::vector<std::string>& order) {
+        lf::ebr::Guard g;
+        if (auto* n = shapes.get(uintptr_t(&order))) return *n->val;
+        auto v = std::make_shared<std::vector<std::string>>(); v->reserve(order.size() + 2);
+        v->push_back("_b"); v->push_back("_n"); v->insert(v->end(), order.begin(), order.end());
+        O o = v; decltype(shapes)::Node* found = nullptr;
+        if (shapes.add(uintptr_t(&order), o, &found)) return *o;
+        return *found->val;
+    }
 };
 
 Publisher::Publisher(Space& sp, std::string space, std::string writer, std::vector<std::string> order, uint64_t ring)
@@ -37,18 +49,23 @@ Publisher::Publisher(Space& sp, std::string space, std::string writer, std::vect
 }
 Publisher::~Publisher() {}
 uint64_t Publisher::publish(const std::string& topic, semcodec::Fields f) {
+    return publish(topic, order_, std::move(f));
+}
+uint64_t Publisher::publish(const std::string& topic, const std::vector<std::string>& order, semcodec::Fields f) {
+    const std::vector<std::string>& all_order = &order == &order_ ? order_ : counts_->shape(order);
     const uint64_t n = PP_BROKEN == 1 ? 1 : counts_->of(topic)->fetch_add(1, std::memory_order_acq_rel) + 1;
     semcodec::Fields all; all.reserve(f.size() + 2);
     all.emplace_back("_b", pyv::Str{writer_}); all.emplace_back("_n", pyv::Int::of(int64_t(n)));
     for (auto& kv : f) all.push_back(std::move(kv));
-    sp_.write_fields(space_, topic, Space::slot(writer_, n, ring_), order_, std::move(all));
+    sp_.write_fields(space_, topic, Space::slot(writer_, n, ring_), all_order, std::move(all));
     return n;
 }
 
-void subscribe(Space& sp, const std::string& space, const std::string& topic, long long from, OnDelivery on, OnMissed missed) {
+void subscribe(Space& sp, const std::string& space, const std::string& topic, long long from, OnDelivery on, OnMissed missed,
+               std::function<void()> batch_end) {
     auto last = std::make_shared<std::unordered_map<std::string, uint64_t>>();   // this read's alone: one thread
     if (from < 0) from = (long long)sp.newest(space, topic);     // "from now on" is now, at the call: nothing after it is missed
-    sp.watch(space, topic, from, [last, on = std::move(on), missed = std::move(missed)](std::vector<SpaceRow>& rows) {
+    sp.watch(space, topic, from, [last, on = std::move(on), missed = std::move(missed), batch_end = std::move(batch_end)](std::vector<SpaceRow>& rows) {
         for (auto& r : rows) {
             if (r.gone) continue;                        // a publisher that has gone took its cells: not a publish
             ribbit::BagArrP a = r.fields(); if (!a) continue;
@@ -58,6 +75,7 @@ void subscribe(Space& sp, const std::string& space, const std::string& topic, lo
             if (d.n > l) l = d.n;
             on(d);
         }
+        if (batch_end) batch_end();
     });
 }
 
@@ -76,7 +94,7 @@ void capable(Space& sp, const std::string& directory, std::function<bool(const s
     const uint64_t d0 = sp.newest(directory, "all");
     if (PP_BROKEN != 3)
         for (auto& r : sp.read(directory, "all")) {      // those there now; a later one is the held read's
-            Capable c; if (r.id <= d0 && to_capable(r, c) && match(c.capability)) on(c);
+            Capable c; if (r.id <= d0 && to_capable(r, c) && match(c.capability)) { c.already = true; on(c); }
         }
     sp.watch(directory, "all", PP_BROKEN == 3 ? -1 : (long long)d0, [match, on](std::vector<SpaceRow>& rows) {
         for (auto& r : rows) { Capable c; if (to_capable(r, c) && match(c.capability)) on(c); }
@@ -86,6 +104,10 @@ void capable(Space& sp, const std::string& directory, std::function<bool(const s
 // ---- the last value -----------------------------------------------------------------------------------------------
 void offer(Space& sp, const std::string& space, const std::string& topic, const std::string& writer, const std::string& bag) {
     sp.write(space, topic, writer, bag);
+}
+void offer(Space& sp, const std::string& space, const std::string& topic, const std::string& writer,
+           const std::vector<std::string>& order, semcodec::Fields fields) {
+    sp.write_fields(space, topic, writer, order, std::move(fields));
 }
 bool latest(Space& sp, const std::string& space, const std::string& topic, SpaceRow& out) {
     std::vector<SpaceRow> rows = sp.read(space, topic);

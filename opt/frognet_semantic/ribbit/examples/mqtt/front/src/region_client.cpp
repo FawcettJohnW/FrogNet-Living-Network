@@ -16,10 +16,13 @@
 //
 //   tuple                                         written by (its one owner)        read by
 //   (mqtt, <topic>, <box>.<n mod RING>)           the box a publish was made on      every box whose clients read the
-//                                                 (n: the box's count on the topic)  topic: into its own clients
+//                                                 (API++ Publisher: _b the box, _n   topic: into its own clients
+//                                                 its count on the topic)            (API++ subscribe)
 //   (mqtt.topics, all, <topic>␟<box>)             a box, the first time it uses one  boxes with wildcard subscribers
-//   (mqtt.retained, <topic>, hwm)                 the topic's retained message       looked up by a box when one of
-//                                                                                    its clients subscribes
+//                                                 (API++ announce)                   (API++ capable)
+//   (mqtt.retained, <topic>, <box>)               the box a retained publish was     looked up when a client
+//                                                 made on (API++ offer; it STAYS     subscribes: the newest of the
+//                                                 when the box goes)                 boxes' cells (API++ latest)
 //   (mqtt.subs, <filter>, <client>␟<box>␟<group>) the box holding the client         a box with no local subscriber
 //                                                 ([SUBS_BY_FILTER_V1]: <filter>     to a topic it publishes: the
 //                                                 without $share/<group>/)           filters that can match, looked up
@@ -27,6 +30,8 @@
 //   (mqtt.box, at, <client>␟<box>)                the box the client connected to    the box that held it before
 //   (mqtt.box, session.<client>, <box>)           the box that gave the session up   the box that took the client over
 //   (mqtt.box, sys, <box>)                        each box: its counts               every box: the broker-wide limits
+// [LINGER_BY_FAMILY_V1] When a box's session ends, its cells go with it -- its publishes, its topics, its subscriptions,
+// its claims -- except its retained messages, which stay (the box says so: Space::linger(mqtt.retained, STAYS)).
 // Every cell is its owner's alone: the box is part of the address of every truth it writes, and nothing decides
 // between writers. Nothing paces a box and nothing comes back to it. A box that reads too slowly finds a writer's
 // count on a topic jumping (its ring moved past what was not read yet): it counts what it missed and says so.
@@ -57,6 +62,7 @@
 #include "ribbit_mqtt_version.h"                         // made by tools/build.sh from VERSION
 #include "frogram.hpp"
 #include "ribbit_space.hpp"
+#include "ribbit_pp.hpp"                                  // [API_PLUS_PLUS_V2] publish/subscribe, the directory, retained
 extern "C" int mosquitto_topic_matches_sub(const char* sub, const char* topic, bool* result);   // libcommon
 #include "ram_host.hpp"
 
@@ -175,20 +181,16 @@ const char* const SVC_TOPICS = "mqtt.topics";
 const char* const SVC_BOX = "mqtt.box";
 const char* const SVC_SUBS = "mqtt.subs";              // [SUBS_BY_FILTER_V1]
 const char* const SVC_SHAPES = "mqtt.subs.shapes";
-const char* const HWM = "hwm";
 // a writer's cells on one topic: its publish n there is cell <writer>.<n mod RING>. A reader further behind than this
 // loses what was overwritten, and says so ([LOST_IS_SAID_V1]).
 constexpr uint64_t RING = 16384;
-// the box's count on a topic (insert-only, found by CAS: no lock)
-struct TopicSeq { std::string topic; TopicSeq* next = nullptr; std::atomic<uint64_t> n{0}; };
 struct Box {
     std::unique_ptr<ribbit::Space> sp;
+    std::unique_ptr<ribbit::pp::Publisher> pub;   // [API_PLUS_PLUS_V2] its publishes: its ring per topic, its count there
     std::string id;                        // this box's name in the tuple space
-    std::atomic<TopicSeq*> seqs[4096] = {};
     // the other boxes' counts ([FRONT_COUNTS_V1] across boxes), as their sys tuples last said
     std::atomic<int64_t> last_c{-1}, last_n{-1};
     std::atomic<uint64_t> published{0}, applied_msgs{0}, lost{0};
-    std::unordered_map<std::string, uint64_t> last_n_read;   // the reader's alone: per writer and topic, the newest n read
     // the newest claim another box made of each client (its key), as the at cells say: set by the reader, read by the
     // front that gives the session up -- insert-only; a key is replaced whole, never edited
     struct Claim { std::string client; Claim* next = nullptr; std::atomic<const std::string*> key{nullptr}; };
@@ -199,14 +201,6 @@ struct Box {
             for (Claim* x = h; x; x = x->next) if (x->client == client) return x;
             auto* f = new Claim; f->client = client; f->next = h;
             if (slot.compare_exchange_strong(h, f, std::memory_order_acq_rel)) return f;
-            delete f; }
-    }
-    uint64_t next_n(const std::string& topic) {
-        auto& slot = seqs[std::hash<std::string>()(topic) % 4096];
-        for (;;) { TopicSeq* h = slot.load(std::memory_order_acquire);
-            for (TopicSeq* x = h; x; x = x->next) if (x->topic == topic) return x->n.fetch_add(1, std::memory_order_acq_rel) + 1;
-            auto* f = new TopicSeq; f->topic = topic; f->next = h;
-            if (slot.compare_exchange_strong(h, f, std::memory_order_acq_rel)) return f->n.fetch_add(1, std::memory_order_acq_rel) + 1;
             delete f; }
     }
 };
@@ -250,24 +244,23 @@ void quote_into(std::string& out, const char* s) { quote_into(out, s, strlen(s))
 // [FIELDS_NOT_TEXT_V1] a publish's bag as fields, keys sorted: b e [live] n o p pr prq q qos r si sp [su] t. The box
 // has every value already, so nothing is written as text to be parsed again; a retained cell's "live" goes in at 2. The two shapes (with and without the user name) each keep one order vector for the life
 // of the process -- the encoder recognises a shape by it.
-const std::vector<std::string> FO_MSG = {"b", "e", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
-const std::vector<std::string> FO_MSG_SU = {"b", "e", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "su", "t"};
+const std::vector<std::string> FO_MSG = {"e", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
+const std::vector<std::string> FO_MSG_SU = {"e", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "su", "t"};
 // the box's own shapes: each always whole, so each write of one is a difference against the last
 const std::vector<std::string> FO_AT = {"b", "cs", "f", "k"};
 const std::vector<std::string> FO_SUB = {"b", "live", "o", "sid"};
 const std::vector<std::string> FO_SYS = {"c", "l", "n"};
 const std::vector<std::string> FO_SHAPE = {"s"};
 const std::vector<std::string> FO_SESSION = {"b", "f", "k", "s"};   // f: its subscriptions, "<options>\x1f<identifier>\x1f<filter>"
-const std::vector<std::string> FO_DIR = {"t"};
-const std::vector<std::string> FO_RET = {"b", "e", "live", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
-const std::vector<std::string> FO_RET_SU = {"b", "e", "live", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "su", "t"};
-PendMsg msg_fields(const rgn_msg& m, const std::string& box) {
+const std::vector<std::string> FO_RET = {"e", "live", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
+const std::vector<std::string> FO_RET_SU = {"e", "live", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "su", "t"};
+PendMsg msg_fields(const rgn_msg& m) {
     using pyv::Str; using pyv::Int;
     PendMsg pm; pm.su = m.src_user != nullptr; semcodec::Fields& f = pm.f; f.reserve(14);
     const bool pu = utf8_ok(static_cast<const unsigned char*>(m.payload), m.payloadlen), ru = utf8_ok(static_cast<const unsigned char*>(m.props), m.propslen);
     auto bytes = [](const void* p, uint32_t n) { return std::string(static_cast<const char*>(p), n); };
     auto b64s = [](const void* p, uint32_t n) { std::string o; b64_into(o, p, n); return o; };
-    f.emplace_back("b", Str{box}); f.emplace_back("e", Int::of(int64_t(m.expiry_ms))); f.emplace_back("n", Int::of(0));
+    f.emplace_back("e", Int::of(int64_t(m.expiry_ms)));
     f.emplace_back("o", Int::of(m.origin));
     f.emplace_back("p", Str{pu ? bytes(m.payload, m.payloadlen) : std::string()});
     f.emplace_back("pr", Str{ru ? bytes(m.props, m.propslen) : std::string()});
@@ -324,7 +317,6 @@ struct HeldTopic { std::string topic; HeldTopic* next; };
 std::atomic<HeldTopic*> HELD{nullptr};
 struct WildFilter { std::string filter; WildFilter* next; };
 std::atomic<WildFilter*> WILD{nullptr};               // the box's wildcard filters (insert-only: a read too many gives nobody anything)
-std::atomic<bool> DIRECTORY{false};
 void hold_topic(Box* b, const std::string& topic, long long from) {
     HeldTopic* h = HELD.load(std::memory_order_acquire);
     for (;;) {
@@ -334,31 +326,20 @@ void hold_topic(Box* b, const std::string& topic, long long from) {
         delete n;                                     // h reloaded: look again
     }
     mqttr::Region* r = resident();
-    auto last = std::make_shared<std::unordered_map<std::string, uint64_t>>();   // this read's alone: one thread
-    b->sp->watch(SVC, topic, from, [b, r, last](std::vector<ribbit::SpaceRow>& rows) {
+    // [API_PLUS_PLUS_V2] the topic's publishes, every box's, in write order; a ring that moved past this read is said
+    ribbit::pp::subscribe(*b->sp, SVC, topic, from, [b, r](const ribbit::pp::Delivery& d) {
         thread_local BagMsg m;
-        for (auto& row : rows) {
-            if (row.gone) continue;                      // [GONE_WITH_ITS_WRITER_V1] a box that went took its publishes: not a publish
-            ribbit::BagArrP gp = row.fields(); if (!gp) continue;
-            const ribbit::BagArr& g = *gp;
-            const std::string& writer = sval(g, "b");
-            if (writer == b->id) continue;               // this box's own: its clients had it when it was made
-            const uint64_t n = uint64_t(g.num("n"));
-            uint64_t& lst = (*last)[writer];
-            if (lst && n > lst + 1) {                    // [LOST_IS_SAID_V1]
-                const uint64_t gap = n - lst - 1, before = b->lost.fetch_add(gap, std::memory_order_relaxed);
-                if (before < 1000000 && (before == 0 || before / 100000 != (before + gap) / 100000))
-                    fprintf(stderr, "region: missed %llu publishes of %s on %s (read too late: its ring had moved on); %llu missed in all\n",
-                            (unsigned long long)gap, writer.c_str(), row.topic.c_str(), (unsigned long long)(before + gap));
-            }
-            if (n > lst) lst = n;
-            from_arr(g, m);
-            mqttr::Region::store_retained_here(false);   // its retained state is the topic's retained tuple
-            r->publish(m.in, FROM_ELSEWHERE, nullptr, nullptr, nullptr);
-            b->applied_msgs++;
-        }
-        r->flush_wakes();
-    });
+        if (d.writer == b->id) return;                   // this box's own: its clients had it when it was made
+        from_arr(*d.fields, m);
+        mqttr::Region::store_retained_here(false);       // its retained state is the topic's retained tuple
+        r->publish(m.in, FROM_ELSEWHERE, nullptr, nullptr, nullptr);
+        b->applied_msgs++;
+    }, [b](const std::string& topic, const std::string& writer, uint64_t gap) {   // [LOST_IS_SAID_V1]
+        const uint64_t before = b->lost.fetch_add(gap, std::memory_order_relaxed);
+        if (before < 1000000 && (before == 0 || before / 100000 != (before + gap) / 100000))
+            fprintf(stderr, "region: missed %llu publishes of %s on %s (read too late: its ring had moved on); %llu missed in all\n",
+                    (unsigned long long)gap, writer.c_str(), topic.c_str(), (unsigned long long)(before + gap));
+    }, [r] { r->flush_wakes(); });
 }
 bool wild(const std::string& f) { return f.find_first_of("+#") != std::string::npos || f.rfind("$share/", 0) == 0; }
 std::string share_free(const std::string& f) {        // $share/<group>/<filter>: the filter
@@ -375,24 +356,17 @@ void hold_filter(Box* b, const std::string& filter0) {
     const std::string filter = share_free(filter0);
     if (!wild(filter)) { hold_topic(b, filter, -1); return; }
     WildFilter* h = WILD.load(std::memory_order_acquire);
-    for (;;) { bool have = false; for (WildFilter* x = h; x; x = x->next) if (x->filter == filter) have = true;
-               if (have) break;
+    for (;;) { for (WildFilter* x = h; x; x = x->next) if (x->filter == filter) return;   // held already
                auto* n = new WildFilter{filter, h};
                if (WILD.compare_exchange_strong(h, n, std::memory_order_acq_rel)) break;
                delete n; }
-    const uint64_t d0 = b->sp->newest(SVC_TOPICS, "all");
-    for (auto& r : b->sp->read(SVC_TOPICS, "all")) {   // the topics in use now; a later one is the directory read's
-        if (r.id > d0) continue;
-        const std::string t = topic_of(r.instance); if (matches(filter, t)) hold_topic(b, t, -1);
-    }
-    if (DIRECTORY.exchange(true)) return;
-    b->sp->watch(SVC_TOPICS, "all", (long long)d0, [b](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { if (r.gone) continue;   // [GONE_WITH_ITS_WRITER_V1] a writer gone from a topic: not a new topic
-            const std::string t = topic_of(r.instance);
-            for (WildFilter* x = WILD.load(std::memory_order_acquire); x; x = x->next) if (matches(x->filter, t)) { hold_topic(b, t, 0); break; } } });
+    // [API_PLUS_PLUS_V2] every topic in use that the filter matches: those in use now, from now on; one that appears
+    // later, all of it (its first publish may have landed before the directory said so)
+    ribbit::pp::capable(*b->sp, SVC_TOPICS, [filter](const std::string& t) { return matches(filter, t); },
+                        [b](const ribbit::pp::Capable& c) { if (!c.gone) hold_topic(b, c.capability, c.already ? -1 : 0); });
 }
-// [ONE_MEMORY_V1] the retained messages a filter matches, looked up at their address, (mqtt.retained, <topic>, hwm),
-// and handed to the caller -- never stored in this box: the topic's tuple is the only copy
+// [ONE_MEMORY_V1] the retained messages a filter matches, looked up at their address, (mqtt.retained, <topic>, *) --
+// the newest of the boxes' cells (API++ latest) -- and handed to the caller, never stored in this box
 std::vector<std::string> topics_matching(Box* b, const std::string& filter) {
     std::vector<std::string> topics;
     if (!wild(filter)) { topics.push_back(filter); return topics; }
@@ -401,8 +375,8 @@ std::vector<std::string> topics_matching(Box* b, const std::string& filter) {
     return topics;
 }
 ribbit::BagArrP retained_of(Box* b, const std::string& topic) {
-    auto got = b->sp->read(SVC_RET, topic, HWM); if (got.empty()) return nullptr;
-    ribbit::BagArrP g = got.front().fields();
+    ribbit::SpaceRow row; if (!ribbit::pp::latest(*b->sp, SVC_RET, topic, row)) return nullptr;   // [API_PLUS_PLUS_V2]
+    ribbit::BagArrP g = row.fields();
     return g && g->num("live") ? g : nullptr;
 }
 void look_up_retained(Box* b, mqttr::Region* r, const std::string& filter0, std::vector<mqttr::Msg*>& out) {
@@ -435,6 +409,8 @@ Box* the_box(const char* host, int port) {
             char hn[64] = ""; gethostname(hn, sizeof hn - 1);
             std::random_device rd; char tag[24]; snprintf(tag, sizeof tag, "%08x", rd());
             b->id = std::string(hn) + "." + std::to_string(getpid()) + "." + tag;   // this box, for the life of the process
+            b->sp->linger(SVC_RET, "", ribbit::Space::STAYS);   // [LINGER_BY_FAMILY_V1] a retained message outlives its box
+            b->pub.reset(new ribbit::pp::Publisher(*b->sp, SVC, b->id, {}, RING));   // [API_PLUS_PLUS_V2]
             BOX.store(b, std::memory_order_release);
             b->sp->write_fields(SVC_BOX, "sys", b->id, FO_SYS, {{"c", pyv::Int::of(0)}, {"l", pyv::List(4, pyv::Int::of(0))}, {"n", pyv::Int::of(0)}});
             start_triggers(b);
@@ -528,8 +504,8 @@ bool subscriber_elsewhere(Box* b, const std::string& topic) {
 semcodec::Fields at_fields(const std::string& box, int front, const std::string& key) {
     return {{"b", pyv::Str{box}}, {"cs", pyv::Int::of(0)}, {"f", pyv::Int::of(front)}, {"k", pyv::Str{key}}};
 }
-// A publish is one cell at its topic, (mqtt, <topic>, <box>.<n mod RING>): a DIFF against the box's previous write of
-// that topic, so only what changed travels. A front's publishes of one loop pass are written from the front's own thread
+// A publish is one cell at its topic, (mqtt, <topic>, <box>.<n mod RING>) (API++ Publisher): a DIFF against the box's
+// previous write of that topic, so only what changed travels. A front's publishes of one loop pass are written from the front's own thread
 // before its PUBACKs leave, in parallel with every other front.
 constexpr size_t PEND_BYTES = 12 * 1024, PEND_MAX = 256;
 void write_pending(Front& f) {
@@ -537,9 +513,8 @@ void write_pending(Front& f) {
     try {
         for (auto& pm : f.pend) {
             const std::string topic = std::get<pyv::Str>(pm.f.back().second.v).s;
-            const uint64_t n = b->next_n(topic); pm.f[2].second = pyv::Int::of(int64_t(n));
-            if (n == 1) b->sp->write_fields(SVC_TOPICS, "all", topic + '\x1f' + b->id, FO_DIR, {{"t", pyv::Str{topic}}});   // the directory: once
-            b->sp->write_fields(SVC, topic, ribbit::Space::slot(b->id, n, RING), pm.su ? FO_MSG_SU : FO_MSG, std::move(pm.f));
+            // [API_PLUS_PLUS_V2] the box's ring on the topic; its first publish there: the directory says the box uses it
+            if (b->pub->publish(topic, pm.su ? FO_MSG_SU : FO_MSG, std::move(pm.f)) == 1) ribbit::pp::announce(*b->sp, SVC_TOPICS, topic, b->id);
             b->published.fetch_add(1, std::memory_order_relaxed);
         }
     } catch (const std::exception& x) {
@@ -624,9 +599,12 @@ int rgn_clean(const char* client) {
 // the topic's retained tuple, its high water mark
 static void put_retain(const struct rgn_msg* m) {
     Box* b = box(); if (!b) return;
-    PendMsg pm = msg_fields(*m, b->id);                 // b e n ...: "live" goes between e and n
-    pm.f.insert(pm.f.begin() + 2, {"live", pyv::Int::of(m->payloadlen ? 1 : 0)});
-    put(SVC_RET, m->topic, HWM, pm.su ? FO_RET_SU : FO_RET, std::move(pm.f));
+    PendMsg pm = msg_fields(*m);                        // e o ...: "live" goes between e and o
+    pm.f.insert(pm.f.begin() + 1, {"live", pyv::Int::of(m->payloadlen ? 1 : 0)});
+    // [API_PLUS_PLUS_V2] the box's own cell for the topic's retained message; a reader takes the newest of the boxes'
+    try { ribbit::pp::offer(*b->sp, SVC_RET, m->topic, b->id, pm.su ? FO_RET_SU : FO_RET, std::move(pm.f)); }
+    catch (const std::exception& x) { static std::atomic<bool> said{false};
+        if (!said.exchange(true)) fprintf(stderr, "region: the memory is gone (%s): this box's truths are no longer written\n", x.what()); }
 }
 int rgn_retain(const struct rgn_msg* m, bool* had_retained) {
     Front& f = me();
@@ -665,7 +643,7 @@ int rgn_pub(const struct rgn_msg* m, bool* has_subscribers, rgn_own_cb own, void
         f.dropped = mqttr::Region::last_dropped();
         // [MEMORY_IS_MEMORY_V1] written once; another box with subscribers to it is woken by its own trigger
         if (Box* b = box()) {
-            f.pend.push_back(msg_fields(*m, b->id)); f.pend_bytes += f.pend.back().bytes;
+            f.pend.push_back(msg_fields(*m)); f.pend_bytes += f.pend.back().bytes;
             if (f.pend_bytes >= PEND_BYTES || f.pend.size() >= PEND_MAX) write_pending(f);
             if (m->retain) put_retain(m);
         }

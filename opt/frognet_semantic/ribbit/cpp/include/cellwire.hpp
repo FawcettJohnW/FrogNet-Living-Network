@@ -138,8 +138,11 @@ public:
     void linger(const std::string& sv, const std::string& var, int32_t seconds) {
         std::lock_guard<std::mutex> g(linger_m_); lingers_[sv + '\x1f' + var] = seconds; }
 private:
+    // the family's own choice, else its service's (said with variable ""), else GOES
     int32_t linger_of(const std::string& key) {
-        std::lock_guard<std::mutex> g(linger_m_); auto it = lingers_.find(key); return it == lingers_.end() ? 0 : it->second; }
+        std::lock_guard<std::mutex> g(linger_m_); auto it = lingers_.find(key);
+        if (it == lingers_.end()) it = lingers_.find(key.substr(0, key.find('\x1f') + 1));
+        return it == lingers_.end() ? 0 : it->second; }
     std::mutex linger_m_; std::unordered_map<std::string, int32_t> lingers_;
     struct RE { std::atomic<uint64_t> key{0}; std::atomic<uint32_t> gen{0}; };
     static constexpr size_t RES = 4096;

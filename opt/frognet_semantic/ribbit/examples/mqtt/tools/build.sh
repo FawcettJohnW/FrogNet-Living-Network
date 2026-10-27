@@ -29,6 +29,7 @@ echo "== platform objects"
 $CXX -std=c++20 -Wno-free-nonheap-object -O2 -pthread -I"$P/include" -c "$P/src/frogram.cpp" -o "$P/bin/frogram.o"
 $CXX -std=c++20 -O2 -pthread $W -I"$P/include" -c "$P/src/ram_client.cpp" -o "$P/bin/ram_client.o"
 $CXX -std=c++20 -O2 -pthread $W -I"$P/include" -c "$P/src/ribbit_space.cpp" -o "$P/bin/ribbit_space.o"   # [SPACE_V1]
+$CXX -std=c++20 -O2 -pthread $W -I"$P/include" -c "$P/src/ribbit_pp.cpp" -o "$P/bin/ribbit_pp.o"   # [API_PLUS_PLUS_V2]
 $CXX -std=c++20 -O2 -pthread $W -I"$P/include" -c "$P/src/ram_host.cpp" -o "$P/bin/ram_host.o"
 
 echo "== mqtt-ram"

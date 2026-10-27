@@ -41,6 +41,9 @@ public:
     Publisher(const Publisher&) = delete; Publisher& operator=(const Publisher&) = delete;
     // written: that is the publish done. Returns this publish's count on the topic.
     uint64_t publish(const std::string& topic, semcodec::Fields fields);
+    // the same, in a shape of the caller's: `order` names the fields, in their order (the same vector each time for one
+    // shape: kept by the caller for the publisher's life). Every shape counts on the topic's one count.
+    uint64_t publish(const std::string& topic, const std::vector<std::string>& order, semcodec::Fields fields);
     const std::string& writer() const { return writer_; }
 private:
     struct Counts; Space& sp_; std::string space_, writer_; std::vector<std::string> order_; uint64_t ring_;
@@ -52,15 +55,18 @@ using OnDelivery = std::function<void(const Delivery&)>;
 // a writer's ring moved past what this read had not read yet: `gap` publishes of it on the topic were not delivered
 using OnMissed = std::function<void(const std::string& topic, const std::string& writer, uint64_t gap)>;
 // A read held on a topic, from now on (from < 0) or past an id. Every publish is given to `on`, on the read's own
-// thread, in the topic's write order. A publisher's cells that went with its session are not publishes: not given.
-void subscribe(Space& sp, const std::string& space, const std::string& topic, long long from, OnDelivery on, OnMissed missed = {});
+// thread, in the topic's write order; `batch_end`, if given, after each batch the read was handed. A publisher's cells
+// that went with its session are not publishes: not given.
+void subscribe(Space& sp, const std::string& space, const std::string& topic, long long from, OnDelivery on,
+               OnMissed missed = {}, std::function<void()> batch_end = {});
 
 // ---- capabilities -----------------------------------------------------------------------------------------------
 // (directory, "all", <capability>␟<who>): the participant's own cell saying it handles `capability`; `about` is
 // whatever it wants a finder to know (a bag, JSON text).
 void announce(Space& sp, const std::string& directory, const std::string& capability, const std::string& who,
               const std::string& about = "{}");
-struct Capable { uint64_t id = 0; std::string capability, who; ribbit::BagArrP about; bool gone = false; };
+struct Capable { uint64_t id = 0; std::string capability, who; ribbit::BagArrP about; bool gone = false;
+                 bool already = false; };   // already: announced before capable() was called (its first read)
 // every participant whose capability `match` accepts: those announced now, at once, then each one announced from
 // then on -- the directory read past the newest id the first read saw, so none falls between the two. gone: the
 // participant's session ended and its announcement went with it ([GONE_WITH_ITS_WRITER_V1]).
@@ -70,6 +76,8 @@ void capable(Space& sp, const std::string& directory, std::function<bool(const s
 // ---- the last value -----------------------------------------------------------------------------------------------
 // (space, topic, <writer>): the writer's own last value on the topic
 void offer(Space& sp, const std::string& space, const std::string& topic, const std::string& writer, const std::string& bag);
+void offer(Space& sp, const std::string& space, const std::string& topic, const std::string& writer,
+           const std::vector<std::string>& order, semcodec::Fields fields);
 // the newest of every writer's last value on the topic (by write id); false: nobody has offered one
 bool latest(Space& sp, const std::string& space, const std::string& topic, SpaceRow& out);
 
