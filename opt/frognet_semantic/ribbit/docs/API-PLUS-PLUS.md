@@ -65,3 +65,28 @@ For a vendor that keeps its own memory (immutable values behind atomic pointers,
 | `tests/test_apipp_wire.cpp` (`test-apipp-wire PORT ENDPOINT`) | the operations through real sessions, several at once, on FrogNet's endpoint and a vendor's | red before `[EACH_CALL_ITS_OWN_V1]` (above) |
 
 All three run in `cpp/qualify.sh` (stages `build`, `lockfree`).
+
+## Redis and MQTT on API++
+
+Redis keeps no copy of the platform any more: its own `ebr.hpp`, `ebr.cpp` and `lfmap.hpp` are gone (the process had
+two epoch reclamations, its own and the platform's; it now has one), and its wait word, futex calls, quiet spans
+(EXEC), `WaitReg`, the deadline thread's stack and word, and every compare-and-swap, swap and take in its memory are
+API++. MQTT's fronts take their deliveries from a `TakeStack` and park on a `WaitWord`; its futex helpers are gone. Its
+batched wakes stay its own: its pacing reads the pending list in the middle of a batch, which `QuietSpan` does not offer.
+
+Measured (lizard), main against this branch:
+
+| | NLOC | CCN total |
+|---|---|---|
+| Redis `src` | 7,840 → 7,560 (−280) | 4,561 → 4,429 (−132) |
+| MQTT `region` | 896 → 875 (−21) | 357 → 351 (−6) |
+| platform `cpp/include` + `cpp/src` | 11,440 → 11,739 (+299) | 3,862 → 4,001 (+139) |
+
+The same, before and after:
+
+| | main | API++ |
+|---|---|---|
+| Redis two_fronts / same_after_raw / big_replies / concurrency | 15/15, PASS, PASS, 39/39 | 15/15, PASS, PASS, 39/39 |
+| MQTT two_boxes | 13/13 | 13/13 (twice) |
+| Mosquitto 2.1.2's suite, through the fronts | 272 of 292 runs pass (the 4 `22-http-api-*` tests fail) | 272 of 292, the same 4 |
+| platform qualify | FNWP e2e 1 fail per seed, ramrows FAIL | the same, and the three API++ tests PASS |
