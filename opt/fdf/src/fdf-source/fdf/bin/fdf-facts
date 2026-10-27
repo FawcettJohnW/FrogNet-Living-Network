@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-BUILD_TAG = "fdf-2026-10-25-r31"
+BUILD_TAG = "fdf-2026-10-27-r34"
 FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
 LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
 # [UPLINK_JUDGED_LOCALLY_V1] No hard-coded public address (it was 8.8.8.8: somebody else's server, and a network that

@@ -28,7 +28,8 @@ esac
 TUN=$A/tun/out/fdf-tun-$ARCH; [ -x "$TUN" ] || { echo "make_core_linux: no $TUN (tun/build.sh)" >&2; exit 1; }
 (cd "$A" && gradle -q --offline -Pfdf.jvmOnly=true :member-cli:installDist 2>&1 | grep -v '^w:\|JAVA_TOOL' || true)
 MB=$(sed -n 's/.*MEMBER_BUILD = "\(.*\)".*/\1/p' "$A/member/src/main/kotlin/com/fawcettinnovations/fdf/member/Member.kt")
-B=${FDF_CORE_BUILD:-$(date -u +%Y-%m-%d)-${MB#fdf-kt-*-*-*-}}
+TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$R/src/fdf_version.hpp")      # the region programs' build
+B=${FDF_CORE_BUILD:-$(date -u +%Y-%m-%d)-${MB#fdf-kt-*-*-*-}-${TAG##*-}}                  # e.g. 2026-10-27-a16-r34
 P=$T/fdf-core-$B; H=$P/opt/fdf; mkdir -p $H/bin $H/lib/python $H/templates
 # ---- the runtime
 if [ "$ARCH" = "$(uname -m)" ]; then
@@ -51,7 +52,7 @@ cp "$F/bin/fdf-identity" $H/bin/; cp "$F/lib/python/fdfram.py" $H/lib/python/; c
 cp "$S/core/install" $P/install
 chmod 755 $H/bin/* $P/install
 JV=$(sed -n 's/JAVA_VERSION="\(.*\)"/\1/p' $H/runtime/release)
-printf 'package=fdf-core\nbuild=%s\narch=%s\nmember=%s\njava=%s\nbuilt=%s\n' "$B" "$ARCH" "$MB" "$JV" "$(date -u +%Y-%m-%dT%H:%MZ)" > $H/BUILD
+printf 'package=fdf-core\nbuild=%s\narch=%s\nmember=%s\nfdf=%s\njava=%s\nbuilt=%s\n' "$B" "$ARCH" "$MB" "$TAG" "$JV" "$(date -u +%Y-%m-%dT%H:%MZ)" > $H/BUILD
 OUT=$O/fdf-core-linux-$ARCH-$B.tgz
 tar -C $T -czf "$OUT" "fdf-core-$B"
 ls -la "$OUT"; cat $H/BUILD
