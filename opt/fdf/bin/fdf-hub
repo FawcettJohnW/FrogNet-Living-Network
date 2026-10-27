@@ -30,7 +30,7 @@ import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urlli
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-12-r20"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-25-r31"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_ADDR = "10.253.253.254"
 HUB_MASK = 16
 
@@ -154,17 +154,54 @@ def edge_of(subnet):
     if n.prefixlen != 24 or o[0] != 10 or o[1] in (253, 254): return None
     return "10.253.%d.%d" % (o[1], o[2])
 
-def desired(participants, mappings, hub_name, prev_owner=None):
-    """Returns (peers: {pubkey: {edge, name, guid, allowed:set, routes:{prefix: edge}}}, owner: {prefix: guid}, notes)."""
+ADMITTED_DIR = "/opt/fdf/hub/admitted"
+
+
+def read_admitted(d=ADMITTED_DIR):
+    """[ADMITTED_BY_INVITE_V1] the members this hub admits: one JSON file per member in the admitted directory, written
+    by fdf-invite ({"name","pubkey","edge","kind"}). Returns ({pubkey: record}, notes). This is configuration the
+    operator made, not memory of the past: a member is a peer here because it was invited, before it has ever spoken."""
+    out, notes = {}, []
+    try:
+        names = sorted(os.listdir(d))
+    except OSError as e:
+        return out, ["admitted directory %s unreadable: %s (no member can reach this region)" % (d, e.strerror)]
+    for fn in names:
+        if not fn.endswith(".json"):
+            continue
+        try:
+            r = json.load(open(os.path.join(d, fn)))
+            if not (r.get("pubkey") and r.get("edge") and r.get("name")):
+                raise ValueError("needs name, pubkey and edge")
+            ipaddress.ip_address(r["edge"])
+        except (OSError, ValueError) as e:
+            notes.append("admitted %s ignored: %s" % (fn, e)); continue
+        if r["pubkey"] in out:
+            notes.append("admitted %s ignored: key already admitted as %s" % (fn, out[r["pubkey"]]["name"])); continue
+        out[r["pubkey"]] = r
+    return out, notes
+
+
+def desired(participants, mappings, hub_name, admitted, prev_owner=None):
+    """Returns (peers: {pubkey: {edge, name, guid, allowed:set, routes:{prefix: edge}}}, owner: {prefix: guid}, notes).
+    [ADMITTED_BY_INVITE_V1] every admitted member is a peer with its edge /32, whether or not its session is up: the
+    region (the RAM manager) is reached THROUGH this tunnel, so the tunnel cannot wait for the region. The /24s a peer
+    carries come, as before, from the live members' facts, FD&F's graph and the verified mappings."""
     notes = []
+    peers = {}
+    for pub, r in admitted.items():
+        edge = r["edge"]
+        leaf = r.get("kind") == "leaf"
+        peers[pub] = {"edge": edge, "name": r["name"], "guid": "", "subnet": "", "allowed": {edge + "/32"},
+                      "routes": ({edge + "/32": ""} if leaf else {})}    # a leaf's /32: on-link
     members = []
     for p in participants:
         f = p.get("facts") or {}
-        # [REACH_IS_A_LEAF_HERE_V1] a participant reaching this network has a /32 here (the region gave it) and is
-        # peered as a leaf is: its /32 on-link, nothing else carried
         reacher = f.get("role") == "participant" and f.get("reach") is True and f.get("addr")
         if not p.get("alive") or (f.get("role") not in ("node", "leaf") and not reacher): continue
         if not f.get("pubkey"): notes.append("no pubkey: %s" % f.get("name")); continue
+        if f["pubkey"] not in admitted:
+            notes.append("NOT ADMITTED: %s (key %s) is a member but was never invited here: no peer" % (f.get("name"), f["pubkey"][:12])); continue
         members.append((int(p.get("id", 0)), p, f))
     members.sort(key=lambda m: m[0])                                  # lowest announce id = first claimant
     # which prefixes a VERIFIED mapping says this hub reaches
@@ -173,13 +210,11 @@ def desired(participants, mappings, hub_name, prev_owner=None):
         for loc in m.get("rloc", "").split(","):
             parts = loc.split(":")
             if parts and parts[0] == hub_name: reach[m["eid"]] = True
-    owner, peers = {}, {}
+    owner = {}
     # [HUB_PREFIXES_FROM_GRAPH_V1] which /24s a peer may carry = FD&F's plan for that member (fdf_graph: its own
     # served /24s plus those of every host whose exit it is), AND a verified mapping naming this hub. Facts say who;
     # the graph says which prefixes belong behind whom; the signed mapping says the member asked for it. A member
     # whose exit is another member carries nothing (its hub link is idle): no prefix is ever behind two peers.
-    # A member without rows (no fdf-facts yet) is placed by facts.subnet/transit until its rows arrive; that is the
-    # same rule the graph applies to a row-less member, not a second mechanism.
     plans = {}
     from fdf_graph import Graph                 # [NO_FALLBACK_V1] no graph, no hub: an ImportError here is the answer, not a quieter rule
     g = Graph(participants)
@@ -191,46 +226,46 @@ def desired(participants, mappings, hub_name, prev_owner=None):
         try: return str(ipaddress.ip_network(x, strict=False))
         except ValueError: return None
     with_peer = {f.get("name") for rid, p, f in members if f.get("role") == "node"}
-    # pass 1: every member gets a peer (edge/32); its own /24 is claimed here if it is its own exit (graph) or has no graph
+    # pass 1: a member's own /24 is claimed here if it is its own exit (graph) or has no graph
     for rid, p, f in members:
-        sub = _net(f.get("subnet") if f.get("role") == "node" else f.get("addr"))
-        if not sub: notes.append("no subnet/addr: %s" % f.get("name")); continue
-        edge = edge_of(sub) if f.get("role") == "node" else sub.split("/")[0]
-        if not edge: notes.append("no edge for %s (%s)" % (sub, f.get("name"))); continue
+        pr = peers[f["pubkey"]]
+        pr["guid"] = f.get("guid") or ""
+        if f.get("role") != "node":
+            owner[pr["edge"] + "/32"] = f.get("guid") or f.get("name"); continue
+        sub = _net(f.get("subnet"))
+        if not sub: notes.append("no subnet: %s" % f.get("name")); continue
+        pr["subnet"] = sub
         plan = plans.get(f.get("name"))
         # [EXIT_CARRIES_OR_SELF_V1] the child's /24 goes behind its exit only if that exit is a peer HERE, NOW, whose
         # own plan carries it; otherwise the child's own link carries it. Decided from this event's records only.
         exit_plan = plans.get(plan["exit"]) if plan and plan["exit"] else None
         exit_carries = bool(exit_plan and exit_plan["hub_active"] and plan["exit"] in with_peer and sub in {_net(x) for x in exit_plan["maps"]})
         claims_own = plan is None or plan["hub_active"] or not plan["exit"] or not exit_carries
-        if claims_own and sub in owner:
-            notes.append("REFUSED %s claimed by %s (guid %s, id %d): owned by %s" % (sub, f.get("name"), f.get("guid"), rid, owner[sub])); continue
-        peers[f["pubkey"]] = {"edge": edge, "name": f.get("name"), "guid": f.get("guid"), "subnet": sub,
-                              "allowed": {edge + "/32"}, "routes": ({} if f.get("role") == "node" else {sub: ""})}   # a leaf's /32: on-link
-        if f.get("role") != "node":
-            owner[sub] = f.get("guid") or f.get("name"); continue
         if not claims_own:
             notes.append("%s: exit is %s; its hub link is idle, it carries nothing" % (f.get("name"), plan["exit"])); continue
+        if sub in owner:
+            notes.append("REFUSED %s claimed by %s (guid %s, id %d): owned by %s" % (sub, f.get("name"), f.get("guid"), rid, owner[sub])); continue
         if plan is not None and plan["exit"] and not plan["hub_active"]:
             notes.append("%s: exit is %s but that exit carries nothing here now; its own link carries %s" % (f.get("name"), plan["exit"], sub))
         owner[sub] = f.get("guid") or f.get("name")
-        if sub in reach: peers[f["pubkey"]]["allowed"].add(sub); peers[f["pubkey"]]["routes"][sub] = edge
+        if sub in reach: pr["allowed"].add(sub); pr["routes"][sub] = pr["edge"]
         else: notes.append("no verified mapping names this hub for %s (%s): peer without its /24" % (sub, f.get("name")))
     # pass 2: the rest of what each peer carries: the plan's maps (hosts whose exit it is) or, with no graph, its
     # transit list -- first claimant, only while unowned, only with a verified mapping
     for rid, p, f in members:
-        if f["pubkey"] not in peers or f.get("role") != "node": continue
+        if f.get("role") != "node": continue
+        pr = peers[f["pubkey"]]
         plan = plans.get(f.get("name"))
         more = list(plan["maps"]) if plan is not None else list(f.get("transit") or [])
         for t in more:
             t = _net(t)
-            if not t or t == peers[f["pubkey"]]["subnet"]: continue
+            if not t or t == pr["subnet"]: continue
             if t in owner:
                 if owner[t] != (f.get("guid") or f.get("name")): notes.append("%s by %s ignored: already behind %s" % (t, f.get("name"), owner[t]))
                 continue
             if t not in reach: notes.append("%s by %s: no verified mapping names this hub" % (t, f.get("name"))); continue
             owner[t] = f.get("guid") or f.get("name")
-            peers[f["pubkey"]]["allowed"].add(t); peers[f["pubkey"]]["routes"][t] = peers[f["pubkey"]]["edge"]
+            pr["allowed"].add(t); pr["routes"][t] = pr["edge"]
     return peers, owner, notes
 
 def reconcile(kernel, want, now=None):
@@ -254,6 +289,51 @@ def reconcile(kernel, want, now=None):
     return changed
 
 # ---------------------------------------------------------------- main loop
+class Inotify:
+    """inotify on one directory (libc, no module): the fd select() waits on, and the names that changed."""
+    IN_CLOSE_WRITE, IN_MOVED_TO, IN_DELETE, IN_MOVED_FROM = 0x8, 0x80, 0x200, 0x40
+    def __init__(self, d):
+        import ctypes, ctypes.util
+        self.libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        self.fd = self.libc.inotify_init1(0o2000000)                      # IN_CLOEXEC; reads block (their own thread)
+        if self.fd < 0: raise OSError(ctypes.get_errno(), "inotify_init1")
+        mask = self.IN_CLOSE_WRITE | self.IN_MOVED_TO | self.IN_DELETE | self.IN_MOVED_FROM
+        if self.libc.inotify_add_watch(self.fd, d.encode(), mask) < 0:
+            raise OSError(ctypes.get_errno(), "inotify_add_watch " + d)
+    def read(self):
+        import struct
+        data = os.read(self.fd, 65536); names = []; i = 0
+        while i + 16 <= len(data):
+            wd, mask, cookie, ln = struct.unpack_from("iIII", data, i)
+            names.append(data[i + 16:i + 16 + ln].rstrip(b"\0").decode(errors="replace")); i += 16 + ln
+        return sorted(set(n for n in names if n))
+
+
+def exposed(wg_port):
+    """[NOTHING_LISTENS_OUTSIDE_V1] at start, every listening socket on this machine bound anywhere but loopback or the
+    region's tunnel address: each is something the Internet can find. Said loudly, once; nothing is changed. The hub's
+    own WireGuard port is expected (WireGuard answers nothing to a packet from a key it does not hold)."""
+    out = subprocess.run(["ss", "-H", "-lntup"], capture_output=True, text=True).stdout
+    bad = []
+    for ln in out.splitlines():
+        f = ln.split()
+        if len(f) < 5: continue
+        local = f[4]; host = local.rsplit(":", 1)[0].strip("[]").split("%")[0]
+        if host.startswith("127.") or host in ("::1", HUB_ADDR) or host.startswith("10.253."): continue
+        proc = f[6] if len(f) > 6 else ""
+        if f[0] == "udp" and local.rsplit(":", 1)[1] == str(wg_port): continue      # the hub's own WireGuard port
+        bad.append("%s %s %s" % (f[0], local, proc))
+    if not bad:
+        log("[NOTHING_LISTENS_OUTSIDE_V1] nothing listens here outside loopback and the region's tunnel (and its udp port)")
+        return
+    log("#" * 100)
+    log("# WARNING [NOTHING_LISTENS_OUTSIDE_V1] %d socket(s) on this machine can be found from the Internet:" % len(bad))
+    for b in bad: log("#   %s" % b)
+    log("# the region is invisible only if nothing but the hub's WireGuard port answers: bind these to 127.0.0.1 or")
+    log("# %s, or stop them" % HUB_ADDR)
+    log("#" * 100)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--area", required=True, help="the region's name (the LISP site that signs mappings)")
@@ -265,15 +345,26 @@ def main():
     ap.add_argument("--name", default=os.uname().nodename, help="this hub's name in locator sets")
     ap.add_argument("--subnet", default="", help="the hub machine's own FrogNet /24 (a hub that is also a node): members route it via the hub")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--admitted", default=ADMITTED_DIR, help="the invited members (fdf-invite writes one file each)")
+    ap.add_argument("--iface-only", action="store_true",
+                    help="[RAM_IN_THE_TUNNEL_V1] make the region's interface (key, port, the hub address) and exit: run "
+                         "before the RAM manager, which listens on the hub address and nowhere else")
     a = ap.parse_args()
     ram = os.environ.get("RINA_RAM"); fdf_bin = os.environ.get("FDF_BIN", "/opt/fdf/bin")
-    if not ram: sys.exit("fdf-hub: RINA_RAM=host:port is not set")
+    if not ram and not a.iface_only: sys.exit("fdf-hub: RINA_RAM=host:port is not set")
     iface = a.iface or ("wg-" + a.area.replace(".", "-"))
     k = FakeKernel() if a.dry_run else RealKernel(iface, False)      # --dry-run: the oracle's kernel, every command logged
     if not os.path.exists(a.key) and not a.dry_run:
         os.makedirs(os.path.dirname(a.key), exist_ok=True)
-        open(a.key, "w").write(subprocess.run(["wg", "genkey"], capture_output=True, text=True).stdout); os.chmod(a.key, 0o600)
+        old = os.umask(0o077)
+        try: open(a.key, "w").write(subprocess.run(["wg", "genkey"], capture_output=True, text=True).stdout)
+        finally: os.umask(old)
+        os.chmod(a.key, 0o600)
     k.ensure_iface(a.key, a.listen)
+    if a.iface_only:
+        log("%s ready (hub address %s/%d, udp %d); nothing else listens" % (iface, HUB_ADDR, HUB_MASK, a.listen)); return
+    os.makedirs(a.admitted, exist_ok=True)
+    exposed(a.listen)
     pub = k.pubkey(a.key) if not a.dry_run else "DRYRUNPUB"
     facts = {"role": "hub", "name": a.name, "pubkey": pub, "endpoint": a.endpoint, "addr": HUB_ADDR, "area": a.area}
     if a.subnet: facts["subnet"] = str(ipaddress.ip_network(a.subnet, strict=False))
@@ -293,7 +384,9 @@ def main():
     seen_notes = set()
     def once(why):
         parts, maps = region.world(a.area)                 # [WORLD_IN_ONE_READ_V1]
-        want, owner, notes = desired(parts, maps, a.name)
+        admitted, anotes = read_admitted(a.admitted)
+        want, owner, notes = desired(parts, maps, a.name, admitted)
+        notes = anotes + notes
         for n in notes:
             if n not in seen_notes: log(n); seen_notes.add(n)
         for n in list(seen_notes):
@@ -316,14 +409,30 @@ def main():
         once("start (adopt)")
     except Exception as e:
         log("cannot read the region: %s" % e); log("is RINA_RAM in /opt/fdf/hub/hub.env the region's RAM manager (build fdf-2026-10-09-r16 or later)?"); sys.exit(1)
-    for line in ev.stdout:
-        line = line.strip()
-        if line == "ready": continue
-        if line == "gone": break
+    # [ADMITTED_BY_INVITE_V1] two sources of change, both pushed: the region's (fdf-events, one line per change) and an
+    # invitation (inotify on the admitted directory). One queue, one consumer; nothing is polled.
+    import queue, threading
+    q = queue.Queue()
+    ino = Inotify(a.admitted)
+    def _events():
+        for line in ev.stdout: q.put(("ev", line.strip()))
+        q.put(("ev", "gone"))
+    def _admitted():
+        while True: q.put(("admitted", ino.read()))
+    threading.Thread(target=_events, daemon=True).start()
+    threading.Thread(target=_admitted, daemon=True).start()
+    while True:
+        kind, what = q.get()
+        if kind == "admitted":
+            try: once("admitted " + ",".join(what))
+            except Exception as e: log("admitted %s: %s (kernel left as it is)" % (what, e))
+            continue
+        if what == "ready": continue
+        if what == "gone": break
         try:
-            once("event " + line)
+            once("event " + what)
         except Exception as e:
-            log("event %s: %s (kernel left as it is)" % (line, e))
+            log("event %s: %s (kernel left as it is)" % (what, e))
     log("the region is gone (fdf-events ended); leaving the kernel as it is"); sys.exit(1)
 
 if __name__ == "__main__": main()

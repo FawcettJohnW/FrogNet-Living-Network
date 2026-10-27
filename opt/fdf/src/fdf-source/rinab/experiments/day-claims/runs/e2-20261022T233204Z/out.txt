@@ -1,0 +1,41 @@
+E2  scenario 14 (chain n=6 sym seed 13) step 2: participants did not all reach the reference tree within 2 s
+E2  scenario 14 (chain n=6 sym seed 13) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 14 (chain n=6 sym seed 13) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 14 (chain n=6 sym seed 13) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 15 (chain n=6 sym seed 14) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 15 (chain n=6 sym seed 14) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 18 (chain n=10 sym seed 17) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 18 (chain n=10 sym seed 17) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 18 (chain n=10 sym seed 17) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 23 (chain n=7 asym seed 2) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 36 (chain n=6 asym seed 15) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 36 (chain n=6 asym seed 15) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 47 (star n=4 sym seed 6) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 47 (star n=4 sym seed 6) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 47 (star n=4 sym seed 6) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 67 (star n=4 asym seed 6) step 2: participants did not all reach the reference tree within 2 s
+E2  scenario 67 (star n=4 asym seed 6) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 67 (star n=4 asym seed 6) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 67 (star n=4 asym seed 6) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 82 (ring n=4 sym seed 1) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 82 (ring n=4 sym seed 1) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 94 (ring n=4 sym seed 13) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 94 (ring n=4 sym seed 13) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 111 (ring n=5 asym seed 10) step 2: participants did not all reach the reference tree within 2 s
+E2  scenario 111 (ring n=5 asym seed 10) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 111 (ring n=5 asym seed 10) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 111 (ring n=5 asym seed 10) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 119 (ring n=7 asym seed 18) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 126 (branch n=6 sym seed 5) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 126 (branch n=6 sym seed 5) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 126 (branch n=6 sym seed 5) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 132 (branch n=5 sym seed 11) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 132 (branch n=5 sym seed 11) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 132 (branch n=5 sym seed 11) step 5: participants did not all reach the reference tree within 2 s
+E2  scenario 137 (branch n=9 sym seed 16) step 3: participants did not all reach the reference tree within 2 s
+E2  scenario 137 (branch n=9 sym seed 16) step 4: participants did not all reach the reference tree within 2 s
+E2  scenario 137 (branch n=9 sym seed 16) step 5: participants did not all reach the reference tree within 2 s
+E2  160 scenarios, 960 steps: every participant's trees equal the reference      FAIL  923 of 960
+E2  convergence after a change (all participants): p50 5.46 ms p99 19.45 ms max 36.03 ms (n=763); 37 timeouts
+E2  wire: 4710 bytes per change, all participants' sessions together (800 changes)
+E2  RESULT FAIL

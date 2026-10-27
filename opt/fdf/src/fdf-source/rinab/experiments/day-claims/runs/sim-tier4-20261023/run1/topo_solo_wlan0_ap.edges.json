@@ -1,0 +1,8 @@
+{
+"Farm/wlan0->Sensor-A": 0.006,
+"Farm/wlan0->Sensor-B": 0.017,
+"Sensor-A/wlan0->Farm": 0.006,
+"Sensor-A/wlan0->Sensor-B": 0.007,
+"Sensor-B/wlan0->Farm": 0.009,
+"Sensor-B/wlan0->Sensor-A": 0.013
+}

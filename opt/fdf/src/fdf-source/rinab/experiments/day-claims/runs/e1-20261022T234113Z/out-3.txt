@@ -1,0 +1,15 @@
+E1 whatevercast selection: host 127.0.0.1:52481, DAF e1-s3-15953#1, seed 3, 300 events
+E1  names defined: svc (one), topo (all), lead (designated)                        ok
+E1  initial state: every rule matches the oracle                                   ok
+E1  serial changes: every rule matches the oracle after every change (300 changes x 7 rules) ok  0 mismatches in 0 events
+E1  a killed member leaves the name (seen by a held read)                          ok  25 kills, lag 1.451..2.805 ms
+E1  held read on svc: a wake at or past every change's rev                         ok  246 wakes for 300 changes, missed 0
+E1  held read on svc: the answer after the last wake is the current one            ok  m09 vs m09
+E1  designation changed: resolution follows it at once                             ok  m00
+E1  designation changed: a held read on the name wakes                             ok  woke
+E1  concurrent writers: final state matches the last write of every member (no lost operation) ok  12046 writes, 5791 resolves in 3 s
+E1  concurrent readers: every selected member satisfies the rule on the facts returned with it ok  0 violations
+E1  session setup (3 sockets + HELLOs): p50 1.04 ms max 51.96 ms; 7 of 34 over 10 ms
+E1  speed: resolve p50 0.312 ms p99 0.677 ms (n=1812); bytes/resolve out 75 in 122; change->wake p50 0.32 ms p99 2.60 ms (n=167); depart p50 2.2 ms
+E1  no resolve was refused                                                         ok  0 refused
+E1  RESULT PASS (11 of 11 checks)

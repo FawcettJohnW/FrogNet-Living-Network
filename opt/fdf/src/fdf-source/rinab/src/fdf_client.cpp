@@ -14,6 +14,9 @@
 //             (RINA_SITE_KEY) under the site RINA_AREA. Changed -> re-registered; dropped from the file -> withdrawn.
 #include "frogram.hpp"
 #include "fdf_version.hpp"
+#include "fdf_crash.hpp"
+#include <cerrno>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -266,6 +269,7 @@ static frogram::Json announce(frogram::Session& s, const std::string& api, const
 }
 
 int main(int argc, char** argv) {
+    fdf_crash::install("fdf-client");                                             // [FDF_CRASH_HANDLER_V1] self-report a fatal signal
     const char* e = getenv("RINA_RAM"); const std::string where = argc > 1 ? argv[1] : (e ? e : "");
     const size_t c = where.rfind(':');
     if (where.empty() || c == std::string::npos) { fprintf(stderr, "usage: fdf-client <ram-server>:<port>   (or set RINA_RAM)\n"); return 2; }
@@ -300,8 +304,9 @@ int main(int argc, char** argv) {
         // [JOIN_REFUSED_WAITS_V1] a refused announcement (EEXIST: my served /24 is a live member's, PLAN-RAM-DISCOVERY §4)
         // is said at ERROR with the holder's name, and this process WAITS for the region to change (a member left or
         // re-announced) before trying again -- not exit 1 and a systemd restart every 2 s against the RAM manager.
+        std::string announced;                                  // [FACTS_BASELINE_IS_WHAT_WAS_ANNOUNCED_V1]
         for (unsigned long long jat = 0;;) {
-            const std::string facts = read_facts();
+            const std::string facts = read_facts(); announced = facts;
             const std::string body = s.call_text("POST", api + "?op=rina", "{\"op\":\"announce\",\"ns\":" + frogram::Json::quote(ns) + ",\"name\":" + frogram::Json::quote(name) +
                   ",\"ips\":" + ipv4s() + ",\"cap\":" + frogram::Json::quote(capability()) + (facts.empty() ? "" : ",\"facts\":" + frogram::Json::quote(facts)) + "}");
             frogram::Json a; try { a = frogram::Json::parse(body); } catch (...) { fprintf(stderr, "fdf-client: unreadable answer to the announcement: %s\n", body.substr(0, 200).c_str()); return 1; }
@@ -331,19 +336,31 @@ int main(int argc, char** argv) {
         std::map<std::string, std::string> have_maps; sync_maps(s, api, have_maps);       // [MAP_FROM_FACTS_V1]
         // [IPCP_FACTS_V1] re-announce when the facts file changes. Watch the DIRECTORY (editors and `mv` replace the file,
         // which would orphan a watch on the inode); react to our file's name only. Held in the kernel; nothing polls.
-        std::thread([&s, api, ns, name, &have_maps] {
+        std::thread([&s, api, ns, name, &have_maps, announced] {
             const std::string path = facts_path(), dir = path.substr(0, path.rfind('/')), base = path.substr(path.rfind('/') + 1);
-            int ifd = inotify_init1(IN_CLOEXEC); if (ifd < 0) return;
-            if (inotify_add_watch(ifd, dir.empty() ? "." : dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE) < 0) { close(ifd); return; }
+            // [WATCH_FAILURE_SAYS_SO_V1] without this watch the node stays in the region and never re-announces a changed
+            // fact: a member that looks alive and is wrong. Say so, with the reason and the limit to raise.
+            int ifd = inotify_init1(IN_CLOEXEC);
+            if (ifd < 0) { fprintf(stderr, "fdf-client: FACTS WATCH FAILED: inotify_init1: %s%s -- %s's facts will NOT be re-announced when they change\n",
+                                   strerror(errno), errno == EMFILE ? " (fs.inotify.max_user_instances reached)" : "", name.c_str()); fflush(stderr); return; }
+            if (inotify_add_watch(ifd, dir.empty() ? "." : dir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE) < 0) {
+                fprintf(stderr, "fdf-client: FACTS WATCH FAILED: inotify_add_watch %s: %s%s -- %s's facts will NOT be re-announced when they change\n",
+                        dir.c_str(), strerror(errno), errno == ENOSPC ? " (fs.inotify.max_user_watches reached)" : "", name.c_str()); fflush(stderr); close(ifd); return; }
             { const std::string fp = forward_path(), fdir = fp.substr(0, fp.rfind('/'));          // [FORWARD_IS_A_FACT_V1]
               if (fdir != dir) inotify_add_watch(ifd, fdir.empty() ? "." : fdir.c_str(), IN_CLOSE_WRITE | IN_MOVED_TO | IN_CREATE | IN_DELETE); }
-            char buf[4096]; std::string last = read_facts(); int was_fwd = is_forward() ? 1 : 0;   // [FORWARD_IS_A_FACT_V1]
-            for (;;) {
-                ssize_t n = read(ifd, buf, sizeof buf); if (n <= 0) return;
-                bool mine = false;
-                const std::string fwd = forward_path().substr(forward_path().rfind('/') + 1);   // [FORWARD_IS_A_FACT_V1]
-                for (ssize_t off = 0; off < n;) { auto* e = reinterpret_cast<inotify_event*>(buf + off); if (e->len && (base == e->name || fwd == e->name)) mine = true; off += sizeof(inotify_event) + e->len; }
-                if (!mine) continue;
+            // [FACTS_BASELINE_IS_WHAT_WAS_ANNOUNCED_V1] the baseline is the text the join announced, not the file re-read
+            // here: a write landing between the announcement and this watch was in the file when it was re-read, so every
+            // later event compared equal and the region kept the join's facts for good (netns-scale-test, S=200 E=10:
+            // child c95 announced its starting file, fdf-facts wrote its three rows ~ms later, never re-announced). And
+            // the first pass runs before any event: that same write raised none this watch could see.
+            char buf[4096]; std::string last = announced; int was_fwd = is_forward() ? 1 : 0;   // [FORWARD_IS_A_FACT_V1]
+            for (bool first = true;; first = false) {
+                if (!first) {
+                    ssize_t n = read(ifd, buf, sizeof buf); if (n <= 0) return;
+                    bool mine = false;
+                    const std::string fwd = forward_path().substr(forward_path().rfind('/') + 1);   // [FORWARD_IS_A_FACT_V1]
+                    for (ssize_t off = 0; off < n;) { auto* e = reinterpret_cast<inotify_event*>(buf + off); if (e->len && (base == e->name || fwd == e->name)) mine = true; off += sizeof(inotify_event) + e->len; }
+                    if (!mine) continue; }
                 const std::string now = read_facts(); if (now == last) continue; last = now;
                 { const int f = is_forward() ? 1 : 0;                                              // [FORWARD_IS_A_FACT_V1]
                   if (was_fwd != f) { printf("fdf-client: %s is now %s\n", getenv("RINA_AREA") ? getenv("RINA_AREA") : "?", f ? "FORWARD: announcing this machine's facts and mappings" : "a PARTICIPANT: presence and shared memory, nothing routed"); fflush(stdout); }

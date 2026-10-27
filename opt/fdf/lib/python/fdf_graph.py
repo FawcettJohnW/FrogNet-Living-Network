@@ -23,7 +23,7 @@ import ipaddress
 from collections import deque
 from typing import Dict, List, Optional, Set, Tuple
 
-BUILD_TAG = "fdf-2026-10-12-r20"
+BUILD_TAG = "fdf-2026-10-25-r31"
 
 OVERLAY_SECOND_OCTETS = ("253", "254")      # 10.253/16 region edges, 10.254 the frognet0 pond range: never a served /24
 

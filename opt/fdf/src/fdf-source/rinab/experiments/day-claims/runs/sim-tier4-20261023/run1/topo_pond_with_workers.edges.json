@@ -1,0 +1,14 @@
+{
+"Seattle/eth0->Seattle-W1": 0.021,
+"Seattle/wg0->NewYork": 70.958,
+"Seattle/wg1->Austin": 40.858,
+"NewYork/eth0->NewYork-W1": 0.02,
+"NewYork/wg0->Seattle": 70.78,
+"NewYork/wg1->Austin": 50.799,
+"Austin/eth0->Austin-W1": 0.019,
+"Austin/wg0->Seattle": 40.805,
+"Austin/wg1->NewYork": 51.05,
+"Seattle-W1/eth0->Seattle": 0.018,
+"NewYork-W1/eth0->NewYork": 0.018,
+"Austin-W1/eth0->Austin": 0.016
+}

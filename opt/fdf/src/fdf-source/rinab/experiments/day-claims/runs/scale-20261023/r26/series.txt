@@ -1,0 +1,26 @@
+[E=1] RESULT cold S=200 E=1 last_ms=13912 ready=1/1 p50_ms=13912
+[E=1] RESULT reach S=200 E=1 ok=10/10
+[E=1] RESULT size S=200 E=1 participants_bytes=164157 mappings_bytes=16516 bed_rss_mb=5340
+[E=1] RESULT event S=200 E=1 changes=4 samples=4 to_last_daemon_p50_ms=220 max_ms=274 per_daemon_p50_ms=220 daemon_world=8 bringup=17 apply=99 publish=2 total=124
+[E=1] RESULT PASS
+[E=2] RESULT cold S=200 E=2 last_ms=15111 ready=2/2 p50_ms=14987
+[E=2] RESULT reach S=200 E=2 ok=10/10
+[E=2] RESULT size S=200 E=2 participants_bytes=164299 mappings_bytes=16516 bed_rss_mb=5410
+[E=2] RESULT event S=200 E=2 changes=4 samples=8 to_last_daemon_p50_ms=270 max_ms=309 per_daemon_p50_ms=243 daemon_world=13 bringup=23 apply=109 publish=1 total=159
+[E=2] RESULT PASS
+[E=5] RESULT cold S=200 E=5 last_ms=21795 ready=4/5 p50_ms=21119
+[E=5] RESULT reach S=200 E=5 ok=10/10
+[E=5] RESULT size S=200 E=5 participants_bytes=165058 mappings_bytes=16433 bed_rss_mb=5640
+[E=5] RESULT event S=200 E=5 changes=4 samples=20 to_last_daemon_p50_ms=342 max_ms=353 per_daemon_p50_ms=278 daemon_world=21 bringup=37 apply=119 publish=1 total=193
+[E=5] RESULT FAIL: 1
+[E=5] RESULT cold S=200 E=5 last_ms=21404 ready=5/5 p50_ms=20970
+[E=5] RESULT reach S=200 E=5 ok=10/10
+[E=5] RESULT size S=200 E=5 participants_bytes=165511 mappings_bytes=16516 bed_rss_mb=5603
+[E=5] RESULT event S=200 E=5 changes=4 samples=20 to_last_daemon_p50_ms=341 max_ms=401 per_daemon_p50_ms=291 daemon_world=21 bringup=43 apply=117 publish=3 total=201
+[E=5] RESULT PASS
+[E=10] --- [DIAG-SCALE-MISS] 10.20.95.0/24 (child c95): e5 routes it: 10.20.95.0/24 dev wg0 scope link src 10.20.5.1 metric 22  
+[E=10] RESULT cold S=200 E=10 last_ms=36083 ready=8/10 p50_ms=33895
+[E=10] RESULT reach S=200 E=10 ok=10/10
+[E=10] RESULT size S=200 E=10 participants_bytes=167033 mappings_bytes=16351 bed_rss_mb=5975
+[E=10] RESULT event S=200 E=10 changes=4 samples=40 to_last_daemon_p50_ms=439 max_ms=973 per_daemon_p50_ms=381 daemon_world=42 bringup=74 apply=171 publish=1 total=291
+[E=10] RESULT FAIL: 1

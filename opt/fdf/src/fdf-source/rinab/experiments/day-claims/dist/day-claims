@@ -1,0 +1,100 @@
+#!/bin/bash
+# day-claims -- [DAY_CLAIMS_DIST_V1] John Day's claims tested on FrogNet shared RAM, across machines. Installed at
+# /opt/fdf/experiments/day-claims; touches nothing else (its own RAM host, its own port, its own files).
+#
+#   day-claims                      [DAY_CLAIMS_ALL_V1] everything, from this machine: starts its own RAM host and one
+#                                   agent here, runs E2, then experiment S. Other machines join E2 at any
+#                                   step with: day-claims agent THIS-MACHINE. Ends with both evidence directories.
+#   day-claims host [PORT]          one machine: the experiment's own RAM host (port 52500 unless given). Starts on an
+#                                   empty memory every time. Leave it running; Ctrl-C ends it.
+#   day-claims agent HOST[:PORT] [NAME]   every machine that runs participants (the host machine may run one too). It
+#                                   advertises itself as a-NAME (default: this machine's 10.x address) and waits on the
+#                                   controller's plan; a second agent on one machine needs its own NAME. Ctrl-C ends it.
+#   day-claims e2 HOST[:PORT]       one machine: the controller. Runs E2 (160 graphs x 6 steps, references shipped) over
+#                                   whichever agents have advertised -- nobody says how many. An agent that arrives is
+#                                   given nodes at the next step; one that leaves has its nodes moved at once. Evidence:
+#                                   /opt/fdf/experiments/day-claims/runs/e2-<UTC time>/.
+#   day-claims scale [S] [E ...]    one machine: experiment S in the simulator's TIER 3 -- S subnets (default 200) across
+#                                   E egress points (default 1 2 5 10 20 50 100), FD&F discovery from memory (a real
+#                                   rina-host, an fdf-client per node, fdf_graph); the complete verification plan per E.
+#                                   Evidence: runs/scale-<UTC>/ here.
+#   day-claims layered-agent HOST[:PORT] [NAME]   [S4_DIST_V1] (root) every machine of the layered run: real IS-IS
+#                                   (FRR isisd + zebra per namespace) builds the routes, shared RAM runs above them.
+#                                   Advertises itself to the control host and does the steps the controller writes.
+#   day-claims layered HOST[:PORT] --machines N [--profile tuned|default] [--S 20] [--E 2] [--ring]
+#                                   one machine: the controller. Holds a read until N agents are there, builds the bed
+#                                   over them (hub links between machines are VXLAN), measures IS-IS and the region
+#                                   through cold start, steady state, reroute (--ring), partition and heal.
+#                                   Evidence: runs/s4-dist-*.json here. HOST is a `day-claims host`.
+#   day-claims version              the build every binary here is.
+#
+# Nothing connects the machines but the host's shared memory: agents advertise in it, take their work from the
+# controller's plan through a held read, and publish what they compute in it.
+set -u
+H=/opt/fdf/experiments/day-claims
+case $(uname -m) in
+  x86_64)  B=$H/bin/x86_64 ;;
+  aarch64) B=$H/bin/aarch64 ;;
+  *) echo "day-claims: no build here for $(uname -m)" >&2; exit 2 ;;
+esac
+API=/FawcettInnovations.RINA.ram_interface.php
+where() { case "$1" in *:*) echo "$1" ;; *) echo "$1:52500" ;; esac; }
+case "${1:-all}" in
+  all)
+    # [ALL_CLEANS_FIRST_V1] a killed S run's namespaces and ~400 processes would share the machine with E2: removed first
+    [ "$(id -u)" = 0 ] && [ -x "$H/scale/scale-series" ] && "$H/scale/scale-series" clean
+    P=52500; mkdir -p "$H/var/blob"; rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"
+    echo "day-claims: $(cat "$H/BUILD" | tr '\n' ' ')"
+    OUT=$H/runs/e2-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"
+    # [ALL_HOST_LOG_V1] the host's every line goes to the evidence; its per-session up/down lines stay off the terminal
+    exec 4> >(tee "$OUT/host.log" | grep --line-buffered -vE 'session (up|down)|data socket up' >&2)
+    FROGNET_BLOB_ROOT=$H/var/blob RINA_REGION_FILE=$H/var/region-$P.perm "$B/rina-host" --listen "0.0.0.0:$P" --api "$API" >&4 2>&4 & HP=$!
+    for i in $(seq 200); do (exec 3<>/dev/tcp/127.0.0.1/$P) 2>/dev/null && break
+      kill -0 $HP 2>/dev/null || { echo "day-claims: the RAM host did not start" >&2; exit 1; }; sleep 0.05; done
+    "$B/e2-dist" agent "127.0.0.1:$P" local & AP=$!
+    trap 'kill $AP $HP 2>/dev/null; wait $AP $HP 2>/dev/null' EXIT
+    cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
+    echo "E2: other machines may join at any step with: day-claims agent $(hostname -I 2>/dev/null | awk '{print $1}')"
+    "$B/e2-dist" driver "127.0.0.1:$P" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
+    # [DIAG-E2-HOST] E2 failed: the RAM host's state before it is stopped -- fds, threads by state and kernel wait
+    # channel, and (gdb present) every thread's stack in $OUT/host-stacks.txt
+    if [ $rc != 0 ] && kill -0 $HP 2>/dev/null; then
+      echo "[DIAG-E2-HOST] pid $HP state $(awk '{print $3}' /proc/$HP/stat) cpu_ms $(awk -v t=$(getconf CLK_TCK) '{print int(($14+$15)*1000/t)}' /proc/$HP/stat) rss_kb $(awk '/VmRSS/{print $2}' /proc/$HP/status) threads $(ls /proc/$HP/task | wc -l) fds $(ls /proc/$HP/fd | wc -l)"
+      echo "[DIAG-E2-HOST] threads by state/wchan: $(for t in /proc/$HP/task/*; do echo "$(awk '{print $3}' $t/stat)/$(cat $t/wchan 2>/dev/null)"; done | sort | uniq -c | sort -rn | tr -s ' ' | tr '\n' ';')"
+      if command -v gdb > /dev/null; then gdb -p $HP -batch -ex "thread apply all bt 40" > "$OUT/host-stacks.txt" 2>&1
+        echo "[DIAG-E2-HOST] stacks in $OUT/host-stacks.txt; frames that are not waiting, by count:"
+        grep -E "^#[0-9]+ " "$OUT/host-stacks.txt" | sed -E 's/^#[0-9]+ +(0x[0-9a-f]+ in )?//; s/ \(.*//' | grep -vE "^(\?\?|syscall|__futex|futex|__GI_|___pthread|__pthread|pthread_|start_thread|clone|thread_start|std::thread|epoll|poll|read|recv|__libc|nanosleep|clock_nanosleep|execute_native)" | sort | uniq -c | sort -rn | head -20 | sed 's/^/    /'
+      else echo "[DIAG-E2-HOST] gdb not installed (apt install gdb): kernel stacks only"; cat /proc/$HP/task/*/stack 2>/dev/null | sort | uniq -c | sort -rn | head -10 | sed 's/^/    /'; fi
+      echo "[DIAG-E2-HOST] last host lines (all: $OUT/host.log):"; grep -vE 'session (up|down)|data socket up' "$OUT/host.log" | tail -8 | cut -c1-300 | sed 's/^/    /'; fi
+    kill $AP $HP 2>/dev/null; wait $AP $HP 2>/dev/null; exec 4>&-; trap - EXIT   # [ALL_WAITS_ON_ITS_OWN_V1] a bare wait also waits on the host-log tee, which never ends
+    echo "E2 evidence: $OUT"
+    "$H/scale/scale-series"; rs=$?
+    echo "E2 evidence: $OUT"; [ $rc = 0 ] && exit $rs; exit $rc ;;
+  help|-h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//' ;;
+  host)
+    P=${2:-52500}; mkdir -p "$H/var/blob"
+    rm -f "$H/var/region-$P.perm" "$H/var/region-$P.perm.daf"          # every run starts on an empty memory
+    echo "day-claims host: $(cat "$H/BUILD" | tr '\n' ' ')port $P"
+    FROGNET_BLOB_ROOT=$H/var/blob RINA_REGION_FILE=$H/var/region-$P.perm exec "$B/rina-host" --listen "0.0.0.0:$P" --api "$API" ;;
+  agent)
+    [ $# -ge 2 ] || { echo "usage: day-claims agent HOST[:PORT] [NAME]" >&2; exit 2; }
+    exec "$B/e2-dist" agent "$(where "$2")" ${3:+"$3"} ;;
+  e2)
+    [ $# -ge 2 ] || { echo "usage: day-claims e2 HOST[:PORT]" >&2; exit 2; }
+    OUT=$H/runs/e2-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"; cp "$H/BUILD" "$OUT/BUILD"; uname -a > "$OUT/controller.txt"
+    echo "evidence: $OUT"
+    "$B/e2-dist" driver "$(where "$2")" "$H/scenarios/e2.jsonl" "$OUT"; rc=$?
+    echo "evidence: $OUT"; exit $rc ;;
+  scale)
+    shift; exec "$H/scale/scale-series" "$@" ;;
+  layered-agent)
+    [ $# -ge 2 ] || { echo "usage: day-claims layered-agent HOST[:PORT] [NAME]" >&2; exit 2; }
+    [ "$(id -u)" = 0 ] || { echo "day-claims layered-agent: needs root (it builds network namespaces)" >&2; exit 2; }
+    for t in ip nft python3 bash; do command -v $t > /dev/null || { echo "day-claims layered-agent: \`$t\` is not installed" >&2; exit 2; }; done
+    exec python3 "$H/s4/s4_dist.py" agent "$(where "$2")" ${3:+"$3"} ;;
+  layered)
+    [ $# -ge 2 ] || { echo "usage: day-claims layered HOST[:PORT] --machines N [options]" >&2; exit 2; }
+    h=$(where "$2"); shift 2; exec python3 "$H/s4/s4_dist.py" run "$h" "$@" ;;
+  version) cat "$H/BUILD"; for b in "$B"/*; do printf '%s: %s\n' "${b##*/}" "$(strings "$b" | grep -m1 -o 'fdf-[0-9-]*-r[0-9]*')"; done ;;
+  *) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

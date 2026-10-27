@@ -1,0 +1,60 @@
+rina-host: [REGION_FILE_V1] 0 Permanent record(s) restored from experiments/day-claims/runs/e1-20261022T231529Z/region-1.perm
+rina-host: [DAF_FILE_V1] 0 Permanent DAF record(s) restored from experiments/day-claims/runs/e1-20261022T231529Z/region-1.perm.daf ([DAF_MODEL_V1] [DAF_FROG_V1] op=daf, build fdf-2026-10-16-r21)
+[RAM-SERVER] 2026-10-22 16:15:35 ram-server v0.63-bounded: FNW1 and the memory, in one process, on 127.0.0.1:52307
+rina-host: [FDF_VERSION_V1] build fdf-2026-10-16-r21 listening on 127.0.0.1:52307
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no /opt/fdf/etc/net.json: reach none, map refused
+rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = {"area":"","reach":"none","map":"refused","hub":"10.253.253.254","edges":"10.253.0.0/16","leaves":"10.252.0.0/16","server":"fdf-2026-10-16-r21"}
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-47177cecdb6a09b4
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-47177cecdb6a09b4
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-3fb56d829e0d3e39
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-3fb56d829e0d3e39
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-85dd2041b603f325
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-85dd2041b603f325
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-d3b92e3489d5a113
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-d3b92e3489d5a113
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-e9d3a3d67d36ab9
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-e9d3a3d67d36ab9
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-7e217f0d8bbd8f64
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-7e217f0d8bbd8f64
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-b900cfda6f1df7ef
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-b900cfda6f1df7ef
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-6a5ac1a3367ec2d
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-6a5ac1a3367ec2d
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-964c00a03c7a449
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-964c00a03c7a449
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-429b025aecf17a2c
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-429b025aecf17a2c
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-f911b188fe0b0e0
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-f911b188fe0b0e0
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-30c8e9adeb0aade7
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-30c8e9adeb0aade7
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-184ba9a7c703720
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-184ba9a7c703720
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-3905014155f50ac4
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-3905014155f50ac4
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-f854a850819af37f
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-f854a850819af37f
+[RAM-SERVER] 2026-10-22 16:15:35 session up   127.0.0.1 frogram-cpp-8c45cc5c62f309a1
+[RAM-SERVER] 2026-10-22 16:15:35 data socket up 127.0.0.1 frogram-cpp-8c45cc5c62f309a1
+[RAM-SERVER] 2026-10-22 16:15:36 session down 127.0.0.1 frogram-cpp-8c45cc5c62f309a1 after 3 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:36 session up   127.0.0.1 frogram-cpp-715b3ed9ea97eadf
+[RAM-SERVER] 2026-10-22 16:15:36 session up   127.0.0.1 frogram-cpp-5979322681364322
+[RAM-SERVER] 2026-10-22 16:15:36 data socket up 127.0.0.1 frogram-cpp-715b3ed9ea97eadf
+[RAM-SERVER] 2026-10-22 16:15:36 data socket up 127.0.0.1 frogram-cpp-5979322681364322
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-5979322681364322 after 3580 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-715b3ed9ea97eadf after 2877 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-f854a850819af37f after 3478 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-3905014155f50ac4 after 97 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-184ba9a7c703720 after 1317 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-30c8e9adeb0aade7 after 1360 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-f911b188fe0b0e0 after 1068 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-429b025aecf17a2c after 1787 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-964c00a03c7a449 after 1315 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-6a5ac1a3367ec2d after 1359 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-b900cfda6f1df7ef after 1067 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-7e217f0d8bbd8f64 after 1786 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-e9d3a3d67d36ab9 after 1315 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-d3b92e3489d5a113 after 1359 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-3fb56d829e0d3e39 after 33 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-47177cecdb6a09b4 after 10 requests, 0 replies (0 B) on the data socket
+[RAM-SERVER] 2026-10-22 16:15:39 session down 127.0.0.1 frogram-cpp-85dd2041b603f325 after 1067 requests, 0 replies (0 B) on the data socket

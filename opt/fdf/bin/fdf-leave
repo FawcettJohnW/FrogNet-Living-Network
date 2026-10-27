@@ -24,8 +24,10 @@ rm -f /etc/systemd/system/fdf-client@.service
 systemctl daemon-reload
 V=/opt/fdf/var
 rm -rf "$V/ponds" "$V/attention"
-rm -f "$V/join.env" "$V/site.env" "$V/forward" "$V/forward.want" "$V/facts.json" "$V/facts.json.lock"
-echo "removed $V/join.env, site.env, ponds/, attention/, forward, forward.want, facts.json"
+rm -f "$V/join.env" "$V/site.env" "$V/hub.json" "$V/forward" "$V/forward.want" "$V/facts.json" "$V/facts.json.lock"
+echo "removed $V/join.env, site.env, hub.json (the invitation's hub), ponds/, attention/, forward, forward.want, facts.json"
+# [REGION_NEVER_ON_THE_UNDERLAY_V1] the region's addresses were unreachable except through the hub channel; no region now
+ip route del unreachable 10.253.0.0/16 metric 4253 2>/dev/null && echo "removed the unreachable route for 10.253.0.0/16"
 # [STORE_UNITS_OFF_IN_REGION_V1] off the region, the store is the election input again: back on what fdf-region-join
 # stopped, the post-merge elector (the merge watcher runs in both modes; the 60 s advertiser is gone from the tree).
 for u in frognet-dbhost-elect.timer; do

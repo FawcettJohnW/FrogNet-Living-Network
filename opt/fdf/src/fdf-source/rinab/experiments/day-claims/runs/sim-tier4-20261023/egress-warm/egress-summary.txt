@@ -1,0 +1,50 @@
+=== second egress point: BEARER=hub site legs [10.0, 35.0] 2026-10-23T06:23:56Z ===
+--- faster: A1 leg 5.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 81.0, A2/wg0->B1 91.1, B1/wg0->A2 91.0, B1/wg1->A1 81.2
+  [converged] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg1 A1 | RTT 80.845 ms (floor 80.0, lowest 80.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg1 A1 | RTT 80.617 ms (floor 80.0, lowest 80.0)
+      B2->A1: B2/eth1 B1/wg1 A1 | back A1/wg1 B1/eth1 B2 | RTT 80.615 ms (floor 80.0, lowest 80.0)
+      A2->B1: A2/eth1 A1/wg1 B1 | back B1/wg1 A1/eth1 A2 | RTT 80.826 ms (floor 80.0, lowest 80.0)
+  [cut A1/wg1] 3 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.867 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.793 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.523 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.537 ms (floor 90.0, lowest 90.0)
+  [restored] 2 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 91.002 ms (floor 90.0, lowest 80.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.677 ms (floor 90.0, lowest 80.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.63 ms (floor 90.0, lowest 80.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.587 ms (floor 90.0, lowest 80.0)
+--- under: A1 leg 30.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 130.9, A2/wg0->B1 90.9, B1/wg0->A2 90.8, B1/wg1->A1 131.0
+  [converged] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg0 A2/eth1 A1 | RTT 110.724 ms (floor 110.0, lowest 90.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 110.66 ms (floor 110.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/wg1 B1/eth1 B2 | RTT 110.651 ms (floor 110.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.658 ms (floor 90.0, lowest 90.0)
+  [cut A1/wg1] 2 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.804 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.862 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.66 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.682 ms (floor 90.0, lowest 90.0)
+  [restored] 2 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.686 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.96 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.609 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.795 ms (floor 90.0, lowest 90.0)
+--- over: A1 leg 120.0, A2 leg 10.0; measured tunnel RTTs A1/wg1->B1 310.8, A2/wg0->B1 91.1, B1/wg0->A2 90.9, B1/wg1->A1 311.1
+  [converged] 4 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.978 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.664 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.607 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 90.595 ms (floor 90.0, lowest 90.0)
+  [cut A2/wg0] 3 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/wg1 B1 | back B1/wg1 A1 | RTT 310.961 ms (floor 310.0, lowest 310.0)
+      A1->B3: A1/wg1 B1/eth1 B3 | back B3/eth1 B1/wg1 A1 | RTT 310.691 ms (floor 310.0, lowest 310.0)
+      B2->A1: B2/eth1 B1/wg1 A1 | back A1/wg1 B1/eth1 B2 | RTT 310.712 ms (floor 310.0, lowest 310.0)
+      A2->B1: A2/eth1 A1/wg1 B1 | back B1/wg1 A1/eth1 A2 | RTT 310.982 ms (floor 310.0, lowest 310.0)
+  [restored] 3 cycles; packets 20/20 pairs all answered; by name 20/20
+      A1->B1: A1/eth1 A2/wg0 B1 | back B1/wg0 A2/eth1 A1 | RTT 90.845 ms (floor 90.0, lowest 90.0)
+      A1->B3: A1/eth1 A2/wg0 B1/eth1 B3 | back B3/eth1 B1/wg0 A2/eth1 A1 | RTT 90.724 ms (floor 90.0, lowest 90.0)
+      B2->A1: B2/eth1 B1/wg0 A2/eth1 A1 | back A1/eth1 A2/wg0 B1/eth1 B2 | RTT 90.676 ms (floor 90.0, lowest 90.0)
+      A2->B1: A2/wg0 B1 | back B1/wg0 A2 | RTT 91.052 ms (floor 90.0, lowest 90.0)
+ALL PASS

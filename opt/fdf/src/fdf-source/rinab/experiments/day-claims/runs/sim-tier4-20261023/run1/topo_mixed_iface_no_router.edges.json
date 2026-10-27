@@ -1,0 +1,10 @@
+{
+"Barn/eth0->Barn-sensor": 0.027,
+"Barn/wlan1->Forest": 0.006,
+"Forest/wlan0->Forest-ranger": 0.023,
+"Forest/wlan1->Barn": 0.01,
+"Forest/ham0->Tower": 0.023,
+"Tower/ham0->Forest": 0.018,
+"Barn-sensor/eth0->Barn": 0.012,
+"Forest-ranger/wlan0->Forest": 0.017
+}

@@ -1,0 +1,50 @@
+=== S=200 subnets, E=100 egress points, 100 children; 2026-10-23T07:50:51Z
+PASS  hub up on 51820
+started 100 daemon nodes and 100 children in 635686 ms
+FAIL  cold: all 100 egress nodes route all 200 /24s and name all 200 (last at 0 ms; 100 not ready)
+--- not ready: e1 right/expected|first wrong: 0|199|10.20.101.0/24 via 10.20.1.20 dev l-e1|10.20.102.0/24 dev wg0|10.20.103.0/24 dev wg0 hosts 0
+    1792742775057 fdf-events: the session ended: 198.18.0.1:8840 connect failed
+    1792742775059 [frognet:frognet.tunnel-daemon] WARNING REGION: not reachable (fdf-events registered no watch (gone)); will keep trying every 5s, quietly
+    1792742780067 [frognet:frognet.tunnel-daemon] WARNING VIEW: phase=steady reason=rejoin:attempt gen=88
+    1792742780071 fdf-events: the session ended: 198.18.0.1:8840 connect failed
+    1792742780071 [frognet:frognet.tunnel-daemon] WARNING REGION: not reachable (fdf-events registered no watch (gone)); will keep trying every 5s, quietly
+--- [DIAG-SCALE-MISS] 10.20.101.0/24 (child c101): e1 routes it: 
+    c101/client.log:
+      [PRIMED_TEMPLATES_V1] 21 exemplars from /home/claude/fawcettjohnw/daf/opt/fdf/src/fdf-source/rinab/../fdf/templates/fdf.prime
+      fdf-client: build fdf-2026-10-23-r27; region at 198.18.0.1:8840 is build fdf-2026-10-23-r27
+      fdf-client: c101 joined the region at 198.18.0.1:8840, announced ["10.20.101.1","10.20.1.20"] with facts
+      fdf-client: facts changed, re-announced
+      fdf-client: attention read failed: the far end closed the connection -- ending this session for a fresh one
+    c101/facts.log:
+      fdf-facts: build fdf-2026-10-12-r20 facts=/tmp/claude-0/netns-scale-S200-E100/c101/facts.json leases=/tmp/claude-0/netns-scale-S200-E100/c101/leases uplink target=10.20.1.1
+      fdf-facts: wrote 3 rows {'held': 1, 'own': 1, 'uplink': 1} uplink=['uplink eth 10000'] -> /tmp/claude-0/netns-scale-S200-E100/c101/facts.json
+Traceback (most recent call last):
+  File "<string>", line 2, in <module>
+    P=json.load(sys.stdin)["participants"]; x=[p for p in P if p.get("name")==sys.argv[1]]
+      ~~~~~~~~~^^^^^^^^^^^
+  File "/usr/lib/python3.13/json/__init__.py", line 298, in load
+    return loads(fp.read(),
+        cls=cls, object_hook=object_hook,
+        parse_float=parse_float, parse_int=parse_int,
+        parse_constant=parse_constant, object_pairs_hook=object_pairs_hook, **kw)
+  File "/usr/lib/python3.13/json/__init__.py", line 352, in loads
+    return _default_decoder.decode(s)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^
+  File "/usr/lib/python3.13/json/decoder.py", line 345, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/json/decoder.py", line 363, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+    graph links=0
+    graph links=
+RESULT cold S=200 E=100 last_ms=0 ready=0/100 p50_ms=
+FAIL  reach: 0/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=100 ok=0/10
+RESULT size S=200 E=100 participants_bytes=0 mappings_bytes=0 bed_rss_mb=6641
+  change #1: 0/100 daemons applied
+  change #2: 0/100 daemons applied
+  change #3: 0/100 daemons applied
+  change #4: 0/100 daemons applied
+RESULT event S=200 E=100 none
+RESULT FAIL: 2

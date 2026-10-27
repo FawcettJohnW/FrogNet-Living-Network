@@ -1,0 +1,36 @@
+[E=1] RESULT cold S=200 E=1 last_ms=13871 ready=1/1 p50_ms=13871
+[E=1] RESULT reach S=200 E=1 ok=10/10
+[E=1] RESULT size S=200 E=1 participants_bytes=164156 mappings_bytes=16516 bed_rss_mb=5338
+[E=1] RESULT event S=200 E=1 changes=4 samples=4 to_last_daemon_p50_ms=211 max_ms=291 per_daemon_p50_ms=211 daemon_world=6 bringup=16 apply=101 publish=1 total=129
+[E=1] RESULT PASS
+[E=2] RESULT cold S=200 E=2 last_ms=14793 ready=2/2 p50_ms=14723
+[E=2] RESULT reach S=200 E=2 ok=10/10
+[E=2] RESULT size S=200 E=2 participants_bytes=164296 mappings_bytes=16516 bed_rss_mb=5409
+[E=2] RESULT event S=200 E=2 changes=4 samples=8 to_last_daemon_p50_ms=276 max_ms=336 per_daemon_p50_ms=240 daemon_world=11 bringup=25 apply=104 publish=1 total=145
+[E=2] RESULT PASS
+[E=5] RESULT cold S=200 E=5 last_ms=21317 ready=5/5 p50_ms=20761
+[E=5] RESULT reach S=200 E=5 ok=10/10
+[E=5] RESULT size S=200 E=5 participants_bytes=165524 mappings_bytes=16516 bed_rss_mb=5607
+[E=5] RESULT event S=200 E=5 changes=4 samples=20 to_last_daemon_p50_ms=348 max_ms=625 per_daemon_p50_ms=289 daemon_world=24 bringup=41 apply=139 publish=1 total=200
+[E=5] RESULT PASS
+[E=10] RESULT cold S=200 E=10 last_ms=36738 ready=10/10 p50_ms=34553
+[E=10] RESULT reach S=200 E=10 ok=10/10
+[E=10] RESULT size S=200 E=10 participants_bytes=167897 mappings_bytes=16516 bed_rss_mb=5949
+[E=10] RESULT event S=200 E=10 changes=4 samples=40 to_last_daemon_p50_ms=417 max_ms=688 per_daemon_p50_ms=397 daemon_world=31 bringup=72 apply=170 publish=1 total=302
+[E=10] RESULT PASS
+[E=20] RESULT cold S=200 E=20 last_ms=72986 ready=20/20 p50_ms=72406
+[E=20] RESULT reach S=200 E=20 ok=10/10
+[E=20] RESULT size S=200 E=20 participants_bytes=172865 mappings_bytes=16516 bed_rss_mb=6640
+[E=20] RESULT event S=200 E=20 changes=4 samples=80 to_last_daemon_p50_ms=697 max_ms=1679 per_daemon_p50_ms=592 daemon_world=64 bringup=119 apply=255 publish=1 total=487
+[E=20] RESULT PASS
+[E=50] RESULT cold S=200 E=50 last_ms=219095 ready=50/50 p50_ms=217467
+[E=50] RESULT reach S=200 E=50 ok=10/10
+[E=50] RESULT size S=200 E=50 participants_bytes=186701 mappings_bytes=16516 bed_rss_mb=8659
+[E=50] RESULT event S=200 E=50 changes=4 samples=200 to_last_daemon_p50_ms=1532 max_ms=2305 per_daemon_p50_ms=1261 daemon_world=180 bringup=311 apply=576 publish=1 total=1115
+[E=50] RESULT PASS
+[E=100] --- [DIAG-SCALE-MISS] 10.20.101.0/24 (child c101): e1 routes it: 
+[E=100] RESULT cold S=200 E=100 last_ms=0 ready=0/100 p50_ms=
+[E=100] RESULT reach S=200 E=100 ok=0/10
+[E=100] RESULT size S=200 E=100 participants_bytes=0 mappings_bytes=0 bed_rss_mb=6641
+[E=100] RESULT event S=200 E=100 none
+[E=100] RESULT FAIL: 2

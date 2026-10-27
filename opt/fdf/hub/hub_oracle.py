@@ -14,8 +14,25 @@ makes it fail. Exits nonzero on any failure.
 import importlib.util, os, sys
 spec = importlib.util.spec_from_loader("fdfhub", loader=None)
 src = open(os.path.join(os.path.dirname(__file__), "..", "bin", "fdf-hub")).read()   # the installed tree: /opt/fdf/hub -> /opt/fdf/bin
-hub = importlib.util.module_from_spec(spec); exec(compile(src, "fdf-hub", "exec"), hub.__dict__)
-desired, reconcile, FakeKernel = hub.desired, hub.reconcile, hub.FakeKernel
+HUB = importlib.util.module_from_spec(spec); exec(compile(src, "fdf-hub", "exec"), HUB.__dict__)
+reconcile, FakeKernel = HUB.reconcile, HUB.FakeKernel
+
+def admitted_of(parts):
+    """[ADMITTED_BY_INVITE_V1] the cases below were written before admission: every member in them was, in effect,
+    invited. Each gets the admitted record fdf-invite would have written (a node's edge = 10.253.A.B of its /24, as
+    those cases expect; a leaf's or reacher's = its /32)."""
+    out = {}
+    for p in parts:
+        f = p["facts"]
+        if not f.get("pubkey") or f.get("role") == "hub": continue
+        if f.get("role") == "node":
+            a, b = f["subnet"].split(".")[1:3]; out[f["pubkey"]] = {"name": f["name"], "pubkey": f["pubkey"], "edge": "10.253.%s.%s" % (a, b), "kind": "node"}
+        elif f.get("role") == "leaf" or (f.get("role") == "participant" and f.get("reach")):
+            out[f["pubkey"]] = {"name": f["name"], "pubkey": f["pubkey"], "edge": f["addr"].split("/")[0], "kind": "leaf"}
+    return out
+
+def desired(parts, maps, hub_name, admitted=None):
+    return HUB.desired(parts, maps, hub_name, admitted_of(parts) if admitted is None else admitted)
 
 fails = 0
 def check(ok, what):
@@ -32,7 +49,7 @@ def M(eid, *hubs): return {"eid": eid, "rloc": ",".join(h + ":1:50" for h in hub
 # 1 ownership by lowest id, not arrival order
 parts = [P(5, "late", "g-late", "10.9.9.0/24", "PUB-late"), P(2, "first", "g-first", "10.9.9.0/24", "PUB-first")]
 want, owner, notes = desired(parts, [M("10.9.9.0/24", "hubA")], "hubA")
-check(owner["10.9.9.0/24"] == "g-first" and "PUB-late" not in want, "1 second claimant refused, lowest id owns")
+check(owner["10.9.9.0/24"] == "g-first" and want["PUB-late"]["allowed"] == {"10.253.9.9/32"}, "1 second claimant refused (its peer carries only its edge), lowest id owns")
 check(any("REFUSED" in n and "g-late" in n and "g-first" in n for n in notes), "1 refusal logged with both guids")
 check(want["PUB-first"]["allowed"] == {"10.253.9.9/32", "10.9.9.0/24"}, "1 owner's allowed-ips = edge/32 + its /24")
 # control: with the late one alone it owns
@@ -70,12 +87,14 @@ k = FakeKernel(); reconcile(k, want)
 parts2 = [dict(parts[0], alive=False), parts[1]]
 want, owner, notes = desired(parts2, maps, "hubA")
 k.hs["PUB-a"] = 1000; n = reconcile(k, want, now=1010)
-check("PUB-a" not in k.peers() and "10.77.77.0/24" in k.peers()["PUB-b"]["allowed"] and k.routes()["10.77.77.0/24"] == "10.253.2.2", "5 leave: peer deleted now, transit passed to the next claimant, route moved")
+check(k.peers()["PUB-a"]["allowed"] == {"10.253.1.1/32"} and "10.77.77.0/24" in k.peers()["PUB-b"]["allowed"] and k.routes()["10.77.77.0/24"] == "10.253.2.2", "5 leave: an admitted peer keeps only its edge (the way back to the region); its /24 and transit go now, transit to the next claimant")
 want_back, _, _ = desired(parts[:2], maps, "hubA")
 k.log.clear(); reconcile(k, want_back, now=1100)
 check(k.peers()["PUB-a"]["allowed"] == {"10.253.1.1/32", "10.1.1.0/24", "10.77.77.0/24"}, "5 came back: a peer again, from the records now")
 want_gone, _, _ = desired(parts2, maps, "hubA"); reconcile(k, want_gone, now=1200)
-check("PUB-a" not in k.peers(), "5 gone again: deleted again, no parking, no timer")
+check(k.peers()["PUB-a"]["allowed"] == {"10.253.1.1/32"}, "5 gone again: edge only again, no parking, no timer")
+want_rev, _, _ = desired(parts2, maps, "hubA", {k2: v for k2, v in admitted_of(parts2).items() if k2 != "PUB-a"}); reconcile(k, want_rev, now=1300)
+check("PUB-a" not in k.peers(), "5r revoked (fdf-invite --revoke): the peer is deleted")
 
 # 6 adopt-on-start: stale peer removed, correct peer untouched
 k = FakeKernel(); k.p = {"PUB-b": {"10.253.2.2/32", "10.2.2.0/24", "10.77.77.0/24"}, "PUB-stale": {"10.253.5.5/32", "10.5.5.0/24"}}
@@ -127,5 +146,25 @@ check(want.get("PUB-n", {}).get("allowed") == {"10.252.0.3/32"} and want["PUB-n"
 q = P(1, "n", "g-n", None, "PUB-n", role="participant", addr="10.252.0.3/32")
 want, owner, notes = desired([q], [], "hubA")
 check("PUB-n" not in want, "9c control: a participant without reach is not peered")
+
+# 10 [ADMITTED_BY_INVITE_V1] admission is the peer; the session is not
+adm = {"PUB-x": {"name": "x", "pubkey": "PUB-x", "edge": "10.253.1.7", "kind": "node"}}
+want, owner, notes = desired([], [], "hubA", adm)
+check(want == {"PUB-x": {"edge": "10.253.1.7", "name": "x", "guid": "", "subnet": "", "allowed": {"10.253.1.7/32"}, "routes": {}}}, "10 invited, never spoken: a peer with its edge /32 and nothing else (it must reach the region through it)")
+x = P(1, "x", "g-x", "10.40.40.0/24", "PUB-x")
+want, owner, notes = desired([x], [M("10.40.40.0/24", "hubA")], "hubA", adm)
+check(want["PUB-x"]["allowed"] == {"10.253.1.7/32", "10.40.40.0/24"} and want["PUB-x"]["routes"] == {"10.40.40.0/24": "10.253.1.7"}, "10 joined: its /24 behind the edge the invitation gave (not one derived from the /24)")
+intruder = P(2, "evil", "g-evil", "10.41.41.0/24", "PUB-evil")
+want, owner, notes = desired([x, intruder], [M("10.40.40.0/24", "hubA"), M("10.41.41.0/24", "hubA")], "hubA", adm)
+check("PUB-evil" not in want and "10.41.41.0/24" not in owner and any("NOT ADMITTED: evil" in n for n in notes), "10 a member never invited: no peer, no /24, said")
+want, owner, notes = desired([x, intruder], [M("10.40.40.0/24", "hubA"), M("10.41.41.0/24", "hubA")], "hubA", dict(adm, **{"PUB-evil": {"name": "evil", "pubkey": "PUB-evil", "edge": "10.253.1.8"}}))
+check("10.41.41.0/24" in want["PUB-evil"]["allowed"], "10c control: invited, the same member gets its peer and /24")
+import tempfile, json as _j
+d = tempfile.mkdtemp()
+_j.dump({"name": "x", "pubkey": "PUB-x", "edge": "10.253.1.7"}, open(d + "/x.json", "w"))
+_j.dump({"name": "y", "pubkey": "PUB-x", "edge": "10.253.1.9"}, open(d + "/y.json", "w"))
+open(d + "/z.json", "w").write("{not json")
+got, n2 = HUB.read_admitted(d)
+check(list(got) == ["PUB-x"] and got["PUB-x"]["name"] == "x" and len(n2) == 2, "10 admitted dir: one record per key; a duplicate key and a broken file are ignored and said")
 
 print("RESULT " + ("FAIL: %d" % fails if fails else "PASS")); sys.exit(1 if fails else 0)

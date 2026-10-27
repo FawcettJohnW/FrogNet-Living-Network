@@ -4,7 +4,7 @@ Everything installs under /opt/fdf; nothing goes into /usr/local/bin. Run as roo
 nodes, phones and Windows PCs, and leave: `docs/OPERATING.md` in the FrogNet repository (section 3). This file is the
 FD&F package's own notes: what is shown where, the build, and the older set-ups the package still carries.
 
-## What is shown where (build fdf-2026-10-12-r20)
+## What is shown where (build fdf-2026-10-16-r21)
 
 "netns" is the repository's network-namespace tests on one Linux machine (`src/fdf-source/rinab/tools/netns-*-test.sh`).
 "containers" is the October 2026 cleanup's install gates: Ubuntu 24.04 x86-64 machines as privileged systemd containers

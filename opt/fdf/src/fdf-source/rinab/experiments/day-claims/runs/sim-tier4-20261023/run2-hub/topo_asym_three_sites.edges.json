@@ -1,0 +1,18 @@
+{
+"A_w1/eth1->A_gw": 0.017,
+"A_gw/eth1->A_w1": 0.017,
+"A_gw/wg0->B_gw": 90.94,
+"A_gw/wg1->C_hub": 60.701,
+"B_end1/wg0->B_gw": 141.18,
+"B_gw/wg0->B_end1": 141.09,
+"B_gw/wg1->B_end2": 141.033,
+"B_gw/wg2->A_gw": 90.823,
+"B_gw/wg3->C_hub": 110.694,
+"B_end2/wg0->B_gw": 141.402,
+"C_hub/wg0->A_gw": 60.648,
+"C_hub/wg1->B_gw": 110.99,
+"C_hub/wg2->C_s1": 80.769,
+"C_hub/wg3->C_s2": 80.72,
+"C_s1/wg0->C_hub": 80.752,
+"C_s2/wg0->C_hub": 80.844
+}

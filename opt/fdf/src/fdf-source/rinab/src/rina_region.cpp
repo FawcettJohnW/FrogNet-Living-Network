@@ -950,6 +950,7 @@ std::string rina_region_block(const std::string& body) {
 
 // The server calls this once when a session's socket has closed: whoever it was is gone, at once.
 void rina_session_down(uint64_t sid) {
+    daf_session_down(sid);                                          // [DAF_SESSION_IS_LIVENESS_V1]
     if (SessProc* hp = sessprocs().get(sess_key(sid), false)) hp->state.store(0, std::memory_order_release);   // [KNOWN_SHAPE_V1] ids are reused
     frogram::MemoryApi& m = region_memory();
     // [SESSION_SWEEP_ALWAYS_V1] a session that never said hello/node (a watcher, a registrant) still owns watches and
@@ -1055,6 +1056,7 @@ static void publish_net_config() {
 // that lost it learn it is back by waiting on the mapping ([MAP_WATCH_V1]).
 void rina_host_listening(const std::string& listen_on) {
     fprintf(stderr, "rina-host: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
+    daf_start();                                                   // [DAF_FILE_V1] its Permanent cells, before any member
     if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping") {   // the mapping host is not an area's
         publish_net_config();
         std::thread(register_self, listen_on).detach();

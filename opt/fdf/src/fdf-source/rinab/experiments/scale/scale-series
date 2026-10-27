@@ -1,0 +1,38 @@
+#!/bin/bash
+# scale-series -- [SCALE_SERIES_V2] experiment S: the simulator's TIER 3 S tier ([S_SCALE_TIER_V1]) on this machine.
+# S subnets crossing E egress points, discovered the FD&F way, from memory: a real rina-host, a real fdf-client per
+# node announcing that node's facts, FD&F's fdf_graph planning every node. No probe, no route followed, until the
+# final verification plan: every node to every served /24 over the plans and the hub's table, written whole.
+# Part of the day-claims package: run as `day-claims scale [S] [E ...]` (or plainly `day-claims`).
+#
+#   day-claims scale [S] [E ...]    default: 200 1 2 5 10 20 50 100
+#   day-claims scale version        the build every binary here is
+#
+# Evidence in /opt/fdf/experiments/day-claims/runs/scale-<UTC>/: the console, s-scale-S<S>.json, and per E the
+# verification plans verify-S<S>-E<E>.tsv (before and after the event). Working files in var/scale-tier/ (replaced by
+# the next run). Needs python3. No root, no namespaces; as root it raises fs.inotify.max_user_instances for the run
+# (every member here is one kernel user) and puts it back.
+set -u
+P=$(cd "$(dirname "$0")" && pwd); DC=$(cd $P/.. && pwd); A=$(uname -m); B=$P/bin/$A
+[ -d "$B" ] || { echo "scale-series: no build here for $A"; exit 2; }
+[ "${1:-}" = version ] && { cat $P/BUILD; for b in $B/*; do printf '%s: %s\n' "${b##*/}" "$(strings $b | grep -o 'fdf-[0-9-]*-r[0-9]*' | sort -V | tail -1)"; done
+  echo "fdf_graph: $(grep -o 'BUILD_TAG = "[^"]*"' $P/fdf/lib/python/fdf_graph.py)"; exit 0; }
+# [EARLIER_RUN_PUT_BACK_V1] the namespace bed this replaced (scale-series V1) may have left namespaces s-*, their
+# processes, bridges and mount points from a killed run: they are this package's, and are removed here
+clean_earlier() { ip netns list 2>/dev/null | grep -q '^s-' || return 0; local L n k p l d rest=""; L=$(ip netns list | awk '{print $1}' | grep '^s-')
+  echo "scale-series: an earlier run was killed before it put things back: $(echo "$L" | wc -l) namespaces s-* and their processes; removing them"
+  for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 1
+  for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done; ip netns del $n 2>/dev/null; done
+  for l in $(ip -o link show | awk -F': ' '{print $2}' | cut -d@ -f1 | grep -E '^(br-s|v-s-)'); do ip link del $l 2>/dev/null; done
+  MF=$DC/var/scale-made-dirs; if [ -f $MF ]; then for d in $(tr ' ' '\n' < $MF | grep . | sort -r); do rmdir "$d" 2>/dev/null; done
+    for d in $(cat $MF); do [ -d "$d" ] && rest="$rest $d"; done; [ -n "$rest" ] && echo "$rest" > $MF || rm -f $MF; fi
+  echo "scale-series: removed; $(ip netns list | grep -c '^s-') namespaces left${rest:+; directories it made still there:$rest}"; }
+[ "${1:-}" = clean ] && { [ "$(id -u)" = 0 ] && clean_earlier; exit 0; }
+[ "$(id -u)" = 0 ] && clean_earlier
+command -v python3 > /dev/null || { echo "scale-series: python3 is missing on this machine"; exit 2; }
+S=${1:-200}; shift || true; ES=${*:-1 2 5 10 20 50 100}
+OUT=$DC/runs/scale-$(date -u +%Y%m%dT%H%M%SZ); W=$DC/var/scale-tier; rm -rf $W; mkdir -p $OUT $W
+{ cat $P/BUILD; uname -a; echo "cpus $(nproc)"; grep -E 'MemTotal|MemAvailable' /proc/meminfo; } | tee $OUT/machine.txt
+python3 -u $P/simulation/s_scale_tier.py --bin $B --fdfpy $P/fdf/lib/python --S $S --E $ES --out $OUT --work $W 2>&1 | tee $OUT/console.txt
+rc=${PIPESTATUS[0]}
+echo "evidence: $OUT"; exit $rc

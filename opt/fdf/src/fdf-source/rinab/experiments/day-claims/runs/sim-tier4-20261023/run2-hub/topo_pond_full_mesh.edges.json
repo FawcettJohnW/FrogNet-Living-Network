@@ -1,0 +1,8 @@
+{
+"Seattle/wg0->NewYork": 90.677,
+"Seattle/wg1->Austin": 60.981,
+"NewYork/wg0->Seattle": 91.107,
+"NewYork/wg1->Austin": 111.065,
+"Austin/wg0->Seattle": 60.876,
+"Austin/wg1->NewYork": 110.956
+}

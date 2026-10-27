@@ -1,30 +1,69 @@
 #!/bin/bash
-# fdf-region-join SITE_KEY RAM_HOST:PORT AREA -- [FDF_REGION_JOIN_V1] make this FrogNet node a member of the FD&F
-# region and switch its tunnel daemon to region mode, in one go:
-#   /opt/fdf/var/site.env   RINA_AREA=<area>  RINA_SITE_KEY=<key>   (fdf-client signs this node's /24 mapping with it;
-#                           the key must be the one map_site holds on the RAM manager, or the region says EPERM)
-#   fdf-join RAM            /opt/fdf/var/join.env (RINA_RAM) + fdf-client.service, started
-#   frognet-tunnel-daemon-v3 restarted: join.env is its one switch, site.env its area ([REGION_SWITCH_ONE_FILE_V1])
-# Then it waits 15 s and shows what happened: the client's mapping line, the daemon's REGION lines, wg. Nothing hidden.
-# All three arguments are required (fdf-region-create printed them); there is no built-in region. Run as root.
-# Re-runnable.
+# fdf-region-join fdfinv1.<...> -- [FDF_REGION_JOIN_V1][ADMITTED_BY_INVITE_V1] make this FrogNet node a member of the FD&F
+# region that invited it (fdf-invite NAME on the region's machine printed the line), and switch its tunnel daemon to
+# region mode, in one go:
+#   /var/lib/frognet-tunnel/node_private.key, node_public.key   the WireGuard key the invitation carries (the hub has
+#                           already admitted its public half; it is the only key the hub will answer)
+#   /opt/fdf/var/hub.json   the hub: name, public key, endpoint (udp), its tunnel address; this node's edge address
+#   /opt/fdf/var/site.env   RINA_AREA=<area>  RINA_SITE_KEY=<key>   (fdf-client signs this node's /24 mapping with it)
+#   fdf-join RAM            /opt/fdf/var/join.env (RINA_RAM = the hub's tunnel address: [RAM_IN_THE_TUNNEL_V1]) +
+#                           fdf-client.service, started
+#   frognet-tunnel-daemon-v3 restarted: it brings up the hub channel first, then joins the region through it
+# Then it waits 15 s and shows what happened. Nothing on this node is reachable from the Internet because of the join:
+# the only packets it sends there are WireGuard's, to the hub's UDP port. Run as root. Re-runnable (the same line).
 set -u
 [ "$(id -u)" = 0 ] || { echo "fdf-region-join: run as root" >&2; exit 1; }
-[ $# -eq 3 ] || { echo "usage: fdf-region-join SITE_KEY RAM_HOST:PORT AREA   (all three required)" >&2; exit 2; }
-KEY=$1; RAM=$2; AREA=$3
-case "$KEY" in *\<*|*\>*) echo "fdf-region-join: '$KEY' looks like a placeholder, not a key" >&2; exit 2 ;; esac
+FILES_ONLY=0; [ "${1:-}" = "--files-only" ] && { FILES_ONLY=1; shift; }     # tests: lay the files down, start nothing
+[ $# -eq 1 ] || { echo "usage: fdf-region-join fdfinv1.<...>   (fdf-invite NAME, on the region's machine, prints it)" >&2; exit 2; }
+case "$1" in fdfinv1.*) ;; *) echo "fdf-region-join: '$1' is not an invitation (it starts fdfinv1.); fdf-invite NAME on the region's machine prints one" >&2; exit 2 ;; esac
 echo "== $(cat /opt/fdf/BUILD 2>/dev/null | tr '\n' ' ')"
+if [ $FILES_ONLY = 0 ]; then
 M=$(uname -m); E=$(od -An -tx1 -j18 -N1 /opt/fdf/bin/fdf-client | tr -d ' ')
 case "$E" in 3e) B=x86_64 ;; b7) B=aarch64 ;; *) B="unknown (ELF 0x$E)" ;; esac
 [ "$B" = "$M" ] || { echo "fdf-region-join: /opt/fdf/bin/fdf-client is $B, this machine is $M: wrong tarball" >&2; exit 1; }
 for f in /opt/frognet_semantic/internet_tunnels_v3/region.py /opt/frognet_semantic/discovery/real_backends.py; do
   [ -f "$f" ] || { echo "fdf-region-join: $f missing: the FrogNet region patch is not installed (it is in this tarball)" >&2; exit 1; }; done
-mkdir -p /opt/fdf/var
-printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' "$AREA" "$KEY" > /opt/fdf/var/site.env; chmod 600 /opt/fdf/var/site.env
-echo "== site.env: RINA_AREA=$AREA RINA_SITE_KEY=<${#KEY} chars, ends ${KEY: -6}>"
-# join.env first (the daemon's switch), then the daemon: it writes this node's name/guid/subnet/pubkey into
-# facts.json at start, and fdf-client takes its member name from there at ITS start -- so the daemon goes first.
-mkdir -p /opt/fdf/var; printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
+grep -q "RAM_IN_THE_TUNNEL_V1" /opt/frognet_semantic/internet_tunnels_v3/region.py || { echo "fdf-region-join: the installed region.py predates [RAM_IN_THE_TUNNEL_V1]: it would look for the hub in the region, which it cannot reach before the tunnel" >&2; exit 1; }
+fi
+mkdir -p /opt/fdf/var /var/lib/frognet-tunnel
+# the invitation, decoded and laid down; everything it says is printed but the two secrets
+OUT=$(python3 - "$1" <<'PY'
+import base64, json, os, subprocess, sys
+tok = sys.argv[1][len("fdfinv1."):]
+try:
+    inv = json.loads(base64.urlsafe_b64decode(tok + "=" * (-len(tok) % 4)))
+    area, key, ram, hub, me = inv["area"], inv["site_key"], inv["ram"], inv["hub"], inv["member"]
+    for k in ("name", "pubkey", "endpoint", "addr"): hub[k]
+    for k in ("name", "edge", "privkey"): me[k]
+except Exception as e:
+    sys.exit("fdf-region-join: the invitation does not decode (%s): copy the whole line fdf-invite printed" % e)
+pub = subprocess.run(["wg", "pubkey"], input=me["privkey"], capture_output=True, text=True).stdout.strip()
+if not pub: sys.exit("fdf-region-join: `wg pubkey` failed on the invitation's key (is wireguard-tools installed?)")
+old = os.umask(0o077)
+try:
+    for path, text in (("/var/lib/frognet-tunnel/node_private.key", me["privkey"] + "\n"),):
+        open(path + ".tmp", "w").write(text); os.chmod(path + ".tmp", 0o600); os.replace(path + ".tmp", path)
+    open("/opt/fdf/var/site.env.tmp", "w").write("RINA_AREA=%s\nRINA_SITE_KEY=%s\n" % (area, key))
+    os.chmod("/opt/fdf/var/site.env.tmp", 0o600); os.replace("/opt/fdf/var/site.env.tmp", "/opt/fdf/var/site.env")
+finally:
+    os.umask(old)
+open("/var/lib/frognet-tunnel/node_public.key.tmp", "w").write(pub + "\n")
+os.chmod("/var/lib/frognet-tunnel/node_public.key.tmp", 0o644)
+os.replace("/var/lib/frognet-tunnel/node_public.key.tmp", "/var/lib/frognet-tunnel/node_public.key")
+hj = {"area": area, "ram": ram, "hub": hub, "member": {k: v for k, v in me.items() if k != "privkey"}}
+open("/opt/fdf/var/hub.json.tmp", "w").write(json.dumps(hj, indent=1, sort_keys=True) + "\n")
+os.replace("/opt/fdf/var/hub.json.tmp", "/opt/fdf/var/hub.json")
+print("AREA=%s RAM=%s" % (area, ram))
+sys.stderr.write("== invitation: area %s, me %s (edge %s, key %s), hub %s at %s (key %s), region at %s inside the tunnel\n"
+                 % (area, me["name"], me["edge"], pub, hub["name"], hub["endpoint"], hub["pubkey"], ram))
+PY
+) || exit 1
+eval "$OUT"
+echo "== /var/lib/frognet-tunnel/node_private.key, /opt/fdf/var/hub.json, /opt/fdf/var/site.env written (site key <hidden>)"
+# join.env first (the daemon's switch), then the daemon: it brings up the hub channel, then writes this node's
+# name/guid/subnet/pubkey into facts.json, and fdf-client takes its member name from there at ITS start.
+printf 'export RINA_RAM=%s\n' "$RAM" > /opt/fdf/var/join.env
+[ $FILES_ONLY = 1 ] && { echo "== --files-only: written; nothing started"; exit 0; }
 # [STORE_UNITS_OFF_IN_REGION_V1] in region mode the daemon publishes capability as a fact and elects from the members'
 # facts; the merge writes no store. The 1/min store elector (frognet-dbhost-elect.timer) would have nothing to do (it
 # stands down in region mode): stopped and disabled here, fdf-leave turns it back on. (The 60 s advertiser this also
@@ -47,7 +86,7 @@ grep -q '"name"' /opt/fdf/var/facts.json 2>/dev/null || echo "== warning: the da
 echo "== waiting 15 s for the join, the mapping and the hub"; sleep 15
 echo "== fdf-client (want: 'joined the region', 'mapping ... registered'; 'REFUSED ... EPERM' = wrong key)"
 journalctl -u fdf-client --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -8
-echo "== tunnel daemon (want: 'build', 'REGION switch', 'WG_KEY' on a first join, 'REGION: facts written', 'my-channels: hubs=[...]')"
+echo "== tunnel daemon (want: 'REGION switch', 'my-channels: hub=<hub> edge=<edge> channels=1', 'handshake OK', 'REGION: facts written')"
 journalctl -u frognet-tunnel-daemon-v3 --since "$T0" --no-pager -o cat | grep -E "Starting frognet-tunnel-daemon|REGION|WG_KEY|IDENTITY|Traceback|Error" | tail -12
 echo "== wg (want: one peer, endpoint = the hub, a latest handshake)"
 wg show 2>&1 | grep -E "^interface|endpoint|allowed|handshake"

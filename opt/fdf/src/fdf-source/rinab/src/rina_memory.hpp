@@ -224,13 +224,17 @@ inline Table<FlowDir>& flows() { static Table<FlowDir>* t = new Table<FlowDir>; 
 namespace rmem {
 struct Val { uint64_t id; std::string bag; double updated; };
 struct RecSlot { std::string instance; std::atomic<const Val*> val{nullptr}; };
+constexpr size_t PROBE = 8;                              // [BOUNDED_PROBE_V1] slots tried per table before the next
 class VarSet {
 public:
     explicit VarSet(size_t cap = 64) : cap_(cap), slot_(new std::atomic<RecSlot*>[cap]) { for (size_t i = 0; i < cap_; ++i) slot_[i].store(nullptr, std::memory_order_relaxed); }
     ~VarSet() { for (size_t i = 0; i < cap_; ++i) if (RecSlot* r = slot_[i].load()) { delete r->val.load(); delete r; } delete next_.load(); }
     RecSlot* get(const std::string& inst, bool create) {
+        // [BOUNDED_PROBE_V1] at most PROBE slots per table, then the next table (twice the size). Probing the whole table
+        // made a lookup that misses -- an instance not there, e.g. a session that has not ended -- cost every instance
+        // the variable ever had, and wake() asks that of every parked wait: held reads slowed as a region aged.
         const size_t h0 = std::hash<std::string>()(inst);
-        for (size_t i = 0; i < cap_; ++i) {
+        for (size_t i = 0; i < cap_ && i < PROBE; ++i) {
             std::atomic<RecSlot*>& s = slot_[(h0 + i) % cap_];
             RecSlot* r = s.load(std::memory_order_acquire);
             if (!r) {

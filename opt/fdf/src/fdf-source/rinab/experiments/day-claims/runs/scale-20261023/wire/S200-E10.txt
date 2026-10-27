@@ -1,0 +1,19 @@
+=== S=200 subnets, E=10 egress points, 190 children; 2026-10-23T10:36:38Z
+PASS  hub up on 51820
+started 10 daemon nodes and 190 children in 14775 ms
+RESULT wire_cold S=200 E=10 bytes=764695953 packets=290082 (hub link, start -> all ready)
+daemon pids found: 10/10
+RESULT cpu_cold S=200 E=10 per_daemon_p50_ms=2850 max_ms=2910 all_daemons_ms=28270
+PASS  cold: all 10 egress nodes route all 200 /24s and name all 200 (last at 40170 ms; 0 not ready)
+RESULT cold S=200 E=10 last_ms=40170 ready=10/10 p50_ms=38182
+PASS  reach: 10/10 pings between .1s on different egress nodes
+RESULT reach S=200 E=10 ok=10/10
+RESULT size S=200 E=10 participants_bytes=171831 mappings_bytes=16516 bed_rss_mb=6075
+  change #1: 10/10 daemons applied
+  change #2: 10/10 daemons applied
+  change #3: 10/10 daemons applied
+  change #4: 10/10 daemons applied
+RESULT wire_event S=200 E=10 bytes_p50=5956335 bytes_max=48573318 packets_p50=3305 (hub link, one change, 1 s after the last daemon)
+RESULT cpu_event S=200 E=10 per_daemon_p50_ms=85 max_ms=280 all_daemons_per_change_p50_ms=935
+RESULT event S=200 E=10 changes=4 samples=40 to_last_daemon_p50_ms=429 max_ms=779 per_daemon_p50_ms=372 daemon_world=38 bringup=78 apply=133 publish=1 total=278
+RESULT PASS

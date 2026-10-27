@@ -251,6 +251,8 @@ def print_serial_results(label, times, ok, fail, body_sizes, cache_types):
         print(f"    Cache:    {dict(counts)}")
 
 # -- Run N concurrent requests --------------------------------------------------
+threading.stack_size(256*1024)   # [BURST_SMALL_STACKS_V1] a request thread needs far less than the 8 MB default
+
 def run_concurrent(url, n, label):
     results = [None] * n
 
@@ -270,6 +272,10 @@ def run_concurrent(url, n, label):
     print(f"\n  {label} CONCURRENT ({n} simultaneous):")
     print(f"    Elapsed:    {elapsed:.1f}s")
     print(f"    OK:         {len(times)}  FAIL: {len(fails)}")
+    if fails:   # [BURST_FAILURES_SAID_V1] why they failed, and when
+        from collections import Counter as _C
+        print(f"    Why failed: {dict(_C(r[3] for r in fails).most_common(5))}")
+        print(f"    Failed after: p50 {statistics.median([r[0] for r in fails]):.0f}ms  max {max(r[0] for r in fails):.0f}ms")
     if times:
         print(f"    Avg:        {statistics.mean(times):.0f}ms")
         print(f"    P50:        {statistics.median(times):.0f}ms")

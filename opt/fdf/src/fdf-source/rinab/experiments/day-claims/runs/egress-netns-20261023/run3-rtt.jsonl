@@ -1,0 +1,6 @@
+{"leg":"y -> z (the closed LAN)","rtt_ms":"0.027 0.047 0.089","dz":10,"da":35}
+{"leg":"z -> hub (z's WAN leg, plain uplink)","rtt_ms":"20.406 20.606 20.788","dz":10,"da":35}
+{"leg":"a -> hub (a's WAN leg, plain uplink)","rtt_ms":"70.478 70.607 70.850","dz":10,"da":35}
+{"leg":"z -> a's .1 (z's tunnel, the hub, a's tunnel)","rtt_ms":"92.036 92.461 93.552","dz":10,"da":35}
+{"leg":"y -> a's .1 (y's LAN, z, both tunnels, the hub)","rtt_ms":"92.064 92.572 93.279","dz":10,"da":35}
+{"leg":"y -> the RAM host (y's LAN, z's NAT and WAN leg)","rtt_ms":"20.415 20.560 20.680","dz":10,"da":35}

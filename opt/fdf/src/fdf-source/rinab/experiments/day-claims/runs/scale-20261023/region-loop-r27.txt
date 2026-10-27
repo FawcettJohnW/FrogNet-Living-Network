@@ -1,0 +1,16 @@
+PASS  hub up on 51820
+PASS  converged: z has a's /24 and y's (via y's lease); a has z's and y's (after 1 s)
+PASS  y -> a over z's LAN, z's tunnel, the hub, a's tunnel (ping from y's .1)
+PASS  both daemons in the region loop
+  median a (n=6): change->line 79 ms | world=1 bringup=11 apply=4 publish=0 total=20 ms
+  median z (n=6): change->line 80 ms | world=2 bringup=11 apply=5 publish=0 total=21 ms
+PASS  a: region_hosts.json names z, y and a, each echo from its facts ([('10.2.2.1', 'y,10.2.2.1,10.3.3.20,0.0.0.0'), ('10.3.3.1', 'z,10.3.3.1,198.18.0.3,0.0.0.0'), ('10.7.7.1', 'a,10.7.7.1,198.18.0.5,0.0.0.0'), ('10.9.9.1', 'y,10.9.9.1,10.3.3.20,0.0.0.0')])
+PASS  a: each echo's fields 3-4 are that member's uplink rows: z 198.18.0.3, y its lease 10.3.3.20 on z's LAN [ECHO_UPSTREAM_FROM_THE_ROWS_V1]
+PASS  leaf 10.252.0.1/32 (given by the region): a and z (daemons, hub links) route it on wg0 (122 ms after the leaf's fdf-client started)
+PASS  a -> the leaf 10.252.0.1 (a's tunnel, the hub, the leaf's tunnel)
+PASS  y -> the leaf (y's default to z, z's tunnel, the hub)
+PASS  a's /etc/hosts names the leaf
+PASS  runMerge on a (rc 0): its /etc/hosts still names the leaf (LEAVES named: 1; 1 line)
+PASS  a: region_hosts.json (getHosts.php) lists the leaf role=leaf alive=true: the monitor's DEVICE ONLINE row [DEVICE_ROW_V1]
+PASS  y's session ended: its announcement is gone, and no dead row is listed ([('z', True), ('a', True), ('phone', True), ('vm', True)])
+RESULT PASS

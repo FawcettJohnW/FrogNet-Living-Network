@@ -1,0 +1,29 @@
+PASS  hub up on 51820
+PASS  rows: z wrote the lease it gave y, y wrote the lease it holds (mac 4e:64:71:4b:96:a7 on both)
+PASS  rows: z's uplink is alive (ping out of v-z answered)
+PASS  z: y's /24 via y's lease address (admitted: y is alive in the region, no probe)
+PASS  z: a's /24 through the hub
+PASS  y: default route toward its exit z
+PASS  a: z's and y's /24s through the hub
+PASS  z: hosts sentinel names y and a
+PASS  hub: z's peer carries z's AND y's /24 (the plan's maps, signed by z)
+PASS  hub: a's peer carries a's /24 only
+PASS  y -> a: LAN hop to z, z's tunnel, the hub, a's tunnel, and back
+PASS  a -> y: the reverse path
+--- round trips, ms (min avg max), WAN one-way: z leg 10 ms, a leg 35 ms
+y -> z (the closed LAN)                                    0.028 0.057 0.107
+z -> hub (z's WAN leg, plain uplink)                       20.413 20.611 20.898
+a -> hub (a's WAN leg, plain uplink)                       70.401 70.827 75.112
+z -> a's .1 (z's tunnel, the hub, a's tunnel)              92.199 92.499 92.839
+y -> a's .1 (y's LAN, z, both tunnels, the hub)            92.020 92.561 93.992
+y -> the RAM host (y's LAN, z's NAT and WAN leg)           20.431 20.599 20.823
+PASS  y -> a's .1: round trip pays both WAN legs both ways (floor 90 ms, measured min 92.020 ms)
+E2D  agents seen: a-a a-y; re-plans 0; 120 steps on 2 agents;
+E2D  20 scenarios, 120 steps: every node's trees equal the reference   ok  120 of 120
+E2D  convergence, driver's clock (plan written -> last node's matching tree read): p50 213.57 ms p99 287.70 ms max 287.70 ms (n=100)
+E2D  a-a                round trip to the host, its own clock: min   71.0 ms  p50   72.1 ms  p90   73.3 ms  (166 calls)
+E2D  a-y                round trip to the host, its own clock: min   21.2 ms  p50   21.9 ms  p90   22.8 ms  (157 calls)
+E2D  wire: 2688 bytes per step, all agents' sessions together, setup included (120 steps)
+E2D  RESULT PASS
+PASS  E2 across the legs: every node's trees equal the reference
+RESULT PASS

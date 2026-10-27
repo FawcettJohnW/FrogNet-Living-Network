@@ -434,6 +434,22 @@ def main():
         return 1 if (rc1 or rc2) else 0
     results.append(_run_tier("regression (learned baselines + scenario replay)", _regress))
 
+    # [S_SCALE_TIER_V1] TIER 3: a complex topology belongs here, not in TIER 4 (TIER 4 validates TIER 3's inputs against
+    # the kernel). FD&F discovery from memory -- a real rina-host, a real fdf-client per node, fdf_graph's plans -- and
+    # the complete verification plan as the output. The gate runs it small; `day-claims scale` runs S=200 x E=1..100.
+    # Needs rina-host, fdf-client, fdf-events: FDF_SIM_BIN, else the day-claims package's, else rinab's build/static.
+    # Without them it FAILS (it does not skip).
+    print("\nTIER 3 - complex topologies, FD&F discovery from memory (S=20, E=1 2 5)")
+    _arch = os.uname().machine
+    _sbin = next((d for d in (os.environ.get("FDF_SIM_BIN", ""),
+                               f"/opt/fdf/experiments/day-claims/scale/bin/{_arch}",
+                               os.path.join(_PARENT, "../fdf/src/fdf-source/rinab/build/static"))
+                  if d and all(os.path.isfile(os.path.join(d, b)) for b in ("rina-host", "fdf-client", "fdf-events"))), "")
+    _sout = _tmpf.mkdtemp(prefix="frogsim_s3_")
+    results.append(_run_proc("S scale: memory discovery + complete verification plan",
+                             ["simulation/s_scale_tier.py", "--bin", _sbin or "(rina-host/fdf-client/fdf-events not found)",
+                              "--S", "20", "--E", "1", "2", "5", "--out", _sout, "--work", _sout], retry=False))
+
     print("\nTIER 4 - real kernel in netns (M2)")
     if os.environ.get("FROGNET_SIM_BACKEND") == "real":
         results.append(_run_tier("real-kernel converge", live_engine.main, quiet=False))
@@ -454,9 +470,8 @@ def main():
     # in this suite at all -- not the DDP comm hooks, not the psychedelic
     # collectives, not the c10d store. Every defect in it was found by running
     # a four-node benchmark across a continent and reading py-spy by hand.
-    from simulation import collective_tier
-    results.append(_run_tier("collectives + DDP hooks (agent_workload)",
-                             collective_tier.main))
+    # [PYTORCH_TIERS_PULLED_V1 - John 2026-10-16] pulled from this suite: agent_workload/ is not in this tree
+    # (.gitignore), so the tier could not run here. simulation/collective_tier.py is kept; run it where agent_workload is.
 
     results.append(_run_tier("proxy decision/keying/origin", proxy_dataplane.main))
     # [RETURN_ONLY_V1] The reply path for every semantic RPC, against a real
@@ -502,8 +517,8 @@ def main():
     # producer.py and the bulk receiver were the only code in the tree changed
     # without a gate. This runs the ramp oracle in its own process, as the
     # transport tiers do.
-    results.append(_run_proc("aiconnect ramp oracle (ceiling/extend/receiver)",
-                             ["simulation/test_aiconnect_ramp_oracle.py"]))
+    # [PYTORCH_TIERS_PULLED_V1 - John 2026-10-16] pulled with the collectives tier: it imports agent_workload.aiconnect.
+    # simulation/test_aiconnect_ramp_oracle.py is kept; run it where agent_workload is.
     results.append(_run_proc("channel_sets UNIT (alloc/registry/threads)",
                              ["proxy/test_channel_sets.py"]))
     results.append(_run_proc("channel_sets INTEGRATION (HOL isolation via sim)",
@@ -538,6 +553,13 @@ def main():
                               cwd=_PARENT).returncode
     results.append(_run_tier("discovery oracle suite (incl. Seattle6 identity-down)", _discovery_gate))
     print("        (real LAN/gateway route engine; runMerge ip r as hardware truth)")
+
+    # [DAF_DISCOVERY_SIM_V1] discovery's "who exists" answered by John Day's DAF model (op=daf on a real rina-host,
+    # every node its own session) instead of peer gossip; the real planner and committer; hardware baselines as the
+    # oracle. Needs rinab built (tools/build.sh: build/rina-host, build/bin/daf-agent): without them it FAILS, it does
+    # not skip -- a tier that passes when it cannot run is a hole with a green tick on it.
+    print("\nTIER DAF - discovery by the DAF model (20 topologies + failure scenarios)")
+    results.append(_run_proc("DAF discovery (op=daf, hardware baselines)", ["simulation/daf_discovery_tier.py"], retry=False))
 
     print("\n================== SUMMARY ==================")
     failed = [l for (l, rc) in results if rc != 0]

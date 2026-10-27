@@ -1,0 +1,14 @@
+{
+"Ca1/wg0->Ca2": 2.532,
+"Ca2/wg0->Ca1": 2.696,
+"Ca2/wg1->Ca3": 2.494,
+"Ca3/wg0->Ca2": 2.688,
+"Ca3/wg1->HubB": 40.755,
+"HubB/wg0->Ca3": 40.7,
+"HubB/wg1->Bs1": 2.465,
+"HubB/wg2->Bs2": 2.812,
+"HubB/wg3->Bs3": 2.527,
+"Bs1/wg0->HubB": 3.065,
+"Bs2/wg0->HubB": 2.672,
+"Bs3/wg0->HubB": 2.481
+}

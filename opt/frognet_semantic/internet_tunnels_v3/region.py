@@ -32,7 +32,7 @@ import urllib.request
 from . import config
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-12-r20"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-25-r31"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_MASK = 16
 ALLOWED = "10.0.0.0/8"
 
@@ -229,47 +229,59 @@ def register_node() -> dict:
                         "subnet": own_subnet(), "pubkey": config.PUBKEY, "pond": getattr(config, "REGION_AREA", "")})
 
 
+HUB_JSON = os.environ.get("FDF_HUB_JSON", "/opt/fdf/var/hub.json")
+
+
+def invitation() -> dict:
+    """[ADMITTED_BY_INVITE_V1] the hub this node was invited to (fdf-region-join wrote it from the fdf-invite line):
+    {"area", "ram", "hub": {name, pubkey, endpoint, addr}, "member": {name, edge, kind}}; {} if none."""
+    try:
+        with open(HUB_JSON) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def my_channels() -> dict:
-    parts = participants()
-    maps = mappings()
+    """[RAM_IN_THE_TUNNEL_V1] the hub channel comes from the invitation, not from the region: the region's RAM manager
+    listens only inside this tunnel, so the tunnel is up first and the region is reached through it. The prefixes the
+    channel carries for others (remote_subnets) are the verified mappings naming that hub, from the event's world read;
+    outside an event (the bring-up before joining) none: the region itself is on the hub's address, inside the
+    tunnel's 10.0.0.0/8, and the event that follows the join brings them."""
+    inv = invitation()
     me = read_facts()
     my_sub = me.get("subnet") or own_subnet()
-    edge = edge_of(my_sub) if my_sub else None
-    reach = _reach(maps)
     channels = []
-    if edge:
-        mine = {str(ipaddress.ip_network(my_sub, strict=False))}
-        for h in _hubs(parts):
-            # [HUB_SAYS_ITS_PEERS_V1] a channel to a hub only once that hub says it holds my key: before that my first
-            # handshake would reach a hub that drops it, and WireGuard retries only at its 5 s rekey
-            if me.get("pubkey") not in (h.get("peers") or []):
-                config.log.warning("REGION: hub %s does not hold my key yet; its channel waits for the event that shows it", h.get("name"))
-                continue
-            remote = sorted((set(reach.get(h["name"], set())) | ({h["subnet"]} if h.get("subnet") else set())) - mine)   # + the hub's own /24, if it is a node
-            channels.append({
-                "channel_name": "hub-" + h["name"],
-                "node_name": h["name"], "label": "hub", "subnet": "", "transit_subnets": [],
-                "tunnel_name": "region-" + h["name"],
-                "wg_config": {
-                    "edge_ip": edge, "edge_mask": HUB_MASK,
-                    "droplet_ip": h.get("addr", "10.253.253.254"),
-                    "droplet_pubkey": h["pubkey"], "droplet_endpoint": h["endpoint"],
-                    "allowed_ips": ALLOWED, "remote_subnets": remote,
-                },
-            })
-    def _who(p):                                      # name:role, and why a would-be hub does not count
-        f = p.get("facts") or {}
-        tag = p.get("name", "?") + ":" + (f.get("role") or "(no facts)")
-        if f.get("role") == "hub":
-            missing = [k for k in ("pubkey", "endpoint") if not f.get(k)]
-            area = getattr(config, "REGION_AREA", "")
-            if missing: tag += "(missing %s)" % ",".join(missing)
-            if area and f.get("area", area) != area: tag += "(area %s != %s)" % (f.get("area"), area)
-            if not p.get("alive"): tag += "(session down)"
-        return tag
-    config.log.warning("REGION: my-channels: hubs=%s channels=%d remote=%s members=%s mappings=%d",
-                       [h["name"] for h in _hubs(parts)], len(channels), sorted({p for c in channels for p in c["wg_config"]["remote_subnets"]}),
-                       [_who(p) for p in parts], len(maps))
+    h, m = inv.get("hub") or {}, inv.get("member") or {}
+    if not (h.get("pubkey") and h.get("endpoint") and m.get("edge")):
+        config.log.warning("REGION: no invitation in %s (hub pubkey, endpoint, edge): no hub channel -- join with "
+                           "fdf-region-join fdfinv1.<...> [ADMITTED_BY_INVITE_V1]", HUB_JSON)
+    else:
+        if _held["world"] is None:
+            # outside a region event (the bring-up before joining): the region is reached THROUGH this channel, so it is
+            # not asked first -- a read toward 10.253.253.254 before the tunnel exists is a timeout, not an answer
+            reach = {}
+        else:
+            reach = _reach(mappings())
+            for p in participants():                  # the hub's own /24, if it is a node too
+                f = p.get("facts") or {}
+                if p.get("alive") and f.get("role") == "hub" and f.get("name") == h.get("name") and f.get("subnet"):
+                    reach.setdefault(h.get("name", ""), set()).add(f["subnet"])
+        mine = {str(ipaddress.ip_network(my_sub, strict=False))} if my_sub else set()
+        remote = sorted(set(reach.get(h.get("name", ""), set())) - mine)
+        channels.append({
+            "channel_name": "hub-" + h.get("name", "hub"),
+            "node_name": h.get("name", "hub"), "label": "hub", "subnet": "", "transit_subnets": [],
+            "tunnel_name": "region-" + h.get("name", "hub"),
+            "wg_config": {
+                "edge_ip": m["edge"], "edge_mask": HUB_MASK,
+                "droplet_ip": h.get("addr", "10.253.253.254"),
+                "droplet_pubkey": h["pubkey"], "droplet_endpoint": h["endpoint"],
+                "allowed_ips": ALLOWED, "remote_subnets": remote,
+            },
+        })
+    config.log.warning("REGION: my-channels: hub=%s edge=%s channels=%d remote=%s",
+                       h.get("name"), m.get("edge"), len(channels), sorted({p for c in channels for p in c["wg_config"]["remote_subnets"]}))
     payload = json.dumps({"channels": channels}, sort_keys=True, separators=(",", ":"))
     return {"node_name": me.get("name", config.NODE_NAME), "node_id": me.get("guid", config.NODE_GUID),
             "digest": hashlib.sha256(payload.encode()).hexdigest()[:16],

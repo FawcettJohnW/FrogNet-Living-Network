@@ -1,0 +1,2 @@
+wg_bearer_relay: 1 tunnels, offset -20000: 51820<->51821 45/45 ms
+wg_bearer_relay 51820->51821:141 51821->51820:143

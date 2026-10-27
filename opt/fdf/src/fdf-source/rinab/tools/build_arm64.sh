@@ -13,6 +13,7 @@ for t in fdf_client:fdf-client fdf_participants:fdf-participants ram_tool:ram fd
   $CXX -std=c++20 -I$P/ribbit_cpp -Isrc src/${t%%:*}.cpp build/arm64/frogram.o $L -o build/arm64/${t##*:}; done
 $CXX -std=c++20 -Isrc -Isrc/door -I$P/ribbit_cpp -c src/rina_region.cpp -o build/arm64/rina_region.o
 $CXX -std=c++20 -Isrc -Isrc/door -I$P/ribbit_cpp -c src/ctl_host.cpp -o build/arm64/ctl_host.o
+$CXX -std=c++20 -Isrc -Isrc/door -I$P/ribbit_cpp -c src/daf_region.cpp -o build/arm64/daf_region.o   # [DAF_MODEL_V1] the host serves op=daf
 $CXX -std=c++20 -I$P/ribbit_cpp -I$P/ramsrv -Isrc/door -c build/ram_server_rina.cpp -o build/arm64/ram_server_rina.o
-$CXX -static -o build/arm64/rina-host build/arm64/ram_server_rina.o build/arm64/rina_region.o build/arm64/ctl_host.o build/arm64/frogram.o $L -lpthread -ldl
+$CXX -static -o build/arm64/rina-host build/arm64/ram_server_rina.o build/arm64/rina_region.o build/arm64/daf_region.o build/arm64/ctl_host.o build/arm64/frogram.o $L -lpthread -ldl
 file build/arm64/fdf-client build/arm64/rina-host | grep -q "ARM aarch64" && echo "BUILD OK: build/arm64/{fdf-client,fdf-participants,ram,fdf-events,rina-host} (static aarch64)"

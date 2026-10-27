@@ -1327,7 +1327,9 @@ def run_region_loop():
       4. no runMerge for a region event [NO_MERGE_ON_REGION_EVENTS_V1]: the facts carry what the graph needs and this
          loop applies all of it; the generation counter (`gen` fact) is the audit trail [GEN_V1].
     When the region is gone: view.json phase=recalc, every region route and name withdrawn now (positive failure),
-    tunnels torn down, no merge [GONE_IS_GONE_V1]; then wait for fdf-events to reconnect and adopt."""
+    tunnels torn down, no merge [GONE_IS_GONE_V1]; then wait for fdf-events to reconnect and adopt.
+    [RAM_IN_THE_TUNNEL_V1] each attempt to join (the first, and every one after a loss) first brings up the hub channel
+    the invitation names (region.my_channels): the region is reached through it."""
     from . import region
     from . import gen as _gen
     from .graph_apply import Applier, World
@@ -1590,11 +1592,29 @@ def run_region_loop():
         config.log.warning("REGION: forward %s -> %s (RINA_RAM=%s): old pond withdrawn, maps cleared, `forward` written in %d ms; joining now",
                            old, area, config.REGION_RAM, int((time.monotonic() - t0) * 1000))
 
+    # [REGION_NEVER_ON_THE_UNDERLAY_V1] the region's addresses (10.253.0.0/16: the hub, every edge) are reached through
+    # the hub channel or not at all. Without this, a session opened while the tunnel is down (fdf-client at boot, after a
+    # loss) leaves by the default route, from the Internet-facing address: a SYN toward 10.253.253.254 on the Internet,
+    # and a connect() that hangs ~2 min retrying from a source the hub's allowed-ips will never accept (seen in
+    # netns-invisible-test). An unreachable route under the tunnel's own (higher metric: the wg interface's connected
+    # 10.253.0.0/16 wins whenever it exists) makes that an immediate "no route", and nothing goes out.
+    import subprocess as _sp
+    r = _sp.run(["ip", "route", "replace", "unreachable", "10.253.0.0/16", "metric", "4253"], capture_output=True, text=True)
+    (config.log.warning if r.returncode == 0 else config.log.error)(
+        "REGION: 10.253.0.0/16 is unreachable except through the hub channel%s [REGION_NEVER_ON_THE_UNDERLAY_V1]",
+        "" if r.returncode == 0 else (": could not install the route: " + r.stderr.strip()))
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
     backoff = 5
     while config.running:
         up = False
         evs = None
+        # [RAM_IN_THE_TUNNEL_V1] the region's RAM manager listens only on the hub's tunnel address: the invitation's hub
+        # channel comes up first, every attempt (after a loss every tunnel was torn down; this one is the way back).
+        # It needs nothing from the region: region.my_channels() builds it from the invitation.
+        try:
+            _reconcile_bringup_phase()
+        except Exception as e:
+            config.log.warning("REGION: hub channel bring-up before joining failed: %s (tried again on the next attempt)", e)
         try:
             # [WATCH_BEFORE_READ_V1] the watch first, then the read. It was the other way round: `_one("start")` read the
             # world, then brought up the hub tunnel (5 s in the netns test), and only then did fdf-events register --

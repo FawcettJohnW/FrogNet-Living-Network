@@ -13,7 +13,7 @@ def rep(a, b, n=1):
     assert s.count(a) == n, (a[:90], s.count(a)); s = s.replace(a, b)
 
 rep('''                          Session::Impl* co = nullptr; std::string co_key; };   // [CLIENT_COALESCES_V1] its entry, if any''',
-    '''                          Session::Impl* co = nullptr; std::string co_key; const void* co_entry = nullptr; };   // [CLIENT_COALESCES_V1] its entry, if any''')
+    '''                          Session::Impl* co = nullptr; std::string co_key; mutable std::atomic<const void*> co_entry{nullptr}; };   // [CLIENT_COALESCES_V1] its entry, if any; [CO_REMOVE_ONCE_V1] claimed by exchange''')
 rep('''    std::mutex co_m; std::map<std::string, std::shared_ptr<Pending>> coalesce;''',
 '''    // [CLIENT_COALESCE_LOCKLESS_V1] calls in flight, by the exact request
     struct CoEnt { std::string key; std::shared_ptr<Pending> p; };
@@ -22,7 +22,10 @@ rep('''    std::mutex co_m; std::map<std::string, std::shared_ptr<Pending>> coal
     ribbit::Ebr co_ebr;
     static size_t co_home(const std::string& k) { uint64_t h = 1469598103934665603ull; for (unsigned char c : k) { h ^= c; h *= 1099511628211ull; } return size_t(h); }
     void co_remove(const Pending* p) {
-        const CoEnt* mine = static_cast<const CoEnt*>(p->co_entry); if (!mine) return;
+        // [CO_REMOVE_ONCE_V1] one finisher removes the entry: at session end a held read's Pending was finished by the sender
+        // (its connection gone) AND by the reader's ring sweep; both removed and retired the same entry (ASan: heap-use-
+        // after-free in co_home, E2 teardown). The entry is claimed by exchange; the loser has nothing to remove.
+        const CoEnt* mine = static_cast<const CoEnt*>(p->co_entry.exchange(nullptr, std::memory_order_acq_rel)); if (!mine) return;
         const size_t h0 = co_home(mine->key);
         for (size_t i = 0; i < 32; ++i) { const CoEnt* expect = mine; if (co_slot[(h0 + i) & (CO_N - 1)].compare_exchange_strong(expect, nullptr, std::memory_order_acq_rel)) break; }
         co_ebr.retire(mine);

@@ -21,3 +21,7 @@ bool rina_resident_get_raw_id(const std::string& s, const std::string& v, const 
 // request), and whoever makes the answer exist sends it with rina_answer -- no thread waits for it
 void* rina_defer();
 void rina_answer(void* continuation, const std::string& body);
+// [DAF_MODEL_V1] John Day's DAF model as a region (src/daf_region.cpp): op=daf, inline, never waits
+std::string daf_region_call(const std::string& body);
+void daf_session_down(uint64_t id);
+void daf_start();

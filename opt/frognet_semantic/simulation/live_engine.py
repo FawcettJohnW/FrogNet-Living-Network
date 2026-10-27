@@ -147,7 +147,7 @@ def _patch_sentinel_paths(tmpdir):
     real_obs.FAILURES_PATH = os.path.join(tmpdir, "discovery_failures.tsv")
 
 
-def converge_real(topo, max_cycles=16, ipr_factory=None):
+def converge_real(topo, max_cycles=16, ipr_factory=None, keep_state=False):
     """Run distributed merge cycles using the REAL planner+committer.
 
     Returns the number of cycles to convergence (or max_cycles).
@@ -190,10 +190,15 @@ def converge_real(topo, max_cycles=16, ipr_factory=None):
              for n in topo.nodes.values()}
     name_by_one = {n.frognet_ip: n.name for n in topo.nodes.values() if n.frognet_ip}
 
-    for node in topo.nodes.values():
-        node.routes = [H.Route(i.subnet, dev=i.name, via=None, metric=100)
-                       for i in node.ifaces.values()]
-        node.known_hosts = {node.frognet_ip: node.name} if node.frognet_ip else {}
+    # [CONVERGE_CONTINUES_V1] keep_state=True continues from what the nodes already learned (model routes and
+    # known_hosts), as a live network does after a link change. Without it every call is a cold start: a node's
+    # peers advertise only themselves on the first cycle, so a route held through a peer is not observed and the
+    # planner drops it ("no stickiness for paths we can no longer see"). Default unchanged.
+    if not keep_state:
+        for node in topo.nodes.values():
+            node.routes = [H.Route(i.subnet, dev=i.name, via=None, metric=100)
+                           for i in node.ifaces.values()]
+            node.known_hosts = {node.frognet_ip: node.name} if node.frognet_ip else {}
 
     tmp = tempfile.mkdtemp(prefix="live_engine_")
     _patch_sentinel_paths(tmp)
