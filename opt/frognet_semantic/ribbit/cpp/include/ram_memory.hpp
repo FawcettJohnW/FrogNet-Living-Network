@@ -379,6 +379,7 @@ public:
         WriteWindow* sw = nullptr; uint64_t spos = 0;       // a service family: the service's window of hints
         std::unordered_map<Variable*, VarCursor> vars;      //   and each variable's place
         long long after_new = -1;                           //   a variable met for the first time: from this id (-1: all)
+        bool past_first = false;                            //   started past an id: the first read takes every variable's rows
         uint64_t recovered = 0, laps = 0;                   // rows read from the rows because a window had moved on
     };
     // from_after < 0: from now on (what is written after this call); else every row with an id past from_after
@@ -395,6 +396,7 @@ public:
         c.spos = c.sw->head.load(std::memory_order_acquire);   // hints from here; the variables there now start now
         for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service) c.vars[var] = start(var);
         c.after_new = from_after < 0 ? 0 : from_after;       // a variable made after this: all of it is new
+        c.past_first = from_after >= 0;
         return c;
     }
     // What has been written to the family since the cursor's last read, appended to out: each write once, each
@@ -406,6 +408,9 @@ public:
     void read(Cursor& c, std::vector<Cell>& out) {
         ribbit::lf::ebr::Guard eg;                     // [LOCKFREE_READS_V1]
         if (!c.sw) { read_var(c, c.one, out); return; }
+        // [SERVICE_PAST_AN_ID_V1] a service family read past an id: what its variables hold past it is read now, not
+        // when each variable is next written (a variable's hint only appears with its next write)
+        if (c.past_first) { c.past_first = false; for (auto& kv : c.vars) read_var(c, kv.second, out); }
         auto vc_of = [&](Variable* var) -> VarCursor& {
             auto it = c.vars.find(var);
             if (it != c.vars.end()) return it->second;

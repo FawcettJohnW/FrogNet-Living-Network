@@ -111,13 +111,59 @@ else is theirs, and is not reaped.
 - A publish from a client that publishes and exits stays a few seconds, so a slow subscriber still gets it.
 - A retained message stays.
 
-## What moving Redis and MQTT onto it fixes
+## Held reads: watch and follow [STANDING_WATCH_V1]
 
-- **MQTT's retained message breaks "producers only write into their own space".** Every publisher writes the same
-  tuple, `(mqtt.retained, <topic>, hwm)`. `offer` / `latest` give each writer its own cell instead, and the reader takes
-  the newest.
-- **The Redis front makes one call.** `op=redis "h <front>"` is request/response, and it ties the session's end to the
-  front's connections. `announce` plus `Asker` / `Answerer` do the same with writes and held reads.
+Every API++ read is a `ribbit::Space` held read, each on a thread of its own, handed batches in the family's write
+order.
+
+| | the memory here | the memory elsewhere |
+|---|---|---|
+| `Space::watch` | the memory's cursor on the family, with a hook: a write bumps the read's word, and the thread reads by position | a held read, asked again after each answer; what has not been read stays in the memory (a ring may move past a slow reader, and the reader is told) |
+| `Space::follow` | the same as `watch` | one standing follow on the session: the memory streams each batch as it lands into the read's own lock-free list. No request per batch. What has not been handled waits in the reader's process. For readers that keep up |
+
+`subscribe`, `capable` and the `Answerer` use `watch`. The `Asker` uses `follow`.
+
+[SERVICE_PAST_AN_ID_V1] A memory cursor on a whole service, started past an id, used to read a variable's rows only
+when that variable was next written. It now reads every variable's rows past the id on its first read.
+`test-family-hooks`: 3 of 3 rows with the fix, 0 of 3 without.
+
+## Redis and MQTT on API++
+
+**MQTT** (box `front/src/region_client.cpp`, client library `libram/libmosquitto_ram.cpp`):
+
+- Publishes go through `Publisher` / `subscribe`. Gone: the box's own per-topic counter and both hand-written gap
+  checks.
+- The topic directory uses `announce`. Wildcard filters use `capable`. Gone: the box's and libram's own directory
+  watches.
+- Retained messages were one tuple per topic, `(mqtt.retained, <topic>, hwm)`, written by every publisher. Each writer
+  now has its own cell (`offer`), and the reader takes the newest (`latest`).
+- Linger:
+  - box: its retained messages stay when it goes; everything else goes with it;
+  - libram: publishes and directory entries stay 5 s (for a client that publishes and exits); retained messages stay.
+
+**Redis** (`src/front.cpp`, `src/redis_ram.cpp`, `src/region.cpp`):
+
+- The front is an `Asker`. Its requests are `(redis.ask, <front>, …)`, and it reads its replies with one standing
+  `follow`.
+- The region is an `Answerer` on `Space("here")`. Gone: the host's hand-written reader loop.
+- The front's one call is gone (`op=redis "h <front>"`, and with it the region's `bind` and `session_down`). When a
+  front's session ends, its request cells go with it. The region is handed each one as gone, and that connection
+  leaves (`request_gone`).
+- `run_two_fronts.py` check 9 ("B stops: its clients leave the region") is green, and red with `request_gone`
+  disabled.
+
+Measured (lizard, NLOC / total CCN), main against this branch:
+
+| | NLOC | CCN |
+|---|---|---|
+| Redis `src` | 7,840 → 7,536 | 4,561 → 4,418 |
+| MQTT box `region_client.cpp` | 779 → 750 | 346 → 333 |
+| MQTT `libmosquitto_ram.cpp` | 446 → 424 | 339 → 325 |
+| MQTT `region` | 896 → 875 | 357 → 351 |
+| platform `cpp/include` + `cpp/src` | 11,440 → 11,903 | 3,862 → 4,042 |
+
+The platform grows by the shared lock-free primitives (moved in from Redis), API++, gone-with-its-writer, linger and
+its reaper, and `Space::follow`. Redis and MQTT shrink.
 
 ## The in-process primitives are not API++
 

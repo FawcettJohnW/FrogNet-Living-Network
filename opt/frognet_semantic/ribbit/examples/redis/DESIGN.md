@@ -32,14 +32,14 @@ front, nothing waits.
 
 | cell | written by | holds |
 |---|---|---|
-| `(redis.req, <front>, <n>)` | the front, unanswered | connection n's pipeline (`p`), with its addresses (`a`, `l`): the region opens the connection on its first |
-| `(redis.req, <front>, g<n>)` | the front, unanswered | connection n hung up -- read after its last pipeline (one variable: write order) |
-| `(redis.req, <front>, x)` | the front that owns the configuration | the configuration, before its first pipeline |
-| `(redis.rep, <front>, <n>)` | the region | `f` (authenticated; 0 open, 1 close, 2 more follows) and `r`, the replies -- or a close (CLIENT KILL) |
-| `(redis.rep, <front>, <n>.b)` | the region | the replies before a command that parked: its own cell, so the final reply cannot overwrite it unread |
+| `(redis.ask, <front>, <n>)` | the front, unanswered | connection n's pipeline (`p`), with its addresses (`a`, `l`): the region opens the connection on its first |
+| `(redis.ask, <front>, g<n>)` | the front, unanswered | connection n hung up -- read after its last pipeline (one variable: write order) |
+| `(redis.ask, <front>, x)` | the front that owns the configuration | the configuration, before its first pipeline |
+| `(redis.answer, <front>, <n>)` | the region | `f` (authenticated; 0 open, 1 close, 2 more follows) and `r`, the replies -- or a close (CLIENT KILL) |
+| `(redis.answer, <front>, <n>.b)` | the region | the replies before a command that parked: its own cell, so the final reply cannot overwrite it unread |
 
-- The region reads `redis.req` with one reader thread, woken by the writes (the memory's family hook), in each front's
-  write order. The front reads `(redis.rep, <front>, *)` with one standing read (the session's follow stream): the
+- The region reads `redis.ask` with one reader thread, woken by the writes (the memory's family hook), in each front's
+  write order. The front reads `(redis.answer, <front>, *)` with one standing read (the session's follow stream): the
   replies of all its connections arrive as rows, batched.
 - One pipeline per connection is in flight, so `<n>` is read before it is written again (a cell's reader gets its
   latest value).
@@ -48,8 +48,10 @@ front, nothing waits.
   (`[PAYLOAD_IN_FIELDS_V1]`); past one frame (1 MB) it is piece cells `<n>:0`, `<n>:1` ... then `<n>`
   (`[PAYLOAD_IN_CELLS_V1]`). Tested to 20 MB of random bytes, exact.
 - Bytes travel as code points of the same number (`[BYTES_AS_CODE_POINTS_V1]`).
-- A front's one call, at start: `op=redis`, `h <front>` -- its session is that front's, so the session's end takes its
-  connections (invariant 5).
+- Nothing is called (API++, `docs/API-PLUS-PLUS.md`): the front is an `Asker` (its requests, its one standing read of
+  its replies), the region an `Answerer` (one read held on every front's requests). When a front's session ends, its
+  request cells go with it ([GONE_WITH_ITS_WRITER_V1]); the region is handed each as gone, and that connection leaves
+  (invariant 5). The front's one call that used to tie its session to its connections (`op=redis`, `h <front>`) is gone.
 
 ## Blocked commands, without a thread
 

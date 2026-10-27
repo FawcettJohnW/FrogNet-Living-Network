@@ -34,7 +34,7 @@ namespace {
 enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16 };
 
 struct Conn {
-    std::string key, front; uint64_t n = 0, session = 0;
+    std::string key, front; uint64_t n = 0;
     Client* c = nullptr;
     std::atomic<uint32_t> busy{0}, pend{0};
     std::string pipeline;                              // PIPE: set before the bit
@@ -47,7 +47,6 @@ struct Conn {
 LFMap<std::string, Conn*> conns;                 // "<front>/<n>"
 LFMap<uint64_t, Conn*> by_client;                // by Redis client id (CLIENT KILL)
 LFMap<std::string, Conn*> parked;                // the parked ones, for the writers' wakes
-LFMap<std::string, uint64_t> front_session;      // a front's session (its `h` call): the session's end takes its connections
 LFMap<std::string, int> killed;                  // CLIENT KILL: a pipeline already on its way is not run (its front's g<n> clears it)
 std::atomic<uint64_t> parkings{0};
 
@@ -100,7 +99,7 @@ void deadlines() {
 }
 
 // ---- the runner --------------------------------------------------------------------------------------------------
-// [REPLIES_AS_TRUTH_V1] The region's answer is a cell it writes, (redis.rep, <front>, <n>): "f" is
+// [REPLIES_AS_TRUTH_V1] The region's answer is a cell it writes, (redis.answer, <front>, <n>): "f" is
 // "<authenticated><0 open | 1 close | 2 parked: more follows>", "r" the replies (bytes as code points). The front holds
 // one standing read on its family and gets them as rows, batched; nothing is answered per request. The replies before
 // a command that parks go to their own cell, <n>.b, so the final reply cannot overwrite them before they are read
@@ -272,10 +271,6 @@ void init() {
     std::thread(deadlines).detach();
 }
 
-void bind(const std::string& front) {           // the `h` call: this session is that front's
-    front_session.add(front, ribbit::current_session());
-    DIAG("region", "bind", front, "session=" + std::to_string(ribbit::current_session()));
-}
 
 std::unordered_map<std::string, std::string> request_pieces;   // [PAYLOAD_IN_CELLS_V1] the reader's: piece cells so far
 void request(const std::string& front, const std::string& instance, const ribbit::BagArr& bag) {
@@ -300,7 +295,6 @@ void request(const std::string& front, const std::string& instance, const ribbit
             if (auto* nd = conns.get(key)) k = nd->val;
             else {                                                      // its first: the connection opens
                 k = new Conn; k->key = key; k->front = front; k->n = strtoull(instance.c_str(), nullptr, 10);
-                if (auto* fs = front_session.get(front)) k->session = fs->val;
                 k->c = new Client; Client& c = *k->c;
                 c.id = g.next_client_id++; c.addr = str("a"); c.laddr = str("l");
                 c.authed = g.requirepass.empty(); c.user = "default";
@@ -316,12 +310,17 @@ void request(const std::string& front, const std::string& instance, const ribbit
     serve_woken();
 }
 
-void session_down(uint64_t session) {
-    ribbit::pool_run([session] {
-        { ebr::Guard e;
-          conns.walk_all([&](LFMap<std::string, Conn*>::Node* nd) { if (nd->val->session == session) mark(nd->val, GONE); return true; }); }
-        serve_woken();
-    });
+// A front's session ended, and its request cells went with it, each given here as gone, in its write order. A
+// connection is its pipeline cell, <n>: that one going is the connection going (its pieces <n>:<i>, its hang-up g<n>
+// and the front's configuration x say nothing more). Nothing walks the connections: each says it went.
+void request_gone(const std::string& front, const std::string& instance) {
+    if (instance.empty() || instance[0] < '0' || instance[0] > '9' || instance.find(':') != std::string::npos) return;
+    const std::string key = front + "/" + instance;
+    DIAG("region", "gone", key, "its front's session ended");
+    request_pieces.erase(key);
+    ebr::Guard e;
+    { int x = 0; killed.remove(key, &x); }
+    if (auto* nd = conns.get(key)) { nd->val->pend.fetch_or(GONE, std::memory_order_acq_rel); try_run(nd->val); }
 }
 
 }  // namespace region

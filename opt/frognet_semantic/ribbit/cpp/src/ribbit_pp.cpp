@@ -119,12 +119,14 @@ bool latest(Space& sp, const std::string& space, const std::string& topic, Space
 }
 
 // ---- ask / answer -------------------------------------------------------------------------------------------------
-Asker::Asker(Space& sp, std::string service, std::string me, std::function<void(const SpaceRow&)> on_reply)
+Asker::Asker(Space& sp, std::string service, std::string me, std::function<void(const SpaceRow&)> on_reply,
+             std::function<void(const std::string&)> ended)
     : sp_(sp), service_(std::move(service)), me_(std::move(me)) {
     // from now, at the call: a reply to anything asked after this returns is read
-    sp_.watch(service_ + ".answer", me_, (long long)sp_.newest(service_ + ".answer", me_), [on_reply = std::move(on_reply)](std::vector<SpaceRow>& rows) {
+    // streamed (Space::follow): an asker reads its replies as they land, without asking again per batch
+    sp_.follow(service_ + ".answer", me_, (long long)sp_.newest(service_ + ".answer", me_), [on_reply = std::move(on_reply)](std::vector<SpaceRow>& rows) {
         for (auto& r : rows) on_reply(r);
-    });
+    }, std::move(ended));
 }
 void Asker::ask(const std::string& key, const std::string& bag) { sp_.write(service_ + ".ask", me_, key, bag); }
 void Asker::ask(const std::string& key, const std::vector<std::string>& order, semcodec::Fields f) {

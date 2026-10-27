@@ -86,7 +86,9 @@ bool latest(Space& sp, const std::string& space, const std::string& topic, Space
 class Asker {
 public:
     // on_reply: each reply written to this asker, in write order, on its read's own thread
-    Asker(Space& sp, std::string service, std::string me, std::function<void(const SpaceRow&)> on_reply);
+    // ended: its replies' read ended (the session is gone), said once
+    Asker(Space& sp, std::string service, std::string me, std::function<void(const SpaceRow&)> on_reply,
+          std::function<void(const std::string& why)> ended = {});
     void ask(const std::string& key, const std::string& bag);                                          // written: done
     void ask(const std::string& key, const std::vector<std::string>& order, semcodec::Fields fields);
     const std::string& me() const { return me_; }
@@ -104,5 +106,8 @@ public:
 private:
     Space& sp_; std::string service_;
 };
+// the asker's request cells, (<service>.ask, <asker>, <key>), and the replies to it, (<service>.answer, <asker>, <key>)
+inline std::string ask_space(const std::string& service) { return service + ".ask"; }
+inline std::string answer_space(const std::string& service) { return service + ".answer"; }
 
 }  // namespace ribbit::pp

@@ -68,6 +68,12 @@ public:
     // what is there past the id (rows or none), or none for a read from now on. [READERS_IN_PARALLEL_V1]
     using OnRows = std::function<void(std::vector<SpaceRow>& rows)>;
     void watch(const std::string& space, const std::string& topic, long long after, OnRows on);
+    // [STANDING_WATCH_V1] the same, but with a memory elsewhere the memory streams each batch as it lands (one standing
+    // follow on the session) into this read's own list -- no request per batch. For a reader that keeps up: what it has
+    // not handled yet waits in this process. (Here: the same as watch.)
+    // ended: the follow's end, said once (the session is gone): the reader decides what that means
+    void follow(const std::string& space, const std::string& topic, long long after, OnRows on,
+                std::function<void(const std::string& why)> ended = {});
     uint64_t newest(const std::string& space, const std::string& topic);   // the newest id written to a family
 
     // what this process has written has left it (a memory elsewhere), or the time is up
