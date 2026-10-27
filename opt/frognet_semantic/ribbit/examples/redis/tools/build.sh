@@ -74,7 +74,7 @@ job build/obj/redis_ram.o $CXX -std=c++20 $W -Werror -DREDIS_RAM_VERSION="\"$VER
 job build/obj/ribbit_space.o $CXX -std=c++20 $W -Werror -I$P/include -c $P/src/ribbit_space.cpp   # [SPACE_V1]
 # the box's sources, named: a tree unpacked over the RAM-host design keeps its old files (src/redis_region.cpp,
 # src/coherence.cpp ...), and those are not part of this build
-SRCS="region front server resp util ebr memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
+SRCS="region front server resp util memory db cmd_conn cmd_geo cmd_hash cmd_hll cmd_keyspace cmd_list cmd_multi cmd_server cmd_set cmd_sort cmd_stream cmd_stream_groups cmd_string cmd_zset"
 for b in $SRCS; do
   f=src/$b.cpp
   E=(); case "$b" in region|front) E=(-Werror "-DRIBBIT_REDIS_VERSION=\"$VER\"");; esac   # the new code builds warning-free, always; the version may hold spaces

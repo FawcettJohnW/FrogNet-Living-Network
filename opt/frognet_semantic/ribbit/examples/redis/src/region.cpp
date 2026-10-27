@@ -18,8 +18,6 @@
 #include "bytes_text.hpp"
 #include "chunks.hpp"
 #include "diag.hpp"
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <strings.h>
 #include <chrono>
@@ -74,20 +72,18 @@ void serve_woken() {
 
 // ---- deadlines: one thread for every parked command --------------------------------------------------------------
 struct Due { int64_t at; std::string key; uint64_t no; bool operator>(const Due& o) const { return at > o.at; } };
-struct DNode { Due d; DNode* next; };
-std::atomic<DNode*> incoming{nullptr};
-std::atomic<uint32_t> dl_word{0};
+struct DNode { Due d; DNode* next = nullptr; };
+ribbit::lf::TakeStack<DNode> incoming;            // [API_PLUS_PLUS_V1] every parking's deadline, pushed by any thread
+ribbit::lf::WaitWord dl_word;                     // the deadline thread sleeps on it
 void add_deadline(int64_t at_us, const std::string& key, uint64_t no) {
-    auto* d = new DNode{Due{at_us, key, no}, incoming.load(std::memory_order_relaxed)};
-    while (!incoming.compare_exchange_weak(d->next, d, std::memory_order_acq_rel)) {}
-    dl_word.fetch_add(1, std::memory_order_release);
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&dl_word), FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
+    incoming.push(new DNode{Due{at_us, key, no}});
+    dl_word.wake();
 }
 void deadlines() {
     std::priority_queue<Due, std::vector<Due>, std::greater<Due>> due;
     for (;;) {
-        const uint32_t seen = dl_word.load(std::memory_order_acquire);
-        for (DNode* d = incoming.exchange(nullptr, std::memory_order_acq_rel); d;) { due.push(d->d); DNode* nx = d->next; delete d; d = nx; }
+        const uint32_t seen = dl_word.seen();
+        for (DNode* d : incoming.take()) { due.push(d->d); delete d; }
         // [NEVER_BEFORE_THE_DEADLINE_V1] ends only once the deadline has passed (Redis never returns early)
         for (int64_t now = mono_us(); !due.empty() && due.top().at <= now; due.pop()) {
             std::string key = due.top().key; uint64_t no = due.top().no;
@@ -97,9 +93,9 @@ void deadlines() {
                 serve_woken();
             });
         }
-        timespec ts, *tp = nullptr;
-        if (!due.empty()) { int64_t us = due.top().at - mono_us(); if (us < 0) us = 0; ts.tv_sec = us / 1000000; ts.tv_nsec = (us % 1000000) * 1000; tp = &ts; }
-        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&dl_word), FUTEX_WAIT_PRIVATE, seen, tp, nullptr, 0);
+        int64_t ns = -1;
+        if (!due.empty()) { int64_t us = due.top().at - mono_us(); ns = (us < 0 ? 0 : us) * 1000; }
+        dl_word.wait(seen, ns);
     }
 }
 
@@ -134,7 +130,7 @@ void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
 void unpark(Conn* k) {
     Client& c = *k->c;
     WaitWord* w = k->word.exchange(nullptr, std::memory_order_acq_rel);
-    if (w) Region::unwatch(*w);
+    if (w) w->unwatch();
     { Conn* x = nullptr; parked.remove(k->key, &x); }
     k->park_no.store(0, std::memory_order_release); k->parked = false;
     c.waiting_on = nullptr;
@@ -164,7 +160,7 @@ void park(Conn* k, const Argv& argv, std::vector<Argv>& cmds, size_t i, std::str
     k->cmd = argv; for (auto& rw : c.park_rewrite) if (rw.first < k->cmd.size()) k->cmd[rw.first] = rw.second;
     k->rest.assign(std::make_move_iterator(cmds.begin() + (long)i + 1), std::make_move_iterator(cmds.end()));
     k->timeout_reply = std::move(timeout_reply); k->out = std::move(o);
-    WaitWord* w = c.park_word; Region::watch(*w);
+    WaitWord* w = c.park_word; w->watch();
     k->seen = w->gen.load(std::memory_order_acquire);
     c.waiting_on = w; c.blocked_keys.store(new Client::BlockKeys(c.block_keys), std::memory_order_release);
     g.blocked_clients++;

@@ -19,8 +19,6 @@
 #include "cfgtable.hpp"
 #include <sys/socket.h>
 #include <sys/epoll.h>
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <climits>
 #include <netinet/in.h>
 #include <netinet/tcp.h>

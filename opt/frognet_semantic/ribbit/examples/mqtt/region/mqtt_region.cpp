@@ -8,8 +8,6 @@
 #include <algorithm>
 #include <sched.h>
 #include <climits>
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <chrono>
 #include <stdexcept>
@@ -26,13 +24,6 @@ void msg_unref(Msg* m) {
     if (m && m->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) lf::ebr::retire(m);
 }
 
-static void futex_wait(std::atomic<uint32_t>* w, uint32_t seen, int64_t ms) {
-    timespec ts{ms / 1000, (ms % 1000) * 1000000};
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(w), FUTEX_WAIT_PRIVATE, seen, ms >= 0 ? &ts : nullptr, nullptr, 0);
-}
-static void futex_wake(std::atomic<uint32_t>* w) {
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(w), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
-}
 
 // ---- per-thread counters: each thread bumps its own line; a reader sums them ------------------------------------
 namespace {
@@ -436,15 +427,14 @@ std::string Region::diag_fronts() {
         o += " | f" + std::to_string(fr) + " pushed_to=" + std::to_string(pushed) + " taken=" + std::to_string(taken) + " backlog=" + std::to_string(int64_t(pushed - taken))
            + " held=" + std::to_string(fronts_[fr].held.load(std::memory_order_acquire)) + " clients=" + std::to_string(counts_[fr].clients.load(std::memory_order_relaxed))
            + " limit=" + std::to_string(cfg.max_queued_messages * std::max<int64_t>(1, counts_[fr].clients.load(std::memory_order_relaxed)))
-           + " parked=" + (fronts_[fr].parked.load(std::memory_order_acquire) ? "1" : "0") + " waiters=" + std::to_string(fronts_[fr].waiters.load(std::memory_order_relaxed));
+           + " parked=" + (fronts_[fr].parked.load(std::memory_order_acquire) ? "1" : "0") + " waiters=" + std::to_string(fronts_[fr].word.waiters.load(std::memory_order_relaxed));
     }
     return o;
 }
 
 void Region::push(int front, Delivery* d) {
     Front& f = fronts_[front];
-    Delivery* h = f.head.load(std::memory_order_relaxed);
-    do { d->next = h; } while (!f.head.compare_exchange_weak(h, d, std::memory_order_seq_cst, std::memory_order_relaxed));
+    f.deliveries.push(d);
     int efd = f.efd.load(std::memory_order_relaxed);
     if (front < TRACKED_FRONTS) count().pushed_to[front].fetch_add(1, std::memory_order_relaxed);
     if (efd >= 0) {                                                          // a front in this process
@@ -455,8 +445,7 @@ void Region::push(int front, Delivery* d) {
         if (f.armed.exchange(false, std::memory_order_seq_cst)) { uint64_t one = 1; ssize_t w = ::write(efd, &one, sizeof one); (void)w; count().wakes++; }
         return;
     }
-    f.gen.fetch_add(1, std::memory_order_release);
-    if (f.waiters.load(std::memory_order_seq_cst)) { futex_wake(&f.gen); count().wakes++; }
+    if (f.word.bump()) count().wakes++;
     if (remote_wake && f.parked.load(std::memory_order_seq_cst)) { remote_wake(front); count().wakes++; }   // [HELD_WAIT_V1]
 }
 
@@ -467,17 +456,14 @@ int Region::hello_local(int efd) {
     return f;
 }
 std::vector<Delivery*> Region::take(int front) {
-    Delivery* list = fronts_[front].head.exchange(nullptr, std::memory_order_acquire);
-    std::vector<Delivery*> out;
-    for (Delivery* d = list; d; d = d->next) out.push_back(d);
+    std::vector<Delivery*> out = fronts_[front].deliveries.take();          // oldest first
     if (!out.empty()) fronts_[front].taken.store(fronts_[front].taken.load(std::memory_order_relaxed) + out.size(), std::memory_order_release);
-    std::reverse(out.begin(), out.end());                                    // a stack: oldest last, so turn it round
     return out;
 }
 bool Region::arm(int front) {
     Front& f = fronts_[front];
     f.armed.store(true, std::memory_order_seq_cst);
-    return f.head.load(std::memory_order_seq_cst) != nullptr;
+    return !f.deliveries.empty();
 }
 
 // [LAZY_MESSAGE_V1] A message made from a publish's views is numbered from its front's own range: unique without a
@@ -643,43 +629,36 @@ void Region::retained_for(const std::string& filter, std::vector<Msg*>& out) {
 bool Region::wait_ready(int front, int64_t wait_ms) {
     Front& f = fronts_[front];
     count().waits++;
-    if (f.head.load(std::memory_order_acquire)) return true;
+    if (!f.deliveries.empty()) return true;
     if (wait_ms <= 0) return false;
     auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
-    f.waiters.fetch_add(1, std::memory_order_seq_cst);
-    bool ready = false;
+    lf::Watching on(f.word);                                             // registered before every check
     for (;;) {
-        uint32_t seen = f.gen.load(std::memory_order_acquire);
-        if (f.head.load(std::memory_order_acquire)) { ready = true; break; }
-        int64_t left = std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
-        if (left <= 0) break;
-        futex_wait(&f.gen, seen, left);
+        const uint32_t seen = f.word.seen();
+        if (!f.deliveries.empty()) return true;
+        int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(until - std::chrono::steady_clock::now()).count();
+        if (left <= 0) return false;
+        f.word.wait(seen, left);
     }
-    f.waiters.fetch_sub(1, std::memory_order_seq_cst);
-    return ready;
 }
 
 std::vector<Delivery*> Region::wait(int front, int64_t wait_ms) {
     Front& f = fronts_[front];
     count().waits++;
-    Delivery* list = f.head.exchange(nullptr, std::memory_order_acquire);
-    if (!list && wait_ms > 0) {
+    std::vector<Delivery*> out = f.deliveries.take();                       // oldest first
+    if (out.empty() && wait_ms > 0) {
         auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(wait_ms);
-        f.waiters.fetch_add(1, std::memory_order_seq_cst);
+        lf::Watching on(f.word);                                         // registered before every take
         for (;;) {
-            uint32_t seen = f.gen.load(std::memory_order_acquire);
-            list = f.head.exchange(nullptr, std::memory_order_acquire);
-            if (list) break;
-            int64_t left = std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
+            const uint32_t seen = f.word.seen();
+            out = f.deliveries.take();
+            if (!out.empty()) break;
+            int64_t left = std::chrono::duration_cast<std::chrono::nanoseconds>(until - std::chrono::steady_clock::now()).count();
             if (left <= 0) break;
-            futex_wait(&f.gen, seen, left);
+            f.word.wait(seen, left);
         }
-        f.waiters.fetch_sub(1, std::memory_order_seq_cst);
     }
-    std::vector<Delivery*> out;
-    for (Delivery* d = list; d; d = d->next) out.push_back(d);
     if (!out.empty()) fronts_[front].taken.store(fronts_[front].taken.load(std::memory_order_relaxed) + out.size(), std::memory_order_release);
-    std::reverse(out.begin(), out.end());                                    // a stack: oldest last, so turn it round
     return out;
 }
 

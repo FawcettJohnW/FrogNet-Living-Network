@@ -25,7 +25,7 @@ bool parse_timeout(const std::string& s, int64_t& ms, Reply& r);
 std::string claim_ticket();
 // the word a blocking command waits on, registered on for the command's whole life: the registration is
 // what makes a writer bump the word at all, so it must exist before the first data check
-struct WaitReg { WaitWord& w; WaitReg(WaitWord& ww) : w(ww) { Region::watch(w); } ~WaitReg() { Region::unwatch(w); } WaitReg(const WaitReg&) = delete; };
+using WaitReg = ribbit::lf::Watching;   // [API_PLUS_PLUS_V1]
 WaitWord& wait_word_for(Client& c, const std::vector<std::string>& keys);
 bool block_on(Client& c, WaitWord& w, uint32_t seen, int64_t timeout_ms, std::chrono::steady_clock::time_point deadline);
 // A blocked command's place in line: its ticket under each key it waits on. [CLAIM_OUTLIVES_THE_TRY_V1] A command that

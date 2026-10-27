@@ -19,7 +19,7 @@
 #pragma once
 #include "memory.hpp"
 #include "sharded.hpp"
-#include "lfmap.hpp"
+#include "lf/lfmap.hpp"
 #include "resp.hpp"
 #include "cmdtable.hpp"
 #include <atomic>
