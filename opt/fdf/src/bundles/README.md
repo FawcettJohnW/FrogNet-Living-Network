@@ -7,7 +7,7 @@ saying which bundle is right.
 |---|---|---|---|
 | region holder (droplet) | `fdf-droplet-<tag>.tgz` | `cd / && tar xvzf - < /tmp/fdf-droplet-<tag>.tgz`, then `fdf-region-create AREA PUBLIC_IP` once | `fdf-hub`, the RAM manager, its member, `fdf-identity.service` |
 | FrogNet node (x86_64, Pi) | `fdf-install-<arch>-<tag>.run` | `sudo ./fdf-install-<arch>-<tag>.run fdfinv1.<...>` | the tunnel daemon's hub channel, then `fdf-client` |
-| any other Linux | `fdf-core-linux-<arch>-<build>.tgz` | `tar xzf` it anywhere, then `sudo ./fdf-core-<build>/install [--invite fdfinv1.<...>]` | `fdf-core.service`: `fdf-start` |
+| any other Linux, and the first client (a Linux desktop, or WSL 2 on Windows) | `fdf-core-linux-<arch>-<build>.tgz` | `tar xzf` it anywhere, then `sudo ./fdf-core-<build>/install [--invite fdfinv1.<...>]` | `fdf-core.service`: `fdf-start` |
 | Windows (x64) | `fdf-windows-<build>.zip` | unzip to `C:\fdf`, add `wintun.dll`, then `setup.cmd fdfinv1.<...>` (Administrator) | scheduled task "FrogNet member" |
 | Android | `fdf-android-<build>.apk` (`frognet-android/tools/make_apk.sh`, on a machine with the SDK) | install, paste the invitation, Start | `MemberService`, and on boot |
 

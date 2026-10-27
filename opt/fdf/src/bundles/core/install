@@ -46,6 +46,10 @@ fi
 MODE=standalone; [ -s "$H/var/invite" ] && MODE=leaf
 say "this machine starts as: $MODE"
 if [ -n "${FDF_NO_SYSTEMD:-}" ] || ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
+  # [CORE_ON_WSL_V1] a Windows first client is WSL 2: systemd is off there until /etc/wsl.conf turns it on
+  if grep -qi microsoft /proc/version 2>/dev/null && [ -z "${FDF_NO_SYSTEMD:-}" ]; then
+    say "this is WSL without systemd: add these two lines to /etc/wsl.conf, run  wsl --shutdown  in Windows, open WSL, run ./install again:"
+    say "  [boot]"; say "  systemd=true"; exit 1; fi
   say "no systemd here: start it with  $H/bin/fdf-start   (foreground; as root)"; exit 0; fi
 cat > /etc/systemd/system/fdf-core.service <<EOF
 # fdf-core.service -- made by fdf-core $B's install: [CORE_STARTS_WHAT_THIS_MACHINE_IS_V1] fdf-start brings up what this
