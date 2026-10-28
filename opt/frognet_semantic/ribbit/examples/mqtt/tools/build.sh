@@ -24,7 +24,8 @@ W="-Wall -Wextra -Werror -Wno-free-nonheap-object"
 mkdir -p "$P/bin"
 
 # the version the box says in its log: VERSION, baked in at build time
-printf '#define RIBBIT_MQTT_VERSION "%s"\n' "$(cat "$HERE/VERSION")" > "$HERE/region/ribbit_mqtt_version.h"
+# written with its licence notice: this file is tracked, and the build must not strip what the licence check requires
+printf '// Copyright (C) 2016-2026 Fawcett Innovations LLC\n// SPDX-License-Identifier: GPL-2.0-only\n// written by tools/build.sh from VERSION\n#define RIBBIT_MQTT_VERSION "%s"\n' "$(cat "$HERE/VERSION")" > "$HERE/region/ribbit_mqtt_version.h"
 echo "== platform objects"
 $CXX -std=c++20 -Wno-free-nonheap-object -O2 -pthread -I"$P/include" -c "$P/src/frogram.cpp" -o "$P/bin/frogram.o"
 $CXX -std=c++20 -O2 -pthread $W -I"$P/include" -c "$P/src/ram_client.cpp" -o "$P/bin/ram_client.o"

@@ -75,7 +75,8 @@ def _sources(tree, roots, never, classify):
     definition.
     """
     skip_dirs = {"__pycache__", ".git", "python3.11", "venv",
-                 "sites-enabled", "mods-enabled", "conf-enabled"}
+                 "sites-enabled", "mods-enabled", "conf-enabled",
+                 "CMakeFiles"}          # cmake's generated build state (a built example's build/), never source
     for r in roots:
         if os.path.isfile(r):
             rel = os.path.relpath(r, tree)
