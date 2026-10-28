@@ -35,7 +35,7 @@ P=$T/fdf-core-$B; H=$P/opt/fdf; mkdir -p $H/bin $H/lib/python $H/templates
 if [ "$ARCH" = "$(uname -m)" ]; then
   jlink --add-modules java.base,jdk.net,jdk.crypto.ec --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output $H/runtime
 else
-  pip download "jdk4py>=21,<22" --platform manylinux2014_aarch64 --only-binary=:all: --no-deps -d $T/whl -q
+  pip download "jdk4py>=21,<22" --platform manylinux_2_17_aarch64 --only-binary=:all: --no-deps -d $T/whl -q
   mkdir $T/x && (cd $T/x && unzip -q $T/whl/jdk4py-*.whl); J=$T/x/jdk4py/java-runtime
   jimage extract --dir $T/ex $J/lib/modules; python3 "$A/windows/strip_module_hashes.py" $T/ex/java.base/module-info.class
   jlink --module-path $T/ex --add-modules java.base,jdk.net,jdk.crypto.ec --strip-debug --no-header-files --no-man-pages --compress=zip-6 \

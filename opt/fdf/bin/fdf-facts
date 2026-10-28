@@ -17,7 +17,7 @@ Modes:  fdf-facts            write once and exit (says what it wrote)
         fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
                              change (inotify on the lease file's directory; no poll), debounced FDF_FACTS_DEBOUNCE
         fdf-facts --show     print the rows, write nothing
-Nothing here reads the region; this is the writer only. Build fdf-2026-10-28-r35.
+Nothing here reads the region; this is the writer only. Build fdf-2026-10-28-r36.
 """
 import errno
 import json
@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 
-BUILD_TAG = "fdf-2026-10-28-r35"
+BUILD_TAG = "fdf-2026-10-28-r36"
 FACTS = os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")
 LEASES = os.environ.get("FDF_LEASES", "/var/lib/misc/dnsmasq.leases")
 # [UPLINK_JUDGED_LOCALLY_V1] No hard-coded public address (it was 8.8.8.8: somebody else's server, and a network that
