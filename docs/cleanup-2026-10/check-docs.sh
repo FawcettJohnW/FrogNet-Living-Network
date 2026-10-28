@@ -72,6 +72,7 @@ REF_ALLOW = [   # (document regex, reference regex, reason)
     (r"ANDROID-HANDOFF", r"^frognet-android-a11\.tgz$|^MERGE-ANDROID-r16-a4\.md$", "a tarball / note of that dated build, named in its dated section (not in the tree since)"),
     (r"README\.md$", r"^/opt/communicator/build$", "fdf-services.sh's default COMMS_BIN, outside the package by design"),
     (r"OPERATING", r"site-key-myarea$", "the example area's key file (fdf-region-create writes $V/site-key-$AREA)"),
+    (r"OPERATING", r"^/opt/fdf/hub/admitted/\w+\.json$", "the file fdf-invite writes on the region host for the member it admits"),
 ]
 
 problems = []
@@ -205,6 +206,9 @@ for blk in blocks(open("docs/OPERATING.md").read()):
                 continue
             ncmd += 1
             if os.environ.get("CHECK_DOCS_LIST"): print("    (b) cwd=%-24s %s" % (cwd, " ".join(words)))
+            # [BUNDLES_IN_THE_TREE_V1] an unpacked bundle's own install: the core's and the add-ins' are in opt/fdf/src/bundles
+            if re.match(r"^/tmp/fdf-core-", cwd) and prog == "./install": prog, cwd = "opt/fdf/src/bundles/core/install", "."
+            if re.match(r"^/tmp/fdf-addin-", cwd) and prog == "./install": prog, cwd = "opt/fdf/src/bundles/addins/install", "."
             if "/" in prog:
                 if prog.startswith("/"): cand = prog.lstrip("/")
                 elif cwd == "/": cand = prog
