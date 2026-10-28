@@ -4,7 +4,8 @@
 # mapping region (over the session). Each case prints both answers; exit 0 only if every case agrees.
 # Needs build/ and lispers.net (lisp-mapping/lisp-up.sh starts it with site 'rina-area.test', key fdf-area-key).
 L=${1:?usage: map-oracle-check.sh /path/to/lispers.net/lisp}; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin
-IP=$(ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1); API=/FawcettInnovations.RINA.ram_interface.php; K=fdf-area-password; bad=0
+IP=$(ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1); API=/FawcettInnovations.RINA.ram_interface.php; bad=0
+K=$(sed -n "s/^ *authentication-key = *//p" $H/lisp-mapping/lisp.config)   # the site key lispers.net is given (lisp-up.sh copies this config)
 F=$(mktemp -u /tmp/map-oracle.XXXX.perm)
 ss -ulnH | grep -q ":4342 " || { echo "lispers.net is not running (lisp-mapping/lisp-up.sh $L)"; exit 2; }
 RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/rina-host" --listen $IP:4342 --api $API > /tmp/map-oracle.host.log 2>&1 & HP=$!
