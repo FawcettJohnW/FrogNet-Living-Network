@@ -6,7 +6,7 @@ export RINA_REGION_FILE=${RINA_REGION_FILE:-/tmp/rinab-region-$$.perm}
 # answered by another's execution (printed when it exits).
 N=${1:-40}; ROUNDS=${2:-10}; PORT=${PORT:-8857}; B=$(cd "$(dirname "$0")/../build" && pwd)
 export PATH=$B/bin:$PATH RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
-$B/bin/rina-host --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/cc-host.log 2>&1 & H=$!
+RINA_DIAG=1 $B/bin/rina-host --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > /tmp/cc-host.log 2>&1 & H=$!
 for i in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
 rlite-uipcps -d; for i in $(seq 8); do rlite-ctl ipcp-create n$i normal dd$i >/dev/null; done
 want=$(rlite-ctl ipcps-show | md5sum | cut -c1-12); bad=0

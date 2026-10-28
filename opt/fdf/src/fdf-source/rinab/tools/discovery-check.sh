@@ -32,6 +32,6 @@ python3 - "$D" <<'PY'
 import json, sys
 D = sys.argv[1]; p1 = {p["hostname"]: p for p in json.load(open(D + "/participants-1.json"))}; p2 = {p["hostname"]: p for p in json.load(open(D + "/participants-2.json"))}
 ok = sorted(p1) == ["machine-1", "machine-2", "machine-3"] and all(p1[f"machine-{i}"]["ip"] == f"10.60.0.1{i}" and p1[f"machine-{i}"]["alive"] and p1[f"machine-{i}"]["cores"] > 0 for i in (1, 2, 3))
-ok = ok and int(open(D + "/m2m.count").read()) == 0 and p2["machine-2"]["alive"] is False and p2["machine-1"]["alive"] and p2["machine-3"]["alive"]
+ok = ok and int(open(D + "/m2m.count").read()) == 0 and "machine-2" not in p2 and p2["machine-1"]["alive"] and p2["machine-3"]["alive"]   # [ANN_GOES_WITH_THE_SESSION_V1] gone is gone: not listed
 print("RESULT", "PASS" if ok else "FAIL"); sys.exit(0 if ok else 1)
 PY

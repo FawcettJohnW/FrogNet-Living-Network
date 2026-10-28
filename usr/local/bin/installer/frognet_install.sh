@@ -648,14 +648,34 @@ for pkg in "${APT_PACKAGES[@]}"; do
     INSTALL_LIST+=("$pkg")
 done
 log "APT: ${_already} already installed, ${#INSTALL_LIST[@]} to install"
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mariadb-server mariadb-client
+# [MARIADB_ONLY_WHEN_MISSING_V1] MariaDB was handed to apt on EVERY install, so a --preserve run upgraded the node's
+# database server to whatever the archive had that day (Seattle3B 2026-10-20: 10.11.18 -> 10.11.19). The package's
+# preinst stopped mariadb.service; mariadb.socket started the OLD binary again two seconds later (FrogNet's services
+# connect all the time); it never became ready; systemctl restart in the postinst waited 15 min; the unit skips SIGKILL,
+# so the install never got past phase A. Now: an installed MariaDB is left as it is (upgrades are the OS's, done with
+# the node's services stopped), and a missing one is installed with its socket stopped, so nothing can start it
+# half-unpacked. dpkg keeps a locally changed config file instead of asking (--force-confold).
+APT_KEEP_CONF=(-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
+_maria_missing=()
+for pkg in mariadb-server mariadb-client; do
+    dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "ok installed" || _maria_missing+=("$pkg")
+done
+if (( ${#_maria_missing[@]} )); then
+    systemctl stop mariadb.socket 2>/dev/null || true
+    log "  MariaDB: installing ${_maria_missing[*]} (mariadb.socket stopped while it installs)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${APT_KEEP_CONF[@]}" "${_maria_missing[@]}" \
+        || die "A: apt-get install ${_maria_missing[*]} failed (output above)"
+    systemctl start mariadb.socket 2>/dev/null || true
+else
+    log "  MariaDB: installed ($(dpkg-query -W -f='${Version}' mariadb-server)); left as it is -- the installer does not upgrade it"
+fi
 INSTALL_NO_MARIA=()
 for pkg in "${INSTALL_LIST[@]}"; do
     [[ "$pkg" == "mariadb-server" || "$pkg" == "mariadb-client" ]] && continue
     INSTALL_NO_MARIA+=("$pkg")
 done
 if (( ${#INSTALL_NO_MARIA[@]} > 0 )); then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${INSTALL_NO_MARIA[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${APT_KEEP_CONF[@]}" "${INSTALL_NO_MARIA[@]}"
 else
     log "  All APT packages already present - nothing to do"
 fi

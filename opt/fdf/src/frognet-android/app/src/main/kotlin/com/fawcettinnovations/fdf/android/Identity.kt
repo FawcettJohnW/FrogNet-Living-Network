@@ -8,6 +8,10 @@
 //   ponds    [PONDS_V1] (PLAN-PONDS) every pond this device takes part in: area + its RAM manager (host:port); one session
 //            each, held all the time
 //   forward  the one pond whose network the device uses (placement, tunnel); the others are participant ponds
+//   invite   [ADMITTED_BY_INVITE_V1] [RAM_IN_THE_TUNNEL_V1] the fdfinv1.<...> line `fdf-invite NAME --leaf` printed on the
+//            region's machine: the region's area and RAM manager (inside its tunnel), the hub (key, endpoint), this
+//            device's edge address and WireGuard key. With one, it IS the pond, the forward pond and the key: the hub
+//            answers that key only, and the region is reached only through the hub channel it describes.
 //   (no address here: on a FrogNet LAN the device's own address is its address, [ADDRESS_IS_THE_ONE_IT_HAS_V1]; off the
 //   mesh the RAM manager gives the leaf its /32 with the announcement, [LEAF_ADDR_FROM_THE_REGION_V1]. Nobody types one.)
 package com.fawcettinnovations.fdf.android
@@ -30,6 +34,7 @@ class Identity(ctx: Context) {
      *  (app-private storage). With one, this device's key, name, address, hub and region are the invitation's. */
     val invite: Invite? = p.getString("invite", null)?.let { runCatching { Invite.parse(it) }.getOrNull() }
     /** Kept only if it decodes; the service starts again to use it (its key is the tunnel's). Throws with the reason. */
+    fun setInvite(line: String) = keepInvite(line)          // the kart app's name for it (Java: setInvite)
     fun keepInvite(line: String) { val inv = Invite.parse(line); p.edit().putString("invite", inv.line).putString("forward", inv.area).apply() }
     val keys: KeyPair = invite?.let { KeyPair(Key.fromBase64(it.privkey)) } ?: p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
         ?: KeyPair().also { p.edit().putString("wg_private", it.privateKey.toBase64()).apply() }
@@ -44,6 +49,16 @@ class Identity(ctx: Context) {
                  (p.getString("ponds", null) ?: "").lines().filter { '|' in it }.map { Pond(it.substringBefore('|'), it.substringAfter('|')) })
                 .distinctBy { it.area }
         set(v) = p.edit().putString("ponds", v.filter { it.area != invite?.area }.joinToString("\n") { it.area + "|" + it.ram }).apply()
+    // [TELEMETRY_IS_A_TUPLE_V1] what this device reports ((pond, telem, w:<guid>)); [SETTINGS_ARE_TUPLES_V1] sets them
+    var telemOn: Boolean
+        get() = p.getBoolean("telem_on", true)
+        set(v) = p.edit().putBoolean("telem_on", v).apply()
+    var telemGps: Boolean
+        get() = p.getBoolean("telem_gps", true)
+        set(v) = p.edit().putBoolean("telem_gps", v).apply()
+    var telemPeriodS: Int
+        get() = p.getInt("telem_period_s", 30).coerceIn(5, 3600)
+        set(v) = p.edit().putInt("telem_period_s", v.coerceIn(5, 3600)).apply()
     var forward: String
         get() = p.getString("forward", null)?.takeIf { f -> ponds.any { it.area == f } } ?: ponds.firstOrNull()?.area ?: ""
         set(v) = p.edit().putString("forward", v).apply()
@@ -56,7 +71,10 @@ class Identity(ctx: Context) {
         return when (val pl = placement) {
             is Placement.OnMesh -> head + ",\"lan\":{\"ip\":" + Json.quote(pl.ip) + ",\"subnet\":" + Json.quote(pl.subnet) +
                 ",\"served_by\":" + Json.quote(pl.servedBy) + "}}"
-            Placement.OffMesh -> head + ",\"pubkey\":" + Json.quote(keys.publicKey.toBase64()) + "}"
+            // [ADMITTED_BY_INVITE_V1] invited: the edge the invitation gave is its /32 (fdf_graph's leaf row, so every node
+            // routes it through the hub); the hub peers this key with that edge from its admitted list
+            Placement.OffMesh -> head + ",\"pubkey\":" + Json.quote(keys.publicKey.toBase64()) +
+                (invite?.let { ",\"addr\":" + Json.quote(it.edge + "/32") + ",\"pond\":" + Json.quote(it.area) } ?: "") + "}"
         }
     }
     /** [FORWARD_IS_A_FACT_V1] [REACH_IS_A_LEAF_HERE_V1] a participant pond's facts: presence, and reach:true with this

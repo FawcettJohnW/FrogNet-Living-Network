@@ -55,9 +55,11 @@ class Ram:
             raise RamError("%s op=%s refused: %s" % (method, query.get("op"), j.get("error")))
         return j
 
-    def write(self, service, variable, instance, bag):
-        return self._do("POST", {"op": "write"},
-                        {"service": service, "variable": variable, "instance": instance, "bag": bag})["id"]
+    def write(self, service, variable, instance, bag, permanent=False):
+        body = {"service": service, "variable": variable, "instance": instance, "bag": bag}
+        if permanent:                                 # [PERMANENT_CELL_V1] kept by the region, not by this session
+            body["permanent"] = True
+        return self._do("POST", {"op": "write"}, body)["id"]
 
     def read(self, service, variable="", instance="", after=-1, wait_s=0.0):
         q = {"op": "read", "service": service}

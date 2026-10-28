@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FrogNet Kart [KART_ANDROID_V1] [KART_CALLS_IN_THE_GAME_V1]: the one manifest. Android Studio (build.gradle.kts) reads it as
+     it is; build_apk.sh hands it to tools/axml.py, which writes the binary form. The package, version and SDK levels are
+     not here: Gradle takes them from build.gradle.kts, build_apk.sh from Game.BUILD and its own lines (both say 29/33). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- is the FrogNet tunnel (a VPN) up: the game says so when a 10.x race memory cannot be reached -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- the Communicator in the game: camera, microphone, call audio routing -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- [KART_IS_A_MEMBER_V1] the FrogNet member, in this app: its session is a foreground service; its tunnel a VPN -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- [TELEMETRY_IS_A_TUPLE_V1] the device's position, its Wi-Fi signal, and the membership keeping them in the background -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <application android:label="FrogNet Kart" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+        android:hardwareAccelerated="true" android:extractNativeLibs="true">
+        <activity android:name="net.frognet.kart.MainActivity" android:label="FrogNet Kart" android:exported="true"
+            android:screenOrientation="fullUser"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- [KART_IS_A_MEMBER_V1] frognet-android's member, as the FrogNet app declares it: the one TUN, and the session -->
+        <service android:name="com.fawcettinnovations.fdf.android.BridgeVpn" android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
+        </service>
+        <service android:name="com.fawcettinnovations.fdf.android.MemberService" android:exported="false"
+            android:foregroundServiceType="specialUse|location">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
+        </service>
+    </application>
+</manifest>

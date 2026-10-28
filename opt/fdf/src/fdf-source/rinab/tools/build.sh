@@ -51,6 +51,9 @@ python3 tools/apply_keepalive_5s.py $P/ribbit_cpp/frogram.cpp $P/ramsrv/ram_serv
 python3 tools/apply_connect_timeout.py $P/ribbit_cpp/frogram.cpp   # [CONNECT_BOUNDED_V1] a connect is bounded at 5 s too
 python3 tools/apply_session_epoch.py $P/ramsrv/ram_server.cpp
 python3 tools/apply_net_config.py $P/ramsrv/ram_server.cpp $P/ribbit_cpp/ram_memory.hpp   # [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
+python3 tools/apply_owned_cells.py $P/ramsrv/ram_server.cpp   # after net_config: it rewrites the same write op; [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
+python3 tools/apply_permanent_cells.py $P/ramsrv/ram_server.cpp   # [PERMANENT_CELL_V1] after owned cells
+python3 tools/apply_bound_port.py $P/ramsrv/ram_server.cpp   # [BOUND_PORT_SAID_V1] --listen IP:0 says the port it got
 tools/make_host.sh $P/ramsrv/ram_server.cpp build/ram_server_rina.cpp
 $CXX -std=c++17 -c $P/ribbit_cpp/frogram.cpp -o build/obj/frogram.o
 $CXX -std=c++20 $W -Werror -Isrc -Isrc/door -I$P/ribbit_cpp -c src/rina_region.cpp -o build/obj/rina_region.o

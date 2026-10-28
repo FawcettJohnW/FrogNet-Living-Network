@@ -1,0 +1,3 @@
+# build outputs of build_kartram.sh; the shipped copies are opt/fdf/kart/libkartram.so and opt/fdf/windows/kartram.dll
+libkartram.so
+kartram.dll

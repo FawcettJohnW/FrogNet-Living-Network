@@ -958,6 +958,7 @@ std::string rina_region_block(const std::string& body) {
     return resident(in["op"].s, in);
 }
 
+void owned_cell_gone(frogram::MemoryApi& m, const std::string& key, const std::string& sid);   // [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
 // The server calls this once when a session's socket has closed: whoever it was is gone, at once.
 void rina_session_down(uint64_t sid) {
     daf_session_down(sid);                                          // [DAF_SESSION_IS_LIVENESS_V1]
@@ -1005,7 +1006,45 @@ void rina_session_down(uint64_t sid) {
         put(m, "mown", r.rest, ""); put_gone_permanent(m, "map", r.rest);   // [MAP_REMOVAL_IS_PERMANENT_V1]
         for (auto& w : scan(m, "mwatch", r.rest + "|")) if (!w.value.empty()) push_event(w.rest.substr(r.rest.size() + 1), "{\"k\":\"m\"}");
         for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}"); }
+    {   // [OWNED_CELL_GOES_WITH_THE_SESSION_V1] every tuple this session wrote with own:true is written {} now
+        const std::string k = sess_key(sid); const std::vector<Rec> mine = scan(m, "owncells:" + k, "");
+        if (!mine.empty()) { put(m, "owndone", k, "1");                 // a write still in flight sees this and does it itself
+            for (auto& r : mine) { owned_cell_gone(m, r.rest, k); put(m, "owncells:" + k, r.rest, ""); } }
+    }
     notify_participants(m);                                          // [FDF_PARTICIPANTS_CHANGE_V1] a participant may have gone
+}
+
+// [OWNED_CELL_GOES_WITH_THE_SESSION_V1] A plain write with "own":true makes its tuple the session's: a participant is
+// there while its session is up, and when the session ends the tuple is written {} -- one write, so every held read on
+// its family fires and every reader drops it. Gone is gone: no timeout, no re-writing to stay fresh. The last session to
+// write a tuple with own:true owns it. The records: (owncell, s\x1fv\x1fi) = the owning session; (owncells:<session>,
+// s\x1fv\x1fi) = its tuples, so the sweep reads only its own; (owndone, <session>) = its sweep has begun.
+static std::string owned_key(const std::string& s, const std::string& v, const std::string& i) { return s + '\x1f' + v + '\x1f' + i; }
+void owned_cell_gone(frogram::MemoryApi& m, const std::string& key, const std::string& sid) {
+    if (get(m, "owncell", key) != sid) return;                       // another session wrote it with own:true since: theirs now
+    const size_t a = key.find('\x1f'), b = key.find('\x1f', a + 1);
+    rina_resident_memory().write(key.substr(0, a), key.substr(a + 1, b - a - 1), key.substr(b + 1), "{}");
+    put(m, "owncell", key, "");
+}
+// [PERMANENT_CELL_V1] A plain write with "permanent":true is durable: the tuple is filed in the region's file as the
+// record (pcell, s\x1fv\x1fi) -- appended and fdatasync'd before it is published, as every Permanent record is -- and
+// when the host starts again every such tuple is written back into the memory before the first session is served. A
+// permanent write of {} removes it for good. This is how a program saves what must outlive a run of the memory.
+void rina_permanent_cell(const std::string& s, const std::string& v, const std::string& i, const std::string& bag) {
+    region_memory().write("rina", "pcell", owned_key(s, v, i), "{\"v\":" + Json::quote(bag == "{}" ? "" : bag) + ",\"p\":1}");
+}
+static void restore_permanent_cells() {
+    size_t n = 0;
+    for (auto& r : scan(region_memory(), "pcell", "")) {
+        const size_t a = r.rest.find('\x1f'), b = r.rest.find('\x1f', a + 1);
+        rina_resident_memory().write(r.rest.substr(0, a), r.rest.substr(a + 1, b - a - 1), r.rest.substr(b + 1), r.value); ++n; }
+    fprintf(stderr, "rina-host: [PERMANENT_CELL_V1] %zu permanent tuple(s) written back into the memory\n", n);
+}
+void rina_own_cell(const std::string& s, const std::string& v, const std::string& i) {
+    frogram::MemoryApi& m = region_memory(); const std::string sid = sess_key(rina_session_id()), key = owned_key(s, v, i);
+    if (get(m, "owncell", key) == sid) return;                       // already this session's
+    put(m, "owncells:" + sid, key, "1"); put(m, "owncell", key, sid);
+    if (!get(m, "owndone", sid).empty()) owned_cell_gone(m, key, sid);   // the session ended while this write was in flight
 }
 
 // [RAM_MANAGER_REGISTERS_ITSELF_V1] (plan item 3) the RAM manager registers its own LISP mapping -- the area's name ->
@@ -1069,6 +1108,7 @@ static void publish_net_config() {
 void rina_host_listening(const std::string& listen_on) {
     fprintf(stderr, "rina-host: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
     daf_start();                                                   // [DAF_FILE_V1] its Permanent cells, before any member
+    restore_permanent_cells();                                         // [PERMANENT_CELL_V1]
     if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping") {   // the mapping host is not an area's
         publish_net_config();
         std::thread(register_self, listen_on).detach();

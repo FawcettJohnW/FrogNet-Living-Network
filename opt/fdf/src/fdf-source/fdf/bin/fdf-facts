@@ -17,7 +17,7 @@ Modes:  fdf-facts            write once and exit (says what it wrote)
         fdf-facts --watch    write, then rewrite on every address/route/link change (`ip monitor`, select) and lease-file
                              change (inotify on the lease file's directory; no poll), debounced FDF_FACTS_DEBOUNCE
         fdf-facts --show     print the rows, write nothing
-Nothing here reads the region; this is the writer only. Build fdf-2026-10-12-r20.
+Nothing here reads the region; this is the writer only. Build fdf-2026-10-19-r24.
 """
 import errno
 import json

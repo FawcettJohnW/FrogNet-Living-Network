@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- [TELEMETRY_IS_A_TUPLE_V1] the device's position, its Wi-Fi signal, and the membership keeping them in the background -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -22,6 +27,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- [JOIN_FROM_ANOTHER_APP_V1] another app (FrogNet Kart) starts the membership: no screen; the VPN consent once -->
+        <activity android:name=".JoinActivity" android:exported="true" android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:noHistory="true" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="net.frognet.action.JOIN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <!-- [COMMS_FROM_THE_POND_V1] the Communicator, opened by MainActivity with the forward pond's comms servers -->
         <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"
             android:label="FrogNet Communicator" android:launchMode="singleTask" android:resizeableActivity="true"
@@ -32,7 +45,7 @@
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>
         </service>
         <!-- the membership: one FNWP session held while this runs; its end is the member leaving the region -->
-        <service android:name=".MemberService" android:exported="false" android:foregroundServiceType="specialUse">
+        <service android:name=".MemberService" android:exported="false" android:foregroundServiceType="specialUse|location">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
         </service>

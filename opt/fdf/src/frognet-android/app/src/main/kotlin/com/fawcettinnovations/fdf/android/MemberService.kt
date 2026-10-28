@@ -58,6 +58,7 @@ class MemberService : Service() {
     private lateinit var bridge: Bridge
     private lateinit var tunnel: BridgeForwardDriver
     private lateinit var ident: Identity
+    private lateinit var telemetry: Telemetry
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -68,6 +69,7 @@ class MemberService : Service() {
             extraScope = { carrier.associate { "$it/32" to "this device's own network uses it (carrier-grade NAT)" } },
             onLost = { members.values.forEach { it.leave() } })
         tunnel = BridgeForwardDriver(bridge)
+        telemetry = Telemetry(this, ident, AppLog::add)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel("fdf", "FrogNet membership", NotificationManager.IMPORTANCE_LOW))
         nm.createNotificationChannel(NotificationChannel("fdf-attention", "FrogNet pond notices", NotificationManager.IMPORTANCE_HIGH))
@@ -115,7 +117,7 @@ class MemberService : Service() {
         val f = ident.forward; val leaf = leaves[f]; val m = members[f]
         status("forward $f: " + when (val pl = leaf?.placement) {
             is Placement.OnMesh -> "at ${pl.ip} on ${pl.servedBy}'s LAN"
-            Placement.OffMesh -> tunnel.current?.let { "${m?.regionAddr} via ${it.name}" } ?: "off the mesh, no tunnel"
+            Placement.OffMesh -> tunnel.current?.let { "${ident.invite?.edge ?: m?.regionAddr} via ${it.name}" } ?: "off the mesh, no tunnel"
             null -> "joining" } + "; ponds ${ident.ponds.joinToString(" ") { it.area + (if (it.area in bridge.areas()) "(reached)" else if (refused.containsKey(it.area)) "(refused)" else "") }}")
     }
 
@@ -137,7 +139,12 @@ class MemberService : Service() {
             ACTION_STOP -> { stopMembership("stopped by the user"); stopSelf(); return START_NOT_STICKY }
             ACTION_FORWARD -> { intent.getStringExtra("area")?.let { a -> Thread({ bringForward(a) }, "fdf-forward").start() }; return START_STICKY }
         }
-        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification("joining"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        // [TELEMETRY_IS_A_TUPLE_V1] with location permission the service is also a location one, so the position keeps
+        // coming while the app is in the background (a type it may not hold is refused by Android: only when held)
+        val locOk = ident.telemGps && (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            || checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+        if (Build.VERSION.SDK_INT >= 34) startForeground(1, notification("joining"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+            (if (locOk) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
         else startForeground(1, notification("joining"))
         running = true; refused.clear()
         for (pond in ident.ponds) if (workers[pond.area]?.isAlive != true)
@@ -155,30 +162,39 @@ class MemberService : Service() {
                "\"android_sdk\":${Build.VERSION.SDK_INT},\"client\":\"fdf-member-kt\"}"
     }
 
+    private val saidNoInvite = java.util.concurrent.atomic.AtomicBoolean(false)
     private fun loop(pond: Pond) {
         val id = ident; val area = pond.area; val c = pond.ram.lastIndexOf(':')
         AppLog.add("member: ${id.name} guid=${id.guid} pond $area at ${pond.ram} (${if (id.forward == area) "forward" else "participant"})")
         while (running && id.ponds.any { it.area == area } && !refused.containsKey(area)) {
             val say = { t: String -> AppLog.add("[$area] $t") }
-            val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area })
+            // [RAM_IN_THE_TUNNEL_V1] [ADMITTED_BY_INVITE_V1] invited: the region's RAM manager listens only inside the hub's
+            // tunnel, so the hub channel the invitation describes comes up FIRST, before every join (the rejoin too), and
+            // stays up across sessions; the region is then reached through it. The leaf does not place itself or drive
+            // the tunnel: the invitation, not the region, says where the hub is and what this device's address is.
+            val inv = id.invite?.takeIf { it.area == area && id.forward == area }
+            if (inv != null) {
+                if (tunnel.current?.pubkey != inv.hub.pubkey || tunnel.current?.endpoint != inv.hub.endpoint) {
+                    try { tunnel.up(inv.hub, "${inv.edge}/32"); say("[RAM_IN_THE_TUNNEL_V1] hub channel up: ${inv.hub.name} at ${inv.hub.endpoint} (key ${inv.hub.pubkey.take(12)}...), this device ${inv.edge} (invited as ${inv.name}, ${inv.kind}); joining the region at ${pond.ram} through it") }
+                    catch (e: Exception) { say("[RAM_IN_THE_TUNNEL_V1] the hub channel did not come up: ${e.message}; tried again in 5 s"); try { Thread.sleep(5000) } catch (_: InterruptedException) { break }; continue }
+                }
+            } else if (id.forward == area && id.invite == null && !saidNoInvite.getAndSet(true))
+                say("[ADMITTED_BY_INVITE_V1] no invitation: the region's RAM manager is reached only through its hub's tunnel, which answers invited keys only (fdf-invite NAME --leaf on the region's machine; paste the line in Setup). Trying ${pond.ram} directly")
+            val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area && inv == null })
             val reach = Reach(area, bridge, { id.keys.publicKey.toBase64() }, say) { why -> refused[area] = why }
             leaves[area] = leaf; reaches[area] = reach
-            // [LEAF_BY_INVITE_V1] the invited pond: its tunnel is the invitation's (key, edge, hub) and comes up BEFORE the
-            // session, which reaches the region inside it; placement and the region's hub choice do not apply to it
-            val inv = id.invite?.takeIf { it.area == area }
-            if (inv != null) try { tunnel.up(inv.hub, "${inv.edge}/32"); say("tunnel: ${inv.edge} to ${inv.hub.name} at ${inv.hub.endpoint} (the invitation's)") }
-                catch (e: Exception) { say("tunnel: ${e.message}") }
             val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
                 { if (inv != null) inv.facts(id.keys.publicKey.toBase64()) else if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() },
                 area, inv?.siteKey ?: "", 30, AndroidTuner, say,
                 prepare = { mm -> if (inv == null && id.forward == area) leaf.place(mm, mm.world()) },
-                onJoined = { mm -> if (inv == null) leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm); status() },
+                onJoined = { mm -> if (inv == null) leaf.tunnel(mm, mm.world()); if (id.forward != area) reach.onRegionChange(mm) else { telemetry.attach(mm); forwardJoined(mm) }; status() },
                 onRegionChange = { mm -> if (inv == null) leaf.onRegionChange(mm); if (id.forward != area) reach.onRegionChange(mm) else bridge.removeIsland(area, "it is the forward pond now"); status() },
                 onAttention = { _, cell -> attention(area, cell) }))
             members[area] = m
             val why = m.runOnce()
             members.remove(area)
-            if (id.forward == area || inv != null) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
+            if (id.forward == area) { telemetry.detach(); if (joinedForward === m) forwardJoined(null) }
+            if (id.forward == area && inv == null) try { tunnel.down("the session to $area ended: $why") } catch (e: Exception) { AppLog.add("[$area] ${e.message}") }
             reach.ended(why)
             if (refused.containsKey(area)) { AppLog.add("member: $area is not rejoined: its reach was refused (${refused[area]})"); status(); break }
             if (!running) break
@@ -207,7 +223,7 @@ class MemberService : Service() {
     private fun stopMembership(why: String) {
         running = false; AppLog.add("member: leaving every pond ($why)")
         members.values.forEach { it.leave() }; workers.values.forEach { it.interrupt() }
-        runCatching { tunnel.down(why) }; bridge.close()
+        runCatching { tunnel.down(why) }; bridge.close(); telemetry.detach()
     }
 
     /** the VPN was taken away: nothing of it stands; the sessions end so the next ones decide again ([GONE_IS_GONE_V1]) */
@@ -217,7 +233,7 @@ class MemberService : Service() {
     fun resolve(ep: String): String? = try { bridge.resolve(ep, HashMap(members), ident.forward) }
         catch (e: Ambiguous) { AppLog.add("resolve: ${e.message}"); null } catch (e: Exception) { AppLog.add("resolve $ep: ${e.message}"); null }
 
-    override fun onDestroy() { if (running) stopMembership("service destroyed"); instance = null; super.onDestroy() }
+    override fun onDestroy() { if (running) stopMembership("service destroyed"); telemetry.stop(); instance = null; super.onDestroy() }
 
     /** [COMMS_FROM_THE_POND_V1] the Communicator the forward pond's members say they run, read now on that pond's
      *  session: (pond, area, from, ram, media), or null with the reason logged (not joined; nobody runs one). */
@@ -235,8 +251,38 @@ class MemberService : Service() {
         return listOf(area, from, ram, media, ident.name)
     }
 
+    // ---- [SETTINGS_ARE_TUPLES_V1] for a settings page in this process: it reads tuples and writes tuples in the forward
+    // pond's memory, on this member's session, and keeps nothing of its own. The device's (pond, cap, w:<guid>) is
+    // followed by Telemetry; an app's (pond, cap, w:<guid>:<app>) by that app. Strings, so Java needs no Kotlin types.
+    /** this device's ns in its forward pond, or null when not joined */
+    fun ns(): String? = joinedForward?.ns
+    @Volatile private var joinedForward: Member? = null
+    private fun forwardJoined(m: Member?) = synchronized(JOINED) { joinedForward = m; JOINED.notifyAll() }
+    fun forwardArea(): String = ident.forward
+    /** the bag of (pond, variable, instance) as JSON text; "{}" when there is none; null (logged) when not joined or failed */
+    fun tuple(variable: String, instance: String): String? = held(variable, instance, -1, 0.0)?.get(1)
+    /** [HELD_READ_V1] (pond, variable, instance) once something newer than `after` is written (or waitS passes):
+     *  [newest id, bag JSON]; id -1 and "{}" when there is none; null (logged) when not joined or failed */
+    fun held(variable: String, instance: String, after: Long, waitS: Double): Array<String>? {
+        val m = joinedForward ?: run { AppLog.add("settings: reading (pond, $variable, $instance): not joined to ${ident.forward}"); return null }
+        return try {
+            val r = m.read("pond", variable, instance, after, waitS); val cs = if (r["cells"].type == Json.Type.ARR) r["cells"] else r["rows"]
+            var bag = "{}"; var id = after
+            for (i in 0 until cs.a.size) if (cs[i]["instance"].str == instance) { bag = cs[i]["bag"].toString(); id = maxOf(id, cs[i]["id"].num?.toLong() ?: id) }
+            arrayOf(id.toString(), bag)
+        } catch (e: Exception) { AppLog.add("settings: reading (pond, $variable, $instance) failed: ${e.message}"); null }
+    }
+    /** writes (pond, cap, instance) permanent; false (logged) when not joined or refused */
+    fun setCap(instance: String, bagJson: String): Boolean {
+        val m = joinedForward ?: run { AppLog.add("settings: writing (pond, cap, $instance): not joined to ${ident.forward}"); return false }
+        return try { val id = m.write("pond", "cap", instance, bagJson, permanent = true); AppLog.add("settings: (pond, cap, $instance) = $bagJson (#$id)"); id >= 0 }
+        catch (e: Exception) { AppLog.add("settings: writing (pond, cap, $instance) failed: ${e.message}"); false }
+    }
+
     companion object {
         @Volatile var instance: MemberService? = null
+        /** notified when the forward pond's session joins or ends: wait on it (synchronized) for ns() to change */
+        @JvmField val JOINED = Object()
         const val ACTION_STOP = "com.fawcettinnovations.fdf.android.STOP"
         const val ACTION_FORWARD = "com.fawcettinnovations.fdf.android.FORWARD"
     }

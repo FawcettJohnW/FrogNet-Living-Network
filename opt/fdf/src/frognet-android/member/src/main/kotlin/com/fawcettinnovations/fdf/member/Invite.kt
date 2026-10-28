@@ -36,6 +36,8 @@ class Invite(val line: String, val area: String, val siteKey: String, val ramHos
                           m["name"].str, m["edge"].str, m["kind"].str.ifEmpty { "leaf" }, m["privkey"].str)
         }
     }
+    /** The region's RAM manager, host:port, inside the tunnel. */
+    val ram: String get() = "$ramHost:$ramPort"
     /** The interface address: the edge, in the hub's /16. */
     val address: String get() = "$edge/$EDGE_MASK"
     /** What this leaf announces: who it is and its key (fdf-hub admits a participant only by a key it invited). */
