@@ -1,0 +1,4 @@
+name=dc
+build=dc-2026-10-28-d1
+on-loss=stay
+about=DisasterComm: help requests, responders, hospital capacity and coordination, as web pages this machine serves at /dc/

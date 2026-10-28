@@ -1,0 +1,11 @@
+#!/bin/bash
+# start -- [ADDIN_V1] DisasterComm as an add-in: its pages are served by this machine's web server at /dc/ (the install
+# put them in $FDF_HOME/www/dc and enabled fdf-dc.conf); their tuples (help.*, resp.*, hosp.*, dc.apps.*) are written by
+# the people using them, in the area's RAM. This start holds the add-in's own capability tuple,
+# (pond, where, <ns>/dc) {"dc":{"web":"self:80","path":"/dc/"}}, so every machine of the region finds where it is served.
+# On a network event it stays: the pages keep being served; the tuple is written again when the control RAM is back.
+set -eu
+. "$(cd "$(dirname "$0")" && pwd)/../lib/addin.sh"
+addin_control
+[ -f "$H/www/dc/index.html" ] || { asay "no $H/www/dc: the add-in's pages are not installed (run its install)"; exit 1; }
+addin_hold dc web=self:${DC_PORT:-80} path=/dc/

@@ -1,13 +1,34 @@
 #!/bin/bash
-# start -- [ADDIN_V1] the kart race as an add-in: its own RAM (rina-host on 8799, the /ram.php front the game's pure-Python
-# client speaks), its tuple (pond, where, <ns>/kart) {"kart":{"race":"self:8799"}} in the control RAM, and on a network
-# event it stays (the race goes on for whoever is in it; the tuple is written again when the control RAM is back).
+# start -- [ADDIN_V1] FrogNet Kart as an add-in. What runs is decided by what this machine is (KART_ROLE overrides):
+#   the region's holder, or a stand-alone machine   the kart memory (its own RAM: rina-host, /ram.php, 8799) and the kart
+#        service beside it (the lobby: kart_service.py); its tuple (pond, where, <ns>/kart) {"kart":{"memory":"self:8799"}}
+#   a FrogNet node   a dedicated game-serving host (kart_host.py): it finds the kart memory from that tuple (kart-find),
+#        says it can serve games there, and starts race servers when the service names it
+#   a leaf (a desktop, a phone's PC)   nothing runs here: the player's game (kart-play) serves its own races when chosen
+# On a network event it stays: a race goes on for whoever is in it; the tuple is written again when the control RAM is back.
 set -eu
 . "$(cd "$(dirname "$0")" && pwd)/../lib/addin.sh"
 addin_control
+ROLE=${KART_ROLE:-}; [ -n "$ROLE" ] || case "$FDF_MODE" in region|standalone) ROLE=service ;; node) ROLE=host ;; *) ROLE=player ;; esac
 PORT=${KART_PORT:-8799}
-env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "0.0.0.0:$PORT" --api /ram.php &
-addin_child $!
-for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
-asay "the race's RAM is on port $PORT (pid $ADDIN_PIDS)"
-addin_hold kart race=self:$PORT
+asay "role $ROLE"
+case "$ROLE" in
+  service)
+    env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "0.0.0.0:$PORT" --api /ram.php &
+    addin_child $!
+    for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
+    python3 "$AD/kart_service.py" --memory "127.0.0.1:$PORT" --min-players "${KART_MIN_PLAYERS:-2}" & addin_child $!
+    asay "the kart memory on port $PORT and the kart service beside it (pids$ADDIN_PIDS)"
+    addin_hold kart memory=self:$PORT ;;
+  host)
+    export FDF_CONTROL_RAM
+    while :; do
+      K=$(FDF_HOME=$H python3 "$AD/kart-find") || { asay "the control RAM went before a kart memory was found"; exit 75; }
+      asay "the kart memory is at $K: serving games for it"
+      python3 "$AD/kart_host.py" --memory "$K" --kind dedicated --machine "$FDF_NAME" --rina-host "$H/bin/rina-host" || true
+      asay "the game host ended (its kart memory or its session went): finding the kart memory again"
+    done ;;
+  player)
+    asay "a player's machine: nothing runs as a service; play with  $AD/kart-play"; exit 0 ;;
+  *) asay "KART_ROLE $ROLE: service, host or player"; exit 2 ;;
+esac

@@ -150,6 +150,8 @@ systemctl enable fdf-hub.service $CLIU.service && systemctl start fdf-hub.servic
 # [IDENTITY_FROM_ANY_MEMBER_V1] identities asked from any connected machine (fdf-identity NAME [--leaf]) are answered here
 [ -f /etc/systemd/system/fdf-identity.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-identity.service missing: it ships in fdf-droplet.tgz" >&2; exit 1; }
 systemctl enable fdf-identity.service && systemctl start fdf-identity.service || { echo "fdf-region-create: fdf-identity did not start: journalctl -u fdf-identity" >&2; exit 1; }
+# [FDF_CHAT_SERVICE_UNIT_V1] the area's one chat service, beside its RAM manager (fdf-chat@.service ships in this bundle)
+systemctl enable fdf-chat@$RAM_PORT.service && systemctl start fdf-chat@$RAM_PORT.service || { echo "fdf-region-create: fdf-chat@$RAM_PORT did not start: journalctl -u fdf-chat@$RAM_PORT" >&2; exit 1; }
 ADOPT=0; for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
 echo "== fdf-hub (want: 'hub $NAME on wg-$AREA', 'start (adopt)')"
 journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'

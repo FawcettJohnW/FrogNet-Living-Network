@@ -1,7 +1,8 @@
 #!/bin/sh
 # install -- [ADDIN_V1] one add-in (this unpacked fdf-addin-<name>-<platform>-<build>.tgz) on a machine that has an FD&F
 # core. It looks first and refuses, saying why, when:
-#   there is no core here ($FDF_HOME/var/control.env from the fdf-core bundle, or a FrogNet node's join.env)
+#   there is no core here ($FDF_HOME/var/control.env from the fdf-core bundle, the region holder's hub.env, or a
+#   FrogNet node's join.env)
 #   the core lacks what add-ins use (fdf-where, fdf-events, rina-host in $FDF_HOME/bin)
 #   the add-in is built for another processor
 # Then $FDF_HOME/addins/<name> (replaced whole; its own state is in $FDF_HOME/var) and fdf-addin-<name>.service, tied to
@@ -17,12 +18,24 @@ echo "install: add-in $N ($B) into $H/addins/$N"
 [ -z "$ARCH" ] || [ "$ARCH" = any ] || [ "$ARCH" = "$(uname -m)" ] || no "this add-in is built for $ARCH; this machine is $(uname -m)"
 CORE=""
 if [ -s "$H/var/control.env" ] || [ "$(sed -n 's/^package=//p' "$H/BUILD" 2>/dev/null)" = fdf-core ]; then CORE=fdf-core.service
+elif [ -s "${FDF_HUB_ENV:-/opt/fdf/hub/hub.env}" ]; then CORE=fdf-hub.service
 elif [ -s "$H/var/join.env" ]; then CORE=fdf-client.service
 else no "no FD&F core on this machine: install fdf-core-linux-$(uname -m)-*.tgz first (a FrogNet node: fdf-install-$(uname -m).run, then join)"; fi
 for b in fdf-where fdf-events rina-host; do [ -x "$H/bin/$b" ] || no "the core here has no $H/bin/$b: update the core first"; done
 mkdir -p "$H/addins" "$H/var"
 rm -rf "$H/addins/$N.new"; cp -a "$D/opt/fdf/addins/$N" "$H/addins/$N.new"; rm -rf "$H/addins/$N"; mv "$H/addins/$N.new" "$H/addins/$N"
 rm -rf "$H/addins/lib"; cp -a "$D/opt/fdf/addins/lib" "$H/addins/lib"
+# pages an add-in serves (DisasterComm's /dc/): $FDF_HOME/www/<name>, replaced whole, and its web server's config
+if [ -d "$D/opt/fdf/www" ]; then
+  for w in "$D/opt/fdf/www/"*; do b=$(basename "$w"); rm -rf "$H/www/$b.new"; mkdir -p "$H/www"; cp -a "$w" "$H/www/$b.new"; rm -rf "$H/www/$b"; mv "$H/www/$b.new" "$H/www/$b"; done
+  echo "install: pages in $H/www ($(ls "$D/opt/fdf/www" | tr '\n' ' '))"
+fi
+if [ -d "$D/etc/apache2/conf-available" ] && [ -z "${FDF_NO_SYSTEMD:-}" ]; then
+  [ -d /etc/apache2/conf-available ] || no "this add-in's pages need Apache with PHP (a FrogNet node or the region holder serves them); none here"
+  for c in "$D/etc/apache2/conf-available/"*.conf; do cp "$c" /etc/apache2/conf-available/; a2enconf -q "$(basename "$c" .conf)"; done
+  systemctl reload apache2 || no "apache2 did not reload: journalctl -u apache2"
+  echo "install: Apache serves its pages ($(ls "$D/etc/apache2/conf-available" | tr '\n' ' '))"
+fi
 echo "install: files in $H/addins/$N; the core's unit: $CORE"
 if [ -n "${FDF_NO_SYSTEMD:-}" ] || ! command -v systemctl >/dev/null || [ ! -d /run/systemd/system ]; then
   echo "install: no systemd here: start it with  $H/addins/$N/start   (foreground)"; exit 0; fi

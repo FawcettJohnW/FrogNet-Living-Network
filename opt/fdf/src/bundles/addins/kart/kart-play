@@ -1,37 +1,12 @@
-#!/usr/bin/env python3
-# kart-play [--name NAME] [kartdemo options...] -- [ADDIN_V1] a player: finds the race in the control RAM and starts the
-# game (pygame) against it. The race is whichever machine's kart tuple, (pond, where, <ns>/kart) {"kart":{"race":
-# "w:<id>:8799"}}, the region resolves to an address here; on a stand-alone machine, this machine's own race.
-# Nothing is typed but the name. Several races in the pond: the first, and the others are listed.
-import json, os, sys, urllib.request
-H = os.environ.get("FDF_HOME", "/opt/fdf")
-sys.path.insert(0, H + "/lib/python")
-import fdfram
-env = {}
-for f in ("control.env", "join.env"):
-    try:
-        for ln in open(os.path.join(H, "var", f)):
-            ln = ln.strip().removeprefix("export ")
-            if "=" in ln: k, v = ln.split("=", 1); env[k] = v
-        break
-    except OSError: pass
-mode = env.get("FDF_MODE", "node" if "RINA_RAM" in env else "")
-ram = env.get("FDF_CONTROL_RAM") or env.get("RINA_RAM")
-if not ram: sys.exit("kart-play: no FD&F core on this machine (%s/var/control.env)" % H)
-r = fdfram.Ram(ram)
-races = [(c["instance"], c["bag"]["kart"]["race"]) for c in r.read("pond", "where") if isinstance(c.get("bag", {}).get("kart"), dict)]
-if not races: sys.exit("kart-play: nobody in this pond runs the race (no kart tuple at %s): install the kart add-in on one machine" % ram)
-def addr(ep):
-    i = ep.rfind(":"); ident, port = ep[:i], ep[i + 1:]
-    if ident == "local": return "127.0.0.1:" + port
-    j = r._do("POST", {"op": "rina"}, {"op": "resolve", "ids": [ident]})
-    a = (j.get("resolved") or {}).get(ident) or {}
-    if not a.get("addr"): raise RuntimeError("%s has no address here: %s %s" % (ident, a.get("error", ""), a.get("why", "")))
-    return a["addr"].split("/")[0] + ":" + port
-for inst, ep in races[1:]: print("kart-play: also a race on %s (%s)" % (inst, ep))
-inst, ep = races[0]; where = addr(ep)
-print("kart-play: the race on %s at %s (mode %s, control RAM %s)" % (inst, where, mode, ram))
-if os.environ.get("KART_PLAY_DRY"): sys.exit(0)          # tests: where the race is, without the game
-args = sys.argv[1:]
-if "--name" not in args: args = ["--name", env.get("FDF_NAME") or os.uname().nodename] + args
-os.execvp(sys.executable, [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "game", "kartdemo.py"), "--race-host", where] + args)
+#!/bin/sh
+# kart-play [kartdemo options...] -- [ADDIN_V1] a player: the kart memory found in the control RAM (kart-find), the game
+# started against it, this machine's name as the player's unless --name is given. Nothing else is typed.
+D=$(cd "$(dirname "$0")" && pwd); H=${FDF_HOME:-$(cd "$D/../.." && pwd)}
+for f in "$H/var/control.env" /opt/fdf/hub/hub.env "$H/var/join.env"; do [ -s "$f" ] && { . "$f"; break; }; done
+FDF_CONTROL_RAM=${FDF_CONTROL_RAM:-${RINA_RAM:-}}; export FDF_CONTROL_RAM FDF_HOME=$H
+[ -n "$FDF_CONTROL_RAM" ] || { echo "kart-play: no FD&F core on this machine ($H/var/control.env)"; exit 1; }
+K=$(python3 "$D/kart-find") || exit 1
+echo "kart-play: the kart memory is at $K (control RAM $FDF_CONTROL_RAM)"
+[ -n "${KART_PLAY_DRY:-}" ] && exit 0                  # tests: where the race is, without the game
+case " $* " in *" --name "*) N="" ;; *) N="--name ${FDF_NAME:-$(hostname)}" ;; esac
+exec python3 "$D/kartdemo.py" --kart "$K" --rina-host "$H/bin/rina-host" $N "$@"

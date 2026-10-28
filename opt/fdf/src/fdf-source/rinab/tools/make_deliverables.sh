@@ -88,7 +88,7 @@ for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: rina-host-static -> rina-host)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
-  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
+  cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
   chmod 755 "$R/opt/fdf/bin/"*; }      # every /opt/fdf/bin entry runs (the installer execs fdf-region-join)
 frognet_patch() { local R=$1 f; for f in "${FROGNET_FILES[@]}"; do mkdir -p "$R/$(dirname "$f")"; cp -p "$REPO/$f" "$R/$f"; done; }
@@ -109,7 +109,7 @@ R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participant
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
 build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
 tarit "$R" > "$OUT/fdf-droplet-$TAG.tgz"
-# [ADDIN_V1] the kart service, its race hosts and its players are the kart add-in (src/bundles/make_addin.sh kart), and
+# [ADDIN_V1] the kart service, its race hosts and its players are the kart add-in, DisasterComm (/dc) the dc add-in, and
 # the Communicator's servers the comms add-in: neither is in these bundles.
 # ---- [FROGNET_TREE_TARBALL_V1] the FrogNet base for a node with no git: the tree's node file set (the manifest's
 # frognet_node_files, what frognet_install.sh --from-repo copies), laid out as the checkout is. On the node:

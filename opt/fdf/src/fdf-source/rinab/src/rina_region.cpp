@@ -696,6 +696,7 @@ std::string resident(const std::string& op, const Json& in) {
                 std::string addr;
                 if (role == "leaf") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }
                 else if (role == "participant") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }   // a reacher's /32
+                else if (role == "hub") addr = fj["addr"].s;   // [HUB_RESOLVES_TO_ITS_TUNNEL_ADDRESS_V1] the region holder: 10.253.253.254, inside its tunnel
                 else { auto sp = served_prefixes(fj); if (!sp.empty()) addr = *sp.begin() + ".1"; }
                 if (addr.empty()) one = "{\"error\":\"ENOADDR\",\"why\":" + Json::quote(name + " (" + (role.empty() ? std::string("no role") : role) + ") has no address in this pond") + ",\"name\":" + Json::quote(name) + "}";
                 else one = "{\"addr\":" + Json::quote(addr) + ",\"name\":" + Json::quote(name) + ",\"role\":" + Json::quote(role.empty() ? "node" : role) + "}";

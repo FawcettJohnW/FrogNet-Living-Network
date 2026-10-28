@@ -46,7 +46,7 @@ FACTS = os.environ.get("FDF_FACTS", VAR + "/facts.json")
 ALIASES = ipaddress.ip_network("100.64.0.0/10")
 SELVES = ipaddress.ip_network("100.127.255.0/24")       # [REACH_SELF_ALIAS_V1] never an alias block
 QUARANTINE_S = int(os.environ.get("FDF_ALIAS_QUARANTINE_S", "600"))
-BUILD = "fdf-2026-10-19-r24"
+BUILD = "fdf-2026-10-28-r35"
 
 
 class Refused(Exception): pass                         # the network's config does not allow it: the session ends

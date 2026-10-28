@@ -35,7 +35,7 @@ NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 # ---- the region, as fdf-region-create makes it
 printf '%s\n' "$KEY" > $T/hub/site-key-$AREA; chmod 600 $T/hub/site-key-$AREA
-printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $AREA $PUB > $T/hub/hub.env
+printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\nFDF_FACTS=%s\n' $RAM $AREA $PUB $T/hub/facts.json > $T/hub/hub.env
 NS hub python3 $T/bin/fdf-hub --area $AREA --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
 NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
@@ -142,42 +142,63 @@ if [ -n "${CORE_TGZ:-}" ]; then
   check "core stand-alone: its own control RAM answers on 127.0.0.1:8840" "NS l6 curl -s -m 1 -X POST -d '{\"op\":\"version\"}' 'http://127.0.0.1:8840$API?op=rina' | grep -q '\"ok\":true' && grep -q '^FDF_MODE=standalone' $T/l6/fdf/var/control.env"
   check "core stand-alone: nothing listens outside loopback: $(NS l6 ss -H -lntu | awk '{print $5}' | tr '\n' ' ')" "! NS l6 ss -H -lntu | awk '{print \$5}' | grep -vq '^127\.'"
 fi
-# ---- [ADDIN_V1] the add-ins, each its own bundle, on the stand-alone core (l6) and the leaf core (l5)
+# ---- [ADDIN_V1] the add-ins, each its own bundle: kart (the service on the region holder and on a stand-alone machine,
+# a game host and a player on the leaf), comms and DisasterComm on the leaf. Every tuple is its holder's own
+# ([ADDIN_HOLDS_ITS_TUPLE_V1]): it is there while the holder runs and {} the moment it does not.
 if [ -n "${CORE_TGZ:-}" ] && [ -n "${ADDINS:-}" ]; then
-  RD() { NS $1 curl -s -m 2 "http://$2$API?op=read&service=pond&variable=where"; }      # the where cells, as read there
-  for n in l5 l6; do for a in kart comms; do mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf "$(ls $ADDINS/fdf-addin-$a-linux-$(uname -m)-*.tgz $ADDINS/fdf-addin-$a-linux-any-*.tgz 2>/dev/null | head -1)"
-    NS $n env FDF_HOME=$T/$n/fdf FDF_NO_SYSTEMD=1 sh $T/$n/$a/fdf-addin-*/install > $T/$n/$a/install.out 2>&1; done; done
-  check "add-ins installed on both cores: $(grep -h -m1 'files in' $T/l5/kart/install.out | cut -c1-80)" "grep -q 'files in' $T/l5/kart/install.out && grep -q 'files in' $T/l6/comms/install.out"
-  mkdir -p $T/l7/kart; tar -C $T/l7/kart -xzf "$(ls $ADDINS/fdf-addin-kart-linux-any-*.tgz | head -1)"
-  FDF_HOME=$T/l7/fdf FDF_NO_SYSTEMD=1 sh $T/l7/kart/fdf-addin-*/install > $T/l7/kart/install.out 2>&1
+  # HAS <ns> <ram> <instance>: a live (non-empty) (pond, where, <instance>) cell, as read there
+  HAS() { NS $1 curl -s -m 2 "http://$2$API?op=read&service=pond&variable=where" | python3 -c "import json,sys; i=sys.argv[1]
+c=[x for x in json.load(sys.stdin).get('cells',[]) if x['instance']==i and x.get('bag')]; sys.exit(0 if c else 1)" "$3"; }
+  ADD() { ls $ADDINS/fdf-addin-$1-linux-$(uname -m)-*.tgz $ADDINS/fdf-addin-$1-linux-any-*.tgz 2>/dev/null | head -1; }
+  inst_addin() { local n=$1 a=$2 home=$3; shift 3; mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf "$(ADD $a)"
+    NS $n env FDF_HOME=$home FDF_NO_SYSTEMD=1 "$@" sh $T/$n/$a/fdf-addin-*/install > $T/$n/$a/install.out 2>&1; }
+  # the region holder: a core in the hub's sense (hub.env), the programs add-ins use from it
+  mkdir -p $T/hub/fdf/bin; for b in fdf-where fdf-events rina-host; do ln -sf $T/bin/$b $T/hub/fdf/bin/$b; done
+  mkdir -p $T/hub/fdf/lib; ln -sfn $PK/lib/python $T/hub/fdf/lib/python
+  inst_addin hub kart $T/hub/fdf FDF_HUB_ENV=$T/hub/hub.env
+  for a in kart comms dc; do inst_addin l5 $a $T/l5/fdf; done
+  inst_addin l6 kart $T/l6/fdf
+  check "add-ins installed (region holder, leaf, stand-alone): $(grep -h -m1 'files in' $T/hub/kart/install.out | cut -c1-70)" \
+        "grep -q 'files in' $T/hub/kart/install.out && grep -q 'files in' $T/l5/dc/install.out && grep -q 'pages in' $T/l5/dc/install.out && grep -q 'files in' $T/l6/kart/install.out"
+  mkdir -p $T/l7/kart; tar -C $T/l7/kart -xzf "$(ADD kart)"; FDF_HOME=$T/l7/fdf FDF_NO_SYSTEMD=1 sh $T/l7/kart/fdf-addin-*/install > $T/l7/kart/install.out 2>&1
   check "an add-in refuses a machine with no core: $(grep -m1 -o 'no FD&F core.*' $T/l7/kart/install.out | cut -c1-70)" "grep -q 'no FD&F core' $T/l7/kart/install.out"
-  # stand-alone: the race's own RAM, its tuple in this machine's own control RAM, a player finds it
+  # stand-alone: the kart memory and service, its tuple in its own control RAM, a player finds it
   svc $T/l6/kart.log ip netns exec l6 env FDF_HOME=$T/l6/fdf $T/l6/fdf/addins/kart/start
-  for j in $(seq 200); do RD l6 127.0.0.1:8840 | grep -q 'local/kart' && break; sleep 0.05; done
-  check "stand-alone: (pond, where, local/kart) in its own control RAM" "RD l6 127.0.0.1:8840 | grep -q '\"instance\":\"local/kart\"'"
-  NS l6 env FDF_HOME=$T/l6/fdf KART_PLAY_DRY=1 python3 $T/l6/fdf/addins/kart/kart-play > $T/l6/play.out 2>&1
-  check "stand-alone: kart-play finds the race: $(cat $T/l6/play.out | cut -c1-80)" "grep -q 'at 127.0.0.1:8799' $T/l6/play.out"
-  # leaf: both add-ins; their tuples in the region; a player on l5 finds the race, l1 reaches it
-  svc $T/l5/kart.log ip netns exec l5 env FDF_HOME=$T/l5/fdf $T/l5/fdf/addins/kart/start; L5KART=$(tail -1 $T/svc.pids)
+  for j in $(seq 200); do HAS l6 127.0.0.1:8840 local/kart && break; sleep 0.05; done
+  check "stand-alone: role $(grep -m1 -o 'role [a-z]*' $T/l6/kart.log); (pond, where, local/kart) held in its own control RAM" "HAS l6 127.0.0.1:8840 local/kart"
+  NS l6 env FDF_HOME=$T/l6/fdf KART_PLAY_DRY=1 $T/l6/fdf/addins/kart/kart-play > $T/l6/play.out 2>&1
+  check "stand-alone: kart-play finds the kart memory: $(head -1 $T/l6/play.out | cut -c1-70)" "grep -q 'at 127.0.0.1:8799' $T/l6/play.out"
+  # the region: the kart service on its holder; the leaf a game host (KART_ROLE=host) and a player; comms and dc there too
+  svc $T/hub/kart.log ip netns exec hub env FDF_HOME=$T/hub/fdf FDF_HUB_ENV=$T/hub/hub.env $T/hub/fdf/addins/kart/start; HUBKART=$(tail -1 $T/svc.pids)
+  for j in $(seq 200); do HAS hub $RAM w:hubA/kart && break; sleep 0.05; done
+  check "region holder: role $(grep -m1 -o 'role [a-z]*' $T/hub/kart.log); (pond, where, w:hubA/kart) held in the region" "HAS hub $RAM w:hubA/kart"
+  svc $T/l5/kart.log ip netns exec l5 env FDF_HOME=$T/l5/fdf KART_ROLE=host $T/l5/fdf/addins/kart/start
   svc $T/l5/comms.log ip netns exec l5 env FDF_HOME=$T/l5/fdf $T/l5/fdf/addins/comms/start
-  for j in $(seq 200); do RD hub $RAM | grep -q 'w:l5/comms' && RD hub $RAM | grep -q 'w:l5/kart' && break; sleep 0.05; done
-  check "leaf: (pond, where, w:l5/kart) and w:l5/comms in the region, each its own cell" "RD hub $RAM | grep -q '\"instance\":\"w:l5/kart\"' && RD hub $RAM | grep -q '\"instance\":\"w:l5/comms\"'"
-  NS l5 env FDF_HOME=$T/l5/fdf KART_PLAY_DRY=1 python3 $T/l5/fdf/addins/kart/kart-play > $T/l5/play.out 2>&1
-  check "leaf: kart-play resolves the race by identity: $(cut -c1-70 $T/l5/play.out)" "grep -q 'at $E5:8799' $T/l5/play.out"
-  check "l1 reaches l5's race RAM at $E5:8799" "NS l1 curl -s -m 2 'http://$E5:8799/ram.php?op=read&service=race' | grep -q '\"ok\":true'"
-  # a network event: l5's core goes (its member and tunnel); the region sweeps l5's add-in cells with its session
+  svc $T/l5/dc.log ip netns exec l5 env FDF_HOME=$T/l5/fdf $T/l5/fdf/addins/dc/start; L5DC=$(tail -1 $T/svc.pids)
+  for j in $(seq 300); do HAS hub $RAM w:l5/comms && HAS hub $RAM w:l5/dc && break; sleep 0.05; done
+  check "leaf: (pond, where, w:l5/comms) and w:l5/dc in the region, each its own cell" "HAS hub $RAM w:l5/comms && HAS hub $RAM w:l5/dc"
+  NS l5 env FDF_HOME=$T/l5/fdf KART_PLAY_DRY=1 $T/l5/fdf/addins/kart/kart-play > $T/l5/play.out 2>&1
+  check "leaf: kart-play resolves the kart memory on the region holder: $(head -1 $T/l5/play.out | cut -c1-60)" "grep -q 'at 10.253.253.254:8799' $T/l5/play.out"
+  KM() { NS hub curl -s -m 2 "http://127.0.0.1:8799/ram.php?op=read&service=kart&variable=$1"; }
+  for j in $(seq 300); do KM gamehost | grep -q '"l5"' && break; sleep 0.05; done
+  check "leaf as a game host: (kart, gamehost, l5) in the kart memory: $(KM gamehost | grep -o '"bag":{[^}]*}' | head -1 | cut -c1-80)" "KM gamehost | grep -q '\"l5\"'"
+  check "l1 reaches the kart memory through the hub (10.253.253.254:8799)" "NS l1 curl -s -m 2 'http://10.253.253.254:8799/ram.php?op=read&service=kart' | grep -q '\"ok\":true'"
+  # a network event: l5's core goes (its member and tunnel): every tuple l5's add-ins hold goes with their sessions
   kill $L5SVC; for p in $(ip netns pids l5); do c=$(cat /proc/$p/comm 2>/dev/null); [ "$c" = java ] || [ "$c" = fdf-tun ] && kill -9 $p; done
-  for j in $(seq 300); do RD hub $RAM | grep -q 'w:l5/' || break; sleep 0.05; done
-  check "the region swept w:l5/kart and w:l5/comms with l5's session" "! RD hub $RAM | grep -q 'w:l5/'"
-  for j in $(seq 200); do grep -q 'on-loss stay' $T/l5/kart.log && grep -q 'on-loss rediscover' $T/l5/comms.log && break; sleep 0.05; done
-  check "kart (on-loss stay) keeps its race: $(grep -m1 -o 'on-loss stay.*' $T/l5/kart.log | cut -c1-60)" "grep -q 'on-loss stay' $T/l5/kart.log && NS l5 curl -s -m 2 'http://127.0.0.1:8799/ram.php?op=read&service=race' | grep -q '\"ok\":true'"
-  check "comms (on-loss rediscover) stops and is started again: $(grep -m1 -o 'on-loss rediscover.*' $T/l5/comms.log | cut -c1-50)" "grep -q 'on-loss rediscover' $T/l5/comms.log"
+  for j in $(seq 400); do HAS hub $RAM w:l5/comms || HAS hub $RAM w:l5/dc || break; sleep 0.05; done
+  check "l5's core gone: w:l5/comms and w:l5/dc are {} (gone with their holders' sessions)" "! HAS hub $RAM w:l5/comms && ! HAS hub $RAM w:l5/dc"
+  for j in $(seq 300); do grep -q 'on-loss stay' $T/l5/dc.log && grep -q 'on-loss rediscover' $T/l5/comms.log && break; sleep 0.05; done
+  check "dc (on-loss stay) and comms (on-loss rediscover) each did its own: $(grep -c 'on-loss' $T/l5/dc.log $T/l5/comms.log | tr '\n' ' ')" "grep -q 'on-loss stay' $T/l5/dc.log && grep -q 'on-loss rediscover' $T/l5/comms.log"
   svc $T/l5/start2.log ip netns exec l5 env FDF_TUN_NAME=fdft5 $T/l5/fdf/bin/fdf-start
-  for j in $(seq 600); do RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms' && break; sleep 0.05; done
-  check "the core back: both tuples written again (kart stayed; comms rediscovered)" "RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms'"
-  KP=$(ps -o pid= --ppid $L5KART | head -1); kill $L5KART; [ -n "$KP" ] && kill -TERM $KP
-  for j in $(seq 200); do RD hub $RAM | grep -q 'w:l5/kart' || break; sleep 0.05; done
-  check "kart stopped: its tuple cleared by itself, comms' stays" "! RD hub $RAM | grep -q 'w:l5/kart' && RD hub $RAM | grep -q 'w:l5/comms'"
+  for j in $(seq 600); do HAS hub $RAM w:l5/comms && HAS hub $RAM w:l5/dc && break; sleep 0.05; done
+  check "the core back: both tuples held again (dc stayed; comms rediscovered)" "HAS hub $RAM w:l5/comms && HAS hub $RAM w:l5/dc"
+  # a crash: the holder killed outright, nothing cleared by hand -- its tuple goes with its session
+  DCP=$(ps -o pid= --ppid $L5DC | head -1); kill $L5DC; kill -9 $(pgrep -P $DCP) $DCP 2>/dev/null
+  for j in $(seq 200); do HAS hub $RAM w:l5/dc || break; sleep 0.05; done
+  check "dc killed -9: its tuple is {} at once, comms' stays (nothing stale, nobody swept)" "! HAS hub $RAM w:l5/dc && HAS hub $RAM w:l5/comms"
+  KP=$(ps -o pid= --ppid $HUBKART | head -1); kill $HUBKART; [ -n "$KP" ] && kill -TERM $KP
+  for j in $(seq 200); do HAS hub $RAM w:hubA/kart || break; sleep 0.05; done
+  check "the kart service stopped: w:hubA/kart is {}" "! HAS hub $RAM w:hubA/kart"
 fi
 echo "--- identity answerer"; grep -v "^\[svc" $T/hub/identity.log | tail -5
 echo "--- l1 log"; grep -v JAVA_TOOL $T/l1/member.log | cut -c1-170 | head -12
