@@ -3,18 +3,18 @@
 //
 // redis_ram.cpp -- ribbit-redis-host: the memory, holding the Redis region -- the keyspace, once. [ONE_KEYSPACE_V1]
 //
-// Fronts write their requests as cells, (redis.req, <front>, ...), unanswered; one reader here, woken by those writes
-// (the memory's family hook), reads them in write order and hands each to the region (region.hpp). The region writes
-// its replies as cells, (redis.rep, <front>, <n>), into this same memory; each front holds one standing read on its
-// family. A front's one call (op=redis, "h <front>") ties its session to it, so the session's end takes its
-// connections. [REPLIES_AS_TRUTH_V1]
+// Fronts ask (API++ Asker): each writes its requests as cells of its own, (redis.ask, <front>, ...), unanswered. The
+// region answers (API++ Answerer): one read held on every front's requests, here, in each front's write order, each
+// handed to the region (region.hpp); the region's replies are cells it writes, (redis.answer, <front>, <n>), which each
+// front reads by its one standing read. Nothing is called. When a front's session ends its request cells go with it
+// ([GONE_WITH_ITS_WRITER_V1]): the region is handed each as gone, and that connection leaves. [REPLIES_AS_TRUTH_V1]
 //
 //     ribbit-redis-host [--listen HOST:PORT] [--announce-fd N]      answers /redis-api
 #include "ram_host.hpp"
-#include "ram_memory.hpp"
+#include "ribbit_space.hpp"
+#include "ribbit_pp.hpp"
 #include "region.hpp"
-#include <chrono>
-#include <thread>
+#include <memory>
 #ifndef REDIS_RAM_VERSION
 #define REDIS_RAM_VERSION "2.0"
 #endif
@@ -24,42 +24,28 @@ public:
     std::string vendor_id() const override { return "redis"; }
     std::string vendor_version() const override { return REDIS_RAM_VERSION; }
     std::string default_listen() const override { return "0.0.0.0:8886"; }
-    bool handles(const std::string& op) const override { return op == "redis"; }
-    bool inline_operation(const std::string& op) const override { return op == "redis"; }
-    ribbit::Reply operation(const std::string&, const std::string& body) override {
-        if (body.compare(0, 2, "h ") != 0 || body.size() < 3) return ribbit::error_reply(400, "redis region: the one call is \"h <front>\"");
-        rr::region::bind(body.substr(2));
-        return ribbit::Reply{200, "{\"ok\":true}"};
-    }
-    void session_down(uint64_t id) override { rr::region::session_down(id); }
 };
 
-static double wall_s() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
+static ribbit::Space* HERE = nullptr;              // the memory this process holds
+static ribbit::pp::Answerer* ANS = nullptr;
+// a reply: the region's fields, as its own cell for that front
 static void write_reply(const std::string& front, const std::string& instance, ribbit::BagArrP bag) {
-    ribbit::RamHost::memory().write("redis.rep", front, instance, std::move(bag), wall_s());
-}
-// the one reader of every front's requests: woken by their writes, reads what is new, in each front's write order
-static void requests() {
-    ramm::Memory& M = ribbit::RamHost::memory();
-    ramm::WakeWord* w = M.wake_word();
-    ramm::Memory::Cursor c = M.cursor("redis.req", "", "", -1);
-    ramm::Memory::hook(c, w);
-    std::vector<ramm::Cell> rows;
-    for (;;) {
-        const uint32_t seen = w->n.load(std::memory_order_acquire);
-        rows.clear(); M.read(c, rows);
-        for (auto& r : rows) {                       // a front writes fields: decoded once, by the session [DECODE_ONCE_V1]
-            ribbit::BagArrP a = r.arr ? r.arr : ribbit::BagArr::parse(r.bag);
-            if (!a) { fprintf(stderr, "redis region: a request %s/%s that is not a bag\n", r.variable.c_str(), r.instance.c_str()); continue; }
-            rr::region::request(r.variable, r.instance, *a);
-        }
-        if (rows.empty()) w->n.wait(seen, std::memory_order_acquire);
-    }
+    semcodec::Fields f; f.reserve(bag->vals.size());
+    const std::vector<std::string>& names = *bag->names;  // the region's shape names: kept for its life (ChunkNames)
+    for (size_t k = 0; k < bag->vals.size(); ++k) f.emplace_back(names[k], std::move(bag->vals[k]));
+    ANS->answer(front, instance, names, std::move(f));
 }
 
 int main(int argc, char** argv) {
     rr::region::init();
+    HERE = new ribbit::Space("here", "redis");
     rr::region::write_reply = write_reply;
-    std::thread(requests).detach();
+    // every front's every request, from the first: a front may ask before this read is held
+    ANS = new ribbit::pp::Answerer(*HERE, "redis", [](const std::string& front, const ribbit::SpaceRow& r) {
+        if (r.gone) { rr::region::request_gone(front, r.instance); return; }
+        ribbit::BagArrP a = r.fields();                // a front writes fields: decoded once, by the session [DECODE_ONCE_V1]
+        if (!a) { fprintf(stderr, "redis region: a request %s/%s that is not a bag\n", front.c_str(), r.instance.c_str()); return; }
+        rr::region::request(front, r.instance, *a);
+    });
     return RedisRam().run(argc, argv);
 }

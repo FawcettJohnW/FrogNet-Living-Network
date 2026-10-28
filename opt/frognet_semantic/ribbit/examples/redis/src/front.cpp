@@ -4,7 +4,9 @@
 // front.cpp -- a Redis front [ONE_KEYSPACE_V1] (DESIGN.md).
 //
 // Speaks RESP to stock clients and holds nothing of the keyspace: the keyspace is in the memory, once. Each pipeline a
-// client sends is one call on the front's session (region.hpp); its answer is the replies. A connection's next bytes are
+// client sends is asked of the region (API++ Asker: a cell in the front's own space, region.hpp); its replies are the
+// region's cells, read by the front's one standing read. Nothing is called: when the front's session ends its request
+// cells go with it, and that is how the region learns its connections are gone ([GONE_WITH_ITS_WRITER_V1]). A connection's next bytes are
 // read only after its answer (Redis's order for one connection); while a call is out the socket is watched for hang-ups
 // only. A connection killed by another (CLIENT KILL) while it has no call out is a cell the front holds a read on.
 //
@@ -16,6 +18,7 @@
 #include "server.hpp"
 #include "frogram.hpp"
 #include "ribbit_space.hpp"
+#include "ribbit_pp.hpp"                          // [API_PLUS_PLUS_V2] Asker
 #include "bytes_text.hpp"
 #include "chunks.hpp"
 #include "diag.hpp"
@@ -42,9 +45,8 @@ namespace rr { extern FILE* log_fp; }
 using namespace rr;
 
 namespace {
-const std::string PATH = "/redis-api?op=redis";
-std::unique_ptr<frogram::Session> S;              // the front's one session to the memory
-std::unique_ptr<frogram::Memory> M;               // its writes (unanswered) and its one standing read, on that session
+std::unique_ptr<ribbit::Space> SP;                // the front's one session to the memory
+std::unique_ptr<ribbit::pp::Asker> ASK;           // its requests (cells of its own, unanswered) and its one standing read
 std::string ME;                                   // this front's name
 pid_t g_host_pid = 0;
 void fatal(const std::string& why) { logmsg('#', why); if (g_host_pid > 0) kill(g_host_pid, SIGTERM); _exit(1); }
@@ -76,7 +78,7 @@ void gone(Conn* c) {                              // the client hung up, or was 
     if (c->gone.exchange(true)) return;
     DIAG("front", "gone", c->key, "inflight=" + std::to_string(c->inflight.load()));
     static const std::vector<std::string> FO_GONE = {"g"};
-    S->post_write_fields("redis.req", ME, "g" + std::to_string(c->local), FO_GONE, {{"g", pyv::Int::of(1)}});   // after its last pipeline: one variable, write order
+    ASK->ask("g" + std::to_string(c->local), FO_GONE, {{"g", pyv::Int::of(1)}});   // after its last pipeline: one variable, write order
     Conn* out = nullptr;
     if (conns.remove(c->local, &out) && out) { epoll_ctl(out->ep, EPOLL_CTL_DEL, out->fd, nullptr); release(out); }
 }
@@ -132,19 +134,17 @@ void replied(uint64_t local, const std::string& f, const std::string& r) {
     if (!close && !c->gone.load()) arm(c, EPOLLIN | EPOLLRDHUP);
     send_out(c, std::move(out), close);
 }
-void on_replies(std::vector<frogram::RawCell>& rows, const std::string& err) {
-    if (!err.empty()) fatal("region: the memory is gone (" + err + "): this front stops");
+void on_reply(const ribbit::SpaceRow& row) {      // on the one standing read's thread, in the replies' write order
     static std::unordered_map<std::string, std::string> pieces;   // [PAYLOAD_IN_CELLS_V1] a reply's piece cells so far (this reader's)
-    for (auto& row : rows) {                      // the region writes fields: the session decoded them once [DECODE_ONCE_V1]
-        ribbit::BagArrP a = row.arr ? row.arr : ribbit::BagArr::parse(row.bag);
-        DIAG("front", "row", ME + "/" + row.instance, "id=" + std::to_string(row.id) + " arr=" + std::to_string(row.arr != nullptr) + " fields=" + std::to_string(a ? a->vals.size() : 0));
-        if (!a) { logmsg('#', "region: a reply that is not a bag: " + row.instance); continue; }
-        const size_t colon = row.instance.find(':');
-        if (colon != std::string::npos) { pieces[row.instance.substr(0, colon)] += joined(*a, "r"); continue; }
-        std::string r = joined(*a, "r");          // [PAYLOAD_IN_FIELDS_V1]
-        auto pc = pieces.find(row.instance); if (pc != pieces.end()) { r = std::move(pc->second) + r; pieces.erase(pc); }
-        replied(strtoull(row.instance.c_str(), nullptr, 10), a->str("f"), r);
-    }
+    if (row.gone) return;                         // the region does not go before its fronts
+    ribbit::BagArrP a = row.fields();             // the region writes fields: the session decoded them once [DECODE_ONCE_V1]
+    DIAG("front", "row", ME + "/" + row.instance, "id=" + std::to_string(row.id) + " arr=" + std::to_string(row.arr != nullptr) + " fields=" + std::to_string(a ? a->vals.size() : 0));
+    if (!a) { logmsg('#', "region: a reply that is not a bag: " + row.instance); return; }
+    const size_t colon = row.instance.find(':');
+    if (colon != std::string::npos) { pieces[row.instance.substr(0, colon)] += joined(*a, "r"); return; }
+    std::string r = joined(*a, "r");              // [PAYLOAD_IN_FIELDS_V1]
+    auto pc = pieces.find(row.instance); if (pc != pieces.end()) { r = std::move(pc->second) + r; pieces.erase(pc); }
+    replied(strtoull(row.instance.c_str(), nullptr, 10), a->str("f"), r);
 }
 std::string resp_of(const Argv& a) {
     std::string o = "*" + std::to_string(a.size()) + "\r\n";
@@ -192,15 +192,15 @@ void event_loop(int ep) {
             for (size_t i = 0; i + 1 < parts.size(); ++i) {
                 std::vector<std::string> ps = cut(parts[i]); const std::vector<std::string>& po = *FO_PIECE.of(ps.size());
                 semcodec::Fields pf; for (size_t j = 0; j < ps.size(); ++j) pf.emplace_back(po[j], pyv::Str{std::move(ps[j])});
-                S->post_write_fields("redis.req", ME, std::to_string(c->local) + ":" + std::to_string(i), po, std::move(pf));
+                ASK->ask(std::to_string(c->local) + ":" + std::to_string(i), po, std::move(pf));
             }
             std::vector<std::string> pieces = cut(parts.back());
             const std::vector<std::string>& order = *FO_REQ.of(pieces.size());
             semcodec::Fields f; f.reserve(2 + pieces.size());
             f.emplace_back("a", pyv::Str{c->addr}); f.emplace_back("l", pyv::Str{c->laddr});
             for (size_t i = 0; i < pieces.size(); ++i) f.emplace_back(order[2 + i], pyv::Str{std::move(pieces[i])});
-            S->post_write_fields("redis.req", ME, std::to_string(c->local), order, std::move(f));
-            if (diag_fp()) { static std::atomic<uint64_t> seen{0}; const auto st = S->stats(); const uint64_t r = st.posts_refused;
+            ASK->ask(std::to_string(c->local), order, std::move(f));
+            if (diag_fp()) { static std::atomic<uint64_t> seen{0}; const uint64_t r = SP->refused();
                 if (r != seen.exchange(r)) DIAG("front", "REFUSED", c->key, "posts_refused=" + std::to_string(r) + " body=" + std::to_string(body.size())); }
         }
     }
@@ -257,22 +257,21 @@ int main(int argc, char** argv) {
     signal(SIGTERM, on_term); signal(SIGINT, on_term);
     const size_t colon = ep.rfind(':');
     if (colon == std::string::npos) fatal("RIBBIT_RAM is host:port, not " + ep);
-    for (int tries = 0; !S; tries++) {           // a memory started here needs a moment to listen; a named one must answer
-        try { S.reset(new frogram::Session(ep.substr(0, colon), atoi(ep.c_str() + colon + 1), "/redis-api")); }
+    for (int tries = 0; !SP; tries++) {          // a memory started here needs a moment to listen; a named one must answer
+        try { SP.reset(new ribbit::Space(ep, "redis")); }
         catch (const std::exception& e) {
             if (ram || tries > 300) fatal(std::string("Cannot reach the memory ") + ep + ": " + e.what());
             usleep(10000);
         }
     }
-    M.reset(new frogram::Memory(*S, "/redis-api"));
-    M->follow("redis.rep", ME, "", -1, on_replies);              // the one standing read: every reply, as it is written
-    try { S->call("POST", PATH, "h " + ME); }                     // its one call: this session is this front's
-    catch (const std::exception& e) { fatal(std::string("region: the memory refused this front (") + e.what() + ")"); }
+    // the one standing read: every reply, as it is written; its end is the memory's
+    ASK.reset(new ribbit::pp::Asker(*SP, "redis", ME, on_reply,
+        [](const std::string& why) { fatal("region: the memory is gone (" + why + "): this front stops"); }));
     // the region's configuration is this front's when it started the memory (the suite's case), or when it is told to
     if (!ram || getenv("RIBBIT_REDIS_CONFIG_OWNER")) {
         Argv kv; for (auto& [k, v] : g.cfg.v) { kv.push_back(k); kv.push_back(v); }
         static const std::vector<std::string> FO_CFG = {"p"};
-        S->post_write_fields("redis.req", ME, "x", FO_CFG, {{"p", pyv::Str{bytes_to_text(resp_of(kv))}}});   // before its first pipeline
+        ASK->ask("x", FO_CFG, {{"p", pyv::Str{bytes_to_text(resp_of(kv))}}});   // before its first pipeline
     }
     logmsg('*', "Redis Ribbit front " + ME + " (" RIBBIT_REDIS_VERSION "), Redis compatibility 7.2.11, PID: " + std::to_string(getpid()) + ", memory " + ep + " [ONE_KEYSPACE_V1]");
     logmsg('*', "Running mode=standalone, port=" + std::to_string(g.port) + ".");

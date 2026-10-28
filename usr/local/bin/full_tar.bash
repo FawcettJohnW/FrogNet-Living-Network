@@ -16,190 +16,115 @@
 #                                                              #
 #  See COPYRIGHT and LICENSE at the root of this tree.         #
 ################################################################
-# =============================================================================
-# full_tar.bash - snapshot this node's FrogNet SOURCE into a tarball.
+# full_tar.bash -- snapshot this node's FrogNet source into one tarball, paths relative to /, so it untars over the
+# repository's root (or over another node's /). Self-contained: everything it takes and leaves is named below.
+# [NO_MANIFEST_V1]
 #
-# [ONE_MANIFEST_V1] Reads /usr/local/lib/frognet_world_manifest.sh, the same
-# list frognet_build_release.sh and frognet_make_build_tar.sh use.
+#   full_tar.bash [--output DIR]          writes DIR/frognet-source-<host>-<date>.tgz (DIR: your home)
 #
-# WHY THE EXCLUSIONS ARE BY PATH AND NOT BY EXTENSION
-#
-# The first version of this script had a long --exclude list by extension, and
-# it was there for a real reason: without any exclusions this tree is 675 MB.
-# But excluding by extension cut the wrong things:
-#
-#   --exclude='*.tgz'   took source that ships as a bundle, leaving an empty
-#                       directory where it belonged.
-#   --exclude='*.png'   took the web root's assets. The shipped var/www/html
-#     '*.svg' '*.ico'   had zero images in it.
-#
-# The bulk was never those. It is a handful of large VENDORED and GENERATED
-# directories, and demo media. Those are named by path below and cut exactly,
-# which leaves the source complete and the tarball small.
-#
-# Everything cut here is either somebody else's repository (with a fetch script
-# beside it), output regenerable from source in the tree, or media that is not
-# source at all. Nothing cut is needed to build or run a node.
-#
-#   full_tar.bash [--output DIR] [--tag TAG] [--max-mb N] [--report]
-#
-#   --report    print what each manifest path costs and exit. Run this first
-#               if the tarball is unexpectedly large: it names the offender
-#               instead of leaving you to guess at extensions.
-#   --max-mb N  fail if the result exceeds N megabytes (default 450, which
-#               leaves headroom under a 500 MB transfer limit).
-# =============================================================================
+# Taken: what FrogNet owns on a node. Left out: keys and secrets, this node's identity and per-board tuning, caches,
+# logs and build output, and anything a .gitignore in the tree names. The database password in config.php and
+# DB_CONFIG.json is replaced by __FROGNET_DB_PASS__ in the tarball (the node's own files are not touched).
 set -eu
-
-OUTPUT="${HOME}"
-TAG=""
-MAX_MB=450
-REPORT=0
+OUTPUT="$HOME"
 while [ $# -gt 0 ]; do
     case "$1" in
-        --output)   OUTPUT="$2"; shift 2 ;;
+        --output) OUTPUT="$2"; shift 2 ;;
         --output=*) OUTPUT="${1#*=}"; shift ;;
-        --tag)      TAG="_$2"; shift 2 ;;
-        --tag=*)    TAG="_${1#*=}"; shift ;;
-        --max-mb)   MAX_MB="$2"; shift 2 ;;
-        --max-mb=*) MAX_MB="${1#*=}"; shift ;;
-        --report)   REPORT=1; shift ;;
-        *) echo "unknown arg: $1" >&2; exit 2 ;;
+        *) echo "unknown argument: $1 (full_tar.bash [--output DIR])" >&2; exit 2 ;;
     esac
 done
+ROOT="${FULL_TAR_ROOT:-/}"                        # / on a node; another tree only to test this script
 
-_MANIFEST="/usr/local/lib/frognet_world_manifest.sh"
-[ -r "$_MANIFEST" ] || { echo "ERROR: manifest not readable: $_MANIFEST" >&2; exit 1; }
-# shellcheck source=/dev/null
-. "$_MANIFEST"
-
-# [REPORT_THE_HOLE_DO_NOT_REFUSE_THE_TAR_V1] Report what is absent and
-# build. An operator asking for a tarball gets a tarball.
-frognet_check_manifest /
-
-# ---------------------------------------------------------------------------
-# NOT SOURCE. Cut by path, so that what is cut is a decision rather than a
-# side effect of a filename.
-#
-# Each of these is regenerable, vendored, or media. If you add to this list,
-# add the reason -- a future reader has to be able to tell "this is somebody
-# else's repo" from "this is ours and we lost it".
-# ---------------------------------------------------------------------------
-NOT_SOURCE=(
-    # Third-party conformance corpora. fetch_corpora.sh clones all three.
-    'opt/frognet_semantic/codex_fullsuite/corpora'
-    # The whole games tree. It is 58 MB on a real node -- ddnet is a C++ game
-    # checkout, and the rest is assets, not FrogNet. Cut at the PARENT: scoping
-    # this to games/ddnet left the parent to arrive from a live box, which is
-    # how a source tarball ends up carrying a game.
-    #
-    # Build output, regenerable from CMakeLists.txt + src/ + include/.
-    'usr/local/bin/frognet_monitor_cpp/build'
-    'usr/local/bin/frognet_monitor_cpp/linux'
-    # Runtime state, not source.
-    'opt/frognet_semantic/blob_cache'
-    'opt/frognet_semantic/logs'
-    'var/www/html/media'
-    # Python environments and dependency trees.
-    'opt/frognet_semantic/venv'
-    'usr/local/lib/python3.11/site-packages'
+# ---- what FrogNet owns -------------------------------------------------------------------------------------------
+TAKE=(
+    opt/frognet_semantic
+    opt/fdf
+    usr/local/bin
+    usr/local/sbin
+    usr/local/lib/frognet
+    usr/local/lib/frognet_log.sh
+    usr/local/lib/frognet_trace.sh
+    usr/local/share/frognet
+    var/www/html
+    etc/apache2/sites-available/000-default.conf
+    etc/apache2/sites-available/default-ssl.conf
+    etc/apache2/sites-available/databasehost.conf
+    etc/apache2/sites-available/databasehost-ssl.conf
+    etc/apache2/sites-available/frognet-ssl.conf
+    etc/dnsmasq.d/frognet_dhcp_event.conf
+    etc/dnsmasq.d/upstream_fallback.conf
+    etc/frognet/transit.conf
+    etc/logrotate.d/frognet
+    etc/mysql/mariadb.conf.d/99-frognet.cnf
+    etc/mysql/mariadb.conf.d/99-frognet-perf.cnf
+    etc/NetworkManager/dispatcher.d/90-frognet-merge
+    etc/setup_iptables
+    etc/ssl/frognet-universal.cnf
+    etc/sudoers.d/frognet-snapshot
+    etc/sysctl.d/90-frognet-forwarding.conf
+    etc/systemd/system/dnsmasq.service.d
 )
+# every FrogNet unit and its drop-ins, whatever they are called today
+for p in "$ROOT"/etc/systemd/system/frognet*; do [ -e "$p" ] && TAKE+=( "${p#"$ROOT"/}" ); done
 
-# Demo captures and recordings. Large, and not source in any sense. Images are
-# NOT here on purpose: the site needs them and they are small.
-MEDIA_EXT=( 'mp4' 'webm' 'mov' 'mkv' 'avi' 'wav' 'mp3' 'flac' 'iso' 'img' )
+# ---- what never leaves the node ----------------------------------------------------------------------------------
+LEAVE=(
+    # keys, secrets, certificates
+    'opt/fdf/var'                                 # wg.key, site.env (site key), area.env (area password), facts
+    'etc/wireguard' 'etc/ssl/private' 'etc/ssl/localCA' 'etc/ssl/certs'
+    'etc/ssl/*.key' 'etc/ssl/*.pem' 'etc/ssl/*.crt' 'etc/ssl/*.csr'
+    'etc/frognet/*secret*' 'etc/frognet/*.pem' 'etc/frognet/*.key'
+    'opt/frognet_semantic/ribbit/examples/communicator/shell.json'
+    # this node's identity and its per-board tuning (rewritten at every boot for its RAM and cores)
+    'etc/frognet/node-id' 'etc/frognet/tunnel.conf' 'etc/frognet/db.env'
+    'etc/mysql/mariadb.conf.d/99-frognet-tune.cnf'
+    'etc/systemd/system/*.service.d/99-frognet-tune.conf'
+    'var/www/html/index.html'
+    # node-local state, caches, logs, build output
+    'opt/frognet_semantic/etc' 'opt/frognet_semantic/bin' 'opt/frognet_semantic/usr' 'opt/frognet_semantic/var'
+    'opt/frognet_semantic/blob_cache' 'opt/frognet_semantic/logs' 'opt/frognet_semantic/venv'
+    'opt/frognet_semantic/codex_fullsuite/corpora' 'opt/frognet_semantic/_v1'
+    'usr/local/bin/frognet_monitor_cpp/build' 'usr/local/bin/frognet_monitor_cpp/linux'
+    '*/__pycache__' '*.pyc' '*.pyo' '*/venv' '*/.venv' '*/site-packages' '*/node_modules' '*/.git'
+    '*/build/obj' '*.o'
+    # pip's launchers in usr/local/bin: other projects' programs, installed by pip on each node
+    'usr/local/bin/bottle' 'usr/local/bin/bottle.py' 'usr/local/bin/cbor2' 'usr/local/bin/cheroot' 'usr/local/bin/dotenv'
+    'usr/local/bin/f2py' 'usr/local/bin/flask' 'usr/local/bin/futurize' 'usr/local/bin/gpsdclient' 'usr/local/bin/gunicorn'
+    'usr/local/bin/gunicornc' 'usr/local/bin/httpx' 'usr/local/bin/isympy' 'usr/local/bin/markdown-it'
+    'usr/local/bin/numpy-config' 'usr/local/bin/pasteurize' 'usr/local/bin/proton' 'usr/local/bin/proton-viewer'
+    'usr/local/bin/pyav' 'usr/local/bin/torchfrtrace' 'usr/local/bin/torchrun'
+    # somebody else's code and media
+    'opt/frognet_semantic/ribbit/examples/lispers.net/third_party' 'var/www/html/php/php/PHPMailer/docs' 'var/www/html/media'
+    '*.mp4' '*.webm' '*.mov' '*.mkv' '*.avi' '*.wav' '*.mp3' '*.flac' '*.iso' '*.img'
+    # leftovers
+    '*.log' '*.bak' '*.bak.*' '*.orig' '*.old' '*~' '*.rej' '*.swp' '*.lanonly-removed.*' '*.conf.20*'
+)
+TOKENIZE=( var/www/html/config.php opt/frognet_semantic/DB_CONFIG.json )
 
-# ---- report mode ----------------------------------------------------------
-if [ "$REPORT" = "1" ]; then
-    echo "manifest paths by size on this host:"
-    for _p in "${FROGNET_WORLD_PATHS[@]}"; do
-        [ -e "/$_p" ] || continue
-        printf '  %10s  %s\n' "$(du -sh "/$_p" 2>/dev/null | cut -f1)" "$_p"
-    done | sort -hr
-    echo
-    echo "cut as not-source:"
-    for _p in "${NOT_SOURCE[@]}"; do
-        [ -e "/$_p" ] || continue
-        printf '  %10s  %s\n' "$(du -sh "/$_p" 2>/dev/null | cut -f1)" "$_p"
-    done | sort -hr
-    exit 0
-fi
-
-OUT="${OUTPUT}/frognet-source${TAG}-$(date +%Y%m%d).tgz"
-
-_EX=()
-for _n in '*/__pycache__' '*.pyc' '*.pyo' '*/venv' '*/.venv' '*/site-packages' \
-          '*/node_modules' '*/.git' '*.log' \
-          '*.bak' '*.bak.*' '*.orig' '*.old' '*~' '*.rej' '*.swp'; do
-    _EX+=( "--exclude=$_n" )
+# ---- the tarball -------------------------------------------------------------------------------------------------
+have=(); missing=()
+for p in "${TAKE[@]}"; do if [ -e "$ROOT/$p" ]; then have+=( "$p" ); else missing+=( "$p" ); fi; done
+EX=( --exclude-vcs-ignores ); for p in "${LEAVE[@]}"; do EX+=( "--exclude=$p" ); done
+STAGE="$(mktemp -d /tmp/.full_tar.XXXXXX)"; trap 'rm -rf "$STAGE"' EXIT
+tok=()
+for t in "${TOKENIZE[@]}"; do
+    [ -f "$ROOT/$t" ] || continue
+    mkdir -p "$STAGE/$(dirname "$t")"
+    sed -E "s/(define\('DB_PASS', *')[^']*(')/\1__FROGNET_DB_PASS__\2/; s/(\"password\" *: *\")[^\"]*(\")/\1__FROGNET_DB_PASS__\2/" "$ROOT/$t" > "$STAGE/$t"
+    grep -q '__FROGNET_DB_PASS__' "$STAGE/$t" || { echo "ERROR: $t: its password field did not match; not shipping a live credential" >&2; exit 1; }
+    EX+=( "--exclude=$t" ); tok+=( "$t" )
 done
-for _n in "${FROGNET_NEVER_SHIP[@]}"; do _EX+=( "--exclude=$_n" ); done
-for _n in "${NOT_SOURCE[@]}";        do _EX+=( "--exclude=$_n" ); done
-for _e in "${MEDIA_EXT[@]}";         do _EX+=( "--exclude=*.$_e" ); done
-
-# [SHIP_THE_CODE_TOKENIZE_THE_SECRET_V1] config.php and DB_CONFIG.json are code
-# with one secret line each. Excluding them left a checkout with no config.php at
-# all, so a --from-repo node had nothing for phase C1b to inject into and api.php
-# could not reach the database. Ship them, with the password replaced by the
-# placeholder C1b already substitutes -- and that C1b DIES on if any survives.
-#
-# Staged in a temp tree and handed to tar with a second -C, so the live node's
-# real files are excluded and the tokenized ones take their place at the same
-# member paths. No post-processing of the archive.
-_TOKENIZE=( 'var/www/html/config.php' 'opt/frognet_semantic/DB_CONFIG.json' )
-_STAGE="$(mktemp -d /tmp/.frognet_tokenize.XXXXXX)"
-trap 'rm -rf "$_STAGE"' EXIT
-for _t in "${_TOKENIZE[@]}"; do
-    [ -f "/$_t" ] || { echo "ERROR: $_t is in the world but not on this host" >&2; exit 1; }
-    mkdir -p "$_STAGE/$(dirname "$_t")"
-    sed -E "s/(define\('DB_PASS', *')[^']*(')/\1__FROGNET_DB_PASS__\2/; s/(\"password\" *: *\")[^\"]*(\")/\1__FROGNET_DB_PASS__\2/" \
-        "/$_t" > "$_STAGE/$_t"
-    grep -q '__FROGNET_DB_PASS__' "$_STAGE/$_t" || {
-        echo "ERROR: tokenizing $_t produced no placeholder - the password field did not match. Refusing to ship it with a live credential." >&2
-        exit 1; }
-    _EX+=( "--exclude=$_t" )
+for l in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do   # the repository's root copies
+    [ -f "$ROOT/usr/local/share/frognet/$l" ] && cp "$ROOT/usr/local/share/frognet/$l" "$STAGE/$l" && tok+=( "$l" )
 done
-
-# Build uncompressed, append the tokenized copies, then compress. A second -C in
-# one tar call does NOT work here: --exclude matches the member NAME, so the same
-# pattern that drops the live file drops the staged one behind it. Appending is a
-# separate pass, so the exclude cannot reach it.
-_TAR="${OUT%.tgz}.tar"
-tar -cf "$_TAR" "${_EX[@]}" -C / "${FROGNET_WORLD_PATHS[@]}"
-tar -rf "$_TAR" -C "$_STAGE" "${_TOKENIZE[@]}"
-
-# [LICENSE_TRAVELS_WITH_THE_WORK_V1] COPYING and LICENSE also go at the ARCHIVE
-# ROOT, because that is where GitHub, SPDX scanners and anyone who unpacks the
-# tarball will look for them. They ship inside the world too (see
-# usr/local/share/frognet in the manifest), so an installed node has them; these
-# are the copies a reader of the repository sees first.
-for _l in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do
-    [ -f "/usr/local/share/frognet/$_l" ] || { echo "ERROR: /usr/local/share/frognet/$_l missing - refusing to publish a GPL work with no license text" >&2; exit 1; }
-    cp "/usr/local/share/frognet/$_l" "$_STAGE/$_l"
+OUT="$OUTPUT/frognet-source-$(hostname -s 2>/dev/null || echo node)-$(date +%Y%m%d-%H%M).tgz"
+TAR="${OUT%.tgz}.tar"
+tar -cf "$TAR" "${EX[@]}" -C "$ROOT" "${have[@]}"
+[ ${#tok[@]} -eq 0 ] || tar -rf "$TAR" -C "$STAGE" "${tok[@]}"
+gzip -f "$TAR"; mv "$TAR.gz" "$OUT"
+echo "wrote $OUT ($(du -h "$OUT" | cut -f1), $(tar tzf "$OUT" | grep -vc '/$') files)"
+for p in opt/frognet_semantic opt/fdf usr/local/bin var/www/html etc; do
+    printf '  %6d  %s\n' "$(tar tzf "$OUT" | grep -v '/$' | grep -c "^$p/")" "$p"
 done
-tar -rf "$_TAR" -C "$_STAGE" LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md
-gzip -c "$_TAR" > "$OUT"
-rm -f "$_TAR"
-
-_BYTES="$(stat -c %s "$OUT")"
-_MB=$(( _BYTES / 1048576 ))
-echo "wrote $OUT (${_MB} MB)"
-
-echo "contents:"
-tar tzf "$OUT" > /tmp/.ft_list.$$
-for _p in "${FROGNET_WORLD_PATHS[@]}"; do
-    printf '  %-44s %6s entries\n' "$_p" "$(grep -c "^${_p}" /tmp/.ft_list.$$ || true)"
-done
-rm -f /tmp/.ft_list.$$
-
-# [NO_FALLBACK_V1] Over the cap is a failure, not a warning. A tarball too
-# large to hand to anyone is not a delivered tarball, and finding that out at
-# upload time wastes the trip.
-if [ "$_MB" -gt "$MAX_MB" ]; then
-    echo >&2
-    echo "ERROR: ${_MB} MB exceeds --max-mb ${MAX_MB}." >&2
-    echo "       Run: full_tar.bash --report" >&2
-    echo "       to see which manifest path is carrying the weight, then add it" >&2
-    echo "       to NOT_SOURCE in this script WITH A REASON, or cut it here." >&2
-    exit 1
-fi
+[ ${#missing[@]} -eq 0 ] || echo "not on this node (left out): ${missing[*]}"

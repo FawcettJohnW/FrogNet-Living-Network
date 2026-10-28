@@ -18,8 +18,6 @@
 #include "bytes_text.hpp"
 #include "chunks.hpp"
 #include "diag.hpp"
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <strings.h>
 #include <chrono>
@@ -36,7 +34,7 @@ namespace {
 enum : uint32_t { PIPE = 1, WAKE = 2, TIMEOUT = 4, GONE = 8, KILL = 16 };
 
 struct Conn {
-    std::string key, front; uint64_t n = 0, session = 0;
+    std::string key, front; uint64_t n = 0;
     Client* c = nullptr;
     std::atomic<uint32_t> busy{0}, pend{0};
     std::string pipeline;                              // PIPE: set before the bit
@@ -49,7 +47,6 @@ struct Conn {
 LFMap<std::string, Conn*> conns;                 // "<front>/<n>"
 LFMap<uint64_t, Conn*> by_client;                // by Redis client id (CLIENT KILL)
 LFMap<std::string, Conn*> parked;                // the parked ones, for the writers' wakes
-LFMap<std::string, uint64_t> front_session;      // a front's session (its `h` call): the session's end takes its connections
 LFMap<std::string, int> killed;                  // CLIENT KILL: a pipeline already on its way is not run (its front's g<n> clears it)
 std::atomic<uint64_t> parkings{0};
 
@@ -74,20 +71,18 @@ void serve_woken() {
 
 // ---- deadlines: one thread for every parked command --------------------------------------------------------------
 struct Due { int64_t at; std::string key; uint64_t no; bool operator>(const Due& o) const { return at > o.at; } };
-struct DNode { Due d; DNode* next; };
-std::atomic<DNode*> incoming{nullptr};
-std::atomic<uint32_t> dl_word{0};
+struct DNode { Due d; DNode* next = nullptr; };
+ribbit::lf::TakeStack<DNode> incoming;            // [API_PLUS_PLUS_V1] every parking's deadline, pushed by any thread
+ribbit::lf::WaitWord dl_word;                     // the deadline thread sleeps on it
 void add_deadline(int64_t at_us, const std::string& key, uint64_t no) {
-    auto* d = new DNode{Due{at_us, key, no}, incoming.load(std::memory_order_relaxed)};
-    while (!incoming.compare_exchange_weak(d->next, d, std::memory_order_acq_rel)) {}
-    dl_word.fetch_add(1, std::memory_order_release);
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&dl_word), FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
+    incoming.push(new DNode{Due{at_us, key, no}});
+    dl_word.wake();
 }
 void deadlines() {
     std::priority_queue<Due, std::vector<Due>, std::greater<Due>> due;
     for (;;) {
-        const uint32_t seen = dl_word.load(std::memory_order_acquire);
-        for (DNode* d = incoming.exchange(nullptr, std::memory_order_acq_rel); d;) { due.push(d->d); DNode* nx = d->next; delete d; d = nx; }
+        const uint32_t seen = dl_word.seen();
+        for (DNode* d : incoming.take()) { due.push(d->d); delete d; }
         // [NEVER_BEFORE_THE_DEADLINE_V1] ends only once the deadline has passed (Redis never returns early)
         for (int64_t now = mono_us(); !due.empty() && due.top().at <= now; due.pop()) {
             std::string key = due.top().key; uint64_t no = due.top().no;
@@ -97,14 +92,14 @@ void deadlines() {
                 serve_woken();
             });
         }
-        timespec ts, *tp = nullptr;
-        if (!due.empty()) { int64_t us = due.top().at - mono_us(); if (us < 0) us = 0; ts.tv_sec = us / 1000000; ts.tv_nsec = (us % 1000000) * 1000; tp = &ts; }
-        syscall(SYS_futex, reinterpret_cast<uint32_t*>(&dl_word), FUTEX_WAIT_PRIVATE, seen, tp, nullptr, 0);
+        int64_t ns = -1;
+        if (!due.empty()) { int64_t us = due.top().at - mono_us(); ns = (us < 0 ? 0 : us) * 1000; }
+        dl_word.wait(seen, ns);
     }
 }
 
 // ---- the runner --------------------------------------------------------------------------------------------------
-// [REPLIES_AS_TRUTH_V1] The region's answer is a cell it writes, (redis.rep, <front>, <n>): "f" is
+// [REPLIES_AS_TRUTH_V1] The region's answer is a cell it writes, (redis.answer, <front>, <n>): "f" is
 // "<authenticated><0 open | 1 close | 2 parked: more follows>", "r" the replies (bytes as code points). The front holds
 // one standing read on its family and gets them as rows, batched; nothing is answered per request. The replies before
 // a command that parks go to their own cell, <n>.b, so the final reply cannot overwrite them before they are read
@@ -134,7 +129,7 @@ void answer(Conn* k, std::string out, bool close, bool parked_more = false) {
 void unpark(Conn* k) {
     Client& c = *k->c;
     WaitWord* w = k->word.exchange(nullptr, std::memory_order_acq_rel);
-    if (w) Region::unwatch(*w);
+    if (w) w->unwatch();
     { Conn* x = nullptr; parked.remove(k->key, &x); }
     k->park_no.store(0, std::memory_order_release); k->parked = false;
     c.waiting_on = nullptr;
@@ -164,7 +159,7 @@ void park(Conn* k, const Argv& argv, std::vector<Argv>& cmds, size_t i, std::str
     k->cmd = argv; for (auto& rw : c.park_rewrite) if (rw.first < k->cmd.size()) k->cmd[rw.first] = rw.second;
     k->rest.assign(std::make_move_iterator(cmds.begin() + (long)i + 1), std::make_move_iterator(cmds.end()));
     k->timeout_reply = std::move(timeout_reply); k->out = std::move(o);
-    WaitWord* w = c.park_word; Region::watch(*w);
+    WaitWord* w = c.park_word; w->watch();
     k->seen = w->gen.load(std::memory_order_acquire);
     c.waiting_on = w; c.blocked_keys.store(new Client::BlockKeys(c.block_keys), std::memory_order_release);
     g.blocked_clients++;
@@ -276,10 +271,6 @@ void init() {
     std::thread(deadlines).detach();
 }
 
-void bind(const std::string& front) {           // the `h` call: this session is that front's
-    front_session.add(front, ribbit::current_session());
-    DIAG("region", "bind", front, "session=" + std::to_string(ribbit::current_session()));
-}
 
 std::unordered_map<std::string, std::string> request_pieces;   // [PAYLOAD_IN_CELLS_V1] the reader's: piece cells so far
 void request(const std::string& front, const std::string& instance, const ribbit::BagArr& bag) {
@@ -304,7 +295,6 @@ void request(const std::string& front, const std::string& instance, const ribbit
             if (auto* nd = conns.get(key)) k = nd->val;
             else {                                                      // its first: the connection opens
                 k = new Conn; k->key = key; k->front = front; k->n = strtoull(instance.c_str(), nullptr, 10);
-                if (auto* fs = front_session.get(front)) k->session = fs->val;
                 k->c = new Client; Client& c = *k->c;
                 c.id = g.next_client_id++; c.addr = str("a"); c.laddr = str("l");
                 c.authed = g.requirepass.empty(); c.user = "default";
@@ -320,12 +310,17 @@ void request(const std::string& front, const std::string& instance, const ribbit
     serve_woken();
 }
 
-void session_down(uint64_t session) {
-    ribbit::pool_run([session] {
-        { ebr::Guard e;
-          conns.walk_all([&](LFMap<std::string, Conn*>::Node* nd) { if (nd->val->session == session) mark(nd->val, GONE); return true; }); }
-        serve_woken();
-    });
+// A front's session ended, and its request cells went with it, each given here as gone, in its write order. A
+// connection is its pipeline cell, <n>: that one going is the connection going (its pieces <n>:<i>, its hang-up g<n>
+// and the front's configuration x say nothing more). Nothing walks the connections: each says it went.
+void request_gone(const std::string& front, const std::string& instance) {
+    if (instance.empty() || instance[0] < '0' || instance[0] > '9' || instance.find(':') != std::string::npos) return;
+    const std::string key = front + "/" + instance;
+    DIAG("region", "gone", key, "its front's session ended");
+    request_pieces.erase(key);
+    ebr::Guard e;
+    { int x = 0; killed.remove(key, &x); }
+    if (auto* nd = conns.get(key)) { nd->val->pend.fetch_or(GONE, std::memory_order_acq_rel); try_run(nd->val); }
 }
 
 }  // namespace region

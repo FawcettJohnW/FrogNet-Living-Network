@@ -21,15 +21,11 @@
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <unistd.h>
 #include <ctime>
 namespace rr {
 
 MemStats& memstats() { static MemStats* s = new MemStats(); return *s; }
-void memstats_mapnode(int d) { memstats().mapnodes.fetch_add(d, std::memory_order_relaxed); }
-void memstats_map(int d) { memstats().maps.fetch_add(d, std::memory_order_relaxed); }
 static const std::string VAL_INST = "";
 static const std::string TTL_INST = std::string("\x01ttl", 4);
 
@@ -43,40 +39,17 @@ int64_t Memory::now_ms() {
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-// ---------------------------------------------------------------- wait words
-// A writer bumps a word only when someone is registered on it. The waiter registers (a full-barrier RMW)
-// BEFORE it reads `seen` and checks the data; the writer publishes, fences, then reads the registration.
-// One of them sees the other: either the writer bumps, or the waiter's data check sees the write.
-// Nobody parked means no shared line is written -- which is the common case, and the one that scales.
-static void bump(WaitWord& w) {
-    std::atomic_thread_fence(std::memory_order_seq_cst);
-    if (w.waiters.load(std::memory_order_seq_cst) == 0) return;
-    w.gen.fetch_add(1, std::memory_order_release);
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
-    if (Region::on_wake) Region::on_wake(w);
-}
+// ---------------------------------------------------------------- wait words (lf/primitives.hpp)
+// A writer bumps a word only when someone is registered on it (WaitWord::bump); a word that moved serves the
+// region's parked commands (on_wake).
+static void bump(WaitWord& w) { if (w.bump() && Region::on_wake) Region::on_wake(w); }
 void (*Region::on_wake)(WaitWord& w) = nullptr;
-void Region::wake(WaitWord& w) {
-    w.gen.fetch_add(1, std::memory_order_release);
-    syscall(SYS_futex, reinterpret_cast<uint32_t*>(&w.gen), FUTEX_WAKE_PRIVATE, INT32_MAX, nullptr, nullptr, 0);
-    if (on_wake) on_wake(w);
-}
-void Region::watch(WaitWord& w) { w.waiters.fetch_add(1, std::memory_order_seq_cst); }
-void Region::unwatch(WaitWord& w) { w.waiters.fetch_sub(1, std::memory_order_seq_cst); }
-// A quiet span: the wakes of every write inside it are held and delivered once at its end, so a held read
-// wakes after the whole batch has landed (EXEC uses this; the memory itself uses it for write_many)
-static thread_local std::vector<std::pair<Region*, std::string>>* quiet_span = nullptr;
-void Region::begin_quiet(std::vector<std::pair<Region*, std::string>>& held) { quiet_span = &held; }
-void Region::end_quiet() {
-    auto* held = quiet_span; quiet_span = nullptr;
-    if (!held) return;
-    std::sort(held->begin(), held->end()); held->erase(std::unique(held->begin(), held->end()), held->end());
-    for (auto& h : *held) h.first->touched(h.second);
-    held->clear();
-}
+void Region::wake(WaitWord& w) { w.wake(); if (on_wake) on_wake(w); }
+// A quiet span (EXEC): the wakes of every write inside it are held and delivered once at its end, so a held read
+// wakes after the whole batch has landed
 void Region::touched(const std::string& variable) { touched_h(hash_of(variable), variable); }
 void Region::touched_h(size_t h, const std::string& variable) {
-    if (quiet_span) { quiet_span->emplace_back(this, variable); return; }
+    if (Quiet::hold({this, variable})) return;
     bump(word_h(h)); bump(any);
 }
 void Region::touched_all() { for (size_t i = 0; i < WORDS; i++) bump(words[i]); bump(any); }
@@ -244,12 +217,12 @@ void Memory::apply_node(Region& R, Var& v, CellNode* node) {
         node->owner.store(&v, std::memory_order_release);           // [PIECES_V1]
         const CellNode* old = v.val.load(std::memory_order_acquire);
         node->born = old ? old->born : id;
-        old = v.val.exchange(node, std::memory_order_acq_rel);
+        old = lf::swap(v.val, (const CellNode*)node);
         retire_node(old);
     } else if (instance == TTL_INST) {
         const CellNode* old = v.ttl.load(std::memory_order_acquire);
         node->born = old ? old->born : id;
-        old = v.ttl.exchange(node, std::memory_order_acq_rel);
+        old = lf::swap(v.ttl, (const CellNode*)node);
         if (old) { R.by_ttl.remove(NumKey{old->bag->n, v.name, TTL_INST}); retire_node(old); }
         R.by_ttl.add(NumKey{bag->n, v.name, TTL_INST}, &v);
     } else {
@@ -262,7 +235,7 @@ void Memory::apply_node(Region& R, Var& v, CellNode* node) {
             Slot* slot = &mn->val;
             const CellNode* old = slot->node.load(std::memory_order_acquire);
             node->born = old ? old->born : id;
-            old = slot->node.exchange(node, std::memory_order_acq_rel);
+            old = lf::swap(slot->node, (const CellNode*)node);
             if (old && old->bag->indexed) v.by_n().remove(NumInst{old->bag->n, instance});
             if (bag->indexed) v.by_n().add(NumInst{bag->n, instance}, slot);
             retire_node(old);
@@ -289,7 +262,7 @@ CellNode* Memory::apply_value(Region& R, Var& v, const std::string& instance, Ba
     node->instance = instance; node->id = id; node->written_ms = now; node->set_bag(std::move(bag));
     const CellNode* old = slot->node.load(std::memory_order_acquire);
     node->born = (fresh || !old) ? id : old->born;
-    old = slot->node.exchange(node, std::memory_order_acq_rel);
+    old = lf::swap(slot->node, (const CellNode*)node);
     if (old && old->bag->indexed) v.by_n().remove(NumInst{old->bag->n, instance});
     if (node->bag->indexed) v.by_n().add(NumInst{node->bag->n, instance}, slot);
     retire_node(old);
@@ -401,14 +374,14 @@ size_t Memory::indexed_count(const std::string& service) const { return region(s
 // ---------------------------------------------------------------- remove
 bool Memory::drop(Region& R, Var& v, const std::string& instance, uint64_t id, CellPtr* gone) {
     const CellNode* old;
-    if (instance.empty()) old = v.val.exchange(nullptr, std::memory_order_acq_rel);
+    if (instance.empty()) old = lf::take(v.val);
     else if (instance == TTL_INST) {
-        old = v.ttl.exchange(nullptr, std::memory_order_acq_rel);
+        old = lf::take(v.ttl);
         if (old) R.by_ttl.remove(NumKey{old->bag->n, v.name, TTL_INST});
     } else {
         auto* m = v.inst_c(); if (!m) return false;
         auto* mn = m->get(instance); if (!mn) return false;
-        old = mn->val.node.exchange(nullptr, std::memory_order_acq_rel);      // the cell is gone before its map node is
+        old = lf::take(mn->val.node);      // the cell is gone before its map node is
         if (!old) return false;
         if (old->bag->indexed) v.by_n().remove(NumInst{old->bag->n, instance});
         const_cast<Var::IMap*>(m)->remove(instance);                            // node + slot retired together
@@ -553,11 +526,10 @@ bool Memory::replace_if(Region& R, const std::string& variable, size_t hash, con
         std::atomic<const CellNode*>* atp;
         if (instance == TTL_INST) {                                  // the ttl: its own slot, indexed by expiry time
             const CellNode* e = expected;
-            if (!v->ttl.compare_exchange_strong(e, node, std::memory_order_acq_rel)) { delete node; return false; }
+            if (!lf::cas(v->ttl, e, node, retire_node)) { delete node; return false; }   // (e stays readable: inside this epoch)
             node->born = e ? e->born : id;
             if (e) R.by_ttl.remove(NumKey{e->bag->n, v->name, TTL_INST});
             R.by_ttl.add(NumKey{node->bag->n, v->name, TTL_INST}, v);
-            retire_node(e);
             v->last.store(id, std::memory_order_release);
             if (v->dead.load(std::memory_order_acquire)) return false;
             R.touched_h(hash, variable);
@@ -572,13 +544,12 @@ bool Memory::replace_if(Region& R, const std::string& variable, size_t hash, con
             atp = &nd->val.node;
         } else atp = &slot_of(*v, instance)->node;
         const CellNode* e = expected;
-        if (!atp->compare_exchange_strong(e, node, std::memory_order_acq_rel)) { delete node; return false; }   // someone else's: this call lost
+        if (!lf::cas(*atp, e, node, retire_node)) { delete node; return false; }   // someone else's: this call lost
         node->born = e ? e->born : id;
         if (!instance.empty()) {
             if (e && e->bag->indexed) v->by_n().remove(NumInst{e->bag->n, instance});
             if (node->bag->indexed) v->by_n().add(NumInst{node->bag->n, instance}, slot_of(*v, instance));
         }
-        retire_node(e);
         v->last.store(id, std::memory_order_release);
         if (v->dead.load(std::memory_order_acquire)) { if (expected) return false; continue; }   // landed in a dying variable
         R.touched_h(hash, variable);
@@ -595,7 +566,7 @@ uint64_t Memory::exchange(Region& R, const std::string& variable, size_t hash, B
         CellNode* node = new CellNode();
         node->instance = ""; node->id = id; node->written_ms = now_ms(); node->set_bag(Bag(bag));
         node->owner.store(v, std::memory_order_release);             // [PIECES_V1]
-        const CellNode* old = v->val.exchange(node, std::memory_order_acq_rel);
+        const CellNode* old = lf::swap(v->val, (const CellNode*)node);
         node->born = old ? old->born : id;
         retire_node(old);
         v->last.store(id, std::memory_order_release);
@@ -631,7 +602,7 @@ Memory::Added Memory::add(Region& R, const std::string& variable, size_t hash, c
         z->instance = instance; z->id = id; z->born = id; z->written_ms = now_ms(); z->set_bag(Bag(initial));
         if (instance.empty()) z->owner.store(v, std::memory_order_release);      // [PIECES_V1]
         const CellNode* e = nullptr;
-        if (at.compare_exchange_strong(e, z, std::memory_order_acq_rel)) n = z;
+        if (lf::cas(at, e, (const CellNode*)z, retire_node)) n = z;
         else { delete z; n = resolve(e); }                    // another creator won: add to its cell
     }
     Added a; a.node = n;
@@ -666,8 +637,7 @@ bool Memory::remove_if(const std::string& service, const std::string& variable, 
     VarPtr v = var(service, variable); if (!v || !expected) return false;
     if (!instance.empty()) return false;                                // (the value cell is all MSETNX needs)
     const CellNode* e = expected;
-    if (!v->val.compare_exchange_strong(e, nullptr, std::memory_order_acq_rel)) return false;
-    retire_node(e);
+    if (!lf::cas(v->val, e, (const CellNode*)nullptr, retire_node)) return false;
     v->last.store(take_id(), std::memory_order_release);
     maybe_die(R, v); R.touched(variable);
     return true;

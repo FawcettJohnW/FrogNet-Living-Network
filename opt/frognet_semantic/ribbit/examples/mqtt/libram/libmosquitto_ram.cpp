@@ -7,10 +7,13 @@
 // write and consumers read: the tuple space is addressed by what MQTT addresses, the topic. [TOPIC_IS_THE_ADDRESS_V1]
 //
 //   truth                        owner            address                                         bag
-//   a publish                    its publisher    (mqtt, <topic>, <writer>.<n mod RING>)           b e n o p pr prq q qos r si sp t
-//   that a writer uses a topic   its publisher    (mqtt.topics, all, <topic>␟<writer>)             t      (written once)
-//   a topic's retained message   its topic        (mqtt.retained, <topic>, hwm)                    live p q qos t
-//   (its high water mark)
+//   a publish                    its publisher    (mqtt, <topic>, <writer>.<n mod RING>)           _b _n e o p pr prq q qos r si sp t
+//                                                 (API++ Publisher / subscribe)
+//   that a writer uses a topic   its publisher    (mqtt.topics, all, <topic>␟<writer>)             (API++ announce / capable)
+//   a topic's retained message   its publisher    (mqtt.retained, <topic>, <writer>)               live p q qos t
+//                                                 (API++ offer; a reader takes the newest: latest)
+// [LINGER_BY_FAMILY_V1] When the process's session ends, its publishes and its directory entries stay LINGER_S seconds
+// (a client that publishes and exits: a slow subscriber still gets it) and its retained messages stay.
 //
 // Every cell has one owner, its one writer; nobody writes anyone else's, and the memory never decides between writers.
 //   publish      writes its cell at its topic (and its retained cell if retained), and is done: on_publish is called
@@ -32,6 +35,7 @@
 // mosquitto_connect are not where anything goes: there is nothing to connect to.
 #include "frogram.hpp"
 #include "ribbit_space.hpp"
+#include "ribbit_pp.hpp"                                  // [API_PLUS_PLUS_V2]
 #include "ram_host.hpp"
 extern "C" {
 #include "mosquitto.h"
@@ -52,12 +56,12 @@ extern "C" {
 
 namespace {
 const char* SVC = "mqtt";                               // publishes, at their topics
-const char* SVC_RET = "mqtt.retained";                  // a topic's retained message, its high water mark: (<topic>, hwm)
-const char* HWM = "hwm";
+const char* SVC_RET = "mqtt.retained";                  // a topic's retained messages: (<topic>, <writer>)
 const char* SVC_TOPICS = "mqtt.topics";                 // the directory: (all, <topic>␟<writer>)
 const char* ALL = "all";
 constexpr uint64_t RING = 16384;                        // a writer's cells on one topic: its publish n there is cell n mod RING
-const std::vector<std::string> FO_MSG = {"b", "e", "n", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
+constexpr int32_t LINGER_S = 5;                         // [LINGER_BY_FAMILY_V1] its publishes, after the process's session ends
+const std::vector<std::string> FO_MSG = {"e", "o", "p", "pr", "prq", "q", "qos", "r", "si", "sp", "t"};
 
 bool utf8_ok(const unsigned char* p, size_t n) {
     for (size_t i = 0; i < n;) {
@@ -91,8 +95,6 @@ bool wildcard(const std::string& f) { return f.find_first_of("+#") != std::strin
 // holds the list it loaded; the old one is let go when the instance is destroyed)
 struct Sub { std::string filter; int qos; int options; };
 struct Subs { std::vector<Sub> v; const Subs* prev = nullptr; };
-// one topic an instance publishes to: its count there (insert-only, found by CAS: no lock)
-struct TopicState { std::string topic; TopicState* next_in_bucket = nullptr; std::atomic<uint64_t> seq{0}; };
 struct Proc;
 template <class N, size_t B> struct InsertOnly {
     std::atomic<N*> b[B] = {};
@@ -124,12 +126,8 @@ struct mosquitto {
     std::thread loop_thread; std::atomic<bool> loop_stop{false};
     int efd = -1;                                     // mosquitto_socket: an fd for applications that select on it
     std::string will_topic, will_payload; int will_qos = 0; bool will_retain = false, will_set = false;
-    InsertOnly<TopicState, 256> topics;               // the topics it publishes to
-    InsertOnly<Held, 1024> held;                      // [READERS_IN_PARALLEL_V1] the topics it reads: a thread each
-    std::atomic<bool> directory{false};               // it reads the directory (it has a wildcard filter)
-    TopicState* topic(const std::string& t) {
-        return topics.get(std::hash<std::string>()(t), [&](TopicState* x) { return x->topic == t; }, [&] { auto* x = new TopicState; x->topic = t; return x; });
-    }
+    std::atomic<ribbit::pp::Publisher*> pub{nullptr};   // [API_PLUS_PLUS_V2] its publishes: its ring per topic, its count there
+    InsertOnly<Held, 1024> held;                      // [READERS_IN_PARALLEL_V1] the topics (and wildcard filters) it reads: a thread each
 };
 
 namespace {
@@ -147,7 +145,9 @@ Proc* proc() {
         auto* p = new Proc;
         const char* e = getenv("MQTT_MEMORY"); if (!e || !*e) e = getenv("MQTT_REGION"); if (!e || !*e) e = "127.0.0.1:9009";
         p->where = e;
-        try { p->sp.reset(new ribbit::Space(e, "mqtt")); }
+        try { p->sp.reset(new ribbit::Space(e, "mqtt"));
+              p->sp->linger(SVC, "", LINGER_S); p->sp->linger(SVC_TOPICS, "", LINGER_S);   // [LINGER_BY_FAMILY_V1]
+              p->sp->linger(SVC_RET, "", ribbit::Space::STAYS); }
         catch (const std::exception& x) { fprintf(stderr, "libmosquitto: the memory at %s: %s\n", e, x.what()); }
         P = p;
     });
@@ -168,20 +168,9 @@ void poke(mosquitto* m) { m->state.fetch_add(1, std::memory_order_release); m->s
 // [DECODE_ONCE_V1] the publish as the session decoded it: its values, read in place -- the payload is handed to the
 // application straight out of the decoded bag
 const std::string& sval(const ribbit::BagArr& a, const char* k) { static const std::string none; const pyv::Obj* v = a.get(k); return v && v->is<pyv::Str>() ? v->as<pyv::Str>().s : none; }
-void give(Proc* p, mosquitto* m, const ribbit::BagArr& g, uint64_t& last) {
+void give(Proc* p, mosquitto* m, const ribbit::BagArr& g, const std::string& writer) {
     if (m->dead.load(std::memory_order_acquire) || !m->connected.load(std::memory_order_acquire)) return;
     const std::string& topic = sval(g, "t");
-    const std::string& writer = sval(g, "b");
-    {                                                 // the consumer's own check: did a writer's ring move past it?
-        const uint64_t n = uint64_t(g.num("n"));
-        if (last && n > last + 1) {
-            const uint64_t gap = n - last - 1; const uint64_t before = p->missed.fetch_add(gap, std::memory_order_relaxed);
-            if (before < 1000000 && (before == 0 || before / 100000 != (before + gap) / 100000))
-                fprintf(stderr, "libmosquitto: missed %llu publishes of %s on %s (read too late: its ring had moved on); %llu missed in all\n",
-                        (unsigned long long)gap, writer.c_str(), topic.c_str(), (unsigned long long)(before + gap));
-        }
-        if (n > last) last = n;
-    }
     const Subs* ss = m->subs.load(std::memory_order_acquire); if (!ss) return;
     const int qos = int(g.num("qos"));
     int best = -1;
@@ -203,30 +192,25 @@ void hold_topic(Proc* p, mosquitto* m, const std::string& topic, long long from)
     bool made = false;
     m->held.get(std::hash<std::string>()(topic), [&](Held* x) { return x->key == topic; }, [&] { auto* x = new Held; x->key = topic; return x; }, &made);
     if (!made) return;
-    auto last = std::make_shared<std::unordered_map<std::string, uint64_t>>();   // this read's alone: one thread
-    p->sp->watch(SVC, topic, from, [p, m, last](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { const size_t dot = r.instance.rfind('.'); if (ribbit::BagArrP a = r.fields()) give(p, m, *a, (*last)[r.instance.substr(0, dot)]); } });
-}
-bool matches_wild(mosquitto* m, const std::string& topic) {
-    const Subs* ss = m->subs.load(std::memory_order_acquire); if (!ss) return false;
-    for (auto& s : ss->v) { if (!wildcard(s.filter)) continue; bool hit = false;
-        if (mosquitto_topic_matches_sub(s.filter.c_str(), topic.c_str(), &hit) == MOSQ_ERR_SUCCESS && hit) return true; }
-    return false;
+    // [API_PLUS_PLUS_V2] the topic's publishes in write order; what a slow read missed (a ring moved past it) is said
+    ribbit::pp::subscribe(*p->sp, SVC, topic, from, [p, m](const ribbit::pp::Delivery& d) { give(p, m, *d.fields, d.writer); },
+        [p](const std::string& t, const std::string& writer, uint64_t gap) {
+            const uint64_t before = p->missed.fetch_add(gap, std::memory_order_relaxed);
+            if (before < 1000000 && (before == 0 || before / 100000 != (before + gap) / 100000))
+                fprintf(stderr, "libmosquitto: missed %llu publishes of %s on %s (read too late: its ring had moved on); %llu missed in all\n",
+                        (unsigned long long)gap, writer.c_str(), t.c_str(), (unsigned long long)(before + gap)); });
 }
 std::string topic_of(const std::string& inst) { return inst.substr(0, inst.find('\x1f')); }
-// a filter's topics: a topic filter is its topic, from now on; a wildcard filter is every topic the directory names that
-// matches it -- those there now from now on, and, through the instance's read of the directory, every one that appears
+// a filter's topics: a topic filter is its topic, from now on; a wildcard filter is every topic in use that it matches
+// (API++ capable): those in use now, from now on; one that appears later, all of it
 void hold(Proc* p, mosquitto* m, const std::string& filter) {
     if (!wildcard(filter)) { hold_topic(p, m, filter, -1); return; }
-    const uint64_t d0 = p->sp->newest(SVC_TOPICS, ALL);
-    for (auto& r : p->sp->read(SVC_TOPICS, ALL)) {   // the topics in use now; a later one is the directory read's
-        if (r.id > d0) continue;
-        const std::string t = topic_of(r.instance); bool hit = false;
-        if (mosquitto_topic_matches_sub(filter.c_str(), t.c_str(), &hit) == MOSQ_ERR_SUCCESS && hit) hold_topic(p, m, t, -1);
-    }
-    if (m->directory.exchange(true)) return;          // its directory read is running: it matches against every filter
-    p->sp->watch(SVC_TOPICS, ALL, (long long)d0, [p, m](std::vector<ribbit::SpaceRow>& rows) {
-        for (auto& r : rows) { const std::string t = topic_of(r.instance); if (matches_wild(m, t)) hold_topic(p, m, t, 0); } });
+    bool made = false; const std::string key = std::string(1, '\x01') + filter;   // once per wildcard filter
+    m->held.get(std::hash<std::string>()(key), [&](Held* x) { return x->key == key; }, [&] { auto* x = new Held; x->key = key; return x; }, &made);
+    if (!made) return;
+    ribbit::pp::capable(*p->sp, SVC_TOPICS, [filter](const std::string& t) {
+            bool hit = false; return mosquitto_topic_matches_sub(filter.c_str(), t.c_str(), &hit) == MOSQ_ERR_SUCCESS && hit; },
+        [p, m](const ribbit::pp::Capable& c) { if (!c.gone) hold_topic(p, m, c.capability, c.already ? -1 : 0); });
 }
 int reg(Proc* p, mosquitto* m) {
     const int n = p->n_insts.load(std::memory_order_acquire);
@@ -250,43 +234,40 @@ void run_pending(mosquitto* m) {
 }
 void give_ack(mosquitto* m, int id) { if (m->on_publish_v5) m->on_publish_v5(m, m->obj, id, 0, nullptr); else if (m->on_publish) m->on_publish(m, m->obj, id); }
 const std::vector<std::string> FO_RET = {"live", "p", "q", "qos", "t"};
-const std::vector<std::string> FO_DIR = {"t"};
 int do_publish(mosquitto* m, int* mid, const char* topic, int len, const void* payload, int qos, bool retain) {
     if (!m || !topic || qos < 0 || qos > 2 || len < 0 || (len > 0 && !payload)) return MOSQ_ERR_INVAL;
     if (mosquitto_pub_topic_check(topic) != MOSQ_ERR_SUCCESS) return MOSQ_ERR_INVAL;
     if (!m->connected.load(std::memory_order_acquire)) return MOSQ_ERR_NO_CONN;
     Proc* p = proc(); if (!usable(p)) return MOSQ_ERR_NO_CONN;
     const int id = m->mid.fetch_add(1, std::memory_order_relaxed) % 65535 + 1; if (mid) *mid = id;
-    TopicState* t = m->topic(topic);
+    const std::string t = topic;
+    ribbit::pp::Publisher* pub = m->pub.load(std::memory_order_acquire);   // [API_PLUS_PLUS_V2] made at its first publish
+    if (!pub) { auto* mine = new ribbit::pp::Publisher(*p->sp, SVC, m->writer, {}, RING);
+                if (m->pub.compare_exchange_strong(pub, mine, std::memory_order_acq_rel)) pub = mine; else delete mine; }
     const bool pu = utf8_ok(static_cast<const unsigned char*>(payload), size_t(len));
     std::string ptext = pu ? std::string(static_cast<const char*>(payload), size_t(len)) : std::string();
     std::string pb64 = pu ? std::string() : b64(payload, size_t(len));
-    const uint64_t n = t->seq.fetch_add(1, std::memory_order_acq_rel) + 1;
-    if (n == 1) {                                     // this writer's first publish on the topic: the directory says so
-        try { p->sp->write_fields(SVC_TOPICS, ALL, t->topic + '\x1f' + m->writer, FO_DIR, {{"t", pyv::Str{t->topic}}}); }
-        catch (const std::exception& x) { log_to(m, MOSQ_LOG_ERR, std::string("the memory: ") + x.what()); return MOSQ_ERR_NO_CONN; }
-    }
     using pyv::Str; using pyv::Int;
     try {
         if (retain) {
             semcodec::Fields r; r.reserve(5);
             r.emplace_back("live", Int::of(len ? 1 : 0)); r.emplace_back("p", Str{ptext}); r.emplace_back("q", Str{pb64});
-            r.emplace_back("qos", Int::of(qos)); r.emplace_back("t", Str{t->topic});
-            p->sp->write_fields(SVC_RET, t->topic, HWM, FO_RET, std::move(r));
+            r.emplace_back("qos", Int::of(qos)); r.emplace_back("t", Str{t});
+            ribbit::pp::offer(*p->sp, SVC_RET, t, m->writer, FO_RET, std::move(r));   // its own cell; the newest is read
         }
         semcodec::Fields f; f.reserve(13);
-        f.emplace_back("b", Str{m->writer}); f.emplace_back("e", Int::of(0)); f.emplace_back("n", Int::of(int64_t(n))); f.emplace_back("o", Int::of(0));
+        f.emplace_back("e", Int::of(0)); f.emplace_back("o", Int::of(0));
         f.emplace_back("p", Str{std::move(ptext)}); f.emplace_back("pr", Str{std::string()}); f.emplace_back("prq", Str{std::string()});
         f.emplace_back("q", Str{std::move(pb64)}); f.emplace_back("qos", Int::of(qos)); f.emplace_back("r", Int::of(retain ? 1 : 0));
-        f.emplace_back("si", Str{m->id}); f.emplace_back("sp", Int::of(0)); f.emplace_back("t", Str{t->topic});
-        p->sp->write_fields(SVC, t->topic, ribbit::Space::slot(m->writer, n, RING), FO_MSG, std::move(f));
+        f.emplace_back("si", Str{m->id}); f.emplace_back("sp", Int::of(0)); f.emplace_back("t", Str{t});
+        // its first publish on the topic: the directory says this writer uses it
+        if (pub->publish(t, FO_MSG, std::move(f)) == 1) ribbit::pp::announce(*p->sp, SVC_TOPICS, t, m->writer);
     } catch (const std::exception& x) { log_to(m, MOSQ_LOG_ERR, std::string("the memory: ") + x.what()); return MOSQ_ERR_NO_CONN; }
     give_ack(m, id);                                  // written: that is the publish done -- nothing comes back from anyone
     return MOSQ_ERR_SUCCESS;
 }
-// the retained messages a filter matches, now: per topic, the newest of its writers' retained cells, if it is live
-// the retained messages a filter matches, looked up by address: a topic filter's topic, or each topic the directory
-// names that a wildcard filter matches -- (mqtt.retained, <topic>, hwm)
+// the retained messages a filter matches, looked up by address -- a topic filter's topic, or each topic the directory
+// names that a wildcard filter matches: per topic, the newest of its writers' retained cells (API++ latest), if live
 void give_retained(Proc* p, mosquitto* m, const std::string& filter, int qos) {
     std::vector<std::string> topics;
     if (!wildcard(filter)) topics.push_back(filter);
@@ -296,8 +277,8 @@ void give_retained(Proc* p, mosquitto* m, const std::string& filter, int qos) {
             std::find(topics.begin(), topics.end(), t) == topics.end()) topics.push_back(t);
     }
     for (auto& topic : topics) {
-        auto got = p->sp->read(SVC_RET, topic, HWM); if (got.empty()) continue;
-        ribbit::BagArrP gp = got.front().fields(); if (!gp) continue;
+        ribbit::SpaceRow row; if (!ribbit::pp::latest(*p->sp, SVC_RET, topic, row)) continue;   // [API_PLUS_PLUS_V2]
+        ribbit::BagArrP gp = row.fields(); if (!gp) continue;
         const ribbit::BagArr& g = *gp;
         if (g.num("live") == 0) continue;
         const std::string& q = sval(g, "q"); std::string payload = q.empty() ? sval(g, "p") : unb64(q);

@@ -37,6 +37,10 @@
 // [SESSION_EPOCH_V1]); the vendor hears when a session starts (its peer address) and when it ends (RamHost::session_up,
 // session_down)
 static thread_local uint64_t tl_session_id = 0;
+#ifndef GONE_BROKEN
+#define GONE_BROKEN 0   // [GONE_WITH_ITS_WRITER_V1] tests only: 1 a session's rows stay when it ends; 2 the wire drops a gone row
+#endif
+#define GONE_BROKEN_WIRE (GONE_BROKEN == 2)
 
 #ifdef _WIN32
 #  ifndef _WIN32_WINNT
@@ -167,10 +171,10 @@ ramm::Memory MEM;
 std::string ok_rows(const std::vector<Cell>& rows) { std::string o = "{\"ok\":true,\"rows\":[";
     for (size_t k = 0; k < rows.size(); ++k) { const Cell& c = rows[k]; char u[40]; snprintf(u, sizeof u, "%.3f", c.updated);
         o += (k ? "," : "") + std::string("{\"id\":") + std::to_string(c.id) + ",\"service\":" + Json::quote(c.service) + ",\"variable\":" + Json::quote(c.variable) +
-             ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + c.text() + ",\"updated_epoch\":" + u + "}"; }
+             ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + (c.gone ? std::string("null,\"gone\":true") : c.text()) + ",\"updated_epoch\":" + u + "}"; }
     return o + "]}"; }
 }  // (anonymous) -- the platform's public functions are outside it
-#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.67"   // 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.67 together
+#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.69"   // 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
 namespace ribbit {
 Reply error_reply(int status, const std::string& msg) { return Reply{status, "{\"ok\":false,\"error\":" + Json::quote(msg) + "}"}; }
 const char* platform_version() { return RIBBIT_PLATFORM_VERSION; }
@@ -215,7 +219,7 @@ public:
         if (wait_s > 0) throw std::logic_error("a resident region operation holds nothing: no blocking read (" + s + "/" + v + ")");
         std::vector<frogram::Cell> out;
         for (auto& c : MEM.match(s, v, i, after, fresh_s, wall()))
-            out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, Json::parse(c.text()), c.updated});
+            out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, c.gone ? Json() : Json::parse(c.text()), c.updated, c.gone});
         return out;
     }
     void remove(uint64_t id) override { MEM.remove(id, true); }
@@ -332,6 +336,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     }
     if (op == "write") {
         if (method != "POST") { out = bad(405, "write is POST"); return true; }
+        ramm::WritingFor wf(tl_session_id);               // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
         {   // [WRITE_BODY_SKIMMED_V1] the body read in place: its three coordinates, and the bag's text as written, checked
             // to be one JSON object -- no tree built and serialised again (measured: a quarter of the memory host's CPU)
             std::string sv, vv, iv; size_t b0 = 0, b1 = 0;
@@ -551,7 +556,7 @@ struct Session {
     std::mutex data_m; std::mutex ready_m; std::condition_variable ready_cv; bool ready = false;   // set-up only
     // [CELL_WRITE_V1] the families this session's writers have named: (writer slot, family number) -> service, variable.
     // Written once each, read by any job, no lock: an insert-only open-addressed table of pointers set by CAS.
-    struct Fam { uint64_t slot, fam; std::string sv, var; cellwire::Chain chain;   // sv, var: set by the chain's write 1, read by its later ones (the chain's job only)
+    struct Fam { uint64_t slot, fam; std::string sv, var; int32_t linger = 0; cellwire::Chain chain;   // sv, var: set by the chain's write 1, read by its later ones (the chain's job only)
                  Fam(uint64_t a, uint64_t b, std::string c, std::string d) : slot(a), fam(b), sv(std::move(c)), var(std::move(d)) {} };
     static constexpr size_t FAMS = 1 << 14;
     std::unique_ptr<std::atomic<const Fam*>[]> fams{new std::atomic<const Fam*>[FAMS]()};
@@ -608,7 +613,10 @@ struct Session {
         OutItem* o = new OutItem; o->seq = seq; o->rows_op = op; o->rows = std::move(rows); outq.push(o); }
     std::string rows_frame(uint8_t op, std::vector<Cell>& rows) {
         std::vector<rowcodec::Encoder::RowIn> in; in.reserve(rows.size());
-        for (auto& c : rows) { if (!c.arr) c.arr = ribbit::BagArr::parse(c.bag);   // a row written as text: decoded once, here
+        for (auto& c : rows) { if (c.gone) {            // [GONE_WITH_ITS_WRITER_V1] its own record: no bag
+                                   if (GONE_BROKEN_WIRE) continue;   // tests only
+                                   in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, nullptr, nullptr, nullptr, true}); continue; }
+                               if (!c.arr) c.arr = ribbit::BagArr::parse(c.bag);   // a row written as text: decoded once, here
                                if (!c.arr) continue;
                                in.push_back(rowcodec::Encoder::RowIn{c.id, c.updated, &c.service, &c.variable, &c.instance, c.arr, c.prev, c.changed.get()}); }
         try { const uint64_t f0 = rowenc.c_forwarded, c0 = rowenc.c_compared, s0 = rowenc.c_shared;
@@ -973,16 +981,54 @@ static void cell_diag_start() {
                         (unsigned long long)(i - li), (unsigned long long)(w - lw), (long long)(i - w - r), (unsigned long long)r);
                 li = i; lw = w; } }).detach(); });
 }
+// [LINGER_BY_FAMILY_V1] The reaper: rows a session left to linger go when their time comes. A session's end pushes one
+// entry per linger its rows chose (lock-free); the reaper's one thread takes them, sleeps until the next is due, and
+// reaps it -- each row going as gone_with's do, in its family's write order. Its mutex is its own: it guards only its
+// sleep (a condition variable needs one), as a trigger's does in ram_memory.hpp.
+struct Reaper {
+    struct Due { uint64_t writer; double ended, at; Due* next = nullptr; };
+    std::atomic<Due*> incoming{nullptr};
+    std::mutex m; std::condition_variable cv; bool poked = false;
+    void add(uint64_t writer, double ended, int32_t linger) {
+        Due* d = new Due{writer, ended, ended + linger};
+        Due* h = incoming.load(std::memory_order_relaxed);
+        do { d->next = h; } while (!incoming.compare_exchange_weak(h, d, std::memory_order_release, std::memory_order_relaxed));
+        { std::lock_guard<std::mutex> g(m); poked = true; } cv.notify_one();
+        static std::once_flag started; std::call_once(started, [this] { std::thread([this] { run(); }).detach(); });
+    }
+    void run() {
+        std::vector<Due*> due;
+        for (;;) {
+            for (Due* d = incoming.exchange(nullptr, std::memory_order_acquire); d;) { Due* n = d->next; due.push_back(d); d = n; }
+            const double now = wall();
+            for (size_t k = 0; k < due.size();) {
+                if (due[k]->at <= now) {
+                    const size_t n = LINGER_BROKEN == 2 ? 0 : MEM.reap(due[k]->writer, due[k]->ended, now);
+                    if (n) logline("reaped " + std::to_string(n) + " rows a session left to linger");
+                    delete due[k]; due[k] = due.back(); due.pop_back();
+                } else ++k;
+            }
+            double next = 0; for (Due* d : due) if (!next || d->at < next) next = d->at;
+            std::unique_lock<std::mutex> l(m);
+            if (next) cv.wait_for(l, std::chrono::duration<double>(next - wall()), [&] { return poked; });
+            else cv.wait(l, [&] { return poked; });
+            poked = false;
+        }
+    }
+};
+static Reaper& reaper() { static Reaper* r = new Reaper; return *r; }
 static void cell_refuse(const std::shared_ptr<Session>& s, uint32_t seq, int st, const std::string& why) {
     g_cell_refused.fetch_add(1, std::memory_order_relaxed); s->reply(seq, std::string(MAGIC, 4) + char(OP_ERROR) + be16(uint16_t(st)) + why);
 }
 static void cell_write_step(const std::shared_ptr<Session>& s, uint32_t seq, cellwire::Frame& x, Session::Fam* nm) {
+    ramm::WritingFor wf(s->epoch);                        // [GONE_WITH_ITS_WRITER_V1] this session's write
     cellwire::Chain& ch = nm->chain;
     const cellwire::Ref* ref = (ch.last && ch.last_c + 1 == x.counter) ? ch.last.get() : nullptr;
     auto fail = [&](int st, const std::string& why) { ch.last.reset(); ch.last_c = x.counter;   // the writer is told which chain
         cell_refuse(s, seq, st, "[cell " + std::to_string(x.slot) + " " + std::to_string(x.fam) + " " + std::to_string(x.counter) + "] " + why); };
     try {
-        if (x.flags & cellwire::F_NAMES) { nm->sv = x.sv; nm->var = x.var; }
+        if (x.flags & cellwire::F_NAMES) { nm->sv = x.sv; nm->var = x.var; nm->linger = x.linger; }
+        ramm::t_linger = nm->linger;                      // [LINGER_BY_FAMILY_V1] as its writer named the family
         if (nm->sv.empty() || nm->var.empty()) return fail(409, "cell write: a family its writer never named");
         if (!(x.flags & cellwire::F_KEYS) && !ref)
             return fail(409, "cell write: " + nm->var + " write " + std::to_string(x.counter) + " is a difference against write " +
@@ -1136,6 +1182,14 @@ void serve(int fd, std::string peer) {
     s->outq.wake->bump();
     if (s->writer.joinable()) s->writer.join();                 // [HOST_FANOUT_V1] replies after this have no socket to go to
     ramm::Memory::release(s->outq.wake);
+    // [GONE_WITH_ITS_WRITER_V1] the session is gone, and everything it wrote goes with it: each of its rows is removed in
+    // its family's write order, so every read held on those families is given it as gone -- before the vendor hears
+    if (GONE_BROKEN != 1) {
+        const double ended = wall(); size_t n = 0;
+        const std::vector<int32_t> later = MEM.gone_with(s->epoch, ended, &n);
+        if (n) logline("session gone " + peer + " " + token + ": " + std::to_string(n) + " rows it wrote are gone");
+        for (int32_t lg : later) reaper().add(s->epoch, ended, lg);   // [LINGER_BY_FAMILY_V1] the rest, when their time comes
+    }
     HOST->session_down(s->epoch);   // [SESSION_IS_LIVENESS_V1] before s can be freed and its address reused
     s->landed.close();
     if (s->dsend) s->dsend->stop();

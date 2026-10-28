@@ -1,3 +1,6 @@
 front/libcommon/libmosquitto_common.so.1
 front/src/mqtt-ram
 harness/mqtt-load
+libram/libmosquitto.so
+libram/libmosquitto.so.1
+stock/libcommon/libmosquitto_common.so.1

@@ -16,11 +16,9 @@
  *  See COPYRIGHT and LICENSE at the root of this tree.        *
  **************************************************************/
 #include "server.hpp"
-#include "ebr.hpp"
+#include "lf/ebr.hpp"
 #include "cfgtable.hpp"
 #include <sys/resource.h>
-#include <linux/futex.h>
-#include <sys/syscall.h>
 #include <climits>
 #include <sys/time.h>
 #include <unistd.h>
@@ -58,24 +56,23 @@ static std::string info_section(const std::string& name) {
         // what the memory is made of, right now: live objects by kind, and the reclamation's state
         MemStats& ms = memstats();
         long rss = 0; { FILE* f = fopen("/proc/self/status", "r"); char line[256]; while (f && fgets(line, sizeof line, f)) if (!strncmp(line, "VmRSS:", 6)) rss = atol(line + 6); if (f) fclose(f); }
-        long objs = ms.vars.load() + ms.nodes.load() + ms.bags.load() + ms.slots.load() + ms.mapnodes.load() + ms.maps.load() + ms.batches.load();
+        ebr::Stats& es = ebr::stats();
+        long objs = ms.vars.load() + ms.nodes.load() + ms.bags.load() + ms.slots.load() + ms.batches.load();
         o << "# Ribbit\r\n"
           << "rss_kb:" << rss << "\r\n"
           << "live_variables:" << ms.vars.load() << "\r\n"
           << "live_cell_nodes:" << ms.nodes.load() << "\r\n"
           << "live_bags:" << ms.bags.load() << "\r\n"
           << "live_slots:" << ms.slots.load() << "\r\n"
-          << "live_maps:" << ms.maps.load() << "\r\n"
-          << "live_map_nodes:" << ms.mapnodes.load() << "\r\n"
           << "live_batches:" << ms.batches.load() << "\r\n"
           << "live_objects_total:" << objs << "\r\n"
           << "bytes_per_live_object_rss:" << (objs ? rss * 1024 / objs : 0) << "\r\n"
           << "ebr_epoch:" << ebr::global().epoch.load() << "\r\n"
           << "ebr_threads_registered:" << ebr::global().high.load() << "\r\n"
-          << "ebr_retired_pending:" << ms.retired_pending.load() << "\r\n"
-          << "ebr_retired_freed:" << ms.retired_freed.load() << "\r\n"
-          << "ebr_collects:" << ms.collects.load() << "\r\n"
-          << "ebr_epoch_advances:" << ms.epoch_advances.load() << "\r\n"
+          << "ebr_retired_pending:" << es.pending.load() << "\r\n"
+          << "ebr_retired_freed:" << es.freed.load() << "\r\n"
+          << "ebr_collects:" << es.collects.load() << "\r\n"
+          << "ebr_epoch_advances:" << es.advances.load() << "\r\n"
           << "blocked_clients:" << g.blocked_clients.load() << "\r\n"
           << "clients_registered:" << g.clients.size() << "\r\n";
     } else if (name == "memory") {

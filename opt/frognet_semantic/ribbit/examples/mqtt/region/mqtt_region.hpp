@@ -24,6 +24,7 @@
 #include <vector>
 #include "lf/ebr.hpp"
 #include "lf/lfmap.hpp"
+#include "lf/primitives.hpp"   // [LF_PRIMITIVES_V1]
 
 namespace mqttr {
 using ribbit::lf::LFMap;
@@ -95,9 +96,8 @@ struct Delivery {                                   // one message for one clien
     int64_t held_ms = 0;                            // [HOLD_FOR_ROOM_V1] when its front first held it (front's own use)
 };
 struct Front {
-    std::atomic<Delivery*> head{nullptr};
-    alignas(64) std::atomic<uint32_t> gen{0};
-    std::atomic<uint32_t> waiters{0};
+    ribbit::lf::TakeStack<Delivery> deliveries;     // [LF_PRIMITIVES_V1] pushed by any thread, taken whole by the front
+    ribbit::lf::WaitWord word;                      // a remote front's held wait parks on it
     std::atomic<bool> live{false};
     // [CO_RESIDENT_FRONT_V1] a front in the host's own process sleeps in its event loop, not on the futex: a push
     // writes its eventfd, and only when the front has said it is about to sleep (armed) -- one write per sleep

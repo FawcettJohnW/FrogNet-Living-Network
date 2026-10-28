@@ -90,7 +90,11 @@ inline Dict dict_of(const semcodec::Fields& f) { Dict d; d.keys.reserve(f.size()
 // [ROW_RECORD_COMPACT_V1] Record: u8 head = kind | k << 2, varint shape, then by kind -- 0 (a new shape): varint
 // length, the row's JSON text; 1 (a difference): u8 packet flags, varint field count, varint length, the field block
 // (the packet's version and opcode are the codec's constants and do not travel); 2 (identical to reference k): nothing.
+// [GONE_WITH_ITS_WRITER_V1] head GONE (kind 3 with k 1; a new shape is kind 3 with k 0): a row that is gone -- varint
+// id, then service, variable and instance, each a varint length and its bytes. No shape, no reference: nothing of it
+// is kept by either end.
 constexpr size_t ROW_REFS = 8;
+constexpr uint8_t GONE = 3 | 1 << 2;
 namespace detail {
 struct Refs { std::vector<std::string> fo; std::vector<Dict> ring; };   // ring: newest first, at most ROW_REFS
 inline void push_ref(Refs& sh, Dict d) { sh.ring.insert(sh.ring.begin(), std::move(d)); if (sh.ring.size() > ROW_REFS) sh.ring.pop_back(); }
@@ -148,10 +152,15 @@ public:
     // writer's changed fields ARE this row's difference against it: nothing is compared and nothing is copied. Otherwise
     // the row is compared with each reference by position, in place. Same records, same bytes, as comparing Dicts did.
     struct RowIn { uint64_t id; double updated; const std::string* service; const std::string* variable; const std::string* instance; ribbit::BagArrP bag;
-                   ribbit::BagArrP prev = nullptr; const ribbit::Fwd* changed = nullptr; };
+                   ribbit::BagArrP prev = nullptr; const ribbit::Fwd* changed = nullptr; bool gone = false; };
     std::string encode_rows(const std::vector<RowIn>& rows) {
         std::string out; out.reserve(rows.size() * 48 + 64);
         for (const RowIn& r : rows) {
+            if (r.gone) {                                    // [GONE_WITH_ITS_WRITER_V1]
+                out += char(GONE); semcodec::detail::put_varint(out, r.id);
+                for (const std::string* c : {r.service, r.variable, r.instance}) { semcodec::detail::put_varint(out, c->size()); out += *c; }
+                continue;
+            }
             const ribbit::BagArr& b = *r.bag;
             const std::vector<std::string>* names = b.names.get();
             auto pi = by_ptr_.find(names);
@@ -253,7 +262,8 @@ private:
 };
 
 // [DECODE_ONCE_V1] a row as the reader is given it: its coordinates and its bag, decoded once
-struct Row { uint64_t id = 0; double updated = 0; std::string service, variable, instance; ribbit::BagArrP bag; };
+struct Row { uint64_t id = 0; double updated = 0; std::string service, variable, instance; ribbit::BagArrP bag;
+             bool gone = false; };   // [GONE_WITH_ITS_WRITER_V1] gone: no bag
 using Rows = std::vector<Row>;
 // the client's side: one per session, used only by the session's reader.
 // [POSITIONAL_DECODE_V1] A row is rebuilt by position, never by name: its shape's field i is either the bag's value k or
@@ -269,6 +279,13 @@ public:
         while (p < recs.size()) {
             const uint8_t head = uint8_t(recs[p++]), kind = head & 3; const size_t k = head >> 2;
             const uint64_t n = semcodec::detail::get_varint(recs, p);
+            if (head == GONE) {                               // [GONE_WITH_ITS_WRITER_V1] a row that is gone: its coordinates
+                Row g; g.id = n; g.gone = true;
+                for (std::string* c : {&g.service, &g.variable, &g.instance}) { const size_t l = size_t(semcodec::detail::get_varint(recs, p));
+                    if (p + l > recs.size()) throw std::runtime_error("rowcodec: cut short");
+                    c->assign(recs.substr(p, l)); p += l; }
+                out.push_back(std::move(g)); continue;
+            }
             Shape* sh = nullptr; Ref row;
             if (head == 3) {                                  // kind 3: a new shape, by its names, then its values
                 if (n != shapes_.size()) throw std::runtime_error("rowcodec: a new row shape out of order");
@@ -303,7 +320,7 @@ public:
     // the rows in the platform's row layout, each bag as JSON text: for a reader that asks for text
     std::string decode(std::string_view recs) {
         std::string out;
-        for (auto& r : decode_rows(recs)) { uint64_t ub; std::memcpy(&ub, &r.updated, 8); detail::put_raw(out, r.id, ub, r.service, r.variable, r.instance, r.bag->json()); }
+        for (auto& r : decode_rows(recs)) { uint64_t ub; std::memcpy(&ub, &r.updated, 8); detail::put_raw(out, r.id, ub, r.service, r.variable, r.instance, r.gone ? std::string("null") : r.bag->json()); }
         return out;
     }
 private:

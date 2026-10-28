@@ -44,7 +44,8 @@ suite() {   # $1 name, $2 the program Redis's suite starts as src/redis-server
   [ -n "$REDIS_SRC" ] || { note "== $1"; note "  RESULT FAIL $1: REDIS_SRC not set"; return; }
   for f in $SUITE; do
     note "== $1 $f"
-    ( cd "$REDIS_SRC" && RIBBIT_REDIS="$2" RIBBIT_BUILD="$ROOT/build" ./runtest --single $f --ignore-encoding --ignore-digest --durable --clients 1 --timeout 600 ) 2>&1 \
+    # a tree accept.sh has wrapped runs stock unless ACCEPT_SERVER says ribbit: without it the suite stage measured stock
+    ( cd "$REDIS_SRC" && ACCEPT_SERVER=$([ "$1" = suite ] && echo ribbit || echo "${ACCEPT_SERVER:-stock}") RIBBIT_REDIS="$2" RIBBIT_BUILD="$ROOT/build" ./runtest --single $f --ignore-encoding --ignore-digest --durable --clients 1 --timeout 600 ) 2>&1 \
       | sed 's/\x1b\[[0-9;]*m//g' > "$OUT/$1-$(basename $f).txt"
     note "  ok $(grep -ac '^\[ok\]' "$OUT/$1-$(basename $f).txt") err $(grep -ac '^\[err\]' "$OUT/$1-$(basename $f).txt") $(grep -aoE 'TIMEOUT|exception' "$OUT/$1-$(basename $f).txt" | head -1)"
   done
