@@ -78,8 +78,8 @@ def site(node):
     return int(next(iter(node.ifaces.values())).ip.split(".")[1])
 
 
-# [TUNNEL_VIA_THE_HUB_V1] BEARER=hub (default): as on hardware, every tunnel's UDP goes through the hub ("ALL
-# endpoints = broker ... hub-relayed, NOT node-to-node", docs/history/SIM_STATUS-2026-06.md): a tunnel between sites a
+# [TUNNEL_VIA_THE_HUB_V1] BEARER=hub (default): as on hardware, every tunnel's UDP goes through the hub (every endpoint
+# hub-relayed, not node-to-node: docs/history/SIM_STATUS-2026-06.md): a tunnel between sites a
 # and b pays leg(a) + leg(b) one way, a tunnel inside a site 2 x leg. Legs per site in order of first appearance,
 # HUB_LEGS (default 10,35,20,5,15,25 ms: Seattle-, New York-, Austin-like, then others). BEARER=p2p: the WAN table.
 BEARER = os.environ.get("BEARER", "hub")

@@ -44,6 +44,8 @@ opt/fdf/src/fdf-source/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with 
 opt/fdf/src/fdf-source/rinab/src/rina_region.cpp	10.252.254.0/24 is the broker's veths	C++ source of the built RAM manager: why 10.252.254.0/24 is never handed to a leaf (an address reservation).
 opt/fdf/src/fdf-source/rinab/experiments/exp3-topologies.json	no internet, no broker	Recorded experiment input: frognet_sim's topology label, carried verbatim.
 opt/frognet_semantic/simulation/baselines/topo_mixed_iface_no_router.json	no internet, no broker	frognet_sim's learned baseline; the label must equal the model topology's name.
+opt/frognet_semantic/ribbit/examples/mqtt/*	.	MQTT's own word: an MQTT broker is the protocol's server, and this example converts one (Eclipse Mosquitto, vendored in stock/ and front/) to the shared RAM. Not FrogNet's removed broker.
+opt/fdf/src/fdf-source/rinab/experiments/day-claims/runs/*	no internet, no broker	Recorded run output (the simulator's tier-4 run files): frognet_sim's topology label, carried verbatim.
 EOF
 )
 

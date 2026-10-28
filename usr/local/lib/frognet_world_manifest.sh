@@ -202,7 +202,7 @@ FROGNET_THIRD_PARTY=(
     # against. It carries its own LICENSE and NOTICE; ours must never be stamped on it. Not shipped: see NEVER_SHIP.
     opt/frognet_semantic/ribbit/examples/lispers.net/third_party
     # Eclipse Mosquitto (Roger Light et al.), EPL-2.0 / EDL-1.0, vendored for the MQTT example: stock/ unmodified, the
-    # baseline the example is measured against; front/ the broker the example builds on the RAM. Each carries its own
+    # baseline the example is measured against; front/ the MQTT server the example builds on the RAM. Each carries its own
     # LICENSE.txt and NOTICE.md; the GPL notice is never stamped on them.
     opt/frognet_semantic/ribbit/examples/mqtt/stock
     opt/frognet_semantic/ribbit/examples/mqtt/front

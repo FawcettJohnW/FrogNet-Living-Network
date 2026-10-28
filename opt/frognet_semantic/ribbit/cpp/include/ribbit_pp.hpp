@@ -5,7 +5,7 @@
 // hold a read). Nothing here adds anything to the memory or to a host: each function is writes into the caller's own
 // space and held reads of others'. Generalized from what the Redis and MQTT conversions each built by hand.
 //
-// Publish/subscribe here is NOT a broker and is not built the way traditional publish/subscribe is: there is no
+// Publish/subscribe here has no message server and is not built the way traditional publish/subscribe is: there is no
 // subscription list, no fan-out server, no acknowledgement, no queue. A publish is a write into the publisher's own
 // cells; a subscription is a read held on a family. It is offered for convenience only -- a program that thinks in
 // topics can start here. Users are encouraged to explore the proper architectures: each producer writing its truth
