@@ -179,7 +179,7 @@ c=[x for x in json.load(sys.stdin).get('cells',[]) if x['instance']==i and x.get
   check "leaf: (pond, where, w:l5/comms) and w:l5/dc in the region, each its own cell" "HAS hub $RAM w:l5/comms && HAS hub $RAM w:l5/dc"
   NS l5 env FDF_HOME=$T/l5/fdf KART_PLAY_DRY=1 $T/l5/fdf/addins/kart/kart-play > $T/l5/play.out 2>&1
   check "leaf: kart-play resolves the kart memory on the region holder: $(head -1 $T/l5/play.out | cut -c1-60)" "grep -q 'at 10.253.253.254:8799' $T/l5/play.out"
-  KM() { NS hub curl -s -m 2 "http://127.0.0.1:8799/ram.php?op=read&service=kart&variable=$1"; }
+  KM() { NS hub curl -s -m 2 "http://10.253.253.254:8799/ram.php?op=read&service=kart&variable=$1"; }   # [KART_MEMORY_WHERE_THE_CONTROL_RAM_IS_V1] on the holder: the hub's tunnel address
   for j in $(seq 300); do KM gamehost | grep -q '"l5"' && break; sleep 0.05; done
   check "leaf as a game host: (kart, gamehost, l5) in the kart memory: $(KM gamehost | grep -o '"bag":{[^}]*}' | head -1 | cut -c1-80)" "KM gamehost | grep -q '\"l5\"'"
   check "l1 reaches the kart memory through the hub (10.253.253.254:8799)" "NS l1 curl -s -m 2 'http://10.253.253.254:8799/ram.php?op=read&service=kart' | grep -q '\"ok\":true'"
