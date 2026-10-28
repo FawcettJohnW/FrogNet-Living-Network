@@ -54,7 +54,10 @@ CLI=$REDIS_SRC/src/redis-cli
 
 if has metrics; then
   note "== metrics (lines of code and cyclomatic complexity, stock src/ vs the region's src/)"
-  if python3 tests/accept_metrics.py "$REDIS_SRC" "$ROOT" > "$OUT/metrics.txt" 2>&1; then cat "$OUT/metrics.txt" | tee -a "$SUMMARY"
+  # [METRICS_VENV_V1] lizard lives in this example's own venv (package/run.sh build makes it; made here if absent)
+  MV=$ROOT/.venv-metrics
+  "$MV/bin/python3" -c "import lizard" 2>/dev/null || { python3 -m venv "$MV" && "$MV/bin/pip" install -q lizard; } > "$OUT/metrics-venv.txt" 2>&1
+  if "$MV/bin/python3" tests/accept_metrics.py "$REDIS_SRC" "$ROOT" > "$OUT/metrics.txt" 2>&1; then cat "$OUT/metrics.txt" | tee -a "$SUMMARY"
   else note "  RESULT FAIL metrics: $(tail -1 "$OUT/metrics.txt")"; fi
 fi
 
