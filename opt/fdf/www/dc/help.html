@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Help requests</title><link rel="stylesheet" href="dc.css"></head>
+<body>
+<header><a href="index.html">◂</a><h1>Help requests</h1></header>
+<main class="cols">
+  <section class="card"><h2 id="formtitle">Register for help</h2>
+    <form id="f">
+      <label>Name (or who this is for)</label><input name="name" required>
+      <div class="row"><div><label>People</label><input name="people" type="number" min="1" value="1"></div>
+        <div><label>Status</label><select name="status"><option value="open">Need help</option><option value="safe">Safe</option><option value="resolved">Resolved</option></select></div></div>
+      <label>Needs</label><div id="needs"></div>
+      <label>Place (address, landmark)</label><input name="place">
+      <div class="row"><div><label>Lat</label><input name="lat" inputmode="decimal"></div><div><label>Lon</label><input name="lon" inputmode="decimal"></div></div>
+      <button type="button" class="quiet" id="loc">Use my location</button>
+      <label>Contact (phone, radio, how to reach)</label><input name="contact">
+      <label>Note</label><textarea name="note"></textarea>
+      <button>Publish</button> <button type="button" class="quiet" id="another">Register someone else</button>
+      <div class="say" id="say"></div>
+    </form></section>
+  <section class="card"><h2>Requests</h2>
+    <div class="filters"><div><label>Show</label><select id="fs"><option value="open">Needing help</option><option value="">All</option></select></div>
+      <div><label>Need</label><select id="fn"><option value="">Any</option></select></div></div>
+    <div class="list" id="list" style="margin-top:10px"></div></section>
+</main>
+<script src="dc.js"></script>
+<script>
+// [DC_APPS_V1] help.request.<rid> is the registrant's own record; help.action.<rid>~<unit> are the responders'.
+const NEEDS = ['medical', 'trapped', 'evacuation', 'water', 'food', 'shelter', 'medication', 'power', 'other'];
+const f = document.getElementById('f'), say = (t, bad) => { const e = document.getElementById('say'); e.textContent = t; e.className = 'say' + (bad ? ' err' : ''); };
+document.getElementById('needs').innerHTML = NEEDS.map(n => `<label style="display:inline-block;margin-right:10px;color:inherit"><input type="checkbox" name="need" value="${n}" style="width:auto"> ${n}</label>`).join('');
+document.getElementById('fn').innerHTML += NEEDS.map(n => `<option>${n}</option>`).join('');
+let rid = DC.remember('rid') || DC.myId('req'); let requests = new Map(), actions = new Map();
+const mine = DC.remember('mine') || {};
+function fill(b) { for (const k of ['name', 'people', 'status', 'contact', 'note']) if (b[k] != null) f[k].value = b[k];
+  f.place.value = b.location?.text || ''; f.lat.value = b.location?.lat ?? ''; f.lon.value = b.location?.lon ?? '';
+  for (const c of f.querySelectorAll('[name=need]')) c.checked = (b.needs || []).includes(c.value); }
+if (mine[rid]) fill(mine[rid]);
+document.getElementById('loc').onclick = () => DC.useMyLocation(f, say);
+document.getElementById('another').onclick = () => { rid = 'req-' + Math.random().toString(36).slice(2, 8); DC.remember('rid', rid); f.reset(); say('New registration: ' + rid); };
+f.onsubmit = async (ev) => {
+  ev.preventDefault();
+  const bag = { name: f.name.value.trim(), people: +f.people.value || 1, needs: [...f.querySelectorAll('[name=need]:checked')].map(c => c.value),
+                status: f.status.value, location: DC.locationFrom(f), contact: f.contact.value.trim(), note: f.note.value.trim(), at: DC.now() };
+  try { await DC.write('help', 'request', rid, bag); DC.remember('rid', rid); mine[rid] = bag; DC.remember('mine', mine); say('Published as ' + rid + '. Responders can see it now.'); }
+  catch (e) { say('Not published: ' + e.message, true); }
+};
+function actionsFor(r) { return [...actions.values()].filter(a => a.instance.startsWith(r + '~')).sort((a, b) => (b.bag.at || 0) - (a.bag.at || 0)); }
+function draw() {
+  const fs = document.getElementById('fs').value, fn = document.getElementById('fn').value, me = DC.locationFrom(f);
+  const rows = [...requests.values()].filter(c => (!fs || c.bag.status === fs) && (!fn || (c.bag.needs || []).includes(fn)))
+    .map(c => ({ c, k: DC.km(me, c.bag.location) })).sort((a, b) => (a.k ?? 1e9) - (b.k ?? 1e9) || (a.c.bag.at || 0) - (b.c.bag.at || 0));
+  document.getElementById('list').innerHTML = rows.length ? rows.map(({ c, k }) => { const b = c.bag, acts = actionsFor(c.instance);
+    return `<div class="item"><div class="top"><span>${DC.esc(b.name)} <span class="meta">(${b.people || 1})</span></span><span class="s-${DC.esc(b.status)}">${DC.esc(b.status)}</span></div>
+      <div>${(b.needs || []).map(n => `<span class="pill">${DC.esc(n)}</span>`).join('')}</div>
+      <div class="meta">${DC.esc(DC.where(b.location))} ${k != null ? '· ' + DC.dist(k) : ''} · ${DC.age(b.at)}${b.contact ? ' · ' + DC.esc(b.contact) : ''}</div>
+      ${b.note ? `<div>${DC.esc(b.note)}</div>` : ''}
+      ${acts.map(a => `<div class="meta">↳ <span class="s-${DC.esc(a.bag.action)}">${DC.esc(a.bag.action)}</span> by ${DC.esc(a.bag.unit)} ${DC.age(a.bag.at)}${a.bag.note ? ' — ' + DC.esc(a.bag.note) : ''}</div>`).join('')}</div>`; }).join('')
+    : '<div class="meta">Nothing to show.</div>';
+}
+document.getElementById('fs').onchange = draw; document.getElementById('fn').onchange = draw;
+DC.watch('help', 'request', c => { requests = c; draw(); }, e => say('RAM: ' + e.message, true));
+DC.watch('help', 'action', c => { actions = c; draw(); }, e => say('RAM: ' + e.message, true));
+</script>
+</body></html>

@@ -1,0 +1,23 @@
+# fdf-chat@.service -- [FDF_CHAT_SERVICE_UNIT_V1] the area's chat service (chat-service.py): it holds a read on
+# chat.inbox and appends each message to the room, chat.room.<n>. Exactly ONE runs per area, beside the RAM manager on
+# the region holder; the instance is that RAM manager's port: fdf-chat@51888 reads and writes 127.0.0.1:51888.
+# Ships in fdf-droplet.tgz. fdf-region-create enables it for the region it makes; a region made before it shipped:
+#   systemctl daemon-reload && systemctl enable --now fdf-chat@<RAM port>
+# Without it the chat page (and DisasterComm's coordination, which posts assignments there) takes messages into
+# chat.inbox and no room ever shows them.
+[Unit]
+Description=FD&F chat service for the area whose RAM manager listens on port %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=RINA_RAM=127.0.0.1:%i
+Environment=FDF_BIN=/opt/fdf/bin
+Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
+ExecStart=/usr/bin/python3 /opt/fdf/bin/chat-service.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
