@@ -5,7 +5,11 @@
 #   REGION: event p timed: world=.. bringup=.. apply=.. publish=.. total=..
 # is read here, without hardware. Topology as netns-latency-test.sh, with the "Internet" on 198.18.0.0/24 (not 10.x,
 # so the daemon's own-subnet rule sees only the served /24):
-#   hub 198.18.0.1 (rina-host :8840, fdf-client, fdf-hub wg-hub :51820)
+#   hub 198.18.0.1 (fdf-hub wg-hub :51820, rina-host on its tunnel address 10.253.253.254:8840, fdf-client)
+# [REGION_LOOP_BY_INVITE_V1] the region as fdf-region-create makes it since r31: the RAM manager listens only inside the
+# hub's tunnel ([RAM_IN_THE_TUNNEL_V1]) and the hub peers only invited members ([ADMITTED_BY_INVITE_V1]). z and a join
+# with fdf-invite's line (fdf-region-join --files-only: key, hub.json, site.env, join.env); y reaches the RAM through
+# z's tunnel; the phone is an invited leaf (fdf-invite --leaf: its key and edge address from the invitation).
 #   z   198.18.0.3, serves 10.3.3.0/24 on v-zy, gave y the lease 10.3.3.20; daemon + fdf-facts --watch + fdf-client
 #   a   198.18.0.5, serves 10.7.7.0/24;                                     daemon + fdf-facts --watch + fdf-client
 #   y   child of z, serves 10.2.2.0/24, no tunnel;                          fdf-facts --watch + fdf-client
@@ -16,27 +20,30 @@
 # end-to-end time from the change to that line. Prints every sample and the median.
 # Needs root, ip, wg, wg-quick, wireguard-go, python3, curl.  usage: tools/netns-region-loop-test.sh [RINAB_DIR]
 #   FROGNET_DIR=<opt/frognet_semantic tree>  (default: this repo's opt/frognet_semantic)   N=<changes> (default 6)
-#   NOKEY=<node> [DAEMON_OWNS_ITS_KEY_V1]: that node starts with NO /var/lib/frognet-tunnel/node_private.key (and no
-#   broker keys in tunnel.conf, as every node here): its daemon must make the key, say so, announce its public half,
-#   and bring up its hub link (pinged across the hub). Without NOKEY every node's key is made here, as before.
+#   NOKEY=<node> [DAEMON_OWNS_ITS_KEY_V1]: that node's key (from its invitation) is removed before its daemon starts
+#   (and no broker keys in tunnel.conf, as every node here): its daemon must make the key, say so, announce its public
+#   half; the hub does not peer it until the operator admits the new key (fdf-invite NAME again does; here its admitted
+#   file gets the new public key), then its hub link comes up (pinged across the hub).
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=$H/build/static; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; N=${N:-6}
-T=${T:-/tmp/claude-0/netns-region}; rm -rf $T; mkdir -p $T/hub $T/z $T/a $T/y $T/bin
+T=${T:-/tmp/claude-0/netns-region}; rm -rf $T; mkdir -p $T/hub/admitted $T/z $T/a $T/y $T/bin
 export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
-API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
+API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; HA=10.253.253.254; RAM=$HA:8840; PUB=198.18.0.1; U="http://$RAM$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 ms() { date +%s%3N; }
 # [CLEANUP_UNTIL_EMPTY_V1] a namespace outlives `ip netns del` while any process is still in it, and so do its veths'
 # root-side ends: a process forked between one pid listing and the kill (fdf-comms' per-event fdf-where) kept the last
 # run's v-z-b, the next run's `ip link add v-z` said "File exists", and z never reached the hub. So: kill until the
 # namespace is empty, then delete it and every root-side end by name.
-cleanup() { for n in hub z a y lf; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
+cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/svc.pids
+            for n in hub z a y lf; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in hub z a y lf; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; done
             for l in v-hub-b v-z-b v-a-b v-lf-b; do ip link del $l 2>/dev/null; done; ip link del br-inet 2>/dev/null; }
 trap cleanup EXIT; cleanup
-cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
+cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-region-join $T/bin/
+export PATH=$T/bin:$PATH
 cat > $T/bin/capability-probe <<'EOF'
 #!/bin/sh
 echo '{"cores":4,"cpu_mhz":2000,"cpu_bench_total":12000,"mem_total_kb":8388608,"mem_available_kb":4000000,"disk_class":"ssd","mysql":true,"mysql_running":true,"ffmpeg":true,"libvpx":true,"lan_ip":"","loadavg":{"1":0.1,"5":0.1,"15":0.1},"temps_c":[]}'
@@ -60,15 +67,26 @@ i=1; for n in hub z a; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-inet up
   ip netns exec $n ip addr add 198.18.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 "$@"; }
-# ---- the region and the hub
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
-sleep 1; NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
-NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
-sleep 0.5
-NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
-   --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json > $T/hub/hub.log 2>&1 &
-sleep 2; NS hub sysctl -q -w net.ipv4.ip_forward=1
+# ---- the region and the hub, as fdf-region-create makes them: the interface first, the RAM manager on its address
+printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
+printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
+NS hub env FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
+NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
+# every long-lived process restarts as its unit does (Restart=always, RestartSec=2)
+svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
+svc $T/hub/client.log ip netns exec hub env RINA_RAM=$RAM FDF_FACTS=$T/hub/facts.json FDF_NAME=hubA $B/fdf-client
+svc $T/hub/hub.log ip netns exec hub env RINA_RAM=$RAM FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --name hubA \
+   --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json --admitted $T/hub/admitted
+for i in $(seq 100); do grep -q "start (adopt)" $T/hub/hub.log && break; sleep 0.05; done
+NS hub sysctl -q -w net.ipv4.ip_forward=1
 check $([ "$(NS hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub up on 51820"
+# ---- invitations (fdf-invite, as the operator runs it on the hub): z, a, and the phone (a leaf)
+inv() { NS hub env FDF_HUB_ENV=$T/hub/hub.env FDF_ADMITTED=$T/hub/admitted FDF_SITE_KEYS=$T/hub python3 $T/bin/fdf-invite "$@"; }
+for n in z a; do inv $n > $T/$n/invite.out 2>&1; grep -m1 '^fdfinv1\.' $T/$n/invite.out > $T/$n/invite; done
+inv phone --leaf > $T/lf-invite.out 2>&1; grep -m1 '^fdfinv1\.' $T/lf-invite.out > $T/lf.invite
+check $([ -s $T/z/invite ] && [ -s $T/a/invite ] && [ -s $T/lf.invite ] && echo 0 || echo 1) "invited z, a and the phone: $(head -1 $T/z/invite.out | cut -c1-90); $(head -1 $T/lf-invite.out | cut -c1-90)"
 # ---- y behind z (z gave y 10.3.3.20), the served /24s on lan0
 ip netns add y; ip netns exec y ip link set lo up
 ip link add v-zy type veth peer name v-yz; ip link set v-zy netns z; ip link set v-yz netns y
@@ -94,9 +112,10 @@ fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$NAME" > $F/etc/fnid
   echo "domain=$NAME" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns region-loop test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
-  printf 'export RINA_RAM=%s\n' $RAM > $F/opt-fdf-var/join.env; printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' $SITE $KEY > $F/opt-fdf-var/site.env
-  [ "${NOKEY:-}" = "$n" ] && return 0                                  # [DAEMON_OWNS_ITS_KEY_V1] the daemon makes this one
-  (umask 077; wg genkey > $F/var-lib-frognet-tunnel/node_private.key); wg pubkey < $F/var-lib-frognet-tunnel/node_private.key > $F/var-lib-frognet-tunnel/node_public.key; }
+  NSF $n bash $T/bin/fdf-region-join --files-only "$(cat $T/$n/invite)" > $T/$n/join.log 2>&1
+  check $? "$n: fdf-region-join --files-only: $(grep -m1 'invitation:' $T/$n/join.log | cut -c1-150)"
+  [ "${NOKEY:-}" = "$n" ] && rm -f $F/var-lib-frognet-tunnel/node_private.key $F/var-lib-frognet-tunnel/node_public.key   # [DAEMON_OWNS_ITS_KEY_V1]
+  return 0; }
 # NSF node cmd...: run in the node's netns AND its mount namespace (ip netns exec gives a private one per call)
 NSF() { local n=$1; shift; local F=$T/$n/fs m=""
   for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
@@ -108,12 +127,21 @@ daemon() { local n=$1 NAME=$2
   fsnode $n $NAME
   NSF $n python3 -u -m internet_tunnels_v3 2>&1 | python3 -u $T/stamp.py > $T/$n/daemon.log &      # each line: <epoch ms> <line>
   for i in $(seq 40); do grep -q '"name"' $T/$n/fs/opt-fdf-var/facts.json 2>/dev/null && break; sleep 0.25; done
-  NSF $n env FDF_NAME=$NAME $T/bin/fdf-client > $T/$n/client.log 2>&1 &
+  if [ "${NOKEY:-}" = "$n" ]; then        # the operator admits the key the daemon made (as fdf-invite NAME again would)
+    K=$T/$n/fs/var-lib-frognet-tunnel/node_private.key; for i in $(seq 80); do [ -s $K ] && break; sleep 0.25; done
+    python3 -I - $T/hub/admitted/$n.json "$(wg pubkey < $K)" <<'PY2'
+import json, os, sys
+r = json.load(open(sys.argv[1])); r["pubkey"] = sys.argv[2]
+open(sys.argv[1] + ".tmp", "w").write(json.dumps(r)); os.replace(sys.argv[1] + ".tmp", sys.argv[1])
+PY2
+  fi
+  svc $T/$n/client.log NSF $n env FDF_NAME=$NAME $(cat $T/$n/fs/opt-fdf-var/site.env) $T/bin/fdf-client
   NSF $n env FDF_NAME=$NAME python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 & }
 daemon z z; daemon a a
 ip netns exec y env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=10.3.3.1 \
    sh -c "printf '{\"role\":\"node\",\"name\":\"y\",\"guid\":\"g-y\",\"subnet\":\"10.2.2.0/24\",\"pubkey\":\"\",\"transit\":[],\"maps\":[]}\n' > $T/y/facts.json"
-ip netns exec y env RINA_RAM=$RAM FDF_FACTS=$T/y/facts.json FDF_NAME=y $B/fdf-client > $T/y/client.log 2>&1 &
+# y's client reaches the RAM through z's tunnel, so it starts again until z is up (its wrapper is stopped before y's end)
+( while :; do ip netns exec y env RINA_RAM=$RAM FDF_FACTS=$T/y/facts.json FDF_NAME=y $B/fdf-client >> $T/y/client.log 2>&1; sleep 2; done ) & YW=$!; echo $YW >> $T/svc.pids
 ip netns exec y env FDF_FACTS=$T/y/facts.json FDF_LEASES=$T/y/leases FDF_NAME=y FDF_UPLINK_PING=10.3.3.1 python3 $PK/bin/fdf-facts --watch > $T/y/facts.log 2>&1 &
 # ---- converge: z routes a's /24 over its hub tunnel and y's over the LAN; a routes z's and y's over its tunnel
 ok=1; for i in $(seq 120); do
@@ -190,18 +218,22 @@ check $(python3 -c 'import sys,json; e={x["ip"]:x["echo"].split(",") for x in js
 ip netns add lf; ip netns exec lf ip link set lo up
 ip link add v-lf type veth peer name v-lf-b; ip link set v-lf netns lf; ip link set v-lf-b master br-inet up
 ip netns exec lf ip addr add 198.18.0.9/24 dev v-lf; ip netns exec lf ip link set v-lf up
-(umask 077; wg genkey > $T/lf.key); LPUB=$(wg pubkey < $T/lf.key); HUBPUB=$(NS hub wg show wg-hub public-key)
+# [LEAF_BY_INVITE_V1] its key and edge address are the invitation's; the hub peered it at fdf-invite
+python3 -I - $T/lf.invite $T/lf.key $T/lf.edge <<'PY2'
+import base64, json, os, sys
+t = open(sys.argv[1]).read().strip()[8:]; j = json.loads(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)))
+os.umask(0o077); open(sys.argv[2], "w").write(j["member"]["privkey"] + "\n"); open(sys.argv[3], "w").write(j["member"]["edge"])
+PY2
+LPUB=$(wg pubkey < $T/lf.key); LIP=$(cat $T/lf.edge); LADDR=$LIP/32; HUBPUB=$(NS hub wg show wg-hub public-key)
 ip netns exec lf wireguard-go wg-lf >/dev/null 2>&1; for i in $(seq 100); do ip netns exec lf wg show wg-lf >/dev/null 2>&1 && break; sleep 0.05; done
 ip netns exec lf wg set wg-lf private-key $T/lf.key; ip netns exec lf ip link set wg-lf up
-printf '{"role":"leaf","name":"phone","guid":"g-phone","pubkey":"%s"}\n' "$LPUB" > $T/lf.json
-TL0=$(ms); ip netns exec lf env RINA_RAM=$RAM FDF_FACTS=$T/lf.json $B/fdf-client > $T/lf-client.log 2>&1 &
-for i in $(seq 100); do grep -q "gave this leaf" $T/lf-client.log && break; sleep 0.05; done
-LADDR=$(grep -m1 -o "gave this leaf [0-9./]*" $T/lf-client.log | awk '{print $4}'); LIP=${LADDR%/32}
 ip netns exec lf ip addr add $LADDR dev wg-lf; ip netns exec lf ip route add 10.0.0.0/8 dev wg-lf
-for i in $(seq 200); do grep -q "$LPUB" $T/hub/facts.json && break; sleep 0.05; done          # [HUB_SAYS_ITS_PEERS_V1]
-ip netns exec lf wg set wg-lf peer $HUBPUB endpoint 198.18.0.1:51820 allowed-ips 10.0.0.0/8 persistent-keepalive 25
-okl=1; for i in $(seq 200); do ip netns exec a ip -4 route | grep -q "^$LIP dev wg0" && ip netns exec z ip -4 route | grep -q "^$LIP dev wg0" && { okl=0; break; }; sleep 0.05; done; TL1=$(ms)
-check $okl "leaf ${LADDR:-?} (given by the region): a and z (daemons, hub links) route it on wg0 ($((TL1-TL0)) ms after the leaf's fdf-client started)"
+ip netns exec lf wg set wg-lf peer $HUBPUB endpoint $PUB:51820 allowed-ips 10.0.0.0/8 persistent-keepalive 25
+printf '{"role":"leaf","name":"phone","guid":"g-phone","pubkey":"%s","edge":"%s"}\n' "$LPUB" "$LIP" > $T/lf.json
+TL0=$(ms); ip netns exec lf env RINA_RAM=$RAM FDF_FACTS=$T/lf.json $B/fdf-client > $T/lf-client.log 2>&1 &
+okl=1; for i in $(seq 200); do ip netns exec a ip -4 route get $LIP 2>/dev/null | grep -q " dev wg" && ip netns exec z ip -4 route get $LIP 2>/dev/null | grep -q " dev wg" \
+  && NS hub curl -s -X POST -d '{"op":"participants"}' "$U" | grep -q '"phone"' && { okl=0; break; }; sleep 0.05; done; TL1=$(ms)
+check $okl "leaf $LADDR (its invitation's edge): a and z (daemons, hub links) route it on their hub link; the region lists it ($((TL1-TL0)) ms after the leaf's fdf-client started)"
 [ $okl = 0 ] || for n in a z y; do echo "--- $n routes"; ip netns exec $n ip -4 route | sed 's/^/    /'; done
 check $(ip netns exec a ping -c 2 -W 2 -I 10.7.7.1 $LIP > /dev/null 2>&1 && echo 0 || echo 1) "a -> the leaf $LIP (a's tunnel, the hub, the leaf's tunnel)"
 check $(ip netns exec y ping -c 2 -W 2 -I 10.2.2.1 $LIP > /dev/null 2>&1 && echo 0 || echo 1) "y -> the leaf (y's default to z, z's tunnel, the hub)"
@@ -253,12 +285,12 @@ if [ -n "${COMMS_BUILD:-}" ] && [ -x "$COMMS_BUILD/comms-media" ]; then
   ZC=$(ip netns pids z | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1); kill $ZC
   okg=1; for i in $(seq 100); do whr | grep -q 'w:g-z:8800' || { okg=0; break; }; sleep 0.05; done
   check $okg "z's session ended: its where cell is gone with it (gone is gone)"
-  NSF z env FDF_NAME=z $T/bin/fdf-client >> $T/z/client.log 2>&1 &
+  # its unit starts it again (svc)
   okb=1; for i in $(seq 300); do whr | grep -q 'w:g-z:8800' && { okb=0; break; }; sleep 0.05; done
   check $okb "z back: fdf-comms wrote it again on the event that showed z ($(grep -c 'writing it again' $T/z/comms.log) rewrite)"
 else echo "SKIP  the Communicator on a node (set COMMS_BUILD to the Communicator's build/)"; fi
 # ---- [ANN_GOES_WITH_THE_SESSION_V1] y's client ends: y's announcement is gone from the region, not left behind dead
-YPID=$(ip netns pids y | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1)
+kill $YW; YPID=$(ip netns pids y | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-client ] && echo $p; done | head -1)
 kill $YPID; sleep 1
 P=$(NS hub curl -s -X POST -d '{"op":"participants"}' "$U")
 check $(echo "$P" | python3 -c 'import sys,json; ps=json.load(sys.stdin)["participants"]; sys.exit(0 if not [p for p in ps if p.get("name")=="y"] and all(p.get("alive") for p in ps) else 1)' && echo 0 || echo 1) \
