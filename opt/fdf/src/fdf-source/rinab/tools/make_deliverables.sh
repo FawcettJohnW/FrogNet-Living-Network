@@ -116,7 +116,10 @@ tarit "$R" > "$OUT/fdf-droplet-$TAG.tgz"
 #   mkdir /tmp/fntree && cd /tmp/fntree && tar xzf /tmp/frognet-tree-<tag>.tgz && bash usr/local/bin/installer/frognet_install.sh --from-repo --preserve
 RR=$(cd "$TOP/../../../.." && pwd); [ -f "$RR/usr/local/lib/frognet_world_manifest.sh" ] || { echo "make_deliverables: no FrogNet tree at $RR" >&2; exit 1; }
 grep -qx "build=$TAG" "$RR/opt/frognet_semantic/BUILD" || { echo "make_deliverables: $RR/opt/frognet_semantic/BUILD does not say build=$TAG" >&2; exit 1; }
-( . "$RR/usr/local/lib/frognet_world_manifest.sh"; frognet_node_files "$RR" ) > "$W/tree.list"
+# [TREE_IS_WHAT_GIT_TRACKS_V1] only the files the checkout tracks: a tree where examples were built or tested (their
+# build/, bin/, results/ -- ignored by git) would otherwise ship those too (seen: 1,148 extra files, 30 -> 51 MB)
+git -C "$RR" ls-files > "$W/tracked.list" || { echo "make_deliverables: $RR is not a git checkout: the tree tarball is what it tracks" >&2; exit 1; }
+( . "$RR/usr/local/lib/frognet_world_manifest.sh"; frognet_node_files "$RR" ) | grep -Fxf "$W/tracked.list" > "$W/tree.list"
 tar -C "$RR" --owner=0 --group=0 -czf "$OUT/frognet-tree-$TAG.tgz" -T "$W/tree.list"
 chmod +x "$OUT"/*.run
 # [DIST_IN_THE_TREE_V1] FDF_DIST=<dir> (the tree's opt/fdf/dist): the same three files under their fixed names, which is
