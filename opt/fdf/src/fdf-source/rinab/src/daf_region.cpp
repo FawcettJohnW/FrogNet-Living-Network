@@ -34,6 +34,8 @@
 //   #tok|<D>, #auth, #owner              secrets: never answered by any operation
 //   c|<what>         <n>                 claims, one tuple each, read in write order: c|dafs|D, c|nl|D|name, c|m|D|apn,
 //                                        c|s|D|set|syn, c|nonce|D|n, c|ans|D|rid, c|stk|D|rid, ...
+#include <csignal>
+#include <pthread.h>
 #include "rina_region.h"
 #include "daf_memory.hpp"
 #include "frogram.hpp"
@@ -984,7 +986,11 @@ std::string dispatch(const std::string& fn, const Json& in) {
 }
 // the region exists from the host's start; its clock answers the periodic waits (the only work time drives)
 const bool g_daf_at_start = [] { dfile().open_and_replay();
-    std::thread([] { for (;;) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); dmem::wake("tick"); } }).detach(); return true; }();
+    // [TERM_REACHES_EXIT_V1] this thread starts before main (static init), so it does not inherit main's blocked
+    // SIGTERM/SIGINT: blocked here too, or the kernel delivers them to it and the process dies without exit() (no
+    // atexit reports, no coverage data) -- end_on_term_signals' sigwait thread is then the only one that takes them
+    std::thread([] { sigset_t s; sigemptyset(&s); sigaddset(&s, SIGTERM); sigaddset(&s, SIGINT); pthread_sigmask(SIG_BLOCK, &s, nullptr);
+                     for (;;) { std::this_thread::sleep_for(std::chrono::milliseconds(20)); dmem::wake("tick"); } }).detach(); return true; }();
 }  // namespace
 
 static const double g_diag_ms = [] { const char* e = getenv("DAF_DIAG"); return e && *e ? atof(e) : -1.0; }();
