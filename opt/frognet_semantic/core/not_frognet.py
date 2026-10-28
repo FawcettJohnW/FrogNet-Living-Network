@@ -63,7 +63,9 @@ IMPORTANT - what may populate this:
 from __future__ import annotations
 
 import errno
+import json
 import os
+import sys
 import threading
 import time
 
@@ -284,10 +286,12 @@ def _is_region_member(ip):
             ips = frozenset()
             if mt is not None:
                 try:
-                    import json as _json
                     with open(_REGION_HOSTS) as f:
-                        ips = frozenset(h.get("ip") for h in _json.load(f) if isinstance(h, dict) and h.get("ip"))
-                except (OSError, ValueError):
+                        ips = frozenset(h.get("ip") for h in json.load(f) if isinstance(h, dict) and h.get("ip"))
+                except (OSError, ValueError) as e:
+                    # said, not swallowed: an unreadable file is no members until it is written again
+                    print("[not_frognet] %s unreadable (%s): no region members known until it is rewritten"
+                          % (_REGION_HOSTS, e), file=sys.stderr, flush=True)
                     ips = frozenset()
             _members["ips"], _members["mtime"] = ips, mt
     return ip in _members["ips"]
