@@ -122,12 +122,12 @@ def _report_missing(missing):
     print(f"  [FAIL] every source file carries the GPL-2.0-only notice "
           f"({len(missing)} without)")
     print("         by directory:")
-    for d, n in byd.most_common(10):
+    for d, n in byd.most_common(int(os.environ.get("LICENSE_DIRS", "10"))):
         print(f"           {n:5d}  {d}")
     print("         by extension:")
     print("           " + "  ".join(f"{e}:{n}" for e, n in bye.most_common(8)))
     print("         first few:")
-    for m in missing[:6]:
+    for m in missing[:int(os.environ.get("LICENSE_FILES", "6"))]:
         print(f"           - {m}")
 
 

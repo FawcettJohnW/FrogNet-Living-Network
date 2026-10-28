@@ -1,3 +1,20 @@
+/***************************************************************
+ *  Copyright (C) 2016-2026 Fawcett Innovations LLC            *
+ *                                                             *
+ *  SPDX-License-Identifier: GPL-2.0-only                      *
+ *                                                             *
+ *  This program is free software; you can redistribute it     *
+ *  and/or modify it under the terms of the GNU General Public *
+ *  License as published by the Free Software Foundation;      *
+ *  version 2 of the License, and no other version.            *
+ *                                                             *
+ *  This program is distributed in the hope that it will be    *
+ *  useful, but WITHOUT ANY WARRANTY; without even the implied *
+ *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR    *
+ *  PURPOSE.  See the GNU General Public License for details.  *
+ *                                                             *
+ *  See COPYRIGHT and LICENSE at the root of this tree.        *
+ **************************************************************/
 // fnwp_server.hpp -- S5a: how the daemon decides and encodes a reply, as daemon/engine/session.py does it:
 //   raw_hash = response_body_hash(dyn_vals, status)  sha256("status:%d\n" + "%s=%r\n" per field sorted by str(key));
 //   the REPEAT cache (memory LRU by req_hash) holds (raw_hash, same_id): equal raw_hash and a 16-byte same_id -> RESP_SAME

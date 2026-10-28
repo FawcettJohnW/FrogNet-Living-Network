@@ -1,4 +1,21 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # cpu_k.sh BUILD_DIR LABEL K -- K fronts (boxes) on one memory; redis-benchmark -c 50/K -P 1 incr against each at once,
 # N requests in all. Prints total requests/s and CPU microseconds per command: all fronts, the memory, everything.
 B=$1; L=$2; K=$3; N=${N:-180000}
