@@ -157,7 +157,7 @@ public class PhoneTest {
         List<EditText> fields = all(root, EditText.class, new ArrayList<EditText>());
         assertEquals("setup: name, kart memory, robots, laps, Communicator memory, media, FrogNet invitation", 7, fields.size());
         say("setup screen: name '" + fields.get(0).getText() + "', kart memory '" + fields.get(1).getText() + "', robots " + fields.get(2).getText() + ", laps " + fields.get(3).getText());
-        assertEquals("165.232.153.144:8799", fields.get(1).getText().toString());
+        assertEquals("no kart memory is built in: found in the region, or typed", "", fields.get(1).getText().toString());
         fields.get(0).setText("phone"); fields.get(1).setText(kart); fields.get(2).setText("1"); fields.get(3).setText("2");
         String[] cm = System.getProperty("comms").split(",");             // the Communicator's memory and media server ports
         fields.get(4).setText("127.0.0.1:" + cm[0]); fields.get(5).setText("127.0.0.1:" + cm[1]);
@@ -181,7 +181,7 @@ public class PhoneTest {
         assertTrue("a broken invitation is said, nothing joins", err != null && err.startsWith("FrogNet invitation:") && MainActivity.class.getDeclaredField("view") != null);
         com.wireguard.crypto.KeyPair mk = new com.wireguard.crypto.KeyPair(), hk = new com.wireguard.crypto.KeyPair();
         String invJson = "{\"v\":1,\"area\":\"frognet\",\"site_key\":\"k\",\"ram\":\"10.253.253.254:51888\",\"hub\":{\"name\":\"StreamingFrog\",\"pubkey\":\"" + hk.getPublicKey().toBase64()
-                + "\",\"endpoint\":\"165.232.153.144:50889\",\"addr\":\"10.253.253.254\"},\"member\":{\"name\":\"johns-phone\",\"edge\":\"10.253.1.9\",\"kind\":\"leaf\",\"privkey\":\"" + mk.getPrivateKey().toBase64() + "\"}}";
+                + "\",\"endpoint\":\"192.0.2.10:50889\",\"addr\":\"10.253.253.254\"},\"member\":{\"name\":\"johns-phone\",\"edge\":\"10.253.1.9\",\"kind\":\"leaf\",\"privkey\":\"" + mk.getPrivateKey().toBase64() + "\"}}";
         String invLine = "fdfinv1." + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(invJson.getBytes("UTF-8"));
         fields.get(6).setText(invLine);
         join.performClick();

@@ -119,5 +119,10 @@ grep -qx "build=$TAG" "$RR/opt/frognet_semantic/BUILD" || { echo "make_deliverab
 ( . "$RR/usr/local/lib/frognet_world_manifest.sh"; frognet_node_files "$RR" ) > "$W/tree.list"
 tar -C "$RR" --owner=0 --group=0 -czf "$OUT/frognet-tree-$TAG.tgz" -T "$W/tree.list"
 chmod +x "$OUT"/*.run
+# [DIST_IN_THE_TREE_V1] FDF_DIST=<dir> (the tree's opt/fdf/dist): the same three files under their fixed names, which is
+# where frognet_install.sh --from-repo --invite takes the node installer from. Delivered files keep their tagged names.
+if [ -n "${FDF_DIST:-}" ]; then mkdir -p "$FDF_DIST"
+  cp "$OUT/fdf-install-x86_64-$TAG.run" "$FDF_DIST/fdf-install-x86_64.run"; cp "$OUT/fdf-install-aarch64-$TAG.run" "$FDF_DIST/fdf-install-aarch64.run"
+  cp "$OUT/fdf-droplet-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
 for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"

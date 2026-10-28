@@ -235,6 +235,16 @@ class MemberService : Service() {
 
     override fun onDestroy() { if (running) stopMembership("service destroyed"); telemetry.stop(); instance = null; super.onDestroy() }
 
+    /** [ADDIN_V1] the kart memory the forward pond says it has: the kart add-in's (pond, where, <ns>/kart) {"kart":{"memory":
+     *  "<identity>:<port>"}}, as host:port here; null, logged why, when not joined or nobody runs it. Nothing typed. */
+    fun kartMemory(): String? {
+        val area = ident.forward; val m = members[area] ?: run { AppLog.add("kart: not joined to $area yet"); return null }
+        val all = try { m.services("kart") } catch (e: Exception) { AppLog.add("kart: reading $area's where cells failed: ${e.message}"); return null }
+        val (from, b) = all.firstOrNull { it.second["memory"].str.isNotEmpty() } ?: run { AppLog.add("kart: nobody in $area runs the kart memory (no kart in its where cells)"); return null }
+        return try { m.endpoint(b["memory"].str).also { AppLog.add("kart: $area's kart memory is on $from at $it") } }
+               catch (e: Exception) { AppLog.add("kart: $from's kart memory: ${e.message}"); null }
+    }
+
     /** [COMMS_FROM_THE_POND_V1] the Communicator the forward pond's members say they run, read now on that pond's
      *  session: (pond, area, from, ram, media), or null with the reason logged (not joined; nobody runs one). */
     fun communicator(): List<String>? {
