@@ -1,5 +1,5 @@
-FD&F bridge for Windows (fdf-kt-2026-10-11-a15, fdf-tun-2026-10-11-b11: BUILD.txt)
-===================================================================================
+FD&F bridge for Windows (its build: BUILD.txt)
+==============================================
 
 What it is: this computer as a member of every pond in etc\ponds.txt at once -- a leaf of the forward pond (its
 10.0.0.0/8, through its hub) and reaching every other pond that pond's own (pond, config, net) allows, through 1:1
@@ -27,7 +27,7 @@ fdf-bridge.cmd.
 ponds and its example line is ignored.)
 
 The first run makes var\wg.key and var\facts.json (name = this computer, guid made once, pubkey from the key); nothing
-is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as 10.252.x.y",
+is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as <its address>",
 "[<pond>] reach into <pond> (...) as <addr> there ...; aliased 100.64.a.0/24 -> 10.x.y.0/24", or
 "REACH REFUSED into <pond>: <why>" (that pond's session ends; the others go on). Ctrl-C leaves every pond; the adapter,
 its routes and every tunnel go with it.

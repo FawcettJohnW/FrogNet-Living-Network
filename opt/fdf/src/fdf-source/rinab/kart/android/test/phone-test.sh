@@ -67,6 +67,9 @@ jar cf test/robo/target/robo-deps/member.jar -C "$A/build/kclasses" . -C "$A/bui
 cd test/robo
 mvn -B -q dependency:copy -Dartifact=org.robolectric:android-all-instrumented:14-robolectric-10818077-i4 -DoutputDirectory=target/robo-deps > $D/mvn-deps.log 2>&1 \
     || { echo "FAIL 2 fetching the Android 14 framework for Robolectric (see $D/mvn-deps.log)"; exit 1; }
+# androidx.test is compiled against the Android 13 framework and errorprone's annotations: fetched here, not assumed in ~/.m2
+for x in org.robolectric:android-all:13-robolectric-9030017 com.google.errorprone:error_prone_annotations:2.11.0; do
+  mvn -B -q dependency:get -Dartifact=$x -Dtransitive=false >> $D/mvn-deps.log 2>&1 || { echo "FAIL 2 fetching $x (see $D/mvn-deps.log)"; exit 1; }; done
 [ -s target/robo-deps/androidx-test.jar ] || ./androidx-test.sh target/robo-deps/androidx-test.jar \
     ~/.m2/repository/org/robolectric/android-all/13-robolectric-9030017/android-all-13-robolectric-9030017.jar \
     "$(ls ~/.m2/repository/com/google/errorprone/error_prone_annotations/2.11.0/error_prone_annotations-2.11.0.jar)" > $D/axt.log 2>&1 \

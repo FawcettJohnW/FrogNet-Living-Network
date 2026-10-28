@@ -126,6 +126,20 @@ the same database host. That is the two-node test of this cleanup (T4b, G2).
 
 ## 3. Regions
 
+A region is joined by invitation. The region host's RAM manager listens only inside the hub's WireGuard tunnel
+(10.253.253.254); a member reaches the region only after the hub has its key. The hub has a member's key only when the
+operator has invited that member. An invitation is one line, `fdfinv1.<...>`. It is a secret: it holds the member's
+private key and the region's site key. There is no password and no account; a machine that reaches the region was
+invited, and that is the trust.
+
+The order:
+
+1. Set up the region host (`fdf-region-create`).
+2. Invite the first member on the region host (`fdf-invite NAME`) and install it with that line. The first member is
+   a desktop: a FrogNet node, a Linux machine with the core bundle, or a Windows PC with WSL.
+3. Every later member gets its line from any machine already in the region (`fdf-identity NAME`). Give the line to
+   that machine's installer, or to the phone or Windows PC.
+
 ### Create a region (on the region host)
 
 The region host is any Linux machine the members can reach: a public address for members at other sites, a LAN
@@ -142,45 +156,96 @@ address for a region with no internet. Copy `opt/fdf/dist/fdf-droplet.tgz` from 
 
 The two `grep`s must print nothing: the hub uses 10.253.0.0/16 on its interface. `myarea` is the region's name
 (letters, digits, `.`, `_`, `-`, at most 12); `203.0.113.7` is the address members reach this machine at.
-`fdf-region-create` records the WireGuard implementation (kernel, or wireguard-go where the kernel has no module; the
-`modprobe -n` line above installs it in that case), makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`), starts
-`fdf-ram-myarea`, maps the site key on it, writes `/opt/fdf/hub/hub.env`, starts `fdf-hub` and `fdf-client-myarea`,
-and prints what each said. It then prints the firewall lines and the site key, once:
+`fdf-region-create` records the WireGuard implementation (kernel, or wireguard-go where the kernel has no module),
+makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`), makes the hub's interface `wg-myarea`,
+starts `fdf-ram-myarea` (the RAM manager, on 10.253.253.254:51888, inside the tunnel), maps the site key on it, writes
+`/opt/fdf/hub/hub.env`, and starts `fdf-hub`, `fdf-client-myarea`, `fdf-identity` (it answers `fdf-identity` from the
+members) and `fdf-chat@51888`. It prints what each said, then the firewall lines:
 
-    ufw allow 51888/tcp
+    ufw default deny incoming
     ufw allow 50889/udp
     ufw route allow in on wg-myarea out on wg-myarea
+    ufw allow in on wg-myarea to 10.253.253.254 port 51888 proto tcp
 
-Run them (or run `fdf-region-create` with `--ufw`) where the region host has ufw; otherwise open TCP 51888 and UDP
-50889 to the members and let the host forward between the hub's peers on `wg-myarea`. `--ram-port` and `--hub-port`
-change the two ports. A second `fdf-region-create` on the same machine stops: a machine holds one region.
+Run them (or run `fdf-region-create` with `--ufw`) where the region host has ufw. Otherwise open UDP 50889 to the
+members and let the host forward between the hub's peers on `wg-myarea`. From the internet the host shows one UDP port,
+and that port answers nothing to a key the hub was not given. `--ram-port` and `--hub-port` change the two ports. A
+second `fdf-region-create` on the same machine stops: a machine holds one region.
 
 `fdf-hub` refuses to start before `fdf-region-create` has run; its journal says
 `fdf-hub: /opt/fdf/hub/hub.env does not exist: this machine holds no region yet. Run: /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP`.
 
-Update the region host to a newer `fdf-droplet.tgz` (hub.env, the site key, the units and `/opt/fdf/var` are kept):
+Update the region host to a newer `fdf-droplet.tgz` (hub.env, the site key, the admitted members, the units and
+`/opt/fdf/var` are kept):
 
-    cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-myarea fdf-client-myarea fdf-hub
+    cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-myarea fdf-client-myarea fdf-hub fdf-identity
 
-The RAM manager accepts `map_site` from anyone who reaches its port: the firewall is what keeps others out.
+### Invite a member
+
+On the region host, as root, for the first member (and for any member, whenever the region host is at hand):
+
+    /opt/fdf/bin/fdf-invite NODE1          a node or desktop
+    /opt/fdf/bin/fdf-invite PHONE1 --leaf  a phone or Windows PC (a leaf: an address, no subnet)
+
+It makes the member's WireGuard key and gives it an edge address (10.253.X.Y). It admits the member
+(`/opt/fdf/hub/admitted/NODE1.json`), so the hub has the peer at once, and prints the invitation once.
+`fdf-invite --list` shows who is admitted. `fdf-invite NODE1 --revoke` removes the peer now.
+
+On any machine already in the region (a node, a core, the region host), as root, without the region host:
+
+    /opt/fdf/bin/fdf-identity NODE2
+    /opt/fdf/bin/fdf-identity PHONE2 --leaf
+
+It asks the region through the shared memory and prints the same kind of line. A name that already has an identity is
+refused. `--again` replaces it, and the old key stops working.
 
 ### Install a node into a region
 
-Install as in section 2, with the three values `fdf-region-create` printed:
+Install as in section 2, with the invitation:
 
-    sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE2 --ip 10.81.81.1 --no-ssid-projection --region 203.0.113.7:51888 --site-key KEY --area myarea
+    sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE1 --ip 10.81.81.1 --no-ssid-projection --invite fdfinv1.<...>
 
-The installer checks before phase A that `opt/fdf/dist/fdf-install-$(uname -m).run` is in the checkout. After F6
-(and only when F6 passed) its phase R runs that file. A node already installed LAN-only joins with the same file:
+The installer checks before phase A that `opt/fdf/dist/fdf-install-$(uname -m).run` is in the checkout and that the
+invitation decodes. After F6 (and only when F6 passed) its phase R runs that file with the invitation. A node already
+installed LAN-only joins with the same file:
 
-    sudo bash opt/fdf/dist/fdf-install-x86_64.run KEY 203.0.113.7:51888 myarea
+    sudo bash opt/fdf/dist/fdf-install-x86_64.run fdfinv1.<...>
 
 (`fdf-install-aarch64.run` on a Raspberry Pi.) It unpacks `/opt/fdf` and the FrogNet region modules, installs the
 sudoers fragment the snapshot needs, serves the region view at `/fdf/` on the node's Apache, and runs
-`/opt/fdf/bin/fdf-region-join`, which writes `/opt/fdf/var/site.env` and `/opt/fdf/var/join.env`, starts
-`fdf-client` and `fdf-facts`, restarts the tunnel daemon into region mode and shows the result for 15 s. The daemon
-makes its own WireGuard key at its first region start (`WG_KEY: made /var/lib/frognet-tunnel/node_private.key`).
-The file is re-runnable; running it again with a newer build updates the node.
+`/opt/fdf/bin/fdf-region-join`. That writes the invitation's key (`/var/lib/frognet-tunnel/node_private.key`), the
+hub (`/opt/fdf/var/hub.json`), `site.env` and `join.env`. It then starts `fdf-client` and `fdf-facts`, restarts the
+tunnel daemon into region mode (the hub tunnel first, then the region inside it), and shows the result for 15 s. The
+file is re-runnable; running it again with a newer build updates the node. The older `--region`, `--site-key` and
+`--area` options stop with a message: a region is joined by invitation.
+
+### A Linux machine that is not a node: the core
+
+`fdf-core-linux-<arch>-<build>.tgz` makes a laptop, a server, a VM or WSL a member, with no FrogNet node install. Copy
+it to `/tmp`, then as root:
+
+    cd /tmp && tar xzf fdf-core-linux-x86_64-<build>.tgz && cd fdf-core-<build>
+    ./install --invite fdfinv1.<...>
+
+Get the line from `fdf-invite NAME --leaf` or `fdf-identity NAME --leaf`. `install` looks first: it refuses a FrogNet
+node (use the `.run`), the region host, and a machine of another processor, and says which bundle is right. It puts
+the core in `/opt/fdf` (nothing in `/usr/local/bin`) and makes `fdf-core.service`. The service brings up the tunnel
+from the invitation in user space (no kernel module, no wg tools) and joins the region inside it. Without
+`--invite` the machine runs stand-alone: its own RAM manager on 127.0.0.1, for the add-ins alone.
+
+On Windows the first member is WSL 2 with systemd. If systemd is off, `install` asks, then turns it on in
+`/etc/wsl.conf` and offers to restart WSL.
+
+### Add-ins
+
+The Communicator (`fdf-addin-comms-...`), the kart race (`fdf-addin-kart-...`) and DisasterComm (`fdf-addin-dc-...`)
+are separate bundles. Each installs on any machine with a core (a core bundle, a node, or the region host):
+
+    cd /tmp && tar xzf fdf-addin-comms-linux-x86_64-<build>.tgz && cd fdf-addin-comms-<build> && ./install
+
+Each add-in runs as `fdf-addin-<name>.service`, tied to the core's unit. It writes its own tuple to the control RAM,
+`(pond, where, <member>/<add-in>)`, held by its own session, so the tuple goes when the add-in stops. Its `ADDIN` file
+says what it does when the network goes (`on-loss=exit`, `rediscover` or `stay`).
 
 ### Leave a region
 
@@ -188,56 +253,44 @@ On the node, as root:
 
     /opt/fdf/bin/fdf-leave
 
-It removes `fdf-client`, `fdf-facts`, `fdf-term-serve` and every `fdf-client@<area>`, deletes `join.env`, `site.env`
-and the pond files, turns the database-host timers back on and restarts the tunnel daemon, which logs
-`LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory)`. The daemon's WireGuard key is
-kept; a later join announces the same key.
+It removes `fdf-client`, `fdf-facts`, `fdf-term-serve` and every `fdf-client@<area>`. It deletes `join.env`,
+`site.env`, `hub.json` and the pond files, turns the database-host timers back on and restarts the tunnel daemon. The
+daemon then logs `LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory)`. The member is
+still admitted at the hub until `fdf-invite NAME --revoke`.
 
 ### Phones
 
 The FrogNet Android app is in `opt/fdf/src/frognet-android` (`app/` is the app, `member/` the member protocol it
-shares with the Windows bridge, `tun/` fdf-tun, the packet engine). **No APK ships**: build it from that directory
-with an Android SDK (API 34) and the Gradle wrapper, `./gradlew :app:assembleDebug`, or open the directory in
-Android Studio. It was not built during this cleanup. The app is a member of a region: under "Add a pond" enter the
-area and its RAM manager (`myarea`, `203.0.113.7:51888`), press "Add pond", bring it forward ("Forward"), and press
-"Start" (Android asks to allow the VPN). The region gives the phone its address; nothing is typed. The app's
-built-in first pond is John's own region: remove it after yours is forward. "Communicator" opens the Communicator
-with the servers the forward pond's members say they run.
+shares with the core and the Windows bridge, `tun/` fdf-tun, the packet engine). **No APK ships**: build it from that
+directory with an Android SDK (API 34) and the Gradle wrapper, `./gradlew :app:assembleDebug`, or open the directory
+in Android Studio. On the phone, paste the line from `fdf-identity PHONE --leaf` and press "Use invitation", then
+"Start" (Android asks to allow the VPN). The region, the phone's key, name and address are the invitation's; the
+tunnel comes up first and the phone joins the region inside it, and again at every boot.
 
 A phone on a node's LAN or Wi-Fi with no app is an ordinary DHCP client of that node.
 
 ### Windows PCs
 
-The bridge is `opt/fdf/windows/bridge` in the checkout (build `fdf-kt-2026-10-11-a15 + fdf-tun-2026-10-11-b11`,
-`BUILD.txt`). It makes the PC a member of every pond listed in `etc\ponds.txt` at once, on one Wintun adapter.
+`fdf-windows-<build>.zip` (the same files as `opt/fdf/windows/bridge` in the checkout; `BUILD.txt` says the build):
 
-1. Copy the folder to the PC, e.g. `C:\fdf`.
+1. Unzip to `C:\fdf`.
 2. Download `wintun-0.14.1.zip` from https://www.wintun.net and copy `bin\amd64\wintun.dll` into `C:\fdf`. It is the
    one file not included.
-3. Edit `C:\fdf\etc\ponds.txt`: replace the example line `AREA=RAM-HOST:51888` with one `<area>=<host:port>` line
-   per pond, e.g. `myarea=203.0.113.7:51888`. The first line is the forward pond. `fdf-bridge.cmd` refuses to start
-   while the example line is there.
-4. In a terminal opened as Administrator: `cd C:\fdf` then `fdf-bridge.cmd`. Ctrl-C leaves every pond.
+3. Get the PC's line: `fdf-identity PC1 --leaf` on any machine in the region.
+4. In a terminal opened as Administrator: `cd C:\fdf` then `setup.cmd fdfinv1.<...>`. It checks first, keeps the
+   invitation and makes the scheduled task "FrogNet member" (at every startup, as SYSTEM, its output in
+   `var\fdf-bridge.log`), and starts it. `setup.cmd remove` takes the task away.
 
-From another terminal: `fdf-bridge.cmd ask status` (each tunnel's handshake and bytes), `fdf-bridge.cmd ask comms`
-(the forward pond's Communicator servers, as `--ram H:P --media H:P`), `fdf-bridge.cmd forward <pond>`.
-`opt/fdf/windows/bridge/README.txt` has the rest.
+`C:\fdf\README.txt` has the rest (`fdf-bridge.cmd ask status`, `ask comms`, `forward <pond>`).
 
 ### The Communicator
 
-The Communicator's two servers (`comms-ram`, TCP 8800; `comms-media`, TCP 8994) are in `/opt/fdf/comms` on every
-region node. On a region node, as root:
-
-    /opt/fdf/bin/fdf-comms.sh
-
-It runs in the foreground (Ctrl-C stops both) and writes the pond's "where" cell, `(pond, where, w:<guid>)
-{"comms":{"ram":"w:<guid>:8800","media":"w:<guid>:8994"}}`, which lives as long as the node's session. Clients find
-the servers from that cell: the phone's "Communicator" button, and on Windows `fdf-bridge.cmd ask comms`, whose
-output is the `--ram ... --media ...` to give `comms-app.exe`. On a node that is not in a region the script stops
-with `fdf-comms: this node has no RINA_RAM (/opt/fdf/var/join.env): it is not in a pond`. The desktop Communicator
-is built from `opt/frognet_semantic/ribbit/examples/communicator` (`./build.sh` on Linux; `WINDOWS.md`); on Linux it
-is given the node's addresses by hand: `build/comms-app --ram 10.81.81.1:8800 --media 10.81.81.1:8994 --name NAME`.
-`fdf-comms.sh` on a node is not covered by the gates of this cleanup (the region-loop test skips that stage).
+Install the Communicator add-in (above) on the machine that is to host it: a node, a core or the region host. Its
+servers (`comms-ram`, TCP 8800; `comms-media`, TCP 8994) start with it. It writes
+`(pond, where, w:<member>/comms) {"comms":{"ram":"w:<member>:8800","media":"w:<member>:8994"}}`, which lives as long
+as its session. Clients find the servers from that cell: the phone's "Communicator" button, and on Windows
+`fdf-bridge.cmd ask comms`, whose output is the `--ram ... --media ...` to give `comms-app.exe`. The desktop
+Communicator is built from `opt/frognet_semantic/ribbit/examples/communicator` (`./build.sh` on Linux; `WINDOWS.md`).
 
 ## 4. Upgrade, leave, uninstall, reinstall
 
