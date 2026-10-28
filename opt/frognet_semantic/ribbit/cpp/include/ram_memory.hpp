@@ -62,6 +62,7 @@ namespace ramm {
 using Changed = ribbit::FwdP;
 struct Cell { uint64_t id; std::string service, variable, instance, bag; double updated; ribbit::BagArrP arr;
               ribbit::BagArrP prev = nullptr; Changed changed = nullptr;
+              bool gone = false;   // [GONE_WITH_ITS_WRITER_V1] the row is gone (its writer is): given to a read past an id, in order
               std::string text() const { return arr ? arr->json() : bag; } };
 
 // A trigger: one waiter's condition. fired is set by a writer and cleared by the waiter.
@@ -92,7 +93,21 @@ struct TriggerList {
 // [LOCKFREE_READS_V1] a row's value: immutable once published; replaced whole by the next write
 struct RowVal { bool live = false; uint64_t id = 0; std::string bag; double updated = 0;
                 ribbit::BagArrP arr;               // [DECODE_ONCE_V1] the bag as decoded, when written as fields
-                ribbit::BagArrP prev; Changed changed; };   // [FORWARD_CHANGES_V1]
+                ribbit::BagArrP prev; Changed changed;   // [FORWARD_CHANGES_V1]
+                uint64_t writer = 0;               // [GONE_WITH_ITS_WRITER_V1] the session that wrote it (0: this process)
+                int32_t linger = 0; };             // [LINGER_BY_FAMILY_V1] when that session ends: LINGER_GOES, seconds, LINGER_STAYS
+// [GONE_WITH_ITS_WRITER_V1] the session a write on this thread is made for: set by the host while it serves that session's
+// request (WritingFor), 0 for a write this process makes itself. When a session ends, everything it wrote goes with it.
+// [LINGER_BY_FAMILY_V1] What happens to a row when its writer's session ends is the writer's choice, made per family
+// when it first names the family: it goes at once (LINGER_GOES, the default), it stays that many seconds and is then
+// reaped, or it stays (LINGER_STAYS) until it is written again or removed.
+constexpr int32_t LINGER_GOES = 0, LINGER_STAYS = -1;
+inline thread_local uint64_t t_writer = 0;
+inline thread_local int32_t t_linger = LINGER_GOES;
+struct WritingFor { uint64_t was; int32_t wl;
+                    explicit WritingFor(uint64_t s, int32_t linger = LINGER_GOES) : was(t_writer), wl(t_linger) { t_writer = s; t_linger = linger; }
+                    ~WritingFor() { t_writer = was; t_linger = wl; }
+                    WritingFor(const WritingFor&) = delete; WritingFor& operator=(const WritingFor&) = delete; };
 // A row: one storage location. Its envelope carries its write time and its exact-location triggers.
 struct Row {
     std::string service, variable, instance;      // the address, set once
@@ -200,28 +215,41 @@ public:
     }
     uint64_t write(const std::string& s, const std::string& v, const std::string& i, const std::string& bag, double now, ribbit::BagArrP arr,
                    ribbit::BagArrP prev = nullptr, Changed changed = nullptr) {
-        Row* r = row(s, v, i, true);
-        Variable* var = variable(s, v);
-        Service* svc = service_of(var);
-        WriteWindow* wnd = window_of(var->window);
-        WriteWindow* swnd = window_of(svc->window);
-        uint64_t id;
-        // No order across families: a write takes its variable's next position (its id inside that claim, so a
-        // variable's ids rise with its positions) and its service's next position, and is done. [FAMILY_HOOKS_V1]
-        { std::unique_lock<std::shared_mutex> w(r->m);
-          uint64_t p = wnd->head.load(std::memory_order_acquire);
-          for (;;) {
-              id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
-              if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
-          }
-          // the row's value first, then its slots: a reader that meets the slot finds the value there
-          set_val(r, new RowVal{true, id, bag, now, std::move(arr), std::move(prev), std::move(changed)});
-          fill(wnd->slot[p % WINDOW], p, id, r);
-          const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
-          fill(swnd->slot[sp % WINDOW], sp, id, r, var); }
-        var->hooks.fire(); svc->hooks.fire();          // [FAMILY_HOOKS_V1] its readers' words; they read it themselves
-        fire(r);
-        return id;
+        return land(row(s, v, i, true), true, bag, now, std::move(arr), std::move(prev), std::move(changed), t_writer, t_linger,
+                    [](const RowVal*) { return true; });
+    }
+    // ---- [GONE_WITH_ITS_WRITER_V1] a session has ended: every row it wrote last is gone. Each removal takes its place in
+    // its family's write order as a write does (an id, the variable's and the service's window, their readers' words, the
+    // row's triggers), so a read held on the family is given it, in order, as gone. Walks the rows, each under its own lock.
+    // Returns the lingers (seconds) of the rows it left: the host reaps each at the session's end plus that many seconds.
+    std::vector<int32_t> gone_with(uint64_t writer, double now, size_t* removed = nullptr) {
+        std::vector<int32_t> later; size_t n = 0;
+        if (!writer) return later;
+        ribbit::lf::ebr::Guard eg;
+        for (auto& slot : rows_.b)
+            for (Row* r = slot.load(std::memory_order_acquire); r; r = r->next_in_bucket) {
+                if (!mine(r, writer)) continue;          // not this session's: no lock taken
+                int32_t left = LINGER_GOES;
+                if (land(r, false, std::string(), now, nullptr, nullptr, nullptr, writer, LINGER_GOES, [&](const RowVal* x) {
+                        if (!x || !x->live || x->writer != writer) return false;
+                        if (x->linger != LINGER_GOES) { left = x->linger; return false; }
+                        return true; })) n++;
+                if (left > 0 && std::find(later.begin(), later.end(), left) == later.end()) later.push_back(left);
+            }
+        if (removed) *removed = n;
+        return later;
+    }
+    // [LINGER_BY_FAMILY_V1] the reaper: rows a session that ended at `ended` left to linger, whose time has come --
+    // still that session's (written again since by someone else: theirs now, not reaped). Each goes as gone_with's do.
+    size_t reap(uint64_t writer, double ended, double now) {
+        size_t n = 0;
+        if (!writer) return 0;
+        ribbit::lf::ebr::Guard eg;
+        for (auto& slot : rows_.b)
+            for (Row* r = slot.load(std::memory_order_acquire); r; r = r->next_in_bucket)
+                if (mine(r, writer) && land(r, false, std::string(), now, nullptr, nullptr, nullptr, writer, LINGER_GOES, [&](const RowVal* x) {
+                        return x && x->live && x->writer == writer && x->linger > 0 && ended + x->linger <= now; })) n++;
+        return n;
     }
     // ---- remove by id: rare (no participant calls it); walks the rows, each under its own lock only
     // private_too: a caller inside this process may remove a row of a private ('#') service; the network API may not.
@@ -271,11 +299,11 @@ public:
             std::shared_lock<std::shared_mutex> g(r->m, std::defer_lock);
             if (bounded) g.lock();                       // only the bounded walk waits for a write in flight
             const RowVal* x = r->val.load(std::memory_order_acquire);
-            if (!x || !x->live) return;
+            if (!x || (!x->live && after < 0)) return;     // [GONE_WITH_ITS_WRITER_V1] what is there now: only the live
             if (!i.empty() && r->instance != i) return;
             if (after >= 0 && (long long)x->id <= after) return;
             if (fresh > 0 && x->updated < cutoff) return;
-            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
+            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed, !x->live});
         };
         if (!v.empty() && !i.empty()) { if (Row* r = find_row(s, v, i)) take(r); return out; }
         if (!v.empty() && after >= 0) {                // [WRITE_WINDOW_V1] only what was written past `after`
@@ -301,9 +329,9 @@ public:
             if (!reused && (reached || lo == 0)) {
                 for (auto& e : got) {                       // a published slot: its row already holds that value
                     Row* r = e.second; const RowVal* x = r->val.load(std::memory_order_acquire);
-                    if (!x || !x->live || x->id != e.first) continue;   // written again since: that write answers for it
+                    if (!x || x->id != e.first) continue;   // written again since: that write answers for it (gone: given as gone)
                     if (fresh > 0 && x->updated < cutoff) continue;
-                    out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
+                    out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed, !x->live});
                 }
                 std::sort(out.begin(), out.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
                 return out;
@@ -351,6 +379,7 @@ public:
         WriteWindow* sw = nullptr; uint64_t spos = 0;       // a service family: the service's window of hints
         std::unordered_map<Variable*, VarCursor> vars;      //   and each variable's place
         long long after_new = -1;                           //   a variable met for the first time: from this id (-1: all)
+        bool past_first = false;                            //   started past an id: the first read takes every variable's rows
         uint64_t recovered = 0, laps = 0;                   // rows read from the rows because a window had moved on
     };
     // from_after < 0: from now on (what is written after this call); else every row with an id past from_after
@@ -367,6 +396,7 @@ public:
         c.spos = c.sw->head.load(std::memory_order_acquire);   // hints from here; the variables there now start now
         for (Variable* var = sv->vars.load(std::memory_order_acquire); var; var = var->next_in_service) c.vars[var] = start(var);
         c.after_new = from_after < 0 ? 0 : from_after;       // a variable made after this: all of it is new
+        c.past_first = from_after >= 0;
         return c;
     }
     // What has been written to the family since the cursor's last read, appended to out: each write once, each
@@ -378,6 +408,9 @@ public:
     void read(Cursor& c, std::vector<Cell>& out) {
         ribbit::lf::ebr::Guard eg;                     // [LOCKFREE_READS_V1]
         if (!c.sw) { read_var(c, c.one, out); return; }
+        // [SERVICE_PAST_AN_ID_V1] a service family read past an id: what its variables hold past it is read now, not
+        // when each variable is next written (a variable's hint only appears with its next write)
+        if (c.past_first) { c.past_first = false; for (auto& kv : c.vars) read_var(c, kv.second, out); }
         auto vc_of = [&](Variable* var) -> VarCursor& {
             auto it = c.vars.find(var);
             if (it != c.vars.end()) return it->second;
@@ -440,6 +473,40 @@ public:
     static Hook* hook(Cursor& c, WakeWord* w) { return c.hooks->add(w); }
     static void unhook(Hook* h) { h->live.store(false, std::memory_order_release); }
 private:
+    // A row's next value takes its place: an id, the variable's window, the service's window, then the readers' words and
+    // the row's triggers. live false: the row is gone. ok(current value), under the row's lock: false, nothing lands
+    // wrote it (checked under the row's lock); 0 returned when it is not.
+    template <class Ok>
+    uint64_t land(Row* r, bool live, const std::string& bag, double now, ribbit::BagArrP arr, ribbit::BagArrP prev, Changed changed,
+                  uint64_t writer, int32_t linger, Ok ok) {
+        Variable* var = variable(r->service, r->variable);
+        Service* svc = service_of(var);
+        WriteWindow* wnd = window_of(var->window);
+        WriteWindow* swnd = window_of(svc->window);
+        uint64_t id;
+        // No order across families: a write takes its variable's next position (its id inside that claim, so a
+        // variable's ids rise with its positions) and its service's next position, and is done. [FAMILY_HOOKS_V1]
+        { std::unique_lock<std::shared_mutex> w(r->m);
+          if (!ok(r->val.load(std::memory_order_acquire))) return 0;
+          uint64_t p = wnd->head.load(std::memory_order_acquire);
+          for (;;) {
+              id = next_id_.fetch_add(1, std::memory_order_relaxed) + 1;   // an id a failed claim drops is a gap, nothing more
+              if (wnd->head.compare_exchange_weak(p, p + 1, std::memory_order_acq_rel, std::memory_order_acquire)) break;
+          }
+          // the row's value first, then its slots: a reader that meets the slot finds the value there
+          set_val(r, new RowVal{live, id, bag, now, std::move(arr), std::move(prev), std::move(changed), writer, linger});
+          fill(wnd->slot[p % WINDOW], p, id, r);
+          const uint64_t sp = swnd->head.fetch_add(1, std::memory_order_acq_rel);
+          fill(swnd->slot[sp % WINDOW], sp, id, r, var); }
+        var->hooks.fire(); svc->hooks.fire();          // [FAMILY_HOOKS_V1] its readers' words; they read it themselves
+        fire(r);
+        return id;
+    }
+    // the row's value, read without its lock (inside an epoch guard): live and written by that session -- checked again
+    // under the lock before anything lands
+    static bool mine(Row* r, uint64_t writer) {
+        const RowVal* x = r->val.load(std::memory_order_acquire); return x && x->live && x->writer == writer;
+    }
     // [LOCKFREE_READS_V1] under the row's write lock: the new value in, the old one to epoch reclamation
     static void set_val(Row* r, const RowVal* nv) {
         const RowVal* old = r->val.exchange(nv, std::memory_order_acq_rel);
@@ -477,9 +544,9 @@ private:
             for (Row* r = vc.var->rows.load(std::memory_order_acquire); r; r = r->next_in_variable) {
                 std::shared_lock<std::shared_mutex> g(r->m);    // the bounded walk: waits for a write in flight
                 const RowVal* x = r->val.load(std::memory_order_acquire);
-                if (!x || !x->live || x->id <= vc.last || x->id > bound) continue;
+                if (!x || x->id <= vc.last || x->id > bound) continue;   // a row gone past what was read: given as gone
                 if (!c.instance.empty() && r->instance != c.instance) continue;
-                got.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
+                got.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed, !x->live});
             }
             std::sort(got.begin(), got.end(), [](const Cell& a, const Cell& b) { return a.id < b.id; });
             c.recovered += got.size();
@@ -499,9 +566,9 @@ private:
             if (id <= vc.last) continue;                      // read already (from the rows)
             vc.last = id;
             const RowVal* x = r->val.load(std::memory_order_acquire);   // published before its slot: no lock
-            if (!x || !x->live || x->id != id) continue;      // written again since: read at its newer slot
+            if (!x || x->id != id) continue;                  // written again since: read at its newer slot (gone: as gone)
             if (!c.instance.empty() && r->instance != c.instance) continue;
-            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed});
+            out.push_back(Cell{x->id, r->service, r->variable, r->instance, x->bag, x->updated, x->arr, x->prev, x->changed, !x->live});
         }
     }
     std::atomic<uint64_t> next_id_{0};

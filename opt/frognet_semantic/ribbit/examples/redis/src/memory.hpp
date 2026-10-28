@@ -32,12 +32,16 @@
 #include <unordered_map>
 #include <atomic>
 #include <memory>
-#include "lfmap.hpp"
+#include "lf/lfmap.hpp"
+#include "lf/primitives.hpp"   // [LF_PRIMITIVES_V1] the platform's EBR, map and primitives: Redis keeps no copy of its own
 #include <optional>
 #include <functional>
 #include <cstdint>
 #include <random>
 namespace rr {
+namespace ebr = ribbit::lf::ebr;
+namespace lf = ribbit::lf;
+using ribbit::lf::LFMap;
 
 // [ONE_ORDER_V1] Every box applies every intent, in write order, to its own copy of the keyspace. While one is applied,
 // the clock is the intent's time and the random generator is seeded by its write id, so every box decides the same.
@@ -47,8 +51,7 @@ std::mt19937_64& apply_rng();
 
 // live-object counters: what the memory is made of right now (INFO ribbit)
 struct MemStats {
-    std::atomic<long> vars{0}, nodes{0}, bags{0}, batches{0}, slots{0}, mapnodes{0}, maps{0};
-    std::atomic<long> retired_pending{0}, retired_freed{0}, collects{0}, epoch_advances{0};
+    std::atomic<long> vars{0}, nodes{0}, bags{0}, batches{0}, slots{0};   // reclamation's counters: ribbit::lf::ebr::stats()
 };
 MemStats& memstats();
 
@@ -204,7 +207,7 @@ struct Var {
 };
 using VarPtr = Var*;
 
-struct WaitWord { std::atomic<uint32_t> gen{0}; std::atomic<uint32_t> waiters{0}; };
+using WaitWord = ribbit::lf::WaitWord;   // [LF_PRIMITIVES_V1]
 
 class Region {
 public:
@@ -255,10 +258,8 @@ public:
     void touched_h(size_t h, const std::string& variable);
     void touched(const std::string& variable);
     void touched_all();
-    static void begin_quiet(std::vector<std::pair<Region*, std::string>>& held);   // hold wakes on this thread
-    static void end_quiet();                                                      // deliver them, once each
-    static void watch(WaitWord& w);       // register as a waiter BEFORE reading seen and checking the data
-    static void unwatch(WaitWord& w);
+    // a quiet span (lf/primitives.hpp): the wakes of every write inside it held on this thread and delivered once each at its end
+    using Quiet = ribbit::lf::QuietSpan<std::pair<Region*, std::string>>;
 };
 
 class Memory {

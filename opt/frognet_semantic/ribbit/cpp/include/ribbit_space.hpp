@@ -31,6 +31,7 @@ namespace ribbit {
 // [DECODE_ONCE_V1] arr: the bag decoded once (its values by field name: arr->get, arr->str, arr->num); bag: text, only
 // for a row that came as text. text(): the bag as JSON text either way, for a reader that wants text.
 struct SpaceRow { uint64_t id = 0; std::string topic, instance, bag; ribbit::BagArrP arr;
+                  bool gone = false;   // [GONE_WITH_ITS_WRITER_V1] its writer's session ended: the row is gone (a held read is told)
                   std::string text() const { return arr ? arr->json() : bag; }
                   ribbit::BagArrP fields() const { return arr ? arr : ribbit::BagArr::parse(bag); } };
 
@@ -48,6 +49,11 @@ public:
     // the bag as fields, in its shape's order (one vector per shape, kept for the Space's life)
     void write_fields(const std::string& space, const std::string& topic, const std::string& instance,
                       const std::vector<std::string>& order, semcodec::Fields fields);
+    // [LINGER_BY_FAMILY_V1] what happens to this process's cells of (space, topic) when its session ends: GOES (the
+    // default) at once, N > 0 seconds later, or STAYS. Said before the family's first write; topic "": every topic of the
+    // space that has no choice of its own. (The memory here: this process's own writes, never gone.)
+    static constexpr int32_t GOES = 0, STAYS = -1;
+    void linger(const std::string& space, const std::string& topic, int32_t seconds);
     // a ring of a writer's cells on a topic: its write n is cell <writer>.<n mod ring>
     static std::string slot(const std::string& writer, uint64_t n, uint64_t ring) { return writer + "." + std::to_string(n % ring); }
 
@@ -62,6 +68,12 @@ public:
     // what is there past the id (rows or none), or none for a read from now on. [READERS_IN_PARALLEL_V1]
     using OnRows = std::function<void(std::vector<SpaceRow>& rows)>;
     void watch(const std::string& space, const std::string& topic, long long after, OnRows on);
+    // [STANDING_WATCH_V1] the same, but with a memory elsewhere the memory streams each batch as it lands (one standing
+    // follow on the session) into this read's own list -- no request per batch. For a reader that keeps up: what it has
+    // not handled yet waits in this process. (Here: the same as watch.)
+    // ended: the follow's end, said once (the session is gone): the reader decides what that means
+    void follow(const std::string& space, const std::string& topic, long long after, OnRows on,
+                std::function<void(const std::string& why)> ended = {});
     uint64_t newest(const std::string& space, const std::string& topic);   // the newest id written to a family
 
     // what this process has written has left it (a memory elsewhere), or the time is up

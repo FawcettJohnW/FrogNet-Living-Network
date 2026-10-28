@@ -54,9 +54,9 @@ static void cmd_exec(Client& c, const Argv&, Reply& r) {
     c.in_exec = true;
     // the transaction's writes land one by one (its own reads see them), but every wake is held until the end:
     // a participant parked on any of these keys wakes once, after EXEC, and decides from the final state
-    std::vector<std::pair<Region*, std::string>> held; Region::begin_quiet(held);
+    Region::Quiet::begin();
     for (auto& argv : q) { Reply one; one.proto = r.proto; dispatch_command(c, argv, one); r.out += one.out; }
-    Region::end_quiet();
+    Region::Quiet::end([](const std::pair<Region*, std::string>& h) { h.first->touched(h.second); });
     c.in_exec = false;
 }
 void register_multi_commands() {

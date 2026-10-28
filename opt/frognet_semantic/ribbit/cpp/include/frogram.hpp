@@ -91,6 +91,9 @@ public:
     void call_async(const std::string& method, const std::string& path, const std::string& body, Done done);
     // A write not waited for, by its coordinates: what Memory::write_nowait sends -- the cell's own request on the
     // semantic wire, a DIFF against that cell's reference ([EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1]).
+    // [LINGER_BY_FAMILY_V1] what happens to this session's rows of (service, variable) when it ends: 0 they go at once
+    // (the default), N > 0 they stay N seconds and are reaped, -1 they stay. Said before the family's first write.
+    void linger(const std::string& service, const std::string& variable, int32_t seconds);
     void post_write(const std::string& service, const std::string& variable, const std::string& instance, const std::string& bag);
     // [FIELDS_NOT_TEXT_V1] the same write with the bag as fields: its field order (one vector per shape, kept by the
     // caller for the session's life) and its values in that order
@@ -126,10 +129,12 @@ private:
     std::unique_ptr<Impl> d_;
 };
 
-struct Cell { uint64_t id = 0; std::string service, variable, instance; Json bag; double updated = 0; };
+struct Cell { uint64_t id = 0; std::string service, variable, instance; Json bag; double updated = 0;
+              bool gone = false; };   // [GONE_WITH_ITS_WRITER_V1] the row is gone (its writer's session ended): bag null
 // [RAW_ROWS_V1] a row as the memory holds it: the bag's text, not parsed (a reader that has its own format for it)
 // [DECODE_ONCE_V1] arr: the bag as the session decoded it, once (bag is then empty); bag: text, for a row given as text
 struct RawCell { uint64_t id = 0; std::string instance, bag; double updated = 0; std::string variable; ribbit::BagArrP arr;
+                 bool gone = false;   // [GONE_WITH_ITS_WRITER_V1] the row is gone: no bag
                  std::string text() const { return arr ? arr->json() : bag; } };
 
 uint64_t calls_this_thread();

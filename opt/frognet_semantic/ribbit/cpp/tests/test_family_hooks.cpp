@@ -91,6 +91,13 @@ int main() {
       check(out.size() == 3 * WINDOW, "a cursor after id 0 reads every row there (" + std::to_string(out.size()) + ")");
       mem.write("lap", "v", "new", "y", 0); out.clear(); mem.read(c, out);
       check(out.size() == 1 && out[0].instance == "new", "and then only what is written next"); }
+    // [SERVICE_PAST_AN_ID_V1] a reader of a whole service starting after an id: what its variables hold now, at once --
+    // not only when each is next written (an answerer that starts after its askers asked)
+    { mem.write("pastid", "a", "1", "x", 0); mem.write("pastid", "b", "1", "x", 0); mem.write("pastid", "b", "2", "x", 0);
+      Memory::Cursor c = mem.cursor("pastid", "", "", 0); std::vector<Cell> out; mem.read(c, out);
+      check(out.size() == 3, "a service cursor after id 0 reads every variable's rows there (" + std::to_string(out.size()) + " of 3)");
+      mem.write("pastid", "c", "1", "y", 0); out.clear(); mem.read(c, out);
+      check(out.size() == 1 && out[0].variable == "c", "and then only what is written next (" + std::to_string(out.size()) + ")"); }
     std::printf("\n%s: %d fail\n", fails ? "FAMILY-HOOKS FAIL" : "FAMILY-HOOKS PASS", fails);
     return fails ? 1 : 0;
 }

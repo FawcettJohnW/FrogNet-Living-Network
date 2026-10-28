@@ -9,7 +9,7 @@ LOCAL_CFLAGS+=
 LOCAL_CPPFLAGS+=-DWITH_BROKER -I${R}/lib -I${R}/libcommon
 LOCAL_LDFLAGS+=
 LOCAL_LDADD+=-lcjson -lm ${LIBMOSQ_COMMON}
-LOCAL_LDADD+=$(RIBBIT)/bin/ribbit_space.o $(RIBBIT)/bin/ram_host.o $(RIBBIT)/bin/frogram.o $(RIBBIT)/bin/ram_client.o -llz4 -lcrypto -lstdc++ -lpthread
+LOCAL_LDADD+=$(RIBBIT)/bin/ribbit_space.o $(RIBBIT)/bin/ribbit_pp.o $(RIBBIT)/bin/ram_host.o $(RIBBIT)/bin/frogram.o $(RIBBIT)/bin/ram_client.o -llz4 -lcrypto -lstdc++ -lpthread
 
 # ------------------------------------------
 #  Platform specific

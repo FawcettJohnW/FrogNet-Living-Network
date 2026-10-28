@@ -84,6 +84,7 @@ TTL = 3600
 def participate(a):
     r = Redis(a.host, a.port, a.password)
     r.must("SADD", k(a.run, "members"), a.name); r.must("EXPIRE", k(a.run, "members"), TTL)
+    r.must("RPUSH", k(a.run, "joined"), a.name); r.must("EXPIRE", k(a.run, "joined"), TTL)   # the coordinator's held read
     print("[%s] registered for run %s; waiting for go" % (a.name, a.run), flush=True)
     go = r.must("BLPOP", k(a.run, "go", a.name), 0)                      # blocked in the region
     g = json.loads(go[1]); t0, seconds, a.markers = g["t0"], g["seconds"], g["markers"]   # the coordinator's numbers govern
@@ -133,14 +134,15 @@ def participate(a):
 # ---------------------------------------------------------------- coordinator
 def coordinate(a):
     r = Redis(a.host, a.port, a.password)
-    r.cmd("DEL", k(a.run, "total"), k(a.run, "done"), k(a.run, "verified"))
+    r.cmd("DEL", k(a.run, "total"), k(a.run, "done"), k(a.run, "verified"))   # (joined: participants may already be in it)
     print("[coordinator] run %s: waiting for %d participants" % (a.run, a.expect), flush=True)
-    t_wait = time.time()
-    while True:
-        members = sorted(r.must("SMEMBERS", k(a.run, "members")) or [])
-        if len(members) >= a.expect: break
-        if time.time() - t_wait > a.register_timeout: sys.exit("[coordinator] only %d of %d registered: %s" % (len(members), a.expect, members))
-        time.sleep(0.5)                                                  # (a poll only while waiting for people)
+    t_wait = time.time(); joined = set()
+    while len(joined) < a.expect:                                        # each arrival is a list push: held, not polled
+        left = a.register_timeout - (time.time() - t_wait)
+        x = r.must("BLPOP", k(a.run, "joined"), max(1, int(left))) if left > 0 else None
+        if x is None: sys.exit("[coordinator] only %d of %d registered: %s" % (len(joined), a.expect, sorted(joined)))
+        joined.add(x[1])
+    members = sorted(r.must("SMEMBERS", k(a.run, "members")) or [])
     if len(members) > a.expect:
         # a participant stopped in an earlier attempt of this run stays registered: waiting for it would never end
         sys.exit("[coordinator] %d registered for run %s, expected %d: %s -- some are left from an earlier attempt; "
