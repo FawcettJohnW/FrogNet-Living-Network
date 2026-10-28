@@ -1,6 +1,7 @@
 #!/bin/bash
 # start -- [ADDIN_V1] FrogNet Kart as an add-in. What runs is decided by what this machine is (KART_ROLE overrides):
-#   the region's holder, or a stand-alone machine   the kart memory (its own RAM: rina-host, /ram.php, 8799) and the kart
+#   the region's holder, or a stand-alone machine   the kart memory (its own RAM: rina-host, /ram.php, 8799, on the
+#        control RAM's address) and the kart
 #        service beside it (the lobby: kart_service.py); its tuple (pond, where, <ns>/kart) {"kart":{"memory":"self:8799"}}
 #   a FrogNet node   a dedicated game-serving host (kart_host.py): it finds the kart memory from that tuple (kart-find),
 #        says it can serve games there, and starts race servers when the service names it
@@ -14,10 +15,14 @@ PORT=${KART_PORT:-8799}
 asay "role $ROLE"
 case "$ROLE" in
   service)
-    env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "0.0.0.0:$PORT" --api /ram.php &
+    # [KART_MEMORY_WHERE_THE_CONTROL_RAM_IS_V1] the kart memory listens on the control RAM's address: the region's
+    # holder's is the hub's tunnel address (members reach it through the tunnel; nothing new listens to the Internet,
+    # [NOTHING_LISTENS_OUTSIDE_V1]); a stand-alone machine's is loopback
+    KH=${FDF_CONTROL_RAM%:*}
+    env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "$KH:$PORT" --api /ram.php &
     addin_child $!
-    for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
-    python3 "$AD/kart_service.py" --memory "127.0.0.1:$PORT" --min-players "${KART_MIN_PLAYERS:-2}" & addin_child $!
+    for i in $(seq 100); do (exec 3<>/dev/tcp/$KH/$PORT) 2>/dev/null && break; sleep 0.05; done
+    python3 "$AD/kart_service.py" --memory "$KH:$PORT" --min-players "${KART_MIN_PLAYERS:-2}" & addin_child $!
     asay "the kart memory on port $PORT and the kart service beside it (pids$ADDIN_PIDS)"
     addin_hold kart memory=self:$PORT ;;
   host)

@@ -1,4 +1,4 @@
 name=kart
-build=kart-2026-10-28-k2
+build=kart-2026-10-28-k3
 on-loss=stay
 about=FrogNet Kart: the kart memory and service (the lobby), game-serving hosts, and the players' game (pygame)
