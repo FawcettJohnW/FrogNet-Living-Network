@@ -43,8 +43,9 @@ outside integrations. MQTT module config stays owner config cells, readable and 
 
 - **want_ack: closed (2026-10-30).** Stock's ACK is a packet from the destination's router (plumbing), removed.
   The node serving the client builds the client's ROUTING_APP packet itself: ACK when the client's write lands
-  (error NONE, request_id = message id, from = destination); NAK only when a trigger shows the destination's family
-  gone (error MAX_RETRANSMIT, from = own node). Same fields as stock.
+  (error NONE, request_id = message id, from = destination). A destination whose user cell is not in the view is a node
+  this one does not know (gone is gone, R1): the client gets what stock gives for an unknown node,
+  PKI_SEND_FAIL_PUBLIC_KEY, at once. Same fields as stock.
 - **NodeDB: removed (decided 2026-10-30: no copies, no aggregations).** Each node writes its own facts once, in its
   own cells: User with public key `(mt, user, <node>)`, position `(mt, pos, <node>)`, each telemetry variant
   `(mt, tel.<variant>, <node>)`, status `(mt, status, <node>)`. Every NodeDB read a service makes becomes a read of
@@ -87,7 +88,7 @@ through it. Addresses are (space, variable, instance); `!N` is a node number.
 | status | the node | (mt, status, !N) | latest | every edge | (mt, status, *) | — |
 | a message a client sends to a channel | the sending node | (mt, msg\|<channel>, !S.<n mod ring>) | distinct; ring per sender; retention ≥ what stock holds for a reconnecting client | the edges of nodes holding that channel | (mt, msg\|<channel>) past the edge's mark → packet to clients | — |
 | a direct message | the sending node | (mt, dm\|!R, !S.<n mod ring>) | distinct; recipient in the variable, so the recipient reads only its own; payload encrypted as stock, same key (D9) | node R's edge | (mt, dm\|!R) past its mark → packet to R's clients | — |
-| want_ack on a sent message | — | — | — | — | the sender's edge: ACK NONE when its write lands and R's user cell exists (from = R); NAK MAX_RETRANSMIT when R's user cell goes (R1) | yes |
+| want_ack on a sent message | — | — | — | — | the sender's edge: ACK NONE when its write lands and R's user cell exists (from = R); R's user cell absent: PKI_SEND_FAIL_PUBLIC_KEY at once, as stock for an unknown node (R1, gone is gone) | yes |
 | where a client of node N has read to | node N's edge | (mt, mark, !N.<client>) | latest | node N's edge (reconnect resumes from it) | — | replaces the to-phone queue |
 | config, module config, channels, owner settings | the node | (mt, cfg.<type>, !N), (mt, chan.<i>, !N) | latest, permanent (`[PERMANENT_CELL_V1]`: filed and written back on restart) | the node's edge (config dump), remote admin readers | — | replaces NodeDB load/save and preference files |
 | a remote admin request (set_*, commands) from node A's client to node B | node A | (mt, admin\|!B, !A.<n>) | distinct | node B | (mt, admin\|!B) → B validates (session passkey, admin keys) and rewrites its own cfg cells | — |
