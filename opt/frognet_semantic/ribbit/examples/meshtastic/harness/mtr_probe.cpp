@@ -16,9 +16,9 @@
 
 static std::atomic<int> wakes{0};
 static void wake(void *) { wakes++; }
-static void on_fact(const char *topic, uint32_t node, const uint8_t *b, size_t len, int gone, void *)
+static void on_fact(const char *topic, uint32_t node, const uint8_t *b, size_t len, int gone, uint32_t t, int live, void *)
 {
-    printf("FACT topic=%s node=!%08x len=%zu gone=%d first=%02x\n", topic, node, len, gone, len ? b[0] : 0);
+    printf("FACT topic=%s node=!%08x len=%zu gone=%d t=%u live=%d first=%02x\n", topic, node, len, gone, t, live, len ? b[0] : 0);
     fflush(stdout);
 }
 static void on_packet(const uint8_t *, size_t len, void *) { printf("PACKET len=%zu\n", len); fflush(stdout); }

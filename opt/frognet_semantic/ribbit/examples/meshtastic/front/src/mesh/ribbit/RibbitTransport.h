@@ -11,11 +11,13 @@
 #pragma once
 #ifdef ARCH_PORTDUINO
 #include "configuration.h"
+#include "Default.h"
 #include "main.h"
 #include "mesh/Router.h"
 #include "mesh/NodeDB.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "mt_ribbit.h"
+#include <array>
 #include <cstring>
 #include <cstdlib>
 
@@ -43,6 +45,13 @@ class RibbitTransport final
             LOG_INFO("[MT_RIBBIT] not written: id=0x%08x from=0x%08x is another node's packet (relay)", mp->id, mp->from);
             return false;
         }
+        // [MT_FACT_CHANGES_TO_CLIENTS_V1] a packet that carries one of our own facts is not written: the fact is in its
+        // cell, and every other node's clients get it from their held read on the cells
+        for (uint32_t id : factIds)
+            if (id && id == mp->id) {
+                LOG_INFO("[MT_RIBBIT] not written: id=0x%08x carries an own fact (its cell is written)", mp->id);
+                return false;
+            }
         uint8_t buffer[meshtastic_MeshPacket_size];
         size_t n = pb_encode_to_bytes(buffer, sizeof(buffer), &meshtastic_MeshPacket_msg, mp);
         LOG_INFO("[MT_RIBBIT] write id=0x%08x from=0x%08x to=0x%08x len=%u", mp->id, mp->from, mp->to, (unsigned)n);
@@ -81,6 +90,7 @@ class RibbitTransport final
         default:
             return;
         }
+        factIds[factNext++ % factIds.size()] = d.id;
         LOG_INFO("[MT_RIBBIT] fact %s !%08x len=%u (packet id=0x%08x)", topic, nodeDB->getNodeNum(), (unsigned)pl.size, d.id);
         mtr_write_fact(topic, nodeDB->getNodeNum(), pl.bytes, pl.size);
     }
@@ -109,8 +119,56 @@ class RibbitTransport final
         return nodeInfoLiteHasUser(info);
     }
 
+    // [MT_REPLIES_FROM_CELLS_V1] A request our client makes of a FrogNet node for one of its facts (node info,
+    // position, telemetry) is answered here from the owner's cell; the request goes nowhere. true: answered (the
+    // caller releases p). RibbitTransport.cpp.
+    bool answerFromCell(const meshtastic_MeshPacket *p);
+
+    // [MT_FACT_CHANGES_TO_CLIENTS_V1] One owner's cell as the packet a client expects for it: a broadcast from the owner,
+    // as if heard, the payload the owner's own protobuf unchanged. Used for the replay after the config dump and for
+    // every change to a cell while a client is connected. false: not a fact topic, or larger than a payload.
+    static bool cellPacket(const char *topic, uint32_t node, const uint8_t *b, size_t len, uint32_t t,
+                           meshtastic_MeshPacket &pkt)
+    {
+        meshtastic_PortNum port;
+        uint32_t kind;
+        if (!strcmp(topic, "user"))
+            port = meshtastic_PortNum_NODEINFO_APP, kind = port;
+        else if (!strcmp(topic, "pos"))
+            port = meshtastic_PortNum_POSITION_APP, kind = port;
+        else if (!strcmp(topic, "status"))
+            port = meshtastic_PortNum_NODE_STATUS_APP, kind = port;
+        else if (!strncmp(topic, "tel.", 4))
+            port = meshtastic_PortNum_TELEMETRY_APP, kind = port * 256 + (uint32_t)atoi(topic + 4);
+        else
+            return false;
+        pkt = meshtastic_MeshPacket_init_default;
+        if (len > sizeof(pkt.decoded.payload.bytes))
+            return false;
+        pkt.from = node;
+        pkt.to = NODENUM_BROADCAST;
+        pkt.rx_time = t;
+        pkt.has_rx_time = t >= 1577836800u; // a wall-clock time, not a boot counter
+        uint32_t h = node;                  // stable per cell and write time: unchanged history is not a new packet
+        h = h * 2654435761u + t;
+        h = h * 2654435761u + kind;
+        pkt.id = h ? h : 1;
+        uint8_t hopLimit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
+        pkt.hop_start = hopLimit; // on the memory every node is direct
+        pkt.hop_limit = hopLimit;
+        pkt.priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+        pkt.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+        pkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+        pkt.decoded.portnum = port;
+        memcpy(pkt.decoded.payload.bytes, b, len);
+        pkt.decoded.payload.size = (pb_size_t)len;
+        return true;
+    }
+
   private:
     bool running = false;
+    std::array<uint32_t, 16> factIds{}; // ids of the last packets that carried an own fact
+    size_t factNext = 0;
 
     // On the held read's thread, in the family's write order: the same ingress rules as UdpMulticastHandler::onReceive.
     static void onPacket(const uint8_t *bytes, size_t len, void *ctx)

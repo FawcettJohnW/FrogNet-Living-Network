@@ -15,7 +15,8 @@ Scenarios, each timed and logged:
   S5 dm-dead     a DM with want_ack to the dead node: what the sender's client gets, and when
   S6 restart     relaunch it: it is back in every other client's list, and how fast
   S7 malformed   a user cell with garbage bytes and one with a bad instance: no node falls over (all still answer)
-  S8 position    a fixed position set on one node is in a fresh client of another node (dump or replay)
+  S8 position    a fixed position set on one node reaches a connected client of another node, and a fresh one
+  S9 requests    another node's client asks this node for node info, position, device telemetry: what comes back
 Writes results.json beside the logs. Exit 0 = every scenario PASS.
 """
 import argparse
@@ -184,6 +185,14 @@ def main():
         # S8 a fixed position set on one node reaches a fresh client of another (config dump / replay)
         # position is shared only on a channel with a position precision; the lab's primary has none (stock skips the
         # broadcast: "position sharing disabled on all channels"), so give it full precision and a 30 s interval
+        # S8 live: a client already connected to the other node gets the position packet when it changes
+        live = {}
+        lev = threading.Event()
+        watcher = connect(dst.tcp_port)
+        def on_pos(packet=None, interface=None, **_):
+            if interface is watcher and packet.get("from") == nums[src.tcp_port]:
+                live.setdefault("t", time.time()); live["p"] = packet.get("decoded", {}).get("position", {}); lev.set()
+        pub.subscribe(on_pos, "meshtastic.receive.position")
         i = connect(src.tcp_port)
         ln = i.localNode
         ln.channels[0].settings.module_settings.position_precision = 32
@@ -194,6 +203,12 @@ def main():
         ln.setFixedPosition(47.4668, -122.3405, 120)
         i.close()
         t = time.time()
+        lev.wait(90)
+        pub.unsubscribe(on_pos, "meshtastic.receive.position")
+        watcher.close()
+        live_pos = live.get("p") or {}
+        live_ok = abs(live_pos.get("latitude", 0) - 47.4668) < 0.05
+        live_s = round(live["t"] - t, 2) if "t" in live else None
         def pos_seen():
             j = connect(dst.tcp_port)
             try:
@@ -207,9 +222,34 @@ def main():
         # then a fresh client of the other node, 20 s later (after the config reboot), still gets it at connect
         time.sleep(20)
         again = pos_seen()
-        res["S8_position"] = {"pass": bool(p) and bool(again), "seconds": round(t1 - t, 2), "position": p,
+        res["S8_position"] = {"pass": bool(p) and bool(again) and live_ok, "live_client_seconds": live_s,
+                              "live_ok": live_ok, "fresh_client_seconds": round(t1 - t, 2), "position": p,
                               "fresh_client_20s_later": again}
         log("S8", res["S8_position"])
+
+        # S9 requests: the other node's client asks this node for its node info, position and device telemetry
+        from meshtastic.protobuf import mesh_pb2, portnums_pb2, telemetry_pb2
+        def ask(port, payload):
+            j = connect(dst.tcp_port)
+            r, e = {}, threading.Event()
+            def cb(pk):
+                r["pk"] = pk; r["t"] = time.time(); e.set()
+            t0 = time.time()
+            j.sendData(payload, destinationId=nums[src.tcp_port], portNum=port, wantResponse=True, onResponse=cb)
+            e.wait(30)
+            j.close()
+            if not r:
+                return {"answer": None, "seconds": round(time.time() - t0, 2)}
+            d = r["pk"].get("decoded", {})
+            return {"answer": d.get("portnum"), "error": d.get("routing", {}).get("errorReason"),
+                    "seconds": round(r["t"] - t0, 2), "from": f"!{r['pk'].get('from', 0):08x}"}
+        tel = telemetry_pb2.Telemetry(); tel.device_metrics.CopyFrom(telemetry_pb2.DeviceMetrics())
+        s9 = {"nodeinfo": ask(portnums_pb2.NODEINFO_APP, mesh_pb2.User(id=f"!{nums[dst.tcp_port]:08x}", long_name="asker")),
+              "position": ask(portnums_pb2.POSITION_APP, mesh_pb2.Position()),
+              "telemetry": ask(portnums_pb2.TELEMETRY_APP, tel)}
+        s9["pass"] = s9["nodeinfo"].get("answer") == "NODEINFO_APP" and s9["position"].get("answer") == "POSITION_APP"
+        res["S9_requests"] = s9
+        log("S9", s9)
 
         # S4 kill one node for good
         victim = nodes[-1]
@@ -261,7 +301,7 @@ def main():
         for s in sups:
             s.stop()
         (wd / "results.json").write_text(json.dumps(res, indent=1))
-    verdict = all(v.get("pass") for v in res.values()) and len(res) == 8
+    verdict = all(v.get("pass") for v in res.values()) and len(res) == 9
     log("VERDICT", "PASS" if verdict else "FAIL", {k: v.get("pass") for k, v in res.items()})
     return 0 if verdict else 1
 

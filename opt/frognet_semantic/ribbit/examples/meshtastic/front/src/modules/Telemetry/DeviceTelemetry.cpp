@@ -12,6 +12,9 @@
 #include "configuration.h"
 #include "gps/RTC.h"
 #include "main.h"
+#ifdef ARCH_PORTDUINO
+#include "mesh/ribbit/RibbitTransport.h"
+#endif
 #include "memGet.h"
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
@@ -22,6 +25,13 @@ static constexpr uint16_t TX_HISTORY_KEY_DEVICE_TELEMETRY = 0x8001;
 
 int32_t DeviceTelemetryModule::runOnce()
 {
+#ifdef ARCH_PORTDUINO
+    if (ribbitTransport && !wroteOwnCell) {
+        wroteOwnCell = true;
+        writeOwnCell();
+        return startDelayMs; // stock's first broadcast keeps its time
+    }
+#endif
 
     uint32_t lastTelemetry = transmitHistory ? transmitHistory->getLastSentToMeshMillis(TX_HISTORY_KEY_DEVICE_TELEMETRY) : 0;
     bool isImpoliteRole = isSensorOrRouterRole();
@@ -92,6 +102,21 @@ meshtastic_MeshPacket *DeviceTelemetryModule::allocReply()
     }
     return NULL;
 }
+
+#ifdef ARCH_PORTDUINO
+// [MT_OWN_FACTS_AT_START_V1] the node's device metrics cell is written when the module starts: its cells go with its
+// session, and a request for them is answered from the cell (MT_REPLIES_FROM_CELLS_V1). Stock answers a request whether
+// or not it broadcasts, so this does not depend on device_telemetry_enabled.
+void DeviceTelemetryModule::writeOwnCell()
+{
+    if (!ribbitTransport)
+        return;
+    if (meshtastic_MeshPacket *p = allocDataProtobuf(getDeviceTelemetry())) {
+        ribbitTransport->onOwnFact(*p);
+        packetPool.release(p);
+    }
+}
+#endif
 
 meshtastic_Telemetry DeviceTelemetryModule::getDeviceTelemetry()
 {

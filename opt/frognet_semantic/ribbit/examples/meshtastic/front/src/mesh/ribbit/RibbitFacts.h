@@ -14,7 +14,9 @@
 #include "concurrency/OSThread.h"
 #include "gps/RTC.h"
 #include "main.h"
+#include "mesh/MeshService.h"
 #include "mesh/NodeDB.h"
+#include "mesh/ribbit/RibbitTransport.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "mt_ribbit.h"
 #include <cstring>
@@ -55,7 +57,25 @@ class RibbitFacts : public concurrency::OSThread
     }
 
     // on the main loop
-    static void apply(const char *topic, uint32_t node, const uint8_t *b, size_t len, int gone, void *)
+    static void apply(const char *topic, uint32_t node, const uint8_t *b, size_t len, int gone, uint32_t t, int live,
+                      void *)
+    {
+        applyToView(topic, node, b, len, gone);
+        // [MT_FACT_CHANGES_TO_CLIENTS_V1] a cell written while held reaches this node's clients as the packet they expect;
+        // what was there at the start reached them in the config dump and its replay
+        if (!live || gone || node == nodeDB->getNodeNum() || !service)
+            return;
+        meshtastic_MeshPacket pkt;
+        if (!RibbitTransport::cellPacket(topic, node, b, len, t, pkt))
+            return;
+        meshtastic_MeshPacket *p = packetPool.allocCopy(pkt);
+        if (!p)
+            return;
+        LOG_INFO("[MT_RIBBIT] cell %s !%08x changed: to our clients (port %u)", topic, node, (unsigned)pkt.decoded.portnum);
+        service->sendToPhone(p);
+    }
+
+    static void applyToView(const char *topic, uint32_t node, const uint8_t *b, size_t len, int gone)
     {
         if (node == nodeDB->getNodeNum())
             return;

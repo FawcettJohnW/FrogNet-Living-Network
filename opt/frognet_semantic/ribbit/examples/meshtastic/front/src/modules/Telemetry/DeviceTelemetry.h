@@ -6,6 +6,11 @@
 #include <OLEDDisplay.h>
 #include <OLEDDisplayUi.h>
 
+#ifdef ARCH_PORTDUINO
+class RibbitTransport;
+extern RibbitTransport *ribbitTransport;
+#endif
+
 class DeviceTelemetryModule : private concurrency::OSThread,
                               public BaseTelemetryModule,
                               public ProtobufModule<meshtastic_Telemetry>
@@ -19,7 +24,14 @@ class DeviceTelemetryModule : private concurrency::OSThread,
           ProtobufModule("DeviceTelemetry", meshtastic_PortNum_TELEMETRY_APP, &meshtastic_Telemetry_msg)
     {
         nodeStatusObserver.observe(&nodeStatus->onNewStatus);
+#ifdef ARCH_PORTDUINO
+        // [MT_OWN_FACTS_AT_START_V1] on the memory the first run writes the node's device metrics cell at once, then waits
+        // out stock's start delay before its first broadcast
+        startDelayMs = setStartDelay();
+        setIntervalFromNow(ribbitTransport ? 0 : startDelayMs);
+#else
         setIntervalFromNow(setStartDelay()); // Wait until NodeInfo is sent
+#endif
     }
     virtual bool wantUIFrame() { return false; }
 
@@ -36,6 +48,11 @@ class DeviceTelemetryModule : private concurrency::OSThread,
     bool sendTelemetry(NodeNum dest = NODENUM_BROADCAST, bool phoneOnly = false);
 
   private:
+#ifdef ARCH_PORTDUINO
+    void writeOwnCell(); // [MT_OWN_FACTS_AT_START_V1]
+    int32_t startDelayMs = 0;
+    bool wroteOwnCell = false;
+#endif
     meshtastic_Telemetry getDeviceTelemetry();
     meshtastic_Telemetry getLocalStatsTelemetry();
 

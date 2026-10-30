@@ -22,7 +22,7 @@
 namespace {
 constexpr const char *SPACE = "mt", *TOPIC = "pkt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.3 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.4 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -100,8 +100,8 @@ constexpr const char *FACTS = "mtf";
 struct Fact {
     Fact *next = nullptr;
     std::string topic, bytes;
-    uint32_t node = 0;
-    bool gone = false;
+    uint32_t node = 0, t = 0;
+    bool gone = false, live = false;
 };
 ribbit::lf::TakeStack<Fact> g_facts;
 
@@ -159,10 +159,12 @@ extern "C" int mtr_hold_facts(void (*wake)(void *ctx), void *ctx)
         // read, then hold: what is there now is handed over first, then every change past the newest id it saw
         auto now = g_space->read(FACTS, "");
         long long past = 0;
-        auto add = [wake, ctx](ribbit::SpaceRow &r) {
+        auto add = [wake, ctx](ribbit::SpaceRow &r, bool live) {
             auto *f = new Fact;
             f->topic = r.topic;
             f->gone = r.gone;
+            f->live = live;
+            if (!r.gone && r.fields()) f->t = (uint32_t)r.fields()->num("t");
             std::string p;
             if (!node_of(r.instance, f->node) ||
                 (!r.gone && (!(r.fields()) || (p = r.fields()->str("p")).empty() || !unhex(p, f->bytes)))) {
@@ -174,11 +176,11 @@ extern "C" int mtr_hold_facts(void (*wake)(void *ctx), void *ctx)
             if (g_facts.push(f) && wake) wake(ctx);
         };
         for (auto &r : now) {
-            add(r);
+            add(r, false);
             if ((long long)r.id > past) past = (long long)r.id;
         }
         g_space->watch(FACTS, "", past, [add](std::vector<ribbit::SpaceRow> &rows) {
-            for (auto &r : rows) add(r);
+            for (auto &r : rows) add(r, true);
         });
         fprintf(stderr, "[MT_RIBBIT] holding every fact family (%s,*): %zu rows now, past id %lld\n", FACTS, now.size(),
                 past);
@@ -193,7 +195,8 @@ extern "C" size_t mtr_take_facts(mtr_on_fact on, void *ctx)
 {
     auto got = g_facts.take();
     for (Fact *f : got) {
-        on(f->topic.c_str(), f->node, reinterpret_cast<const uint8_t *>(f->bytes.data()), f->bytes.size(), f->gone, ctx);
+        on(f->topic.c_str(), f->node, reinterpret_cast<const uint8_t *>(f->bytes.data()), f->bytes.size(), f->gone, f->t,
+           f->live, ctx);
         delete f;
     }
     return got.size();

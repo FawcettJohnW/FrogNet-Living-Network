@@ -33,8 +33,10 @@ void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, si
 // Rows are collected on the held read's thread and handed over only by mtr_take_facts, on the caller's thread; wake(ctx)
 // is called on the held read's thread when rows arrive and none were waiting (the caller schedules its take).
 int mtr_hold_facts(void (*wake)(void *ctx), void *ctx);
-// gone: the owner's session ended and the cell went with it (payload empty).
-typedef void (*mtr_on_fact)(const char *topic, uint32_t node, const uint8_t *payload, size_t len, int gone, void *ctx);
+// gone: the owner's session ended and the cell went with it (payload empty). t: the owner's write time (unix s).
+// live: 0 for the rows that were there when the hold started, 1 for every change after (a cell written while held).
+typedef void (*mtr_on_fact)(const char *topic, uint32_t node, const uint8_t *payload, size_t len, int gone, uint32_t t,
+                            int live, void *ctx);
 // Everything the held read collected since the last take, oldest first, on the caller's thread. Returns the count.
 size_t mtr_take_facts(mtr_on_fact on, void *ctx);
 

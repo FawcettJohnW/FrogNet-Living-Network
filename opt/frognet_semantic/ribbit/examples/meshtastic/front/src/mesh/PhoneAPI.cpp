@@ -28,6 +28,7 @@
 #include "modules/NodeInfoModule.h"
 #include "xmodem.h"
 #ifdef ARCH_PORTDUINO
+#include "mesh/ribbit/RibbitTransport.h"
 #include "mt_ribbit.h"
 #endif
 
@@ -2324,28 +2325,11 @@ void cellToReplay(const char *topic, uint32_t node, const uint8_t *p, size_t len
     auto *c = static_cast<CellReplay *>(ctx);
     if (node == nodeDB->getNodeNum())
         return;
-    meshtastic_MeshPacket pkt = meshtastic_MeshPacket_init_default;
-    if (len > sizeof(pkt.decoded.payload.bytes)) {
-        LOG_WARN("[MT_RIBBIT] replay: cell (%s,!%08x) is %u bytes, larger than a payload; not sent", topic, node, (unsigned)len);
+    meshtastic_MeshPacket pkt;
+    if (!RibbitTransport::cellPacket(topic, node, p, len, t, pkt)) {
+        LOG_WARN("[MT_RIBBIT] replay: cell (%s,!%08x) not sent (%u bytes)", topic, node, (unsigned)len);
         return;
     }
-    uint32_t kind = c->port;
-    if (strncmp(topic, "tel.", 4) == 0)
-        kind = kind * 256 + (uint32_t)atoi(topic + 4);
-    pkt.from = node;
-    pkt.to = NODENUM_BROADCAST;
-    pkt.rx_time = t;
-    pkt.has_rx_time = t >= MIN_PLAUSIBLE_EPOCH;
-    pkt.id = makeReplayPacketId(node, t, kind);
-    uint8_t hopLimit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
-    pkt.hop_start = hopLimit; // direct: on the memory there is no hop between nodes
-    pkt.hop_limit = hopLimit;
-    pkt.priority = meshtastic_MeshPacket_Priority_BACKGROUND;
-    pkt.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
-    pkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
-    pkt.decoded.portnum = c->port;
-    memcpy(pkt.decoded.payload.bytes, p, len);
-    pkt.decoded.payload.size = (pb_size_t)len;
     c->pkts.push_back(pkt);
 }
 } // namespace

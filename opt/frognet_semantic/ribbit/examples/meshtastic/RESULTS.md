@@ -118,3 +118,29 @@ Found on the way: the node's own cells go when its session ends, so after the co
 until its next broadcast; the node now writes its position cell at start. S8's first form never passed on stock
 either: the lab's primary channel shares no position ("position sharing disabled on all channels"), which is the
 contract, and the scenario now enables it.
+
+## Phase 2, step 2 — fact changes reach clients from the cells; requests are reads [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_REPLIES_FROM_CELLS_V1]
+
+Own-fact packets (NodeInfo, position, telemetry, status) no longer go into the memory; the only packets each node wrote
+in step 4 were its text broadcast and its DM. Step 4 gained S9 (another node's client asks this node for node info,
+position and device telemetry) and a live half of S8 (a client already connected to the other node gets the position
+when it changes).
+
+| scenario | stock 2.8.2 (step4-20261030-155158) | Ribbit 0.7 (step4-20261030-160450) |
+|---|---|---|
+| S8 live client gets the position | (not measured on stock) | 0.01 s |
+| S8 fresh client, and again 20 s later | same coordinates both times | same coordinates both times |
+| S9 node info request | no answer in 30 s | NODEINFO 0.01 s, from the owner |
+| S9 position request | POSITION 0.04 s | POSITION 0.00 s |
+| S9 device telemetry request | TELEMETRY 0.05 s | TELEMETRY 0.05 s |
+
+| oracle | result |
+|---|---|
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 342.8 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 37 m 26 s |
+
+Found on the way: the device metrics cell did not exist until the module's first broadcast (30 s after start, and only
+when telemetry broadcasting is on), so a request got NO_RESPONSE where stock answers with a fresh reading; the module now
+writes its cell on its first run, keeping stock's start delay for the broadcast. Writing it from the module's
+constructor crashed the node (not every global is up yet). mtr-probe is now built by build-ribbit.sh, so it cannot lag
+the library.

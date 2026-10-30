@@ -440,6 +440,10 @@ ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
 
         return ERRNO_NO_INTERFACES;
     } else {
+        // [MT_REPLIES_FROM_CELLS_V1] a request for a FrogNet node's fact is answered from its cell, here
+        if (ribbitTransport && ribbitTransport->answerFromCell(p))
+            return ERRNO_SHOULD_RELEASE;
+
         // Coordinates never go out on the event channel: any local originator (phone, module, UI) that aimed
         // one there is moved onto the position channel instead. Before the loopback below so the local copy
         // carries the channel it will actually be sent on.
