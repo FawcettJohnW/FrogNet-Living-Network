@@ -81,12 +81,12 @@ through it. Addresses are (space, variable, instance); `!N` is a node number.
 
 | truth | owner (one writer) | address | latest / distinct | readers | trigger (held read) → action | derived instead |
 |---|---|---|---|---|---|---|
-| a node's identity: User incl. public key | the node | (mt, user, !N) | latest; written at start and when the owner changes | every edge (node list in the config dump, PKI keys, D8 path choice), extended API | (mt, user, *) → NODEINFO packet / node_info to its clients; gone → R2 | FrogNet membership (D8): the cell exists |
+| a node's identity: User incl. public key | the node | (mt, user, !N) | latest; written at start and when the owner changes | every edge (node list in the config dump, PKI keys, D8 path choice), extended API | (mt, user, *) → NODEINFO packet / node_info to its clients; gone → the node leaves every list (R2) | FrogNet membership (D8): the cell exists |
 | position | the node (its GPS or its client) | (mt, pos, !N) | latest; written when it changes, never on a timer | every edge, extended API | (mt, pos, *) → POSITION packet to clients, truncated to the channel's precision at read | — |
 | telemetry, one cell per variant | the node (its sensors) | (mt, tel.<variant>, !N) | latest, on change | every edge | (mt, tel.*, *) → TELEMETRY packet | — |
 | status | the node | (mt, status, !N) | latest | every edge | (mt, status, *) | — |
 | a message a client sends to a channel | the sending node | (mt, msg\|<channel>, !S.<n mod ring>) | distinct; ring per sender; retention ≥ what stock holds for a reconnecting client | the edges of nodes holding that channel | (mt, msg\|<channel>) past the edge's mark → packet to clients | — |
-| a direct message | the sending node | (mt, dm\|!R, !S.<n mod ring>) | distinct; recipient in the variable, so the recipient reads only its own | node R's edge | (mt, dm\|!R) past its mark → packet to R's clients | — |
+| a direct message | the sending node | (mt, dm\|!R, !S.<n mod ring>) | distinct; recipient in the variable, so the recipient reads only its own; payload encrypted as stock, same key (D9) | node R's edge | (mt, dm\|!R) past its mark → packet to R's clients | — |
 | want_ack on a sent message | — | — | — | — | the sender's edge: ACK NONE when its write lands and R's user cell exists (from = R); NAK MAX_RETRANSMIT when R's user cell goes (R1) | yes |
 | where a client of node N has read to | node N's edge | (mt, mark, !N.<client>) | latest | node N's edge (reconnect resumes from it) | — | replaces the to-phone queue |
 | config, module config, channels, owner settings | the node | (mt, cfg.<type>, !N), (mt, chan.<i>, !N) | latest, permanent (`[PERMANENT_CELL_V1]`: filed and written back on restart) | the node's edge (config dump), remote admin readers | — | replaces NodeDB load/save and preference files |
@@ -98,7 +98,7 @@ through it. Addresses are (space, variable, instance); `!N` is a node number.
 | key verification step | each of the two nodes | (mt, kv\|!peer, !me) | latest | the peer | (mt, kv\|!me) → next step, ClientNotification | — |
 | marks on a peer (favourite, ignored, muted) | the marking node | (mt, peer, !me.!N) | latest, permanent | the marking node's edge | — | — |
 | liveness, last_heard | — | — | — | — | — | the owner's family exists (session-bound); last_heard = the cell's write time |
-| request replies (position, telemetry, nodeinfo, traceroute) | — | — | — | — | the requesting edge reads the owner's cell and builds the reply (request_id, from = owner); no cell → NO_RESPONSE | yes |
+| request replies (position, telemetry, nodeinfo) | — | — | — | — | the requesting edge reads the owner's cell and builds the reply (request_id, from = owner); no cell → NO_RESPONSE | yes |
 
 Participants, each one job:
 - **edge** (per node): serves the client API; answers each request from a write or a read; holds reads on the families
@@ -112,5 +112,5 @@ duplicate filters, NodeDB and its persistence, to-phone queue, store-and-forward
 re-broadcasts, airtime cooldowns, Traffic Management, the internal Observer pub/sub, session passkey timers beyond
 the passkey cell's own freshness (read-time arithmetic).
 
-Open for this table: R2 (dead nodes in the list); traceroute's route source (D5: FrogNet's real hops, from FrogNet's
-own link cells); DM payload encryption inside the region (D7 covers channel facts; DMs are PKI end-to-end in stock).
+Decided for this table (2026-10-30): a node whose session ends is gone from every list (R2); a DM cell carries stock's
+encrypted payload with the same key (D9); nothing special is built for traceroute (D5).
