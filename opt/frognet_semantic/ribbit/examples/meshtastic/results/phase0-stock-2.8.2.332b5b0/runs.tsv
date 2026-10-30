@@ -1,0 +1,6 @@
+mcp-ci-device-mesh-e2e	0	46.0	timeout 300 .venv/bin/python scripts/ci_device_mesh_e2e.py --binary /home/claude/mesh/p0/bin/meshtasticd-stock-2.8.2.332b5b0 --workdir /home/claude/mesh/p0/mcp-lab --count 2
+py-smokevirt	0	281.5	timeout 5400 python -m pytest -m smokevirt -p no:cacheprovider -o addopts= -rA --timeout=600 meshtastic/tests/test_smokevirt.py
+py-smokemesh	0	205.2	timeout 3000 python -m pytest -m smokemesh -p no:cacheprovider -o addopts= -rA --timeout=600 meshtastic/tests/test_smokemesh.py
+rt-vectors	0	90.6	timeout 900 /home/claude/mesh/tools/rt-oracle.sh
+rt-vectors	0	150.5	timeout 900 /home/claude/mesh/tools/rt-oracle.sh
+native-unit	0	2423	./bin/run-tests.sh (coverage env, ASan)

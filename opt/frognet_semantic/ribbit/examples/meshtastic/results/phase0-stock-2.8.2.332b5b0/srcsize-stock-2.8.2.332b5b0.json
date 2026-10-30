@@ -1,0 +1,56 @@
+{
+ "partition_rules": [
+  [
+   "generated",
+   "^src/mesh/generated/"
+  ],
+  [
+   "board",
+   "^(variants/|src/platform/|src/detect/|src/gps/|src/motion/|src/nimble/|src/mesh/wifi/|src/mesh/eth/|src/mesh/raspihttp/|src/mesh/http/|src/input/|src/buzz/|src/power/|src/sleep|src/Pca9555|src/GpioLogic|src/SPILock|src/RF95Configuration|src/mesh/[A-Za-z0-9]*(Interface|Band|RadioLib)[A-Za-z0-9]*\\.(cpp|h)$|src/mesh/HardwareRNG)"
+  ],
+  [
+   "application",
+   "^(src/modules/|src/mqtt/|src/graphics/|src/MessageStore|src/WaypointStore|src/WaypointUtils|src/DisplayFormatters|src/AudioThread|src/AmbientLightingThread)"
+  ],
+  [
+   "core",
+   "^src/"
+  ]
+ ],
+ "tree": {
+  "application": {
+   "files": 483,
+   "code_lines": 85709
+  },
+  "board": {
+   "files": 724,
+   "code_lines": 61785
+  },
+  "core": {
+   "files": 149,
+   "code_lines": 25461
+  },
+  "generated": {
+   "files": 56,
+   "code_lines": 8566
+  }
+ },
+ "native_compiled": {
+  "application": {
+   "files": 417,
+   "code_lines": 72751
+  },
+  "board": {
+   "files": 194,
+   "code_lines": 28395
+  },
+  "core": {
+   "files": 126,
+   "code_lines": 23775
+  },
+  "generated": {
+   "files": 56,
+   "code_lines": 8566
+  }
+ }
+}

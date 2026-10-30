@@ -1,0 +1,93 @@
+{
+ "from_radio.admin": {
+  "get_config_response": 4
+ },
+ "from_radio.config": {
+  "bluetooth": 6,
+  "device": 6,
+  "device_ui": 6,
+  "display": 6,
+  "lora": 6,
+  "network": 6,
+  "position": 6,
+  "power": 6,
+  "security": 6,
+  "sessionkey": 6
+ },
+ "from_radio.moduleConfig": {
+  "ambient_lighting": 6,
+  "audio": 6,
+  "canned_message": 6,
+  "detection_sensor": 6,
+  "external_notification": 6,
+  "mesh_beacon": 6,
+  "mqtt": 6,
+  "neighbor_info": 6,
+  "paxcounter": 6,
+  "range_test": 6,
+  "remote_hardware": 6,
+  "serial": 6,
+  "statusmessage": 6,
+  "store_forward": 6,
+  "tak": 6,
+  "telemetry": 6,
+  "traffic_management": 6
+ },
+ "from_radio.portnum": {
+  "ADMIN_APP": 4,
+  "NODEINFO_APP": 4,
+  "POSITION_APP": 5,
+  "ROUTING_APP": 10,
+  "SIMULATOR_APP": 19,
+  "TELEMETRY_APP": 6,
+  "TEXT_MESSAGE_APP": 2,
+  "TRACEROUTE_APP": 2
+ },
+ "from_radio.variant": {
+  "channel": 48,
+  "config": 60,
+  "config_complete_id": 6,
+  "deviceuiConfig": 6,
+  "fileInfo": 34,
+  "metadata": 6,
+  "moduleConfig": 102,
+  "my_info": 6,
+  "node_info": 11,
+  "packet": 52,
+  "queueStatus": 44,
+  "region_presets": 6
+ },
+ "ota.datagrams": {
+  "total": 20
+ },
+ "ota.portnum": {
+  "ENCRYPTED_PKI": 3,
+  "NODEINFO_APP": 8,
+  "POSITION_APP": 1,
+  "ROUTING_APP": 4,
+  "TEXT_MESSAGE_APP": 2,
+  "TRACEROUTE_APP": 2
+ },
+ "streams": {
+  "from_radio": 6,
+  "to_radio": 6
+ },
+ "to_radio.admin": {
+  "get_config_request": 4,
+  "set_config": 2,
+  "set_fixed_position": 2,
+  "set_owner": 2
+ },
+ "to_radio.portnum": {
+  "ADMIN_APP": 10,
+  "POSITION_APP": 1,
+  "TELEMETRY_APP": 1,
+  "TEXT_MESSAGE_APP": 2,
+  "TRACEROUTE_APP": 1
+ },
+ "to_radio.variant": {
+  "heartbeat": 7,
+  "packet": 15,
+  "want_config_id": 6
+ }
+}

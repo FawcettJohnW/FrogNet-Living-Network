@@ -1,0 +1,77 @@
+{
+ "from_radio.admin": {
+  "get_config_response": 13
+ },
+ "from_radio.config": {
+  "bluetooth": 237,
+  "device": 237,
+  "device_ui": 237,
+  "display": 237,
+  "lora": 237,
+  "network": 237,
+  "position": 237,
+  "power": 237,
+  "security": 237,
+  "sessionkey": 237
+ },
+ "from_radio.moduleConfig": {
+  "ambient_lighting": 237,
+  "audio": 237,
+  "canned_message": 237,
+  "detection_sensor": 237,
+  "external_notification": 237,
+  "mesh_beacon": 237,
+  "mqtt": 237,
+  "neighbor_info": 237,
+  "paxcounter": 237,
+  "range_test": 237,
+  "remote_hardware": 237,
+  "serial": 237,
+  "statusmessage": 237,
+  "store_forward": 237,
+  "tak": 237,
+  "telemetry": 237,
+  "traffic_management": 237
+ },
+ "from_radio.portnum": {
+  "ADMIN_APP": 13,
+  "ROUTING_APP": 45,
+  "SIMULATOR_APP": 4
+ },
+ "from_radio.variant": {
+  "channel": 1896,
+  "config": 2370,
+  "config_complete_id": 237,
+  "deviceuiConfig": 237,
+  "fileInfo": 1190,
+  "metadata": 237,
+  "moduleConfig": 4029,
+  "my_info": 237,
+  "node_info": 237,
+  "packet": 62,
+  "queueStatus": 225,
+  "region_presets": 237
+ },
+ "streams": {
+  "from_radio": 237,
+  "to_radio": 238
+ },
+ "to_radio.admin": {
+  "begin_edit_settings": 1,
+  "exit_simulator": 2,
+  "get_config_request": 24,
+  "remove_fixed_position": 1,
+  "set_channel": 14,
+  "set_config": 53,
+  "set_fixed_position": 2,
+  "set_owner": 4
+ },
+ "to_radio.portnum": {
+  "ADMIN_APP": 101
+ },
+ "to_radio.variant": {
+  "heartbeat": 138,
+  "packet": 101,
+  "want_config_id": 238
+ }
+}

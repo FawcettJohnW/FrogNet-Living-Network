@@ -1,0 +1,76 @@
+{
+ "from_radio.config": {
+  "bluetooth": 7,
+  "device": 7,
+  "device_ui": 7,
+  "display": 7,
+  "lora": 7,
+  "network": 7,
+  "position": 7,
+  "power": 7,
+  "security": 7,
+  "sessionkey": 7
+ },
+ "from_radio.moduleConfig": {
+  "ambient_lighting": 7,
+  "audio": 7,
+  "canned_message": 7,
+  "detection_sensor": 7,
+  "external_notification": 7,
+  "mesh_beacon": 7,
+  "mqtt": 7,
+  "neighbor_info": 7,
+  "paxcounter": 7,
+  "range_test": 7,
+  "remote_hardware": 7,
+  "serial": 7,
+  "statusmessage": 7,
+  "store_forward": 7,
+  "tak": 7,
+  "telemetry": 7,
+  "traffic_management": 7
+ },
+ "from_radio.portnum": {
+  "NODEINFO_APP": 2,
+  "ROUTING_APP": 4,
+  "SIMULATOR_APP": 8,
+  "TEXT_MESSAGE_APP": 3
+ },
+ "from_radio.variant": {
+  "channel": 56,
+  "config": 70,
+  "config_complete_id": 7,
+  "deviceuiConfig": 7,
+  "fileInfo": 39,
+  "metadata": 7,
+  "moduleConfig": 119,
+  "my_info": 7,
+  "node_info": 11,
+  "packet": 17,
+  "queueStatus": 28,
+  "region_presets": 7
+ },
+ "ota.datagrams": {
+  "total": 8
+ },
+ "ota.portnum": {
+  "NODEINFO_APP": 2,
+  "TEXT_MESSAGE_APP": 6
+ },
+ "streams": {
+  "from_radio": 7,
+  "to_radio": 7
+ },
+ "to_radio.admin": {
+  "set_config": 4
+ },
+ "to_radio.portnum": {
+  "ADMIN_APP": 4,
+  "TEXT_MESSAGE_APP": 3
+ },
+ "to_radio.variant": {
+  "heartbeat": 6,
+  "packet": 7,
+  "want_config_id": 7
+ }
+}

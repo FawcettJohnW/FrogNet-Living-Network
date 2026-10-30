@@ -1,0 +1,75 @@
+{
+ "from_radio.config": {
+  "bluetooth": 84,
+  "device": 84,
+  "device_ui": 84,
+  "display": 84,
+  "lora": 84,
+  "network": 84,
+  "position": 84,
+  "power": 84,
+  "security": 84,
+  "sessionkey": 84
+ },
+ "from_radio.moduleConfig": {
+  "ambient_lighting": 84,
+  "audio": 84,
+  "canned_message": 84,
+  "detection_sensor": 84,
+  "external_notification": 84,
+  "mesh_beacon": 84,
+  "mqtt": 84,
+  "neighbor_info": 84,
+  "paxcounter": 84,
+  "range_test": 84,
+  "remote_hardware": 84,
+  "serial": 84,
+  "statusmessage": 84,
+  "store_forward": 84,
+  "tak": 84,
+  "telemetry": 84,
+  "traffic_management": 84
+ },
+ "from_radio.portnum": {
+  "NODEINFO_APP": 69,
+  "ROUTING_APP": 40,
+  "SIMULATOR_APP": 100,
+  "TEXT_MESSAGE_APP": 4,
+  "TRACEROUTE_APP": 2
+ },
+ "from_radio.variant": {
+  "channel": 672,
+  "config": 840,
+  "config_complete_id": 84,
+  "deviceuiConfig": 84,
+  "fileInfo": 483,
+  "metadata": 84,
+  "moduleConfig": 1428,
+  "my_info": 84,
+  "node_info": 204,
+  "packet": 215,
+  "queueStatus": 235,
+  "region_presets": 84
+ },
+ "streams": {
+  "from_radio": 84,
+  "to_radio": 84
+ },
+ "to_radio.admin": {
+  "exit_simulator": 21,
+  "get_config_request": 21,
+  "set_config": 21
+ },
+ "to_radio.portnum": {
+  "ADMIN_APP": 63,
+  "NODEINFO_APP": 21,
+  "SIMULATOR_APP": 130,
+  "TEXT_MESSAGE_APP": 4,
+  "TRACEROUTE_APP": 1
+ },
+ "to_radio.variant": {
+  "heartbeat": 49,
+  "packet": 219,
+  "want_config_id": 84
+ }
+}

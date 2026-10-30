@@ -1,0 +1,333 @@
+{
+ "ToRadio": {
+  "packet": [
+   "test_event_channel_phone_api"
+  ],
+  "want_config_id": [
+   "test_phone_api_config_dump",
+   "test_stream_api"
+  ],
+  "disconnect": [],
+  "xmodemPacket": [],
+  "mqttClientProxyMessage": [],
+  "heartbeat": [
+   "test_phone_api_config_dump"
+  ]
+ },
+ "FromRadio": {
+  "packet": [
+   "test_phone_api_config_dump",
+   "test_stream_api"
+  ],
+  "my_info": [
+   "test_phone_api_config_dump"
+  ],
+  "node_info": [
+   "test_phone_api_config_dump"
+  ],
+  "config": [
+   "test_phone_api_config_dump"
+  ],
+  "log_record": [],
+  "config_complete_id": [
+   "test_phone_api_config_dump"
+  ],
+  "rebooted": [],
+  "moduleConfig": [
+   "test_phone_api_config_dump",
+   "test_stream_api"
+  ],
+  "channel": [
+   "test_phone_api_config_dump"
+  ],
+  "queueStatus": [
+   "test_phone_api_config_dump"
+  ],
+  "xmodemPacket": [],
+  "metadata": [
+   "test_phone_api_config_dump"
+  ],
+  "mqttClientProxyMessage": [],
+  "fileInfo": [
+   "test_phone_api_config_dump"
+  ],
+  "clientNotification": [
+   "test_stream_api"
+  ],
+  "deviceuiConfig": [
+   "test_phone_api_config_dump"
+  ],
+  "lockdown_status": [],
+  "region_presets": [
+   "test_phone_api_config_dump"
+  ]
+ },
+ "AdminMessage": {
+  "get_channel_request": [],
+  "get_channel_response": [],
+  "get_owner_request": [
+   "test_admin_session_repro"
+  ],
+  "get_owner_response": [
+   "test_admin_session_repro"
+  ],
+  "get_config_request": [
+   "test_admin_session_repro"
+  ],
+  "get_config_response": [
+   "test_admin_session_repro"
+  ],
+  "get_module_config_request": [
+   "test_admin_session_repro"
+  ],
+  "get_module_config_response": [
+   "test_admin_session_repro",
+   "test_module_config",
+   "test_tak_config"
+  ],
+  "get_canned_message_module_messages_request": [],
+  "get_canned_message_module_messages_response": [],
+  "get_device_metadata_request": [
+   "test_admin_radio"
+  ],
+  "get_device_metadata_response": [],
+  "get_ringtone_request": [],
+  "get_ringtone_response": [],
+  "get_device_connection_status_request": [],
+  "get_device_connection_status_response": [],
+  "set_ham_mode": [
+   "test_admin_radio"
+  ],
+  "get_node_remote_hardware_pins_request": [],
+  "get_node_remote_hardware_pins_response": [],
+  "enter_dfu_mode_request": [],
+  "delete_file_request": [],
+  "set_scale": [],
+  "backup_preferences": [],
+  "restore_preferences": [],
+  "remove_backup_preferences": [],
+  "send_input_event": [],
+  "set_owner": [
+   "test_admin_session_repro",
+   "test_stream_api"
+  ],
+  "set_channel": [
+   "test_admin_radio",
+   "test_fuzz_packets"
+  ],
+  "set_config": [
+   "test_fuzz_packets"
+  ],
+  "set_module_config": [
+   "test_fuzz_packets"
+  ],
+  "set_canned_message_module_messages": [],
+  "set_ringtone_message": [],
+  "remove_by_nodenum": [
+   "test_fuzz_packets"
+  ],
+  "set_favorite_node": [
+   "test_admin_radio",
+   "test_fuzz_packets"
+  ],
+  "remove_favorite_node": [
+   "test_fuzz_packets"
+  ],
+  "set_fixed_position": [],
+  "remove_fixed_position": [
+   "test_fuzz_packets"
+  ],
+  "set_time_only": [
+   "test_fuzz_packets"
+  ],
+  "get_ui_config_request": [],
+  "get_ui_config_response": [],
+  "store_ui_config": [],
+  "set_ignored_node": [
+   "test_admin_radio",
+   "test_fuzz_packets"
+  ],
+  "remove_ignored_node": [
+   "test_fuzz_packets"
+  ],
+  "toggle_muted_node": [
+   "test_admin_radio",
+   "test_fuzz_packets"
+  ],
+  "begin_edit_settings": [
+   "test_admin_radio"
+  ],
+  "commit_edit_settings": [
+   "test_admin_radio"
+  ],
+  "add_contact": [
+   "test_fuzz_packets"
+  ],
+  "key_verification": [],
+  "factory_reset_device": [],
+  "reboot_ota_seconds": [],
+  "exit_simulator": [],
+  "reboot_seconds": [],
+  "shutdown_seconds": [],
+  "factory_reset_config": [],
+  "nodedb_reset": [],
+  "ota_request": [],
+  "sensor_config": [],
+  "lockdown_auth": [
+   "test_stream_api"
+  ]
+ },
+ "PortNum": {
+  "UNKNOWN_APP": [
+   "test_mesh_module"
+  ],
+  "TEXT_MESSAGE_APP": [
+   "support",
+   "test_ack_proof",
+   "test_event_channel_router",
+   "test_fuzz_packets",
+   "test_mesh_beacon",
+   "test_mesh_module",
+   "test_meshpacket_serializer",
+   "test_mqtt",
+   "test_muted_source",
+   "test_nexthop_routing",
+   "test_packet_signing",
+   "test_phone_api_config_dump",
+   "test_pki_admin_fallback",
+   "test_position_precision",
+   "test_rebroadcast_mode",
+   "test_reliable_ack_matrix",
+   "test_stream_api",
+   "test_tophone_queue",
+   "test_traffic_management"
+  ],
+  "REMOTE_HARDWARE_APP": [],
+  "POSITION_APP": [
+   "support",
+   "test_channel_keys",
+   "test_event_channel_phone_api",
+   "test_event_channel_router",
+   "test_fuzz_packets",
+   "test_mesh_module",
+   "test_meshpacket_serializer",
+   "test_mqtt",
+   "test_packet_signing",
+   "test_position_precision",
+   "test_traffic_management",
+   "test_transmit_history"
+  ],
+  "NODEINFO_APP": [
+   "test_fuzz_packets",
+   "test_meshpacket_serializer",
+   "test_mqtt",
+   "test_nodeinfo_send_window",
+   "test_packet_signing",
+   "test_traffic_management",
+   "test_transmit_history"
+  ],
+  "ROUTING_APP": [
+   "test_ack_proof",
+   "test_admin_radio",
+   "test_mesh_module",
+   "test_mqtt",
+   "test_nexthop_routing",
+   "test_packet_signing",
+   "test_reliable_ack_matrix",
+   "test_tophone_queue",
+   "test_traffic_management"
+  ],
+  "ADMIN_APP": [
+   "test_admin_session_repro",
+   "test_fuzz_packets",
+   "test_mesh_module",
+   "test_mqtt",
+   "test_rebroadcast_mode",
+   "test_stream_api",
+   "test_traffic_management"
+  ],
+  "TEXT_MESSAGE_COMPRESSED_APP": [],
+  "WAYPOINT_APP": [
+   "test_event_channel_phone_api",
+   "test_event_channel_router",
+   "test_fuzz_packets",
+   "test_meshpacket_serializer",
+   "test_mqtt",
+   "test_nexthop_routing",
+   "test_packet_signing",
+   "test_position_precision"
+  ],
+  "AUDIO_APP": [],
+  "DETECTION_SENSOR_APP": [
+   "test_mqtt"
+  ],
+  "ALERT_APP": [],
+  "KEY_VERIFICATION_APP": [
+   "test_key_verification",
+   "test_packet_signing",
+   "test_pki_admin_fallback"
+  ],
+  "REMOTE_SHELL_APP": [],
+  "REPLY_APP": [],
+  "IP_TUNNEL_APP": [],
+  "PAXCOUNTER_APP": [],
+  "STORE_FORWARD_PLUSPLUS_APP": [],
+  "NODE_STATUS_APP": [],
+  "MESH_BEACON_APP": [
+   "test_fuzz_packets",
+   "test_mesh_beacon"
+  ],
+  "PAGING_APP": [],
+  "SERIAL_APP": [],
+  "STORE_FORWARD_APP": [
+   "test_mesh_module"
+  ],
+  "RANGE_TEST_APP": [
+   "test_mqtt"
+  ],
+  "TELEMETRY_APP": [
+   "test_fuzz_packets",
+   "test_mesh_module",
+   "test_meshpacket_serializer",
+   "test_mqtt",
+   "test_packet_signing",
+   "test_reliable_ack_matrix",
+   "test_tophone_queue",
+   "test_traffic_management",
+   "test_transmit_history"
+  ],
+  "ZPS_APP": [],
+  "SIMULATOR_APP": [],
+  "TRACEROUTE_APP": [
+   "test_fuzz_packets",
+   "test_packet_signing",
+   "test_traceroute_nexthop"
+  ],
+  "NEIGHBORINFO_APP": [
+   "test_fuzz_packets",
+   "test_mesh_module"
+  ],
+  "ATAK_PLUGIN": [],
+  "MAP_REPORT_APP": [
+   "test_event_channel_router",
+   "test_mqtt",
+   "test_position_precision"
+  ],
+  "POWERSTRESS_APP": [],
+  "LORAWAN_BRIDGE": [],
+  "RETICULUM_TUNNEL_APP": [],
+  "CAYENNE_APP": [],
+  "ATAK_PLUGIN_V2": [
+   "test_mesh_module"
+  ],
+  "LORA_OTA_APP": [],
+  "GROUPALARM_APP": [],
+  "PRIVATE_APP": [
+   "test_mesh_module",
+   "test_packet_signing",
+   "test_pki_admin_fallback"
+  ],
+  "ATAK_FORWARDER": [],
+  "MAX": []
+ }
+}
