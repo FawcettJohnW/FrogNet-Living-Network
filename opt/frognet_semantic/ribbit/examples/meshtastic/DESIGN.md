@@ -43,7 +43,9 @@ outside integrations. MQTT module config stays owner config cells, readable and 
 
 - **want_ack: closed (2026-10-30).** Stock's ACK is a packet from the destination's router (plumbing), removed.
   The node serving the client builds the client's ROUTING_APP packet itself: ACK when the client's write lands
-  (error NONE, request_id = message id, from = destination). A destination whose user cell is not in the view is a node
+  (error NONE, request_id = message id, from = destination). It is a stub for the contract and asserts nothing about
+  delivery: in a memory-based system an ack is nonsensical (John, 2026-10-30), and a per-message ack would be a one-time
+  flag on every message that can never be cleared. A destination whose user cell is not in the view is a node
   this one does not know (gone is gone, R1): the client gets what stock gives for an unknown node,
   PKI_SEND_FAIL_PUBLIC_KEY, at once. Same fields as stock.
 - **NodeDB: removed (decided 2026-10-30: no copies, no aggregations).** Each node writes its own facts once, in its

@@ -31,8 +31,12 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
 
     const GlobalPacketId key(p);
 #ifdef ARCH_PORTDUINO
-    // [MT_ACK_AT_THE_EDGE_V1] to a FrogNet node the DM is a write to our own cells and its read by the other: nothing is
-    // retransmitted and no ACK comes back; the client's ACK is built here once the write is made (from = destination)
+    // [MT_ACK_AT_THE_EDGE_V1] STUB. John, 2026-10-30: "Ack is ack and if it's associated with a specific message then
+    // fine, but it's a property of the object. Obj.ack.message. But that's going to create a shitload of one time flags
+    // that can never be cleared. Ack is a security blanket. In a memory based system ack is nonsensical."
+    // So nothing tracks delivery: to a FrogNet node the DM is a write to our own cells and its read by the other; nothing
+    // is retransmitted, no ACK comes back, and the ACK the client API expects is handed to the client here once the
+    // write is made (from = destination) only because the contract asks for one. It asserts nothing about the read.
     const bool ackHere = p->want_ack && !isBroadcast(p->to) && isFromUs(p) && RibbitTransport::isFrogNetNode(p->to);
     const NodeNum ackFrom = p->to;
     const PacketId ackId = p->id;
