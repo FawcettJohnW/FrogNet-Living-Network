@@ -15,6 +15,7 @@ Scenarios, each timed and logged:
   S5 dm-dead     a DM with want_ack to the dead node: what the sender's client gets, and when
   S6 restart     relaunch it: it is back in every other client's list, and how fast
   S7 malformed   a user cell with garbage bytes and one with a bad instance: no node falls over (all still answer)
+  S8 position    a fixed position set on one node is in a fresh client of another node (dump or replay)
 Writes results.json beside the logs. Exit 0 = every scenario PASS.
 """
 import argparse
@@ -180,6 +181,36 @@ def main():
         res["S3_dm_ack"] = {"pass": err == "NONE", "error": err, "seconds": secs, "from": frm}
         log("S3", res["S3_dm_ack"])
 
+        # S8 a fixed position set on one node reaches a fresh client of another (config dump / replay)
+        # position is shared only on a channel with a position precision; the lab's primary has none (stock skips the
+        # broadcast: "position sharing disabled on all channels"), so give it full precision and a 30 s interval
+        i = connect(src.tcp_port)
+        ln = i.localNode
+        ln.channels[0].settings.module_settings.position_precision = 32
+        ln.writeChannel(0)
+        ln.localConfig.position.position_broadcast_secs = 30
+        ln.localConfig.position.position_broadcast_smart_enabled = False
+        ln.writeConfig("position")
+        ln.setFixedPosition(47.4668, -122.3405, 120)
+        i.close()
+        t = time.time()
+        def pos_seen():
+            j = connect(dst.tcp_port)
+            try:
+                time.sleep(1.5)  # the satellite replay follows config_complete_id, as stock's does
+                p = (j.nodesByNum.get(nums[src.tcp_port]) or {}).get("position") or {}
+                return ({k: p.get(k) for k in ("latitude", "longitude", "altitude", "precisionBits")}
+                        if abs(p.get("latitude", 0) - 47.4668) < 0.05 else None)
+            finally:
+                j.close()
+        p, t1 = wait_until(pos_seen, 120, step=2)
+        # then a fresh client of the other node, 20 s later (after the config reboot), still gets it at connect
+        time.sleep(20)
+        again = pos_seen()
+        res["S8_position"] = {"pass": bool(p) and bool(again), "seconds": round(t1 - t, 2), "position": p,
+                              "fresh_client_20s_later": again}
+        log("S8", res["S8_position"])
+
         # S4 kill one node for good
         victim = nodes[-1]
         vnum = nums[victim.tcp_port]
@@ -230,7 +261,7 @@ def main():
         for s in sups:
             s.stop()
         (wd / "results.json").write_text(json.dumps(res, indent=1))
-    verdict = all(v.get("pass") for v in res.values()) and len(res) == 7
+    verdict = all(v.get("pass") for v in res.values()) and len(res) == 8
     log("VERDICT", "PASS" if verdict else "FAIL", {k: v.get("pass") for k, v in res.items()})
     return 0 if verdict else 1
 

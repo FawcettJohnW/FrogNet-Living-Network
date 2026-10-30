@@ -122,6 +122,14 @@ class PhoneAPI
     size_t replayEnvironmentIndex = 0;
     size_t replayStatusIndex = 0;
     ReplayPhase replayPhase = REPLAY_PHASE_IDLE; // armed by sendConfigComplete() for full/default sync
+#ifdef ARCH_PORTDUINO
+    // [MT_DUMP_READS_CELLS_V1] On the memory the dump's other nodes and the replay after it are one read of the owners'
+    // cells each, taken when that part of the dump starts; these say whether this session's read was taken.
+    bool cellsNodesRead = false;
+    bool cellsReplayRead = false;
+    void prefetchNodeInfosFromCells();
+    bool popReplayPacketFromCells(meshtastic_MeshPacket &out);
+#endif
 
     meshtastic_ToRadio toRadioScratch = {
         0}; // this is a static scratch object, any data must be copied elsewhere before returning

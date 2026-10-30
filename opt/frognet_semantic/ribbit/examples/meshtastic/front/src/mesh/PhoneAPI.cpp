@@ -27,6 +27,9 @@
 #include "main.h"
 #include "modules/NodeInfoModule.h"
 #include "xmodem.h"
+#ifdef ARCH_PORTDUINO
+#include "mt_ribbit.h"
+#endif
 
 #if FromRadio_size > MAX_TO_FROM_RADIO_SIZE
 #error FromRadio is too big
@@ -351,6 +354,10 @@ void PhoneAPI::handleStartConfig()
         replayTelemetryIndex = 0;
         replayEnvironmentIndex = 0;
         replayStatusIndex = 0;
+#ifdef ARCH_PORTDUINO
+        cellsNodesRead = false;
+        cellsReplayRead = false;
+#endif
     }
     resetReadIndex();
 }
@@ -981,7 +988,7 @@ size_t PhoneAPI::getFromRadio(uint8_t *buf)
             // A record prefetched before the clock became trusted carries last_heard == 0 even
             // once the store is backfilled, so re-read it at send time: handshake ordering
             // (time-set vs node-list download) must not decide what the phone sees.
-            if (infoToSend.last_heard == 0 && infoToSend.num != nodeDB->getNodeNum()) {
+            if (!MT_FACTS_FROM_RAM() && infoToSend.last_heard == 0 && infoToSend.num != nodeDB->getNodeNum()) {
                 const meshtastic_NodeInfoLite *fresh = nodeDB->getMeshNode(infoToSend.num);
                 if (fresh)
                     infoToSend.last_heard = fresh->last_heard;
@@ -1206,6 +1213,12 @@ void PhoneAPI::releaseQueueStatusPhonePacket()
 
 void PhoneAPI::prefetchNodeInfos()
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM()) {
+        prefetchNodeInfosFromCells();
+        return;
+    }
+#endif
     bool added = false;
     bool wasEmpty = false;
     // Other-node NodeInfos always go out thin (no bundled position/device_metrics).
@@ -1575,6 +1588,10 @@ void PhoneAPI::prefetchReplayStatus()
 // Returns true if a packet was placed in `out`; false if everything is drained.
 bool PhoneAPI::popReplayPacket(meshtastic_MeshPacket &out)
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM())
+        return popReplayPacketFromCells(out);
+#endif
     while (replayPhase != REPLAY_PHASE_IDLE) {
         // Prime the active phase: seed the snapshot vector on first entry,
         // top up replayQueue from the snapshot up to kReplayPrefetchDepth.
@@ -2253,3 +2270,117 @@ bool PhoneAPI::handleLockdownAuthInline(const meshtastic_LockdownAuth &la)
 }
 #endif // MESHTASTIC_ENCRYPTED_STORAGE
 #endif // MESHTASTIC_PHONEAPI_ACCESS_CONTROL
+
+#ifdef ARCH_PORTDUINO
+// [MT_DUMP_READS_CELLS_V1] The dump's other nodes: one read of (mtf, user, *) when the part starts. Each cell is the
+// owner's User as it wrote it; last_heard is the owner's write time. On the memory every node is direct (hops_away 0).
+void PhoneAPI::prefetchNodeInfosFromCells()
+{
+    if (cellsNodesRead)
+        return;
+    cellsNodesRead = true;
+    std::vector<meshtastic_NodeInfo> got;
+    size_t cells = mtr_read_facts(
+        "user",
+        [](const char *, uint32_t node, const uint8_t *p, size_t len, uint32_t t, void *ctx) {
+            if (node == nodeDB->getNodeNum())
+                return;
+            meshtastic_NodeInfo info = meshtastic_NodeInfo_init_default;
+            if (!pb_decode_from_bytes(p, len, &meshtastic_User_msg, &info.user)) {
+                LOG_WARN("[MT_RIBBIT] dump: user cell of !%08x does not decode, not sent", node);
+                return;
+            }
+            info.num = node;
+            info.has_user = true;
+            info.last_heard = t;
+            info.has_hops_away = true;
+            info.hops_away = 0;
+            static_cast<std::vector<meshtastic_NodeInfo> *>(ctx)->push_back(info);
+        },
+        &got);
+    bool wasEmpty;
+    {
+        concurrency::LockGuard guard(&nodeInfoMutex);
+        wasEmpty = nodeInfoQueue.empty();
+        for (auto &i : got)
+            nodeInfoQueue.push_back(i);
+    }
+    LOG_INFO("[MT_RIBBIT] dump: %u other nodes from one read of (mtf,user) (%u cells)", (unsigned)got.size(), (unsigned)cells);
+    if (!got.empty() && wasEmpty)
+        onNowHasData(0);
+}
+
+namespace
+{
+struct CellReplay {
+    std::vector<meshtastic_MeshPacket> pkts;
+    meshtastic_PortNum port;
+};
+
+// One replayed cell, shaped as stock shapes a replayed satellite record: a broadcast from the owner, as if heard; the
+// payload is the owner's own protobuf, unchanged.
+void cellToReplay(const char *topic, uint32_t node, const uint8_t *p, size_t len, uint32_t t, void *ctx)
+{
+    auto *c = static_cast<CellReplay *>(ctx);
+    if (node == nodeDB->getNodeNum())
+        return;
+    meshtastic_MeshPacket pkt = meshtastic_MeshPacket_init_default;
+    if (len > sizeof(pkt.decoded.payload.bytes)) {
+        LOG_WARN("[MT_RIBBIT] replay: cell (%s,!%08x) is %u bytes, larger than a payload; not sent", topic, node, (unsigned)len);
+        return;
+    }
+    uint32_t kind = c->port;
+    if (strncmp(topic, "tel.", 4) == 0)
+        kind = kind * 256 + (uint32_t)atoi(topic + 4);
+    pkt.from = node;
+    pkt.to = NODENUM_BROADCAST;
+    pkt.rx_time = t;
+    pkt.has_rx_time = t >= MIN_PLAUSIBLE_EPOCH;
+    pkt.id = makeReplayPacketId(node, t, kind);
+    uint8_t hopLimit = Default::getConfiguredOrDefaultHopLimit(config.lora.hop_limit);
+    pkt.hop_start = hopLimit; // direct: on the memory there is no hop between nodes
+    pkt.hop_limit = hopLimit;
+    pkt.priority = meshtastic_MeshPacket_Priority_BACKGROUND;
+    pkt.transport_mechanism = meshtastic_MeshPacket_TransportMechanism_TRANSPORT_LORA;
+    pkt.which_payload_variant = meshtastic_MeshPacket_decoded_tag;
+    pkt.decoded.portnum = c->port;
+    memcpy(pkt.decoded.payload.bytes, p, len);
+    pkt.decoded.payload.size = (pb_size_t)len;
+    c->pkts.push_back(pkt);
+}
+} // namespace
+
+// [MT_DUMP_READS_CELLS_V1] The replay after config_complete_id: one read each of the position, telemetry and status
+// cells, in stock's phase order, when the replay starts; then it drains.
+bool PhoneAPI::popReplayPacketFromCells(meshtastic_MeshPacket &out)
+{
+    if (replayPhase == REPLAY_PHASE_IDLE)
+        return false;
+    if (!cellsReplayRead) {
+        cellsReplayRead = true;
+        CellReplay pos{{}, meshtastic_PortNum_POSITION_APP}, tel{{}, meshtastic_PortNum_TELEMETRY_APP},
+            st{{}, meshtastic_PortNum_NODE_STATUS_APP};
+        mtr_read_facts("pos", cellToReplay, &pos);
+        mtr_read_facts("tel.*", cellToReplay, &tel);
+        mtr_read_facts("status", cellToReplay, &st);
+        concurrency::LockGuard guard(&nodeInfoMutex);
+        for (auto *c : {&pos, &tel, &st})
+            for (auto &p : c->pkts)
+                replayQueue.push_back(p);
+        LOG_INFO("[MT_RIBBIT] replay: %u positions, %u telemetry, %u status from one read each of the cells",
+                 (unsigned)pos.pkts.size(), (unsigned)tel.pkts.size(), (unsigned)st.pkts.size());
+    }
+    {
+        concurrency::LockGuard guard(&nodeInfoMutex);
+        if (!replayQueue.empty()) {
+            out = replayQueue.front();
+            replayQueue.pop_front();
+            return true;
+        }
+    }
+    LOG_INFO("Replay drain complete (cells) millis=%u", millis());
+    replayPhase = REPLAY_PHASE_IDLE;
+    cellsReplayRead = false;
+    return false;
+}
+#endif

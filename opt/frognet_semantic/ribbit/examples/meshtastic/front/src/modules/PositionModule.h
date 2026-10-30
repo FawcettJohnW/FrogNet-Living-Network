@@ -35,6 +35,11 @@ class PositionModule : public ProtobufModule<meshtastic_Position>, private concu
      */
     bool sendOurPosition(NodeNum dest, bool wantReplies = false, uint8_t channel = 0);
     bool sendOurPosition();
+#ifdef ARCH_PORTDUINO
+    // [MT_OWN_FACTS_AT_START_V1] Write this node's position cell as it shares it (the sharing channel's precision; nothing
+    // when sharing is off on every channel), without a packet. Called at start: a node's cells go with its session.
+    bool writeOwnPositionCell();
+#endif
 
     /**
      * Answer a position request that arrived on a channel we never share position on (the event channel):

@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <memory>
 #include <string>
 
@@ -21,7 +22,7 @@
 namespace {
 constexpr const char *SPACE = "mt", *TOPIC = "pkt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.2 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.3 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -116,7 +117,39 @@ bool node_of(const std::string &instance, uint32_t &n)
 extern "C" void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, size_t len)
 {
     if (!g_space) return;
-    g_space->write(FACTS, topic, node_name(node), "{\"p\":\"" + hex(payload, len) + "\"}");
+    // t: when the owner wrote it (its own clock, unix seconds). A reader's last_heard is this, never a time it keeps.
+    g_space->write(FACTS, topic, node_name(node),
+                   "{\"p\":\"" + hex(payload, len) + "\",\"t\":" + std::to_string((long long)time(nullptr)) + "}");
+}
+
+extern "C" size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx)
+{
+    if (!g_space) return 0;
+    // topic "x.*": every topic starting "x."; the memory is asked for the whole space and the rest is not handed on
+    std::string want = topic ? topic : "";
+    bool prefix = want.size() && want.back() == '*';
+    if (prefix) want.pop_back();
+    size_t n = 0;
+    try {
+        auto rows = g_space->read(FACTS, prefix ? "" : want);
+        for (auto &r : rows) {
+            if (r.gone || (prefix && r.topic.compare(0, want.size(), want) != 0)) continue;
+            uint32_t node = 0;
+            auto f = r.fields();
+            std::string p, bytes;
+            if (!node_of(r.instance, node) || !f || (p = f->str("p")).empty() || !unhex(p, bytes)) {
+                fprintf(stderr, "[MT_RIBBIT] cell %llu (%s,%s) unreadable, skipped\n", (unsigned long long)r.id,
+                        r.topic.c_str(), r.instance.c_str());
+                continue;
+            }
+            on(r.topic.c_str(), node, reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), (uint32_t)f->num("t"),
+               ctx);
+            n++;
+        }
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] read of (%s,%s) failed: %s\n", FACTS, topic ? topic : "", e.what());
+    }
+    return n;
 }
 
 extern "C" int mtr_hold_facts(void (*wake)(void *ctx), void *ctx)

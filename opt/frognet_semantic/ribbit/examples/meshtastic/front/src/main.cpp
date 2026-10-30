@@ -49,6 +49,9 @@
 #include "mesh/generated/meshtastic/config.pb.h"
 #include "meshUtils.h"
 #include "modules/Modules.h"
+#ifdef ARCH_PORTDUINO
+#include "modules/PositionModule.h"
+#endif
 #ifdef MESHTASTIC_HEAP_WATERMARK_CHECK
 #include "memGet.h"
 #endif
@@ -1123,6 +1126,10 @@ void setup()
 
     // Now that the mesh service is created, create any modules
     setupModules();
+#ifdef ARCH_PORTDUINO
+    if (ribbitTransport && positionModule)
+        positionModule->writeOwnPositionCell(); // [MT_OWN_FACTS_AT_START_V1]
+#endif
 
 #if !MESHTASTIC_EXCLUDE_WAYPOINT
     waypointStore.loadFromFlash();

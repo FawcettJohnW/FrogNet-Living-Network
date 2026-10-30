@@ -37,4 +37,10 @@ int mtr_hold_facts(void (*wake)(void *ctx), void *ctx);
 typedef void (*mtr_on_fact)(const char *topic, uint32_t node, const uint8_t *payload, size_t len, int gone, void *ctx);
 // Everything the held read collected since the last take, oldest first, on the caller's thread. Returns the count.
 size_t mtr_take_facts(mtr_on_fact on, void *ctx);
+
+// [MT_DUMP_READS_CELLS_V1] One read of fact cells as they are now (live ones only), on the caller's thread: on() per
+// cell, then it returns the count. topic: "user", "pos", "status", or "tel.*" (every topic with that prefix).
+// t: when the owner wrote the cell (its clock, unix seconds), 0 when the cell carries none.
+typedef void (*mtr_on_cell)(const char *topic, uint32_t node, const uint8_t *payload, size_t len, uint32_t t, void *ctx);
+size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx);
 }

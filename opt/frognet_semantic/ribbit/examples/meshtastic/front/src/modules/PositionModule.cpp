@@ -16,6 +16,9 @@
 #include "gps/GeoCoord.h"
 #include "gps/RTC.h"
 #include "main.h"
+#ifdef ARCH_PORTDUINO
+#include "mesh/ribbit/RibbitTransport.h"
+#endif
 #include "meshUtils.h"
 #include "meshtastic/atak.pb.h"
 #include "sleep.h"
@@ -441,6 +444,25 @@ bool PositionModule::sendOurPositionToPhone()
     service->sendToPhone(p);
     return true;
 }
+
+#ifdef ARCH_PORTDUINO
+bool PositionModule::writeOwnPositionCell()
+{
+    if (!ribbitTransport || (!config.position.fixed_position && !nodeDB->hasLocalPositionSinceBoot()))
+        return false;
+    uint8_t ch;
+    if (!findPositionChannel(ch)) {
+        LOG_INFO("[MT_RIBBIT] own position cell not written: position sharing disabled on all channels");
+        return false;
+    }
+    meshtastic_MeshPacket *p = allocPositionPacket(getPositionPrecisionForChannel(ch));
+    if (!p)
+        return false;
+    ribbitTransport->onOwnFact(*p);
+    packetPool.release(p);
+    return true;
+}
+#endif
 
 bool PositionModule::sendOurPosition(NodeNum dest, bool wantReplies, uint8_t channel)
 {

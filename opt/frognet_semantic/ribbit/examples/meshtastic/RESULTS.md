@@ -92,3 +92,29 @@ sent back to a FrogNet sender.
 Found on the way: the first build fed the edge ACK to the router's ingress (enqueueReceivedMessage); stock ingress
 dropped it ("hop_start invalid/missing") because it never crossed a wire. It now goes straight to the client.
 S5 (DM to a dead node) is unchanged: PKI_SEND_FAIL_PUBLIC_KEY at once; R1 stays open.
+
+## Phase 2, step 1 — the client edge reads the cells [MT_DUMP_READS_CELLS_V1] [MT_OWN_FACTS_AT_START_V1]
+
+The config dump's other nodes and the satellite replay after it are reads of the owners' cells, taken when each part
+starts; the NodeDB is not consulted for other nodes on that path. Step 4 gained S8: a node shares a fixed position
+(primary channel given a position precision, 30 s interval) and a fresh client of another node must show it, then again
+20 s later after the config reboot.
+
+| scenario | stock 2.8.2 (step4-20261030-130717) | Ribbit 0.6 (step4-20261030-130558) |
+|---|---|---|
+| S1 views | 21.17 s | 0.44 s |
+| S3 DM ACK | NONE 0.04 s, from destination | NONE 0.00 s, from destination |
+| S4 kill | never (R2) | 0.33 s |
+| S5 dead DM | MAX_RETRANSMIT 39.78 s | PKI_SEND_FAIL_PUBLIC_KEY 0.0 s (R1) |
+| S8 position at a fresh client | 1.62 s; 47.4677248, -122.3360512, alt 120, 15 bits | 1.61 s; 47.4677248, -122.3360512, alt 120, 15 bits |
+| S8 again 20 s later | same | same (from the cell the node wrote at restart) |
+
+| oracle | result |
+|---|---|
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 250.3 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 34 m 45 s |
+
+Found on the way: the node's own cells go when its session ends, so after the config reboot its position was gone
+until its next broadcast; the node now writes its position cell at start. S8's first form never passed on stock
+either: the lab's primary channel shares no position ("position sharing disabled on all channels"), which is the
+contract, and the scenario now enables it.

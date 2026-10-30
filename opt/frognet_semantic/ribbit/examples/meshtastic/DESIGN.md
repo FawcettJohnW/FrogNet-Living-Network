@@ -68,7 +68,7 @@ outside integrations. MQTT module config stays owner config cells, readable and 
 | 2a | `[MT_OWN_FACTS_V1]` | each node writes its own facts to its own cells: (mt, user, <node>) with public key, (mt, pos, <node>), (mt, tel.<variant>, <node>), (mt, status, <node>), whenever its own entry changes | done |
 | 2b | `[MT_NODEDB_IS_A_HELD_VIEW_V1]` | NodeDB stops building other nodes from received packets; its tables are a held view of those families (read, then hold; best practices §3e), so its ~50 methods and 70 calling files are untouched. Persistence, eviction and the warm tier of other nodes' data go | done |
 | 3a | `[MT_ONLY_OWN_PACKETS_V1]` | a node writes only its own packets into the memory; a relay would be a second copy of another node's truth (measured in 2b: every packet landed twice). Other transports still relay | done: mesh e2e PASS, each packet once |
-| 3b | `[MT_ACK_AT_THE_EDGE_V1]` | QUESTION-3 D4, ACK half: a DM with want_ack to a FrogNet node (its user cell is in the view, D8) is written once and not retransmitted; the sender's node hands its client the ACK (NONE, request_id, from = destination) when the write lands, through the same MeshService path a received ACK takes. The destination sends no ACK to a FrogNet sender. A stock destination keeps stock retransmission and ACK. NAK half (R1) not built yet | done: step 4 S3 ACK 0.04 s from the destination, 0 ACK packets in the memory; smokevirt 40/40; native 88/88 |
+| 3b | `[MT_ACK_AT_THE_EDGE_V1]` | QUESTION-3 D4, ACK half: a DM with want_ack to a FrogNet node (its user cell is in the view, D8) is written once and not retransmitted; the sender's node hands its client the ACK (NONE, request_id, from = destination) when the write lands, through the same MeshService path a received ACK takes. The destination sends no ACK to a FrogNet sender. A stock destination keeps stock retransmission and ACK. A destination not in the view is unknown (R1, gone is gone) | done: step 4 S3 ACK 0.04 s from the destination, 0 ACK packets in the memory; smokevirt 40/40; native 88/88 |
 | 4 | | bad data (CONVERTING §3.5): kills mid-flight, a node's session ending with a want_ack open, adversarial ordering, many nodes, malformed cells | done (harness/step4-bad-data.sh), rerun at every step |
 
 A held view is the memory's truth kept current by a held read, never a second truth: nothing in it is written by this
@@ -115,3 +115,14 @@ the passkey cell's own freshness (read-time arithmetic).
 
 Decided for this table (2026-10-30): a node whose session ends is gone from every list (R2); a DM cell carries stock's
 encrypted payload with the same key (D9); nothing special is built for traceroute (D5).
+
+## Phase 2 steps (one truth or participant at a time; step 4's scenarios and the incumbent's suites after each)
+
+| step | tag | what changes | status |
+|---|---|---|---|
+| 1 | `[MT_DUMP_READS_CELLS_V1]` `[MT_OWN_FACTS_AT_START_V1]` | the client edge: the config dump's other nodes are one read of (mtf, user, *) when that part starts (last_heard = the owner's write time `t`, hops_away 0); the replay after config_complete_id is one read each of (mtf, pos/tel.*/status, *), each cell the owner's protobuf unchanged. A node writes its position cell at start as it shares it (sharing channel's precision; nothing when sharing is off), since its cells go with its session | done: step 4 S1–S8 PASS, S8 matches stock exactly; smokevirt 40/40; native 88/88 |
+| 2 | | own facts written on change, not on a broadcast: the position, telemetry and NodeInfo broadcasts stop going into the memory; request replies (position, telemetry, nodeinfo) built at the requester's edge from the owner's cell | next |
+| 3 | | the remaining NodeDB readers of other nodes (PKI keys, the router, display, modules) read cells; the held view (RibbitFacts) is deleted; marks on peers go to (mt, peer, !me.!N) | |
+| 4 | | messages: channel and direct messages as per-sender rings (mt, msg\|ch / dm\|!R); (mt, pkt) and the to-phone queue go; client read marks | |
+| 5 | | config as permanent cells; remote admin as intents and refusals | |
+| 6 | | the distributed side-by-side on FrogNet's simulator | |
