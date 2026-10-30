@@ -72,3 +72,45 @@ outside integrations. MQTT module config stays owner config cells, readable and 
 
 A held view is the memory's truth kept current by a held read, never a second truth: nothing in it is written by this
 node, nothing is persisted, and when the owner's family goes the view's row goes with it.
+
+## Phase 2 — the truth table (greenfield; written before any code, CONVERTING §4a)
+
+The library replaces everything between the contract edges. The client API (ToRadio/FromRadio framing, byte-exact),
+the config surface and the incumbent's tests are kept; sensors, GPS, display and power drivers are kept and write
+through it. Addresses are (space, variable, instance); `!N` is a node number.
+
+| truth | owner (one writer) | address | latest / distinct | readers | trigger (held read) → action | derived instead |
+|---|---|---|---|---|---|---|
+| a node's identity: User incl. public key | the node | (mt, user, !N) | latest; written at start and when the owner changes | every edge (node list in the config dump, PKI keys, D8 path choice), extended API | (mt, user, *) → NODEINFO packet / node_info to its clients; gone → R2 | FrogNet membership (D8): the cell exists |
+| position | the node (its GPS or its client) | (mt, pos, !N) | latest; written when it changes, never on a timer | every edge, extended API | (mt, pos, *) → POSITION packet to clients, truncated to the channel's precision at read | — |
+| telemetry, one cell per variant | the node (its sensors) | (mt, tel.<variant>, !N) | latest, on change | every edge | (mt, tel.*, *) → TELEMETRY packet | — |
+| status | the node | (mt, status, !N) | latest | every edge | (mt, status, *) | — |
+| a message a client sends to a channel | the sending node | (mt, msg\|<channel>, !S.<n mod ring>) | distinct; ring per sender; retention ≥ what stock holds for a reconnecting client | the edges of nodes holding that channel | (mt, msg\|<channel>) past the edge's mark → packet to clients | — |
+| a direct message | the sending node | (mt, dm\|!R, !S.<n mod ring>) | distinct; recipient in the variable, so the recipient reads only its own | node R's edge | (mt, dm\|!R) past its mark → packet to R's clients | — |
+| want_ack on a sent message | — | — | — | — | the sender's edge: ACK NONE when its write lands and R's user cell exists (from = R); NAK MAX_RETRANSMIT when R's user cell goes (R1) | yes |
+| where a client of node N has read to | node N's edge | (mt, mark, !N.<client>) | latest | node N's edge (reconnect resumes from it) | — | replaces the to-phone queue |
+| config, module config, channels, owner settings | the node | (mt, cfg.<type>, !N), (mt, chan.<i>, !N) | latest, permanent (`[PERMANENT_CELL_V1]`: filed and written back on restart) | the node's edge (config dump), remote admin readers | — | replaces NodeDB load/save and preference files |
+| a remote admin request (set_*, commands) from node A's client to node B | node A | (mt, admin\|!B, !A.<n>) | distinct | node B | (mt, admin\|!B) → B validates (session passkey, admin keys) and rewrites its own cfg cells | — |
+| a remote admin refusal | node B | (mt, admin.err\|!A, !B.<n>) | distinct | node A's edge | (mt, admin.err\|!A) → Routing error to A's client (exceptions only come back) | — |
+| remote admin get_* | — | — | — | — | node A's edge reads B's cfg cells and B's passkey cell; builds get_*_response | yes |
+| admin session passkey | node B | (mt, passkey, !B) | latest | requesters' edges | — | — |
+| waypoint | the creating node | (mt, wp, !N.<id>) | latest per id; delete = a withdrawn value, not a removal | every edge | (mt, wp, *) | — |
+| key verification step | each of the two nodes | (mt, kv\|!peer, !me) | latest | the peer | (mt, kv\|!me) → next step, ClientNotification | — |
+| marks on a peer (favourite, ignored, muted) | the marking node | (mt, peer, !me.!N) | latest, permanent | the marking node's edge | — | — |
+| liveness, last_heard | — | — | — | — | — | the owner's family exists (session-bound); last_heard = the cell's write time |
+| request replies (position, telemetry, nodeinfo, traceroute) | — | — | — | — | the requesting edge reads the owner's cell and builds the reply (request_id, from = owner); no cell → NO_RESPONSE | yes |
+
+Participants, each one job:
+- **edge** (per node): serves the client API; answers each request from a write or a read; holds reads on the families
+  its clients receive; builds every ACK, NAK and reply.
+- **own-facts writer** (per node): GPS, sensors, owner changes → the node's own cells, on change.
+- **admin applier** (per node): holds (mt, admin|!me), applies intents to its own cells.
+- **MQTT edge** (optional, D6) and **over-the-air edge** (Phase 3, D8: destination's user cell absent → stock path).
+
+Gone entirely: radio TX queue, flood/next-hop relay, retransmission, implicit ACK, PacketHistory and the other
+duplicate filters, NodeDB and its persistence, to-phone queue, store-and-forward, MessageStore/WaypointStore, periodic
+re-broadcasts, airtime cooldowns, Traffic Management, the internal Observer pub/sub, session passkey timers beyond
+the passkey cell's own freshness (read-time arithmetic).
+
+Open for this table: R2 (dead nodes in the list); traceroute's route source (D5: FrogNet's real hops, from FrogNet's
+own link cells); DM payload encryption inside the region (D7 covers channel facts; DMs are PKI end-to-end in stock).
