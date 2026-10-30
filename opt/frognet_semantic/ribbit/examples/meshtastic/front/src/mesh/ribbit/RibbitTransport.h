@@ -1,0 +1,135 @@
+// Copyright (C) 2016-2026 Fawcett Innovations LLC
+// SPDX-License-Identifier: GPL-2.0-only
+//
+// RibbitTransport.h -- [MT_PACKETS_ON_THE_RAM_V1] Phase 1, mechanical step 1: the node's packets on the shared RAM.
+//
+// Same shape as UdpMulticastHandler, which it sits beside: onSend() is a write of the encoded MeshPacket into this
+// node's own cells; a held read on the family hands every other node's packet to router->enqueueReceivedMessage with the
+// same ingress rules the UDP path applies. Nothing is asked of another node and nothing is acknowledged.
+//
+// Enabled by MESHTASTIC_RIBBIT=HOST:PORT (a memory elsewhere) or here:HOST:PORT (this process holds it).
+#pragma once
+#ifdef ARCH_PORTDUINO
+#include "configuration.h"
+#include "main.h"
+#include "mesh/Router.h"
+#include "mesh/NodeDB.h"
+#include "mesh/generated/meshtastic/telemetry.pb.h"
+#include "mt_ribbit.h"
+#include <cstring>
+#include <cstdlib>
+
+class RibbitTransport final
+{
+  public:
+    // Returns true when the memory is reached and the held read is running.
+    bool start(const char *where, uint32_t me)
+    {
+        running = mtr_start(where, me, &RibbitTransport::onPacket, this) == 0;
+        LOG_INFO("[MT_RIBBIT] %s: %s", mtr_version(), running ? "packets on the shared RAM" : "memory not reached");
+        return running;
+    }
+
+    bool onSend(const meshtastic_MeshPacket *mp)
+    {
+        if (!running || !mp)
+            return false;
+        // [MT_ONLY_OWN_PACKETS_V1] a node writes only its own packets: every node reads the original from its owner's
+        // ring, so a relay would be a second copy of another node's truth. Other transports (UDP, LoRa) still relay.
+        if (!isFromUs(mp)) {
+            LOG_INFO("[MT_RIBBIT] not written: id=0x%08x from=0x%08x is another node's packet (relay)", mp->id, mp->from);
+            return false;
+        }
+        uint8_t buffer[meshtastic_MeshPacket_size];
+        size_t n = pb_encode_to_bytes(buffer, sizeof(buffer), &meshtastic_MeshPacket_msg, mp);
+        LOG_INFO("[MT_RIBBIT] write id=0x%08x from=0x%08x to=0x%08x len=%u", mp->id, mp->from, mp->to, (unsigned)n);
+        mtr_send(buffer, n);
+        return true;
+    }
+
+    // [MT_OWN_FACTS_V1] A packet this node sends that carries one of its own facts also writes that fact into the
+    // node's own latest-value cell (mtf, <topic>, !<node>), at the moment stock tells the mesh. Telemetry is one cell
+    // per variant, named by the variant's field number (tel.<n>).
+    void onOwnFact(const meshtastic_MeshPacket &d)
+    {
+        if (!running || d.which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+            return;
+        const auto &pl = d.decoded.payload;
+        char topic[24];
+        switch (d.decoded.portnum) {
+        case meshtastic_PortNum_NODEINFO_APP:
+            strcpy(topic, "user");
+            break;
+        case meshtastic_PortNum_POSITION_APP:
+            strcpy(topic, "pos");
+            break;
+        case meshtastic_PortNum_NODE_STATUS_APP:
+            strcpy(topic, "status");
+            break;
+        case meshtastic_PortNum_TELEMETRY_APP: {
+            meshtastic_Telemetry t = meshtastic_Telemetry_init_zero;
+            if (!pb_decode_from_bytes(pl.bytes, pl.size, &meshtastic_Telemetry_msg, &t)) {
+                LOG_WARN("[MT_RIBBIT] own telemetry id=0x%08x does not decode, not written", d.id);
+                return;
+            }
+            snprintf(topic, sizeof topic, "tel.%u", (unsigned)t.which_variant);
+            break;
+        }
+        default:
+            return;
+        }
+        LOG_INFO("[MT_RIBBIT] fact %s !%08x len=%u (packet id=0x%08x)", topic, nodeDB->getNodeNum(), (unsigned)pl.size, d.id);
+        mtr_write_fact(topic, nodeDB->getNodeNum(), pl.bytes, pl.size);
+    }
+
+    // [MT_OWN_FACTS_V1] At start the node writes its own user cell: its truth is known at boot, so readers do not wait
+    // for its next NodeInfo broadcast. Built as NodeInfoModule builds it (owner, id from the node number).
+    void writeOwnUser()
+    {
+        if (!running)
+            return;
+        meshtastic_User u = owner;
+        strcpy(u.id, nodeDB->getNodeId().c_str());
+        uint8_t buf[meshtastic_User_size];
+        size_t n = pb_encode_to_bytes(buf, sizeof(buf), &meshtastic_User_msg, &u);
+        LOG_INFO("[MT_RIBBIT] fact user %s '%s' len=%u (start)", u.id, u.long_name, (unsigned)n);
+        mtr_write_fact("user", nodeDB->getNodeNum(), buf, n);
+    }
+
+  private:
+    bool running = false;
+
+    // On the held read's thread, in the family's write order: the same ingress rules as UdpMulticastHandler::onReceive.
+    static void onPacket(const uint8_t *bytes, size_t len, void *ctx)
+    {
+        meshtastic_MeshPacket mp = meshtastic_MeshPacket_init_zero;
+        if (!pb_decode_from_bytes(bytes, len, &meshtastic_MeshPacket_msg, &mp) || !router ||
+            mp.which_payload_variant != meshtastic_MeshPacket_encrypted_tag) {
+            LOG_WARN("[MT_RIBBIT] read len=%u: not an encrypted MeshPacket, dropped", (unsigned)len);
+            return;
+        }
+        if (isFromUs(&mp)) {
+            LOG_WARN("[MT_RIBBIT] read from=0x%08x is our own number, dropped", mp.from);
+            return;
+        }
+        if (mp.hop_limit > HOP_MAX || mp.hop_start > HOP_MAX) {
+            LOG_WARN("[MT_RIBBIT] read hop_limit(%u)/hop_start(%u) out of range, dropped", mp.hop_limit, mp.hop_start);
+            return;
+        }
+        LOG_INFO("[MT_RIBBIT] read id=0x%08x from=0x%08x to=0x%08x len=%u", mp.id, mp.from, mp.to, (unsigned)len);
+        mp.pki_encrypted = false;
+        mp.public_key.size = 0;
+        mp.tx_after = 0;
+        mp.priority = meshtastic_MeshPacket_Priority_UNSET;
+        UniquePacketPoolPacket p = packetPool.allocUniqueCopy(mp);
+        if (!p)
+            return;
+        p->rx_snr = 0;
+        p->rx_rssi = 0;
+        p->has_rx_rssi = false;
+        router->enqueueReceivedMessage(p.release());
+    }
+};
+
+extern RibbitTransport *ribbitTransport;
+#endif
