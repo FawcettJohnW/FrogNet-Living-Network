@@ -75,3 +75,20 @@ the shared RAM only (multicast blackholed). One run each: step4-20261030-104050 
 S4 and S5 are client-visible differences: QUESTION-3 R1, R2.
 Harness faults found and fixed on the way (not firmware): meshtasticd serves one TCP client at a time, so the view checks
 displaced the sender's open connection; the restart used the lab's first-launch erase and came back as a new node.
+
+## Phase 1, step 3b — the ACK is built at the edge [MT_ACK_AT_THE_EDGE_V1]
+
+ReliableRouter::send: a DM with want_ack from our client to a FrogNet node (its user cell in the view) is written once,
+with no retransmission entry; when the write lands, the node hands its client ACK NONE (request_id = the DM, from = the
+destination) through MeshService::handleFromRadio, the path RoutingModule gives a received ACK. sniffReceived: no ACK is
+sent back to a FrogNet sender.
+
+| oracle | result | notes |
+|---|---|---|
+| step 4, 4 nodes, RAM only (step4-20261030-115924) | 7/7 PASS | S3 ACK NONE 0.04 s from = destination; sender logged "ack at the edge", destination "no ACK sent"; the DM is the only packet the sender wrote to the destination, the destination wrote none to the sender |
+| Python CLI smokevirt (one node, on the RAM) | 40/40 | 279.4 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean | 30 m 16 s; transport off in the suites |
+
+Found on the way: the first build fed the edge ACK to the router's ingress (enqueueReceivedMessage); stock ingress
+dropped it ("hop_start invalid/missing") because it never crossed a wire. It now goes straight to the client.
+S5 (DM to a dead node) is unchanged: PKI_SEND_FAIL_PUBLIC_KEY at once; R1 stays open.

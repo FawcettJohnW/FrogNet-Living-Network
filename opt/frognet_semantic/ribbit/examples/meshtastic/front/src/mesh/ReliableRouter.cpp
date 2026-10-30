@@ -9,6 +9,11 @@
 #include "mesh-pb-constants.h"
 #include "modules/NodeInfoModule.h"
 #include "modules/RoutingModule.h"
+#ifdef ARCH_PORTDUINO
+#include "main.h"
+#include "MeshService.h"
+#include "mesh/ribbit/RibbitTransport.h" // [MT_ACK_AT_THE_EDGE_V1]
+#endif
 
 // ReliableRouter::ReliableRouter() {}
 
@@ -25,9 +30,19 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
     }
 
     const GlobalPacketId key(p);
-    const bool retransmitting = p->want_ack;
+#ifdef ARCH_PORTDUINO
+    // [MT_ACK_AT_THE_EDGE_V1] to a FrogNet node the DM is a write to our own cells and its read by the other: nothing is
+    // retransmitted and no ACK comes back; the client's ACK is built here once the write is made (from = destination)
+    const bool ackHere = p->want_ack && !isBroadcast(p->to) && isFromUs(p) && RibbitTransport::isFrogNetNode(p->to);
+    const NodeNum ackFrom = p->to;
+    const PacketId ackId = p->id;
+    const ChannelIndex ackCh = p->channel;
+#else
+    const bool ackHere = false;
+#endif
+    const bool retransmitting = p->want_ack && !ackHere;
 
-    if (p->want_ack) {
+    if (retransmitting) {
         DEBUG_HEAP_BEFORE;
         auto copy = packetPool.allocCopy(*p);
         DEBUG_HEAP_AFTER("ReliableRouter::send", copy);
@@ -51,6 +66,20 @@ ErrorCode ReliableRouter::send(meshtastic_MeshPacket *p)
     // Duty-cycle rejections may clear before the scheduled retry.
     if (retransmitting && result != ERRNO_OK && result != meshtastic_Routing_Error_DUTY_CYCLE_LIMIT)
         stopRetransmission(key);
+#ifdef ARCH_PORTDUINO
+    if (ackHere && result == ERRNO_OK && routingModule) {
+        meshtastic_MeshPacket *ack = routingModule->allocAckNak(meshtastic_Routing_Error_NONE, getNodeNum(), ackId, ackCh, 0);
+        if (ack) {
+            ack->from = ackFrom;
+            LOG_INFO("[MT_RIBBIT] ack at the edge: id=0x%08x to FrogNet node !%08x written; ACK to our client", ackId, ackFrom);
+            // Straight to our client, as RoutingModule hands it a received ACK: nothing crossed a wire, so stock ingress
+            // (hop checks, dedup) has nothing to judge. handleFromRadio copies the packet.
+            if (service)
+                service->handleFromRadio(ack);
+            packetPool.release(ack);
+        }
+    }
+#endif
 
     return result;
 }
@@ -117,12 +146,26 @@ bool ReliableRouter::shouldFilterReceived(const meshtastic_MeshPacket *p)
  *
  * Otherwise, let superclass handle it.
  */
+// [MT_ACK_AT_THE_EDGE_V1]
+static bool isFrogNetSender(const meshtastic_MeshPacket *p)
+{
+#ifdef ARCH_PORTDUINO
+    return !isFromUs(p) && RibbitTransport::isFrogNetNode(p->from);
+#else
+    (void)p;
+    return false;
+#endif
+}
+
 void ReliableRouter::sniffReceived(const meshtastic_MeshPacket *p, const meshtastic_Routing *c)
 {
     lastAckProof = {};
     if (isToUs(p)) { // ignore ack/nak/want_ack packets that are not address to us (we only handle 0 hop reliability)
         if (!MeshModule::currentReply) {
-            if (p->want_ack) {
+            if (p->want_ack && isFrogNetSender(p)) {
+                LOG_INFO("[MT_RIBBIT] no ACK sent: id=0x%08x from FrogNet node !%08x (its node answered its client)", p->id,
+                         p->from);
+            } else if (p->want_ack) {
                 if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
                     /* A response may be set to want_ack for retransmissions, but we don't need to ACK a response if it received
                       an implicit ACK already. If we received it directly or via NextHopRouter, only ACK with a hop limit of 0 to

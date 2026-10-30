@@ -237,6 +237,7 @@ class MeshService
     /// needs to keep the packet around it makes a copy
     int handleFromRadio(const meshtastic_MeshPacket *p);
     friend class RoutingModule;
+    friend class ReliableRouter; // [MT_ACK_AT_THE_EDGE_V1] the ACK built at the edge goes to our client the same way
 #ifdef PIO_UNIT_TESTING
     friend class MeshServicePhoneDeliveryTest;
 #endif

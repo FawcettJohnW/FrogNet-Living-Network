@@ -19,6 +19,9 @@
 #include <cstring>
 #include <cstdlib>
 
+class RibbitTransport;
+extern RibbitTransport *ribbitTransport;
+
 class RibbitTransport final
 {
   public:
@@ -94,6 +97,16 @@ class RibbitTransport final
         size_t n = pb_encode_to_bytes(buf, sizeof(buf), &meshtastic_User_msg, &u);
         LOG_INFO("[MT_RIBBIT] fact user %s '%s' len=%u (start)", u.id, u.long_name, (unsigned)n);
         mtr_write_fact("user", nodeDB->getNodeNum(), buf, n);
+    }
+
+    // [MT_ACK_AT_THE_EDGE_V1] D8 read both ways: N is a FrogNet node when its user cell is in the view. While the fact
+    // view runs, the NodeDB holds only nodes that came from their owners' cells, so presence + user = the cell exists.
+    static bool isFrogNetNode(NodeNum n)
+    {
+        if (!MT_FACTS_FROM_RAM() || !ribbitTransport || !ribbitTransport->running)
+            return false;
+        const meshtastic_NodeInfoLite *info = nodeDB->getMeshNode(n);
+        return nodeInfoLiteHasUser(info);
     }
 
   private:
