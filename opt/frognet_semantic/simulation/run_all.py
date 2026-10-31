@@ -463,6 +463,17 @@ def main():
         except Exception as e:
             print(f"  [ERROR] netns plan: {e}")
             results.append(("netns provisioning plan", 1))
+    # [S4_PERSIST_GATE_V1] Day's loop-persistence question (2026-10-30). The detectors are gated everywhere: the tier 4
+    # loop finder's selftest (injected loops MUST be found, dead links MUST not count) and the model's incremental
+    # detector MUST agree with it on the same timelines. The FRR runs themselves need root, FRR and netns: run under
+    # FROGNET_SIM_BACKEND=real, where one small real case is run; the size sweeps are `s4_persist.py run` by hand.
+    results.append(_run_proc("IS-IS loop persistence: tier 4 detector selftest", ["simulation/s4_persist.py", "selftest"], retry=False))
+    results.append(_run_proc("IS-IS loop persistence: model detector == tier 4 detector", ["simulation/s4_persist_model.py", "check"], retry=False))
+    if os.environ.get("FROGNET_SIM_BACKEND") == "real" and os.geteuid() == 0:
+        _pout = _tmpf.mkdtemp(prefix="frogsim_s4p_")
+        results.append(_run_proc("IS-IS loop persistence: real FRR, ring 8, link silent",
+                                 ["simulation/s4_persist.py", "run", "--topo", "ring", "--n", "8", "--event", "silent",
+                                  "--profile", "tuned", "--settle", "12", "--out", _pout], retry=False))
 
     print("\nTIER 5 - proxy semantic data plane (M4)")
     import proxy_dataplane
