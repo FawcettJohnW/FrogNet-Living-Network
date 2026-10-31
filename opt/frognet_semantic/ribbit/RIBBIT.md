@@ -217,8 +217,9 @@ testing. I've seen reductions in the same general range in the other
 conversions, but lispers.net is the useful number here because the audit
 ships with the implementation. You don't have to take my word for it.
 
-The easiest example is chat. The client is 471 lines and took a couple
-of hours to write. There is no chat server. I already had a generic
+The easiest example is chat. The first client was 471 lines and took a
+couple of hours to write; the one in `examples/chat` today is 253 lines
+across its C++ and Python versions. There is no chat server. I already had a generic
 shared-memory server, so why would I write another server whose primary
 purpose was taking information from one client and handing it to the
 others?

@@ -564,6 +564,108 @@ const doctrineScan = () => {
   return { root, hits };
 };
 
+// [RIBBIT_IN_THE_BOOK_V1] Ribbit's own documents, read off the tree when the book is built and rendered in the
+// book's vocabulary. The files are what the code was written against; a copy pasted in here would drift from them.
+// A missing file stops the build: a book that quietly leaves Ribbit out is the thing this exists to prevent.
+const RIBBIT_DOCS = [
+  ["RIBBIT.md", "R"],
+  ["docs/PROGRAMMING-RIBBIT-BEST-PRACTICES.md", "R.7"],
+  ["docs/CONVERTING-TO-RIBBIT.md", "R.8"],
+  ["docs/API-PLUS-PLUS.md", "R.9"],
+];
+const ribbitRoot = () => require("path").join(__dirname, "..", "..", "ribbit");
+const mdRuns = (s) => {
+  // `code`, **bold**, *italic* / _italic_; a backslash-escaped \* is a literal asterisk.
+  const out = [];
+  const re = /`([^`]+)`|\*\*([^*]+)\*\*|(?<![\w\\])\*([^*\s][^*]*)\*(?!\w)|(?<!\w)_([^_\s][^_]*)_(?!\w)/g;
+  let last = 0, m;
+  const plain = (x) => { if (x) out.push(t(x.replace(/\\\*/g, "*"))); };
+  while ((m = re.exec(s))) {
+    plain(s.slice(last, m.index));
+    if (m[1] !== undefined) out.push(mono(m[1]));
+    else if (m[2] !== undefined) out.push(b(m[2].replace(/\\\*/g, "*")));
+    else out.push(i((m[3] !== undefined ? m[3] : m[4]).replace(/\\\*/g, "*")));
+    last = re.lastIndex;
+  }
+  plain(s.slice(last));
+  return out.length ? out : [t("")];
+};
+const mdPlain = (s) => s.replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\\\*/g, "*");
+const mdBlocks = (src, num) => {
+  const out = [], lines = src.replace(/\r/g, "").split("\n");
+  let para = [], list = null, ribbitPart = 0;
+  const flushPara = () => { if (para.length) { out.push(P(mdRuns(para.join(" ")))); para = []; } };
+  const flushList = () => { if (list) { for (const it of list) out.push(bullet(mdRuns(it))); list = null; } };
+  const flush = () => { flushPara(); flushList(); };
+  for (let k = 0; k < lines.length; k++) {
+    const ln = lines[k];
+    let m;
+    if (/^\s*$/.test(ln)) { flush(); continue; }
+    if (/^---+\s*$/.test(ln)) { flush(); continue; }
+    if ((m = ln.match(/^(#{1,4})\s+(.*)$/))) {
+      flush();
+      const level = m[1].length, text = mdPlain(m[2]).trim();
+      if (num === "R") {                       // RIBBIT.md: its # sections are this part's chapters
+        out.push(H1(level === 1 ? `R.${ribbitPart++}  ${text.replace(/^Part [IVX]+:\s*/, "")}` : text));
+      } else if (level === 1) {
+        out.push(H1(`${num}  ${text}`));
+      } else {
+        out.push(H2(text));
+      }
+      continue;
+    }
+    if (/^\|/.test(ln)) {                      // a table: header, separator, rows
+      flush();
+      const rows = [];
+      while (k < lines.length && /^\|/.test(lines[k])) {
+        const cells = lines[k].trim().replace(/^\||\|$/g, "").split("|").map(c => mdPlain(c.trim()));
+        if (!cells.every(c => /^:?-{2,}:?$/.test(c))) rows.push(cells);
+        k++;
+      }
+      k--;
+      const head = rows.shift(), n = head.length;
+      const w = Array(n).fill(Math.floor(9240 / n));
+      out.push(dataTable(head, rows.map(r => { while (r.length < n) r.push(""); return r.slice(0, n); }), w));
+      continue;
+    }
+    if ((m = ln.match(/^\s*(?:[-*]|(\d+)\.)\s+(.*)$/))) {
+      flushPara();
+      if (!list) list = [];
+      list.push((m[1] ? m[1] + ". " : "") + m[2]);
+      continue;
+    }
+    if (list && /^\s{2,}\S/.test(ln)) { list[list.length - 1] += " " + ln.trim(); continue; }
+    flushList();
+    para.push(ln.trim());
+  }
+  flush();
+  return out;
+};
+const ribbitPart = () => {
+  const root = ribbitRoot(), out = [];
+  for (const [f, num] of RIBBIT_DOCS) {
+    const p = require("path").join(root, f);
+    let src;
+    try { src = fs.readFileSync(p, "utf8"); }
+    catch (e) { throw new Error("[RIBBIT_IN_THE_BOOK_V1] " + p + " unreadable: " + e.message); }
+    out.push(...mdBlocks(src, num));
+    if (f === "RIBBIT.md") out.push(...howIRunTheAIs());
+  }
+  return out;
+};
+// [HOW_I_RUN_THE_AIS_V1] Part VI says what the AI is for; this is how the work with it is organised. John's practice,
+// in his words from the working sessions (the same text as the site's ai-velocity page).
+const howIRunTheAIs = () => [
+  H2("How I run the AIs"),
+  P([ b("Several AIs are a design review."), t(" Playing one AI against another is just design review. Two, and sometimes three or four, validate something while I stay at the architectural level. It is diversity of perspective with actual code influence.") ]),
+  P([ b("A disagreement is an investigation."), t(" If two of them see something differently, either one of them made it up or there is a genuine ambiguity. Either way I want to know which.") ]),
+  P([ b("One AI writes all the code."), t(" The entire system. The others only review. Parallel coding sessions of the same AI may be the same coder when they start, but not for long.") ]),
+  P([ b("One thread integrates."), t(" I share statuses between the threads by hand, and only when it is necessary: this is a complex system and an AI's context is limited. One thread does integration and reconciliation.") ]),
+  P([ b("The tests decide, not the AI."), t(" That is what the acceptance tests are for. I'm not stupid enough to take its word. That's why I prefer existing tests: an AI is a very poor QA.") ]),
+  P([ b("Let it run."), t(" A junior developer doesn't learn if you don't let him run. Good practice, the full development lifecycle, makes those excursions affordable, even if still annoying, and more than once one has turned up an alternative that was worth having.") ]),
+  P([ b("The tree is written to be read by an AI."), t(" "), mono("AI_READ_FIRST.md"), t(" at the root, an "), mono("AI_README.md"), t(" in the major directories, and hand-off documents that list the corrections already made so the next session doesn't need them made again.") ]),
+];
+
 const partTitle = (kicker, title) => (
   HEADINGS.push({ level: 0, text: title, id: slug(title) }),
   (BARE_PART_ALIASES.add(bareSlug(title)), emit(`<h2 class="bk-part" id="${slug(title + "-anchor")}"><span class="kick">${esc(kicker)}</span><br/>${esc(title)}</h2>`)),
@@ -1966,6 +2068,10 @@ const doc = new Document({
       P([ t("The general lesson is not about media. "), b("The shape of your test must be able to contain the shape of your bug."), t(" A test with one participant cannot see a disagreement. A test that stubs the thing under test proves nothing \u2014 the one module between the code and the store was the one module nothing tested, because every oracle replaced put and get with a dictionary, and four turns went into suspecting the store on no evidence at all. The source answered it in ninety seconds once anybody read it.") ]),
       P([ t("And assert on code rather than on prose. Three assertions in that session banned a word that the explanatory comment above the code happened to contain. Walk the syntax tree instead: one oracle checked that every "), mono("self.X(...)"), t(" resolves to something the class defines, because a call to a removed method had been killing a send loop inside a thread, silently, where no bare-name check could see it. "), mono("[SELF_CALLS_MUST_EXIST_V1]") ]),
       ...gld([ t("If you work with an AI on this codebase \u2014 and the guild should assume many contributors will \u2014 the simulator is the thing that keeps both of you honest. Ask for the oracle before the fix. A change that arrives with a test that was red and is now green can be reviewed by somebody who was not there; a change that arrives with an explanation has to be believed. Contributions in the second form are much harder to accept, however good they are.") ]),
+      ...partTitle("Part XII\u00be", "Ribbit, From Its Own Pages"),
+      lead([ t("This part is Ribbit's own documentation, read from the source tree each time the book is built: "), mono("ribbit/RIBBIT.md"), t(", the best practices, the conversion process and API++. If the book and those files ever disagree, the files are what the code was written against.") ]),
+      ...ribbitPart(),
+
       ...partTitle("Part XIII", "Proving It \u2014 The Simulator"),
       // [RESTORE_PART13_LEAD_V1] restored from the published edition
       lead([ t("One thing is left before you change anything, and it is the line between a frog that grows for a decade and one that breaks the first time you touch it: you do not test on the living network. A wrong route or a bad election does not fail politely on one box \u2014 it can split-brain the whole pond. So FrogNet carries its own comprehensive simulator, and the rule around it is absolute: a change is not done until the simulator proves it. There is a symmetry worth naming here. The simulator subjects the machine to topologies one person did not anticipate; the guild subjects the design to perspectives one person does not possess. Both are doing the same job, and this part is the half you can run yourself tonight.") ]),

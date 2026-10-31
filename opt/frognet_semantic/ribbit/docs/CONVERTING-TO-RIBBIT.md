@@ -46,7 +46,7 @@ contract by changing the incumbent as little as possible and watching what break
 
 1. **Build and baseline the incumbent.** Build stock. Run its own suite; record pass/fail per test with wall time
    and bytes (the harness records these). Build the side-by-side load harness now, against stock, so every later
-   number has a stock column measured the same way on the same machine.
+   number has a stock column measured the same way on the same machines.
 2. **Map the suite** (`<NAME>-SUITE-MAP.md`): every test, what it asserts, which part of the incumbent it exercises,
    and whether it is applicable. This is the roadmap.
 3. **Find every place the incumbent's parts talk to each other or share state** — REST calls, RPC, shared tables,
@@ -113,7 +113,8 @@ Measure with the same harness as the stock baseline; keep every run's logs.
 
 ### 4e. What you report
 
-Side by side against stock, on the same machine, same driver: throughput, latency, CPU per message, memory, loss,
+Side by side against stock, same driver, on at least two machines with traffic crossing between them (one machine is
+just embedded RAM; run it on FrogNet's own simulator, not a new harness): throughput, latency, CPU per message, memory, loss,
 and the suite. Lines and complexity of what replaced the incumbent's machinery against what it removed, counted as
 statements. Qualification (the contract holds) and characterization (what the box sustains) separately. What is not
 claimed, on the same page.
