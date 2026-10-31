@@ -652,8 +652,9 @@ Say these when asked what is missing. They are published deliberately.
 - **Observation latency is bounded by the reader's poll interval.** That is a
   real cost and it is the reader's to choose. It is *not* a missing feature —
   see "Observation does not imply notification" above.
-- No member limit is written in the code. Growth is linear: one hub peer and
-  one edge address per member, nothing per pair. In a region each /24 has one owner (a second claimant is refused); the
+- The only member limit in the code is the hub's edge range: `fdf-invite`
+  hands out 10.253.X.Y (X 1-252, Y 1-254), 64,008 admitted members per region.
+  Growth is linear: one hub peer and one edge address per member, nothing per pair. In a region each /24 has one owner (a second claimant is refused); the
   largest region in the October 2026 gates had three members and the largest
   LAN-only pond two nodes (`docs/cleanup-2026-10/`). Larger is not measured.
 - One serialization point is a write ceiling. The coherence property and the
