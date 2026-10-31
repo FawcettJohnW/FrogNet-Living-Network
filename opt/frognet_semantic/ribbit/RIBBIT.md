@@ -217,8 +217,9 @@ testing. I've seen reductions in the same general range in the other
 conversions, but lispers.net is the useful number here because the audit
 ships with the implementation. You don't have to take my word for it.
 
-The easiest example is chat. The client is 471 lines and took a couple
-of hours to write. There is no chat server. I already had a generic
+The easiest example is chat. The first client was 471 lines and took a
+couple of hours to write; the one in `examples/chat` today is 253 lines
+across its C++ and Python versions. There is no chat server. I already had a generic
 shared-memory server, so why would I write another server whose primary
 purpose was taking information from one client and handing it to the
 others?
@@ -407,7 +408,9 @@ application semantics and Ribbit shouldn't make them up.
 **This is what the vendor operations are for.** A claim can be one
 vendor operation that looks at the current state and changes it before
 anybody else can get between the two. The operation runs in the RAM
-host, against the memory itself, under the row locks. The vendor defines
+host, against the memory itself. A row lock covers one write, not the
+look and the change together, so the vendor runs its claims one at a
+time (`ribbit::Ordered`) and nobody gets between the two. The vendor defines
 what "claim" means because the vendor owns the semantics.
 
 This is different from the race case above. If I have ten users
@@ -864,8 +867,9 @@ library the vendor supplied. If I'm the weather vendor, I own everything
 behind that library and can change it as long as I preserve the contract
 I've given my applications.
 
-The same thing applies to language. Ribbit has C++ and Python
-implementations, but the wire shouldn't care which one I used. A Python
+The same thing applies to language. Ribbit's client library is C++
+with a plain C interface that Python loads too, and the wire shouldn't
+care which language I used. A Python
 participant and a C++ participant using the same schema are participants
 in the same memory. The language library turns the programming interface
 into Ribbit operations and the server-side API turns those operations
@@ -874,7 +878,7 @@ into whatever the vendor decided its memory means.
 That separation is also why the examples build as standalone things.
 
 Chat isn't supposed to require the rest of FrogNet. Neither is Redis,
-PyTorch, lispers.net or the Communicator. Each example should be
+MQTT, lispers.net or the Communicator. Each example should be
 something I can build, point at a Ribbit host and run over the Internet.
 The example demonstrates the programming model; it shouldn't require
 somebody to install an unrelated network just to find out whether the
@@ -971,8 +975,6 @@ snippets that look plausible. I want something you can compile and run.
 Build Chat. Run it against the RAM host.
 
 Build Redis. Compare it with the interface it is replacing.
-
-Run PyTorch against Gloo and against Ribbit.
 
 Run the lispers.net oracle against the original implementation and the
 Ribbit implementation.

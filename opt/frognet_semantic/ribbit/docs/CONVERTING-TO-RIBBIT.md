@@ -46,7 +46,7 @@ contract by changing the incumbent as little as possible and watching what break
 
 1. **Build and baseline the incumbent.** Build stock. Run its own suite; record pass/fail per test with wall time
    and bytes (the harness records these). Build the side-by-side load harness now, against stock, so every later
-   number has a stock column measured the same way on the same machine.
+   number has a stock column measured the same way on the same machines.
 2. **Map the suite** (`<NAME>-SUITE-MAP.md`): every test, what it asserts, which part of the incumbent it exercises,
    and whether it is applicable. This is the roadmap.
 3. **Find every place the incumbent's parts talk to each other or share state** — REST calls, RPC, shared tables,
@@ -113,7 +113,8 @@ Measure with the same harness as the stock baseline; keep every run's logs.
 
 ### 4e. What you report
 
-Side by side against stock, on the same machine, same driver: throughput, latency, CPU per message, memory, loss,
+Side by side against stock, same driver, on at least two machines with traffic crossing between them (one machine is
+just embedded RAM; run it on FrogNet's own simulator, not a new harness): throughput, latency, CPU per message, memory, loss,
 and the suite. Lines and complexity of what replaced the incumbent's machinery against what it removed, counted as
 statements. Qualification (the contract holds) and characterization (what the box sustains) separately. What is not
 claimed, on the same page.
@@ -162,9 +163,9 @@ Every one of these was built, measured and then thrown out. Check your design ag
 ## 6b. Redis: one owner for the keyspace, and no copies
 
 Redis's state is read-modify-write on keys every client may touch (INCR, LPOP, MULTI/EXEC, a blocked client's place in
-line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is the RAM
-call, and the region applies it at the key's tuple, one request at a time per tuple, every connection's in parallel
-(examples/redis/DESIGN.md). Two INCRs on one key are two requests to one owner, not two writers.
+line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is a cell
+in its front's own space, `(redis.ask, <front>, <n>)`, and the region, holding one read on every front's requests,
+applies it at the key's tuple (examples/redis/src/region.hpp). Two INCRs on one key are two requests to one owner, not two writers.
 
 Two earlier designs each kept a second copy of something and needed a layer to keep it true -- that layer is the
 pub/sub class of code, and it is what to look for and remove in any conversion:
