@@ -62,6 +62,7 @@ Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admi
 **The admin, once, on each RAM host:**
 
 - defines the levels it will support, for example Watcher, Player, Host;
+- gives each level its admission: open (anyone who logs in), something specifically allowed, or a list;
 - gives each level its qualifications: a user and password, or none;
 - sets up the credential manager. The credentials are stored encrypted in tuple space.
 - Each level gets two random ports on the RAM host: its **login port** and its **session port**.
@@ -78,6 +79,8 @@ Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admi
 5. The client drops the generic tunnel, brings up its own, and connects to the RAM manager on the level's session port inside it. Every later start goes straight to its own tunnel and the session port.
 
 The generic credential carries one exchange. It is one WireGuard peer, so two devices logging in at the same instant collide: the RAM host's endpoint for that peer goes to whichever handshook last, and the other gets no answer. The library logs in again by itself; the person never does. Nothing after login runs on the generic credential.
+
+**At the session port**, the RAM manager accepts a connection only from an edge admitted at that level, under that level's admission: open, specifically allowed, or on the list. It is one lookup at accept, in the tuple space where the login recorded the admission. Revoking a device removes its admission, and its next connect is refused.
 
 The client logs in this way at every RAM host on its list, so a standby already holds its peer before it is needed.
 
