@@ -724,7 +724,10 @@ def main():
             r = reanalyse(w)
             log(f"{w}: initial==rebuilt {r['initial_matches_rebuilt']}")
         return
-    run(a)
+    res = run(a)
+    # a run is a FAIL if it did not converge or saw no route change at all (the event did nothing): a tier that
+    # passes without running is a hole with a green tick on it
+    sys.exit(0 if res.get("route_changes", 0) > 0 else 1)
 
 
 if __name__ == "__main__":
