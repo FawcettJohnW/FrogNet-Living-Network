@@ -31,3 +31,14 @@ is a decision with its reason, not a bug.
 | R1 | step 4 S5: DM with want_ack to a node that has died | MAX_RETRANSMIT after 39.28 s (5 attempts), from own node | PKI_SEND_FAIL_PUBLIC_KEY at once: the dead node left the view, so there is no key to encrypt for | implementation: Phase 1 still encrypts per packet and has no want_ack at the edge. Contract: a failed delivery with a reason. D4 says MAX_RETRANSMIT from own node when the destination's family is gone | decided (John, 2026-10-30): settled by R2, gone is gone. A dead node is an unknown node; stock's answer for an unknown node, PKI_SEND_FAIL_PUBLIC_KEY at once, is the contract met. MAX_RETRANSMIT would need a record of dead nodes, a copy. A destination dying with a DM outstanding cannot happen: the ACK is given when the write lands |
 | R2 | step 4 S4: a node that dies | stays in every client's node list, last_heard ageing | leaves every client's list in 0.33 s (its family is gone) | not wrong, not misread: the incumbent keeps dead nodes because LoRa nodes drift in and out of range (last-heard, a stored key to DM them); on the memory a node's session is its presence | decided (John, 2026-10-30): gone is gone; the family GOES |
 | R3 | smokemesh `test_smokemesh_traceroute_across_relay` asserts route == [B], routeBack == [B] on the harness's simulated A–B–C radio chain | relays append themselves to the route | nothing relays: every pair of nodes on the memory is direct, so the route is empty | not wrong, not misread: the test encodes a radio topology the memory does not have. meshtastic-mcp's own `test_traceroute_one_hop` expects route == [] for a direct pair, which is what the memory gives | registered (2026-10-30): traceroute is a user diagnostic; nothing else uses it once next-hop learning is gone |
+
+### O3 — config as cells: what of the channel PSKs?
+
+The truth table has a node's config and channels as permanent cells of its own, so the config dump and remote admin
+reads are reads. Channel settings include the PSK. D7 says facts in cells are plaintext and region membership is the
+trust boundary; stock treats channel PSKs as secrets held by the node and its paired clients only (remote admin to
+read them needs the requester's key in the node's admin list). Options: (a) config as cells minus the PSK (the channel
+cell carries name, role, module settings; the PSK stays in the node, and a remote get_channel to a non-admin gets what
+stock gives — a refusal — while the cell gives the rest to everyone); (b) config as cells in full, trusting the region;
+(c) no config cells: remote admin stays a DM intent answered by B (already so after 4a), and the dump reads the node's
+own globals as it always did. Not decided; step 5's cells wait on it.
