@@ -1,0 +1,439 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-org -- [ORG_LEVELS_V1] an organization on its own RAM host: levels, users, the generic credential, login,
+and each device's reach (opt/fdf/docs/ORGANIZATIONS.md). Run on the machine that holds the region, as root.
+
+  fdf-org init                          make the generic credential (one WireGuard peer, edge 10.253.253.1), the door
+                                        port, and the credential key (/opt/fdf/var/org-key, root-only)
+  fdf-org level NAME [--password] [--reach ram|open|list:DEST[,DEST...]] [--space SPACE ...]
+                                        add or change a level: its random login and session ports are made once and
+                                        kept; DEST = a 10.x address or prefix, optionally :port
+  fdf-org user LEVEL USER               set USER's password at LEVEL (read from stdin, one line)
+  fdf-org line LEVEL                    print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed)
+  fdf-org list                          levels, then admitted devices with level and state
+  fdf-org revoke NAME                   NAME's peer and its reach go now
+  fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
+                                        each inside the tunnel on 10.253.253.254, and the reach rules
+
+Where things live (what survives a restart, ORGANIZATIONS.md section 1):
+  levels, users, the door       permanent cells (fdf-org, level|user|door, ...) in this region's RAM
+  admissions                    /opt/fdf/hub/admitted/NAME.json, as fdf-invite writes them, plus level and state
+  the credential key            /opt/fdf/var/org-key; a user's verifier = HMAC-SHA256(key, scrypt(password, salt))
+  reach                         nftables table inet fdf_org, rebuilt from the above after every change and at start
+
+Login, in order ([LOGIN_RESTRICTED_FIRST_V1]): on the generic tunnel the device sends its own public key to the door and
+gets its own edge, RESTRICTED: it reaches its level's login port and nothing else. On its own tunnel it logs in; the
+password is checked; the edge's reach becomes the level's reach and its session port. Each exchange is one line of
+JSON each way over TCP inside the tunnel: a RAM manager has no per-cell privacy, so a password is never written to a
+cell. The source address is the identity: the hub accepts a packet from an edge only from that edge's own key.
+"""
+import base64, hashlib, hmac, json, os, secrets, socket, subprocess, sys, threading, time
+
+HUBENV = os.environ.get("FDF_HUB_ENV", "/opt/fdf/hub/hub.env")
+ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
+VAR = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
+ORG_KEY = os.environ.get("FDF_ORG_KEY", os.path.join(VAR, "org-key"))
+NFT = os.environ.get("FDF_NFT", "nft")
+HUB_ADDR = "10.253.253.254"
+GENERIC_EDGE = "10.253.253.1"
+GENERIC_NAME = "_generic"
+SVC = "fdf-org"
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdfram
+
+
+def log(*a):
+    print("[ORG] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+def die(msg, rc=1):
+    sys.stderr.write("fdf-org: %s\n" % msg)
+    sys.exit(rc)
+
+
+def env():
+    out = {}
+    try:
+        for ln in open(HUBENV):
+            ln = ln.strip()
+            if ln.startswith("export "):
+                ln = ln[7:]
+            if "=" in ln and not ln.startswith("#"):
+                k, v = ln.split("=", 1)
+                out[k.strip()] = v.strip().strip('"')
+    except OSError as e:
+        die("%s: %s -- this machine holds no region (run fdf-region-create first)" % (HUBENV, e.strerror))
+    return out
+
+
+H = None
+
+
+def h():
+    global H
+    if H is None:
+        H = env()
+        H.setdefault("FDF_IFACE", "wg-" + H.get("FDF_AREA", "").replace(".", "-"))
+    return H
+
+
+def ram():
+    return fdfram.Ram(h().get("RINA_RAM"))
+
+
+def cells(variable):
+    """{instance: bag} of this service's cells of one variable, newest per instance."""
+    out = {}
+    for c in sorted(ram().read(SVC, variable), key=lambda c: c["id"]):
+        out[c["instance"]] = c["bag"]
+    return out
+
+
+def put(variable, instance, bag):
+    ram().write(SVC, variable, instance, bag, permanent=True)     # [PERMANENT_CELL_V1] survives the RAM host's restart
+
+
+# ---------------------------------------------------------------- admissions (the hub's own files)
+def admitted():
+    out = {}
+    for fn in sorted(os.listdir(ADMITTED)) if os.path.isdir(ADMITTED) else []:
+        if fn.endswith(".json") and not fn.startswith("."):
+            try:
+                out[fn[:-5]] = json.load(open(os.path.join(ADMITTED, fn)))
+            except (OSError, ValueError) as e:
+                log("%s/%s unreadable: %s" % (ADMITTED, fn, e))
+    return out
+
+
+def write_admitted(name, rec):
+    os.makedirs(ADMITTED, exist_ok=True)
+    os.chmod(ADMITTED, 0o700)
+    tmp = os.path.join(ADMITTED, ".%s.json.tmp" % name)
+    with open(tmp, "w") as f:
+        json.dump(rec, f, indent=1, sort_keys=True)
+        f.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, os.path.join(ADMITTED, name + ".json"))       # one rename: the hub sees the whole file or none
+
+
+def free_edge(taken):
+    for x in range(1, 253):
+        for y in range(1, 255):
+            a = "10.253.%d.%d" % (x, y)
+            if a not in taken:
+                return a
+    raise RuntimeError("no edge address left in 10.253.0.0/16")
+
+
+# ---------------------------------------------------------------- credentials
+def org_key():
+    try:
+        return open(ORG_KEY, "rb").read()
+    except OSError as e:
+        die("%s: %s (run fdf-org init)" % (ORG_KEY, e.strerror))
+
+
+def verifier(key, password, salt):
+    d = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=2 ** 14, r=8, p=1, dklen=32)
+    return hmac.new(key, d, hashlib.sha256).hexdigest()
+
+
+def random_port(used):
+    while True:
+        p = 20000 + secrets.randbelow(40000)
+        if p not in used and p != int(h().get("RINA_RAM", ":0").rsplit(":", 1)[1] or 0):
+            return p
+
+
+# ---------------------------------------------------------------- reach: nftables, rebuilt whole
+def reach_rules(levels, adm, door):
+    """[REACH_PER_EDGE_V1] WireGuard's allowed-ips say which source a peer may use, not what it may contact; these rules
+    do. Every edge that came in through a level is in @managed and may reach exactly what its state and level allow;
+    anything else from it is dropped. Members admitted by fdf-invite are not in @managed and are untouched."""
+    iface, ramport = h()["FDF_IFACE"], int(h()["RINA_RAM"].rsplit(":", 1)[1])
+    managed, pre, inp, fwd = [GENERIC_EDGE], [], [], []
+    inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, GENERIC_EDGE, HUB_ADDR, door["port"]))
+    for lv in levels.values():
+        pre.append("iifname %s ip daddr %s tcp dport %d dnat ip to %s:%d" % (iface, HUB_ADDR, lv["session_port"], HUB_ADDR, ramport))
+    for r in adm.values():
+        lv = levels.get(r.get("level", ""))
+        if not lv or r.get("name") == GENERIC_NAME:
+            continue
+        e = r["edge"]
+        managed.append(e)
+        inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, e, HUB_ADDR, lv["login_port"]))
+        if r.get("state") != "admitted":
+            continue                                              # restricted: its login port, nothing else
+        inp.append("iifname %s ip saddr %s ip daddr %s ct original proto-dst %d accept" % (iface, e, HUB_ADDR, lv["session_port"]))
+        reach = lv.get("reach", {"kind": "ram"})
+        if reach["kind"] == "open":
+            inp.append("iifname %s ip saddr %s accept" % (iface, e))
+            fwd.append("iifname %s ip saddr %s accept" % (iface, e))
+        elif reach["kind"] == "list":
+            for d in reach.get("dests", []):
+                addr, _, port = d.partition(":")
+                tail = (" tcp dport %s" % port) if port else ""
+                fwd.append("iifname %s ip saddr %s ip daddr %s%s accept" % (iface, e, addr, tail))
+                if addr.split("/")[0] == HUB_ADDR:
+                    inp.append("iifname %s ip saddr %s ip daddr %s%s accept" % (iface, e, HUB_ADDR, tail))
+    s = ["table inet fdf_org", "delete table inet fdf_org", "table inet fdf_org {",
+         "  set managed { type ipv4_addr; elements = { %s } }" % ", ".join(sorted(set(managed))),
+         "  chain org_pre { type nat hook prerouting priority dstnat; policy accept;"] + ["    " + x for x in pre] + ["  }",
+         "  chain org_in { type filter hook input priority filter; policy accept;",
+         "    ct state established,related accept"] + ["    " + x for x in inp] + [
+         "    iifname %s ip saddr @managed drop" % iface, "  }",
+         "  chain org_fwd { type filter hook forward priority filter; policy accept;",
+         "    ct state established,related accept"] + ["    " + x for x in fwd] + [
+         "    iifname %s ip saddr @managed drop" % iface, "  }", "}"]
+    return "\n".join(s) + "\n"
+
+
+def apply_reach(why):
+    levels, door = cells("level"), cells("door").get(h().get("FDF_AREA", ""))
+    if not door:
+        log("REACH: no door yet (fdf-org init): nothing applied")
+        return False
+    rules = reach_rules(levels, admitted(), door)
+    p = subprocess.run([NFT, "-f", "-"], input=rules, capture_output=True, text=True)
+    if p.returncode != 0:
+        log("REACH: nft refused the rules (%s): %s" % (why, p.stderr.strip()))
+        return False
+    log("REACH: applied (%s): %d level(s), %d managed edge(s)" % (why, len(levels), rules.count(",") + 1))
+    return True
+
+
+# ---------------------------------------------------------------- the two exchanges (one JSON line each way)
+def door_ask(src, ask):
+    if src != GENERIC_EDGE:
+        return {"ok": False, "why": "the door answers only the generic credential's edge"}
+    pub, level = str(ask.get("pubkey", "")), str(ask.get("level", ""))
+    levels = cells("level")
+    if level not in levels:
+        return {"ok": False, "why": "no level %r here" % level}
+    try:
+        if len(base64.b64decode(pub, validate=True)) != 32:
+            raise ValueError
+    except ValueError:
+        return {"ok": False, "why": "pubkey is not a WireGuard public key"}
+    name = "d-" + hashlib.sha256(pub.encode()).hexdigest()[:12]   # [NAME_FROM_KEY_V1] nobody can claim another's device
+    adm = admitted()
+    old = adm.get(name)
+    if old and old.get("state") == "revoked":
+        return {"ok": False, "why": "this device was revoked; it needs a new key"}
+    edge = old["edge"] if old else free_edge({r.get("edge") for r in adm.values()} | {GENERIC_EDGE})
+    rec = dict(old or {}, name=name, pubkey=pub, edge=edge, kind="node" if ask.get("kind") == "node" else "leaf",
+               level=level, device=str(ask.get("device", ""))[:64], nick=str(ask.get("nick", ""))[:64])
+    rec.setdefault("state", "restricted")
+    rec.setdefault("invited", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    write_admitted(name, rec)
+    apply_reach("door: %s at %s" % (name, level))
+    log("DOOR: %s (%s, nick %r) at level %s: edge %s, %s" % (name, rec["device"], rec["nick"], level, edge, rec["state"]))
+    return {"ok": True, "name": name, "edge": edge, "state": rec["state"], "login_port": levels[level]["login_port"]}
+
+
+def login(src, port, ask):
+    levels = cells("level")
+    level = next((n for n, lv in levels.items() if lv["login_port"] == port), None)
+    rec = next((r for r in admitted().values() if r.get("edge") == src and r.get("name") != GENERIC_NAME), None)
+    if not rec or rec.get("level") != level:
+        return {"ok": False, "why": "this edge was not admitted at this level"}  # [PORTS_BOUND_TO_ADMISSION_V1]
+    lv = levels[level]
+    if lv.get("password"):
+        u = cells("user").get("%s/%s" % (level, ask.get("user", "")))
+        if not u or not hmac.compare_digest(u["v"], verifier(org_key(), str(ask.get("password", "")), u["salt"])):
+            log("LOGIN: %s at %s: wrong user or password" % (rec["name"], level))
+            return {"ok": False, "why": "wrong user or password"}
+        rec["user"] = ask.get("user")
+    if rec.get("state") != "admitted":
+        rec["state"] = "admitted"
+        write_admitted(rec["name"], rec)
+        apply_reach("login: %s at %s" % (rec["name"], level))
+    log("LOGIN: %s at %s%s: reach %s, session port %d" % (rec["name"], level, " as " + rec["user"] if rec.get("user") else "",
+                                                           lv.get("reach", {}).get("kind", "ram"), lv["session_port"]))
+    out = {"ok": True, "level": level, "session_port": lv["session_port"], "ram": "%s:%d" % (HUB_ADDR, lv["session_port"]),
+           "area": h().get("FDF_AREA", ""), "spaces": lv.get("spaces", [])}
+    if rec.get("kind") == "node":                                 # a node maps its /24 with the region's site key
+        out["site_key"] = open(os.path.join(VAR, "site-key-" + h()["FDF_AREA"])).read().strip()
+    return out
+
+
+def listen(port, handle):
+    """Bound here, in the caller's thread: a port that cannot be had is said at once, not lost in a thread."""
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((HUB_ADDR, port))
+    s.listen(64)
+    log("listening on %s:%d" % (HUB_ADDR, port))
+    threading.Thread(target=listener, args=(s, port, handle), daemon=True).start()
+
+
+def listener(s, port, handle):
+    while True:
+        c, (src, _) = s.accept()
+        threading.Thread(target=one, args=(c, src, port, handle), daemon=True).start()
+
+
+def one(c, src, port, handle):
+    with c:
+        c.settimeout(10)
+        try:
+            ask = json.loads(c.makefile("r").readline() or "{}")
+            ans = handle(src, port, ask)
+        except Exception as e:                                    # said, and the device asks again
+            log("exchange from %s on %d failed: %s" % (src, port, e))
+            ans = {"ok": False, "why": "the RAM host failed: %s" % e}
+        c.sendall((json.dumps(ans) + "\n").encode())
+
+
+def serve():
+    door = cells("door").get(h().get("FDF_AREA", ""))
+    if not door:
+        die("no door: run fdf-org init first")
+    apply_reach("start")
+    started = set()
+    listen(door["port"], lambda s, p, a: door_ask(s, a))
+    last = 0
+    while True:
+        for n, lv in cells("level").items():                      # a level added later gets its login port at once
+            if lv["login_port"] not in started:
+                listen(lv["login_port"], login)
+                started.add(lv["login_port"])
+        changed = ram().read(SVC, after=last, wait_s=fdfram.HOLD_S)  # held: returns when a level or user is written
+        if changed:
+            last = max(c["id"] for c in changed)
+            apply_reach("cells changed")
+
+
+# ---------------------------------------------------------------- admin commands
+def cmd_init():
+    os.makedirs(VAR, exist_ok=True)
+    if not os.path.exists(ORG_KEY):
+        old = os.umask(0o077)
+        try:
+            open(ORG_KEY, "wb").write(secrets.token_bytes(32))
+        finally:
+            os.umask(old)
+        log("credential key made: %s (root-only)" % ORG_KEY)
+    area = h()["FDF_AREA"]
+    door = cells("door").get(area)
+    if door and os.path.exists(os.path.join(ADMITTED, GENERIC_NAME + ".json")):
+        log("already initialised: door port %d, generic edge %s" % (door["port"], GENERIC_EDGE))
+        return
+    old = os.umask(0o077)
+    try:
+        priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, check=True).stdout.strip()
+    finally:
+        os.umask(old)
+    pub = subprocess.run(["wg", "pubkey"], input=priv, capture_output=True, text=True, check=True).stdout.strip()
+    used = {lv[k] for lv in cells("level").values() for k in ("login_port", "session_port")}
+    door = {"port": random_port(used), "generic_pub": pub, "generic_priv": priv, "generic_edge": GENERIC_EDGE}
+    put("door", area, door)
+    write_admitted(GENERIC_NAME, {"name": GENERIC_NAME, "pubkey": pub, "edge": GENERIC_EDGE, "kind": "leaf",
+                                  "generic": True, "invited": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+    log("generic credential made: key %s, edge %s; door port %d" % (pub, GENERIC_EDGE, door["port"]))
+
+
+def cmd_level(a):
+    name = a[0]
+    if not name or not all(c.isalnum() or c in " ._-" for c in name) or len(name) > 63:
+        die("level name '%s': letters, digits, space . _ -, at most 63" % name, 2)
+    levels = cells("level")
+    lv = dict(levels.get(name) or {})
+    used = {l[k] for l in levels.values() for k in ("login_port", "session_port")} | {cells("door").get(h()["FDF_AREA"], {}).get("port")}
+    lv.setdefault("login_port", random_port(used)); used.add(lv["login_port"])
+    lv.setdefault("session_port", random_port(used))
+    lv["password"] = "--password" in a
+    lv.setdefault("reach", {"kind": "ram"})
+    spaces = []
+    i = 1
+    while i < len(a):
+        if a[i] == "--reach" and i + 1 < len(a):
+            r = a[i + 1]
+            lv["reach"] = {"kind": "list", "dests": r[5:].split(",")} if r.startswith("list:") else {"kind": r}
+            if lv["reach"]["kind"] not in ("ram", "open", "list"):
+                die("--reach ram | open | list:DEST[,DEST...]", 2)
+            i += 2
+        elif a[i] == "--space" and i + 1 < len(a):
+            spaces.append(a[i + 1]); i += 2
+        else:
+            i += 1
+    if spaces:
+        lv["spaces"] = spaces
+    put("level", name, lv)
+    log("level %s: login port %d, session port %d, %s, reach %s%s" % (name, lv["login_port"], lv["session_port"],
+        "password" if lv["password"] else "no password", lv["reach"]["kind"],
+        "" if lv["reach"]["kind"] != "list" else " " + ",".join(lv["reach"]["dests"])))
+    apply_reach("level %s" % name)
+
+
+def cmd_user(level, user):
+    if level not in cells("level"):
+        die("no level %r" % level)
+    pw = sys.stdin.readline().rstrip("\n")
+    if not pw:
+        die("no password on stdin")
+    salt = secrets.token_hex(16)
+    put("user", "%s/%s" % (level, user), {"salt": salt, "v": verifier(org_key(), pw, salt)})
+    log("user %s at %s: password set" % (user, level))
+
+
+def cmd_line(level):
+    lv = cells("level").get(level)
+    door = cells("door").get(h()["FDF_AREA"])
+    if not lv or not door:
+        die("no level %r, or no door (fdf-org init)" % level)
+    hub_pub = subprocess.run(["wg", "show", h()["FDF_IFACE"], "public-key"], capture_output=True, text=True).stdout.strip()
+    if not hub_pub:
+        die("`wg show %s public-key` gave nothing: is fdf-hub running?" % h()["FDF_IFACE"])
+    line = {"v": 1, "org": h()["FDF_AREA"], "level": level, "password": lv.get("password", False),
+            "generic": {"privkey": door["generic_priv"], "edge": GENERIC_EDGE},
+            "managers": [{"name": h().get("FDF_HUB_NAME", ""), "pubkey": hub_pub, "endpoint": h().get("FDF_ENDPOINT", ""),
+                          "addr": HUB_ADDR, "door_port": door["port"], "login_port": lv["login_port"]}],
+            "spaces": lv.get("spaces", [])}
+    tok = "fdfjoin1." + base64.urlsafe_b64encode(json.dumps(line, separators=(",", ":")).encode()).decode().rstrip("=")
+    print(tok)
+    if subprocess.run(["sh", "-c", "command -v qrencode"], capture_output=True).returncode == 0:
+        subprocess.run(["qrencode", "-t", "ANSIUTF8", tok])
+
+
+def cmd_list():
+    for n, lv in sorted(cells("level").items()):
+        print("level %-20s login %-5d session %-5d %-11s reach %s" % (n, lv["login_port"], lv["session_port"],
+              "password" if lv.get("password") else "no password", lv.get("reach", {}).get("kind")))
+    for n, r in admitted().items():
+        if r.get("level"):
+            print("device %-16s %-14s %-12s %-10s %s %s" % (n, r["edge"], r["level"], r.get("state"), r.get("nick", ""), r.get("user", "")))
+
+
+def cmd_revoke(name):
+    p = os.path.join(ADMITTED, name + ".json")
+    if not os.path.exists(p):
+        die("%s is not admitted" % name)
+    os.remove(p)                                                  # the hub drops its peer at once (inotify)
+    apply_reach("revoke %s" % name)
+    log("%s revoked: its peer and its reach are gone" % name)
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0
+    if os.geteuid() != 0:
+        die("run as root")
+    c = a[0]
+    if c == "init": cmd_init()
+    elif c == "level" and len(a) >= 2: cmd_level(a[1:])
+    elif c == "user" and len(a) == 3: cmd_user(a[1], a[2])
+    elif c == "line" and len(a) == 2: cmd_line(a[1])
+    elif c == "list": cmd_list()
+    elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
+    elif c == "serve": serve()
+    else: die(__doc__.split("Where things")[0].strip(), 2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

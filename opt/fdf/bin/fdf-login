@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-login -- [ORG_LEVELS_V1] a device logs in at its level with the one join line its manager handed out
+(opt/fdf/docs/ORGANIZATIONS.md section 3). Linux; Windows and Android do the same in the member library.
+
+  fdf-login fdfjoin1.<...> [--nick NAME] [--node]     log in at every RAM manager the line names, in order; the
+                                                     password (when the level has one) is read from stdin as
+                                                     "user password" on one line
+  fdf-login --up                                     a later start: the device's own tunnel up from its state, no login
+
+In order, at each RAM manager ([LOGIN_RESTRICTED_FIRST_V1]):
+  1 a tunnel on the generic credential, for ONE exchange: this device's own public key to the door, its own edge back
+    (restricted: its level's login port and nothing else)
+  2 the generic tunnel down; the device's own tunnel up (its own key, its edge, a route to the RAM manager's address
+    only: the connection changes no other route)
+  3 login on the level's login port: the user and password, or nothing for a level without one
+  4 the answer: the level's session port. RINA_RAM for every application on this device is <RAM manager>:<session port>.
+State: $FDF_LOGIN_STATE (default /opt/fdf/var/login.json, root-only): the key, the edge and session per RAM manager.
+The generic credential is one WireGuard peer: two devices on it at the same instant collide, and the one that gets no
+answer asks again, here, by itself.
+"""
+import base64, json, os, socket, subprocess, sys, tempfile, time
+
+STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
+WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
+TRIES = 6
+
+
+def log(*a):
+    print("[LOGIN] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+def die(msg, rc=1):
+    sys.stderr.write("fdf-login: %s\n" % msg)
+    sys.exit(rc)
+
+
+def run(*cmd, **kw):
+    p = subprocess.run(list(cmd), capture_output=True, text=True, **kw)
+    if p.returncode != 0:
+        raise RuntimeError("%s: %s" % (" ".join(cmd[:4]), (p.stderr or p.stdout).strip()))
+    return p.stdout.strip()
+
+
+def decode(line):
+    if not line.startswith("fdfjoin1."):
+        die("not a join line (it starts fdfjoin1.; fdf-org line LEVEL on the RAM host prints one)")
+    b = line[9:]
+    try:
+        return json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)))
+    except ValueError as e:
+        die("the join line does not decode (%s): copy the whole line" % e)
+
+
+def iface_up(name, priv, edge, peer_pub, endpoint, addr):
+    """A WireGuard interface: this key, this edge/32, one peer (allowed-ips 10.0.0.0/8, FrogNet's rule), and ONE route:
+    the RAM manager's address. Nothing else on this machine is routed through it."""
+    subprocess.run(["ip", "link", "del", name], capture_output=True)
+    if WG_IMPL == "wireguard-go":
+        run("wireguard-go", name)
+        for _ in range(100):
+            if subprocess.run(["wg", "show", name], capture_output=True).returncode == 0:
+                break
+            time.sleep(0.05)
+    else:
+        run("ip", "link", "add", name, "type", "wireguard")
+    fd, kf = tempfile.mkstemp(prefix="fdf-login-", suffix=".key")   # 0600, and this process's own
+    with os.fdopen(fd, "w") as f:
+        f.write(priv + "\n")
+    try:
+        run("wg", "set", name, "private-key", kf, "peer", peer_pub, "endpoint", endpoint,
+            "allowed-ips", "10.0.0.0/8", "persistent-keepalive", "25")
+    finally:
+        os.remove(kf)
+    run("ip", "addr", "add", edge + "/32", "dev", name)
+    run("ip", "link", "set", name, "up")
+    run("ip", "route", "replace", addr + "/32", "dev", name)
+
+
+def iface_down(name):
+    subprocess.run(["ip", "link", "del", name], capture_output=True)
+
+
+def exchange(addr, port, ask, timeout=8.0):
+    with socket.create_connection((addr, port), timeout=timeout) as s:
+        s.sendall((json.dumps(ask) + "\n").encode())
+        s.settimeout(timeout)
+        return json.loads(s.makefile("r").readline() or "{}")
+
+
+def state():
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(st):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    old = os.umask(0o077)
+    try:
+        open(STATE + ".tmp", "w").write(json.dumps(st, indent=1, sort_keys=True) + "\n")
+    finally:
+        os.umask(old)
+    os.replace(STATE + ".tmp", STATE)
+
+
+def at_manager(line, m, i, st, cred, nick, kind):
+    own = "wg-own%d" % i
+    me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
+    if "privkey" not in st:
+        old = os.umask(0o077)
+        try:
+            st["privkey"] = run("wg", "genkey")
+        finally:
+            os.umask(old)
+        st["pubkey"] = run("wg", "pubkey", input=st["privkey"])
+    # 1 the door, on the generic credential, for one exchange
+    ans = None
+    for t in range(1, TRIES + 1):
+        iface_up("wg-door", line["generic"]["privkey"], line["generic"]["edge"], m["pubkey"], m["endpoint"], m["addr"])
+        try:
+            ans = exchange(m["addr"], m["door_port"], {"pubkey": st["pubkey"], "level": line["level"], "device": st["device"],
+                                                       "nick": nick, "kind": kind})
+            break
+        except (OSError, ValueError) as e:                         # another device on the generic credential, or slow
+            log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
+            time.sleep(1 + t)
+        finally:
+            iface_down("wg-door")                                  # 2 the generic tunnel is gone after the one exchange
+    if not ans or not ans.get("ok"):
+        die("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
+    log("door at %s: I am %s, edge %s (%s)" % (m["endpoint"], ans["name"], ans["edge"], ans["state"]))
+    me.update(name=ans["name"], edge=ans["edge"], iface=own, peer=m["pubkey"], endpoint=m["endpoint"], addr=m["addr"])
+    iface_up(own, st["privkey"], ans["edge"], m["pubkey"], m["endpoint"], m["addr"])
+    # 3 login on its own tunnel
+    out = None
+    for t in range(1, TRIES + 1):
+        try:
+            out = exchange(m["addr"], m["login_port"], cred)
+            break
+        except (OSError, ValueError) as e:                         # the hub adds the peer on its admitted-file event
+            log("login at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
+            time.sleep(1 + t)
+    if not out or not out.get("ok"):
+        die("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer after %d tries" % TRIES)))
+    me.update(level=out["level"], ram=out["ram"], session_port=out["session_port"], spaces=out.get("spaces", []),
+              area=out.get("area", ""))
+    if out.get("site_key"):
+        me["site_key"] = out["site_key"]
+    log("logged in at %s: level %s, RINA_RAM=%s" % (m["endpoint"], out["level"], out["ram"]))
+
+
+def main():
+    a = sys.argv[1:]
+    if not a or a[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0
+    if os.geteuid() != 0:
+        die("run as root")
+    st = state()
+    if a[0] == "--up":
+        if not st.get("managers"):
+            die("no login state in %s: run fdf-login with the join line first" % STATE)
+        for me in st["managers"].values():
+            iface_up(me["iface"], st["privkey"], me["edge"], me["peer"], me["endpoint"], me["addr"])
+            log("up: %s edge %s, RINA_RAM=%s" % (me["iface"], me["edge"], me.get("ram")))
+        return 0
+    line = decode(a[0])
+    nick = a[a.index("--nick") + 1] if "--nick" in a else ""
+    kind = "node" if "--node" in a else "leaf"
+    st.setdefault("device", os.environ.get("FDF_DEVICE_ID") or (open("/etc/fnid").read().strip() if os.path.exists("/etc/fnid") else socket.gethostname()))
+    cred = {}
+    if line.get("password"):
+        parts = sys.stdin.readline().strip().split(" ", 1)
+        if len(parts) != 2:
+            die("level %s has a password: give \"user password\" on stdin" % line["level"])
+        cred = {"user": parts[0], "password": parts[1]}
+    for i, m in enumerate(line["managers"]):
+        at_manager(line, m, i, st, cred, nick, kind)
+        save(st)
+    first = next(iter(st["managers"].values()))
+    print("RINA_RAM=%s" % first["ram"])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
