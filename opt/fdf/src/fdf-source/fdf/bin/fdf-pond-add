@@ -32,6 +32,8 @@ Environment=FDF_FACTS=/opt/fdf/var/facts.json
 Environment=FDF_FORWARD_FILE=/opt/fdf/var/forward
 Environment=RIBBIT_TEMPLATES=/opt/fdf/templates/fdf.prime
 EnvironmentFile=/opt/fdf/var/ponds/%i.env
+# [SYSTEM_SPACE_V1] the forward pond's RAM manager NOW (the tunnel daemon walks its list), read after the pond's own
+EnvironmentFile=-/opt/fdf/var/ponds/%i.now
 Environment=FDF_BIN=/opt/fdf/bin
 ExecStart=/opt/fdf/bin/fdf-client ${RINA_RAM}
 # [REACH_V1] exit 4 = the network refused this machine's reach: the session is over and stays over (no fallbacks);

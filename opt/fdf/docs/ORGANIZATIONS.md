@@ -92,6 +92,27 @@ without a RAM manager. **John.** Every node decides for itself and has its own c
 manager; different RAM managers within one space only when the network has actually partitioned. **John.** Separate
 worlds, different applications in different spaces, are membership and allowed. **John.**
 
+The system space, on a node (`internet_tunnels_v3/region.py` and `poll.py`, `[SYSTEM_SPACE_V1]`; **proposed** where
+not marked John):
+
+- The list is `/opt/fdf/var/system-space.json`: `fdf-login --node` writes it from the join line, one entry per RAM
+  manager (its hub, this node's edge there, its session). A node joined by invitation has one entry, from `hub.json`.
+  After the list come the LAN's RAM managers from the highest IP down to the node's own (**John**).
+- The LAN's RAM managers are known, not discovered: the .1 of every /24 the node's plan routes on a LAN device
+  (`lan-rams.json`). On a WAN RAM manager the plan sees the whole network and replaces the list; on a LAN one it only
+  adds, so a node alone on its own RAM still tries the higher ones.
+- Every node runs its own LAN RAM manager, `rina-host` on its .1, port 8841, a child of the tunnel daemon
+  (`[LAN_RAM_ALWAYS_V1]`), so the walk always ends somewhere.
+- The tunnel daemon walks the list: a WAN entry's hub channel comes up, then it is asked (`version`); a LAN entry has
+  no hub channel, and every WireGuard tunnel comes down (**John**: failover from the WAN to the LAN is the removal of the
+  WG tunnels). The LAN's routes stay, so the node can still reach the LAN RAM managers above its own.
+- The node's own session (`fdf-client`) follows: `join.env` stays what was configured (it is the region switch);
+  where the system space is now is `system-ram.env` (`ponds/<forward>.now` for the forward pond), read by the unit after
+  it, and the session is restarted when it changes.
+- A standby above the current entry is asked through a probe tunnel of its own (`fdfsp<N>`, the node's key, its edge
+  at that RAM host, `SO_BINDTODEVICE`, no route, down after each question: `[SPACE_PROBE_TUNNEL_V1]`), so nothing is
+  routed differently and the current hub's peer is never moved.
+
 ## 5. Run
 
 Each node writes only its own facts and holds one read; a change is an event, and the merge applies it, writing back
@@ -107,7 +128,12 @@ re-arms its reads and re-writes its truth. **John.** Memory is never moved.
   every 5 s (**proposed**: the source of John's failback event).
 - Each event walks the list top to bottom; a different answer is a switch.
 
-Measured in `netns-space-test.sh` (one box, wireguard-go): the primary's RAM manager dying, both devices on the standby
+On a node, measured in `netns-system-space-test.sh` (two hubs, z on the Internet, w behind z with its own tunnel;
+one box, wireguard-go): hubA's RAM manager dying, both nodes on hubB in 2.3 s; hubA back, both on it in 6.0 s; both WAN
+RAM managers gone, both on the LAN's highest (w's 10.4.4.1) in 2.2 s with no WireGuard left and z still routing w's
+/24; hubA back, both on it from the LAN in 5.7 s.
+
+For devices, measured in `netns-space-test.sh` (one box, wireguard-go): the primary's RAM manager dying, both devices on the standby
 in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM hosts gone, each device on its own RAM in
 0.3 s; a device cut from the primary only, on the standby in 8.9 s while the other stays on the primary, and back in
 1.0 s when the cut heals.
@@ -120,8 +146,8 @@ in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM h
 | Device login | `fdf/bin/fdf-login` (Linux); the member library for Windows and Android is next |
 | A space's RAM manager, failover, failback | `fdf/lib/python/fdfspace.py` |
 | A connection bound to one tunnel | `fdf/lib/python/fdfram.py` (`Ram(hostport, device=...)`) |
-| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `rinab/tools/netns-space-test.sh` (step 4, devices) |
+| The system space on a node: the list, the walk, the LAN fallback, following | `internet_tunnels_v3/region.py`, `poll.py` (`run_region_loop`) |
+| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes) |
 
-Not yet built: the node side of step 4 (the system space walked in `region.py`/`poll.py`, the LAN fallback list, C
-behind A and B), application membership in several spaces (step 5), `fdf-setup` (step 6), one-line node and client
+Not yet built: C behind A and B (step 4: C's own connection egressing through either), application membership in several spaces (step 5), `fdf-setup` (step 6), one-line node and client
 install (step 7), the Windows and Android member library's login.

@@ -8,7 +8,9 @@
 
   fdf-login fdfjoin1.<...> [--nick NAME] [--node]     log in at every RAM manager the line names, in order; the
                                                      password (when the level has one) is read from stdin as
-                                                     "user password" on one line
+                                                     "user password" on one line. --node: with the tunnel
+                                                     daemon's key, and the tunnels handed to it as the system
+                                                     space's list (system-space.json, [SYSTEM_SPACE_V1])
   fdf-login --up                                     a later start: the device's own tunnel up from its state, no login
 
 In order, at each RAM manager ([LOGIN_RESTRICTED_FIRST_V1]):
@@ -119,6 +121,8 @@ def save(st):
 def at_manager(line, m, i, st, cred, nick, kind):
     own = "wg-own%d" % i
     me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
+    if "privkey" not in st and kind == "node":
+        st["privkey"], st["pubkey"] = node_key()
     if "privkey" not in st:
         old = os.umask(0o077)
         try:
@@ -164,6 +168,64 @@ def at_manager(line, m, i, st, cred, nick, kind):
     log("logged in at %s: level %s, RINA_RAM=%s" % (m["endpoint"], out["level"], out["ram"]))
 
 
+NODE_KEY = os.environ.get("FDF_NODE_KEY", "/var/lib/frognet-tunnel/node_private.key")
+VAR = os.path.dirname(STATE)
+
+
+def node_key():
+    """[DAEMON_OWNS_ITS_KEY_V1] a node logs in with the tunnel daemon's own key: every RAM host admits that key, and the
+    daemon's hub channel is the node's tunnel. Made here, as the daemon would make it, when there is none yet."""
+    if not os.path.exists(NODE_KEY):
+        os.makedirs(os.path.dirname(NODE_KEY), exist_ok=True)
+        old = os.umask(0o077)
+        try:
+            open(NODE_KEY + ".tmp", "w").write(run("wg", "genkey") + "\n")
+            os.replace(NODE_KEY + ".tmp", NODE_KEY)
+        finally:
+            os.umask(old)
+        log("made this node's key %s" % NODE_KEY)
+    priv = open(NODE_KEY).read().strip()
+    pub = run("wg", "pubkey", input=priv)
+    open(NODE_KEY.replace("private", "public") + ".tmp", "w").write(pub + "\n")
+    os.replace(NODE_KEY.replace("private", "public") + ".tmp", NODE_KEY.replace("private", "public"))
+    return priv, pub
+
+
+def write_atomic(path, text, mode=0o644):
+    old = os.umask(0o077 if mode == 0o600 else 0o022)
+    try:
+        open(path + ".tmp", "w").write(text)
+        os.chmod(path + ".tmp", mode)
+        os.replace(path + ".tmp", path)
+    finally:
+        os.umask(old)
+
+
+def node_files(line, st):
+    """[SYSTEM_SPACE_V1] a node hands its tunnels to the tunnel daemon: system-space.json (every RAM manager on the line,
+    in order: its hub, this node's edge there, its session), hub.json for the first (as fdf-region-join writes it),
+    site.env, and join.env (the region switch). The daemon walks the list (opt/fdf/docs/ORGANIZATIONS.md section 4);
+    this program's own interfaces come down."""
+    ms = sorted(st["managers"].values(), key=lambda m: m["order"])
+    ents = []
+    for me, m in zip(ms, line["managers"]):
+        ents.append({"name": m.get("name") or me["endpoint"], "ram": me["ram"],
+                     "hub": {"name": m.get("name") or me["endpoint"], "pubkey": m["pubkey"], "endpoint": m["endpoint"], "addr": m["addr"]},
+                     "member": {"name": me["name"], "edge": me["edge"], "kind": "node"}})
+    first, area = ents[0], ms[0].get("area", "")
+    key = next((m["site_key"] for m in ms if m.get("site_key")), "")
+    os.makedirs(VAR, exist_ok=True)
+    write_atomic(os.path.join(VAR, "system-space.json"), json.dumps({"area": area, "managers": ents}, indent=1) + "\n")
+    write_atomic(os.path.join(VAR, "hub.json"), json.dumps({"area": area, "ram": first["ram"], "hub": first["hub"], "member": first["member"]},
+                                                           indent=1, sort_keys=True) + "\n")
+    write_atomic(os.path.join(VAR, "site.env"), "RINA_AREA=%s\nRINA_SITE_KEY=%s\n" % (area, key), 0o600)
+    write_atomic(os.path.join(VAR, "join.env"), "export RINA_RAM=%s\n" % first["ram"])
+    for me in ms:
+        iface_down(me["iface"])
+    log("node: system space %s for the tunnel daemon (%s); site.env, hub.json, join.env written"
+        % (", ".join(e["name"] for e in ents), os.path.join(VAR, "system-space.json")))
+
+
 def main():
     a = sys.argv[1:]
     if not a or a[0] in ("-h", "--help"):
@@ -174,6 +236,9 @@ def main():
     if a[0] == "--up":
         if not st.get("managers"):
             die("no login state in %s: run fdf-login with the join line first" % STATE)
+        if st.get("kind") == "node":
+            log("a node: its tunnels are the tunnel daemon's (system-space.json); nothing to bring up here")
+            return 0
         for me in st["managers"].values():
             iface_up(me["iface"], st["privkey"], me["edge"], me["peer"], me["endpoint"], me["addr"], me.get("metric", 100))
             log("up: %s edge %s, RINA_RAM=%s" % (me["iface"], me["edge"], me.get("ram")))
@@ -181,6 +246,7 @@ def main():
     line = decode(a[0])
     nick = a[a.index("--nick") + 1] if "--nick" in a else ""
     kind = "node" if "--node" in a else "leaf"
+    st["kind"] = kind
     st.setdefault("device", os.environ.get("FDF_DEVICE_ID") or (open("/etc/fnid").read().strip() if os.path.exists("/etc/fnid") else socket.gethostname()))
     cred = {}
     if line.get("password"):
@@ -191,6 +257,8 @@ def main():
     for i, m in enumerate(line["managers"]):
         at_manager(line, m, i, st, cred, nick, kind)
         save(st)
+    if kind == "node":
+        node_files(line, st)
     first = next(iter(st["managers"].values()))
     print("RINA_RAM=%s" % first["ram"])
     return 0

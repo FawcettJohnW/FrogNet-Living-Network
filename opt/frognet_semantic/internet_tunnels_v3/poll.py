@@ -1427,6 +1427,11 @@ def run_region_loop():
                     applier.me = p["name"]
             c = applier.apply(parts, positive_failures=set(failures))
             _lap("apply")
+            if "region" not in failures:                            # [SYSTEM_SPACE_V1] the LAN fallback list
+                try:
+                    region.save_lan(c.get("lan_dot1s") or [], replace=not region.current().get("lan"))
+                except OSError as e:
+                    config.log.warning("REGION: the LAN's RAM managers not saved: %s", e)
         # [CHILD_KEEPS_OWN_MAP_V1] the plan's maps already say what to register: everything behind me when I am the exit,
         # my own /24s when I am a child with a tunnel, nothing without one. Not gated on hub_active any more.
         # [LIVE_HUBS_FROM_TUNNELS_V1] the locator set = every hub whose channel is up right now (the old bringup set
@@ -1605,39 +1610,75 @@ def run_region_loop():
         "" if r.returncode == 0 else (": could not install the route: " + r.stderr.strip()))
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
     backoff = 5
+    returned = {"name": None}
     while config.running:
         up = False
         evs = None
-        # [RAM_IN_THE_TUNNEL_V1] the region's RAM manager listens only on the hub's tunnel address: the invitation's hub
-        # channel comes up first, every attempt (after a loss every tunnel was torn down; this one is the way back).
-        # It needs nothing from the region: region.my_channels() builds it from the invitation.
-        try:
-            _reconcile_bringup_phase()
-        except Exception as e:
-            config.log.warning("REGION: hub channel bring-up before joining failed: %s (tried again on the next attempt)", e)
-        try:
-            # [WATCH_BEFORE_READ_V1] the watch first, then the read. It was the other way round: `_one("start")` read the
-            # world, then brought up the hub tunnel (5 s in the netns test), and only then did fdf-events register --
-            # every join, announce and mapping in between was never delivered. Both daemons in
-            # tools/netns-region-loop-test.sh sat 61 s with a/y missing from their plan, until an unrelated change.
-            # Now a change after the watch is queued (fdf-events' pipe) while the read runs, and is applied next.
-            evs = region.events()
-            first = next(evs, "gone")
-            if first != "ready":
-                raise RuntimeError("fdf-events registered no watch (%s)" % first)
-            with region.facts_batch():                              # [ONE_WRITE_PER_EVENT_V1]
-                _one("start")
-            up = True
-        except Exception as e:
-            if evs is not None:
-                evs.close()
-            config.log.warning("REGION: not reachable (%s); %s", e,
+        # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) every attempt walks the system space's list top to bottom: the
+        # configured RAM managers, then the LAN's from the highest IP down to this node's own. The first that answers is
+        # the one. The node's own LAN RAM manager is always running, so the walk always ends somewhere.
+        region.ensure_lan_ram()
+        order = region.system_order()
+        at = None
+        for i, entry in enumerate(order):
+            region.use(entry)
+            # [RAM_IN_THE_TUNNEL_V1] a WAN RAM manager listens only on its hub's tunnel address: its hub channel comes up
+            # first (region.my_channels builds it from the entry, needing nothing from the region); a LAN entry has
+            # none, and every hub channel comes down (John: failover from the WAN to the LAN removes the WG tunnels).
+            try:
+                _reconcile_bringup_phase()
+            except Exception as e:
+                config.log.warning("REGION: hub channel bring-up for %s failed: %s", entry["name"], e)
+            if not region.answers(entry):
+                config.log.warning("REGION: system space: %s (%s) does not answer; next on the list", entry["name"], entry["ram"])
+                continue
+            try:
+                region.follow(entry)                                # this node's own session goes there too
+                # [WATCH_BEFORE_READ_V1] the watch first, then the read. It was the other way round: `_one("start")` read
+                # the world, then brought up the hub tunnel (5 s in the netns test), and only then did fdf-events
+                # register -- every join, announce and mapping in between was never delivered. Both daemons in
+                # tools/netns-region-loop-test.sh sat 61 s with a/y missing from their plan, until an unrelated change.
+                # Now a change after the watch is queued (fdf-events' pipe) while the read runs, and is applied next.
+                evs = region.events()
+                first = next(evs, "gone")
+                if first != "ready":
+                    raise RuntimeError("fdf-events registered no watch (%s)" % first)
+                with region.facts_batch():                          # [ONE_WRITE_PER_EVENT_V1]
+                    _one("start")
+                up, at = True, i
+                break
+            except Exception as e:
+                if evs is not None:
+                    evs.close()
+                    evs = None
+                config.log.warning("REGION: system space: %s answered but the session did not start (%s); next on the list", entry["name"], e)
+        if not up:
+            config.log.warning("REGION: not reachable: nothing on the system space's list answered (%s); %s",
+                               ", ".join(e["name"] for e in order),
                                "will keep trying every %ds, quietly" % backoff if not was_up else "was up: treating as lost")
         if up:
             was_up = True
             backoff = 5
+            config.log.warning("REGION: system space on %s (%s), %d of %d on the list [SYSTEM_SPACE_V1]",
+                               order[at]["name"], order[at]["ram"], at + 1, len(order))
+            # [SPACE_FAILBACK_V1] a standing attempt toward every entry above the current one, every 5 s: the first that
+            # answers ends this session, and the walk from the top makes the switch. Its event is the failback.
+            stop = _thr.Event()
+            def _standing(above, stop=stop):
+                while not stop.wait(5):
+                    for e in above:
+                        if stop.is_set():
+                            return
+                        if region.answers(e, timeout=3.0):
+                            returned["name"] = e["name"]
+                            config.log.warning("REGION: system space: %s answers again; walking the list [SPACE_FAILBACK_V1]", e["name"])
+                            region.end_events()
+                            return
+            if at:
+                _thr.Thread(target=_standing, args=(order[:at],), name="space-standing", daemon=True).start()
             for ev in evs:
                 if not config.running:
+                    stop.set()
                     return
                 if ev == "gone":
                     break
@@ -1646,7 +1687,22 @@ def run_region_loop():
                         _one("event " + ev)
                 except Exception as e:
                     config.log.warning("REGION: apply after event %s failed: %s", ev, e)
-        if was_up:                      # up -> down: withdraw, tear down, one merge from the LAN; then wait to come back
+            stop.set()
+        if returned["name"]:            # [SPACE_FAILBACK_V1] a switch upward: no withdrawal, the walk now
+            returned["name"] = None
+            continue
+        if up:
+            # [SPACE_FAILOVER_V1] the system space's RAM manager is lost: the next on the list now (John 7A). Failover
+            # from a WAN RAM manager to the LAN is the removal of the WG tunnels (John): the hub channel goes, and its
+            # routes with it; the LAN's routes stay for the RAM manager the walk lands on to re-plan (withdrawing them
+            # first would cut this node off from the LAN RAM managers above its own).
+            _write_view("recalc", "lost:" + order[at]["name"])
+            n = _tear_down_all_kernel_wg_ifaces("system space lost %s: its hub channel goes" % order[at]["name"])
+            config.log.warning("REGION: lost %s, the system space's RAM manager; tore down %d tunnel(s); walking the list now [SPACE_FAILOVER_V1]", order[at]["name"], n)
+            if switch["to"]:
+                _do_switch()
+            continue
+        if was_up:                      # nothing on the list answers, not even this node's own: withdraw everything
             was_up = False
             _write_view("recalc", "lost:region")
             try:

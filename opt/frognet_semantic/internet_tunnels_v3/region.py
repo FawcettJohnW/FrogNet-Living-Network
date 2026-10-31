@@ -242,13 +242,269 @@ def invitation() -> dict:
         return {}
 
 
+# ---------------------------------------------------------------- the system space: which RAM manager  [SYSTEM_SPACE_V1]
+# opt/fdf/docs/ORGANIZATIONS.md section 4 (John): the system space has its own ordered list of RAM managers; after the
+# list it falls back the way every space does: the LAN's machines from the highest IP (databasehost-control) down to this
+# node's own. A node is never without a RAM manager. Each node walks the list for itself; a merge is a node applying one
+# RAM event, there is no discovery. Failover from a WAN RAM manager to the LAN is the removal of the WG tunnels (John):
+# a LAN entry has no hub channel.
+SYSTEM_SPACE = os.environ.get("FDF_SYSTEM_SPACE", "/opt/fdf/var/system-space.json")
+LAN_RAMS = os.environ.get("FDF_LAN_RAMS", "/opt/fdf/var/lan-rams.json")
+LAN_RAM_PORT = int(os.environ.get("FDF_LAN_RAM_PORT", "8841"))
+_cur = {"entry": None}
+
+
+def system_managers() -> list:
+    """The system space's configured RAM managers, in order: [{"name", "ram", "hub": {...}, "member": {"edge"}}].
+    system-space.json (fdf-login --node writes it, one entry per RAM manager on the join line) or, for a node joined by
+    invitation, the one hub hub.json names."""
+    try:
+        with open(SYSTEM_SPACE) as f:
+            ms = json.load(f).get("managers") or []
+        return [m for m in ms if m.get("ram") and (m.get("hub") or {}).get("pubkey") and (m.get("member") or {}).get("edge")]
+    except (OSError, ValueError):
+        pass
+    # one RAM manager, as configured before system-space.json: the forward pond's (ponds/<forward>.env), else join.env's;
+    # its hub channel is the invitation's (hub.json), or none for a region joined directly (fdf-join RAM)
+    inv = invitation()
+    h, m = inv.get("hub") or {}, inv.get("member") or {}
+    fwd = read_word("forward")
+    ram = (pond_env(fwd).get("RINA_RAM") if fwd else "") or read_env_ram(os.path.join(FDF_VAR, "join.env"))
+    if not ram:
+        return []
+    if h.get("pubkey") and h.get("endpoint") and m.get("edge"):
+        return [{"name": h.get("name", "hub"), "ram": ram, "hub": h, "member": m}]
+    return [{"name": "region " + ram, "ram": ram}]
+
+
+def own_dot1() -> str:
+    sub = own_subnet()
+    return sub.rsplit(".", 1)[0] + ".1" if sub else ""
+
+
+def _ipkey(ip: str):
+    try:
+        return int(ipaddress.ip_address(ip))
+    except ValueError:
+        return -1
+
+
+def lan_fallback() -> list:
+    """The LAN's machines from the highest IP (databasehost-control) down to this node's own, each its LAN RAM manager
+    (rina-host on its .1, port FDF_LAN_RAM_PORT). Known from lan-rams.json (save_lan) plus this node itself; nothing
+    is discovered."""
+    try:
+        with open(LAN_RAMS) as f:
+            ips = set(json.load(f).get("dot1s") or [])
+    except (OSError, ValueError):
+        ips = set()
+    me = own_dot1()
+    if me:
+        ips.add(me)
+    mine = _ipkey(me)
+    out = sorted((ip for ip in ips if _ipkey(ip) >= mine), key=_ipkey, reverse=True)
+    return [{"name": "lan " + ip + ("" if ip != me else " (own)"), "ram": "%s:%d" % (ip, LAN_RAM_PORT), "lan": True} for ip in out]
+
+
+def system_order() -> list:
+    return system_managers() + lan_fallback()
+
+
+def save_lan(dot1s, replace: bool) -> None:
+    """The LAN's .1s as this node's plan has them (LAN routes, not through a hub). On a WAN RAM manager the plan sees the
+    whole network and replaces the list; on a LAN one it only adds (a node alone on its own RAM sees nobody, and must
+    still try the higher ones). Written only when it changed."""
+    try:
+        with open(LAN_RAMS) as f:
+            have = set(json.load(f).get("dot1s") or [])
+    except (OSError, ValueError):
+        have = set()
+    want = set(dot1s) if replace else have | set(dot1s)
+    want.discard(own_dot1())
+    if want != have:
+        tmp = LAN_RAMS + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(json.dumps({"dot1s": sorted(want, key=_ipkey, reverse=True)}) + "\n")
+        os.replace(tmp, LAN_RAMS)
+        config.log.warning("REGION: the LAN's RAM managers (highest first): %s [SYSTEM_SPACE_V1]", sorted(want, key=_ipkey, reverse=True))
+
+
+def use(entry: dict) -> None:
+    """This node's system space is on `entry` now: the region calls go to it, and my_channels builds its hub channel
+    (none for a LAN entry)."""
+    _cur["entry"] = entry
+    config.REGION_RAM = entry["ram"]
+
+
+def current() -> dict:
+    return _cur["entry"] or {}
+
+
+def answers(entry: dict, timeout: float = 5.0) -> bool:
+    """Does this RAM manager answer (op version) right now? A LAN entry and the CURRENT WAN entry are asked directly
+    (the current one through its hub channel, which bring-up made). Any other WAN entry is asked through a probe tunnel
+    of its own for this one question ([SPACE_PROBE_TUNNEL_V1]: fdfsp<N>, this node's key, its edge at that RAM host,
+    bound with SO_BINDTODEVICE, no route; down again after), so a standby is never reached through the current one's
+    tunnel and nothing on the node is routed differently."""
+    import http.client, socket
+    host, port = entry["ram"].rsplit(":", 1)
+    dev = ""
+    if entry.get("hub") and entry.get("name") != (_cur["entry"] or {}).get("name"):
+        dev = _probe_up(entry)
+        if not dev:
+            return False
+    try:
+        class _B(http.client.HTTPConnection):
+            def connect(self):
+                s = socket.socket()
+                if dev:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, dev.encode())
+                s.settimeout(self.timeout)
+                s.connect((self.host, self.port))
+                self.sock = s
+        c = _B(host, int(port), timeout=timeout)
+        c.request("POST", API + "?op=rina", body=json.dumps({"op": "version"}), headers={"Content-Type": "application/json"})
+        r = c.getresponse()
+        ok = r.status == 200 and json.loads(r.read().decode() or "{}").get("ok", True) is not False
+        c.close()
+        return ok
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    finally:
+        if dev:
+            subprocess.run(["ip", "link", "del", dev], capture_output=True)
+
+
+def _probe_up(entry: dict) -> str:
+    names = [m.get("name") for m in system_managers()]
+    dev = "fdfsp%d" % (names.index(entry["name"]) if entry["name"] in names else len(names))
+    h, m = entry["hub"], entry["member"]
+    if not config.PRIVKEY:
+        return ""
+    subprocess.run(["ip", "link", "del", dev], capture_output=True)
+    try:
+        if os.environ.get("FDF_WG_IMPL", "") == "wireguard-go":
+            subprocess.run(["wireguard-go", dev], capture_output=True, check=True)
+        else:
+            subprocess.run(["ip", "link", "add", dev, "type", "wireguard"], capture_output=True, check=True)
+        import tempfile
+        fd, kf = tempfile.mkstemp(prefix="fdfsp-", suffix=".key")
+        with os.fdopen(fd, "w") as f:
+            f.write(config.PRIVKEY + "\n")
+        try:
+            subprocess.run(["wg", "set", dev, "private-key", kf, "peer", h["pubkey"], "endpoint", h["endpoint"],
+                            "allowed-ips", h.get("addr", "10.253.253.254") + "/32"], capture_output=True, check=True)
+        finally:
+            os.remove(kf)
+        subprocess.run(["ip", "addr", "add", m["edge"] + "/32", "dev", dev], capture_output=True, check=True)
+        subprocess.run(["ip", "link", "set", dev, "up"], capture_output=True, check=True)
+        return dev
+    except (subprocess.CalledProcessError, OSError) as e:
+        config.log.warning("REGION: probe tunnel %s toward %s not made: %s", dev, entry.get("name"), e)
+        subprocess.run(["ip", "link", "del", dev], capture_output=True)
+        return ""
+
+
+_lan_ram = {"proc": None, "addr": ""}
+
+
+def ensure_lan_ram() -> str:
+    """[LAN_RAM_ALWAYS_V1] this node's own LAN RAM manager: rina-host on its .1, port FDF_LAN_RAM_PORT, a child of the
+    daemon, so the last entry of every node's system space always answers. Its Permanent records are lan-ram.perm; the
+    members on it announce again after its restart. Returns its address, or "" (said) when it could not start."""
+    me = own_dot1()
+    if not me:
+        return ""
+    addr = "%s:%d" % (me, LAN_RAM_PORT)
+    p = _lan_ram["proc"]
+    if p is not None and p.poll() is None and _lan_ram["addr"] == addr:
+        return addr
+    if p is not None and p.poll() is None:
+        p.kill()
+    env = dict(os.environ)
+    env.pop("RINA_MAP_AREA", None)
+    env["RINA_REGION_FILE"] = os.path.join(FDF_VAR, "lan-ram.perm")      # its own Permanent records (rina-host needs a file)
+    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "rina-host")
+    try:
+        _lan_ram["proc"] = subprocess.Popen([exe, "--listen", addr, "--api", API], env=env, stdout=subprocess.DEVNULL,
+                                            stderr=open(os.path.join(FDF_VAR, "lan-ram.log"), "a"))
+        _lan_ram["addr"] = addr
+        import socket, time as _t
+        for _ in range(40):                                   # listening before the walk asks it (it binds in ~0.1 s)
+            try:
+                socket.create_connection((me, LAN_RAM_PORT), timeout=0.2).close()
+                break
+            except OSError:
+                if _lan_ram["proc"].poll() is not None:
+                    break
+                _t.sleep(0.05)
+        if _lan_ram["proc"].poll() is not None:
+            config.log.error("REGION: this node's own LAN RAM manager on %s exited at start (rc %s): %s/lan-ram.log says why",
+                             addr, _lan_ram["proc"].returncode, FDF_VAR)
+            return ""
+        config.log.warning("REGION: this node's own LAN RAM manager on %s (pid %d) [LAN_RAM_ALWAYS_V1]", addr, _lan_ram["proc"].pid)
+        return addr
+    except OSError as e:
+        config.log.error("REGION: this node's own LAN RAM manager did not start (%s %s): %s", exe, addr, e)
+        return ""
+
+
+def follow(entry: dict) -> bool:
+    """[SYSTEM_SPACE_V1] this node's own session (fdf-client) goes where the system space is. join.env and the ponds'
+    env files stay what was configured (join.env is the region switch, [REGION_SWITCH_ONE_FILE_V1]); where the session
+    is NOW is one more file its unit reads after them: system-ram.env, or ponds/<forward>.now for the forward pond.
+    Written, and the session restarted, only when that differs from what the session has. Returns True if it did."""
+    ram = entry["ram"]
+    fwd = read_word("forward")
+    if fwd:
+        conf, now, unit = pond_env(fwd).get("RINA_RAM", ""), os.path.join(FDF_VAR, "ponds", fwd + ".now"), "fdf-client@%s.service" % fwd
+    else:
+        conf, now, unit = read_env_ram(os.path.join(FDF_VAR, "join.env")), os.path.join(FDF_VAR, "system-ram.env"), "fdf-client.service"
+    has = read_env_ram(now) or conf
+    if has == ram:
+        return False
+    tmp = now + ".tmp"
+    open(tmp, "w").write("RINA_RAM=%s\n" % ram)
+    os.replace(tmp, now)
+    cmd = os.environ.get("FDF_CLIENT_RESTART") or "systemctl restart " + unit
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    (config.log.warning if r.returncode == 0 else config.log.error)(
+        "REGION: this node's session follows the system space to %s (%s, was %s): %s%s", entry["name"], ram, has, cmd,
+        "" if r.returncode == 0 else " FAILED: " + (r.stderr or r.stdout).strip()[:200])
+    return True
+
+
+def read_env_ram(path: str) -> str:
+    try:
+        for ln in open(path):
+            ln = ln.strip()
+            if ln.startswith("export "):
+                ln = ln[7:]
+            if ln.startswith("RINA_RAM="):
+                return ln.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return ""
+
+
 def my_channels() -> dict:
     """[RAM_IN_THE_TUNNEL_V1] the hub channel comes from the invitation, not from the region: the region's RAM manager
     listens only inside this tunnel, so the tunnel is up first and the region is reached through it. The prefixes the
     channel carries for others (remote_subnets) are the verified mappings naming that hub, from the event's world read;
     outside an event (the bring-up before joining) none: the region itself is on the hub's address, inside the
-    tunnel's 10.0.0.0/8, and the event that follows the join brings them."""
-    inv = invitation()
+    tunnel's 10.0.0.0/8, and the event that follows the join brings them.
+    [SYSTEM_SPACE_V1] the ONE hub channel is the current system RAM manager's (use()); a LAN entry has none."""
+    cur = _cur["entry"]
+    if cur is not None and cur.get("lan"):
+        config.log.warning("REGION: my-channels: the system space is on %s: no hub channel", cur["name"])
+        me = read_facts()
+        payload = json.dumps({"channels": []})
+        return {"node_name": me.get("name", config.NODE_NAME), "node_id": me.get("guid", config.NODE_GUID),
+                "digest": hashlib.sha256(payload.encode()).hexdigest()[:16], "channels": []}
+    if cur is not None:
+        inv = {"hub": cur.get("hub") or {}, "member": cur.get("member") or {}}
+    else:
+        inv = invitation()
     me = read_facts()
     my_sub = me.get("subnet") or own_subnet()
     channels = []
