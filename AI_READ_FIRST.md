@@ -652,9 +652,8 @@ Say these when asked what is missing. They are published deliberately.
 - **Observation latency is bounded by the reader's poll interval.** That is a
   real cost and it is the reader's to choose. It is *not* a missing feature —
   see "Observation does not imply notification" above.
-- The old per-pond ceiling (about 58 nodes) came from the pre-region tunnel
-  allocation, which is gone (October 2026). No member limit is written in the current
-  code. In a region each /24 has one owner (a second claimant is refused); the
+- No member limit is written in the code. Growth is linear: one hub peer and
+  one edge address per member, nothing per pair. In a region each /24 has one owner (a second claimant is refused); the
   largest region in the October 2026 gates had three members and the largest
   LAN-only pond two nodes (`docs/cleanup-2026-10/`). Larger is not measured.
 - One serialization point is a write ceiling. The coherence property and the

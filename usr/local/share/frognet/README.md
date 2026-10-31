@@ -97,12 +97,11 @@ opt/fdf/                  FD&F
   src/fdf-source/         FD&F sources: rinab/ (C++ and its netns tests), fdf/ (scripts), docs/
   src/frognet-android/    the Android app, the member protocol in Kotlin, fdf-tun
   windows/                the Windows bridge (bridge/) and the older Windows client
-site/                     the public website
 docs/                     OPERATING.md, and cleanup-2026-10/ (the cleanup's records, logs and test harness)
 ```
 
 What lands on a node is the node file set (`frognet_node_files` in
-`usr/local/lib/frognet_world_manifest.sh`): not `opt/fdf`, the book, `site/` or
+`usr/local/lib/frognet_world_manifest.sh`): not `opt/fdf`, the book or
 `docs/`. A region node gets `/opt/fdf` from the FD&F `.run`.
 
 ## Running the gates
