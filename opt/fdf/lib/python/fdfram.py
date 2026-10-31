@@ -5,7 +5,7 @@
 #   remove DELETE ?op=remove&id=N -> {"ok":true,"removed":0|1}   (needs the rina-host with "DELE" in the HTTP front)
 #   rina   POST ?op=rina {"op":"participants"} -> {"ok":true,"participants":[...]}
 # Errors are raised, never swallowed: the caller says what failed.
-import json, os, urllib.parse, urllib.request
+import http.client, json, os, socket, urllib.parse, urllib.request
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
 HOLD_S = 30.0
@@ -31,12 +31,36 @@ def where():
     return w
 
 
+class _Bound(http.client.HTTPConnection):
+    """[RAM_ON_ITS_OWN_TUNNEL_V1] a connection that leaves through one interface (SO_BINDTODEVICE), whatever the main
+    routing table says: a device holds connections to several RAM managers that all live at 10.253.253.254, each
+    through its own tunnel, and nothing else on the machine is routed differently. TCP keepalive: a RAM manager that
+    vanishes is noticed in about 5 s ([KEEPALIVE_5S_V1]), not when a held read times out."""
+    def __init__(self, host, port, device, timeout):
+        super().__init__(host, port, timeout=timeout)
+        self.device = device
+
+    def connect(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, self.device.encode())
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 2)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 1)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+        s.settimeout(self.timeout)
+        s.connect((self.host, self.port))
+        self.sock = s
+
+
 class Ram:
-    def __init__(self, hostport=None):
+    def __init__(self, hostport=None, device=None):
         self.hostport = hostport or where()
+        self.device = device
         self.base = "http://%s%s" % (self.hostport, API)
 
     def _do(self, method, query, body=None, timeout=10.0):
+        if self.device:
+            return self._do_bound(method, query, body, timeout)
         url = self.base + "?" + urllib.parse.urlencode(query)
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(url, data=data, method=method,
@@ -54,6 +78,28 @@ class Ram:
         if not j.get("ok"):
             raise RamError("%s op=%s refused: %s" % (method, query.get("op"), j.get("error")))
         return j
+
+    def _do_bound(self, method, query, body, timeout):
+        host, port = self.hostport.rsplit(":", 1)
+        c = _Bound(host, int(port), self.device, timeout)
+        try:
+            data = json.dumps(body).encode() if body is not None else None
+            c.request(method, API + "?" + urllib.parse.urlencode(query), body=data,
+                      headers={"Content-Type": "application/json"} if data else {})
+            raw = c.getresponse().read()
+        except OSError as e:
+            raise RamError("%s %s via %s: %s" % (method, self.hostport, self.device, e))
+        finally:
+            c.close()
+        if not raw:
+            raise RamError("%s %s op=%s: empty reply" % (method, self.hostport, query.get("op")))
+        j = json.loads(raw)
+        if not j.get("ok"):
+            raise RamError("%s op=%s refused: %s" % (method, query.get("op"), j.get("error")))
+        return j
+
+    def version(self, timeout=4.0):
+        return self._do("POST", {"op": "rina"}, {"op": "version"}, timeout=timeout)
 
     def write(self, service, variable, instance, bag, permanent=False):
         body = {"service": service, "variable": variable, "instance": instance, "bag": bag}

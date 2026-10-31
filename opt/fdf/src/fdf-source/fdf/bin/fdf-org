@@ -12,7 +12,9 @@ and each device's reach (opt/fdf/docs/ORGANIZATIONS.md). Run on the machine that
                                         add or change a level: its random login and session ports are made once and
                                         kept; DEST = a 10.x address or prefix, optionally :port
   fdf-org user LEVEL USER               set USER's password at LEVEL (read from stdin, one line)
-  fdf-org line LEVEL                    print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed)
+  fdf-org line LEVEL [--with LINE ...]  print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed);
+                                        --with: a standby's line for the same level (fdf-org line LEVEL there), added
+                                        after this RAM host, in order
   fdf-org list                          levels, then admitted devices with level and state
   fdf-org revoke NAME                   NAME's peer and its reach go now
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
@@ -380,7 +382,14 @@ def cmd_user(level, user):
     log("user %s at %s: password set" % (user, level))
 
 
-def cmd_line(level):
+def decode_line(tok):
+    if not tok.startswith("fdfjoin1."):
+        die("not a join line: %s..." % tok[:12])
+    b = tok[9:]
+    return json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)))
+
+
+def cmd_line(level, withs=()):
     lv = cells("level").get(level)
     door = cells("door").get(h()["FDF_AREA"])
     if not lv or not door:
@@ -393,6 +402,14 @@ def cmd_line(level):
             "managers": [{"name": h().get("FDF_HUB_NAME", ""), "pubkey": hub_pub, "endpoint": h().get("FDF_ENDPOINT", ""),
                           "addr": HUB_ADDR, "door_port": door["port"], "login_port": lv["login_port"]}],
             "spaces": lv.get("spaces", [])}
+    line["managers"][0]["generic"] = line["generic"]               # each RAM host has its own generic credential
+    for other in withs:                                            # [STANDBY_IN_THE_LINE_V1] the standbys, in order
+        o = decode_line(other)
+        if o.get("level") != level:
+            die("--with: that line is for level %r, not %r" % (o.get("level"), level))
+        for m in o["managers"]:
+            m.setdefault("generic", o["generic"])
+            line["managers"].append(m)
     tok = "fdfjoin1." + base64.urlsafe_b64encode(json.dumps(line, separators=(",", ":")).encode()).decode().rstrip("=")
     print(tok)
     if subprocess.run(["sh", "-c", "command -v qrencode"], capture_output=True).returncode == 0:
@@ -427,7 +444,7 @@ def main():
     if c == "init": cmd_init()
     elif c == "level" and len(a) >= 2: cmd_level(a[1:])
     elif c == "user" and len(a) == 3: cmd_user(a[1], a[2])
-    elif c == "line" and len(a) == 2: cmd_line(a[1])
+    elif c == "line" and len(a) >= 2: cmd_line(a[1], [a[i + 1] for i in range(2, len(a) - 1) if a[i] == "--with"])
     elif c == "list": cmd_list()
     elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
     elif c == "serve": serve()

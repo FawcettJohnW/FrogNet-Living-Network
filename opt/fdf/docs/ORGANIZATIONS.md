@@ -1,158 +1,127 @@
 # An organization on FrogNet: setup, levels, login, and the RAM manager
 
-2026-10-31. John Fawcett, with Claude.
+2026-10-31. John Fawcett, with Claude. The live copy is the Claude Doc "An organization on FrogNet: design and plan
+(rev 2)"; this file is its export plus what the code decided, kept in the tree so the design travels with the code.
+Rules are marked **John** (he stated them) or **proposed** (Claude's, not yet confirmed).
 
-An organization stands up its own FrogNet system with nobody from Fawcett Innovations in the room. An EOC is the first
-case; a hospital group, a company or a game is the same. The organization describes itself in its own words, its
-people log in, and its applications (RangerTrak, the EOC screens, the Communicator) read and write cells without
-knowing about networks, servers, accounts or sync.
+An organization stands up its own FrogNet with nobody from Fawcett Innovations in the room. The manager rents a droplet,
+runs one wizard and hands out one line per level; every device installs with that line and is in. Applications run on
+top and never deal with networks, servers, accounts or sync. The EOC is the first customer; RangerTrak is the first
+application. Setup, levels and login are the platform's, in the ++ libraries; every Ribbit application gets them.
 
-None of this is EOC code. Setup, levels and login are platform pieces, in the ++ libraries beside API++
-(`opt/frognet_semantic/ribbit/docs/API-PLUS-PLUS.md`); every Ribbit application gets them.
+## Words
+
+| Word | What it is | Source |
+| --- | --- | --- |
+| RAM space | One shared memory: First Responders, EOC Admin, the system's own. Each has its own ordered list of RAM managers. | John |
+| System RAM | The space the network itself runs on: facts, mappings, participants. | John |
+| WAN RAM host | A RAM manager outside the FrogNet network, reachable by every host: the manager's droplet, and standbys in order. | John |
+| databasehost-control | Always the machine with the highest IP address in the network. Unchanged. | John |
+| Level | A group in the customer's own words: First Responders, Hospitals, Ambulances; Viewer, Editor, Admin. | John |
+| Reach | What a device's edge may touch: RAM only, a list of spaces and endpoints, or everything. Admission defines it. | John |
+| Device admission | Once per device per RAM host: its own tunnel, its edge, its level, its reach. | John |
+| Application membership | Applications join RAM spaces, not devices; each holds its own session to each of its spaces. | John |
+| Generic credential | One WireGuard credential per RAM host, in every join line, used for one exchange. | John |
+| Login port, session port | Two random ports per level on a RAM host. | John |
+| Merge | A node applying one RAM event: read the world, derive its routes and channels, write what changed. There is no discovery. | John |
 
 ## 1. Setup: the manager, once, on their own droplet
 
-The manager rents a droplet, logs in to it, installs the one droplet bundle, and runs the wizard:
+Install the one droplet bundle, run `/opt/fdf/bin/fdf-setup`. It asks before it changes anything and fixes what is
+missing once the manager says yes. **John.** In order: the RAM manager (`fdf-region-create`); the RAM spaces, all at
+once, with their access and their RAM-manager lists (**John**); the levels in the manager's own words, each with a
+password or none, its reach and the spaces its applications join (**John**); users and passwords (**John**); the generic
+credential and one join line per level, printed and as a QR; the manager's own device's first login. A standby is set
+up by running the wizard there with the same spaces, levels and users (**proposed**); `fdf-org line LEVEL --with <the
+standby's line>` puts the standby into the primary's line.
 
-    cd / && tar xvzf - < /tmp/fdf-droplet-<build>.tgz
-    /opt/fdf/bin/fdf-setup
+What survives a restart of the droplet (**proposed**; implemented, tested by `netns-org-test.sh` check 10):
 
-The wizard asks before it changes anything, and fixes what is missing (wireguard-go, the firewall) once the manager
-says yes. In order:
-
-1. **The RAM manager.** The organization's name and the droplet's public address (found, shown, confirmed); then what
-   `fdf-region-create` does today.
-2. **Levels.** The manager describes their organization in their own words. For an EOC: First Responders,
-   Headquarters, Hospitals, Ambulances. For others: Watcher, Player, Host; Viewer, Commenter, Editor, Admin. The
-   wizard shows examples and takes whatever names the manager gives. For each level: a password or none, and its reach
-   (section 2).
-3. **Users and passwords**, for the levels that have them, stored encrypted in tuple space.
-4. **The keys.** The generic WireGuard credential, and one join line per level (the RAM host's address, the credential,
-   the level's login port), printed and shown as a QR, to hand out or put into an install.
-5. **First login.** The manager's own device logs in with its level's line, and the wizard shows it arrive.
-
-The wizard can be run again to add levels or users; what exists is shown, not remade. A standby droplet is set up by
-running the wizard there with the same levels and users.
+| What | Kept as |
+| --- | --- |
+| Levels (ports, reach, password or none, spaces), users (encrypted), the door | permanent cells `(fdf-org, level/user/door, ...)` |
+| Admissions: device, edge, level, state | the hub's `admitted/NAME.json` files, as `fdf-invite` writes them, plus level and state |
+| The credential key | `/opt/fdf/var/org-key`, root-only, like the site key; a verifier is HMAC-SHA256(key, scrypt(password, salt)) |
+| Reach | not kept: rebuilt by `fdf-org serve` from the above at start and after every change |
 
 ## 2. Levels and reach
 
-A level is however the customer thinks of their own organization. It is theirs, it lasts as long as their need does,
-and the platform attaches no meaning to its name.
+A level is however the customer thinks of their own organization. **John.** Admission defines reach: RAM only (most
+levels), a list of spaces and endpoints, or open. **John.**
 
-What a level has:
+Reach is enforced by nftables on the RAM host, bound to each device's edge (`[REACH_PER_EDGE_V1]`, table `inet
+fdf_org`, rebuilt whole). **Proposed.** WireGuard's allowed-ips cannot do it: they say which source a peer may use, not
+what it may contact, and `fdf-hub` writes no filter rules. A level's session port is DNAT'ed to the RAM port and each
+edge may reach only its own level's (`[PORTS_BOUND_TO_ADMISSION_V1]`). Members admitted by `fdf-invite` are untouched.
+Reach covers what an edge touches through its tunnel; a LAN behind a node is outside it unless the node enforces it too.
 
-| | |
-| --- | --- |
-| a name | the customer's |
-| a login port and a session port | random, picked by the wizard, on the RAM host |
-| a password, or none | none: a device is admitted at once, named by its device ID, with a nickname the person can set |
-| its reach | what a device at that level can get to |
+## 3. Adding a device
 
-**Admission defines reach.** A level's reach is one of:
+Copy the bundle for that kind of device, run it with the level's join line, type a user and password if the level has
+one. **John.** A client gets its edge; a node also gets its /24 from the RAM manager (**proposed**) and is wired or
+projecting, never both: with no SSID it must be attached to a physical router in AP mode, which by definition supplies
+no DHCP; the node serves DHCP and DNS to it (**John**).
 
-- **RAM only**, the default. Most levels: the system's shared memory and nothing else on the network.
-- **A list**: the RAM regions and endpoints the manager names for that level. Hospitals might reach the
-  hospital-capacity region; Headquarters every region plus a server at a post.
-- **Open**: everything the network serves.
+Login, at each RAM manager on the line (`[LOGIN_RESTRICTED_FIRST_V1]`, **John**):
 
-What the regions and endpoints mean is the customer's. The platform only applies the reach: `fdf-hub` builds each
-device's peer (its allowed addresses and routes) from its level's reach, the way it applies the region-wide reach
-(`net.json`, `(pond, config, net)`, `none` / `listed` / `all`) today.
+1. The generic credential, for one exchange at the door: the device's own public key in, its own edge out, restricted to
+   its level's login port.
+2. The generic tunnel down, the device's own tunnel up.
+3. Login on the level's login port; the password is checked; the edge's reach becomes the level's.
+4. A session on the level's session port.
 
-## 3. Install and login: each device
+What the code decided (**proposed**):
 
-Adding a device is as simple as it can be made: copy the one bundle for that kind of device, run it with its level's
-join line (from the QR), and type a user and password if the level has one. Nothing else is typed. The join line
-carries everything: every RAM manager in order, each with its address and that level's login port, and the generic
-credential.
+- Both exchanges are one JSON line each way over TCP inside the tunnel, never cells: a RAM manager has no per-cell
+  privacy, so a password in a cell would be readable by every restricted device. The WireGuard source address is the
+  identity: the hub accepts a packet from an edge only from that edge's own key.
+- A device's name is `d-` plus a hash of its public key (`[NAME_FROM_KEY_V1]`), so nobody can claim another's device;
+  the device ID and nickname are carried beside it.
+- Every RAM host's hub is 10.253.253.254, so each RAM manager's tunnel gets a route to that one address at its own
+  metric (100 for the first on the list, 101 for the next) and every connection is bound to its tunnel
+  (`[RAM_ON_ITS_OWN_TUNNEL_V1]`, `SO_BINDTODEVICE`). Nothing else on the device is routed differently.
+- The device's own state (its key, and per RAM manager its edge, session and order) is `/opt/fdf/var/login.json`,
+  root-only; `fdf-login --up` brings the tunnels back without a login.
 
-There are two kinds of device, and the installer for each does only what that kind needs:
+## 4. Which RAM manager
 
-- **A client** (Windows, Android, or a Linux machine with the core): serves no LAN. No SSID, no /24; it gets its edge,
-  its own address on the tunnel, at login. Its name is its device ID, with a nickname the person can set.
-- **A node** (Linux, FrogNet): serves a LAN. Its name is its device ID, with a nickname. Its /24 is given by the RAM
-  manager at login; a node that already serves one keeps it. The installer does not ask about Wi-Fi: one identity, so
-  a node is wired or projecting, never both. A router in AP mode on eth0 that takes DHCP control from the node means
-  wired, hostapd masked, the router projecting its own SSID. Otherwise the node projects its own SSID through its
-  wlan0 or wlan1. Neither (no AP-mode router and no usable Wi-Fi interface) means the node cannot serve its LAN: the
-  installer says so and stops.
-
-Login, once per RAM manager on the device's list:
-
-1. Tunnel up on the generic credential. The login ports are reachable only inside it.
-2. Connect to the level's login port and log in. The user and password are checked against tuple space; that gives
-   the level.
-3. The RAM host admits the device's own WireGuard peer (its own key, its own address) at that level's reach, and
-   returns it with the level's session port.
-4. Generic tunnel down, the device's own tunnel up, and a session to the RAM manager on the session port.
-
-Every later start goes straight to step 4.
-
-The generic credential is one WireGuard peer, so it carries one exchange and nothing after: two devices logging in at
-the same instant collide (the RAM host's endpoint for that peer goes to whichever handshook last), and the library
-logs in again by itself. A lost device is revoked by the manager; its person logs in again and is a new member with a
-new key. No key is ever re-issued.
-
-On a node's Wi-Fi none of this applies: a phone there is a DHCP client and talks to the node's RAM directly.
-
-## 4. Which RAM manager: the system RAM
-
-This is the **system** RAM manager only. Services can have their own RAM managers anywhere; nothing here touches them.
-
-- **The WAN RAM host** is a machine outside the FrogNet network that every host can reach: the manager's droplet, and
-  any standbys, in order, in the device's config.
-- **databasehost-control** is unchanged: always the machine with the highest IP address in the network.
-- **Every node decides for itself.** When the LAN connects to the Internet (an event, so a merge, section 5), each node
-  walks its configured RAM managers top to bottom and connects to the first that answers. If none answers, the system
-  RAM is databasehost-control.
-- **Every node has its own connection** to the RAM manager: its own login, its own tunnel to the RAM manager's address,
-  its own session. The connection carries only the RAM manager's address and changes no routes. Nodes A and B on one
-  LAN each have their own uplink and their own connection, and A↔B stays on the LAN. Node C behind them leaves through
-  whichever of A or B is its exit, and its connection is still its own; if its exit moves, its session reconnects
-  through the other, to the same RAM manager.
+Every space has its own ordered list; each member uses the first that answers. After the list, every space falls back
+the same way: the LAN's machines from the highest IP (databasehost-control) down to the node's own; a machine is never
+without a RAM manager. **John.** Every node decides for itself and has its own connection, which changes no routes.
+**John.** Reachable means through the network: members of one space on one connected network converge on the same RAM
+manager; different RAM managers within one space only when the network has actually partitioned. **John.** Separate
+worlds, different applications in different spaces, are membership and allowed. **John.**
 
 ## 5. Run
 
-Each node writes only its own facts, through its own session, and holds one read on the RAM (`fdf-events`). A change
-fires an event: participants changed, a mapping changed, or the region is gone. A merge is the node applying the
-event (`_one("event ...")`, `internet_tunnels_v3/poll.py`): it reads the world from the RAM, derives its own routes and
-channels, and writes its facts back, one write per event. Split and merge are the same operation.
+Each node writes only its own facts and holds one read; a change is an event, and the merge applies it, writing back
+only what changed (**proposed**: today `write_facts` rewrites the file every time).
 
 ## 6. Failover and failback
 
-**Failover.** The session to the current RAM manager drops (the 5 s keepalive). The node switches at once to the first
-standby: it logged in there already, so the switch is a handshake and a session. If no configured RAM manager answers,
-its tunnels come down and the system RAM is databasehost-control.
+Per space, in the shared library (`fdfspace.Space`, `[SPACE_FAILOVER_V1]`); the application only receives the change and
+re-arms its reads and re-writes its truth. **John.** Memory is never moved.
 
-**Failback.** A RAM manager coming back is an event, and the event runs the merge. The merge walks the list top to
-bottom; if the answer is not the RAM manager the node started the merge on, it switches.
+- **Lost**: the held read on the current RAM manager fails; TCP keepalive notices a vanished one in about 5 s.
+- **Returned**: a standing connection attempt to every RAM manager above the current one, including from the fallback,
+  every 5 s (**proposed**: the source of John's failback event).
+- Each event walks the list top to bottom; a different answer is a switch.
 
-Either way, memory is not moved. Applications are told the RAM host changed, re-arm their held reads and write their
-own truth again.
+Measured in `netns-space-test.sh` (one box, wireguard-go): the primary's RAM manager dying, both devices on the standby
+in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM hosts gone, each device on its own RAM in
+0.3 s; a device cut from the primary only, on the standby in 8.9 s while the other stays on the primary, and back in
+1.0 s when the cut heals.
 
-## 7. What exists and what is built
+## 7. Where it is in the tree
 
-| piece | in the tree today | built for this |
-| --- | --- | --- |
-| a device joining with its own key and edge | `fdf-invite`, `admitted/NAME.json`, `fdf-hub` peers it; `Invite.kt`, the Windows bridge, the Android app join from an `fdfinv1` line | unchanged: login ends in exactly this |
-| asking the RAM host for an identity through cells | `fdf-identity` (ask, answer and got cells, a held read each side, the secret in RAM only between the two) | login uses the same exchange, on the level's login port |
-| reach | region-wide: `net.json`, applied by `fdf-hub` per peer | per level: the admission record carries the level, `fdf-hub` applies that level's reach |
-| levels, users, passwords | none | in tuple space, encrypted with a key that never leaves the RAM host |
-| the generic credential and the login ports | none | made by the wizard; the login ports reachable only inside the generic tunnel |
-| session ports | `rina-host` listens on one port (`ram_server.cpp`) | one per level |
-| the RAM manager list | one invitation, one hub (`/opt/fdf/var/hub.json`, `region.my_channels()`) | one login per configured RAM manager, walked top to bottom in the merge; databasehost-control when none answers |
-| the wizard | `fdf-region-create` does section 1 step 1 | `fdf-setup`, all five steps |
+| Piece | File |
+| --- | --- |
+| Credential manager, levels, users, lines, revoke, reach rules | `fdf/bin/fdf-org` |
+| Device login | `fdf/bin/fdf-login` (Linux); the member library for Windows and Android is next |
+| A space's RAM manager, failover, failback | `fdf/lib/python/fdfspace.py` |
+| A connection bound to one tunnel | `fdf/lib/python/fdfram.py` (`Ram(hostport, device=...)`) |
+| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `rinab/tools/netns-space-test.sh` (step 4, devices) |
 
-## 8. How it is proven
-
-In network namespaces on one machine, against a real region made by `fdf-region-create`, the way the r36 netns tests
-are:
-
-- two devices logging in at the same instant on the generic credential, both ending on their own tunnels;
-- a level with a password and one without; a wrong password refused;
-- reach: a RAM-only device reaches the RAM and nothing else; a listed device reaches its list; an open one, everything;
-- failover: kill the primary, every node is on the standby; kill both, databasehost-control;
-- failback: bring the primary back, the merge moves every node to it;
-- a node behind another (C behind A and B): kill A's uplink, C's session follows to B, same RAM manager.
-
-Then the same on hardware: the manager's droplet, a standby droplet, and the nodes.
+Not yet built: the node side of step 4 (the system space walked in `region.py`/`poll.py`, the LAN fallback list, C
+behind A and B), application membership in several spaces (step 5), `fdf-setup` (step 6), one-line node and client
+install (step 7), the Windows and Android member library's login.
