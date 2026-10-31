@@ -70,7 +70,7 @@ PROFILES = {
     # hello s, multiplier, lsp-gen-interval s, spf-delay-ietf (init, short, long, holddown, time-to-learn) ms or None,
     # spf-interval s -- the same two profiles s4_isis.py configures on the bed
     "tuned": {"hello": 1.0, "mult": 3, "lsp_gen": 1, "ietf": (50, 200, 5000, 10000, 500), "spf_interval": 1},
-    "default": {"hello": 10.0, "mult": 3, "lsp_gen": 30, "ietf": None, "spf_interval": 1},
+    "default": {"hello": 3.0, "mult": 10, "lsp_gen": 30, "ietf": None, "spf_interval": 1},
 }
 
 # Free constants, replaced by `calibrate` output (--cal). Units: ms, except per-route (us) and the SPF term.
@@ -265,10 +265,16 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
     if dests is None:
         dests = list(range(n)) if n <= k_dests else sorted(random.Random(seed).sample(range(n), k_dests))
     didx = {d: i for i, d in enumerate(dests)}
-    dist_cache = {}
+    from collections import OrderedDict
+    dist_cache = OrderedDict()                                  # LRU: a partition has many distinct views
+    cache_cap = max(8, int(2e9 / (8 * len(dests) * n)))         # ~2 GB of distance rows
 
     def dist_for(mask):
-        if mask not in dist_cache:
+        if mask in dist_cache:
+            dist_cache.move_to_end(mask)
+        else:
+            if len(dist_cache) >= cache_cap:
+                dist_cache.popitem(last=False)
             drop = frozenset((F[b // 2], b & 1) for b in range(2 * len(F)) if mask >> b & 1)
             # distance from every node TO each destination over the hops this view still has: search the reversed
             # graph from the destination
@@ -568,9 +574,12 @@ def calibrate(dirs):
       proc_ms           per-hop flooding cost: with the origins' generation times (isisd 'lsp_inc_seqno' after the
                         event), the first 'lsp_update' at every other node is predicted as gen + sum(link delay) +
                         hops x proc_ms; proc_ms is the value with the least median error (silent/cut runs, 2 origins)"""
-    lag0, slope, flood = [], [], []
+    lag0, slope, flood, spfdur = [], [], [], []
     for w in dirs:
         r = json.load(open(f"{w}/result.json"))
+        if r["args"]["n"] >= 64:              # FRR's own SPF duration (show isis summary), where N log N dominates
+            nn = r["args"]["n"]
+            spfdur += [d * 1000.0 / (nn * math.log2(nn)) for d in (r.get("spf_duration_us") or []) if d]
         if "t_event" not in r:
             continue
         a = r["args"]
@@ -616,12 +625,14 @@ def calibrate(dirs):
             best = (float(proc), float(np.median(err)))
     cal = dict(CAL)
     cal.update({"spf_base_ms": 0.0,
+                "spf_ns_per_nlogn": round(float(np.median(spfdur)), 1) if spfdur else CAL["spf_ns_per_nlogn"],
                 "fib_base_ms": round(float(np.median(lag0)), 3) if lag0 else CAL["fib_base_ms"],
                 "fib_us_per_route": round(float(np.median(slope)), 3) if slope else CAL["fib_us_per_route"],
                 "proc_ms": round(best[0], 2) if best else CAL["proc_ms"],
                 "source": f"calibrated from {len(dirs)} tier 4 runs",
                 "fit": {"lag0_n": len(lag0), "lag0_p10_p50_p90_ms": [round(float(np.percentile(lag0, q)), 3) for q in (10, 50, 90)] if lag0 else None,
                         "slope_n": len(slope), "slope_p10_p50_p90_us": [round(float(np.percentile(slope, q)), 3) for q in (10, 50, 90)] if slope else None,
+                        "spf_dur_n": len(spfdur),
                         "flood_n": len(flood), "flood_median_err_ms": round(best[1], 3) if best else None}})
     return cal
 

@@ -51,7 +51,7 @@ import sys
 import time
 from datetime import datetime
 
-BUILD = "s4-persist-2026-10-31-r4"
+BUILD = "s4-persist-2026-10-31-r5"
 NS = "p-"
 FRR = os.environ.get("FRR_BIN", "/usr/lib/frr")
 SOCK = "/run/s4p"
@@ -708,8 +708,11 @@ def main():
     r.add_argument("--wan-ms", type=float, default=35.0)
     r.add_argument("--lan-ms", type=float, default=1.0)
     r.add_argument("--settle", type=float, default=5.0)
-    r.add_argument("--quiet", type=float, default=15.0)
-    r.add_argument("--max-wait", type=float, default=180.0)
+    # [QUIET_OUTLASTS_LSP_GEN_V1] quiet must exceed lsp-gen-interval (30 s under default timers): a node whose links
+    # fail over ~1-2 s sends its first LSP at once and the next one 30 s later, and the routes change again then.
+    # A 15 s quiet ended the first default-timer runs before that second wave (found 2026-10-31, mesh64 partition).
+    r.add_argument("--quiet", type=float, default=45.0)
+    r.add_argument("--max-wait", type=float, default=300.0)
     r.add_argument("--converge-timeout", type=float, default=300.0)
     r.add_argument("--keep", action="store_true")
     r.add_argument("--out")
