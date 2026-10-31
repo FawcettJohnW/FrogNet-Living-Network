@@ -113,7 +113,7 @@ else is theirs, and is not reaped.
 
 ## Held reads: watch and follow [STANDING_WATCH_V1]
 
-Every API++ read is a `ribbit::Space` held read, each on a thread of its own, handed batches in the family's write
+Every API++ read except `latest` and `capable`'s first look is a `ribbit::Space` held read, each on a thread of its own, handed batches in the family's write
 order.
 
 | | the memory here | the memory elsewhere |
@@ -184,7 +184,7 @@ does not do.
 | test | what it holds | broken on purpose |
 |---|---|---|
 | `tests/test_ribbit_pp.cpp` (`test-ribbit-pp PORT`) | One process holds the memory, and every participant is its own session to it, as on separate machines. No check waits by re-reading the memory: each waits on what its held reads were given. | `-DPP_BROKEN=1..5` (`ribbit_pp.cpp`), `-DGONE_BROKEN=1..2` (`ram_host.cpp`) and `-DLINGER_BROKEN=1..2` (`cellwire.hpp`, `ram_host.cpp`), each red on its own check (below) |
-| `tests/test_lf_primitives.cpp` (`test-lf-primitives`) | Each in-process primitive under 4 threads. | `-DLF_BROKEN=1..5` |
+| `tests/test_lf_primitives.cpp` (`test-lf-primitives`) | Each in-process primitive under max(4, the machine's hardware threads) threads. | `-DLF_BROKEN=1..5` |
 
 `test-ribbit-pp`:
 

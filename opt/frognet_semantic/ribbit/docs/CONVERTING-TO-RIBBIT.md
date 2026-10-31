@@ -163,9 +163,9 @@ Every one of these was built, measured and then thrown out. Check your design ag
 ## 6b. Redis: one owner for the keyspace, and no copies
 
 Redis's state is read-modify-write on keys every client may touch (INCR, LPOP, MULTI/EXEC, a blocked client's place in
-line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is the RAM
-call, and the region applies it at the key's tuple, one request at a time per tuple, every connection's in parallel
-(examples/redis/DESIGN.md). Two INCRs on one key are two requests to one owner, not two writers.
+line). The keys have one owner: the Redis region in the memory. A client never writes a key; its request is a cell
+in its front's own space, `(redis.ask, <front>, <n>)`, and the region, holding one read on every front's requests,
+applies it at the key's tuple (examples/redis/src/region.hpp). Two INCRs on one key are two requests to one owner, not two writers.
 
 Two earlier designs each kept a second copy of something and needed a layer to keep it true -- that layer is the
 pub/sub class of code, and it is what to look for and remove in any conversion:

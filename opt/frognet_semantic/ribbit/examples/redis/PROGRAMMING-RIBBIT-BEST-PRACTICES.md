@@ -11,7 +11,8 @@ library and used three verbs (write, non-waiting write, read/held read) and neve
 ## 1. What is yours to change
 
 The memory's contract is small on purpose: an address of three coordinates and five verbs — write, read,
-held read, read-fresh, remove. That is the whole of what the memory promises. Everything above it belongs
+held read, read-fresh, remove — and one lifetime: a row goes when its writer's session ends, unless the writer
+chose to linger (API-PLUS-PLUS.md). That is the whole of what the memory promises. Everything above it belongs
 to the owner of the region:
 
 - what a variable means and how it is named
@@ -24,7 +25,7 @@ to the owner of the region:
 
 Reshaping these for the problem is not a liberty taken with the model; it is the job. A region is an
 implementation and its API is the vendor's. The memory acquires a primitive only when the shape is
-general (in nine conversions: once — the batch array). If you find yourself wanting the memory to do
+general (in nine conversions: once — the batch array, since removed from the platform memory: API-PLUS-PLUS.md). If you find yourself wanting the memory to do
 something, first ask whether the region's schema or API should do it.
 
 ## 2. Addressing
@@ -62,7 +63,7 @@ Ribbit program **keeps** what it needs and is woken when it changes.
 - Read the partial index you mean. A read with the instance open is a table; a read with it closed is a
   cell. A reader that reads the whole variable to find one instance has the wrong address.
 - Freshness is the reader's arithmetic: `written_ms + ttl` against now, or `fresh_s` on the read. Nothing
-  expires anything; a stale cell is simply not believed.
+  expires a cell while its writer's session lasts; a stale cell is simply not believed.
 - Readers decide. A reader takes what is published and makes its own determination — liveness, ownership,
   whether a batch is complete, whether a foreign fetch failed. No participant waits for another's decision.
 
@@ -98,8 +99,8 @@ participants are writing the same cell, the address is wrong, not the arbitratio
   the others publish what they want done (a Want, an intent) and read the result.
 - **Detecting change is arithmetic.** Every cell carries its write-order id. "Has this changed since I
   read it" is a comparison, not a lock. Redis's WATCH is exactly that, done in the region's API.
-- **Reunion needs no reconciliation.** When a split heals, each coordinate still has one value — the one
-  its owner wrote. There is no conflict to resolve because nothing was allowed to conflict.
+- **Reunion needs no reconciliation.** When a split heals, each coordinate has at most one value — the one
+  its owner wrote (a writer whose session ended took its rows with it, unless it chose to linger). There is no conflict to resolve because nothing was allowed to conflict.
 - **Time is not an ordering.** Never order by timestamp across writers; order by write-order id within a
   variable, and by ownership across them.
 
@@ -138,7 +139,7 @@ participants are writing the same cell, the address is wrong, not the arbitratio
   already there, not a sequence of requests.
 - **Memory for truths, Plane for streams.** Anything too large, frequent or perishable for a cell — media,
   tensors, per-tick kinematics — goes on the Plane with a generation, send-or-drop and a blocking
-  generation wait. Keep only its descriptor in a cell.
+  wait past the plane's own sequence. Keep only its descriptor in a cell.
 - **Non-waiting writes for state about to be replaced.** A presence heartbeat, a position, a counter
   nobody reads back: `write_nowait`. The only thing that slows the writer is TCP when the far end is
   behind.
@@ -203,7 +204,8 @@ Anything that can be computed from published state is computed when asked, not k
 
 - Counts, sizes, "how many are blocked", "which keys expire soonest": derived from cells and indexes at
   read time. A maintained counter is bookkeeping that can go stale and needs a lock to stay right.
-- Liveness is derived from the value cell, the ttl cell and the clock. There is no reaper. If something
+- Liveness is derived from the value cell, the ttl cell and the clock. There is no reaper of values; the host's one reaper removes only rows a writer chose to linger after its
+  session ended (API-PLUS-PLUS.md). If something
   must eventually be reclaimed, the region owner runs a participant that reads what is dead and removes it
   — server-side, on the region's schedule, not the reader's.
 - A dead variable is one with no cells. It does not need to be told it is dead.
