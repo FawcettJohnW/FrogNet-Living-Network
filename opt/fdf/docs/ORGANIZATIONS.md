@@ -61,8 +61,21 @@ device's peer (its allowed addresses and routes) from its level's reach, the way
 
 ## 3. Install and login: each device
 
-At install the device is given its level's join line. If the level has a password, the person types a user and
-password.
+Adding a device is as simple as it can be made: copy the one bundle for that kind of device, run it with its level's
+join line (from the QR), and type a user and password if the level has one. Nothing else is typed. The join line
+carries everything: every RAM manager in order, each with its address and that level's login port, and the generic
+credential.
+
+There are two kinds of device, and the installer for each does only what that kind needs:
+
+- **A client** (Windows, Android, or a Linux machine with the core): serves no LAN. No SSID, no /24; it gets its edge,
+  its own address on the tunnel, at login. Its name is its device ID, with a nickname the person can set.
+- **A node** (Linux, FrogNet): serves a LAN. Its name is its device ID, with a nickname. Its /24 is given by the RAM
+  manager at login; a node that already serves one keeps it. The installer does not ask about Wi-Fi: one identity, so
+  a node is wired or projecting, never both. A router in AP mode on eth0 that takes DHCP control from the node means
+  wired, hostapd masked, the router projecting its own SSID. Otherwise the node projects its own SSID through its
+  wlan0 or wlan1. Neither (no AP-mode router and no usable Wi-Fi interface) means the node cannot serve its LAN: the
+  installer says so and stops.
 
 Login, once per RAM manager on the device's list:
 
