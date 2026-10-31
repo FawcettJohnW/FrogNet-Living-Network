@@ -107,14 +107,13 @@ How the registration ++ libraries enter: a Scribe or Field device that is not at
 
 ### Step 0: the ++ changes for registration
 
-The demo's devices are not at a post; they join a region. That needs the join library, which does not exist yet, so it comes first and is proven on its own before RangerTrak touches it. From `docs/eoc/EOC-APP-AND-JOIN.md`:
+The demo's devices are not at a post; they join a region. Joining by invitation is already in the tree (r36: `member/.../Invite.kt`, the Windows bridge a19, the Android app, and an invited leaf addressed by its edge). What is not is the door, the registrar, and the ordered list of Internet RAM managers each device is admitted to in advance. Those come first and are proven on their own before RangerTrak touches them. From `docs/eoc/EOC-APP-AND-JOIN.md`:
 
 | deliverable | where | proven by |
 | --- | --- | --- |
-| `join(invitation)`: decode `fdfinv1`, forward tunnel from the invitation, member session through it | `frognet-android/member/` (Kotlin, shared by Windows and Android) and the C++ member (`rinab/src/fdf_client.cpp`) for nodes | a netns test: `fdf-region-create`, `fdf-invite --leaf`, the member joins with no `ponds.txt` and no RAM address outside the tunnel |
-| `Door`: one exchange on the door key for the device's own key and restricted edge; challenge on the own tunnel; invitation stored | the member library | the same test with a door: two devices through one door at once, both admitted, neither on the door key after the first exchange |
+| `Door`: one exchange on the door key for the device's own key and restricted edge; challenge on the own tunnel; invitation stored | the member library | a netns test against a real `fdf-region-create` region: two devices through one door at once, both admitted, neither on the door key after the first exchange |
 | `Registrar`: an API++ `Answerer` on service `register` on its own RAM manager, second port, hub address; writes `admitted/`; sets and lifts each edge's nft rule | `opt/fdf/bin/fdf-register`, `fdf-group` (create, issue, list, revoke) | a device on a restricted edge reaches the registrar port and nothing else, then everything after registration; a revoked door admits nobody; a `password` door burns its code |
-| The RAM manager gives an admitted member its edge, not a `10.252` address | `rinab/src/rina_region.cpp` (`[LEAF_ADDR_FROM_THE_REGION_V1]` reads `admitted/`) | the hub oracle and the netns test: one address per leaf, the one the hub routes |
+| The ordered list of Internet RAM managers: a permanent config tuple per device, admission to each listed one in advance, walked top to bottom on an event; no answer means the tunnels go and the LAN's databasehost is the RAM, an answer means they come back | `internet_tunnels_v3/region.py` (`my_channels()`), the member library (`Invite.kt`, `Leaf.kt`) | a netns test with two Internet RAM managers and a LAN: kill the first, the second wins on every host; kill both, LAN; restore, back |
 | `API-PLUS-PLUS.md` gains a section: joining, doors, the registrar | `ribbit/docs/API-PLUS-PLUS.md` | the book's Part XII¾ picks it up at the next build |
 
 ### Phase 1: mechanical, to learn what it does

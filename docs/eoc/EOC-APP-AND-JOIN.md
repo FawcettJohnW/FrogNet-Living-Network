@@ -28,13 +28,11 @@ In the field, with no node nearby, the phone or PC is a member of the region thr
 
 RangerTrak's problem, each device keeping its own log and logs merged by hand as files, is gone in both shapes: the cells are the log.
 
-## Why today's bridge and app cannot join an r31 region
+## How the bridge and the app join an r31 region
 
-The Windows bridge (`fdf-kt-2026-10-11-a15`) and the Android app join by connecting to the RAM manager over the Internet: `etc\ponds.txt` holds `area=host:51888`, and `Member.runOnce` (`member/.../Member.kt`) opens that TCP session first, announces, and only then gets its tunnel from the hubs the region lists (`Leaf.tunnel`, `Hubs.from`).
+An r31 region's RAM manager is on `10.253.253.254:51888` inside the hub's tunnel (`[RAM_IN_THE_TUNNEL_V1]`), and the hub answers only a WireGuard key it was given ahead of time (`[ADMITTED_BY_INVITE_V1]`, `fdf-hub` `read_admitted`). So the first packet is a WireGuard handshake from an admitted key, and the session comes after.
 
-An r31 region does not answer there. `fdf-region-create` puts the RAM manager on `10.253.253.254:51888` inside the tunnel (`[RAM_IN_THE_TUNNEL_V1]`), and the hub answers only a WireGuard key it was given ahead of time by `fdf-invite` (`[ADMITTED_BY_INVITE_V1]`, `fdf-hub` `read_admitted`). The member's first packet has to be a WireGuard handshake from an admitted key; the session comes after.
-
-So the join has to be turned around: tunnel first, from the invitation; session second, through it. `fdf-invite NAME --leaf` already exists for exactly this and nothing on the member side uses it yet (`grep invite` in `frognet-android/`: nothing).
+The a15 bridge and the app had it the other way round (`etc\ponds.txt`, session first, tunnel from the hubs the region listed) and could not join. r36 turned it around: the Windows bridge a19 (`setup.cmd fdfinv1.<...>`), the Android app (`Identity.kt`, `MemberService.kt`) and the member library (`Invite.kt`) bring the tunnel up from the invitation first and open the session through it. This was on the `bundles-20261027` branch, not on `main`, until `integrate-20261031`.
 
 ## Join by invitation
 
@@ -107,27 +105,43 @@ What the fabric does not learn from any of this: there is no `kind` or class in 
 
 **Latest values and logs.** Positions, statuses, capacity and availability are latest-value cells. ICS-309 radio-log entries and ICS-213 messages are one cell each, owned by the scribe, lingering by family (`[LINGER_BY_FAMILY_V1]`) so the scribe's machine going away does not take the afternoon's log with it. The durable record is the post's own: the node at the post writes the ICS-309 file from its held read, which is the printed form. Nothing is replayed; the file is what is kept.
 
-## Code findings, from the reading
+## The RAM manager across the Internet: an ordered list, admitted in advance
 
-| Finding | Where | What to do |
+On a LAN the RAM manager is the databasehost, elected as today. Across the Internet it is a different machine: one every host in the set can reach, a droplet or another external node. That is databasehost-control's job, not the databasehost's, and its rule is reachability from the host set.
+
+- **The admin names the Internet RAM managers**, in order, in a config tuple for the device. It is a permanent cell (`[PERMANENT_CELL_V1]`): the device has it at start, before it can reach any RAM manager, because that is when it needs it.
+- **Each one is joined in advance.** When a device sees a RAM manager in its list that it has not been admitted to, it does the same dance it does for any of them (door, registrar, its own key, its own edge) right then. Every candidate holds an admitted WireGuard peer for the device before it is needed. Failing over is then a handshake and a session, not a registration, which keeps it fast and deterministic.
+- **On an event, the list is walked top to bottom**, and the first that answers becomes the RAM host. The same list and the same order give the same winner on every host that can reach it. Only the winner's tunnel carries `10.0.0.0/8`; the others stay admitted and idle.
+- **Internet to LAN** is removing the WireGuard tunnels: no listed RAM manager answers, the LAN's databasehost is the RAM, as in LAN-only mode today. **LAN to Internet** is putting them back. Memory is not moved either way: applications are told the RAM host changed, re-arm their held reads and write their own truth again (the failover rule).
+
+What changes in the code: today a device holds one invitation (`/opt/fdf/var/hub.json`, `var\invite` on Windows, `Identity` on Android) and `region.my_channels()` builds one tunnel from it. That becomes one admission per listed RAM manager, kept in the list's order, with `my_channels()` choosing the first that answers. The member library (`Invite.kt`, `Leaf.kt`) and the node's `region.py` take the same rule, so a node, a Windows PC and a phone fail over the same way.
+
+## Code findings, on the integrated tree
+
+The first reading of this plan was done on `main`, which lacked r36. On `integrate-20261031` (main plus r36 and today's branches):
+
+| Finding | Where | What it means |
 | --- | --- | --- |
-| A leaf gets two addresses. The RAM manager hands every off-mesh leaf the lowest free `10.252.X.Y` and writes it into its facts; the r31 hub peers an admitted leaf on its `10.253.X.Y` edge only and routes that `/32` on-link. Nodes route to the `10.252` one, which the hub drops. | `rinab/src/rina_region.cpp:610-632` (`[LEAF_ADDR_FROM_THE_REGION_V1]`); `fdf-hub:194-196` | The RAM manager gives an admitted member the edge the hub admitted it on (same machine, `admitted/` by pubkey). Until then the member uses the edge from its invitation and ignores the region's `addr`. |
-| The app's built-in first pond is a dead address, `165.232.153.144:51888`. | `app/.../Identity.kt:36` | Goes with `ponds.txt`: the app starts with no region and asks for an invitation or a door. |
-| No APK ships; the app is source only, built with an Android SDK (API 34). | `docs/OPERATING.md`, Phones | The EOC story needs a built, signed APK on the download page. |
-| The Windows bridge in the checkout is the a15 build, `ponds.txt` join. | `opt/fdf/windows/bridge`, `BUILD.txt` | Replaced by the EOC app's Windows build. |
-| `DC_APPS_V1` is on `fdf-carry`, not `main`, and nothing in the gates tests it. | `opt/fdf/www/dc` | Comes to `main` with the app; its cell model is the app's. |
-| The member code never saw an invitation. | `grep invite frognet-android/`: nothing | `join()` above. |
+| Invitations are already joined by the member library: `Invite.kt` decodes `fdfinv1` the way `fdf-region-join` does. | `member/.../Invite.kt` `[LEAF_BY_INVITE_V1]` | Step 1 below is done. |
+| The Windows bridge (a19) joins by invitation: `setup.cmd fdfinv1.<...>` keeps it in `var\invite` and makes the startup task. | `opt/fdf/windows/bridge` | Step 2 is done. |
+| Android joins by invitation through the hub's tunnel. | `app/.../Identity.kt`, `MemberService.kt` `[ADMITTED_BY_INVITE_V1]` | The app's join is done; `ponds.txt` goes with the doors. |
+| An invited leaf's address is its edge; no `10.252` address is allocated for it. | `rinab/src/rina_region.cpp:626-635` `[LEAF_BY_INVITE_V1]` | The two-addresses defect is fixed. |
+| `fdf-identity NAME --leaf` makes an invitation from any machine already in the region. | `opt/fdf/bin/fdf-identity` | Hand-made admissions no longer need the region host. |
+| `DC_APPS_V1` is in the tree. | `opt/fdf/www/dc` | The cells the EOC screens read are there. |
+| A device holds one invitation, one hub. | `region.py` `HUB_JSON`, `my_channels()` | The ordered list above. |
+| No door, no registrar, no `fdf-group`. | nowhere | Step 3. |
 
 ## Order of work
 
-Windows first, then Android. Each step is one deliverable that runs.
+Windows first, then Android, then the HTTP pages the post serves. Each step is one deliverable that runs.
 
-1. **`join()` in the member library** (`member/`, Kotlin, shared by Windows and Android): decode `fdfinv1`, forward tunnel from the invitation, session through it. Proven on Linux in a network namespace against a real `fdf-region-create` region and `fdf-invite --leaf`, the way the a15 member was proven (`netns-reach-test.sh`, `fdf-member-kt`).
-2. **Windows join**: the bridge package (`windows/make_package.sh`, the trimmed OpenJDK 21 runtime, `fdf-tun.exe`) takes an invitation instead of `ponds.txt`. `fdf-tun.exe` already cross-builds here (3.8 MB).
-3. **`Door` and `Registrar`**: `fdf-group` on the region's machine; the registrar as an API++ `Answerer`; the door flow in the member library. Proven the same way, in the namespace.
-4. **The Windows EOC app**: one window, the screens of the table above, on the same JVM as the member (Swing; the runtime grows by `java.desktop`). The screens read and write the `DC_APPS_V1` cells and hold reads on them.
-5. **Android**: the app's `MemberService` and `Identity` take `join()`; `ponds.txt`, `Add a pond` and the built-in pond go; the EOC screens as activities over the same cells; a signed APK.
-6. **The RAM manager** gives an admitted member its edge (`rina_region.cpp`); rebuilt and shipped with the next `opt/fdf/dist` bundles.
+1. ~~`join()` in the member library~~: in the tree (`Invite.kt`).
+2. ~~Windows join~~: in the tree (bridge a19).
+3. **`Door`, `Registrar`, `fdf-group`**: the registrar as an API++ `Answerer` on its own small RAM manager; the door flow in the member library. Proven in a network namespace against a real `fdf-region-create` region.
+4. **The ordered RAM manager list**: the permanent config tuple, admission to every listed RAM manager in advance, the top-to-bottom walk on an event, tunnels removed for LAN and put back for Internet. Node (`region.py`), member library (Windows and Android). Proven in a namespace with two Internet RAM managers and a LAN: kill the first, the second wins; kill both, LAN; restore, back.
+5. **The Windows app**: RangerTrak's screens on the member's JVM.
+6. **Android**: the same screens over the same cells; a signed APK.
+7. **The post's HTTP pages**: the same screens, read-only board included, served by the node, no Angular.
 
 What each step is tested against is the incumbent suites, extended where the behaviour is new; nothing is accepted on the strength of an AI saying it works.
 
