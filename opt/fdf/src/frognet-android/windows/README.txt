@@ -1,5 +1,5 @@
-FD&F bridge for Windows (fdf-kt-2026-10-11-a15, fdf-tun-2026-10-11-b11: BUILD.txt)
-===================================================================================
+FD&F bridge for Windows (its build: BUILD.txt)
+==============================================
 
 What it is: this computer as a member of every pond in etc\ponds.txt at once -- a leaf of the forward pond (its
 10.0.0.0/8, through its hub) and reaching every other pond that pond's own (pond, config, net) allows, through 1:1
@@ -11,15 +11,23 @@ Once:
   1. Unzip to C:\fdf (any folder).
   2. Get wintun-0.14.1.zip from https://www.wintun.net and copy bin\amd64\wintun.dll into C:\fdf.
      (The only file not included: it carries Wintun's signed driver and comes only from its authors.)
-  3. Edit C:\fdf\etc\ponds.txt: replace the example line AREA=RAM-HOST:51888 with one <area>=<host:port> line
-     per pond (the area and RAM manager fdf-region-create printed). fdf-bridge.cmd refuses while the example is there.
+  3. Get this computer's invitation: on any machine already in the region, `fdf-identity NAME --leaf` prints one line,
+     fdfinv1.<...> (a secret: it holds this computer's key). Then, in a terminal opened as Administrator:
+       cd C:\fdf
+       setup.cmd fdfinv1.<...>
+     setup.cmd checks first (Administrator, x64, wintun.dll, the invitation decodes), keeps the invitation in
+     var\invite, and makes the scheduled task "FrogNet member": fdf-bridge.cmd at every startup, as SYSTEM, its output
+     in var\fdf-bridge.log. It starts it now. The region, this computer's key, name and address are the invitation's.
+     After an update (unzip over C:\fdf): setup.cmd again, no argument. setup.cmd remove: the task goes.
 
-Run, in a terminal opened as Administrator:
-  cd C:\fdf
-  fdf-bridge.cmd
+To run it in a terminal instead (as Administrator; Ctrl-C leaves): fdf-bridge.cmd join fdfinv1.<...> once, then
+fdf-bridge.cmd.
+
+(Without an invitation, etc\ponds.txt lists ponds by <area>=<RAM host:port>, as before; with one, ponds.txt only adds
+ponds and its example line is ignored.)
 
 The first run makes var\wg.key and var\facts.json (name = this computer, guid made once, pubkey from the key); nothing
-is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as 10.252.x.y",
+is typed. Every line says what happened: the ponds, each join, "bridge: forward via hub <hub> as <its address>",
 "[<pond>] reach into <pond> (...) as <addr> there ...; aliased 100.64.a.0/24 -> 10.x.y.0/24", or
 "REACH REFUSED into <pond>: <why>" (that pond's session ends; the others go on). Ctrl-C leaves every pond; the adapter,
 its routes and every tunnel go with it.

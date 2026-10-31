@@ -14,7 +14,9 @@ C=$(cd "$1" && pwd); B=$C/build
 T=${TOOLS:-$HOME/.cache/frognet-android-tools}
 R=${ROBO:-$HOME/.cache/frognet-android-robolectric}
 OUT=build/testout; mkdir -p $OUT build/jvm build/testmedia build/robo
-[ -f build/classes/net/frognet/communicator/MainActivity.class ] || bash build_apk.sh
+# [COMMS_TEST_IN_THIS_TREE_V1] the Communicator's Java core is the app's (app/src/main/java/net/frognet/communicator/core),
+# its tests are this directory's
+CORE=app/src/main/java/net/frognet/communicator/core; TD=communicator-test
 
 echo "== test media: VP8 1280x720 (fnav's settings) and 20 ms Opus at 660 Hz"
 [ -f build/testmedia/phone720.ivf ] || ffmpeg -loglevel error -y -stream_loop 1 -i "$C/media/stock-720p.mp4" -t 12 -an -vf scale=1280:720,fps=24 \
@@ -30,29 +32,11 @@ with open('build/testmedia/tone660.opus', 'wb') as f:
         if b: f.write(struct.pack('>I', len(b)) + b)"
 fi
 
-javac --release 8 -Xlint:-options -d build/jvm $(find src/net/frognet/communicator/core -name '*.java') test/Probe.java test/Vectors.java
-echo "== 1 vectors";  python3 test/gen_vectors.py "$C" build/jvm $OUT | tee $OUT/vectors.log | tail -1
-echo "== 2 core";     python3 test/test_android_core.py "$B" "$C" build/jvm build/testmedia $OUT | tee $OUT/test_android_core.log | grep -E "FAIL|RESULT"
+javac --release 8 -Xlint:-options -d build/jvm $(find $CORE -name '*.java') $TD/Probe.java $TD/Vectors.java
+echo "== 1 vectors";  python3 $TD/gen_vectors.py "$C" build/jvm $OUT | tee $OUT/vectors.log | tail -1
+echo "== 2 core";     python3 $TD/test_android_core.py "$B" "$C" build/jvm build/testmedia $OUT | tee $OUT/test_android_core.log | grep -E "FAIL|RESULT"
 
 echo "== 3 app (Robolectric)"
-mkdir -p "$R/deps"
-if [ ! -d "$R/lib" ]; then
-    (cd "$R" && cp "$OLDPWD/test/robo/pom.xml" . && mvn -q -B dependency:copy-dependencies -DoutputDirectory=lib)
-fi
-if [ ! -f "$R/lib/androidx-test-monitor-from-source.jar" ]; then
-    # androidx.test:monitor is on Google's Maven only: compiled here from its source (android/android-test, Apache-2.0)
-    [ -d "$R/android-test" ] || git clone -q --depth 1 --filter=blob:none --sparse https://github.com/android/android-test.git "$R/android-test"
-    (cd "$R/android-test" && git sparse-checkout set runner/monitor/java espresso/idling_resource/java)
-    rm -rf "$R/axbuild" && mkdir -p "$R/axbuild"
-    SRC=$(find "$R/android-test" -name '*.java' | grep -v -E "runner/hidden/|MonitoringInstrumentation.java|InstrumentationConnection.java|FileTestStorage.java|DefaultInterceptingActivityFactory.java|io/PlatformTestStorageRegistry.java")
-    javac --release 17 -nowarn -Xlint:none -cp "$T/android-all-33.jar:$(ls $R/lib/error_prone_annotations-*.jar | head -1)" -d "$R/axbuild" \
-          $(find test/robo/axstub -name '*.java') $SRC
-    (cd "$R/axbuild" && jar cf "$R/lib/androidx-test-monitor-from-source.jar" androidx)
-fi
-for v in 13-robolectric-9030017-i6 14-robolectric-10818077-i6; do
-    [ -f "$R/deps/android-all-instrumented-$v.jar" ] || curl -sf -o "$R/deps/android-all-instrumented-$v.jar" \
-        https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented/$v/android-all-instrumented-$v.jar
-done
-RL=$(ls $R/lib/*.jar | tr '\n' ':')
-javac --release 17 -nowarn -Xlint:none -cp "build/classes:$RL$T/android-all-33.jar" -d build/robo test/robo/AppFlowTest.java
-ROBO_DEPS=$R/deps python3 test/test_app_flow.py "$B" "$C" "build/robo:build/classes:$RL$T/android-all-33.jar" | tee $OUT/test_app_flow.log | grep -E "\[home\]|FAIL|RESULT"
+# the app's own classes come from an Android build (tools/make_apk.sh, with the SDK); the phone's Activity under
+# Robolectric is run by rinab/kart/android/test/phone-test.sh (the kart app, which carries this Communicator)
+echo "SKIP 3 the app flow: needs the app's classes from an Android SDK build (tools/make_apk.sh); see phone-test.sh"

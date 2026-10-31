@@ -19,6 +19,12 @@ class Json private constructor(val type: Type) {
     val num: Double? get() = if (type == Type.NUM) n else null
     val bool: Boolean get() = type == Type.BOOL && b
     val isNull: Boolean get() = type == Type.NULL
+    /** this value as JSON text again */
+    override fun toString(): String = when (type) {
+        Type.NULL -> "null"; Type.BOOL -> b.toString(); Type.STR -> quote(s)
+        Type.NUM -> if (n == Math.rint(n) && Math.abs(n) < 1e15) n.toLong().toString() else n.toString()
+        Type.ARR -> a.joinToString(",", "[", "]"); Type.OBJ -> o.entries.joinToString(",", "{", "}") { quote(it.key) + ":" + it.value }
+    }
 
     companion object {
         val NONE = Json(Type.NULL)

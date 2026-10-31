@@ -1,4 +1,21 @@
 #!/bin/bash
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
 # build-servers-static.sh arm64|x86_64 -- [COMMS_ON_A_NODE_V1] static comms-ram and comms-media for the node tarballs
 # (no Qt, no window: the servers only). Deps (static, per arch): DEPS = opus, libvpx, portaudio (no host APIs), FFmpeg
 # (vpx+opus, no programs). arm64: lz4 and openssl from ARM (rinab/build/arm-deps); x86_64: the build machine's static

@@ -128,3 +128,12 @@ for p in opt/frognet_semantic opt/fdf usr/local/bin var/www/html etc; do
     printf '  %6d  %s\n' "$(tar tzf "$OUT" | grep -v '/$' | grep -c "^$p/")" "$p"
 done
 [ ${#missing[@]} -eq 0 ] || echo "not on this node (left out): ${missing[*]}"
+# [FULL_TAR_SAYS_ITS_RELEASE_V1] the tarball carries THIS node's FrogNet: say which release that is, and say it loudly
+# when this node has no release stamp (a node installed from such a tarball has no /opt/frognet_semantic/BUILD either,
+# and its monitor says "/opt/frognet_semantic/BUILD: cannot be read"). Reported, not refused.
+if [ -f "$ROOT/opt/frognet_semantic/BUILD" ]; then
+    echo "release: $(grep -vE '^#' "$ROOT/opt/frognet_semantic/BUILD" | tr '\n' ' ')"
+else
+    echo "WARNING: this node has no /opt/frognet_semantic/BUILD: the tarball carries no release stamp. Make it on a node" >&2
+    echo "         whose FrogNet was installed by the current installer (it writes BUILD), or the target's monitor says so." >&2
+fi

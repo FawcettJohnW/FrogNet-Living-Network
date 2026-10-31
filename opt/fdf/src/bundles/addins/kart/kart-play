@@ -1,0 +1,12 @@
+#!/bin/sh
+# kart-play [kartdemo options...] -- [ADDIN_V1] a player: the kart memory found in the control RAM (kart-find), the game
+# started against it, this machine's name as the player's unless --name is given. Nothing else is typed.
+D=$(cd "$(dirname "$0")" && pwd); H=${FDF_HOME:-$(cd "$D/../.." && pwd)}
+for f in "$H/var/control.env" /opt/fdf/hub/hub.env "$H/var/join.env"; do [ -s "$f" ] && { . "$f"; break; }; done
+FDF_CONTROL_RAM=${FDF_CONTROL_RAM:-${RINA_RAM:-}}; export FDF_CONTROL_RAM FDF_HOME=$H
+[ -n "$FDF_CONTROL_RAM" ] || { echo "kart-play: no FD&F core on this machine ($H/var/control.env)"; exit 1; }
+K=$(python3 "$D/kart-find") || exit 1
+echo "kart-play: the kart memory is at $K (control RAM $FDF_CONTROL_RAM)"
+[ -n "${KART_PLAY_DRY:-}" ] && exit 0                  # tests: where the race is, without the game
+case " $* " in *" --name "*) N="" ;; *) N="--name ${FDF_NAME:-$(hostname)}" ;; esac
+exec python3 "$D/kartdemo.py" --kart "$K" --rina-host "$H/bin/rina-host" $N "$@"

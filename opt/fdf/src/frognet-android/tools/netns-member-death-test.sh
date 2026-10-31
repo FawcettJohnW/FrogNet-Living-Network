@@ -25,7 +25,7 @@ start() {   # start <ns> <log>: the member of that ns
   for j in $(seq 100); do grep -q "joined the region" $T/$2 2>/dev/null && return 0; sleep 0.1; done; echo "  $1 did not join"; cat $T/$2; return 1; }
 watcher() { ip netns exec w env RINA_RAM=10.77.0.1:8840 $B/fdf-events 2>/dev/null | while IFS= read -r l; do echo "$(ms) $l"; done > $T/$1 &
   for j in $(seq 50); do grep -q ready $T/$1 2>/dev/null && return; sleep 0.1; done; }
-first_event() { for j in $(seq 1200); do l=$(grep -m1 -E " (p|m)$" $T/$1 2>/dev/null); [ -n "$l" ] && { echo $l; return; }; sleep 0.05; done; echo "none"; }
+first_event() { for j in $(seq 1200); do l=$(grep -m1 -P "^[0-9]+ (p|m)(\t|$)" $T/$1 2>/dev/null); [ -n "$l" ] && { echo $l; return; }; sleep 0.05; done; echo "none"; }
 pid_in() { ip netns pids $1 | while read p; do c=$(cat /proc/$p/comm 2>/dev/null); [ "$c" = fdf-client ] || [ "$c" = java ] && echo $p; done | head -1; }
 for who in cpp kt; do
   echo "=== $who"
@@ -33,12 +33,12 @@ for who in cpp kt; do
   start $who c1.$who.log || exit 1; sleep 1; watcher d1.$who.log
   t0=$(ms); kill -9 $(pid_in $who); e=$(first_event d1.$who.log)
   echo "  (1) clean death  -> '$(echo $e | awk '{print $2}')' on the watcher after $(( $(echo $e | awk '{print $1}') - t0 )) ms"
-  pkill -f "fdf-events" 2>/dev/null; sleep 0.5
+  ip netns pids w | xargs -r kill 2>/dev/null; sleep 0.5
   # (2) silent: the member's link down
   start $who c2.$who.log || exit 1; sleep 1; watcher d2.$who.log
   t0=$(ms); ip netns exec $who ip link set v-$who down; e=$(first_event d2.$who.log)
   echo "  (2) silent death -> '$(echo $e | awk '{print $2}')' on the watcher after $(( $(echo $e | awk '{print $1}') - t0 )) ms"
-  pkill -f "fdf-events" 2>/dev/null; ip netns pids $who | xargs -r kill -9; ip netns exec $who ip link set v-$who up; sleep 0.5
+  ip netns pids w | xargs -r kill 2>/dev/null; ip netns pids $who | xargs -r kill -9; ip netns exec $who ip link set v-$who up; sleep 0.5
   # (3) silent region, seen by the member: drop everything from the region at the member
   start $who c3.$who.log || exit 1; sleep 1
   t0=$(ms); ip netns exec $who iptables -A INPUT -s 10.77.0.1 -j DROP

@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""fdf-identity -- [IDENTITY_FROM_ANY_MEMBER_V1] a new identity (fdf-invite's: an edge address, a WireGuard key and the
+fdfinv1 invitation) from a terminal on ANY machine connected to the region, not only the one that holds it. Nothing is
+presented: reaching the region at all means this machine was invited, which is the trust.
+
+  fdf-identity NAME [--leaf] [--again]    ask the region for NAME's identity and print it (the invitation is a secret:
+                                          it holds NAME's private key and the region's site key). --again replaces an
+                                          identity NAME already has (its old key stops working); without it, an
+                                          existing NAME is refused.
+  fdf-identity --serve                    the region's side (fdf-identity.service, on the machine that holds the
+                                          region): answers each ask by running fdf-invite.
+
+Tuples, in the region's RAM (RINA_RAM, or /opt/fdf/var/join.env), each written only by its owner:
+  (fdf-identity, ask,    <ask id>)   bag {name, kind, again}          the asker's
+  (fdf-identity, answer, <ask id>)   bag {ok, line, edge, pubkey, why} the region's
+  (fdf-identity, got,    <ask id>)   bag {}                            the asker's: it has read the answer
+Each side holds a read on the service; nothing polls and nothing calls the other. On `got` the region removes its
+answer and the asker removes its ask and its `got`, so the secret is in the RAM only between the two.
+"""
+import os, socket, subprocess, sys, time
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdfram
+
+SVC = "fdf-identity"
+ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
+FDF_BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+
+
+def log(*a):
+    print("[FDF_IDENTITY] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
+
+
+def ask(name, kind, again):
+    if not name or not all(c.isalnum() or c in "._-" for c in name) or len(name) > 63:
+        sys.exit("fdf-identity: NAME '%s': letters, digits, . _ -, at most 63" % name)
+    ram = fdfram.Ram()
+    me = "%s-%d-%s" % (socket.gethostname(), os.getpid(), os.urandom(4).hex())
+    mine = []
+    try:
+        # the answer's read is held from BEFORE the ask: an answer written between the ask and the read is not missed
+        last = max([c["id"] for c in ram.read(SVC, "answer")] + [0])
+        mine.append(ram.write(SVC, "ask", me, {"name": name, "kind": kind, "again": again}))
+        sys.stderr.write("fdf-identity: asked the region at %s for %s (%s)\n" % (ram.hostport, name, kind))
+        deadline = time.time() + 60
+        ans = None
+        while ans is None:
+            if time.time() > deadline:
+                sys.exit("fdf-identity: the region did not answer in 60 s: is fdf-identity.service running on the machine "
+                         "that holds the region? (systemctl status fdf-identity there)")
+            for c in ram.read(SVC, "answer", after=last, wait_s=fdfram.HOLD_S):
+                last = max(last, c["id"])
+                if c["instance"] == me: ans = c["bag"]
+        mine.append(ram.write(SVC, "got", me, {}))
+    finally:
+        for i in mine:
+            try: ram.remove(i)
+            except fdfram.RamError as e: sys.stderr.write("fdf-identity: could not remove my row %d: %s\n" % (i, e))
+    if not ans.get("ok"):
+        sys.exit("fdf-identity: refused: %s" % ans.get("why", "?"))
+    print("fdf-identity: %s: edge %s, key %s" % (name, ans.get("edge"), ans.get("pubkey")))
+    print("fdf-identity: the invitation (a secret: %s's private key and the region's site key; shown once):" % name)
+    print()
+    print(ans["line"])
+    print()
+    print("on %s:  %s" % (name, "fdf-region-join <the line>" if kind == "node" else "fdf-member-kt leaf <the line>  (or paste it into the app)"))
+
+
+def serve():
+    ram = fdfram.Ram()
+    log("answering identity asks at", ram.hostport, "admitted:", ADMITTED)
+    answered = {}                                         # ask id -> my answer's row id
+    for c in ram.read(SVC, "answer"):                     # a previous run's answers: nobody will read them now
+        ram.remove(c["id"]); log("removed an earlier run's answer", c["instance"])
+    last = 0
+    while True:                                           # held: returns the moment an asker writes past `last`
+        for c in sorted(ram.read(SVC, after=last, wait_s=fdfram.HOLD_S), key=lambda c: c["id"]):
+            last = max(last, c["id"])
+            var, inst, bag = c.get("variable", ""), c["instance"], c["bag"]
+            if var == "got":
+                rid = answered.pop(inst, None)
+                if rid is not None: ram.remove(rid); log("answer", inst, "read; removed")
+                continue
+            if var != "ask" or inst in answered:
+                continue
+            answered[inst] = ram.write(SVC, "answer", inst, answer(bag))
+
+
+def answer(bag):
+    name, kind, again = str(bag.get("name", "")), bag.get("kind", "node"), bool(bag.get("again"))
+    if os.path.exists(os.path.join(ADMITTED, name + ".json")) and not again:
+        log("ask for", name, "refused: already admitted")
+        return {"ok": False, "why": "%s is already admitted; --again gives it a new key (its old one stops working)" % name}
+    p = subprocess.run([sys.executable, os.path.join(FDF_BIN, "fdf-invite"), name] + (["--leaf"] if kind == "leaf" else []),
+                       capture_output=True, text=True)
+    line = next((l.strip() for l in p.stdout.splitlines() if l.startswith("fdfinv1.")), "")
+    if p.returncode != 0 or not line:
+        why = (p.stderr.strip() or p.stdout.strip()).splitlines()[-1:] or ["fdf-invite gave no invitation"]
+        log("ask for", name, "failed:", why[0])
+        return {"ok": False, "why": why[0]}
+    import json
+    rec = json.load(open(os.path.join(ADMITTED, name + ".json")))
+    log("identity for", name, "(%s): edge %s, key %s" % (kind, rec["edge"], rec["pubkey"][:12]))
+    return {"ok": True, "line": line, "edge": rec["edge"], "pubkey": rec["pubkey"]}
+
+
+def main():
+    a = sys.argv[1:]
+    if a == ["--serve"]: return serve()
+    names = [x for x in a if not x.startswith("--")]
+    if len(names) != 1 or any(x not in ("--leaf", "--again") for x in a if x.startswith("--")):
+        sys.exit(__doc__.split("Tuples")[0].rstrip())
+    ask(names[0], "leaf" if "--leaf" in a else "node", "--again" in a)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+# kart-find -- [ADDIN_V1] where the kart memory is, as host:port reachable from HERE: the kart add-in's tuple in the
+# control RAM, (pond, where, <ns>/kart) {"kart":{"memory":"<identity>:<port>"}}, resolved by identity in this scope
+# (the region's `resolve`); on a stand-alone machine, local:<port> is 127.0.0.1. Waits for one on a held read when
+# none is there yet (the region's events wake it; nothing polls). Prints host:port; exit 1 if the control RAM goes.
+import os, sys
+H = os.environ.get("FDF_HOME", "/opt/fdf"); sys.path.insert(0, H + "/lib/python")
+import fdfram
+ram = os.environ.get("FDF_CONTROL_RAM") or sys.exit("kart-find: FDF_CONTROL_RAM is not set (the add-in's start sets it)")
+r = fdfram.Ram(ram)
+def addr(ep):
+    i = ep.rfind(":"); ident, port = ep[:i], ep[i + 1:]
+    if ident == "local": return "127.0.0.1:" + port
+    j = r._do("POST", {"op": "rina"}, {"op": "resolve", "ids": [ident]})
+    a = (j.get("resolved") or {}).get(ident) or {}
+    if not a.get("addr"): raise LookupError("%s has no address here: %s %s" % (ident, a.get("error", ""), a.get("why", "")))
+    return a["addr"].split("/")[0] + ":" + port
+said = False
+while True:
+    try: cells = r.read("pond", "where")
+    except fdfram.RamError as e: sys.exit("kart-find: the control RAM at %s: %s" % (ram, e))
+    for c in cells:
+        k = (c.get("bag") or {}).get("kart")                 # an owned cell its writer left is {}: no kart in it
+        if isinstance(k, dict) and k.get("memory"):
+            try: print(addr(k["memory"])); sys.exit(0)
+            except LookupError as e: sys.stderr.write("kart-find: %s: %s\n" % (c["instance"], e))
+    if not said: sys.stderr.write("kart-find: no kart memory in %s yet; waiting for one\n" % ram); said = True
+    last = max([c["id"] for c in cells] + [0])
+    try: r.read("pond", "where", after=last, wait_s=fdfram.HOLD_S)        # held: returns when a where cell is written
+    except fdfram.RamError as e: sys.exit("kart-find: the control RAM at %s: %s" % (ram, e))

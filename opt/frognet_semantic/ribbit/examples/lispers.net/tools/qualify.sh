@@ -106,14 +106,14 @@ if has build; then
     else printf '  FAILED %-33s (compiler errors above)\n' "$out"; return 1; fi; }
   # The libraries everything links: if a header is missing, say which package provides it -- before compiling
   # [AUTO_INSTALL_BUILD_DEPS_V1] missing lz4 / OpenSSL headers are installed, not reported
-  source "$(dirname "$(readlink -f "$0")")/../../../cpp/ensure_build_deps.sh"; ribbit_ensure_build_deps
+  source "$RIBBIT/ensure_build_deps.sh"; ribbit_ensure_build_deps    # the platform's (the script has cd'd: $0 no longer resolves)
   echo "  $JOBS parallel jobs"
   t_all=$(date +%s)
   build_one ribbit_cpp/frogram.o -std=c++20 $NOFP -O2 -pthread -I"$RIBBIT/include" -c "$RIBBIT/src/frogram.cpp" || { cat "$BLOG"/*.txt >> "$OUT/build.txt"; note "build FAIL"; exit 1; }
   FO=ribbit_cpp/frogram.o
   pids=()
   run(){ while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n 2>/dev/null || true; done; build_one "$@" & pids+=($!); }
-  run ribbit_cpp/lisper-ram -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/lisper_ram.cpp "$RIBBIT/src/ram_host.cpp" $FO -llz4 -lcrypto
+  run ribbit_cpp/lisper-ram -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/lisper_ram.cpp "$RIBBIT/src/ram_host.cpp" "$RIBBIT/src/lf_ebr.cpp" $FO -llz4 -lcrypto   # [LF_PRIMITIVES_V1] the host's memory reclaims with lf::ebr
   run ribbit_cpp/ribbit-lisp -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" ribbit_cpp/ribbit_lisp.cpp $FO -llz4 -lcrypto
   run tools/lisp-handler-driver -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/lisp_handler_driver.cpp $FO -lcrypto -llz4
   run tools/check-ms-secret -std=c++20 $NOFP -O2 -pthread -Iribbit_cpp -I"$RIBBIT/include" tools/check_ms_secret.cpp $FO -llz4 -lcrypto

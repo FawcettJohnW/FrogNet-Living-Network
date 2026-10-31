@@ -32,7 +32,7 @@ import urllib.request
 from . import config
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-10-25-r31"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-10-28-r36"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_MASK = 16
 ALLOWED = "10.0.0.0/8"
 
@@ -361,7 +361,9 @@ def events():
     _events_proc = p                    # [FORWARD_SWITCH_IN_PLACE_V1] end_events() ends this session
     try:
         for line in p.stdout:
-            line = line.strip()
+            # [EVENT_KIND_FIRST_FIELD_V1] fdf-events says "<ready|p>\t<ms>\t<snapshot>" since r32; the kind is yielded
+            # (the callers compare it to "ready", "p", "m", "gone" and read the world themselves)
+            line = line.strip().split("\t", 1)[0]
             yield line
             if line == "gone":
                 return

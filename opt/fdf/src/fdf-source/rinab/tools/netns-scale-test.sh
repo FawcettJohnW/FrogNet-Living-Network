@@ -1,7 +1,7 @@
 #!/bin/bash
 # netns-scale-test.sh -- [SCALE_NETNS_V1] experiment S (experiments/day-claims/EXPERIMENTS.md): S subnets crossing E
 # egress points, memory arm (the FD&F region), on the REAL tunnel daemon. Built from netns-region-loop-test.sh's
-# pieces, unchanged: the hub (rina-host :8840, fdf-client, fdf-hub wg-hub :51820) on 198.18.0.1; every EGRESS node is
+# pieces: the hub (fdf-hub wg-hub :51820, rina-host on its tunnel address, fdf-client) on 198.18.0.1; every EGRESS node is
 # a daemon node like z (its own netns and mount namespace, `python3 -m internet_tunnels_v3`, fdf-client, fdf-facts
 # --watch, an uplink on the "Internet" bridge, a hub tunnel); every other subnet is a CHILD like y (fdf-client and
 # fdf-facts --watch, a lease on its egress node's LAN, its own /24 on lan0, a default route to its egress node).
@@ -19,20 +19,23 @@
 # Two CPUs run every daemon here: an event wakes all E daemons on the same cores, so time-to-last grows with E from
 # the bed's contention alone; each daemon's own `total` is the per-node cost. Both are reported.
 # Needs root, ip, wg, wg-quick, wireguard-go, python3, curl. usage: S=200 E=10 N=4 tools/netns-scale-test.sh [RINAB_DIR]
+# [REGION_LOOP_BY_INVITE_V1] the region as fdf-region-create makes it since r31: the RAM manager listens only on the
+# hub's tunnel address 10.253.253.254 ([RAM_IN_THE_TUNNEL_V1]), every egress node joins with its own fdf-invite line
+# (fdf-region-join --files-only), and every child reaches the RAM through its egress node's tunnel.
 set -u; H=$(cd "${1:-$(dirname "$0")/..}" && pwd); B=${SCALE_BIN:-$H/build/static}; FN=${FROGNET_DIR:-$H/../../../../frognet_semantic}
 # [SCALE_BOTH_ARCHES_V1] SCALE_BIN: the package points it at this machine's architecture (static-x86_64 or static-aarch64)
 PK=${PKG_FDF:-$H/../fdf}; FDFPY=$H/../fdf/lib/python; S=${S:-200}; E=${E:-2}; N=${N:-4}; COLD_MAX=${COLD_MAX:-600}
 [ $E -ge 1 ] && [ $E -le 120 ] && [ $S -ge $E ] && [ $S -le 250 ] || { echo "need 1 <= E <= 120, E <= S <= 250"; exit 2; }
-T=${T:-/tmp/claude-0/netns-scale-S$S-E$E}; rm -rf $T; mkdir -p $T/hub $T/bin      # one directory per (S,E): a run keeps its logs
+T=${T:-/tmp/claude-0/netns-scale-S$S-E$E}; rm -rf $T; mkdir -p $T/hub/admitted $T/bin      # one directory per (S,E): a run keeps its logs
 export RIBBIT_TEMPLATES=$H/../fdf/templates/fdf.prime FDF_WG_IMPL=wireguard-go FDF_PY=$FDFPY
 export WG_QUICK_USERSPACE_IMPLEMENTATION=wireguard-go WG_I_PREFER_BUGGY_USERSPACE_TO_POLISHED_KMOD=1
-API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; RAM=198.18.0.1:8840; U="http://$RAM$API?op=rina"
+API=/FawcettInnovations.RINA.ram_interface.php; SITE=frognet.test; KEY=s3cret; HA=10.253.253.254; RAM=$HA:8840; PUB=198.18.0.1; U="http://$RAM$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 ms() { date +%s%3N; }
 eg() { echo s-e$1; }; ch() { echo s-c$1; }                   # namespace names: egress s-e<i>, child s-c<k> (s-: never a name already in use)
 egress_of() { echo $(( ($1 - 1) % E + 1 )); }
 NSLIST() { echo s-hub; for i in $(seq $E); do eg $i; done; for k in $(seq $((E+1)) $S); do ch $k; done; }
-cleanup() { local L; L=$( { NSLIST; ip netns list | awk '{print $1}' | grep "^s-"; } | sort -u);   # [EARLIER_RUN_PUT_BACK_V1] every s-*, whatever S and E made it
+cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/svc.pids; local L; L=$( { NSLIST; ip netns list | awk '{print $1}' | grep "^s-"; } | sort -u);   # [EARLIER_RUN_PUT_BACK_V1] every s-*, whatever S and E made it
             for n in $L; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in $L; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; done
@@ -55,7 +58,8 @@ unmade() { local d k rest; for d in $MADE; do                # wireguard-go remo
   [ -d "$d" ] && echo "netns-scale-test: could not remove $d, which this run created: $(ls -A "$d" | tr '\n' ' ')"; done
   rest=""; for d in $MADE; do [ -d "$d" ] && rest="$rest $d"; done; [ -n "$rest" ] && echo "$rest" > $MF || rm -f $MF; }
 trap 'cleanup; unmade; sleep 1; unmade; sysctl -q -w fs.inotify.max_user_instances=$INO0' EXIT; cleanup
-cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $T/bin/
+cp $B/fdf-events $B/fdf-client $B/fdf-where $T/bin/; cp $PK/bin/fdf-facts $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-region-join $T/bin/
+export PATH=$T/bin:$PATH
 cat > $T/bin/capability-probe <<'EOF'
 #!/bin/sh
 echo '{"cores":4,"cpu_mhz":2000,"cpu_bench_total":12000,"mem_total_kb":8388608,"mem_available_kb":4000000,"disk_class":"ssd","mysql":true,"mysql_running":true,"ffmpeg":true,"libvpx":true,"lan_ip":"","loadavg":{"1":0.1,"5":0.1,"15":0.1},"temps_c":[]}'
@@ -80,13 +84,19 @@ ip netns add s-hub; ip netns exec s-hub ip link set lo up
 ip link add v-s-hub type veth peer name v-s-hub-b; ip link set v-s-hub netns s-hub; ip link set v-s-hub-b master br-s-inet up
 ip netns exec s-hub ip addr add 198.18.0.1/24 dev v-s-hub; ip netns exec s-hub ip link set v-s-hub up
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 "$@"; }
-NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
-sleep 1; NS s-hub curl -s -m 10 -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
-NS s-hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
-sleep 0.5
-NS s-hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint 198.18.0.1:51820 --name hubA \
-   --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json > $T/hub/hub.log 2>&1 &
-sleep 2; NS s-hub sysctl -q -w net.ipv4.ip_forward=1
+printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
+printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
+NS s-hub env FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
+NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+for i in $(seq 100); do NS s-hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
+NS s-hub curl -s -m 10 -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
+# the hub's processes and every child's client start again as their units do (a child's before its egress is up)
+svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
+svc $T/hub/client.log ip netns exec s-hub env RINA_RAM=$RAM FDF_FACTS=$T/hub/facts.json FDF_NAME=hubA $B/fdf-client
+svc $T/hub/hub.log ip netns exec s-hub env RINA_RAM=$RAM FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --name hubA \
+   --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json --admitted $T/hub/admitted
+for i in $(seq 100); do grep -q "start (adopt)" $T/hub/hub.log && break; sleep 0.05; done
+NS s-hub sysctl -q -w net.ipv4.ip_forward=1
 check $([ "$(NS s-hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub up on 51820"
 # ---- egress nodes: uplink, served /24 on its LAN bridge br-s<i> (children join it), NAT out, echo
 for i in $(seq $E); do n=$(eg $i); mkdir -p $T/$n; ip netns add $n; ip netns exec $n ip link set lo up
@@ -129,8 +139,9 @@ fsnode() { local n=$1 NAME=$2; local F=$T/$n/fs
   printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$NAME" > $F/etc/fnid
   echo "domain=$NAME" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns scale test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
-  printf 'export RINA_RAM=%s\n' $RAM > $F/opt-fdf-var/join.env; printf 'RINA_AREA=%s\nRINA_SITE_KEY=%s\n' $SITE $KEY > $F/opt-fdf-var/site.env
-  (umask 077; wg genkey > $F/var-lib-frognet-tunnel/node_private.key); wg pubkey < $F/var-lib-frognet-tunnel/node_private.key > $F/var-lib-frognet-tunnel/node_public.key; }
+  ip netns exec s-hub env FDF_HUB_ENV=$T/hub/hub.env FDF_ADMITTED=$T/hub/admitted FDF_SITE_KEYS=$T/hub python3 $T/bin/fdf-invite $NAME > $T/$n/invite.out 2>&1
+  grep -m1 '^fdfinv1\.' $T/$n/invite.out > $T/$n/invite
+  NSF $n bash $T/bin/fdf-region-join --files-only "$(cat $T/$n/invite)" > $T/$n/join.log 2>&1 || echo "FAIL  $n: fdf-region-join: $(tail -2 $T/$n/join.log)"; }
 NSF() { local n=$1; shift; local F=$T/$n/fs m=""
   for b in $BINDS; do m="$m mount --bind $F/${b%%:*} ${b#*:};"; done
   ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_UPLINK_PING=198.18.0.1 FDF_BIN=$T/bin \
@@ -149,12 +160,12 @@ for i in $(seq $E); do n=$(eg $i)
 done
 for i in $(seq $E); do n=$(eg $i)
   for w in $(seq 80); do grep -q '"name"' $T/$n/fs/opt-fdf-var/facts.json 2>/dev/null && break; sleep 0.25; done
-  NSF $n env FDF_NAME=$n $T/bin/fdf-client > $T/$n/client.log 2>&1 &
+  svc $T/$n/client.log NSF $n env FDF_NAME=$n $(cat $T/$n/fs/opt-fdf-var/site.env) $T/bin/fdf-client
   NSF $n env FDF_NAME=$n python3 $T/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
 done
 for k in $(seq $((E+1)) $S); do n=$(ch $k); read e ip < $T/$n/egress
   printf '{"role":"node","name":"%s","guid":"g-%s","subnet":"10.20.%d.0/24","pubkey":"","transit":[],"maps":[]}\n' $n $n $k > $T/$n/facts.json
-  ip netns exec $n env RINA_RAM=$RAM FDF_FACTS=$T/$n/facts.json FDF_NAME=$n $B/fdf-client > $T/$n/client.log 2>&1 &
+  svc $T/$n/client.log ip netns exec $n env RINA_RAM=$RAM FDF_FACTS=$T/$n/facts.json FDF_NAME=$n $B/fdf-client
   ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RINA_SITE_KEY=$KEY FDF_FACTS=$T/$n/facts.json FDF_LEASES=$T/$n/leases FDF_NAME=$n \
      FDF_UPLINK_PING=10.20.$e.1 python3 $PK/bin/fdf-facts --watch > $T/$n/facts.log 2>&1 &
 done

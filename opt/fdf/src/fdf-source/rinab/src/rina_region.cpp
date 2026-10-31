@@ -12,6 +12,7 @@
 #include <openssl/hmac.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 #include <cstddef>
 #include <ctime>
 #include <unistd.h>
@@ -622,9 +623,18 @@ std::string resident(const std::string& op, const Json& in) {
                 if (fj["addr"].type != Json::Null)
                     return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"a leaf's address is the region's to give: facts.addr is not the member's to say (leave it out)\"}";
                 const std::string sid = sess_key(rina_session_id());
-                for (auto& r : scan(m, "laddr", "")) if (r.value == sid) { given = r.rest; break; }
-                const bool wants = !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
-                if (!wants && !given.empty()) { put(m, "laddr", given, ""); given.clear(); }        // on a LAN now: freed
+                // [LEAF_BY_INVITE_V1] an invited leaf's address is its edge: fdf-invite gave it with the key the hub admitted,
+                // the hub routes that /32 to that key alone, and the leaf reached this region through it. Nothing is
+                // allocated here for it; the edge is written as its addr (fdf_graph places the leaf by it).
+                const bool invited = fj["role"].s == "leaf" && !fj["edge"].s.empty();
+                if (invited) {
+                    in_addr ia;
+                    if (inet_pton(AF_INET, fj["edge"].s.c_str(), &ia) != 1) return "{\"ok\":false,\"error\":\"EINVAL\",\"why\":\"facts.edge is not an IPv4 address\"}";
+                }
+                for (auto& r : scan(m, "laddr", "")) if (!invited && r.value == sid) { given = r.rest; break; }
+                const bool wants = !invited && !fj["pubkey"].s.empty() && fj["lan"].type == Json::Null;
+                if (invited) given = fj["edge"].s;
+                if (!invited && !wants && !given.empty()) { put(m, "laddr", given, ""); given.clear(); }        // on a LAN now: freed
                 if (wants && given.empty()) {
                     std::set<std::string> held;
                     for (auto& r : scan(m, "laddr", "")) if (!r.value.empty() && !get(m, "sess", r.value).empty()) held.insert(r.rest);
@@ -633,7 +643,7 @@ std::string resident(const std::string& op, const Json& in) {
                     if (given.empty()) return "{\"ok\":false,\"error\":\"ENOSPC\",\"why\":\"every leaf address in 10.252.0.0/16 is held by a live session\"}";
                     put(m, "laddr", given, sid);
                 }
-                if (wants) {
+                if (wants || invited) {
                     size_t b = facts.find_first_not_of(" \t\r\n", 1);
                     facts = "{\"addr\":" + Json::quote(given + "/32") + (b != std::string::npos && facts[b] == '}' ? "" : ",") + facts.substr(1);
                 }
@@ -686,6 +696,7 @@ std::string resident(const std::string& op, const Json& in) {
                 std::string addr;
                 if (role == "leaf") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }
                 else if (role == "participant") { addr = fj["addr"].s; if (addr.find('/') != std::string::npos) addr = addr.substr(0, addr.find('/')); }   // a reacher's /32
+                else if (role == "hub") addr = fj["addr"].s;   // [HUB_RESOLVES_TO_ITS_TUNNEL_ADDRESS_V1] the region holder: 10.253.253.254, inside its tunnel
                 else { auto sp = served_prefixes(fj); if (!sp.empty()) addr = *sp.begin() + ".1"; }
                 if (addr.empty()) one = "{\"error\":\"ENOADDR\",\"why\":" + Json::quote(name + " (" + (role.empty() ? std::string("no role") : role) + ") has no address in this pond") + ",\"name\":" + Json::quote(name) + "}";
                 else one = "{\"addr\":" + Json::quote(addr) + ",\"name\":" + Json::quote(name) + ",\"role\":" + Json::quote(role.empty() ? "node" : role) + "}";
@@ -948,6 +959,7 @@ std::string rina_region_block(const std::string& body) {
     return resident(in["op"].s, in);
 }
 
+void owned_cell_gone(frogram::MemoryApi& m, const std::string& key, const std::string& sid);   // [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
 // The server calls this once when a session's socket has closed: whoever it was is gone, at once.
 void rina_session_down(uint64_t sid) {
     daf_session_down(sid);                                          // [DAF_SESSION_IS_LIVENESS_V1]
@@ -982,7 +994,9 @@ void rina_session_down(uint64_t sid) {
             // [ATTENTION_IS_A_TUPLE_V1] the member is gone, so are its notices: (pond, attention, <its ns>) -- gone is gone
             // [SERVICE_WHERE_IS_A_TUPLE_V1] and so are the services it said it runs: (pond, where, <its ns>)
             try { frogram::MemoryApi& ram = rina_resident_memory();
-                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove(c.id); } catch (...) {}   // the RAM, not the region's records
+                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove(c.id);
+                  // [ADDIN_OWNS_ITS_CELL_V1] and each add-in's own cell on that machine, (pond, where, <ns>/<add-in>)
+                  for (auto& c : ram.read("pond", "where", "")) if (c.instance.compare(0, ns.size() + 1, ns + "/") == 0) ram.remove(c.id); } catch (...) {}   // the RAM, not the region's records
         } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
     put(m, "sess", sess_key(sid), "");
     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]
@@ -993,7 +1007,45 @@ void rina_session_down(uint64_t sid) {
         put(m, "mown", r.rest, ""); put_gone_permanent(m, "map", r.rest);   // [MAP_REMOVAL_IS_PERMANENT_V1]
         for (auto& w : scan(m, "mwatch", r.rest + "|")) if (!w.value.empty()) push_event(w.rest.substr(r.rest.size() + 1), "{\"k\":\"m\"}");
         for (auto& w : scan(m, "mwatch", "*|")) if (!w.value.empty()) push_event(w.rest.substr(2), "{\"k\":\"m\"}"); }
+    {   // [OWNED_CELL_GOES_WITH_THE_SESSION_V1] every tuple this session wrote with own:true is written {} now
+        const std::string k = sess_key(sid); const std::vector<Rec> mine = scan(m, "owncells:" + k, "");
+        if (!mine.empty()) { put(m, "owndone", k, "1");                 // a write still in flight sees this and does it itself
+            for (auto& r : mine) { owned_cell_gone(m, r.rest, k); put(m, "owncells:" + k, r.rest, ""); } }
+    }
     notify_participants(m);                                          // [FDF_PARTICIPANTS_CHANGE_V1] a participant may have gone
+}
+
+// [OWNED_CELL_GOES_WITH_THE_SESSION_V1] A plain write with "own":true makes its tuple the session's: a participant is
+// there while its session is up, and when the session ends the tuple is written {} -- one write, so every held read on
+// its family fires and every reader drops it. Gone is gone: no timeout, no re-writing to stay fresh. The last session to
+// write a tuple with own:true owns it. The records: (owncell, s\x1fv\x1fi) = the owning session; (owncells:<session>,
+// s\x1fv\x1fi) = its tuples, so the sweep reads only its own; (owndone, <session>) = its sweep has begun.
+static std::string owned_key(const std::string& s, const std::string& v, const std::string& i) { return s + '\x1f' + v + '\x1f' + i; }
+void owned_cell_gone(frogram::MemoryApi& m, const std::string& key, const std::string& sid) {
+    if (get(m, "owncell", key) != sid) return;                       // another session wrote it with own:true since: theirs now
+    const size_t a = key.find('\x1f'), b = key.find('\x1f', a + 1);
+    rina_resident_memory().write(key.substr(0, a), key.substr(a + 1, b - a - 1), key.substr(b + 1), "{}");
+    put(m, "owncell", key, "");
+}
+// [PERMANENT_CELL_V1] A plain write with "permanent":true is durable: the tuple is filed in the region's file as the
+// record (pcell, s\x1fv\x1fi) -- appended and fdatasync'd before it is published, as every Permanent record is -- and
+// when the host starts again every such tuple is written back into the memory before the first session is served. A
+// permanent write of {} removes it for good. This is how a program saves what must outlive a run of the memory.
+void rina_permanent_cell(const std::string& s, const std::string& v, const std::string& i, const std::string& bag) {
+    region_memory().write("rina", "pcell", owned_key(s, v, i), "{\"v\":" + Json::quote(bag == "{}" ? "" : bag) + ",\"p\":1}");
+}
+static void restore_permanent_cells() {
+    size_t n = 0;
+    for (auto& r : scan(region_memory(), "pcell", "")) {
+        const size_t a = r.rest.find('\x1f'), b = r.rest.find('\x1f', a + 1);
+        rina_resident_memory().write(r.rest.substr(0, a), r.rest.substr(a + 1, b - a - 1), r.rest.substr(b + 1), r.value); ++n; }
+    fprintf(stderr, "rina-host: [PERMANENT_CELL_V1] %zu permanent tuple(s) written back into the memory\n", n);
+}
+void rina_own_cell(const std::string& s, const std::string& v, const std::string& i) {
+    frogram::MemoryApi& m = region_memory(); const std::string sid = sess_key(rina_session_id()), key = owned_key(s, v, i);
+    if (get(m, "owncell", key) == sid) return;                       // already this session's
+    put(m, "owncells:" + sid, key, "1"); put(m, "owncell", key, sid);
+    if (!get(m, "owndone", sid).empty()) owned_cell_gone(m, key, sid);   // the session ended while this write was in flight
 }
 
 // [RAM_MANAGER_REGISTERS_ITSELF_V1] (plan item 3) the RAM manager registers its own LISP mapping -- the area's name ->
@@ -1057,6 +1109,7 @@ static void publish_net_config() {
 void rina_host_listening(const std::string& listen_on) {
     fprintf(stderr, "rina-host: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
     daf_start();                                                   // [DAF_FILE_V1] its Permanent cells, before any member
+    restore_permanent_cells();                                         // [PERMANENT_CELL_V1]
     if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping") {   // the mapping host is not an area's
         publish_net_config();
         std::thread(register_self, listen_on).detach();
