@@ -76,17 +76,17 @@ installer takes (`--help` prints all of them):
 | option | what it does |
 |---|---|
 | `--lan-iface IFACE` | the wired interface to serve; default: the first wired interface that is not the uplink |
-| `--db-pass PASS` | the FrogUser database password; every node in the pond uses the same one. Omitted: asked twice, hidden |
+| `--db-pass PASS` | this node's FrogUser database password (local to the node: nodes reach the elected database host over HTTP, never with each other's password; one value across a pond is a convenience, not a requirement). Omitted: asked twice, hidden |
 | `--no-ssid-projection` | do not project the node's Wi-Fi network. Use it on a machine with no Wi-Fi radio that can be an access point |
 | `--wifi-psk PSK`, `--country CC`, `--ap-iface IFACE` | the projected Wi-Fi network's passphrase (8–63 characters, the same on every node of the pond), regulatory country, radio |
 | `--no-reboot` | stop at the end instead of rebooting |
 | `--preserve` | upgrade in place (section 4) |
-| `--region RAM_HOST:PORT --site-key KEY --area NAME` | also join a region (section 3) |
+| `--invite fdfinv1.<...>` | also join a region, with the line `fdf-invite NAME` printed on the region host (section 3) |
 | `--rebuild-venv` | rebuild the Python environment the services run on, even when the existing one fits |
 | `--uninstall [--keep-identity] [--keep-db]` | remove FrogNet (section 4) |
 
-**What it asks** (each only when the option is not given): the database password (twice, hidden: every node of
-the pond uses the same one), the node name, the 10.X.Y.1, "Continue?" when that address already answers a ping
+**What it asks** (each only when the option is not given): the database password (twice, hidden; it is this
+node's own), the node name, the 10.X.Y.1, "Continue?" when that address already answers a ping
 (without `--ip`), the Wi-Fi passphrase when Wi-Fi projection is on, and "Confirm?" unless both `--name` and `--ip` were
 given. Projection is on unless `--no-ssid-projection` is given or the wired interface has no cable and no Wi-Fi radio
 can be an access point; when the wired interface has no cable and a radio can, it asks whether to project, which
@@ -143,17 +143,24 @@ address for a region with no internet. Copy `opt/fdf/dist/fdf-droplet.tgz` from 
 The two `grep`s must print nothing: the hub uses 10.253.0.0/16 on its interface. `myarea` is the region's name
 (letters, digits, `.`, `_`, `-`, at most 12); `203.0.113.7` is the address members reach this machine at.
 `fdf-region-create` records the WireGuard implementation (kernel, or wireguard-go where the kernel has no module; the
-`modprobe -n` line above installs it in that case), makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`), starts
-`fdf-ram-myarea`, maps the site key on it, writes `/opt/fdf/hub/hub.env`, starts `fdf-hub` and `fdf-client-myarea`,
-and prints what each said. It then prints the firewall lines and the site key, once:
+`modprobe -n` line above installs it in that case), makes the site key (stored root-only in `/opt/fdf/var/site-key-myarea`),
+brings up the region's interface `wg-myarea` with the hub at `10.253.253.254`, starts `fdf-ram-myarea` listening on
+that address only (`[RAM_IN_THE_TUNNEL_V1]`: the RAM manager is reachable inside the tunnel and nowhere else), maps
+the site key on it, writes `/opt/fdf/hub/hub.env`, starts `fdf-hub` and `fdf-client-myarea`, and prints what each
+said. It then prints the firewall lines and the site key, once:
 
-    ufw allow 51888/tcp
+    ufw default deny incoming
     ufw allow 50889/udp
     ufw route allow in on wg-myarea out on wg-myarea
+    ufw allow in on wg-myarea to 10.253.253.254 port 51888 proto tcp
 
-Run them (or run `fdf-region-create` with `--ufw`) where the region host has ufw; otherwise open TCP 51888 and UDP
-50889 to the members and let the host forward between the hub's peers on `wg-myarea`. `--ram-port` and `--hub-port`
-change the two ports. A second `fdf-region-create` on the same machine stops: a machine holds one region.
+Allow ssh first if you administer this machine over the Internet: with default deny, every other port is silent. Run
+the lines (or run `fdf-region-create` with `--ufw`) where the region host has ufw; otherwise open only UDP 50889 to
+the Internet and let the host forward between the hub's peers on `wg-myarea`. From the Internet the region host
+answers on the hub's UDP port and nothing else of the region's (`[NOTHING_LISTENS_OUTSIDE_V1]`; `fdf-hub`'s journal
+names whatever else the machine listens on). `--ram-port` and `--hub-port` change the two ports. A second
+`fdf-region-create` on the same machine stops: a machine holds one region (`--replace` re-makes one an earlier build
+made).
 
 `fdf-hub` refuses to start before `fdf-region-create` has run; its journal says
 `fdf-hub: /opt/fdf/hub/hub.env does not exist: this machine holds no region yet. Run: /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP`.
@@ -162,25 +169,38 @@ Update the region host to a newer `fdf-droplet.tgz` (hub.env, the site key, the 
 
     cd / && tar xvzf - < /tmp/fdf-droplet.tgz && systemctl daemon-reload && systemctl restart fdf-ram-myarea fdf-client-myarea fdf-hub
 
-The RAM manager accepts `map_site` from anyone who reaches its port: the firewall is what keeps others out.
+The RAM manager accepts `map_site` from anyone who reaches its port, and only the hub's tunnel reaches it: an
+invited member, or a host routed through one. Members are admitted one at a time, on the region host:
+
+    /opt/fdf/bin/fdf-invite NODE2
+
+makes NODE2's WireGuard key, gives it an edge address on the tunnel (the first free `10.253.X.Y`), records it in
+`/opt/fdf/hub/admitted/NODE2.json` (the hub adds the peer at once) and prints the invitation: one line,
+`fdfinv1.<...>`, shown once. It is a secret (it carries NODE2's private key and the site key); hand it to NODE2's
+operator by a channel you trust. `fdf-invite NAME --leaf` admits a phone or PC, `fdf-invite NAME --revoke` removes
+a member's peer now, `fdf-invite --list` shows who is admitted. A member that was never invited gets no peer, whatever
+it announces (`[ADMITTED_BY_INVITE_V1]`).
 
 ### Install a node into a region
 
-Install as in section 2, with the three values `fdf-region-create` printed:
+Install as in section 2, with the one line `fdf-invite NODE2` printed on the region host:
 
-    sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE2 --ip 10.81.81.1 --no-ssid-projection --region 203.0.113.7:51888 --site-key KEY --area myarea
+    sudo bash usr/local/bin/installer/frognet_install.sh --from-repo --name NODE2 --ip 10.81.81.1 --no-ssid-projection --invite fdfinv1.<...>
 
-The installer checks before phase A that `opt/fdf/dist/fdf-install-$(uname -m).run` is in the checkout. After F6
-(and only when F6 passed) its phase R runs that file. A node already installed LAN-only joins with the same file:
+(`--region`, `--site-key` and `--area` are refused: a region is joined by invitation.) The installer checks before
+phase A that `opt/fdf/dist/fdf-install-$(uname -m).run` is in the checkout. After F6 (and only when F6 passed) its
+phase R runs that file with the invitation. A node already installed LAN-only joins with the same file:
 
-    sudo bash opt/fdf/dist/fdf-install-x86_64.run KEY 203.0.113.7:51888 myarea
+    sudo bash opt/fdf/dist/fdf-install-x86_64.run fdfinv1.<...>
 
 (`fdf-install-aarch64.run` on a Raspberry Pi.) It unpacks `/opt/fdf` and the FrogNet region modules, installs the
 sudoers fragment the snapshot needs, serves the region view at `/fdf/` on the node's Apache, and runs
-`/opt/fdf/bin/fdf-region-join`, which writes `/opt/fdf/var/site.env` and `/opt/fdf/var/join.env`, starts
-`fdf-client` and `fdf-facts`, restarts the tunnel daemon into region mode and shows the result for 15 s. The daemon
-makes its own WireGuard key at its first region start (`WG_KEY: made /var/lib/frognet-tunnel/node_private.key`).
-The file is re-runnable; running it again with a newer build updates the node.
+`/opt/fdf/bin/fdf-region-join fdfinv1.<...>`, which writes the invitation's WireGuard key to
+`/var/lib/frognet-tunnel/node_private.key`, `/opt/fdf/var/site.env`, `/opt/fdf/var/hub.json` and
+`/opt/fdf/var/join.env`, starts `fdf-client` and `fdf-facts`, and restarts the tunnel daemon into region mode. The
+node's first packet to the Internet is a WireGuard handshake to the hub's UDP port; the region's records, facts,
+mappings and held reads all travel inside the tunnel. The file is re-runnable; running it again with a newer build
+updates the node. A new invitation brings a new key (`fdf-invite NODE2` again revokes the old one).
 
 ### Leave a region
 
@@ -190,8 +210,8 @@ On the node, as root:
 
 It removes `fdf-client`, `fdf-facts`, `fdf-term-serve` and every `fdf-client@<area>`, deletes `join.env`, `site.env`
 and the pond files, turns the database-host timers back on and restarts the tunnel daemon, which logs
-`LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory)`. The daemon's WireGuard key is
-kept; a later join announces the same key.
+`LAN-only mode: no region switch (/opt/fdf/var/join.env: No such file or directory)`. A later join brings its own key
+in its invitation.
 
 ### Phones
 
@@ -329,7 +349,7 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 - **Region names.** At most 12 characters (`wg-<AREA>` is an interface name).
 - **Not measured.** No member count limit is written in the code; the largest region in the gates had three members
   (two nodes and the hub's own), the largest LAN-only pond two nodes.
-- **The database password** is the same on every node of a pond (`--db-pass`).
+- **The database password** is per node (`--db-pass`); the same value everywhere is a convenience, not a requirement.
 
 ## 7. Troubleshooting by symptom
 
@@ -344,7 +364,8 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 | no merges | `[MERGE-ACCUM] inotifywait not found (install inotify-tools): ...` in `/var/log/frognet-merge-watcher.log` | `apt-get install inotify-tools`, then `systemctl restart frognet-merge-watcher` |
 | a node stays LAN-only after joining | `LAN-only mode: no region switch (...)` in the tunnel daemon's journal | `/opt/fdf/var/join.env` is missing: run the `.run` again |
 | old settings are ignored | `old broker keys ignored: ...` in the tunnel daemon's journal | nothing: the upgrade's C1c removes them from tunnel.conf |
-| a region node's /24 is not routed | `fdf-client: mapping 10.X.Y.0/24 -> ... REFUSED by the region: ... EPERM ... = RINA_SITE_KEY in /opt/fdf/var/site.env is not the key map_site holds for this area` in `journalctl -u fdf-client` | run the `.run` again with the key `fdf-region-create` printed |
+| a region node's /24 is not routed | `fdf-client: mapping 10.X.Y.0/24 -> ... REFUSED by the region: ... EPERM ... = RINA_SITE_KEY in /opt/fdf/var/site.env is not the key map_site holds for this area` in `journalctl -u fdf-client` | run the `.run` again with a fresh invitation from `fdf-invite NAME` on the region host |
+| a member joins but gets no tunnel | `NOT ADMITTED: NAME (key ...) is a member but was never invited here: no peer` in `journalctl -u fdf-hub` | `fdf-invite NAME` on the region host, then the `.run` again with that invitation |
 | the hub does not start | `fdf-hub: /opt/fdf/hub/hub.env does not exist ...` | run `fdf-region-create` on that machine |
 | two nodes with the same /24 in a region | `REFUSED 10.X.Y.0/24 claimed by ...` in `journalctl -u fdf-hub` | give one of them another 10.X.Y.1 (reinstall) |
 | outside names do not resolve | resolv.conf has only `127.0.0.1` and the gateway | the gateway does not serve DNS (section 6) |

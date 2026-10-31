@@ -65,8 +65,9 @@
 #   --keep-db                With --uninstall: keep the FrogNet database.
 #   --no-reboot              Do everything, then stop instead of rebooting (the
 #                            node starts its services on the next boot).
-#   --db-pass <PASS>         FrogUser DB password. SHARED pond-wide constant:
-#                            every node must use the SAME value. Omit to be
+#   --db-pass <PASS>         FrogUser DB password, this node's own (api.php
+#                            connects to 127.0.0.1; nodes never use each other's).
+#                            One value across a pond is a convenience. Omit to be
 #                            prompted (hidden, entered twice). A value on the
 #                            command line is visible in `ps` to local users
 #                            while the installer runs; prefer the prompt.
@@ -348,8 +349,8 @@ fi
 ###############################################################################
 # DB secret: collect ONCE, up front, and treat it as authoritative
 #
-# [INSTALL_DB_PASS_PROMPT_V1] The FrogUser password is a SHARED pond-wide
-# constant. It used to come from whatever literal was baked into the shipped
+# [INSTALL_DB_PASS_PROMPT_V1] The FrogUser password is this node's own (the
+# same one everywhere is a convenience, not a requirement). It used to come from whatever literal was baked into the shipped
 # config.php, and D8 pushed only THAT value into MySQL -- nothing reconciled
 # DB_CONFIG.json or the cache modules. When those disagreed (a release built
 # with --scramble leaves the tokenized __FROGNET_DB_PASS__ behind), MySQL held
@@ -377,7 +378,7 @@ collect_db_pass() {
     exec 3<>/dev/tty
     local p1 p2
     for _try in 1 2 3; do
-        printf '\n  FrogUser DB password (shared across the whole pond).\n' >&3
+        printf '\n  FrogUser DB password (this node'"'"'s own).\n' >&3
         printf '  Input is hidden.\n' >&3
         printf '  Password: ' >&3
         IFS= read -rs p1 <&3 || die "Could not read password from terminal"
