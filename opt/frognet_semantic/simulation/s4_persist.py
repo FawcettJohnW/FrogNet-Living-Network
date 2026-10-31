@@ -117,6 +117,20 @@ def link_addrs(j):
     return f(v), f(v + 1)
 
 
+def components(nodes, edges):
+    """{node: component id} over undirected edges"""
+    parent = {n: n for n in nodes}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for a, b in edges:
+        parent[find(a)] = find(b)
+    return {n: find(n) for n in nodes}
+
+
 def split(t):
     """a cut that splits the graph roughly in half: the links between node blocks [0, n/2) and [n/2, n)"""
     half = t["n"] // 2
@@ -299,7 +313,7 @@ class Bed:
     def monitor(self):
         for i in self.t["nodes"]:
             f = open(f"{self.work}/n{i}/mon.txt", "w")
-            p = subprocess.Popen(["ip", "netns", "exec", NS + str(i), "ip", "-ts", "monitor", "route"], stdout=f,
+            p = subprocess.Popen(["ip", "netns", "exec", NS + str(i), "ip", "-ts", "-o", "monitor", "route"], stdout=f,
                                  stderr=subprocess.STDOUT)
             self.mons[i] = p
 
@@ -413,8 +427,11 @@ def cycles(nh, dest_owner):
     return found
 
 
-def analyse(initial, events, t_event, owner_of_dest):
-    """initial: {node: {dest: set}} at t_event; events: sorted [(t, node, dest, set|None)].
+def analyse(initial, events, t_event, owner_of_dest, dead=frozenset()):
+    """initial: {node: {dest: set}} at t_event; events: sorted [(t, node, dest, set|None)]; dead: the links the event
+    silenced or cut, as frozenset({a, b}).
+    [DEAD_LINK_IS_NO_LOOP_V1] a next hop across a dead link carries nothing (the packet is lost on the link, not
+    returned), so that edge is left out of the next-hop graph: a cycle through it is not a forwarding loop.
     -> loops [{dest, nodes, start, end}], window {dest: seconds}"""
     fib = {n: {d: set(v) for d, v in tbl.items()} for n, tbl in initial.items()}
     open_loops, done, last = {}, [], {}
@@ -432,7 +449,7 @@ def analyse(initial, events, t_event, owner_of_dest):
             last[dest] = t
             i += 1
         for dest in touched:
-            graph = {n: fib[n].get(dest, set()) for n in fib}
+            graph = {n: {y for y in fib[n].get(dest, ()) if frozenset((n, y)) not in dead} for n in fib}
             now = set(cycles(graph, owner_of_dest[dest]))
             for key in [k for k in open_loops if k[0] == dest and k[1] not in now]:
                 done.append({"dest": dest, "nodes": sorted(key[1]), "start": open_loops.pop(key), "end": t})
@@ -453,8 +470,11 @@ def selftest():
     three = [(1.0, 2, "D", {0}), (1.5, 2, "D", {9})]                   # 0->1->2->0 for 500 ms
     multi = [(1.0, 2, "D", {9, 0})]                                    # one ECMP branch loops: must be caught
     ok = True
-    for name, ev, want in (("clean", clean, 0), ("two-node", two, 1), ("three-node", three, 1), ("ecmp-branch", multi, 1)):
-        loops, _ = analyse(init, ev, 0.0, own)
+    deadlink = frozenset({frozenset((0, 1))})                          # the same 0<->1 hairpin over a dead link: not a loop
+    for name, ev, want, dead in (("clean", clean, 0, frozenset()), ("two-node", two, 1, frozenset()),
+                                 ("three-node", three, 1, frozenset()), ("ecmp-branch", multi, 1, frozenset()),
+                                 ("dead-link", two, 0, deadlink)):
+        loops, _ = analyse(init, ev, 0.0, own, dead)
         got = len(loops)
         good = got == want and all((l["end"] is None) == (name == "ecmp-branch") for l in loops)
         print(f"  selftest {name:12s} loops={got} want={want} {'PASS' if good else 'FAIL'}"
@@ -517,9 +537,15 @@ def run(a):
         res["observed_s"] = round(time.time() - t_ev, 3)
         events = sorted(e for i in t["nodes"] for e in read_monitor(f"{work}/n{i}/mon.txt", i, bed.owner) if e[0] >= t_ev)
         owner_of_dest = {lo_addr(i): i for i in t["nodes"]}
-        loops, window = analyse(initial, events, t_ev, owner_of_dest)
+        dead = frozenset(frozenset(t["links"][j][:2]) for j in targets)
+        loops, window = analyse(initial, events, t_ev, owner_of_dest, dead)
         spf = {i: [x for x in read_spf(f"{work}/n{i}/isisd.log") if x >= t_ev] for i in t["nodes"]}
+        # [LIVE_VS_GONE_DEST_V1] after the event, is the destination still reachable from the loop's nodes over the
+        # surviving links? A loop toward a live destination traps traffic that has somewhere to go; one toward a
+        # destination the event cut off traps traffic that was going to be lost anyway. Both are loops; both reported.
+        comp = components(t["nodes"], [l[:2] for l in t["links"] if frozenset(l[:2]) not in dead])
         for l in loops:
+            l["dest_reachable"] = comp[owner_of_dest[l["dest"]]] == comp[l["nodes"][0]]
             l["open"] = l["end"] is None                    # still looping when observation stopped
             end = l["end"] if l["end"] is not None else time.time()
             l["lifetime_ms"] = round((end - l["start"]) * 1000, 3)
@@ -535,10 +561,18 @@ def run(a):
         res["loops_open_at_end"] = sum(1 for l in loops if l.get("open"))
         res["max_loop_ms"] = max((l["lifetime_ms"] for l in loops), default=0)
         res["max_spf_runs_spanned"] = max((l["spf_runs_during_max"] for l in loops), default=0)
+        for cls, sel in (("live", True), ("gone", False)):
+            ls = [l for l in loops if l["dest_reachable"] == sel]
+            res[f"{cls}_loops_n"] = len(ls)
+            res[f"{cls}_max_loop_ms"] = max((l["lifetime_ms"] for l in ls), default=0)
+            res[f"{cls}_max_spf_runs"] = max((l["spf_runs_during_max"] for l in ls), default=0)
+            res[f"{cls}_spf_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_during_max"] == k)
+                                      for k in sorted({l["spf_runs_during_max"] for l in ls})}
         res["window_max_ms"] = round(max(window.values(), default=0) * 1000, 3)
         res["spf_runs_after_event"] = {"max": max(len(v) for v in spf.values()), "total": sum(len(v) for v in spf.values())}
-        log(f"route changes {len(events)}; loops {len(loops)}; longest {res['max_loop_ms']} ms; "
-            f"most SPF runs a loop survived {res['max_spf_runs_spanned']}; window {res['window_max_ms']} ms")
+        log(f"route changes {len(events)}; loops to LIVE dests {res['live_loops_n']} (longest {res['live_max_loop_ms']} ms, "
+            f"SPF runs {res['live_spf_hist']}); to GONE dests {res['gone_loops_n']} (longest {res['gone_max_loop_ms']} ms); "
+            f"window {res['window_max_ms']} ms; load {res['loadavg_1m']:.2f}")
     finally:
         if not a.keep:
             bed.teardown()
