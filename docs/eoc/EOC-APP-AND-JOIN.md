@@ -55,51 +55,46 @@ The member's order of operations, replacing the a15 order:
 
 The app's `Identity.kt` and `MemberService.kt` get the same change; `ponds.txt` and `Add a pond` go away.
 
-## Groups and doors
+## Levels and login
 
-Hand-run `fdf-invite NAME` stays for the few people the admin wants to walk a 600-character line to. Everyone else, victims included, comes in through a **door**: a generic invitation the admin makes once per privilege group and can print as a QR on a poster, a card or a radio script.
+Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admin admits one by one. Everyone else logs in at a level.
 
-- The admin creates a group: a name and a challenge policy. `fdf-group create hospitals --challenge password` prints the group's door, one `fdfinv1` line.
-- Challenge policies: `none` (tap and you are in), `name` (type who you are; recorded, admitted), `password` (the admin issues a short per-person code, `fdf-group issue hospitals "St. Mary's ED"` prints `K7Q4-M2`; single use, bound to that name). Codes are hashed at rest and burn on use, so the poster can be public and the code can go over voice radio.
-- On first contact through a door the app uses the door's key for one exchange only: it brings the door tunnel up, sends its own freshly made public key, and gets back an individual key's admission, a restricted edge of its own. It drops the door tunnel and comes back on its own key. Everything human-paced happens there: it asks the **registrar** for the group's challenge, puts that one question to the person, sends the answer, and receives its own invitation. The registrar then lifts that edge's restriction. The door is never used again by that device.
-- Revoking or rotating a door touches nobody already registered. Revoking a person is `fdf-invite NAME --revoke`, unchanged.
-- The registrar is the one thing that writes `admitted/`; `fdf-invite` and `fdf-group issue` are the same code path with the registrar's step done by hand.
+**The admin, once, on each RAM host:**
 
-New on the region's machine: `fdf-group` (create, issue, list, revoke a door) and `fdf-register`, listening inside the tunnel on `10.253.253.254` beside the RAM manager, nothing outside (`[NOTHING_LISTENS_OUTSIDE_V1]` holds).
+- defines the levels it will support, for example Watcher, Player, Host;
+- gives each level its qualifications: a user and password, or none;
+- sets up the credential manager. The credentials are stored encrypted in tuple space.
+- Each level gets two random ports on the RAM host: its **login port** and its **session port**.
+- A generic WireGuard credential is made for logging in. It is supplied to users and goes into the install.
 
-Registration through a door, in six steps (the live doc draws this):
+**At install**, the client is given the RAM host's address, the generic WireGuard credential, and the login port for its level. If the level requires them, the person supplies a user and password.
 
-1. The app scans the group's door and brings a tunnel up on the shared key.
-2. One exchange with `fdf-register`: the device's own public key in, admission of that key on a restricted edge out.
-3. The door tunnel is dropped; the device comes back on its own key.
-4. On its own restricted tunnel the device asks for the group's challenge and the person answers: nothing, a name, or a one-time code.
-5. The registrar writes `admitted/NAME.json`, returns the device's own `fdfinv1` line, and rewrites the edge's rule to full reach.
-6. Every later start is a member session on the device's own key: announce, held reads, the screens.
+**Login**, in order:
 
-The shared key lives for one exchange; the device's own key carries everything after.
+1. The client brings up a tunnel on the generic credential. The login ports are reachable only inside it.
+2. The client connects to its level's login port and logs in with the user and password. A level with no password admits at once, with the device ID as the name and a nickname the person can set.
+3. The credentials are validated against tuple space, which gives the level.
+4. The RAM host returns the level's session port and the device's own WireGuard peer: its own key and its own address, admitted there and then.
+5. The client drops the generic tunnel, brings up its own, and connects to the RAM manager on the level's session port inside it. Every later start goes straight to its own tunnel and the session port.
+
+The generic credential carries one exchange. It is one WireGuard peer, so two devices logging in at the same instant collide: the RAM host's endpoint for that peer goes to whichever handshook last, and the other gets no answer. The library logs in again by itself; the person never does. Nothing after login runs on the generic credential.
+
+The client logs in this way at every RAM host on its list, so a standby already holds its peer before it is needed.
 
 ## Joining is a library, not EOC code
 
-How people join is a standard pattern and belongs in the ++ libraries beside API++ (`ribbit/docs/API-PLUS-PLUS.md`), so every app on FrogNet joins the same way and none writes its own. Three pieces:
+How people join is a standard pattern and belongs in the ++ libraries beside API++ (`ribbit/docs/API-PLUS-PLUS.md`), so every app on FrogNet joins the same way and none writes its own.
 
 | piece | where it runs | what it is |
 | --- | --- | --- |
-| `join(invitation)` | every member: the EOC app, the Windows bridge, the Communicator, a node | decode, tunnel up from the invitation, member session through it; the member's order of operations above |
-| `Door` | the member, first run only | one exchange on a door's shared key for the device's own key and restricted edge; the challenge on the device's own tunnel; store the invitation that comes back; the door is never used again |
-| `Registrar` | the region's machine | an API++ `Answerer` on service `register`, on its own small RAM manager (second port, hub address) that holds nothing else: holds a read on `register.ask`, checks the answer against the door's policy, writes `admitted/NAME.json`, writes the invitation to `register.answer` for that asker |
-
-The registrar as an `Answerer` means registration is cells, not a new listener: the device writes `(register.ask, <me>, <door>)` with its pubkey, name and answer; the registrar replies in `(register.answer, <me>, <door>)`. The one new listener is that second RAM manager, inside the tunnel, reachable from a door edge and from a restricted edge, and from nowhere else.
-
-What the fabric does not learn from any of this: there is no `kind` or class in the admitted record, the hub's peers or the RAM manager. The admitted record stays what `fdf-invite` writes today: name, pubkey, edge. The class a device registered as is the app's to know and the app's to enforce in what screens it shows and what cells it writes. One writer per truth is a programming rule, as it is everywhere else on FrogNet.
+| `join(invitation)` | every member | decode, tunnel up from the invitation, session through it (in the tree: `Invite.kt`) |
+| `login(level)` | every member, once per RAM host | the five steps above; stores the device's own peer and the level's session port |
+| the credential manager | each RAM host | levels, their ports and their qualifications, credentials encrypted in tuple space; validates a login, admits the device's own peer, answers with the session port |
 
 ## Constraints
 
-- A door's key is one WireGuard peer on the hub. Two devices on the same door at the same instant collide: the hub's endpoint for that peer flips to whoever handshaked last, and the other gets no answer. The door is used for one exchange, the allocation of the device's own key, so the window is one round trip, and the library retries that exchange itself; the person never does. The challenge and the rest of registration run on the device's own tunnel, where nothing is shared. This is the reason a door is never a device's identity.
-- A `none` door on a public poster is the one place anyone can spam registrations. The registrar caps admissions per door per minute and logs the rest.
-- On a node's Wi-Fi none of this applies: the phone is a DHCP client and talks to the node's RAM directly. Doors and invitations are for a device on the Internet reaching the region's machine.
-- A device joins with the private key its invitation carries. If that device is lost, the admin revokes the name; the person registers again through the door and is a new member with a new key. No key is ever re-issued.
-
-**What a door reaches.** The hub forwards between its peers in the kernel, so a door key or a fresh individual key alone would reach every node and every cell. Neither does: the registrar has its own small RAM manager on a second port on `10.253.253.254`, holding only `register.ask` and `register.answer`, and `fdf-group create` writes one firewall rule (nft on the hub) per door edge, and the registrar one per edge it allocates: that `/32` may reach that port and nothing else. An unregistered device never sees the region's RAM. When registration completes the registrar rewrites that edge's rule to full reach; holding an individual key is not admission to the region, the registrar's rule is. The rules are made by the thing that made the door and the edge; the hub, the RAM manager and the admitted record learn nothing.
+- On a node's Wi-Fi none of this applies: the phone is a DHCP client and talks to the node's RAM directly. Login is for a device on the Internet reaching a RAM host.
+- If a device is lost, the admin revokes it; the person logs in again and is a new member with a new key. No key is ever re-issued.
 
 **Alive and admitted are two facts.** Alive is the session (`[SESSION_IS_LIVENESS_V1]`): a device whose session drops is not alive, and keeps its peer and its permission to reconnect. Admitted is the peer: a revoked device loses it and no session can start. Neither implies the other.
 
@@ -114,7 +109,7 @@ This is the **system** RAM manager only. Other services may have their own RAM m
 - **Every node checks for itself**, independently: no node learns the answer from another or decides it for another.
 - **Every node has its own connection** to the system RAM manager, or to any RAM manager: its own admission, its own tunnel to that RAM manager's address, its own session. Nodes on one LAN can all reach it, and each still connects for itself. A RAM connection changes no routes, the node's own or any other's. Today the tunnel that carries the RAM session also carries the hub's transit routes (`remote_subnets` in `region.my_channels()`); those become separate: the RAM connection installs only the RAM manager's address, and site-to-site routes are not affected by which RAM manager a node is connected to.
 - **What a merge is.** Every node writes its own facts to the RAM through its own session and holds one read on it (`fdf-events`). A change fires an event (`p` participants, `m` mappings, `gone`), and the merge is the node applying it (`_one("event ...")` in `internet_tunnels_v3/poll.py`): it reads the world from the RAM, derives its own routes and channels, and writes its facts back, one write per event. Split and merge are the same operation.
-- **At the beginning of the merge** (the LAN connecting to the Internet is one such event), each node checks whether the configured WAN RAM host is available. If it is, the node registers (the same door/registrar dance, once per WAN RAM host, so it holds an admitted WireGuard peer ready) and connects. If it is not, the system RAM manager is databasehost-control, the highest IP. Walking the list top to bottom, the first that answers wins.
+- **At the beginning of the merge** (the LAN connecting to the Internet is one such event), each node checks whether the configured WAN RAM host is available. If it is, the node connects on the peer and session port its login there gave it. If it is not, the system RAM manager is databasehost-control, the highest IP. Walking the list top to bottom, the first that answers wins.
 - **Losing the WAN RAM host** ends the region session; that is the event. If more than one RAM manager is configured, the node switches to the first standby immediately on noticing: it is already admitted there, so the switch is a handshake and a session. Only when no configured RAM manager answers do the tunnels come down and the system RAM become databasehost-control.
 - **A RAM manager coming back** (the primary while a node is on a standby, or any configured one while it is on databasehost-control) is a network event, and like every event it runs the merge. The only addition is the check inside the merge: walk the configured RAM managers top to bottom, connect to the first that answers, otherwise databasehost-control. If the answer at the end of the merge is not the RAM manager the node had at its start, the node switches and applications deal with it (below). No probe and no extra cell.
 - Memory is not moved either way: applications are told the RAM host changed, re-arm their held reads and write their own truth again (the failover rule).
@@ -129,12 +124,12 @@ The first reading of this plan was done on `main`, which lacked r36. On `integra
 | --- | --- | --- |
 | Invitations are already joined by the member library: `Invite.kt` decodes `fdfinv1` the way `fdf-region-join` does. | `member/.../Invite.kt` `[LEAF_BY_INVITE_V1]` | Step 1 below is done. |
 | The Windows bridge (a19) joins by invitation: `setup.cmd fdfinv1.<...>` keeps it in `var\invite` and makes the startup task. | `opt/fdf/windows/bridge` | Step 2 is done. |
-| Android joins by invitation through the hub's tunnel. | `app/.../Identity.kt`, `MemberService.kt` `[ADMITTED_BY_INVITE_V1]` | The app's join is done; `ponds.txt` goes with the doors. |
+| Android joins by invitation through the hub's tunnel. | `app/.../Identity.kt`, `MemberService.kt` `[ADMITTED_BY_INVITE_V1]` | The app's join is done; `ponds.txt` goes when login arrives. |
 | An invited leaf's address is its edge; no `10.252` address is allocated for it. | `rinab/src/rina_region.cpp:626-635` `[LEAF_BY_INVITE_V1]` | The two-addresses defect is fixed. |
 | `fdf-identity NAME --leaf` makes an invitation from any machine already in the region. | `opt/fdf/bin/fdf-identity` | Hand-made admissions no longer need the region host. |
 | `DC_APPS_V1` is in the tree. | `opt/fdf/www/dc` | The cells the EOC screens read are there. |
 | A device holds one invitation, one hub. | `region.py` `HUB_JSON`, `my_channels()` | The ordered list above. |
-| No door, no registrar, no `fdf-group`. | nowhere | Step 3. |
+| No levels, no login, no credential manager. | nowhere | Step 3. |
 
 ## Order of work
 
@@ -142,7 +137,7 @@ Windows first, then Android, then the HTTP pages the post serves. Each step is o
 
 1. ~~`join()` in the member library~~: in the tree (`Invite.kt`).
 2. ~~Windows join~~: in the tree (bridge a19).
-3. **`Door`, `Registrar`, `fdf-group`**: the registrar as an API++ `Answerer` on its own small RAM manager; the door flow in the member library. Proven in a network namespace against a real `fdf-region-create` region.
+3. **Levels and login**: the credential manager on the RAM host (levels, login and session ports, credentials encrypted in tuple space); `login(level)` in the member library. Proven in a network namespace against a real `fdf-region-create` region: two devices logging in at once, a level with a password and one without, each ending on its own tunnel at the level's session port.
 4. **The system RAM manager at merge**: the configured WAN RAM hosts checked in order at the start of the merge, registered and connected if one answers, databasehost-control (highest IP) if none does. Node (`region.py`), member library (Windows and Android). Proven in a namespace: WAN RAM host up, it is the RAM; cut it, the highest IP is; restore it, the reconnect's merge moves back.
 5. **The Windows app**: RangerTrak's screens on the member's JVM.
 6. **Android**: the same screens over the same cells; a signed APK.

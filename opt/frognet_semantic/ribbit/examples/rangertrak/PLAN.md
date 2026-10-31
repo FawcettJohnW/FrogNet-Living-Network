@@ -107,14 +107,13 @@ How the registration ++ libraries enter: a Scribe or Field device that is not at
 
 ### Step 0: the ++ changes for registration
 
-The demo's devices are not at a post; they join a region. Joining by invitation is already in the tree (r36: `member/.../Invite.kt`, the Windows bridge a19, the Android app, and an invited leaf addressed by its edge). What is not is the door, the registrar, and the system RAM manager's choice at merge: a configured WAN RAM host if it answers, databasehost-control (the highest IP) if not. Those come first and are proven on their own before RangerTrak touches them. From `docs/eoc/EOC-APP-AND-JOIN.md`:
+The demo's devices are not at a post; they join a region. Joining by invitation is already in the tree (r36: `member/.../Invite.kt`, the Windows bridge a19, the Android app, and an invited leaf addressed by its edge). What is not is levels and login, and the system RAM manager's choice at merge: a configured WAN RAM host if it answers, databasehost-control (the highest IP) if not. Those come first and are proven on their own before RangerTrak touches them. From `docs/eoc/EOC-APP-AND-JOIN.md`:
 
 | deliverable | where | proven by |
 | --- | --- | --- |
-| `Door`: one exchange on the door key for the device's own key and restricted edge; challenge on the own tunnel; invitation stored | the member library | a netns test against a real `fdf-region-create` region: two devices through one door at once, both admitted, neither on the door key after the first exchange |
-| `Registrar`: an API++ `Answerer` on service `register` on its own RAM manager, second port, hub address; writes `admitted/`; sets and lifts each edge's nft rule | `opt/fdf/bin/fdf-register`, `fdf-group` (create, issue, list, revoke) | a device on a restricted edge reaches the registrar port and nothing else, then everything after registration; a revoked door admits nobody; a `password` door burns its code |
+| Levels and login: the admin's levels (e.g. Watcher, Player, Host), each with a login port and a session port, credentials encrypted in tuple space; login on the generic WireGuard credential returns the device's own peer and the level's session port | the credential manager on each RAM host; `login(level)` in the member library | a netns test: two devices logging in at once, a level with a password and one without, each ending on its own tunnel at its level's session port |
 | The system RAM manager at merge: every node, independently, checks the configured WAN RAM hosts in order when the LAN connects to the Internet; registered and connected if one answers, databasehost-control (highest IP) if none does. System RAM only; services keep their own RAM managers | `internet_tunnels_v3/region.py` (the merge, `my_channels()`), the member library (`Invite.kt`, `Leaf.kt`) | a netns test: WAN RAM host up, it is the RAM; cut it, the highest IP is; restore it, the reconnect's merge moves back |
-| `API-PLUS-PLUS.md` gains a section: joining, doors, the registrar | `ribbit/docs/API-PLUS-PLUS.md` | the book's Part XII¾ picks it up at the next build |
+| `API-PLUS-PLUS.md` gains a section: joining, levels and login | `ribbit/docs/API-PLUS-PLUS.md` | the book's Part XII¾ picks it up at the next build |
 
 ### Phase 1: mechanical, to learn what it does
 
