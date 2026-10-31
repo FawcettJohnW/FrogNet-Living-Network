@@ -107,7 +107,7 @@ How the joining ++ libraries enter: a Scribe or Field device that is not at a po
 
 ### Step 0: the ++ changes for registration
 
-The demo's devices are not at a post; they join a region. Joining by invitation is already in the tree (r36: `member/.../Invite.kt`, the Windows bridge a19, the Android app, and an invited leaf addressed by its edge). What is not is levels and login, and the system RAM manager's choice at merge: a configured WAN RAM host if it answers, databasehost-control (the highest IP) if not. Those come first and are proven on their own before RangerTrak touches them. From `docs/eoc/EOC-APP-AND-JOIN.md`:
+The demo's devices are not at a post; they join a region. Joining by invitation is already in the tree (r36: `member/.../Invite.kt`, the Windows bridge a19, the Android app, and an invited leaf addressed by its edge). What is not is levels and login, and the system RAM manager's choice at merge: a configured WAN RAM host if it answers, databasehost-control (the highest IP) if not. Those come first and are proven on their own before RangerTrak touches them. From `opt/fdf/docs/ORGANIZATIONS.md`:
 
 | deliverable | where | proven by |
 | --- | --- | --- |
