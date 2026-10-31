@@ -17,8 +17,9 @@ in the last update will be consistent in the next ... across a network that larg
 for several updates." How long does an IS-IS inconsistency -- and any forwarding loop it causes -- last, counted in time
 AND in SPF runs, as the network grows?
 
-TIER 4 (real kernel): every node is a network namespace running real FRR zebra + isisd; every link is a veth pair with
-a netem one-way delay. Nothing is modeled. Generic graphs (not the bed's hub shape): ring, grid, mesh, each at a size.
+TIER 4 (real kernel): every node is a network namespace running real FRR zebra + isisd; every link is a pair of TAP
+devices joined by a userspace relay that holds each frame for the link's one-way delay and drops everything on a link
+the event silences (the same mechanism in every network namespace, and no dependence on netem). Nothing is modeled. Generic graphs (not the bed's hub shape): ring, grid, mesh, each at a size.
 
 What is measured, exactly (no sampling):
   FIB     `ip -ts monitor route` in every namespace from before the event until quiet: every route install, replace and
@@ -50,7 +51,7 @@ import sys
 import time
 from datetime import datetime
 
-BUILD = "s4-persist-2026-10-31-r1"
+BUILD = "s4-persist-2026-10-31-r2"
 NS = "p-"
 FRR = os.environ.get("FRR_BIN", "/usr/lib/frr")
 SOCK = "/run/s4p"
@@ -438,21 +439,24 @@ def analyse(initial, events, t_event, owner_of_dest, dead=frozenset()):
     i = 0
     while i < len(events):
         t = events[i][0]
-        touched = set()
+        touched = {}
         while i < len(events) and events[i][0] == t:
             _, node, dest, nh = events[i]
             if nh is None:
                 fib[node].pop(dest, None)
             else:
                 fib[node][dest] = nh
-            touched.add(dest)
+            touched.setdefault(dest, set()).add(node)
             last[dest] = t
             i += 1
-        for dest in touched:
+        for dest, changed in touched.items():
             graph = {n: {y for y in fib[n].get(dest, ()) if frozenset((n, y)) not in dead} for n in fib}
             now = set(cycles(graph, owner_of_dest[dest]))
             for key in [k for k in open_loops if k[0] == dest and k[1] not in now]:
-                done.append({"dest": dest, "nodes": sorted(key[1]), "start": open_loops.pop(key), "end": t})
+                # [LOOP_FIXER_V1] the member(s) whose FIB change broke the cycle: their SPF runs while it stood are the
+                # updates the loop survived
+                done.append({"dest": dest, "nodes": sorted(key[1]), "start": open_loops.pop(key), "end": t,
+                             "fixer": sorted(changed & key[1])})
             for c in now:
                 open_loops.setdefault((dest, c), t)
     for (dest, c), start in open_loops.items():
@@ -529,9 +533,13 @@ def run(a):
         res["event_links"] = [t["links"][j][:2] for j in targets]
         mons = [f"{work}/n{i}/mon.txt" for i in t["nodes"]]
         deadline = t_ev + a.max_wait
+        # [QUIET_AFTER_FIRST_CHANGE_V1] quiet is counted only once the event has changed a route: a silent link is not
+        # detected until the hold timer runs out (30 s under default timers), so "no change for --quiet s" right after
+        # the event means "not detected yet", not "converged"
         while time.time() < deadline:
             time.sleep(1.0)
-            if time.time() - max(last_line_time(mons), t_ev) >= a.quiet:
+            last = last_line_time(mons)
+            if last > t_ev and time.time() - last >= a.quiet:
                 break
         bed.stop_monitor()
         res["observed_s"] = round(time.time() - t_ev, 3)
@@ -551,11 +559,16 @@ def run(a):
             l["lifetime_ms"] = round((end - l["start"]) * 1000, 3)
             per = [sum(1 for x in spf[nd] if l["start"] <= x <= end) for nd in l["nodes"]]
             l["spf_runs_during_max"] = max(per) if per else 0
+            # runs the fixing node made while the loop stood and that did NOT end it: every run before its last run
+            # at or before the loop's end (that last one is the run whose FIB install broke the cycle)
+            fx = [x for nd in l.get("fixer", []) for x in spf[nd] if l["start"] <= x <= end]
+            l["spf_runs_survived"] = max(0, len(fx) - 1) if fx else 0
             l["start_ms"] = round((l["start"] - t_ev) * 1000, 3)
             del l["start"], l["end"]
         res["loadavg_1m"] = os.getloadavg()[0]          # one machine runs every node: report how busy it was
         res["cpus"] = os.cpu_count()
         res["route_changes"] = len(events)
+        res["spf_ms"] = {str(i): [round((x - t_ev) * 1000, 3) for x in spf[i]] for i in t["nodes"]}   # model calibration
         res["loops"] = loops
         res["loops_n"] = len(loops)
         res["loops_open_at_end"] = sum(1 for l in loops if l.get("open"))
@@ -568,6 +581,8 @@ def run(a):
             res[f"{cls}_max_spf_runs"] = max((l["spf_runs_during_max"] for l in ls), default=0)
             res[f"{cls}_spf_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_during_max"] == k)
                                       for k in sorted({l["spf_runs_during_max"] for l in ls})}
+            res[f"{cls}_survived_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_survived"] == k)
+                                           for k in sorted({l["spf_runs_survived"] for l in ls})}
         res["window_max_ms"] = round(max(window.values(), default=0) * 1000, 3)
         res["spf_runs_after_event"] = {"max": max(len(v) for v in spf.values()), "total": sum(len(v) for v in spf.values())}
         log(f"route changes {len(events)}; loops to LIVE dests {res['live_loops_n']} (longest {res['live_max_loop_ms']} ms, "
