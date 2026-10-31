@@ -1101,6 +1101,7 @@ void setup()
     if (const char *where = getenv("MESHTASTIC_RIBBIT")) {
         ribbitTransport = new RibbitTransport();
         if (ribbitTransport->start(where, nodeDB->getNodeNum())) {
+            ribbitTransport->holdChannels(); // [MT_MESSAGES_BY_FAMILY_V1] channels loaded before the transport existed
             ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_V1]
             ribbitFacts = new RibbitFacts(); // [MT_NODEDB_IS_A_HELD_VIEW_V1]
             ribbitFacts->start();

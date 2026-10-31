@@ -15,15 +15,17 @@
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <mutex>
+#include <set>
 #include <string>
 
 #include "lf/primitives.hpp"
 #include "ribbit_space.hpp"
 
 namespace {
-constexpr const char *SPACE = "mt", *TOPIC = "pkt";
+constexpr const char *SPACE = "mt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.6 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.7 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -68,35 +70,73 @@ extern "C" const char *mtr_version(void) { return VERSION; }
 #endif
 extern "C" const char *mtr_front_version(void) { return MTR_FRONT_VERSION; }
 
+namespace {
+mtr_on_packet g_on = nullptr;
+void *g_ctx = nullptr;
+std::mutex g_held_mu;
+std::set<std::string> g_held;   // families this node holds a read on
+std::set<std::string> g_linger; // families this node has said STAYS for
+
+std::string dm_topic(uint32_t to) { return "dm|" + node_name(to); }
+std::string msg_topic(uint8_t ch)
+{
+    char b[12];
+    snprintf(b, sizeof b, "msg|%u", (unsigned)ch);
+    return b;
+}
+
+// one held read on a family, from now on; each row another node wrote is handed to the firmware
+void hold(const std::string &topic)
+{
+    {
+        std::lock_guard<std::mutex> g(g_held_mu);
+        if (!g_held.insert(topic).second) return;
+    }
+    const std::string mine = g_me + ".";
+    long long from = (long long)g_space->newest(SPACE, topic);
+    g_space->watch(SPACE, topic, from, [mine, topic](std::vector<ribbit::SpaceRow> &rows) {
+        for (auto &r : rows) {
+            if (r.gone) continue;                                       // a ring left with its writer: not a packet
+            if (r.instance.compare(0, mine.size(), mine) == 0) continue; // our own write
+            auto f = r.fields();
+            std::string p, bytes;
+            if (!f || !(p = f->str("p")).size() || !unhex(p, bytes)) {
+                fprintf(stderr, "[MT_RIBBIT] row %llu (%s,%s): no packet in the bag, skipped\n", (unsigned long long)r.id,
+                        topic.c_str(), r.instance.c_str());
+                continue;
+            }
+            g_on(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), g_ctx);
+        }
+    });
+    fprintf(stderr, "[MT_RIBBIT] holding (%s,%s) past id %lld\n", SPACE, topic.c_str(), from);
+}
+} // namespace
+
 extern "C" int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void *ctx)
 {
     try {
         g_me = node_name(me);
+        g_on = on;
+        g_ctx = ctx;
         g_space.reset(new ribbit::Space(where, "meshtastic"));
-        const std::string mine = g_me + ".";
-        long long from = (long long)g_space->newest(SPACE, TOPIC);
-        g_space->watch(SPACE, TOPIC, from, [on, ctx, mine](std::vector<ribbit::SpaceRow> &rows) {
-            for (auto &r : rows) {
-                if (r.gone) continue;                                       // a writer's session ended: not a packet
-                if (r.instance.compare(0, mine.size(), mine) == 0) continue; // our own write
-                auto f = r.fields();
-                std::string p, bytes;
-                if (!f || !(p = f->str("p")).size() || !unhex(p, bytes)) {
-                    fprintf(stderr, "[MT_RIBBIT] row %llu %s: no packet in the bag, skipped\n", (unsigned long long)r.id,
-                            r.instance.c_str());
-                    continue;
-                }
-                on(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), ctx);
-            }
-        });
-        fprintf(stderr, "[MT_RIBBIT] %s: node %s on the memory at %s, held read on (%s,%s) past id %lld\n", VERSION,
-                g_me.c_str(), where, SPACE, TOPIC, from);
+        hold(dm_topic(me)); // what is addressed to this node
+        fprintf(stderr, "[MT_RIBBIT] %s: node %s on the memory at %s\n", VERSION, g_me.c_str(), where);
         return 0;
     } catch (const std::exception &e) {
         fprintf(stderr, "[MT_RIBBIT] %s: node %s cannot use the memory at %s: %s\n", VERSION, g_me.c_str(), where,
                 e.what());
         g_space.reset();
         return -1;
+    }
+}
+
+extern "C" void mtr_hold_channel(uint8_t hash)
+{
+    if (!g_space) return;
+    try {
+        hold(msg_topic(hash));
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] cannot hold channel %u: %s\n", (unsigned)hash, e.what());
     }
 }
 
@@ -239,9 +279,15 @@ extern "C" size_t mtr_take_facts(mtr_on_fact on, void *ctx)
     return got.size();
 }
 
-extern "C" void mtr_send(const uint8_t *bytes, size_t len)
+extern "C" void mtr_send(const uint8_t *bytes, size_t len, uint32_t to, uint8_t channel)
 {
     if (!g_space) return;
+    std::string topic = to == 0xffffffffu ? msg_topic(channel) : dm_topic(to);
+    {
+        // the ring outlives this session: said once per family, before its first write
+        std::lock_guard<std::mutex> g(g_held_mu);
+        if (g_linger.insert(topic).second) g_space->linger(SPACE, topic, ribbit::Space::STAYS);
+    }
     uint64_t n = g_n.fetch_add(1) + 1;
-    g_space->write(SPACE, TOPIC, ribbit::Space::slot(g_me, n, RING), "{\"p\":\"" + hex(bytes, len) + "\"}");
+    g_space->write(SPACE, topic, ribbit::Space::slot(g_me, n, RING), "{\"p\":\"" + hex(bytes, len) + "\"}");
 }

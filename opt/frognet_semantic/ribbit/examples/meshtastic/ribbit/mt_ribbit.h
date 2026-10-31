@@ -18,8 +18,13 @@ typedef void (*mtr_on_packet)(const uint8_t *bytes, size_t len, void *ctx);
 // Returns 0 when the memory is reached and the held read is running; -1 with the reason logged otherwise.
 int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void *ctx);
 
-// Write one encoded MeshPacket into this node's own ring. Returns at once; nobody is waited for.
-void mtr_send(const uint8_t *bytes, size_t len);
+// [MT_MESSAGES_BY_FAMILY_V1] Write one encoded MeshPacket into this node's own ring of the family it belongs to:
+// a broadcast is (mt, msg|<channel hash>, !S.<n>), read by the edges holding that channel; anything addressed to one
+// node is (mt, dm|!R, !S.<n>), read by R's edge only. Returns at once; nobody is waited for. Rings outlive the
+// writer's session (a message is a record the sender made; the reader's mark decides what it has seen).
+void mtr_send(const uint8_t *bytes, size_t len, uint32_t to, uint8_t channel);
+// Hold the channel family (mt, msg|<hash>): the node has this channel. Idempotent; from now on.
+void mtr_hold_channel(uint8_t hash);
 
 // The version line every log and the bench print.
 const char *mtr_version(void);

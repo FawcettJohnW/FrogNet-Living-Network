@@ -15,6 +15,7 @@
 #include "main.h"
 #include "mesh/Router.h"
 #include "mesh/NodeDB.h"
+#include "mesh/Channels.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "mt_ribbit.h"
 #include <array>
@@ -55,9 +56,26 @@ class RibbitTransport final
             }
         uint8_t buffer[meshtastic_MeshPacket_size];
         size_t n = pb_encode_to_bytes(buffer, sizeof(buffer), &meshtastic_MeshPacket_msg, mp);
-        LOG_INFO("[MT_RIBBIT] write id=0x%08x from=0x%08x to=0x%08x len=%u", mp->id, mp->from, mp->to, (unsigned)n);
-        mtr_send(buffer, n);
+        // [MT_MESSAGES_BY_FAMILY_V1] a broadcast goes to its channel's family, anything else to its addressee's
+        LOG_INFO("[MT_RIBBIT] write id=0x%08x from=0x%08x to=0x%08x ch=%u len=%u -> %s", mp->id, mp->from, mp->to,
+                 (unsigned)mp->channel, (unsigned)n, isBroadcast(mp->to) ? "msg|<channel>" : "dm|<to>");
+        mtr_send(buffer, n, mp->to, mp->channel);
         return true;
+    }
+
+    // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has; called when channels are (re)loaded
+    void holdChannels()
+    {
+        if (!running)
+            return;
+        for (ChannelIndex i = 0; i < channels.getNumChannels(); i++) {
+            const meshtastic_Channel &c = channels.getByIndex(i);
+            int16_t h = channels.getHash(i);
+            if (c.has_settings && c.role != meshtastic_Channel_Role_DISABLED && h >= 0) {
+                mtr_hold_channel((uint8_t)h);
+                LOG_INFO("[MT_RIBBIT] channel %u (%s) hash %u: holding its family", (unsigned)i, channels.getName(i), (unsigned)h);
+            }
+        }
     }
 
     // [MT_OWN_FACTS_V1] A packet this node sends that carries one of its own facts also writes that fact into the

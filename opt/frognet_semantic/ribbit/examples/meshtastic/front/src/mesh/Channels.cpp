@@ -1,4 +1,7 @@
 #include "Channels.h"
+#ifdef ARCH_PORTDUINO
+#include "mesh/ribbit/RibbitTransport.h"
+#endif
 
 #include "CryptoEngine.h"
 #include "Default.h"
@@ -370,6 +373,10 @@ void Channels::onConfigChanged()
         LOG_DEBUG("MQTT is enabled on at least one channel, so set MQTT thread to run immediately");
         mqtt->start();
     }
+#endif
+#ifdef ARCH_PORTDUINO
+    if (ribbitTransport) // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has
+        ribbitTransport->holdChannels();
 #endif
 }
 

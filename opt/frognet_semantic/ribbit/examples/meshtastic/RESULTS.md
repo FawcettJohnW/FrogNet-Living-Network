@@ -189,3 +189,40 @@ checked by mtr-probe (write → present, clear → absent) with no firmware invo
 Also found: test_smokevirt_remove_position is flaky on stock too — 3 of 6 runs on stock 2.8.2 fail with the node
 never receiving remove_fixed_position (the CLI returns 0 without its admin write having arrived); 4 of 6 on ours, same
 signature. Earlier 40/40 runs were lucky on that test. Not ours to fix; noted so a 39/40 is read right.
+
+## Phase 2, step 4a — messages by family [MT_MESSAGES_BY_FAMILY_V1]
+
+(mt, pkt) is gone. A broadcast is written to its channel's family (mt, msg|<hash>, !S.<n>) and read by the edges that
+hold that channel; anything addressed to one node is written to (mt, dm|!R, !S.<n>) and read by R alone. A node holds
+dm|!self from start and msg|<hash> for each channel it has (re-held when channels load). Rings outlive the writer's
+session (linger STAYS).
+
+| measure | Ribbit 0.8 step 3 (step4-20261031-093253) | Ribbit 0.9 step 4a (step4-20261031-103200) |
+|---|---|---|
+| S1–S9 | 9/9 | 9/9 |
+| packets written in the run | 5 to (mt, pkt) | 4 to msg|8, 1 to dm|!R |
+| packets read in the run | 15 (every node reads every packet) | 13 (the DM read by its addressee only) |
+
+| oracle | result |
+|---|---|
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 292.0 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 42 m 21 s |
+
+Found on the way: test_smokevirt_remove_position's flake is in the Python CLI. For the local node `--remove-position`
+sends two admin frames (ensureSessionKey's SESSIONKEY_CONFIG request, then remove_fixed_position) and closes the
+socket at once — `waitForAckNak` is skipped whenever dest is the local node (`__main__.py:1186`); the node's reader
+sometimes sees the FIN before the second frame. `--setlat` sends one frame, so it survives. Not a firmware bug.
+
+LOC and complexity as of this step (compiled sources, generated protobufs excluded; CCN = lizard cyclomatic sum):
+
+| part | stock LOC / CCN | now LOC / CCN | delta |
+|---|---|---|---|
+| plumbing (routers, queues, retransmit, MQTT, store-forward) | 14,194 / 3,683 | 14,248 / 3,709 | +54 / +26 |
+| NodeDB (+ migration, warm store, conversions) | 4,680 / 1,165 | 4,825 / 1,209 | +145 / +44 |
+| everything else | 105,936 / 21,191 | 106,416 / 21,317 | +480 / +126 |
+| firmware total | 124,810 / 26,039 | 125,489 / 26,235 | +679 / +196 |
+| library + transport (new) | — | 602 / 172 | +602 / +172 |
+
+Everything so far is added and gated at runtime (the same binary is stock without MESHTASTIC_RIBBIT, which is what
+lets the native suites stand as the arbiter); nothing is deleted yet. Plumbing and NodeDB together are 18,874 LOC /
+4,848 CCN; the memory replaces them with ~600 / 172.
