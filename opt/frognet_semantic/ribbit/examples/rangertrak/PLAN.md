@@ -101,7 +101,7 @@ Three, each 100–250 lines of its own, the screens and `domain/` rules shared b
 
 There is no fourth participant. No merger, no publisher, no server, no claim. The Board is the Post participant's served page, and "who is viewing" is not tracked because nothing needs it.
 
-How the registration ++ libraries enter: a Scribe or Field device that is not at a post reaches the region through `join(invitation)`, and the first time through a `Door` the admin printed for the exercise (`none` or `name` for field volunteers, `password` for scribes). That is the EOC app's join, used as is; RangerTrak adds no join code of its own and the demo's three posts are three invitations plus one door.
+How the joining ++ libraries enter: a Scribe or Field device that is not at a post logs in at its level on each RAM host it lists (for the demo, a Field level with no password and a Scribe level with one), and connects on its own tunnel at that level's session port. That is the EOC app's login, used as is; RangerTrak adds no join code of its own.
 
 ## The phases
 
@@ -137,7 +137,7 @@ Checkpoint files in this directory: `RANGERTRAK-SUITE-MAP.md`, `study-*.md`, `QU
 
 ## The multi-site demo
 
-Three posts, one region, one field phone. Each post is a node with its own Wi-Fi (the installed nodes from the October gates, or three namespaces on one machine for the rehearsal, the way `netns-region-loop-test.sh` does it). The region host is a small machine every post reaches; it holds admission, not data. Scribes at posts A and B are laptops on their post's Wi-Fi: no join, DHCP clients. The scribe at post C and the field phone are region members through `join()`, the phone through a `name` door printed as a QR.
+Three posts, one region, one field phone. Each post is a node with its own Wi-Fi (the installed nodes from the October gates, or three namespaces on one machine for the rehearsal, the way `netns-region-loop-test.sh` does it). The region host is a small machine every post reaches; it holds admission, not data. Scribes at posts A and B are laptops on their post's Wi-Fi: no join, DHCP clients. The scribe at post C logs in at the Scribe level and the field phone at the Field level, each ending on its own tunnel to the RAM host.
 
 The region host is the only thing in the middle, and it holds no entry; pull it and every post keeps working on its own Wi-Fi.
 
