@@ -71,7 +71,7 @@ libjemalloc-dev installed), iproute2, Python lz4 4.4.5, and the tree's own `mapI
 | 1f dashboard oracle | PASS |
 | 1g hub oracle | RESULT PASS |
 | 1c simulator | GATE PASS: tiers 1, 2, 2b, R, 3 (S-scale with the built binaries), 4 (with both loop-persistence gates), 5, C, T, D (84 oracles), DAF |
-| Ribbit cpp qualify | API++ PASS, capability API PASS, session/fan-in/memory/lockfree PASS. semcodec, fnwp e2e and ramrows FAIL: the same three r36's record names, attributed there to the Python reference's lz4 4.4.5 (installed here) |
+| Ribbit cpp qualify | API++ PASS, capability API PASS, session/fan-in/memory/lockfree PASS. semcodec, fnwp e2e and ramrows FAIL: the same three r36's record names, attributed there to the Python reference's lz4 4.4.5 (installed here). Run on `origin/main` here too: identical counts on every line both runs show (enc_rep 39, enc_rep_diff 537, enc_req_diff 537, lz4smart 30 differ; fnwp e2e 1 fail per seed 1-3; ramrows seed 1). Main's dec_rep (242 differ) was not compared: that line fell outside the integrated run's captured tail |
 
 Not run here: the netns gates (2a–2f, they need root namespaces and the WireGuard module), Gate 4 (Docker systemd
 containers), Windows, the APK, hardware. r36 ran them on Oct 28; since then the code has changed only by main's
