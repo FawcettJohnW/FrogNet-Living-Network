@@ -105,16 +105,17 @@ What the fabric does not learn from any of this: there is no `kind` or class in 
 
 **Latest values and logs.** Positions, statuses, capacity and availability are latest-value cells. ICS-309 radio-log entries and ICS-213 messages are one cell each, owned by the scribe, lingering by family (`[LINGER_BY_FAMILY_V1]`) so the scribe's machine going away does not take the afternoon's log with it. The durable record is the post's own: the node at the post writes the ICS-309 file from its held read, which is the printed form. Nothing is replayed; the file is what is kept.
 
-## The RAM manager across the Internet: an ordered list, admitted in advance
+## The system RAM manager: the WAN RAM host if it answers, otherwise the highest IP
 
-On a LAN the RAM manager is the databasehost, elected as today. Across the Internet it is a different machine: one every host in the set can reach, a droplet or another external node. That machine is not part of the FrogNet network, and its one rule is reachability from the host set. databasehost-control is unchanged: always the machine with the highest IP address in the network.
+This is the **system** RAM manager only. Other services may have their own RAM managers at completely different places; nothing here touches them.
 
-- **The admin names the Internet RAM managers**, in order, in a config tuple for the device. It is a permanent cell (`[PERMANENT_CELL_V1]`): the device has it at start, before it can reach any RAM manager, because that is when it needs it.
-- **Each one is joined in advance.** When a device sees a RAM manager in its list that it has not been admitted to, it does the same dance it does for any of them (door, registrar, its own key, its own edge) right then. Every candidate holds an admitted WireGuard peer for the device before it is needed. Failing over is then a handshake and a session, not a registration, which keeps it fast and deterministic.
-- **On an event, the list is walked top to bottom**, and the first that answers becomes the RAM host. The same list and the same order give the same winner on every host that can reach it. Only the winner's tunnel carries `10.0.0.0/8`; the others stay admitted and idle.
-- **Internet to LAN** is removing the WireGuard tunnels: no listed RAM manager answers, the LAN's databasehost is the RAM, as in LAN-only mode today. **LAN to Internet** is putting them back. Memory is not moved either way: applications are told the RAM host changed, re-arm their held reads and write their own truth again (the failover rule).
+- **The WAN RAM host** is a machine every host in the set can reach: a droplet or another external node. It is not part of the FrogNet network. The admin names it (in order, if there is more than one) in the device's config.
+- **databasehost-control** is unchanged: always the machine with the highest IP address in the network.
+- **At the beginning of the merge**, which happens when the LAN connects to the Internet, the node checks whether the configured WAN RAM host is available. If it is, the node registers (the same door/registrar dance, once per WAN RAM host, so it holds an admitted WireGuard peer ready) and connects. If it is not, the system RAM manager is databasehost-control, the highest IP. Walking the list top to bottom, the first that answers wins.
+- **Losing the WAN RAM host** ends the region session; that is an event, the tunnels come down and the system RAM is databasehost-control. **Getting it back** is the region session's existing reconnect (r36 G3: back 15 s after the cut, no manual step), which starts a merge, which runs the check again. No probe and no extra cell.
+- Memory is not moved either way: applications are told the RAM host changed, re-arm their held reads and write their own truth again (the failover rule).
 
-What changes in the code: today a device holds one invitation (`/opt/fdf/var/hub.json`, `var\invite` on Windows, `Identity` on Android) and `region.my_channels()` builds one tunnel from it. That becomes one admission per listed RAM manager, kept in the list's order, with `my_channels()` choosing the first that answers. The member library (`Invite.kt`, `Leaf.kt`) and the node's `region.py` take the same rule, so a node, a Windows PC and a phone fail over the same way.
+What changes in the code: today a device holds one invitation (`/opt/fdf/var/hub.json`, `var\\invite` on Windows, `Identity` on Android) and `region.my_channels()` builds one tunnel from it. That becomes one admission per configured WAN RAM host, checked in order at the start of the merge, with databasehost-control as the answer when none is available.
 
 ## Code findings, on the integrated tree
 
@@ -138,7 +139,7 @@ Windows first, then Android, then the HTTP pages the post serves. Each step is o
 1. ~~`join()` in the member library~~: in the tree (`Invite.kt`).
 2. ~~Windows join~~: in the tree (bridge a19).
 3. **`Door`, `Registrar`, `fdf-group`**: the registrar as an API++ `Answerer` on its own small RAM manager; the door flow in the member library. Proven in a network namespace against a real `fdf-region-create` region.
-4. **The ordered RAM manager list**: the permanent config tuple, admission to every listed RAM manager in advance, the top-to-bottom walk on an event, tunnels removed for LAN and put back for Internet. Node (`region.py`), member library (Windows and Android). Proven in a namespace with two Internet RAM managers and a LAN: kill the first, the second wins; kill both, LAN; restore, back.
+4. **The system RAM manager at merge**: the configured WAN RAM hosts checked in order at the start of the merge, registered and connected if one answers, databasehost-control (highest IP) if none does. Node (`region.py`), member library (Windows and Android). Proven in a namespace: WAN RAM host up, it is the RAM; cut it, the highest IP is; restore it, the reconnect's merge moves back.
 5. **The Windows app**: RangerTrak's screens on the member's JVM.
 6. **Android**: the same screens over the same cells; a signed APK.
 7. **The post's HTTP pages**: the same screens, read-only board included, served by the node, no Angular.
