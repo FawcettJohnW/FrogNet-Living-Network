@@ -63,7 +63,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 import s4_persist as P                                             # noqa: E402  (topology, split, analyse, cycles)
 
-BUILD = "s4-persist-model-2026-10-31-r1"
+BUILD = "s4-persist-model-2026-10-31-r4"
 INF = float("inf")
 
 PROFILES = {
@@ -90,12 +90,17 @@ class Graph:
             self.nbrs[b].append((a, j))
 
     def csr(self, drop=frozenset(), weight=None):
+        """adjacency matrix, row u col v = the hop u->v. drop holds edge ids (both directions) or (edge id, 0|1) for
+        one direction: 0 = a->b, 1 = b->a, a and b as in links"""
         rows, cols, w = [], [], []
         for j, (a, b, d) in enumerate(self.links):
             if j in drop:
                 continue
             x = 1.0 if weight is None else weight(d)
-            rows += [a, b]; cols += [b, a]; w += [x, x]
+            if (j, 0) not in drop:
+                rows.append(a); cols.append(b); w.append(x)
+            if (j, 1) not in drop:
+                rows.append(b); cols.append(a); w.append(x)
         return csr_matrix((w, (rows, cols)), shape=(self.n, self.n))
 
 
@@ -116,8 +121,8 @@ def scenario(g, event, prof, cal, rnd):
     for j in F:
         a, b, _ = g.links[j]
         for x in (a, b):
-            if event == "nodefail" and x == t["n"] // 2:
-                continue                                  # the failed node runs nothing
+            # nodefail as on the bed: the node's links go silent, its daemons keep running (isolated, like a node cut
+            # off by a failed line card), so it detects and reprograms its own FIB as well
             if event == "cut":
                 det[(x, j)] = cal["carrier_ms"]
             else:
@@ -202,7 +207,12 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
     n = g.n
     F, det = scenario(g, event, prof, cal, rnd)
     Fset = frozenset(F)
-    fidx = {e: i for i, e in enumerate(F)}                       # failed edge -> bit
+    fidx = {e: i for i, e in enumerate(F)}                       # failed edge -> index i
+    # [DIRECTED_LSDB_V1] FRR's SPF takes the hop a->b from a's own LSP alone (process_lsp: the only "two way" test
+    # it makes is to skip links back to the root), so each end's LSP removes ONE direction of a failed link. Bit 2i is
+    # a->b of failed link i (a = its lower-numbered end), bit 2i+1 is b->a. Found on the bed: a node whose first
+    # LSP came from the far end of the link kept its route until the near end's LSP reached it.
+    dbit = lambda e, frm: 2 * fidx[e] + (0 if frm == g.links[e][0] else 1)
     epoch = rnd.uniform(0, 1000.0)
 
     # LSP versions per origin
@@ -216,7 +226,7 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
     surv = g.csr(drop=Fset, weight=lambda d: d + cal["proc_ms"])
     fl = dijkstra(surv, directed=False, indices=origins) if origins else np.zeros((0, n))
     # known-down time of each failed edge at each node: own detection, or first LSP from either end not listing it
-    kt = np.full((len(F), n), INF)
+    kt = np.full((2 * len(F), n), INF)
     trig = [[] for _ in range(n)]
     for oi, o in enumerate(origins):
         arr = fl[oi]
@@ -226,11 +236,14 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
             for m in np.nonzero(np.isfinite(at))[0]:
                 trig[m].append(float(at[m]))
             for e in cur - prev:
-                kt[fidx[e]] = np.minimum(kt[fidx[e]], at)
+                kt[dbit(e, o)] = np.minimum(kt[dbit(e, o)], at)
             prev = cur
+    # [OWN_ADJ_NO_SPF_TRIGGER_V1] a node's own adjacency loss does not schedule SPF directly; its own LSP
+    # regeneration does (FRR logs every SPF schedule with its caller: on the bed, the first trigger at a detecting
+    # node is lsp_inc_seqno, ~100 ms after detection, never an adjacency callback). From detection on, though, any SPF
+    # it runs leaves the adjacency out (isis_spf_preload_tent takes only UP adjacencies), so the edge is known at det.
     for (x, e), tt in det.items():
-        kt[fidx[e], x] = min(kt[fidx[e], x], tt)
-        trig[x].append(tt)
+        kt[dbit(e, x), x] = min(kt[dbit(e, x), x], tt)
 
     spf_ms = cal["spf_base_ms"] + cal["spf_ns_per_nlogn"] * n * math.log2(max(n, 2)) / 1e6
     # each node: SPF runs, the LSDB view (bitmask of failed edges known down) at each run
@@ -256,8 +269,10 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
 
     def dist_for(mask):
         if mask not in dist_cache:
-            drop = frozenset(F[i] for i in range(len(F)) if mask >> i & 1)
-            dist_cache[mask] = shortest_path(g.csr(drop=drop), directed=False, unweighted=True, indices=dests)
+            drop = frozenset((F[b // 2], b & 1) for b in range(2 * len(F)) if mask >> b & 1)
+            # distance from every node TO each destination over the hops this view still has: search the reversed
+            # graph from the destination
+            dist_cache[mask] = shortest_path(g.csr(drop=drop).T.tocsr(), directed=True, unweighted=True, indices=dests)
         return dist_cache[mask]
 
     def nh(m, di, mask):
@@ -266,7 +281,7 @@ def model(t, event, profile="tuned", seed=1, k_dests=64, cal=None, max_cycle=8, 
         if not np.isfinite(dm) or dm == 0:
             return None if not np.isfinite(dm) else frozenset()
         return frozenset(y for y, e in g.nbrs[m]
-                         if not (e in fidx and mask >> fidx[e] & 1) and D[y] == dm - 1)
+                         if not (e in fidx and mask >> dbit(e, m) & 1) and D[y] == dm - 1)
 
     # FIB timeline per destination: at each run whose view differs from the node's installed view, the routes that
     # change are installed in prefix order after SPF time + install base, one per-route time each
@@ -404,84 +419,94 @@ def detect(g, Fset, init_nh, events, dest, max_cycle):
 # ------------------------------------------------------------------------------------------------------------------ E2
 def spb_agreement(g, F, Fset, fidx, kt, runs, run_views, spf_ms, cal, n, route_changes_est):
     """[SPB_AGREEMENT_V1] 802.1aq agreement protocol (Seaman, aq-seaman-agreement-protocol-0910-v2) on the same
-    timeline. Each port is a participant. A bridge's digest summarises its topology view, which changes when its
-    LSDB changes (kt). On every change it sends the new digest to each neighbour with agree=False; once its own
-    forwarding matches that view (the FIB install that view triggers) it sends agree=True. A port is agreed when both
-    ends hold the same digest and both have said agree=True; until then forwarding over it for the changed trees is
-    restricted (SPBM unicast frames with no permitted FDB entry are discarded, not flooded).
-    Counted, as Day asked: which bridges ever receive a digest different from their own (detect), how many such
-    mismatching receipts each makes before all its ports agree, how many digest messages that took, and how long."""
+    timeline. One participant per port. A bridge's digest summarises its topology view; each time it changes the bridge
+    sends it on every port with agree=False, and once its own forwarding matches that view sends agree=True ("two
+    messages, one from each participant" per change). A port is agreed when both ends hold the same digest and both
+    have said agree=True; until then forwarding on it for the changed trees is restricted (SPBM unicast frames with no
+    permitted FDB entry are discarded, not flooded).
+    Two readings of WHEN the digest changes, both reported:
+      lsdb  every change of the LSDB topology (each LSP that removes an edge): the most exchanges there can be
+      spf   at each SPF run, i.e. the view the bridge computes forwarding from (coalesced by the RFC 8405 backoff)
+    Counted, as Day asked: how many bridges ever see a neighbour's digest differ from their own, how many times each
+    of them does before its ports agree, the messages it took, and how long ports were held."""
     fib_lag = spf_ms + cal["fib_base_ms"] + cal["fib_us_per_route"] * (route_changes_est / max(n, 1)) / 1000.0
-    # per node: digest timeline [(t, mask)] (LSDB view changes) and agree times [(t, mask)] (FIB aligned to mask)
-    dig = []
-    agree = []
+
+    def mask_of(col, tt):
+        mask = 0
+        for i in np.nonzero(col <= tt)[0]:
+            mask |= 1 << int(i)
+        return mask
+
+    lsdb_tl = []
     for m in range(n):
         col = kt[:, m]
-        ts = sorted({float(x) for x in col if np.isfinite(x)})
         tl = [(0.0, 0)]
-        for tt in ts:
-            mask = 0
-            for i in np.nonzero(col <= tt)[0]:
-                mask |= 1 << int(i)
-            tl.append((tt, mask))
-        dig.append(tl)
-        ag = []
+        for tt in sorted({float(x) for x in col if np.isfinite(x)}):
+            tl.append((tt, mask_of(col, tt)))
+        lsdb_tl.append(tl)
+    spf_tl = []
+    for m in range(n):
+        tl = [(0.0, 0)]
         for r, mask in zip(runs[m], run_views[m]):
-            ag.append((r + fib_lag, mask))
-        agree.append(ag)
+            if mask != tl[-1][1]:
+                tl.append((r + spf_ms, mask))
+        spf_tl.append(tl)
+    # forwarding aligned to a view: the FIB install of the first run that computed it
+    aligned = []
+    for m in range(n):
+        al = {}
+        for r, mask in zip(runs[m], run_views[m]):
+            al.setdefault(mask, r + fib_lag)
+        aligned.append(al)
 
     def view_at(tl, tt):
         v = 0
         for x, mask in tl:
-            if x <= tt:
-                v = mask
-            else:
+            if x > tt:
                 break
+            v = mask
         return v
 
-    def agreed_since(m, mask):
-        """time m's forwarding first matched mask (FIB installed for a run that saw mask), or inf"""
-        return min((x for x, mk in agree[m] if mk == mask), default=INF)
-
-    detect_n = defaultdict(int)
-    sent = defaultdict(int)
-    port_agree_t = []
-    restricted_ms = 0.0
-    nodes_touched = set()
-    for j, (a, b, delay) in enumerate(g.links):
-        if j in Fset:
-            continue
-        for x, y in ((a, b), (b, a)):
-            for tt, mask in dig[x][1:]:
-                sent[x] += 2                                       # agree=False now, agree=True once aligned
-                nodes_touched.add(x)
-                rx = tt + delay
-                if view_at(dig[y], rx) != mask:
-                    detect_n[y] += 1
-        fa, fb = dig[a][-1][1], dig[b][-1][1]
-        if fa != fb or len(dig[a]) + len(dig[b]) == 2:
-            continue                                               # never changed (or ends differ: not agreed)
-        t_last_change = max(dig[a][-1][0], dig[b][-1][0])
-        t_ag = max(t_last_change + delay, agreed_since(a, fa) + delay, agreed_since(b, fb) + delay)
-        port_agree_t.append(t_ag)
-        first = min(dig[a][1][0] if len(dig[a]) > 1 else INF, dig[b][1][0] if len(dig[b]) > 1 else INF)
-        restricted_ms += max(0.0, t_ag - first)
-    det_counts = sorted(detect_n.values())
-    return {
-        "MODELED": True,
-        "bridges": n, "ports_changed": len(port_agree_t),
-        "bridges_whose_view_changed": len(nodes_touched),
-        "bridges_detecting": len(det_counts), "frac_detecting": round(len(det_counts) / n, 4),
-        "mismatches_per_detecting": {"p50": float(np.median(det_counts)) if det_counts else 0,
-                                     "p99": float(np.percentile(det_counts, 99)) if det_counts else 0,
-                                     "max": max(det_counts, default=0)},
-        "mismatch_hist": {str(k): det_counts.count(k) for k in sorted(set(det_counts))},
-        "digests_sent_per_bridge_max": max(sent.values(), default=0),
-        "digests_sent_total": sum(sent.values()),
-        "agree_ms": {"p50": float(np.median(port_agree_t)) if port_agree_t else 0,
-                     "max": max(port_agree_t, default=0)},
-        "restricted_port_s": round(restricted_ms / 1000.0, 3),
-    }
+    out = {}
+    for mode, dig in (("lsdb", lsdb_tl), ("spf", spf_tl)):
+        detect_n, sent = defaultdict(int), defaultdict(int)
+        port_ag, port_msgs, restricted = [], [], 0.0
+        for j, (a, b, delay) in enumerate(g.links):
+            if j in Fset:
+                continue
+            ch = len(dig[a]) - 1 + len(dig[b]) - 1
+            if ch == 0:
+                continue
+            for x, y in ((a, b), (b, a)):
+                for tt, mask in dig[x][1:]:
+                    sent[x] += 2
+                    if view_at(dig[y], tt + delay) != mask:
+                        detect_n[y] += 1
+            port_msgs.append(2 * ch)
+            fa, fb = dig[a][-1][1], dig[b][-1][1]
+            ta = max(dig[a][-1][0], aligned[a].get(fa, INF))
+            tb = max(dig[b][-1][0], aligned[b].get(fb, INF))
+            t_ag = max(ta, tb) + delay if fa == fb else INF
+            port_ag.append(t_ag)
+            first = min(x[0] for x in dig[a][1:] + dig[b][1:])
+            if np.isfinite(t_ag):
+                restricted += t_ag - first
+        views = [len(dig[m]) - 1 for m in range(n)]
+        dc = sorted(detect_n.values())
+        fin = [x for x in port_ag if np.isfinite(x)]
+        pct = lambda v, q: float(np.percentile(v, q)) if v else 0.0
+        out[mode] = {
+            "views_per_bridge": {"p50": pct(views, 50), "p99": pct(views, 99), "max": max(views)},
+            "bridges_detecting": len(dc), "frac_detecting": round(len(dc) / n, 4),
+            "mismatches_per_detecting": {"p50": pct(dc, 50), "p99": pct(dc, 99), "max": max(dc, default=0)},
+            "msgs_per_port": {"p50": pct(port_msgs, 50), "max": max(port_msgs, default=0)},
+            "msgs_per_bridge_max": max(sent.values(), default=0), "msgs_total": sum(sent.values()),
+            "ports_reagreeing": len(port_ag), "ports_never_agreed": len(port_ag) - len(fin),
+            "agree_ms": {"p50": pct(fin, 50), "max": max(fin, default=0)},
+            "restricted_port_s": round(restricted / 1000.0, 3),
+        }
+    out["MODELED"] = True
+    return out
 
 
 # --------------------------------------------------------------------------------------------------------------- check
@@ -525,10 +550,122 @@ def r_loops(r, t, ev, prof):
     return out
 
 
+# ----------------------------------------------------------------------------------------------------------- calibrate
+LOGLINE = __import__("re").compile(r"^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d\.\d+).*SPF schedule called.*Caller: (\w+)")
+
+
+def _abs(s):
+    from datetime import datetime
+    return datetime.strptime(s, "%Y/%m/%d %H:%M:%S.%f").timestamp()
+
+
+def calibrate(dirs):
+    """[CALIBRATE_V1] fit the free constants from tier 4 runs (result dirs of s4_persist.py r3, or r2 after reanalyse):
+      fib_base_ms       SPF run -> first route change it makes (median over every run that changed a route); this
+                        includes FRR's SPF time at bed sizes, so spf_base_ms is set to 0 and the N log N term carries
+                        only the growth beyond the bed
+      fib_us_per_route  spacing of successive route changes after one run (median slope over runs with >= 2 changes)
+      proc_ms           per-hop flooding cost: with the origins' generation times (isisd 'lsp_inc_seqno' after the
+                        event), the first 'lsp_update' at every other node is predicted as gen + sum(link delay) +
+                        hops x proc_ms; proc_ms is the value with the least median error (silent/cut runs, 2 origins)"""
+    lag0, slope, flood = [], [], []
+    for w in dirs:
+        r = json.load(open(f"{w}/result.json"))
+        if "t_event" not in r:
+            continue
+        a = r["args"]
+        t = P.topology(a["topo"], a["n"], a["seed"], a["sites"], a["wan_ms"], a["lan_ms"])
+        own = P.owners(t)
+        t_ev = r["t_event"]
+        callers = {}
+        for i in t["nodes"]:
+            runs = [x for x in P.read_spf(f"{w}/n{i}/isisd.log") if x >= t_ev]
+            ev = sorted(e[0] for e in P.read_monitor(f"{w}/n{i}/mon.txt", i, own) if e[0] >= t_ev)
+            for k, rr in enumerate(runs):
+                nxt = runs[k + 1] if k + 1 < len(runs) else INF
+                ch = [x for x in ev if rr <= x < nxt]
+                if ch:
+                    lag0.append((ch[0] - rr) * 1000)
+                if len(ch) >= 2:
+                    slope.append((ch[-1] - ch[0]) / (len(ch) - 1) * 1e6)
+            cs = []
+            for line in open(f"{w}/n{i}/isisd.log"):
+                m = LOGLINE.match(line)
+                if m and _abs(m.group(1)) >= t_ev:
+                    cs.append((_abs(m.group(1)), m.group(2)))
+            callers[i] = cs
+        if a["event"] in ("silent", "cut"):
+            j = P.split(t)[0]
+            o1, o2, _ = t["links"][j]
+            gen = {o: min((x for x, c in callers[o] if c == "lsp_inc_seqno"), default=None) for o in (o1, o2)}
+            if None in gen.values():
+                continue
+            g = Graph(t)
+            lat = dijkstra(g.csr(drop={j}, weight=lambda d: d), directed=False, indices=[o1, o2])
+            hop = shortest_path(g.csr(drop={j}), directed=False, unweighted=True, indices=[o1, o2])
+            for m in t["nodes"]:
+                if m in (o1, o2):
+                    continue
+                first = min((x for x, c in callers[m] if c == "lsp_update"), default=None)
+                if first is not None:
+                    flood.append((first, [(gen[o1], lat[0][m], hop[0][m]), (gen[o2], lat[1][m], hop[1][m])]))
+    best = None
+    for proc in np.arange(0.0, 20.01, 0.1):
+        err = [abs(first - min(gn + (l + h * proc) / 1000.0 for gn, l, h in src)) * 1000 for first, src in flood]
+        if err and (best is None or np.median(err) < best[1]):
+            best = (float(proc), float(np.median(err)))
+    cal = dict(CAL)
+    cal.update({"spf_base_ms": 0.0,
+                "fib_base_ms": round(float(np.median(lag0)), 3) if lag0 else CAL["fib_base_ms"],
+                "fib_us_per_route": round(float(np.median(slope)), 3) if slope else CAL["fib_us_per_route"],
+                "proc_ms": round(best[0], 2) if best else CAL["proc_ms"],
+                "source": f"calibrated from {len(dirs)} tier 4 runs",
+                "fit": {"lag0_n": len(lag0), "lag0_p10_p50_p90_ms": [round(float(np.percentile(lag0, q)), 3) for q in (10, 50, 90)] if lag0 else None,
+                        "slope_n": len(slope), "slope_p10_p50_p90_us": [round(float(np.percentile(slope, q)), 3) for q in (10, 50, 90)] if slope else None,
+                        "flood_n": len(flood), "flood_median_err_ms": round(best[1], 3) if best else None}})
+    return cal
+
+
+def compare(dirs, cal, seeds=5):
+    """[MODEL_VS_TIER4_V1] the model on the same topology, event and profile as each tier 4 run (every destination,
+    several seeds for the hold-timer phases) beside what the real FRR bed measured"""
+    rows = []
+    for w in dirs:
+        r = json.load(open(f"{w}/result.json"))
+        if "live_loops_n" not in r:
+            continue
+        a = r["args"]
+        t = P.topology(a["topo"], a["n"], a["seed"], a["sites"], a["wan_ms"], a["lan_ms"])
+        ms = []
+        for sd in range(1, seeds + 1):
+            m = model(t, a["event"], a["profile"], seed=sd, k_dests=a["n"], cal=cal, max_cycle=a["n"], spb=False)
+            m.pop("_fib")
+            ms.append(m)
+        med = lambda k: float(np.median([m[k] for m in ms]))
+        rows.append({"run": os.path.basename(w), "n": a["n"],
+                     "t4": {k: r.get(k) for k in ("live_loops_n", "live_max_loop_ms", "gone_loops_n", "gone_max_loop_ms",
+                                                   "window_max_ms", "live_survived_hist", "gone_survived_hist")},
+                     "t4_spf_mean": round(sum(len(v) for v in r["spf_ms"].values()) / a["n"], 2),
+                     "model_med": {k: med(k) for k in ("live_loops_n", "live_max_loop_ms", "gone_loops_n",
+                                                        "gone_max_loop_ms", "window_max_ms")},
+                     "model_spf_mean": float(np.median([m["spf_runs_after_event"]["mean"] for m in ms])),
+                     "model_survived_max": max(max([int(k) for k in m["live_survived_hist"]] +
+                                                   [int(k) for k in m["gone_survived_hist"]] + [0]) for m in ms)})
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("check")
+    c = sp.add_parser("calibrate")
+    c.add_argument("dirs", nargs="+")
+    c.add_argument("--out")
+    v = sp.add_parser("compare")
+    v.add_argument("dirs", nargs="+")
+    v.add_argument("--cal")
+    v.add_argument("--seeds", type=int, default=5)
+    v.add_argument("--out")
     r = sp.add_parser("run")
     r.add_argument("--topo", default="mesh", choices=["ring", "grid", "mesh"])
     r.add_argument("--n", type=int, default=1000)
@@ -542,6 +679,20 @@ def main():
     a = ap.parse_args()
     if a.cmd == "check":
         sys.exit(0 if check() else 1)
+    if a.cmd == "calibrate":
+        cal = calibrate(a.dirs)
+        txt = json.dumps(cal, indent=1)
+        if a.out:
+            open(a.out, "w").write(txt)
+        print(txt)
+        return
+    if a.cmd == "compare":
+        rows = compare(a.dirs, json.load(open(a.cal)) if a.cal else None, a.seeds)
+        if a.out:
+            json.dump(rows, open(a.out, "w"), indent=1)
+        for r in rows:
+            print(json.dumps(r))
+        return
     cal = json.load(open(a.cal)) if a.cal else None
     t = P.topology(a.topo, a.n, a.seed)
     res = model(t, a.event, a.profile, a.seed, a.dests, cal, a.max_cycle)

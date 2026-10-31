@@ -51,7 +51,7 @@ import sys
 import time
 from datetime import datetime
 
-BUILD = "s4-persist-2026-10-31-r3"
+BUILD = "s4-persist-2026-10-31-r4"
 NS = "p-"
 FRR = os.environ.get("FRR_BIN", "/usr/lib/frr")
 SOCK = "/run/s4p"
@@ -324,6 +324,23 @@ class Bed:
         for p in self.mons.values():
             p.wait()
 
+    def isis(self, i, cmd):
+        r = subprocess.run(["vtysh", "--vty_socket", f"{SOCK}/n{i}", "-d", "isisd", "-c", cmd],
+                           capture_output=True, text=True, timeout=20)
+        return r.stdout
+
+    def backoff_state(self, i):
+        """RFC 8405 state of node i's SPF back-off (QUIET / SHORT_WAIT / LONG_WAIT), or None without spf-delay-ietf"""
+        m = re.search(r"Current state:\s+(\w+)", self.isis(i, "show isis spf-delay-ietf"))
+        return m.group(1) if m else None
+
+    def spf_duration_us(self, i):
+        try:
+            j = json.loads(self.isis(i, "show isis summary json"))
+            return j["areas"][0]["levels"][0].get("last-run-duration-usec")
+        except (ValueError, KeyError, IndexError):
+            return None
+
     def silent(self, j):
         self.relay.silent.add(j)                      # both directions drop from now on; carrier stays up
 
@@ -520,8 +537,6 @@ def finish(work, t, targets, initial, t_ev, t_end, res):
         l["spf_runs_survived"] = max(0, len(fx) - 1) if fx else 0
         l["start_ms"] = round((l["start"] - t_ev) * 1000, 3)
         del l["start"], l["end"]
-    res["loadavg_1m"] = os.getloadavg()[0]          # one machine runs every node: report how busy it was
-    res["cpus"] = os.cpu_count()
     res["route_changes"] = len(events)
     res["spf_ms"] = {str(i): [round((x - t_ev) * 1000, 3) for x in spf[i]] for i in t["nodes"]}   # model calibration
     res["loops"] = loops
@@ -542,7 +557,7 @@ def finish(work, t, targets, initial, t_ev, t_end, res):
     res["spf_runs_after_event"] = {"max": max(len(v) for v in spf.values()), "total": sum(len(v) for v in spf.values())}
     log(f"route changes {len(events)}; loops to LIVE dests {res['live_loops_n']} (longest {res['live_max_loop_ms']} ms, "
         f"SPF runs {res['live_spf_hist']}); to GONE dests {res['gone_loops_n']} (longest {res['gone_max_loop_ms']} ms); "
-        f"window {res['window_max_ms']} ms; load {res['loadavg_1m']:.2f}")
+        f"window {res['window_max_ms']} ms; load {res.get('loadavg_1m', 0):.2f}")
     return res
 
 def owners(t):
@@ -641,6 +656,10 @@ def run(a):
         # [EVENT_CLOCK_FIRST_V1] the event's time is taken BEFORE the first change is applied, so no route change it
         # causes can fall before it and be dropped from the timeline
         targets = event_targets(t, a.event)
+        # [BACKOFF_STATE_AT_EVENT_V1] the run is only comparable if every node starts the event in QUIET (the settle
+        # must outlast the holddown); recorded, not assumed
+        st = [bed.backoff_state(i) for i in t["nodes"]]
+        res["backoff_state_at_event"] = {k: st.count(k) for k in sorted(set(map(str, st)))}
         t_ev = time.time()
         for j in targets:
             (bed.cut if a.event == "cut" else bed.silent)(j)
@@ -656,10 +675,14 @@ def run(a):
             if last > t_ev and time.time() - last >= a.quiet:
                 break
         bed.stop_monitor()
+        # FRR's own measure of one SPF computation at this size (for the model's SPF-time term)
+        res["spf_duration_us"] = [bed.spf_duration_us(i) for i in t["nodes"]]
         res["observed_s"] = round(time.time() - t_ev, 3)
         res["t_event"] = t_ev
         json.dump({str(k): {d: sorted(v) for d, v in tb.items()} for k, tb in initial.items()},
                   open(f"{work}/initial.json", "w"))
+        res["loadavg_1m"] = os.getloadavg()[0]      # one machine runs every node: report how busy it was
+        res["cpus"] = os.cpu_count()
         finish(work, t, targets, initial, t_ev, time.time(), res)
     finally:
         if not a.keep:
