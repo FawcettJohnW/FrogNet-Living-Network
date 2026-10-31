@@ -96,7 +96,7 @@ radio, and the country.
 log line to the last (T4c–T5b records; 5 min 29 s when this section was followed for T6a). Most of it is apt and the Python packages, which `pip` compiles where no
 wheel exists. A Raspberry Pi has not been timed since this cleanup.
 
-**What it checks (phase F6).** Before the reboot the installer verifies 26 things and prints `+` or `x` for each:
+**What it checks (phase F6).** Before the reboot the installer verifies 28 things and prints `+` or `x` for each:
 the hostname; mariadb running; apache2 enabled, started and running; dnsmasq, frognet-proxy and frognet-daemon
 enabled; systemd-resolved not active; the FrogNet database and the FrogUser login; the interface override file;
 IP forwarding; the certificate and its key; the sudoers file and its syntax; qrencode; runMerge.bash; the SSID
