@@ -51,7 +51,7 @@ import sys
 import time
 from datetime import datetime
 
-BUILD = "s4-persist-2026-10-31-r2"
+BUILD = "s4-persist-2026-10-31-r3"
 NS = "p-"
 FRR = os.environ.get("FRR_BIN", "/usr/lib/frr")
 SOCK = "/run/s4p"
@@ -404,27 +404,32 @@ def read_spf(path):
 
 
 # ------------------------------------------------------------------------------------------------------------ detector
-def cycles(nh, dest_owner):
-    """next-hop graph for one destination: nh = {node: set(nexthops)}. -> list of frozenset(cycle nodes). A cycle in the
-    graph (any branch of a multipath can be taken by some flow) is a forwarding loop."""
-    found, color = [], {}
-    for s in nh:
-        if color.get(s):
-            continue
-        stack, path, onpath = [(s, iter(sorted(nh.get(s, ()))))], [s], {s}
-        color[s] = 1
+def cycles(nh, dest_owner, cap=100000):
+    """next-hop graph for one destination: nh = {node: set(nexthops)}. -> set of elementary cycles, each a tuple
+    rotated to start at its smallest node. A cycle in the graph (any branch of a multipath can be taken by some flow)
+    is a forwarding loop.
+    [EXACT_CYCLES_V1] EVERY elementary cycle is listed (each found once, from its smallest node). The r1/r2 detector
+    used one DFS with visited marks; when two loops share nodes (a 2-node and a 3-node loop over the same ECMP pair)
+    it could report only one of them at an event and the other again at the next, so one loop read as two shorter
+    ones. Found by cross-checking against the incremental detector in s4_persist_model.py."""
+    found = set()
+    for s in sorted(nh):
+        stack = [(s, iter(sorted(nh.get(s, ()))))]
+        path, onpath = [s], {s}
         while stack:
             x, it = stack[-1]
             y = next(it, None)
             if y is None:
-                stack.pop(); path.pop(); onpath.discard(x); color[x] = 2
+                stack.pop(); onpath.discard(path.pop())
                 continue
-            if y == dest_owner:
+            if y == dest_owner or y < s:
                 continue
-            if y in onpath:
-                found.append(frozenset(path[path.index(y):]))
-            elif not color.get(y):
-                color[y] = 1; stack.append((y, iter(sorted(nh.get(y, ()))))); path.append(y); onpath.add(y)
+            if y == s:
+                found.add(tuple(path))
+                if len(found) >= cap:
+                    return found
+            elif y not in onpath:
+                stack.append((y, iter(sorted(nh.get(y, ()))))); path.append(y); onpath.add(y)
     return found
 
 
@@ -456,7 +461,7 @@ def analyse(initial, events, t_event, owner_of_dest, dead=frozenset()):
                 # [LOOP_FIXER_V1] the member(s) whose FIB change broke the cycle: their SPF runs while it stood are the
                 # updates the loop survived
                 done.append({"dest": dest, "nodes": sorted(key[1]), "start": open_loops.pop(key), "end": t,
-                             "fixer": sorted(changed & key[1])})
+                             "fixer": sorted(changed & set(key[1]))})
             for c in now:
                 open_loops.setdefault((dest, c), t)
     for (dest, c), start in open_loops.items():
@@ -489,6 +494,121 @@ def selftest():
 
 
 # ----------------------------------------------------------------------------------------------------------------- run
+def finish(work, t, targets, initial, t_ev, t_end, res):
+    """[REANALYSE_V1] everything after the observation, from what is on disk (mon.txt, isisd.log) plus the initial
+    FIB and event time: run() calls it, and `reanalyse` re-runs it on a finished run with the current detector"""
+    res["build_analysis"] = BUILD
+    events = sorted(e for i in t["nodes"] for e in read_monitor(f"{work}/n{i}/mon.txt", i, owners(t)) if e[0] >= t_ev)
+    owner_of_dest = {lo_addr(i): i for i in t["nodes"]}
+    dead = frozenset(frozenset(t["links"][j][:2]) for j in targets)
+    loops, window = analyse(initial, events, t_ev, owner_of_dest, dead)
+    spf = {i: [x for x in read_spf(f"{work}/n{i}/isisd.log") if x >= t_ev] for i in t["nodes"]}
+    # [LIVE_VS_GONE_DEST_V1] after the event, is the destination still reachable from the loop's nodes over the
+    # surviving links? A loop toward a live destination traps traffic that has somewhere to go; one toward a
+    # destination the event cut off traps traffic that was going to be lost anyway. Both are loops; both reported.
+    comp = components(t["nodes"], [l[:2] for l in t["links"] if frozenset(l[:2]) not in dead])
+    for l in loops:
+        l["dest_reachable"] = comp[owner_of_dest[l["dest"]]] == comp[l["nodes"][0]]
+        l["open"] = l["end"] is None                    # still looping when observation stopped
+        end = l["end"] if l["end"] is not None else t_end
+        l["lifetime_ms"] = round((end - l["start"]) * 1000, 3)
+        per = [sum(1 for x in spf[nd] if l["start"] <= x <= end) for nd in l["nodes"]]
+        l["spf_runs_during_max"] = max(per) if per else 0
+        # runs the fixing node made while the loop stood and that did NOT end it: every run before its last run
+        # at or before the loop's end (that last one is the run whose FIB install broke the cycle)
+        fx = [x for nd in l.get("fixer", []) for x in spf[nd] if l["start"] <= x <= end]
+        l["spf_runs_survived"] = max(0, len(fx) - 1) if fx else 0
+        l["start_ms"] = round((l["start"] - t_ev) * 1000, 3)
+        del l["start"], l["end"]
+    res["loadavg_1m"] = os.getloadavg()[0]          # one machine runs every node: report how busy it was
+    res["cpus"] = os.cpu_count()
+    res["route_changes"] = len(events)
+    res["spf_ms"] = {str(i): [round((x - t_ev) * 1000, 3) for x in spf[i]] for i in t["nodes"]}   # model calibration
+    res["loops"] = loops
+    res["loops_n"] = len(loops)
+    res["loops_open_at_end"] = sum(1 for l in loops if l.get("open"))
+    res["max_loop_ms"] = max((l["lifetime_ms"] for l in loops), default=0)
+    res["max_spf_runs_spanned"] = max((l["spf_runs_during_max"] for l in loops), default=0)
+    for cls, sel in (("live", True), ("gone", False)):
+        ls = [l for l in loops if l["dest_reachable"] == sel]
+        res[f"{cls}_loops_n"] = len(ls)
+        res[f"{cls}_max_loop_ms"] = max((l["lifetime_ms"] for l in ls), default=0)
+        res[f"{cls}_max_spf_runs"] = max((l["spf_runs_during_max"] for l in ls), default=0)
+        res[f"{cls}_spf_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_during_max"] == k)
+                                  for k in sorted({l["spf_runs_during_max"] for l in ls})}
+        res[f"{cls}_survived_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_survived"] == k)
+                                       for k in sorted({l["spf_runs_survived"] for l in ls})}
+    res["window_max_ms"] = round(max(window.values(), default=0) * 1000, 3)
+    res["spf_runs_after_event"] = {"max": max(len(v) for v in spf.values()), "total": sum(len(v) for v in spf.values())}
+    log(f"route changes {len(events)}; loops to LIVE dests {res['live_loops_n']} (longest {res['live_max_loop_ms']} ms, "
+        f"SPF runs {res['live_spf_hist']}); to GONE dests {res['gone_loops_n']} (longest {res['gone_max_loop_ms']} ms); "
+        f"window {res['window_max_ms']} ms; load {res['loadavg_1m']:.2f}")
+    return res
+
+def owners(t):
+    """address -> node, the same map Bed.build makes (loopbacks and both ends of every link)"""
+    own = {lo_addr(i): i for i in t["nodes"]}
+    for j, (a, b, _) in enumerate(t["links"]):
+        xa, xb = link_addrs(j)
+        own[xa], own[xb] = a, b
+    return own
+
+
+def initial_fib(t):
+    """the converged FIB before the event, for a run that predates initial.json: every equal-hop next hop toward
+    every other node's loopback (metric 10 on every circuit, ECMP on). reanalyse checks it against initial.json when
+    both exist."""
+    adj = {i: set() for i in t["nodes"]}
+    for a, b, _ in t["links"]:
+        adj[a].add(b); adj[b].add(a)
+    fib = {i: {} for i in t["nodes"]}
+    for d in t["nodes"]:
+        dist, q = {d: 0}, [d]
+        for x in q:
+            for y in adj[x]:
+                if y not in dist:
+                    dist[y] = dist[x] + 1; q.append(y)
+        for i in t["nodes"]:
+            if i != d and i in dist:
+                fib[i][lo_addr(d)] = {y for y in adj[i] if dist.get(y, 1 << 30) == dist[i] - 1}
+    return fib
+
+
+def event_targets(t, event):
+    if event in ("cut", "silent"):
+        return [split(t)[0]]
+    if event == "partition":
+        return split(t)
+    victim = t["n"] // 2
+    return [j for j, (x, y, _) in enumerate(t["links"]) if victim in (x, y)]
+
+
+def reanalyse(work):
+    res = json.load(open(f"{work}/result.json"))
+    a = res["args"]
+    t = topology(a["topo"], a["n"], a["seed"], a["sites"], a["wan_ms"], a["lan_ms"])
+    targets = event_targets(t, a["event"])
+    rebuilt = initial_fib(t)
+    if os.path.exists(f"{work}/initial.json"):
+        saved = {int(k): {d: set(v) for d, v in tb.items()} for k, tb in json.load(open(f"{work}/initial.json")).items()}
+        res["initial_matches_rebuilt"] = saved == rebuilt
+        initial = saved
+    else:
+        initial, res["initial_matches_rebuilt"] = rebuilt, None
+    if "t_event" in res:
+        t_ev = res["t_event"]
+    else:   # r1/r2: recover the event time from any SPF run's absolute (log) and relative (result) time
+        i = next(k for k, v in res["spf_ms"].items() if v)
+        absr, rel = read_spf(f"{work}/n{i}/isisd.log"), res["spf_ms"][i]      # rel = the runs at or after the event
+        t_ev = absr[len(absr) - len(rel)] - rel[0] / 1000.0
+        res["t_event"] = t_ev
+    for k in [k for k in res if k.endswith(("_hist", "_n", "_ms")) or k in ("loops", "loops_open_at_end")]:
+        del res[k]
+    finish(work, t, targets, initial, t_ev, t_ev + res["observed_s"], res)
+    json.dump(res, open(f"{work}/result.json", "w"), indent=1)
+    return res
+
+
 def last_line_time(paths):
     m = 0.0
     for p in paths:
@@ -520,13 +640,7 @@ def run(a):
         initial = {i: bed.routes(i) for i in t["nodes"]}
         # [EVENT_CLOCK_FIRST_V1] the event's time is taken BEFORE the first change is applied, so no route change it
         # causes can fall before it and be dropped from the timeline
-        if a.event in ("cut", "silent"):
-            targets = [split(t)[0]]
-        elif a.event == "partition":
-            targets = split(t)
-        else:
-            victim = t["n"] // 2
-            targets = [j for j, (x, y, _) in enumerate(t["links"]) if victim in (x, y)]
+        targets = event_targets(t, a.event)
         t_ev = time.time()
         for j in targets:
             (bed.cut if a.event == "cut" else bed.silent)(j)
@@ -543,51 +657,10 @@ def run(a):
                 break
         bed.stop_monitor()
         res["observed_s"] = round(time.time() - t_ev, 3)
-        events = sorted(e for i in t["nodes"] for e in read_monitor(f"{work}/n{i}/mon.txt", i, bed.owner) if e[0] >= t_ev)
-        owner_of_dest = {lo_addr(i): i for i in t["nodes"]}
-        dead = frozenset(frozenset(t["links"][j][:2]) for j in targets)
-        loops, window = analyse(initial, events, t_ev, owner_of_dest, dead)
-        spf = {i: [x for x in read_spf(f"{work}/n{i}/isisd.log") if x >= t_ev] for i in t["nodes"]}
-        # [LIVE_VS_GONE_DEST_V1] after the event, is the destination still reachable from the loop's nodes over the
-        # surviving links? A loop toward a live destination traps traffic that has somewhere to go; one toward a
-        # destination the event cut off traps traffic that was going to be lost anyway. Both are loops; both reported.
-        comp = components(t["nodes"], [l[:2] for l in t["links"] if frozenset(l[:2]) not in dead])
-        for l in loops:
-            l["dest_reachable"] = comp[owner_of_dest[l["dest"]]] == comp[l["nodes"][0]]
-            l["open"] = l["end"] is None                    # still looping when observation stopped
-            end = l["end"] if l["end"] is not None else time.time()
-            l["lifetime_ms"] = round((end - l["start"]) * 1000, 3)
-            per = [sum(1 for x in spf[nd] if l["start"] <= x <= end) for nd in l["nodes"]]
-            l["spf_runs_during_max"] = max(per) if per else 0
-            # runs the fixing node made while the loop stood and that did NOT end it: every run before its last run
-            # at or before the loop's end (that last one is the run whose FIB install broke the cycle)
-            fx = [x for nd in l.get("fixer", []) for x in spf[nd] if l["start"] <= x <= end]
-            l["spf_runs_survived"] = max(0, len(fx) - 1) if fx else 0
-            l["start_ms"] = round((l["start"] - t_ev) * 1000, 3)
-            del l["start"], l["end"]
-        res["loadavg_1m"] = os.getloadavg()[0]          # one machine runs every node: report how busy it was
-        res["cpus"] = os.cpu_count()
-        res["route_changes"] = len(events)
-        res["spf_ms"] = {str(i): [round((x - t_ev) * 1000, 3) for x in spf[i]] for i in t["nodes"]}   # model calibration
-        res["loops"] = loops
-        res["loops_n"] = len(loops)
-        res["loops_open_at_end"] = sum(1 for l in loops if l.get("open"))
-        res["max_loop_ms"] = max((l["lifetime_ms"] for l in loops), default=0)
-        res["max_spf_runs_spanned"] = max((l["spf_runs_during_max"] for l in loops), default=0)
-        for cls, sel in (("live", True), ("gone", False)):
-            ls = [l for l in loops if l["dest_reachable"] == sel]
-            res[f"{cls}_loops_n"] = len(ls)
-            res[f"{cls}_max_loop_ms"] = max((l["lifetime_ms"] for l in ls), default=0)
-            res[f"{cls}_max_spf_runs"] = max((l["spf_runs_during_max"] for l in ls), default=0)
-            res[f"{cls}_spf_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_during_max"] == k)
-                                      for k in sorted({l["spf_runs_during_max"] for l in ls})}
-            res[f"{cls}_survived_hist"] = {str(k): sum(1 for l in ls if l["spf_runs_survived"] == k)
-                                           for k in sorted({l["spf_runs_survived"] for l in ls})}
-        res["window_max_ms"] = round(max(window.values(), default=0) * 1000, 3)
-        res["spf_runs_after_event"] = {"max": max(len(v) for v in spf.values()), "total": sum(len(v) for v in spf.values())}
-        log(f"route changes {len(events)}; loops to LIVE dests {res['live_loops_n']} (longest {res['live_max_loop_ms']} ms, "
-            f"SPF runs {res['live_spf_hist']}); to GONE dests {res['gone_loops_n']} (longest {res['gone_max_loop_ms']} ms); "
-            f"window {res['window_max_ms']} ms; load {res['loadavg_1m']:.2f}")
+        res["t_event"] = t_ev
+        json.dump({str(k): {d: sorted(v) for d, v in tb.items()} for k, tb in initial.items()},
+                  open(f"{work}/initial.json", "w"))
+        finish(work, t, targets, initial, t_ev, time.time(), res)
     finally:
         if not a.keep:
             bed.teardown()
@@ -600,6 +673,8 @@ def main():
     ap = argparse.ArgumentParser()
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("selftest")
+    ra = sp.add_parser("reanalyse")
+    ra.add_argument("dirs", nargs="+")
     r = sp.add_parser("run")
     r.add_argument("--topo", default="ring", choices=["ring", "grid", "mesh"])
     r.add_argument("--n", type=int, default=16)
@@ -618,6 +693,11 @@ def main():
     a = ap.parse_args()
     if a.cmd == "selftest":
         sys.exit(0 if selftest() else 1)
+    if a.cmd == "reanalyse":
+        for w in a.dirs:
+            r = reanalyse(w)
+            log(f"{w}: initial==rebuilt {r['initial_matches_rebuilt']}")
+        return
     run(a)
 
 
