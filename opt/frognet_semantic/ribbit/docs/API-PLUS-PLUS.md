@@ -201,3 +201,159 @@ does not do.
 | (same) | (same) | `LINGER_BROKEN=2` (the reaper never reaps) | stays2 never goes |
 
 Both tests run in `cpp/qualify.sh` (stages `build`, `lockfree`).
+
+## Tuple base class and named capability operations [TUPLE_INTERFACE_PP_V1]
+
+These are additions to `ribbit_pp.hpp`/`ribbit_pp.cpp`, not changes to the base
+memory, wire, `Space`, or existing `announce`/`capable` functions.
+
+```cpp
+ribbit::pp::TupleName name{"equipment", "capability", "sensor-42"};
+ribbit::pp::Capability capabilities(space);
+capabilities.SetCapability(name, ribbit::pp::Tuple::ParseBag(
+    R"({"temperature":true,"unit":"C"})"));
+bool available = capabilities.CheckCapability(name);
+auto result = capabilities.GetCapability(name); // JSON bag
+```
+
+`TupleName` is exactly three independent strings: `indexA`, `indexB`, `indexC`.
+They map directly to the existing base API's space/service, variable/topic, and
+instance. An empty B or C leaves that coordinate open on a read. A names a space;
+empty A is rejected, as the existing binary read requires a service. Strings are
+never concatenated and separators inside a coordinate carry no special meaning.
+Set and withdrawal require a complete name, never a family.
+
+`JsonBag` uses the platform's existing `pyv::Obj` JSON model, with an object root.
+`Tuple::ParseBag` validates text into that type. It does not use the legacy small
+JSON parser that represents all numbers as doubles. JSON integer values must fit
+the current wire's signed 64-bit field; larger quantities can be JSON strings.
+Nonfinite numbers, binary values, malformed objects, unsupported integer values,
+NUL coordinates and coordinates exceeding read frame limits are rejected before
+writing. These checks are `++` validation; no core wire format is changed.
+
+| Method | Operation |
+|---|---|
+| `Tuple::Set(name, bag)` | Validate and delegate to `Space::write` at those three coordinates. |
+| `Tuple::Get(name)` | Delegate to `Space::read`; exact tuple or family. |
+| `Tuple::HeldRead(name, after, wait_s)` | Delegate to the base held read; update the caller's write-order cursor. |
+| `Tuple::Watch(name, callback)` | Deliver current matches, then changes through the base held watch, without a snapshot/hold gap. |
+| `Capability::SetCapability(name, bag)` | Set an active capability at that exact tuple. |
+| `Capability::WithdrawCapability(name)` | Write inactive truth at that exact tuple. No delete or foreign-cell maintenance. |
+| `Capability::CheckCapability(name)` | True if the tuple/family contains an active capability. |
+| `Capability::GetCapability(name)` | Get the JSON result including explicit inactive state. |
+| `Capability::EnumerateCapabilities(name, include_inactive=false)` | JSON result of the selected tuple/family; active only unless requested otherwise. |
+| `Capability::WatchCapabilities(name, callback)` | JSON results for present capabilities, updates, withdrawals, and session loss. |
+
+All reads and callbacks return a JSON bag with the same result shape:
+
+```json
+{
+  "rows": [{
+    "name": {"indexA":"equipment","indexB":"capability","indexC":"sensor-42"},
+    "bag": {"temperature":true,"unit":"C"},
+    "id": 17,
+    "gone": false
+  }],
+  "after": 17
+}
+```
+
+Absent tuples and held-read timeouts have empty `rows`. A present empty bag has
+one row with `bag:{}`. A session-ended row has `gone:true` and `bag:null` and is
+reported by a held read/watch, not a current snapshot. Explicit withdrawal is
+`bag:{"_capability_active":false}`; that key is reserved by `SetCapability`.
+Malformed state, such as the string `"false"`, is never an available capability.
+The other fields are application-owned metadata. There is no built-in device
+registry, provider naming scheme, business calculation, or topology dependency.
+
+`Tuple` holds a reference to `Space`. It keeps no capability cache or mutable
+registry. As with base `Space::watch`, the Space and callback state must outlive
+all watches; the callbacks do not capture the wrapper object. Writers still own
+the tuples they publish by the application contract. Neither a tuple name nor a
+metadata field confers authenticated authority; this layer does not add ACLs to
+core or prevent another authorized raw writer from addressing that tuple.
+
+A write returning means it was handed to the base write path, not that another
+consumer ran. Observe results using held reads. Session lifetime and linger are
+still the existing base behavior. These functions provide no persistence,
+exactly-once effects, atomic read-modify-write or cross-tuple transaction.
+
+### Focused test gate
+
+```sh
+cd opt/frognet_semantic/ribbit/cpp
+./tools/check_capabilities.sh
+```
+
+The gate runs local-memory and actual-session positive/negative cases, the
+existing API++ regression suite, and three deliberate semantic mutants. Mutants
+must fail behavior assertions and reach their failure summary; a timeout/crash is
+not accepted as detection. Standard platform qualification also builds and runs
+`test-capabilities` (`STAGES="build capabilities"`).
+
+Atomic CPU compare/exchange is used inside the platform. There is no public
+atomic tuple compare-and-swap operation in the inspected base API. A wrapper
+performing get/compare/set would not provide atomic CAS and is not offered here.
+
+## Tuple helpers: Exists, WaitUntil and SetMany
+
+These methods are on `Tuple` and inherited by `Capability`. They use the same
+TupleName and native JSON bag types.
+
+- `Exists(name)` tests whether a current tuple/family has any rows. An explicit
+  inactive capability still exists; use CheckCapability to test availability.
+- `WaitUntil(name, predicate, timeout_s=30)` first checks the current full result,
+  then uses held reads to wait for changes. The predicate is reevaluated against
+  the complete current family, not just its changed rows. The read watermark is
+  captured before the snapshot so a write in the snapshot/hold window is seen.
+  The returned JSON bag adds `matched` and `timed_out`. Zero timeout performs one
+  immediate check. Invalid predicates/timeouts are rejected; predicate exceptions
+  propagate. The base wire's millisecond wait resolution applies and predicates
+  are not preempted. No application polling timer or private wait is added.
+- `SetMany(vector<TupleWrite>)`, where TupleWrite is a pair of TupleName and JsonBag,
+  validates and serializes every entry before submitting independent base writes
+  in input order. A bad later entry therefore causes no writes. Empty batches are
+  allowed and repeated names retain input order. This is not an atomic transaction:
+  a transport failure can leave earlier submitted writes applied, without rollback.
+
+The focused gate includes snapshot-to-hold writes, full-family predicates, timeout
+and exception paths, presence versus inactivity, batch order, and validation before
+side effects. Three additional deliberate mutants must fail: Exists always false,
+WaitUntil never holding, and SetMany validating while it writes.
+
+### Explicit connection lifetime
+
+`RibbitConnection` owns the base `Space` session:
+
+```cpp
+ribbit::pp::RibbitConnection connection;
+connection.ConnectRibbit("127.0.0.1:8959", "myapp");
+{
+    ribbit::pp::Tuple tuples(connection.GetSpace());
+    tuples.Set({"devices", "desired", "sensor-42"},
+               ribbit::pp::Tuple::ParseBag(R"({"interval":30})"));
+}
+connection.DisconnectRibbit();
+```
+
+`ConnectRibbit(where, vendor)` accepts the same location modes as `Space`:
+`HOST:PORT`, `here`, or `here:HOST:PORT`. A second connect without disconnect
+throws `std::logic_error` and preserves the current session. Empty or NUL-bearing
+arguments throw `std::invalid_argument`; base connection errors propagate and
+leave the object disconnected. There is no implicit retry or global session.
+
+`DisconnectRibbit()` releases the session using the base flush/destruction
+behavior. Repeated calls are harmless. Destruction also releases an owned session.
+Disconnect is not a guarantee that asynchronous writes landed. Existing
+session/linger rules govern the writer's tuples, including their removal.
+
+`IsConnected()` reports whether this object owns a session; it is not a network
+health probe. `GetSpace()` returns that session, or throws `std::logic_error`
+while disconnected. Reconnect creates a fresh session and does not replay writes
+or recreate borrowers/watches.
+
+Finish concurrent operations and destroy objects borrowing `GetSpace()` before
+disconnect or connection destruction. The base watch API has no cancellation
+handle: keep a watched session alive for the watch's lifetime. These helpers do
+not make disconnect safe during an active watch or held read. Connection lifetime
+operations require caller serialization; the wrapper introduces no locks.

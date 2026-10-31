@@ -1,0 +1,12 @@
+{
+  "mode": "original",
+  "broker": "Mosquitto 2.1.2 (authorized substitution)",
+  "checks": [
+    "configuration API responds",
+    "original MQTT command observed",
+    "original encoder bytes match"
+  ],
+  "upstream_unchanged": true,
+  "status": "FAIL",
+  "error": "Extra data: line 2 column 1 (char 359)"
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=SenzMatica test: Mosquitto broker
+After=network-online.target 
+Wants=network-online.target
+# never give up: a role that cannot reach its peers keeps trying every 2 s until they are back
+StartLimitIntervalSec=0
+
+[Service]
+
+ExecStartPre=/bin/cat /opt/senz/BUILD
+ExecStart=/opt/senz/bin/mosquitto -c /opt/senz/var/mosquitto.conf
+StandardInput=null
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

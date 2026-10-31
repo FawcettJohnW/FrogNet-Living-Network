@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""senz-hwtest: the remote-configuration test on real machines. Runs on the ops node.
+
+Everything goes through the shared RAM:
+  - each device advertises itself (its capability tuple); this controller picks it up on a held read
+  - the run's instructions are a tuple this controller owns: (senz-test, run, <run-id>)
+  - results come back the same way: each device writes its applied truth (value, status, generation,
+    its boot and its own count of physical applications); this controller's held read wakes on each one.
+    Per-change and summary results are written back as tuples this controller owns: (senz-test, result|<run-id>, ...)
+No polling: the only waiting is the held read. Mongo is read only to check what the operator's view says.
+
+During the run, reboot device nodes (or cut their network) whenever you like. A device that is gone
+keeps receiving changes; when it comes back it must apply only the latest, once.
+
+Checked for every device, for the whole run:
+  I1 no UPDATED history in the operator's view for a value the device never reported applied
+  I2 no value physically applied twice within one device boot
+  I3 a device's first application after it comes back is the latest change made before it came back
+  I4 nothing lost: every change was applied, or replaced by a later change that was applied
+"""
+import argparse, json, os, socket, subprocess, sys, threading, time, urllib.request, urllib.error
+from pathlib import Path
+
+SENZ = Path(os.environ.get('SENZ_ROOT', '/opt/senz'))
+SPACE = 'senz-baseline'
+p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+p.add_argument('--ram', default=None, help='RAM HOST:PORT (default: from /opt/senz/var/ops.env)')
+p.add_argument('--rounds', type=int, default=60, help='changes per device (default 60)')
+p.add_argument('--every', type=float, default=5.0, help='seconds between rounds (default 5)')
+p.add_argument('--path', choices=['ram', 'mqtt'], default='ram', help='switch position for this run (default ram)')
+p.add_argument('--discover', type=float, default=10.0, help='seconds to collect devices before round 1 (default 10)')
+a = p.parse_args()
+
+def envfile(name):
+    out = {}
+    f = SENZ / 'var' / name
+    if f.exists():
+        for line in f.read_text().splitlines():
+            if '=' in line and not line.lstrip().startswith('#'): k, v = line.split('=', 1); out[k.strip()] = v.strip()
+    return out
+ops = envfile('ops.env')
+# the test drives this machine's ops role (MongoDB, the broker and the converted backend): say so plainly when it is not here
+if not ops:
+    sys.exit('senz-hwtest: the ops role has not been started on this machine. Run the test on the ops node, or start it here first:\n'
+             '    /opt/senz/bin/senz ops RAM_HOST:PORT')
+RAM = a.ram or ops.get('RIBBIT_RAM')
+def listening(port):
+    try:
+        with socket.create_connection(('127.0.0.1', port), 1): return True
+    except OSError: return False
+for port, what in ((27027, 'MongoDB (senz-mongo)'), (18883, 'the MQTT broker (senz-broker)'), (18080, 'the backend (senz-backend)')):
+    waited = 0
+    while not listening(port):
+        if waited == 0: print(f'senz-hwtest: waiting for {what} on 127.0.0.1:{port} (the backend takes 30 s or more to start on a Pi) ...', flush=True)
+        if waited >= 300: sys.exit(f'senz-hwtest: {what} is not listening on 127.0.0.1:{port} after 5 minutes; see: journalctl -u {what.split("(")[1][:-1]}')
+        time.sleep(2); waited += 2
+BUILD = (SENZ / 'BUILD').read_text().strip() if (SENZ / 'BUILD').exists() else 'unknown'
+RUN = time.strftime('%Y%m%d-%H%M%S') + '-' + socket.gethostname()
+OUT = SENZ / 'var' / ('hwtest-' + RUN); OUT.mkdir(parents=True, exist_ok=True)
+API = 'http://127.0.0.1:18080/core/device'
+urlopen = urllib.request.build_opener(urllib.request.ProxyHandler({})).open
+T0 = time.monotonic()
+def now(): return round(time.monotonic() - T0, 3)
+lock = threading.RLock()
+logf = (OUT / 'events.log').open('a')
+def say(text):
+    line = f'{now():9.3f}  {text}'
+    with lock: print(line, flush=True); logf.write(line + '\n'); logf.flush()
+
+class Session:
+    """A RAM session (the probe): one JSON command per line. A failed read ends it; a fresh one is taken."""
+    def __init__(self, name):
+        self.name = name; self.p = None; self.mu = threading.Lock(); self.open()
+    def open(self):
+        while True:
+            try:
+                self.p = subprocess.Popen([str(SENZ / 'bin/probe'), RAM], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                          stderr=(OUT / (self.name + '.log')).open('a'), text=True)
+                if self.p.stdout.readline().strip() == 'READY': self.tries = 0; return
+            except OSError as e: say(f'RAM session {self.name}: {e}')
+            tries = getattr(self, 'tries', 0) + 1; self.tries = tries
+            if tries == 1 or tries % 15 == 0: say(f'RAM session {self.name}: cannot open to {RAM} (attempt {tries}); trying every 2 s')
+            time.sleep(2)
+    def call(self, **cmd):
+        with self.mu: return self._call(**cmd)
+    def _call(self, **cmd):
+        self.p.stdin.write(json.dumps(cmd) + '\n'); self.p.stdin.flush()
+        line = self.p.stdout.readline()
+        r = json.loads(line) if line else {'error': 'session closed'}
+        if 'error' in r:
+            say(f'RAM session {self.name} ended: {r["error"]} -- taking a fresh one'); self.p.wait(); self.open(); return None
+        return r
+
+reader, writer = Session('held'), Session('writes')
+writer.call(op='set', a='senz-test', b='run', c=RUN,
+            bag={'build': BUILD, 'rounds': a.rounds, 'every': a.every, 'path': a.path, 'started': time.time(), 'controller': socket.gethostname()})
+
+def http(url, body=None):
+    req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(),
+                                 headers={'Content-Type': 'application/json'}, method='GET' if body is None else 'PUT')
+    with urlopen(req, timeout=15) as r: return json.loads(r.read())
+def mongo(js):
+    r = subprocess.run([str(SENZ / 'env/bin/mongo'), '--quiet', '--port', '27027', 'senz-baseline', '--eval', js], capture_output=True, text=True, timeout=30)
+    if r.returncode: raise RuntimeError(r.stdout + r.stderr)
+    return '\n'.join(l for l in r.stdout.splitlines() if not l.startswith('{"t":{"$date"'))
+
+fixture = json.loads((SENZ / 'share/fixtures/initial.json').read_text())
+change_template = json.loads((SENZ / 'share/fixtures/change.json').read_text())
+def seed(dev):
+    d = json.loads(json.dumps(fixture['device']).replace('test-device-001', dev)); d['_id'] = d.pop('id')
+    prod = dict(fixture['productType']); prod['_id'] = 'senz-hwtest-product'
+    mongo('if(!db.productType.findOne({productName:"remote-config-test"}))db.productType.insert(' + json.dumps(prod) + ');'
+          'if(!db.device.findOne({_id:' + json.dumps(dev) + '}))db.device.insert(' + json.dumps(d) + ');')
+def change(dev, value):
+    body = json.loads(json.dumps(change_template).replace('test-device-001', dev)); body['remoteConfigurations'][0]['defaultValue'] = str(value)
+    try: r = http(f'{API}/deviceParameterConfiguration/{dev}/user/senz-hwtest', body); return r.get('statusCode')
+    except urllib.error.HTTPError as e: return f'HTTP {e.code}: {e.read().decode(errors="replace")[:160]}'
+    except OSError as e: return f'error: {e}'
+def view(dev):
+    d = json.loads(mongo('print(JSON.stringify(db.device.findOne({_id:' + json.dumps(dev) + '})))'))['deviceParameterConfiguration']
+    hist = []
+    for h in d.get('updateHistory', []):
+        vals = [x.get('defaultValue') for x in (h.get('updateParamList') or {}).values()]
+        hist.append((h.get('updateStatus'), vals[0] if vals else None))
+    return d['remoteConfigurations'][0]['defaultValue'], hist
+
+# ---- state, shared with the held-read thread -----------------------------------------------------
+devices = {}      # id -> {'present', 'boot', 'events':[], 'reports':[], 'submits':[]}
+def dev_state(dev):
+    return devices.setdefault(dev, {'present': False, 'boot': None, 'events': [], 'reports': [], 'submits': [], 'pending': {}})
+def on_rows(rows):
+    for row in rows:
+        b, c = row['name']['indexB'], row['name']['indexC']; bag = row['bag'] or {}
+        if b.startswith('capability|'):
+            dev = b.split('|', 1)[1]; s = dev_state(dev)
+            with lock:
+                if row['gone']:
+                    if s['present']: s['present'] = False; s['events'].append({'at': now(), 'event': 'gone', 'boot': s['boot']})
+                    say(f'{dev}: gone (its session ended)')
+                else:
+                    first = s['boot'] is None; s['present'] = True
+                    if bag.get('boot') != s['boot']:
+                        s['boot'] = bag.get('boot'); s['events'].append({'at': now(), 'event': 'appeared', 'boot': s['boot'],
+                                                                         'latest_submitted': s['submits'][-1]['value'] if s['submits'] else None})
+                        say(f'{dev}: {"advertised" if first else "back"} (boot {s["boot"]})')
+        elif b.startswith('applied-config|') and not row['gone']:
+            dev = b.split('|', 1)[1]; s = dev_state(dev); t = now()
+            rep = {'at': t, 'value': bag.get('value'), 'status': bag.get('status'), 'generation': bag.get('generation'),
+                   'boot': bag.get('boot'), 'applications': bag.get('applications')}
+            with lock:
+                s['reports'].append(rep)
+                pend = s['pending'].get(rep['value'])
+                if pend is not None and rep['status'] in ('applied', 'current'):
+                    ms = round((t - pend['at']) * 1000, 1); pend['applied_at'] = t; pend['ms'] = ms; del s['pending'][rep['value']]
+                    say(f'{dev}: applied {rep["value"]} ({rep["status"]}) {ms} ms after submit')
+                    writer.call(op='set', a='senz-test', b='result|' + RUN, c=f'{dev}|{pend["round"]}',
+                                bag={'value': rep['value'], 'ms': ms, 'status': rep['status'], 'boot': rep['boot']})
+
+def held_loop():
+    after = 0
+    while True:
+        r = reader.call(op='held', a=SPACE, b='', c='', after=after, wait=25)
+        if r is None: after = 0; continue          # fresh session: read the space from the start again
+        after = r.get('after', after); on_rows(r.get('rows', []))
+threading.Thread(target=held_loop, daemon=True).start()
+
+# ---- run -----------------------------------------------------------------------------------------
+say(f'senz-hwtest run {RUN} build {BUILD} RAM {RAM} path {a.path}; results in {OUT}')
+say(f'collecting advertised devices for {a.discover:.0f} s ...')
+time.sleep(a.discover)
+with lock: found = sorted(d for d, s in devices.items() if s['present'])
+if not found: sys.exit('senz-hwtest: no device advertised itself in the RAM; start "senz device ..." on the device nodes')
+say('devices: ' + ', '.join(found))
+for dev in found: seed(dev)
+http(API + '/remoteConfiguration/path', {'ram': a.path == 'ram'})
+say(f'switch set: remote configuration through {"RAM" if a.path == "ram" else "MQTT"}')
+base = int(time.time()) % 100000 * 100
+for rnd in range(1, a.rounds + 1):
+    t_round = time.monotonic()
+    for dev in found:
+        value = str(base + rnd)
+        s = dev_state(dev); sub = {'round': rnd, 'value': value, 'at': now()}
+        with lock: s['submits'].append(sub); s['pending'][value] = sub
+        sub['response'] = change(dev, value)
+        if sub['response'] != 'S1000': say(f'{dev}: round {rnd} change {value} -> {sub["response"]}')
+    time.sleep(max(0.0, a.every - (time.monotonic() - t_round)))
+say('rounds done; waiting 30 s for devices that are still coming back ...')
+deadline = time.monotonic() + 30
+while time.monotonic() < deadline:
+    with lock: busy = any(s['pending'] and s['present'] for s in devices.values())
+    if not busy: break
+    time.sleep(1)
+
+# ---- check and report ----------------------------------------------------------------------------
+summary = {'run': RUN, 'build': BUILD, 'ram': RAM, 'path': a.path, 'rounds': a.rounds, 'devices': {}}
+ok_all = True
+for dev in found:
+    s = devices[dev]; final_value, hist = view(dev)
+    # [RUN_SCOPED_INVARIANTS_V1] every check is about THIS run's values. The device document's history and the
+    # device's last applied-config tuple carry over from earlier runs (the held read starts at after=0 and sees
+    # the previous run's final report first); those are not this run's evidence.
+    run_vals = {sub['value'] for sub in s['submits']}
+    applied_vals = {r['value'] for r in s['reports'] if r['status'] in ('applied', 'current')}
+    updated = [v for st, v in hist if st == 'UPDATED' and v in run_vals]
+    i1 = all(v in applied_vals for v in updated)
+    # I2: physical applications counted by the device between its first report this run and its last, per boot,
+    # against the distinct values of this run it reported applied after that first report. None = the path's
+    # reports carry no application count (the MQTT path reports status "current" without one): not measured.
+    i2 = None
+    for boot in {r['boot'] for r in s['reports'] if r['boot'] is not None}:
+        rs = [r for r in s['reports'] if r['boot'] == boot and isinstance(r['applications'], int)]
+        if len(rs) < 2: continue
+        base = rs[0]; later = {r['value'] for r in rs[1:] if r['status'] == 'applied' and r['value'] in run_vals and r['value'] != base['value']}
+        i2 = (i2 is not False) and (max(r['applications'] for r in rs) - base['applications'] <= len(later))
+    i3 = None
+    for ev in s['events']:
+        if ev['event'] == 'appeared' and ev['latest_submitted'] is not None:
+            first = next((r for r in s['reports'] if r['boot'] == ev['boot'] and r['status'] == 'applied'), None)
+            if first: i3 = (i3 is not False) and int(first['value']) >= int(ev['latest_submitted'])
+    applied_ints = [int(r['value']) for r in s['reports'] if r['status'] in ('applied', 'current') and str(r['value']).isdigit()]
+    newest = max(applied_ints) if applied_ints else -1
+    i4 = all(int(v) <= newest for v in s['pending'])
+    times = sorted(sub['ms'] for sub in s['submits'] if 'ms' in sub)
+    def pct(q): return times[min(len(times) - 1, int(q * len(times)))] if times else None
+    d = {'submitted': len(s['submits']), 'applied': len(times), 'replaced_while_gone': len(s['pending']),
+         'median_ms': pct(0.5), 'p95_ms': pct(0.95), 'p99_ms': pct(0.99), 'max_ms': times[-1] if times else None,
+         'boots_seen': len({e['boot'] for e in s['events'] if e['event'] == 'appeared'}),
+         'gone_events': sum(1 for e in s['events'] if e['event'] == 'gone'),
+         'final_view_value': final_value, 'last_submitted': s['submits'][-1]['value'] if s['submits'] else None,
+         'I1_no_false_success': i1, 'I2_no_repeat_application': i2, 'I3_return_applies_latest': i3, 'I4_nothing_lost': i4}
+    ok_all &= i1 and i2 is not False and i3 is not False and i4
+    summary['devices'][dev] = d
+    (OUT / f'{dev}.json').write_text(json.dumps({'summary': d, 'events': s['events'], 'reports': s['reports'], 'submits': s['submits'],
+                                                'history': hist}, indent=1) + '\n')
+summary['status'] = 'PASS' if ok_all else 'FAIL'
+(OUT / 'result.json').write_text(json.dumps(summary, indent=2) + '\n')
+writer.call(op='set', a='senz-test', b='summary', c=RUN, bag=summary)
+print()
+print(f'{"device":24} {"sent":>5} {"applied":>8} {"replaced":>9} {"median":>8} {"p95":>8} {"p99":>8} {"boots":>6} {"gone":>5}  I1 I2 I3 I4  view/last-sent')
+print(f'{"":24} {"":>5} {"":>8} {"(gone)":>9} {"ms":>8} {"ms":>8} {"ms":>8}')
+for dev, d in summary['devices'].items():
+    f = lambda x: '-' if x is None else f'{x:.0f}'
+    g = lambda x: '--' if x is None else ('ok' if x else 'XX')
+    print(f'{dev:24} {d["submitted"]:>5} {d["applied"]:>8} {d["replaced_while_gone"]:>9} {f(d["median_ms"]):>8} {f(d["p95_ms"]):>8} {f(d["p99_ms"]):>8} '
+          f'{d["boots_seen"]:>6} {d["gone_events"]:>5}  {g(d["I1_no_false_success"])} {g(d["I2_no_repeat_application"])} '
+          f'{g(d["I3_return_applies_latest"])} {g(d["I4_nothing_lost"])}  {d["final_view_value"]}/{d["last_submitted"]}')
+print('times: submit to the device\'s applied report, as the held read saw it (includes the HTTP call to the backend)')
+print('invariants: ok held, XX broken, -- not measured this run (no evidence on this path, or no device came back from a reboot)')
+print(f'\nRESULT {summary["status"]}  ({OUT}/result.json)')
+sys.exit(0 if ok_all else 1)

@@ -1,0 +1,97 @@
+[
+  {
+    "mode": "ram",
+    "broker": "Mosquitto 2.1.2 (authorized substitution)",
+    "checks": [
+      "configuration API responds",
+      "frontend API exposes applied value and UPDATED status",
+      "completion updates value/history and removes pending Message",
+      "RAM applies setting and publishes final MQTT completion without old command",
+      "invalid integer rejected without state change",
+      "unchanged setting adds no history or pending Message",
+      "duplicate completion has no repeated history",
+      "reobserving desired state causes no repeated physical application",
+      "stale completion cannot alter legacy history",
+      "unconverted MQTT telemetry persists the actual sensor value",
+      "session loss removes capability",
+      "changes while absent do not create false applied history",
+      "returning device applies only latest pending value once"
+    ],
+    "upstream_unchanged": false,
+    "status": "PASS",
+    "control": "positive-before"
+  },
+  {
+    "mode": "ram",
+    "broker": "Mosquitto 2.1.2 (authorized substitution)",
+    "checks": [
+      "configuration API responds",
+      "frontend API exposes applied value and UPDATED status",
+      "completion updates value/history and removes pending Message",
+      "RAM applies setting and publishes final MQTT completion without old command",
+      "invalid integer rejected without state change",
+      "unchanged setting adds no history or pending Message",
+      "duplicate completion has no repeated history",
+      "reobserving desired state causes no repeated physical application"
+    ],
+    "upstream_unchanged": false,
+    "status": "FAIL",
+    "error": "stale completion added history",
+    "control": "generation"
+  },
+  {
+    "mode": "ram",
+    "broker": "Mosquitto 2.1.2 (authorized substitution)",
+    "checks": [
+      "configuration API responds",
+      "frontend API exposes applied value and UPDATED status",
+      "completion updates value/history and removes pending Message",
+      "RAM applies setting and publishes final MQTT completion without old command",
+      "invalid integer rejected without state change",
+      "unchanged setting adds no history or pending Message"
+    ],
+    "upstream_unchanged": false,
+    "status": "FAIL",
+    "error": "duplicate completion added history",
+    "control": "deduplication"
+  },
+  {
+    "mode": "ram",
+    "broker": "Mosquitto 2.1.2 (authorized substitution)",
+    "checks": [
+      "configuration API responds",
+      "frontend API exposes applied value and UPDATED status",
+      "completion updates value/history and removes pending Message",
+      "RAM applies setting and publishes final MQTT completion without old command",
+      "invalid integer rejected without state change",
+      "unchanged setting adds no history or pending Message",
+      "duplicate completion has no repeated history"
+    ],
+    "upstream_unchanged": false,
+    "status": "FAIL",
+    "error": "duplicate observation repeated physical application",
+    "control": "physical-repeat"
+  },
+  {
+    "mode": "ram",
+    "broker": "Mosquitto 2.1.2 (authorized substitution)",
+    "checks": [
+      "configuration API responds",
+      "frontend API exposes applied value and UPDATED status",
+      "completion updates value/history and removes pending Message",
+      "RAM applies setting and publishes final MQTT completion without old command",
+      "invalid integer rejected without state change",
+      "unchanged setting adds no history or pending Message",
+      "duplicate completion has no repeated history",
+      "reobserving desired state causes no repeated physical application",
+      "stale completion cannot alter legacy history",
+      "unconverted MQTT telemetry persists the actual sensor value",
+      "session loss removes capability",
+      "changes while absent do not create false applied history",
+      "returning device applies only latest pending value once"
+    ],
+    "upstream_unchanged": false,
+    "status": "PASS",
+    "control": "positive-after"
+  }
+]

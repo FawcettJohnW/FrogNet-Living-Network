@@ -1,0 +1,4 @@
+[ADAPTIVE_POOL_V1] pool: 1 threads (started 1, retired 0, wait trigger 1000 us, idle exit 60 s)
+[ADAPTIVE_POOL_V1] pool: 2 threads (started 2, retired 0, wait trigger 1000 us, idle exit 60 s)
+[DIAG-LZ4] size<=: tried won bytes_in bytes_saved
+[DIAG-LZ4]    128: 3 0 222 0

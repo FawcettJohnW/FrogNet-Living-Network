@@ -1,0 +1,1 @@
+S2D/SA/test-device-001/RM/1 RM|1-60;|END

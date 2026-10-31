@@ -81,3 +81,11 @@ for that, as frames on the session's permanent sockets, past the semantic engine
 | `[RAW_ROWS_V1]` `Memory::read_raw` | the same, each bag left as its text (`RawCell`) for a reader with its own format |
 | `[FOLLOW_STREAM_V1]` `Memory::follow` | a standing trigger: one request (op 0x7D), then the family's rows as they are written, in write order, until the session ends; delivered on the session's reader thread. The host's follower is a thread parked in the memory's wait |
 | `[IN_FLIGHT_BY_SEQ_V1]` | an in-flight request is found by its sequence number, not its slot |
+
+## Typed tuple and capability interface
+
+`ribbit_pp.hpp` adds `TupleName {indexA,indexB,indexC}`, `Tuple` and derived
+`Capability`. Set/get/held read share that name type and read results are JSON
+bags. See [API++](../docs/API-PLUS-PLUS.md#tuple-base-class-and-named-capability-operations-tuple_interface_pp_v1)
+and run `tools/check_capabilities.sh` for the focused positive/negative and mutation gate.
+The base API is unchanged.

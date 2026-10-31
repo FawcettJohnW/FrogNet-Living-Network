@@ -1,0 +1,78 @@
+{
+  "device": {
+    "_id": "test-device-001",
+    "_class": "com.magma.core.data.entity.Device",
+    "name": "test-device-001",
+    "sensorCodes": [
+      "test-temp"
+    ],
+    "sensorMap": {},
+    "shiftMap": {},
+    "actuatorMap": {},
+    "intervalMin": 10,
+    "connectivityMatrix": {},
+    "configurations": {},
+    "modifiedDate": "2026-10-29T03:32:15.764Z",
+    "deviceParameterConfiguration": {
+      "device": "test-device-001",
+      "productType": "remote-config-test",
+      "versionNum": "1",
+      "remoteConfigurations": [
+        {
+          "parameterCategory": "Topic Format & Interval",
+          "parameter": "Test sampling interval",
+          "parameterId": "1",
+          "inputType": "text",
+          "format": "integer",
+          "defaultValue": "150"
+        }
+      ],
+      "updateHistory": [
+        {
+          "actionBy": "test-operator",
+          "updatedDate": "2026-10-29T03:32:15.011Z",
+          "messageId": "ribbit:989f8fe4-6b81-4fdf-899f-691c726b0f55:1:1",
+          "updateStatus": "UPDATED",
+          "networkAndCommunication": {},
+          "topicFormat": {
+            "1": "60"
+          },
+          "messageFormat": {},
+          "updateParamList": {
+            "1": {
+              "parameterId": "1",
+              "parameter": "Test sampling interval",
+              "defaultValue": "60",
+              "isinValid": false,
+              "parameterCategory": "Topic Format & Interval"
+            }
+          }
+        },
+        {
+          "actionBy": "test-operator",
+          "updatedDate": "2026-10-29T03:32:16.073Z",
+          "messageId": "ribbit:989f8fe4-6b81-4fdf-899f-691c726b0f55:3:1",
+          "updateStatus": "UPDATED",
+          "networkAndCommunication": {},
+          "topicFormat": {
+            "1": "150"
+          },
+          "messageFormat": {},
+          "updateParamList": {
+            "1": {
+              "parameterId": "1",
+              "parameter": "Test sampling interval",
+              "defaultValue": "150",
+              "isinValid": false,
+              "parameterCategory": "Topic Format & Interval"
+            }
+          }
+        }
+      ]
+    },
+    "lastRawData": "T:21.5",
+    "productType": "remote-config-test",
+    "remoteConfigTopic": "S2D/SA/test-device-001/RM/#"
+  },
+  "messages": []
+}

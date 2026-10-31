@@ -1,0 +1,23 @@
+WARNING in native method: JNI call made without checking exceptions when required to from CallStaticObjectMethod
+PASS connection opens
+PASS get returns JSON bag
+PASS nonobject rejected
+PASS malformed JSON rejected
+PASS family write rejected
+PASS NUL rejected
+PASS null rejected
+PASS unpaired surrogate rejected
+PASS disconnect idempotent
+PASS closed access rejected
+PASS connection failure propagates
+PASS held callback arrives
+PASS exact selection
+PASS unsafe disconnect rejected
+PASS UTF8 and non-BMP roundtrip
+PASS failing callback executes
+PASS callback remains usable
+PASS callback failure observable
+RESULT PASS JNI binding (18 checks)
+Exception in thread "Thread-1" java.lang.IllegalArgumentException: deliberate callback failure
+	at BindingTest.lambda$main$9(BindingTest.java:28)
+	at com.fawcett.ribbit.Ribbit.lambda$watch$0(Ribbit.java:32)

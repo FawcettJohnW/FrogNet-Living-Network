@@ -1,0 +1,17 @@
+[Unit]
+Description=SenzMatica test: device participant (ends with its RAM session; restarted fresh)
+After=network-online.target 
+Wants=network-online.target
+# never give up: a role that cannot reach its peers keeps trying every 2 s until they are back
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/opt/senz/var/device.env
+ExecStartPre=/bin/cat /opt/senz/BUILD
+ExecStart=/opt/senz/bin/test-device ${RIBBIT_RAM} ${MQTT} ${SETTING_FILE} ${DEVICE_ID}
+StandardInput=null
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

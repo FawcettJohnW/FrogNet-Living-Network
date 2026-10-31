@@ -1,0 +1,78 @@
+PASS connection: initial disconnected access rejected
+PASS connection: repeated disconnect is harmless
+PASS connection: empty address/vendor rejected
+PASS connection: failed connect leaves disconnected state
+PASS connection: remote Space session opens
+PASS connection: duplicate connect preserves original session
+[ADAPTIVE_POOL_V1] pool: 1 threads (started 1, retired 0, wait trigger 1000 us, idle exit 60 s)
+PASS connection: tuple API uses owned session
+PASS connection: disconnected access rejected after close
+PASS connection: disconnect removes session-owned writes
+PASS connection: reconnect opens a fresh session
+PASS connection: local Space mode supported
+PASS absent tuple is an empty result, capability false
+PASS held read uses TupleName and returns JSON bag with cursor
+PASS exact tuples and tuple families retain independent coordinates
+PASS get delegates to base read and returns JSON metadata
+PASS enumerate whole space, family, and independent instance selector
+PASS set updates exact tuple
+PASS withdraw changes only the named tuple
+PASS withdrawn truth readable and excluded from active enumeration
+PASS spaces are isolated
+PASS delimiters in coordinates never alias concatenated names
+PASS nonobject and malformed bags rejected
+PASS nonJSON values, family writes, empty spaces and NUL coordinates rejected
+PASS capability metadata cannot forge reserved active state
+PASS malformed foreign capability state never counts as available
+PASS held timeout empty; invalid waits rejected
+PASS present empty JSON bag stays distinct from absence
+PASS JSON integer precision survives set/get
+PASS oversized integers and names fail before reaching asynchronous sender
+PASS absent tuple is an empty result, capability false
+PASS held read uses TupleName and returns JSON bag with cursor
+PASS exact tuples and tuple families retain independent coordinates
+PASS get delegates to base read and returns JSON metadata
+PASS enumerate whole space, family, and independent instance selector
+PASS set updates exact tuple
+PASS withdraw changes only the named tuple
+PASS withdrawn truth readable and excluded from active enumeration
+PASS spaces are isolated
+PASS delimiters in coordinates never alias concatenated names
+PASS nonobject and malformed bags rejected
+PASS nonJSON values, family writes, empty spaces and NUL coordinates rejected
+PASS capability metadata cannot forge reserved active state
+PASS malformed foreign capability state never counts as available
+PASS held timeout empty; invalid waits rejected
+PASS present empty JSON bag stays distinct from absence
+PASS JSON integer precision survives set/get
+PASS oversized integers and names fail before reaching asynchronous sender
+PASS Exists: absent tuple and family are false
+PASS SetMany: independent writes appear; Exists accepts tuple/family
+PASS WaitUntil: existing match succeeds even with zero wait
+PASS WaitUntil: evaluates full current family and misses no snapshot-to-hold change
+PASS WaitUntil: timeout is explicit and never fabricates a match
+PASS WaitUntil: invalid predicate/timeouts rejected
+PASS WaitUntil: predicate exceptions propagate
+PASS SetMany: invalid later name rejects before any write
+PASS SetMany: invalid later bag rejects before any write
+PASS SetMany: empty batch allowed; repeated exact name preserves write order
+PASS Exists means present; explicit withdrawal is not absence
+PASS Exists: absent tuple and family are false
+PASS SetMany: independent writes appear; Exists accepts tuple/family
+PASS WaitUntil: existing match succeeds even with zero wait
+PASS WaitUntil: evaluates full current family and misses no snapshot-to-hold change
+PASS WaitUntil: timeout is explicit and never fabricates a match
+PASS WaitUntil: invalid predicate/timeouts rejected
+PASS WaitUntil: predicate exceptions propagate
+PASS SetMany: invalid later name rejects before any write
+PASS SetMany: invalid later bag rejects before any write
+PASS SetMany: empty batch allowed; repeated exact name preserves write order
+PASS Exists means present; explicit withdrawal is not absence
+PASS watch includes existing tuple
+PASS held watch reports update
+PASS held watch reports withdrawal
+PASS withdrawn tuple can be reasserted
+PASS exact watch excludes other instance
+[ADAPTIVE_POOL_V1] pool: 2 threads (started 2, retired 0, wait trigger 1000 us, idle exit 60 s)
+PASS session loss reports gone and removes current capability
+RESULT PASS capability API (0 failed)

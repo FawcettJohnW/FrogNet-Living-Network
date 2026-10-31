@@ -1,0 +1,425 @@
+{
+  "tier": "real-kernel network namespaces (veth + bridge), single host",
+  "topology": {
+    "ops": "10.77.0.10",
+    "ram": "10.77.0.20",
+    "dev": "10.77.0.30",
+    "observer": "10.77.0.1"
+  },
+  "keepalive_note": "frogram/ram_host sockets: SO_KEEPALIVE idle 2 s, interval 1 s, 3 probes; TCP_USER_TIMEOUT 5000 ms",
+  "scenarios": [
+    {
+      "name": "S1 cross-namespace change",
+      "submit": {
+        "at": 10.151,
+        "value": 60,
+        "response": "S1000"
+      },
+      "applied_seen_at": 10.382,
+      "seconds": 0.127,
+      "ram": {
+        "capability": true,
+        "desired": [
+          "60"
+        ],
+        "applied": [
+          "60/applied"
+        ]
+      }
+    },
+    {
+      "name": "S2 device split 3 s, change during split",
+      "split_at": 10.486,
+      "healed_at": 13.486,
+      "submit": {
+        "at": 10.486,
+        "value": 90,
+        "response": "S1000"
+      },
+      "ram_during_split": {
+        "capability": true,
+        "desired": [
+          "90"
+        ],
+        "applied": [
+          "60/applied"
+        ]
+      },
+      "outcome": "applied after heal",
+      "outcome_at": 13.958,
+      "ram_after": {
+        "capability": true,
+        "desired": [
+          "90"
+        ],
+        "applied": [
+          "90/applied"
+        ]
+      },
+      "device_session_ended": false
+    },
+    {
+      "name": "S3 device split 15 s, change during split, no manual restart",
+      "split_at": 14.056,
+      "submit": {
+        "at": 15.056,
+        "value": 120,
+        "response": "S1000"
+      },
+      "capability_gone_seen_at": 18.934,
+      "healed_at": 29.076,
+      "outcome": "applied by a fresh device session after heal",
+      "outcome_at": 32.392,
+      "seconds_from_heal": 3.316,
+      "device_process_starts_during_and_after_split": 1,
+      "session_end_lines": [
+        "SESSION_ENDED recv: Connection timed out (no answer from the far end within the 5 s keepalive / user timeout) -- ending this process for a fresh one"
+      ],
+      "ram_after": {
+        "capability": true,
+        "desired": [
+          "120"
+        ],
+        "applied": [
+          "120/applied"
+        ]
+      }
+    },
+    {
+      "name": "S4 two changes while device down, device returns",
+      "submits": [
+        {
+          "at": 32.502,
+          "value": 150,
+          "response": "S1000"
+        },
+        {
+          "at": 32.523,
+          "value": 180,
+          "response": "S1000"
+        }
+      ],
+      "outcome": "latest applied",
+      "outcome_at": 33.859,
+      "applied_this_boot": [
+        "180"
+      ]
+    },
+    {
+      "name": "S5 operator split 15 s, change during split, no manual restart",
+      "split_at": 33.866,
+      "submit_during": {
+        "at": 34.866,
+        "value": 210,
+        "response": "S1000"
+      },
+      "desired_gone_seen_at": 38.742,
+      "submit_after_session_known_gone": {
+        "at": 38.742,
+        "value": 225,
+        "http_error": 500,
+        "body": "{\"timestamp\":1793249451876,\"status\":500,\"error\":\"Internal Server Error\",\"exception\":\"java.lang.IllegalStateException\",\"message\":\"RAM is unavailable; no MQTT fallback\",\"path\":\"/core/device/deviceParameterConfiguration/test-device-001/user/test-operator\"}"
+      },
+      "healed_at": 48.884,
+      "outcome": "change made during the split applied after heal",
+      "outcome_at": 51.845,
+      "seconds_from_heal": 2.961,
+      "submit_after": {
+        "at": 51.845,
+        "value": 240,
+        "response": "S1000"
+      },
+      "outcome_after": "next change applied",
+      "backend_session_events": [
+        "60 RAM_SESSION up address=10.77.0.20:18884 reasserted=0",
+        "69 RAM_SESSION ended: recv: Connection timed out (no answer from the far end within the 5 s keepalive / user timeout) -- no RAM path until a fresh session; next",
+        "60 RAM_SESSION up address=10.77.0.20:18884 reasserted=1"
+      ]
+    },
+    {
+      "name": "S6 RAM restarted empty, no manual restart of anything else",
+      "ram_restarted_at": 52.099,
+      "rejoin": "device and operator back, truths reasserted",
+      "rejoined_at": 54.13,
+      "seconds_to_rejoin": 2.031,
+      "ram_after_rejoin": {
+        "capability": true,
+        "desired": [
+          "240"
+        ],
+        "applied": [
+          "240/applied"
+        ]
+      },
+      "submit": {
+        "at": 54.131,
+        "value": 270,
+        "response": "S1000"
+      },
+      "outcome": "next change applied",
+      "outcome_at": 54.356,
+      "device_ram_applications_this_boot": [
+        "270"
+      ],
+      "ram_after": {
+        "capability": true,
+        "desired": [
+          "270"
+        ],
+        "applied": [
+          "270/applied"
+        ]
+      }
+    },
+    {
+      "name": "S7 device split 60 s, change during split, no manual restart",
+      "split_at": 54.363,
+      "submit": {
+        "at": 55.364,
+        "value": 300,
+        "response": "S1000"
+      },
+      "healed_at": 114.384,
+      "outcome": "applied by a fresh device session after heal",
+      "outcome_at": 129.163,
+      "seconds_from_heal": 14.779,
+      "device_process_starts": 1,
+      "device_ram_applications_this_boot": [
+        "300"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "after": "startup",
+      "at": 10.151,
+      "view_value": "30",
+      "device_holds": "30",
+      "history": [],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": []
+    },
+    {
+      "after": "S1",
+      "at": 10.479,
+      "view_value": "60",
+      "device_holds": "60",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "60"
+      ]
+    },
+    {
+      "after": "S2",
+      "at": 14.049,
+      "view_value": "90",
+      "device_holds": "90",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "60",
+        "90"
+      ]
+    },
+    {
+      "after": "S3",
+      "at": 32.496,
+      "view_value": "120",
+      "device_holds": "120",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ],
+        [
+          "UPDATED",
+          "120"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "120"
+      ],
+      "I3_returning_device_applies_latest_only": true
+    },
+    {
+      "after": "S4",
+      "at": 33.858,
+      "view_value": "180",
+      "device_holds": "180",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ],
+        [
+          "UPDATED",
+          "120"
+        ],
+        [
+          "UPDATED",
+          "180"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "180"
+      ],
+      "I3_returning_device_applies_latest_only": true
+    },
+    {
+      "after": "S5",
+      "at": 52.043,
+      "view_value": "240",
+      "device_holds": "240",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ],
+        [
+          "UPDATED",
+          "120"
+        ],
+        [
+          "UPDATED",
+          "180"
+        ],
+        [
+          "UPDATED",
+          "210"
+        ],
+        [
+          "UPDATED",
+          "240"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "180",
+        "210",
+        "240"
+      ]
+    },
+    {
+      "after": "S6",
+      "at": 54.355,
+      "view_value": "270",
+      "device_holds": "270",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ],
+        [
+          "UPDATED",
+          "120"
+        ],
+        [
+          "UPDATED",
+          "180"
+        ],
+        [
+          "UPDATED",
+          "210"
+        ],
+        [
+          "UPDATED",
+          "240"
+        ],
+        [
+          "UPDATED",
+          "270"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "270"
+      ]
+    },
+    {
+      "after": "S7",
+      "at": 129.266,
+      "view_value": "300",
+      "device_holds": "300",
+      "history": [
+        [
+          "UPDATED",
+          "60"
+        ],
+        [
+          "UPDATED",
+          "90"
+        ],
+        [
+          "UPDATED",
+          "120"
+        ],
+        [
+          "UPDATED",
+          "180"
+        ],
+        [
+          "UPDATED",
+          "210"
+        ],
+        [
+          "UPDATED",
+          "240"
+        ],
+        [
+          "UPDATED",
+          "270"
+        ],
+        [
+          "UPDATED",
+          "300"
+        ]
+      ],
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "device_ram_applications_this_boot": [
+        "300"
+      ]
+    }
+  ],
+  "status": "PASS"
+}
