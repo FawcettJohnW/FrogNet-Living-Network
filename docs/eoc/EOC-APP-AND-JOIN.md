@@ -68,6 +68,16 @@ Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admi
 - Each level gets two random ports on the RAM host: its **login port** and its **session port**.
 - A generic WireGuard credential is made for logging in. It is supplied to users and goes into the install.
 
+**The EOC manager sets the network up** on their own droplet. They log in to it, install the one droplet bundle (`cd / && tar xvzf - < /tmp/fdf-droplet-<build>.tgz`), and run the wizard, `/opt/fdf/bin/fdf-setup`. It walks them through, asking before it changes anything and fixing what it finds missing (wireguard-go, the firewall) once they say yes:
+
+1. **The RAM manager:** the region's name, the droplet's public address (found, shown, confirmed), then `fdf-region-create` as it is today.
+2. **Levels:** offers Watcher, Player, Host; for each, password or none, and admission open, specifically allowed, or a list. It picks the random login and session ports.
+3. **Users and passwords** for the levels that need them, stored encrypted in tuple space.
+4. **Distributing the keys:** the generic WireGuard credential, and for each level one join line (RAM host address, credential, login port) printed and shown as a QR, ready to hand out or put in an install.
+5. **Logging in:** the manager's own first device logs in at Host with the line from step 4, and the wizard shows it on the session port.
+
+The wizard can be run again to add levels or users; anything it made is shown, not remade.
+
 **At install**, the client is given the RAM host's address, the generic WireGuard credential, and the login port for its level. If the level requires them, the person supplies a user and password.
 
 **Login**, in order:
@@ -140,7 +150,7 @@ Windows first, then Android, then the HTTP pages the post serves. Each step is o
 
 1. ~~`join()` in the member library~~: in the tree (`Invite.kt`).
 2. ~~Windows join~~: in the tree (bridge a19).
-3. **Levels and login**: the credential manager on the RAM host (levels, login and session ports, credentials encrypted in tuple space); `login(level)` in the member library. Proven in a network namespace against a real `fdf-region-create` region: two devices logging in at once, a level with a password and one without, each ending on its own tunnel at the level's session port.
+3. **Levels, login and the setup wizard**: `fdf-setup` on the droplet (RAM manager, levels, users, keys, first login); the credential manager on the RAM host (levels, login and session ports, credentials encrypted in tuple space); `login(level)` in the member library. Proven in a network namespace against a real `fdf-region-create` region: two devices logging in at once, a level with a password and one without, each ending on its own tunnel at the level's session port.
 4. **The system RAM manager at merge**: the configured WAN RAM hosts checked in order at the start of the merge, registered and connected if one answers, databasehost-control (highest IP) if none does. Node (`region.py`), member library (Windows and Android). Proven in a namespace: WAN RAM host up, it is the RAM; cut it, the highest IP is; restore it, the reconnect's merge moves back.
 5. **The Windows app**: RangerTrak's screens on the member's JVM.
 6. **Android**: the same screens over the same cells; a signed APK.
