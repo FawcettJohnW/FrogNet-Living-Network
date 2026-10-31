@@ -127,6 +127,14 @@ class PhoneAPI
     // cells each, taken when that part of the dump starts; these say whether this session's read was taken.
     bool cellsNodesRead = false;
     bool cellsReplayRead = false;
+    std::deque<std::pair<uint64_t, std::string>> catchUpMarks; // [MT_READ_MARKS_V1] (row, family) per caught-up message
+    uint32_t pendingHanded = 0; // [MT_READ_MARKS_V1] packet id in the frame being written; marked when the write lands
+    std::pair<uint64_t, std::string> pendingCatchUp{0, ""}; // a caught-up row in the frame being written
+
+  protected:
+    void onFrameWritten();
+
+  private:
     void prefetchNodeInfosFromCells();
     bool popReplayPacketFromCells(meshtastic_MeshPacket &out);
 #endif

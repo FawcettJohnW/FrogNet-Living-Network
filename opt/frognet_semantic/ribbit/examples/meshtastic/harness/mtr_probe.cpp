@@ -23,7 +23,7 @@ static void on_fact(const char *topic, uint32_t node, const uint8_t *b, size_t l
     printf("FACT topic=%s node=!%08x len=%zu gone=%d t=%u live=%d first=%02x\n", topic, node, len, gone, t, live, len ? b[0] : 0);
     fflush(stdout);
 }
-static void on_packet(const uint8_t *, size_t len, void *) { printf("PACKET len=%zu\n", len); fflush(stdout); }
+static void on_packet(const uint8_t *, size_t len, uint64_t row, const char *family, void *) { printf("PACKET len=%zu row=%llu family=%s\n", len, (unsigned long long)row, family); fflush(stdout); }
 
 int main(int argc, char **argv)
 {

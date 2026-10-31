@@ -19,6 +19,9 @@
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "mt_ribbit.h"
 #include <array>
+#include <atomic>
+#include "concurrency/Lock.h"
+#include "concurrency/LockGuard.h"
 #include <cstring>
 #include <cstdlib>
 
@@ -198,9 +201,60 @@ class RibbitTransport final
     std::array<uint32_t, 16> factIds{}; // ids of the last packets that carried an own fact
     size_t factNext = 0;
 
-    // On the held read's thread, in the family's write order: the same ingress rules as UdpMulticastHandler::onReceive.
-    static void onPacket(const uint8_t *bytes, size_t len, void *ctx)
+  public:
+    // [MT_READ_MARKS_V1] which memory row a received packet came from, so the hand-off to a client can mark it
+    struct RowOf {
+        uint32_t id = 0;
+        uint64_t row = 0;
+        char family[24] = {};
+    };
+    bool rowOf(uint32_t id, RowOf &out)
     {
+        concurrency::LockGuard g(&rowsMutex);
+        for (auto &r : rows)
+            if (r.id && r.id == id) {
+                out = r;
+                return true;
+            }
+        return false;
+    }
+    void forgetRow(uint32_t id)
+    {
+        concurrency::LockGuard g(&rowsMutex);
+        for (auto &r : rows)
+            if (r.id == id) r.id = 0;
+    }
+    // a client was handed the packet (its frame was written): the node's mark on its family moves to that row
+    void handedId(uint32_t id)
+    {
+        RowOf r;
+        if (!rowOf(id, r))
+            return;
+        mtr_mark(r.family, r.row);
+        forgetRow(id);
+        LOG_INFO("[MT_RIBBIT] handed id=0x%08x to a client: mark %s = row %llu", id, r.family, (unsigned long long)r.row);
+    }
+    // connected clients of this node (PhoneAPI instances past their config start)
+    static std::atomic<int> clients;
+
+  private:
+    std::array<RowOf, 64> rows{};
+    size_t rowNext = 0;
+    concurrency::Lock rowsMutex;
+    void remember(uint32_t id, uint64_t row, const char *family)
+    {
+        concurrency::LockGuard g(&rowsMutex);
+        RowOf &r = rows[rowNext++ % rows.size()];
+        r.id = id;
+        r.row = row;
+        strncpy(r.family, family, sizeof r.family - 1);
+        r.family[sizeof r.family - 1] = 0;
+    }
+
+    // On the held read's thread, in the family's write order: the same ingress rules as UdpMulticastHandler::onReceive.
+    static void onPacket(const uint8_t *bytes, size_t len, uint64_t row, const char *family, void *ctx)
+    {
+        auto *self = static_cast<RibbitTransport *>(ctx);
         meshtastic_MeshPacket mp = meshtastic_MeshPacket_init_zero;
         if (!pb_decode_from_bytes(bytes, len, &meshtastic_MeshPacket_msg, &mp) || !router ||
             mp.which_payload_variant != meshtastic_MeshPacket_encrypted_tag) {
@@ -215,7 +269,9 @@ class RibbitTransport final
             LOG_WARN("[MT_RIBBIT] read hop_limit(%u)/hop_start(%u) out of range, dropped", mp.hop_limit, mp.hop_start);
             return;
         }
-        LOG_INFO("[MT_RIBBIT] read id=0x%08x from=0x%08x to=0x%08x len=%u", mp.id, mp.from, mp.to, (unsigned)len);
+        LOG_INFO("[MT_RIBBIT] read id=0x%08x from=0x%08x to=0x%08x len=%u (%s row %llu)", mp.id, mp.from, mp.to, (unsigned)len,
+                 family, (unsigned long long)row);
+        self->remember(mp.id, row, family); // [MT_READ_MARKS_V1]
         mp.pki_encrypted = false;
         mp.public_key.size = 0;
         mp.tx_after = 0;

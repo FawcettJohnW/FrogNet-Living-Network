@@ -11,8 +11,10 @@
 #include <cstdint>
 
 extern "C" {
-// Called on the held read's thread for each packet another node wrote, in the family's write order.
-typedef void (*mtr_on_packet)(const uint8_t *bytes, size_t len, void *ctx);
+// Called on the held read's thread for each packet another node wrote, in the family's write order. row: the row's id
+// in the memory; family: the family it came from ("msg|8", "dm|!0012abcd") -- what the node's mark names once a
+// client has been handed the packet. [MT_READ_MARKS_V1]
+typedef void (*mtr_on_packet)(const uint8_t *bytes, size_t len, uint64_t row, const char *family, void *ctx);
 
 // where: "HOST:PORT" (a memory elsewhere) or "here:HOST:PORT" (this process holds it). me: this node's number.
 // Returns 0 when the memory is reached and the held read is running; -1 with the reason logged otherwise.
@@ -23,8 +25,21 @@ int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void *ctx);
 // node is (mt, dm|!R, !S.<n>), read by R's edge only. Returns at once; nobody is waited for. Rings outlive the
 // writer's session (a message is a record the sender made; the reader's mark decides what it has seen).
 void mtr_send(const uint8_t *bytes, size_t len, uint32_t to, uint8_t channel);
-// Hold the channel family (mt, msg|<hash>): the node has this channel. Idempotent; from now on.
+// Hold the channel family (mt, msg|<hash>): the node has this channel. Idempotent; from the node's mark on that family
+// (nothing handed to a client yet: from now on).
 void mtr_hold_channel(uint8_t hash);
+
+// [MT_READ_MARKS_V1] The node's mark on a family: the newest row of it a client of this node has been handed,
+// (mt, mark, !N.<family>), the node's own cell, kept past its session. Stock's to-phone queue (32 deep, persisted as
+// receive_queue) becomes this: nothing is queued; what a client has not been handed is still in the senders' rings.
+void mtr_mark(const char *family, uint64_t row);
+// One read of the mark: the row id, 0 when there is none.
+uint64_t mtr_mark_read(const char *family);
+// What a family holds past the node's mark, oldest first, on the caller's thread (a client connected: catch up).
+// Returns the count. Rows are handed to on() like the held read's.
+size_t mtr_read_past_mark(const char *family, mtr_on_packet on, void *ctx);
+// Every family this node holds (msg|<hash> for its channels, dm|!me), one call of on() per family name.
+size_t mtr_families(void (*on)(const char *family, void *ctx), void *ctx);
 
 // The version line every log and the bench print.
 const char *mtr_version(void);

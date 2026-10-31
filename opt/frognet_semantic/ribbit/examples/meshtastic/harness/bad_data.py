@@ -16,6 +16,8 @@ Scenarios, each timed and logged:
   S6 restart     relaunch it: it is back in every other client's list, and how fast
   S7 malformed   a user cell with garbage bytes and one with a bad instance: no node falls over (all still answer)
   S8 position    a fixed position set on one node reaches a connected client of another node, and a fresh one
+  S10 unattended with no client on a node, a broadcast and a DM to it; the next client to connect gets both
+  S11 unattended the same, the node restarted before the client connects
   S9 requests    another node's client asks this node for node info, position, device telemetry: what comes back
 Writes results.json beside the logs. Exit 0 = every scenario PASS.
 """
@@ -251,6 +253,60 @@ def main():
         res["S9_requests"] = s9
         log("S9", s9)
 
+        # S10 nobody listening: with no client on dst, src sends a broadcast and a DM to dst; a client then connects
+        # to dst and must get both (stock: the node's 32-deep to-phone queue; Ribbit: the rows past the node's mark)
+        # S11 the same, with dst restarted before the client connects (stock persists receive_queue; Ribbit: the mark)
+        def settle(port):
+            """meshtasticd notices a closed client only when it next writes to it; a bare connect makes it force-close the
+            previous connection (after its <1 s backoff), so no scenario inherits a half-closed client."""
+            import socket
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=2):
+                    time.sleep(1.2)
+            except OSError:
+                pass
+            time.sleep(0.5)
+        def unattended(tag, restart):
+            settle(dst.tcp_port)
+            i = connect(src.tcp_port)
+            i.sendText(f"{tag}-bcast", wantAck=False)
+            time.sleep(2.2)
+            i.sendText(f"{tag}-dm", destinationId=nums[dst.tcp_port], wantAck=False)
+            time.sleep(1.5)   # let the writes land before the sender's connection goes
+            i.close()
+            if restart:
+                k = nodes.index(dst)
+                sups[k].stop(); time.sleep(1)
+                sups[k] = Relaunch(dst); sups[k].start()
+                # wait for the port only: a client that connects and asks consumes what is queued for the phone,
+                # on stock and on the memory alike, so no probe client between the sends and the listener
+                def port_open():
+                    import socket
+                    try:
+                        with socket.create_connection(("127.0.0.1", dst.tcp_port), timeout=1):
+                            return True
+                    except OSError:
+                        return False
+                wait_until(port_open, 60, step=1)
+                time.sleep(3)
+            got = set(); lock2 = threading.Lock()
+            def on_t(packet=None, interface=None, **_):
+                txt = packet.get("decoded", {}).get("text", "")
+                if txt.startswith(tag):
+                    with lock2:
+                        got.add(txt)
+            pub.subscribe(on_t, "meshtastic.receive.text")
+            t = time.time()
+            j = connect(dst.tcp_port)
+            ok, t1 = wait_until(lambda: {f"{tag}-bcast", f"{tag}-dm"} <= got, 20)
+            j.close()
+            pub.unsubscribe(on_t, "meshtastic.receive.text")
+            return {"pass": bool(ok), "seconds": round(t1 - t, 2), "got": sorted(got)}
+        res["S10_unattended"] = unattended("UA", False)
+        log("S10", res["S10_unattended"])
+        res["S11_unattended_restart"] = unattended("UR", True)
+        log("S11", res["S11_unattended_restart"])
+
         # S4 kill one node for good
         victim = nodes[-1]
         vnum = nums[victim.tcp_port]
@@ -301,7 +357,7 @@ def main():
         for s in sups:
             s.stop()
         (wd / "results.json").write_text(json.dumps(res, indent=1))
-    verdict = all(v.get("pass") for v in res.values()) and len(res) == 9
+    verdict = all(v.get("pass") for v in res.values()) and len(res) == 11
     log("VERDICT", "PASS" if verdict else "FAIL", {k: v.get("pass") for k, v in res.items()})
     return 0 if verdict else 1
 

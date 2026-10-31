@@ -274,6 +274,10 @@ void PhoneAPI::handleStartConfig()
     // Must be before setting state (because state is how we know !connected)
     if (!isConnected()) {
         onConnectionChanged(true);
+#ifdef ARCH_PORTDUINO
+        if (ribbitTransport) // [MT_READ_MARKS_V1]
+            LOG_INFO("[MT_RIBBIT] client connected (%d)", RibbitTransport::clients.fetch_add(1) + 1);
+#endif
         observe(&service->fromNumChanged);
 #ifdef FSCom
         observe(&xModem.packetReady);
@@ -358,6 +362,9 @@ void PhoneAPI::handleStartConfig()
 #ifdef ARCH_PORTDUINO
         cellsNodesRead = false;
         cellsReplayRead = false;
+        catchUpMarks.clear(); // [MT_READ_MARKS_V1] what was not handed over keeps its place past the mark
+        pendingHanded = 0;
+        pendingCatchUp = {0, ""};
 #endif
     }
     resetReadIndex();
@@ -391,6 +398,10 @@ void PhoneAPI::close()
         releaseMqttClientProxyPhonePacket();
         releaseClientNotification();
         onConnectionChanged(false);
+#ifdef ARCH_PORTDUINO
+        if (ribbitTransport) // [MT_READ_MARKS_V1]
+            LOG_INFO("[MT_RIBBIT] client gone (%d left)", RibbitTransport::clients.fetch_sub(1) - 1);
+#endif
         fromRadioScratch = {};
         toRadioScratch = {};
         // Clear cached node info under lock because NimBLE callbacks can still be draining it.
@@ -425,6 +436,24 @@ void PhoneAPI::close()
 #endif
     }
 }
+
+#ifdef ARCH_PORTDUINO
+// [MT_READ_MARKS_V1] the frame built from packetForPhone was written to the client: the node's mark moves to its row.
+// A frame that was not written (the client went) leaves the mark where it was, and the next client is handed the row.
+void PhoneAPI::onFrameWritten()
+{
+    if (pendingHanded && ribbitTransport) {
+        ribbitTransport->handedId(pendingHanded);
+        pendingHanded = 0;
+    }
+    if (pendingCatchUp.first) {
+        mtr_mark(pendingCatchUp.second.c_str(), pendingCatchUp.first);
+        LOG_INFO("[MT_RIBBIT] caught up to a client: mark %s = row %llu", pendingCatchUp.second.c_str(),
+                 (unsigned long long)pendingCatchUp.first);
+        pendingCatchUp = {0, ""};
+    }
+}
+#endif
 
 bool PhoneAPI::checkConnectionTimeout()
 {
@@ -1090,6 +1119,9 @@ size_t PhoneAPI::getFromRadio(uint8_t *buf)
 #endif
             {
                 printPacket("phone downloaded packet", packetForPhone);
+#ifdef ARCH_PORTDUINO
+                pendingHanded = packetForPhone->id; // [MT_READ_MARKS_V1] marked once the frame is written to the client
+#endif
                 // Encapsulate as a FromRadio packet
                 fromRadioScratch.which_payload_variant = meshtastic_FromRadio_packet_tag;
                 fromRadioScratch.packet = *packetForPhone;
@@ -2334,8 +2366,39 @@ void cellToReplay(const char *topic, uint32_t node, const uint8_t *p, size_t len
 }
 } // namespace
 
+namespace {
+// [MT_READ_MARKS_V1] message rows past the node's mark, caught up for a client that just connected: the packet as the
+// sender wrote it, decoded here as stock decodes for the phone; the mark moves as each is handed over
+struct CatchUp {
+    struct Row {
+        meshtastic_MeshPacket pkt;
+        uint64_t row;
+        char family[24];
+    };
+    std::vector<Row> rows;
+};
+void rowToCatchUp(const uint8_t *bytes, size_t len, uint64_t row, const char *family, void *ctx)
+{
+    auto *c = static_cast<CatchUp *>(ctx);
+    CatchUp::Row r{meshtastic_MeshPacket_init_zero, row, {}};
+    if (!pb_decode_from_bytes(bytes, len, &meshtastic_MeshPacket_msg, &r.pkt)) {
+        LOG_WARN("[MT_RIBBIT] catch-up: row %llu of %s does not decode, not handed on", (unsigned long long)row, family);
+        return;
+    }
+    r.pkt.pki_encrypted = false;
+    r.pkt.public_key.size = 0;
+    r.pkt.rx_time = 0;
+    if (perhapsDecode(&r.pkt) != DECODE_SUCCESS)
+        LOG_INFO("[MT_RIBBIT] catch-up: row %llu of %s not decodable here, handed on as written", (unsigned long long)row, family);
+    strncpy(r.family, family, sizeof r.family - 1);
+    c->rows.push_back(r);
+}
+void familyCatchUp(const char *family, void *ctx) { mtr_read_past_mark(family, rowToCatchUp, ctx); }
+} // namespace
+
 // [MT_DUMP_READS_CELLS_V1] The replay after config_complete_id: one read each of the position, telemetry and status
-// cells, in stock's phase order, when the replay starts; then it drains.
+// cells, in stock's phase order, when the replay starts; then the message rows past the node's mark
+// [MT_READ_MARKS_V1]; then it drains.
 bool PhoneAPI::popReplayPacketFromCells(meshtastic_MeshPacket &out)
 {
     if (replayPhase == REPLAY_PHASE_IDLE)
@@ -2347,24 +2410,38 @@ bool PhoneAPI::popReplayPacketFromCells(meshtastic_MeshPacket &out)
         mtr_read_facts("pos", cellToReplay, &pos);
         mtr_read_facts("tel.*", cellToReplay, &tel);
         mtr_read_facts("status", cellToReplay, &st);
+        CatchUp cu;
+        mtr_families(familyCatchUp, &cu);
         concurrency::LockGuard guard(&nodeInfoMutex);
         for (auto *c : {&pos, &tel, &st})
             for (auto &p : c->pkts)
                 replayQueue.push_back(p);
-        LOG_INFO("[MT_RIBBIT] replay: %u positions, %u telemetry, %u status from one read each of the cells",
-                 (unsigned)pos.pkts.size(), (unsigned)tel.pkts.size(), (unsigned)st.pkts.size());
+        for (auto &r : cu.rows) {
+            replayQueue.push_back(r.pkt);
+            catchUpMarks.push_back({r.row, std::string(r.family)});
+        }
+        LOG_INFO("[MT_RIBBIT] replay: %u positions, %u telemetry, %u status from one read each of the cells; %u messages past "
+                 "the node's mark",
+                 (unsigned)pos.pkts.size(), (unsigned)tel.pkts.size(), (unsigned)st.pkts.size(), (unsigned)cu.rows.size());
     }
     {
         concurrency::LockGuard guard(&nodeInfoMutex);
         if (!replayQueue.empty()) {
             out = replayQueue.front();
             replayQueue.pop_front();
+            // the cell packets come first; once they are out, each pop is a caught-up message, marked when its frame
+            // is written to the client
+            if (replayQueue.size() < catchUpMarks.size()) {
+                pendingCatchUp = catchUpMarks.front();
+                catchUpMarks.pop_front();
+            }
             return true;
         }
     }
     LOG_INFO("Replay drain complete (cells) millis=%u", millis());
     replayPhase = REPLAY_PHASE_IDLE;
     cellsReplayRead = false;
+    catchUpMarks.clear();
     return false;
 }
 #endif

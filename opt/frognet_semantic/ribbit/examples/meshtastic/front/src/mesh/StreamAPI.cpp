@@ -76,6 +76,10 @@ bool StreamAPI::writeStream()
         len = getFromRadio(txBuf + HEADER_LEN);
         if (len != 0 && !emitTxBuffer(len))
             return false;
+#ifdef ARCH_PORTDUINO
+        if (len != 0)
+            onFrameWritten(); // [MT_READ_MARKS_V1]
+#endif
     } while (len && Throttle::isWithinTimespanMs(started, STREAM_WRITE_BUDGET_MSEC));
 
     return len != 0;

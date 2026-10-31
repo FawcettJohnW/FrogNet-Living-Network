@@ -226,3 +226,33 @@ LOC and complexity as of this step (compiled sources, generated protobufs exclud
 Everything so far is added and gated at runtime (the same binary is stock without MESHTASTIC_RIBBIT, which is what
 lets the native suites stand as the arbiter); nothing is deleted yet. Plumbing and NodeDB together are 18,874 LOC /
 4,848 CCN; the memory replaces them with ~600 / 172.
+
+## Phase 2, step 4b — the node's read mark replaces the to-phone queue [MT_READ_MARKS_V1]
+
+Stock keeps one 32-deep to-phone queue per node, drained by whichever client asks, persisted as receive_queue. On the
+memory nothing is queued: a message row the held read brings while no client is connected stays in its sender's ring
+past the node's mark (mt, mark, !N.<family>), the node's own cell, kept past its session; the next client to connect
+is handed the rows past the mark after the cell replay, and the mark moves as each frame is written to the client (a
+frame built for a client that went before it was written leaves the mark where it was). After a restart the held
+reads start from the marks.
+
+Step 4 gained S10 (no client on a node; a broadcast and a DM to it; the next client must get both) and S11 (the same
+with the node restarted before the client connects).
+
+| scenario | stock 2.8.2 (step4-20261031-120331) | Ribbit 0.10 (step4-20261031-123204) |
+|---|---|---|
+| S1–S9 | 8/9 (S9 node info unanswered, as before) | 9/9 |
+| S10 next client gets both | 0.61 s | 0.61 s |
+| S11 after the node's restart | nothing in 20 s | both, 0.61 s |
+
+| oracle | result |
+|---|---|
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 292.9 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 53 m 16 s |
+
+Found on the way: meshtasticd notices a closed TCP client only when it next writes to it (Portduino's WiFiClient), so a
+scenario's just-closed client was still "connected" when the next scenario's broadcast arrived, took it, and the write
+failed — on stock the packet was lost; on ours the first form of the mark (moved when the frame was built) lost it the
+same way. The mark now moves when the frame is written, and the harness makes the node force-close a stale client (a
+bare connect does it, after the server's <1 s backoff) before the unattended sends. A client that connects and asks
+consumes what is waiting, on stock and on the memory alike — so the harness's node-list probes stay out of S10/S11.

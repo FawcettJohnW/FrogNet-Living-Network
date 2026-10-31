@@ -25,7 +25,7 @@
 namespace {
 constexpr const char *SPACE = "mt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.7 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.8 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1] [MT_READ_MARKS_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -85,30 +85,47 @@ std::string msg_topic(uint8_t ch)
     return b;
 }
 
-// one held read on a family, from now on; each row another node wrote is handed to the firmware
+constexpr const char *MARK = "mark";
+std::string mark_instance(const std::string &family) { return g_me + "." + family; }
+
+// a row of a message family, handed to the firmware if it is another node's packet
+void hand(ribbit::SpaceRow &r, const std::string &topic, mtr_on_packet on, void *ctx)
+{
+    const std::string mine = g_me + ".";
+    if (r.gone) return;                                       // a ring left with its writer: not a packet
+    if (r.instance.compare(0, mine.size(), mine) == 0) return; // our own write
+    auto f = r.fields();
+    std::string p, bytes;
+    if (!f || !(p = f->str("p")).size() || !unhex(p, bytes)) {
+        fprintf(stderr, "[MT_RIBBIT] row %llu (%s,%s): no packet in the bag, skipped\n", (unsigned long long)r.id,
+                topic.c_str(), r.instance.c_str());
+        return;
+    }
+    on(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), r.id, topic.c_str(), ctx);
+}
+
+uint64_t mark_of(const std::string &family)
+{
+    auto rows = g_space->read(SPACE, MARK, mark_instance(family));
+    for (auto &r : rows)
+        if (!r.gone && r.fields()) return (uint64_t)r.fields()->num("row");
+    return 0;
+}
+
+// one held read on a family, from the node's mark on it (none: from now on); each row is handed to the firmware
 void hold(const std::string &topic)
 {
     {
         std::lock_guard<std::mutex> g(g_held_mu);
         if (!g_held.insert(topic).second) return;
     }
-    const std::string mine = g_me + ".";
-    long long from = (long long)g_space->newest(SPACE, topic);
-    g_space->watch(SPACE, topic, from, [mine, topic](std::vector<ribbit::SpaceRow> &rows) {
-        for (auto &r : rows) {
-            if (r.gone) continue;                                       // a ring left with its writer: not a packet
-            if (r.instance.compare(0, mine.size(), mine) == 0) continue; // our own write
-            auto f = r.fields();
-            std::string p, bytes;
-            if (!f || !(p = f->str("p")).size() || !unhex(p, bytes)) {
-                fprintf(stderr, "[MT_RIBBIT] row %llu (%s,%s): no packet in the bag, skipped\n", (unsigned long long)r.id,
-                        topic.c_str(), r.instance.c_str());
-                continue;
-            }
-            g_on(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), g_ctx);
-        }
+    uint64_t mark = mark_of(topic);
+    long long from = mark ? (long long)mark : (long long)g_space->newest(SPACE, topic);
+    g_space->watch(SPACE, topic, from, [topic](std::vector<ribbit::SpaceRow> &rows) {
+        for (auto &r : rows) hand(r, topic, g_on, g_ctx);
     });
-    fprintf(stderr, "[MT_RIBBIT] holding (%s,%s) past id %lld\n", SPACE, topic.c_str(), from);
+    fprintf(stderr, "[MT_RIBBIT] holding (%s,%s) past id %lld (%s)\n", SPACE, topic.c_str(), from,
+            mark ? "the node's mark" : "no mark: from now on");
 }
 } // namespace
 
@@ -277,6 +294,57 @@ extern "C" size_t mtr_take_facts(mtr_on_fact on, void *ctx)
         delete f;
     }
     return got.size();
+}
+
+extern "C" void mtr_mark(const char *family, uint64_t row)
+{
+    if (!g_space || !family) return;
+    {
+        std::lock_guard<std::mutex> g(g_held_mu);
+        if (g_linger.insert(MARK).second) g_space->linger(SPACE, MARK, ribbit::Space::STAYS);
+    }
+    g_space->write(SPACE, MARK, mark_instance(family), "{\"row\":" + std::to_string((unsigned long long)row) + "}");
+}
+
+extern "C" uint64_t mtr_mark_read(const char *family)
+{
+    if (!g_space || !family) return 0;
+    try {
+        return mark_of(family);
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] read of the mark on %s failed: %s\n", family, e.what());
+        return 0;
+    }
+}
+
+extern "C" size_t mtr_read_past_mark(const char *family, mtr_on_packet on, void *ctx)
+{
+    if (!g_space || !family) return 0;
+    try {
+        uint64_t mark = mark_of(family);
+        auto rows = g_space->read(SPACE, family, "", (long long)mark);
+        size_t n = 0;
+        for (auto &r : rows) {
+            if (r.gone || r.id <= mark) continue;
+            hand(r, family, on, ctx);
+            n++;
+        }
+        return n;
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] read of %s past the mark failed: %s\n", family, e.what());
+        return 0;
+    }
+}
+
+extern "C" size_t mtr_families(void (*on)(const char *family, void *ctx), void *ctx)
+{
+    std::vector<std::string> fams;
+    {
+        std::lock_guard<std::mutex> g(g_held_mu);
+        fams.assign(g_held.begin(), g_held.end());
+    }
+    for (auto &f : fams) on(f.c_str(), ctx);
+    return fams.size();
 }
 
 extern "C" void mtr_send(const uint8_t *bytes, size_t len, uint32_t to, uint8_t channel)

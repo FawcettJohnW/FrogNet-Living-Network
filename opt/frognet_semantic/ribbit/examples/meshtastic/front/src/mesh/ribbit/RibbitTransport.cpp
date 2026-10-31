@@ -84,3 +84,5 @@ bool RibbitTransport::answerFromCell(const meshtastic_MeshPacket *p)
     return true;
 }
 #endif
+
+std::atomic<int> RibbitTransport::clients{0}; // [MT_READ_MARKS_V1]

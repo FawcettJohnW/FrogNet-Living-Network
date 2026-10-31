@@ -494,6 +494,20 @@ bool MeshService::phonePayloadIsDecodable(const meshtastic_Data &d)
 
 void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 {
+#ifdef ARCH_PORTDUINO
+    // [MT_READ_MARKS_V1] a packet read from a message family is not queued for a client that is not there: it stays
+    // in its sender's ring past the node's mark, and the next client to connect is handed it from there
+    if (ribbitTransport && RibbitTransport::clients.load() == 0) {
+        RibbitTransport::RowOf r;
+        if (ribbitTransport->rowOf(p->id, r)) {
+            LOG_INFO("[MT_RIBBIT] no client: id=0x%08x stays in %s past the mark (row %llu), not queued", p->id, r.family,
+                     (unsigned long long)r.row);
+            ribbitTransport->forgetRow(p->id);
+            releaseToPool(p);
+            return;
+        }
+    }
+#endif
     perhapsDecode(p);
     coerceNodeInfoUserId(*p);
 
