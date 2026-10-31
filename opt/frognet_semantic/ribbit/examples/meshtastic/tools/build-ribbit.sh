@@ -16,7 +16,8 @@ source "$P/ensure_build_deps.sh"; ribbit_ensure_build_deps
 for s in frogram ribbit_space ram_host lf_ebr; do
   echo "  compile $s.cpp"; $CXX $F -c "$P/src/$s.cpp" -o "obj/$s.o"
 done
-echo "  compile mt_ribbit.cpp"; $CXX $F -c ribbit/mt_ribbit.cpp -o obj/mt_ribbit.o
+# the VERSION line goes into the library so every node's log says what it carries (mtr_front_version)
+echo "  compile mt_ribbit.cpp"; $CXX $F "-DMTR_FRONT_VERSION=\"$(cat VERSION)\"" -c ribbit/mt_ribbit.cpp -o obj/mt_ribbit.o
 rm -f lib/libmtribbit.a; ar rcs lib/libmtribbit.a obj/mt_ribbit.o obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o
 echo "  link meshtastic-ram"; $CXX $F ribbit/meshtastic_ram.cpp obj/ram_host.o obj/lf_ebr.o obj/frogram.o -o bin/meshtastic-ram -llz4 -lcrypto
 echo "  link mtr-probe (harness)"; $CXX $F harness/mtr_probe.cpp lib/libmtribbit.a -o bin/mtr-probe -llz4 -lcrypto

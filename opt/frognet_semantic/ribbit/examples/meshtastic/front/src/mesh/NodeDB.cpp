@@ -48,6 +48,53 @@
 #include <algorithm>
 #include <pb_decode.h>
 #include <pb_encode.h>
+#ifdef ARCH_PORTDUINO
+#include "main.h"
+#include "mt_ribbit.h"
+
+// [MT_OTHER_NODES_ARE_CELLS_V1] On the memory this node keeps nothing about another node: every read of another node is
+// one read of that node's own cell (mtf, user|pos|tel.<n>|status, !N), decoded into what the caller asked for. A node
+// whose cell is not there is a node this one does not know. The result of getMeshNode() is the decoded read, valid
+// until a few more reads on the same thread; nothing written into it reaches the memory.
+namespace
+{
+bool readCellAs(const char *topic, NodeNum n, const pb_msgdesc_t *fields, void *dest, uint32_t *t = nullptr)
+{
+    uint8_t buf[512];
+    size_t len = 0;
+    uint32_t written = 0;
+    if (!mtr_read_cell(topic, n, buf, sizeof(buf), &len, &written) || !pb_decode_from_bytes(buf, len, fields, dest))
+        return false;
+    if (t)
+        *t = written;
+    return true;
+}
+
+bool otherNodeOnMemory(NodeNum n)
+{
+    return MT_FACTS_FROM_RAM() && n != myNodeInfo.my_node_num;
+}
+
+thread_local meshtastic_NodeInfoLite cellNodes[8];
+thread_local unsigned cellNext = 0;
+
+meshtastic_NodeInfoLite *nodeFromCell(NodeNum n)
+{
+    meshtastic_User u = meshtastic_User_init_zero;
+    uint32_t t = 0;
+    if (!readCellAs("user", n, &meshtastic_User_msg, &u, &t))
+        return nullptr;
+    meshtastic_NodeInfoLite *lite = &cellNodes[cellNext++ % 8];
+    *lite = meshtastic_NodeInfoLite_init_zero;
+    lite->num = n;
+    TypeConversions::CopyUserToNodeInfoLite(lite, u);
+    lite->last_heard = t;
+    lite->has_hops_away = true; // on the memory every node is direct
+    lite->hops_away = 0;
+    return lite;
+}
+} // namespace
+#endif
 #include <power/PowerHAL.h>
 #include <vector>
 
@@ -1936,15 +1983,27 @@ void NodeDB::removeNodeByNum(NodeNum nodeNum)
 void NodeDB::clearLocalPosition()
 {
 #if !MESHTASTIC_EXCLUDE_POSITIONDB
-    concurrency::LockGuard guard(&satelliteMutex);
-    nodePositions.erase(getNodeNum());
+    {
+        concurrency::LockGuard guard(&satelliteMutex);
+        nodePositions.erase(getNodeNum());
+    }
 #endif
     setLocalPosition(meshtastic_Position_init_default);
     localPositionUpdatedSinceBoot = false;
+    onLocalPositionChanged(); // [MT_OWN_FACTS_ON_CHANGE_V1] the position is gone; so is its cell (lock released above)
 }
 
 bool NodeDB::copyNodePosition(NodeNum n, meshtastic_PositionLite &out) const
 {
+#ifdef ARCH_PORTDUINO
+    if (otherNodeOnMemory(n)) {
+        meshtastic_Position p = meshtastic_Position_init_zero;
+        if (!readCellAs("pos", n, &meshtastic_Position_msg, &p))
+            return false;
+        out = TypeConversions::ConvertToPositionLite(p);
+        return true;
+    }
+#endif
 #if MESHTASTIC_EXCLUDE_POSITIONDB
     (void)n;
     (void)out;
@@ -1957,6 +2016,17 @@ bool NodeDB::copyNodePosition(NodeNum n, meshtastic_PositionLite &out) const
 
 bool NodeDB::copyNodeTelemetry(NodeNum n, meshtastic_DeviceMetrics &out) const
 {
+#ifdef ARCH_PORTDUINO
+    if (otherNodeOnMemory(n)) {
+        char topic[16];
+        snprintf(topic, sizeof(topic), "tel.%u", (unsigned)meshtastic_Telemetry_device_metrics_tag);
+        meshtastic_Telemetry t = meshtastic_Telemetry_init_zero;
+        if (!readCellAs(topic, n, &meshtastic_Telemetry_msg, &t) || t.which_variant != meshtastic_Telemetry_device_metrics_tag)
+            return false;
+        out = t.variant.device_metrics;
+        return true;
+    }
+#endif
 #if MESHTASTIC_EXCLUDE_TELEMETRYDB
     (void)n;
     (void)out;
@@ -1969,6 +2039,18 @@ bool NodeDB::copyNodeTelemetry(NodeNum n, meshtastic_DeviceMetrics &out) const
 
 bool NodeDB::copyNodeEnvironment(NodeNum n, meshtastic_EnvironmentMetrics &out) const
 {
+#ifdef ARCH_PORTDUINO
+    if (otherNodeOnMemory(n)) {
+        char topic[16];
+        snprintf(topic, sizeof(topic), "tel.%u", (unsigned)meshtastic_Telemetry_environment_metrics_tag);
+        meshtastic_Telemetry t = meshtastic_Telemetry_init_zero;
+        if (!readCellAs(topic, n, &meshtastic_Telemetry_msg, &t) ||
+            t.which_variant != meshtastic_Telemetry_environment_metrics_tag)
+            return false;
+        out = t.variant.environment_metrics;
+        return true;
+    }
+#endif
 #if MESHTASTIC_EXCLUDE_ENVIRONMENTDB
     (void)n;
     (void)out;
@@ -1981,6 +2063,10 @@ bool NodeDB::copyNodeEnvironment(NodeNum n, meshtastic_EnvironmentMetrics &out) 
 
 bool NodeDB::copyNodeStatus(NodeNum n, meshtastic_StatusMessage &out) const
 {
+#ifdef ARCH_PORTDUINO
+    if (otherNodeOnMemory(n))
+        return readCellAs("status", n, &meshtastic_StatusMessage_msg, &out);
+#endif
 #if MESHTASTIC_EXCLUDE_STATUSDB
     (void)n;
     (void)out;
@@ -1993,6 +2079,10 @@ bool NodeDB::copyNodeStatus(NodeNum n, meshtastic_StatusMessage &out) const
 
 std::vector<NodeNum> NodeDB::snapshotPositionNodeNums(NodeNum exclude) const
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM())
+        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+#endif
 #if MESHTASTIC_EXCLUDE_POSITIONDB
     (void)exclude;
     return {};
@@ -2004,6 +2094,10 @@ std::vector<NodeNum> NodeDB::snapshotPositionNodeNums(NodeNum exclude) const
 
 std::vector<NodeNum> NodeDB::snapshotTelemetryNodeNums(NodeNum exclude) const
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM())
+        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+#endif
 #if MESHTASTIC_EXCLUDE_TELEMETRYDB
     (void)exclude;
     return {};
@@ -2015,6 +2109,10 @@ std::vector<NodeNum> NodeDB::snapshotTelemetryNodeNums(NodeNum exclude) const
 
 std::vector<NodeNum> NodeDB::snapshotEnvironmentNodeNums(NodeNum exclude) const
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM())
+        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+#endif
 #if MESHTASTIC_EXCLUDE_ENVIRONMENTDB
     (void)exclude;
     return {};
@@ -2026,6 +2124,10 @@ std::vector<NodeNum> NodeDB::snapshotEnvironmentNodeNums(NodeNum exclude) const
 
 std::vector<NodeNum> NodeDB::snapshotStatusNodeNums(NodeNum exclude) const
 {
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM())
+        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+#endif
 #if MESHTASTIC_EXCLUDE_STATUSDB
     (void)exclude;
     return {};
@@ -3579,6 +3681,48 @@ bool NodeDB::saveToDisk(int saveWhat)
     return success;
 }
 
+// [MT_OWN_FACTS_ON_CHANGE_V1] the node's position changed: its position cell is written now, as it shares it, rather
+// than at the next broadcast. Weak so the native suites, which link no PositionModule, still link.
+__attribute__((weak)) void mtOwnPositionChanged() {}
+void NodeDB::onLocalPositionChanged()
+{
+#ifdef ARCH_PORTDUINO
+    mtOwnPositionChanged();
+#endif
+}
+
+void NodeDB::readNodes(const std::function<void(const meshtastic_NodeInfoLite &)> &fn)
+{
+#ifdef ARCH_PORTDUINO
+    if (MT_FACTS_FROM_RAM()) {
+        if (const meshtastic_NodeInfoLite *us = getMeshNode(getNodeNum()))
+            fn(*us);
+        struct Ctx {
+            const std::function<void(const meshtastic_NodeInfoLite &)> *fn;
+            NodeNum me;
+        } ctx{&fn, getNodeNum()};
+        mtr_read_facts(
+            "user",
+            [](const char *, uint32_t node, const uint8_t *b, size_t len, uint32_t t, void *x) {
+                auto *c = static_cast<Ctx *>(x);
+                meshtastic_User u = meshtastic_User_init_zero;
+                if (node == c->me || !pb_decode_from_bytes(b, len, &meshtastic_User_msg, &u))
+                    return;
+                meshtastic_NodeInfoLite lite = meshtastic_NodeInfoLite_init_zero;
+                lite.num = node;
+                TypeConversions::CopyUserToNodeInfoLite(&lite, u);
+                lite.last_heard = t;
+                lite.has_hops_away = true;
+                (*c->fn)(lite);
+            },
+            &ctx);
+        return;
+    }
+#endif
+    for (size_t i = 0; i < numMeshNodes; i++)
+        fn(meshNodes->at(i));
+}
+
 const meshtastic_NodeInfoLite *NodeDB::readNextMeshNode(uint32_t &readIndex)
 {
     if (readIndex < numMeshNodes)
@@ -3752,6 +3896,8 @@ void NodeDB::updatePosition(uint32_t nodeId, const meshtastic_Position &p, RxSou
     updateGUIforNode = info;
     notifyObservers(true); // Force an update whether or not our node counts have changed
 #endif
+    if (src == RX_SRC_LOCAL)
+        onLocalPositionChanged(); // [MT_OWN_FACTS_ON_CHANGE_V1] locks released; the packet it builds touches the NodeDB
 }
 
 /** Update telemetry info for this node based on received metrics. Stores
@@ -4256,6 +4402,10 @@ std::string NodeDB::getNodeId() const
 /// NOTE: This function might be called from an ISR
 meshtastic_NodeInfoLite *NodeDB::getMeshNode(NodeNum n)
 {
+#ifdef ARCH_PORTDUINO
+    if (otherNodeOnMemory(n))
+        return nodeFromCell(n);
+#endif
     for (int i = 0; i < numMeshNodes; i++)
         if (meshNodes->at(i).num == n)
             return &meshNodes->at(i);
@@ -4611,6 +4761,12 @@ void NodeDB::backfillHeardAt()
 /// Find a node in our DB, create an empty NodeInfo if missing
 meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
 {
+#ifdef ARCH_PORTDUINO
+    // [MT_OTHER_NODES_ARE_CELLS_V1] no entry is created for another node: what it is lives in its cell, and what we
+    // would note about it (a signer bit, a key learned from a packet) is not ours to keep
+    if (otherNodeOnMemory(n))
+        return nodeFromCell(n);
+#endif
     meshtastic_NodeInfoLite *lite = getMeshNode(n);
 
     if (!lite) {

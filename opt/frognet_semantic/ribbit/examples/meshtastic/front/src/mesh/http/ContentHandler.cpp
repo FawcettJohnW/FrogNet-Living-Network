@@ -795,9 +795,11 @@ void handleNodes(HTTPRequest *req, HTTPResponse *res)
     out += "{\"data\":{\"nodes\":[";
 
     bool firstNode = true;
-    uint32_t readIndex = 0;
-    const meshtastic_NodeInfoLite *tempNodeInfo = nodeDB->readNextMeshNode(readIndex);
-    while (tempNodeInfo != NULL) {
+    bool writeFailed = false;
+    nodeDB->readNodes([&](const meshtastic_NodeInfoLite &node) {
+        const meshtastic_NodeInfoLite *tempNodeInfo = &node;
+        if (writeFailed)
+            return;
         if (nodeInfoLiteHasUser(tempNodeInfo)) {
             char id[16];
             snprintf(id, sizeof(id), "!%08x", tempNodeInfo->num);
@@ -845,13 +847,16 @@ void handleNodes(HTTPRequest *req, HTTPResponse *res)
             out += jsonEscape(BoolToString(nodeInfoLiteViaMqtt(tempNodeInfo)));
             out += "}";
             if (out.size() >= NODES_FLUSH_BYTES) {
-                if (!writeAll(res, out))
+                if (!writeAll(res, out)) {
+                    writeFailed = true;
                     return;
+                }
                 out.clear(); // keeps the capacity, so the buffer never grows past the mark
             }
         }
-        tempNodeInfo = nodeDB->readNextMeshNode(readIndex);
-    }
+    });
+    if (writeFailed)
+        return;
 
     out += "]},\"status\":\"ok\"}";
     writeAll(res, out);

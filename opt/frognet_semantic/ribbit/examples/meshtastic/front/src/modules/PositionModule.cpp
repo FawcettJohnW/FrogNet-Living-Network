@@ -446,10 +446,22 @@ bool PositionModule::sendOurPositionToPhone()
 }
 
 #ifdef ARCH_PORTDUINO
+void mtOwnPositionChanged()
+{
+    if (positionModule)
+        positionModule->writeOwnPositionCell();
+}
+
 bool PositionModule::writeOwnPositionCell()
 {
-    if (!ribbitTransport || (!config.position.fixed_position && !nodeDB->hasLocalPositionSinceBoot()))
+    if (!ribbitTransport)
         return false;
+    // [MT_OWN_FACTS_ON_CHANGE_V1] the position itself decides, not the fixed_position flag (the admin handler sets the
+    // flag after the position lands, so at the hook the flag still says the old state): none -> the cell carries none
+    if (localPosition.latitude_i == 0 && localPosition.longitude_i == 0) {
+        ribbitTransport->clearOwnFact("pos");
+        return false;
+    }
     uint8_t ch;
     if (!findPositionChannel(ch)) {
         LOG_INFO("[MT_RIBBIT] own position cell not written: position sharing disabled on all channels");

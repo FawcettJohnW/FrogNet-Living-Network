@@ -251,18 +251,13 @@ int32_t SerialModule::runOnce()
             } else if ((moduleConfig.serial.mode == meshtastic_ModuleConfig_SerialConfig_Serial_Mode_CALTOPO) && HAS_GPS) {
                 if (!Throttle::isWithinTimespanMs(lastNmeaTime, 10000)) {
                     lastNmeaTime = millis();
-                    uint32_t readIndex = 0;
-                    const meshtastic_NodeInfoLite *tempNodeInfo = nodeDB->readNextMeshNode(readIndex);
-                    while (tempNodeInfo != NULL) {
-                        if (nodeInfoLiteHasUser(tempNodeInfo) && nodeDB->hasValidPosition(tempNodeInfo)) {
-                            meshtastic_PositionLite pos;
-                            if (nodeDB->copyNodePosition(tempNodeInfo->num, pos)) {
-                                printWPL(outbuf, sizeof(outbuf), pos, tempNodeInfo->long_name, true);
-                                serialPrint->printf("%s", outbuf);
-                            }
+                    nodeDB->readNodes([&](const meshtastic_NodeInfoLite &n) {
+                        meshtastic_PositionLite pos;
+                        if (nodeInfoLiteHasUser(&n) && nodeDB->hasValidPosition(&n) && nodeDB->copyNodePosition(n.num, pos)) {
+                            printWPL(outbuf, sizeof(outbuf), pos, n.long_name, true);
+                            serialPrint->printf("%s", outbuf);
                         }
-                        tempNodeInfo = nodeDB->readNextMeshNode(readIndex);
-                    }
+                    });
                 }
             }
 

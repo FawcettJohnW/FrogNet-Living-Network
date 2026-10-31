@@ -144,3 +144,48 @@ when telemetry broadcasting is on), so a request got NO_RESPONSE where stock ans
 writes its cell on its first run, keeping stock's start delay for the broadcast. Writing it from the module's
 constructor crashed the node (not every global is up yet). mtr-probe is now built by build-ribbit.sh, so it cannot lag
 the library.
+
+## Phase 2, step 3 — other nodes are their owners' cells [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1]
+
+The NodeDB holds one entry: the node itself. Every accessor that stock used for another node (getMeshNode,
+getOrCreateMeshNode, copyNodePosition/Telemetry/Environment/Status) reads that node's cell from the memory at the
+moment it is asked; the hot/warm tiers, the satellite maps, their eviction, pruning and sorting walks never run on the
+memory, and the held view that mirrored the cells into a copy is gone. The three real consumers of "the list of nodes"
+(CalTopo serial, the HTTP node page, the config dump) read the user cells once, in place. The held read on the fact
+families now does one thing: hand each cell change to the node's connected clients. A node's own user and position
+cells are rewritten when the owner or the local position changes.
+
+| scenario | stock 2.8.2 (step4-20261030-155158) | Ribbit 0.8 (step4-20261031-093253) |
+|---|---|---|
+| S1–S9 | 9/9 | 9/9 |
+| NodeDB entries at the config dump | 4 ("Done sending 4 of 4 nodeinfos") | 1 ("Done sending 1 of 1 nodeinfos"), the other three from their cells |
+| S8 live client gets a fixed position set on another node | (not measured on stock) | 0.00 s (the cell is written on the change; step 2 waited for the 30 s broadcast) |
+| S8 fresh client, and again 20 s later | same coordinates both times | same coordinates both times, 1.62 s |
+| S9 node info / position / telemetry request | no answer / 0.04 s / 0.05 s | 0.00 s / 0.00 s / 0.01 s |
+
+| oracle | step 3 (step4-20261031-071108 build) | step 3 final (own facts on change, cleared cells, VERSION in the log) |
+|---|---|---|
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 299.4 s | 40/40, 263.6 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 59 m 18 s | GREEN 88/88, all clean, 45 m 17 s |
+
+Found on the way: the first form of the on-change write hung the node. The hook sat inside NodeDB::setLocalPosition,
+which updatePosition calls with the satellite lock held; writing the position cell builds a position packet, and that
+touches the NodeDB again (refreshLocalMeshNode → touchNodePositionTime) on the same non-recursive mutex. Reproduced
+under gdb with the lab's S8 writes against one node (step4-20261031-082759 S8/S9-position FAIL; the lab's supervisor
+relaunched the hung node). The hook now fires from updatePosition for a local change, after its locks are released; a
+position cell is still only written when a channel shares position, so a precision set in the same client session as
+the fixed position takes effect at the config reboot, where the node writes its position cell at start.
+
+Also from this step: a node's first log lines now carry the example's whole VERSION line (built into libmtribbit by
+build-ribbit.sh as mtr_front_version), not only the library's own tags — what is deployed is in the log, not in a
+command to run.
+
+Found on the way (smokevirt): a position removed (`--remove-position`) left its cell on the memory. A fact the owner
+no longer has is a cell with no payload (mtr_clear_fact): readers see no cell, the held read hands it over as gone.
+The write/clear decision is made from the position itself, not from config.position.fixed_position — the admin handler
+sets that flag after the position lands, so at the hook the flag still says the old state. The library behaviour is
+checked by mtr-probe (write → present, clear → absent) with no firmware involved.
+
+Also found: test_smokevirt_remove_position is flaky on stock too — 3 of 6 runs on stock 2.8.2 fail with the node
+never receiving remove_fixed_position (the CLI returns 0 without its admin write having arrived); 4 of 6 on ours, same
+signature. Earlier 40/40 runs were lucky on that test. Not ours to fix; noted so a 39/40 is read right.

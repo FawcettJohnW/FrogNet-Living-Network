@@ -4,6 +4,8 @@
 // mtr_probe.cpp -- the firmware's view of the memory (mt_ribbit) driven from a script, no firmware involved.
 //   mtr-probe hold  HOST:PORT ME SECONDS        hold every fact family; print each row as the main thread takes it
 //   mtr-probe write HOST:PORT NODE TOPIC HEX    write one fact into NODE's own cell, flush, exit
+//   mtr-probe clear HOST:PORT NODE TOPIC        NODE no longer has the fact: its cell carries no payload
+//   mtr-probe read  HOST:PORT NODE TOPIC        one read of NODE's cell: present (len, t) or absent
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -47,6 +49,24 @@ int main(int argc, char **argv)
         mtr_write_fact(argv[4], me, reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size());
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
         printf("WROTE %s !%08x len=%zu\n", argv[4], me, bytes.size());
+        uint8_t buf[512]; size_t len = 0; uint32_t t = 0;   // read back in the same session (cells go with it)
+        int have = mtr_read_cell(argv[4], me, buf, sizeof buf, &len, &t);
+        printf("READ %s !%08x %s len=%zu\n", argv[4], me, have ? "present" : "absent", len);
+        return 0;
+    }
+    if (mode == "clear" && argc >= 5) {   // the owner no longer has the fact
+        mtr_clear_fact(argv[4], me);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        printf("CLEARED %s !%08x\n", argv[4], me);
+        uint8_t buf[512]; size_t len = 0; uint32_t t = 0;
+        int have = mtr_read_cell(argv[4], me, buf, sizeof buf, &len, &t);
+        printf("READ %s !%08x %s len=%zu\n", argv[4], me, have ? "present" : "absent", len);
+        return 0;
+    }
+    if (mode == "read" && argc >= 5) {    // one read of one cell, as the firmware's accessors do it
+        uint8_t buf[512]; size_t len = 0; uint32_t t = 0;
+        int have = mtr_read_cell(argv[4], me, buf, sizeof buf, &len, &t);
+        printf("READ %s !%08x %s len=%zu t=%u\n", argv[4], me, have ? "present" : "absent", len, t);
         return 0;
     }
     return 2;

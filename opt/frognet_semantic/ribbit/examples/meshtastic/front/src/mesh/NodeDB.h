@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 
 #include "Observer.h"
 #include <Arduino.h>
@@ -466,6 +467,10 @@ class NodeDB
 
     const meshtastic_NodeInfoLite *readNextMeshNode(uint32_t &readIndex);
 
+    /// [MT_OTHER_NODES_ARE_CELLS_V1] Every node this one knows, ourselves first, each handed to fn once. On the memory it
+    /// is one read of the identity cells, taken when it is called; nothing is held after it returns.
+    void readNodes(const std::function<void(const meshtastic_NodeInfoLite &)> &fn);
+
     meshtastic_NodeInfoLite *getMeshNodeByIndex(size_t x)
     {
         assert(x < numMeshNodes);
@@ -636,6 +641,9 @@ class NodeDB
             localPositionUpdatedSinceBoot = true;
         }
     }
+    // [MT_OWN_FACTS_ON_CHANGE_V1] called by updatePosition for a local change, after its locks are released (the cell
+    // write builds a position packet, which touches the NodeDB itself)
+    void onLocalPositionChanged();
 
     bool hasValidPosition(const meshtastic_NodeInfoLite *n);
     bool hasLocalPositionSinceBoot() const { return localPositionUpdatedSinceBoot; }

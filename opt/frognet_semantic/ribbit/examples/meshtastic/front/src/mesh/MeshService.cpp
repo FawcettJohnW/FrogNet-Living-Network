@@ -7,6 +7,9 @@
 #include "../concurrency/Periodic.h"
 #include "BluetoothCommon.h" // needed for updateBatteryLevel, FIXME, eventually when we pull mesh out into a lib we shouldn't be whacking bluetooth from here
 #include "MeshService.h"
+#ifdef ARCH_PORTDUINO
+#include "mesh/ribbit/RibbitTransport.h"
+#endif
 #include "MessageStore.h"
 #include "NodeDB.h"
 #include "Power.h"
@@ -182,6 +185,10 @@ void MeshService::reloadOwner(bool shouldSave)
     // LOG_DEBUG("reloadOwner()");
     // update our local data directly
     nodeDB->updateUser(nodeDB->getNodeNum(), owner);
+#ifdef ARCH_PORTDUINO
+    if (ribbitTransport)
+        ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_ON_CHANGE_V1] the owner changed: the cell is written now
+#endif
     assert(nodeInfoModule);
     // update everyone else and save to disk
     if (nodeInfoModule && shouldSave) {

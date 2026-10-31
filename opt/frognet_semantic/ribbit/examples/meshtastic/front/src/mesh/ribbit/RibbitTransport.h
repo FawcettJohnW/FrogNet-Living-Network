@@ -32,6 +32,7 @@ class RibbitTransport final
     {
         running = mtr_start(where, me, &RibbitTransport::onPacket, this) == 0;
         LOG_INFO("[MT_RIBBIT] %s: %s", mtr_version(), running ? "packets on the shared RAM" : "memory not reached");
+        LOG_INFO("[MT_RIBBIT] %s", mtr_front_version());
         return running;
     }
 
@@ -62,6 +63,15 @@ class RibbitTransport final
     // [MT_OWN_FACTS_V1] A packet this node sends that carries one of its own facts also writes that fact into the
     // node's own latest-value cell (mtf, <topic>, !<node>), at the moment stock tells the mesh. Telemetry is one cell
     // per variant, named by the variant's field number (tel.<n>).
+    // [MT_OWN_FACTS_ON_CHANGE_V1] this node no longer has the fact: its cell carries no payload
+    void clearOwnFact(const char *topic)
+    {
+        if (!running)
+            return;
+        mtr_clear_fact(topic, nodeDB->getNodeNum());
+        LOG_INFO("[MT_RIBBIT] own %s cell cleared", topic);
+    }
+
     void onOwnFact(const meshtastic_MeshPacket &d)
     {
         if (!running || d.which_payload_variant != meshtastic_MeshPacket_decoded_tag)

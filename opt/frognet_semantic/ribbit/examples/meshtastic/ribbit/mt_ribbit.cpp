@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <memory>
 #include <string>
@@ -22,7 +23,7 @@
 namespace {
 constexpr const char *SPACE = "mt", *TOPIC = "pkt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.4 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.6 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -62,6 +63,10 @@ std::string node_name(uint32_t n)
 } // namespace
 
 extern "C" const char *mtr_version(void) { return VERSION; }
+#ifndef MTR_FRONT_VERSION
+#define MTR_FRONT_VERSION "(VERSION not built in)"
+#endif
+extern "C" const char *mtr_front_version(void) { return MTR_FRONT_VERSION; }
 
 extern "C" int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void *ctx)
 {
@@ -122,6 +127,12 @@ extern "C" void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *
                    "{\"p\":\"" + hex(payload, len) + "\",\"t\":" + std::to_string((long long)time(nullptr)) + "}");
 }
 
+extern "C" void mtr_clear_fact(const char *topic, uint32_t node)
+{
+    if (!g_space) return;
+    g_space->write(FACTS, topic, node_name(node), "{\"t\":" + std::to_string((long long)time(nullptr)) + "}");
+}
+
 extern "C" size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx)
 {
     if (!g_space) return 0;
@@ -137,7 +148,8 @@ extern "C" size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx)
             uint32_t node = 0;
             auto f = r.fields();
             std::string p, bytes;
-            if (!node_of(r.instance, node) || !f || (p = f->str("p")).empty() || !unhex(p, bytes)) {
+            if (f && (p = f->str("p")).empty()) continue; // cleared by its owner: no fact
+            if (!node_of(r.instance, node) || !f || !unhex(p, bytes)) {
                 fprintf(stderr, "[MT_RIBBIT] cell %llu (%s,%s) unreadable, skipped\n", (unsigned long long)r.id,
                         r.topic.c_str(), r.instance.c_str());
                 continue;
@@ -152,6 +164,31 @@ extern "C" size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx)
     return n;
 }
 
+extern "C" int mtr_read_cell(const char *topic, uint32_t node, uint8_t *out, size_t cap, size_t *len, uint32_t *t)
+{
+    if (!g_space || !topic) return 0;
+    try {
+        auto rows = g_space->read(FACTS, topic, node_name(node));
+        for (auto &r : rows) {
+            if (r.gone) continue;
+            auto f = r.fields();
+            std::string p, bytes;
+            if (f && (p = f->str("p")).empty()) return 0; // cleared by its owner: no fact
+            if (!f || !unhex(p, bytes) || bytes.size() > cap) {
+                fprintf(stderr, "[MT_RIBBIT] cell (%s,%s) unreadable, not used\n", topic, node_name(node).c_str());
+                return 0;
+            }
+            memcpy(out, bytes.data(), bytes.size());
+            *len = bytes.size();
+            if (t) *t = (uint32_t)f->num("t");
+            return 1;
+        }
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] read of (%s,%s,%s) failed: %s\n", FACTS, topic, node_name(node).c_str(), e.what());
+    }
+    return 0;
+}
+
 extern "C" int mtr_hold_facts(void (*wake)(void *ctx), void *ctx)
 {
     if (!g_space) return -1;
@@ -162,12 +199,12 @@ extern "C" int mtr_hold_facts(void (*wake)(void *ctx), void *ctx)
         auto add = [wake, ctx](ribbit::SpaceRow &r, bool live) {
             auto *f = new Fact;
             f->topic = r.topic;
-            f->gone = r.gone;
+            f->gone = r.gone || (r.fields() && r.fields()->str("p").empty()); // cleared by its owner: gone
             f->live = live;
             if (!r.gone && r.fields()) f->t = (uint32_t)r.fields()->num("t");
             std::string p;
             if (!node_of(r.instance, f->node) ||
-                (!r.gone && (!(r.fields()) || (p = r.fields()->str("p")).empty() || !unhex(p, f->bytes)))) {
+                (!f->gone && (!(r.fields()) || (p = r.fields()->str("p")).empty() || !unhex(p, f->bytes)))) {
                 fprintf(stderr, "[MT_RIBBIT] fact row %llu (%s,%s) unreadable, skipped\n", (unsigned long long)r.id,
                         r.topic.c_str(), r.instance.c_str());
                 delete f;

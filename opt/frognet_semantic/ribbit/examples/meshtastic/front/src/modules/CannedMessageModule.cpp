@@ -1075,16 +1075,8 @@ void CannedMessageModule::sendText(NodeNum dest, ChannelIndex channel, const cha
     this->lastSentNode = dest;
     this->incoming = dest;
 
-    // Manually find the node by number to check PKI capability
-    meshtastic_NodeInfoLite *node = nullptr;
-    size_t numMeshNodes = nodeDB->getNumMeshNodes();
-    for (size_t i = 0; i < numMeshNodes; ++i) {
-        meshtastic_NodeInfoLite *n = nodeDB->getMeshNodeByIndex(i);
-        if (n && n->num == dest) {
-            node = n;
-            break;
-        }
-    }
+    // Find the node by number to check PKI capability: one lookup, not a walk of every node
+    meshtastic_NodeInfoLite *node = nodeDB->getMeshNode(dest);
 
     NodeNum myNodeNum = nodeDB->getNodeNum();
     if (node && node->num != myNodeNum && nodeInfoLiteHasUser(node) && node->public_key.size == 32) {

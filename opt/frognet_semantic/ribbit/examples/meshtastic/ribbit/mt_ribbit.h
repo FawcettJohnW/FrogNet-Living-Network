@@ -23,11 +23,16 @@ void mtr_send(const uint8_t *bytes, size_t len);
 
 // The version line every log and the bench print.
 const char *mtr_version(void);
+// The example's VERSION line as built (every tag the firmware carries), so a node's log says what is deployed.
+const char *mtr_front_version(void);
 
 // [MT_OWN_FACTS_V1] A node's own fact, one latest-value cell: (mtf, <topic>, !<node>). topic: "user", "pos",
 // "tel.<variant>", "status". payload: the protobuf the node would put on the air for it (User, Position, Telemetry,
 // StatusMessage). Returns at once.
 void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, size_t len);
+// [MT_OWN_FACTS_ON_CHANGE_V1] The owner no longer has this fact (a fixed position removed): the cell stays the owner's
+// but carries no payload. Readers see no cell; the held read hands it over as gone. Returns at once.
+void mtr_clear_fact(const char *topic, uint32_t node);
 
 // [MT_NODEDB_IS_A_HELD_VIEW_V1] Hold one read on every fact family (the whole mtf space), from what is there now.
 // Rows are collected on the held read's thread and handed over only by mtr_take_facts, on the caller's thread; wake(ctx)
@@ -45,4 +50,8 @@ size_t mtr_take_facts(mtr_on_fact on, void *ctx);
 // t: when the owner wrote the cell (its clock, unix seconds), 0 when the cell carries none.
 typedef void (*mtr_on_cell)(const char *topic, uint32_t node, const uint8_t *payload, size_t len, uint32_t t, void *ctx);
 size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx);
+
+// [MT_OTHER_NODES_ARE_CELLS_V1] One read of one owner's cell (mtf, topic, !node) as it is now. 1: the payload is in
+// out (len bytes, at most cap) and t is the owner's write time; 0: no such cell (or it does not decode).
+int mtr_read_cell(const char *topic, uint32_t node, uint8_t *out, size_t cap, size_t *len, uint32_t *t);
 }
