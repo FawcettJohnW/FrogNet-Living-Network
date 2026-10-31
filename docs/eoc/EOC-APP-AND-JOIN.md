@@ -111,7 +111,8 @@ This is the **system** RAM manager only. Other services may have their own RAM m
 
 - **The WAN RAM host** is a machine every host in the set can reach: a droplet or another external node. It is not part of the FrogNet network. The admin names it (in order, if there is more than one) in the device's config.
 - **databasehost-control** is unchanged: always the machine with the highest IP address in the network.
-- **At the beginning of the merge**, which happens when the LAN connects to the Internet, the node checks whether the configured WAN RAM host is available. If it is, the node registers (the same door/registrar dance, once per WAN RAM host, so it holds an admitted WireGuard peer ready) and connects. If it is not, the system RAM manager is databasehost-control, the highest IP. Walking the list top to bottom, the first that answers wins.
+- **Every node checks for itself**, independently: no node learns the answer from another or decides it for another.
+- **At the beginning of the merge**, which happens when the LAN connects to the Internet, each node checks whether the configured WAN RAM host is available. If it is, the node registers (the same door/registrar dance, once per WAN RAM host, so it holds an admitted WireGuard peer ready) and connects. If it is not, the system RAM manager is databasehost-control, the highest IP. Walking the list top to bottom, the first that answers wins.
 - **Losing the WAN RAM host** ends the region session; that is an event, the tunnels come down and the system RAM is databasehost-control. **Getting it back** is the region session's existing reconnect (r36 G3: back 15 s after the cut, no manual step), which starts a merge, which runs the check again. No probe and no extra cell.
 - Memory is not moved either way: applications are told the RAM host changed, re-arm their held reads and write their own truth again (the failover rule).
 
