@@ -61,7 +61,7 @@ Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admi
 
 **The admin, once, on each RAM host:**
 
-- defines the levels it will support, for example Watcher, Player, Host;
+- defines the levels it will support, named as the admin chooses (Watcher, Player, Host, Viewer, Commenter, Editor, Admin and the like are examples);
 - gives each level its admission: open (anyone who logs in), something specifically allowed, or a list;
 - gives each level its qualifications: a user and password, or none;
 - sets up the credential manager. The credentials are stored encrypted in tuple space.
@@ -71,7 +71,7 @@ Hand-run `fdf-invite NAME` and `fdf-identity NAME` stay for the devices the admi
 **The EOC manager sets the network up** on their own droplet. They log in to it, install the one droplet bundle (`cd / && tar xvzf - < /tmp/fdf-droplet-<build>.tgz`), and run the wizard, `/opt/fdf/bin/fdf-setup`. It walks them through, asking before it changes anything and fixing what it finds missing (wireguard-go, the firewall) once they say yes:
 
 1. **The RAM manager:** the region's name, the droplet's public address (found, shown, confirmed), then `fdf-region-create` as it is today.
-2. **Levels:** offers Watcher, Player, Host; for each, password or none, and admission open, specifically allowed, or a list. It picks the random login and session ports.
+2. **Levels:** the manager names their own levels; the wizard shows examples (Watcher, Player, Host, Viewer, Commenter, Editor, Admin and the like). For each level, password or none, and admission open, specifically allowed, or a list. It picks the random login and session ports.
 3. **Users and passwords** for the levels that need them, stored encrypted in tuple space.
 4. **Distributing the keys:** the generic WireGuard credential, and for each level one join line (RAM host address, credential, login port) printed and shown as a QR, ready to hand out or put in an install.
 5. **Logging in:** the manager's own first device logs in at Host with the line from step 4, and the wizard shows it on the session port.
