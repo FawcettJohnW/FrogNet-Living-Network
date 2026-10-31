@@ -101,6 +101,30 @@ def _manifest_never_ship() -> "list[str]":
 NEVER_SHIP: list[str] = _manifest_never_ship()
 
 
+# [APPLIER_WALKS_THE_WORLD_V1 - 2026-10-31] license_check walks FROGNET_WORLD_PATHS; the applier walked the whole root,
+# so --apply stamped the grant on 426 files the check never looks at, outside the world: third-party code in opt/fdf
+# (xterm.js, Go's x-sys, the OpenSSL headers under rinab/src/win) that THIRD_PARTY does not list because it is not in
+# the world. The applier now walks exactly the check's roots, read the same way (the literal array, comments dropped).
+def _manifest_world_paths() -> "list[str]":
+    import re as _re
+    here = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(here, "..", "lib", "frognet_world_manifest.sh"),
+                 "/usr/local/lib/frognet_world_manifest.sh"):
+        cand = os.path.normpath(cand)
+        if not os.path.exists(cand):
+            continue
+        text = open(cand, encoding="utf-8", errors="replace").read()
+        m = _re.search(r"FROGNET_WORLD_PATHS=\((.*?)\n\)", text, _re.S)
+        if not m:
+            break
+        return [tok.strip("'\"") for ln in m.group(1).splitlines() for tok in ln.split("#", 1)[0].split()]
+    raise SystemExit("frognet_apply_license: no FROGNET_WORLD_PATHS in the world manifest; refusing to walk without "
+                     "knowing what the world is")
+
+
+WORLD_PATHS: list[str] = _manifest_world_paths()
+
+
 def _never_ship(rel: str) -> bool:
     import fnmatch as _fn
     for p in NEVER_SHIP:
@@ -241,7 +265,28 @@ def classify(path: str) -> str | None:
 
 
 def walk(root: str):
-    for dp, dns, fns in os.walk(root):
+    seen = set()                                # world paths may nest: a file is stamped once
+    for wp in WORLD_PATHS:                      # [APPLIER_WALKS_THE_WORLD_V1]
+        start = os.path.join(root, wp)
+        if os.path.isfile(start):
+            rel = os.path.normpath(wp)
+            if not _never_ship(rel) and not any(rel == t or rel.startswith(t + os.sep) for t in THIRD_PARTY):
+                found = [start]
+            else:
+                found = []
+        elif os.path.isdir(start):
+            found = _walk_dir(root, start)
+        else:
+            found = []
+        for p in found:
+            k = os.path.realpath(p)
+            if k not in seen:
+                seen.add(k)
+                yield p
+
+
+def _walk_dir(root: str, start: str):
+    for dp, dns, fns in os.walk(start):
         dns[:] = [d for d in dns
                   if d not in ("__pycache__", ".git", "python3.11", "venv")]
         rel_dp = os.path.relpath(dp, root)
