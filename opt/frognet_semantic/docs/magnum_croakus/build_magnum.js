@@ -317,7 +317,7 @@ const BK_ALIASES = {
   "s-what-the-investigation-asserts": "what-the-investigation-asserts",
   "s-what-the-ladder-became": "what-the-ladder-became",
   "s-what-the-numbers-say": "what-the-numbers-say",
-  "s-what-the-replacement-changes": "where-fifty-eight-came-from",
+  "s-what-the-replacement-changes": "what-the-code-limits",
   "s-what-was-held-to-be-impossible": "what-was-held-to-be-impossible",
   "s-what-we-are-doing-instead": "what-we-are-doing-instead",
   "s-what-you-have-just-proved": "what-you-have-just-proved",
@@ -325,10 +325,10 @@ const BK_ALIASES = {
   "s-what-you-will-be-asked": "what-you-will-be-asked",
   "s-when-it-goes-wrong": "when-it-goes-wrong",
   "s-when-you-must-take-input-a-drop-box-not-a-door": "when-you-must-take-input-a-drop-box-not-a-door",
-  "s-where-fifty-six-comes-from": "where-fifty-eight-came-from",
+  "s-where-fifty-six-comes-from": "what-the-code-limits",
   "s-where-the-broker-can-live-and-what-it-runs": "where-the-broker-can-live-and-what-it-runs",
   "s-whose-address-goes-in-the-greeting": "whose-address-goes-in-the-greeting",
-  "s-why-a-bigger-number-is-not-the-fix": "where-fifty-eight-came-from",
+  "s-why-a-bigger-number-is-not-the-fix": "what-the-code-limits",
   "s-why-it-never-dies": "why-it-never-dies",
   "s-why-one-is-elected-and-the-other-is-not": "why-one-is-elected-and-the-other-is-not",
   "s-why-this-is-the-template": "why-this-is-the-template",
@@ -386,9 +386,9 @@ const BK_ALIASES = {
   "broker-tunnels-membership": "tunnels-membership",
   "step-2-the-second-node-and-no-broker-anywhere": "step-2-the-second-node-and-no-region-yet",
   "step-3-the-broker": "step-3-the-region",
-  "where-fifty-eight-comes-from": "where-fifty-eight-came-from",
-  "why-a-bigger-number-is-not-the-fix": "where-fifty-eight-came-from",
-  "what-the-replacement-changes": "where-fifty-eight-came-from",
+  "where-fifty-eight-comes-from": "what-the-code-limits",
+  "why-a-bigger-number-is-not-the-fix": "what-the-code-limits",
+  "what-the-replacement-changes": "what-the-code-limits",
   // [C_PART6_7_ALIASES_V1] Part VI/VII subsections retitled to match the code
   "waiting-for-everyone": "absent-is-an-answer",
   "s-waiting-for-everyone": "absent-is-an-answer",
@@ -532,7 +532,7 @@ const frontTitle = (s) => {
 // [DOCTRINE_INDEX_V1] The appendix is GENERATED, not written. A hand-kept index
 // of two hundred rules is wrong within a week, and the entire claim it makes is
 // that it cannot drift: every tag in this book appears verbatim in the source,
-// and checksite.py fails the build if a load-bearing one is removed. So it is
+// and nothing here may silently lose a load-bearing one. So it is
 // read off the tree at build time, or it is not trustworthy enough to print.
 //
 // FROGNET_SRC points at a source tree. If none is found the appendix says so
@@ -3398,8 +3398,8 @@ const doc = new Document({
 
 
       ...partTitle("Appendix K", "Known Limits"),
-      // [RESTORE_APPK_LEAD_V1] restored from the published edition; [R_APPK_REGION_V1] rewritten 2026-10-13: the broker's ceiling went with the broker
-      lead([ t("A system that does not tell you where its ceiling is has arranged for you to find it at the worst possible moment. So here is what FrogNet's code and its tests say, plainly: "), b("no member limit is written in the code, and the largest region tested has three members."), t(" The fifty-eight-node ceiling earlier editions stated was the broker's, and it went with the broker in October 2026. The rest of this appendix lists what the code does limit, what has been shown, where the old number came from, and what is open.") ]),
+      // [RESTORE_APPK_LEAD_V1] restored from the published edition; [R_APPK_REGION_V1] 2026-10-13; [APPK_NO_OLD_CEILING_V1] 2026-10-31: old broker ceiling removed, N/A
+      lead([ t("A system that does not tell you where its ceiling is has arranged for you to find it at the worst possible moment. So here is what FrogNet's code and its tests say, plainly: "), b("no member limit is written in the code, and the largest region tested has three members."), t(" The rest of this appendix lists what the code does limit, what has been shown, and what is open.") ]),
       H1("What the code limits"),
       bullet([ b("Addresses."), t(" A node is 10.X.Y.1 and serves 10.X.Y.0/24; every node needs its own X.Y.") ]),
       bullet([ b("One owner per /24."), t(" In a region a /24 belongs to the first live member to claim it; a later claim is refused, and "), mono("fdf-hub"), t(" logs "), mono("REFUSED <subnet> claimed by ..."), t(".") ]),
@@ -3408,9 +3408,7 @@ const doc = new Document({
       H1("What has been shown"),
       P([ t("In the gates of the October 2026 cleanup the largest region had three members, two nodes and the hub's own, and the largest LAN-only pond had two nodes. On hardware before the cleanup, the region carried five FrogNet nodes through builds r5\u2013r13 (Chapter 67). The join cost per member on the current build has not been measured.") ]),
       P([ t("What grows with the members is linear. The hub holds one WireGuard interface for the region and one peer per live member; each member holds one edge address and one link per hub. Nothing is allocated per pair of members.") ]),
-      H1("Where fifty-eight came from"),
-      P([ t("Until October 2026 a FrogNet pond across the internet was a full mesh of tunnels the broker built, and every tunnel took a carrier block of addresses from a reserved range. Tunnels in a full mesh grow as the square of the nodes, so the broker's allocator capped a pond at about fifty-eight nodes, and at sixteen where one broker carried a second pond. Earlier editions said the fix was not a bigger range but allocating per node instead of per tunnel. The region is that: one interface, one peer and one edge address per member.") ]),
-      P([ t("The question those editions left open, whether each peer's permitted addresses narrow everywhere or only at the far end, the region answers at the far end. The hub gives each member peer only the prefixes that member's verified mappings name; each node still sends all of "), mono("10.0.0.0/8"), t(" down its one link, so the route reasoning on the node stays unconditional.") ]),
+      P([ t("A region narrows permitted addresses at the far end. The hub gives each member peer only the prefixes that member's verified mappings name; each node still sends all of "), mono("10.0.0.0/8"), t(" down its one link, so the route reasoning on the node stays unconditional.") ]),
 
       H1("What is not a FrogNet limit"),
       P([ t("Several numbers in this area look like ceilings and are not. Each belongs to somebody, and it is not the software.") ]),
@@ -3426,18 +3424,18 @@ const doc = new Document({
         ],
         [2500, 2100, 4640]
       ),
-      P([ t("The per-node maximum tunnel count earlier editions warned about ("), mono("MAX_TUNNELS"), t(" and its leftover defaults) went with the broker; the upgrade removes it from "), mono("tunnel.conf"), t(".") ]),
+      P([ t("A leftover "), mono("MAX_TUNNELS"), t(" key in an old "), mono("tunnel.conf"), t(" does nothing; the upgrade removes it.") ]),
 
       // [RESTORE_APPK_SUM_V1] restored from the published edition
       H1("The honest summary"),
-      P([ t("No member limit is written in the code. What has been shown is small: three members in a region and two LAN-only nodes in the gates, five nodes in a region on hardware before the cleanup. The fifty-eight-node ceiling was the broker's allocator, and it is gone with the broker.") ]),
+      P([ t("No member limit is written in the code. What has been shown is small: three members in a region and two LAN-only nodes in the gates, five nodes in a region on hardware before the cleanup. Growth is linear: one peer and one edge address per member.") ]),
       P([ t("The guidance is short. A region of a dozen boxes has not been measured, and neither has anything larger. Plan it, measure it, and say what you saw.") ]),
       // [RESTORE_APPK_GUILD_V1] restored from the published edition
       H1("If this is the kind of problem you like"),
       P([ t("Then the guild could use you.") ]),
       P([ t("This appendix describes a problem that is open, not one that is closed. Somebody has to find the region's real ceiling: the join cost per member on the current build, the hub's cost per peer, the RAM manager's cost per session, and what a region of tens or hundreds of members does when one leaves. None of that has been measured, so none of it is written down.") ]),
       P([ t("It is also a problem with an unusually good shape for someone arriving new. It is bounded \u2014 one RAM manager, one hub, one daemon per node. It is measurable \u2014 the network-namespace tests in rinab and the container harness in "), mono("docs/cleanup-2026-10/t4a-tools"), t(" stand regions up, a topology that fails is an oracle, and Part XIII says a change is not done until you have written one. And it is numbers before it is opinion, which means a proposal can be argued on its merits rather than on who made it.") ]),
-      ...gld([ t("The old ceiling was fifty-eight nodes, and it went with the broker. The new one has not been found: nothing in the code sets it, and no gate has gone past three members. That is the most legible open problem in the system. Routing people, and anyone who has done distributed coordination without an authority: this is the seam. Note the second half of that, because it is the unusual part. Most people who have worked on distributed systems have done it where something coordinates \u2014 a leader, a quorum, a controller. Here every node reaches its own determination from shared state, and the determinations agree because they read the same facts rather than because anyone was told.") ]),
+      ...gld([ t("The region's ceiling has not been found: nothing in the code sets it, and no gate has gone past three members. That is the most legible open problem in the system. Routing people, and anyone who has done distributed coordination without an authority: this is the seam. Note the second half of that, because it is the unusual part. Most people who have worked on distributed systems have done it where something coordinates \u2014 a leader, a quorum, a controller. Here every node reaches its own determination from shared state, and the determinations agree because they read the same facts rather than because anyone was told.") ]),
       ...partTitle("Afterword", "I Am Not Its Life"),
       lead([ t("FrogNet brings networks to life. The guild brings FrogNet to life.") ]),
       P([ t("It is born, and it is not finished. It cannot be. I built it from one perspective \u2014 mine \u2014 and I know some of what I have done will turn out to be wrong. That is not an admission that undermines the release. For something this size, claiming otherwise would. There is a difference between "), i("I know it is wrong, so it is not ready"), t(" and "), i("I know some of it must be wrong, so it is ready for more perspectives"), t(", and this book is the second one.") ]),

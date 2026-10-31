@@ -21,8 +21,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>FrogNet • Operations Dashboard</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<!-- [GPS_LEAFLET_LOCAL_V1] Leaflet 1.9.4 and the colour markers are served by the node (vendor/leaflet): a cut-off network has no unpkg. -->
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <style>
   :root{
     --bg:#111827;           /* dark page background */
@@ -266,8 +266,7 @@
   </div>
 </footer>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="vendor/leaflet/leaflet.js"></script>
 <script>
 (function(){
   const $=s=>document.querySelector(s);
@@ -345,8 +344,8 @@
   }
 
   // --- Leaflet pins (NO GREY for groups)
-  const ICON_BASE='https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/';
-  const SHADOW_URL='https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png';
+  const ICON_BASE='vendor/leaflet/color-markers/';
+  const SHADOW_URL='vendor/leaflet/images/marker-shadow.png';
   const COLORS=['blue','green','violet','orange','black']; // per-network (avoid red/yellow for groups)
   function makeIcon(color){
     return new L.Icon({
@@ -456,7 +455,7 @@
         else if (mAgo > 15) iconColor = 'yellow';
         else iconColor = hasSensors ? colorForNetwork(ip) : 'blue';
 
-        const iconUrl=`https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-${iconColor}.png`;
+        const iconUrl=`${ICON_BASE}marker-icon-${iconColor}.png`;
         idx++;
 
         const detailsId = `exp_${ip.replace(/[^\w]/g,'_')}`;

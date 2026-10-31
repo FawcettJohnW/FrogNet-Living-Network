@@ -84,7 +84,7 @@
 #                            node file set (frognet_node_files in
 #                            usr/local/lib/frognet_world_manifest.sh, the same
 #                            rule the release's world tar is built by); the rest
-#                            of the checkout (.git, docs/, site/, opt/fdf, the
+#                            of the checkout (.git, docs/, opt/fdf, the
 #                            book) stays behind. This is the path a stranger who just
 #                            cloned the repo takes to a first node: no release
 #                            tarball exists yet, and the only thing that builds

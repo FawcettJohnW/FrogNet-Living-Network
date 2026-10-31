@@ -201,6 +201,9 @@ FROGNET_THIRD_PARTY=(
     # Dino Farinacci's lispers.net, Apache-2.0, vendored unmodified as the frozen oracle the lispers example is tested
     # against. It carries its own LICENSE and NOTICE; ours must never be stamped on it. Not shipped: see NEVER_SHIP.
     opt/frognet_semantic/ribbit/examples/lispers.net/third_party
+    # [GPS_LEAFLET_LOCAL_V1] Leaflet 1.9.4 (BSD-2-Clause) and pointhi/leaflet-color-markers (BSD-2-Clause), unmodified,
+    # each with its LICENSE, so gps_dashboard.html works on a network with no internet. Shipped with var/www/html.
+    var/www/html/vendor/leaflet
 )
 
 FROGNET_NEVER_SHIP=(
