@@ -107,7 +107,7 @@ What the fabric does not learn from any of this: there is no `kind` or class in 
 
 ## The RAM manager across the Internet: an ordered list, admitted in advance
 
-On a LAN the RAM manager is the databasehost, elected as today. Across the Internet it is a different machine: one every host in the set can reach, a droplet or another external node. That is databasehost-control's job, not the databasehost's, and its rule is reachability from the host set.
+On a LAN the RAM manager is the databasehost, elected as today. Across the Internet it is a different machine: one every host in the set can reach, a droplet or another external node. That machine is not part of the FrogNet network, and its one rule is reachability from the host set. databasehost-control is unchanged: always the machine with the highest IP address in the network.
 
 - **The admin names the Internet RAM managers**, in order, in a config tuple for the device. It is a permanent cell (`[PERMANENT_CELL_V1]`): the device has it at start, before it can reach any RAM manager, because that is when it needs it.
 - **Each one is joined in advance.** When a device sees a RAM manager in its list that it has not been admitted to, it does the same dance it does for any of them (door, registrar, its own key, its own edge) right then. Every candidate holds an admitted WireGuard peer for the device before it is needed. Failing over is then a handshake and a session, not a registration, which keeps it fast and deterministic.
