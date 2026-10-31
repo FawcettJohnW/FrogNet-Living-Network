@@ -1,0 +1,44 @@
+{
+  "run": "20261029-111527-vm",
+  "build": "20261029-r4 aarch64",
+  "ram": "10.88.0.20:18884",
+  "path": "ram",
+  "rounds": 16,
+  "devices": {
+    "devA": {
+      "submitted": 16,
+      "applied": 10,
+      "replaced_while_gone": 6,
+      "median_ms": 251.0,
+      "p95_ms": 1914.0,
+      "p99_ms": 1914.0,
+      "max_ms": 1914.0,
+      "boots_seen": 2,
+      "gone_events": 1,
+      "final_view_value": "9773916",
+      "last_submitted": "9773916",
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "I3_return_applies_latest": true,
+      "I4_nothing_lost": true
+    },
+    "devB": {
+      "submitted": 16,
+      "applied": 12,
+      "replaced_while_gone": 4,
+      "median_ms": 242.0,
+      "p95_ms": 3089.0,
+      "p99_ms": 3089.0,
+      "max_ms": 3089.0,
+      "boots_seen": 2,
+      "gone_events": 1,
+      "final_view_value": "9773916",
+      "last_submitted": "9773916",
+      "I1_no_false_success": true,
+      "I2_no_repeat_application": true,
+      "I3_return_applies_latest": true,
+      "I4_nothing_lost": true
+    }
+  },
+  "status": "PASS"
+}

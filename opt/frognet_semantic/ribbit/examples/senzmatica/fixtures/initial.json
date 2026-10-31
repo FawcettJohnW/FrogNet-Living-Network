@@ -1,0 +1,30 @@
+{
+  "fixture_kind": "synthetic test inputs; not observed device firmware",
+  "device": {
+    "id": "test-device-001",
+    "name": "test-device-001",
+    "productType": "remote-config-test",
+    "remoteConfigTopic": "S2D/SA/test-device-001/RM/#",
+    "deviceParameterConfiguration": {
+      "device": "test-device-001",
+      "productType": "remote-config-test",
+      "versionNum": "1",
+      "remoteConfigurations": [
+        {
+          "parameterCategory": "Topic Format & Interval",
+          "parameter": "Test sampling interval",
+          "parameterId": "1",
+          "inputType": "text",
+          "format": "integer",
+          "defaultValue": "30"
+        }
+      ],
+      "updateHistory": []
+    }
+  },
+  "productType": {
+    "productName": "remote-config-test",
+    "dataFormat": "String",
+    "remotelyConfigurable": true
+  }
+}

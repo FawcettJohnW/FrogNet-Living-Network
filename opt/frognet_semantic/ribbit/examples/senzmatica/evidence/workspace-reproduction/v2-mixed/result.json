@@ -1,0 +1,20 @@
+{
+  "mode": "mixed",
+  "broker": "Mosquitto 2.1.2 (authorized substitution)",
+  "checks": [
+    "configuration API responds",
+    "original MQTT command observed",
+    "original encoder bytes match",
+    "frontend API exposes applied value and UPDATED status",
+    "completion updates value/history and removes pending Message",
+    "invalid integer rejected without state change",
+    "unchanged setting adds no history or pending Message",
+    "switch ON applies through RAM and updates existing view",
+    "RAM path has final MQTT completion and no old command",
+    "switch OFF returns to original MQTT path",
+    "three changes cause three test-setting applications",
+    "restart after OFF does not replay completed RAM intent"
+  ],
+  "upstream_unchanged": false,
+  "status": "PASS"
+}

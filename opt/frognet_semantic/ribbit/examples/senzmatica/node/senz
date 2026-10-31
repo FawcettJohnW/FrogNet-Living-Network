@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# senz -- pick and run this node's role in the SenzMatica remote-configuration test.
+#
+#   senz ram    [LISTEN_HOST:PORT]                 the RAM memory              (default 0.0.0.0:18884)
+#   senz device RAM_HOST:PORT MQTT_HOST:PORT [ID]  a test device participant   (ID defaults to the FrogNet name)
+#   senz ops    RAM_HOST:PORT                      MongoDB + Mosquitto + converted backend
+#   senz test   [senz-hwtest options]              run the test from the ops node (see: senz test --help)
+#   senz status                                    build, roles and their last log lines
+#   senz stop   ram|device|ops                     stop a role
+#
+# Everything lives in /opt/senz. Roles run as systemd services (Restart=always, RestartSec=2).
+set -euo pipefail
+SENZ=/opt/senz; VAR=$SENZ/var; UNITS=$SENZ/share/systemd
+BUILD=$(cat $SENZ/BUILD 2>/dev/null || echo unknown)
+mkdir -p "$VAR"
+say() { echo "senz: $*"; }
+# SENZ_YES=1 answers yes for unattended installs; otherwise the question goes to the terminal
+ask() { [ "${SENZ_YES:-}" = 1 ] && { say "$1 -> yes (SENZ_YES=1)"; return 0; }; local r; read -r -p "senz: $1 [y/N] " r </dev/tty || r=; [[ "$r" =~ ^[Yy] ]]; }
+need_root() { [ "$(id -u)" -eq 0 ] || { say "run as root (sudo senz $*)"; exit 1; }; }
+have_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null; }
+
+# a role's services: systemd when this machine runs it; otherwise, if you agree, a background loop with
+# the same restart rule, its log in /opt/senz/var/<service>.log
+start_services() {
+  local s
+  if have_systemd; then
+    for s in "$@"; do cp "$UNITS/$s.service" /etc/systemd/system/; done
+    systemctl daemon-reload
+    for s in "$@"; do systemctl enable "$s" >/dev/null 2>&1; systemctl restart "$s"; done
+    say "started: $* (journalctl -u <name> -f to watch)"
+  else
+    say "systemd is not running on this machine, so the services cannot be installed as systemd units."
+    ask "Run them in the background with the same restart rule (restart 2 s after any exit), logging to $VAR?" || { say "nothing started"; exit 1; }
+    for s in "$@"; do
+      local cmd; cmd=$(sed -n 's/^ExecStart=//p' "$UNITS/$s.service")
+      local envf; envf=$(sed -n 's/^EnvironmentFile=-\{0,1\}//p' "$UNITS/$s.service" | head -1)
+      [ -f "$VAR/$s.pid" ] && kill "$(cat "$VAR/$s.pid")" 2>/dev/null || true
+      nohup bash -c "set -a; [ -n '$envf' ] && . '$envf'; set +a; while :; do cat $SENZ/BUILD; eval \"$cmd\" </dev/null; echo \"exited rc=\$?\"; sleep 2; done" >>"$VAR/$s.log" 2>&1 &
+      echo $! >"$VAR/$s.pid"
+    done
+    say "started in the background: $* (logs in $VAR)"
+  fi
+}
+stop_services() {
+  local s
+  for s in "$@"; do
+    if have_systemd && [ -f "/etc/systemd/system/$s.service" ]; then systemctl disable --now "$s" >/dev/null 2>&1 || true; fi
+    if [ -f "$VAR/$s.pid" ]; then pkill -P "$(cat "$VAR/$s.pid")" 2>/dev/null || true; kill "$(cat "$VAR/$s.pid")" 2>/dev/null || true; rm -f "$VAR/$s.pid"; fi
+  done
+  say "stopped: $*"
+}
+# a listening port others must reach: if ufw is on and would block it, ask, then open it
+open_port() {
+  local port=$1 what=$2
+  if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; then
+    if ! ufw status | grep -qE "^$port(/tcp)? +ALLOW"; then
+      say "ufw is active and does not allow tcp $port ($what), so other machines cannot reach it."
+      if ask "Allow tcp $port through ufw?"; then ufw allow "$port/tcp" >/dev/null && say "ufw: allowed tcp $port"; else say "left ufw as it is; $what is reachable only from this machine"; fi
+    fi
+  fi
+}
+# this machine's name as FrogNet names it ([MEMBER_IDENTITY_V1]): FDF_NAME, else facts.name, else the hostname.
+# Every FrogNet node's hostname is FrogNetHost, so a bare FrogNetHost gets this machine's id appended.
+member_name() {
+  local n="${FDF_NAME:-}"
+  [ -z "$n" ] && [ -f /opt/fdf/var/facts.json ] && n=$(python3 -c 'import json;print(json.load(open("/opt/fdf/var/facts.json")).get("name",""))' 2>/dev/null || true)
+  [ -z "$n" ] && n=$(hostname -s)
+  [ "$n" = FrogNetHost ] && n="FrogNetHost-$(head -c 6 /etc/machine-id 2>/dev/null || echo $$)"
+  echo "$n"
+}
+hostport() { [[ "$1" =~ ^[^:]+:[0-9]+$ ]] || { say "expected HOST:PORT, got '$1'"; exit 1; }; }
+
+role=${1:-}; shift || true
+case "$role" in
+  ram)
+    need_root ram; [ $# -le 1 ] || { say "usage: senz ram [LISTEN_HOST:PORT]  (got $# arguments: $*)"; exit 1; }
+    listen=${1:-0.0.0.0:18884}; hostport "$listen"
+    echo "RAM_LISTEN=$listen" >"$VAR/ram.env"
+    open_port "${listen##*:}" "the RAM memory"
+    start_services senz-ram
+    say "RAM memory on $listen (build $BUILD)";;
+  device)
+    need_root device; [ $# -ge 2 ] && [ $# -le 3 ] || { say "usage: senz device RAM_HOST:PORT MQTT_HOST:PORT [ID]  (got $# arguments: $*)"; exit 1; }
+    hostport "$1"; hostport "$2"; id=${3:-$(member_name)}
+    [[ "$id" =~ ^[A-Za-z0-9._-]+$ ]] || { say "device ID '$id' must be letters, digits, '.', '_' or '-'"; exit 1; }
+    printf 'RIBBIT_RAM=%s\nMQTT=%s\nDEVICE_ID=%s\nSETTING_FILE=%s\n' "$1" "$2" "$id" "$VAR/device-setting.txt" >"$VAR/device.env"
+    [ -f "$VAR/device-setting.txt" ] || echo 30 >"$VAR/device-setting.txt"
+    start_services senz-device
+    say "device $id: RAM $1, MQTT $2 (build $BUILD)";;
+  ops)
+    need_root ops; [ $# -eq 1 ] || { say "usage: senz ops RAM_HOST:PORT  (got $# arguments: $*)"; exit 1; }; hostport "$1"
+    [ -x $SENZ/env/bin/java ] && [ -x $SENZ/env/bin/mongod ] || { say "the ops runtime is missing from /opt/senz/env: untar this machine's tarball again"; exit 1; }
+    echo "RIBBIT_RAM=$1" >"$VAR/ops.env"
+    mkdir -p "$VAR/mongo"
+    printf 'listener 18883 0.0.0.0\nallow_anonymous true\npersistence false\nlog_type error\nlog_type warning\nlog_type notice\n' >"$VAR/mosquitto.conf"
+    [ "$(id -u)" -eq 0 ] && echo 'user root' >>"$VAR/mosquitto.conf"
+    sed "s|@RIBBIT_RAM@|$1|; s|@VAR@|$VAR|g" $SENZ/share/backend.properties.in >"$VAR/backend.properties"
+    open_port 18883 "the MQTT broker the devices use"
+    start_services senz-mongo senz-broker senz-backend
+    say "ops: MongoDB 127.0.0.1:27027, MQTT 0.0.0.0:18883, backend 127.0.0.1:18080, RAM $1 (build $BUILD)"
+    say "the backend takes about 30 s to start; then run: senz test";;
+  test)
+    exec python3 $SENZ/bin/senz-hwtest "$@";;
+  status)
+    echo "build: $BUILD"
+    for s in senz-ram senz-device senz-mongo senz-broker senz-backend; do
+      if have_systemd && [ -f "/etc/systemd/system/$s.service" ]; then echo "--- $s: $(systemctl is-active $s)"; journalctl -u $s -n 3 --no-pager 2>/dev/null | tail -3
+      elif [ -f "$VAR/$s.pid" ]; then echo "--- $s: background pid $(cat "$VAR/$s.pid")"; tail -3 "$VAR/$s.log"; fi
+    done;;
+  stop)
+    need_root stop
+    case "${1:-}" in ram) stop_services senz-ram;; device) stop_services senz-device;; ops) stop_services senz-backend senz-broker senz-mongo;;
+      *) say "usage: senz stop ram|device|ops"; exit 1;; esac;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 1;;
+esac

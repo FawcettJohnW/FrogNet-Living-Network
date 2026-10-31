@@ -1,0 +1,80 @@
+    5.66  ops: installed senz-node-x86_64-20261029-r3.tgz
+   11.37  ram: installed senz-node-x86_64-20261029-r3.tgz
+   16.90  devA: installed senz-node-x86_64-20261029-r3.tgz
+   17.35  devB: installed senz-node-aarch64-20261029-r3.tgz
+   17.39  [ram] /opt/senz/bin/senz ram 0.0.0.0:18884
+senz: systemd is not running on this machine, so the services cannot be installed as systemd units.
+senz: Run them in the background with the same restart rule (restart 2 s after any exit), logging to /opt/senz/var? -> yes (SENZ_YES=1)
+senz: started in the background: senz-ram (logs in /opt/senz/var)
+senz: RAM memory on 0.0.0.0:18884 (build 20261029-r3 x86_64)
+   17.46  [ops] /opt/senz/bin/senz ops 10.88.0.20:18884
+senz: systemd is not running on this machine, so the services cannot be installed as systemd units.
+senz: Run them in the background with the same restart rule (restart 2 s after any exit), logging to /opt/senz/var? -> yes (SENZ_YES=1)
+senz: started in the background: senz-mongo senz-broker senz-backend (logs in /opt/senz/var)
+senz: ops: MongoDB 127.0.0.1:27027, MQTT 0.0.0.0:18883, backend 127.0.0.1:18080, RAM 10.88.0.20:18884 (build 20261029-r3 x86_64)
+senz: the backend takes about 30 s to start; then run: senz test
+   17.53  [devA] /opt/senz/bin/senz device 10.88.0.20:18884 10.88.0.10:18883 devA
+senz: systemd is not running on this machine, so the services cannot be installed as systemd units.
+senz: Run them in the background with the same restart rule (restart 2 s after any exit), logging to /opt/senz/var? -> yes (SENZ_YES=1)
+senz: started in the background: senz-device (logs in /opt/senz/var)
+senz: device devA: RAM 10.88.0.20:18884, MQTT 10.88.0.10:18883 (build 20261029-r3 x86_64)
+   17.61  [devB] /opt/senz/bin/senz device 10.88.0.20:18884 10.88.0.10:18883 devB
+senz: systemd is not running on this machine, so the services cannot be installed as systemd units.
+senz: Run them in the background with the same restart rule (restart 2 s after any exit), logging to /opt/senz/var? -> yes (SENZ_YES=1)
+senz: started in the background: senz-device (logs in /opt/senz/var)
+senz: device devB: RAM 10.88.0.20:18884, MQTT 10.88.0.10:18883 (build 20261029-r3 aarch64)
+   39.85  backend up; starting senz test on ops
+   54.85  devA: reboot begins (role stopped, network cut)
+   74.92  [devA] /opt/senz/bin/senz device 10.88.0.20:18884 10.88.0.10:18883 devA
+senz: systemd is not running on this machine, so the services cannot be installed as systemd units.
+senz: Run them in the background with the same restart rule (restart 2 s after any exit), logging to /opt/senz/var? -> yes (SENZ_YES=1)
+senz: started in the background: senz-device (logs in /opt/senz/var)
+senz: device devA: RAM 10.88.0.20:18884, MQTT 10.88.0.10:18883 (build 20261029-r3 x86_64)
+   74.92  devA: back up
+   80.92  devB: silent cut for 15 s
+   95.95  devB: cut healed
+  124.69  senz test output:
+    0.064  senz-hwtest run 20261029-063933-vm build 20261029-r3 x86_64 RAM 10.88.0.20:18884 path ram; results in /opt/senz/var/hwtest-20261029-063933-vm
+    0.064  collecting advertised devices for 6 s ...
+    0.064  devA: advertised (boot 8107.1793281151)
+    0.064  devB: advertised (boot 8140.1793281151)
+    6.064  devices: devA, devB
+    6.481  switch set: remote configuration through RAM
+    6.602  devA: applied 8117901 (applied) 121.0 ms after submit
+    6.678  devB: applied 8117901 (applied) 60.0 ms after submit
+    9.518  devA: applied 8117902 (applied) 37.0 ms after submit
+    9.564  devB: applied 8117902 (applied) 48.0 ms after submit
+   12.511  devA: applied 8117903 (applied) 29.0 ms after submit
+   12.544  devB: applied 8117903 (applied) 34.0 ms after submit
+   14.888  devA: gone (its session ended)
+   15.523  devB: applied 8117904 (applied) 19.0 ms after submit
+   18.526  devB: applied 8117905 (applied) 25.0 ms after submit
+   21.518  devB: applied 8117906 (applied) 20.0 ms after submit
+   24.523  devB: applied 8117907 (applied) 27.0 ms after submit
+   27.520  devB: applied 8117908 (applied) 20.0 ms after submit
+   30.529  devB: applied 8117909 (applied) 28.0 ms after submit
+   33.513  devB: applied 8117910 (applied) 16.0 ms after submit
+   35.012  devA: back (boot 8324.1793281208)
+   35.014  devA: applied 8117910 (applied) 1531.0 ms after submit
+   36.496  devA: applied 8117911 (applied) 12.0 ms after submit
+   36.512  devB: applied 8117911 (applied) 19.0 ms after submit
+   39.506  devA: applied 8117912 (applied) 23.0 ms after submit
+   39.534  devB: applied 8117912 (applied) 29.0 ms after submit
+   42.501  devA: applied 8117913 (applied) 17.0 ms after submit
+   44.623  devB: gone (its session ended)
+   45.504  devA: applied 8117914 (applied) 20.0 ms after submit
+   48.502  devA: applied 8117915 (applied) 18.0 ms after submit
+   51.502  devA: applied 8117916 (applied) 18.0 ms after submit
+   54.484  rounds done; waiting 30 s for devices that are still coming back ...
+   57.918  devB: back (boot 8340.1793281220)
+   57.991  devB: applied 8117916 (applied) 6488.0 ms after submit
+
+device                    sent  applied  replaced   median      p95      p99  boots  gone  I1 I2 I3 I4  view/last-sent
+                                           (gone)       ms       ms       ms
+devA                        16       10         6       23     1531     1531      2     1  ok ok ok ok  8117916/8117916
+devB                        16       13         3       27     6488     6488      2     1  ok ok ok ok  8117916/8117916
+times: submit to the device's applied report, as the held read saw it (includes the HTTP call to the backend)
+
+RESULT PASS  (/opt/senz/var/hwtest-20261029-063933-vm/result.json)
+
+  124.69  senz test exit 0; result copied to /tmp/claude-0/-home-claude/86f7b584-0b83-55e9-bb5c-efa10a130624/scratchpad/prove3/result.json

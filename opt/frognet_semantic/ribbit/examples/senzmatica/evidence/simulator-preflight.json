@@ -1,0 +1,10 @@
+{
+  "command": [
+    "unshare",
+    "--net",
+    "true"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "unshare: unshare failed: Operation not permitted\n"
+}

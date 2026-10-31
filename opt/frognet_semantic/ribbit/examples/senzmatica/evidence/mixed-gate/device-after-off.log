@@ -1,0 +1,3 @@
+REOBSERVED completed RAM generation; actual=120
+READY
+APPLIED path=MQTT value=120 applications=0
