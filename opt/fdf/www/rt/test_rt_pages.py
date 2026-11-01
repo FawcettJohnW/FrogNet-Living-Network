@@ -23,6 +23,7 @@
 #   11 post B's uplink cut (its system space on its own LAN RAM manager): B keeps logging and keeps its own entries; A
 #      keeps A's. B's uplink back (on the region's RAM again): B's page sees the move, writes its own again, and A has
 #      every one of B's entries -- nothing merged, restored or sent
+#   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
@@ -192,6 +193,15 @@ try:
         dt = time.time() - t0
         rb = rows(b)
         check(ok and any(x[3] == "W7AAA" for x in rb), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
+        # 12
+        bd = br.new_context().new_page(); bd.goto(posts["A"].replace("log.html", "board.html")); n12 = []
+        for _ in range(250):
+            n12 = bd.eval_on_selector_all("#rows tr", "rs => rs.map(r => r.children[0].textContent)")
+            if len(n12) == len(rows(a)): break
+            time.sleep(0.02)
+        teams = bd.eval_on_selector_all("#teams tr", "rs => rs.map(r => r.children[0].textContent)")
+        check(len(n12) == len(rows(a)) and n12[0] == rows(a)[-1][0] and "W7ABC" in teams and "N7CUT" in teams,
+              "12 the board on a fresh phone at A: %d entries, newest first (%s), %d teams, read-only" % (len(n12), n12[0] if n12 else None, len(teams)))
         br.close()
 finally:
     for p in procs: p.kill()
