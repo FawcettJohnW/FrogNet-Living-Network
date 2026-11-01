@@ -126,8 +126,8 @@ Changes in rev 3:
 - **Removed:** the wizard's step "the RAM spaces, all at once, with their RAM-manager lists" and "a standby's lines".
   The spaces become islands, and islands are the app's (section 9). An app's islands arrive with its add-in, not from
   the wizard.
-- **Moved:** the level→"spaces its applications join" choice becomes level→islands, and it is the app's, set in its
-  admin RAM (section 9.0). The wizard's part is only naming which level administers each app.
+- **Moved:** the level→"spaces its applications join" choice becomes each service's reach by team (anonymous,
+  restricted, full) in the app's service table, which the primary signs (section 9.0).
 
 ## 5. Admission and login (from rev 2, simplified to one MRM)
 
@@ -151,7 +151,7 @@ Changes in rev 3:
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.
 - **Network reach to islands.** A level whose reach was "RAM only" must now also reach the island ports of the hosts
   that serve its islands. Those hosts are elected, so they move. **Proposed:**
-  - The grants are app data in the admin RAM (section 9.0).
+  - The reach by team is in the app's signed service table (section 9.0).
   - Each island's role host writes one routing fact to the MRM, as its own truth: which levels may reach
     `(its .1, its port)`.
   - `fdf-org serve` builds the nftables rules from those facts, and rebuilds them when one changes, the way it
@@ -331,40 +331,84 @@ one, as tested.
 
 ## 9. Islands
 
-### 9.0 The app's admin RAM
+### 9.0 Services, the install bundle and the login record
 
-> **John:** "There needs to be an admin ram for the application. Start there."
+> **John:** "There is only one full network server, and that is identified. Below that are how it works under partition.
+> Options are fail, relocate. Fail means the service stops working unless it can see the primary. Relocate means the
+> droplet code is installed as part of every client install and is activated by the capability tuple scan."
 
-The admin RAM is to an app's islands what `fdf-org` on the MRM is to the network: the app's own control memory. The app
-starts from it. Rev 2 already had one, as a space ("EOC Admin"). **Proposed:**
+> **John:** "These servers are different than the primary service used for routing. This needs the network up."
 
-- **One per app.** It is an island of its own, `<app>-admin` (for RangerTrak, `rt-admin`), with a role like any
-  island. The app's selection code elects its host. It is always `persist: true`, because its records must outlive a
-  restart.
-- **What it holds.** These are the app's records for this organization. Each is written by an admin as its own truth.
-  - The islands that are in use, and their placement inputs: which site is the EOC, which sites are hospitals.
-  - The grants: which levels and which members may reach which island, and what they may read and write there.
-  - Each island's challenge: what a connector must answer beyond membership (section 9.4).
-  - The app's own users and roles, if it has any beyond the network's levels.
-- **Who writes it.** The app's admins only. **Proposed** bootstrap: the level the manager marks as the app's admin at
-  setup, and the manager's own device first, the same way `fdf-setup` makes the manager's device the first login.
-- **Who reads it.**
-  - Every role host of that app's islands, with a held read. That is how a host knows its island's challenge and grants
-    the moment an admin changes them.
-  - The app's pages and devices, which need to know what to show.
-- **Its own access.** Network membership plus the challenge, for reading. Writing additionally needs the app's admin
-  level.
+> **John:** "Apps decide what happens to them after a split."
 
-This settles three earlier questions:
+> **John:** "The app needs to get a bundle from the unpartitioned server at the time it is installed on the lan device (a
+> windows or android device cannot be a droplet)".
 
-- **Q4:** level→island grants live in the app's admin RAM, not in `fdf-org`. The MRM learns only what network reach
-  needs (an address and a port per grant, section 5.2).
-- **Q3:** island access during a split reads the admin RAM, not the MRM's admissions.
-- **Q7:** the challenge's content is the app's, set in its admin RAM.
+**Two layers.**
 
-**Open (Q8):** a partition that does not hold the admin RAM's host has no admin records. Its islands then have no
-grants and no challenge to apply. Under "gone is gone" they admit no one. Is that the rule? Or does the admin RAM's
-selection code place it so every site that runs islands has it? It cannot be in two places.
+1. **The network.** The MRM is the one primary for routing and never relocates. In a split, the partition's routing
+   comes up on its LAN control host (section 8.1).
+2. **The services.** These are an app's servers: its RAMs and the login. They run on the network and need layer 1 up
+   first.
+
+**Each service's partition mode, set by the app.**
+
+- **Fail:** the service works only while the client sees the primary.
+- **Relocate:**
+  - The droplet code for the service ships in every node install, dormant.
+  - A node advertises in its capability tuple that it can run it.
+  - When a partition cannot see the primary, the capability scan over the partition's facts elects one node. That node
+    activates the service and writes its where cell, and clients follow it.
+  - It is a role, held by the incumbent rule (section 7.2), and never a dedicated server.
+  - Windows and Android devices are clients only and never candidates (`[ELECT_NODES_ONLY_V1]`).
+
+**Keys.** The organization's signing key is on the primary, and only there. It moves with the primary when the droplet
+floats. Every other machine holds only the organization's public key. Nothing on a LAN can sign.
+
+**The install bundle.** A node gets it from the unpartitioned primary when the app is installed on it. It holds:
+
+- the organization's public key;
+- the app's service table: each service's RAM name, reach by team (anonymous, restricted, full), and partition mode;
+- this node's own record: its id, its public key, and the services it may host when relocated, with an expiry.
+
+The service table and the node's record are signed by the organization key, and each carries a version number. While
+the primary is reachable, newer versions arrive as facts, and a node keeps the newest.
+
+**The login record.** Every device logs in at the primary: a node, a Windows PC or an Android phone. It receives a
+record signed by the organization key:
+
+```
+device id, the device's public key, user, team, levels (comma separated),
+the services and RAMs it may reach and how, issued, expires
+```
+
+The device keeps the record. Its private key never leaves it.
+
+**Why a LAN can still authenticate.** A relocated service checks the login record with the organization's public key,
+then has the device prove it holds the private key named in the record (section 9.4). It needs no secret and nothing
+online. A stolen node yields nothing that works against another device. A key derived from the device id would need the
+master secret on every LAN service. The fnid is public (`frognet_reset.sh`: "/etc/fnid is not a secret").
+
+**What cannot happen in a partition.**
+
+- A node cannot tell a split from a primary that does not answer. Its install does not try to: it completes, and the
+  node runs on its LAN. The bundle comes with the node's login at the primary. That login is retried on the next event
+  that could make the primary reachable (a link, a DHCP lease, an uplink fact), and is never replaced by anything else.
+  Until it succeeds, the node holds no bundle and is not a candidate for any relocated service. It does not know why,
+  and it does not need to.
+- A device that never logged in at the primary has no record, so no relocated service admits it.
+- Gone is gone: there is no second way in.
+
+**Revocation and expiry.**
+
+- A revocation is a newer signed version, and it spreads as a fact.
+- Inside the partition where it was made, it takes effect at once; elsewhere, at the merge.
+- A record issued before a split stays good on the other side until it expires. The expiry length is the admin's
+  trade-off.
+
+**Merge. Open (Q8).** When the primary is visible again, does a relocated service stand down at once, with its clients
+going back to the primary and writing their truth there? That would be the one failback, like leaving the LAN fallback.
+Or does it serve until it dies?
 
 ### 9.1 Owned by the app
 
@@ -385,8 +429,9 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
   add-in is not eligible: its capability fact lists the apps it has, and a missing app is a hard gate.
 - **persist:** whether the island's RAM manager keeps a Permanent file. Persistence is the app's choice (RIBBIT.md
   Part I).
-- **access:** the code that applies the admin RAM's grants for this island: who may connect, and who may read and write
-  which portions (section 9.3). The code ships in the add-in; the grants are data in the admin RAM.
+- **access:** the code that applies the login record's levels and the service table's reach for this island: who may
+  connect, and who may read and write which portions (section 9.3).
+- **partition:** `fail` or `relocate` (section 9.0).
 
 ### 9.2 One role per island; separation by the app's code
 
@@ -413,10 +458,11 @@ In order:
    `resolve` op: a `.1`, or `ENOENT` if that member is gone).
 2. **Route.** On the member's LAN, a LAN route. Otherwise through the MRM, where network reach must allow it (section
    5.2).
-3. **Membership.** The connector must be a member: its public key is in the network's facts or admissions.
-4. **The challenge** (`[ROLE_CHALLENGE_V1]`, section 9.4).
-5. **The app's own check.** The island's `access` applies the admin RAM's grants to the proven member and decides
-   whether to admit it and what it may read and write. A Hospital island can refuse a field phone of the Responders
+3. **The login record.** The connector presents it. The host checks the organization's signature and the expiry.
+4. **The challenge** (`[ROLE_CHALLENGE_V1]`, section 9.4): the connector proves it holds the private key the record
+   names.
+5. **The app's own check.** The island's `access` applies the record's levels and the service table's reach, and
+   decides whether to admit the device and what it may read and write. A Hospital island can refuse a field phone of the Responders
    level even though the network reaches it. That refusal is island reach, and it is the app's.
 
 ### 9.4 The challenge, and its review
@@ -424,32 +470,29 @@ In order:
 **What it must be.** These requirements follow from John's sentence ("automatically authenticated by network
 membership, plus a challenge when connecting to the server with the role"):
 
-1. **Membership is the authentication.** Admission already proved who the member is, by its key and its level. The
-   first part of the challenge, the key proof below, is answered by the library and nobody types anything.
+1. **The login record is the authentication.** The primary checked the user and signed the record. At connect, the
+   library answers the key proof below, and nobody types anything.
 2. **The challenge proves the connection is that member.** Inside a WireGuard tunnel, the source address already is
    the key: the hub accepts an edge's packets only from that edge's key. On a LAN, an address proves nothing. Any host
    on the wire can take one. The challenge has to bind the connection to the member's key on every path.
-3. **The role host asks.** It is the one that must be sure, and as a member itself it can check with what the
-   network already holds: the connector's public key in the facts or admissions.
-4. **It must work in a split.** The check can use only what is inside the partition. Keys are facts, and the LAN's
-   control host holds facts. So the challenge needs nothing from the MRM.
-5. **The rest is the app's.** Whatever an island asks beyond membership is set in the app's admin RAM, per island.
-   **Proposed:** the same kinds as the network's door: none, a user and password, or a one-time code that burns on
-   use. Which member may then read or write what is the app's `access` (section 9.3, step 5).
+3. **The role host asks.** It is the one that must be sure. It checks the record with the organization's public key
+   and takes the device's public key from the record.
+4. **It must work in a split.** The record and the organization's public key are all it uses. It needs nothing
+   online.
+5. **The rest is the app's.** Which device may read or write what is the app's `access`, over the record's levels
+   and the service table (section 9.3, step 5).
 6. **No fallback.** A connection that does not answer the challenge is closed and logged. There is no unchallenged
    mode.
 
-**The mechanism. Proposed.** It uses no new keys. Every node and device already holds an X25519 key, its WireGuard key,
-whose public half is in the facts or the admissions.
+**The mechanism. Proposed.** It uses no new keys. Every node and device already holds an X25519 key, its WireGuard key.
+Its public half is in the device's login record, and a node's is also in its record in the bundle.
 
 - The connector opens with its member name and a nonce `Nc`.
 - The server answers with its own nonce `Ns` and `HMAC(K, "s" ‖ Nc ‖ Ns ‖ island ‖ server guid ‖ member)`.
   `K` is `X25519(server key, member public key)`, which both sides can compute and nobody else can.
 - The connector checks that answer, so it knows it is talking to the member whose where cell names it.
 - The connector answers `HMAC(K, "c" ‖ Nc ‖ Ns ‖ island ‖ server guid ‖ member)`. The server checks it.
-- The server then asks the island's own challenge from the admin RAM, if it has one. The answer travels under `K`, so a
-  password never crosses the wire in the clear. The server checks it against the admin RAM's verifier, which is never
-  the password itself. Then it runs the app's `access`.
+- Then the server runs the app's `access`.
 - Both nonces are fresh per connection, so neither answer can be replayed. The island and the server guid are in both
   answers, so an answer cannot be relayed to another island or another host.
 
@@ -457,16 +500,19 @@ whose public half is in the facts or the admissions.
 
 | Case | Result |
 | --- | --- |
-| A host on the LAN, not a member | No member key: fails, logged |
-| A member that was revoked | Its key is gone from the facts: fails. Inside a partition, revocation takes effect when that partition holds the change (at the merge, if the revocation was made at the MRM during the split) |
+| A host on the LAN with no login record | Nothing to present: fails, logged |
+| A forged or altered record | The organization's signature fails |
+| A copied record on another machine | It cannot prove the private key: fails |
+| An expired record | Refused |
+| A revoked device | A newer signed version spreads as a fact. Inside its partition it takes effect at once; across a split, at the merge or at the record's expiry, whichever comes first |
 | A replay of a captured exchange | Fresh `Ns`: fails |
 | A relay between two islands or two hosts | The island and the server guid are bound in: fails |
 | A host answering at the elected host's address (stale ARP, a spoofed `.1`) | It cannot produce the server's answer: the connector refuses it |
-| A stolen member key | Passes. The remedy is revoking that member; the challenge is no stronger than membership, which is what John stated |
+| A stolen device (its key and its record) | Passes until revoked or expired; the expiry length is the admin's trade-off |
 | A legitimate member the app does not want | Passes the challenge; refused by the app's `access` |
 | Cost | One round trip and one X25519 operation on each side, per connection; nothing per request |
 | Not provided: confidentiality after the challenge | Off a tunnel, the session is plain TCP, as member sessions are today. `K` can key the session (ChaCha20-Poly1305, as WireGuard uses). **Open (Q6)** |
-| Changing an island's grants or challenge | An admin writes the admin RAM; the role host's held read sees it; the next connection is decided by it. **Open (Q9):** are sessions already open re-decided at once? |
+| A service table change | A newer signed version spreads as a fact; the next connection is decided by it. **Open (Q9):** are sessions already open re-decided at once? |
 
 ## 10. Apps
 
@@ -566,13 +612,12 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
    (runMerge and the store at control)? Today the tree has both, in two modes.
 2. **The egress route.** The applier owns only the /32 to the MRM via the exit, and FrogNet's default fixer is told when
    it moves (section 6.2). Is that the right split of ownership?
-3. **Island access during a split.** Settled by the admin RAM if John confirms section 9.0: it is read from there.
-4. **Level→island grants.** Settled by the admin RAM if John confirms section 9.0: they live there.
+3. **Island access during a split.** Settled (section 9.0): the signed login record, checked locally.
+4. **Level→island grants.** Settled (section 9.0): each service's reach by team, in the app's signed service table.
 5. **Site.** A `facts.site` for placement by site: taken from the level, or typed at install?
 6. **The island session after the challenge.** Should it be encrypted with `K`, or left plain as member sessions are
    today?
-7. **The challenge.** Is the key proof in both directions plus the island's own challenge from the admin RAM what John
-   means (section 9.4)?
-8. **A partition without the admin RAM.** Its islands admit no one, or is the admin RAM placed so that this cannot
-   happen where islands run (section 9.0)?
+7. **The challenge.** Is the key proof in both directions (section 9.4) the challenge John means?
+8. **Merge.** Does a relocated service stand down at once when the primary is visible again, or serve until it dies
+   (section 9.0)?
 9. **Grant changes and open sessions.** Is a session already open re-decided the moment its grant changes?
