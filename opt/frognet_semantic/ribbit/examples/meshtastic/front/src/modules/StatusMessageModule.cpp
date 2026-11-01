@@ -41,7 +41,7 @@ ProcessMessage StatusMessageModule::handleReceived(const meshtastic_MeshPacket &
             LOG_INFO("Received a NodeStatus message %s", incomingMessage.status);
 
             if (nodeDB)
-                if (!MT_FACTS_FROM_RAM() || isFromUs(&mp)) // [MT_NODEDB_IS_A_HELD_VIEW_V1] another node comes from its cell
+                if (isFromUs(&mp)) // [MT_NO_GATES_V1] our own; another node's status is its owner's cell (bridge seam: Phase 3)
                     nodeDB->setNodeStatus(mp.from, incomingMessage);
         }
     }

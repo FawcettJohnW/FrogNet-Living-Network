@@ -103,9 +103,7 @@ bool FloodingRouter::reprocessPacket(const meshtastic_MeshPacket *p)
             return false;
     }
 
-    if (nodeDB)
-        if (!MT_FACTS_FROM_RAM()) // [MT_NODEDB_IS_A_HELD_VIEW_V1]
-            nodeDB->updateFrom(*p);
+    // [MT_NO_GATES_V1] a packet creates or refreshes no node here: nodes are their owners' cells
 
 #if !MESHTASTIC_EXCLUDE_TRACEROUTE
     if (traceRouteModule && p->which_payload_variant == meshtastic_MeshPacket_decoded_tag &&

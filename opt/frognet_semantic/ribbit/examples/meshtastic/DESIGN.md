@@ -146,3 +146,13 @@ should not need any of that. The app-facing layer on the same library:
 - held reads as callbacks; no polling.
 
 Not written yet; a deliverable of its own with its own test, after the distributed side-by-side.
+
+## No gates (2026-11-01) `[MT_NO_GATES_V1]`
+
+There is no stock mode. The node is on the memory from start (`MESHTASTIC_RIBBIT`, or its own when none is named);
+every `if (ribbitTransport)` and `MT_FACTS_FROM_RAM()` is gone and the stock branch at each site is deleted. The one
+stock thing left is `RibbitTransport::bridgeToStock` (D8) on the send path; the inbound half is the radio edge
+(Phase 3), its seams marked where stock wrote the NodeDB from a packet. The native suites: 92 of 1,505 tests test the
+deleted copy (RESULTS.md has the table); three of them point at "marks on a peer" (favorite, pinned key, muted) which
+are the next Phase 2 step. `ribbitTransport` is a static instance, not running in the unit tests, so no code asks
+whether it exists.

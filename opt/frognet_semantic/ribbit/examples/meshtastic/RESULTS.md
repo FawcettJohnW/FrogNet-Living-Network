@@ -299,3 +299,45 @@ victim is back" never held; the run script passes `-e` on the first start only.
 Not claimed: multi-machine numbers. The native meshtasticd links ~90 shared libraries (the stock Debian package has the
 same dependencies), so one bundle per machine type is needed; the run across John's machines waits on which machines
 take part. Stock's answer for sites that share no LAN is MQTT; that is the stock column for this table.
+
+## No gates [MT_NO_GATES_V1]
+
+"Get rid of the gates right now. Having them there is unnecessary and obfuscates things … unless that means getting
+rid of compatibility with existing Meshtastic. If that is the case, then make that conversion a library function."
+(John, 2026-11-01.)
+
+Every `if (ribbitTransport)` and every `MT_FACTS_FROM_RAM()` is gone. The node is on the memory, always:
+MESHTASTIC_RIBBIT names it ("HOST:PORT" a memory elsewhere, "here:HOST:PORT" this process holds it and listens);
+none given, the node stands up its own ("here"). The stock branches at each site are deleted — a received packet
+creates or refreshes no node; a remote node's user, position, telemetry and status are its owner's cells; the dump and
+replay read cells; the mark replaces the queue. The one piece of stock Meshtastic the node still speaks is
+`RibbitTransport::bridgeToStock(p)` — D8 as a single library function on the send path: after the memory write, a
+unicast to a node whose cell is on the memory goes nowhere else; a broadcast, a unicast to a node with no cell, or a
+relay of another node's packet still goes the stock way (UDP, the radio) for nodes that are not on the memory. The
+inbound half (a packet from a node that is not on the memory becomes its cell) is the radio edge, Phase 3; its seams
+are marked at the sites where stock wrote the NodeDB from a packet.
+
+| check | result |
+|---|---|
+| step 4 S1–S11 (step4-20261101-103234) | 11/11 |
+| smokevirt, the node on its own memory (no MESHTASTIC_RIBBIT) | 39/40 — the one failure is the CLI remove_position race recorded above |
+| native suites | RED: 92 of 1,505 tests fail in 19 of 88 suites |
+
+The 92 are tests of the stock copy the node no longer keeps, grouped:
+
+| suite | fails | what the test plants or expects |
+|---|---|---|
+| test_packet_signing | 25 | another node's public key stored in the NodeDB from a received NodeInfo, then verified against |
+| test_nodedb_identity_hygiene, _v25_roundtrip, _blocked, _legacy_migration, _save_retry | 38 | other nodes created in the NodeDB by hand or by packet; saved, migrated, pruned |
+| test_rebroadcast_mode, test_nexthop_routing, test_traceroute_nexthop | 10 | relay and next-hop state learned from packets |
+| test_reliable_ack_matrix | 4 | retransmission (stubbed, D4) |
+| test_pki_admin_fallback, test_traffic_management, test_mesh_module, test_fuzz_packets | 7 | "sender should have been created in NodeDB" |
+| test_stream_api, test_phone_api_config_dump | 4 | nodes planted in the NodeDB expected in the dump; last_heard backfilled from the copy (now the cell's write time) |
+| test_admin_radio | 1 | favorite marked on a remote node's NodeDB entry |
+| test_admin_session_repro | 2 | a PKC key pinned per remote node |
+| test_muted_source | 1 | a remote node muted |
+
+The last three rows are behaviour to carry, not drop: favorite, pinned key and muted are "marks on a peer" — the truth
+table's (mt, peer, !me.!N), the marking node's own cells — not yet built (Phase 2, next). The rest test code that no
+longer runs; with the gates gone the native suites stop being the arbiter for it, and the contract's proof is step 4,
+smokevirt and the coordinated multi-machine run. No crash, no sanitizer finding in the run.

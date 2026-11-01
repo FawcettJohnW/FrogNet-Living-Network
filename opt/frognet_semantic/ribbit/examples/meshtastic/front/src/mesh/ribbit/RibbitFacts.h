@@ -6,7 +6,7 @@
 // [MT_OTHER_NODES_ARE_CELLS_V1] Nothing about another node is kept here: a read of another node is a read of its cell
 // (NodeDB.cpp). This held read exists for the one thing a read cannot do, telling connected clients when a cell changes
 // ([MT_FACT_CHANGES_TO_CLIENTS_V1]). The held read's thread only wakes this thread (the router's own wake: setInterval(0)
-// + runASAP); the rows are taken on the main loop. While it runs (ribbitFactsActive), no received packet writes another
+// + runASAP); the rows are taken on the main loop. No received packet writes another
 // node into the NodeDB.
 #pragma once
 #ifdef ARCH_PORTDUINO
@@ -20,7 +20,6 @@
 #include "mt_ribbit.h"
 #include <cstring>
 
-extern bool ribbitFactsActive;
 
 class RibbitFacts : public concurrency::OSThread
 {
@@ -31,7 +30,6 @@ class RibbitFacts : public concurrency::OSThread
     {
         if (mtr_hold_facts(&RibbitFacts::wake, this) != 0)
             return false;
-        ribbitFactsActive = true;
         LOG_INFO("[MT_RIBBIT] other nodes: read from their owners' cells; changes to our clients (held read on mtf)");
         wake(this); // what was there when the hold started
         return true;

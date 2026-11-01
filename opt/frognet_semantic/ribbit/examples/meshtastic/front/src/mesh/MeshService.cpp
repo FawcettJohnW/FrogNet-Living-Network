@@ -93,8 +93,7 @@ int MeshService::handleFromRadio(const meshtastic_MeshPacket *mp)
 {
     powerFSM.trigger(EVENT_PACKET_FOR_PHONE); // Possibly keep the node from sleeping
 
-    if (!MT_FACTS_FROM_RAM()) // [MT_NODEDB_IS_A_HELD_VIEW_V1] a packet no longer creates or refreshes another node
-        nodeDB->updateFrom(*mp); // update our DB state based off sniffing every RX packet from the radio
+    // [MT_NO_GATES_V1] a packet creates or refreshes no node here: nodes are their owners' cells
     bool isPreferredRebroadcaster =
         IS_ONE_OF(config.device.role, meshtastic_Config_DeviceConfig_Role_ROUTER, meshtastic_Config_DeviceConfig_Role_ROUTER_LATE,
                   meshtastic_Config_DeviceConfig_Role_CLIENT_BASE);
@@ -178,8 +177,7 @@ void MeshService::reloadConfig(int saveWhat)
     }
     nodeDB->saveToDisk(saveWhat);
 #ifdef ARCH_PORTDUINO
-    if (ribbitTransport)
-        ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1] the config changed: its cells are written now
+    ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1] the config changed: its cells are written now
 #endif
 }
 
@@ -190,8 +188,7 @@ void MeshService::reloadOwner(bool shouldSave)
     // update our local data directly
     nodeDB->updateUser(nodeDB->getNodeNum(), owner);
 #ifdef ARCH_PORTDUINO
-    if (ribbitTransport)
-        ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_ON_CHANGE_V1] the owner changed: the cell is written now
+    ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_ON_CHANGE_V1] the owner changed: the cell is written now
 #endif
     assert(nodeInfoModule);
     // update everyone else and save to disk
@@ -501,7 +498,7 @@ void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 #ifdef ARCH_PORTDUINO
     // [MT_READ_MARKS_V1] a packet read from a message family is not queued for a client that is not there: it stays
     // in its sender's ring past the node's mark, and the next client to connect is handed it from there
-    if (ribbitTransport && RibbitTransport::clients.load() == 0) {
+    if (RibbitTransport::clients.load() == 0) {
         RibbitTransport::RowOf r;
         if (ribbitTransport->rowOf(p->id, r)) {
             LOG_INFO("[MT_RIBBIT] no client: id=0x%08x stays in %s past the mark (row %llu), not queued", p->id, r.family,

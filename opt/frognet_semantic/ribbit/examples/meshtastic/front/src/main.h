@@ -69,13 +69,7 @@ extern AudioThread *audioThread;
 #include "mesh/udp/UdpMulticastHandler.h"
 extern UdpMulticastHandler *udpHandler;
 #endif
-#ifdef ARCH_PORTDUINO
-// [MT_NODEDB_IS_A_HELD_VIEW_V1] true while other nodes come from their owners' fact cells, not from received packets
-extern bool ribbitFactsActive;
-#define MT_FACTS_FROM_RAM() (ribbitFactsActive)
-#else
-#define MT_FACTS_FROM_RAM() (false)
-#endif
+// [MT_NO_GATES_V1] There is no stock mode: the node is on the memory, every other node is its owner's cell.
 
 // Global Screen singleton.
 extern std::unique_ptr<graphics::Screen> screen;

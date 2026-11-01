@@ -375,7 +375,7 @@ void Channels::onConfigChanged()
     }
 #endif
 #ifdef ARCH_PORTDUINO
-    if (ribbitTransport) // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has
+    if (ribbitTransport) // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has (null only before start)
         ribbitTransport->holdChannels();
 #endif
 }

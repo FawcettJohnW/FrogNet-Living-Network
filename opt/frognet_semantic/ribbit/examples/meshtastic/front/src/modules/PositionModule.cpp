@@ -120,7 +120,7 @@ bool PositionModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
         trySetRtc(p, isLocal, force);
     }
 
-    if (!MT_FACTS_FROM_RAM() || isLocal) // [MT_NODEDB_IS_A_HELD_VIEW_V1] another node's position comes from its cell
+    if (isLocal) // [MT_NO_GATES_V1] our own; another node's position is its owner's cell (bridge seam: Phase 3)
         nodeDB->updatePosition(sender, p);
     precision = getPositionPrecisionForChannel(mp.channel);
 
@@ -454,8 +454,6 @@ void mtOwnPositionChanged()
 
 bool PositionModule::writeOwnPositionCell()
 {
-    if (!ribbitTransport)
-        return false;
     // [MT_OWN_FACTS_ON_CHANGE_V1] the position itself decides, not the fixed_position flag (the admin handler sets the
     // flag after the position lands, so at the hook the flag still says the old state): none -> the cell carries none
     if (localPosition.latitude_i == 0 && localPosition.longitude_i == 0) {

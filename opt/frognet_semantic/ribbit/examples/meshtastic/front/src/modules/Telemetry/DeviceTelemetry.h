@@ -28,7 +28,7 @@ class DeviceTelemetryModule : private concurrency::OSThread,
         // [MT_OWN_FACTS_AT_START_V1] on the memory the first run writes the node's device metrics cell at once, then waits
         // out stock's start delay before its first broadcast
         startDelayMs = setStartDelay();
-        setIntervalFromNow(ribbitTransport ? 0 : startDelayMs);
+        setIntervalFromNow(0); // [MT_NO_GATES_V1] the device-metrics cell is written on the first run
 #else
         setIntervalFromNow(setStartDelay()); // Wait until NodeInfo is sent
 #endif

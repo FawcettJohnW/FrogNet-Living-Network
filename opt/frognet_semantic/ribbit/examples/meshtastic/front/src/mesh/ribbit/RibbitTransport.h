@@ -66,6 +66,22 @@ class RibbitTransport final
         return true;
     }
 
+    // [MT_NO_GATES_V1] D8, the one decision: after the memory write, does this packet also go the stock way (UDP, the
+    // radio) for nodes that are not on the memory? A unicast to a node whose user cell is on the memory: no, it is
+    // there already. Anything else -- a broadcast, a unicast to a node with no cell, a relay of another node's packet
+    // -- yes: stock nodes off the memory may need it. This is the only stock Meshtastic the node still speaks; the
+    // radio edge (Phase 3) is the other half of it, inbound.
+    bool bridgeToStock(const meshtastic_MeshPacket *p)
+    {
+        if (!p)
+            return false;
+        if (!isBroadcast(p->to) && isFromUs(p) && isFrogNetNode(p->to)) {
+            LOG_INFO("[MT_RIBBIT] id=0x%08x to !%08x: on the memory; nothing goes the stock way", p->id, p->to);
+            return false;
+        }
+        return true;
+    }
+
     // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has; called when channels are (re)loaded
     void holdChannels()
     {
@@ -146,7 +162,7 @@ class RibbitTransport final
     // view runs, the NodeDB holds only nodes that came from their owners' cells, so presence + user = the cell exists.
     static bool isFrogNetNode(NodeNum n)
     {
-        if (!MT_FACTS_FROM_RAM() || !ribbitTransport || !ribbitTransport->running)
+        if (!ribbitTransport || !ribbitTransport->running) // null only before start
             return false;
         const meshtastic_NodeInfoLite *info = nodeDB->getMeshNode(n);
         return nodeInfoLiteHasUser(info);

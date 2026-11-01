@@ -26,7 +26,7 @@ static constexpr uint16_t TX_HISTORY_KEY_DEVICE_TELEMETRY = 0x8001;
 int32_t DeviceTelemetryModule::runOnce()
 {
 #ifdef ARCH_PORTDUINO
-    if (ribbitTransport && !wroteOwnCell) {
+    if (!wroteOwnCell) {
         wroteOwnCell = true;
         writeOwnCell();
         return startDelayMs; // stock's first broadcast keeps its time
@@ -67,7 +67,7 @@ bool DeviceTelemetryModule::handleReceivedProtobuf(const meshtastic_MeshPacket &
                  t->variant.device_metrics.air_util_tx, t->variant.device_metrics.channel_utilization,
                  t->variant.device_metrics.battery_level, t->variant.device_metrics.voltage);
 #endif
-        if (!MT_FACTS_FROM_RAM() || isFromUs(&mp)) // [MT_NODEDB_IS_A_HELD_VIEW_V1] another node comes from its cell
+        if (isFromUs(&mp)) // [MT_NO_GATES_V1] our own; another node's telemetry is its owner's cell (bridge seam: Phase 3)
             nodeDB->updateTelemetry(getFrom(&mp), *t, RX_SRC_RADIO);
     }
     return false; // Let others look at this message also if they want
@@ -109,7 +109,7 @@ meshtastic_MeshPacket *DeviceTelemetryModule::allocReply()
 // or not it broadcasts, so this does not depend on device_telemetry_enabled.
 void DeviceTelemetryModule::writeOwnCell()
 {
-    if (!ribbitTransport)
+    if (false)
         return;
     if (meshtastic_MeshPacket *p = allocDataProtobuf(getDeviceTelemetry())) {
         ribbitTransport->onOwnFact(*p);

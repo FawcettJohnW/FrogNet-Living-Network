@@ -441,7 +441,7 @@ ErrorCode Router::sendLocal(meshtastic_MeshPacket *p, RxSource src)
         return ERRNO_NO_INTERFACES;
     } else {
         // [MT_REPLIES_FROM_CELLS_V1] a request for a FrogNet node's fact is answered from its cell, here
-        if (ribbitTransport && ribbitTransport->answerFromCell(p))
+        if (ribbitTransport->answerFromCell(p))
             return ERRNO_SHOULD_RELEASE;
 
         // Coordinates never go out on the event channel: any local originator (phone, module, UI) that aimed
@@ -600,7 +600,7 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
             return encodeResult; // FIXME - this isn't a valid ErrorCode
         }
 #ifdef ARCH_PORTDUINO
-        if (ribbitTransport && isFromUs(p) && p_decoded) // [MT_OWN_FACTS_V1]
+        if (isFromUs(p) && p_decoded) // [MT_OWN_FACTS_V1]
             ribbitTransport->onOwnFact(*p_decoded);
 #endif
 #if !MESHTASTIC_EXCLUDE_MQTT
@@ -612,14 +612,20 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         packetPool.release(p_decoded);
     }
 
+#ifdef ARCH_PORTDUINO
+    // [MT_PACKETS_ON_THE_RAM_V1] the packet is written to the memory; [MT_NO_GATES_V1] then D8, in one place: does it
+    // also go the stock way (UDP, the radio) for nodes that are not on the memory? bridgeToStock says, and it is the
+    // only stock Meshtastic this node still speaks.
+    ribbitTransport->onSend(p);
+    if (!ribbitTransport->bridgeToStock(p)) {
+        packetPool.release(p);
+        return meshtastic_Routing_Error_NONE;
+    }
+#endif
 #if HAS_UDP_MULTICAST
     if (udpHandler && config.network.enabled_protocols & meshtastic_Config_NetworkConfig_ProtocolFlags_UDP_BROADCAST) {
         udpHandler->onSend(const_cast<meshtastic_MeshPacket *>(p));
     }
-#endif
-#ifdef ARCH_PORTDUINO
-    if (ribbitTransport) // [MT_PACKETS_ON_THE_RAM_V1]
-        ribbitTransport->onSend(p);
 #endif
 
     // Only already-encrypted frames (relayed, phone-sourced) reach here oversized; perhapsEncode()

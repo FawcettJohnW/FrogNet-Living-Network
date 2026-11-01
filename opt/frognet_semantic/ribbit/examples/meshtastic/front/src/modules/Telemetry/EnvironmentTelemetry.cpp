@@ -691,7 +691,7 @@ bool EnvironmentTelemetryModule::handleReceivedProtobuf(const meshtastic_MeshPac
 #endif
         // Cache the latest env metrics per node on NodeDB so the phone can
         // pull last-known values across reboots and replays.
-        if (!MT_FACTS_FROM_RAM() || isFromUs(&mp)) // [MT_NODEDB_IS_A_HELD_VIEW_V1] another node comes from its cell
+        if (isFromUs(&mp)) // [MT_NO_GATES_V1] our own; another node's telemetry is its owner's cell (bridge seam: Phase 3)
             nodeDB->updateTelemetry(getFrom(&mp), *t, RX_SRC_RADIO);
 
         const NodeNum senderNode = getFrom(&mp);

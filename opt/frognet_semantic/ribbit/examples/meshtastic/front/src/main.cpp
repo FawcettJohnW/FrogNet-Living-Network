@@ -198,10 +198,12 @@ extern void tftSetup(void);
 UdpMulticastHandler *udpHandler = nullptr;
 #ifdef ARCH_PORTDUINO
 #include "mesh/ribbit/RibbitTransport.h" // [MT_PACKETS_ON_THE_RAM_V1]
-RibbitTransport *ribbitTransport = nullptr;
+// [MT_NO_GATES_V1] the transport exists from the start (the suites construct components with no memory: it is simply not
+// running there); setup() starts it. No code asks whether it exists.
+static RibbitTransport ribbitTransportInstance;
+RibbitTransport *ribbitTransport = &ribbitTransportInstance;
 #include "mesh/ribbit/RibbitFacts.h" // [MT_NODEDB_IS_A_HELD_VIEW_V1]
 RibbitFacts *ribbitFacts = nullptr;
-bool ribbitFactsActive = false;
 #endif
 #endif
 
@@ -1097,16 +1099,22 @@ void setup()
 #endif
 #endif
 #ifdef ARCH_PORTDUINO
-    // [MT_PACKETS_ON_THE_RAM_V1] packets on the shared RAM when MESHTASTIC_RIBBIT names the memory
-    if (const char *where = getenv("MESHTASTIC_RIBBIT")) {
-        ribbitTransport = new RibbitTransport();
-        if (ribbitTransport->start(where, nodeDB->getNodeNum())) {
-            ribbitTransport->holdChannels(); // [MT_MESSAGES_BY_FAMILY_V1] channels loaded before the transport existed
-            ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_V1]
-            ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1]
-            ribbitFacts = new RibbitFacts(); // [MT_NODEDB_IS_A_HELD_VIEW_V1]
-            ribbitFacts->start();
+    // [MT_NO_GATES_V1] The node is on the memory, always. MESHTASTIC_RIBBIT names it ("HOST:PORT" a memory elsewhere,
+    // "here:HOST:PORT" this process holds it and listens); none given, the node stands up its own ("here"). There is no
+    // stock mode: the one place the node still speaks stock Meshtastic is RibbitTransport::bridgeToStock (D8).
+    {
+        const char *where = getenv("MESHTASTIC_RIBBIT");
+        if (!where || !*where)
+            where = "here";
+        if (!ribbitTransport->start(where, nodeDB->getNodeNum())) {
+            LOG_ERROR("[MT_RIBBIT] the memory at %s cannot be used; the node cannot run without one", where);
+            exit(3);
         }
+        ribbitTransport->holdChannels(); // [MT_MESSAGES_BY_FAMILY_V1] channels loaded before the transport existed
+        ribbitTransport->writeOwnUser(); // [MT_OWN_FACTS_V1]
+        ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1]
+        ribbitFacts = new RibbitFacts(); // [MT_FACT_CHANGES_TO_CLIENTS_V1]
+        ribbitFacts->start();
     }
 #endif
     service = new MeshService();
@@ -1129,7 +1137,7 @@ void setup()
     // Now that the mesh service is created, create any modules
     setupModules();
 #ifdef ARCH_PORTDUINO
-    if (ribbitTransport && positionModule)
+    if (positionModule)
         positionModule->writeOwnPositionCell(); // [MT_OWN_FACTS_AT_START_V1]
 #endif
 

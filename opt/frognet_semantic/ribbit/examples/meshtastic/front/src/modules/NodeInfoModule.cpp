@@ -62,8 +62,8 @@ bool NodeInfoModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 
     // Outside Compatible, updateUser() refuses the identity write for a known signer sending unsigned,
     // so an unsigned unicast exchange still proceeds but cannot spoof the stored name.
-    // [MT_NODEDB_IS_A_HELD_VIEW_V1] with the fact view running, the node comes from its owner's cell instead
-    bool hasChanged = MT_FACTS_FROM_RAM() ? false : nodeDB->updateUser(getFrom(&mp), p, mp.channel, mp.xeddsa_signed);
+    // [MT_NO_GATES_V1] another node's user is its owner's cell; nothing is kept of it here (bridge seam: Phase 3)
+    bool hasChanged = false;
 
     bool wasBroadcast = isBroadcast(mp.to);
 

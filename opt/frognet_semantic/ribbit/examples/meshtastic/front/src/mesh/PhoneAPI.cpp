@@ -275,8 +275,7 @@ void PhoneAPI::handleStartConfig()
     if (!isConnected()) {
         onConnectionChanged(true);
 #ifdef ARCH_PORTDUINO
-        if (ribbitTransport) // [MT_READ_MARKS_V1]
-            LOG_INFO("[MT_RIBBIT] client connected (%d)", RibbitTransport::clients.fetch_add(1) + 1);
+        LOG_INFO("[MT_RIBBIT] client connected (%d)", RibbitTransport::clients.fetch_add(1) + 1); // [MT_READ_MARKS_V1]
 #endif
         observe(&service->fromNumChanged);
 #ifdef FSCom
@@ -399,8 +398,7 @@ void PhoneAPI::close()
         releaseClientNotification();
         onConnectionChanged(false);
 #ifdef ARCH_PORTDUINO
-        if (ribbitTransport) // [MT_READ_MARKS_V1]
-            LOG_INFO("[MT_RIBBIT] client gone (%d left)", RibbitTransport::clients.fetch_sub(1) - 1);
+        LOG_INFO("[MT_RIBBIT] client gone (%d left)", RibbitTransport::clients.fetch_sub(1) - 1); // [MT_READ_MARKS_V1]
 #endif
         fromRadioScratch = {};
         toRadioScratch = {};
@@ -442,7 +440,7 @@ void PhoneAPI::close()
 // A frame that was not written (the client went) leaves the mark where it was, and the next client is handed the row.
 void PhoneAPI::onFrameWritten()
 {
-    if (pendingHanded && ribbitTransport) {
+    if (pendingHanded) {
         ribbitTransport->handedId(pendingHanded);
         pendingHanded = 0;
     }
@@ -1018,7 +1016,7 @@ size_t PhoneAPI::getFromRadio(uint8_t *buf)
             // A record prefetched before the clock became trusted carries last_heard == 0 even
             // once the store is backfilled, so re-read it at send time: handshake ordering
             // (time-set vs node-list download) must not decide what the phone sees.
-            if (!MT_FACTS_FROM_RAM() && infoToSend.last_heard == 0 && infoToSend.num != nodeDB->getNodeNum()) {
+            if (false && infoToSend.last_heard == 0 && infoToSend.num != nodeDB->getNodeNum()) { // [MT_NO_GATES_V1] last_heard is the cell's write time
                 const meshtastic_NodeInfoLite *fresh = nodeDB->getMeshNode(infoToSend.num);
                 if (fresh)
                     infoToSend.last_heard = fresh->last_heard;
@@ -1247,10 +1245,8 @@ void PhoneAPI::releaseQueueStatusPhonePacket()
 void PhoneAPI::prefetchNodeInfos()
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM()) {
-        prefetchNodeInfosFromCells();
-        return;
-    }
+    prefetchNodeInfosFromCells(); // [MT_NO_GATES_V1]
+    return;
 #endif
     bool added = false;
     bool wasEmpty = false;
@@ -1622,8 +1618,7 @@ void PhoneAPI::prefetchReplayStatus()
 bool PhoneAPI::popReplayPacket(meshtastic_MeshPacket &out)
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM())
-        return popReplayPacketFromCells(out);
+    return popReplayPacketFromCells(out); // [MT_NO_GATES_V1]
 #endif
     while (replayPhase != REPLAY_PHASE_IDLE) {
         // Prime the active phase: seed the snapshot vector on first entry,

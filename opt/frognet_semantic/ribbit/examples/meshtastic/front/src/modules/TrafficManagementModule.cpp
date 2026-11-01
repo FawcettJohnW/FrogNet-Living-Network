@@ -1137,8 +1137,7 @@ ProcessMessage TrafficManagementModule::handleReceived(const meshtastic_MeshPack
                 // Re-enters this module: updateUser's write-through hook calls back into
                 // onNodeIdentityCommitted, which takes cacheLock - safe here because this
                 // call site never holds cacheLock.
-                if (!MT_FACTS_FROM_RAM()) // [MT_NODEDB_IS_A_HELD_VIEW_V1]
-                    nodeDB->updateUser(getFrom(&mp), requester, mp.channel, mp.xeddsa_signed);
+                // [MT_NO_GATES_V1] the requester is its owner's cell; nothing is kept of it here
             }
             logAction("respond", &mp, "nodeinfo-cache");
             incrementStat(&stats.nodeinfo_cache_hits);

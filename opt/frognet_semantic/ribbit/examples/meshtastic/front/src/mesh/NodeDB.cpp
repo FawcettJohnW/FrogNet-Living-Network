@@ -72,7 +72,7 @@ bool readCellAs(const char *topic, NodeNum n, const pb_msgdesc_t *fields, void *
 
 bool otherNodeOnMemory(NodeNum n)
 {
-    return MT_FACTS_FROM_RAM() && n != myNodeInfo.my_node_num;
+    return n != myNodeInfo.my_node_num; // [MT_NO_GATES_V1] every other node is its owner's cell
 }
 
 thread_local meshtastic_NodeInfoLite cellNodes[8];
@@ -2080,8 +2080,7 @@ bool NodeDB::copyNodeStatus(NodeNum n, meshtastic_StatusMessage &out) const
 std::vector<NodeNum> NodeDB::snapshotPositionNodeNums(NodeNum exclude) const
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM())
-        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+    return {}; // [MT_NO_GATES_V1] // nothing about other nodes is held here; a list of them is a read of their cells
 #endif
 #if MESHTASTIC_EXCLUDE_POSITIONDB
     (void)exclude;
@@ -2095,8 +2094,7 @@ std::vector<NodeNum> NodeDB::snapshotPositionNodeNums(NodeNum exclude) const
 std::vector<NodeNum> NodeDB::snapshotTelemetryNodeNums(NodeNum exclude) const
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM())
-        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+    return {}; // [MT_NO_GATES_V1] // nothing about other nodes is held here; a list of them is a read of their cells
 #endif
 #if MESHTASTIC_EXCLUDE_TELEMETRYDB
     (void)exclude;
@@ -2110,8 +2108,7 @@ std::vector<NodeNum> NodeDB::snapshotTelemetryNodeNums(NodeNum exclude) const
 std::vector<NodeNum> NodeDB::snapshotEnvironmentNodeNums(NodeNum exclude) const
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM())
-        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+    return {}; // [MT_NO_GATES_V1] // nothing about other nodes is held here; a list of them is a read of their cells
 #endif
 #if MESHTASTIC_EXCLUDE_ENVIRONMENTDB
     (void)exclude;
@@ -2125,8 +2122,7 @@ std::vector<NodeNum> NodeDB::snapshotEnvironmentNodeNums(NodeNum exclude) const
 std::vector<NodeNum> NodeDB::snapshotStatusNodeNums(NodeNum exclude) const
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM())
-        return {}; // nothing about other nodes is held here; a list of them is a read of their cells
+    return {}; // [MT_NO_GATES_V1] // nothing about other nodes is held here; a list of them is a read of their cells
 #endif
 #if MESHTASTIC_EXCLUDE_STATUSDB
     (void)exclude;
@@ -3694,7 +3690,7 @@ void NodeDB::onLocalPositionChanged()
 void NodeDB::readNodes(const std::function<void(const meshtastic_NodeInfoLite &)> &fn)
 {
 #ifdef ARCH_PORTDUINO
-    if (MT_FACTS_FROM_RAM()) {
+    { // [MT_NO_GATES_V1]
         if (const meshtastic_NodeInfoLite *us = getMeshNode(getNodeNum()))
             fn(*us);
         struct Ctx {
