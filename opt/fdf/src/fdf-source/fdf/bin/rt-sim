@@ -8,12 +8,16 @@ Seattle metro area, Vashon included (John, 2026-11-01: "Pre-populate the RAM wit
 data"; "The ambulances, teams, and victims move around the map in real time"; "Don't exclude water. Boats may be first
 responder transports").
 
-Each simulated instance is its own writer of its own truth, as a real device is (PLAN.md, the 2026-11-01 decision):
+Each simulated instance is its own writer of its own truth, as a real device is (PLAN.md, the 2026-11-01 decision),
+on a session of its own (fnw1), with own=True, so its cells go with it ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]):
   (rt-who, <mission>, <id>)   latest  {name, kind, team, color, host:"", station:""}   presence
   (rt-pos, <mission>, <id>)   latest  {name, kind, team, color, lat, lng, at, status, ...}   where it is now
 in RangerTrak's general RAM, wherever FDF_VAR/app-where.json says it is served now. Moving instances write their
-position every TICK seconds; when the RAM is another one (relocated), everything is written again there, at once.
-(rt-mission, settings, <mission>) is written by this program too: the exercise is its own.
+position every TICK seconds; when the RAM is another one (relocated), every instance opens its session there and
+writes its truth again, at once. A victim delivered to a hospital leaves: its session ends and it is gone from every
+map. rt-sim stopped: every instance is gone. Ambulances say what they do to everyone, (rt-msg, <mission>, <id>.<ms>);
+team members now and then say something to their team, (rt-team, <mission>, <id>.<ms>) in the team's own RAM when it
+is served (rangertrak.<team>). (rt-mission, settings, <mission>) is written by this program too: the exercise is its own.
 
 Kinds and what moves:
   team       members of four colour-coded teams, walking between nearby places of their zone
@@ -26,14 +30,14 @@ Kinds and what moves:
 Positions are approximate (hand-placed); this is a demo world, not a map service.
 
   rt-sim [--mission ID] [--tick S] [--seed N]
-Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
+Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r1"
+BUILD_TAG = "rt-sim-2026-11-01-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
-import fdfram  # noqa: E402
+import fnw1  # noqa: E402
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
 WHERE = os.path.join(VAR, "app-where.json")
@@ -75,6 +79,9 @@ HOSPITALS = {"Harborview": ("seattle", 47.6040, -122.3238), "Swedish First Hill"
              "Vashon Health Center": ("vashon", 47.4470, -122.4600)}
 TEAMS = [("Alpha", "#d62728", "seattle"), ("Bravo", "#1f77b4", "west"), ("Charlie", "#2ca02c", "south"),
          ("Delta", "#ff7f0e", "vashon")]
+TEAM_TALK = ["On scene, assessing", "Need more water at this location", "Clear here, moving to next block",
+             "Road blocked, rerouting", "Two people need help getting to the shelter", "All accounted for here",
+             "Checking in, all OK", "Gas smell reported, keeping clear"]
 WALK, DRIVE, BOAT, SHUFFLE = 1.4, 14.0, 9.0, 0.4      # m/s; the clock runs at real time
 
 
@@ -104,6 +111,7 @@ def jitter(p, rng, r=300.0):
 class World:
     def __init__(self, rng):
         self.rng, self.u, self.n = rng, {}, 0
+        self.say, self.removed, self.chatter = [], set(), []       # what instances said; who left; team talk
         for name, (zone, lat, lng) in HOSPITALS.items():
             self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
         for team, color, zone in TEAMS:
@@ -153,6 +161,8 @@ class World:
                     v["goal"] = jitter(self.place(v["zone"]), rng, 400) if kind == "team" else jitter(v["p"], rng, 150)
                 v["p"], _ = step_toward(v["p"], v["goal"], (WALK if kind == "team" else SHUFFLE) * dt)
                 moved.add(k)
+                if kind == "team" and rng.random() < dt / 240.0:          # about every 4 minutes per member
+                    self.chatter.append((k, v["team"], rng.choice(TEAM_TALK)))
             elif kind == "ambulance":
                 self.drive(k, v, dt, moved)
             elif kind == "boat":
@@ -173,6 +183,7 @@ class World:
                 return
             self.u[vic]["taken"] = k
             v.update(status="responding", victim=vic, goal=self.u[vic]["p"])
+            self.say.append((k, "%s responding to %s" % (v["name"], self.u[vic]["name"])))
         if v["status"] == "responding":
             vic = self.u.get(v["victim"])
             if not vic:
@@ -183,6 +194,7 @@ class World:
                 vic["status"] = "in ambulance"; moved.add(v["victim"])
                 h = self.nearest("hospital", v["p"], v["zone"])
                 v.update(status="transporting", hospital=h, goal=self.u[h]["p"])
+                self.say.append((k, "%s transporting %s to %s" % (v["name"], vic["name"], self.u[h]["name"])))
             moved.add(k)
         elif v["status"] == "transporting":
             vic = self.u.get(v["victim"])
@@ -193,7 +205,8 @@ class World:
                 hosp = self.u[v["hospital"]]
                 hosp["beds"] = max(0, hosp["beds"] - 1); moved.add(v["hospital"])
                 if vic:
-                    vic["status"] = "transported"
+                    self.say.append((k, "%s delivered %s to %s" % (v["name"], vic["name"], hosp["name"])))
+                    del self.u[v["victim"]]; self.removed.add(v["victim"])
                 v.update(status="available", victim=None, goal=None)
                 self.new_victim()
                 moved.add(sorted(self.u, key=lambda x: int(x.rsplit("-", 1)[1]))[-1])
@@ -216,9 +229,42 @@ class World:
 def where():
     try:
         with open(WHERE) as f:
-            return json.load(f).get(KEY, "")
+            return json.load(f)
     except (OSError, ValueError):
-        return ""
+        return {}
+
+
+class Writers:
+    """one session per instance, on the general RAM where it is served now"""
+    def __init__(self, mission):
+        self.mission, self.s, self.at = mission, {}, ""
+
+    def open(self, hp, w):
+        self.close_all()
+        h, p = hp.rsplit(":", 1)
+        for k in w.u:
+            self.add(h, p, w, k)
+        self.at = hp
+
+    def add(self, h, p, w, k):
+        s = fnw1.Session(h, p); self.s[k] = s
+        who, pos = w.bags(k)
+        s.write("rt-who", self.mission, k, who, own=True); s.write("rt-pos", self.mission, k, pos, own=True)
+
+    def pos(self, w, k):
+        if k not in self.s:
+            h, p = self.at.rsplit(":", 1); self.add(h, p, w, k); return
+        self.s[k].write("rt-pos", self.mission, k, w.bags(k)[1], own=True)
+
+    def leave(self, k):
+        s = self.s.pop(k, None)
+        if s:
+            s.close()
+
+    def close_all(self):
+        for k in list(self.s):
+            self.leave(k)
+        self.at = ""
 
 
 def main():
@@ -231,37 +277,44 @@ def main():
     kinds = {}
     for v in w.u.values():
         kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
-    log("build %s; mission %s; %d instances (%s); tick %.1f s" % (BUILD_TAG, a.mission, len(w.u),
+    log("build %s; mission %s; %d instances (%s); tick %.1f s; each on its own session" % (BUILD_TAG, a.mission, len(w.u),
         ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), a.tick))
-    at, written = "", set()
+    wr = Writers(a.mission)
     last = time.monotonic()
     while True:
-        now = where()
+        m = where(); now = m.get(KEY, "")
         if not now:
             log("the app's general RAM is not served yet (%s); again in 1 s" % WHERE)
             time.sleep(1); continue
         try:
-            rm = fdfram.Ram(now)
-            if now != at:                       # another RAM: every instance's own truth again, there
-                rm.write("rt-mission", "settings", a.mission, {"name": "Seattle metro exercise", "event": "Seattle metro exercise",
-                                                                "opPeriod": 1, "by": "rt-sim", "sim": True})
-                for k in w.u:
-                    who, pos = w.bags(k)
-                    rm.write("rt-who", a.mission, k, who); rm.write("rt-pos", a.mission, k, pos)
-                written = set(w.u)
-                log("on %s: %d instances written" % (now, len(w.u)))
-                at = now
+            if now != wr.at:                    # another RAM: every instance's own truth again, there
+                wr.open(now, w)
+                h, p = now.rsplit(":", 1); ms = fnw1.Session(h, p)
+                ms.write("rt-mission", "settings", a.mission, {"name": "Seattle metro exercise", "event": "Seattle metro exercise",
+                                                               "opPeriod": 1, "by": "rt-sim", "sim": True}, wait=True); ms.close()
+                log("on %s: %d instances, each on its own session" % (now, len(w.u)))
             time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
             dt = time.monotonic() - last; last = time.monotonic()
             changed = w.tick(dt)
-            for k in changed | (set(w.u) - written):
-                who, pos = w.bags(k)
-                if k not in written:
-                    rm.write("rt-who", a.mission, k, who); written.add(k)
-                rm.write("rt-pos", a.mission, k, pos)
-        except fdfram.RamError as e:
-            log("writing on %s failed (%s); where it is now is read again in 1 s" % (at or now, e))
-            at = ""
+            for k in w.removed:
+                wr.leave(k)
+            for k in changed:
+                if k in w.u:
+                    wr.pos(w, k)
+            stamp = int(time.time() * 1000)
+            for k, text in w.say:
+                if k in wr.s:
+                    wr.s[k].write("rt-msg", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "text": text, "at": stamp // 1000})
+            for k, team, text in w.chatter:
+                tr = m.get("rangertrak." + team.lower(), "")
+                if tr and k in w.u:
+                    h, p = tr.rsplit(":", 1); ts = fnw1.Session(h, p)
+                    ts.write("rt-team", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "team": team, "text": text, "at": stamp // 1000}, wait=True)
+                    ts.close()
+            w.say, w.removed, w.chatter = [], set(), []
+        except (fnw1.Gone, fnw1.Refused, OSError) as e:
+            log("writing on %s failed (%s); where it is now is read again in 1 s" % (wr.at or now, e))
+            wr.close_all()
             time.sleep(1)
 
 
