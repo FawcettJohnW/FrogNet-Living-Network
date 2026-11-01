@@ -27,7 +27,28 @@ What this changes in the pages built 2026-10-31 (`[RT_PAGES_V1]`):
 - Kept as they are: `rules.js`, the screens, the forms, and `[OWN_TRUTH_AGAIN_V1]` (each device writes its own
   entries again on a RAM change).
 
-## The demo this plan is for
+## Decision, 2026-11-01 (John): the demo is presence, chat and the map, in an app
+
+"Presence and chat and some sensor data", "on the phone and on the desktop", "in an app" -- not the browser, and not
+the radio log ("absolutely the least interesting thing there is"). This replaces the demo below.
+
+- **Who:** the EOC on the Windows app; a first responder on a phone (Android app). Windows first, then Android.
+- **Splash:** "RangerTrak / powered by the FrogNet Living Network", while the app opens its RAM session.
+- **Presence includes GPS:** each device writes its own presence with its position (the phone from its GPS on every
+  fix; a desktop from Windows' location service when it has one -- none, no position; nothing is made up).
+- **Pre-populated RAM:** instances of Teams, Hospitals, Ambulances, Fire, Power and Victims, placed in a lat/long area
+  John gives, with simulated GPS. Ambulances, teams and victims move on the map in real time. Each simulated instance
+  is its own writer of its own tuples, as a real device would be (a simulator participant, not rows written once).
+- **EOC default view:** the big map, everything on it, chat beside it.
+- **Team default view:** teams colour-coded so each is told apart at a glance. Double-click a team member: a chat box
+  to that one member or to all of the team, with a video link when the connection is fast enough.
+- **Library, not usurpation:** nothing is taken whole from the Communicator. What is useful (the member's RAM session
+  and join line, the held-read loop, the presence writer, the media link for video) is abstracted into a library item
+  that both use.
+- **Independent of this:** the ESP32 work, which makes a Sensors page (all in an area, all of a type, all out of
+  tolerance, ...).
+
+## The demo this plan is for (2026-10-31, superseded by the decision above)
 
 John Cornelison sees RangerTrak's screens and words running at three posts at once, with no Board or coordination
 server to deploy: a scribe at each post typing what teams say over the radio, every post's radio log, roster and map
