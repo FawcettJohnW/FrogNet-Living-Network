@@ -247,8 +247,10 @@ was said on the radio, and stays in the log.
   its role's RAM, as a DM is read only by its addressee because it is in the addressee's variable.
 - **The client's focus** [APP_FOCUS_V1]: `index.html` connects, then opens on the role's screen: a role's own RAM on
   its messages, `eoc` on the Summary, no role on the Radio Log.
-- **`ram.php?op=whoami`** gives the asking device its hostname, from the lease this node gave its address (the node's
-  facts, `addrs` kind `given`). That hostname is the app's station ID; a device with no lease here has none.
+- **`ram.php?op=whoami`** gives the asking device its host name, from the lease this node gave its address (the node's
+  facts, `addrs` kind `given`); a lease with no host name (fdf-facts records the MAC) gives none, and the name typed for
+  the device is used instead. That name is the app's station ID. **John, 2026-11-01:** "Station ID is hidden from the
+  users. Use the host name or device name." Users see the host or device name, never a station ID.
 
 ## Why it works this way
 

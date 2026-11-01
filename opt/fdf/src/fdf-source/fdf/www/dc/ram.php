@@ -11,7 +11,7 @@
 //   GET  ?op=rams&app=APP                                                  {"rams": {ram: host:port}} served now
 //   POST ?op=login&app=APP {"user"?,"password"?,"role"?}                    {"role"}: checked here, a read of the access tuples
 //   POST ?op=device&app=APP {"dev","role","user"}                            the device's own access record, network RAM
-//   GET  ?op=whoami                                                       {"station": the asking device's hostname}
+//   GET  ?op=whoami                                                       {"host": the asking device's host name, or ''}
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
 // it change reads everything again and writes its own truth there: memory is never moved, each owner writes its own again.
@@ -55,7 +55,8 @@ function station_of($ip) {                                      // [STATION_IS_H
     global $fdf_var;
     $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
     foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
-        if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '') return $a['value'];
+        if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '')
+            return preg_match('/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i', $a['value']) ? '' : $a['value'];   // a lease with no name: fdf-facts wrote the MAC
     return '';
 }
 function for_service($s, $team = null) {                        // [APP_DROPLET_V1] the RAM this service is in, now
@@ -152,9 +153,10 @@ if ($op === 'read') {
     $out = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $out[substr($k, strlen($app) + 1)] = $v;
     echo json_encode(['ok' => true, 'rams' => $out]);
 } elseif ($op === 'whoami') {
-    $ip = $_SERVER['REMOTE_ADDR'] ?? ''; $st = station_of($ip);
-    if ($st === '') fail(404, "this node gave $ip no lease, so it has no hostname for it: no station ID");
-    echo json_encode(['ok' => true, 'station' => $st, 'ip' => $ip]);
+    // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
+    // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    echo json_encode(['ok' => true, 'host' => station_of($ip), 'ip' => $ip]);
 } elseif ($op === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_ACCESS_V1] login is a read, here at the device's own edge: the app's access definition is in its configuration
     // tuples in the network RAM (each droplet writes it), and the password is checked against the verifier there. No
@@ -182,7 +184,7 @@ if ($op === 'read') {
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? ''; $dev = (string)($in['dev'] ?? '');
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $dev)) fail(400, 'app and dev needed');
-    $bag = ['dev' => $dev, 'station' => station_of($_SERVER['REMOTE_ADDR'] ?? ''), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
+    $bag = ['dev' => $dev, 'station' => preg_replace('/[^a-z0-9-]/', '', strtolower((string)($in['station'] ?? ''))), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
     echo ram($env, ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
     fail(400, 'op is read, write, watch, announce, rams, whoami, login or device');

@@ -6,7 +6,8 @@
 # test_rt_pages.py -- [RT_PAGES_V1] the radio log app's node-served pages, driven in a real browser (Chromium, through
 # Playwright): two posts, each a member (its own session, fdf-client, and its own fdf-app serve, both reaching the
 # network RAM at the post's one address for it) with a web server and ram.php; three devices -- the scribe at post A
-# (station A), the scribe at post B (station B), a field phone on post A's Wi-Fi (station F). [APP_DROPLET_V1] the app's
+# (laptop-a), the scribe at post B (laptop-b), a field phone on post A's Wi-Fi that sends no host name (shown and numbered by
+# the name typed for it, "phone"). [APP_DROPLET_V1] the app's
 # general RAM is served by a droplet the app's selection picks (A, the stronger); the pages reach it through ram.php,
 # which follows the post's app-where.json.
 #
@@ -16,7 +17,7 @@
 # Checks, each with what it saw:
 #   1  a mission started at A is on B's list; B opens it
 #   2  an entry typed at A is on B's Radio Log (time from A's "Log it" to the row at B)
-#   3  the phone logs one; it is on A and B, numbered as the phone's station (F001), no packet, no merge
+#   3  the phone logs one; it is on A and B, numbered by its own name (phone-001), no packet, no merge
 #   4  the message numbers: A001.., B001.., F001 -- one count per device, printed as on the forms
 #   5  two scribes logging at once, 25 each: all 50 on both screens, every number distinct (no clash by construction)
 #   6  B reloads: every entry is back from the RAM (nothing kept in the browser but its own id and station)
@@ -75,8 +76,9 @@ def post309_start(post):
     p = subprocess.Popen([os.path.join(FDF, "bin", "rt-post309")], env=member_env(post), stdout=open(T + "/%s/post309.log" % post, "a"), stderr=subprocess.STDOUT)
     procs.append(p); return p
 # [STATION_IS_HOSTNAME_V1] the leases each post's dnsmasq gave (in its facts, as fdf-facts writes them): the devices'
-# hostnames, their station IDs. The fresh phone at A has a lease too; the board asks it nothing
-LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "phone-f", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h"}, "B": {"127.0.12.2": "laptop-b"}}
+# host names (a station ID is the host name, hidden from users). The phone's lease has none: fdf-facts records the MAC.
+# The fresh phone at A has a lease too; the board asks it nothing
+LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "02:00:00:00:00:33", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h"}, "B": {"127.0.12.2": "laptop-b"}}
 import threading
 up = {}
 def member_env(post):
@@ -137,7 +139,7 @@ try:
             clog = open(T + "/console-%s.log" % name, "a")            # [DIAG-WATCH] the page's own account of every read and write
             ctx.on("console", lambda msg: (clog.write("%.3f %s %s\n" % (time.time(), msg.page.url.rsplit("/", 1)[-1] if msg.page else "", msg.text)), clog.flush()))
             pg.goto("http://127.0.0.1:%d/rt/log.html" % fwd[ip].port)
-            pg.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
+            pg.wait_for_function("document.body.dataset.connected === '1'")
             pg.fill("#dev input[name=name]", name); pg.click("#saveDev")
             if team:                                  # [APP_ACCESS_V1] the role is the user's, activated at their login
                 user, pw = team
@@ -159,8 +161,8 @@ try:
         check(lg["kim at B"].get("role") == "hospitals" and not lg["kim, wrong password"].get("ok") and lg["eoc, a default role"].get("role") == "eoc"
               and not lg["hospitals, no login"].get("ok"),
               "0 login at the door, a read of the access tuples: %s" % {k: v.get("role") if v.get("ok") else v.get("why") for k, v in lg.items()})
-        check(all(("station " + h) in x for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
-              "0 each device's station ID is its hostname, from the post (nothing typed): %s" % st)
+        check(st == ["laptop-a", "laptop-b, role hospitals", "phone, role hospitals"],
+              "0 each device shown by its host name from its lease, or by its own name when it sent none (the phone); no station ID shown: %s" % st)
         def rows(pg): return pg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         def wait_rows(pg, n, s=15):
             t0 = time.time()
@@ -189,11 +191,11 @@ try:
         t0 = time.time(); log(ph, "K7XYZ", "urgent", "CN87uo", "needs water")
         ok = wait_rows(a, 2) and wait_rows(b, 2); dt = time.time() - t0
         rb = rows(b)
-        check(ok and rb[1][0] == "phone-f-001" and rb[1][3] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered with the phone's hostname: %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
+        check(ok and rb[1][0] == "phone-001" and rb[1][3] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered with the phone's own name (it sent no host name): %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
         # 4
         log(b, "N7QQQ"); wait_rows(a, 3); log(a, "W7ABC", notes="second"); wait_rows(b, 4)
         nos = [x[0] for x in rows(b)]
-        check(nos == ["laptop-a-001", "phone-f-001", "laptop-b-001", "laptop-a-002"], "4 message numbers in write order, one count per station: %s" % nos)
+        check(nos == ["laptop-a-001", "phone-001", "laptop-b-001", "laptop-a-002"], "4 message numbers in write order, one count per station: %s" % nos)
         # 5 two scribes at once
         t0 = time.time()
         # one browser driver: the two scribes' entries interleaved, each landing as the other's arrive
@@ -206,8 +208,8 @@ try:
               "5 two scribes logging at once, 25 each: %d on A, %d on B, %d distinct numbers, the same order on both (%.1f s)" % (len(ra), len(rb), len(set(nos)), dt))
         # 6 reload
         b.reload(); ok = wait_rows(b, 54, 15)
-        b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
-        check(ok and [x[0] for x in rows(b)] == nos and "station laptop-b, role hospitals" in b.text_content("#devInfo"), "6 B reloaded: all %d entries back from the RAM; %s" % (len(rows(b)), b.text_content("#devInfo")))
+        b.wait_for_function("document.body.dataset.connected === '1'")
+        check(ok and [x[0] for x in rows(b)] == nos and b.text_content("#devInfo") == "laptop-b, role hospitals", "6 B reloaded: all %d entries back from the RAM; %s" % (len(rows(b)), b.text_content("#devInfo")))
         # 7
         def mark_on(pg, i): return pg.eval_on_selector_all("#rows tr", "(rs, i) => rs[i].children[1].textContent", i)
         t0 = time.time(); b.click("#rows tr:nth-child(1) td.mk")
@@ -294,7 +296,7 @@ try:
             if any(x[6] == "while cut 2" for x in rows(b)): break
             time.sleep(0.02)
         n_before = sum(1 for x in rows(b) if x[7] == "scribe-b")
-        b.reload(); b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
+        b.reload(); b.wait_for_function("document.body.dataset.connected === '1'")
         ok_r = wait_rows(b, n_before, 20); n_own = sum(1 for x in rows(b) if x[7] == "scribe-b")
         recs, t1 = [], time.time()
         while time.time() - t1 < 15:
@@ -302,7 +304,7 @@ try:
             if any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs): break
             time.sleep(0.1)
         on_region = [c["bag"]["station"] for c in fdfram.Ram(RAM).read("fdf-app", "device")]
-        check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs) and "phone-f" in on_region,
+        check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs) and "phone" in on_region,
               "11 [APP_ACCESS_V1] the devices' own access records: B's written again on its side's network RAM (%s); the region's has %s"
               % ([(r["station"], r["role"]) for r in recs], sorted(set(on_region))))
         check(ok_r and n_own == n_before == 28, "11 B reloaded during the cut: its %d own entries back on its side (%d before the reload)" % (n_own, n_before))

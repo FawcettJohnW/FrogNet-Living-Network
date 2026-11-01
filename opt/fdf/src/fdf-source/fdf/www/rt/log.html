@@ -29,11 +29,11 @@ import * as RT from './rt.js'
 const D = RT.D, $ = (s) => document.querySelector(s), f$ = (fs, n) => $(fs + ' [name=' + n + ']'), say = (t) => { $('#say').textContent = t }
 for (const [k] of D.STATUSES) $('#entry').status.add(new Option(k, k))
 let entries = new Map(), stopLog = null, stopMarks = null, stopRoster = null, stopPos = null, missions = new Map(), marks = new Map()
-function showDev() { const d = RT.device(); f$('#dev', 'name').value = d.name; $('#devInfo').textContent = 'device ' + d.id + ', station ' + (d.station || '(not connected)') + (d.team ? ', role ' + d.team : '') }
+function showDev() { const d = RT.device(); f$('#dev', 'name').value = d.name; $('#devInfo').textContent = (RT.shownName(d) || '(name this device)') + (d.team ? ', role ' + d.team : '') }
 $('#saveDev').onclick = () => { RT.setDevice(f$('#dev', 'name').value.trim()); showDev(); const m = RT.currentMission(); if (m) RT.present(m) }
-// the client connects first: its station, then its role; when the app requires its user's login, it is asked here
+// the client connects first: its host name, then its role; when the app requires its user's login, it is asked here
 await new Promise((ok) => {
-  const go = async () => { try { await RT.connect(); $('#login').hidden = !!RT.device().user; showDev(); ok() }
+  const go = async () => { try { await RT.connect(); $('#login').hidden = !!RT.device().user; showDev(); document.body.dataset.connected = '1'; ok() }
     catch (e) { showDev(); if (e.needsLogin) { $('#login').hidden = false; $('#loginWhy').textContent = e.message } else { say('not connected: ' + e.message); setTimeout(go, 2000) } } }
   $('#doLogin').onclick = async () => { try { await RT.login({ user: f$('#login', 'user').value.trim(), password: f$('#login', 'password').value }); f$('#login', 'password').value = ''
                                               $('#login').hidden = true; showDev(); const m = RT.currentMission(); if (m) RT.present(m); go() }

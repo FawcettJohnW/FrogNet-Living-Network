@@ -17,8 +17,9 @@
 //   (rt-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
 //                                                         a query over them. Never derived from the log: a position in a
 //                                                         log entry is the scribe's record of what was said
-// <dev> is this browser's own id (kept in localStorage, made once). Its station ID is its hostname, from the node
-// (connect(): ram.php whoami) [STATION_IS_HOSTNAME_V1]. The message number is rules.js's (nextMsgNo / msgNoShort /
+// <dev> is this browser's own id (kept in localStorage, made once). [STATION_IS_HOSTNAME_V1] Its station ID is its host
+// name, from the lease the node gave it (connect(): ram.php whoami), or, when the device sent no host name, the name
+// typed for the device. Nobody sees a station ID as such: what users see is the host or device name. The message number is rules.js's (nextMsgNo / msgNoShort /
 // msgNoFull), stamped once when written.
 import * as D from './rules.js'
 
@@ -162,11 +163,13 @@ export function device() {
   if (!d) { d = { id: 'd' + Math.random().toString(36).slice(2, 10), name: '', station: '' }; kept('device', d) }
   return d
 }
-export function setDevice(name) { const d = { ...device(), name }; kept('device', d); return d }
+const stationOf = (d) => d.host || String(d.name || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30)
+export const shownName = (d) => d.host || d.name || ''          // what users see for a device
+export function setDevice(name) { const d = { ...device(), name }; d.station = stationOf(d); kept('device', d); return d }
 // [TEAM_RAM_V1] the app's RAMs served now: { general: host:port, <team>: host:port, ... }
 export async function rams() { return (await call(RAM + '?op=rams&app=rangertrak')).rams || {} }
 // this device in the mission's directory: who it is, its station, its team (its own cell; DMs are addressed by station)
-export async function present(m) { const d = device(); return write('rt-who', m.id, d.id, { name: d.name || d.id, station: d.station, team: d.team || '' }) }
+export async function present(m) { const d = device(); return write('rt-who', m.id, d.id, { name: d.name || shownName(d), host: d.host || '', station: d.station, team: d.team || '' }) }
 // what this device sent, from its own store: [variable, instance, bag] of every family s it owns whose variable starts so
 export function sent(s, prefix) {
   const out = []
@@ -181,7 +184,7 @@ export function sent(s, prefix) {
 export const APP = 'rangertrak'
 export async function connect(defaultRole) {
   const j = await call(RAM + '?op=whoami')
-  let d = { ...device(), station: j.station }; kept('device', d)
+  let d = { ...device(), host: j.host || '' }; d.station = stationOf(d); kept('device', d)
   if (!kept('access')) {
     try { await login({ role: defaultRole || '' }) }
     catch (e) { const x = new Error('log in: ' + e.message); x.needsLogin = true; throw x }
@@ -202,7 +205,7 @@ export function logout() { kept('access', null); kept('device', { ...device(), t
 async function writeDevice() {
   const d = device()
   return call(RAM + '?op=device&app=' + APP, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ dev: d.id, role: d.team || '', user: d.user || '' }) })
+              body: JSON.stringify({ dev: d.id, station: d.station || '', role: d.team || '', user: d.user || '' }) })
 }
 
 // [MARK_PER_HANDLER_V1] the handled marks: each handler writes its own; the mark shown on an entry is the newest
@@ -240,7 +243,7 @@ export const logVariable = (m) => m.id + '.' + m.opPeriod
 // write this device's next entry: its message number from its own entries' numbers and its high-water mark, the cell instance <dev>.<seq>, never overwritten
 export async function logEntry(m, entries, form) {
   const d = device()
-  if (!d.station) throw new Error('this device has no station ID: it is not connected')
+  if (!d.station) throw new Error('name this device first (it sent the post no host name)')
   const mine = [...entries.values()].filter(r => r.instance.startsWith(d.id + '.')).map(r => r.bag)
   const hw = kept('hw.' + m.id) || {}
   const msgNo = D.nextMsgNo(mine, hw, { mission: m.name, opPeriod: m.opPeriod, station: d.station })

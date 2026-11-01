@@ -135,6 +135,8 @@ again there).
 
 **Message numbers.** **John, 2026-11-01:** "The station ID is the app hostname." A hostname is already unique on the
 network, so the station ID is unique by construction and nobody types it: no clash to detect, warn of or claim.
+**John, 2026-11-01:** "Station ID is hidden from the users. Use the host name or device name." A device that sends no
+host name with its lease (many Android phones) uses the name typed for the device. Users see that name, not a station ID.
 RangerTrak's typed station letter, its clash report (`findMsgNoClashes`) and its *Take over station* / *Log
 alongside* choice all go. `<dev>.<seq>` stays the entry's identity in the RAM; the printed number is the station ID and
 that station's own count.
