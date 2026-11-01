@@ -8,6 +8,9 @@
 //   (rt-mission, settings, <mission>)            latest   the scribe who started it: name, event, op period
 //   (rt-log, <mission>.<op>, <dev>.<seq>)        distinct one cell per entry, written once by the device that logged it
 //   (rt-handled, <mission>, <entry instance>)    latest   whoever marked it
+//   (rt-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
+//                                                         a query over them. Never derived from the log: a position in a
+//                                                         log entry is the scribe's record of what was said
 // <dev> is this browser's own id (kept in localStorage, made once); its station letter is its own fact. The message
 // number is rules.js's (nextMsgNo / msgNoShort / msgNoFull), stamped once when written.
 import * as D from './rules.js'
@@ -80,6 +83,20 @@ export function device() {
 export function setDevice(name, station) { const d = { ...device(), name, station: station.toUpperCase().slice(0, 1) }; kept('device', d); return d }
 export function currentMission() { return kept('mission') }
 export function setMission(m) { kept('mission', m) }
+
+// [DEVICE_POSITION_V1] this device's position, as it moves, into its own cell; watched too, so that after a RAM move the
+// last fix is written again there even when the device has not moved since
+export function sharePosition(m) {
+  if (!navigator.geolocation) { note('this device gives no position'); return () => {} }
+  const d = device()
+  const stopW = watch('rt-pos', m.id, () => {}, (e) => note('positions: the RAM did not answer (' + e.message + ')'))
+  const id = navigator.geolocation.watchPosition(
+    (p) => write('rt-pos', m.id, d.id, { name: d.name || d.id, lat: p.coords.latitude, lng: p.coords.longitude,
+                                         acc: p.coords.accuracy, at: Math.round(p.timestamp / 1000) })
+             .catch((e) => note('position not written: ' + e.message)),
+    (e) => note('no position from this device (' + e.message + ')'), { enableHighAccuracy: true, maximumAge: 10000 })
+  return () => { navigator.geolocation.clearWatch(id); stopW() }
+}
 
 export const esc = (t) => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 export const missionId = (name) => name.trim().replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 60)

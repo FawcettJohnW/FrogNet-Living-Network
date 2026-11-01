@@ -23,11 +23,12 @@
 #   7  the handled mark: B marks A's first entry (click: ✓, again: →); A sees each mark
 #   8  a ranger added on B's Rangers page: in A's callsign list, and B's roster shows when it was last heard
 #   9  the ICS-309 at post A: every entry from every device in write order, with its number and mark
-#   10 the map at B: each callsign at its newest position; A logs W7ABC somewhere new and B's map moves it
+#   10 the map at B: a query over every device's own position (scribe A's, the phone's; B's browser gives none). The
+#      phone walks: its marker moves on B's map, with nothing logged
 #   11 post B cut off (behind B's address for the network RAM is now its own side's RAM): B's droplet serves the app's
 #      general RAM on B's side, B's page follows it, writes its own entries there and keeps logging; A keeps A's.
 #      B back: the general RAM is A's again, B's page follows it and writes its own again, and A has every one of B's
-#      entries -- nothing merged, restored or sent
+#      entries -- nothing merged, restored or sent. Positions: during the cut B's map has no device of A's side; back, both again
 #   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
@@ -87,7 +88,7 @@ for i, name in enumerate(("A", "B"), start=1):
     shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
     shutil.copytree(VL, R + "/www/vendor/leaflet")
     shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
-    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster"]
+    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: "general" for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
     open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s\n" % (T, R, via[name].addr))
@@ -110,11 +111,12 @@ for name in ("A", "B"):           # the client connects first: nothing works unt
 try:
     with sync_playwright() as pw:
         br = pw.chromium.launch(args=["--no-sandbox"])
-        def device(post, name, station):
-            ctx = br.new_context(); pg = ctx.new_page(); pg.goto(posts[post])
+        def device(post, name, station, at=None):    # at: where the device's own GPS says it is (None: it gives none)
+            ctx = br.new_context(**({"geolocation": {"latitude": at[0], "longitude": at[1], "accuracy": 8}, "permissions": ["geolocation"]} if at else {}))
+            pg = ctx.new_page(); pg.goto(posts[post])
             pg.fill("#dev input[name=name]", name); pg.fill("#dev input[name=station]", station); pg.click("#saveDev")
             return pg
-        a, b, ph = device("A", "scribe-a", "A"), device("B", "scribe-b", "B"), device("A", "phone", "F")
+        a, b, ph = device("A", "scribe-a", "A", (47.65, -122.35)), device("B", "scribe-b", "B"), device("A", "phone", "F", (47.6062, -122.3321))
         def rows(pg): return pg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         def wait_rows(pg, n, s=15):
             t0 = time.time()
@@ -201,14 +203,16 @@ try:
             if len(m1) == 2: break
             time.sleep(0.02)
         nmk = mp.evaluate("document.querySelectorAll('.leaflet-interactive').length")
-        log(a, "W7ABC", "normal", "47.7, -122.4", "moved")
+        n_log = len(rows(a))
+        ph.context.set_geolocation({"latitude": 47.7, "longitude": -122.4, "accuracy": 8})
         t0 = time.time(); m2 = []
         while time.time() - t0 < 10:
-            m2 = [x for x in maprows() if x[0] == "W7ABC"]
+            m2 = [x for x in maprows() if x[0] == "phone"]
             if m2 and m2[0][1].startswith("47.70000"): break
             time.sleep(0.02)
-        check(len(m1) == 2 and nmk == 2 and m2 and m2[0][1].startswith("47.70000") and m2[0][4] == "A028",
-              "10 B's map: %d callsigns, %d markers; W7ABC moved on B in %d ms: %s" % (len(m1), nmk, (time.time() - t0) * 1000, m2[0] if m2 else None))
+        check(sorted(x[0] for x in m1) == ["phone", "scribe-a"] and nmk == 2 and m2 and m2[0][1].startswith("47.70000") and len(rows(a)) == n_log,
+              "10 B's map: %s, %d markers; the phone walked and moved on B's map in %d ms, nothing logged (%d entries): %s"
+              % ([x[0] for x in m1], nmk, (time.time() - t0) * 1000, len(rows(a)), m2[0] if m2 else None))
         # 11
         via["B"].to(RAM_B_LAN); dm = wait_map("B", "127.0.2.1:")
         check(dm is not None, "11 B cut off: the general RAM on B's side is B's droplet %.2f s after (%s)" % (dm or -1, map_of("B")))
@@ -219,6 +223,11 @@ try:
             if any(x[3] == "N7CUT" for x in rb) and sum(1 for x in rb if x[7] == "scribe-b") >= 27: ok = True; break
             time.sleep(0.1)
         cut_rows = rows(b)
+        t1 = time.time()
+        while time.time() - t1 < 15:                     # B's map's held read lasts at most 8 s on the RAM it has left
+            on_b_side = [x[0] for x in maprows()]
+            if not on_b_side: break
+            time.sleep(0.1)
         log(b, "N7CUT", notes="while cut 2"); log(a, "W7AAA", notes="A during the cut")
         time.sleep(1.0)
         a_has_cut = any(x[3] == "N7CUT" for x in rows(a))
@@ -233,6 +242,14 @@ try:
             time.sleep(0.1)
         dt = time.time() - t0
         rb = rows(b)
+        t1 = time.time(); back = []
+        while time.time() - t1 < 20:
+            back = sorted(x[0] for x in maprows())
+            if back == ["phone", "scribe-a"]: break
+            time.sleep(0.1)
+        check(on_b_side == [] and back == ["phone", "scribe-a"],
+              "11 positions: on B's side during the cut, B's map has %s (A's devices are not on that side); back, %s"
+              % (on_b_side or "none", back))
         check(ok and any(x[3] == "W7AAA" for x in rb), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
         # 12
         bd = br.new_context().new_page(); bd.goto(posts["A"].replace("log.html", "board.html")); n12 = []

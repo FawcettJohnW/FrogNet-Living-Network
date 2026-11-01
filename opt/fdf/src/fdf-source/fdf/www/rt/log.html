@@ -24,7 +24,7 @@
 import * as RT from './rt.js'
 const D = RT.D, $ = (s) => document.querySelector(s), f$ = (fs, n) => $(fs + ' [name=' + n + ']'), say = (t) => { $('#say').textContent = t }
 for (const [k] of D.STATUSES) $('#entry').status.add(new Option(k, k))
-let entries = new Map(), stopLog = null, stopMarks = null, stopRoster = null, missions = new Map(), marks = new Map()
+let entries = new Map(), stopLog = null, stopMarks = null, stopRoster = null, stopPos = null, missions = new Map(), marks = new Map()
 function showDev() { const d = RT.device(); f$('#dev', 'name').value = d.name; f$('#dev', 'station').value = d.station; $('#devInfo').textContent = 'device ' + d.id + (d.station ? ', station ' + d.station : ', no station yet') }
 $('#saveDev').onclick = () => { RT.setDevice(f$('#dev', 'name').value.trim(), f$('#dev', 'station').value.trim()); showDev() }
 showDev()
@@ -40,7 +40,8 @@ function draw() {
 }
 function open(m) {
   RT.setMission(m); $('#misInfo').textContent = 'on ' + m.name + ', op period ' + m.opPeriod
-  if (stopLog) stopLog(); if (stopMarks) stopMarks(); if (stopRoster) stopRoster()
+  if (stopLog) stopLog(); if (stopMarks) stopMarks(); if (stopRoster) stopRoster(); if (stopPos) stopPos()
+  stopPos = RT.sharePosition(m)                             // [DEVICE_POSITION_V1] this device's own position, as it moves
   entries = new Map(); marks = new Map(); draw()
   stopRoster = RT.watch('rt-roster', m.id, (cells) => { $('#callsigns').innerHTML = [...cells.values()].map(r => '<option value="' + RT.esc(r.bag.callsign) + '">' + RT.esc(r.bag.fullName || '') + '</option>').join('') })
   stopMarks = RT.watch('rt-handled', m.id, (cells) => { marks = cells; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))

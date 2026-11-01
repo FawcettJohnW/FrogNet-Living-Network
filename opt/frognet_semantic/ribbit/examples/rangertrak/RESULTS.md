@@ -94,3 +94,17 @@ A split is emulated only as the fabric presents one: behind that address, anothe
 | B cut off | the general RAM on B's side is B's droplet 1.03 s after; B logs there and keeps its 27 own entries; A does not see them |
 | B back | the general RAM is A's again on B 0.02 s after; both cut-off entries on A 0.5 s later; 58 rows on both |
 | The board on a fresh phone at A | all 58, newest first |
+
+## Step 3: positions are each device's own (2026-11-01)
+
+`(rt-pos, <mission>, <dev>)`, written by the device as its GPS moves (from the Radio Log and Map pages), watched by it
+so that after a RAM move its last fix is written again. The map is a query over those cells; how long since each was
+heard is the map page's own clock. A position in a log entry stays the scribe's record and is not on the map.
+
+| Check (`test_rt_pages.py`) | Result |
+| --- | --- |
+| B's map (scribe A and the phone give a position; B's browser gives none) | 2 devices, 2 markers |
+| The phone walks | its marker moves on B's map in 232 ms; nothing logged (54 entries before and after) |
+| During the cut, B's map | no device from A's side |
+| B back | both devices on B's map again |
+| Checks 1 to 9, 11, 12 | pass |
