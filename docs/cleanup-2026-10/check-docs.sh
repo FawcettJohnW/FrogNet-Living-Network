@@ -12,7 +12,8 @@
 #   (b) every command in docs/OPERATING.md's code blocks: each program it runs exists in the tree at the path a node
 #       or the checkout has it (a cd in the block is followed), or is an OS command (on PATH here, or in OS_CMDS below).
 #   (c) no word of WORDS in DOCS outside an ALLOW entry (each with its reason).
-#   (d) the copies are the same file: usr/local/share/frognet/{README.md,AI_READ_FIRST.md,CLAIMS.md,COPYRIGHT,LICENSE}
+#   (d) [ONE_COPY_V1] one copy: usr/local/share/frognet/{README.md,AI_READ_FIRST.md,CLAIMS.md,COPYRIGHT,LICENSE} are not
+#       committed (the root's are the one copy; the installer lays the node's)
 #       = the repo root's; opt/fdf/README.md and hub/ = opt/fdf/src/fdf-source/fdf/'s; the Windows bridge's README.txt
 #       = the Android tree's windows/README.txt with CRLF line ends.
 # Every problem is printed. Exit 0 = no problem; exit 1 = at least one.
@@ -238,7 +239,7 @@ def same(a, b, crlf=False):
     if crlf: x = x.replace(b"\r\n", b"\n")
     return x == y
 for f in ("README.md", "AI_READ_FIRST.md", "CLAIMS.md", "COPYRIGHT", "LICENSE"):
-    if not same(f, "usr/local/share/frognet/" + f): bad("(d)", f, "usr/local/share/frognet/%s is not the same file" % f)
+    if os.path.exists("usr/local/share/frognet/" + f): bad("(d)", "usr/local/share/frognet/" + f, "a second copy of the root's " + f + " [ONE_COPY_V1]")
 for f in ["README.md"] + ["hub/" + os.path.basename(x) for x in glob.glob("opt/fdf/hub/*.md")]:
     if not same("opt/fdf/" + f, "opt/fdf/src/fdf-source/fdf/" + f): bad("(d)", "opt/fdf/" + f, "differs from opt/fdf/src/fdf-source/fdf/" + f)
 if not same("opt/fdf/windows/bridge/README.txt", "opt/fdf/src/frognet-android/windows/README.txt", crlf=True):

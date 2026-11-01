@@ -80,7 +80,6 @@ programming model is not tied to one network.
 etc/                      systemd units, Apache vhosts, sysctl, sudoers, logrotate, the NetworkManager hook
 usr/local/bin/            node scripts: the installer (installer/), runMerge.bash, the monitor launcher, tooling
 usr/local/lib/            shell libraries: logging, the node file set (frognet_world_manifest.sh)
-usr/local/share/frognet/  the copies of this README, AI_READ_FIRST.md, CLAIMS.md, COPYRIGHT and LICENSE a node carries
 var/www/html/             the node's web face: landing page, getSnapshot.php, getHosts.php, the dashboard, api.php
 opt/frognet_semantic/     the node engine
   core/                   memory, codec, wire identity, handlers
@@ -102,7 +101,8 @@ docs/                     OPERATING.md, and cleanup-2026-10/ (the cleanup's reco
 
 What lands on a node is the node file set (`frognet_node_files` in
 `usr/local/lib/frognet_world_manifest.sh`): not `opt/fdf`, the book or
-`docs/`. A region node gets `/opt/fdf` from the FD&F `.run`.
+`docs/`. A region node gets `/opt/fdf` from the FD&F `.run`. The installer lays the licence and this file,
+`AI_READ_FIRST.md` and `CLAIMS.md` into `/usr/local/share/frognet` from the one copy at the root.
 
 ## Running the gates
 

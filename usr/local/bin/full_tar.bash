@@ -45,7 +45,6 @@ TAKE=(
     usr/local/lib/frognet
     usr/local/lib/frognet_log.sh
     usr/local/lib/frognet_trace.sh
-    usr/local/share/frognet
     var/www/html
     etc/apache2/sites-available/000-default.conf
     etc/apache2/sites-available/default-ssl.conf
@@ -115,6 +114,8 @@ for t in "${TOKENIZE[@]}"; do
     grep -q '__FROGNET_DB_PASS__' "$STAGE/$t" || { echo "ERROR: $t: its password field did not match; not shipping a live credential" >&2; exit 1; }
     EX+=( "--exclude=$t" ); tok+=( "$t" )
 done
+# [ONE_COPY_V1 - John 2026-11-01] the node's copies become the repository's ONE copy, at its root; the snapshot
+# does not also carry usr/local/share/frognet (the installer lays it from the root copies).
 for l in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do   # the repository's root copies
     [ -f "$ROOT/usr/local/share/frognet/$l" ] && cp "$ROOT/usr/local/share/frognet/$l" "$STAGE/$l" && tok+=( "$l" )
 done

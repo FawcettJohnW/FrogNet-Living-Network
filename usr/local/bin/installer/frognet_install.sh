@@ -841,6 +841,17 @@ if (( FROM_REPO )); then
     tar -C "$SCRIPT_DIR" --owner=0 --group=0 --no-recursion -cf - -T "$_NODE_LIST" | tar -C / -xpf - \
         || die "--from-repo: copying the node file set failed"
     log "  copied $(wc -l < "$_NODE_LIST") files"
+    # [ONE_COPY_V1 - John 2026-11-01] "We should not be double committing for anything." The licence and the
+    # root documents are committed once, at the checkout's root, where GitHub and every scanner read them (a
+    # symlinked LICENSE is reported as no licence). [LICENSE_TRAVELS_WITH_THE_WORK_V1] still holds: the node's
+    # copy in /usr/local/share/frognet is laid here, from that one copy, and recorded so --uninstall removes it.
+    for _d in LICENSE COPYRIGHT README.md CLAIMS.md AI_READ_FIRST.md; do
+        [[ -f "${SCRIPT_DIR}/${_d}" ]] || die "--from-repo: ${SCRIPT_DIR}/${_d} not found - the node must carry it"
+        install -D -m 0644 -o root -g root "${SCRIPT_DIR}/${_d}" "/usr/local/share/frognet/${_d}" \
+            || die "--from-repo: could not lay /usr/local/share/frognet/${_d}"
+        echo "usr/local/share/frognet/${_d}" >> "$_NODE_LIST"
+    done
+    log "  laid the licence and documents in /usr/local/share/frognet from the checkout's root"
 else
     log "Extracting $WORLD_TGZ -> / ($(du -h "$WORLD_TGZ" | cut -f1))"
     # [EXTRACT_PROGRESS_V1] tar without -v prints NOTHING, so a multi-minute extraction
