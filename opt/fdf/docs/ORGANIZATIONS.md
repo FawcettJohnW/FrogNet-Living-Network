@@ -149,14 +149,11 @@ Changes in rev 3:
 - **One MRM per line.** `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
   `site.env` and `join.env`; it no longer writes `system-space.json`.
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.
-- **Network reach to islands.** A level whose reach was "RAM only" must now also reach the island ports of the hosts
-  that serve its islands. Those hosts are elected, so they move. **Proposed:**
-  - The reach by team is in the app's signed service table (section 9.0).
-  - Each island's role host writes one routing fact to the MRM, as its own truth: which levels may reach
-    `(its .1, its port)`.
-  - `fdf-org serve` builds the nftables rules from those facts, and rebuilds them when one changes, the way it
-    rebuilds reach on an admission change.
-  - The MRM learns an address, a port and a list of levels, never what the island is or holds.
+- **The primary routes; it does not know.** It is the primary because the admin designated it, by naming it in the
+  join line, and for no other reason. It does not know it is the primary. It takes every connection, routes what each
+  edge's admission allows, and holds the memory its members write. It knows nothing about islands, services, other
+  nodes' state or where anyone attaches from. Who may use a service is checked by the service, against the login
+  record (section 9.3), not by the primary.
 
 ## 6. Egress: every member's one path to the MRM
 
@@ -346,7 +343,7 @@ one, as tested.
 
 **Two layers.**
 
-1. **The network.** The MRM is the one primary for routing and never relocates. In a split, the partition's routing
+1. **The network.** The MRM is the one primary for routing, by the admin's designation alone, and never relocates. In a split, the partition's routing
    comes up on its LAN control host (section 8.1).
 2. **The services.** These are an app's servers: its RAMs and the login. They run on the network and need layer 1 up
    first.
