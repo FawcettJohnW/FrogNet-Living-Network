@@ -68,7 +68,7 @@ LAN that is a LAN route. On another LAN it goes through the MRM. The MRM carries
 | Island | An app's shared memory. One role per island. | John |
 | Where cell | `(pond, where, w:<guid>)` with a bag like `{"<island>": "w:<guid>:<port>"}`. It says where a member serves something. The region removes it when that member's session ends. | Tree (`fdf-comms.sh`) |
 | Capability fact | `facts.capability`: a member's cores, installed memory, disk class and services, written by its daemon. Elections read it. | Tree (`[CAPABILITY_IS_A_FACT_V1]`) |
-| Level | A group in the customer's own words. Admission gives it network reach. | John |
+| Level | A group in the customer's own words. Admission gives it network reach: the reach of the devices connected at that level. For almost everything it is **restricted**; the only reason to change it is an admin who wants to ssh into the machines. It is not an app's access: which RAMs a team uses is the app's. | John (2026-11-01: "For almost everything, that is going to be Restricted." "The only reason to change it would be if the admin wanted to ssh into the machines.") |
 | databasehost_control | The highest live `.1` on a LAN. During a split it holds that LAN's facts (section 8). | John (2026-06) |
 
 **Found (naming):** "island" also means something else in the tree today. In `Bridge.kt` and `fdf-tun`, an "island" is
@@ -131,8 +131,9 @@ Changes in rev 3:
 - **Removed:** the wizard's step "the RAM spaces, all at once, with their RAM-manager lists" and "a standby's lines".
   The spaces become islands, and islands are the app's (section 9). An app's islands arrive with its add-in, not from
   the wizard.
-- **Moved:** the level→"spaces its applications join" choice becomes each service's reach by team (anonymous,
-  restricted, full) in the app's service table, which the primary signs (section 9.0).
+- **Gone:** the level→"spaces its applications join" choice. A level is the network's admission and reach only. Which
+  RAMs an app's team uses is the app's own (`APP-SETUP-AND-OPERATION.md`: the general RAM and the team's RAM). **John,
+  2026-11-01:** "The access levels for the network are not related to the ram that the roles use."
 
 ## 5. Admission and login (from rev 2, simplified to one MRM)
 
@@ -371,7 +372,7 @@ floats. Every other machine holds only the organization's public key. Nothing on
 **The install bundle.** A node gets it from the unpartitioned primary when the app is installed on it. It holds:
 
 - the organization's public key;
-- the app's service table: each service's RAM name, reach by team (anonymous, restricted, full), and partition mode;
+- the app's service table: each service's RAM name and partition mode (not the network's levels: see section 4);
 - this node's own record: its id, its public key, and the services it may host when relocated, with an expiry.
 
 The service table and the node's record are signed by the organization key, and each carries a version number. While

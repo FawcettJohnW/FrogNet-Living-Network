@@ -61,7 +61,9 @@ The admin performs setup at the primary.
    - RAM name.
    - Password.
    - Whether login is required.
-   - Anonymous, restricted or full access per team.
+   - A team's members use the general RAM and their team's RAM. **John, 2026-11-01:** "The access levels for the network
+     are not related to the ram that the roles use." The network's levels (anonymous, restricted, full) are its
+     admission (`ORGANIZATIONS.md`), not an app's.
 3. The admin defines the app's behavior when the primary is unreachable:
    - **Fail:** stop unless the primary is visible.
    - **Relocate:** activate an installed droplet on the reachable side.

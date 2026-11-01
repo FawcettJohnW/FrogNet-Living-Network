@@ -546,7 +546,7 @@ that is a network event, and each side derives its own answer, as on a LAN.
 An app's RAM server is a **droplet**: RAM server code that runs on any Linux member, never on a Windows or Android
 device. Which droplet serves an app is decided by **the app's own deterministic selection** over the capability tuples.
 That selection is separate from databasehost, which locates the network RAM where the capability tuples and the app configuration tuples live (an app's data is in its own RAMs).
-The app's access definition (teams, levels, password verifiers) is in its app configuration tuples, so whichever droplet serves can
+The app's access definition (its teams and their password verifiers; a team's members use the general RAM and their team's RAM, and the network's levels have nothing to do with it) is in its app configuration tuples, so whichever droplet serves can
 authenticate a device at once, with no user action. After a split the app does what it was configured to do: **fail**
 (stop unless the primary is visible) or **relocate** (its selection activates a droplet already installed on that side).
 At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or

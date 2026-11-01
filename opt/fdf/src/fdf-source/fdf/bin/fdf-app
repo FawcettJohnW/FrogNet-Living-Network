@@ -18,14 +18,15 @@
 ################################################################
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
-  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--team NAME=LEVEL[:PASSWORD]]... [--key HEX]
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--team NAME[:PASSWORD]]... [--key HEX]
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
         FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
         droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
         (fdf-app, config, <app>.<guid>), and writes it again whenever the network RAM changes, so a side of a split
         that cannot see the primary still has it (APP-SETUP-AND-OPERATION.md, Split, step 4). [APP_ACCESS_V1] The access
-        definition goes with it: each team's level (anonymous, restricted, full) and its password's verifier (never the
-        password), and whether login is required. The app's key, which signs the grants the droplets give devices, stays
+        definition goes with it: the app's teams, each team's password as a verifier (never the password), and whether
+        login is required. A team's member uses the general RAM and that team's RAM. (The network's levels are the
+        network's admission, ORGANIZATIONS.md; they have nothing to do with which RAM a team uses.) The app's key, which signs the grants the droplets give devices, stays
         in the install (mode 0600) and never in a tuple; the admin's install gives every member the same one (--key).
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
@@ -80,9 +81,6 @@ def dot1(f):
 
 
 # ---------------------------------------------------------------- access [APP_ACCESS_V1]
-LEVELS = ("anonymous", "restricted", "full")
-
-
 def verifier(pw):
     """a password as the access definition keeps it: PBKDF2-SHA256, its own salt; never the password"""
     salt = os.urandom(16)
@@ -341,12 +339,11 @@ def main(argv):
         except (OSError, ValueError):
             old = {}
         teams = {}
-        for t in opt("--team"):                       # NAME=LEVEL[:PASSWORD]
-            name, _, rest = t.partition("=")
-            level, _, pw = rest.partition(":")
-            if not name or level not in LEVELS:
-                print("fdf-app: --team NAME=LEVEL[:PASSWORD], LEVEL one of %s" % ", ".join(LEVELS)); return 2
-            teams[name] = {"level": level, **({"verifier": verifier(pw)} if pw else {})}
+        for t in opt("--team"):                       # NAME[:PASSWORD]
+            name, _, pw = t.partition(":")
+            if not name or name == "general" or not all(ch.isalnum() or ch in "_-" for ch in name):
+                print("fdf-app: --team NAME[:PASSWORD], NAME letters, digits, _ and - (not 'general')"); return 2
+            teams[name] = {"verifier": verifier(pw)} if pw else {}
         key = (opt("--key") or [old.get("key") or os.urandom(32).hex()])[0]
         with open(p + ".tmp", "w") as f:
             json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "teams": teams, "key": key}, f)
