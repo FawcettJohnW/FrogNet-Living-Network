@@ -31,6 +31,20 @@ The design has three parts, and each has one job:
 | **RAM manager** | A role. It holds one island's memory. | A member node that the island's app elects, from the capability facts. | One island's cells. |
 | **Island** | One app's shared memory. The app decides what it means, who may use it, how far it reaches and how it is protected. | Wherever the role is held right now. | The app's data. |
 
+One cycle runs all of it: discovery, routing, placement and recovery.
+
+1. Members write their current facts into the reachable control RAM: the MRM, or during a split the LAN's control host
+   (section 8).
+2. Held reads wake the routing and role handlers when those facts change.
+3. Each handler acts on the world it holds now. It chooses an exit, keeps an eligible incumbent, or elects a
+   replacement.
+4. A serving host writes its where cell.
+5. Apps follow that cell, reconnect when it changes, and write their own truth again.
+6. A split or a merge changes the facts, and the same cycle runs again.
+
+The cycle needs neither complete information nor a pause for agreement. Facts that arrive at different times are just
+more changes to act on.
+
 A node reaches the MRM *through* its single egress. It reaches an island *to* the island's role host. On a node's own
 LAN that is a LAN route. On another LAN it goes through the MRM. The MRM carries the packets and never sees the island.
 
@@ -45,7 +59,7 @@ LAN that is a LAN route. On another LAN it goes through the MRM. The MRM carries
 | Split | The MRM is unreachable from some members. Each side goes on as its own network. | John |
 | Merge (heal) | The MRM is reachable again. A split and a merge are the same operation: the network is re-evaluated. | John |
 | Role | A function that an election puts on one member: `databasehost`, and one role per island. | John |
-| RAM manager | The role that holds an island's memory. It is never the MRM. | John |
+| RAM manager | The role that holds an island's memory. It is a different function from the MRM. The MRM machine is never a candidate for the role: "Databasehosts are members of the network. Ram hosts are not" (the droplet, in John's naming at the time). | John |
 | Island | An app's shared memory. One role per island. | John |
 | Where cell | `(pond, where, w:<guid>)` with a bag like `{"<island>": "w:<guid>:<port>"}`. It says where a member serves something. The region removes it when that member's session ends. | Tree (`fdf-comms.sh`) |
 | Capability fact | `facts.capability`: a member's cores, installed memory, disk class and services, written by its daemon. Elections read it. | Tree (`[CAPABILITY_IS_A_FACT_V1]`) |
@@ -234,8 +248,8 @@ that node's. Losing it is a split for that device (section 8).
 - `service_host_lines` → `DatabaseRoleHandler.evaluate` takes no incumbent at all.
 - Result: a stronger member joining, or a capability fact changing, moves the role.
 
-For a role that holds an island, a move means the island's memory moves, and every member re-writes its truth
-elsewhere. That is the flap John ruled out.
+For a role that holds an island, a move means a different host serves the island. Memory is not moved: every owner
+writes its truth again to the new host. A move with no failure behind it is the flap John ruled out.
 
 The incumbency in LAN mode is also per-node: it is read from that node's own `/etc/hosts`. After a heal, the two sides
 hold different incumbents, and each side keeps its own. The network then has two hosts for one role.
@@ -258,8 +272,8 @@ The role host is the member that the election names for island `I`. **Proposed:*
    persistence (section 9). It listens on a port of its own.
 2. It writes its where cell, `{"I": "w:<guid>:<port>"}`. The cell lives with its session.
 3. It answers connections only after the challenge (section 9.3).
-4. If it loses the role, which can only happen when it is not alive or not eligible, it stops that RAM manager. Its
-   memory is not moved (**John**: "Memory is never moved"). Owners write their truth again to the new host.
+4. It loses the role in one of two ways: it is no longer alive or eligible, or a merge exposes several incumbents and
+   another one wins (section 8.2, step 3). Either way it stops that RAM manager. Its memory is not moved (**John**: "Memory is never moved"). Owners write their truth again to the new host.
 
 ## 8. Split and merge
 
@@ -399,7 +413,7 @@ in its own facts, written as a fact at login.
 | An island host dies | The MRM (its session), then every member's event | Its where cell goes; the island's role is elected again; the new host starts the RAM manager and writes the cell; apps reconnect and write their truth again | One event plus the election (ms) plus the RAM manager's start |
 | A stronger node joins | Election | Nothing (incumbent held, section 7.2) | — |
 | The MRM dies or restarts | Every member | A split everywhere: each LAN on its control host; islands keep running where their host is; cross-LAN reach stops | Detection as above |
-| The MRM is back | Exits' handshakes | The merge (section 8.2) | ≤ 5 s handshake retry |
+| The MRM is back | Exits' handshakes | The merge (section 8.2) | Not measured. An exit retries its handshake every 5 s, which bounds when the first member reaches the MRM, not when the merge completes (the facts, the elections and the apps' re-writes follow) |
 | A site's WAN cut | That site's exit | The site is a partition; its islands go on; islands elsewhere are elected again inside it if the app's code allows | As above |
 | A device's tunnel drops | The device | A partition of one (section 8.3) | As above |
 
