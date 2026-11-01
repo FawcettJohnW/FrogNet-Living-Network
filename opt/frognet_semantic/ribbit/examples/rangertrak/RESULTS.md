@@ -35,3 +35,22 @@ The five e2e reds, on stock, before anything is converted (the contract where th
 Size, as counted here: 47,506 lines of TypeScript outside the specs; 7,282 of them in `src/app/domain/`.
 
 Not yet run: `e2e --full`, the two-scribe baseline (Report Packet from one device, merge on the other, with clashes).
+
+## The app's pages, first cut (2026-10-31)
+
+`opt/fdf/www/rt` (`log.html`, `rt.js`, `rules.js`), [RT_PAGES_V1]: the mission, the Entry form and the Radio Log.
+`test_rt_pages.py` there: a real rina-host, two posts (two web servers, each a node's `ram.php`), three devices in
+Chromium (scribe A at post A, scribe B at post B, a field phone on post A):
+
+| Check | Result |
+| --- | --- |
+| A mission started at A on B's list | 0.13 s |
+| An entry typed at A on B's Radio Log | 209 ms |
+| The phone's entry on A and B, numbered as the phone's station (`F001`) | 189 ms |
+| Message numbers, one count per device, in write order | `A001 F001 B001 A002` |
+| Two scribes logging at once, 25 each | 54 on each screen, 54 distinct numbers, the same order on both, 7.5 s |
+| B reloads | all 54 back from the RAM; its station still B |
+
+Stock RangerTrak's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
+Not yet in the app: Rangers, Map, Messages (213), Summary, After-action (214), the printed forms, the handled marks,
+the post's 309 file, the read-only board page.

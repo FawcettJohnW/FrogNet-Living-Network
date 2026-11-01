@@ -2,6 +2,16 @@
 
 2026-10-31 · John Fawcett, with Claude. The live copy is a Claude Doc; this file is its export. The checkpoint files the reference process names (`RANGERTRAK-SUITE-MAP.md`, `study-*.md`, `QUESTION-3.md`, `DESIGN.md`, `RESULTS.md`, `README.md`, `VERSION`) land in this directory as the phases produce them.
 
+## Decision, 2026-10-31 (John): our own app
+
+"You own it all. This is an app. It does not need the angular shit to do this." The radio log is FrogNet's own app,
+written fresh, GPL-2.0-only like the rest of the tree: node-served pages (`opt/fdf/www/rt`, an add-in of the
+DisasterComm launcher, `../dc/ram.php` as its door to the RAM), no Angular, nothing of RangerTrak's code in it.
+RangerTrak stays what the app is measured against: its screens, its words, its forms (ICS-309 numbers `A007`,
+`26-0142 / OP 2 / A007`) and its suite, which `RESULTS.md` and `RANGERTRAK-SUITE-MAP.md` record. Where this plan says the
+conversion keeps his `domain/` or his screens, read: the app does what they do, in its own code. The Windows and Android
+devices open the same pages (decided the same day: node-served pages first).
+
 ## The demo this plan is for
 
 John Cornelison sees RangerTrak, his screens and his words, running at three posts at once with no server anywhere: a scribe at each post typing what teams say over the radio, and every post's radio log, roster and map showing everyone's entries as they are typed. A post loses its uplink; its scribe keeps working; the others keep each other; the uplink comes back and the post's entries are on every screen again, with nothing merged, restored or sent. His Report Packets, hand-over files, the Board and the Command Post Server are not in the demo because they no longer exist.
