@@ -156,3 +156,23 @@ Not yet: who may read a direct message or a team's RAM is the app's access (step
 `test_rules.mjs`: RangerTrak's own summary cases and the 213 field mapping, 22 of 22. The cases that need fields
 these cells do not carry (rangerUid, tactical calls, source, late entries, revisions, per-mission status lists) are not
 ported. The summary leaves those totals out rather than show a zero it did not measure.
+
+## Step 6: roles, login, the droplet's check, the client's focus (2026-11-01)
+
+The admin sets up roles. A role is activated at an individual's login, or a client takes it as its default
+(Team vs EOC). The network's levels play no part. The droplet answers logins and gives a grant (HMAC under the app's
+key). Every droplet checks it on every read and write (`rina-host`, `RINA_APP_ACCESS`, `tools/apply_app_access.py`).
+The device keeps its grant and writes its access record again after every RAM change.
+
+| Check | Result |
+| --- | --- |
+| `test_fdf_app.py` 7: the access definition in each droplet's configuration tuple | roles, users with verifiers; no password and no key in the network RAM |
+| `test_fdf_app.py` 8: login and the check | pat's password gives hospitals; a wrong one nothing; `command` (a default role) needs no password; `hospitals` does. Pat: general and hospitals RAMs written. Command's grant on hospitals, no grant, and a forged grant: refused |
+| `test_fdf_app.py` 8: relocated to b | pat's grant from c works on b's hospitals RAM, with no new login |
+| `test_rt_pages.py` 0: B and the phone log in (kim, lee: hospitals) | the role shown beside the station |
+| `test_rt_pages.py` 11: the devices' access records | B's written again on its side's network RAM during the cut; all three on the region's |
+| `test_rt_pages.py` 14: the hospitals RAM without a hospitals grant | refused: "log in first (no grant)" |
+| `test_rt_pages.py` 16: the client's focus | an EOC client (default role, no password) opens on the Summary; no role on the Radio Log; kim on the hospitals messages |
+
+Not yet: direct messages are not restricted to sender and addressee (the grant carries the station that will check
+it); the admin app is the `fdf-app config` command line, not a screen.

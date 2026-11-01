@@ -26,7 +26,9 @@ export const RAM = (window.RT_RAM || '../dc/ram.php')
 const q = (o) => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&')
 
 async function call(url, opts) {
-  const r = await fetch(url, opts)
+  const g = kept('grant'), o = { ...(opts || {}) }                 // [APP_ACCESS_V1] the grant goes with every request
+  if (g) o.headers = { ...(o.headers || {}), 'X-App-Grant': g }
+  const r = await fetch(url, o)
   const j = await r.json().catch(() => ({ ok: false, why: 'answer was not JSON (HTTP ' + r.status + ')' }))
   if (!r.ok || j.ok === false) throw new Error(j.why ? j.why + (j.output ? ': ' + j.output : '') : 'HTTP ' + r.status)
   return j
@@ -91,7 +93,8 @@ function ownFamilies() {
 }
 async function againAll(key, ram) {
   if (!ram || onRam.get(key) === ram) return
-  onRam.set(key, ram)
+  const moved = onRam.has(key); onRam.set(key, ram)
+  if (moved) writeDevice().catch((e) => note('this device\'s access record not written again yet: ' + e.message))
   for (const [s, v] of ownFamilies()) {
     if ((fam(s).team || 'general') !== key) continue
     try { const j = await readJ(s, v), cells = new Map((j.rows || []).map(r => [r.instance, r])); cells.ram = j.ram; await again(s, v, cells) }
@@ -161,7 +164,7 @@ export function device() {
   if (!d) { d = { id: 'd' + Math.random().toString(36).slice(2, 10), name: '', station: '' }; kept('device', d) }
   return d
 }
-export function setDevice(name, team) { const d = { ...device(), name, team: team ?? device().team ?? '' }; kept('device', d); return d }
+export function setDevice(name) { const d = { ...device(), name }; kept('device', d); return d }
 // [TEAM_RAM_V1] the app's RAMs served now: { general: host:port, <team>: host:port, ... }
 export async function rams() { return (await call(RAM + '?op=rams&app=rangertrak')).rams || {} }
 // this device in the mission's directory: who it is, its station, its team (its own cell; DMs are addressed by station)
@@ -172,10 +175,34 @@ export function sent(s, prefix) {
   for (const [fs, v] of ownFamilies()) if (fs === s && v.startsWith(prefix)) for (const [i, b] of ownOf(s, v)) out.push([v, i, b])
   return out
 }
-// the client connects first: its station ID from the node, before anything is shown or written
-export async function connect() {
+// the client connects first: its station ID from the node, then its grant, before anything is shown or written.
+// [APP_ACCESS_V1] a device with no grant asks for one with no login (the app may give a client no role, or its default
+// role); when the app requires its user's login, connect() says so (e.needsLogin) and the page asks for it
+export const APP = 'rangertrak'
+export async function connect(defaultRole) {
   const j = await call(RAM + '?op=whoami')
-  const d = { ...device(), station: j.station }; kept('device', d); return d
+  let d = { ...device(), station: j.station }; kept('device', d)
+  if (!kept('grant')) {
+    try { await login({ role: defaultRole || '' }) }
+    catch (e) { const x = new Error('log in: ' + e.message); x.needsLogin = true; throw x }
+    d = device()
+  }
+  await writeDevice()
+  return d
+}
+export async function login({ user, password, role }) {
+  const j = await call(RAM + '?op=login&app=' + APP, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                       body: JSON.stringify({ dev: device().id, user: user || '', password: password || '', role: role || '' }) })
+  kept('grant', j.grant); kept('device', { ...device(), team: j.role || '', user: user || '' })
+  return j
+}
+export function logout() { kept('grant', null) }
+// the device's own access record, in the network RAM beside the app's configuration: written at connect and again
+// whenever a RAM it uses is another one (everybody reasserts its own)
+async function writeDevice() {
+  const d = device()
+  return call(RAM + '?op=device&app=' + APP, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ dev: d.id, role: d.team || '', user: d.user || '' }) })
 }
 
 // [MARK_PER_HANDLER_V1] the handled marks: each handler writes its own; the mark shown on an entry is the newest

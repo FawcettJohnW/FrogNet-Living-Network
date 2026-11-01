@@ -7,8 +7,9 @@
 <link rel="stylesheet" href="rt.css"></head><body>
 <nav><b>Radio Log</b> · <a href="rangers.html">Rangers</a> · <a href="map.html">Map</a> · <a href="print309.html">ICS-309</a> · <a href="board.html">Board</a> · <a href="messages.html">Messages</a> · <a href="summary.html">Summary</a> · <a href="aar.html">After-action</a></nav>
 <h1>Radio Log</h1>
+<fieldset id="login" hidden><label>User <input name="user" size="12"></label><label>Password <input name="password" type="password" size="12"></label>
+  <button type="button" id="doLogin">Log in</button> <small id="loginWhy"></small></fieldset>
 <fieldset id="dev"><label>This device <input name="name" size="12" placeholder="scribe name"></label>
-  <label>Team <input name="team" size="12" placeholder="(none)"></label>
   <button type="button" id="saveDev">Set</button>
   <small id="devInfo"></small></fieldset>
 <fieldset id="mis"><label>Mission <select name="pick"></select></label>
@@ -28,9 +29,17 @@ import * as RT from './rt.js'
 const D = RT.D, $ = (s) => document.querySelector(s), f$ = (fs, n) => $(fs + ' [name=' + n + ']'), say = (t) => { $('#say').textContent = t }
 for (const [k] of D.STATUSES) $('#entry').status.add(new Option(k, k))
 let entries = new Map(), stopLog = null, stopMarks = null, stopRoster = null, stopPos = null, missions = new Map(), marks = new Map()
-function showDev() { const d = RT.device(); f$('#dev', 'name').value = d.name; f$('#dev', 'team').value = d.team || ''; $('#devInfo').textContent = 'device ' + d.id + ', station ' + (d.station || '(not connected)') }
-$('#saveDev').onclick = () => { RT.setDevice(f$('#dev', 'name').value.trim(), f$('#dev', 'team').value.trim()); showDev(); const m = RT.currentMission(); if (m) RT.present(m) }
-try { await RT.connect() } catch (e) { showDev(); say('not connected: ' + e.message); throw e }   // the client connects first
+function showDev() { const d = RT.device(); f$('#dev', 'name').value = d.name; $('#devInfo').textContent = 'device ' + d.id + ', station ' + (d.station || '(not connected)') + (d.team ? ', role ' + d.team : '') }
+$('#saveDev').onclick = () => { RT.setDevice(f$('#dev', 'name').value.trim()); showDev(); const m = RT.currentMission(); if (m) RT.present(m) }
+// the client connects first: its station, then its grant; when the app requires its user's login, it is asked here
+await new Promise((ok) => {
+  const go = async () => { try { await RT.connect(); $('#login').hidden = !!RT.device().user; showDev(); ok() }
+    catch (e) { showDev(); if (e.needsLogin) { $('#login').hidden = false; $('#loginWhy').textContent = e.message } else { say('not connected: ' + e.message); setTimeout(go, 2000) } } }
+  $('#doLogin').onclick = async () => { try { await RT.login({ user: f$('#login', 'user').value.trim(), password: f$('#login', 'password').value }); f$('#login', 'password').value = ''
+                                              $('#login').hidden = true; showDev(); const m = RT.currentMission(); if (m) RT.present(m); go() }
+                                        catch (e) { $('#loginWhy').textContent = 'not logged in: ' + e.message } }
+  go()
+})
 showDev()
 function draw() {
   const me = RT.device().id

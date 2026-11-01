@@ -76,7 +76,7 @@ def post309_start(post):
     procs.append(p); return p
 # [STATION_IS_HOSTNAME_V1] the leases each post's dnsmasq gave (in its facts, as fdf-facts writes them): the devices'
 # hostnames, their station IDs. The fresh phone at A has a lease too; the board asks it nothing
-LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "phone-f", "127.0.11.4": "phone-g"}, "B": {"127.0.12.2": "laptop-b"}}
+LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "phone-f", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h"}, "B": {"127.0.12.2": "laptop-b"}}
 import threading
 up = {}
 def member_env(post):
@@ -97,7 +97,8 @@ for i, name in enumerate(("A", "B"), start=1):
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
                                                                     for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
-    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--key", "cd" * 32,
+                    "--role", "hospitals", "--role", "eoc:default", "--user", "kim:kim-pw=hospitals", "--user", "lee:lee-pw=hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
@@ -137,12 +138,16 @@ try:
             ctx.on("console", lambda msg: (clog.write("%.3f %s %s\n" % (time.time(), msg.page.url.rsplit("/", 1)[-1] if msg.page else "", msg.text)), clog.flush()))
             pg.goto("http://127.0.0.1:%d/rt/log.html" % fwd[ip].port)
             pg.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
-            pg.fill("#dev input[name=name]", name); pg.fill("#dev input[name=team]", team); pg.click("#saveDev")
+            pg.fill("#dev input[name=name]", name); pg.click("#saveDev")
+            if team:                                  # [APP_ACCESS_V1] the role is the user's, activated at their login
+                user, pw = team
+                pg.fill("#login input[name=user]", user); pg.fill("#login input[name=password]", pw); pg.click("#doLogin")
+                pg.wait_for_function("document.querySelector('#devInfo').textContent.includes('role ')")
             return pg
         def page(pg, name): return pg.url.split("/rt/")[0] + "/rt/" + name      # another page of the same device
-        a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25), "hospitals"), device("A", "phone", "127.0.11.3", (47.6062, -122.3321), "hospitals")
+        a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25), ("kim", "kim-pw")), device("A", "phone", "127.0.11.3", (47.6062, -122.3321), ("lee", "lee-pw"))
         st = [pg.text_content("#devInfo") for pg in (a, b, ph)]
-        check(all(x.endswith("station " + h) for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
+        check(all(("station " + h) in x for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
               "0 each device's station ID is its hostname, from the post (nothing typed): %s" % st)
         def rows(pg): return pg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         def wait_rows(pg, n, s=15):
@@ -190,7 +195,7 @@ try:
         # 6 reload
         b.reload(); ok = wait_rows(b, 54, 15)
         b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
-        check(ok and [x[0] for x in rows(b)] == nos and b.text_content("#devInfo").endswith("station laptop-b"), "6 B reloaded: all %d entries back from the RAM; %s" % (len(rows(b)), b.text_content("#devInfo")))
+        check(ok and [x[0] for x in rows(b)] == nos and "station laptop-b, role hospitals" in b.text_content("#devInfo"), "6 B reloaded: all %d entries back from the RAM; %s" % (len(rows(b)), b.text_content("#devInfo")))
         # 7
         def mark_on(pg, i): return pg.eval_on_selector_all("#rows tr", "(rs, i) => rs[i].children[1].textContent", i)
         t0 = time.time(); b.click("#rows tr:nth-child(1) td.mk")
@@ -279,6 +284,15 @@ try:
         n_before = sum(1 for x in rows(b) if x[7] == "scribe-b")
         b.reload(); b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
         ok_r = wait_rows(b, n_before, 20); n_own = sum(1 for x in rows(b) if x[7] == "scribe-b")
+        recs, t1 = [], time.time()
+        while time.time() - t1 < 15:
+            recs = [c["bag"] for c in fdfram.Ram(RAM_B_LAN).read("fdf-app", "device")]
+            if any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs): break
+            time.sleep(0.1)
+        on_region = [c["bag"]["station"] for c in fdfram.Ram(RAM).read("fdf-app", "device")]
+        check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" and r.get("grant") for r in recs) and "phone-f" in on_region,
+              "11 [APP_ACCESS_V1] the devices' own access records: B's written again on its side's network RAM (%s); the region's has %s"
+              % ([(r["station"], r["role"]) for r in recs], sorted(set(on_region))))
         check(ok_r and n_own == n_before == 28, "11 B reloaded during the cut: its %d own entries back on its side (%d before the reload)" % (n_own, n_before))
         via["B"].to(RAM); dm = wait_map("B", "127.0.1.1:")
         check(dm is not None, "11 B back: the general RAM is A's again on B %.2f s after (%s)" % (dm or -1, map_of("B")))
@@ -346,13 +360,16 @@ try:
         a_dm = tab(ma, "dm")
         send(mb, "@", "hospitals: two beds at St. Mark")
         t3 = until(lambda: "hospitals: two beds at St. Mark" in tab(mf, "team"))
-        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142")
+        g_h = subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "grant", "rangertrak", "test", "test", "hospitals"], env=member_env("A"), capture_output=True, text=True).stdout.strip()
+        try: fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142"); no_grant = "read"
+        except fdfram.RamError as e: no_grant = str(e).split("refused: ")[-1]
+        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"], grant=g_h).read("rt-team", "26-0142")
         gen = fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-team", "26-0142")
         check(t1 is not None and t2 is not None and "B: water at the trailhead?" not in a_dm and t3 is not None
-              and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [],
+              and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [] and no_grant != "read",
               "14 messages: announcement on B and the phone in %s s; the phone's DM on B in %s s, not in A's direct list (%s); "
-              "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM"
-              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp)))
+              "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM; without a hospitals grant: %s"
+              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp), no_grant))
         # 15
         b.check("#entry input[name=g213]"); b.fill("#entry input[name=to213]", "IC, EOC"); b.fill("#entry input[name=subject213]", "Water")
         b.fill("#entry input[name=message213]", "Need 20 L at the trailhead"); log(b, "W7ABC", "need-rest-food", "", "water low")
@@ -385,6 +402,15 @@ try:
               and tot.startswith("%d entries" % n_all) and natt == str(n_att) and "Repeater coverage thin" in aar,
               "15 the 213 at A: %s; 214 lines on B's After-action in %s s, on A's ICS-214 in time order %s; B's Summary: %s; %s need attention; notes: %s"
               % ([c for c in form if c][:6], t4 and round(t4, 2), l214, tot, natt, aar))
+        # 16 [APP_FOCUS_V1]
+        fresh = {}
+        for ip, q in (("127.0.11.5", "?role=eoc"), ("127.0.11.6", "")):
+            fwd[ip] = From(ip, posts["A"]); pg = br.new_context().new_page(); pg.goto("http://127.0.0.1:%d/rt/index.html%s" % (fwd[ip].port, q))
+            pg.wait_for_url(lambda u: "index.html" not in u, timeout=10000); fresh[q or "none"] = pg.url.rsplit("/", 1)[-1]
+        hp = b.context.new_page(); hp.goto(page(b, "index.html")); hp.wait_for_url("**/messages.html", timeout=10000)
+        check(fresh == {"?role=eoc": "summary.html", "none": "log.html"} and hp.url.endswith("messages.html"),
+              "16 the client opens on its role's screen: an EOC client (default role, no password) on %s, a client with no role on %s, "
+              "B (kim, hospitals) on %s" % (fresh.get("?role=eoc"), fresh.get("none"), hp.url.rsplit("/", 1)[-1]))
         br.close()
 finally:
     for k in up: up[k] = False

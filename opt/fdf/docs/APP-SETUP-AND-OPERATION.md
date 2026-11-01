@@ -56,14 +56,17 @@ they can do anything."
 The admin performs setup at the primary.
 
 1. The admin installs the droplet.
-2. The admin defines the app's reach and access:
-   - Team.
-   - RAM name.
-   - Password.
+2. The admin defines the app's reach and access. **John, 2026-11-01:** "When the admin sets things up, he is setting up a
+   role. He may assign that role to a specific individual so that it is activated at login, or it may be assigned
+   because his app has a different default screen (Team vs EOC). None of those require deep access to the network
+   behind the RAM."
+   - The roles, and each role's RAM name when it has one (a team's RAM).
+   - The individuals assigned a role, each with a password: the role is activated at their login.
+   - The roles a client may take as its default, with no login (its default screen: a Team client, an EOC client).
    - Whether login is required.
-   - A team's members use the general RAM and their team's RAM. **John, 2026-11-01:** "The access levels for the network
-     are not related to the ram that the roles use." The network's levels (anonymous, restricted, full) are its
-     admission (`ORGANIZATIONS.md`), not an app's.
+   - A role's clients use the general RAM and their role's RAM. **John:** "The access levels for the network are not
+     related to the ram that the roles use." The network's levels are its admission and the reach of the devices
+     connected at them, restricted for almost everything (`ORGANIZATIONS.md`), not an app's.
 3. The admin defines the app's behavior when the primary is unreachable:
    - **Fail:** stop unless the primary is visible.
    - **Relocate:** activate an installed droplet on the reachable side.
@@ -228,6 +231,17 @@ was said on the radio, and stays in the log.
   family, a node's workers ran out at three devices: a write waited 5 s for a worker.
 - **A team's RAM**: a service mapped to `"team"` in `apps.json` is in `<app>.<team>`, named by the request.
   `ram.php?op=rams&app=APP` lists the app's RAMs served now.
+- **Access** [APP_ACCESS_V1]: `fdf-app config ... --login --role NAME[:default] --user USER:PASSWORD=ROLE --key HEX`.
+  The droplet serving the general RAM answers logins (`ram.php?op=login` passes them to it). An individual's password
+  activates their role; a default role needs none; with login not required a client may take no role. The answer is
+  a grant: base64url JSON `{a, d, s, t, u}` (app, device, station, role, user) and an HMAC-SHA256 under the app's key,
+  which every droplet holds. Every request carries it (`X-App-Grant`). The droplet checks it on every read and write:
+  a role's RAM takes only that role's grants; the general RAM takes any of the app's grants when login is required, and
+  every client when it is not. The device keeps its grant and writes its access record `(fdf-app, device, <app>.<dev>)`
+  again after every RAM change. A relocated droplet takes the same grant, with no new login. A member's own
+  participant gets its grant from the install (`fdf-app grant`).
+- **The client's focus** [APP_FOCUS_V1]: `index.html` connects, then opens on the role's screen: a role's own RAM on
+  its messages, `eoc` on the Summary, no role on the Radio Log.
 - **`ram.php?op=whoami`** gives the asking device its hostname, from the lease this node gave its address (the node's
   facts, `addrs` kind `given`). That hostname is the app's station ID; a device with no lease here has none.
 

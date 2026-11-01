@@ -9,6 +9,9 @@
 //        several families in one request: answered when any of them has newer cells (or one is on another RAM now),
 //        {"got": [{"k": index, "rows": [..], "ram": ..}, ..]}, else after W s with none
 //   GET  ?op=rams&app=APP                                                  {"rams": {ram: host:port}} served now
+//   POST ?op=login&app=APP {"dev","user"?,"password"?,"role"?}               {"grant","role"}: the droplet's answer
+//   POST ?op=device&app=APP {"dev","role","user"} (X-App-Grant)             the device's access record, network RAM
+//   every read, write and watch carries the device's grant in X-App-Grant; the droplet checks it
 //   GET  ?op=whoami                                                       {"station": the asking device's hostname}
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
@@ -49,6 +52,15 @@ function ram($env, $args) {
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
+$grant = (string)($_SERVER['HTTP_X_APP_GRANT'] ?? '');
+if ($grant !== '' && !preg_match('/^[A-Za-z0-9_-]+\.[0-9a-f]{64}$/', $grant)) fail(400, 'that is not a grant');
+function station_of($ip) {                                      // [STATION_IS_HOSTNAME_V1] the lease this node gave $ip
+    global $fdf_var;
+    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
+        if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '') return $a['value'];
+    return '';
+}
 function for_service($s, $team = null) {                        // [APP_DROPLET_V1] the RAM this service is in, now
     global $in_ram, $where, $env, $fdf_var;
     if (!isset($in_ram[$s])) return;
@@ -61,7 +73,8 @@ function for_service($s, $team = null) {                        // [APP_DROPLET_
     $at = is_array($map) ? ($map[$key] ?? '') : '';
     if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
-    $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ';
+    global $grant;                                              // [APP_ACCESS_V1] the device's grant, to the droplet that checks it
+    $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' RINA_GRANT=' . escapeshellarg($grant) . ' exec "$FDF_BIN"/ram ';
 }
 function said($text, $where) { $j = json_decode($text, true); if (!is_array($j)) return $text; $j['ram'] = $where; return json_encode($j, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }
 
@@ -143,11 +156,34 @@ if ($op === 'read') {
     $out = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $out[substr($k, strlen($app) + 1)] = $v;
     echo json_encode(['ok' => true, 'rams' => $out]);
 } elseif ($op === 'whoami') {
-    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
-    foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
-        if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '') { echo json_encode(['ok' => true, 'station' => $a['value'], 'ip' => $ip]); exit; }
-    fail(404, "this node gave $ip no lease, so it has no hostname for it: no station ID");
+    $ip = $_SERVER['REMOTE_ADDR'] ?? ''; $st = station_of($ip);
+    if ($st === '') fail(404, "this node gave $ip no lease, so it has no hostname for it: no station ID");
+    echo json_encode(['ok' => true, 'station' => $st, 'ip' => $ip]);
+} elseif ($op === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [APP_ACCESS_V1] passed to the droplet that answers the app's logins: it checks, and gives the grant
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
+    $at = is_array($map) ? ($map[$app . '.login'] ?? '') : '';
+    if (!preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's logins are not answered yet: nothing works until its RAM is served");
+    $req = ['dev' => (string)($in['dev'] ?? ''), 'station' => station_of($_SERVER['REMOTE_ADDR'] ?? ''),
+            'user' => (string)($in['user'] ?? ''), 'password' => (string)($in['password'] ?? ''), 'role' => (string)($in['role'] ?? '')];
+    $ctx = stream_context_create(['http' => ['method' => 'POST', 'header' => "Content-Type: application/json\r\n", 'content' => json_encode($req),
+                                             'timeout' => 10, 'ignore_errors' => true]]);
+    $r = @file_get_contents('http://' . $at . '/login', false, $ctx);
+    if ($r === false) fail(502, "the droplet at $at did not answer the login");
+    $j = json_decode($r, true); if (!is_array($j)) fail(502, 'the droplet\'s answer was not JSON');
+    if (empty($j['ok'])) fail(403, $j['why'] ?? 'refused');
+    echo json_encode(['ok' => true, 'grant' => $j['grant'], 'role' => $j['role'], 'station' => $req['station']]);
+} elseif ($op === 'device' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    // [APP_ACCESS_V1] the device's own access record, written again by the device after every RAM change, in the
+    // network RAM beside the app's configuration: (fdf-app, device, <app>.<dev>)
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? ''; $dev = (string)($in['dev'] ?? '');
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $dev) || $grant === '') fail(400, 'app, dev and the grant needed');
+    $bag = ['dev' => $dev, 'station' => station_of($_SERVER['REMOTE_ADDR'] ?? ''), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'grant' => $grant, 'at' => time()];
+    echo ram($env, ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams or whoami');
+    fail(400, 'op is read, write, watch, announce, rams, whoami, login or device');
 }

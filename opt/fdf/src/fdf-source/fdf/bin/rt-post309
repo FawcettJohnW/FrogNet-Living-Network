@@ -121,8 +121,22 @@ class Files:
         return n
 
 
+def own_grant():
+    """[APP_ACCESS_V1] this post's own grant, from the app installed on this member (fdf-app grant): the general RAM
+    takes it when the app requires login"""
+    import socket, subprocess
+    h = socket.gethostname()
+    r = subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "fdf-app"), "grant", "rangertrak", "post-" + h, h],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        log("no grant of its own (%s): the app is not installed on this member" % (r.stderr or r.stdout).strip()[:200])
+        return None
+    return r.stdout.strip()
+
+
 def main():
     files = Files()
+    grant = own_grant()
     log("build %s; files in %s" % (BUILD_TAG, OUT))
     at, last = "", -1
     while True:
@@ -131,7 +145,7 @@ def main():
             log("the app's general RAM is not served yet (%s); again in 1 s" % WHERE)
             time.sleep(1); continue
         try:
-            rm = fdfram.Ram(now)
+            rm = fdfram.Ram(now, grant=grant)
             if now != at:                               # another RAM: read everything there
                 cells = rm.read("rt-log")
                 n = files.add(cells)
