@@ -63,10 +63,28 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 UNIT
+# [APP_DROPLET_V1] the apps installed here (/opt/fdf/apps/<app>.json): their configuration and capability tuples, the
+# app's own selection of which member serves each of its RAMs, the droplets this member is chosen for, and
+# /opt/fdf/var/app-where.json, where the pages' door (ram.php) finds each RAM. With no app installed it says nothing.
+cat > /etc/systemd/system/fdf-app.service <<UNIT
+[Unit]
+Description=FD&F apps: serve the app RAMs this member is chosen for, and say where each is
+After=fdf-client.service
+Wants=fdf-client.service
+
+[Service]
+Environment=FDF_FACTS=/opt/fdf/var/facts.json
+ExecStart=/usr/bin/python3 /opt/fdf/bin/fdf-app serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
 systemctl daemon-reload
-systemctl enable fdf-facts.service fdf-client.service
+systemctl enable fdf-facts.service fdf-client.service fdf-app.service
 systemctl restart fdf-facts.service
 sleep 1
-systemctl restart fdf-client.service
-echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service and fdf-client.service started"
+systemctl restart fdf-client.service fdf-app.service
+echo "joined: RINA_RAM=$WHERE written to /opt/fdf/var/join.env; fdf-facts.service, fdf-client.service and fdf-app.service started"
 echo "check:  systemctl status fdf-client   |   journalctl -u fdf-client -f   |   /opt/fdf/bin/fdf-ls"

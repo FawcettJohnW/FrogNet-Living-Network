@@ -19,12 +19,16 @@
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
   fdf-app config APP RAM[,RAM...] [--partition relocate|fail]
-        what the admin app writes: the app's configuration tuple in the network RAM, (fdf-app, config, APP), naming
-        its RAMs (the general RAM and one per team). Read by every member.
+        what the admin's install writes on each member it installs the app on: the droplet's configuration,
+        FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
+        droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
+        (fdf-app, config, <app>.<guid>), and writes it again whenever the network RAM changes, so a side of a split
+        that cannot see the primary still has it (APP-SETUP-AND-OPERATION.md, Split, step 4).
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
-        on a member: for every app installed here (FDF_APPS/<app>.json), say so as a capability tuple; on every event
+        on a member: for every app installed here (FDF_APPS/<app>.json), write its configuration tuple and say so as a
+        capability tuple, and write both again after the network RAM changes (a held read ends); on every event
         (a held read on the fdf-app family, and fdf-events for who is alive) run each app RAM's selection over the alive
         members that have the app; serve the RAMs this member is chosen for (rina-host, a child of this process) and say
         so in this member's where cell; stop serving the ones it is not.
@@ -40,7 +44,7 @@ default this member's .1).
 """
 import json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-01-r1"
+BUILD_TAG = "fdf-app-2026-11-01-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -99,13 +103,14 @@ def choose(app, rams, parts, cans):
 
 # ---------------------------------------------------------------- reading the network RAM
 def read_family(rm):
-    """(configs {app: bag}, cans {app: {guid: bag}}, last id)"""
+    """(configs {app: {guid: bag}}, cans {app: {guid: bag}}, last id)"""
     cfg, cans, last = {}, {}, -1
     for c in rm.read(SVC):
         last = max(last, int(c.get("id", -1)))
         v, i, b = c.get("variable"), c.get("instance", ""), c.get("bag") or {}
-        if v == "config":
-            cfg[i] = b
+        if v == "config" and "." in i:
+            a, g = i.split(".", 1)
+            cfg.setdefault(a, {})[g] = b
         elif v == "can" and "." in i:
             a, g = i.split(".", 1)
             cans.setdefault(a, {})[g] = b
@@ -146,21 +151,27 @@ class Server:
         self.said = set()                    # where keys this member has said
 
     def installed(self):
-        out = []
+        """{app: its configuration} for every app installed here"""
+        out = {}
         try:
             for n in sorted(os.listdir(APPS)):
                 if n.endswith(".json"):
-                    out.append(n[:-5])
+                    with open(os.path.join(APPS, n)) as f:
+                        out[n[:-5]] = json.load(f)
         except FileNotFoundError:
             pass
         return out
 
-    def say_can(self):
+    def say_own(self):
+        """the truth this droplet owns, into the network RAM it is on now: each installed app's configuration and the
+        capability to serve it"""
         cap = self.f.get("capability") or {}
-        for a in self.installed():
+        for a, c in self.installed().items():
+            self.rm.write(SVC, "config", "%s.%s" % (a, self.me),
+                          {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me})
             self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
                           {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
-            log("can serve %s (capability tuple written)" % a)
+            log("%s: configuration and capability tuples written (RAMs %s)" % (a, ",".join(c.get("rams") or []) or "none"))
 
     def start(self, app, r):
         p = self.procs.get((app, r))
@@ -203,19 +214,24 @@ class Server:
     def decide(self, why):
         t0 = time.monotonic()
         try:
+            if why.startswith("again"):
+                self.say_own()
             parts = self.rm.participants()
-            cfg, cans, _ = read_family(self.rm)
+            _, cans, _ = read_family(self.rm)
         except fdfram.RamError as e:
             log("the network RAM did not answer (%s); the next event decides again" % e)
+            if why.startswith("again"):
+                self.events.put(why)
             return
-        here = set(self.installed())
-        want = set()
-        for app, c in cfg.items():
-            if app not in here:
-                continue
+        want, placed = set(), {}
+        for app, c in self.installed().items():
             for r, g in choose(app, list(c.get("rams") or []), parts, cans).items():
                 if g == self.me:
                     want.add((app, r))
+                h = resolve(parts, g) if g else ""
+                if h:
+                    placed[where_key(app, r)] = "%s:%d" % (h, port_of(app, r))
+        self.write_map(placed, why)
         for k in list(self.procs):
             if k not in want:
                 self.stop(*k)
@@ -229,6 +245,22 @@ class Server:
                     log("%s: %s's RAM %s is here (where cell written) %d ms after the event"
                         % (why, app, r, int((time.monotonic() - t0) * 1000)))
 
+    def write_map(self, placed, why):
+        """[APP_WHERE_MAP_V1] this member's answer to "where is each of my apps' RAMs", FDF_VAR/app-where.json, for the
+        doors on this node (ram.php) to read at no cost. The same answer every member computes; written when it changes."""
+        p = os.path.join(VAR, "app-where.json")
+        try:
+            with open(p) as f:
+                if json.load(f) == placed:
+                    return
+        except (OSError, ValueError):
+            pass
+        tmp = p + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(placed, f, sort_keys=True)
+        os.replace(tmp, p)
+        log("%s: the apps' RAMs: %s" % (why, ", ".join("%s at %s" % kv for kv in sorted(placed.items())) or "none served"))
+
     def watch_family(self):
         last = -1
         while True:
@@ -238,8 +270,12 @@ class Server:
                     last = max(int(c.get("id", -1)) for c in cs)
                     self.events.put("tuples")
             except fdfram.RamError as e:
-                log("held read on %s ended (%s); again in 1 s" % (SVC, e))
+                # [APP_REASSERT_V1] the network RAM may be another one now: write this droplet's own truth again there,
+                # then learn the world again (read the family from the start)
+                log("held read on %s ended (%s); again in 1 s, writing this droplet's own truth again" % (SVC, e))
                 time.sleep(1)
+                last = -1
+                self.events.put("again: the held read ended")
 
     def watch_members(self):
         while True:
@@ -255,14 +291,14 @@ class Server:
     def run(self):
         log("build %s; member %s; droplets listen on %s; apps here: %s"
             % (BUILD_TAG, self.me, self.listen, ", ".join(self.installed()) or "none"))
-        self.say_can()
         threading.Thread(target=self.watch_family, daemon=True).start()
         threading.Thread(target=self.watch_members, daemon=True).start()
-        self.decide("start")
+        self.decide("again: start")
         while True:
             why = self.events.get()
             while not self.events.empty():           # a burst is one decision, on the newest state
-                why = self.events.get()
+                w = self.events.get()
+                why = w if w.startswith("again") or not why.startswith("again") else why   # a reassert is never lost
             self.decide(why)
 
     def shutdown(self, *_):
@@ -277,8 +313,12 @@ def main(argv):
         part = argv[argv.index("--partition") + 1] if "--partition" in argv else "relocate"
         if not rams or part not in ("relocate", "fail"):
             print(__doc__); return 2
-        ram().write(SVC, "config", argv[2], {"app": argv[2], "rams": rams, "partition": part}, permanent=True)   # the admin's: it outlives a restart
-        print("fdf-app: %s's RAMs %s (%s) written" % (argv[2], ",".join(rams), part)); return 0
+        os.makedirs(APPS, exist_ok=True)
+        p = os.path.join(APPS, argv[2] + ".json")
+        with open(p + ".tmp", "w") as f:
+            json.dump({"app": argv[2], "rams": rams, "partition": part}, f)
+        os.replace(p + ".tmp", p)
+        print("fdf-app: %s installed here with RAMs %s (%s); serve writes it into the network RAM" % (argv[2], ",".join(rams), part)); return 0
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":

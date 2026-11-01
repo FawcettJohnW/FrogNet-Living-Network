@@ -1,6 +1,6 @@
 #!/bin/bash
 # fdf-leave -- [FDF_JOIN_V1][NO_BROKER_V1] undo fdf-join / fdf-region-join and return this node to LAN-only FrogNet:
-#   stop and remove every unit they made: fdf-client.service, fdf-facts.service, fdf-term-serve.service (it needs the
+#   stop and remove every unit they made: fdf-app.service, fdf-client.service, fdf-facts.service, fdf-term-serve.service (they need the
 #   membership), every pond's fdf-client@<area>.service and the fdf-client@.service template;
 #   remove what they wrote in /opt/fdf/var: join.env, site.env, ponds/, attention/, forward, forward.want, facts.json;
 #   turn back on the units fdf-region-join stopped (off the region the store is the election input again);
@@ -10,7 +10,7 @@
 set -eu
 [ "$(id -u)" = 0 ] || { echo "fdf-leave: run as root" >&2; exit 1; }
 echo "== fdf-leave, $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
-for u in fdf-term-serve fdf-client fdf-facts; do
+for u in fdf-app fdf-term-serve fdf-client fdf-facts; do
     if [ -e /etc/systemd/system/$u.service ]; then
         systemctl disable --now $u.service
         rm -f /etc/systemd/system/$u.service

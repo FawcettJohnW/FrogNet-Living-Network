@@ -199,6 +199,24 @@ Each RAM has its own selection and its own fail or relocate.
 A position is a device's own truth and is never derived from the log. A logged position is a scribe's record of what
 was said on the radio, and stays in the log.
 
+## How it is built
+
+- **`fdf-app config APP RAM,RAM [--partition relocate|fail]`** is the admin's install on a member: the droplet's
+  configuration, `/opt/fdf/apps/<app>.json`. The droplet owns it.
+- **`fdf-app serve`** (unit `fdf-app.service`, installed by `fdf-join`) runs on every member. For each app installed
+  there it writes its configuration tuple `(fdf-app, config, <app>.<guid>)` and its capability tuple
+  `(fdf-app, can, <app>.<guid>)` into the network RAM. When its held read on the `fdf-app` family ends (the network RAM
+  may be another one now), it writes both again and reads the family from the start.
+- On every event (that held read, and `fdf-events` for who is alive) it runs each RAM's selection over the alive members
+  that can serve the app (default: most memory, then cores, then guid). It starts `rina-host` for each RAM it is chosen
+  for, on its own `.1` at a port derived from `<app>.<ram>`, and stops the others. It writes its where cell
+  `(pond, where, w:<guid>)`.
+- It writes `/opt/fdf/var/app-where.json`, `{"<app>.<ram>": "host:port"}`, the same answer every member computes.
+- **The door on a node, `ram.php`**, maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`). For each
+  request it reads `app-where.json`. A service whose RAM is not served yet is refused with 503: the client connects
+  first. Every answer carries `"ram"`, the RAM that answered. A page that sees it change reads everything there and
+  writes its own truth again.
+
 ## Why it works this way
 
 None of this is new machinery. It is the invariants in `AI_READ_FIRST.md` applied to an app.

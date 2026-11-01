@@ -65,3 +65,32 @@ owner writes its own). A held read lasts at most 8 s, the longest a page stays o
 Stock RangerTrak's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
 Not yet in the app: offline basemap areas, Messages (213), Summary, After-action (214), the 213 form, the post's 309 file,
 spreadsheet roster import.
+
+## Step 1 and step 2: the app's RAM on a droplet, and the pages following it (2026-11-01)
+
+One machine (the session's container, 2 cores). Every member is real: its own session (`fdf-client`, restarted when it
+ends, as its unit does) and its own `fdf-app serve`, both reaching the network RAM at the member's one address for it.
+A split is emulated only as the fabric presents one: behind that address, another RAM (`rinab/tools/netcut.py`).
+
+`rinab/tools/test_fdf_app.py`: four members, the app on three (RAMs general and hospitals).
+
+| Check | Result |
+| --- | --- |
+| Each RAM served by the member the selection names (c), answering there | general and hospitals on c |
+| The strongest member, which has no app | never serves |
+| Every member with the app maps the RAMs the same (`app-where.json`) | a, b, c: both on c |
+| c's session ends | both on b in 172 / 315 ms; c stops serving |
+| c's session back | both on c again in 246 / 364 ms |
+| b cut off | b writes its configuration and capability on its side's RAM and serves both there, 1.07 s after; a and c still on c |
+| b back | b maps both to c again and stops serving |
+
+`fdf/www/rt/test_rt_pages.py`: two posts, each a member as above; the radio log's services in the app's general RAM
+(apps.json), served by the selection's member (A); `ram.php` reads the post's `app-where.json`.
+
+| Check | Result |
+| --- | --- |
+| The general RAM before any page works | A's droplet, on both posts |
+| Checks 1 to 10 (as above) | all pass; A's entry on B in 225 ms, the phone's in 260 ms, B's map moved in 194 ms |
+| B cut off | the general RAM on B's side is B's droplet 1.03 s after; B logs there and keeps its 27 own entries; A does not see them |
+| B back | the general RAM is A's again on B 0.02 s after; both cut-off entries on A 0.5 s later; 58 rows on both |
+| The board on a fresh phone at A | all 58, newest first |
