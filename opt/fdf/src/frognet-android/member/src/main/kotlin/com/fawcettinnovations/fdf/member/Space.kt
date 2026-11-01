@@ -8,10 +8,10 @@
 //   val sp = Space("First Responders", OrgLogin results' spaces, fallback = listOf("127.0.0.1:8841"), onChange = { old, new -> })
 //   sp.start(); sp.ram.write(...); sp.ram.read(...)
 //
-// Events, one at a time on one thread (the merge): lost (the held read on the current RAM manager failed: TCP keepalive,
-// about 5 s), returned (a standing attempt toward a RAM manager ABOVE the current one answered; one every 5 s to each,
-// including when the space is on its fallback). Each event walks the list top to bottom; a different answer is a switch.
-// No memory is moved.
+// [NO_FLAP_V1] (John, 2026-11-01): a standing session (a held read) to EVERY candidate, all the time. When the current
+// one's closes, the space moves AT ONCE to the first candidate, in list order, whose own standing session is alive --
+// nothing is asked then. A candidate coming back changes nothing while the current one lives; it counts at the next
+// loss (a space on nothing, or on its fallback, takes a configured one that comes). No memory is moved.
 package com.fawcettinnovations.fdf.member
 
 import java.net.HttpURLConnection
@@ -48,7 +48,7 @@ class Ram(val hostport: String) {
 class Space(val name: String, private val managers: List<SpaceAt>, private val fallback: List<String> = emptyList(),
             var onChange: ((String?, String) -> Unit)? = null, private val me: String = "", private val log: (String) -> Unit = {}) {
     companion object {
-        const val RECONNECT_MS = 5000L
+        const val RECONNECT_MS = 2000L
         /** [SPACES_V1] the space `name` from this device's logins, in the join line's order */
         fun fromLogins(name: String, logins: List<ManagerLogin>, fallback: List<String> = emptyList(), me: String = "",
                        log: (String) -> Unit = {}): Space {
@@ -58,62 +58,62 @@ class Space(val name: String, private val managers: List<SpaceAt>, private val f
         }
     }
     private val cands: List<Pair<String, Ram>> = managers.map { it.manager to Ram(it.hostport) } + fallback.map { "fallback $it" to Ram(it) }
+    private val alive = BooleanArray(cands.size)
+    private val tried = BooleanArray(cands.size)
     @Volatile var current: Int? = null; private set
     @Volatile var ram: Ram? = null; private set
-    private val events = LinkedBlockingQueue<String>()
-    @Volatile private var gen = 0
-    private val standing = HashMap<Int, Thread>()
+    private val events = LinkedBlockingQueue<Pair<String, Int>>()
+    @Volatile private var firstDone = false
 
     private fun say(m: String) = log("[SPACE] $name: $m")
-    private fun answers(r: Ram) = try { r.version(); true } catch (e: Exception) { false }
-    fun walk(): Int? = cands.indices.firstOrNull { answers(cands[it].second) }
 
     fun start(): Space {
         Thread({ mergeLoop() }, "space-merge-$name").apply { isDaemon = true; start() }
-        events.put("start")
+        for (i in cands.indices) Thread({ standing(i) }, "space-stand-$name-$i").apply { isDaemon = true; start() }
+        val t0 = System.currentTimeMillis()
+        while (System.currentTimeMillis() - t0 < 3000 && !tried.all { it }) Thread.sleep(20)
+        events.put("start" to -1)
         for (i in 0 until 200) { if (ram != null) return this; Thread.sleep(50) }
-        say("no RAM manager answered yet; the space waits for one")
+        say("no RAM manager answered yet; the space takes the first that does")
         return this
+    }
+
+    /** this candidate's standing session: a held read on it, for as long as it answers; asked again every RECONNECT_MS */
+    private fun standing(i: Int) {
+        val (n, r) = cands[i]
+        while (true) {
+            var last = 0L
+            try {
+                r.version(); alive[i] = true; tried[i] = true; events.put("up" to i)
+                while (true) { r.read("fdf-space", "alive", me.ifEmpty { "-" }, last, 30.0).mapNotNull { it["id"].num?.toLong() }.maxOrNull()?.let { last = it } }
+            } catch (e: Exception) {
+                val was = alive[i]; alive[i] = false; tried[i] = true
+                if (was) { say("$n closed: ${e.message}"); events.put("down" to i) }
+            }
+            Thread.sleep(RECONNECT_MS)
+        }
     }
 
     private fun mergeLoop() {
         while (true) {
-            val ev = events.take()
-            val i = walk()
-            if (i == null) { say("$ev: nothing on the list answers, nor the fallback; the next event walks again"); stand(null); continue }
-            if (i == current) { stand(i); continue }
+            val (ev, i) = events.take()
+            if (ev == "down" && i != current) continue                       // a standby went: it counts at the next loss
+            val onFallback = current != null && current!! >= managers.size
+            if (ev == "up" && current != null && !(onFallback && i < managers.size)) continue   // never back up while it lives
+            if (ev == "up" && current == null && !firstDone) continue        // before the first choice
+            if (ev == "start") firstDone = true
+            val pick = cands.indices.firstOrNull { alive[it] && !(ev == "down" && it == i) }
+            if (pick == null) {
+                if (current != null) { say("lost ${cands[current!!].first} and nothing else is alive; the first that comes back is taken"); current = null; ram = null }
+                else say("nothing on the list answers, nor the fallback; the first that does is taken")
+                continue
+            }
+            if (pick == current) continue
             val old = current?.let { cands[it].first }
-            val (n, r) = cands[i]
-            current = i; ram = r; gen++
+            val (n, r) = cands[pick]
+            current = pick; ram = r
             say("$ev: on $n (${r.hostport})" + (old?.let { ", was $it" } ?: ""))
-            val g = gen
-            Thread({ watch(g, r) }, "space-watch-$name").apply { isDaemon = true; start() }
-            stand(i)
             try { onChange?.invoke(old, n) } catch (e: Exception) { say("the application's change handler failed: ${e.message}") }
-        }
-    }
-
-    /** a held read on the current RAM manager: when it fails, the space lost it */
-    private fun watch(g: Int, r: Ram) {
-        var last = 0L
-        while (g == gen) {
-            try { val rows = r.read("fdf-space", "alive", me.ifEmpty { "-" }, last, 30.0); rows.mapNotNull { it["id"].num?.toLong() }.maxOrNull()?.let { last = it } }
-            catch (e: Exception) { if (g == gen) { say("lost ${r.hostport}: ${e.message}"); events.put("lost") }; return }
-        }
-    }
-
-    /** a standing attempt toward every candidate above the current one (all of the list when on nothing) */
-    @Synchronized private fun stand(cur: Int?) {
-        val top = if (cur == null) managers.size else minOf(cur, managers.size)
-        for (i in 0 until top) {
-            val t = standing[i]
-            if (t == null || !t.isAlive) standing[i] = Thread({
-                val (n, r) = cands[i]
-                while (current == null || i < current!!) {
-                    if (answers(r)) { say("$n answers again"); events.put("returned"); return@Thread }
-                    Thread.sleep(RECONNECT_MS)
-                }
-            }, "space-stand-$name-$i").apply { isDaemon = true; start() }
         }
     }
 }

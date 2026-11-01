@@ -12,7 +12,8 @@
 #   1  a wrong password is refused, and said
 #   2  q logs in at A and B through the bridge: its edge at each, RAM managers reached through their aliases
 #   3  q's application in Responders and Admin, on A; its truth in each space on A
-#   4  Admin's RAM manager on A cut off: q's Admin on B, its Responders still on A; the cut heals: back on A
+#   4  Admin's RAM manager on A killed: q's Admin on B within milliseconds, its Responders still on A; fdf-org starts it
+#      again on A: q's Admin stays on B [NO_FLAP_V1]
 # Needs root, ip, wg, wireguard-go, python3, curl, nft, java, the built fdf-member-kt and fdf-tun.
 #   usage: tools/netns-join-kt-test.sh [RINAB_DIR]   KT_MEMBER=<fdf-member-kt launcher> FDF_TUN=<fdf-tun-x86_64>
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-spaces-test.sh [RINAB_DIR]
@@ -82,12 +83,13 @@ waiton() { local want=$1 sp=$2 t0=$(date +%s.%N); for i in $(seq 160); do [ "$(o
 cellin() { NS $1 curl -s -m 3 "http://$HA:$2$API?op=read&service=app&variable=pos&instance=q" | grep -q "\"space\":\"$3\"" && echo yes || echo no; }
 read O1 S1 <<< "$(waiton hubA Responders)"; read O2 S2 <<< "$(waiton hubA Admin)"
 check $([ $O1 = 1 ] && [ $O2 = 1 ] && [ "$(cellin A $PA_RESP Responders)" = yes ] && [ "$(cellin A $PA_ADMIN Admin)" = yes ] && echo 0 || echo 1) "3 q's application in Responders and Admin on A, its truth in each ($S1 s, $S2 s)"
-# 4 Admin on A cut off, then healed
-NS A nft add table inet cut; NS A nft add chain inet cut in '{ type filter hook input priority -10; }'; NS A nft add rule inet cut in tcp dport $PA_ADMIN drop
+# 4 Admin's RAM manager on A killed (its socket closes); fdf-org starts it again 2 s later
+T0=$(date +%s%3N); for p in $(ip netns pids A); do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q "rina-host --listen $HA:$PA_ADMIN" && kill $p; done
 read OK S <<< "$(waiton hubB Admin)"
-check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin on A cut off: q's Admin on B in $S s, its truth there; Responders still on $(on Responders)"
-NS A nft delete table inet cut; read OK S <<< "$(waiton hubA Admin)"
-check $([ $OK = 1 ] && echo 0 || echo 1) "4 the cut healed: q's Admin back on A in $S s"
+MS=$(grep "CHANGE Admin hubA -> hubB" $T/q/app.log | tail -1 | awk '{print $1" "$2}'); MS=$(python3 -c "import sys,datetime as d; t=d.datetime.strptime(sys.argv[1], '%Y-%m-%d %H:%M:%S.%f').timestamp()*1000; print(int(t-int(sys.argv[2])))" "$MS" $T0 2>/dev/null)
+check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin's RAM manager on A killed: q's Admin on B ${MS} ms after the kill, its truth there; Responders still on $(on Responders)"
+for i in $(seq 80); do [ "$(grep -c "SPACE Admin: its RAM manager on" $T/A/org.log)" -ge 2 ] && break; sleep 0.25; done; sleep 10
+check $([ "$(on Admin)" = hubB ] && echo 0 || echo 1) "4 fdf-org started Admin's RAM manager again on A: 10 s later q's Admin still on B (no flapping)"
 echo "--- q"; grep -E "CHANGE|SPACE|bridge:|logged in|door at" $T/q/app.log | cut -c1-200 | sed 's/^/    /' | tail -20
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS
