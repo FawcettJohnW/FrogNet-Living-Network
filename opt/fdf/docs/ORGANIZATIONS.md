@@ -87,6 +87,13 @@ Login, at each RAM manager on the line (`[LOGIN_RESTRICTED_FIRST_V1]`, **John**)
 3. Login on the level's login port; the password is checked; the edge's reach becomes the level's.
 4. A session on the level's session port.
 
+On Windows and Android the same login is the Kotlin member's (`member/.../Join.kt`, `[JOIN_LINE_V1]`), on the bridge:
+one TUN, fdf-tun, and each RAM manager an island whose 10.253.253.254/32 is aliased 1:1 from 100.64.0.0/10 on a tunnel of
+its own; the door is an island on the generic credential's key for its one exchange. `Space.kt` is `fdfspace` for
+those devices. `fdf-member-kt join LINE SPACE...` runs it on a JVM (`netns-join-kt-test.sh`: a wrong password refused,
+logged in at both RAM hosts through their aliases, both spaces on A, Admin cut off on A: on B in 12.9-13.2 s, back in
+0.8 s). The JVM's HTTP client has no TCP keepalive setting, so a silent loss is seen later there than in Python (7.7 s).
+
 What the code decided (**proposed**):
 
 - Both exchanges are one JSON line each way over TCP inside the tunnel, never cells: a RAM manager has no per-cell
@@ -184,7 +191,8 @@ in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM h
 | Spaces on a RAM host (their RAM managers, reach, the login's answer) | `fdf/bin/fdf-org` (`space`, `serve`) |
 | A connection bound to one tunnel | `fdf/lib/python/fdfram.py` (`Ram(hostport, device=...)`) |
 | The system space on a node: the list, the walk, the LAN fallback, following | `internet_tunnels_v3/region.py`, `poll.py` (`run_region_loop`) |
-| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes), `netns-spaces-test.sh` (step 5), `netns-setup-test.sh` (step 6) |
+| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes), `netns-spaces-test.sh` (step 5), `netns-setup-test.sh` (step 6), `netns-join-kt-test.sh` (the Kotlin member's login) |
 
 Not yet built: C behind A and B (step 4: C's own connection egressing through either), the node's /24 from the RAM manager (step 7),
-the Windows and Android member library's login.
+the Windows bridge's setup.cmd and the Android app taking a join line (the
+member library's login is built: `Join.kt`, `Space.kt`).

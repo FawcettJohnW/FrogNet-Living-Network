@@ -26,6 +26,9 @@ import com.fawcettinnovations.fdf.member.ReachPlanner
 import com.fawcettinnovations.fdf.member.ReachRefused
 import com.fawcettinnovations.fdf.member.Hub
 import com.fawcettinnovations.fdf.member.Invite
+import com.fawcettinnovations.fdf.member.JoinLine
+import com.fawcettinnovations.fdf.member.OrgLogin
+import com.fawcettinnovations.fdf.member.Space
 import com.fawcettinnovations.fdf.member.InviteTunnel
 import com.fawcettinnovations.fdf.member.Hubs
 import com.fawcettinnovations.fdf.member.Leaf
@@ -477,7 +480,47 @@ fun invitedLeaf(given: String?) {
     log("ended: ${m.runOnce()}")
 }
 
+/** [JOIN_LINE_V1] join LINE [SPACE ...]: this machine logs in with an organization's join line, on the bridge (one TUN,
+ *  fdf-tun, each RAM manager an island), as the Windows bridge and the Android app do; then one application in each
+ *  SPACE named, which writes its truth (app, pos, <name>) when it starts and on every move, and logs "CHANGE <space>
+ *  <old> -> <new>". A level with a password reads "user password" from stdin. env: FDF_TUN_BIN, FDF_TUN_NAME,
+ *  FDF_KEY_FILE, FDF_FACTS (identity), FDF_DEVICE_ID, FDF_NICK, FDF_SPACE_FALLBACK (host:port, the device's own RAM). */
+fun joinMode(lineText: String, spaces: List<String>) {
+    val line = JoinLine.parse(lineText)
+    val (f, key) = ensureIdentity(File(System.getenv("FDF_FACTS") ?: "facts.json"), File(System.getenv("FDF_KEY_FILE") ?: "wg.key"))
+    val pub = f["pubkey"].str; val name = f["name"].str
+    val tun = System.getenv("FDF_TUN_NAME") ?: "fdft0"; val net = TunNet(tun)
+    val host = object : BridgeHost {
+        var l: ProcessBridgeLink? = null
+        override fun link(forwardRoutes: Boolean): BridgeLink {
+            return l ?: ProcessBridgeLink(listOf(System.getenv("FDF_TUN_BIN"), "--tun", tun)) { log(it) }.also { n ->
+                val h = n.hello()
+                if (!h["ok"].bool || h["tun"].str.isEmpty()) { n.close(); throw ProtocolError("fdf-tun could not open its TUN: ${h["error"].str.ifEmpty { h.toString() }}") }
+                l = n
+                log("bridge: fdf-tun ${h["build"].str} on TUN ${h["tun"].str}; $tun ${BridgeNet.LOCAL}/32 -> " + net.address(BridgeNet.LOCAL) +
+                    BridgeNet.VPN_ROUTES.joinToString("") { ", route $it -> " + net.route(it) }) }
+        }
+        override fun stop() { l?.close(); l = null }
+    }
+    val bridge = Bridge(host, key, { log(it) })
+    var user = ""; var pw = ""
+    if (line.password) { val p = (readLine() ?: "").trim().split(" ", limit = 2); user = p.getOrElse(0) { "" }; pw = p.getOrElse(1) { "" } }
+    val logins = try { OrgLogin(bridge, pub, System.getenv("FDF_DEVICE_ID") ?: name, System.getenv("FDF_NICK") ?: "", ::log).loginAll(line, user, pw) }
+                 catch (e: Exception) { log("LOGIN FAILED: ${e.message}"); bridge.close(); exitProcess(3) }
+    log("joined: " + logins.joinToString("; ") { "${it.manager} edge ${it.edge} RAM ${it.ram}" })
+    val fb = System.getenv("FDF_SPACE_FALLBACK")?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+    for (sn in spaces) {
+        val sp = try { Space.fromLogins(sn, logins, fb, "$name/$sn", ::log) } catch (e: IllegalArgumentException) { log("NOT IN $sn: ${e.message}"); continue }
+        sp.onChange = { old, new ->
+            sp.ram?.write("app", "pos", name, "{\"me\":" + Json.quote(name) + ",\"space\":" + Json.quote(sn) + ",\"on\":" + Json.quote(new) + "}")
+            log("CHANGE $sn $old -> $new") }
+        sp.start()
+    }
+    while (true) Thread.sleep(3_600_000)
+}
+
 fun main(args: Array<String>) {
+    if (args.firstOrNull() == "join") { joinMode(args.getOrNull(1) ?: run { System.err.println("usage: fdf-member-kt join fdfjoin1.<...> [SPACE ...]"); exitProcess(2) }, args.drop(2)); exitProcess(0) }
     if (args.firstOrNull() == "ponds") { ponds(); exitProcess(0) }
     if (args.firstOrNull() == "bridge") { bridgeMode(args.getOrNull(1)); exitProcess(0) }
     if (args.firstOrNull() == "pubkey") { args.drop(1).forEach { println(publicKey(it)) }; exitProcess(0) }   // as `wg pubkey`

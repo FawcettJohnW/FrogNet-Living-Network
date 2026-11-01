@@ -102,9 +102,9 @@ class AliasLedger(private val now: () -> Long = System::currentTimeMillis, val q
 
 /** One pond's reach, as fdf-tun takes it. */
 class ReachPlan(val area: String, val given: String, val hub: Hub, val routes: List<String>, val alias: Map<String, String>,
-                val reach: String, val map: String) {
+                val reach: String, val map: String, val key: String? = null) {   // [JOIN_LINE_V1] key: this island's own (the generic credential's at a door)
     fun same(o: ReachPlan?) = o != null && o.given == given && o.hub.pubkey == hub.pubkey && o.hub.endpoint == hub.endpoint &&
-        o.routes == routes && o.alias == alias
+        o.routes == routes && o.alias == alias && o.key == key
     fun describe() = "reach into $area ($reach, map $map) as $given there via hub ${hub.name}: " + (routes.joinToString(" ").ifEmpty { "nothing listed" }) +
         (if (alias.isEmpty()) "" else "; aliased " + alias.entries.sortedBy { it.key }.joinToString(", ") { "${it.key} -> ${it.value}" })
 }
@@ -261,7 +261,7 @@ class Bridge(private val host: BridgeHost, private val privateKey: String, priva
     fun setJson(): String = synchronized(this) {
         val f = fwdHub?.let { "{\"key\":" + Json.quote(privateKey) + ",\"given\":" + Json.quote(fwdGiven) + ",\"peer\":" + peerJson(it, listOf(Hubs.LEAF_ALLOWED)) + "}" } ?: "null"
         "{\"op\":\"set\",\"local\":" + Json.quote(local) + ",\"forward\":" + f + ",\"islands\":[" + islands.values.joinToString(",") { p ->
-            "{\"area\":" + Json.quote(p.area) + ",\"key\":" + Json.quote(privateKey) + ",\"given\":" + Json.quote(p.given) + ",\"peer\":" + peerJson(p.hub, p.routes) +
+            "{\"area\":" + Json.quote(p.area) + ",\"key\":" + Json.quote(p.key ?: privateKey) + ",\"given\":" + Json.quote(p.given) + ",\"peer\":" + peerJson(p.hub, p.routes) +
             ",\"routes\":[" + p.routes.joinToString(",") { Json.quote(it) } + "],\"alias\":{" + p.alias.entries.joinToString(",") { Json.quote(it.key) + ":" + Json.quote(it.value) } + "}}" } + "]}"
     }
 
