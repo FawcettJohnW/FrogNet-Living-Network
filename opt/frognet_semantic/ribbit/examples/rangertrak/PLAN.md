@@ -119,6 +119,7 @@ again there).
 | Mission: name, event, op period, start, end, default lat/lon | general | command (the scribe who started it) | `(mission, settings, <mission>)` | latest | every application |
 | Assignment | general | command | `(mission, assign, <mission>.<team>)` | latest | every application |
 | Ranger | general | the device that typed or imported that ranger | `(roster, <mission>, <uid>)` | latest per uid | every application |
+| Device: name, station ID (its hostname), team | general | the device | `(who, <mission>, <dev>)` | latest | Messages (DMs are addressed by station ID) |
 | Position | general | **the device itself**: its own current fix | `(pos, <mission>, <dev>)` | latest | Map, Rangers, board: a query over `(pos, <mission>, *)` |
 | Radio log entry | general | the scribe's device | `(log, <mission>.<op>, <dev>.<seq>)` | distinct, never overwritten; a correction is a new entry naming `revises` | every application, the post's 309 |
 | A position reported on the radio | general | the scribe, inside the entry | the entry's `location` | | the log and the 309; never a device's position |

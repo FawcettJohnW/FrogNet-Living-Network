@@ -120,10 +120,27 @@ heard is the map page's own clock. A position in a log entry stays the scribe's 
 | 309 written in write order, once each | `rt-post309` on each post: held reads on `rt-log`, appended by id once, a new RAM read from the start | A's file 57 rows in A's order, each once, after a restart before the cut; B's 57, each once, its cut entries first |
 | Overdue on the page's own clock | the board and the map redraw their bands on a timer, with no write | |
 
-Open: in the first run of this step a handled mark reached A in 8.1 s (one held read, `HOLD_S`) instead of ~100 ms.
-The next two runs were 82 and 137 ms. A probe against the RAM alone, 300 overwrites racing a held read, found no
-missed wake, so the RAM is not the suspect. A candidate is the browser's per-host connection limit: each page then held
-one more read, the position watch. That watch is gone, since positions are written again with the rest of the
-device's own truth, and the five runs since were all under 140 ms. The cause is not established. The pages now log every read and write ([DIAG-WATCH]: asked, answered, how long,
-the row ids, the `ram`), and the test keeps each device's console (`console-<device>.log`) beside the web servers'
-logs, so a recurrence shows where the wait was.
+In the first run of this step a handled mark reached A in 8.1 s instead of ~100 ms. The cause was found in step 5
+(below): the post's web server ran out of workers, because each page held one request per family.
+
+## Step 5: team RAMs, messages, direct messages (2026-11-01)
+
+The app's RAMs are general and hospitals, each served by the droplet its own selection picks. `rt-team` is mapped to
+`"team"`: a team's messages go to `<app>.<team>`. Announcements (`rt-msg`) and direct messages (`rt-dm`, in the
+addressee's variable, by station ID) are in the general RAM. Each device writes its own directory cell (`rt-who`). The
+device's team is its own fact, set on the Radio Log page.
+
+| Check 14 (`test_rt_pages.py`) | Result |
+| --- | --- |
+| A announces | on B and the phone in 0.21-0.33 s |
+| The phone sends B a direct message | on B in 0.04-0.13 s; not in A's direct list |
+| B writes to its team (hospitals) | on the phone (hospitals) in 0.06-0.17 s; the cell is in the hospitals RAM, none in the general RAM |
+
+**Found on the way: one web server worker per held read.** The first run passed, but slowly: 2.5, 5.2 and 6.5 s. The
+pages' own log ([DIAG-WATCH]) showed the phone's write asked at :31 and answered 5194 ms later. Post A's server log
+showed it accepted by a worker only at :36: every worker was held by a page's held reads, one per family, 4-6 per
+page. Fix: `ram.php?op=watch` holds all of a page's families in one request, and `rt.js` keeps one held request per
+page; a page adding or dropping a family ends it, and the door frees its worker when the page has gone. After the fix,
+all checks pass and the times are in the table.
+
+Not yet: who may read a direct message or a team's RAM is the app's access (step 6). The door does not check it yet.

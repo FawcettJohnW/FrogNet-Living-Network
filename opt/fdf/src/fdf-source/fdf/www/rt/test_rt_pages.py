@@ -31,6 +31,9 @@
 #      entries -- nothing merged, restored or sent. Positions: during the cut B's map has only B's own (written again on its side); back, every device again
 #   13 [POST_309_V1] each post's 309 file (rt-post309; A's restarted before the cut): every entry once, by its id;
 #      A's in A's RAM order, as its Radio Log shows them
+#   14 [TEAM_RAM_V1] messages: A announces (on B and the phone); the phone sends B a direct message (on B, not in A's
+#      direct list); B writes to its team, hospitals (on the phone, a hospitals member; the cell is in the hospitals
+#      RAM, served by its own droplet, and not in the general RAM)
 #   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
@@ -91,7 +94,7 @@ for i, name in enumerate(("A", "B"), start=1):
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
                                                                     for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
-    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
@@ -99,9 +102,9 @@ for i, name in enumerate(("A", "B"), start=1):
     shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
     shutil.copytree(VL, R + "/www/vendor/leaflet")
     shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
-    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos"]
+    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
-                         "app": "rangertrak", "rams": {x: "general" for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
+                         "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
     open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s\n" % (T, R, via[name].addr))
     p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
@@ -123,7 +126,7 @@ try:
     with sync_playwright() as pw:
         br = pw.chromium.launch(args=["--no-sandbox"])
         fwd = {}
-        def device(post, name, ip, at=None):        # ip: its lease at the post; at: where its own GPS says it is (None: it gives none)
+        def device(post, name, ip, at=None, team=""):        # ip: its lease at the post; at: where its own GPS says it is (None: it gives none)
             ctx = br.new_context(**({"geolocation": {"latitude": at[0], "longitude": at[1], "accuracy": 8}, "permissions": ["geolocation"]} if at else {}))
             fwd[ip] = From(ip, posts[post])
             pg = ctx.new_page()
@@ -131,10 +134,10 @@ try:
             ctx.on("console", lambda msg: (clog.write("%.3f %s %s\n" % (time.time(), msg.page.url.rsplit("/", 1)[-1] if msg.page else "", msg.text)), clog.flush()))
             pg.goto("http://127.0.0.1:%d/rt/log.html" % fwd[ip].port)
             pg.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
-            pg.fill("#dev input[name=name]", name); pg.click("#saveDev")
+            pg.fill("#dev input[name=name]", name); pg.fill("#dev input[name=team]", team); pg.click("#saveDev")
             return pg
         def page(pg, name): return pg.url.split("/rt/")[0] + "/rt/" + name      # another page of the same device
-        a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25)), device("A", "phone", "127.0.11.3", (47.6062, -122.3321))
+        a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25), "hospitals"), device("A", "phone", "127.0.11.3", (47.6062, -122.3321), "hospitals")
         st = [pg.text_content("#devInfo") for pg in (a, b, ph)]
         check(all(x.endswith("station " + h) for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
               "0 each device's station ID is its hostname, from the post (nothing typed): %s" % st)
@@ -291,7 +294,10 @@ try:
         check(on_b_side == ["scribe-b"] and back == ["phone", "scribe-a", "scribe-b"],
               "11 positions: on B's side during the cut, B's map has %s (its own fix written again there; A's devices are not on that side); back, %s"
               % (on_b_side or "none", back))
-        check(ok and any(x[3] == "W7AAA" for x in rb), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
+        t1 = time.time()
+        while time.time() - t1 < 20 and len(rows(b)) != len(rows(a)): time.sleep(0.1)
+        rb = rows(b)
+        check(ok and any(x[3] == "W7AAA" for x in rb) and len(rb) == len(rows(a)), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
         # 12
         fwd["127.0.11.4"] = From("127.0.11.4", posts["A"])
         bd = br.new_context().new_page(); bd.goto("http://127.0.0.1:%d/rt/board.html" % fwd["127.0.11.4"].port); n12 = []
@@ -317,6 +323,33 @@ try:
         check([r["msg_no"] for r in fa] == want and len(set(ida)) == len(ida) and set(idb) == set(ida) and len(set(idb)) == len(idb),
               "13 the 309 files: A %d rows, in A's order, each once; B %d rows, each once (B's own from the cut first: %s)"
               % (len(fa), len(fb), [r["msg_no"] for r in fb if "CUT" in r["callsign"]]))
+        # 14
+        ma, mb, mf = [pg.context.new_page() for pg in (a, b, ph)]
+        for mp_, pg in ((ma, a), (mb, b), (mf, ph)): mp_.goto(page(pg, "messages.html"))
+        def tab(pg, t): return pg.eval_on_selector_all("#" + t + " tr", "rs => rs.map(r => r.children[2].textContent)")
+        def until(f, s=10):
+            t0 = time.time()
+            while time.time() - t0 < s:
+                if f(): return time.time() - t0
+                time.sleep(0.02)
+            return None
+        def send(pg, to, text):
+            pg.wait_for_function("(v) => [...document.querySelector('#send select').options].some(o => o.value === v)", arg=to)
+            pg.select_option("#send select", to); pg.fill("#send input[name=text]", text); pg.click("#send button")
+        send(ma, "*", "shift change at 1800")
+        t1 = until(lambda: "shift change at 1800" in tab(mb, "ann") and "shift change at 1800" in tab(mf, "ann"))
+        send(mf, "laptop-b", "B: water at the trailhead?")
+        t2 = until(lambda: "B: water at the trailhead?" in tab(mb, "dm"))
+        a_dm = tab(ma, "dm")
+        send(mb, "@", "hospitals: two beds at St. Mark")
+        t3 = until(lambda: "hospitals: two beds at St. Mark" in tab(mf, "team"))
+        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142")
+        gen = fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-team", "26-0142")
+        check(t1 is not None and t2 is not None and "B: water at the trailhead?" not in a_dm and t3 is not None
+              and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [],
+              "14 messages: announcement on B and the phone in %s s; the phone's DM on B in %s s, not in A's direct list (%s); "
+              "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM"
+              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp)))
         br.close()
 finally:
     for k in up: up[k] = False

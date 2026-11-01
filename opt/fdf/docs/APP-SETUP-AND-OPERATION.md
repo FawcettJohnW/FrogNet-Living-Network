@@ -216,6 +216,12 @@ was said on the radio, and stays in the log.
   request it reads `app-where.json`. A service whose RAM is not served yet is refused with 503: the client connects
   first. Every answer carries `"ram"`, the RAM that answered. A page that sees it change reads everything there and
   writes its own truth again: every family it owns, kept on the device (browser storage), not only those it watches.
+- **One held request per page** (`ram.php?op=watch`): every family a page shows is held in one request, and each
+  family's held read is a child of it. The answer comes when any family has newer cells or is on another RAM now. A
+  page costs one web server worker and one browser connection, however many families it shows. With one request per
+  family, a node's workers ran out at three devices: a write waited 5 s for a worker.
+- **A team's RAM**: a service mapped to `"team"` in `apps.json` is in `<app>.<team>`, named by the request.
+  `ram.php?op=rams&app=APP` lists the app's RAMs served now.
 - **`ram.php?op=whoami`** gives the asking device its hostname, from the lease this node gave its address (the node's
   facts, `addrs` kind `given`). That hostname is the app's station ID; a device with no lease here has none.
 

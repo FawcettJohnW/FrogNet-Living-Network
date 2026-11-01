@@ -5,6 +5,10 @@
 //                                                                         at once when WHERE is not where this node is now)
 //   POST ?op=write   {"s":..,"v":..,"i":..,"bag":{..}}                  the caller's own cell
 //   POST ?op=announce                                                     dc.apps.<this node> = this node's add-ins
+//   GET  ?op=watch&w=[{"s","v","after","team"?,"ram"?},..]&wait=W            [ONE_HELD_READ_PER_PAGE_V1] held reads on
+//        several families in one request: answered when any of them has newer cells (or one is on another RAM now),
+//        {"got": [{"k": index, "rows": [..], "ram": ..}, ..]}, else after W s with none
+//   GET  ?op=rams&app=APP                                                  {"rams": {ram: host:port}} served now
 //   GET  ?op=whoami                                                       {"station": the asking device's hostname}
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
@@ -12,6 +16,8 @@
 // [APP_DROPLET_V1] an app's services are in the app's own RAMs (APP-SETUP-AND-OPERATION.md): apps.json names, per service,
 // the app and the RAM ("app", "rams": {service: ram}); where that RAM is served now is this node's app-where.json, which
 // fdf-app serve writes on every event. A service of an app whose RAM is not served is refused: the client connects first.
+// [TEAM_RAM_V1] a service whose RAM is "team" is in the team's own RAM, named by the request (read: &team=, write:
+// "team" in the body): <app>.<team>, served where app-where.json says. ?op=rams lists the app's RAMs served now.
 // The launcher's own service (dc) stays on the network RAM (fdf.env's RINA_RAM).
 // [STATION_IS_HOSTNAME_V1] whoami: the asking device's hostname, as this node's facts have it (the lease this node gave
 // that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
@@ -43,12 +49,17 @@ function ram($env, $args) {
 
 $where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
 $fdf_var = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "${FDF_VAR:-/opt/fdf/var}"'));
-function for_service($s) {                                      // [APP_DROPLET_V1] the RAM this service is in, now
+function for_service($s, $team = null) {                        // [APP_DROPLET_V1] the RAM this service is in, now
     global $in_ram, $where, $env, $fdf_var;
     if (!isset($in_ram[$s])) return;
+    $key = $in_ram[$s];
+    if (substr($key, -5) === '.team') {                         // [TEAM_RAM_V1]
+        if (!is_string($team) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $team) || $team === 'general') fail(400, "service '$s' is in a team's RAM: name the team");
+        $key = substr($key, 0, -4) . $team;
+    }
     $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-    $at = is_array($map) ? ($map[$in_ram[$s]] ?? '') : '';
-    if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $in_ram[$s] . ' is not served yet: nothing works until it is');
+    $at = is_array($map) ? ($map[$key] ?? '') : '';
+    if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
     $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ';
 }
@@ -59,7 +70,7 @@ if ($op === 'read') {
     $s = $_GET['s'] ?? ''; $v = $_GET['v'] ?? ''; $i = $_GET['i'] ?? '';
     if (!isset($allowed[$s])) fail(403, "service '$s' is not an installed add-in's");
     if (!name_ok($v)) fail(400, 'variable needed');
-    for_service($s);
+    for_service($s, $_GET['team'] ?? null);
     if (isset($_GET['after'])) {
         // [RAM_IS_SAID_V1] a held read for a page that was on another RAM manager: answered at once, with where it is now
         if (isset($_GET['ram']) && $_GET['ram'] !== '' && $_GET['ram'] !== $where) { echo json_encode(['ok' => true, 'rows' => [], 'ram' => $where]); exit; }
@@ -74,12 +85,63 @@ if ($op === 'read') {
     if (!isset($allowed[$in['s'] ?? ''])) fail(403, "service '" . ($in['s'] ?? '') . "' is not an installed add-in's");
     if (!name_ok($in['v'] ?? null) || !name_ok($in['i'] ?? null)) fail(400, 'variable and instance needed');
     if (!is_array($in['bag'] ?? null)) fail(400, 'bag must be an object');
-    for_service($in['s']);
+    for_service($in['s'], $in['team'] ?? null);
     echo said(ram($env, ['write', $in['s'], $in['v'], $in['i'], json_encode($in['bag'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]), $where);
 } elseif ($op === 'announce' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $node = gethostname();
     $list = []; foreach ($apps['apps'] as $a) $list[] = ['id' => $a['id'], 'title' => $a['title'], 'version' => $a['version'], 'page' => $a['page']];
     echo ram($env, ['write', 'dc', 'apps', $node, json_encode(['node' => $node, 'apps' => $list, 'at' => time()], JSON_UNESCAPED_SLASHES)]);
+} elseif ($op === 'watch') {
+    // [ONE_HELD_READ_PER_PAGE_V1] one web server worker per page, not one per family: a page's held reads are this one
+    // request, each family's `ram read ... after wait` a child, and the answer is whichever wake first
+    $w = json_decode((string)($_GET['w'] ?? ''), true);
+    if (!is_array($w) || count($w) < 1 || count($w) > 16) fail(400, 'w: 1 to 16 families');
+    $wait = max(0, min(25, intval($_GET['wait'] ?? 8)));
+    $where0 = $where; $env0 = $env; $kids = []; $got = [];
+    foreach (array_values($w) as $k => $f) {
+        $s = $f['s'] ?? ''; $v = $f['v'] ?? '';
+        if (!isset($allowed[$s])) fail(403, "service '$s' is not an installed add-in's");
+        if (!name_ok($v)) fail(400, 'variable needed');
+        $where = $where0; $env = $env0; for_service($s, $f['team'] ?? null);
+        if (isset($f['ram']) && $f['ram'] !== '' && $f['ram'] !== $where) { $got[] = ['k' => $k, 'rows' => [], 'ram' => $where]; continue; }
+        $cmd = $env; foreach (['read', $s, $v, '', intval($f['after'] ?? 0), $wait] as $a) $cmd .= escapeshellarg((string)$a) . ' ';
+        $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($p)) fail(502, 'could not run ram');
+        stream_set_blocking($pipes[1], false);
+        $kids[$k] = ['p' => $p, 'out' => $pipes[1], 'err' => $pipes[2], 'text' => '', 'ram' => $where];
+    }
+    $done = []; $until = time() + $wait + 5;
+    ignore_user_abort(true);
+    while ($got === [] && count($done) < count($kids) && time() < $until) {
+        $r = []; foreach ($kids as $k => $c) if (!isset($done[$k])) $r[] = $c['out'];
+        $x = null; $e = null;
+        $n = stream_select($r, $x, $e, 1);
+        if ($n === false) break;
+        if ($n === 0) {                                         // nothing yet: is the page still there? (a page that
+            echo ' '; @ob_flush(); flush();                     // changed its set ended this request; free the worker)
+            if (connection_aborted()) { foreach ($kids as $c) { proc_terminate($c['p']); fclose($c['out']); fclose($c['err']); proc_close($c['p']); } exit; }
+            continue;
+        }
+        foreach ($kids as $k => &$c) {
+            if (isset($done[$k]) || !in_array($c['out'], $r, true)) continue;
+            $c['text'] .= (string)stream_get_contents($c['out']);
+            if (feof($c['out'])) {
+                $done[$k] = true;
+                $j = json_decode($c['text'], true);
+                if (!is_array($j)) { foreach ($kids as $q) proc_terminate($q['p']); fail(502, 'ram read failed', trim($c['text'] . stream_get_contents($c['err']))); }
+                if (!empty($j['rows'])) $got[] = ['k' => $k, 'rows' => $j['rows'], 'ram' => $c['ram']];
+            }
+        }
+        unset($c);
+    }
+    foreach ($kids as $k => $c) { if (!isset($done[$k])) proc_terminate($c['p']); fclose($c['out']); fclose($c['err']); proc_close($c['p']); }
+    echo json_encode(['ok' => true, 'got' => $got], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+} elseif ($op === 'rams') {                                    // [TEAM_RAM_V1] the app's RAMs served now, and where
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
+    $out = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $out[substr($k, strlen($app) + 1)] = $v;
+    echo json_encode(['ok' => true, 'rams' => $out]);
 } elseif ($op === 'whoami') {
     $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
@@ -87,5 +149,5 @@ if ($op === 'read') {
         if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '') { echo json_encode(['ok' => true, 'station' => $a['value'], 'ip' => $ip]); exit; }
     fail(404, "this node gave $ip no lease, so it has no hostname for it: no station ID");
 } else {
-    fail(400, 'op is read, write, announce or whoami');
+    fail(400, 'op is read, write, watch, announce, rams or whoami');
 }

@@ -9,6 +9,10 @@
 //   (rt-log, <mission>.<op>, <dev>.<seq>)        distinct one cell per entry, written once by the device that logged it
 //   (rt-handled, <mission>, <entry>.<dev>)       latest   [MARK_PER_HANDLER_V1] each handler's own mark on an entry; the
 //                                                         mark shown is derived: the newest across handlers (markOf)
+//   (rt-who, <mission>, <dev>)                   latest   the device: name, station (its hostname), team
+//   (rt-msg, <mission>, <dev>.<ms>)              distinct an announcement, to everyone
+//   (rt-dm, <mission>.<to station>, <dev>.<ms>)  distinct a direct message (the addressee reads its own variable)
+//   (rt-team@<team>, <mission>, <dev>.<ms>)      distinct a team message, in the team's own RAM [TEAM_RAM_V1]
 //   (rt-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
 //                                                         a query over them. Never derived from the log: a position in a
 //                                                         log entry is the scribe's record of what was said
@@ -30,8 +34,17 @@ async function call(url, opts) {
 // update waited (the request not started, the RAM not answering, or the answer not woken)
 const diag = (...a) => console.debug('[DIAG-WATCH]', new Date().toISOString(), ...a)
 let seq = 0
+// [TEAM_RAM_V1] a family in a team's RAM is named "<service>@<team>" here: ram.php is told the team, and this device's own
+// truth there is kept and written again apart from the general RAM's
+const fam = (s) => { const k = s.indexOf('@'); return k < 0 ? { svc: s, team: '' } : { svc: s.slice(0, k), team: s.slice(k + 1) } }
+export const inTeam = (svc, team) => svc + '@' + team
+async function post(s, v, i, bag) {
+  const { svc, team } = fam(s), body = { s: svc, v, i, bag }; if (team) body.team = team
+  return call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
 async function readJ(s, v, after, wait, ram) {
-  const o = { op: 'read', s, v }; if (after !== undefined) { o.after = after; o.wait = wait ?? 25; if (ram) o.ram = ram }
+  const { svc, team } = fam(s), o = { op: 'read', s: svc, v }; if (team) o.team = team
+  if (after !== undefined) { o.after = after; o.wait = wait ?? 25; if (ram) o.ram = ram }
   const n = ++seq, t0 = performance.now(); diag('read#' + n, 'ask', JSON.stringify(o))
   try { const j = await call(RAM + '?' + q(o)); diag('read#' + n, 'answer', Math.round(performance.now() - t0) + 'ms', 'rows=' + (j.rows || []).length,
                                                       'ids=' + (j.rows || []).map(r => r.id).join(','), 'ram=' + j.ram); return j }
@@ -51,7 +64,7 @@ function ownOf(s, v) {
 function keep(s, v, i, bag) { const m = ownOf(s, v); m.set(i, bag); kept('own.' + s + '.' + v, Object.fromEntries(m)) }
 export async function write(s, v, i, bag) {
   const b = { ...bag, dev: device().id }, n = ++seq, t0 = performance.now(); diag('write#' + n, 'ask', s, v, i)
-  const j = await call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, v, i, bag: b }) })
+  const j = await post(s, v, i, b)
   diag('write#' + n, 'answer', Math.round(performance.now() - t0) + 'ms', 'ram=' + j.ram, JSON.stringify(j).slice(0, 200))
   keep(s, v, i, b); return j
 }
@@ -60,13 +73,14 @@ async function again(s, v, cells) {
   const me = device().id, mine = ownOf(s, v)
   for (const r of cells.values()) if (r.bag && r.bag.dev === me && !mine.has(r.instance)) keep(s, v, r.instance, r.bag)
   const missing = [...ownOf(s, v)].filter(([i]) => !cells.has(i))
-  for (const [i, bag] of missing) await call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, v, i, bag }) })
+  for (const [i, bag] of missing) await post(s, v, i, bag)
   if (missing.length) note('this device\'s own ' + missing.length + ' written again (' + s + ', on ' + (cells.ram || 'the RAM it is on now') + ')')
 }
 
 // [OWN_TRUTH_AGAIN_V1] all of it: the first time any read says the RAM is another one, every family this device owns
-// is read there and what is missing written again, watched on this page or not (its position, say)
-let onRam = null
+// is read there and what is missing written again, watched on this page or not (its position, say). Per RAM: the general
+// RAM's families when the general RAM moves, a team's when that team's does
+const onRam = new Map()                                           // 'general' or the team -> the RAM it was last on
 function ownFamilies() {
   const out = new Set([...own.keys()])
   try { for (let k = 0; k < localStorage.length; k++) { const n = localStorage.key(k)
@@ -74,12 +88,13 @@ function ownFamilies() {
   catch (e) { }
   return [...out].map(k => k.split('\u0000'))
 }
-async function againAll(ram) {
-  if (!ram || ram === onRam) return
-  onRam = ram
+async function againAll(key, ram) {
+  if (!ram || onRam.get(key) === ram) return
+  onRam.set(key, ram)
   for (const [s, v] of ownFamilies()) {
+    if ((fam(s).team || 'general') !== key) continue
     try { const j = await readJ(s, v), cells = new Map((j.rows || []).map(r => [r.instance, r])); cells.ram = j.ram; await again(s, v, cells) }
-    catch (e) { note('this device\'s own ' + s + ' not written again yet: ' + e.message); onRam = null }
+    catch (e) { note('this device\'s own ' + s + ' not written again yet: ' + e.message); onRam.delete(key) }
   }
 }
 
@@ -89,21 +104,51 @@ async function againAll(ram) {
 // a held read lasts at most HOLD_S: the longest a page stays on a RAM manager its node has left (a held read on it cannot
 // know); 8 s keeps "every screen again within seconds" of a post's uplink coming back
 const HOLD_S = 8
-export function watch(s, v, onChange, onError) {
-  let cells = new Map(), after = 0, stopped = false, ram = null, full = true
-  const take = (rows) => { for (const r of rows) { after = Math.max(after, r.id); const o = cells.get(r.instance); if (!o || o.id < r.id) cells.set(r.instance, r) } }
-  ;(async () => {
-    while (!stopped) {
+// [ONE_HELD_READ_PER_PAGE_V1] every family a page watches is held in ONE request (ram.php op=watch): one web server
+// worker and one browser connection per page, however many families it shows. A family being added or stopped
+// ends the held request and the next one carries the new set.
+const fams = new Map()
+let famSeq = 0, holding = null, looping = false
+function take(f, rows) { for (const r of rows) { f.after = Math.max(f.after, r.id); const o = f.cells.get(r.instance); if (!o || o.id < r.id) f.cells.set(r.instance, r) } }
+async function full(f) {
+  try {
+    const j = await readJ(f.s, f.v)
+    f.cells = new Map(); f.after = 0; f.ram = j.ram || f.ram; take(f, j.rows || []); f.full = false; f.onChange(f.cells)
+    f.cells.ram = f.ram; await again(f.s, f.v, f.cells); againAll(fam(f.s).team || 'general', f.ram)
+  } catch (e) { (f.onError || console.error)(e); f.retry = Date.now() + 2000 }
+}
+async function loop() {
+  if (looping) return
+  looping = true
+  try {
+    while (fams.size) {
+      let pending                                                    // every family read in full before holding: a family
+      while ((pending = [...fams.values()].filter(f => f.full && !(f.retry > Date.now()))).length)   // added meanwhile too
+        for (const f of pending) await full(f)
+      const held = [...fams.values()].filter(f => !f.full)
+      if (!held.length) { await new Promise(r => setTimeout(r, 500)); continue }
+      const w = held.map(f => { const { svc, team } = fam(f.s), o = { s: svc, v: f.v, after: f.after, ram: f.ram || '' }; if (team) o.team = team; return o })
+      const ac = new AbortController(); holding = ac
+      const n = ++seq, t0 = performance.now(); diag('watch#' + n, 'ask', held.map(f => f.s + ' ' + f.v + ' after ' + f.after).join('; '))
       try {
-        const j = full ? await readJ(s, v) : await readJ(s, v, after, HOLD_S, ram)
-        if (!full && j.ram && ram && j.ram !== ram) { full = true; continue }      // the node moved: read everything there
-        if (full) { cells = new Map(); after = 0; ram = j.ram || ram; take(j.rows || []); onChange(cells); full = false
-                    cells.ram = ram; await again(s, v, cells); againAll(ram) }
-        else if ((j.rows || []).length) { take(j.rows); onChange(cells) }
-      } catch (e) { (onError || console.error)(e); full = true; await new Promise(r => setTimeout(r, 2000)) }
+        const j = await call(RAM + '?' + q({ op: 'watch', w: JSON.stringify(w), wait: HOLD_S }), { signal: ac.signal })
+        diag('watch#' + n, 'answer', Math.round(performance.now() - t0) + 'ms', (j.got || []).map(g => held[g.k].s + ' rows=' + g.rows.length + ' ids=' + g.rows.map(r => r.id).join(',') + ' ram=' + g.ram).join('; ') || 'none')
+        for (const g of j.got || []) { const f = held[g.k]; if (!fams.has(f.id)) continue
+          if (g.ram && f.ram && g.ram !== f.ram) { f.full = true; continue }          // on another RAM now: read everything there
+          if (g.rows.length) { take(f, g.rows); f.onChange(f.cells) } }
+      } catch (e) {
+        if (ac.signal.aborted) { diag('watch#' + n, 'ended: the set of families changed'); continue }
+        diag('watch#' + n, 'failed', Math.round(performance.now() - t0) + 'ms', e.message)
+        for (const f of held) { (f.onError || console.error)(e); f.full = true }
+        await new Promise(r => setTimeout(r, 2000))
+      } finally { if (holding === ac) holding = null }
     }
-  })()
-  return () => { stopped = true }
+  } finally { looping = false }
+}
+export function watch(s, v, onChange, onError) {
+  const f = { id: ++famSeq, s, v, onChange, onError, cells: new Map(), after: 0, ram: null, full: true }
+  fams.set(f.id, f); if (holding) holding.abort(); loop()
+  return () => { fams.delete(f.id); if (holding) holding.abort() }
 }
 
 function kept(key, val) {
@@ -115,7 +160,17 @@ export function device() {
   if (!d) { d = { id: 'd' + Math.random().toString(36).slice(2, 10), name: '', station: '' }; kept('device', d) }
   return d
 }
-export function setDevice(name) { const d = { ...device(), name }; kept('device', d); return d }
+export function setDevice(name, team) { const d = { ...device(), name, team: team ?? device().team ?? '' }; kept('device', d); return d }
+// [TEAM_RAM_V1] the app's RAMs served now: { general: host:port, <team>: host:port, ... }
+export async function rams() { return (await call(RAM + '?op=rams&app=rangertrak')).rams || {} }
+// this device in the mission's directory: who it is, its station, its team (its own cell; DMs are addressed by station)
+export async function present(m) { const d = device(); return write('rt-who', m.id, d.id, { name: d.name || d.id, station: d.station, team: d.team || '' }) }
+// what this device sent, from its own store: [variable, instance, bag] of every family s it owns whose variable starts so
+export function sent(s, prefix) {
+  const out = []
+  for (const [fs, v] of ownFamilies()) if (fs === s && v.startsWith(prefix)) for (const [i, b] of ownOf(s, v)) out.push([v, i, b])
+  return out
+}
 // the client connects first: its station ID from the node, before anything is shown or written
 export async function connect() {
   const j = await call(RAM + '?op=whoami')
