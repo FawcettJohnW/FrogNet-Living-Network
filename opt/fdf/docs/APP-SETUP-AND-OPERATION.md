@@ -189,7 +189,9 @@ is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations
   a split.
 - **Messages are not a role.** General messages live in the general RAM: announcements to everyone, and direct
   messages between people in different teams. Team messages live in the team's RAM. A direct message in the general
-  RAM is read only by its sender and addressee; that is the app's access, over who reads which portion.
+  RAM is read only by its sender and addressee, and nothing checks that: it is written into the addressee's own
+  variable (RangerTrak: `(rt-dm, <mission>.<to station>, <dev>.<ms>)`), which is what the addressee reads; the sender
+  keeps its copy as its own truth. **John, 2026-11-01:** "There's no check to be made."
 
 The application joins the general RAM and the RAMs authorized for its user's teams; devices run applications, they do not join RAMs. The access by team in the app configuration tuples grants each one.
 Each RAM has its own selection and its own fail or relocate.

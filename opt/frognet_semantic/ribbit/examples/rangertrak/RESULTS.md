@@ -143,7 +143,8 @@ page. Fix: `ram.php?op=watch` holds all of a page's families in one request, and
 page; a page adding or dropping a family ends it, and the door frees its worker when the page has gone. After the fix,
 all checks pass and the times are in the table.
 
-Not yet: who may read a direct message or a team's RAM is the app's access (step 6). The door does not check it yet.
+A direct message needs no check: it is in the addressee's own variable, `(rt-dm, <mission>.<station>)`, which only
+the addressee reads; the sender keeps its copy as its own truth. A team's RAM is checked by its droplet (step 6).
 
 ## Step 7: the 213, the Summary and the 214 (2026-11-01)
 
@@ -174,5 +175,4 @@ The device keeps its grant and writes its access record again after every RAM ch
 | `test_rt_pages.py` 14: the hospitals RAM without a hospitals grant | refused: "log in first (no grant)" |
 | `test_rt_pages.py` 16: the client's focus | an EOC client (default role, no password) opens on the Summary; no role on the Radio Log; kim on the hospitals messages |
 
-Not yet: direct messages are not restricted to sender and addressee (the grant carries the station that will check
-it); the admin app is the `fdf-app config` command line, not a screen.
+Not yet: the admin app is the `fdf-app config` command line, not a screen.
