@@ -46,6 +46,11 @@
     <div class="pvideo"></div></div>
   <div id="status"></div>
 </div>
+<script>
+// [MAP_NO_3D_IN_JAVAFX_V1] JavaFX's web view (the Windows app) draws CSS 3D transforms wrongly under Windows display
+// scaling: Leaflet's map came out in a corner with tiles of other sizes around it. Leaflet uses 2D positioning there.
+if (/JavaFX/.test(navigator.userAgent)) window.L_DISABLE_3D = true
+</script>
 <script src="leaflet/leaflet.js"></script>
 <script src="app.js"></script>
 </body></html>
