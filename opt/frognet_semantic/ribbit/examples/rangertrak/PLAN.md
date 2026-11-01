@@ -75,7 +75,8 @@ scribe or a viewer can see and do, and the proof that it is right:
   connected".
 - **The printed forms**: ICS-309 with the mark and Msg # columns, ICS-213 with the full number, ICS-214, the CSV
   columns.
-- **Message numbers**: `{mission, opPeriod, station, seq}`, printed `A007` and `26-0142 / OP 2 / A007`, stamped once.
+- **Message numbers**: `{mission, opPeriod, station, seq}`, printed as the station ID and its count (RangerTrak's `A007`;
+  here the station ID is the app's hostname) and in full as `26-0142 / OP 2 / <station>-007`, stamped once.
 - **The proof**: RangerTrak's `domain/` specs are table-driven. Their cases become oracles for this app's own rules
   (`rules.js`): the same inputs, the same outputs, run against the fresh code. `RANGERTRAK-SUITE-MAP.md` says which
   apply. Stock RangerTrak's suite and e2e, run as they are, are the baseline (`RESULTS.md`).
@@ -118,22 +119,20 @@ again there).
 | Team data (the Hospitals': capacity, receiving status) | that team's | the team member who owns it | the team's own families | | that team, and whom it grants |
 | Team message | that team's | the sender | `(msg, <mission>, <dev>.<seq>)` | distinct | that team |
 | AAR / 214 note | general | the device that typed it | `(notes, <mission>, <dev>.<seq>)` | distinct | After-action |
-| Station letter | general | the device | `(station, <mission>.<op>, <dev>)` | latest | the entry writer; the clash warning |
 | Overdue / needs attention | | | | **derived**, never stored | Map, Rangers, Radio Log |
 | Mission journal | not in a RAM | the device | local | | that device's Log page |
 
-**Message numbers.** `<dev>.<seq>` makes every entry's identity unique. It does not make the printed `A007` unique:
-two devices can choose station A. RangerTrak treats a duplicated station as an operator error and reports clashes
-(`findMsgNoClashes`). Here it is derived, not contested: each device writes its station letter as its own fact, and a
-device whose letter another device in the same op period also holds is told so at once, before it logs. **Open (John):**
-is a unique printed number part of the contract, so the app also refuses to log on a held letter, or is the warning
-enough?
+**Message numbers.** **John, 2026-11-01:** "The station ID is the app hostname." A hostname is already unique on the
+network, so the station ID is unique by construction and nobody types it: no clash to detect, warn of or claim.
+RangerTrak's typed station letter, its clash report (`findMsgNoClashes`) and its *Take over station* / *Log
+alongside* choice all go. `<dev>.<seq>` stays the entry's identity in the RAM; the printed number is the station ID and
+that station's own count.
 
 ## The participants
 
 | participant | runs on | writes | holds reads on |
 | --- | --- | --- | --- |
-| **Scribe** | a laptop or phone, on a post's Wi-Fi (the post's pages) or as a member of the region | its entries, its handled marks, rangers and places it typed, the mission if it started it, its station letter | the log, roster, places, handled, mission and station families; positions for the map |
+| **Scribe** | a laptop or phone, on a post's Wi-Fi (the post's pages) or as a member of the region | its entries, its handled marks, rangers and places it typed, the mission if it started it | the log, roster, places, handled and mission families; positions for the map |
 | **Field** | a phone in the field | its own position, its own entries, its own marks | the same families |
 | **Post** | the node at the post | the 309 and 213 files | the log and handled families |
 
@@ -153,7 +152,7 @@ the app's timing, not a read.
 2. **The pages follow their RAMs**: `ram.php` and `rt.js` connect to the general RAM's droplet from its where cell, not
    to `RINA_RAM`. The two-post test (`test_rt_pages.py`) runs again, the cut and the rejoin included.
 3. **Positions** become each device's own tuples; the map becomes a query over them.
-4. **The truth-table corrections**: handled marks per handler; station letters as facts with the clash warning; own
+4. **The truth-table corrections**: handled marks per handler; the station ID taken from the app's hostname; own
    truth kept on the device for a reload.
 5. **Team RAMs** and team messages; direct messages and their access.
 6. **Login and access by team** from the app configuration tuples.
@@ -171,7 +170,7 @@ What Cornelison does, in order, at his own keyboard:
 
 1. Types an entry at post A. It is on B's and C's Radio Log before he looks up; the phone shows it too.
 2. Walks with the phone. Its position moves on every post's map, with nothing logged.
-3. Logs an entry on the phone. It appears at all three posts, numbered as the phone's station.
+3. Logs an entry on the phone. It appears at all three posts, numbered with the phone's station ID, its app hostname.
 4. Pulls post B's uplink. B's scribe keeps typing, on the general RAM relocated to B's side; A and C keep each other.
 5. Plugs B back in. One general RAM serves the app again; every device writes its own entries there again, and every
    screen reads the current RAM. B's entries are on every screen within seconds. Nothing was restored or merged.
