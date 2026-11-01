@@ -1611,16 +1611,29 @@ def run_region_loop():
     was_up = False                      # [REGION_LOSS_IS_A_TRANSITION_V1] "lost" is said and acted on once per loss
     backoff = 5
     returned = {"name": None}
+    prefer = {"name": None, "lost": None}        # [NO_FLAP_V1] the entry the standing sessions say to take next; the one lost
+    def _on_up(e):                               # an entry came back: taken only off the LAN (the node's last resort)
+        cur = region.current()
+        if cur.get("lan") and not e.get("lan"):
+            prefer["name"] = e["name"]; returned["name"] = e["name"]
+            config.log.warning("REGION: system space: %s is alive and this node is on the LAN: moving to it [NO_FLAP_V1]", e["name"])
+            region.end_events()
+    region.standing.on_up = _on_up
     while config.running:
         up = False
         evs = None
-        # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) every attempt walks the system space's list top to bottom: the
-        # configured RAM managers, then the LAN's from the highest IP down to this node's own. The first that answers is
-        # the one. The node's own LAN RAM manager is always running, so the walk always ends somewhere.
+        # [SYSTEM_SPACE_V1] (ORGANIZATIONS.md section 4) the system space's list: the configured RAM managers, then the
+        # LAN's from the highest IP down to this node's own (always running, so the walk always ends somewhere).
+        # [NO_FLAP_V1] after a loss the entry the standing sessions found alive is taken first, asked nothing; the one
+        # just lost is not tried again; otherwise top to bottom, the first that answers.
         region.ensure_lan_ram()
         order = region.system_order()
+        pref = next((e for e in order if e["name"] == prefer["name"]), None)
+        walk = ([pref] if pref else []) + [e for e in order if e is not pref and e["name"] != prefer["lost"]]
+        prefer["name"] = None; prefer["lost"] = None          # prefer["t"] stays until the next "on" line says the time
         at = None
-        for i, entry in enumerate(order):
+        for entry in walk:
+            i = order.index(entry)
             region.use(entry)
             # [RAM_IN_THE_TUNNEL_V1] a WAN RAM manager listens only on its hub's tunnel address: its hub channel comes up
             # first (region.my_channels builds it from the entry, needing nothing from the region); a LAN entry has
@@ -1629,7 +1642,7 @@ def run_region_loop():
                 _reconcile_bringup_phase()
             except Exception as e:
                 config.log.warning("REGION: hub channel bring-up for %s failed: %s", entry["name"], e)
-            if not region.answers(entry):
+            if entry is not pref and not region.answers(entry):
                 config.log.warning("REGION: system space: %s (%s) does not answer; next on the list", entry["name"], entry["ram"])
                 continue
             try:
@@ -1659,26 +1672,14 @@ def run_region_loop():
         if up:
             was_up = True
             backoff = 5
-            config.log.warning("REGION: system space on %s (%s), %d of %d on the list [SYSTEM_SPACE_V1]",
-                               order[at]["name"], order[at]["ram"], at + 1, len(order))
-            # [SPACE_FAILBACK_V1] a standing attempt toward every entry above the current one, every 5 s: the first that
-            # answers ends this session, and the walk from the top makes the switch. Its event is the failback.
-            stop = _thr.Event()
-            def _standing(above, stop=stop):
-                while not stop.wait(5):
-                    for e in above:
-                        if stop.is_set():
-                            return
-                        if region.answers(e, timeout=3.0):
-                            returned["name"] = e["name"]
-                            config.log.warning("REGION: system space: %s answers again; walking the list [SPACE_FAILBACK_V1]", e["name"])
-                            region.end_events()
-                            return
-            if at:
-                _thr.Thread(target=_standing, args=(order[:at],), name="space-standing", daemon=True).start()
+            took = prefer.pop("t", None)
+            config.log.warning("REGION: system space on %s (%s), %d of %d on the list%s [SYSTEM_SPACE_V1]",
+                               order[at]["name"], order[at]["ram"], at + 1, len(order),
+                               "" if took is None else ", %d ms after the loss" % int((time.monotonic() - took) * 1000))
+            region.standing.run(order, order[at])           # [NO_FLAP_V1] a standing session to every other entry
             for ev in evs:
                 if not config.running:
-                    stop.set()
+                    region.standing.stop()
                     return
                 if ev == "gone":
                     break
@@ -1687,9 +1688,14 @@ def run_region_loop():
                         _one("event " + ev)
                 except Exception as e:
                     config.log.warning("REGION: apply after event %s failed: %s", ev, e)
-            stop.set()
-        if returned["name"]:            # [SPACE_FAILBACK_V1] a switch upward: no withdrawal, the walk now
+            t_lost = time.monotonic()
+            nxt = region.standing.first_alive(order, exclude=order[at]["name"])
+            region.standing.stop()
+            if not returned["name"]:
+                prefer["name"] = nxt["name"] if nxt else None; prefer["lost"] = order[at]["name"]; prefer["t"] = t_lost
+        if returned["name"]:            # [NO_FLAP_V1] off the LAN onto a configured RAM manager that came back
             returned["name"] = None
+            n = _tear_down_all_kernel_wg_ifaces("system space leaves the LAN for %s" % prefer["name"])
             continue
         if up:
             # [SPACE_FAILOVER_V1] the system space's RAM manager is lost: the next on the list now (John 7A). Failover
@@ -1698,7 +1704,8 @@ def run_region_loop():
             # first would cut this node off from the LAN RAM managers above its own).
             _write_view("recalc", "lost:" + order[at]["name"])
             n = _tear_down_all_kernel_wg_ifaces("system space lost %s: its hub channel goes" % order[at]["name"])
-            config.log.warning("REGION: lost %s, the system space's RAM manager; tore down %d tunnel(s); walking the list now [SPACE_FAILOVER_V1]", order[at]["name"], n)
+            config.log.warning("REGION: lost %s, the system space's RAM manager; tore down %d tunnel(s); %s [SPACE_FAILOVER_V1][NO_FLAP_V1]", order[at]["name"], n,
+                               ("%s is alive (its standing session): taking it now" % prefer["name"]) if prefer["name"] else "nothing else is alive: walking the list")
             if switch["to"]:
                 _do_switch()
             continue

@@ -375,6 +375,83 @@ def answers(entry: dict, timeout: float = 5.0) -> bool:
             subprocess.run(["ip", "link", "del", dev], capture_output=True)
 
 
+class Standing:
+    """[NO_FLAP_V1] (John, 2026-11-01: "You know within milliseconds that the socket to upstream has closed. You should
+    immediately switch to the backup ... Then we don't do shit to go back up until this one dies. No flapping around.")
+    A standing session to every system-space entry but the current one: a held read on each (a WAN entry through its own
+    probe tunnel, fdfsp<N>, bound, no route). Its state is what the loop needs at a loss: the first live entry in list
+    order is taken at once, nothing asked then. An entry coming back is said (on_up) and changes nothing while the current
+    one lives; the loop takes it only when the node is on the LAN (its last resort, not a peer)."""
+    def __init__(self):
+        import threading
+        self.alive, self.devs, self.gen, self.on_up, self.lock = {}, {}, 0, None, threading.Lock()
+
+    def run(self, order: list, current: dict) -> None:
+        import threading
+        self.stop()
+        with self.lock:
+            self.gen += 1; g = self.gen
+        self.alive = {}
+        for e in order:
+            if e["name"] != current.get("name"):
+                threading.Thread(target=self._one, args=(g, e), name="standing-" + e["name"], daemon=True).start()
+
+    def stop(self) -> None:
+        with self.lock:
+            self.gen += 1
+            devs, self.devs = dict(self.devs), {}
+        for d in devs.values():                     # the probe tunnels go now: the next current one's channel follows
+            subprocess.run(["ip", "link", "del", d], capture_output=True)
+
+    def first_alive(self, order: list, exclude: str = ""):
+        return next((e for e in order if e["name"] != exclude and self.alive.get(e["name"])), None)
+
+    def _one(self, g: int, e: dict) -> None:
+        import sys, time
+        sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+        import fdfram
+        name = e["name"]
+        while g == self.gen:
+            dev = ""
+            try:
+                if e.get("hub"):
+                    with self.lock:
+                        if g != self.gen:
+                            return
+                        dev = _probe_up(e)
+                        if dev:
+                            self.devs[name] = dev
+                    if not dev:
+                        raise OSError("no probe tunnel")
+                r = fdfram.Ram(e["ram"], device=dev or None)
+                r.version()
+                if g != self.gen:
+                    return
+                if not self.alive.get(name):
+                    self.alive[name] = True
+                    config.log.warning("REGION: standing: %s is alive [NO_FLAP_V1]", name)
+                    if self.on_up:
+                        self.on_up(e)
+                last = 0
+                while g == self.gen:
+                    rows = r.read("fdf-space", "alive", "node", after=last, wait_s=fdfram.HOLD_S)
+                    if rows:
+                        last = max(x["id"] for x in rows)
+            except Exception as ex:
+                if g == self.gen and self.alive.get(name):
+                    config.log.warning("REGION: standing: %s closed (%s)", name, ex)
+                self.alive[name] = False
+            if g == self.gen:
+                time.sleep(2)
+        with self.lock:
+            d = self.devs.pop(name, None) if g == self.gen else None
+        if d:
+            subprocess.run(["ip", "link", "del", d], capture_output=True)
+
+
+standing = Standing()
+
+
 def _probe_up(entry: dict) -> str:
     names = [m.get("name") for m in system_managers()]
     dev = "fdfsp%d" % (names.index(entry["name"]) if entry["name"] in names else len(names))

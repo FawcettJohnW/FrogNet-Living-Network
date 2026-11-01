@@ -160,25 +160,33 @@ in 1.0 s; Admin's RAM manager on A killed, fdf-org starts it again and the devic
 Each node writes only its own facts and holds one read; a change is an event, and the merge applies it, writing back
 only what changed (**proposed**: today `write_facts` rewrites the file every time).
 
-## 6. Failover and failback
+## 6. Failover, and no failback
 
-Per space, in the shared library (`fdfspace.Space`, `[SPACE_FAILOVER_V1]`); the application only receives the change and
-re-arms its reads and re-writes its truth. **John.** Memory is never moved.
+Per space, in the shared library (`fdfspace.Space`, `Space.kt`) and, for the system space, in the tunnel daemon
+(`region.Standing`); the application only receives the change and re-arms its reads and re-writes its truth. **John.**
+Memory is never moved.
 
-- **Lost**: the held read on the current RAM manager fails; TCP keepalive notices a vanished one in about 5 s.
-- **Returned**: a standing connection attempt to every RAM manager above the current one, including from the fallback,
-  every 5 s (**proposed**: the source of John's failback event).
-- Each event walks the list top to bottom; a different answer is a switch.
+**John, 2026-11-01** (`[NO_FLAP_V1]`): "You know within milliseconds that the socket to upstream has closed. You should
+immediately switch to the backup. Within milliseconds, not seconds. Then we don't do shit to go back up until this one
+dies. No flapping around."
+
+- **Standing sessions**: a held read on every candidate all the time (a WAN RAM manager through a probe tunnel of its
+  own on a node). They are how the switch knows, at the moment it needs to, which candidates are alive.
+- **Lost**: the current one's session closes, which takes milliseconds when its RAM manager or its host goes (a silent
+  path, TCP keepalive: about 5 s). The move is at once, to the first candidate in list order whose standing session is
+  alive. Nothing is asked then.
+- **Back**: a candidate coming back changes nothing while the current one lives. The one exception (**proposed**): a node
+  or device on its LAN fallback, its last resort and not a peer, takes a configured RAM manager that comes back.
 
 On a node, measured in `netns-system-space-test.sh` (two hubs, z on the Internet, w behind z with its own tunnel;
-one box, wireguard-go): hubA's RAM manager dying, both nodes on hubB in 2.3 s; hubA back, both on it in 6.0 s; both WAN
-RAM managers gone, both on the LAN's highest (w's 10.4.4.1) in 2.2 s with no WireGuard left and z still routing w's
-/24; hubA back, both on it from the LAN in 5.7 s.
+one box, wireguard-go): hubA's RAM manager dying, z's new session on hubB 255 ms after the loss, w's 274 ms (of which
+bringing up the new hub channel with userspace WireGuard is about 110 ms); hubA back, both still on hubB 12 s later; both
+WAN RAM managers gone, both on the LAN's highest (w's 10.4.4.1) in 2.3 s, no hub channel left (only the standing
+sessions' probe tunnels, which route nothing) and z still routing w's /24; hubA back, both off the LAN onto it in 4.7 s.
 
-For devices, measured in `netns-space-test.sh` (one box, wireguard-go): the primary's RAM manager dying, both devices on the standby
-in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM hosts gone, each device on its own RAM in
-0.3 s; a device cut from the primary only, on the standby in 8.9 s while the other stays on the primary, and back in
-1.0 s when the cut heals.
+For devices, measured in `netns-space-test.sh` (one box, wireguard-go), from the kill to the application's change:
+26-32 ms (A dies, onto B; B dies, onto A; both die, onto the device's own RAM); A back, both stay on B; a silent
+partition (no socket closes) 4.8 s, by TCP keepalive; healed, nobody moves.
 
 ## 7. Where it is in the tree
 

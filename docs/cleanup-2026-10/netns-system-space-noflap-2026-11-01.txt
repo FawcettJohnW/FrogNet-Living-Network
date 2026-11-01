@@ -1,0 +1,20 @@
+[NO_FLAP_V1] nodes, 2026-11-01: netns-system-space-test.sh
+PASS  hubA up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  hubB up on 51820, its RAM manager at 10.253.253.254:8840
+PASS  z and w invited at hubA and hubB
+PASS  z: fdf-region-join --files-only with hubA's line
+PASS  z: system-space.json: [('hubA', '10.253.253.254:8840', '10.253.1.1'), ('hubB', '10.253.253.254:8840', '10.253.1.1')]
+PASS  w: fdf-region-join --files-only with hubA's line
+PASS  w: system-space.json: [('hubA', '10.253.253.254:8840', '10.253.1.2'), ('hubB', '10.253.253.254:8840', '10.253.1.2')]
+PASS  both on hubA, the first on the list; hubA's RAM manager lists both (2.2 s)
+PASS  z routes w's 10.4.4.0/24 over the LAN (via its lease 10.3.3.20)
+PASS  w has its own tunnel to hubA, through z: fdfsp1 wg0 
+PASS  hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both: z 255 ms, w 274 ms from the loss to the new session (2.4 s to hubB listing both)
+PASS  hubA's RAM manager back: 12 s later both still on hubB (z hubB, w hubB): nothing goes back up while hubB lives
+PASS  both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both (2.3 s)
+PASS  on the LAN: no hub channel on z or w; only the standing sessions' probe tunnels, routing nothing (fdfsp1 fdfsp0 fdfsp1 fdfsp0 )
+PASS  on the LAN: z still routes w's /24
+PASS  on the LAN: w's .1 -> z's .1
+PASS  hubA back: both on hubA from the LAN (4.7 s)
+PASS  z's hub channel is back up
+RESULT PASS

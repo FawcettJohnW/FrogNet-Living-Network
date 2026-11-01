@@ -11,8 +11,9 @@
 #   z 198.18.0.3   node, serves 10.3.3.0/24 on v-zw; daemon, fdf-facts, fdf-client
 #   w              node behind z: lease 10.3.3.20 on z's LAN, serves 10.4.4.0/24; its OWN tunnels (egress through z)
 # Both nodes are admitted at both hubs with their one key; /opt/fdf/var/system-space.json lists hubA then hubB.
-# Checks: both on hubA; hubA's RAM manager dies -> both on hubB; it returns -> both on hubA; both die -> both on the LAN's
-# highest (w's 10.4.4.1), no WireGuard left on either, z still routes w's /24; hubA returns -> both on hubA.
+# Checks: both on hubA; hubA's RAM manager dies -> both on hubB at once (ms from the loss, the daemon's own line); it
+# returns -> both stay on hubB [NO_FLAP_V1]; both die -> both on the LAN's highest (w's 10.4.4.1), no hub channel left
+# on either, z still routes w's /24; hubA returns -> both off the LAN onto hubA.
 # LOGIN=1: the nodes join the way an organization's do (ORGANIZATIONS.md section 3): each hub runs fdf-org with a level
 # Nodes (no password, reach open), one join line names both (fdf-org line --with), and each node runs
 # fdf-login --node with it -- which writes system-space.json for the daemon. Otherwise: invitations, and the test
@@ -158,15 +159,16 @@ check $(NSF w wg show interfaces 2>/dev/null | grep -q wg && echo 0 || echo 1) "
 sleep 4
 # ---- failover: hubA's RAM manager dies
 hostdown A
-r=($(both_on hubB "parts B $RAM")); check ${r[0]} "hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
-# ---- failback: it returns
-hostup A
-r=($(both_on hubA "parts A $RAM")); check ${r[0]} "hubA's RAM manager back: both on hubA again ($(secs ${r[1]}) s; the standing attempt is every 5 s)"; [ ${r[0]} = 0 ] || dump
-sleep 4
+took() { grep "system space on $2 .*ms after the loss" $T/$1/daemon.log | tail -1 | grep -o '[0-9]* ms after the loss' | cut -d' ' -f1; }
+r=($(both_on hubB "parts B $RAM")); check ${r[0]} "hubA's RAM manager gone: both on hubB, the next on the list, hubB lists both: z $(took z hubB) ms, w $(took w hubB) ms from the loss to the new session ($(secs ${r[1]}) s to hubB listing both)"; [ ${r[0]} = 0 ] || dump
+# ---- [NO_FLAP_V1] it returns: nothing moves while hubB lives
+hostup A; sleep 12
+check $([ "$(on z)" = hubB ] && [ "$(on w)" = hubB ] && echo 0 || echo 1) "hubA's RAM manager back: 12 s later both still on hubB (z $(on z), w $(on w)): nothing goes back up while hubB lives"
+sleep 2
 # ---- both WAN RAM managers gone: the LAN's highest (w's 10.4.4.1) for both; the tunnels go (John)
 hostdown A; hostdown B
 r=($(both_on "lan 10.4.4.1" "parts w 10.4.4.1:8841")); check ${r[0]} "both WAN RAM managers gone: both on the LAN's highest, w's 10.4.4.1:8841, which lists both ($(secs ${r[1]}) s)"; [ ${r[0]} = 0 ] || dump
-check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | grep -q . && echo 1 || echo 0) "on the LAN: no WireGuard on z or w ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
+check $( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr ' ' '\n' | grep -q '^wg' && echo 1 || echo 0) "on the LAN: no hub channel on z or w; only the standing sessions' probe tunnels, routing nothing ($( (NSF z wg show interfaces; NSF w wg show interfaces) 2>/dev/null | tr '\n' ' '))"
 check $(ip netns exec z ip -4 route | grep -q '^10.4.4.0/24 via 10.3.3.20' && echo 0 || echo 1) "on the LAN: z still routes w's /24"
 check $(ip netns exec w ping -c 1 -W 2 -I 10.4.4.1 10.3.3.1 > /dev/null 2>&1 && echo 0 || echo 1) "on the LAN: w's .1 -> z's .1"
 # ---- the primary returns: both on hubA
