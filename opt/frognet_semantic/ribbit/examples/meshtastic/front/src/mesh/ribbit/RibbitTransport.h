@@ -293,6 +293,10 @@ class RibbitTransport final
 
     // [MT_RADIO_EDGE_V1] packets for nodes off the memory, from the held read's thread to the main loop
     PointerQueue<meshtastic_MeshPacket> toAir{16};
+    // [MT_MQTT_EDGE_V1] the id of the toAir packet RibbitBridge is handing to router->send right now (main loop, synchronous):
+    // Router::send publishes it to MQTT as well, as this node's own sends are -- a memory node's packet was never
+    // received here, so stock's receive-time uplink never sees it
+    uint32_t bridgingOut = 0;
     std::function<void()> airWake = [] {};
 
   private:

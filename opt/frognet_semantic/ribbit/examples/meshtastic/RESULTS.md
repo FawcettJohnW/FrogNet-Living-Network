@@ -396,3 +396,26 @@ after the decode. (2) S refused the first DMs to G ("Unknown public key"): S had
 announces every memory node's user cell to the air as its NodeInfo when it first hears a stock node and whenever a
 user cell changes. (3) The first form had F write S's facts as S's own cells (mtf, user, !S); John's rule — cells are
 owned by whoever writes them — made them F's cells with S in the instance name, and the readers dedupe by subject.
+
+## The MQTT edge [MT_MQTT_EDGE_V1]
+
+D6 (DESIGN.md "The MQTT edge"). harness/mqtt-edge.sh on one host, an amqtt broker on 127.0.0.1 the only link off
+the memory (UDP off on every node): S stock 2.8.2.332b5b0 with MQTT on (channel 0 uplink + downlink); M front with
+MQTT on, on the memory; G front on the memory only. mqtt-20261101-141209:
+
+| check | result |
+|---|---|
+| G lists S (S's NodeInfo from the broker, bridged by M as (mtf, user, !M.!S)) | pass |
+| S lists G (G's user cell announced by M, published to msh/US/2/e/LongFast/!M) | pass |
+| S broadcasts → G's client | 0.2 s |
+| G broadcasts → S's client (M's receive-time uplink, stock's) | 0.2 s |
+| S DMs G (PKI over msh/US/2/e/PKI, bridged into dm\|!G) | 0.2 s |
+| G DMs S (dm\|!S read by M, published as is on PKI) | 0.2 s |
+| mixed-mesh.sh (UDP as the air) on the same binary | 5/5 PASS |
+| step 4 S1–S11 | 11/11 |
+| smokevirt (own memory) | 40/40, 310 s (mq-py-smokevirt-ownmem) |
+| native suites | RED, the same 92 (identical set by test name) — the deleted stock copy's tests; nothing new |
+
+Baseline before the change (the radio-edge binary, same harness): G lists S, both broadcasts pass — the downlink was
+already bridged by the radio edge; S lists G and both DMs fail — stock publishes only its own sends in Router::send,
+and the bridge's outbound packets are another node's. One condition in Router::send fixed all three.

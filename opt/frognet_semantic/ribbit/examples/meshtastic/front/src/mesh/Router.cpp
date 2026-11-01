@@ -584,6 +584,13 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
         }
     }
 
+#ifdef ARCH_PORTDUINO
+    // [MT_MQTT_EDGE_V1] a memory node's packet this node puts on the air for it (D8 outbound) goes to the broker too, as
+    // this node's own sends do: it was never received here, so the receive-time uplink below never sees it
+    const bool bridgedOut = p->id != 0 && ribbitTransport->bridgingOut == p->id;
+#else
+    const bool bridgedOut = false;
+#endif
     // If the packet is not yet encrypted, do so now
     if (p->which_payload_variant == meshtastic_MeshPacket_decoded_tag) {
         ChannelIndex chIndex = p->channel; // keep as a local because we are about to change it
@@ -605,12 +612,23 @@ ErrorCode Router::send(meshtastic_MeshPacket *p)
 #endif
 #if !MESHTASTIC_EXCLUDE_MQTT
         // Only publish to MQTT if we're the original transmitter of the packet
-        if (moduleConfig.mqtt.enabled && isFromUs(p) && mqtt && p_decoded) {
+        if (moduleConfig.mqtt.enabled && (isFromUs(p) || bridgedOut) && mqtt && p_decoded) {
             mqtt->onSend(*p, *p_decoded, chIndex);
         }
 #endif
         packetPool.release(p_decoded);
     }
+#if !MESHTASTIC_EXCLUDE_MQTT
+    else if (bridgedOut && moduleConfig.mqtt.enabled && mqtt) {
+        // [MT_MQTT_EDGE_V1] already encrypted by its sender (a memory node's PKI DM to a stock node): published as is
+        int ci = p->pki_encrypted ? 0 : -1;
+        for (int i = 0; ci < 0 && i < channels.getNumChannels(); i++)
+            if (channels.getHash(i) == p->channel && channels.getByIndex(i).role != meshtastic_Channel_Role_DISABLED)
+                ci = i;
+        if (ci >= 0)
+            mqtt->onSend(*p, *p, ci);
+    }
+#endif
 
 #ifdef ARCH_PORTDUINO
     // [MT_PACKETS_ON_THE_RAM_V1] the packet is written to the memory; [MT_NO_GATES_V1] then D8, in one place: does it

@@ -100,7 +100,9 @@ class RibbitBridge : public concurrency::OSThread
     {
         while (meshtastic_MeshPacket *p = ribbitTransport->toAir.dequeuePtr(0)) {
             LOG_INFO("[MT_RIBBIT] bridge: id=0x%08x from !%08x to !%08x on the air", p->id, p->from, p->to);
+            ribbitTransport->bridgingOut = p->id;
             router->send(p); // onSend refuses it (another node's packet); bridgeToStock lets it through
+            ribbitTransport->bridgingOut = 0;
         }
         return INT32_MAX;
     }

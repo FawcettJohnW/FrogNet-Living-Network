@@ -195,8 +195,26 @@ same path) is S's bridge F.
   newest bridge cell; `mtr_read_cell` the same for one node; `node_of()` parses `!S` and `!F.!S`. Two bridges that
   both hear S write two cells; readers take the newest, and S's own cell wins the moment S is on the memory.
 - **Not built:** the on-air beacon for two FrogNet nodes finding each other over LoRa before either reaches the RAM
-  (D8's last clause); a knob to keep a pure-FrogNet mesh off the air entirely (today every memory node with UDP or a
-  radio sends broadcasts the stock way).
+  (D8's last clause). A pure-FrogNet mesh needs no new knob: stock's own `EnableUDP: false` and `lora.tx_enabled false`
+  keep a node off the air (G in mixed-mesh.sh runs so).
 
 Proof: harness/mixed-mesh.sh — S stock (UDP), F front (UDP, memory), G front (memory only): G lists S; S↔G broadcasts;
 S↔G DMs (PKI) both ways, every one 0.2 s. RESULTS.md has the table.
+
+## The MQTT edge (2026-11-01) `[MT_MQTT_EDGE_V1]`
+
+D6: MQTT is an edge of the memory, off by default, stock's own module and config (`mqtt.*`, a channel's
+uplink/downlink). A node with MQTT on is the memory's gateway to the broker, and the broker is one more place
+stock nodes are heard: a packet that arrives from it enters by `enqueueReceivedMessage` like one off the air, so the
+radio edge's `fromStock` bridges it unchanged — a stock node heard only over MQTT is a bridged node, its facts
+(mtf, topic, !M.!S), its packets in M's ring. What stock's module could not do on the memory: publish a packet it
+never received. A memory node's DM to a stock node and the announcement of a memory node's user cell leave through
+`RibbitBridge` → `Router::send`, which stock publishes only when the packet is its own; the bridge marks the packet
+it is handing over (`bridgingOut`) and `Router::send` publishes that one too — encrypted here when it arrived
+decoded, as is when its sender already encrypted it (a PKI DM: channel "PKI"). Packets received from other memory
+nodes were already uplinked by stock's receive-time publish. Nothing else: no topic of the memory's own, no cell
+publisher — every fact a stock node needs is a NodeInfo/Position/Telemetry packet, and those go as above.
+
+Proof: harness/mqtt-edge.sh — a broker (amqtt) the only link; S stock with MQTT on, M front with MQTT on, G front on
+the memory only, UDP off everywhere: G lists S, S lists G, broadcasts both ways, PKI DMs both ways, all 0.2 s
+(mqtt-20261101-141209). RESULTS.md has the table.
