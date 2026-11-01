@@ -85,6 +85,21 @@ shells that show the same pages from the device itself are not built yet.)
 A post cut off keeps working on its own side; when it is back, every device writes its own again and every screen
 has it. No user action.
 
+## The app demo (2026-11-01): EOC on Windows, a responder on a phone
+
+The app is `opt/fdf/src/rangertrak-app` (its README says how it is built). On the node that serves it (Seattle7):
+
+    cd /tmp && tar xzf fdf-addin-dc-linux-any-dc-2026-11-01-r3.tgz && sudo ./fdf-addin-dc-dc-2026-11-01-r3/install
+    sudo /opt/fdf/bin/fdf-app config rangertrak general,alpha,bravo,charlie,delta --role eoc --role alpha:default --role bravo:default --role charlie:default --role delta:default --user EOCAdmin:EOCAdmin=eoc
+    sudo systemd-run --unit rt-sim --setenv=FDF_HOME=/opt/fdf /opt/fdf/addins/dc/bin/rt-sim
+
+- the general RAM and one RAM per team (team messages), served by `fdf-app` where its selection says;
+- `rt-sim` on one node only: 80 simulated instances, each on its own session; `systemctl stop rt-sim` and they are gone.
+
+Windows: unzip `RangerTrak-windows-x64-rt-app-2026-11-01-r1.zip`, run `RangerTrak\RangerTrak.cmd`, on the node's
+Wi-Fi. EOC: user `EOCAdmin`. Phone: the APK from `opt/fdf/src/rangertrak-app/android` (Android Studio), on the node's
+Wi-Fi; the node is filled in from the Wi-Fi's gateway.
+
 ## What is not in this build
 
 - A browser holds at most 6 connections to one host, and each open RangerTrak page holds one: a device with more

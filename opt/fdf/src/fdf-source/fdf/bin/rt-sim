@@ -39,6 +39,7 @@ import argparse, json, math, os, random, sys, time
 BUILD_TAG = "rt-sim-2026-11-01-r3"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
 import fnw1  # noqa: E402
 
 VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
