@@ -111,6 +111,9 @@ EX=( --exclude-vcs-ignores ); for p in "${LEAVE[@]}"; do EX+=( "--exclude=$p" );
 if [ -d "$ROOT/opt/fdf/src/fdf-source/fdf" ]; then
     while IFS= read -r _f; do EX+=( "--exclude=opt/fdf/${_f}" ); done < <(cd "$ROOT/opt/fdf/src/fdf-source/fdf" && find . -type f -printf '%P\n')
 fi
+if [ -d "$ROOT/opt/fdf/src/fdf-source/rinab/kart" ]; then                    # the kart add-in lays /opt/fdf/kart from it
+    while IFS= read -r _f; do EX+=( "--exclude=opt/fdf/kart/${_f}" ); done < <(cd "$ROOT/opt/fdf/src/fdf-source/rinab/kart" && find . -maxdepth 1 -type f -printf '%P\n')
+fi
 STAGE="$(mktemp -d /tmp/.full_tar.XXXXXX)"; trap 'rm -rf "$STAGE"' EXIT
 tok=()
 for t in "${TOKENIZE[@]}"; do
