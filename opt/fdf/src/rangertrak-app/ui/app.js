@@ -97,7 +97,8 @@ function world(who, pos) {
   const now = Date.now()
   for (const id in S.pos) if (!pos[id] && S.pos[id]) S.lkp[id] = { b: S.pos[id], t: now }   // it left: its last known position
   for (const id in pos) delete S.lkp[id]
-  S.who = who; S.pos = pos
+  const before = Object.keys(S.who).join(); S.who = who; S.pos = pos
+  if (Object.keys(who).join() !== before && map) toList()
   redraw()
 }
 function shown(b) { return S.on[b.kind] !== undefined ? S.on[b.kind] : S.on.team }
@@ -170,7 +171,12 @@ function tabs() {
 }
 function toList() {
   const s = $('#to'); const cur = s.value; s.innerHTML = ''
-  const opts = [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, 'Team ' + x])).concat(Object.entries(S.direct).map(([id, n]) => ['dev:' + id, n]))
+  // [DM_TO_ANYONE_PRESENT_V1] direct: every person present now (their own presence cell), real devices first, then
+  // anyone talked to already; the simulated ones are reached from the map
+  const people = Object.entries(S.who).filter(([id, b]) => b && talkable(id, b) && !b.sim).map(([id, b]) => ['dev:' + id, b.name + (b.team ? ' (' + b.team + ')' : b.kind === 'eoc' ? ' (EOC)' : '')])
+  const known = new Set(people.map(p => p[0]))
+  const opts = [['all', 'Everyone']].concat(teamsHere().map(x => ['team:' + x, 'Team ' + x])).concat(people)
+    .concat(Object.entries(S.direct).filter(([id]) => !known.has('dev:' + id)).map(([id, n]) => ['dev:' + id, n]))
   for (const [v, n] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = n; s.appendChild(o) }
   if (cur) s.value = cur
 }
@@ -185,9 +191,27 @@ function message(m) {
   if (S.seen[m.id]) return; S.seen[m.id] = 1
   S.msgs.push(m); S.msgs.sort((a, b) => (a.at || 0) - (b.at || 0))
   if (m.to.startsWith('dev:') && m.from !== S.cfg.dev && !S.direct[m.from]) { S.direct[m.from] = m.name; toList() }
-  showLog(); popLog()
+  showLog(); popLog(); notify(m)
 }
-$('#chatBtn').onclick = () => { $('#chat').hidden = !$('#chat').hidden }
+// [CHAT_NOTICE_V1] a message the user cannot see right now (the chat closed, or on another tab, and not in the open
+// member box): a notice on the map, which opens it, and a count on the Chat button until the chat is opened
+let unread = 0
+function seenNow(m) {
+  if (!$('#pop').hidden && popId && (m.to === 'dev:' + popId || m.from === popId)) return true
+  return !$('#chat').hidden && inTab(m)
+}
+function notify(m) {
+  if (m.from === S.cfg.dev || seenNow(m) || (Date.now() / 1000 - (m.at || 0)) > 120) return
+  unread++; $('#chatBtn').textContent = 'Chat (' + unread + ')'; $('#chatBtn').classList.add('hot')
+  const n = document.createElement('div'); n.className = 'notice'
+  const where = m.to === 'all' ? 'to everyone' : m.to.startsWith('team:') ? 'to ' + m.to.slice(5) : 'to you'
+  n.innerHTML = `<b>${esc(m.name)}</b> <span>${esc(where)}</span><div>${esc(m.text)}</div>`
+  n.onclick = () => { S.tab = m.to.startsWith('dev:') ? 'dev' : m.to; $('#chat').hidden = false; tabs(); readAll(); n.remove() }
+  $('#notices').appendChild(n); setTimeout(() => n.remove(), 12000)
+  if (window.rtNative && window.rtNative.notice) try { window.rtNative.notice(m.name, m.text) } catch (e) { }
+}
+function readAll() { unread = 0; $('#chatBtn').textContent = 'Chat'; $('#chatBtn').classList.remove('hot') }
+$('#chatBtn').onclick = () => { $('#chat').hidden = !$('#chat').hidden; if (!$('#chat').hidden) readAll() }
 $('#sayForm').onsubmit = (e) => { e.preventDefault(); const t = $('#text').value.trim(); if (!t) return; send({ op: 'say', to: $('#to').value, text: t }); $('#text').value = '' }
 
 // double-click a member: talk to that one, or to all of their team

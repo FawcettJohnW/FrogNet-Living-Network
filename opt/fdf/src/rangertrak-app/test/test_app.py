@@ -14,6 +14,8 @@
 #   5 the EOC's own presence is on the Alpha member's map; the Alpha member's on the EOC's
 #   6 rt-sim stopped: every simulated instance leaves the RAM; the EOC draws them as last known positions
 #   7 the EOC with a wrong password is refused, and says so
+#   8 the To list has every person present (direct messages) and every team
+#   9 a message while the chat is closed: a notice on the map, a count on the Chat button
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -104,6 +106,13 @@ with sync_playwright() as pw:
     eoc.wait_for_function("S.pos['alpha9'] && Math.abs(S.pos['alpha9'].lat-47.6205)<1e-4", timeout=10000)
     tm.wait_for_function("!!S.who['eoc1']", timeout=10000)
     check(True, "5 the Alpha member at its GPS fix on the EOC's map; the EOC present on the member's")
+    opts = eoc.evaluate("[...document.querySelectorAll('#to option')].map(o=>o.value+'='+o.textContent)")
+    check("dev:alpha9=Pat (Alpha) (Alpha)" in opts or any(o.startswith("dev:alpha9=") for o in opts),
+          "8 the EOC's To list has every person present (direct) and every team: %s" % [o for o in opts if not o.startswith('dev:sim')][:8])
+    tm.evaluate("$('#chat').hidden=true")
+    eoc.select_option("#to", "all"); eoc.fill("#text", "All units: staging at Seattle Center"); eoc.click("#sayForm button")
+    tm.wait_for_function("document.querySelector('#notices .notice') && /staging/.test(document.querySelector('#notices').textContent)", timeout=10000)
+    check("(" in tm.inner_text("#chatBtn"), "9 the member's chat was closed: a notice on the map and the Chat button counts: '%s'" % tm.inner_text("#chatBtn"))
     if SHOTS:
         tm.click("#chatBtn"); tm.screenshot(path=os.path.join(SHOTS, "team-phone.png"))
         eoc.screenshot(path=os.path.join(SHOTS, "eoc-chat.png")); eoc.click("#pop .pclose")

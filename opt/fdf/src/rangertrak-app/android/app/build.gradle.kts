@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "rt-app-2026-11-01-r1"
+        versionName = "rt-app-2026-11-01-r2"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_1_8; targetCompatibility = JavaVersion.VERSION_1_8 }
     sourceSets["main"].java.srcDirs("src/main/java", "../../core/src", "../../../frognet-ram-java/src")

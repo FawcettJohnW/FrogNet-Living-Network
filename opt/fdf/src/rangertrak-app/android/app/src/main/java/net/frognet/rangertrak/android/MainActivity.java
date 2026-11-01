@@ -52,7 +52,23 @@ public final class MainActivity extends Activity implements LocationListener {
             } catch (IllegalArgumentException ignored) { }
             new Thread(new Runnable() { public void run() { core.handle(line); } }, "core").start();
         }
+        /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
+        @JavascriptInterface public void notice(String from, String text) {
+            if (inFront) return;
+            android.app.NotificationManager nm = (android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel("chat") == null)
+                nm.createNotificationChannel(new android.app.NotificationChannel("chat", "RangerTrak chat", android.app.NotificationManager.IMPORTANCE_HIGH));
+            android.content.Intent open = new android.content.Intent(MainActivity.this, MainActivity.class).addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            android.app.PendingIntent pi = android.app.PendingIntent.getActivity(MainActivity.this, 0, open, android.app.PendingIntent.FLAG_IMMUTABLE);
+            android.app.Notification n = new android.app.Notification.Builder(MainActivity.this, "chat").setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle(from).setContentText(text).setAutoCancel(true).setContentIntent(pi).build();
+            nm.notify((int) (System.currentTimeMillis() & 0x7fffffff), n);
+        }
     }
+    private volatile boolean inFront = false;
+    @Override protected void onResume() { super.onResume(); inFront = true; }
+    @Override protected void onPause() { inFront = false; super.onPause(); }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle b) {
@@ -106,13 +122,16 @@ public final class MainActivity extends Activity implements LocationListener {
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position
     private void askForLocation() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS", Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
+        else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
         else startLocation();
     }
 
     @Override public void onRequestPermissionsResult(int code, String[] p, int[] r) {
-        if (r.length > 0 && r[0] == PackageManager.PERMISSION_GRANTED) startLocation();
+        for (int i = 0; i < p.length; i++)
+            if (p[i].equals(Manifest.permission.ACCESS_FINE_LOCATION) && r[i] == PackageManager.PERMISSION_GRANTED) startLocation();
     }
 
     @SuppressLint("MissingPermission")

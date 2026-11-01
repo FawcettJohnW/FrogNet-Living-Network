@@ -42,9 +42,28 @@ public final class Main extends Application {
             } catch (Exception ignored) { }
             new Thread(() -> core.handle(line), "core").start();
         }
+        /** [CHAT_NOTICE_V1] a message the user cannot see: a Windows notice when this window is not in front */
+        public void notice(String from, String text) {
+            if (stage != null && stage.isFocused()) return;      // the page's own notice is enough
+            java.awt.EventQueue.invokeLater(() -> {
+                try {
+                    if (!java.awt.SystemTray.isSupported()) return;
+                    if (tray == null) {
+                        java.awt.image.BufferedImage img = new java.awt.image.BufferedImage(16, 16, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+                        java.awt.Graphics2D g = img.createGraphics(); g.setColor(new java.awt.Color(0x3f, 0xb3, 0x6b)); g.fillOval(0, 0, 16, 16); g.dispose();
+                        tray = new java.awt.TrayIcon(img, "RangerTrak"); tray.setImageAutoSize(true);
+                        java.awt.SystemTray.getSystemTray().add(tray);
+                    }
+                    tray.displayMessage("RangerTrak: " + from, text, java.awt.TrayIcon.MessageType.INFO);
+                } catch (Exception e) { System.err.println("notice: " + e); }
+            });
+        }
     }
+    private Stage stage;
+    private java.awt.TrayIcon tray;
 
     @Override public void start(Stage stage) throws Exception {
+        this.stage = stage;
         String ui = getParameters().getNamed().getOrDefault("ui", Paths.get(System.getProperty("rt.home", "."), "ui").toString());
         WebView v = new WebView(); web = v.getEngine();
         core = new AppCore(line -> Platform.runLater(() -> {
