@@ -41,4 +41,8 @@ read them needs the requester's key in the node's admin list). Options: (a) conf
 cell carries name, role, module settings; the PSK stays in the node, and a remote get_channel to a non-admin gets what
 stock gives — a refusal — while the cell gives the rest to everyone); (b) config as cells in full, trusting the region;
 (c) no config cells: remote admin stays a DM intent answered by B (already so after 4a), and the dump reads the node's
-own globals as it always did. Not decided; step 5's cells wait on it.
+own globals as it always did.
+
+Decided 2026-11-01 (John): "Why are we sending PSKs around? … strip it from the JSON bag if it's not needed." → (a): the
+cells carry the config with the channel PSK and the security private key stripped before the write; the public and
+admin keys are public. Nothing in the contract reads them; they are the extended API's view of a node.

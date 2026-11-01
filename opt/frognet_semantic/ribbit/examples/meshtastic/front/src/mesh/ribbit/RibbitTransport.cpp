@@ -11,6 +11,10 @@
 #include "RibbitTransport.h"
 #include "MeshService.h"
 #include "modules/RoutingModule.h"
+#include "mesh/generated/meshtastic/config.pb.h"
+#include "mesh/generated/meshtastic/module_config.pb.h"
+#include "mesh/generated/meshtastic/channel.pb.h"
+#include <cstring>
 
 namespace
 {
@@ -32,6 +36,84 @@ void takeCell(const char *topic, uint32_t node, const uint8_t *b, size_t len, ui
     w->t = t;
 }
 } // namespace
+
+// [MT_CONFIG_CELLS_V1] The node's config as its own permanent cells: (mtf, cfg.<variant>, !N) per Config variant,
+// (mtf, mcfg.<variant>, !N) per ModuleConfig variant, (mtf, chan.<i>, !N) per channel -- each the protobuf a client's
+// config dump carries, with the node's secrets stripped before the write: the channel PSK and the security private key
+// never leave the node (the public and admin keys are public). Written at start and after every save. Nothing in the
+// contract reads them yet; they are the extended API's view of a node.
+namespace
+{
+template <typename T> void writeCfg(const char *topic, const pb_msgdesc_t *fields, const T &v)
+{
+    uint8_t buf[512];
+    size_t n = pb_encode_to_bytes(buf, sizeof buf, fields, &v);
+    if (n)
+        mtr_write_fact(topic, nodeDB->getNodeNum(), buf, n);
+}
+} // namespace
+
+void RibbitTransport::writeOwnConfig()
+{
+    if (!running)
+        return;
+    char t[16];
+    meshtastic_Config c = meshtastic_Config_init_zero;
+#define CFG(TAG, FIELD, SRC)                                                                                                     \
+    c.which_payload_variant = TAG;                                                                                               \
+    c.payload_variant.FIELD = SRC;                                                                                               \
+    snprintf(t, sizeof t, "cfg.%u", (unsigned)TAG);                                                                              \
+    writeCfg(t, &meshtastic_Config_msg, c);
+    CFG(meshtastic_Config_device_tag, device, config.device)
+    CFG(meshtastic_Config_position_tag, position, config.position)
+    CFG(meshtastic_Config_power_tag, power, config.power)
+    CFG(meshtastic_Config_network_tag, network, config.network)
+    CFG(meshtastic_Config_display_tag, display, config.display)
+    CFG(meshtastic_Config_lora_tag, lora, config.lora)
+    CFG(meshtastic_Config_bluetooth_tag, bluetooth, config.bluetooth)
+    {
+        meshtastic_Config_SecurityConfig sec = config.security;
+        sec.private_key.size = 0; // the node's secret stays in the node
+        memset(sec.private_key.bytes, 0, sizeof sec.private_key.bytes);
+        CFG(meshtastic_Config_security_tag, security, sec)
+    }
+#undef CFG
+    meshtastic_ModuleConfig m = meshtastic_ModuleConfig_init_zero;
+#define MCFG(TAG, FIELD)                                                                                                         \
+    m.which_payload_variant = TAG;                                                                                               \
+    m.payload_variant.FIELD = moduleConfig.FIELD;                                                                                \
+    snprintf(t, sizeof t, "mcfg.%u", (unsigned)TAG);                                                                             \
+    writeCfg(t, &meshtastic_ModuleConfig_msg, m);
+    MCFG(meshtastic_ModuleConfig_mqtt_tag, mqtt)
+    MCFG(meshtastic_ModuleConfig_serial_tag, serial)
+    MCFG(meshtastic_ModuleConfig_external_notification_tag, external_notification)
+    MCFG(meshtastic_ModuleConfig_store_forward_tag, store_forward)
+    MCFG(meshtastic_ModuleConfig_range_test_tag, range_test)
+    MCFG(meshtastic_ModuleConfig_telemetry_tag, telemetry)
+    MCFG(meshtastic_ModuleConfig_canned_message_tag, canned_message)
+    MCFG(meshtastic_ModuleConfig_audio_tag, audio)
+    MCFG(meshtastic_ModuleConfig_remote_hardware_tag, remote_hardware)
+    MCFG(meshtastic_ModuleConfig_neighbor_info_tag, neighbor_info)
+    MCFG(meshtastic_ModuleConfig_ambient_lighting_tag, ambient_lighting)
+    MCFG(meshtastic_ModuleConfig_detection_sensor_tag, detection_sensor)
+    MCFG(meshtastic_ModuleConfig_paxcounter_tag, paxcounter)
+    MCFG(meshtastic_ModuleConfig_statusmessage_tag, statusmessage)
+    MCFG(meshtastic_ModuleConfig_traffic_management_tag, traffic_management)
+#undef MCFG
+    unsigned written = 0;
+    for (size_t i = 0; i < channelFile.channels_count; i++) {
+        meshtastic_Channel ch = channelFile.channels[i];
+        if (!ch.has_settings || ch.role == meshtastic_Channel_Role_DISABLED)
+            continue;
+        ch.settings.psk.size = 0; // the channel's secret stays in the node
+        memset(ch.settings.psk.bytes, 0, sizeof ch.settings.psk.bytes);
+        snprintf(t, sizeof t, "chan.%u", (unsigned)i);
+        writeCfg(t, &meshtastic_Channel_msg, ch);
+        written++;
+    }
+    LOG_INFO("[MT_RIBBIT] own config cells written: 8 config, 15 module config, %u channels; PSKs and private key stripped",
+             written);
+}
 
 bool RibbitTransport::answerFromCell(const meshtastic_MeshPacket *p)
 {

@@ -256,3 +256,24 @@ failed — on stock the packet was lost; on ours the first form of the mark (mov
 same way. The mark now moves when the frame is written, and the harness makes the node force-close a stale client (a
 bare connect does it, after the server's <1 s backoff) before the unattended sends. A client that connects and asks
 consumes what is waiting, on stock and on the memory alike — so the harness's node-list probes stay out of S10/S11.
+
+## Phase 2, step 5 — remote admin as intents and refusals; config as the node's own cells [MT_CONFIG_CELLS_V1]
+
+Remote admin was already intents and refusals after 4a: an admin request to B is a write to (mt, dm|!B), read by B
+alone; B's reply or refusal a write to (mt, dm|!A). Verified on two fresh nodes: `--dest !B --get device` gets
+PKI_FAILED on the memory exactly as on stock (the requester's key is not in B's admin list — the contract's refusal).
+
+Config as cells: (mtf, cfg.<variant>, !N) × 8, (mtf, mcfg.<variant>, !N) × 15, (mtf, chan.<i>, !N) per enabled
+channel, written at start and after every save. The secrets are stripped before the write (O3, decided: "strip it from
+the JSON bag if it's not needed"): the channel PSK and the security private key never leave the node; the public and
+admin keys are public. Nothing in the contract reads these cells — the config dump and remote admin read the node
+itself — they are the extended API's view of a node.
+
+| check | result |
+|---|---|
+| cells on one node after start | cfg.1–8, mcfg.1–15, chan.0 (+ user, pos, tel.2) |
+| chan.0 cell | 6 bytes: index, role, settings without psk |
+| cfg.8 (security) cell | 38 bytes: 32-byte public key + flags; no private key |
+| step 4 S1–S11 (step4-20261101-091858) | 11/11 |
+| Python CLI smokevirt (one node, on the RAM) | 40/40, 317.0 s |
+| firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 34 m 6 s |

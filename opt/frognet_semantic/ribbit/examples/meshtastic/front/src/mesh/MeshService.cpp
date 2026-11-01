@@ -177,6 +177,10 @@ void MeshService::reloadConfig(int saveWhat)
         nodeDB->refreshCommittedLoraSlot();
     }
     nodeDB->saveToDisk(saveWhat);
+#ifdef ARCH_PORTDUINO
+    if (ribbitTransport)
+        ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1] the config changed: its cells are written now
+#endif
 }
 
 /// The owner User record just got updated, update our node DB and broadcast the info into the mesh

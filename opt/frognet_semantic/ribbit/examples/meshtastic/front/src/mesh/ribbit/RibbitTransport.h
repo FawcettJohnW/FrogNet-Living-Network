@@ -128,6 +128,8 @@ class RibbitTransport final
 
     // [MT_OWN_FACTS_V1] At start the node writes its own user cell: its truth is known at boot, so readers do not wait
     // for its next NodeInfo broadcast. Built as NodeInfoModule builds it (owner, id from the node number).
+    void writeOwnConfig(); // [MT_CONFIG_CELLS_V1]
+
     void writeOwnUser()
     {
         if (!running)
