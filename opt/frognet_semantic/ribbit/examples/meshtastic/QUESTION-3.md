@@ -22,7 +22,7 @@ is a decision with its reason, not a bug.
 
 | # | incumbent | question | current phase-1 choice |
 |---|---|---|---|
-| O2 | XEdDSA-signed NodeInfo; updateUser refuses an unsigned identity change from a known signer | A fact cell's writer is the session that wrote it (gone-with-its-writer), not a signature. Who may write (mtf, user, !X)? | applied with signed=false through the same updateUser, so stock's refusal rules still run |
+| O2 | XEdDSA-signed NodeInfo; updateUser refuses an unsigned identity change from a known signer | A fact cell's writer is the session that wrote it (gone-with-its-writer), not a signature. Who may write (mtf, user, !X)? | decided 2026-11-01 by John's rule "Cells are owned by whoever writes them": (mtf, user, !X) is written by X's session and no one else; another node W that has something to say about X writes its own cell with X in the instance, (mtf, user, !W.!X) — a bridge's cell about a stock node. Readers prefer X's own cell, then the newest W's. Stock's signature check still runs where a packet arrives (the bridge decodes with stock's rules before it writes) |
 
 ## Reds
 
