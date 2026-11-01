@@ -38,6 +38,7 @@
 #        --ip   <10.X.Y.1> \
 #        [--lan-iface <IFACE>]                      # the interface this node serves
 #        [--invite fdfinv1.<...>]                   # join the FD&F region that invited it
+#   sudo bash frognet_install.sh fdfjoin1.<...>      # [ORG_NODE_JOIN_V1] an organization's node: its level's line
 #        [--no-ssid-projection]                     # disable AP fallback
 #   sudo bash frognet_install.sh --uninstall [--keep-identity] [--keep-db]
 #
@@ -55,6 +56,11 @@
 #                            on the region's machine prints it (a secret: it holds this
 #                            node's WireGuard key and the region's site key).
 #                            Omitted: the node is LAN-only. [ADMITTED_BY_INVITE_V1]
+#   fdfjoin1.<...> | --join fdfjoin1.<...>
+#                            [ORG_NODE_JOIN_V1] the organization's join line for this node's level
+#                            (fdf-setup / fdf-org line LEVEL printed it): the node logs in at every
+#                            RAM manager on it (user and password asked when the level has one) and
+#                            its tunnel daemon walks them (opt/fdf/docs/ORGANIZATIONS.md).
 #   --uninstall              Remove FrogNet from this machine: everything the reset
 #                            removes (frognet_reset.sh), and also the region
 #                            membership and /opt/fdf, the crontab lines, froguser,
@@ -196,6 +202,8 @@ while [[ $# -gt 0 ]]; do
         --lan-iface)         LAN_IFACE="$2"; shift 2 ;;
         --lan-iface=*)       LAN_IFACE="${1#*=}"; shift ;;
         --invite)            REGION_INV="$2"; shift 2 ;;
+        --join)              REGION_INV="$2"; shift 2 ;;
+        fdfjoin1.*)          REGION_INV="$1"; shift ;;
         --invite=*)          REGION_INV="${1#*=}"; shift ;;
         --region|--region=*|--site-key|--site-key=*|--area|--area=*)
             echo "ERROR: $1: a region is joined by invitation now (--invite fdfinv1.<...>; fdf-invite NAME on the region's machine prints it) [ADMITTED_BY_INVITE_V1]" >&2; exit 2 ;;
@@ -246,9 +254,10 @@ fi
 FDF_RUN=""
 REGION_RAM=""; REGION_AREA=""
 if [[ -n "${REGION_INV:-}" ]]; then
-    [[ "$REGION_INV" == fdfinv1.* ]] || { echo "ERROR: --invite must be the fdfinv1.<...> line fdf-invite printed" >&2; exit 1; }
-    # what the invitation names, for the log lines below (the secrets in it are never printed)
-    read -r REGION_AREA REGION_RAM < <(python3 -c 'import base64,json,sys; t=sys.argv[1][8:]; i=json.loads(base64.urlsafe_b64decode(t+"="*(-len(t)%4))); print(i["area"], i["ram"])' "$REGION_INV" 2>/dev/null) \
+    [[ "$REGION_INV" == fdfinv1.* || "$REGION_INV" == fdfjoin1.* ]] || { echo "ERROR: --invite must be the fdfinv1.<...> line fdf-invite printed (or an organization's fdfjoin1.<...> line)" >&2; exit 1; }
+    # what the invitation or the line names, for the log lines below (the secrets in it are never printed)
+    read -r REGION_AREA REGION_RAM < <(python3 -c 'import base64,json,sys; a=sys.argv[1]; t=a[a.index(".")+1:]; i=json.loads(base64.urlsafe_b64decode(t+"="*(-len(t)%4)))
+print(i["area"], i["ram"]) if a.startswith("fdfinv1.") else print(i["org"], ",".join(m.get("name") or m["endpoint"] for m in i["managers"]))' "$REGION_INV" 2>/dev/null) \
         || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
     [[ -n "$REGION_RAM" ]] || { echo "ERROR: --invite does not decode: copy the whole line fdf-invite printed" >&2; exit 1; }
 fi

@@ -1,6 +1,6 @@
 #!/bin/bash
 # fdf-install -- [FDF_INSTALL_V1] one file, one command: joins THIS FrogNet node to the FD&F region.
-#   usage:  sudo ./fdf-install-ARCH.run fdfinv1.<...>
+#   usage:  sudo ./fdf-install-ARCH.run fdfinv1.<...> | fdfjoin1.<...>   ([ORG_NODE_JOIN_V1] an organization's line)
 # The one argument is this node's invitation: `fdf-invite NAME` on the region's machine printed it
 # ([ADMITTED_BY_INVITE_V1]). There is no built-in region. The FrogNet installer runs this file itself with --invite
 # (frognet_install.sh ... --invite fdfinv1.<...>).
@@ -13,8 +13,8 @@ set -u
 # umask (a shell with umask 0000 made /opt/fdf and its bin/ world-writable, in the T4a container).
 umask 022
 [ "$(id -u)" = 0 ] || { echo "fdf-install: run as root (sudo)"; exit 1; }
-[ $# -eq 1 ] || { echo "usage: $0 fdfinv1.<...>   (fdf-invite NAME on the region's machine prints it)"; exit 2; }
-case "$1" in fdfinv1.*) INV=$1 ;; *) echo "fdf-install: '$1' is not an invitation (fdfinv1.<...>; fdf-invite NAME prints one)"; exit 2 ;; esac
+[ $# -eq 1 ] || { echo "usage: $0 fdfinv1.<...> | fdfjoin1.<...>   (fdf-invite NAME, or the organization's line for this node's level)"; exit 2; }
+case "$1" in fdfinv1.*|fdfjoin1.*) INV=$1 ;; *) echo "fdf-install: '$1' is neither an invitation (fdfinv1.) nor an organization's join line (fdfjoin1.)"; exit 2 ;; esac
 WANT_ARCH="__ARCH__"; M=$(uname -m)
 [ "$M" = "$WANT_ARCH" ] || { echo "fdf-install: this file is for $WANT_ARCH, this machine is $M"; exit 1; }
 # inotifywait (inotify-tools): the FrogNet merge watcher waits with it, and runs in region mode too since T4c (the
@@ -80,6 +80,6 @@ else
 fi
 # [WG_IMPL_RECORDED_V1 - T4b] the WireGuard implementation (the FrogNet installer recorded it; an older node records it here, once)
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-install: no usable WireGuard implementation (above)"; exit 1; }
-echo "== joining the region that invited this node"
+echo "== joining the region ($( [ "${INV#fdfjoin1.}" != "$INV" ] && echo "the organization's line" || echo "the invitation"))"
 exec /opt/fdf/bin/fdf-region-join "$INV"
 __PAYLOAD_BELOW__

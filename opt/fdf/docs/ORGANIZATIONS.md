@@ -72,6 +72,13 @@ one. **John.** A client gets its edge; a node also gets its /24 from the RAM man
 projecting, never both: with no SSID it must be attached to a physical router in AP mode, which by definition supplies
 no DHCP; the node serves DHCP and DNS to it (**John**).
 
+A node joins with its level's line in one command (`[ORG_NODE_JOIN_V1]`): `sudo bash frognet_install.sh fdfjoin1.<...>`
+on a new node, or `sudo ./fdf-install-ARCH.run fdfjoin1.<...>` on one that runs FrogNet already. Both end in
+`fdf-region-join LINE`, which asks for the user and password when the level has one, runs `fdf-login LINE --node` (the
+daemon's key; `system-space.json`, `hub.json`, `site.env`, `join.env`) and starts the daemon into region mode. An
+invitation (`fdfinv1.`) still works the same way. Not built: the node's /24 from the RAM manager (the installer still
+asks for its `10.X.Y.1`).
+
 Login, at each RAM manager on the line (`[LOGIN_RESTRICTED_FIRST_V1]`, **John**):
 
 1. The generic credential, for one exchange at the door: the device's own public key in, its own edge out, restricted to
@@ -179,5 +186,5 @@ in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM h
 | The system space on a node: the list, the walk, the LAN fallback, following | `internet_tunnels_v3/region.py`, `poll.py` (`run_region_loop`) |
 | Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes), `netns-spaces-test.sh` (step 5), `netns-setup-test.sh` (step 6) |
 
-Not yet built: C behind A and B (step 4: C's own connection egressing through either), one-line node and client
-install (step 7), the Windows and Android member library's login.
+Not yet built: C behind A and B (step 4: C's own connection egressing through either), the node's /24 from the RAM manager (step 7),
+the Windows and Android member library's login.

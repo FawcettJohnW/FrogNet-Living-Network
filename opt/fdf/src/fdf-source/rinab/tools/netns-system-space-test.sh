@@ -113,8 +113,8 @@ fsnode() { local n=$1; local F=$T/$n/fs
   printf '127.0.0.1 localhost\n' > $F/etc/hosts; echo "g-$n" > $F/etc/fnid; echo "domain=$n" > $F/etc/dnsmasq.d/frognet.conf
   printf '# netns system-space test\n' > $F/etc/frognet/tunnel.conf; printf 'NETWORK_NAME=p\n' > $F/etc/frognet/gateways.conf
   if [ "${LOGIN:-}" = 1 ]; then
-    NSF $n env FDF_WG_IMPL=wireguard-go FDF_DEVICE_ID=g-$n python3 -u $T/bin/fdf-login "$LINE" --node < /dev/null > $T/$n/login.log 2>&1
-    check $? "$n: fdf-login --node: $(grep -E 'logged in|node:' $T/$n/login.log | sed 's/^\[LOGIN\] [0-9:]* //' | tr '\n' ';' | cut -c1-300)"
+    NSF $n env FDF_WG_IMPL=wireguard-go FDF_DEVICE_ID=g-$n bash $T/bin/fdf-region-join --files-only "$LINE" < /dev/null > $T/$n/login.log 2>&1   # [ORG_NODE_JOIN_V1] as the installer runs it
+    check $? "$n: fdf-region-join --files-only with the organization's line (fdf-login --node): $(grep -E 'logged in|node:' $T/$n/login.log | sed 's/^\[LOGIN\] [0-9:]* //' | tr '\n' ';' | cut -c1-300)"
     check $(python3 -c 'import json,sys; m=json.load(open(sys.argv[1]))["managers"]; sys.exit(0 if [x["name"] for x in m]==["hubA","hubB"] and all(x["member"]["edge"] and x["ram"] for x in m) else 1)' $F/opt-fdf-var/system-space.json 2>/dev/null && echo 0 || echo 1) \
       "$n: system-space.json from the login: $(python3 -c 'import json,sys; print([(m["name"], m["ram"], m["member"]["edge"]) for m in json.load(open(sys.argv[1]))["managers"]])' $F/opt-fdf-var/system-space.json 2>&1 | cut -c1-200)"
     check $(NSF $n wg show interfaces 2>/dev/null | grep -q . && echo 1 || echo 0) "$n: fdf-login left no interface of its own (the daemon owns the tunnels)"
