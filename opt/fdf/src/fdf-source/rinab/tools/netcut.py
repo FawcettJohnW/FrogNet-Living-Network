@@ -53,3 +53,26 @@ class Via:
         for s in (a, b):
             try: s.shutdown(socket.SHUT_RDWR)
             except OSError: pass
+
+
+class From:
+    """[NET_CUT_V1] a device's own address, for the tests: a browser on one machine reaches the post's web server from
+    `src` (a loopback address of its own), as a device on the post's Wi-Fi does from the address its lease gave it.
+    The page is opened at http://127.0.0.1:<From.port>/...; the web server sees the connection come from `src`."""
+    def __init__(self, src, target):
+        self.src, self.target = src, target
+        self.ls = socket.socket(); self.ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.ls.bind(("127.0.0.1", 0)); self.ls.listen(256)
+        self.port = self.ls.getsockname()[1]
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        while True:
+            c, _ = self.ls.accept()
+            h, p = self.target.rsplit(":", 1)
+            try:
+                u = socket.create_connection((h, int(p)), timeout=5, source_address=(self.src, 0)); u.settimeout(None)
+            except OSError:
+                c.close(); continue
+            for a, b in ((c, u), (u, c)):
+                threading.Thread(target=Via._pump, args=(a, b), daemon=True).start()

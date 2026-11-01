@@ -17,7 +17,8 @@ export function bumpHighWater(highWater, n) {
   const k = n.opPeriod + '\u0000' + n.station
   return { ...highWater, [k]: Math.max(highWater?.[k] ?? 0, n.seq) }
 }
-export const msgNoShort = (n) => n ? n.station + String(n.seq).padStart(3, '0') : ''
+// [STATION_IS_HOSTNAME_V1] the station ID is the device's hostname: "A007" for a one-letter one, "phone-f-007" otherwise
+export const msgNoShort = (n) => n ? n.station + (String(n.station).length > 1 ? '-' : '') + String(n.seq).padStart(3, '0') : ''
 export const msgNoFull = (n) => n ? [n.mission, n.opPeriod ? 'OP ' + n.opPeriod : '', msgNoShort(n)].filter(Boolean).join(' / ') : ''
 
 // the handled mark on an entry: blank, then ✓ handled, → passed on, ! needs action, and back to blank

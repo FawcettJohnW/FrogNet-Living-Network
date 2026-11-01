@@ -215,7 +215,9 @@ was said on the radio, and stays in the log.
 - **The door on a node, `ram.php`**, maps each service to its app and RAM (`apps.json`: `"app"`, `"rams"`). For each
   request it reads `app-where.json`. A service whose RAM is not served yet is refused with 503: the client connects
   first. Every answer carries `"ram"`, the RAM that answered. A page that sees it change reads everything there and
-  writes its own truth again.
+  writes its own truth again: every family it owns, kept on the device (browser storage), not only those it watches.
+- **`ram.php?op=whoami`** gives the asking device its hostname, from the lease this node gave its address (the node's
+  facts, `addrs` kind `given`). That hostname is the app's station ID; a device with no lease here has none.
 
 ## Why it works this way
 

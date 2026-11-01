@@ -108,3 +108,22 @@ heard is the map page's own clock. A position in a log entry stays the scribe's 
 | During the cut, B's map | no device from A's side |
 | B back | both devices on B's map again |
 | Checks 1 to 9, 11, 12 | pass |
+
+## Step 4: the truth-table corrections (2026-11-01)
+
+| Correction | How | Check (`test_rt_pages.py`) |
+| --- | --- | --- |
+| Station ID = the device's hostname | `ram.php?op=whoami`: the lease the post gave the device's address; nothing typed | each device's station is its lease name (`laptop-a`, `laptop-b`, `phone-f`); numbers `laptop-a-001`, `phone-f-001` |
+| Handled marks per handler | `(rt-handled, <mission>, <entry>.<dev>)`; the mark shown is the newest across handlers | B marks ✓ then →, A marks !: ! shown on B in 110-154 ms; the RAM holds one cell per handler |
+| Own truth kept on the device | every write also in browser storage; on a RAM change every family the device owns is read there and what is missing written again | B reloads during the cut: its 28 own entries back on its side; B's position on its side's map |
+| The mission the device is on | the device's own, opened on load whatever that side's RAM holds | the reload during the cut |
+| 309 written in write order, once each | `rt-post309` on each post: held reads on `rt-log`, appended by id once, a new RAM read from the start | A's file 57 rows in A's order, each once, after a restart before the cut; B's 57, each once, its cut entries first |
+| Overdue on the page's own clock | the board and the map redraw their bands on a timer, with no write | |
+
+Open: in the first run of this step a handled mark reached A in 8.1 s (one held read, `HOLD_S`) instead of ~100 ms.
+The next two runs were 82 and 137 ms. A probe against the RAM alone, 300 overwrites racing a held read, found no
+missed wake, so the RAM is not the suspect. A candidate is the browser's per-host connection limit: each page then held
+one more read, the position watch. That watch is gone, since positions are written again with the rest of the
+device's own truth, and the five runs since were all under 140 ms. The cause is not established. The pages now log every read and write ([DIAG-WATCH]: asked, answered, how long,
+the row ids, the `ram`), and the test keeps each device's console (`console-<device>.log`) beside the web servers'
+logs, so a recurrence shows where the wait was.

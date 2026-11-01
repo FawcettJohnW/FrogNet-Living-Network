@@ -22,14 +22,14 @@ function draw() {
   $('#rows').innerHTML = rows.map(r => { const b = r.bag, l = b.location || {}
     const where = l.lat != null ? D.formatLatLng(l.lat, l.lng, 'DD') : (l.text || '')
     const msg = [b.status !== 'normal' ? b.status : '', where, b.notes].filter(Boolean).join(' · ')
-    return '<tr><td>' + RT.esc(new Date(b.date).toLocaleString()) + '</td><td>' + RT.esc(D.msgNoShort(b.msgNo)) + '</td><td>' + (D.MARK_GLYPH[marks.get(r.instance)?.bag?.mark] || '') +
+    return '<tr><td>' + RT.esc(new Date(b.date).toLocaleString()) + '</td><td>' + RT.esc(D.msgNoShort(b.msgNo)) + '</td><td>' + (D.MARK_GLYPH[marks.get(r.instance)?.mark] || '') +
       '</td><td>' + RT.esc(b.callsign) + (name.get(b.callsign.toUpperCase()) ? ' (' + RT.esc(name.get(b.callsign.toUpperCase())) + ')' : '') + '</td><td>' + RT.esc(msg) + '</td><td>' + RT.esc(b.by) + '</td></tr>' }).join('')
   $('#foot').textContent = rows.length + ' entries; message numbers ' + (rows.length ? D.msgNoFull(rows[0].bag.msgNo) + ' ...' : '')
 }
 if (!m) { $('#say').textContent = 'choose or start a mission on the Radio Log first' } else {
   $('#inc').textContent = m.name; $('#op').textContent = m.opPeriod; $('#opr').textContent = RT.device().name || RT.device().id
   RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() })
-  RT.watch('rt-handled', m.id, (c) => { marks = c; draw() })
+  RT.watch('rt-handled', m.id, (c) => { marks = RT.markOf(c); draw() })
   RT.watch('rt-roster', m.id, (c) => { roster = c; draw() })
 }
 </script></body></html>

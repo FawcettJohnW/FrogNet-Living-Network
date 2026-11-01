@@ -144,7 +144,7 @@ that station's own count.
 | --- | --- | --- | --- |
 | **Scribe** | a laptop or phone, on a post's Wi-Fi (the post's pages) or as a member of the region | its entries, its handled marks, rangers and places it typed, the mission if it started it | the log, roster, places, handled and mission families; positions for the map |
 | **Field** | a phone in the field | its own position, its own entries, its own marks | the same families |
-| **Post** | the node at the post | the 309 and 213 files | the log and handled families |
+| **Post** | the node at the post (`fdf/bin/rt-post309`; its unit is to come with the app's install) | the 309 and 213 files | the log and handled families |
 
 **Each device keeps its own truth.** Everything a device wrote is kept on that device (browser storage for a page) as
 well as written to the RAM, so that after a RAM change, or a page reload during a partition, it can write its own

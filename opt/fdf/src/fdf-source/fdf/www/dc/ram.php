@@ -5,6 +5,7 @@
 //                                                                         at once when WHERE is not where this node is now)
 //   POST ?op=write   {"s":..,"v":..,"i":..,"bag":{..}}                  the caller's own cell
 //   POST ?op=announce                                                     dc.apps.<this node> = this node's add-ins
+//   GET  ?op=whoami                                                       {"station": the asking device's hostname}
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
 // it change reads everything again and writes its own truth there: memory is never moved, each owner writes its own again.
@@ -12,6 +13,9 @@
 // the app and the RAM ("app", "rams": {service: ram}); where that RAM is served now is this node's app-where.json, which
 // fdf-app serve writes on every event. A service of an app whose RAM is not served is refused: the client connects first.
 // The launcher's own service (dc) stays on the network RAM (fdf.env's RINA_RAM).
+// [STATION_IS_HOSTNAME_V1] whoami: the asking device's hostname, as this node's facts have it (the lease this node gave
+// that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
+// the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -76,6 +80,12 @@ if ($op === 'read') {
     $node = gethostname();
     $list = []; foreach ($apps['apps'] as $a) $list[] = ['id' => $a['id'], 'title' => $a['title'], 'version' => $a['version'], 'page' => $a['page']];
     echo ram($env, ['write', 'dc', 'apps', $node, json_encode(['node' => $node, 'apps' => $list, 'at' => time()], JSON_UNESCAPED_SLASHES)]);
+} elseif ($op === 'whoami') {
+    $f = json_decode((string)@file_get_contents($fdf_var . '/facts.json'), true);
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    foreach ((is_array($f) ? ($f['addrs'] ?? []) : []) as $a)
+        if (($a['kind'] ?? '') === 'given' && ($a['ip'] ?? '') === $ip && ($a['value'] ?? '') !== '') { echo json_encode(['ok' => true, 'station' => $a['value'], 'ip' => $ip]); exit; }
+    fail(404, "this node gave $ip no lease, so it has no hostname for it: no station ID");
 } else {
-    fail(400, 'op is read, write or announce');
+    fail(400, 'op is read, write, announce or whoami');
 }

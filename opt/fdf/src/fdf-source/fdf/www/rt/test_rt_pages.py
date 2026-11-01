@@ -23,12 +23,14 @@
 #   7  the handled mark: B marks A's first entry (click: ✓, again: →); A sees each mark
 #   8  a ranger added on B's Rangers page: in A's callsign list, and B's roster shows when it was last heard
 #   9  the ICS-309 at post A: every entry from every device in write order, with its number and mark
-#   10 the map at B: a query over every device's own position (scribe A's, the phone's; B's browser gives none). The
-#      phone walks: its marker moves on B's map, with nothing logged
+#   10 the map at B: a query over every device's own position (the scribes' and the phone's). The phone walks: its
+#      marker moves on B's map, with nothing logged
 #   11 post B cut off (behind B's address for the network RAM is now its own side's RAM): B's droplet serves the app's
 #      general RAM on B's side, B's page follows it, writes its own entries there and keeps logging; A keeps A's.
 #      B back: the general RAM is A's again, B's page follows it and writes its own again, and A has every one of B's
-#      entries -- nothing merged, restored or sent. Positions: during the cut B's map has no device of A's side; back, both again
+#      entries -- nothing merged, restored or sent. Positions: during the cut B's map has only B's own (written again on its side); back, every device again
+#   13 [POST_309_V1] each post's 309 file (rt-post309; A's restarted before the cut): every entry once, by its id;
+#      A's in A's RAM order, as its Radio Log shows them
 #   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
@@ -36,7 +38,7 @@ from playwright.sync_api import sync_playwright
 B = sys.argv[1]
 HERE = os.path.dirname(os.path.abspath(__file__)); DC = os.path.join(HERE, '..', 'dc'); FDF = os.path.join(HERE, '..', '..')
 sys.path.insert(0, os.path.join(FDF, "..", "rinab", "tools")); sys.path.insert(0, os.path.join(FDF, "lib", "python"))
-from netcut import Via  # noqa: E402
+from netcut import Via, From  # noqa: E402
 import fdfram  # noqa: E402
 FAILS = []
 def check(ok, what):
@@ -62,6 +64,13 @@ via = {"A": Via(RAM), "B": Via(RAM)}   # each post's one address for the network
 VL = os.path.join(FDF, "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet")   # the node serves it from here (00845fb)
 if not os.path.isdir(VL): sys.exit("no Leaflet at %s: the map page needs it" % VL)
 posts = {}
+post309 = {}
+def post309_start(post):
+    p = subprocess.Popen([os.path.join(FDF, "bin", "rt-post309")], env=member_env(post), stdout=open(T + "/%s/post309.log" % post, "a"), stderr=subprocess.STDOUT)
+    procs.append(p); return p
+# [STATION_IS_HOSTNAME_V1] the leases each post's dnsmasq gave (in its facts, as fdf-facts writes them): the devices'
+# hostnames, their station IDs. The fresh phone at A has a lease too; the board asks it nothing
+LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "phone-f", "127.0.11.4": "phone-g"}, "B": {"127.0.12.2": "laptop-b"}}
 import threading
 up = {}
 def member_env(post):
@@ -79,12 +88,14 @@ def session(post):                # the member's session as its unit runs it (fd
 for i, name in enumerate(("A", "B"), start=1):
     R = T + "/" + name; os.makedirs(R + "/www/dc")
     json.dump({"name": "post-" + name, "guid": "guid-" + name, "role": "node", "subnet": "127.0.%d.0/24" % i,
-               "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}],
+               "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
+                                                                    for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
     subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
+    post309[name] = post309_start(name)
     shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
     shutil.copytree(VL, R + "/www/vendor/leaflet")
     shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
@@ -92,7 +103,7 @@ for i, name in enumerate(("A", "B"), start=1):
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: "general" for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
     open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s\n" % (T, R, via[name].addr))
-    p = free(); posts[name] = "http://127.0.0.1:%d/rt/log.html" % p
+    p = free(); posts[name] = "127.0.0.1:%d" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
     procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", R + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"),
                                   stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % name, "w")))
@@ -111,12 +122,22 @@ for name in ("A", "B"):           # the client connects first: nothing works unt
 try:
     with sync_playwright() as pw:
         br = pw.chromium.launch(args=["--no-sandbox"])
-        def device(post, name, station, at=None):    # at: where the device's own GPS says it is (None: it gives none)
+        fwd = {}
+        def device(post, name, ip, at=None):        # ip: its lease at the post; at: where its own GPS says it is (None: it gives none)
             ctx = br.new_context(**({"geolocation": {"latitude": at[0], "longitude": at[1], "accuracy": 8}, "permissions": ["geolocation"]} if at else {}))
-            pg = ctx.new_page(); pg.goto(posts[post])
-            pg.fill("#dev input[name=name]", name); pg.fill("#dev input[name=station]", station); pg.click("#saveDev")
+            fwd[ip] = From(ip, posts[post])
+            pg = ctx.new_page()
+            clog = open(T + "/console-%s.log" % name, "a")            # [DIAG-WATCH] the page's own account of every read and write
+            ctx.on("console", lambda msg: (clog.write("%.3f %s %s\n" % (time.time(), msg.page.url.rsplit("/", 1)[-1] if msg.page else "", msg.text)), clog.flush()))
+            pg.goto("http://127.0.0.1:%d/rt/log.html" % fwd[ip].port)
+            pg.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
+            pg.fill("#dev input[name=name]", name); pg.click("#saveDev")
             return pg
-        a, b, ph = device("A", "scribe-a", "A", (47.65, -122.35)), device("B", "scribe-b", "B"), device("A", "phone", "F", (47.6062, -122.3321))
+        def page(pg, name): return pg.url.split("/rt/")[0] + "/rt/" + name      # another page of the same device
+        a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25)), device("A", "phone", "127.0.11.3", (47.6062, -122.3321))
+        st = [pg.text_content("#devInfo") for pg in (a, b, ph)]
+        check(all(x.endswith("station " + h) for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
+              "0 each device's station ID is its hostname, from the post (nothing typed): %s" % st)
         def rows(pg): return pg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         def wait_rows(pg, n, s=15):
             t0 = time.time()
@@ -145,11 +166,11 @@ try:
         t0 = time.time(); log(ph, "K7XYZ", "urgent", "CN87uo", "needs water")
         ok = wait_rows(a, 2) and wait_rows(b, 2); dt = time.time() - t0
         rb = rows(b)
-        check(ok and rb[1][0] == "F001" and rb[1][3] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered as the phone's station: %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
+        check(ok and rb[1][0] == "phone-f-001" and rb[1][3] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered with the phone's hostname: %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
         # 4
         log(b, "N7QQQ"); wait_rows(a, 3); log(a, "W7ABC", notes="second"); wait_rows(b, 4)
         nos = [x[0] for x in rows(b)]
-        check(nos == ["A001", "F001", "B001", "A002"], "4 message numbers in write order, one count per device: %s" % nos)
+        check(nos == ["laptop-a-001", "phone-f-001", "laptop-b-001", "laptop-a-002"], "4 message numbers in write order, one count per station: %s" % nos)
         # 5 two scribes at once
         t0 = time.time()
         # one browser driver: the two scribes' entries interleaved, each landing as the other's arrive
@@ -162,7 +183,8 @@ try:
               "5 two scribes logging at once, 25 each: %d on A, %d on B, %d distinct numbers, the same order on both (%.1f s)" % (len(ra), len(rb), len(set(nos)), dt))
         # 6 reload
         b.reload(); ok = wait_rows(b, 54, 15)
-        check(ok and [x[0] for x in rows(b)] == nos and b.input_value("#dev input[name=station]") == "B", "6 B reloaded: all %d entries back from the RAM, its station still B" % len(rows(b)))
+        b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
+        check(ok and [x[0] for x in rows(b)] == nos and b.text_content("#devInfo").endswith("station laptop-b"), "6 B reloaded: all %d entries back from the RAM; %s" % (len(rows(b)), b.text_content("#devInfo")))
         # 7
         def mark_on(pg, i): return pg.eval_on_selector_all("#rows tr", "(rs, i) => rs[i].children[1].textContent", i)
         t0 = time.time(); b.click("#rows tr:nth-child(1) td.mk")
@@ -177,8 +199,18 @@ try:
             if mark_on(a, 0) == "→": ok2 = True; break
             time.sleep(0.02)
         check(ok1 and ok2, "7 B marked A's entry: ✓ on A in %d ms, then → in %d ms" % (d1 * 1000, (time.time() - t0) * 1000))
+        # [MARK_PER_HANDLER_V1] A marks the same entry: its own cell; the newest is shown everywhere
+        a.click("#rows tr:nth-child(1) td.mk"); t0 = time.time(); ok3 = False
+        while time.time() - t0 < 10:
+            if mark_on(b, 0) == "!": ok3 = True; break
+            time.sleep(0.02)
+        e0 = a.get_attribute("#rows tr:nth-child(1)", "data-i")
+        cells = [c for c in fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-handled", "26-0142") if (c.get("bag") or {}).get("entry") == e0]
+        check(ok3 and len(cells) == 2 and len({c["bag"]["by"] for c in cells}) == 2,
+              "7 A marked it too: ! on B in %d ms; the RAM holds one mark cell per handler: %s"
+              % ((time.time() - t0) * 1000, sorted((c["bag"]["by"], c["bag"]["mark"]) for c in cells)))
         # 8
-        rg = b.context.new_page(); rg.goto(posts["B"].replace("log.html", "rangers.html"))
+        rg = b.context.new_page(); rg.goto(page(b, "rangers.html"))
         rg.fill("#add input[name=callsign]", "w7abc"); rg.fill("#add input[name=fullName]", "Pat Lee"); rg.fill("#add input[name=team]", "Alpha"); rg.click("#add button")
         t0 = time.time(); ok = False
         while time.time() - t0 < 10:
@@ -191,16 +223,16 @@ try:
             time.sleep(0.02)
         check(ok and rr and rr[0][0] == "W7ABC" and rr[0][5] != "", "8 a ranger added at B is in A's callsign list in %d ms; B's roster: %s" % (d8 * 1000, rr))
         # 9
-        pr = a.context.new_page(); pr.goto(posts["A"].replace("log.html", "print309.html")); time.sleep(1.0)
+        pr = a.context.new_page(); pr.goto(page(a, "print309.html")); time.sleep(1.0)
         p9 = pr.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
-        check(len(p9) == 54 and [x[1] for x in p9] == nos and p9[0][2] == "→" and "(Pat Lee)" in p9[0][3] and pr.text_content("#inc") == "26-0142",
+        check(len(p9) == 54 and [x[1] for x in p9] == nos and p9[0][2] == "!" and "(Pat Lee)" in p9[0][3] and pr.text_content("#inc") == "26-0142",
               "9 the ICS-309 at A: %d entries in write order, the first %s" % (len(p9), p9[0] if p9 else None))
         # 10
-        mp = b.context.new_page(); mp.goto(posts["B"].replace("log.html", "map.html"))
+        mp = b.context.new_page(); mp.goto(page(b, "map.html"))
         def maprows(): return mp.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         for _ in range(250):
             m1 = maprows()
-            if len(m1) == 2: break
+            if len(m1) == 3: break
             time.sleep(0.02)
         nmk = mp.evaluate("document.querySelectorAll('.leaflet-interactive').length")
         n_log = len(rows(a))
@@ -210,10 +242,11 @@ try:
             m2 = [x for x in maprows() if x[0] == "phone"]
             if m2 and m2[0][1].startswith("47.70000"): break
             time.sleep(0.02)
-        check(sorted(x[0] for x in m1) == ["phone", "scribe-a"] and nmk == 2 and m2 and m2[0][1].startswith("47.70000") and len(rows(a)) == n_log,
+        check(sorted(x[0] for x in m1) == ["phone", "scribe-a", "scribe-b"] and nmk == 3 and m2 and m2[0][1].startswith("47.70000") and len(rows(a)) == n_log,
               "10 B's map: %s, %d markers; the phone walked and moved on B's map in %d ms, nothing logged (%d entries): %s"
               % ([x[0] for x in m1], nmk, (time.time() - t0) * 1000, len(rows(a)), m2[0] if m2 else None))
         # 11
+        post309["A"].terminate(); post309["A"].wait(); post309["A"] = post309_start("A")     # a lost and resumed read
         via["B"].to(RAM_B_LAN); dm = wait_map("B", "127.0.2.1:")
         check(dm is not None, "11 B cut off: the general RAM on B's side is B's droplet %.2f s after (%s)" % (dm or -1, map_of("B")))
         log(b, "N7CUT", notes="while cut 1")             # the write after the move: the page reads everything there first
@@ -226,13 +259,21 @@ try:
         t1 = time.time()
         while time.time() - t1 < 15:                     # B's map's held read lasts at most 8 s on the RAM it has left
             on_b_side = [x[0] for x in maprows()]
-            if not on_b_side: break
+            if on_b_side == ["scribe-b"]: break
             time.sleep(0.1)
         log(b, "N7CUT", notes="while cut 2"); log(a, "W7AAA", notes="A during the cut")
         time.sleep(1.0)
         a_has_cut = any(x[3] == "N7CUT" for x in rows(a))
         check(ok and not a_has_cut, "11 B cut off: B logs on its own RAM and keeps its %d own entries (%d rows there); A does not see the cut-off entries yet"
               % (sum(1 for x in cut_rows if x[7] == "scribe-b"), len(cut_rows)))
+        # [OWN_TRUTH_KEPT_V1] B's scribe reloads during the cut: its own entries are on the device, not only in memory
+        for _ in range(250):
+            if any(x[6] == "while cut 2" for x in rows(b)): break
+            time.sleep(0.02)
+        n_before = sum(1 for x in rows(b) if x[7] == "scribe-b")
+        b.reload(); b.wait_for_function("document.querySelector('#devInfo').textContent.includes('station ')")
+        ok_r = wait_rows(b, n_before, 20); n_own = sum(1 for x in rows(b) if x[7] == "scribe-b")
+        check(ok_r and n_own == n_before == 28, "11 B reloaded during the cut: its %d own entries back on its side (%d before the reload)" % (n_own, n_before))
         via["B"].to(RAM); dm = wait_map("B", "127.0.1.1:")
         check(dm is not None, "11 B back: the general RAM is A's again on B %.2f s after (%s)" % (dm or -1, map_of("B")))
         t0 = time.time(); ok = False
@@ -245,14 +286,15 @@ try:
         t1 = time.time(); back = []
         while time.time() - t1 < 20:
             back = sorted(x[0] for x in maprows())
-            if back == ["phone", "scribe-a"]: break
+            if back == ["phone", "scribe-a", "scribe-b"]: break
             time.sleep(0.1)
-        check(on_b_side == [] and back == ["phone", "scribe-a"],
-              "11 positions: on B's side during the cut, B's map has %s (A's devices are not on that side); back, %s"
+        check(on_b_side == ["scribe-b"] and back == ["phone", "scribe-a", "scribe-b"],
+              "11 positions: on B's side during the cut, B's map has %s (its own fix written again there; A's devices are not on that side); back, %s"
               % (on_b_side or "none", back))
         check(ok and any(x[3] == "W7AAA" for x in rb), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
         # 12
-        bd = br.new_context().new_page(); bd.goto(posts["A"].replace("log.html", "board.html")); n12 = []
+        fwd["127.0.11.4"] = From("127.0.11.4", posts["A"])
+        bd = br.new_context().new_page(); bd.goto("http://127.0.0.1:%d/rt/board.html" % fwd["127.0.11.4"].port); n12 = []
         for _ in range(250):
             n12 = bd.eval_on_selector_all("#rows tr", "rs => rs.map(r => r.children[0].textContent)")
             if len(n12) == len(rows(a)): break
@@ -260,6 +302,21 @@ try:
         teams = bd.eval_on_selector_all("#teams tr", "rs => rs.map(r => r.children[0].textContent)")
         check(len(n12) == len(rows(a)) and n12[0] == rows(a)[-1][0] and "W7ABC" in teams and "N7CUT" in teams,
               "12 the board on a fresh phone at A: %d entries, newest first (%s), %d teams, read-only" % (len(n12), n12[0] if n12 else None, len(teams)))
+        # 13
+        def file309(post):
+            try:
+                with open(T + "/%s/rt/309/26-0142.2.csv" % post, newline="") as f: return list(__import__("csv").DictReader(f))
+            except FileNotFoundError: return []
+        want = [x[0] for x in rows(a)]
+        t0 = time.time()
+        while time.time() - t0 < 20:
+            fa, fb = file309("A"), file309("B")
+            if len(fa) == len(fb) == len(want): break
+            time.sleep(0.1)
+        ida, idb = [r["id"] for r in fa], [r["id"] for r in fb]
+        check([r["msg_no"] for r in fa] == want and len(set(ida)) == len(ida) and set(idb) == set(ida) and len(set(idb)) == len(idb),
+              "13 the 309 files: A %d rows, in A's order, each once; B %d rows, each once (B's own from the cut first: %s)"
+              % (len(fa), len(fb), [r["msg_no"] for r in fb if "CUT" in r["callsign"]]))
         br.close()
 finally:
     for k in up: up[k] = False
