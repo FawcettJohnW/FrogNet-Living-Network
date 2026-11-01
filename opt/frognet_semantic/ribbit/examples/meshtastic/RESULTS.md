@@ -277,3 +277,25 @@ itself — they are the extended API's view of a node.
 | step 4 S1–S11 (step4-20261101-091858) | 11/11 |
 | Python CLI smokevirt (one node, on the RAM) | 40/40, 317.0 s |
 | firmware native suites (88, coverage env, ASan) | GREEN 88/88, all clean, 34 m 6 s |
+
+## Phase 2, step 6 — the distributed side-by-side (harness/coordinated.py, bin/mtx)
+
+One meshtasticd per machine, a client on each machine talking only to its own node, every machine's part coordinated
+through the memory the nodes share (space mtx): a participant writes (member|RUN, NAME), holds a read on
+(go|RUN, NAME), runs the scenarios from the common t0 against its own node, writes (result|RUN, NAME); the coordinator
+holds reads on the member and result families and judges. Nothing connects into any machine; nobody polls.
+
+Rehearsal on one box (3 nodes on one memory, victim m3 stopped 40 s after t0 for 20 s):
+
+| machine | A every other node listed | B every other broadcast received | C DM ACK | D victim gone / back |
+|---|---|---|---|---|
+| m1 | 0.19 s | 0.5 s | 0.50 s | 0.15 / 0.59 s |
+| m2 | 0.19 s | 0.5 s | 0.61 s | 0.24 / 0.39 s |
+| m3 (victim) | 0.19 s | 0.5 s | 0.61 s | — |
+
+VERDICT PASS. Found on the way: a restart with `-e` erases the node's state and brings up a new node number, so "the
+victim is back" never held; the run script passes `-e` on the first start only.
+
+Not claimed: multi-machine numbers. The native meshtasticd links ~90 shared libraries (the stock Debian package has the
+same dependencies), so one bundle per machine type is needed; the run across John's machines waits on which machines
+take part. Stock's answer for sites that share no LAN is MQTT; that is the stock column for this table.

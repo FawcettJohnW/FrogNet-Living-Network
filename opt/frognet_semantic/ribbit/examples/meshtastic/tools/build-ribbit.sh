@@ -21,4 +21,5 @@ echo "  compile mt_ribbit.cpp"; $CXX $F "-DMTR_FRONT_VERSION=\"$(cat VERSION)\""
 rm -f lib/libmtribbit.a; ar rcs lib/libmtribbit.a obj/mt_ribbit.o obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o
 echo "  link meshtastic-ram"; $CXX $F ribbit/meshtastic_ram.cpp obj/ram_host.o obj/lf_ebr.o obj/frogram.o -o bin/meshtastic-ram -llz4 -lcrypto
 echo "  link mtr-probe (harness)"; $CXX $F harness/mtr_probe.cpp lib/libmtribbit.a -o bin/mtr-probe -llz4 -lcrypto
+echo "  link mtx (coordination cells)"; $CXX $F harness/mtx.cpp obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o -o bin/mtx -llz4 -lcrypto
 echo "build-ribbit PASS ($(bin/meshtastic-ram --version 2>/dev/null | head -1))"
