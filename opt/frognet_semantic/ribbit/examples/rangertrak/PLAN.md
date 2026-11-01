@@ -208,3 +208,22 @@ Side by side against stock, on at least two machines with traffic between them (
 
 Not claimed: Internet-dependent features; phone battery; more than the demo's three posts; the region's droplet
 destroyed rather than cut.
+
+## Prepared for the Meshtastic merge (2026-11-01)
+
+The Meshtastic on FrogNet proposal (John, 2026-10-30) and RangerTrak share their model: each node or
+device is the only writer of its own cells, and every reader acts on a held read. RangerTrak's per-device families are
+the same truths Meshtastic's client API serves, so the Meshtastic client edge can read and write them as they are:
+
+| RangerTrak cell | Meshtastic | The Meshtastic edge |
+| --- | --- | --- |
+| `(rt-pos, <mission>, <dev>)` `{name, lat, lng, alt, acc, at}` | Position (`latitude_i`, `longitude_i`, `altitude`, `time`) | a node's position is its own cell; a Meshtastic node's is written by the FrogNet node that hears it, as that node's |
+| `(rt-who, <mission>, <dev>)` `{name, host, station, team}` | NodeInfo / User (`long_name`, `short_name`, `id`) | the node list is a read of this family |
+| `(rt-msg, <mission>, <dev>.<ms>)` | TEXT_MESSAGE_APP on the primary channel | an announcement is a channel message |
+| `(rt-dm, <mission>.<to>, <dev>.<ms>)` | a direct message (`to` = the node) | in the addressee's variable; nothing checks it |
+| `(rt-team@<team>, <mission>, <dev>.<ms>)` | a message on a secondary channel | a team's RAM is a channel's audience |
+| the device's access record | the node's keys and channel PSKs | each written again by its owner after a RAM change |
+
+What the merge adds, not built here: the Meshtastic client edge (ToRadio / FromRadio) reading and writing these cells;
+the over-the-air edge, which writes what it hears from a stock node as that node's cells; and liveness bound to the
+node's session, so a device that has left drops off the map (RangerTrak's cells do not go with a session today).

@@ -231,7 +231,7 @@ export function sharePosition(m) {
   const d = device()
   const id = navigator.geolocation.watchPosition(
     (p) => write('rt-pos', m.id, d.id, { name: d.name || d.id, lat: p.coords.latitude, lng: p.coords.longitude,
-                                         acc: p.coords.accuracy, at: Math.round(p.timestamp / 1000) })
+                                         acc: p.coords.accuracy, alt: p.coords.altitude, at: Math.round(p.timestamp / 1000) })   // Meshtastic's Position has the same
              .catch((e) => note('position not written: ' + e.message)),
     (e) => note('no position from this device (' + e.message + ')'), { enableHighAccuracy: true, maximumAge: 10000 })
   return () => navigator.geolocation.clearWatch(id)
