@@ -7,7 +7,7 @@
 #   comms   the Communicator's servers: bin/comms-ram, bin/comms-media (rinab tools/build_comms_static.sh <arch>), per arch
 #   kart    FrogNet Kart: the kart service, game hosts and the game (kart/*.py) and libkartram.so (kart/build_kartram.sh
 #           [--arm64]), per arch; its RAMs are the core's rina-host
-#   dc      DisasterComm: its pages (opt/fdf/www/dc) and their Apache config -- any arch
+#   dc      DisasterComm: its pages (opt/fdf/www/dc, and the radio log app opt/fdf/www/rt) and their Apache config -- any arch
 # usage: make_addin.sh comms|kart|dc OUTDIR [x86_64|aarch64]   |   make_addin.sh kart OUTDIR windows
 set -eu
 S=$(cd "$(dirname "$0")" && pwd); R=$(cd "$S/../fdf-source/rinab" && pwd)
@@ -35,7 +35,7 @@ case "$N" in
          for f in kart_service.py kart_host.py kart_server.py kartmem.py ribbit.py kartdemo.py DESIGN.md README.md; do cp "$R/kart/$f" $A/$N/; done
          cp "$L" $A/$N/libkartram.so ;;
   dc)    ARCH=any; F=$(cd "$S/../fdf-source/fdf" && pwd); mkdir -p $P/opt/fdf/www $P/etc/apache2/conf-available
-         cp -a "$F/www/dc" $P/opt/fdf/www/dc; cp "$S/addins/dc/fdf-dc.conf" $P/etc/apache2/conf-available/ ;;
+         cp -a "$F/www/dc" $P/opt/fdf/www/dc; cp -a "$F/www/rt" $P/opt/fdf/www/rt; rm -f $P/opt/fdf/www/rt/*.py; cp "$S/addins/dc/fdf-dc.conf" $P/etc/apache2/conf-available/ ;;
 esac
 { grep -v '^arch=' "$S/addins/$N/ADDIN"; echo "arch=$ARCH"; echo "built=$(date -u +%Y-%m-%dT%H:%MZ)"; } > $A/$N/ADDIN
 chmod 755 $P/install $A/$N/start; find $A -name __pycache__ -prune -exec rm -rf {} +
