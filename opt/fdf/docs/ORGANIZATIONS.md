@@ -27,7 +27,7 @@ The design has three parts, and each has one job:
 
 | Part | What it is | Where it runs | What it holds |
 | --- | --- | --- | --- |
-| **MRM** (multinetwork route manager) | A route. It is the hub, the mappings, admission and login, and the facts every node plans its routes from. | The organization's droplet. There is exactly one per network. | Routing state and membership. No application data. |
+| **MRM** (multinetwork route manager) | The point every member attaches to. Its one special job is attachment: admission and login. Routing is the fabric's (the nodes, their tunnels and their plans) and is transparent to it, as to every server. | The organization's droplet, designated by the admin. There is exactly one per network. | Attachments, and the memory its members write. No application data. |
 | **RAM manager** | A role. It holds one island's memory. | A member node that the island's app elects, from the capability facts. | One island's cells. |
 | **Island** | One app's shared memory. The app decides what it means, who may use it, how far it reaches and how it is protected. | Wherever the role is held right now. | The app's data. |
 
@@ -149,11 +149,12 @@ Changes in rev 3:
 - **One MRM per line.** `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
   `site.env` and `join.env`; it no longer writes `system-space.json`.
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.
-- **The primary routes; it does not know.** It is the primary because the admin designated it, by naming it in the
-  join line, and for no other reason. It does not know it is the primary. It takes every connection, routes what each
-  edge's admission allows, and holds the memory its members write. It knows nothing about islands, services, other
+- **The primary only attaches.** It is the primary because the admin designated it, by naming it in the join line, and
+  for no other reason. It does not know it is the primary. Its one special job is attachment: admitting a device and
+  logging it in. It takes every connection. It does not route. Routing is up to the fabric (the nodes, their tunnels
+  and their plans) and is transparent to every server, the primary included. It knows nothing about islands, services,
   nodes' state or where anyone attaches from. Who may use a service is checked by the service, against the login
-  record (section 9.3), not by the primary.
+  record (section 9.3).
 
 ## 6. Egress: every member's one path to the MRM
 
