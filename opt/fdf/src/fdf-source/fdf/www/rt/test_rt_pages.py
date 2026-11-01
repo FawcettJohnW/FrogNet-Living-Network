@@ -97,7 +97,7 @@ for i, name in enumerate(("A", "B"), start=1):
                "addrs": [{"ip": "127.0.%d.1" % i, "kind": "own"}] + [{"ip": ip, "kind": "given", "value": h, "mac": "02:00:00:00:00:%02x" % k}
                                                                     for k, (ip, h) in enumerate(LEASES[name].items())],
                "capability": {"mem_total_kb": 8_000_000 if name == "A" else 4_000_000, "cores": 4}}, open(R + "/facts.json", "w"))
-    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--key", "cd" * 32,
+    subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals",
                     "--role", "hospitals", "--role", "eoc:default", "--user", "kim:kim-pw=hospitals", "--user", "lee:lee-pw=hospitals"], env=member_env(name), check=True, stdout=subprocess.DEVNULL)
     session(name)
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
@@ -147,6 +147,18 @@ try:
         def page(pg, name): return pg.url.split("/rt/")[0] + "/rt/" + name      # another page of the same device
         a, b, ph = device("A", "scribe-a", "127.0.11.2", (47.65, -122.35)), device("B", "scribe-b", "127.0.12.2", (47.55, -122.25), ("kim", "kim-pw")), device("A", "phone", "127.0.11.3", (47.6062, -122.3321), ("lee", "lee-pw"))
         st = [pg.text_content("#devInfo") for pg in (a, b, ph)]
+        # [APP_ACCESS_V1] login is a read at the device's own edge: the door checks the password against the access tuples
+        import urllib.request, urllib.error
+        def door_login(post, body):
+            rq = urllib.request.Request("http://%s/dc/ram.php?op=login&app=rangertrak" % posts[post], data=json.dumps(body).encode(), method="POST")
+            try:
+                with urllib.request.urlopen(rq, timeout=10) as r: return json.loads(r.read())
+            except urllib.error.HTTPError as e: return json.loads(e.read())
+        lg = {"kim at B": door_login("B", {"user": "kim", "password": "kim-pw"}), "kim, wrong password": door_login("A", {"user": "kim", "password": "x"}),
+              "eoc, a default role": door_login("A", {"role": "eoc"}), "hospitals, no login": door_login("A", {"role": "hospitals"})}
+        check(lg["kim at B"].get("role") == "hospitals" and not lg["kim, wrong password"].get("ok") and lg["eoc, a default role"].get("role") == "eoc"
+              and not lg["hospitals, no login"].get("ok"),
+              "0 login at the door, a read of the access tuples: %s" % {k: v.get("role") if v.get("ok") else v.get("why") for k, v in lg.items()})
         check(all(("station " + h) in x for x, h in zip(st, ("laptop-a", "laptop-b", "phone-f"))),
               "0 each device's station ID is its hostname, from the post (nothing typed): %s" % st)
         def rows(pg): return pg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
@@ -290,7 +302,7 @@ try:
             if any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs): break
             time.sleep(0.1)
         on_region = [c["bag"]["station"] for c in fdfram.Ram(RAM).read("fdf-app", "device")]
-        check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" and r.get("grant") for r in recs) and "phone-f" in on_region,
+        check(any(r.get("station") == "laptop-b" and r.get("role") == "hospitals" for r in recs) and "phone-f" in on_region,
               "11 [APP_ACCESS_V1] the devices' own access records: B's written again on its side's network RAM (%s); the region's has %s"
               % ([(r["station"], r["role"]) for r in recs], sorted(set(on_region))))
         check(ok_r and n_own == n_before == 28, "11 B reloaded during the cut: its %d own entries back on its side (%d before the reload)" % (n_own, n_before))
@@ -360,16 +372,13 @@ try:
         a_dm = tab(ma, "dm")
         send(mb, "@", "hospitals: two beds at St. Mark")
         t3 = until(lambda: "hospitals: two beds at St. Mark" in tab(mf, "team"))
-        g_h = subprocess.run([os.path.join(FDF, "bin", "fdf-app"), "grant", "rangertrak", "test", "test", "hospitals"], env=member_env("A"), capture_output=True, text=True).stdout.strip()
-        try: fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142"); no_grant = "read"
-        except fdfram.RamError as e: no_grant = str(e).split("refused: ")[-1]
-        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"], grant=g_h).read("rt-team", "26-0142")
+        hosp = fdfram.Ram(map_of("A")["rangertrak.hospitals"]).read("rt-team", "26-0142")
         gen = fdfram.Ram(map_of("A")["rangertrak.general"]).read("rt-team", "26-0142")
         check(t1 is not None and t2 is not None and "B: water at the trailhead?" not in a_dm and t3 is not None
-              and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [] and no_grant != "read",
+              and [c["bag"]["text"] for c in hosp] == ["hospitals: two beds at St. Mark"] and gen == [],
               "14 messages: announcement on B and the phone in %s s; the phone's DM on B in %s s, not in A's direct list (%s); "
-              "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM; without a hospitals grant: %s"
-              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp), no_grant))
+              "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM"
+              % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp)))
         # 15
         b.check("#entry input[name=g213]"); b.fill("#entry input[name=to213]", "IC, EOC"); b.fill("#entry input[name=subject213]", "Water")
         b.fill("#entry input[name=message213]", "Need 20 L at the trailhead"); log(b, "W7ABC", "need-rest-food", "", "water low")

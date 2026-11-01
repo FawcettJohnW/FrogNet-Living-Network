@@ -101,15 +101,20 @@ themselves.
 ## A Windows or Android device
 
 1. The device attaches through the fabric.
-2. It reaches the app's serving droplet.
-3. If login is required, the user supplies the team and password once.
-4. The droplet checks them against the app's access tuples and password verifier.
-5. The device's authorized access is recorded in the app configuration tuples. The record is the device's own truth: the
-   device keeps it, with the encoded message the droplet gave it, and writes it again through its app after every RAM
-   change, like everything else it owns.
+2. It reaches the app through its own edge: the app's door on the member it attached to (`ram.php` on a node, the
+   Kotlin member on Windows and Android).
+3. If its role is activated at login, the user supplies the user name and password once. Otherwise the client takes its
+   default role (its default screen), or none when the app allows that.
+4. The edge checks the password by reading the app's access tuples: the verifier is there. **Login is a read.** There
+   is no login server, nothing is sent to another node, and nothing checks each request afterwards (**John,
+   2026-11-01:** "A dedicated login server is a centralized service and is therefore unacceptable."). The answer is the
+   role, and the role says which RAMs the app joins.
+5. The device's authorized access is recorded in the app configuration tuples. The record is the device's own truth (its
+   role and user): the device keeps it and writes it again through its edge after every RAM change, like everything
+   else it owns.
 6. The device publishes the app truth it owns, then reads the current world through the app.
-7. On later connections, whichever droplet is serving authenticates the device against the current access tuples. This
-   happens immediately and needs no user action.
+7. On later connections the device has its role already, so it needs no user action. A relocated droplet needs nothing
+   from the device beyond what the device writes again.
 8. The user is not asked to log in again.
 
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
@@ -147,7 +152,7 @@ deterministic selection over the same tuples and gets the same answer.
      members on that side.
 7. An activated droplet reasserts its owned truth and publishes its running capability.
 8. Apps read their app configuration tuples, connect to the indicated RAMs, and reassert their data there.
-9. The serving droplet authenticates devices against the app access tuples. Users do not log in again.
+9. Devices keep their roles and write their access records again. Users do not log in again.
 10. Held reads keep everyone responding as more participants reassert themselves or connectivity changes again.
 
 Nothing needs to identify the event as a split. Each side operates from its current reachable members and their
@@ -167,7 +172,7 @@ asserted truth.
 8. Apps read their app configuration tuples in the network RAM, which tell each app where its RAMs are.
 9. Apps connect to the indicated service and establish held reads.
 10. Later changes wake them, and they adapt.
-11. Devices authenticate through the serving droplet using the current access tuples, without another user login.
+11. Devices keep their roles and write their access records again, without another user login.
 
 ## What makes the current RAM useful
 
@@ -233,15 +238,13 @@ was said on the radio, and stays in the log.
   family, a node's workers ran out at three devices: a write waited 5 s for a worker.
 - **A team's RAM**: a service mapped to `"team"` in `apps.json` is in `<app>.<team>`, named by the request.
   `ram.php?op=rams&app=APP` lists the app's RAMs served now.
-- **Access** [APP_ACCESS_V1]: `fdf-app config ... --login --role NAME[:default] --user USER:PASSWORD=ROLE --key HEX`.
-  The droplet serving the general RAM answers logins (`ram.php?op=login` passes them to it). An individual's password
-  activates their role; a default role needs none; with login not required a client may take no role. The answer is
-  a grant: base64url JSON `{a, d, s, t, u}` (app, device, station, role, user) and an HMAC-SHA256 under the app's key,
-  which every droplet holds. Every request carries it (`X-App-Grant`). The droplet checks it on every read and write:
-  a role's RAM takes only that role's grants; the general RAM takes any of the app's grants when login is required, and
-  every client when it is not. The device keeps its grant and writes its access record `(fdf-app, device, <app>.<dev>)`
-  again after every RAM change. A relocated droplet takes the same grant, with no new login. A member's own
-  participant gets its grant from the install (`fdf-app grant`).
+- **Access** [APP_ACCESS_V1]: `fdf-app config ... --login --role NAME[:default] --user USER:PASSWORD=ROLE`. Each
+  droplet writes the roles, the users with their password verifiers and the default roles into its configuration
+  tuple. A login is `ram.php?op=login` at the device's own edge, which reads those tuples and checks the password there.
+  An individual's password activates their role; a default role needs none; with login not required a client may take
+  no role. The answer is the role. The device keeps it and writes its access record `(fdf-app, device, <app>.<dev>)`
+  (`op=device`), again after every RAM change. Nothing checks a request after that: the app joins the general RAM and
+  its role's RAM, as a DM is read only by its addressee because it is in the addressee's variable.
 - **The client's focus** [APP_FOCUS_V1]: `index.html` connects, then opens on the role's screen: a role's own RAM on
   its messages, `eoc` on the Summary, no role on the Radio Log.
 - **`ram.php?op=whoami`** gives the asking device its hostname, from the lease this node gave its address (the node's
@@ -252,8 +255,8 @@ was said on the radio, and stays in the log.
 None of this is new machinery. It is the invariants in `AI_READ_FIRST.md` applied to an app.
 
 - **Invariant 9 (no infrastructure separate from the nodes).** The primary is not a controller. It is a droplet the
-  admin placed, and its only special job is attachment. Login, the RAM server and access are all served by droplets,
-  which run on members.
+  admin placed, and its only special job is attachment. The RAM server is served by droplets, which run on members.
+  Login is not served by anything: it is a read of the access tuples at the device's own edge.
 - **Invariant 3 (authority is elected, not replicated).** The app's RAM server is chosen by the app's own selection
   over the capability tuples, the same way databasehost is chosen for the network RAM. These are two separate
   selections, and each is deterministic, so every member gets the same answer. That covers a split, a merge, and a
@@ -261,6 +264,6 @@ None of this is new machinery. It is the invariants in `AI_READ_FIRST.md` applie
 - **Invariant 4a (partitions do not reconcile memory).** Nothing moves at a merge. Owners reassert their truth to the
   current RAM, and anything not reasserted is absent.
 - **Invariant 4 (owners write their own truth).** Configuration, access, device records and app state are each
-  reasserted by their owner. That is why a relocated droplet can authenticate a device with no login.
+  reasserted by their owner. That is why a device needs no new login after a relocate: it writes its own access record again.
 - **Rule 5 (do not complete the architecture).** Nothing needs to know it is primary, detect a split, prove anything to
   anyone, or arbitrate between servers. If a step seems to need one of those, the cycle above already handles it.

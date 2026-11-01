@@ -53,15 +53,12 @@ class _Bound(http.client.HTTPConnection):
 
 
 class Ram:
-    def __init__(self, hostport=None, device=None, grant=None):
+    def __init__(self, hostport=None, device=None):
         self.hostport = hostport or where()
         self.device = device
-        self.grant = grant              # [APP_ACCESS_V1] carried on every request to an app droplet that requires login
         self.base = "http://%s%s" % (self.hostport, API)
 
     def _do(self, method, query, body=None, timeout=10.0):
-        if self.grant:
-            query = dict(query, grant=self.grant)
         if self.device:
             return self._do_bound(method, query, body, timeout)
         url = self.base + "?" + urllib.parse.urlencode(query)

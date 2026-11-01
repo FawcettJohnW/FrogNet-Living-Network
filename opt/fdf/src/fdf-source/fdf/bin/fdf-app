@@ -19,7 +19,6 @@
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
   fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--role NAME[:default]]... [--user USER:PASSWORD=ROLE]...
-                       [--key HEX]
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
         FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
         droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
@@ -29,10 +28,9 @@
         login; the password kept as a verifier, never the password), the role a client gets with no login (":default",
         e.g. a Team client against an EOC one: its default screen), and whether login is required. A role's client uses
         the general RAM and, when the app has one by that name, the role's own RAM. (The network's levels are the
-        network's admission, ORGANIZATIONS.md; they have nothing to do with which RAM a team uses.) The app's key, which signs the grants the droplets give devices, stays
-        in the install (mode 0600) and never in a tuple; the admin's install gives every member the same one (--key).
-  fdf-app grant APP DEV STATION [ROLE]
-        on a member with the app installed: a grant for one of the member's own participants (the post's 309 writer)
+        network's admission, ORGANIZATIONS.md; they have nothing to do with which RAM a team uses.) Login is a read: the client's
+        own edge, on the member the device reaches (ram.php), checks the password against the verifier in these tuples.
+        No login server, no request to another node.
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
@@ -51,7 +49,7 @@ Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
-import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
+import hashlib, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
 BUILD_TAG = "fdf-app-2026-11-01-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
@@ -91,43 +89,6 @@ def verifier(pw):
     salt = os.urandom(16)
     return {"kdf": "pbkdf2-sha256", "n": 200000, "salt": salt.hex(),
             "hash": hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000).hex()}
-
-
-def verify(v, pw):
-    return bool(v) and hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(v["salt"]), int(v["n"])).hex(), v["hash"])
-
-
-def b64url(b):
-    import base64
-    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
-
-
-def make_grant(key, app, dev, station, role, user=""):
-    """[APP_ACCESS_V1] what a droplet gives a device at login: base64url JSON {a, d, s, t, u} . HMAC-SHA256 hex under the
-    app's key. Every droplet of the app holds the key, so whichever serves checks it at once (rina-host, RINA_APP_ACCESS)."""
-    payload = b64url(json.dumps({"a": app, "d": dev, "s": station, "t": role, "u": user}, separators=(",", ":"), sort_keys=True).encode())
-    return payload + "." + hmac.new(key.encode(), payload.encode(), hashlib.sha256).hexdigest()
-
-
-def login(c, app, req):
-    """(grant, why): the app's access definition c (the install's) applied to a login request
-    {dev, station, user?, password?, role?}. An individual's password activates the role assigned to them; a role the
-    admin let a client take as its default needs no password; with login not required a client may take no role."""
-    dev, station = str(req.get("dev") or ""), str(req.get("station") or "")
-    if not dev:
-        return None, "no device id"
-    user, role = str(req.get("user") or ""), str(req.get("role") or "")
-    if user:
-        u = (c.get("users") or {}).get(user)
-        if not u or not verify(u.get("verifier"), str(req.get("password") or "")):
-            return None, "that user and password are not this app's"
-        role = u["role"]
-    elif role:
-        if not ((c.get("roles") or {}).get(role) or {}).get("default"):
-            return None, "role %s is activated at its user's login" % role
-    elif c.get("login"):
-        return None, "this app requires login"
-    return make_grant(c["key"], app, dev, station, role, user), ""
 
 
 def where_key(app, r):
@@ -203,7 +164,6 @@ class Server:
         self.events = queue.Queue()
         self.rm = ram()
         self.said = set()                    # where keys this member has said
-        self.logins = {}                     # app -> its login server, while this member serves its general RAM
 
     def installed(self):
         """{app: its configuration} for every app installed here"""
@@ -222,7 +182,7 @@ class Server:
         capability to serve it"""
         cap = self.f.get("capability") or {}
         for a, c in self.installed().items():
-            self.rm.write(SVC, "config", "%s.%s" % (a, self.me),       # [APP_ACCESS_V1] the access definition, verifiers only: never the key
+            self.rm.write(SVC, "config", "%s.%s" % (a, self.me),       # [APP_ACCESS_V1] the access definition, verifiers only
                           {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me,
                            "login": bool(c.get("login")), "roles": c.get("roles") or {}, "users": c.get("users") or {}})
             self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
@@ -234,54 +194,12 @@ class Server:
         if p is not None and p.poll() is None:
             return
         port = port_of(app, r)
-        c = self.installed().get(app) or {}
-        acc = os.path.join(VAR, "app-%s-%s.access" % (app, r))         # [APP_ACCESS_V1] the droplet's check, its key: 0600
-        fd = os.open(acc + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            json.dump({"app": app, "ram": r, "login": bool(c.get("login")), "key": c.get("key", "")}, f)
-        os.replace(acc + ".tmp", acc)
-        env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)), RINA_APP_ACCESS=acc)
+        env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)))
         env.pop("RINA_MAP_AREA", None)
-        if r == "general":
-            self.start_login(app)
         self.procs[(app, r)] = subprocess.Popen(
             [os.path.join(BIN, "rina-host"), "--listen", "%s:%d" % (self.listen, port), "--api", fdfram.API],
             env=env, stdout=subprocess.DEVNULL, stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
         log("serving %s's RAM %s on %s:%d (pid %d)" % (app, r, self.listen, port, self.procs[(app, r)].pid))
-
-    def start_login(self, app):
-        """[APP_ACCESS_V1] the droplet that serves the app's general RAM answers its logins, POST /login on
-        <its .1>:port_of(app, "login"): {dev, station, user?, password?, role?} -> {ok, grant, role} or {ok: false, why}"""
-        if app in self.logins:
-            return
-        import http.server
-        srv = self
-
-        class H(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def do_POST(self):
-                try:
-                    req = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-                    c = srv.installed().get(app) or {}
-                    grant, why = login(c, app, req) if c else (None, "the app is not installed here")
-                except (ValueError, TypeError) as e:
-                    grant, why = None, "the request does not read (%s)" % e
-                out = {"ok": True, "grant": grant, "role": json.loads(__import__("base64").urlsafe_b64decode(grant.split(".")[0] + "==")).get("t", "")} if grant else {"ok": False, "why": why}
-                log("%s login from %s (%s): %s" % (app, req.get("dev") if isinstance(req, dict) else "?", (req.get("user") or req.get("role") or "no role") if isinstance(req, dict) else "?",
-                                                   "granted role %s" % (out.get("role") or "(none)") if grant else "refused: " + why))
-                b = json.dumps(out).encode()
-                self.send_response(200 if grant else 403); self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
-
-        class S(http.server.ThreadingHTTPServer):
-            allow_reuse_address = True
-            daemon_threads = True
-        h = S((self.listen, port_of(app, "login")), H)
-        threading.Thread(target=h.serve_forever, daemon=True).start()
-        self.logins[app] = h
-        log("answering %s's logins on %s:%d" % (app, self.listen, port_of(app, "login")))
 
     def stop(self, app, r):
         p = self.procs.pop((app, r), None)
@@ -292,8 +210,6 @@ class Server:
             except subprocess.TimeoutExpired:
                 p.kill()
             log("no longer serving %s's RAM %s" % (app, r))
-        if r == "general" and app in self.logins:
-            self.logins.pop(app).shutdown()
         k = where_key(app, r)
         if k in self.said:
             self._where([k, "--clear"])
@@ -331,8 +247,6 @@ class Server:
                 h = resolve(parts, g) if g else ""
                 if h:
                     placed[where_key(app, r)] = "%s:%d" % (h, port_of(app, r))
-                    if r == "general":                          # [APP_ACCESS_V1] its logins are answered beside it
-                        placed[where_key(app, "login")] = "%s:%d" % (h, port_of(app, "login"))
         self.write_map(placed, why)
         for k in list(self.procs):
             if k not in want:
@@ -436,17 +350,12 @@ def main(argv):
             if not who or not pw or role not in roles:
                 print("fdf-app: --user USER:PASSWORD=ROLE, ROLE one of the --role names"); return 2
             users[who] = {"role": role, "verifier": verifier(pw)}
-        key = (opt("--key") or [old.get("key") or os.urandom(32).hex()])[0]
         with open(p + ".tmp", "w") as f:
-            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "users": users, "key": key}, f)
+            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "users": users}, f)
         os.chmod(p + ".tmp", 0o600)
         os.replace(p + ".tmp", p)
-        print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s; serve writes it into the network RAM (the key stays here: "
-              "give it to every member's install with --key)" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",
+        print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s; serve writes it into the network RAM" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",
                                                                   ", login required" if "--login" in argv else "")); return 0
-    if len(argv) in (5, 6) and argv[1] == "grant":       # fdf-app grant APP DEV STATION [ROLE]: a member's own participant
-        c = json.load(open(os.path.join(APPS, argv[2] + ".json")))
-        print(make_grant(c["key"], argv[2], argv[3], argv[4], argv[5] if len(argv) == 6 else "")); return 0
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":

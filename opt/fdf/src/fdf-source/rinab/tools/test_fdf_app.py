@@ -16,7 +16,7 @@
 #     configuration and capability there again and serves both RAMs on its side; a and c still map them to c. b
 #     rejoins: b maps them to c again and stops serving
 #   7 [APP_ACCESS_V1] each droplet's configuration tuple carries the access definition: login, the roles, the users
-#     each assigned a role with their password's verifier (the password itself nowhere in the network RAM), and never the app's key
+#     each assigned a role with their password's verifier (the password itself nowhere in the network RAM)
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -77,7 +77,7 @@ for i, n in enumerate("abcd", start=1):
     client(n)
 time.sleep(1.5)
 for n in "abc":   # the admin's install on each member it names (d is not named: it has no app)
-    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login", "--key", "ab" * 32,
+    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login",
                     "--role", "hospitals", "--role", "command:default",
                     "--user", "pat:beds-2026=hospitals"], env=member_env(n), check=True)
 for n in "abcd":
@@ -96,8 +96,7 @@ def serving(n):
 def maps_agree():
     want = {"rangertrak." + r: where(r) for r in ("general", "hospitals")}
     got = {n: (json.load(open(T + "/%s/app-where.json" % n)) if os.path.exists(T + "/%s/app-where.json" % n) else None) for n in "abc"}
-    return want if all(g is not None and {k: g.get(k) for k in want} == want and g.get("rangertrak.login", "").split(":")[0] == want["rangertrak.general"].split(":")[0]
-                       for g in got.values()) else None
+    return want if all(g == want for g in got.values()) else None
 def map_of(n):
     try: return json.load(open(T + "/%s/app-where.json" % n))
     except (OSError, ValueError): return None
@@ -122,44 +121,15 @@ try:
     v = cf[0]["bag"]["users"]["pat"]["verifier"] if cf else {}
     ok_v = bool(v) and hashlib.pbkdf2_hmac("sha256", b"beds-2026", bytes.fromhex(v["salt"]), int(v["n"])).hex() == v["hash"]
     check(len(cf) == 3 and all(c["bag"]["login"] and set(c["bag"]["roles"]) == {"hospitals", "command"} and c["bag"]["users"]["pat"]["role"] == "hospitals" for c in cf)
-          and ok_v and "beds-2026" not in txt and "cmd-2026" not in txt and "ab" * 32 not in txt and '"key"' not in txt,
+          and ok_v and "beds-2026" not in txt and "cmd-2026" not in txt,
           "7 the access definition in the three droplets' configuration tuples: roles %s, pat assigned hospitals, the verifier checks "
-          "the password, no password and no key in the network RAM" % (sorted(cf[0]["bag"]["roles"]) if cf else None))
-    # 8 [APP_ACCESS_V1] login at the droplet, and its RAMs' check
-    import urllib.request
-    def login_at(body):
-        hp = map_of("a").get("rangertrak.login", "")
-        rq = urllib.request.Request("http://%s/login" % hp, data=json.dumps(body).encode(), method="POST", headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(rq, timeout=5) as r: return json.loads(r.read())
-        except urllib.error.HTTPError as e: return json.loads(e.read())
-    def can(hp, grant, svc="t"):
-        try: fdfram.Ram(hp, grant=grant).write(svc, "v", "x", {"n": 1}); return True
-        except fdfram.RamError as e: return str(e)
-    g_pat = login_at({"dev": "dev-pat", "station": "phone-f", "user": "pat", "password": "beds-2026"})
-    g_bad = login_at({"dev": "dev-x", "station": "x", "user": "pat", "password": "wrong"})
-    g_cmd = login_at({"dev": "dev-c", "station": "eoc-1", "role": "command"})
-    g_hosp = login_at({"dev": "dev-h", "station": "x", "role": "hospitals"})
-    gen, hosp = map_of("a")["rangertrak.general"], map_of("a")["rangertrak.hospitals"]
-    res = {"pat general": can(gen, g_pat.get("grant")), "pat hospitals": can(hosp, g_pat.get("grant")),
-           "command hospitals": can(hosp, g_cmd.get("grant")), "no grant general": can(gen, None), "no grant hospitals": can(hosp, None),
-           "forged hospitals": can(hosp, (g_cmd.get("grant") or "x.y").split(".")[0] + "." + "0" * 64)}
-    GRANT_PAT = g_pat.get("grant")
-    check(g_pat.get("role") == "hospitals" and not g_bad.get("ok") and g_cmd.get("role") == "command" and not g_hosp.get("ok")
-          and res["pat general"] is True and res["pat hospitals"] is True and res["command hospitals"] is not True
-          and res["no grant general"] is not True and res["no grant hospitals"] is not True and res["forged hospitals"] is not True,
-          "8 login at the droplet: pat's password gives hospitals, a wrong one nothing (%s), command is a default role (no password), "
-          "hospitals is not (%s); the RAMs: %s" % (g_bad.get("why"), g_hosp.get("why"), {k: (v if v is True else v.split("refused: ")[-1][:60]) for k, v in res.items()}))
-
+          "the password, no password in the network RAM" % (sorted(cf[0]["bag"]["roles"]) if cf else None))
 
     client_stop("c")
     t0 = time.monotonic()
     for r in ("general", "hospitals"):
         hp, _ = wait_for(lambda: (lambda w: w if w.startswith("127.0.2.1:") and answers(w) else None)(where(r)))
         check(hp is not None, "2 c's session ended: %s on b (127.0.2.1) %.0f ms after: %s" % (r, (time.monotonic() - t0) * 1000, hp or where(r) or "nothing"))
-    hb = map_of("a").get("rangertrak.hospitals", "")
-    check(hb.startswith("127.0.2.1:") and can(hb, GRANT_PAT) is True and can(hb, None) is not True,
-          "8 relocated to b: pat's grant from c works on b's hospitals RAM with no new login; none still refused")
     gone, _ = wait_for(lambda: all(not answers("127.0.3.1:%d" % p) for p in (21000 + __import__("zlib").crc32(("rangertrak." + r).encode()) % 8000 for r in ("general", "hospitals"))))
     check(bool(gone), "2 c stopped serving both RAMs")
 

@@ -26,9 +26,7 @@ export const RAM = (window.RT_RAM || '../dc/ram.php')
 const q = (o) => Object.entries(o).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&')
 
 async function call(url, opts) {
-  const g = kept('grant'), o = { ...(opts || {}) }                 // [APP_ACCESS_V1] the grant goes with every request
-  if (g) o.headers = { ...(o.headers || {}), 'X-App-Grant': g }
-  const r = await fetch(url, o)
+  const r = await fetch(url, opts)
   const j = await r.json().catch(() => ({ ok: false, why: 'answer was not JSON (HTTP ' + r.status + ')' }))
   if (!r.ok || j.ok === false) throw new Error(j.why ? j.why + (j.output ? ': ' + j.output : '') : 'HTTP ' + r.status)
   return j
@@ -175,14 +173,16 @@ export function sent(s, prefix) {
   for (const [fs, v] of ownFamilies()) if (fs === s && v.startsWith(prefix)) for (const [i, b] of ownOf(s, v)) out.push([v, i, b])
   return out
 }
-// the client connects first: its station ID from the node, then its grant, before anything is shown or written.
-// [APP_ACCESS_V1] a device with no grant asks for one with no login (the app may give a client no role, or its default
-// role); when the app requires its user's login, connect() says so (e.needsLogin) and the page asks for it
+// the client connects first: its station ID from the node, then its role, before anything is shown or written.
+// [APP_ACCESS_V1] login is a read at this device's own edge (ram.php checks the password against the access tuples).
+// A device that has not logged in takes its default role, or none when the app allows it; when the app requires its
+// user's login, connect() says so (e.needsLogin) and the page asks for it. The role is the device's own truth: kept here,
+// and written as its access record, again after every RAM change
 export const APP = 'rangertrak'
 export async function connect(defaultRole) {
   const j = await call(RAM + '?op=whoami')
   let d = { ...device(), station: j.station }; kept('device', d)
-  if (!kept('grant')) {
+  if (!kept('access')) {
     try { await login({ role: defaultRole || '' }) }
     catch (e) { const x = new Error('log in: ' + e.message); x.needsLogin = true; throw x }
     d = device()
@@ -192,11 +192,11 @@ export async function connect(defaultRole) {
 }
 export async function login({ user, password, role }) {
   const j = await call(RAM + '?op=login&app=' + APP, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                       body: JSON.stringify({ dev: device().id, user: user || '', password: password || '', role: role || '' }) })
-  kept('grant', j.grant); kept('device', { ...device(), team: j.role || '', user: user || '' })
+                       body: JSON.stringify({ user: user || '', password: password || '', role: role || '' }) })
+  kept('access', { role: j.role || '', user: j.user || '' }); kept('device', { ...device(), team: j.role || '', user: j.user || '' })
   return j
 }
-export function logout() { kept('grant', null) }
+export function logout() { kept('access', null); kept('device', { ...device(), team: '', user: '' }) }
 // the device's own access record, in the network RAM beside the app's configuration: written at connect and again
 // whenever a RAM it uses is another one (everybody reasserts its own)
 async function writeDevice() {
