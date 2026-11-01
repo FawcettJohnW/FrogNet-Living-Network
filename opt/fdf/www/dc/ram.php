@@ -1,10 +1,14 @@
 <?php
 // ram.php -- [DC_APPS_V1] the DisasterComm pages' one door to the area's RAM, through the `ram` CLI as ../fdf/chat_*.php:
-//   GET  ?op=read&s=SERVICE&v=VARIABLE[&i=INSTANCE][&after=ID&wait=S]   every cell (or the cells newer than ID, held up
-//                                                                         to S seconds until one exists)
+//   GET  ?op=read&s=SERVICE&v=VARIABLE[&i=INSTANCE][&after=ID&wait=S[&ram=WHERE]]   every cell (or the cells newer
+//                                                                         than ID, held up to S seconds until one exists;
+//                                                                         at once when WHERE is not where this node is now)
 //   POST ?op=write   {"s":..,"v":..,"i":..,"bag":{..}}                  the caller's own cell
 //   POST ?op=announce                                                     dc.apps.<this node> = this node's add-ins
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
+// [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM manager this node is on right now (fdf.env, which
+// follows the system space, ORGANIZATIONS.md section 4). A page that sees it change reads everything again and writes its
+// own truth there: memory is never moved, each owner writes its own again.
 header('Content-Type: application/json');
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -26,16 +30,21 @@ function ram($env, $args) {
     return $text;
 }
 
+$where = trim((string)shell_exec('. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && printf %s "$RINA_RAM"'));
+function said($text, $where) { $j = json_decode($text, true); if (!is_array($j)) return $text; $j['ram'] = $where; return json_encode($j, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }
+
 $op = $_GET['op'] ?? '';
 if ($op === 'read') {
     $s = $_GET['s'] ?? ''; $v = $_GET['v'] ?? ''; $i = $_GET['i'] ?? '';
     if (!isset($allowed[$s])) fail(403, "service '$s' is not an installed add-in's");
     if (!name_ok($v)) fail(400, 'variable needed');
     if (isset($_GET['after'])) {
+        // [RAM_IS_SAID_V1] a held read for a page that was on another RAM manager: answered at once, with where it is now
+        if (isset($_GET['ram']) && $_GET['ram'] !== '' && $_GET['ram'] !== $where) { echo json_encode(['ok' => true, 'rows' => [], 'ram' => $where]); exit; }
         $wait = max(0, min(25, intval($_GET['wait'] ?? 25)));
-        echo ram($env, ['read', $s, $v, $i, intval($_GET['after']), $wait]);
+        echo said(ram($env, ['read', $s, $v, $i, intval($_GET['after']), $wait]), $where);
     } else {
-        echo ram($env, $i === '' ? ['read', $s, $v] : ['read', $s, $v, $i]);
+        echo said(ram($env, $i === '' ? ['read', $s, $v] : ['read', $s, $v, $i]), $where);
     }
 } elseif ($op === 'write' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $in = json_decode(file_get_contents('php://input'), true);
@@ -43,7 +52,7 @@ if ($op === 'read') {
     if (!isset($allowed[$in['s'] ?? ''])) fail(403, "service '" . ($in['s'] ?? '') . "' is not an installed add-in's");
     if (!name_ok($in['v'] ?? null) || !name_ok($in['i'] ?? null)) fail(400, 'variable and instance needed');
     if (!is_array($in['bag'] ?? null)) fail(400, 'bag must be an object');
-    echo ram($env, ['write', $in['s'], $in['v'], $in['i'], json_encode($in['bag'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
+    echo said(ram($env, ['write', $in['s'], $in['v'], $in['i'], json_encode($in['bag'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]), $where);
 } elseif ($op === 'announce' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $node = gethostname();
     $list = []; foreach ($apps['apps'] as $a) $list[] = ['id' => $a['id'], 'title' => $a['title'], 'version' => $a['version'], 'page' => $a['page']];

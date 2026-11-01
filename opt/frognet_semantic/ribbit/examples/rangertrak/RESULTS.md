@@ -54,6 +54,12 @@ Chromium (scribe A at post A, scribe B at post B, a field phone on post A):
 | A ranger added at B, in A's callsign list | 58 ms; B's roster shows when it was last heard |
 | The ICS-309 at A | 54 entries in write order, number, mark, callsign with the ranger's name |
 | The map at B | each callsign at its newest position; a new position logged at A moves B's marker in 236 ms |
+| Post B's uplink cut (its system space on its own LAN RAM manager) | B keeps logging, its 27 own entries on its own RAM; A does not see B's new ones |
+| B's uplink back (the region's RAM again) | B's cut-off entries on A in 7.1-7.5 s; A's entry from the cut on B; 58 rows on both |
+
+How the cut is survived: each answer from `ram.php` says which RAM manager the node is on; a page that sees it change
+reads everything there and writes this device's own entries again where they are missing (memory is never moved; each
+owner writes its own). A held read lasts at most 8 s, the longest a page stays on a RAM manager its node has left.
 
 Stock RangerTrak's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
 Not yet in the app: offline basemap areas, Messages (213), Summary, After-action (214), the 213 form, the post's 309 file, the

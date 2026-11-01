@@ -65,11 +65,13 @@ $('#startMission').onclick = async () => {
   open({ id, name, opPeriod: op }); say('')
 }
 $('#entry').onsubmit = async (ev) => {
-  ev.preventDefault(); const m = RT.currentMission()
+  ev.preventDefault(); window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
+const m = RT.currentMission()
   if (!m) { say('choose or start a mission first'); return }
-  const f = ev.target
-  try { const b = await RT.logEntry(m, entries, { callsign: f.callsign.value, status: f.status.value, location: f.location.value, notes: f.notes.value })
-        say('logged ' + D.msgNoShort(b.msgNo)); f.callsign.value = ''; f.notes.value = ''; f.location.value = ''; f.callsign.focus() }
-  catch (e) { say('not logged: ' + e.message) }
+  const f = ev.target, typed = { callsign: f.callsign.value, status: f.status.value, location: f.location.value, notes: f.notes.value }
+  f.callsign.value = ''; f.notes.value = ''; f.location.value = ''; f.callsign.focus()   // the scribe types the next one now
+  try { const b = await RT.logEntry(m, entries, typed); say('logged ' + D.msgNoShort(b.msgNo) + ' (' + typed.callsign + ')') }
+  catch (e) { say('not logged (' + typed.callsign + '): ' + e.message)
+              if (!f.callsign.value) { f.callsign.value = typed.callsign; f.notes.value = typed.notes; f.location.value = typed.location } }
 }
 </script></body></html>

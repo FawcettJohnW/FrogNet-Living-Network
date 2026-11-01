@@ -21,24 +21,48 @@ async function call(url, opts) {
   if (!r.ok || j.ok === false) throw new Error(j.why ? j.why + (j.output ? ': ' + j.output : '') : 'HTTP ' + r.status)
   return j
 }
-export async function read(s, v, after, wait) {
-  const o = { op: 'read', s, v }; if (after !== undefined) { o.after = after; o.wait = wait ?? 25 }
-  return (await call(RAM + '?' + q(o))).rows || []
+async function readJ(s, v, after, wait, ram) {
+  const o = { op: 'read', s, v }; if (after !== undefined) { o.after = after; o.wait = wait ?? 25; if (ram) o.ram = ram }
+  return call(RAM + '?' + q(o))
 }
+export async function read(s, v, after, wait) { return (await readJ(s, v, after, wait)).rows || [] }
+
+// [OWN_TRUTH_AGAIN_V1] what this device wrote, per (service, variable): written again wherever the node's RAM manager is
+// now, when a read finds it missing there (ORGANIZATIONS.md section 6: memory is never moved; each owner writes its own)
+const own = new Map()
+function keep(s, v, i, bag) { const k = s + '\u0000' + v; if (!own.has(k)) own.set(k, new Map()); own.get(k).set(i, bag) }
 export async function write(s, v, i, bag) {
-  return call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, v, i, bag }) })
+  const b = { ...bag, dev: device().id }
+  const j = await call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, v, i, bag: b }) })
+  keep(s, v, i, b); return j
+}
+const note = (t) => (window.RT_NOTE || console.log)(t)                  // a page sets RT_NOTE to show it
+async function again(s, v, cells) {
+  const me = device().id, mine = own.get(s + '\u0000' + v) || new Map()
+  for (const r of cells.values()) if (r.bag && r.bag.dev === me && !mine.has(r.instance)) keep(s, v, r.instance, r.bag)
+  const missing = [...(own.get(s + '\u0000' + v) || new Map())].filter(([i]) => !cells.has(i))
+  for (const [i, bag] of missing) await call(RAM + '?op=write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ s, v, i, bag }) })
+  if (missing.length) note('this device\'s own ' + missing.length + ' written again (' + s + ', on ' + (cells.ram || 'the RAM it is on now') + ')')
 }
 
 // every cell of s.v now, then each newer one as it is written: held reads, no polling. onChange(Map instance -> row).
-// A failed read is said and the read is made again (the node's RAM manager may be moving: ORGANIZATIONS.md section 6).
+// [RAM_IS_SAID_V1] the node says which RAM manager each answer came from; when that changes (or a read failed: it may be
+// moving) everything is read again there, and this device's own cells that are missing are written again.
+// a held read lasts at most HOLD_S: the longest a page stays on a RAM manager its node has left (a held read on it cannot
+// know); 8 s keeps "every screen again within seconds" of a post's uplink coming back
+const HOLD_S = 8
 export function watch(s, v, onChange, onError) {
-  const cells = new Map(); let after = 0; let stopped = false
+  let cells = new Map(), after = 0, stopped = false, ram = null, full = true
   const take = (rows) => { for (const r of rows) { after = Math.max(after, r.id); const o = cells.get(r.instance); if (!o || o.id < r.id) cells.set(r.instance, r) } }
   ;(async () => {
-    for (;;) { try { take(await read(s, v)); onChange(cells); break } catch (e) { (onError || console.error)(e); await new Promise(r => setTimeout(r, 2000)) } }
     while (!stopped) {
-      try { const rows = await read(s, v, after, 25); if (rows.length) { take(rows); onChange(cells) } }
-      catch (e) { (onError || console.error)(e); await new Promise(r => setTimeout(r, 2000)) }
+      try {
+        const j = full ? await readJ(s, v) : await readJ(s, v, after, HOLD_S, ram)
+        if (!full && j.ram && ram && j.ram !== ram) { full = true; continue }      // the node moved: read everything there
+        if (full) { cells = new Map(); after = 0; ram = j.ram || ram; take(j.rows || []); onChange(cells); full = false
+                    cells.ram = ram; await again(s, v, cells) }
+        else if ((j.rows || []).length) { take(j.rows); onChange(cells) }
+      } catch (e) { (onError || console.error)(e); full = true; await new Promise(r => setTimeout(r, 2000)) }
     }
   })()
   return () => { stopped = true }

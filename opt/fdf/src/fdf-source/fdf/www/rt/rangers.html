@@ -15,6 +15,7 @@
 <script type="module">
 import * as RT from './rt.js'
 const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
 const m = RT.currentMission()
 let roster = new Map(), log = new Map()
 function draw() {

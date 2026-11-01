@@ -16,6 +16,7 @@
 <script type="module">
 import * as RT from './rt.js'
 const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = (t) => { const e = document.querySelector('#say'); if (e) e.textContent = t }
 const m = RT.currentMission()
 const map = L.map('map').setView([47.6, -122.3], 9), markers = new Map()
 const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' })

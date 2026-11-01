@@ -20,6 +20,9 @@
 #   8  a ranger added on B's Rangers page: in A's callsign list, and B's roster shows when it was last heard
 #   9  the ICS-309 at post A: every entry from every device in write order, with its number and mark
 #   10 the map at B: each callsign at its newest position; A logs W7ABC somewhere new and B's map moves it
+#   11 post B's uplink cut (its system space on its own LAN RAM manager): B keeps logging and keeps its own entries; A
+#      keeps A's. B's uplink back (on the region's RAM again): B's page sees the move, writes its own again, and A has
+#      every one of B's entries -- nothing merged, restored or sent
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
@@ -34,25 +37,36 @@ def free():
     s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
 
 T = tempfile.mkdtemp(prefix="rt-pages-")
-RAMP = free(); RAM = "127.0.0.1:%d" % RAMP
-os.makedirs(T + "/bin"); os.makedirs(T + "/www/dc"); shutil.copytree(HERE, T + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
+os.makedirs(T + "/bin")
 for b in ("ram", "rina-host"): shutil.copy(os.path.join(B, b), T + "/bin/")
-shutil.copy(os.path.join(DC, "ram.php"), T + "/www/dc/")
-VL = os.path.join(HERE, "..", "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet")    # the node's own Leaflet
-for cand in (VL, os.path.join(HERE, "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet"), "/var/www/html/vendor/leaflet"):
-    if os.path.isdir(cand): shutil.copytree(cand, T + "/www/vendor/leaflet"); break
-json.dump({"apps": [{"id": "rangertrak", "title": "Radio log", "version": "1", "page": "../rt/log.html",
-                     "services": ["rt-mission", "rt-log", "rt-handled", "rt-roster"]}]}, open(T + "/www/dc/apps.json", "w"))
-open(T + "/fdf.env", "w").write("export FDF_BIN=%s/bin RINA_RAM=%s\n" % (T, RAM))
 procs = []
-procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", RAM, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
-                              env=dict(os.environ, RINA_REGION_FILE=T + "/area.perm", RINA_NET_CONFIG=T + "/none"),
-                              stdout=subprocess.DEVNULL, stderr=open(T + "/host.log", "w")))
+def ram_host(name):
+    port = free(); addr = "127.0.0.1:%d" % port
+    procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", addr, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
+                                  env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none"),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/host-%s.log" % name, "w")))
+    return addr
+RAM = ram_host("region")          # the region's RAM manager: every post's system space is on it
+RAM_B_LAN = ram_host("b-lan")     # post B's own LAN RAM manager: where B's system space goes when B's uplink is cut
+VL = None
+for cand in (os.path.join(HERE, "..", "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet"),
+             os.path.join(HERE, "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet"), "/var/www/html/vendor/leaflet"):
+    if os.path.isdir(cand): VL = cand; break
 posts = {}
+def on(post, ram):                # what the post's tunnel daemon writes when its system space moves (system-ram.env)
+    open(T + "/%s/now.env" % post, "w").write("RINA_RAM=%s\n" % ram)
 for name in ("A", "B"):
+    R = T + "/" + name; os.makedirs(R + "/www/dc")
+    shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
+    if VL: shutil.copytree(VL, R + "/www/vendor/leaflet")
+    shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
+    json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html",
+                         "services": ["rt-mission", "rt-log", "rt-handled", "rt-roster"]}]}, open(R + "/www/dc/apps.json", "w"))
+    open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin\n. %s/now.env; export RINA_RAM\n" % (T, R)); on(name, RAM)
     p = free(); posts[name] = "http://127.0.0.1:%d/rt/log.html" % p
     # PHP_CLI_SERVER_WORKERS: the built-in server is one process otherwise, and a held read would hold every page
-    procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", T + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"), stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % name, "w")))
+    procs.append(subprocess.Popen(["php", "-S", "127.0.0.1:%d" % p, "-t", R + "/www"], env=dict(os.environ, PHP_CLI_SERVER_WORKERS="16"),
+                                  stdout=subprocess.DEVNULL, stderr=open(T + "/php-%s.log" % name, "w")))
 time.sleep(1.0)
 try:
     with sync_playwright() as pw:
@@ -156,6 +170,28 @@ try:
             time.sleep(0.02)
         check(len(m1) == 2 and nmk == 2 and m2 and m2[0][1].startswith("47.70000") and m2[0][4] == "A028",
               "10 B's map: %d callsigns, %d markers; W7ABC moved on B in %d ms: %s" % (len(m1), nmk, (time.time() - t0) * 1000, m2[0] if m2 else None))
+        # 11
+        on("B", RAM_B_LAN); time.sleep(0.3)
+        log(b, "N7CUT", notes="while cut 1")             # the write after the move: the page reads everything there first
+        t0 = time.time(); ok = False
+        while time.time() - t0 < 40:
+            rb = rows(b)
+            if any(x[3] == "N7CUT" for x in rb) and sum(1 for x in rb if x[7] == "scribe-b") >= 27: ok = True; break
+            time.sleep(0.1)
+        cut_rows = rows(b)
+        log(b, "N7CUT", notes="while cut 2"); log(a, "W7AAA", notes="A during the cut")
+        time.sleep(1.0)
+        a_has_cut = any(x[3] == "N7CUT" for x in rows(a))
+        check(ok and not a_has_cut, "11 B cut off: B logs on its own RAM and keeps its %d own entries (%d rows there); A does not see the cut-off entries yet"
+              % (sum(1 for x in cut_rows if x[7] == "scribe-b"), len(cut_rows)))
+        on("B", RAM); t0 = time.time(); ok = False
+        while time.time() - t0 < 60:
+            ra = rows(a)
+            if sum(1 for x in ra if x[3] == "N7CUT") >= 2: ok = True; break
+            time.sleep(0.1)
+        dt = time.time() - t0
+        rb = rows(b)
+        check(ok and any(x[3] == "W7AAA" for x in rb), "11 B's uplink back: both cut-off entries on A %.1f s later; A's entry from the cut on B; %d rows on A, %d on B" % (dt, len(rows(a)), len(rb)))
         br.close()
 finally:
     for p in procs: p.kill()
