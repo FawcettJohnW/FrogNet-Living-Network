@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#                                                              #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+#                                                              #
+#  This program is free software; you can redistribute it      #
+#  and/or modify it under the terms of the GNU General Public  #
+#  License as published by the Free Software Foundation;       #
+#  version 2 of the License, and no other version.             #
+#                                                              #
+#  This program is distributed in the hope that it will be     #
+#  useful, but WITHOUT ANY WARRANTY; without even the implied  #
+#  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR     #
+#  PURPOSE.  See the GNU General Public License for details.   #
+#                                                              #
+#  See COPYRIGHT and LICENSE at the root of this tree.         #
+################################################################
+"""fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
+
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail]
+        what the admin app writes: the app's configuration tuple in the network RAM, (fdf-app, config, APP), naming
+        its RAMs (the general RAM and one per team). Read by every member.
+  fdf-app where APP RAM
+        print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
+  fdf-app serve
+        on a member: for every app installed here (FDF_APPS/<app>.json), say so as a capability tuple; on every event
+        (a held read on the fdf-app family, and fdf-events for who is alive) run each app RAM's selection over the alive
+        members that have the app; serve the RAMs this member is chosen for (rina-host, a child of this process) and say
+        so in this member's where cell; stop serving the ones it is not.
+
+The selection is the app's, deterministic, over the capability tuples: every member computes the same answer from the
+same tuples, so nothing is negotiated, claimed or held. The default (an app's manifest names no other): the alive member
+with the most installed memory, then the most cores, then the highest guid. A stronger member arriving takes the RAM;
+the app's owners write their own truth again to it (APP-SETUP-AND-OPERATION.md, "Why it works this way").
+
+Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (this member's facts.json), FDF_APPS
+(/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
+default this member's .1).
+"""
+import json, os, queue, signal, subprocess, sys, threading, time, zlib
+
+BUILD_TAG = "fdf-app-2026-11-01-r1"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
+sys.path.insert(0, LIB)
+import fdfram  # noqa: E402
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
+BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
+FACTS = os.environ.get("FDF_FACTS", os.path.join(VAR, "facts.json"))
+SVC = "fdf-app"                                   # the family in the network RAM: config/<app>, can/<app>.<guid>
+
+
+def log(m):
+    print("[fdf-app] " + m, flush=True)
+
+
+def ram():
+    return fdfram.Ram(fdfram.where())
+
+
+def facts():
+    with open(FACTS) as f:
+        return json.load(f)
+
+
+def dot1(f):
+    for r in f.get("addrs") or []:
+        if r.get("kind") == "own" and str(r.get("ip", "")).endswith(".1"):
+            return r["ip"]
+    return ""
+
+
+def where_key(app, r):
+    return "%s.%s" % (app, r)
+
+
+def port_of(app, r):
+    """the port APP's RAM r is served on, the same on every member (no port to agree on)"""
+    return 21000 + zlib.crc32(where_key(app, r).encode()) % 8000
+
+
+# ---------------------------------------------------------------- the selection
+def select_default(cands):
+    """cands: [(guid, can-bag)] of the alive members that have the app. The app's default selection."""
+    def rank(c):
+        g, b = c
+        return (int(b.get("mem_total_kb") or 0), int(b.get("cores") or 0), g)
+    return max(cands, key=rank)[0] if cands else None
+
+
+def choose(app, rams, parts, cans):
+    """{ram: guid}: who serves each of APP's RAMs, from the alive members and the capability tuples."""
+    alive = {(p.get("facts") or {}).get("guid") for p in parts if p.get("alive")}
+    cands = [(g, b) for g, b in cans.get(app, {}).items() if g in alive]
+    return {r: select_default(cands) for r in rams}
+
+
+# ---------------------------------------------------------------- reading the network RAM
+def read_family(rm):
+    """(configs {app: bag}, cans {app: {guid: bag}}, last id)"""
+    cfg, cans, last = {}, {}, -1
+    for c in rm.read(SVC):
+        last = max(last, int(c.get("id", -1)))
+        v, i, b = c.get("variable"), c.get("instance", ""), c.get("bag") or {}
+        if v == "config":
+            cfg[i] = b
+        elif v == "can" and "." in i:
+            a, g = i.split(".", 1)
+            cans.setdefault(a, {})[g] = b
+    return cfg, cans, last
+
+
+def resolve(parts, guid):
+    for p in parts:
+        f = p.get("facts") or {}
+        if p.get("alive") and f.get("guid") == guid:
+            return dot1(f)
+    return ""
+
+
+def where(app, r, rm=None):
+    rm = rm or ram()
+    parts = rm.participants()
+    k = where_key(app, r)
+    for c in rm.read("pond", "where"):
+        e = (c.get("bag") or {}).get(k)
+        if isinstance(e, dict) and str(e.get("ram", "")).startswith("w:"):
+            _, g, port = e["ram"].split(":")
+            h = resolve(parts, g)
+            if h:
+                return "%s:%s" % (h, port)
+    return ""
+
+
+# ---------------------------------------------------------------- serving
+class Server:
+    def __init__(self):
+        self.f = facts()
+        self.me = self.f.get("guid")
+        self.listen = os.environ.get("FDF_APP_LISTEN") or dot1(self.f)
+        self.procs = {}                      # (app, r) -> Popen
+        self.events = queue.Queue()
+        self.rm = ram()
+        self.said = set()                    # where keys this member has said
+
+    def installed(self):
+        out = []
+        try:
+            for n in sorted(os.listdir(APPS)):
+                if n.endswith(".json"):
+                    out.append(n[:-5])
+        except FileNotFoundError:
+            pass
+        return out
+
+    def say_can(self):
+        cap = self.f.get("capability") or {}
+        for a in self.installed():
+            self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
+                          {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
+            log("can serve %s (capability tuple written)" % a)
+
+    def start(self, app, r):
+        p = self.procs.get((app, r))
+        if p is not None and p.poll() is None:
+            return
+        port = port_of(app, r)
+        env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)))
+        env.pop("RINA_MAP_AREA", None)
+        self.procs[(app, r)] = subprocess.Popen(
+            [os.path.join(BIN, "rina-host"), "--listen", "%s:%d" % (self.listen, port), "--api", fdfram.API],
+            env=env, stdout=subprocess.DEVNULL, stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
+        log("serving %s's RAM %s on %s:%d (pid %d)" % (app, r, self.listen, port, self.procs[(app, r)].pid))
+
+    def stop(self, app, r):
+        p = self.procs.pop((app, r), None)
+        if p is not None and p.poll() is None:
+            p.terminate()
+            try:
+                p.wait(5)
+            except subprocess.TimeoutExpired:
+                p.kill()
+            log("no longer serving %s's RAM %s" % (app, r))
+        k = where_key(app, r)
+        if k in self.said:
+            self._where([k, "--clear"])
+            self.said.discard(k)
+
+    def _where(self, args):
+        r = subprocess.run([os.path.join(BIN, "fdf-where")] + args, env=dict(os.environ, FDF_FACTS=FACTS),
+                           capture_output=True, text=True, timeout=10)
+        if r.returncode != 0:
+            log("fdf-where %s failed: %s" % (" ".join(args), (r.stderr or r.stdout).strip()[:200]))
+        return r.returncode == 0
+
+    def mine_in_where(self):
+        for c in self.rm.read("pond", "where", "w:" + self.me):
+            return set(k for k in (c.get("bag") or {}) if k != "from")
+        return set()
+
+    def decide(self, why):
+        t0 = time.monotonic()
+        try:
+            parts = self.rm.participants()
+            cfg, cans, _ = read_family(self.rm)
+        except fdfram.RamError as e:
+            log("the network RAM did not answer (%s); the next event decides again" % e)
+            return
+        here = set(self.installed())
+        want = set()
+        for app, c in cfg.items():
+            if app not in here:
+                continue
+            for r, g in choose(app, list(c.get("rams") or []), parts, cans).items():
+                if g == self.me:
+                    want.add((app, r))
+        for k in list(self.procs):
+            if k not in want:
+                self.stop(*k)
+        listed = self.mine_in_where()
+        for app, r in sorted(want):
+            self.start(app, r)
+            k = where_key(app, r)
+            if k not in listed:
+                if self._where([k, "ram=self:%d" % port_of(app, r)]):
+                    self.said.add(k)
+                    log("%s: %s's RAM %s is here (where cell written) %d ms after the event"
+                        % (why, app, r, int((time.monotonic() - t0) * 1000)))
+
+    def watch_family(self):
+        last = -1
+        while True:
+            try:
+                cs = self.rm.read(SVC, after=last, wait_s=25)
+                if cs:
+                    last = max(int(c.get("id", -1)) for c in cs)
+                    self.events.put("tuples")
+            except fdfram.RamError as e:
+                log("held read on %s ended (%s); again in 1 s" % (SVC, e))
+                time.sleep(1)
+
+    def watch_members(self):
+        while True:
+            p = subprocess.Popen([os.path.join(BIN, "fdf-events")], stdout=subprocess.PIPE, text=True,
+                                 env=dict(os.environ, FDF_FACTS=FACTS))
+            for line in p.stdout:
+                self.events.put("member: " + line.strip()[:80])
+            p.wait()
+            log("fdf-events ended (rc %s); again in 1 s" % p.returncode)
+            self.events.put("events ended")
+            time.sleep(1)
+
+    def run(self):
+        log("build %s; member %s; droplets listen on %s; apps here: %s"
+            % (BUILD_TAG, self.me, self.listen, ", ".join(self.installed()) or "none"))
+        self.say_can()
+        threading.Thread(target=self.watch_family, daemon=True).start()
+        threading.Thread(target=self.watch_members, daemon=True).start()
+        self.decide("start")
+        while True:
+            why = self.events.get()
+            while not self.events.empty():           # a burst is one decision, on the newest state
+                why = self.events.get()
+            self.decide(why)
+
+    def shutdown(self, *_):
+        for k in list(self.procs):
+            self.stop(*k)
+        sys.exit(0)
+
+
+def main(argv):
+    if len(argv) >= 3 and argv[1] == "config":
+        rams = [r for r in argv[3].split(",") if r] if len(argv) > 3 else []
+        part = argv[argv.index("--partition") + 1] if "--partition" in argv else "relocate"
+        if not rams or part not in ("relocate", "fail"):
+            print(__doc__); return 2
+        ram().write(SVC, "config", argv[2], {"app": argv[2], "rams": rams, "partition": part}, permanent=True)   # the admin's: it outlives a restart
+        print("fdf-app: %s's RAMs %s (%s) written" % (argv[2], ",".join(rams), part)); return 0
+    if len(argv) == 4 and argv[1] == "where":
+        print(where(argv[2], argv[3])); return 0
+    if len(argv) == 2 and argv[1] == "serve":
+        s = Server()
+        signal.signal(signal.SIGTERM, s.shutdown)
+        signal.signal(signal.SIGINT, s.shutdown)
+        s.run(); return 0
+    print(__doc__); return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
