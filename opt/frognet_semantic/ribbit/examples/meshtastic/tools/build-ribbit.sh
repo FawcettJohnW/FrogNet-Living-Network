@@ -21,5 +21,18 @@ echo "  compile mt_ribbit.cpp"; $CXX $F "-DMTR_FRONT_VERSION=\"$(cat VERSION)\""
 rm -f lib/libmtribbit.a; ar rcs lib/libmtribbit.a obj/mt_ribbit.o obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o
 echo "  link meshtastic-ram"; $CXX $F ribbit/meshtastic_ram.cpp obj/ram_host.o obj/lf_ebr.o obj/frogram.o -o bin/meshtastic-ram -llz4 -lcrypto
 echo "  link mtr-probe (harness)"; $CXX $F harness/mtr_probe.cpp lib/libmtribbit.a -o bin/mtr-probe -llz4 -lcrypto
+# [MT_APP_LIBRARY_V1] the app-facing library: mesh_app on libmtribbit, with nanopb and the Meshtastic protobufs it decodes
+NP=/home/claude/mesh/fwb/.pio/libdeps/native/Nanopb
+if [ -d "$NP" ]; then
+  G="-std=c++20 -O2 -fPIC -w -DPB_ENABLE_MALLOC=1 -DPB_VALIDATE_UTF8=1 -I$NP -I$EX/front/src/mesh/generated -I$EX/ribbit -I$P/include"
+  for s in pb_common pb_decode pb_encode; do $CXX $G -x c++ -c "$NP/$s.c" -o "obj/np_$s.o"; done
+  for s in mesh portnums telemetry channel config module_config device_ui field_metadata xmodem; do
+    $CXX $G -c "$EX/front/src/mesh/generated/meshtastic/$s.pb.cpp" -o "obj/pb_$s.o"; done
+  echo "  compile mesh_app.cpp"; $CXX $G -Wall -Wextra -Wno-unused-parameter -c ribbit/mesh_app.cpp -o obj/mesh_app.o
+  rm -f lib/libmeshapp.a; ar rcs lib/libmeshapp.a obj/mesh_app.o obj/np_*.o obj/pb_*.o obj/mt_ribbit.o obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o
+  echo "  link mesh-app-demo"; $CXX $G harness/mesh_app_demo.cpp lib/libmeshapp.a -o bin/mesh-app-demo -llz4 -lcrypto -lpthread
+else
+  echo "  (nanopb not at $NP: mesh_app not built)"
+fi
 echo "  link mtx (coordination cells)"; $CXX $F harness/mtx.cpp obj/ribbit_space.o obj/frogram.o obj/ram_host.o obj/lf_ebr.o -o bin/mtx -llz4 -lcrypto
 echo "build-ribbit PASS ($(bin/meshtastic-ram --version 2>/dev/null | head -1))"
