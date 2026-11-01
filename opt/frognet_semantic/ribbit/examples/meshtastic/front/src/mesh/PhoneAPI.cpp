@@ -2323,6 +2323,13 @@ void PhoneAPI::prefetchNodeInfosFromCells()
             info.last_heard = t;
             info.has_hops_away = true;
             info.hops_away = 0;
+            // [MT_PEER_MARKS_V1] our marks on this peer, from our own cell on it
+            if (const meshtastic_NodeInfoLite *lite = nodeDB->getMeshNode(node)) {
+                info.is_favorite = nodeInfoLiteIsFavorite(lite);
+                info.is_ignored = nodeInfoLiteIsIgnored(lite);
+                info.is_key_manually_verified = nodeInfoLiteIsKeyManuallyVerified(lite);
+                info.is_muted = nodeInfoLiteIsMuted(lite);
+            }
             static_cast<std::vector<meshtastic_NodeInfo> *>(ctx)->push_back(info);
         },
         &got);

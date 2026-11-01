@@ -50,6 +50,9 @@ const char *mtr_front_version(void);
 // "tel.<variant>", "status". payload: the protobuf the node would put on the air for it (User, Position, Telemetry,
 // StatusMessage). Returns at once.
 void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, size_t len);
+// [MT_PEER_MARKS_V1] The same, for a fact that outlives the writer's session (a mark on a peer -- favorite, ignored --
+// is the node's standing opinion, not its presence): said once per topic, before its first write.
+void mtr_write_fact_kept(const char *topic, uint32_t node, const uint8_t *payload, size_t len);
 // [MT_OWN_FACTS_ON_CHANGE_V1] The owner no longer has this fact (a fixed position removed): the cell stays the owner's
 // but carries no payload. Readers see no cell; the held read hands it over as gone. Returns at once.
 void mtr_clear_fact(const char *topic, uint32_t node);

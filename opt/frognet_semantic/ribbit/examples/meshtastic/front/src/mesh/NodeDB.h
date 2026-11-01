@@ -982,10 +982,22 @@ inline bool nodeInfoLiteIsProtected(const meshtastic_NodeInfoLite *n)
     return nodeInfoLiteIsFavorite(n) || nodeInfoLiteIsIgnored(n) || nodeInfoLiteIsKeyManuallyVerified(n);
 }
 
+#ifdef ARCH_PORTDUINO
+void mtSetPeerMark(meshtastic_NodeInfoLite *n, uint32_t mask, bool value); // [MT_PEER_MARKS_V1] NodeDB.cpp
+#endif
 inline void nodeInfoLiteSetBit(meshtastic_NodeInfoLite *n, uint32_t mask, bool value)
 {
     if (!n)
         return;
+#ifdef ARCH_PORTDUINO
+    // [MT_PEER_MARKS_V1] favorite, ignored, muted, key verified on another node: this node's own cell on that peer
+    if (n->num != myNodeInfo.my_node_num &&
+        (mask & (NODEINFO_BITFIELD_IS_FAVORITE_MASK | NODEINFO_BITFIELD_IS_IGNORED_MASK | NODEINFO_BITFIELD_IS_MUTED_MASK |
+                 NODEINFO_BITFIELD_IS_KEY_MANUALLY_VERIFIED_MASK))) {
+        mtSetPeerMark(n, mask, value);
+        return;
+    }
+#endif
     if (value)
         n->bitfield |= mask;
     else

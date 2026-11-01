@@ -78,22 +78,77 @@ bool otherNodeOnMemory(NodeNum n)
 thread_local meshtastic_NodeInfoLite cellNodes[8];
 thread_local unsigned cellNext = 0;
 
-meshtastic_NodeInfoLite *nodeFromCell(NodeNum n)
+// [MT_PEER_MARKS_V1] What this node says about a peer -- favorite, ignored, muted, key manually verified -- is this
+// node's own fact, not the peer's: (mtf, peer.<peer>, !me) = {"m": <bitfield of those marks>}. The peer's cell is the
+// peer's; our marks on it are ours, and they outlive the peer's session (a block sticks for a node not heard yet).
+constexpr uint32_t PEER_MARKS = NODEINFO_BITFIELD_IS_FAVORITE_MASK | NODEINFO_BITFIELD_IS_IGNORED_MASK |
+                                NODEINFO_BITFIELD_IS_MUTED_MASK | NODEINFO_BITFIELD_IS_KEY_MANUALLY_VERIFIED_MASK;
+std::string peerTopic(NodeNum n)
+{
+    char b[24];
+    snprintf(b, sizeof b, "peer.%08x", (unsigned)n);
+    return b;
+}
+uint32_t peerMarks(NodeNum n)
+{
+    uint8_t buf[16];
+    size_t len = 0;
+    uint32_t t = 0;
+    if (!mtr_read_cell(peerTopic(n).c_str(), myNodeInfo.my_node_num, buf, sizeof buf, &len, &t) || len != 4)
+        return 0;
+    uint32_t m;
+    memcpy(&m, buf, 4);
+    return m & PEER_MARKS;
+}
+void writePeerMarks(NodeNum n, uint32_t marks)
+{
+    marks &= PEER_MARKS;
+    uint8_t buf[4];
+    memcpy(buf, &marks, 4);
+    if (marks)
+        mtr_write_fact_kept(peerTopic(n).c_str(), myNodeInfo.my_node_num, buf, 4); // kept past this session
+    else
+        mtr_clear_fact(peerTopic(n).c_str(), myNodeInfo.my_node_num); // no marks: no cell
+    LOG_INFO("[MT_RIBBIT] marks on peer !%08x: favorite=%d ignored=%d muted=%d key_verified=%d", (unsigned)n,
+             !!(marks & NODEINFO_BITFIELD_IS_FAVORITE_MASK), !!(marks & NODEINFO_BITFIELD_IS_IGNORED_MASK),
+             !!(marks & NODEINFO_BITFIELD_IS_MUTED_MASK), !!(marks & NODEINFO_BITFIELD_IS_KEY_MANUALLY_VERIFIED_MASK));
+}
+
+// the peer as a NodeInfoLite for this call: its user cell (absent: nothing but its number, when `evenIfAbsent`) with
+// our marks on it merged in
+meshtastic_NodeInfoLite *nodeFromCell(NodeNum n, bool evenIfAbsent = false)
 {
     meshtastic_User u = meshtastic_User_init_zero;
     uint32_t t = 0;
-    if (!readCellAs("user", n, &meshtastic_User_msg, &u, &t))
+    bool present = readCellAs("user", n, &meshtastic_User_msg, &u, &t);
+    uint32_t marks = peerMarks(n);
+    if (!present && !(evenIfAbsent || marks))
         return nullptr;
     meshtastic_NodeInfoLite *lite = &cellNodes[cellNext++ % 8];
     *lite = meshtastic_NodeInfoLite_init_zero;
     lite->num = n;
-    TypeConversions::CopyUserToNodeInfoLite(lite, u);
-    lite->last_heard = t;
-    lite->has_hops_away = true; // on the memory every node is direct
-    lite->hops_away = 0;
+    if (present) {
+        TypeConversions::CopyUserToNodeInfoLite(lite, u);
+        lite->last_heard = t;
+        lite->has_hops_away = true; // on the memory every node is direct
+        lite->hops_away = 0;
+    }
+    lite->bitfield |= marks;
     return lite;
 }
 } // namespace
+
+// [MT_PEER_MARKS_V1] a mark set on a peer's NodeInfoLite (a copy built for this call) is written as this node's own
+// cell on that peer, and the copy updated so the caller sees it
+void mtSetPeerMark(meshtastic_NodeInfoLite *n, uint32_t mask, bool value)
+{
+    if (!n || !(mask & PEER_MARKS) || n->num == myNodeInfo.my_node_num)
+        return;
+    uint32_t marks = peerMarks(n->num);
+    marks = value ? (marks | mask) : (marks & ~mask);
+    writePeerMarks(n->num, marks);
+    n->bitfield = (n->bitfield & ~PEER_MARKS) | marks;
+}
 #endif
 #include <power/PowerHAL.h>
 #include <vector>
@@ -4253,6 +4308,12 @@ bool NodeDB::setProtectedFlag(meshtastic_NodeInfoLite *node, uint32_t mask, bool
 {
     if (!node)
         return false;
+#ifdef ARCH_PORTDUINO
+    if (node->num != getNodeNum()) { // [MT_PEER_MARKS_V1] our mark on a peer: our own cell, no slot to protect
+        mtSetPeerMark(node, mask, on);
+        return true;
+    }
+#endif
     if (!on) {
         nodeInfoLiteSetBit(node, mask, false);
         return true;
@@ -4761,7 +4822,7 @@ meshtastic_NodeInfoLite *NodeDB::getOrCreateMeshNode(NodeNum n)
     // [MT_OTHER_NODES_ARE_CELLS_V1] no entry is created for another node: what it is lives in its cell, and what we
     // would note about it (a signer bit, a key learned from a packet) is not ours to keep
     if (otherNodeOnMemory(n))
-        return nodeFromCell(n);
+        return nodeFromCell(n, true);
 #endif
     meshtastic_NodeInfoLite *lite = getMeshNode(n);
 

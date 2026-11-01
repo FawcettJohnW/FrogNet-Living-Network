@@ -341,3 +341,34 @@ The last three rows are behaviour to carry, not drop: favorite, pinned key and m
 table's (mt, peer, !me.!N), the marking node's own cells — not yet built (Phase 2, next). The rest test code that no
 longer runs; with the gates gone the native suites stop being the arbiter for it, and the contract's proof is step 4,
 smokevirt and the coordinated multi-machine run. No crash, no sanitizer finding in the run.
+
+## Marks on a peer [MT_PEER_MARKS_V1]
+
+The three native-suite rows that were behaviour to carry (favorite, pinned/verified key, muted) plus ignored: the
+marking node's own cell (mtf, peer.<N>, !me) = bitfield, kept past the session; merged into the peer's NodeInfoLite on
+every read, written when a mark bit is set on a remote node.
+
+| check (two nodes on one memory) | result |
+|---|---|
+| `--set-favorite-node !B`, `--set-ignored-node !B` at A | A's cell (mtf, peer.<B>, !A) = favorite=1 ignored=1 |
+| A's config dump shows B | isFavorite True, isIgnored True |
+| A restarted | isFavorite True, isIgnored True (the cell is kept) |
+| B broadcasts a text | A's client gets nothing; A's log: "Ignore msg, 0x… is ignored" |
+| step 4 S1–S11 (step4-20261101-112252) | 11/11 |
+| smokevirt (own memory) | 40/40, 342.5 s |
+| native suites | RED, the same 92 as the no-gates run: the three mark tests (favorite, pinned key, muted) still fail because a unit test has no memory for the cell; the marks are proven on live nodes above |
+
+Found on the way: the first form wrote the marks with mtr_write_fact, which is gone with the writer's session —
+right for every other fact, wrong for a standing opinion; mtr_write_fact_kept says STAYS for the topic first.
+
+## The app-facing library [MT_APP_LIBRARY_V1]
+
+`lib/libmeshapp.a` (`ribbit/mesh_app.h`): init with the memory's address or none (its own), the app is a node; nodes
+decoded into structs; held reads as callbacks; text built and encrypted in the library. Against two meshtasticd nodes
+on one memory (2026-11-01):
+
+| check | result |
+|---|---|
+| `mesh-app-demo … nodes` | 3 nodes: the two meshtasticd (short/long name, battery 101%, uptime) and the app itself |
+| a stock client on A broadcasts on LongFast | the app's held read: `TEXT from=!fcc361e8 … "hello from stock A"` (decrypted here) |
+| the app sends on LongFast | node A reads it from msg|8, decrypts it, the stock client gets `('!3efd3536', 'hello from the app')` |

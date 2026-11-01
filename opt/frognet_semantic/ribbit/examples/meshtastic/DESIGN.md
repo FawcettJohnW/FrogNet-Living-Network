@@ -99,7 +99,7 @@ through it. Addresses are (space, variable, instance); `!N` is a node number.
 | admin session passkey | node B | (mt, passkey, !B) | latest | requesters' edges | — | — |
 | waypoint | the creating node | (mt, wp, !N.<id>) | latest per id; delete = a withdrawn value, not a removal | every edge | (mt, wp, *) | — |
 | key verification step | each of the two nodes | (mt, kv\|!peer, !me) | latest | the peer | (mt, kv\|!me) → next step, ClientNotification | — |
-| marks on a peer (favourite, ignored, muted) | the marking node | (mt, peer, !me.!N) | latest, permanent | the marking node's edge | — | — |
+| marks on a peer (favorite, ignored, muted, key manually verified) | the marking node | (mtf, peer.<N>, !me) = {bitfield} | latest; kept past the session (linger STAYS) | merged into the peer's NodeInfoLite on every read of it (nodeFromCell), so Router's ignore, the favorite sort and the dump see them unchanged; a block sticks for a node never heard | `[MT_PEER_MARKS_V1]` | setting a mark bit on a remote node writes the cell (nodeInfoLiteSetBit / setProtectedFlag) |
 | liveness, last_heard | — | — | — | — | — | the owner's family exists (session-bound); last_heard = the cell's write time |
 | request replies (position, telemetry, nodeinfo) | — | — | — | — | the requesting edge reads the owner's cell and builds the reply (request_id, from = owner); no cell → NO_RESPONSE | yes |
 
@@ -145,7 +145,15 @@ should not need any of that. The app-facing layer on the same library:
 - send text by channel or to a node, with the packet built and encrypted here;
 - held reads as callbacks; no polling.
 
-Not written yet; a deliverable of its own with its own test, after the distributed side-by-side.
+Written (2026-11-01) as `ribbit/mesh_app.h` / `mesh_app.cpp` → `lib/libmeshapp.a` `[MT_APP_LIBRARY_V1]`, driven by
+`bin/mesh-app-demo`: `mta_init(where|NULL, name)` (the app is a node: its number from its name, its user cell
+written); `mta_nodes` / `mta_node` (user + position + device metrics decoded into a struct); `mta_on_node` (held
+read, each change); `mta_channel(name, psk)` (the hash; 1-byte PSKs expanded as stock does); `mta_on_text` (held
+reads on the channel families and to us, decrypted here); `mta_send_text(hash, to, text)` (the Data and MeshPacket
+built and AES-CTR-encrypted here with stock's nonce). Verified against two meshtasticd nodes: the app lists them with
+metrics, decrypts a stock client's broadcast, and a text it sends is decrypted by the node and delivered to the stock
+client as from the app's node. Not in this layer: PKI direct messages (X25519); an app DM is channel-encrypted, as
+stock sends one without the destination's key.
 
 ## No gates (2026-11-01) `[MT_NO_GATES_V1]`
 
@@ -156,3 +164,12 @@ stock thing left is `RibbitTransport::bridgeToStock` (D8) on the send path; the 
 deleted copy (RESULTS.md has the table); three of them point at "marks on a peer" (favorite, pinned key, muted) which
 are the next Phase 2 step. `ribbitTransport` is a static instance, not running in the unit tests, so no code asks
 whether it exists.
+
+## Marks on a peer (2026-11-01) `[MT_PEER_MARKS_V1]`
+
+Favorite, ignored, muted and key-manually-verified were bits on the remote node's NodeDB entry; with no entry they
+had nowhere to live. They are the marking node's own fact: (mtf, peer.<N>, !me) = the bitfield, kept past the
+session (mtr_write_fact_kept: linger STAYS). nodeFromCell merges them into the NodeInfoLite it builds, so every
+reader is unchanged; nodeInfoLiteSetBit and setProtectedFlag on a remote node write the cell. Verified on two nodes:
+favorite + ignore B from A → A's cell, A's dump shows both, both survive A's restart, B's text is dropped at A
+("Ignore msg, … is ignored"). No marks → the cell is cleared.

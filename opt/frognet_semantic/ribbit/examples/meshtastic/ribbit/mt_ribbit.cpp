@@ -25,7 +25,7 @@
 namespace {
 constexpr const char *SPACE = "mt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.8 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1] [MT_READ_MARKS_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.9 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1] [MT_READ_MARKS_V1] [MT_PEER_MARKS_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -182,6 +182,16 @@ extern "C" void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *
     // t: when the owner wrote it (its own clock, unix seconds). A reader's last_heard is this, never a time it keeps.
     g_space->write(FACTS, topic, node_name(node),
                    "{\"p\":\"" + hex(payload, len) + "\",\"t\":" + std::to_string((long long)time(nullptr)) + "}");
+}
+
+extern "C" void mtr_write_fact_kept(const char *topic, uint32_t node, const uint8_t *payload, size_t len)
+{
+    if (!g_space) return;
+    {
+        std::lock_guard<std::mutex> g(g_held_mu);
+        if (g_linger.insert(std::string("mtf/") + topic).second) g_space->linger(FACTS, topic, ribbit::Space::STAYS);
+    }
+    mtr_write_fact(topic, node, payload, len);
 }
 
 extern "C" void mtr_clear_fact(const char *topic, uint32_t node)
