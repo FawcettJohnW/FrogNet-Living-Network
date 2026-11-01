@@ -51,14 +51,14 @@ other's /24s, and split, heal and merge as links come and go, with no external
 service. This is the LAN-only mode of a node. The node software is
 `opt/frognet_semantic/`, `usr/local/bin/`, `var/www/html/` and `etc/`.
 
-**FD&F (Farinacci, Day & Fawcett) is a different transport.** It makes separate
-machines one application network whose meeting point is a RAM manager every
-participant reaches: each participant opens its own outbound session to the RAM
-manager and never one to another member, and applications meet through shared
-memory. When FrogNet nodes are members of an FD&F region, their IP traffic
-between sites rides WireGuard hub-and-spoke through the region's hub (fdf-hub)
-on the RAM manager's host; nodes on one LAN still reach each other directly.
-This is the region mode of a node. The FD&F sources, the built binaries and the
+**FD&F (Farinacci, Day & Fawcett) is a different transport.** It joins machines
+at separate sites into one network. Members attach at the region's droplet, and
+attaching is the droplet's only special job. Between sites, the fabric carries
+IP traffic over WireGuard through the region's hub (fdf-hub), which runs on that
+host. Nodes on one LAN still reach each other directly. Routing is the fabric's
+and is transparent to every server, the droplet included. Applications meet in
+their own RAM, served by a droplet that each app's selection places on a member
+(`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`). This is the region mode of a node. The FD&F sources, the built binaries and the
 installers are in `opt/fdf/`.
 
 A Ribbit program that behaves the same over FrogNet and over FD&F shows that the

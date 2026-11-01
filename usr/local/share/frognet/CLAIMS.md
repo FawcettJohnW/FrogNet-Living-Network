@@ -8,7 +8,7 @@ records (`T*.md`) and their logs.
 If a claim you care about is not in this file, treat it as **argued** until you
 find the test that shows it.
 
-Revision 2026-10-13.
+Revision 2026-11-01.
 
 ---
 
@@ -80,8 +80,9 @@ experimental results.
 
 - **One serialization point** is both the coherence guarantee and the write
   ceiling.
-- **No change notification.** Deciding which changes matter is the application's
-  job.
+- **No notification service.** A program learns of a change by holding a read,
+  which the next write to what it reads answers. Which changes matter, and what to
+  do about them, is the application's job.
 - **No cross-value atomicity.** `get_all` is not a snapshot.
 - **In a region, a /24 has one owner**; a second claimant is refused
   (`opt/fdf/bin/fdf-hub`). `docs/OPERATING.md` section 6 lists the rest.

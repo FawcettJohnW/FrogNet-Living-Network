@@ -347,30 +347,33 @@ represented in 21 bytes. Semantic compression makes repeated *observation* of
 state inexpensive on the wire. It does not create the shared-memory model.
 
 **Producer/consumer is not publish/subscribe.** It describes the application
-relationship, not an event-delivery mechanism. There is no value-change notification
-primitive; a consumer that must know whether a value changed polls it, and
-polling is inexpensive because an unchanged read collapses to SAME — inexpensive
-is not free, and is not the same as being told.
+relationship, not an event-delivery mechanism. A consumer that must know when a
+value changed **holds a read**: it reads with the id of the last value it saw and
+a wait, and the read is parked on the variables it reads. The next write to them
+answers it. Nothing is re-asked and nothing polls. There is no subscription, no
+topic, no intermediary and no delivery queue. It is a read whose answer did not exist
+yet (`rina_region.cpp`: "a held read on the memory itself, answered when its
+answer exists; nothing is ever re-asked").
 
 ---
 
-# OBSERVATION DOES NOT IMPLY NOTIFICATION
+# A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
-FrogNet Memory exposes state. **It does not prescribe how an application decides
-to observe changes in that state.**
+FrogNet Memory exposes state, and a read can wait for it. **A held read is the
+only way to learn of a change. Do not poll.** A loop that re-reads on a timer
+gives back the property the model provides (see "Do not write REST on top of
+it", below).
 
-An application may poll, use inexpensive SAME/DIFF observation, install a
-database trigger, run a watcher, derive a change from several tuples, or use any
-other mechanism appropriate to its requirements.
+What a held read is not: it is not a subscription the fabric keeps, not a
+message delivered, and not an event the fabric decides to send. The reader names
+what it reads. The memory parks the read on those variables. The writer's write
+answers it. **The fabric does not know what applications exist or what changes
+matter to them.** It knows only that a read is waiting on a variable, which is the
+same knowledge a read has.
 
-**Change notification is application policy, not a responsibility of the FrogNet
-fabric.** The fabric should not need to know what applications exist or what
-changes matter to them. Knowing that would couple application semantics back
-into the fabric, which is the coupling the whole architecture exists to remove.
-
-Do not describe the absence of a value-change primitive as an unfinished
-capability or a gap in the roadmap. It is a boundary, drawn deliberately, in the
-same place as every other boundary in this document:
+**What a change means is application policy.** Which tuples to hold reads on,
+what to derive when one wakes, and what to ignore are the application's. That is
+the boundary, drawn in the same place as every other boundary in this document:
 
 > **FrogNet provides the machine. Applications decide what to compute with it.**
 
@@ -532,12 +535,21 @@ single machine, which elects itself for every role.
 The practical consequence for a reader: **do not ask where FrogNet runs.** It
 runs on the participants, and there is nothing else.
 
-This is FrogNet's own transport, the LAN-only mode of a node. A node that is also
-a member of an FD&F region uses a second transport, FD&F, which does have a
-meeting point: the region host's RAM manager and hub (`fdf-ram-<AREA>`,
-`fdf-hub`). That is FD&F's design, a separate specification (the Croakus, Part 0),
-not a controller inside FrogNet. Discovery, the election and routing on a LAN
-remain the nodes'.
+This holds in FD&F region mode too. The region's droplet is where members attach; attaching is its only special
+job. It does not route (routing is the fabric's), it does not coordinate, and it does not know it is the primary. It is
+a privileged machine only in the sense that it is the one the admin named in the join line. When it is unreachable,
+that is a network event, and each side derives its own answer, as on a LAN.
+
+## 10. Apps follow the same invariants
+
+An app's RAM server is a **droplet**: RAM server code that runs on any Linux member, never on a Windows or Android
+device. Which droplet serves an app is decided by **the app's own deterministic selection** over the capability tuples.
+That selection is separate from databasehost, which locates the network RAM where the capability and app tuples live.
+The app's access definition (teams, levels, password verifiers) is in its app tuples, so whichever droplet serves can
+authenticate a device at once, with no user action. After a split the app does what it was configured to do: **fail**
+(stop unless the primary is visible) or **relocate** (its selection activates a droplet already installed on that side).
+At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
+reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 
 ---
 
@@ -602,8 +614,8 @@ where a description slides back into the conventional model.
   value. A consumer reading 200 tuples where 6 moved pays for 6 differences. The
   publish-independently pattern is roughly 10x cheaper than request-per-producer
   on churning data and 100x on static data. **The decoupled design is also the
-  efficient one** — never describe polling here as the expensive option it is
-  elsewhere (spec 10.3b, 14.1a.1).
+  efficient one** (spec 10.3b, 14.1a.1). A consumer learns of a change by a
+  held read, not by re-reading on a timer.
 - **If convergence is required, the application computes it.** Do not propose a
   merge law, a CRDT, or a reconciliation step; none exists and adding one is the
   error. Convergence is decided by examining the holistic data state, not by
@@ -621,7 +633,7 @@ where a description slides back into the conventional model.
   either layer a coordinating authority has described a different system
   (spec 4.1a, 2b).
 - **Do not write REST on top of it.** Request/reply through memory, one key with
-  many writers, a status endpoint, tight polling as a substitute for events,
+  many writers, a status endpoint, any polling loop (hold a read instead),
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)
@@ -649,9 +661,11 @@ Say these when asked what is missing. They are published deliberately.
   variable. Operations per second is a category error here, not a missing
   measurement. What is meaningful is the same harness run on two machines and
   compared — `pipe_workload.py`, which produced the published ratios.
-- **Observation latency is bounded by the reader's poll interval.** That is a
-  real cost and it is the reader's to choose. It is *not* a missing feature —
-  see "Observation does not imply notification" above.
+- **Observation latency is the write's arrival plus the held read's answer.**
+  There is no poll interval to choose. A reader that is not holding a read when
+  a value changes learns of it at its next read. That is the reader's choice of
+  what to hold, not a missing feature (see "A held read is a read, not a
+  notification service", above).
 - The only member limit in the code is the hub's edge range: `fdf-invite`
   hands out 10.253.X.Y (X 1-252, Y 1-254), 64,008 admitted members per region.
   Growth is linear: one hub peer and one edge address per member, nothing per pair. In a region each /24 has one owner (a second claimant is refused); the
