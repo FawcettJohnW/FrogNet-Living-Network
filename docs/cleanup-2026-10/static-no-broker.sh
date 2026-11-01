@@ -12,7 +12,7 @@
 # Every match is printed. A match is ALLOWED only by an entry in ALLOW below (path glob + line regex + reason);
 # anything else is a VIOLATION. Exit 0 = no violation; exit 1 = at least one.
 #
-# [T5] STRICT pass over what an operator sees -- the web pages (var/www/html, opt/fdf/www) and the monitors
+# [T5] STRICT pass over what an operator sees -- the web pages (var/www/html, opt/fdf/src/fdf-source/fdf/www) and the monitors
 # (usr/local/bin/frognet_monitor*, Python, C++, C#, the shared vectors) -- with nothing excluded (READMEs and test files
 # included) and none of ALLOW's general rules: only STRICT_ALLOW (the oracles' own "no broker word here" assertions).
 
@@ -36,11 +36,8 @@ opt/frognet_semantic/internet_tunnels_v3/config.py	broker's BROKER_URL, GROUP_TO
 opt/frognet_semantic/oracles/oracle_routing_topology.py	"broker" not in payload|BROKER_URL=https://broker.invalid|only an old BROKER_URL	The oracle asserts there is no broker field and that an old BROKER_URL alone means LAN-only.
 opt/fdf/src/fdf-source/rinab/tools/netns-lan-only-test.sh	.	The LAN-only netns oracle: it plants old broker keys and asserts they are named once, ignored, and that nothing asks a broker anything.
 opt/fdf/src/fdf-source/rinab/tools/netns-region-loop-test.sh	broker keys in tunnel.conf	The region oracle's header: its nodes carry no old broker keys.
-opt/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: what the hub replaced (the hub's docstring).
-opt/fdf/src/fdf-source/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: the same docstring (cmp-identical source copy).
-opt/fdf/src/fdf-source/rinab/tools/fdf-hub	Replaces frognet_broker_v4 for a region	History: the same docstring (cmp-identical copy make_deliverables checks).
-opt/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the incident that defined [HUB_ROW_IS_THE_REGION_EDGE_V1].
-opt/fdf/src/fdf-source/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the same comment (cmp-identical source copy).
+opt/fdf/src/fdf-source/fdf/bin/fdf-hub	Replaces frognet_broker_v4 for a region	History: what the hub replaced (the hub's docstring).
+opt/fdf/src/fdf-source/fdf/bin/fdf-facts	broker-mode tunnels|re-registered with the broker	History: the incident that defined [HUB_ROW_IS_THE_REGION_EDGE_V1].
 opt/fdf/src/fdf-source/rinab/src/rina_region.cpp	10.252.254.0/24 is the broker's veths	C++ source of the built RAM manager: why 10.252.254.0/24 is never handed to a leaf (an address reservation).
 opt/fdf/src/fdf-source/rinab/experiments/exp3-topologies.json	no internet, no broker	Recorded experiment input: frognet_sim's topology label, carried verbatim.
 opt/frognet_semantic/simulation/baselines/topo_mixed_iface_no_router.json	no internet, no broker	frognet_sim's learned baseline; the label must equal the model topology's name.
@@ -50,7 +47,7 @@ opt/fdf/src/fdf-source/rinab/experiments/day-claims/runs/*	no internet, no broke
 EOF
 )
 
-STRICT_SCOPE=(var/www/html opt/fdf/www usr/local/bin/frognet_monitor usr/local/bin/frognet_monitor_py
+STRICT_SCOPE=(var/www/html opt/fdf/src/fdf-source/fdf/www usr/local/bin/frognet_monitor usr/local/bin/frognet_monitor_py
               usr/local/bin/frognet_monitor_cpp usr/local/bin/frognet_monitor_cs usr/local/bin/frognet_monitor_shared)
 STRICT_ALLOW=$(cat <<'EOF'
 usr/local/bin/frognet_monitor_py/test_snapshot_view_oracle.py	no broker vocabulary|"broker" not in	The view oracle asserting the screen and the frame carry no such word.

@@ -38,14 +38,14 @@ NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM "$@"; }
 # ---- the region, in hub, as fdf-region-create makes it: the interface first, the RAM manager on its address
 printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
-NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
+NS hub env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
 NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 U="http://$RAM$API?op=rina"; for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # ---- the hub: its fdf-client (facts written by fdf-hub) and fdf-hub itself
 NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &
 sleep 0.5
-NS hub env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --name hubA \
+NS hub env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --name hubA \
    --key $T/hub/wg.key --listen 51820 --facts $T/hub/facts.json --admitted $T/hub/admitted > $T/hub/hub.log 2>&1 &
 for i in $(seq 100); do grep -q "start (adopt)" $T/hub/hub.log && break; sleep 0.05; done
 check $([ "$(NS hub wg show wg-hub listen-port 2>/dev/null)" = 51820 ] && echo 0 || echo 1) "hub: wg-hub up, listening on 51820"
@@ -169,7 +169,7 @@ NS hub2 wireguard-go wg-hubB 2>/dev/null; NS hub2 ip addr add 10.253.253.253/16 
 for n in n1 n2; do printf '{"name":"%s","pubkey":"%s","edge":"%s","kind":"node"}\n' Node${n#n} "$(wg pubkey < $T/$n/wg.key)" "$(cat $T/$n/edge)" > $T/hub2/admitted/Node${n#n}.json; done
 NS hub2 env FDF_FACTS=$T/hub2/facts.json $B/fdf-client > $T/hub2/client.log 2>&1 &
 sleep 0.5
-NS hub2 env FDF_BIN=$B python3 $H/tools/fdf-hub --area $SITE --iface wg-hubB --endpoint 10.77.0.4:51820 --name hubB \
+NS hub2 env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hubB --endpoint 10.77.0.4:51820 --name hubB \
    --key $T/hub2/wg.key --listen 51820 --facts $T/hub2/facts.json --admitted $T/hub2/admitted > $T/hub2/hub.log 2>&1 &
 for i in $(seq 100); do grep -q "start (adopt)" $T/hub2/hub.log && break; sleep 0.05; done
 NS hub2 sysctl -q -w net.ipv4.ip_forward=1; HUB2PUB=$(NS hub2 wg show wg-hubB public-key)

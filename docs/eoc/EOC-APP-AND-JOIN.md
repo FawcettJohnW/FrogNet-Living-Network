@@ -6,7 +6,7 @@
 
 One icon on the phone or the PC: **EOC**. It opens to the work, and the person never reads the words FrogNet, region, pond, Ribbit or invitation. Joining is scanning its level's code and, for some levels, typing a user and password; everything else happens underneath.
 
-The screens are the DisasterComm apps (`DC_APPS_V1`, `opt/fdf/www/dc` on the `fdf-carry` branch) plus what RangerTrak does today:
+The screens are the DisasterComm apps (`DC_APPS_V1`, `opt/fdf/src/fdf-source/fdf/www/dc`) plus what RangerTrak does today:
 
 | Screen | Who writes | What |
 | --- | --- | --- |

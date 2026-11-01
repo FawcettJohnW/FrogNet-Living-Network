@@ -50,7 +50,7 @@ pond() { local h=$1 ram=$2 area=$3 key=$4 port=$5
   sleep 1; ip netns exec $h curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$area\",\"key\":\"$key\"}" "http://$ram$API?op=rina" > /dev/null
   ip netns exec $h env RINA_RAM=$ram FDF_FACTS=$T/$h/facts.json $B/fdf-client > $T/$h/client.log 2>&1 &
   sleep 0.5
-  ip netns exec $h env RINA_RAM=$ram FDF_BIN=$B python3 $H/tools/fdf-hub --area $area --iface wg-$h --endpoint ${ram%:*}:$port --name hub-$area \
+  ip netns exec $h env RINA_RAM=$ram FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $area --iface wg-$h --endpoint ${ram%:*}:$port --name hub-$area \
      --key $T/$h/wg.key --listen $port --facts $T/$h/facts.json > $T/$h/hub.log 2>&1 &
   sleep 2; ip netns exec $h sysctl -q -w net.ipv4.ip_forward=1; }
 pond ha $RAMA pondA $KEYA 51820; pond hb $RAMB pondB $KEYB 51821

@@ -105,6 +105,12 @@ TOKENIZE=( var/www/html/config.php opt/frognet_semantic/DB_CONFIG.json )
 have=(); missing=()
 for p in "${TAKE[@]}"; do if [ -e "$ROOT/$p" ]; then have+=( "$p" ); else missing+=( "$p" ); fi; done
 EX=( --exclude-vcs-ignores ); for p in "${LEAVE[@]}"; do EX+=( "--exclude=$p" ); done
+# [ONE_COPY_V1 - John 2026-11-01] "We should not be double committing for anything." What make_deliverables lays into
+# /opt/fdf from opt/fdf/src/fdf-source/fdf (the scripts, lib, www, hub, templates) is a second copy of that source; the
+# snapshot takes the source and not the copy. Built binaries in /opt/fdf/bin have no source twin there and are kept.
+if [ -d "$ROOT/opt/fdf/src/fdf-source/fdf" ]; then
+    while IFS= read -r _f; do EX+=( "--exclude=opt/fdf/${_f}" ); done < <(cd "$ROOT/opt/fdf/src/fdf-source/fdf" && find . -type f -printf '%P\n')
+fi
 STAGE="$(mktemp -d /tmp/.full_tar.XXXXXX)"; trap 'rm -rf "$STAGE"' EXIT
 tok=()
 for t in "${TOKENIZE[@]}"; do

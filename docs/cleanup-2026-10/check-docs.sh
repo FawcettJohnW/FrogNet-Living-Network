@@ -33,9 +33,9 @@ DOCS = [
     "opt/frognet_semantic/FROGNET_PRIMER_load_me_first.md",
     "opt/frognet_semantic/simulation/SIM_STATUS.md",
     "var/www/html/README.md", "var/www/html/README.txt",
-    "opt/fdf/README.md", "opt/fdf/hub/README.md",
-    "opt/fdf/hub/DEPLOY-REGION-2026-10-09.md", "opt/fdf/hub/HANDOFF-REGION-2026-10-09.md",
-    "opt/fdf/hub/PLAN-FROGNET-ON-FDF.md",
+    "opt/fdf/src/fdf-source/fdf/README.md", "opt/fdf/src/fdf-source/fdf/hub/README.md",
+    "opt/fdf/src/fdf-source/fdf/hub/DEPLOY-REGION-2026-10-09.md", "opt/fdf/src/fdf-source/fdf/hub/HANDOFF-REGION-2026-10-09.md",
+    "opt/fdf/src/fdf-source/fdf/hub/PLAN-FROGNET-ON-FDF.md",
     "opt/fdf/src/fdf-source/docs/PLAN-BRIDGE.md", "opt/fdf/src/fdf-source/docs/PLAN-PONDS.md",
     "opt/fdf/src/fdf-source/docs/WINDOWS-BRIDGE.md",
     "opt/fdf/src/frognet-android/docs/ANDROID-HANDOFF.md",
@@ -101,6 +101,8 @@ def exists_from(doc, ref):
     for r in expand(ref):
         if r.startswith("/"):
             cands = [r.lstrip("/")]
+            if r.startswith("/opt/fdf/"):                 # [ONE_COPY_V1] the installed /opt/fdf is built from this source
+                cands.append("opt/fdf/src/fdf-source/fdf/" + r[len("/opt/fdf/"):])
         else:
             d = os.path.dirname(doc); cands = []
             while True:
@@ -217,6 +219,8 @@ for blk in blocks(open("docs/OPERATING.md").read()):
                 else:
                     # the checkout is the root; a clone directory name (FrogNet-Living-Network) is the root too
                     cand = os.path.normpath(os.path.join(*(p for p in cwd.split("/") if p not in (".", "FrogNet-Living-Network")), prog)) if cwd not in (".", "FrogNet-Living-Network") else prog
+                if cand.startswith("opt/fdf/") and not os.path.exists(cand):      # [ONE_COPY_V1] built from this source
+                    cand = "opt/fdf/src/fdf-source/fdf/" + cand[len("opt/fdf/"):]
                 if not os.path.exists(cand): bad("(b)", "docs/OPERATING.md", "%r: %s is not in the tree (looked for %s)" % (line, prog, cand))
             elif prog in OS_CMDS or shutil.which(prog):
                 pass
@@ -240,8 +244,12 @@ def same(a, b, crlf=False):
     return x == y
 for f in ("README.md", "AI_READ_FIRST.md", "CLAIMS.md", "COPYRIGHT", "LICENSE"):
     if os.path.exists("usr/local/share/frognet/" + f): bad("(d)", "usr/local/share/frognet/" + f, "a second copy of the root's " + f + " [ONE_COPY_V1]")
-for f in ["README.md"] + ["hub/" + os.path.basename(x) for x in glob.glob("opt/fdf/hub/*.md")]:
-    if not same("opt/fdf/" + f, "opt/fdf/src/fdf-source/fdf/" + f): bad("(d)", "opt/fdf/" + f, "differs from opt/fdf/src/fdf-source/fdf/" + f)
+import subprocess
+_tracked = set(subprocess.check_output(["git", "ls-files", "opt/fdf"], text=True).split())
+for x in sorted(_tracked):
+    if not x.startswith("opt/fdf/src/fdf-source/fdf/"): continue
+    t = "opt/fdf/" + x[len("opt/fdf/src/fdf-source/fdf/"):]
+    if t in _tracked: bad("(d)", t, "a second copy of " + x + " (make_deliverables builds it) [ONE_COPY_V1]")
 if not same("opt/fdf/windows/bridge/README.txt", "opt/fdf/src/frognet-android/windows/README.txt", crlf=True):
     bad("(d)", "opt/fdf/windows/bridge/README.txt", "differs from opt/fdf/src/frognet-android/windows/README.txt (CRLF aside)")
 

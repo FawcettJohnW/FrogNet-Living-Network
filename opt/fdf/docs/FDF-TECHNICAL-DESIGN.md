@@ -427,7 +427,7 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 | Encryption in transit | Inter-site data rides WireGuard. **The FNWP sessions and HTTP front are plain TCP:** the bootstrap and all tuple traffic travel unencrypted. OpenSSL is used for SHA-256 and HMAC only. | `rina_region_client.hpp:16-17, 97, 147`; R-D9 |
 | Resource exhaustion | Rows, variables and wait patterns are never freed, and a `remove` walks every row ever created. With no access control on the RAM port, anything that reaches it can grow the host's memory without bound. | §D.1 (Growth); `ram_memory.hpp:87-105, 137-148` |
 | Session binding | The three sockets are bound by a client-chosen token. The server does not authenticate it, and logs it in the clear. | `ram_server.cpp:631-669` |
-| Browser terminal | Through the RAM manager, as `/bin/login` on a PTY. `fdf-browser` on a non-loopback address has no authentication, and keystrokes cross unencrypted. | `fdf-source/fdf/bin/fdf-term-serve:2-37`; `opt/fdf/README.md:183-185` |
+| Browser terminal | Through the RAM manager, as `/bin/login` on a PTY. `fdf-browser` on a non-loopback address has no authentication, and keystrokes cross unencrypted. | `fdf-source/fdf/bin/fdf-term-serve:2-37`; `opt/fdf/src/fdf-source/fdf/README.md:183-185` |
 | Restricted DIFs | **Design only.** In practice each pond is a separate RAM manager with its own key. | R-S3 |
 | Hardening in place | umask 022 on installs; validated sudoers fragment (www-data may run exactly `wg show all latest-handshakes`); reach executed with argv, never a shell; area names checked by pattern: `^[A-Za-z0-9._-]{1,12}$` (`fdf-region-create:35`), `^[A-Za-z0-9._-]+$` (`fdf-pond-add:17`), `^[A-Za-z0-9._-]{1,64}$` (`fdf-reach:56`). | `header.sh:12-14, 28-32`; `fdf_client.cpp:126-127` |
 
@@ -1397,7 +1397,7 @@ Sources: `rinab/tools/make_deliverables.sh:3-114`; sizes `docs/cleanup-2026-10/F
 
 ### J.2 Build from source
 
-- **Toolchain:** g++ with C++20, lz4, OpenSSL, jemalloc, and `aarch64-linux-gnu-g++` (`opt/fdf/README.md:46-58`).
+- **Toolchain:** g++ with C++20, lz4, OpenSSL, jemalloc, and `aarch64-linux-gnu-g++` (`opt/fdf/src/fdf-source/fdf/README.md:46-58`).
 - **Steps:** `tools/build.sh`, `build_static_host.sh`, `build_static_clients.sh`, `build_arm64.sh`, then `make_deliverables.sh <outdir>`. This took about 5 minutes in T4b.
 - **Static linking.** Everything is static, because a dynamic `rina-host` built on Ubuntu 24.04 needed glibc 2.38 and failed on 22.04 (`[STATIC_HOST_V1]`).
 - **Allocator.** jemalloc is linked when present: host CPU −15% and request-response throughput +16–27% compared with glibc malloc (`[HOST_ALLOCATOR_V1]`, `rinab/tools/build.sh:51-55`).
@@ -1478,7 +1478,7 @@ Sources: `fdf-source/docs/WINDOWS-BRIDGE.md`; `fdf-source/docs/PLAN-BRIDGE.md`; 
   - `/fdf/` on the node's Apache: participants first, then a held read until the set changes, "no timer" (`[FDF_DASHBOARD_V1]`, `fdf-source/fdf/www/fdf/fdf_dashboard.html:6-13`).
   - Chat: page input as `<App>.<Queue>.<submitter>`, with a held read (`[FDF_CHAT_V1]`).
   - CLI views: `fdf-ls` and `fdf-monitor` ("no timer").
-- **Browser terminal** (`[FDF_TERM_V1]`): through the RAM manager only. No port is opened on the machines, and no machine connects to another (`opt/fdf/README.md:165-166`).
+- **Browser terminal** (`[FDF_TERM_V1]`): through the RAM manager only. No port is opened on the machines, and no machine connects to another (`opt/fdf/src/fdf-source/fdf/README.md:165-166`).
 - **Communicator** (`[COMMS_ON_A_NODE_V1]`):
   - `comms-ram` (8800) and `comms-media` (8994) ship static on every node.
   - `fdf-comms.sh` publishes their location as the tuple `(pond, where, w:<guid>)`, by identity, and the region removes the tuple with the session.
@@ -1901,7 +1901,7 @@ SotF is the one handler that fills all three slots plus a program factory.
 
 ### R.6 Primed templates: FD&F
 
-`opt/fdf/templates/fdf.prime` (21 exemplars); `rinab/tools/build-prime.py` (`[FDF_PRIME_V1]`).
+`opt/fdf/src/fdf-source/fdf/templates/fdf.prime` (21 exemplars); `rinab/tools/build-prime.py` (`[FDF_PRIME_V1]`).
 - **Recording.** A learning run records exemplars (`RIBBIT_TEMPLATES_RECORD`).
 - **Building.** `build-prime.py` keeps one exemplar per (path, op, field shape). Two bodies of one op with different fields are different templates, such as a program's control hello and its data-set hello.
 - **Loading.** `RIBBIT_TEMPLATES` names the store a program loads.

@@ -5,7 +5,7 @@
 ## Decision, 2026-10-31 (John): our own app
 
 "You own it all. This is an app. It does not need the angular shit to do this." The radio log is FrogNet's own app,
-written fresh, GPL-2.0-only like the rest of the tree: node-served pages (`opt/fdf/www/rt`, an add-in of the
+written fresh, GPL-2.0-only like the rest of the tree: node-served pages (`opt/fdf/src/fdf-source/fdf/www/rt`, an add-in of the
 DisasterComm launcher, `../dc/ram.php` as its door to the RAM), no Angular, nothing of RangerTrak's code in it.
 RangerTrak stays what the app is measured against: its screens, its words, its forms (ICS-309 numbers `A007`,
 `26-0142 / OP 2 / A007`) and its suite, which `RESULTS.md` and `RANGERTRAK-SUITE-MAP.md` record. Where this plan says the

@@ -38,7 +38,7 @@ Not yet run: `e2e --full`, the two-scribe baseline (Report Packet from one devic
 
 ## The app's pages, first cut (2026-10-31)
 
-`opt/fdf/www/rt` (`log.html`, `rt.js`, `rules.js`), [RT_PAGES_V1]: the mission, the Entry form and the Radio Log.
+`opt/fdf/src/fdf-source/fdf/www/rt` (`log.html`, `rt.js`, `rules.js`), [RT_PAGES_V1]: the mission, the Entry form and the Radio Log.
 `test_rt_pages.py` there: a real rina-host, two posts (two web servers, each a node's `ram.php`), three devices in
 Chromium (scribe A at post A, scribe B at post B, a field phone on post A):
 

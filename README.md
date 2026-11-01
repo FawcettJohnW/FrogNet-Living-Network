@@ -122,7 +122,7 @@ bash docs/cleanup-2026-10/check-docs.sh
 ```
 
 The network-namespace tests run as root on Linux, from `opt/fdf/src/fdf-source/rinab`, against the built
-binaries in `rinab/build` (not tracked in git; `opt/fdf/README.md`, "Build from source", says how it is built):
+binaries in `rinab/build` (not tracked in git; `opt/fdf/src/fdf-source/fdf/README.md`, "Build from source", says how it is built):
 
 ```
 cd opt/fdf/src/fdf-source/rinab
