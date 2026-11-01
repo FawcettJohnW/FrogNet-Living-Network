@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     rangers.html -- [RT_PAGES_V1] the mission's roster: each ranger written by the device that typed it, at
+     (rt-roster, <mission>, <uid>); every post sees every ranger as it is added. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rangers</title><link rel="stylesheet" href="rt.css"></head><body>
+<nav><a href="log.html">Radio Log</a> · <b>Rangers</b> · <a href="print309.html">ICS-309</a></nav>
+<h1>Rangers <small id="mis"></small></h1>
+<form id="add"><fieldset><label>Callsign <input name="callsign" size="10" required></label>
+  <label>Name <input name="fullName" size="18"></label><label>Team <input name="team" size="8"></label>
+  <label>Role <input name="role" size="10"></label><label>Phone <input name="phone" size="12"></label>
+  <button>Add</button></fieldset></form>
+<div id="say"></div>
+<table><thead><tr><th>Callsign</th><th>Name</th><th>Team</th><th>Role</th><th>Phone</th><th>Last heard</th><th>Added by</th></tr></thead><tbody id="rows"></tbody></table>
+<script type="module">
+import * as RT from './rt.js'
+const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+const m = RT.currentMission()
+let roster = new Map(), log = new Map()
+function draw() {
+  const last = new Map()                                          // last heard: the newest entry per callsign, derived
+  for (const r of log.values()) { const c = r.bag.callsign.toUpperCase(); if (!last.has(c) || last.get(c) < r.bag.date) last.set(c, r.bag.date) }
+  $('#rows').innerHTML = [...roster.values()].sort((a, b) => a.bag.callsign.localeCompare(b.bag.callsign)).map(r => { const b = r.bag, h = last.get(b.callsign.toUpperCase())
+    return '<tr><td>' + RT.esc(b.callsign) + '</td><td>' + RT.esc(b.fullName) + '</td><td>' + RT.esc(b.team) + '</td><td>' + RT.esc(b.role) + '</td><td>' + RT.esc(b.phone) +
+      '</td><td>' + (h ? RT.esc(new Date(h).toLocaleTimeString()) : '') + '</td><td>' + RT.esc(b.by) + '</td></tr>' }).join('')
+}
+if (!m) { say('choose or start a mission on the Radio Log first') } else {
+  $('#mis').textContent = m.name + ', op period ' + m.opPeriod
+  RT.watch('rt-roster', m.id, (c) => { roster = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() })
+  $('#add').onsubmit = async (ev) => {
+    ev.preventDefault(); const f = ev.target, d = RT.device()
+    const callsign = f.callsign.value.trim().toUpperCase(), uid = callsign.replace(/[^A-Z0-9]/g, '') || d.id + '.' + Date.now()
+    try { await RT.write('rt-roster', m.id, uid, { uid, callsign, fullName: f.fullName.value.trim(), team: f.team.value.trim(), role: f.role.value.trim(),
+                                                   phone: f.phone.value.trim(), by: d.name || d.id, at: Math.round(Date.now() / 1000) })
+          say('added ' + callsign); f.reset(); f.callsign.focus() } catch (e) { say('not added: ' + e.message) }
+  }
+}
+</script></body></html>

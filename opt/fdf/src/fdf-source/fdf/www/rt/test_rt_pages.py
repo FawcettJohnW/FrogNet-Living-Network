@@ -16,6 +16,9 @@
 #   4  the message numbers: A001.., B001.., F001 -- one count per device, printed as on the forms
 #   5  two scribes logging at once, 25 each: all 50 on both screens, every number distinct (no clash by construction)
 #   6  B reloads: every entry is back from the RAM (nothing kept in the browser but its own id and station)
+#   7  the handled mark: B marks A's first entry (click: ✓, again: →); A sees each mark
+#   8  a ranger added on B's Rangers page: in A's callsign list, and B's roster shows when it was last heard
+#   9  the ICS-309 at post A: every entry from every device in write order, with its number and mark
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
@@ -35,7 +38,7 @@ os.makedirs(T + "/bin"); os.makedirs(T + "/www/dc"); shutil.copytree(HERE, T + "
 for b in ("ram", "rina-host"): shutil.copy(os.path.join(B, b), T + "/bin/")
 shutil.copy(os.path.join(DC, "ram.php"), T + "/www/dc/")
 json.dump({"apps": [{"id": "rangertrak", "title": "Radio log", "version": "1", "page": "../rt/log.html",
-                     "services": ["rt-mission", "rt-log", "rt-handled"]}]}, open(T + "/www/dc/apps.json", "w"))
+                     "services": ["rt-mission", "rt-log", "rt-handled", "rt-roster"]}]}, open(T + "/www/dc/apps.json", "w"))
 open(T + "/fdf.env", "w").write("export FDF_BIN=%s/bin RINA_RAM=%s\n" % (T, RAM))
 procs = []
 procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", RAM, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
@@ -78,12 +81,12 @@ try:
         t0 = time.time(); log(a, "W7ABC", "location-report", "47.6062, -122.3321", "at the trailhead")
         ok = wait_rows(b, 1); dt = time.time() - t0
         r = rows(b)
-        check(ok and r and r[0][2] == "W7ABC" and "47.6062" in r[0][4], "2 A's entry on B's Radio Log in %d ms: %s" % (dt * 1000, r[0] if r else None))
+        check(ok and r and r[0][3] == "W7ABC" and "47.6062" in r[0][5], "2 A's entry on B's Radio Log in %d ms: %s" % (dt * 1000, r[0] if r else None))
         # 3
         t0 = time.time(); log(ph, "K7XYZ", "urgent", "CN87uo", "needs water")
         ok = wait_rows(a, 2) and wait_rows(b, 2); dt = time.time() - t0
         rb = rows(b)
-        check(ok and rb[1][0] == "F001" and rb[1][2] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered as the phone's station: %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
+        check(ok and rb[1][0] == "F001" and rb[1][3] == "K7XYZ", "3 the phone's entry on A and B in %d ms, numbered as the phone's station: %s" % (dt * 1000, rb[1] if len(rb) > 1 else rb))
         # 4
         log(b, "N7QQQ"); wait_rows(a, 3); log(a, "W7ABC", notes="second"); wait_rows(b, 4)
         nos = [x[0] for x in rows(b)]
@@ -101,6 +104,38 @@ try:
         # 6 reload
         b.reload(); ok = wait_rows(b, 54, 15)
         check(ok and [x[0] for x in rows(b)] == nos and b.input_value("#dev input[name=station]") == "B", "6 B reloaded: all %d entries back from the RAM, its station still B" % len(rows(b)))
+        # 7
+        def mark_on(pg, i): return pg.eval_on_selector_all("#rows tr", "(rs, i) => rs[i].children[1].textContent", i)
+        t0 = time.time(); b.click("#rows tr:nth-child(1) td.mk")
+        ok1 = False
+        while time.time() - t0 < 10:
+            if mark_on(a, 0) == "✓": ok1 = True; break
+            time.sleep(0.02)
+        d1 = time.time() - t0
+        while mark_on(b, 0) != "✓" and time.time() - t0 < 10: time.sleep(0.02)   # B cycles from what B shows
+        b.click("#rows tr:nth-child(1) td.mk"); t0 = time.time(); ok2 = False
+        while time.time() - t0 < 10:
+            if mark_on(a, 0) == "→": ok2 = True; break
+            time.sleep(0.02)
+        check(ok1 and ok2, "7 B marked A's entry: ✓ on A in %d ms, then → in %d ms" % (d1 * 1000, (time.time() - t0) * 1000))
+        # 8
+        rg = b.context.new_page(); rg.goto(posts["B"].replace("log.html", "rangers.html"))
+        rg.fill("#add input[name=callsign]", "w7abc"); rg.fill("#add input[name=fullName]", "Pat Lee"); rg.fill("#add input[name=team]", "Alpha"); rg.click("#add button")
+        t0 = time.time(); ok = False
+        while time.time() - t0 < 10:
+            if a.eval_on_selector_all("#callsigns option", "os => os.some(o => o.value === 'W7ABC' && o.textContent === 'Pat Lee')"): ok = True; break
+            time.sleep(0.02)
+        d8 = time.time() - t0
+        for _ in range(250):
+            rr = rg.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
+            if rr and rr[0][5]: break
+            time.sleep(0.02)
+        check(ok and rr and rr[0][0] == "W7ABC" and rr[0][5] != "", "8 a ranger added at B is in A's callsign list in %d ms; B's roster: %s" % (d8 * 1000, rr))
+        # 9
+        pr = a.context.new_page(); pr.goto(posts["A"].replace("log.html", "print309.html")); time.sleep(1.0)
+        p9 = pr.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
+        check(len(p9) == 54 and [x[1] for x in p9] == nos and p9[0][2] == "→" and "(Pat Lee)" in p9[0][3] and pr.text_content("#inc") == "26-0142",
+              "9 the ICS-309 at A: %d entries in write order, the first %s" % (len(p9), p9[0] if p9 else None))
         br.close()
 finally:
     for p in procs: p.kill()

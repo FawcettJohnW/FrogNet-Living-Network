@@ -1,0 +1,12 @@
+/* Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+   rt.css -- [RT_PAGES_V1] the radio log app's pages */
+  body { font: 15px/1.4 system-ui, sans-serif; margin: 0; padding: 12px 16px; background: #f6f7f9; color: #1d2330; }
+  h1 { font-size: 20px; margin: 0 0 8px; } h2 { font-size: 16px; margin: 16px 0 6px; }
+  fieldset { border: 1px solid #d5d9e0; border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; background: #fff; }
+  label { display: inline-block; margin: 2px 10px 2px 0; } input, select { font: inherit; padding: 3px 5px; }
+  button { font: inherit; padding: 4px 12px; } #say { color: #8a3b00; min-height: 1.2em; }
+  table { border-collapse: collapse; width: 100%; background: #fff; } th, td { border-bottom: 1px solid #e3e6eb; padding: 4px 6px; text-align: left; vertical-align: top; }
+  th { background: #eef0f4; font-weight: 600; } td.no { font-family: ui-monospace, monospace; white-space: nowrap; }
+  .st { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+  td.mk { cursor: pointer; text-align: center; width: 1.6em; font-weight: 700; } .me { font-weight: 600; } small { color: #5b6473; }
+  nav { margin: 0 0 8px; } nav a { color: #1f5fa8; }

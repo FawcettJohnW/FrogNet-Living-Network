@@ -50,7 +50,10 @@ Chromium (scribe A at post A, scribe B at post B, a field phone on post A):
 | Message numbers, one count per device, in write order | `A001 F001 B001 A002` |
 | Two scribes logging at once, 25 each | 54 on each screen, 54 distinct numbers, the same order on both, 7.5 s |
 | B reloads | all 54 back from the RAM; its station still B |
+| A handled mark set at B, on A | ✓ 188 ms, → 89 ms |
+| A ranger added at B, in A's callsign list | 58 ms; B's roster shows when it was last heard |
+| The ICS-309 at A | 54 entries in write order, number, mark, callsign with the ranger's name |
 
 Stock RangerTrak's equivalent of the second row is a Report Packet: a file, carried by hand, merged on the other device.
-Not yet in the app: Rangers, Map, Messages (213), Summary, After-action (214), the printed forms, the handled marks,
-the post's 309 file, the read-only board page.
+Not yet in the app: Map, Messages (213), Summary, After-action (214), the 213 form, the post's 309 file, the
+read-only board page, spreadsheet roster import.

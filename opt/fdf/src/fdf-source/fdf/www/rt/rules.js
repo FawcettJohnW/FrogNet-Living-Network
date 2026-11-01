@@ -20,6 +20,11 @@ export function bumpHighWater(highWater, n) {
 export const msgNoShort = (n) => n ? n.station + String(n.seq).padStart(3, '0') : ''
 export const msgNoFull = (n) => n ? [n.mission, n.opPeriod ? 'OP ' + n.opPeriod : '', msgNoShort(n)].filter(Boolean).join(' / ') : ''
 
+// the handled mark on an entry: blank, then ✓ handled, → passed on, ! needs action, and back to blank
+export const MARKS = ['handled', 'passed', 'action']
+export const MARK_GLYPH = { handled: '✓', passed: '→', action: '!' }
+export const nextMark = (m) => !m ? MARKS[0] : MARKS[MARKS.indexOf(m) + 1] || ''
+
 export const STATUSES = [
   ['normal', '#5b7fa6'], ['location-report', '#3a8f5c'], ['evidence-report', '#8a5cb8'], ['need-rest-food', '#c98a14'],
   ['incident-check-in', '#2f8f8f'], ['incident-check-out', '#6b6b6b'], ['urgent', '#c0392b'],
