@@ -51,7 +51,7 @@ default this member's .1).
 """
 import hashlib, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-01-r2"
+BUILD_TAG = "fdf-app-2026-11-01-r3"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -61,6 +61,13 @@ APPS = os.environ.get("FDF_APPS", "/opt/fdf/apps")
 BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
 FACTS = os.environ.get("FDF_FACTS", os.path.join(VAR, "facts.json"))
 SVC = "fdf-app"                                   # the family in the network RAM: config/<app>, can/<app>.<guid>
+# [CHILDREN_KNOW_THE_RAM_V1] fdf-events and fdf-where, which this runs, find the network RAM only in RINA_RAM; join.env
+# is read here (fdfram.where) and handed to them. Found on Seattle7 2026-11-01: fdf-app.service sets no RINA_RAM, so its
+# own reads found join.env and every fdf-events it started ended at once ("no RINA_RAM, no RINA_AREA").
+try:
+    os.environ["RINA_RAM"] = fdfram.where()
+except fdfram.RamError:
+    pass                                          # (config before join: the serve says so when it needs the RAM)
 
 
 def log(m):

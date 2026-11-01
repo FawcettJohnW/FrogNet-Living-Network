@@ -25,9 +25,16 @@ then the region, defined whole. `fdf-setup-ui` shows every setting with its defa
     sudo /opt/fdf/bin/fdf-region-create --migrate
     sudo /opt/fdf/bin/fdf-setup-ui
 
-`--migrate` moves a region an earlier build made (FrogNetHost's `frognet`) into its own directory, keeping its keys and
-members; on a machine with none it says so and does nothing. A machine holds as many regions as it is given, each on
-its own ports.
+`--migrate` moves a region an earlier build made into its own directory, keeping its keys and members; on a machine with
+none it says so and does nothing. It moves only this machine's own region: a `hub.env` whose `FDF_HUB_NAME` is another
+machine's is refused and nothing is changed ([MIGRATE_ONLY_OWN_REGION_V1]; on 2026-11-01 Seattle7 held a stray copy of
+StreamingFrog's, and the hub started from it took Seattle7's own membership down). A machine holds as many regions as
+it is given, each on its own ports.
+
+The holder bundle is for a machine that is not a FrogNet node. Untarred on a node it replaces the node's FD&F programs
+without the tunnel daemon's region code of the same build (found on Seattle7: r38 `fdf-events` against an r31-era
+`region.py`, whose region loop then never came up). A node that is to serve an app's RAMs needs no region of its own:
+it is already a member (section 2).
 
 Then one invitation per node (on the holder):
 

@@ -8,6 +8,8 @@
 # namespace (/opt/fdf and /etc/systemd/system are tmpfs there; systemctl is a stand-in that records what it is asked).
 # Checks: the region is in /opt/fdf/hub/<AREA>/ with its members, its key, FDF_IFACE and FDF_KEY (the key it had);
 # the old units are stopped and removed, the per-region ones enabled and started; a second --migrate changes nothing.
+# [MIGRATE_ONLY_OWN_REGION_V1] first, a hub.env naming another machine (Seattle7 held a copy of StreamingFrog's): refused,
+# nothing moved, no unit touched.
 #   Needs root, unshare.  usage: tools/test_region_migrate.sh
 H=$(cd "$(dirname "$0")/.." && pwd); F=$H/../fdf
 exec unshare -m bash -s "$F" <<'IN'
@@ -15,7 +17,11 @@ F=$1; FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL 
 mount -t tmpfs tmpfs /opt && mkdir -p /opt/fdf/bin /opt/fdf/var /opt/fdf/hub/admitted
 mkdir -p /etc/systemd/system && mount -t tmpfs tmpfs /etc/systemd/system
 cp $F/bin/fdf-region-create /opt/fdf/bin/; S=$(mktemp -d); printf '#!/bin/sh\necho "systemctl $*" >> %s/calls\n' $S > $S/systemctl; chmod +x $S/systemctl; export PATH=$S:$PATH
-printf 'RINA_RAM=10.253.253.254:51888\nFDF_AREA=frognet\nFDF_HUB_NAME=FrogNetHost\nFDF_ENDPOINT=10.170.170.1:43354\nFDF_LISTEN=43354\n' > /opt/fdf/hub/hub.env
+printf 'RINA_RAM=10.253.253.254:51888\nFDF_AREA=frognet\nFDF_HUB_NAME=StreamingFrog\nFDF_ENDPOINT=165.232.153.144:50820\nFDF_LISTEN=50820\n' > /opt/fdf/hub/hub.env
+/opt/fdf/bin/fdf-region-create --migrate > $S/out0 2>&1; RC=$?
+check $([ $RC != 0 ] && [ -f /opt/fdf/hub/hub.env ] && [ ! -e /opt/fdf/hub/frognet ] && [ ! -e $S/calls ] && grep -q "not this machine's" $S/out0 && echo 0 || echo 1) \
+  "0 another machine's hub.env is refused, nothing moved or started: $(cat $S/out0)"
+printf 'RINA_RAM=10.253.253.254:51888\nFDF_AREA=frognet\nFDF_HUB_NAME=%s\nFDF_ENDPOINT=10.170.170.1:43354\nFDF_LISTEN=43354\n' "$(hostname -s)" > /opt/fdf/hub/hub.env
 echo '{"name":"pi2","edge":"10.253.1.1"}' > /opt/fdf/hub/admitted/pi2.json; echo k > /opt/fdf/var/org-key
 touch /etc/systemd/system/fdf-hub.service /etc/systemd/system/fdf-identity.service /etc/systemd/system/fdf-org.service
 /opt/fdf/bin/fdf-region-create --migrate > $S/out 2>&1; RC=$?

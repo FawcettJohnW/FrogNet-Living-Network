@@ -31,6 +31,15 @@ HUBROOT=/opt/fdf/hub
 migrate() {   # a region made before regions had directories: /opt/fdf/hub/hub.env, admitted/, fdf-hub.service ...
   [ -f "$HUBROOT/hub.env" ] || return 0
   local OLD; OLD=$(sed -n 's/^FDF_AREA=//p' "$HUBROOT/hub.env"); [ -n "$OLD" ] || { echo "fdf-region-create: $HUBROOT/hub.env names no FDF_AREA" >&2; exit 1; }
+  # [MIGRATE_ONLY_OWN_REGION_V1] a hub.env names the machine that holds it (FDF_HUB_NAME, written from hostname -s).
+  # Found on Seattle7 2026-11-01: a copy of StreamingFrog's hub.env, left there, was moved and a hub started with it;
+  # the hub address went onto Seattle7 and took its own membership down. A hub.env naming another machine is not
+  # this machine's region: nothing is moved or started.
+  local WHO; WHO=$(sed -n 's/^FDF_HUB_NAME=//p' "$HUBROOT/hub.env")
+  if [ "$WHO" != "$(hostname -s)" ]; then
+    echo "fdf-region-create: $HUBROOT/hub.env is $WHO's (FDF_HUB_NAME=$WHO), not this machine's ($(hostname -s)): this machine does not hold region $OLD. Nothing was changed. Remove that file if it is a stray copy." >&2
+    exit 1
+  fi
   echo "== [REGIONS_PER_MACHINE_V1] region $OLD, made by an earlier build: into $HUBROOT/$OLD/ (its keys, members and records stay)"
   systemctl disable --now fdf-hub.service fdf-identity.service fdf-org.service 2>&1 | grep -v "^Removed" | sed "s/^/   /"
   mkdir -p "$HUBROOT/$OLD"; chmod 700 "$HUBROOT/$OLD"
