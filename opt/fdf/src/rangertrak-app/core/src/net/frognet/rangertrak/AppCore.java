@@ -88,7 +88,11 @@ public final class AppCore {
     private Map<String, Object> doorCall(String q, String body) throws Exception {
         String r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body);
         Map<String, Object> o;
-        try { o = Json.obj(Json.parse(r)); } catch (IllegalArgumentException e) { throw new Exception("the door at " + door + " answered: " + r); }
+        try { o = Json.obj(Json.parse(r)); }
+        catch (IllegalArgumentException e) {      // not the door's JSON: say what it means, not the page
+            if (r.contains("404")) throw new Exception("the node at " + door + " does not serve RangerTrak (no /dc/ram.php there): use a node that has the app, e.g. Seattle7");
+            throw new Exception("the node at " + door + " did not answer as RangerTrak's door");
+        }
         if (!Json.bool(o.get("ok"))) throw new Exception(Json.str(o.get("error")));
         return o;
     }

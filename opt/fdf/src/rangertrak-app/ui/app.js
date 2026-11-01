@@ -68,6 +68,13 @@ function connected(m) {
   if (!map) {
     map = L.map('map', { zoomControl: true, doubleClickZoom: false }).setView([47.55, -122.33], 10)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map)
+    // [MAP_FILLS_ITS_PANE_V1] the map is made the moment its pane is shown, before the window has laid it out (seen in
+    // the Windows app: the map in a corner, tiles of other sizes around it). Leaflet is told its real size once laid
+    // out, and again whenever the pane changes size (window resized, moved to another screen's scaling).
+    const fit = () => map.invalidateSize({ pan: false })
+    requestAnimationFrame(() => { fit(); setTimeout(fit, 250); setTimeout(fit, 1000) })
+    if (window.ResizeObserver) new ResizeObserver(fit).observe(document.getElementById('map'))
+    window.addEventListener('resize', fit)
   }
   for (const k in KINDS) S.on[k] = KINDS[k].views.includes(S.role)
   S.on.lkp = S.role !== 'public'
