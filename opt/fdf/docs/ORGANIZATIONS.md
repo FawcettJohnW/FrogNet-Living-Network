@@ -2,7 +2,7 @@
 
 > **Superseded where it disagrees with `APP-SETUP-AND-OPERATION.md` (2026-11-01), which governs apps, RAM servers,
 > login, splits and merges.** Sections 7.2 (incumbency), 8 (split and merge) and 9 (islands, the challenge) hold
-> proposals that document lists as wrong. Setup, levels and login (sections 4 and 5) and the fabric's egress (section 6)
+> proposals that break `AI_READ_FIRST.md` rule 5 and invariants 3, 4a and 9; do not build from them. Setup, levels and login (sections 4 and 5) and the fabric's egress (section 6)
 > are still to be reconciled with it.
 
 2026-11-01. John Fawcett, with Claude. Rev 3 replaces rev 2 (2026-10-31). The setup, levels and login from rev 2 still

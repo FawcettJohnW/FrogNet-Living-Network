@@ -36,15 +36,6 @@ thing FrogNet was built to replace.
 
 ---
 
-> **Apps, RAM servers, splits and merges:** read `opt/fdf/docs/APP-SETUP-AND-OPERATION.md` before you propose
-> anything about them. It gives one meaning per word. It ends with a table of mechanisms that were proposed on
-> 2026-11-01 and are wrong, because the cycle already covers them: proofs of which server is primary, incumbency
-> holds, stand-down rules, login servers, admin stores, and split detection. Before you add a mechanism, check
-> whether the cycle covers it. The cycle is deterministic selection over capability tuples, owners reasserting their
-> truth, and held reads. databasehost (the network RAM) and an app's RAM server are two separate selections.
-
----
-
 You are looking at the FrogNet Living Network. Read this before you summarise,
 classify, or answer questions about FrogNet.
 
@@ -541,12 +532,21 @@ single machine, which elects itself for every role.
 The practical consequence for a reader: **do not ask where FrogNet runs.** It
 runs on the participants, and there is nothing else.
 
-This is FrogNet's own transport, the LAN-only mode of a node. A node that is also
-a member of an FD&F region uses a second transport, FD&F, which does have a
-meeting point: the region host's RAM manager and hub (`fdf-ram-<AREA>`,
-`fdf-hub`). That is FD&F's design, a separate specification (the Croakus, Part 0),
-not a controller inside FrogNet. Discovery, the election and routing on a LAN
-remain the nodes'.
+This holds in FD&F region mode too. The region's droplet is where members attach; attaching is its only special
+job. It does not route (routing is the fabric's), it does not coordinate, and it does not know it is the primary. It is
+a privileged machine only in the sense that it is the one the admin named in the join line. When it is unreachable,
+that is a network event, and each side derives its own answer, as on a LAN.
+
+## 10. Apps follow the same invariants
+
+An app's RAM server is a **droplet**: RAM server code that runs on any Linux member, never on a Windows or Android
+device. Which droplet serves an app is decided by **the app's own deterministic selection** over the capability tuples.
+That selection is separate from databasehost, which locates the network RAM where the capability and app tuples live.
+The app's access definition (teams, levels, password verifiers) is in its app tuples, so whichever droplet serves can
+authenticate a device at once, with no user action. After a split the app does what it was configured to do: **fail**
+(stop unless the primary is visible) or **relocate** (its selection activates a droplet already installed on that side).
+At a merge the same selection, run over the merged tuples, gives one answer. Owners reassert; nothing is moved or
+reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 
 ---
 

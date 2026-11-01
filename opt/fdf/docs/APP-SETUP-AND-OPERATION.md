@@ -154,27 +154,20 @@ databasehost supplies the location, and the owners supply the data.
 The system does not depend on a newly located RAM already holding a complete, correct picture. Participants rebuild
 that picture by asserting what they own, reading what others have asserted, and holding reads for later changes.
 
-## Do not add these: they were proposed on 2026-11-01 and are wrong
+## Why it works this way
 
-Each of these was put forward while this design was being worked out. Each one is already covered by the cycle above,
-or contradicts it.
+None of this is new machinery. It is the invariants in `AI_READ_FIRST.md` applied to an app.
 
-| Proposed | Why it is wrong |
-| --- | --- |
-| The primary proves it is primary (a signed designation), or knows it is primary | The designation is app configuration, and the selection is deterministic. Nothing needs proof. |
-| A tuple for what a machine *can* host, separate from what *is* there | Deal with what is. A capability tuple says what is there. |
-| An incumbency hold so a stronger machine does not take the role | Both selections are deterministic over static inputs. A move is one move, owners reassert, and nothing flaps. |
-| Two-incumbent arbitration, or a stand-down rule, at a merge | The selection over the merged tuples gives one answer on every member. |
-| The primary routes, or knows reach, islands, or network state | Routing is the fabric's. The primary's only special job is attachment. |
-| A dedicated login server | It is a centralized service. Unacceptable. |
-| An admin RAM, a separate store for grants | Access is in the app tuples. |
-| A node must detect that it is being installed during a split | Nothing knows it is a split. A node deals with what it can see. |
-| SSH or a push from the primary to install remote nodes | Remote nodes are members. They act on the instruction in the RAM. |
-| A device must log in again after a split or merge | Authentication is immediate, against the access tuples, with no user action. |
-| databasehost picks the app's RAM server | They are separate selections, each with its own criteria and algorithm. |
-| Windows or Android hosting a droplet | Devices are only devices. Members are Linux. |
-| The fnid as an encryption key | `/etc/fnid` is not a secret (`frognet_reset.sh`). |
-
-**The rule for whoever writes here next:** before adding a mechanism, check whether the cycle already covers it. The
-cycle is deterministic selection over capability tuples, owners reasserting their truth, and held reads. If it does,
-don't add it.
+- **Invariant 9 (no infrastructure separate from the nodes).** The primary is not a controller. It is a droplet the
+  admin placed, and its only special job is attachment. Login, the RAM server and access are all served by droplets,
+  which run on members.
+- **Invariant 3 (authority is elected, not replicated).** The app's RAM server is chosen by the app's own selection
+  over the capability tuples, the same way databasehost is chosen for the network RAM. These are two separate
+  selections, and each is deterministic, so every member gets the same answer. That covers a split, a merge, and a
+  stronger machine joining.
+- **Invariant 4a (partitions do not reconcile memory).** Nothing moves at a merge. Owners reassert their truth to the
+  current RAM, and anything not reasserted is absent.
+- **Invariant 4 (owners write their own truth).** Configuration, access, device records and app state are each
+  reasserted by their owner. That is why a relocated droplet can authenticate a device with no login.
+- **Rule 5 (do not complete the architecture).** Nothing needs to know it is primary, detect a split, prove anything to
+  anyone, or arbitrate between servers. If a step seems to need one of those, the cycle above already handles it.
