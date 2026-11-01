@@ -126,8 +126,8 @@ Changes in rev 3:
 - **Removed:** the wizard's step "the RAM spaces, all at once, with their RAM-manager lists" and "a standby's lines".
   The spaces become islands, and islands are the app's (section 9). An app's islands arrive with its add-in, not from
   the wizard.
-- **Kept:** the level→"spaces its applications join" choice, as level→islands. **Open (Q4):** whether that grant is
-  set in the wizard or in the app's add-in.
+- **Moved:** the level→"spaces its applications join" choice becomes level→islands, and it is the app's, set in its
+  admin RAM (section 9.0). The wizard's part is only naming which level administers each app.
 
 ## 5. Admission and login (from rev 2, simplified to one MRM)
 
@@ -150,10 +150,13 @@ Changes in rev 3:
   `site.env` and `join.env`; it no longer writes `system-space.json`.
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.
 - **Network reach to islands.** A level whose reach was "RAM only" must now also reach the island ports of the hosts
-  that serve its islands. Those hosts are elected, so they move. **Proposed:** `fdf-org serve` derives these rules from
-  the where cells it already holds, as edge → `(host .1, port)` for each island the level is granted. It rebuilds them
-  on a where-cell change, the way it rebuilds reach on an admission change. The MRM learns only an address and a port
-  per grant, never what the island is. **Open (Q4):** where the level→island grant lives.
+  that serve its islands. Those hosts are elected, so they move. **Proposed:**
+  - The grants are app data in the admin RAM (section 9.0).
+  - Each island's role host writes one routing fact to the MRM, as its own truth: which levels may reach
+    `(its .1, its port)`.
+  - `fdf-org serve` builds the nftables rules from those facts, and rebuilds them when one changes, the way it
+    rebuilds reach on an admission change.
+  - The MRM learns an address, a port and a list of levels, never what the island is or holds.
 
 ## 6. Egress: every member's one path to the MRM
 
@@ -328,6 +331,41 @@ one, as tested.
 
 ## 9. Islands
 
+### 9.0 The app's admin RAM
+
+> **John:** "There needs to be an admin ram for the application. Start there."
+
+The admin RAM is to an app's islands what `fdf-org` on the MRM is to the network: the app's own control memory. The app
+starts from it. Rev 2 already had one, as a space ("EOC Admin"). **Proposed:**
+
+- **One per app.** It is an island of its own, `<app>-admin` (for RangerTrak, `rt-admin`), with a role like any
+  island. The app's selection code elects its host. It is always `persist: true`, because its records must outlive a
+  restart.
+- **What it holds.** These are the app's records for this organization. Each is written by an admin as its own truth.
+  - The islands that are in use, and their placement inputs: which site is the EOC, which sites are hospitals.
+  - The grants: which levels and which members may reach which island, and what they may read and write there.
+  - Each island's challenge: what a connector must answer beyond membership (section 9.4).
+  - The app's own users and roles, if it has any beyond the network's levels.
+- **Who writes it.** The app's admins only. **Proposed** bootstrap: the level the manager marks as the app's admin at
+  setup, and the manager's own device first, the same way `fdf-setup` makes the manager's device the first login.
+- **Who reads it.**
+  - Every role host of that app's islands, with a held read. That is how a host knows its island's challenge and grants
+    the moment an admin changes them.
+  - The app's pages and devices, which need to know what to show.
+- **Its own access.** Network membership plus the challenge, for reading. Writing additionally needs the app's admin
+  level.
+
+This settles three earlier questions:
+
+- **Q4:** level→island grants live in the app's admin RAM, not in `fdf-org`. The MRM learns only what network reach
+  needs (an address and a port per grant, section 5.2).
+- **Q3:** island access during a split reads the admin RAM, not the MRM's admissions.
+- **Q7:** the challenge's content is the app's, set in its admin RAM.
+
+**Open (Q8):** a partition that does not hold the admin RAM's host has no admin records. Its islands then have no
+grants and no challenge to apply. Under "gone is gone" they admit no one. Is that the rule? Or does the admin RAM's
+selection code place it so every site that runs islands has it? It cannot be in two places.
+
 ### 9.1 Owned by the app
 
 > **John:** "Islands belong to the app(s) and may be protected beyond simple connection. Island reach is also
@@ -347,7 +385,8 @@ An app's add-in declares its islands. **Proposed:** in its `apps.json` entry:
   add-in is not eligible: its capability fact lists the apps it has, and a missing app is a hard gate.
 - **persist:** whether the island's RAM manager keeps a Permanent file. Persistence is the app's choice (RIBBIT.md
   Part I).
-- **access:** who may connect, read and write which portions (section 9.3).
+- **access:** the code that applies the admin RAM's grants for this island: who may connect, and who may read and write
+  which portions (section 9.3). The code ships in the add-in; the grants are data in the admin RAM.
 
 ### 9.2 One role per island; separation by the app's code
 
@@ -375,21 +414,59 @@ In order:
 2. **Route.** On the member's LAN, a LAN route. Otherwise through the MRM, where network reach must allow it (section
    5.2).
 3. **Membership.** The connector must be a member: its public key is in the network's facts or admissions.
-4. **The challenge. Proposed** (`[ROLE_CHALLENGE_V1]`). No new keys; every member already has an X25519 key, its
-   WireGuard key.
-   - The server sends a nonce.
-   - The connector answers `HMAC-SHA256(X25519(its key, server's public key), nonce ‖ island ‖ server guid)`.
-   - The server computes the same with its own key and the connector's public key from the facts.
-   - This proves the connector holds a member's key, on any path. It matters on a LAN, where WireGuard's "source
-     address is the identity" does not apply.
-   - A revoked member is gone from the facts and fails.
-5. **The app's own check.** The island's `access` decides, from the proven member identity and its level (from
-   admission), whether to admit it and what it may read and write. A Hospital island can refuse a field phone of the
-   Responders level even though the network reaches it. That refusal is island reach, and it is the app's.
+4. **The challenge** (`[ROLE_CHALLENGE_V1]`, section 9.4).
+5. **The app's own check.** The island's `access` applies the admin RAM's grants to the proven member and decides
+   whether to admit it and what it may read and write. A Hospital island can refuse a field phone of the Responders
+   level even though the network reaches it. That refusal is island reach, and it is the app's.
 
-**Open (Q3):** during a split, the partition's control host has the members' facts (pubkeys), but not admissions
-(levels). Which level does an island's access check use then? The proposal is the last admission each member carried
-in its own facts, written as a fact at login.
+### 9.4 The challenge, and its review
+
+**What it must be.** These requirements follow from John's sentence ("automatically authenticated by network
+membership, plus a challenge when connecting to the server with the role"):
+
+1. **Membership is the authentication.** Admission already proved who the member is, by its key and its level. The
+   first part of the challenge, the key proof below, is answered by the library and nobody types anything.
+2. **The challenge proves the connection is that member.** Inside a WireGuard tunnel, the source address already is
+   the key: the hub accepts an edge's packets only from that edge's key. On a LAN, an address proves nothing. Any host
+   on the wire can take one. The challenge has to bind the connection to the member's key on every path.
+3. **The role host asks.** It is the one that must be sure, and as a member itself it can check with what the
+   network already holds: the connector's public key in the facts or admissions.
+4. **It must work in a split.** The check can use only what is inside the partition. Keys are facts, and the LAN's
+   control host holds facts. So the challenge needs nothing from the MRM.
+5. **The rest is the app's.** Whatever an island asks beyond membership is set in the app's admin RAM, per island.
+   **Proposed:** the same kinds as the network's door: none, a user and password, or a one-time code that burns on
+   use. Which member may then read or write what is the app's `access` (section 9.3, step 5).
+6. **No fallback.** A connection that does not answer the challenge is closed and logged. There is no unchallenged
+   mode.
+
+**The mechanism. Proposed.** It uses no new keys. Every node and device already holds an X25519 key, its WireGuard key,
+whose public half is in the facts or the admissions.
+
+- The connector opens with its member name and a nonce `Nc`.
+- The server answers with its own nonce `Ns` and `HMAC(K, "s" ‖ Nc ‖ Ns ‖ island ‖ server guid ‖ member)`.
+  `K` is `X25519(server key, member public key)`, which both sides can compute and nobody else can.
+- The connector checks that answer, so it knows it is talking to the member whose where cell names it.
+- The connector answers `HMAC(K, "c" ‖ Nc ‖ Ns ‖ island ‖ server guid ‖ member)`. The server checks it.
+- The server then asks the island's own challenge from the admin RAM, if it has one. The answer travels under `K`, so a
+  password never crosses the wire in the clear. The server checks it against the admin RAM's verifier, which is never
+  the password itself. Then it runs the app's `access`.
+- Both nonces are fresh per connection, so neither answer can be replayed. The island and the server guid are in both
+  answers, so an answer cannot be relayed to another island or another host.
+
+**Review.**
+
+| Case | Result |
+| --- | --- |
+| A host on the LAN, not a member | No member key: fails, logged |
+| A member that was revoked | Its key is gone from the facts: fails. Inside a partition, revocation takes effect when that partition holds the change (at the merge, if the revocation was made at the MRM during the split) |
+| A replay of a captured exchange | Fresh `Ns`: fails |
+| A relay between two islands or two hosts | The island and the server guid are bound in: fails |
+| A host answering at the elected host's address (stale ARP, a spoofed `.1`) | It cannot produce the server's answer: the connector refuses it |
+| A stolen member key | Passes. The remedy is revoking that member; the challenge is no stronger than membership, which is what John stated |
+| A legitimate member the app does not want | Passes the challenge; refused by the app's `access` |
+| Cost | One round trip and one X25519 operation on each side, per connection; nothing per request |
+| Not provided: confidentiality after the challenge | Off a tunnel, the session is plain TCP, as member sessions are today. `K` can key the session (ChaCha20-Poly1305, as WireGuard uses). **Open (Q6)** |
+| Changing an island's grants or challenge | An admin writes the admin RAM; the role host's held read sees it; the next connection is decided by it. **Open (Q9):** are sessions already open re-decided at once? |
 
 ## 10. Apps
 
@@ -489,7 +566,13 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
    (runMerge and the store at control)? Today the tree has both, in two modes.
 2. **The egress route.** The applier owns only the /32 to the MRM via the exit, and FrogNet's default fixer is told when
    it moves (section 6.2). Is that the right split of ownership?
-3. **Island access during a split.** Use the last admission each member carried in its facts?
-4. **Level→island grants.** Do they live in `fdf-org` (the manager sets them in the wizard) or in the app's add-in
-   (the app maps levels to its islands)? The MRM needs only the resulting address and port either way.
+3. **Island access during a split.** Settled by the admin RAM if John confirms section 9.0: it is read from there.
+4. **Level→island grants.** Settled by the admin RAM if John confirms section 9.0: they live there.
 5. **Site.** A `facts.site` for placement by site: taken from the level, or typed at install?
+6. **The island session after the challenge.** Should it be encrypted with `K`, or left plain as member sessions are
+   today?
+7. **The challenge.** Is the key proof in both directions plus the island's own challenge from the admin RAM what John
+   means (section 9.4)?
+8. **A partition without the admin RAM.** Its islands admit no one, or is the admin RAM placed so that this cannot
+   happen where islands run (section 9.0)?
+9. **Grant changes and open sessions.** Is a session already open re-decided the moment its grant changes?
