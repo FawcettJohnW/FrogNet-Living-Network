@@ -99,7 +99,9 @@ themselves.
 2. It reaches the app's serving droplet.
 3. If login is required, the user supplies the team and password once.
 4. The droplet checks them against the app's access tuples and password verifier.
-5. The device's authorized access is recorded in the app configuration tuples.
+5. The device's authorized access is recorded in the app configuration tuples. The record is the device's own truth: the
+   device keeps it, with the encoded message the droplet gave it, and writes it again through its app after every RAM
+   change, like everything else it owns.
 6. The device publishes the app truth it owns, then reads the current world through the app.
 7. On later connections, whichever droplet is serving authenticates the device against the current access tuples. This
    happens immediately and needs no user action.
@@ -129,7 +131,9 @@ deterministic selection over the same tuples and gets the same answer.
 3. Each participant locates the current RAM available through databasehost.
 4. Each participant first reasserts the truth it owns, each into the RAM it belongs in:
    - members publish their own facts, and running services their capabilities, into the network RAM;
-   - the owners of configuration and access records reassert those records into the network RAM;
+   - the owners of configuration and access records reassert those records into the network RAM. **John, 2026-11-01:**
+     "Who writes and reasserts? Everybody." Each droplet writes the configuration and access definition it was installed
+     with; each device writes its own access record;
    - app participants reassert their owned data into the app's RAMs once those are served (step 8).
 5. Participants then query the tuples to learn what is currently present on their side.
 6. Each app applies its configured behavior:
