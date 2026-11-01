@@ -15,6 +15,8 @@
 #   6 b is cut off (behind b's address for the network RAM there is now b's own side's RAM): b's droplet writes its
 #     configuration and capability there again and serves both RAMs on its side; a and c still map them to c. b
 #     rejoins: b maps them to c again and stops serving
+#   7 [APP_ACCESS_V1] each droplet's configuration tuple carries the access definition: login, each team's level and
+#     its password's verifier (the password itself nowhere in the network RAM), and never the app's key
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -75,7 +77,8 @@ for i, n in enumerate("abcd", start=1):
     client(n)
 time.sleep(1.5)
 for n in "abc":   # the admin's install on each member it names (d is not named: it has no app)
-    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals"], env=member_env(n), check=True)
+    subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login", "--key", "ab" * 32,
+                    "--team", "hospitals=restricted:beds-2026", "--team", "command=full:cmd-2026"], env=member_env(n), check=True)
 for n in "abcd":
     members[n]["serve"] = subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=member_env(n),
                                            stdout=open(T + "/%s/app.log" % n, "w"), stderr=subprocess.STDOUT)
@@ -111,6 +114,16 @@ try:
     check(not serving("d"), "4 d (the strongest, no app) never serves: %d serving lines" % len(serving("d")))
     m, _ = wait_for(maps_agree, 5)
     check(m is not None, "5 a, b and c each map the RAMs to c: %s" % m)
+    import hashlib
+    cf = [c for c in rm.read("fdf-app", "config")]
+    txt = json.dumps([c["bag"] for c in cf])
+    v = cf[0]["bag"]["teams"]["hospitals"]["verifier"] if cf else {}
+    ok_v = bool(v) and hashlib.pbkdf2_hmac("sha256", b"beds-2026", bytes.fromhex(v["salt"]), int(v["n"])).hex() == v["hash"]
+    check(len(cf) == 3 and all(c["bag"]["login"] and set(c["bag"]["teams"]) == {"hospitals", "command"} for c in cf)
+          and ok_v and "beds-2026" not in txt and "cmd-2026" not in txt and "ab" * 32 not in txt and '"key"' not in txt,
+          "7 the access definition in the three droplets' configuration tuples: teams %s, levels %s, the verifier checks the password, "
+          "no password and no key in the network RAM" % (sorted(cf[0]["bag"]["teams"]) if cf else None,
+                                                           [cf[0]["bag"]["teams"][t]["level"] for t in sorted(cf[0]["bag"]["teams"])] if cf else None))
 
     client_stop("c")
     t0 = time.monotonic()

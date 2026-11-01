@@ -18,12 +18,15 @@
 ################################################################
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
-  fdf-app config APP RAM[,RAM...] [--partition relocate|fail]
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--team NAME=LEVEL[:PASSWORD]]... [--key HEX]
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
         FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
         droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
         (fdf-app, config, <app>.<guid>), and writes it again whenever the network RAM changes, so a side of a split
-        that cannot see the primary still has it (APP-SETUP-AND-OPERATION.md, Split, step 4).
+        that cannot see the primary still has it (APP-SETUP-AND-OPERATION.md, Split, step 4). [APP_ACCESS_V1] The access
+        definition goes with it: each team's level (anonymous, restricted, full) and its password's verifier (never the
+        password), and whether login is required. The app's key, which signs the grants the droplets give devices, stays
+        in the install (mode 0600) and never in a tuple; the admin's install gives every member the same one (--key).
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
@@ -42,7 +45,7 @@ Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
-import json, os, queue, signal, subprocess, sys, threading, time, zlib
+import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
 BUILD_TAG = "fdf-app-2026-11-01-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
@@ -74,6 +77,21 @@ def dot1(f):
         if r.get("kind") == "own" and str(r.get("ip", "")).endswith(".1"):
             return r["ip"]
     return ""
+
+
+# ---------------------------------------------------------------- access [APP_ACCESS_V1]
+LEVELS = ("anonymous", "restricted", "full")
+
+
+def verifier(pw):
+    """a password as the access definition keeps it: PBKDF2-SHA256, its own salt; never the password"""
+    salt = os.urandom(16)
+    return {"kdf": "pbkdf2-sha256", "n": 200000, "salt": salt.hex(),
+            "hash": hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000).hex()}
+
+
+def verify(v, pw):
+    return bool(v) and hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", pw.encode(), bytes.fromhex(v["salt"]), int(v["n"])).hex(), v["hash"])
 
 
 def where_key(app, r):
@@ -167,8 +185,9 @@ class Server:
         capability to serve it"""
         cap = self.f.get("capability") or {}
         for a, c in self.installed().items():
-            self.rm.write(SVC, "config", "%s.%s" % (a, self.me),
-                          {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me})
+            self.rm.write(SVC, "config", "%s.%s" % (a, self.me),       # [APP_ACCESS_V1] the access definition, verifiers only: never the key
+                          {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me,
+                           "login": bool(c.get("login")), "teams": c.get("teams") or {}})
             self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
                           {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
             log("%s: configuration and capability tuples written (RAMs %s)" % (a, ",".join(c.get("rams") or []) or "none"))
@@ -310,15 +329,32 @@ class Server:
 def main(argv):
     if len(argv) >= 3 and argv[1] == "config":
         rams = [r for r in argv[3].split(",") if r] if len(argv) > 3 else []
-        part = argv[argv.index("--partition") + 1] if "--partition" in argv else "relocate"
+        opt = lambda k: [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == k]
+        part = (opt("--partition") or ["relocate"])[0]
         if not rams or part not in ("relocate", "fail"):
             print(__doc__); return 2
         os.makedirs(APPS, exist_ok=True)
         p = os.path.join(APPS, argv[2] + ".json")
+        try:
+            with open(p) as f:
+                old = json.load(f)
+        except (OSError, ValueError):
+            old = {}
+        teams = {}
+        for t in opt("--team"):                       # NAME=LEVEL[:PASSWORD]
+            name, _, rest = t.partition("=")
+            level, _, pw = rest.partition(":")
+            if not name or level not in LEVELS:
+                print("fdf-app: --team NAME=LEVEL[:PASSWORD], LEVEL one of %s" % ", ".join(LEVELS)); return 2
+            teams[name] = {"level": level, **({"verifier": verifier(pw)} if pw else {})}
+        key = (opt("--key") or [old.get("key") or os.urandom(32).hex()])[0]
         with open(p + ".tmp", "w") as f:
-            json.dump({"app": argv[2], "rams": rams, "partition": part}, f)
+            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "teams": teams, "key": key}, f)
+        os.chmod(p + ".tmp", 0o600)
         os.replace(p + ".tmp", p)
-        print("fdf-app: %s installed here with RAMs %s (%s); serve writes it into the network RAM" % (argv[2], ",".join(rams), part)); return 0
+        print("fdf-app: %s installed here with RAMs %s (%s), teams %s%s; serve writes it into the network RAM (the key stays here: "
+              "give it to every member's install with --key)" % (argv[2], ",".join(rams), part, ",".join(teams) or "none",
+                                                                  ", login required" if "--login" in argv else "")); return 0
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":
