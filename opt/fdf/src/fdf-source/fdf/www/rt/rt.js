@@ -13,6 +13,7 @@
 //   (rt-msg, <mission>, <dev>.<ms>)              distinct an announcement, to everyone
 //   (rt-dm, <mission>.<to station>, <dev>.<ms>)  distinct a direct message (the addressee reads its own variable)
 //   (rt-team@<team>, <mission>, <dev>.<ms>)      distinct a team message, in the team's own RAM [TEAM_RAM_V1]
+//   (rt-notes, <mission>, <dev>.<ms>)            distinct an ICS-214 activity line or an after-action note [RT_214_V1]
 //   (rt-pos, <mission>, <dev>)                   latest   [DEVICE_POSITION_V1] the device's own current fix; the map is
 //                                                         a query over them. Never derived from the log: a position in a
 //                                                         log entry is the scribe's record of what was said
@@ -218,7 +219,8 @@ export async function logEntry(m, entries, form) {
   const msgNo = D.nextMsgNo(mine, hw, { mission: m.name, opPeriod: m.opPeriod, station: d.station })
   kept('hw.' + m.id, D.bumpHighWater(hw, msgNo))
   const bag = { uid: d.id + '.' + msgNo.seq, callsign: form.callsign.trim(), status: form.status, location: D.parseLocation(form.location || ''),
-                notes: form.notes.trim(), date: new Date().toISOString(), msgNo, dev: d.id, by: d.name || d.id }
+                notes: form.notes.trim(), date: new Date().toISOString(), msgNo, dev: d.id, by: d.name || d.id,
+                ...(form.f213 ? { generates213: true, ...form.f213 } : {}) }   // [RT_213_V1] opt-in per entry
   await write('rt-log', logVariable(m), d.id + '.' + msgNo.seq, bag)
   return bag
 }

@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     summary.html -- [RT_SUMMARY_V1] the mission summary: rules.js summarizeMission (RangerTrak's) over the log, the
+     roster and the after-action notes, for the whole log or the op period's window. Derived; nothing is stored. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Summary</title><link rel="stylesheet" href="rt.css">
+<style> .bar { display: inline-block; background: #5b7fa6; height: 10px; vertical-align: middle } .bar.att { background: #c0392b } </style></head><body>
+<nav><a href="log.html">Radio Log</a> · <b>Summary</b> · <a href="aar.html">After-action</a></nav>
+<h1>Summary <small id="mis"></small></h1>
+<div id="say"></div>
+<fieldset><label>From <input id="from" type="datetime-local"></label><label>to <input id="to" type="datetime-local"></label>
+  <button id="whole" type="button">Whole log</button></fieldset>
+<p id="totals"></p>
+<h2>Entries over time <small id="hours"></small></h2><table><tbody id="buckets"></tbody></table>
+<h2>By status</h2><table><tbody id="status"></tbody></table>
+<h2>By team</h2><table><tbody id="team"></tbody></table>
+<h2>By call sign</h2><table><thead><tr><th>Call sign</th><th>Entries</th><th>Last heard</th></tr></thead><tbody id="station"></tbody></table>
+<h2>By scribe</h2><table><tbody id="oper"></tbody></table>
+<h2>Needs attention <small id="natt"></small></h2><table><tbody id="att"></tbody></table>
+<h2>After-action notes <small id="naar"></small></h2><div id="aar"></div>
+<script type="module">
+import * as RT from './rt.js'
+const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = say
+const m = RT.currentMission()
+let log = new Map(), roster = new Map(), notes = new Map(), win = null
+const rows = (xs) => xs.map(x => '<tr><td>' + RT.esc(x.label) + '</td><td>' + x.count + '</td></tr>').join('')
+function draw() {
+  const s = D.summarizeMission({ entries: [...log.values()], rangers: [...roster.values()].map(r => r.bag), notes: [...notes.values()].map(r => r.bag), window: win, now: new Date() })
+  const t = s.totals, max = Math.max(1, ...s.buckets.items.map(b => b.count))
+  $('#totals').textContent = t.entries + ' entries from ' + t.stations + ' call signs' + (t.first ? ', ' + t.first.toLocaleString() + ' to ' + t.last.toLocaleString() : '') +
+    '; ' + t.attention + ' need attention' + (s.window.soFar ? ' (so far)' : '')
+  $('#hours').textContent = s.buckets.hours + ' h bars'
+  $('#buckets').innerHTML = s.buckets.items.map(b => '<tr><td>' + RT.esc(b.start.toLocaleString()) + '</td><td>' + b.count + '</td><td><span class="bar" style="width:' + Math.round(200 * (b.count - b.attentionCount) / max) +
+    'px"></span><span class="bar att" style="width:' + Math.round(200 * b.attentionCount / max) + 'px"></span></td></tr>').join('')
+  $('#status').innerHTML = s.byStatus.map(r => '<tr><td><span class="st" style="background:' + r.color + '"></span>' + RT.esc(r.status) + '</td><td>' + r.count + '</td></tr>').join('')
+  $('#team').innerHTML = s.byTeam.map(x => '<tr><td>' + RT.esc(x.label) + '</td><td>' + x.count + '</td><td>' + RT.esc((s.byTeamStatus[x.label] || []).map(y => y.status + ' ' + y.count).join(', ')) + '</td></tr>').join('')
+  $('#station').innerHTML = s.byStation.map(r => '<tr><td>' + RT.esc(r.station) + '</td><td>' + r.count + '</td><td>' + RT.esc(r.lastHeard.toLocaleTimeString()) + '</td></tr>').join('')
+  $('#oper').innerHTML = rows(s.byOperator)
+  $('#natt').textContent = s.attention.length
+  $('#att').innerHTML = s.attention.map(e => '<tr><td>' + RT.esc(new Date(e.date).toLocaleString()) + '</td><td class="no">' + RT.esc(D.msgNoShort(e.msgNo)) + '</td><td>' + RT.esc(e.callsign) + '</td><td>' + RT.esc(e.status) + '</td><td>' + RT.esc(e.notes) + '</td></tr>').join('')
+  $('#naar').textContent = s.aar.incidentCount + ' about the incident, ' + s.aar.appCount + ' about the app'
+  $('#aar').innerHTML = s.aar.groups.map(g => '<h3>' + RT.esc(g.area) + '</h3><ul>' + g.notes.map(n => '<li>' + RT.esc(n.text) + '</li>').join('') + '</ul>').join('')
+}
+function setWin() { const f = $('#from').value, t = $('#to').value; win = f && t ? { from: new Date(f), to: new Date(t) } : null; draw() }
+$('#from').onchange = $('#to').onchange = setWin; $('#whole').onclick = () => { $('#from').value = $('#to').value = ''; setWin() }
+if (!m) say('choose or start a mission on the Radio Log first')
+else {
+  $('#mis').textContent = m.name + ', op period ' + m.opPeriod
+  RT.watch('rt-log', RT.logVariable(m), (c) => { log = c; draw() }, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  RT.watch('rt-roster', m.id, (c) => { roster = c; draw() })
+  RT.watch('rt-notes', m.id, (c) => { notes = c; draw() })
+  setInterval(draw, 60000)                                         // "so far" moves with the clock, no write
+}
+</script></body></html>

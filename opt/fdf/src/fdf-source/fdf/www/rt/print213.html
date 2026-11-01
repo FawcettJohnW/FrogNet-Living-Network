@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     print213.html -- [RT_213_V1] the ICS-213 General Message of one radio log entry (?i=<entry>), its fields as
+     RangerTrak fills FEMA's form (rules.js ics213Fields), with the full message number. The reply block and the
+     signatures are never filled: they are the people's own, by hand. Print it from the browser. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICS 213</title><link rel="stylesheet" href="rt.css">
+<style> @media print { nav, #say, button { display: none } body { background: #fff } } .f td { border: 1px solid #999; height: 2em } .f td.msg { height: 12em; white-space: pre-wrap }
+        .f b { display: block; font-size: 12px; color: #5b6473; font-weight: 600 } </style></head><body>
+<nav><a href="log.html">Radio Log</a> · <button onclick="print()">Print</button></nav>
+<h1>GENERAL MESSAGE (ICS 213) <small id="no"></small></h1>
+<div id="say"></div>
+<table class="f"><tbody id="form"></tbody></table>
+<script type="module">
+import * as RT from './rt.js'
+const D = RT.D, $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = say
+const m = RT.currentMission(), want = new URLSearchParams(location.search).get('i')
+const cell = (k, v, cls) => '<td' + (cls ? ' class="' + cls + '"' : '') + ' colspan="' + (cls ? 2 : 1) + '"><b>' + RT.esc(k) + '</b>' + RT.esc(v) + '</td>'
+if (!m || !want) say('open an entry\'s 213 from the Radio Log')
+else RT.watch('rt-log', RT.logVariable(m), (cells) => {
+  const r = cells.get(want); if (!r) { say('that entry is not in this mission\'s log (yet)'); return }
+  const f = D.ics213Fields(r.bag, m); say(''); $('#no').textContent = D.msgNoFull(r.bag.msgNo)
+  $('#form').innerHTML = '<tr>' + cell('1. Incident Name', f['1 Incident Name Optional']) + cell('Msg #', D.msgNoFull(r.bag.msgNo)) + '</tr>' +
+    '<tr>' + cell('2. To (Name and Position)', f['2 To Name and Position']) + cell('3. From (Name and Position)', f['3 From Name and Position']) + '</tr>' +
+    '<tr>' + cell('4. Subject', f['4 Subject']) + cell('5. Date / 6. Time', f['5 Date'] + '  ' + f['6 Time']) + '</tr>' +
+    '<tr>' + cell('7. Message', f['7 Message'], 'msg') + '</tr>' +
+    '<tr>' + cell('8. Approved by: Name', f['8 Approved by Name']) + cell('Signature / Position/Title', '') + '</tr>' +
+    '<tr>' + cell('9. Reply', '', 'msg') + '</tr><tr>' + cell('10. Replied by: Name', '') + cell('Position/Title / Signature / Date/Time', '') + '</tr>'
+})
+</script></body></html>

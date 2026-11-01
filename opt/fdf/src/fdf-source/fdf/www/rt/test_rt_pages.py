@@ -34,6 +34,9 @@
 #   14 [TEAM_RAM_V1] messages: A announces (on B and the phone); the phone sends B a direct message (on B, not in A's
 #      direct list); B writes to its team, hospitals (on the phone, a hospitals member; the cell is in the hospitals
 #      RAM, served by its own droplet, and not in the general RAM)
+#   15 [RT_213_V1][RT_214_V1][RT_SUMMARY_V1] B logs an entry with an ICS-213: A prints it, its fields as RangerTrak fills
+#      the form; A writes 214 lines and an after-action note: on B's After-action page, on A's ICS-214 in time order;
+#      B's Summary: every entry, the urgent ones as needing attention, the note under its area
 #   12 the board on a fresh phone at post A (no device set up, nothing typed): every entry, newest first, and the teams
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
@@ -99,10 +102,10 @@ for i, name in enumerate(("A", "B"), start=1):
     procs.append(subprocess.Popen([os.path.join(FDF, "bin", "fdf-app"), "serve"], env=member_env(name),
                                   stdout=open(R + "/app.log", "w"), stderr=subprocess.STDOUT))
     post309[name] = post309_start(name)
-    shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
+    shutil.copytree(HERE, R + "/www/rt", ignore=shutil.ignore_patterns("*.py", "*.mjs", "__pycache__"))
     shutil.copytree(VL, R + "/www/vendor/leaflet")
     shutil.copy(os.path.join(DC, "ram.php"), R + "/www/dc/")
-    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team"]
+    svc = ["rt-mission", "rt-log", "rt-handled", "rt-roster", "rt-pos", "rt-who", "rt-msg", "rt-dm", "rt-team", "rt-notes"]
     json.dump({"apps": [{"id": "radiolog", "title": "Radio log", "version": "1", "page": "../rt/log.html", "services": svc,
                          "app": "rangertrak", "rams": {x: ("team" if x == "rt-team" else "general") for x in svc}}]}, open(R + "/www/dc/apps.json", "w"))
     open(R + "/fdf.env", "w").write("export FDF_BIN=%s/bin FDF_VAR=%s RINA_RAM=%s\n" % (T, R, via[name].addr))
@@ -350,6 +353,38 @@ try:
               "14 messages: announcement on B and the phone in %s s; the phone's DM on B in %s s, not in A's direct list (%s); "
               "B's team message on the phone in %s s, in the hospitals RAM at %s (%d cell), none in the general RAM"
               % (t1 and round(t1, 2), t2 and round(t2, 2), a_dm, t3 and round(t3, 2), map_of("A")["rangertrak.hospitals"], len(hosp)))
+        # 15
+        b.check("#entry input[name=g213]"); b.fill("#entry input[name=to213]", "IC, EOC"); b.fill("#entry input[name=subject213]", "Water")
+        b.fill("#entry input[name=message213]", "Need 20 L at the trailhead"); log(b, "W7ABC", "need-rest-food", "", "water low")
+        until(lambda: any("213" in (x[6] or "") and x[3] == "W7ABC" for x in rows(a)))
+        href = a.get_attribute("#rows tr:last-child a.f213", "href")
+        p13 = a.context.new_page(); p13.goto(page(a, href))
+        until(lambda: "Water" in (p13.text_content("#form") or ""))
+        form = p13.eval_on_selector_all("#form td", "ts => ts.map(t => t.textContent)")
+        aa = a.context.new_page(); aa.goto(page(a, "aar.html"))
+        for txt, t in (("Opened the trailhead station", "08:15"), ("Relieved by B shift", "07:30")):
+            aa.fill("#act input[name=text]", txt); aa.fill("#act input[name=at]", t); aa.click("#act button"); time.sleep(0.2)
+        aa.fill("#aar input[name=text]", "Repeater coverage thin past the ridge"); aa.fill("#aar input[name=area]", "Communications"); aa.click("#aar button")
+        ab = b.context.new_page(); ab.goto(page(b, "aar.html"))
+        t4 = until(lambda: len(ab.eval_on_selector_all("#acts tr", "x => x")) == 2 and len(ab.eval_on_selector_all("#notes tr", "x => x")) == 1)
+        p14 = a.context.new_page(); p14.goto(page(a, "print214.html"))
+        until(lambda: len(p14.eval_on_selector_all("#rows tr", "x => x")) == 2)
+        l214 = p14.eval_on_selector_all("#rows tr", "rs => rs.map(r => r.children[1].textContent)")
+        sm = b.context.new_page(); sm.goto(page(b, "summary.html"))
+        n_all = len(rows(a)); n_att = sum(1 for x in rows(a) if x[4] in ("urgent", "need-rest-food", "evidence-report"))
+        until(lambda: (sm.text_content("#totals") or "").startswith("%d entries" % n_all) and "Communications" in (sm.text_content("#aar") or ""))
+        tot, natt, aar = sm.text_content("#totals"), sm.text_content("#natt"), sm.text_content("#aar")
+        e213 = a.get_attribute("#rows tr:last-child", "data-i")
+        until(lambda: os.path.exists(T + "/A/rt/213/26-0142.2.%s.txt" % e213))
+        f213 = open(T + "/A/rt/213/26-0142.2.%s.txt" % e213).read() if os.path.exists(T + "/A/rt/213/26-0142.2.%s.txt" % e213) else ""
+        check("4. Subject: Water" in f213 and "laptop-b-" in f213 and "2. To (Name and Position): IC, EOC" in f213,
+              "15 post A's 213 file for it: %s" % f213.splitlines()[:5])
+        check(any("IC, EOC" in c for c in form) and any("Water" in c for c in form) and any("Need 20 L" in c for c in form)
+              and any(c.endswith(":") is False and "/" in c and "Date" in c for c in form)
+              and t4 is not None and l214 == ["Relieved by B shift", "Opened the trailhead station"]
+              and tot.startswith("%d entries" % n_all) and natt == str(n_att) and "Repeater coverage thin" in aar,
+              "15 the 213 at A: %s; 214 lines on B's After-action in %s s, on A's ICS-214 in time order %s; B's Summary: %s; %s need attention; notes: %s"
+              % ([c for c in form if c][:6], t4 and round(t4, 2), l214, tot, natt, aar))
         br.close()
 finally:
     for k in up: up[k] = False

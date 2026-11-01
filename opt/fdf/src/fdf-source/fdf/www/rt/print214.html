@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     print214.html -- [RT_214_V1] the ICS-214 Activity Log of the open mission: the incident, the operational period,
+     this device's name, and every activity line (rt-notes kind "activity") in time order. The signature is never
+     filled: it is the person's own, by hand. Print it from the browser. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ICS 214</title><link rel="stylesheet" href="rt.css">
+<style> @media print { nav, #say, button { display: none } body { background: #fff } } .hd td { border: 1px solid #999 } </style></head><body>
+<nav><a href="aar.html">After-action</a> · <button onclick="print()">Print</button></nav>
+<h1>ACTIVITY LOG (ICS 214)</h1>
+<table class="hd"><tr><td>1. Incident name: <b id="inc"></b></td><td>2. Operational period: <b id="op"></b></td><td>3. Name: <b id="name"></b></td></tr></table>
+<div id="say"></div>
+<h2>6. Activity log</h2>
+<table><thead><tr><th>Date/Time</th><th>Notable activities</th></tr></thead><tbody id="rows"></tbody></table>
+<p><small>8. Prepared by: <span id="by"></span> &nbsp; Signature: ____________________</small></p>
+<script type="module">
+import * as RT from './rt.js'
+const D = RT.D, $ = (s) => document.querySelector(s)
+window.RT_NOTE = (t) => { $('#say').textContent = t }
+const m = RT.currentMission(), d = RT.device()
+if (!m) $('#say').textContent = 'choose or start a mission on the Radio Log first'
+else {
+  $('#inc').textContent = m.name; $('#op').textContent = m.opPeriod; $('#name').textContent = $('#by').textContent = d.name || d.id
+  RT.watch('rt-notes', m.id, (cells) => {
+    const lines = [...cells.values()].map(r => r.bag).filter(n => n.kind === 'activity').sort((a, b) => new Date(a.at || a.createdAt) - new Date(b.at || b.createdAt))
+    $('#rows').innerHTML = lines.map(n => { const t = new Date(n.at || n.createdAt); return '<tr><td>' + D.formDate(t) + ' ' + D.formTime(t) + '</td><td>' + RT.esc(n.text) + '</td></tr>' }).join('')
+  })
+}
+</script></body></html>

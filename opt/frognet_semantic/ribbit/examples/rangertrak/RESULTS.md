@@ -144,3 +144,15 @@ page; a page adding or dropping a family ends it, and the door frees its worker 
 all checks pass and the times are in the table.
 
 Not yet: who may read a direct message or a team's RAM is the app's access (step 6). The door does not check it yet.
+
+## Step 7: the 213, the Summary and the 214 (2026-11-01)
+
+| Screen | What | Check |
+| --- | --- | --- |
+| ICS-213 | opt-in per entry on the Entry form (to, subject, message, in the scribe's entry); `print213.html` fills the form's fields as RangerTrak's `ics213FieldsFromReport` does, with the full number; the reply block and signatures stay blank. The post writes each asked-for 213 once (`rt-post309`, `rt/213/`) | B logs one; A prints it (To `IC, EOC`, Subject, Message, mm/dd/yyyy, 24-hour, `26-0142 / OP 2 / laptop-b-029`); post A's file has it |
+| After-action / ICS-214 | `(rt-notes, <mission>, <dev>.<ms>)`: 214 lines (a time, logged late if need be, and a line) and after-action notes (area, about the incident or the app); `print214.html` | A's two lines on B's After-action in 0.07 s; A's ICS-214 in time order, not entry order |
+| Summary | `rules.js summarizeMission`, RangerTrak's `domain/mission-summary.ts` on these cells: totals, time buckets, status, team, call sign, scribe, needs attention, notes by area; whole log or a window | B's Summary: every entry, the flagged ones as needing attention, the note under Communications |
+
+`test_rules.mjs`: RangerTrak's own summary cases and the 213 field mapping, 22 of 22. The cases that need fields
+these cells do not carry (rangerUid, tactical calls, source, late entries, revisions, per-mission status lists) are not
+ported. The summary leaves those totals out rather than show a zero it did not measure.

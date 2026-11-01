@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     aar.html -- [RT_214_V1] After-action: this mission's ICS-214 activity log lines and its after-action notes,
+     (rt-notes, <mission>, <dev>.<ms>), each its writer's own cell, written once. A 214 line is a time and a line of text
+     (kind "activity"); a note has an area and is about the incident or about the app. -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>After-action</title><link rel="stylesheet" href="rt.css"></head><body>
+<nav><a href="log.html">Radio Log</a> · <a href="summary.html">Summary</a> · <b>After-action</b> · <a href="print214.html">ICS-214</a></nav>
+<h1>After-action <small id="mis"></small></h1>
+<div id="say"></div>
+<form id="act"><fieldset><label>ICS-214 activity <input name="text" size="40" required></label>
+  <label>at <input name="at" type="time"></label> <button>Add line</button></fieldset></form>
+<form id="aar"><fieldset><label>Note <input name="text" size="40" required></label><label>Area <input name="area" size="14" placeholder="Communications"></label>
+  <label>About <select name="about"><option value="incident">the incident</option><option value="app">the app</option></select></label> <button>Add note</button></fieldset></form>
+<h2>Activity log (ICS-214)</h2><table><thead><tr><th>Time</th><th>Notable activity</th><th>By</th></tr></thead><tbody id="acts"></tbody></table>
+<h2>Notes</h2><table><thead><tr><th>Time</th><th>Area</th><th>About</th><th>Note</th><th>By</th></tr></thead><tbody id="notes"></tbody></table>
+<script type="module">
+import * as RT from './rt.js'
+const $ = (s) => document.querySelector(s), say = (t) => { $('#say').textContent = t }
+window.RT_NOTE = say
+const m = RT.currentMission()
+const when = (n) => new Date(n.at || n.createdAt)
+function draw(cells) {
+  const all = [...cells.values()].map(r => r.bag).sort((a, b) => when(a) - when(b))
+  $('#acts').innerHTML = all.filter(n => n.kind === 'activity').map(n => '<tr><td>' + RT.esc(when(n).toLocaleString()) + '</td><td>' + RT.esc(n.text) + '</td><td>' + RT.esc(n.by) + '</td></tr>').join('')
+  $('#notes').innerHTML = all.filter(n => n.kind !== 'activity').map(n => '<tr><td>' + RT.esc(when(n).toLocaleString()) + '</td><td>' + RT.esc(n.area || '') + '</td><td>' + RT.esc(n.about) +
+    '</td><td>' + RT.esc(n.text) + '</td><td>' + RT.esc(n.by) + '</td></tr>').join('')
+}
+async function add(bag) {
+  const d = RT.device(), createdAt = new Date().toISOString()
+  await RT.write('rt-notes', m.id, d.id + '.' + Date.now(), { ...bag, createdAt, by: d.name || d.id })
+}
+if (!m) say('choose or start a mission on the Radio Log first')
+else {
+  $('#mis').textContent = m.name
+  RT.watch('rt-notes', m.id, draw, (e) => say('the RAM did not answer (' + e.message + '); reading again'))
+  $('#act').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target, t = f.at.value
+    let at; if (t) { const x = new Date(); const [h, mi] = t.split(':'); x.setHours(+h, +mi, 0, 0); at = x.toISOString() }   // the scribe logs late (D-63)
+    try { await add({ kind: 'activity', about: 'incident', text: f.text.value.trim(), ...(at ? { at } : {}) }); f.reset() } catch (e) { say('not added: ' + e.message) } }
+  $('#aar').onsubmit = async (ev) => { ev.preventDefault(); const f = ev.target
+    try { await add({ kind: 'aar', about: f.about.value, area: f.area.value.trim(), text: f.text.value.trim() }); f.text.value = '' } catch (e) { say('not added: ' + e.message) } }
+}
+</script></body></html>
