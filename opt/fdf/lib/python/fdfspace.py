@@ -16,11 +16,16 @@ fallback  after the list, every space falls back the same way: the LAN's machine
           (databasehost-control) down to this one's own: ["addr:port", ...], no interface. A machine is never without a
           RAM manager.
 
-Events, handled one at a time by one thread (the merge):
-  lost        the held read on the current RAM manager failed (TCP keepalive: about 5 s after it went)
-  returned    a standing connection to a RAM manager ABOVE the current one completed; one is kept to each of them,
-              including when the space is on its fallback, with the region session's reconnect behaviour (5 s)
-Each event walks the list top to bottom; if the answer is not the RAM manager the space had, it switches and says so.
+[NO_FLAP_V1] (John, 2026-11-01: "You know within milliseconds that the socket to upstream has closed. You should
+immediately switch to the backup ... Then we don't do shit to go back up until this one dies. No flapping around.")
+  standing   one session to EVERY candidate, all the time: a held read on each. It is how the space knows, at the
+             moment it needs to, which RAM managers are alive -- nothing is asked then, nothing waited for.
+  lost       the current one's held read fails: the socket closed (milliseconds when its RAM manager or its host goes;
+             TCP keepalive, about 5 s, when the path goes silent). The space moves AT ONCE to the first candidate, in
+             list order, whose own standing session is alive.
+  returned   a candidate's standing session comes back: nothing happens while the current one is alive. It counts only
+             at the next loss. The exceptions: a space on nothing takes the first that comes, and a space on its
+             fallback (the LAN's, the machine's own last resort, not a peer) takes a configured RAM manager that comes.
 No memory is moved.
 
 [SPACES_V1] an application in several spaces holds one Space per space, each with its own list and its own moves:
@@ -32,7 +37,7 @@ line's order) and builds the space's list from it.
 import queue, threading, time
 import fdfram
 
-RECONNECT_S = 5
+RECONNECT_S = 2                               # a candidate that does not answer is asked again this often
 
 
 def _log(*a):
@@ -43,95 +48,90 @@ class Space:
     def __init__(self, name, managers, fallback=(), on_change=None, me=""):
         self.name, self.managers, self.fallback = name, list(managers), list(fallback)
         self.on_change, self.me = on_change, me
-        self.current = None                       # index into self.candidates()
+        self.cands = [(m["name"], fdfram.Ram(m["ram"], device=m.get("iface"))) for m in self.managers] + \
+                     [("fallback %s" % f, fdfram.Ram(f)) for f in self.fallback]
+        self.alive = [False] * len(self.cands)
+        self.current = None                       # index into self.cands
         self.ram = None
         self.events = queue.Queue()
-        self._stand = {}                          # candidate index -> standing thread
-        self._gen = 0                             # bumped on every switch: a watcher of an old RAM stops
+        self.switched_at = None                   # time.monotonic() of the last switch
+        self._tried = [False] * len(self.cands)   # each candidate has had its first answer or its first failure
+        self._first_done = False
 
     def candidates(self):
-        return [(m["name"], fdfram.Ram(m["ram"], device=m.get("iface"))) for m in self.managers] + \
-               [("fallback %s" % f, fdfram.Ram(f)) for f in self.fallback]
-
-    @staticmethod
-    def answers(ram):
-        try:
-            ram.version()
-            return True
-        except (fdfram.RamError, OSError, ValueError):
-            return False
-
-    def walk(self):
-        for i, (name, ram) in enumerate(self.candidates()):
-            if self.answers(ram):
-                return i
-        return None
+        return self.cands
 
     def start(self):
         threading.Thread(target=self._merge_loop, name="space-merge-" + self.name, daemon=True).start()
-        self.events.put("start")
+        for i in range(len(self.cands)):
+            threading.Thread(target=self._standing, args=(i,), name="space-stand-%s-%d" % (self.name, i), daemon=True).start()
+        # the first choice: the list's order, once each candidate has had its first answer (or its first failure)
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < 3 and not all(self._tried):
+            time.sleep(0.02)
+        self.events.put(("start", None))
         for _ in range(200):
             if self.ram is not None:
                 return self
             time.sleep(0.05)
-        _log(self.name, ": no RAM manager answered yet; the space waits for one")
+        _log(self.name, ": no RAM manager answered yet; the space takes the first that does")
         return self
+
+    def _standing(self, i):
+        """[NO_FLAP_V1] this candidate's standing session: a held read on it, for as long as it answers. Its state is
+        all the merge needs at a loss. A candidate that does not answer is asked again every RECONNECT_S."""
+        name, ram = self.cands[i]
+        while True:
+            last = 0
+            try:
+                ram.version()
+                self.alive[i] = True; self._tried[i] = True
+                self.events.put(("up", i))
+                while True:
+                    rows = ram.read("fdf-space", "alive", self.me or "-", after=last, wait_s=fdfram.HOLD_S)
+                    if rows:
+                        last = max(r["id"] for r in rows)
+            except (fdfram.RamError, OSError, ValueError) as e:
+                was = self.alive[i]
+                self.alive[i] = False; self._tried[i] = True
+                if was:
+                    _log(self.name, ": %s closed: %s" % (name, e))
+                    self.events.put(("down", i))
+            time.sleep(RECONNECT_S)
 
     def _merge_loop(self):
         while True:
-            ev = self.events.get()
-            i = self.walk()
-            if i is None:
-                _log(self.name, ": %s: nothing on the list answers, nor the fallback; the next event walks again" % ev)
-                self._standing(None)
+            ev, i = self.events.get()
+            if ev == "down" and i != self.current:
+                continue                          # a standby went: it counts at the next loss
+            on_fallback = self.current is not None and self.current >= len(self.managers)
+            if ev == "up" and self.current is not None and not (on_fallback and i < len(self.managers)):
+                continue                          # [NO_FLAP_V1] never back up while the current one lives
+            # (the fallback is the machine's own last resort, not a peer: a configured RAM manager coming back is taken)
+            if ev == "up" and self.current is None and not self._first_done:
+                continue                          # before the first choice: start makes it, in list order
+            pick = next((j for j in range(len(self.cands)) if self.alive[j] and j != (i if ev == "down" else None)), None)
+            if ev == "start":
+                self._first_done = True
+            if pick is None:
+                if self.current is not None:
+                    _log(self.name, ": lost %s and nothing else is alive; the first that comes back is taken" % self.cands[self.current][0])
+                    self.current, self.ram = None, None
+                else:
+                    _log(self.name, ": nothing on the list answers, nor the fallback; the first that does is taken")
                 continue
-            if i == self.current:
-                self._standing(i)
+            if pick == self.current:
                 continue
-            old = None if self.current is None else self.candidates()[self.current][0]
-            name, ram = self.candidates()[i]
-            self.current, self.ram = i, ram
-            self._gen += 1
+            old = None if self.current is None else self.cands[self.current][0]
+            name, ram = self.cands[pick]
+            self.current, self.ram = pick, ram
+            self.switched_at = time.monotonic()
             _log(self.name, ": %s: on %s (%s)%s" % (ev, name, ram.hostport, "" if old is None else ", was " + old))
-            threading.Thread(target=self._watch, args=(self._gen, ram), daemon=True).start()
-            self._standing(i)
             if self.on_change:
                 try:
                     self.on_change(old, name)
                 except Exception as e:            # the application's error is the application's, and is said
                     _log(self.name, ": the application's change handler failed: %s" % e)
-
-    def _watch(self, gen, ram):
-        """A held read on the current RAM manager: when it fails, the space lost it."""
-        last = 0
-        while gen == self._gen:
-            try:
-                rows = ram.read("fdf-space", "alive", self.me or "-", after=last, wait_s=fdfram.HOLD_S)
-                if rows:
-                    last = max(r["id"] for r in rows)
-            except (fdfram.RamError, OSError, ValueError) as e:
-                if gen == self._gen:
-                    _log(self.name, ": lost %s: %s" % (ram.hostport, e))
-                    self.events.put("lost")
-                return
-
-    def _standing(self, cur):
-        """A standing connection attempt to every candidate above the current one (all of the list when on nothing)."""
-        top = len(self.managers) if cur is None else min(cur, len(self.managers))
-        for i in range(top):
-            t = self._stand.get(i)
-            if t is None or not t.is_alive():
-                self._stand[i] = threading.Thread(target=self._stand_one, args=(i,), daemon=True)
-                self._stand[i].start()
-
-    def _stand_one(self, i):
-        name, ram = self.candidates()[i]
-        while self.current is None or i < self.current:
-            if self.answers(ram):
-                _log(self.name, ": %s answers again" % name)
-                self.events.put("returned")
-                return
-            time.sleep(RECONNECT_S)
 
 
 def from_login(name, state=None, fallback=(), on_change=None, me=""):

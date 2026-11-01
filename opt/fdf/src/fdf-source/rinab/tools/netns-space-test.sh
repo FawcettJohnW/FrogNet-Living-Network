@@ -14,11 +14,11 @@
 # RAM manager changed, and logs each change. Checks, each with what it saw and how long it took:
 #   1  r and q log in at both with one line: two tunnels each, routes to the RAM address only (metrics 100, 101)
 #   2  the applications are on A, and their cells are at A
-#   3  A's RAM manager dies: both on B, their truth re-written at B
-#   4  A comes back with nothing else happening: both back on A, truth at A
-#   5  A and B both die: each on its own RAM (the fallback)
-#   6  B comes back: both on B; A comes back: both on A
-#   7  a partition: q cannot reach A; q on B, r on A, two RAMs, both said; the partition heals: q back on A
+#   3  A's RAM manager dies: both on B within milliseconds (each device's CHANGE time minus the kill), truth at B
+#   4  [NO_FLAP_V1] A comes back, and stays unused: both still on B ten seconds later
+#   5  B dies: both on A (alive all along, its standing session says so) within milliseconds
+#   6  A and B both die: each on its own RAM (the fallback); B comes back: both on B; A comes back: both stay on B
+#   7  a partition: q cut from B: q on A, r stays on B, both said; the partition heals: q stays on A (no flapping)
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-space-test.sh [RINAB_DIR]
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "$1" ] && H=$1
 B=$H/build/static; PK=${PKG_FDF:-$H/../fdf}; FDFPY=$PK/lib/python
@@ -99,25 +99,31 @@ cellat() { NS $1 curl -s -m 3 "http://$RAM$API?op=read&service=app&variable=pos&
 # 2 on A
 read OK S <<< "$(waiton hubA r q)"
 check $([ $OK = 1 ] && [ "$(cellat A r)" = yes ] && [ "$(cellat A q)" = yes ] && echo 0 || echo 1) "2 both applications on A, their truth at A ($S s)"
+# when did device n's application move after T0 (epoch s): its first CHANGE line after it, in ms
+moved_ms() { awk -v t0=$2 '$1=="CHANGE" && $2>t0 {printf "%d", ($2-t0)*1000; exit}' $T/$1/app.log; }
+now() { date +%s.%N; }
 # 3 A dies
-hostdown A; read OK S <<< "$(waiton hubB r q)"
-check $([ $OK = 1 ] && [ "$(cellat B r)" = yes ] && [ "$(cellat B q)" = yes ] && echo 0 || echo 1) "3 A's RAM manager died: both on B in $S s, their truth written again at B"
-# 4 A comes back, nothing else happening
-sleep 2; hostup A; read OK S <<< "$(waiton hubA r q)"
-check $([ $OK = 1 ] && [ "$(cellat A r)" = yes ] && echo 0 || echo 1) "4 A came back with everything else idle: both back on A in $S s (the standing connection's event)"
-# 5 both die: each on its own RAM
-hostdown A; hostdown B; read OK S <<< "$(waiton "127.0.0.1:8841" r q)"
-check $([ $OK = 1 ] && echo 0 || echo 1) "5 A and B died: each on its own RAM in $S s ($(on r), $(on q))"
-# 6 B, then A
-hostup B; read OK S <<< "$(waiton hubB r q)"; check $([ $OK = 1 ] && echo 0 || echo 1) "6 B came back: both on B in $S s"
-hostup A; read OK S <<< "$(waiton hubA r q)"; check $([ $OK = 1 ] && echo 0 || echo 1) "6 A came back: both on A in $S s"
-# 7 a partition: q's packets to A's endpoint are dropped
-NS q nft add table inet part; NS q nft add chain inet part out '{ type filter hook output priority 0; }'
-NS q nft add rule inet part out ip daddr 198.18.0.1 drop
-read OK S <<< "$(waiton hubB q)"
-check $([ $OK = 1 ] && [ "$(on r)" = hubA ] && echo 0 || echo 1) "7 partition: q (cut from A) on B in $S s, r still on A: two RAMs, each said in its log"
-NS q nft delete table inet part; read OK S <<< "$(waiton hubA q)"
-check $([ $OK = 1 ] && echo 0 || echo 1) "7 the partition healed: q back on A in $S s"
+T0=$(now); hostdown A; read OK S <<< "$(waiton hubB r q)"
+check $([ $OK = 1 ] && [ "$(cellat B r)" = yes ] && [ "$(cellat B q)" = yes ] && echo 0 || echo 1) "3 A's RAM manager died: r on B $(moved_ms r $T0) ms, q $(moved_ms q $T0) ms after the kill; their truth written again at B"
+# 4 A comes back: nothing moves
+hostup A; sleep 10
+check $([ "$(on r)" = hubB ] && [ "$(on q)" = hubB ] && echo 0 || echo 1) "4 A came back: 10 s later both still on B (r $(on r), q $(on q)): nothing goes back up while B lives"
+# 5 B dies: A has been alive all along
+T0=$(now); hostdown B; read OK S <<< "$(waiton hubA r q)"
+check $([ $OK = 1 ] && [ "$(cellat A r)" = yes ] && echo 0 || echo 1) "5 B died: r on A $(moved_ms r $T0) ms, q $(moved_ms q $T0) ms after the kill"
+# 6 both die; B back; A back
+hostup B; sleep 3; T0=$(now); hostdown A; hostdown B; read OK S <<< "$(waiton "127.0.0.1:8841" r q)"
+check $([ $OK = 1 ] && echo 0 || echo 1) "6 A and B died: each on its own RAM, r $(moved_ms r $T0) ms, q $(moved_ms q $T0) ms after the kills"
+T0=$(now); hostup B; read OK S <<< "$(waiton hubB r q)"; check $([ $OK = 1 ] && echo 0 || echo 1) "6 B came back: both off the fallback onto B in $S s"
+hostup A; sleep 10
+check $([ "$(on r)" = hubB ] && [ "$(on q)" = hubB ] && echo 0 || echo 1) "6 A came back: 10 s later both still on B"
+# 7 a partition: q's packets to B's endpoint are dropped
+T0=$(now); NS q nft add table inet part; NS q nft add chain inet part out '{ type filter hook output priority 0; }'
+NS q nft add rule inet part out ip daddr 198.18.0.3 drop
+read OK S <<< "$(waiton hubA q)"
+check $([ $OK = 1 ] && [ "$(on r)" = hubB ] && echo 0 || echo 1) "7 partition: q (cut from B) on A $(moved_ms q $T0) ms after the cut (TCP keepalive: no socket closes), r still on B"
+NS q nft delete table inet part; sleep 10
+check $([ "$(on q)" = hubA ] && [ "$(on r)" = hubB ] && echo 0 || echo 1) "7 the partition healed: 10 s later q still on A, r on B (no flapping)"
 echo "--- r's application"; grep -E "SPACE|CHANGE" $T/r/app.log | sed 's/^/    /' | tail -20
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS

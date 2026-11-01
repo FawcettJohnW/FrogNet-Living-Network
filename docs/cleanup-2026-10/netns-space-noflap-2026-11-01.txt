@@ -1,0 +1,15 @@
+[NO_FLAP_V1] devices, 2026-11-01: netns-space-test.sh, one run
+PASS  1 r logged in at both with one line: logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:24581;logged in at 198.18.0.3:51820: level Responders, RINA_RAM=10.253.253.254:58616;
+PASS  1 r's tunnels route the RAM address only: 10.253.253.254 dev wg-own0 scope link metric 100 ;10.253.253.254 dev wg-own1 scope link metric 101 ;
+PASS  1 q logged in at both with one line: logged in at 198.18.0.1:51820: level Responders, RINA_RAM=10.253.253.254:24581;logged in at 198.18.0.3:51820: level Responders, RINA_RAM=10.253.253.254:58616;
+PASS  1 q's tunnels route the RAM address only: 10.253.253.254 dev wg-own0 scope link metric 100 ;10.253.253.254 dev wg-own1 scope link metric 101 ;
+PASS  2 both applications on A, their truth at A (0.3 s)
+PASS  3 A's RAM manager died: r on B 31 ms, q 32 ms after the kill; their truth written again at B
+PASS  4 A came back: 10 s later both still on B (r hubB, q hubB): nothing goes back up while B lives
+PASS  5 B died: r on A 30 ms, q 26 ms after the kill
+PASS  6 A and B died: each on its own RAM, r 29 ms, q 28 ms after the kills
+PASS  6 B came back: both off the fallback onto B in 2.1 s
+PASS  6 A came back: 10 s later both still on B
+PASS  7 partition: q (cut from B) on A 4756 ms after the cut (TCP keepalive: no socket closes), r still on B
+PASS  7 the partition healed: 10 s later q still on A, r on B (no flapping)
+RESULT PASS
