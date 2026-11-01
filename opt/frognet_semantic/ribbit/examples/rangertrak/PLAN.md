@@ -191,7 +191,10 @@ Steps 1-7 of the page work (below, "Done") are built. The work now is the demo J
 
 1. **Presence goes with its writer**: `rt-who` and `rt-pos` cells end with the session that wrote them
    (ribbit-platform 0.69's gone-with-its-writer), so the map shows who is connected now. Gone is gone: a participant
-   whose session ended is not on the map, and no last-known position is kept for it. `rt-sim` writes the same way.
+   whose session ended is not in the RAM. John, 2026-11-01: "If they are there they are there. You might do a LKP kind
+   of thing, that would be a wireframe or translucent avatar": the app draws a last known position from what it last
+   read, as a wireframe or translucent avatar, distinct from a connected participant; nothing is written for it.
+   `rt-sim` writes the same way.
 2. **The shared library**, abstracted from what exists and used by the app (and later by the Communicator): the member's
    RAM session and join line, the held-read loop, the presence and position writer.
 3. **The Windows app**: the splash; the EOC's default view, the big map of everything with chat beside it; presence with
