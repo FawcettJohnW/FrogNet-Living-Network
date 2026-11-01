@@ -185,21 +185,35 @@ entry once by its id**, so a lost and resumed read leaves no gap and no duplicat
 **Time.** Overdue bands advance with the clock, with no write: the pages redraw them on a timer of their own. That is
 the app's timing, not a read.
 
-## The work, in order
+## The work, in order (2026-11-01: for the app demo)
 
-1. **The platform**: an app's droplet chosen by its selection over the capability tuples, activated on the member it
-   picks, writing its where cell; the app configuration tuples (where each RAM is, access by team). Proven in network
-   namespaces before the app depends on it.
-2. **The pages follow their RAMs**: `ram.php` and `rt.js` connect to the general RAM's droplet from its where cell, not
-   to `RINA_RAM`. The two-post test (`test_rt_pages.py`) runs again, the cut and the rejoin included.
-3. **Positions** become each device's own tuples; the map becomes a query over them.
-4. **The truth-table corrections**: handled marks per handler; the station ID taken from the app's hostname; own
-   truth kept on the device for a reload.
-5. **Team RAMs** and team messages; direct messages and their access.
-6. **Login and access by team** from the app configuration tuples.
-7. **The rest of the screens**: 213, Summary, 214.
+Steps 1-7 of the page work (below, "Done") are built. The work now is the demo John set on 2026-11-01:
+
+1. **Presence goes with its writer**: `rt-who` and `rt-pos` cells end with the session that wrote them
+   (ribbit-platform 0.69's gone-with-its-writer), so the map shows who is connected now. Gone is gone: a participant
+   whose session ended is not on the map, and no last-known position is kept for it. `rt-sim` writes the same way.
+2. **The shared library**, abstracted from what exists and used by the app (and later by the Communicator): the member's
+   RAM session and join line, the held-read loop, the presence and position writer.
+3. **The Windows app**: the splash; the EOC's default view, the big map of everything with chat beside it; presence with
+   GPS from Windows' location service where the machine has one.
+4. **Chat**: to everyone, to a team, to one member (double-click on the map); a video link when the connection is fast
+   enough, through the media piece of the library.
+5. **The team view**: teams colour-coded at a glance.
+6. **The Android app**: the first responder on a phone, the same screens, GPS on every fix.
+7. **The demo run**: Seattle7 and a second post, `rt-sim` on one node, the EOC on Windows, a responder on a phone.
 
 Each step: its own test first, the incumbent tests after, results in `RESULTS.md`.
+
+Backlog (the radio log, superseded as the demo): a unique station identity for numbering where a device sent no host
+name. The friendly name it types is what users see, but two people can type the same one, so numbering uses the
+device's own id instead.
+
+### Done: the page work, 2026-10-31 to 2026-11-01
+
+1. The platform: droplets chosen by the app's selection, the where cell. 2. The pages follow their RAMs. 3. Positions
+are each device's own tuples. 4. Handled marks per handler; the station ID from the hostname; own truth kept for a
+reload; the 309 in write order. 5. Team RAMs, team and direct messages. 6. Login and access by role from the
+configuration tuples (a read at the device's own door; no login server). 7. 213, Summary, 214.
 
 ## The multi-site demo
 
@@ -237,7 +251,12 @@ Side by side against stock, on at least two machines with traffic between them (
 Not claimed: Internet-dependent features; phone battery; more than the demo's three posts; the region's droplet
 destroyed rather than cut.
 
-## Prepared for the Meshtastic merge (2026-11-01)
+## Prepared for the Meshtastic merge (2026-11-01; not in this demo)
+
+A mapping proposal, not established compatibility. For the first demo Meshtastic is a collector only, and nothing
+of it is carried into the app (the 2026-11-01 decision above). Where this table and the app's contract differ, the
+app's contract holds: a direct message is in the addressee's own variable, which only the addressee reads. A team's
+RAM and a Meshtastic channel's key do not have the same access semantics; the edge would have to give the app's.
 
 The Meshtastic on FrogNet proposal (John, 2026-10-30) and RangerTrak share their model: each node or
 device is the only writer of its own cells, and every reader acts on a held read. RangerTrak's per-device families are
