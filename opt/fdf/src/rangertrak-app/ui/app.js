@@ -64,7 +64,7 @@ function connected(m) {
   S.role = m.role; S.team = m.team || ''
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : 'Public')
-  $('#dot').classList.add('up')
+  $('#dot').classList.add('up'); status('connected to the node at ' + (S.cfg.door || '') + ' (' + (m.build || '') + ')')
   if (!map) {
     map = L.map('map', { zoomControl: true, doubleClickZoom: false }).setView([47.55, -122.33], 10)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map)
