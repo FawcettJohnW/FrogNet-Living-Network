@@ -12,6 +12,21 @@ RangerTrak stays what the app is measured against: its screens, its words, its f
 conversion keeps his `domain/` or his screens, read: the app does what they do, in its own code. The Windows and Android
 devices open the same pages (decided the same day: node-served pages first).
 
+## Decision, 2026-11-01 (John): the general RAM and the team RAMs
+
+The app is set up and run as `opt/fdf/docs/APP-SETUP-AND-OPERATION.md` says, which governs here. "RangerTrak is as many
+RAMs as it needs, but absolutely more than 2." It has a general RAM that everyone in the app joins (positions, roster,
+radio log, mission and assignments, announcements, direct messages between teams) and one RAM per team (that team's own
+data and its team messages). That document's "RangerTrak" table is the layout.
+
+What this changes in the pages built 2026-10-31 (`[RT_PAGES_V1]`):
+- They write to the network RAM through `ram.php` and `RINA_RAM`. They move to the app's own droplets, found from their
+  where cells, chosen by RangerTrak's selection over the capability tuples.
+- `map.html` derives each callsign's position from log entries. A position becomes each device's own tuple in the
+  general RAM, and the map a query over those tuples; a logged position stays the scribe's record in the log.
+- Kept as they are: `rules.js`, the screens, the forms, and `[OWN_TRUTH_AGAIN_V1]` (each device writes its own
+  entries again on a RAM change).
+
 ## The demo this plan is for
 
 John Cornelison sees RangerTrak, his screens and his words, running at three posts at once with no server anywhere: a scribe at each post typing what teams say over the radio, and every post's radio log, roster and map showing everyone's entries as they are typed. A post loses its uplink; its scribe keeps working; the others keep each other; the uplink comes back and the post's entries are on every screen again, with nothing merged, restored or sent. His Report Packets, hand-over files, the Board and the Command Post Server are not in the demo because they no longer exist.

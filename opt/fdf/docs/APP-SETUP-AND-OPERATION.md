@@ -154,6 +154,38 @@ databasehost supplies the location, and the owners supply the data.
 The system does not depend on a newly located RAM already holding a complete, correct picture. Participants rebuild
 that picture by asserting what they own, reading what others have asserted, and holding reads for later changes.
 
+## An app has as many RAMs as it needs: the general RAM and the team RAMs
+
+One RAM is one audience and one place a tuple query runs. So what must be queried together, across everyone, goes in
+one RAM. What belongs to one team, with its own audience and protection, goes in that team's RAM. **John:** "RangerTrak
+is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations for everybody is a tuple query."
+
+- **The general RAM** is shared by everyone in the app. It holds what everybody reads across everybody, each record
+  written by its owner.
+- **A team RAM** exists for each team the admin defined at setup. It holds that team's own data. Its audience,
+  protection and selection are its own: a team RAM can be placed among that team's nodes, and stays with them through
+  a split.
+- **Messages are not a role.** General messages live in the general RAM: announcements to everyone, and direct
+  messages between people in different teams. Team messages live in the team's RAM. A direct message in the general
+  RAM is read only by its sender and addressee; that is the app's access, over who reads which portion.
+
+A device joins the general RAM and the RAMs of its own teams. The access by team in the app tuples grants each one.
+Each RAM has its own selection and its own fail or relocate.
+
+### RangerTrak
+
+| RAM | What it holds | Who writes (their own truth) |
+| --- | --- | --- |
+| general | positions: each device's own current fix (the map is a query over them) | every device |
+| general | the roster: rangers, callsigns, teams | each ranger their record; team leads their team |
+| general | the radio log (ICS-309) and its handled marks | each scribe their entries; the handler their mark |
+| general | the mission, op periods, assignments | command |
+| general | announcements; direct messages between teams | the sender |
+| one per team (for an EOC: First Responders, Headquarters, Hospitals, Ambulances) | the team's own data (the Hospitals': capacity, receiving status) and its team messages | that team's members |
+
+A position is a device's own truth and is never derived from the log. A logged position is a scribe's record of what
+was said on the radio, and stays in the log.
+
 ## Why it works this way
 
 None of this is new machinery. It is the invariants in `AI_READ_FIRST.md` applied to an app.
