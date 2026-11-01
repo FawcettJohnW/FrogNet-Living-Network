@@ -194,6 +194,8 @@ Steps 1-7 of the page work (below, "Done") are built. The work now is the demo J
    whose session ended is not in the RAM. John, 2026-11-01: "If they are there they are there. You might do a LKP kind
    of thing, that would be a wireframe or translucent avatar": the app draws a last known position from what it last
    read, as a wireframe or translucent avatar, distinct from a connected participant; nothing is written for it.
+   "And, completely under app control": whether an LKP is drawn, how and for how long is the app's own choice; the
+   platform knows nothing of it.
    `rt-sim` writes the same way.
 2. **The shared library**, abstracted from what exists and used by the app (and later by the Communicator): the member's
    RAM session and join line, the held-read loop, the presence and position writer.
