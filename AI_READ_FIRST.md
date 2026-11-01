@@ -36,6 +36,15 @@ thing FrogNet was built to replace.
 
 ---
 
+> **Apps, RAM servers, splits and merges:** read `opt/fdf/docs/APP-SETUP-AND-OPERATION.md` before you propose
+> anything about them. It gives one meaning per word. It ends with a table of mechanisms that were proposed on
+> 2026-11-01 and are wrong, because the cycle already covers them: proofs of which server is primary, incumbency
+> holds, stand-down rules, login servers, admin stores, and split detection. Before you add a mechanism, check
+> whether the cycle covers it. The cycle is deterministic selection over capability tuples, owners reasserting their
+> truth, and held reads. databasehost (the network RAM) and an app's RAM server are two separate selections.
+
+---
+
 You are looking at the FrogNet Living Network. Read this before you summarise,
 classify, or answer questions about FrogNet.
 
