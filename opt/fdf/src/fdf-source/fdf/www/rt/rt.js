@@ -76,7 +76,7 @@ async function again(s, v, cells) {
   for (const r of cells.values()) if (r.bag && r.bag.dev === me && !mine.has(r.instance)) keep(s, v, r.instance, r.bag)
   const missing = [...ownOf(s, v)].filter(([i]) => !cells.has(i))
   for (const [i, bag] of missing) await post(s, v, i, bag)
-  if (missing.length) note('this device\'s own ' + missing.length + ' written again (' + s + ', on ' + (cells.ram || 'the RAM it is on now') + ')')
+  if (missing.length) diag('own truth written again', missing.length, s, v, 'on', cells.ram)   // the console's, not the user's
 }
 
 // [OWN_TRUTH_AGAIN_V1] all of it: the first time any read says the RAM is another one, every family this device owns
@@ -116,9 +116,11 @@ function take(f, rows) { for (const r of rows) { f.after = Math.max(f.after, r.i
 async function full(f) {
   try {
     const j = await readJ(f.s, f.v)
-    f.cells = new Map(); f.after = 0; f.ram = j.ram || f.ram; take(f, j.rows || []); f.full = false; f.onChange(f.cells)
+    f.cells = new Map(); f.after = 0; f.ram = j.ram || f.ram; take(f, j.rows || []); f.full = false
+    if (f.failed) { f.failed = false; note('') }                  // it answers again: the page's "did not answer" goes
+    f.onChange(f.cells)
     f.cells.ram = f.ram; await again(f.s, f.v, f.cells); againAll(fam(f.s).team || 'general', f.ram)
-  } catch (e) { (f.onError || console.error)(e); f.retry = Date.now() + 2000 }
+  } catch (e) { f.failed = true; (f.onError || console.error)(e); f.retry = Date.now() + 2000 }
 }
 async function loop() {
   if (looping) return
@@ -142,7 +144,7 @@ async function loop() {
       } catch (e) {
         if (ac.signal.aborted) { diag('watch#' + n, 'ended: the set of families changed'); continue }
         diag('watch#' + n, 'failed', Math.round(performance.now() - t0) + 'ms', e.message)
-        for (const f of held) { (f.onError || console.error)(e); f.full = true }
+        for (const f of held) { f.failed = true; (f.onError || console.error)(e); f.full = true }
         await new Promise(r => setTimeout(r, 2000))
       } finally { if (holding === ac) holding = null }
     }

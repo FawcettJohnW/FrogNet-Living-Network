@@ -23,7 +23,7 @@ const map = L.map('map').setView([47.6, -122.3], 9), markers = new Map()
 const tiles = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' })
 tiles.on('tileerror', () => say('no basemap (no Internet): positions only')); tiles.addTo(map)
 const ring = ['#ffffff', '#f5e663', '#f2c14e', '#ef9a3c', '#e8702a', '#d9481c', '#b3160b']
-let fitted = false
+let fitted = 0                                                 // how many devices the view was last fitted to
 let cur = new Map()
 function draw(pos) {
   cur = pos
@@ -36,7 +36,8 @@ function draw(pos) {
     if (markers.has(i)) markers.get(i).setLatLng(ll).setStyle(style).setTooltipContent(tip)
     else markers.set(i, L.circleMarker(ll, style).bindTooltip(tip, { permanent: true, direction: 'right' }).addTo(map))
   }
-  if (!fitted && list.length) { map.fitBounds(list.map(([, r]) => [r.bag.lat, r.bag.lng]), { maxZoom: 14, padding: [30, 30] }); fitted = true }
+  const outside = list.some(([, r]) => !map.getBounds().contains([r.bag.lat, r.bag.lng]))
+  if (list.length > fitted || outside) { map.fitBounds(list.map(([, r]) => [r.bag.lat, r.bag.lng]), { maxZoom: 14, padding: [30, 30] }); fitted = list.length }   // a new device, or one moved out of view: everyone in view
   $('#rows').innerHTML = list.map(([i, r]) => { const b = r.bag, mins = Math.max(0, Math.floor((Date.now() / 1000 - b.at) / 60))
     return '<tr data-d="' + RT.esc(i) + '"><td>' + RT.esc(b.name) + '</td><td>' + RT.esc(D.formatLatLng(b.lat, b.lng, 'DD')) + ' · ' + RT.esc(D.maidenhead(b.lat, b.lng)) +
       '</td><td>' + (b.acc != null ? Math.round(b.acc) + ' m' : '') + '</td><td>' + RT.esc(new Date(b.at * 1000).toLocaleTimeString()) + '</td><td>' + mins + ' min</td></tr>' }).join('')

@@ -78,7 +78,7 @@ def post309_start(post):
 # [STATION_IS_HOSTNAME_V1] the leases each post's dnsmasq gave (in its facts, as fdf-facts writes them): the devices'
 # host names (a station ID is the host name, hidden from users). The phone's lease has none: fdf-facts records the MAC.
 # The fresh phone at A has a lease too; the board asks it nothing
-LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "02:00:00:00:00:33", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h"}, "B": {"127.0.12.2": "laptop-b"}}
+LEASES = {"A": {"127.0.11.2": "laptop-a", "127.0.11.3": "02:00:00:00:00:33", "127.0.11.4": "phone-g", "127.0.11.5": "eoc-1", "127.0.11.6": "tablet-h", "127.0.11.7": "laptop-c"}, "B": {"127.0.12.2": "laptop-b"}}
 import threading
 up = {}
 def member_env(post):
@@ -413,6 +413,18 @@ try:
               and tot.startswith("%d entries" % n_all) and natt == str(n_att) and "Repeater coverage thin" in aar,
               "15 the 213 at A: %s; 214 lines on B's After-action in %s s, on A's ICS-214 in time order %s; B's Summary: %s; %s need attention; notes: %s"
               % ([c for c in form if c][:6], t4 and round(t4, 2), l214, tot, natt, aar))
+        SHOTS = os.environ.get("RT_SHOTS")      # pictures of what the users see, when asked for
+        if SHOTS:
+            os.makedirs(SHOTS, exist_ok=True)
+            lg = br.new_context(viewport={"width": 1100, "height": 760}).new_page()
+            fwd["127.0.11.7"] = From("127.0.11.7", posts["A"]); lg.goto("http://127.0.0.1:%d/rt/log.html" % fwd["127.0.11.7"].port)
+            lg.wait_for_function("document.body.dataset.connected === '1'"); lg.fill("#login input[name=user]", "kim")
+            for name, pg in (("1-login", lg), ("2-radio-log", b), ("3-messages", mb), ("4-map", mp), ("5-summary", sm), ("6-ics213", p13), ("7-ics309", pr), ("8-board", bd)):
+                try:
+                    pg.set_viewport_size({"width": 1100, "height": 760}); pg.bring_to_front(); time.sleep(0.4)
+                    pg.screenshot(path=os.path.join(SHOTS, name + ".png"), full_page=False)
+                except Exception as e:
+                    print("shot %s: %s" % (name, e))
         # 16 [APP_FOCUS_V1]
         fresh = {}
         for ip, q in (("127.0.11.5", "?role=eoc"), ("127.0.11.6", "")):
