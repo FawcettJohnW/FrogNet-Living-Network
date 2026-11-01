@@ -14,11 +14,14 @@
 #include "Default.h"
 #include "main.h"
 #include "mesh/Router.h"
+#include "PointerQueue.h"
 #include "mesh/NodeDB.h"
 #include "mesh/Channels.h"
 #include "mesh/generated/meshtastic/telemetry.pb.h"
 #include "mt_ribbit.h"
 #include <array>
+#include <set>
+#include <functional>
 #include <atomic>
 #include "concurrency/Lock.h"
 #include "concurrency/LockGuard.h"
@@ -75,11 +78,44 @@ class RibbitTransport final
     {
         if (!p)
             return false;
-        if (!isBroadcast(p->to) && isFromUs(p) && isFrogNetNode(p->to)) {
+        if (!isBroadcast(p->to) && isFromUs(p) && isFrogNetNode(p->to) && !isBridged(p->to)) {
             LOG_INFO("[MT_RIBBIT] id=0x%08x to !%08x: on the memory; nothing goes the stock way", p->id, p->to);
             return false;
         }
         return true;
+    }
+
+    // [MT_RADIO_EDGE_V1] The inbound half of the bridge (D8): a packet heard from a node that is not on the memory --
+    // over the radio, UDP, anything but the memory -- becomes that node's truth on the memory, written by this node
+    // on its behalf: its facts as its cells (user, pos, tel.<variant>, status), the packet as heard into this node's
+    // ring of the right family (the packet carries who said it). From then on the stock node looks like any other to
+    // every reader on the memory. This node also holds (mt, dm|!S) for it, and puts what lands there on the air
+    // (onPacket). p: decoded; enc: the same packet as it arrived, still encrypted (what readers decrypt).
+    void fromStock(const meshtastic_MeshPacket *p, const meshtastic_MeshPacket *enc);
+    // the same for a packet this node cannot decrypt (a PKI DM for a memory node): as heard, nothing decoded
+    void fromStockOpaque(const meshtastic_MeshPacket *enc);
+    // is this node bridging (has it heard a stock node off the memory)? which nodes are bridged?
+    bool bridging() { concurrency::LockGuard g(&rowsMutex); return !bridged.empty(); }
+    bool isBridged(NodeNum n) { concurrency::LockGuard g(&rowsMutex); return bridged.count(n) > 0; }
+    // a memory node's NodeInfo (from its user cell) for the air: queued for the main loop like a bridged DM
+    void announceToAir(const meshtastic_MeshPacket &pkt)
+    {
+        if (meshtastic_MeshPacket *out = packetPool.allocCopy(pkt)) {
+            out->to = 0xffffffffu; // a broadcast on the air, as stock announces
+            out->hop_limit = 3;
+            out->hop_start = 3;
+            toAir.enqueue(out, 0);
+            airWake();
+            LOG_INFO("[MT_RIBBIT] bridge: !%08x's user cell to the air as its NodeInfo", pkt.from);
+        }
+    }
+    // the stock nodes this node hears for (fromStock adds them)
+    std::set<NodeNum> bridged;
+    // did this packet come to us from the memory? (then nothing is bridged: its writer owns it)
+    bool fromMemory(const meshtastic_MeshPacket *p)
+    {
+        RowOf r;
+        return p && rowOf(p->id, r);
     }
 
     // [MT_MESSAGES_BY_FAMILY_V1] the node holds the family of every channel it has; called when channels are (re)loaded
@@ -255,6 +291,10 @@ class RibbitTransport final
     // connected clients of this node (PhoneAPI instances past their config start)
     static std::atomic<int> clients;
 
+    // [MT_RADIO_EDGE_V1] packets for nodes off the memory, from the held read's thread to the main loop
+    PointerQueue<meshtastic_MeshPacket> toAir{16};
+    std::function<void()> airWake = [] {};
+
   private:
     std::array<RowOf, 64> rows{};
     size_t rowNext = 0;
@@ -290,6 +330,17 @@ class RibbitTransport final
         LOG_INFO("[MT_RIBBIT] read id=0x%08x from=0x%08x to=0x%08x len=%u (%s row %llu)", mp.id, mp.from, mp.to, (unsigned)len,
                  family, (unsigned long long)row);
         self->remember(mp.id, row, family); // [MT_READ_MARKS_V1]
+        // [MT_RADIO_EDGE_V1] the outbound half of the bridge: a row in a dm family we hold for a node that is not on
+        // the memory is for that node -- it goes the stock way (UDP, the radio), as stock would send it
+        if (strncmp(family, "dm|!", 4) == 0 && strtoul(family + 4, nullptr, 16) != nodeDB->getNodeNum()) {
+            LOG_INFO("[MT_RIBBIT] bridge: id=0x%08x for !%08x (not on the memory): to the air", mp.id, mp.to);
+            if (meshtastic_MeshPacket *out = packetPool.allocCopy(mp)) {
+                out->rx_time = 0;
+                self->toAir.enqueue(out, 0); // sent on the main loop (RibbitBridge), as stock sends
+                self->airWake();
+            }
+            return;
+        }
         mp.pki_encrypted = false;
         mp.public_key.size = 0;
         mp.tx_after = 0;

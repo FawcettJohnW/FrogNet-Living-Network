@@ -1545,6 +1545,10 @@ void Router::dispatchReceived(meshtastic_MeshPacket *p, RxSource src)
             cancelSending(p->from, p->id);
         skipHandle = true;
     } else if (decodedState == DecodeState::DECODE_SUCCESS) {
+#ifdef ARCH_PORTDUINO
+        if (src == RX_SRC_RADIO && p_encrypted)
+            ribbitTransport->fromStock(p, p_encrypted); // [MT_RADIO_EDGE_V1] heard off the memory: bridged onto it
+#endif
         // parsing was successful, queue for our recipient
         if (src == RX_SRC_LOCAL)
             printPacket("handleReceived(LOCAL)", p);
@@ -1756,6 +1760,10 @@ void Router::perhapsHandleReceived(meshtastic_MeshPacket *p)
         // generate it here from the still-encrypted packet before opaque relay.
         if (isFromUs(p))
             perhapsGenerateImplicitAckForOwnOverheard(p);
+#ifdef ARCH_PORTDUINO
+        // [MT_RADIO_EDGE_V1] opaque here, but a memory node's to read (a PKI DM for it): bridged as heard
+        ribbitTransport->fromStockOpaque(p);
+#endif
         relayOpaquePacket(p);
         perhapsUplinkOpaquePki(p);
         packetPool.release(p);

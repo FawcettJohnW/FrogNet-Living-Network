@@ -372,3 +372,27 @@ on one memory (2026-11-01):
 | `mesh-app-demo … nodes` | 3 nodes: the two meshtasticd (short/long name, battery 101%, uptime) and the app itself |
 | a stock client on A broadcasts on LongFast | the app's held read: `TEXT from=!fcc361e8 … "hello from stock A"` (decrypted here) |
 | the app sends on LongFast | node A reads it from msg|8, decrypts it, the stock client gets `('!3efd3536', 'hello from the app')` |
+
+## Phase 3 — the radio edge [MT_RADIO_EDGE_V1]
+
+D8 both ways (DESIGN.md "Phase 3"). harness/mixed-mesh.sh on one host, UDP multicast as the air: S stock
+2.8.2.332b5b0 with UDP on and no memory; F front with UDP on, on the memory (S's bridge); G front on the memory only.
+results/mixed-20261101-123703:
+
+| check | result |
+|---|---|
+| G lists S (S's facts heard by F, written as (mtf, user, !F.!S)) | pass |
+| S broadcasts → G's client | 0.2 s |
+| G broadcasts → S's client | 0.2 s |
+| S DMs G (PKI; opaque to F, bridged on the relay path into dm\|!G) | 0.2 s |
+| G DMs S (dm\|!S read by F, to the air; S decrypts with G's announced key) | 0.2 s |
+| step 4 S1–S11 (4 nodes, own memory, multicast blackholed) | 11/11 |
+| smokevirt (own memory) | 40/40, 281 s (re-py-smokevirt-ownmem) |
+| native suites | RED, the same 92 as the no-gates and peer-marks runs (diffed by test name: identical set) — the deleted stock copy's tests; nothing new |
+
+Found on the way: (1) a PKI DM for a memory node never reaches `handleReceived` at the bridge — stock's
+`perhapsHandleReceived` classifies it OPAQUE_RELAY_ONLY and relays it; the bridge hook had to go on that path, not
+after the decode. (2) S refused the first DMs to G ("Unknown public key"): S had never heard G, so the bridge
+announces every memory node's user cell to the air as its NodeInfo when it first hears a stock node and whenever a
+user cell changes. (3) The first form had F write S's facts as S's own cells (mtf, user, !S); John's rule — cells are
+owned by whoever writes them — made them F's cells with S in the instance name, and the readers dedupe by subject.

@@ -173,3 +173,30 @@ session (mtr_write_fact_kept: linger STAYS). nodeFromCell merges them into the N
 reader is unchanged; nodeInfoLiteSetBit and setProtectedFlag on a remote node write the cell. Verified on two nodes:
 favorite + ignore B from A → A's cell, A's dump shows both, both survive A's restart, B's text is dropped at A
 ("Ignore msg, … is ignored"). No marks → the cell is cleared.
+
+## Phase 3 — the radio edge (2026-11-01) `[MT_RADIO_EDGE_V1]`
+
+D8, both halves, in `RibbitTransport`. A node that hears a stock node S off the memory (UDP multicast here; LoRa the
+same path) is S's bridge F.
+
+- **Inbound (`fromStock`, `fromStockOpaque`).** The first packet from S makes it bridged: F holds (mt, dm|!S) for it
+  and announces every memory node's user cell to the air as its NodeInfo, so S learns the memory nodes and their
+  public keys. S's facts (NodeInfo, Position, Telemetry, not replies) are written as F's cells about S:
+  (mtf, topic, !F.!S) — the cell is F's, S is the subject in the instance name (John: "Cells are owned by whoever
+  writes them. S is part of the tuple"). S's other packets go into F's ring as heard (mtr_send: the channel's family,
+  or dm|!R when R is a memory node). A PKI DM for a memory node is opaque to F — `perhapsHandleReceived` relays it
+  without `handleReceived` — so the opaque-relay path bridges it too, the encrypted bytes unchanged; only the addressee
+  can read it, from its dm family.
+- **Outbound (`bridgeToStock`, `RibbitBridge`).** A unicast from a memory node to S lands in dm|!S, F's held read
+  picks it up (`toAir`) and `RibbitBridge` hands it to the router for the air. A broadcast from a memory node that F
+  reads from a channel family goes out the stock way from F. A unicast to a memory node that is not bridged goes
+  nowhere but the memory.
+- **Readers.** `mtr_read_facts` returns one fact per (topic, subject): the subject's own cell when present, else the
+  newest bridge cell; `mtr_read_cell` the same for one node; `node_of()` parses `!S` and `!F.!S`. Two bridges that
+  both hear S write two cells; readers take the newest, and S's own cell wins the moment S is on the memory.
+- **Not built:** the on-air beacon for two FrogNet nodes finding each other over LoRa before either reaches the RAM
+  (D8's last clause); a knob to keep a pure-FrogNet mesh off the air entirely (today every memory node with UDP or a
+  radio sends broadcasts the stock way).
+
+Proof: harness/mixed-mesh.sh — S stock (UDP), F front (UDP, memory), G front (memory only): G lists S; S↔G broadcasts;
+S↔G DMs (PKI) both ways, every one 0.2 s. RESULTS.md has the table.

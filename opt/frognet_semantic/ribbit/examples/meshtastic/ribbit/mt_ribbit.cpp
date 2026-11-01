@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -25,7 +26,7 @@
 namespace {
 constexpr const char *SPACE = "mt";
 constexpr uint64_t RING = 1024;
-constexpr const char *VERSION = "mt-ribbit 0.9 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1] [MT_READ_MARKS_V1] [MT_PEER_MARKS_V1]";
+constexpr const char *VERSION = "mt-ribbit 0.10 [MT_PACKETS_ON_THE_RAM_V1] [MT_OWN_FACTS_V1] [MT_NODEDB_IS_A_HELD_VIEW_V1] [MT_DUMP_READS_CELLS_V1] [MT_FACT_CHANGES_TO_CLIENTS_V1] [MT_OTHER_NODES_ARE_CELLS_V1] [MT_OWN_FACTS_ON_CHANGE_V1] [MT_MESSAGES_BY_FAMILY_V1] [MT_READ_MARKS_V1] [MT_PEER_MARKS_V1] [MT_RADIO_EDGE_V1]";
 
 std::unique_ptr<ribbit::Space> g_space;
 std::string g_me;
@@ -147,6 +148,16 @@ extern "C" int mtr_start(const char *where, uint32_t me, mtr_on_packet on, void 
     }
 }
 
+extern "C" void mtr_hold_dm_for(uint32_t node)
+{
+    if (!g_space) return;
+    try {
+        hold(dm_topic(node));
+    } catch (const std::exception &e) {
+        fprintf(stderr, "[MT_RIBBIT] cannot hold dm for !%08x: %s\n", node, e.what());
+    }
+}
+
 extern "C" void mtr_hold_channel(uint8_t hash)
 {
     if (!g_space) return;
@@ -167,13 +178,19 @@ struct Fact {
 };
 ribbit::lf::TakeStack<Fact> g_facts;
 
+// the subject of a fact cell: "!S" (the node's own cell) or "!F.!S" (written by bridge F about S, which is not on the
+// memory [MT_RADIO_EDGE_V1]: the cell is F's -- "cells are owned by whoever writes them" -- and S is in its name).
+// Either way the fact is about S.
 bool node_of(const std::string &instance, uint32_t &n)
 {
-    if (instance.size() != 9 || instance[0] != '!') return false;
+    size_t dot = instance.find('.');
+    std::string subj = dot == std::string::npos ? instance : instance.substr(dot + 1);
+    if (subj.size() != 9 || subj[0] != '!') return false;
     char *end = nullptr;
-    n = (uint32_t)strtoul(instance.c_str() + 1, &end, 16);
+    n = (uint32_t)strtoul(subj.c_str() + 1, &end, 16);
     return end && *end == 0;
 }
+std::string bridged_name(uint32_t by, uint32_t subject) { return node_name(by) + "." + node_name(subject); }
 } // namespace
 
 extern "C" void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, size_t len)
@@ -181,6 +198,13 @@ extern "C" void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *
     if (!g_space) return;
     // t: when the owner wrote it (its own clock, unix seconds). A reader's last_heard is this, never a time it keeps.
     g_space->write(FACTS, topic, node_name(node),
+                   "{\"p\":\"" + hex(payload, len) + "\",\"t\":" + std::to_string((long long)time(nullptr)) + "}");
+}
+
+extern "C" void mtr_write_fact_for(const char *topic, uint32_t by, uint32_t subject, const uint8_t *payload, size_t len)
+{
+    if (!g_space) return;
+    g_space->write(FACTS, topic, bridged_name(by, subject),
                    "{\"p\":\"" + hex(payload, len) + "\",\"t\":" + std::to_string((long long)time(nullptr)) + "}");
 }
 
@@ -210,19 +234,33 @@ extern "C" size_t mtr_read_facts(const char *topic, mtr_on_cell on, void *ctx)
     size_t n = 0;
     try {
         auto rows = g_space->read(FACTS, prefix ? "" : want);
+        // one fact per (topic, subject): a node's own cell first; else the newest of the bridges' cells about it
+        struct Pick { ribbit::SpaceRow *r; bool own; double t; };
+        std::map<std::pair<std::string, uint32_t>, Pick> picks;
         for (auto &r : rows) {
             if (r.gone || (prefix && r.topic.compare(0, want.size(), want) != 0)) continue;
             uint32_t node = 0;
             auto f = r.fields();
-            std::string p, bytes;
-            if (f && (p = f->str("p")).empty()) continue; // cleared by its owner: no fact
-            if (!node_of(r.instance, node) || !f || !unhex(p, bytes)) {
+            if (!node_of(r.instance, node) || !f) continue;
+            if (f->str("p").empty()) continue; // cleared by its owner: no fact
+            bool own = r.instance.find('.') == std::string::npos;
+            double t = f->num("t");
+            auto key = std::make_pair(r.topic, node);
+            auto it = picks.find(key);
+            if (it == picks.end() || (own && !it->second.own) || (own == it->second.own && t > it->second.t))
+                picks[key] = Pick{&r, own, t};
+        }
+        for (auto &kv : picks) {
+            auto &r = *kv.second.r;
+            auto f = r.fields();
+            std::string bytes;
+            if (!unhex(f->str("p"), bytes)) {
                 fprintf(stderr, "[MT_RIBBIT] cell %llu (%s,%s) unreadable, skipped\n", (unsigned long long)r.id,
                         r.topic.c_str(), r.instance.c_str());
                 continue;
             }
-            on(r.topic.c_str(), node, reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(), (uint32_t)f->num("t"),
-               ctx);
+            on(r.topic.c_str(), kv.first.second, reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size(),
+               (uint32_t)f->num("t"), ctx);
             n++;
         }
     } catch (const std::exception &e) {
@@ -235,21 +273,36 @@ extern "C" int mtr_read_cell(const char *topic, uint32_t node, uint8_t *out, siz
 {
     if (!g_space || !topic) return 0;
     try {
-        auto rows = g_space->read(FACTS, topic, node_name(node));
-        for (auto &r : rows) {
-            if (r.gone) continue;
+        auto take = [&](ribbit::SpaceRow &r) -> int {
             auto f = r.fields();
             std::string p, bytes;
             if (f && (p = f->str("p")).empty()) return 0; // cleared by its owner: no fact
             if (!f || !unhex(p, bytes) || bytes.size() > cap) {
-                fprintf(stderr, "[MT_RIBBIT] cell (%s,%s) unreadable, not used\n", topic, node_name(node).c_str());
+                fprintf(stderr, "[MT_RIBBIT] cell (%s,%s) unreadable, not used\n", topic, r.instance.c_str());
                 return 0;
             }
             memcpy(out, bytes.data(), bytes.size());
             *len = bytes.size();
             if (t) *t = (uint32_t)f->num("t");
             return 1;
+        };
+        auto rows = g_space->read(FACTS, topic, node_name(node));
+        for (auto &r : rows)
+            if (!r.gone) return take(r);
+        // not its own cell: a bridge's cell about it ("!F.!node"), the newest when several bridges hear it
+        const std::string suffix = "." + node_name(node);
+        auto all = g_space->read(FACTS, topic);
+        ribbit::SpaceRow *best = nullptr;
+        double bt = -1;
+        for (auto &r : all) {
+            if (r.gone || r.instance.size() <= suffix.size() ||
+                r.instance.compare(r.instance.size() - suffix.size(), suffix.size(), suffix) != 0)
+                continue;
+            auto f = r.fields();
+            double tt = f ? f->num("t") : 0;
+            if (tt >= bt) { bt = tt; best = &r; }
         }
+        if (best) return take(*best);
     } catch (const std::exception &e) {
         fprintf(stderr, "[MT_RIBBIT] read of (%s,%s,%s) failed: %s\n", FACTS, topic, node_name(node).c_str(), e.what());
     }

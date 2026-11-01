@@ -28,6 +28,9 @@ void mtr_send(const uint8_t *bytes, size_t len, uint32_t to, uint8_t channel);
 // Hold the channel family (mt, msg|<hash>): the node has this channel. Idempotent; from the node's mark on that family
 // (nothing handed to a client yet: from now on).
 void mtr_hold_channel(uint8_t hash);
+// [MT_RADIO_EDGE_V1] Hold (mt, dm|!node) for a node that is not on the memory: this node is its bridge and puts what
+// is addressed to it on the air. Idempotent.
+void mtr_hold_dm_for(uint32_t node);
 
 // [MT_READ_MARKS_V1] The node's mark on a family: the newest row of it a client of this node has been handed,
 // (mt, mark, !N.<family>), the node's own cell, kept past its session. Stock's to-phone queue (32 deep, persisted as
@@ -50,6 +53,11 @@ const char *mtr_front_version(void);
 // "tel.<variant>", "status". payload: the protobuf the node would put on the air for it (User, Position, Telemetry,
 // StatusMessage). Returns at once.
 void mtr_write_fact(const char *topic, uint32_t node, const uint8_t *payload, size_t len);
+// [MT_RADIO_EDGE_V1] A bridge's fact about a node that is not on the memory: (mtf, topic, !by.!subject). The cell is the
+// bridge's ("cells are owned by whoever writes them"); the subject is in its name. Readers of a node's facts find it
+// under the node (mtr_read_cell, mtr_read_facts hand back node = subject); two bridges hearing the same node each own
+// their own cell, and the newer one is read.
+void mtr_write_fact_for(const char *topic, uint32_t by, uint32_t subject, const uint8_t *payload, size_t len);
 // [MT_PEER_MARKS_V1] The same, for a fact that outlives the writer's session (a mark on a peer -- favorite, ignored --
 // is the node's standing opinion, not its presence): said once per topic, before its first write.
 void mtr_write_fact_kept(const char *topic, uint32_t node, const uint8_t *payload, size_t len);

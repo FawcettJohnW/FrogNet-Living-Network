@@ -204,6 +204,7 @@ static RibbitTransport ribbitTransportInstance;
 RibbitTransport *ribbitTransport = &ribbitTransportInstance;
 #include "mesh/ribbit/RibbitFacts.h" // [MT_NODEDB_IS_A_HELD_VIEW_V1]
 RibbitFacts *ribbitFacts = nullptr;
+RibbitBridge *ribbitBridge = nullptr; // [MT_RADIO_EDGE_V1]
 #endif
 #endif
 
@@ -1115,6 +1116,7 @@ void setup()
         ribbitTransport->writeOwnConfig(); // [MT_CONFIG_CELLS_V1]
         ribbitFacts = new RibbitFacts(); // [MT_FACT_CHANGES_TO_CLIENTS_V1]
         ribbitFacts->start();
+        ribbitBridge = new RibbitBridge(); // [MT_RADIO_EDGE_V1]
     }
 #endif
     service = new MeshService();

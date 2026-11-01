@@ -15,6 +15,7 @@
 #include "mesh/generated/meshtastic/module_config.pb.h"
 #include "mesh/generated/meshtastic/channel.pb.h"
 #include <cstring>
+#include <set>
 
 namespace
 {
@@ -113,6 +114,87 @@ void RibbitTransport::writeOwnConfig()
     }
     LOG_INFO("[MT_RIBBIT] own config cells written: 8 config, 15 module config, %u channels; PSKs and private key stripped",
              written);
+}
+
+void RibbitTransport::fromStock(const meshtastic_MeshPacket *p, const meshtastic_MeshPacket *enc)
+{
+    if (!running || !p || !enc || p->which_payload_variant != meshtastic_MeshPacket_decoded_tag)
+        return;
+    if (isFromUs(p) || fromMemory(p))
+        return; // ours, or came to us from the memory: nothing to bridge
+    // a node whose cell is on the memory and is not one we wrote on its behalf is a memory node: this is a UDP echo
+    // of its own write, not something to bridge. (Its cell written by us is our doing, not its presence.)
+    if (!isBridged(p->from) && isFrogNetNode(p->from))
+        return;
+    bool first;
+    {
+        concurrency::LockGuard g(&rowsMutex);
+        first = bridged.insert(p->from).second;
+    }
+    if (first) {
+        mtr_hold_dm_for(p->from);
+        // the stock node must know the memory nodes: every user cell now goes on the air as that node's NodeInfo
+        struct Ctx { RibbitTransport *self; } ctx{this};
+        mtr_read_facts("user", [](const char *topic, uint32_t node, const uint8_t *b, size_t len, uint32_t t, void *c) {
+            auto *self = static_cast<Ctx *>(c)->self;
+            if (node == nodeDB->getNodeNum() || self->isBridged(node)) return;
+            meshtastic_MeshPacket pkt;
+            if (cellPacket(topic, node, b, len, t, pkt)) self->announceToAir(pkt);
+        }, &ctx);
+        LOG_INFO("[MT_RIBBIT] bridge: !%08x is heard here and not on the memory; its facts and packets are written on its behalf; "
+                 "holding dm|!%08x for it",
+                 p->from, p->from);
+    }
+    // its facts as its cells
+    const auto &d = p->decoded;
+    const char *topic = nullptr;
+    char tbuf[16];
+    switch (d.portnum) {
+    case meshtastic_PortNum_NODEINFO_APP: topic = "user"; break;
+    case meshtastic_PortNum_POSITION_APP: topic = "pos"; break;
+    case meshtastic_PortNum_NODE_STATUS_APP: topic = "status"; break;
+    case meshtastic_PortNum_TELEMETRY_APP: {
+        meshtastic_Telemetry t = meshtastic_Telemetry_init_zero;
+        if (pb_decode_from_bytes(d.payload.bytes, d.payload.size, &meshtastic_Telemetry_msg, &t)) {
+            snprintf(tbuf, sizeof tbuf, "tel.%u", (unsigned)t.which_variant);
+            topic = tbuf;
+        }
+        break;
+    }
+    default: break;
+    }
+    if (topic && d.request_id == 0) { // a fact told, not a reply to someone's request
+        mtr_write_fact_for(topic, nodeDB->getNodeNum(), p->from, d.payload.bytes, d.payload.size); // our cell, about it
+        LOG_INFO("[MT_RIBBIT] bridge: (%s, !%08x.!%08x) written from what was heard", topic, nodeDB->getNodeNum(), p->from);
+        return; // a fact is its cell; the packet itself is not also a message
+    }
+    // the packet as heard, into our ring of its family (readers decrypt it as the sender encrypted it)
+    uint8_t buffer[meshtastic_MeshPacket_size];
+    size_t n = pb_encode_to_bytes(buffer, sizeof buffer, &meshtastic_MeshPacket_msg, enc);
+    mtr_send(buffer, n, enc->to, enc->channel);
+    LOG_INFO("[MT_RIBBIT] bridge: heard id=0x%08x from !%08x to !%08x, written to %s", enc->id, enc->from, enc->to,
+             isBroadcast(enc->to) ? "its channel's family" : "its addressee's family");
+}
+
+void RibbitTransport::fromStockOpaque(const meshtastic_MeshPacket *enc)
+{
+    if (!running || !enc)
+        return;
+    LOG_DEBUG("[MT_RIBBIT] bridge: opaque id=0x%08x from !%08x to !%08x fromUs=%d fromMemory=%d bridged(from)=%d "
+              "frognet(from)=%d frognet(to)=%d",
+              enc->id, enc->from, enc->to, isFromUs(enc), fromMemory(enc), isBridged(enc->from), isFrogNetNode(enc->from),
+              isFrogNetNode(enc->to));
+    if (isFromUs(enc) || fromMemory(enc))
+        return;
+    if (!isBridged(enc->from) && isFrogNetNode(enc->from))
+        return; // a memory node's own write echoed over UDP
+    if (!isBroadcast(enc->to) && !isFrogNetNode(enc->to))
+        return; // for nobody on the memory
+    uint8_t buffer[meshtastic_MeshPacket_size];
+    size_t n = pb_encode_to_bytes(buffer, sizeof buffer, &meshtastic_MeshPacket_msg, enc);
+    mtr_send(buffer, n, enc->to, enc->channel);
+    LOG_INFO("[MT_RIBBIT] bridge: heard id=0x%08x from !%08x to !%08x (not ours to read), written to %s", enc->id, enc->from,
+             enc->to, isBroadcast(enc->to) ? "its channel's family" : "its addressee's family");
 }
 
 bool RibbitTransport::answerFromCell(const meshtastic_MeshPacket *p)

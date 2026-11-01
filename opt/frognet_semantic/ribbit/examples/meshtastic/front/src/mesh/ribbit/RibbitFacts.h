@@ -59,10 +59,17 @@ class RibbitFacts : public concurrency::OSThread
     {
         // [MT_FACT_CHANGES_TO_CLIENTS_V1] a cell written while held reaches this node's clients as the packet they expect;
         // what was there at the start reached them in the config dump and its replay
-        if (!live || gone || node == nodeDB->getNodeNum() || !service)
+        if (gone || node == nodeDB->getNodeNum() || !service)
             return;
         meshtastic_MeshPacket pkt;
         if (!RibbitTransport::cellPacket(topic, node, b, len, t, pkt))
+            return;
+        // [MT_RADIO_EDGE_V1] a memory node's user cell, now or changed: when this node bridges stock nodes, they must know
+        // the memory nodes too (a PKI DM either way needs the other's key), so the cell goes on the air as that node's
+        // NodeInfo -- a relay of its own announcement, from = the node
+        if (strcmp(topic, "user") == 0 && ribbitTransport->bridging() && !ribbitTransport->isBridged(node))
+            ribbitTransport->announceToAir(pkt);
+        if (!live)
             return;
         meshtastic_MeshPacket *p = packetPool.allocCopy(pkt);
         if (!p)
@@ -74,4 +81,29 @@ class RibbitFacts : public concurrency::OSThread
 };
 
 extern RibbitFacts *ribbitFacts;
+
+// [MT_RADIO_EDGE_V1] On the main loop: what the held read put in toAir goes out the stock way (UDP, the radio), for the
+// nodes this node hears for. Woken by the held read's thread, like RibbitFacts.
+class RibbitBridge : public concurrency::OSThread
+{
+  public:
+    RibbitBridge() : OSThread("RibbitBridge")
+    {
+        ribbitTransport->airWake = [this] {
+            setInterval(0);
+            runASAP = true;
+        };
+    }
+
+  protected:
+    int32_t runOnce() override
+    {
+        while (meshtastic_MeshPacket *p = ribbitTransport->toAir.dequeuePtr(0)) {
+            LOG_INFO("[MT_RIBBIT] bridge: id=0x%08x from !%08x to !%08x on the air", p->id, p->from, p->to);
+            router->send(p); // onSend refuses it (another node's packet); bridgeToStock lets it through
+        }
+        return INT32_MAX;
+    }
+};
+extern RibbitBridge *ribbitBridge;
 #endif
