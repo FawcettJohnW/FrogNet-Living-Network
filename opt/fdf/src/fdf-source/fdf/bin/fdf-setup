@@ -3,37 +3,45 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""fdf-setup -- [FDF_SETUP_V1] an organization's manager stands up their own FrogNet, on their own droplet, with nobody
-from Fawcett Innovations in the room (opt/fdf/docs/ORGANIZATIONS.md section 1). Run as root, after untarring the droplet
-bundle. It asks before it changes anything and fixes what is missing once the manager says yes. Run it again at any
-time: what is there is shown and kept, and only what the manager adds or changes is done.
+"""fdf-setup -- [FDF_SETUP_V1][REGIONS_PER_MACHINE_V1] make a region and define all of it: its name, the address and
+ports members reach it at, its levels (each one's password or none, reach and ports), its users and their passwords,
+and one join line per level (opt/fdf/docs/ORGANIZATIONS.md section 1). Run as root on the machine that holds it, after
+unpacking the region-holder bundle. A machine holds as many regions as it is given, each on its own ports.
 
-In order:
-  1  what this machine needs (python3, wg, ip, nft, systemctl): a missing one is installed with apt-get once you say yes
-  2  the RAM manager and the hub (fdf-region-create AREA PUBLIC_IP), if this machine holds no region yet
-  3  the credential manager: the generic credential and the door (fdf-org init), and fdf-org.service started
-  4  the RAM spaces, all at once: one RAM manager each on this machine (fdf-org space)
-  5  the levels, in your own words: each with a password or none, its reach, and the spaces its applications join
-  6  users and passwords, for each level that has a password
-  7  a standby: for each level, the line `fdf-org line LEVEL` printed on the standby (it is set up by running fdf-setup
-     there with the same spaces, levels and users), put after this RAM host in the line
-  8  one join line per level, printed (and as a QR when qrencode is installed) and kept in /opt/fdf/var/lines/LEVEL.line
-     (root-only); then how a device joins with it
+Everything has a default and everything can be changed. John, 2026-11-01: "make defaults for everything, but it all
+must be configurable, including levels, addresses, and passwords." The defaults:
+  region      this machine's host name (at most 12 characters)
+  address     this machine's own address (the one its default route leaves from)
+  RAM port    51888, hub port 50889; the next free pair when another region here has those
+  levels      Restricted (no password, reach: the region only -- what almost everything is), and Admin (a password,
+              reach: open -- for an admin who wants ssh to the machines)
+  users       admin at Admin, its password asked for (none is made up)
 
-  fdf-setup                 the wizard
-  fdf-setup --lines         print every level's join line again (the standby lines given before are kept)
+  fdf-setup [--area AREA]          the wizard: each question shows its default; Enter keeps it
+  fdf-setup --defaults             print the default definition (JSON), the starting point for a UI
+  fdf-setup --define FILE          apply a whole definition with no questions: what a UI in front of fdf-setup sends
+  fdf-setup --lines [--area AREA]  print every level's join line again
+
+A definition (FILE, JSON):
+  {"area": "RangerTest", "address": "10.170.170.1", "ram_port": 51889, "hub_port": 50890,
+   "levels": [{"name": "Restricted", "password": false, "reach": "ram"},
+              {"name": "Admin", "password": true, "reach": "open", "login_port": 41001, "session_port": 41002}],
+   "users": [{"level": "Admin", "user": "admin", "password": "..."}]}
+  reach: ram | open | list:ADDR[:PORT],...   Ports left out are chosen (and kept on a later run).
+Run it again at any time: what is there is shown and kept; only what is added or changed is done.
 
 Tests set FDF_SETUP_NO_SYSTEMD=1 (the region exists already and fdf-org serve runs by itself) and FDF_ORG to fdf-org.
 """
-import getpass, json, os, shlex, shutil, subprocess, sys
+import getpass, json, os, shutil, socket, subprocess, sys
 
 BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
 ORG = os.environ.get("FDF_ORG", os.path.join(BIN, "fdf-org"))
-HUBENV = os.environ.get("FDF_HUB_ENV", "/opt/fdf/hub/hub.env")
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_regions  # noqa: E402
 VAR = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
-LINES = os.path.join(VAR, "lines")
 NO_SYSTEMD = os.environ.get("FDF_SETUP_NO_SYSTEMD") == "1"
-EXAMPLES = "Watcher, Player, Host; Viewer, Commenter, Editor, Admin; First Responders, Headquarters, Hospitals, Ambulances"
+DEFAULT_RAM_PORT, DEFAULT_HUB_PORT = 51888, 50889
+EXAMPLES = "Restricted, Admin; Watcher, Player, Host; First Responders, Headquarters, Hospitals, Ambulances"
 
 
 def say(*a):
@@ -42,10 +50,10 @@ def say(*a):
 
 def ask(q, default=""):
     try:
-        a = input("%s%s: " % (q, " [%s]" % default if default else "")).strip()
+        a = input("%s%s: " % (q, " [%s]" % default if default != "" else "")).strip()
     except EOFError:
         a = ""
-    return a or default
+    return a or str(default)
 
 
 def yes(q, default=True):
@@ -59,183 +67,135 @@ def secret(q):
     return sys.stdin.readline().rstrip("\n")
 
 
-def org(*args, stdin=None):
-    p = subprocess.run([sys.executable, ORG] + list(args), input=stdin, capture_output=True, text=True)
-    out = (p.stdout + p.stderr).strip()
-    if p.returncode != 0:
-        say("  ! fdf-org %s failed: %s" % (" ".join(args[:2]), out))
-    return p.returncode == 0, out
-
-
-def need():
-    say("== 1 what this machine needs")
-    pkg = {"python3": "python3", "wg": "wireguard-tools", "ip": "iproute2", "nft": "nftables", "systemctl": "systemd"}
-    missing = [b for b in pkg if shutil.which(b) is None and not (NO_SYSTEMD and b == "systemctl")]
-    if not missing:
-        say("  all here: " + ", ".join(pkg))
-        return True
-    say("  missing: " + ", ".join(missing))
-    if not yes("  install %s with apt-get now?" % " ".join(pkg[b] for b in missing)):
-        say("  not installed: setup stops here (it needs them)")
-        return False
-    r = subprocess.run(["apt-get", "install", "-y"] + [pkg[b] for b in missing])
-    return r.returncode == 0
-
-
+# ---------------------------------------------------------------- the defaults
 def public_ip():
     r = subprocess.run(["ip", "-4", "route", "get", "1.1.1.1"], capture_output=True, text=True)
     p = r.stdout.split()
     return p[p.index("src") + 1] if "src" in p else ""
 
 
-def region():
-    say("== 2 the RAM manager and the hub")
-    if os.path.exists(HUBENV) and os.path.getsize(HUBENV):
-        env = dict(l.strip().split("=", 1) for l in open(HUBENV) if "=" in l and not l.startswith("#"))
-        say("  this machine holds region %s (hub %s, endpoint %s): kept" % (env.get("FDF_AREA"), env.get("FDF_HUB_NAME"), env.get("FDF_ENDPOINT")))
+def used_ports():
+    ram, hub = set(), set()
+    for d in fdf_regions.areas().values():
+        for ln in open(os.path.join(d, "hub.env")):
+            if ln.startswith("RINA_RAM="):
+                ram.add(int(ln.strip().rsplit(":", 1)[1]))
+            elif ln.startswith("FDF_LISTEN="):
+                hub.add(int(ln.strip().split("=", 1)[1]))
+    return ram, hub
+
+
+def defaults():
+    ram, hub = used_ports()
+    rp, hp = DEFAULT_RAM_PORT, DEFAULT_HUB_PORT
+    while rp in ram or hp in hub:
+        rp += 1; hp += 1
+    area = "".join(c for c in socket.gethostname().split(".")[0] if c.isalnum() or c in "._-")[:12] or "region"
+    return {"area": area, "address": public_ip(), "ram_port": rp, "hub_port": hp,
+            "levels": [{"name": "Restricted", "password": False, "reach": "ram"},
+                       {"name": "Admin", "password": True, "reach": "open"}],
+            "users": [{"level": "Admin", "user": "admin", "password": ""}]}
+
+
+# ---------------------------------------------------------------- the steps, each from a definition
+def org(area, *args, stdin=None):
+    p = subprocess.run([sys.executable, ORG, "--area", area] + list(args), input=stdin, capture_output=True, text=True)
+    out = (p.stdout + p.stderr).strip()
+    if p.returncode != 0:
+        say("  ! fdf-org %s failed: %s" % (" ".join(args[:2]), out))
+    return p.returncode == 0, out
+
+
+def need(ask_first=True):
+    say("== what this machine needs")
+    pkg = {"python3": "python3", "wg": "wireguard-tools", "ip": "iproute2", "nft": "nftables", "systemctl": "systemd"}
+    missing = [b for b in pkg if shutil.which(b) is None and not (NO_SYSTEMD and b == "systemctl")]
+    if not missing:
+        say("  all here: " + ", ".join(pkg)); return True
+    say("  missing: " + ", ".join(missing))
+    if ask_first and not yes("  install %s with apt-get now?" % " ".join(pkg[b] for b in missing)):
+        say("  not installed: setup stops here (it needs them)"); return False
+    return subprocess.run(["apt-get", "install", "-y"] + [pkg[b] for b in missing]).returncode == 0
+
+
+def region(d):
+    say("== region %s: the RAM manager and the hub" % d["area"])
+    if d["area"] in fdf_regions.areas():
+        env = dict(l.strip().split("=", 1) for l in open(os.path.join(fdf_regions.areas()[d["area"]], "hub.env")) if "=" in l and not l.startswith("#"))
+        say("  this machine holds region %s (RAM manager %s, hub endpoint %s): kept" % (d["area"], env.get("RINA_RAM"), env.get("FDF_ENDPOINT")))
         return True
-    say("  this machine holds no region yet. Its name is your organization's (letters, digits, . _ -, at most 12).")
-    area = ask("  organization (region) name")
-    ip = ask("  the address members reach this machine at", public_ip())
-    if not area or not ip:
-        say("  no name or address: setup stops here")
-        return False
-    if not yes("  run fdf-region-create %s %s now?" % (area, ip)):
-        return False
-    return subprocess.run([os.path.join(BIN, "fdf-region-create"), area, ip]).returncode == 0
+    return subprocess.run([os.path.join(BIN, "fdf-region-create"), d["area"], d["address"], "--ram-port", str(d["ram_port"]),
+                           "--hub-port", str(d["hub_port"])]).returncode == 0
 
 
-def credentials():
-    say("== 3 the credential manager")
-    ok, init = org("init")
+def credentials(d):
+    say("== region %s: the credential manager" % d["area"])
+    ok, init = org(d["area"], "init")
     if not ok:
         return False
     say("  " + init.splitlines()[-1] if init else "  ready")
     if NO_SYSTEMD:
         return True
-    if subprocess.run(["systemctl", "is-active", "--quiet", "fdf-org.service"]).returncode == 0:
-        say("  fdf-org.service is running")
-        return True
-    if not yes("  start fdf-org.service (the door, the logins, the spaces, the reach rules) now?"):
-        return False
+    u = "fdf-org@%s.service" % d["area"]
+    if subprocess.run(["systemctl", "is-active", "--quiet", u]).returncode == 0:
+        say("  %s is running" % u); return True
     subprocess.run(["systemctl", "daemon-reload"])
-    return subprocess.run(["systemctl", "enable", "fdf-org.service"]).returncode == 0 and \
-        subprocess.run(["systemctl", "start", "fdf-org.service"]).returncode == 0
+    return subprocess.run(["systemctl", "enable", u]).returncode == 0 and subprocess.run(["systemctl", "start", u]).returncode == 0
 
 
-def listing():
-    """(spaces, {level: {password, reach, spaces}}) as this RAM host has them."""
-    ok, out = org("list", "--json")
+def listing(area):
+    ok, out = org(area, "list", "--json")
     try:
-        j = json.loads(out.splitlines()[-1]) if ok and out else {}
+        return (json.loads(out.splitlines()[-1]) if ok and out else {}).get("levels", {})
     except ValueError:
-        j = {}
-    return j.get("spaces", []), j.get("levels", {})
+        return {}
 
 
-def spaces():
-    say("== 4 the RAM spaces (one shared memory each: what a group of applications shares)")
-    have, _ = listing()
-    say("  here now: %s" % (", ".join(have) if have else "none"))
-    while True:
-        n = ask("  a space to add (empty when done)")
-        if not n:
-            return True
-        if n in have:
-            say("  %s is here already" % n)
-        elif yes("  add space %s?" % n):
-            ok, out = org("space", n)
-            say("  " + out.splitlines()[-1]) if ok else None
-            have.append(n)
-
-
-def levels():
-    say("== 5 the levels, in your own words (for example: %s)" % EXAMPLES)
-    sps, have = listing()
-    for n, lv in have.items():
-        say("  here now: %s (%s, reach %s, spaces %s)" % (n, "password" if lv["password"] else "no password",
-                                                          lv["reach"].get("kind", "ram"), ", ".join(lv["spaces"]) or "none"))
-    while True:
-        n = ask("  a level to add or change (empty when done)")
-        if not n:
-            return True
-        pw = yes("  does %s need a user and password?" % n, False)
-        say("  reach: ram (its spaces and the RAM only: most levels), open (everything), or list:ADDR[:PORT],... ")
-        reach = ask("  %s's reach" % n, "ram")
-        joins = ask("  the spaces %s's applications join, comma separated (%s)" % (n, ", ".join(sps) or "none yet"))
-        args = ["level", n, "--reach", reach] + (["--password"] if pw else [])
-        for s in [x.strip() for x in joins.split(",") if x.strip()]:
-            args += ["--space", s]
-        if yes("  fdf-org %s ?" % " ".join(shlex.quote(a) for a in args)):
-            ok, out = org(*args)
-            if ok:
-                say("  " + out.splitlines()[-1])
-
-
-def users():
-    say("== 6 users and passwords")
-    _, lv = listing()
-    for n, l in lv.items():
-        if not l["password"]:
-            continue
-        say("  level %s has a password" % n)
-        while True:
-            u = ask("  a user at %s (empty when done)" % n)
-            if not u:
-                break
-            pw = secret("  %s's password" % u)
-            if not pw:
-                say("  no password given: %s not set" % u)
-                continue
-            ok, out = org("user", n, u, stdin=pw + "\n")
-            if ok:
-                say("  " + out.splitlines()[-1])
+def levels(d):
+    say("== region %s: the levels" % d["area"])
+    for lv in d["levels"]:
+        args = ["level", lv["name"], "--reach", lv.get("reach", "ram")] + (["--password"] if lv.get("password") else [])
+        for k in ("login_port", "session_port"):
+            if lv.get(k):
+                args += ["--" + k.replace("_", "-"), str(lv[k])]
+        ok, out = org(d["area"], *args)
+        if not ok:
+            return False
+        say("  " + out.splitlines()[-1])
     return True
 
 
-def standby_file(level):
-    return os.path.join(LINES, level + ".standby")
-
-
-def standbys():
-    say("== 7 a standby RAM host (optional): set it up by running fdf-setup there with the same spaces, levels and users")
-    _, lv = listing()
-    if not yes("  is there a standby to put after this RAM host in the lines?", False):
-        return True
-    os.makedirs(LINES, mode=0o700, exist_ok=True)
-    for n in lv:
-        l = ask("  the standby's line for %s (fdf-org line %s, printed there; empty to skip)" % (n, n))
-        if l:
-            write(standby_file(n), l + "\n")
+def users(d):
+    say("== region %s: users and passwords" % d["area"])
+    for u in d.get("users", []):
+        if not u.get("password"):
+            say("  %s at %s: no password given, not set" % (u.get("user"), u.get("level"))); continue
+        ok, out = org(d["area"], "user", u["level"], u["user"], stdin=u["password"] + "\n")
+        if not ok:
+            return False
+        say("  " + out.splitlines()[-1])
     return True
 
 
 def write(path, text):
     old = os.umask(0o077)
     try:
-        open(path + ".tmp", "w").write(text)
-        os.replace(path + ".tmp", path)
+        open(path + ".tmp", "w").write(text); os.replace(path + ".tmp", path)
     finally:
         os.umask(old)
 
 
-def lines():
-    say("== 8 one join line per level")
-    os.makedirs(LINES, mode=0o700, exist_ok=True)
-    _, lv = listing()
-    for n in lv:
-        args = ["line", n]
-        try:
-            for l in open(standby_file(n)).read().split():
-                args += ["--with", l]
-        except OSError:
-            pass
-        ok, out = org(*args)
+def lines(area):
+    say("== region %s: one join line per level" % area)
+    dest = os.path.join(VAR, "lines", area)
+    os.makedirs(dest, mode=0o700, exist_ok=True)
+    for n in listing(area):
+        ok, out = org(area, "line", n)
         if not ok:
             continue
         line = next((l for l in out.splitlines() if l.startswith("fdfjoin1.")), "")
-        write(os.path.join(LINES, n + ".line"), line + "\n")
-        say("  -- %s (kept in %s)" % (n, os.path.join(LINES, n + ".line")))
+        write(os.path.join(dest, n + ".line"), line + "\n")
+        say("  -- %s (kept in %s)" % (n, os.path.join(dest, n + ".line")))
         say(out)
     say("  A device joins with its level's line: on Linux `fdf-login 'LINE'` (a node: `fdf-login 'LINE' --node`); the")
     say("  Windows and Android apps take the line (or its QR) at install. A level with a password asks for the user and")
@@ -243,19 +203,78 @@ def lines():
     return True
 
 
+def apply(d, ask_first):
+    for step in (lambda: need(ask_first), lambda: region(d), lambda: credentials(d), lambda: levels(d),
+                 lambda: users(d), lambda: lines(d["area"])):
+        if not step():
+            say("fdf-setup: stopped; run it again to go on (what is done is kept)")
+            return 1
+    say("fdf-setup: region %s is defined. Run it again at any time to change it." % d["area"])
+    return 0
+
+
+# ---------------------------------------------------------------- the wizard: every question has its default
+def wizard(area):
+    d = defaults()
+    if area:
+        d["area"] = area
+    say("Each question shows its default in [brackets]; Enter keeps it.")
+    d["area"] = ask("region name (letters, digits, . _ -, at most 12)", d["area"])
+    if d["area"] in fdf_regions.areas():
+        say("this machine holds region %s already: its levels and users can be added or changed" % d["area"])
+    else:
+        d["address"] = ask("the address members reach this machine at", d["address"])
+        d["ram_port"] = int(ask("the RAM manager's port (TCP, inside the tunnel)", d["ram_port"]))
+        d["hub_port"] = int(ask("the hub's port (UDP, the one members reach)", d["hub_port"]))
+    have = listing(d["area"]) if d["area"] in fdf_regions.areas() else {}
+    say("levels, in your own words (for example: %s)" % EXAMPLES)
+    lv = []
+    for x in ([{"name": n, "password": v["password"], "reach": v["reach"].get("kind", "ram") if v["reach"].get("kind") != "list"
+                else "list:" + ",".join(v["reach"].get("dests", []))} for n, v in have.items()] or d["levels"]):
+        if yes("  level %s (%s, reach %s): keep it?" % (x["name"], "password" if x["password"] else "no password", x["reach"])):
+            if yes("    change it?", False):
+                x["password"] = yes("    does %s need a user and password?" % x["name"], x["password"])
+                x["reach"] = ask("    reach: ram | open | list:ADDR[:PORT],...", x["reach"])
+            lv.append(x)
+    while True:
+        n = ask("  another level (empty when done)")
+        if not n:
+            break
+        lv.append({"name": n, "password": yes("    does %s need a user and password?" % n, False),
+                   "reach": ask("    reach: ram | open | list:ADDR[:PORT],...", "ram")})
+    d["levels"] = lv
+    us = []
+    for x in [l for l in lv if l["password"]]:
+        while True:
+            u = ask("  a user at %s (empty when done)" % x["name"], "admin" if x["name"] == "Admin" and not any(y["level"] == "Admin" for y in us) else "")
+            if not u:
+                break
+            us.append({"level": x["name"], "user": u, "password": secret("    %s's password" % u)})
+    d["users"] = us
+    return d
+
+
 def main():
-    if "-h" in sys.argv or "--help" in sys.argv:
+    a = sys.argv[1:]
+    if "-h" in a or "--help" in a:
         say(__doc__.strip()); return 0
+    if "--defaults" in a:
+        print(json.dumps(defaults(), indent=2)); return 0
     if os.geteuid() != 0:
         sys.exit("fdf-setup: run as root")
-    if "--lines" in sys.argv:
-        return 0 if lines() else 1
-    for step in (need, region, credentials, spaces, levels, users, standbys, lines):
-        if not step():
-            say("fdf-setup: stopped at %s; run it again to go on (what is done is kept)" % step.__name__)
-            return 1
-    say("fdf-setup: done. Run it again at any time to add spaces, levels, users or a standby.")
-    return 0
+    area = a[a.index("--area") + 1] if "--area" in a and a.index("--area") + 1 < len(a) else ""
+    if "--lines" in a:
+        if not area:
+            have = list(fdf_regions.areas())
+            if len(have) != 1:
+                sys.exit("fdf-setup: say which region with --area (here: %s)" % (", ".join(have) or "none"))
+            area = have[0]
+        return 0 if lines(area) else 1
+    if "--define" in a:
+        f = a[a.index("--define") + 1]
+        d = dict(defaults()); d.update(json.load(open(f)))
+        return apply(d, ask_first=False)
+    return apply(wizard(area), ask_first=True)
 
 
 if __name__ == "__main__":

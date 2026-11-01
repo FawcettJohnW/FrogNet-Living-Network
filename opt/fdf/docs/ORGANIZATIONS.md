@@ -114,21 +114,40 @@ do not survive: facts, mappings and where cells come back from their owners, eac
 reconnect. Islands do not stop: each island's RAM manager runs on a member, and the members on its side keep using
 it (section 8). Only reach that goes *through* the MRM stops while it is down.
 
-## 4. Setup (from rev 2, unchanged)
+## 4. Setup: a region, defined whole
 
-The manager installs the droplet bundle and runs `/opt/fdf/bin/fdf-setup`. The wizard asks before it changes anything
-and fixes what is missing once the manager says yes (**John**). In order:
+**John, 2026-11-01:** "When I make a region, I need to define everything about it. This includes reach, levels, names
+-- everything." "Make defaults for everything, but it all must be configurable, including levels, addresses, and
+passwords." "The UI can be a front-end for fdf-setup." "This needs to be a program, not a site."
 
-1. The MRM (`fdf-region-create`).
-2. The levels, in the manager's own words, each with a password or none, and its reach.
-3. Users and passwords.
-4. The generic credential, and one join line per level, printed and as a QR code.
+The manager unpacks the region-holder bundle and runs `/opt/fdf/bin/fdf-setup` (`[FDF_SETUP_V1]`). It defines the
+region: its name, the address and ports members reach it at, its levels (each one's password or none, reach and
+ports), its users and passwords, and one join line per level. Every item has a default (`fdf-setup --defaults` prints
+them) and every item can be changed:
 
-`fdf-setup` is `[FDF_SETUP_V1]`, tested by `netns-setup-test.sh`.
+- the wizard: each question shows its default; Enter keeps it;
+- `fdf-setup --define FILE`: a whole definition (JSON), no questions. A front-end program sends this.
+
+The defaults: the region named after the machine; the machine's own address; RAM manager port 51888 and hub port 50889
+(the next free pair when another region here has those); levels Restricted (no password, reach the region only) and
+Admin (a password, reach open, for an admin who wants ssh); a user admin at Admin, whose password is asked for.
+
+**A machine holds as many regions as it is given** (`[REGIONS_PER_MACHINE_V1]`; **John:** "A machine may host more than
+one ram segment, as long as they're on different ports."). Each region is `/opt/fdf/hub/<AREA>/` (hub.env, admitted/,
+org-key, hub.key) with its own units, `fdf-ram-AREA`, `fdf-hub@AREA`, `fdf-client-AREA`, `fdf-identity@AREA` and
+`fdf-org@AREA`, and its own reach table, `inet fdf_org_<area>`. Its ports are the ones given; one another region here
+uses is refused. The hub address is a /32 on each region's interface, with a host route to every admitted edge, and
+edges come from one pool for the machine, so two regions' tunnels never route the same address. A region an earlier
+build made moves into its own directory with `fdf-region-create --migrate` (or when a second region is made).
+`fdf-invite`, `fdf-org` and `fdf-setup` take `--area AREA` when the machine holds more than one.
+
+Tested by `netns-regions-test.sh`: two regions on one machine, each defined by `fdf-setup --define`; a device in each
+reaches its own region and not the other.
 
 Changes in rev 3:
 
-- **Removed:** the wizard's step "the RAM spaces, all at once, with their RAM-manager lists" and "a standby's lines".
+- **Removed:** the wizard's step "the RAM spaces, all at once, with their RAM-manager lists" and "a standby's lines"
+  (`netns-setup-test.sh`, which tested them, is replaced by `netns-regions-test.sh`).
   The spaces become islands, and islands are the app's (section 9). An app's islands arrive with its add-in, not from
   the wizard.
 - **Gone:** the level→"spaces its applications join" choice. A level is the network's admission and reach only. Which
@@ -147,7 +166,7 @@ Changes in rev 3:
   5. A session on the level's session port.
 - Both exchanges are one JSON line each way over TCP inside the tunnel. A password is never put in a cell.
 - A device's name comes from its key (`[NAME_FROM_KEY_V1]`).
-- Network reach is enforced by nftables on the MRM, per edge (`[REACH_PER_EDGE_V1]`, table `inet fdf_org`).
+- Network reach is enforced by nftables on the MRM, per edge (`[REACH_PER_EDGE_V1]`, one table per region, `inet fdf_org_<area>`).
 - A node joins with one command, its level's line (`[ORG_NODE_JOIN_V1]`, `fdf-region-join`).
 
 ### 5.2 Changed

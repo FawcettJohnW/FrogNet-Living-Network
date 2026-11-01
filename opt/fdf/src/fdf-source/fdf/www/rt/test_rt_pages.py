@@ -430,6 +430,8 @@ try:
         for ip, q in (("127.0.11.5", "?role=eoc"), ("127.0.11.6", "")):
             fwd[ip] = From(ip, posts["A"]); pg = br.new_context().new_page(); pg.goto("http://127.0.0.1:%d/rt/index.html%s" % (fwd[ip].port, q))
             pg.wait_for_url(lambda u: "index.html" not in u, timeout=10000); fresh[q or "none"] = pg.url.rsplit("/", 1)[-1]
+        for pg in b.context.pages[1:]:              # a browser holds at most 6 connections to one host: B has a page
+            pg.close()                              # open per check by now, each holding one; a user has a few
         hp = b.context.new_page(); hp.goto(page(b, "index.html")); hp.wait_for_url("**/messages.html", timeout=10000)
         check(fresh == {"?role=eoc": "summary.html", "none": "log.html"} and hp.url.endswith("messages.html"),
               "16 the client opens on its role's screen: an EOC client (default role, no password) on %s, a client with no role on %s, "

@@ -14,6 +14,8 @@ member must be a WireGuard peer of the hub BEFORE it can reach the region: the h
                                 The hub adds the peer at once (it watches the admitted directory).
   fdf-invite NAME --revoke      NAME is no longer admitted: its peer goes from the hub now.
   fdf-invite --list             who is admitted, with edge and key.
+  --area AREA                   which region, when this machine holds more than one ([REGIONS_PER_MACHINE_V1]);
+                                its members' edges come from one pool for the whole machine
 
 On the member:  fdf-region-join fdfinv1.<...>      (or the installer's --invite fdfinv1.<...>)
 Its first packet to the Internet is a WireGuard handshake to the hub's UDP port; everything else -- the region's
@@ -27,8 +29,10 @@ import subprocess
 import sys
 import time
 
-HUBENV = os.environ.get("FDF_HUB_ENV", "/opt/fdf/hub/hub.env")          # (tests point these elsewhere)
-ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
+sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
+import fdf_regions  # noqa: E402  [REGIONS_PER_MACHINE_V1]
+HUBENV = os.environ.get("FDF_HUB_ENV", "")          # set: that region (its units, tests); else --area, or the one held here
+ADMITTED = os.environ.get("FDF_ADMITTED", "")
 SITE_KEYS = os.environ.get("FDF_SITE_KEYS", "/opt/fdf/var")
 HUB_ADDR = "10.253.253.254"
 
@@ -64,16 +68,6 @@ def admitted():
     return out
 
 
-def free_edge(taken):
-    """The first edge address no admitted member holds: 10.253.X.Y, X 1..252, Y 1..254 (10.253.253.0/24 is the hub's)."""
-    for x in range(1, 253):
-        for y in range(1, 255):
-            a = "10.253.%d.%d" % (x, y)
-            if a not in taken:
-                return a
-    die("no edge address left in 10.253.0.0/16")
-
-
 def write_admitted(name, rec):
     os.makedirs(ADMITTED, exist_ok=True)
     os.chmod(ADMITTED, 0o700)
@@ -86,11 +80,19 @@ def write_admitted(name, rec):
 
 
 def main():
+    global HUBENV, ADMITTED
     a = sys.argv[1:]
+    want = ""
+    if "--area" in a:
+        i = a.index("--area"); want = a[i + 1] if i + 1 < len(a) else ""; del a[i:i + 2]
     if not a or a[0] in ("-h", "--help"):
         print(__doc__.strip()); return 0
     if os.geteuid() != 0:
         die("run as root")
+    if not HUBENV:
+        HUBENV, ADMITTED, why = fdf_regions.pick(want)
+        if why:
+            die(why)
     h = env(HUBENV)
     area = h.get("FDF_AREA", "")
     iface = h.get("FDF_IFACE") or "wg-" + area.replace(".", "-")
@@ -123,7 +125,7 @@ def main():
         die("`wg show %s public-key` gave nothing: is fdf-hub running? (journalctl -u fdf-hub)" % iface)
     have = admitted()
     old = have.pop(name, None)
-    edge = old["edge"] if old else free_edge({r.get("edge") for r in have.values()})
+    edge = old["edge"] if old else fdf_regions.free_edge({r.get("edge") for r in have.values()})   # one pool per machine
     old_umask = os.umask(0o077)
     try:
         priv = subprocess.run(["wg", "genkey"], capture_output=True, text=True, check=True).stdout.strip()

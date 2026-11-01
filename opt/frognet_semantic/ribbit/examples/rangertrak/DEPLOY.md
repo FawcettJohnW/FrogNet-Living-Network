@@ -1,4 +1,4 @@
-# RangerTrak on FrogNet: deploying build fdf-2026-11-01-r37
+# RangerTrak on FrogNet: deploying build fdf-2026-11-01-r38
 
 What runs where, and the commands, for the build of 2026-11-01. The design is `PLAN.md` and
 `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
@@ -7,34 +7,35 @@ What runs where, and the commands, for the build of 2026-11-01. The design is `P
 
 | file | for |
 | --- | --- |
-| `fdf-install-x86_64-fdf-2026-11-01-r37.run` | each x86_64 FrogNet node |
-| `fdf-install-aarch64-fdf-2026-11-01-r37.run` | each Pi node |
-| `fdf-droplet-x86_64-fdf-2026-11-01-r37.tgz` | an x86_64 region holder (a droplet) |
-| `fdf-droplet-aarch64-fdf-2026-11-01-r37.tgz` | a Pi region holder (a LAN region) |
+| `fdf-install-x86_64-fdf-2026-11-01-r38.run` | each x86_64 FrogNet node |
+| `fdf-install-aarch64-fdf-2026-11-01-r38.run` | each Pi node |
+| `fdf-droplet-x86_64-fdf-2026-11-01-r38.tgz` | an x86_64 region holder (a droplet) |
+| `fdf-droplet-aarch64-fdf-2026-11-01-r38.tgz` | a Pi region holder (a LAN region) |
 | `fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz` | the app: the DisasterComm add-in, which carries RangerTrak's pages (`/rt/`) and the post's 309 writer |
 
 Made by `rinab/tools/make_deliverables.sh OUTDIR` and `bundles/make_addin.sh dc OUTDIR`.
 
 ## 0. The region holder first
 
-A new region, on the holder (the DigitalOcean machine, or a LAN machine for a region with no Internet; on a Pi,
-`fdf-droplet-aarch64-...`):
+On the holder, the bundle for its processor (`fdf-droplet-aarch64-...` on a Pi, `fdf-droplet-x86_64-...` on a droplet),
+then the region, defined whole. `fdf-setup-ui` shows every setting with its default on one screen, in the terminal;
+`fdf-setup` asks the same as questions; `fdf-setup --define FILE` takes it all at once.
 
-    cd / && tar xvzf - < /tmp/fdf-droplet-x86_64-fdf-2026-11-01-r37.tgz
-    sudo /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP
+    cd / && tar xvzf - < /tmp/fdf-droplet-aarch64-fdf-2026-11-01-r38.tgz
+    sudo /opt/fdf/bin/fdf-region-create --migrate
+    sudo /opt/fdf/bin/fdf-setup-ui
 
-A region that already exists, on its holder: the same unpack, then its units again:
+`--migrate` moves a region an earlier build made (FrogNetHost's `frognet`) into its own directory, keeping its keys and
+members; on a machine with none it says so and does nothing. A machine holds as many regions as it is given, each on
+its own ports.
 
-    cd / && tar xvzf - < /tmp/fdf-droplet-aarch64-fdf-2026-11-01-r37.tgz
-    sudo systemctl restart 'fdf-ram-*' fdf-hub 'fdf-client-*'
+Then one invitation per node (on the holder):
 
-Then, on the holder, one invitation per node that is not in the region yet (a node already in it keeps its line):
-
-    sudo /opt/fdf/bin/fdf-invite NODENAME
+    sudo /opt/fdf/bin/fdf-invite NODENAME --area AREA
 
 ## 1. The droplets: every Linux node that may serve the app's RAMs
 
-    sudo bash /tmp/fdf-install-x86_64-fdf-2026-11-01-r37.run fdfinv1.<this node's invitation>
+    sudo bash /tmp/fdf-install-x86_64-fdf-2026-11-01-r38.run fdfinv1.<this node's invitation>
 
 The join installs `fdf-client`, `fdf-facts` and `fdf-app` (`fdf-app.service`: `fdf-app serve`). `fdf-app serve`
 writes the node's capability and configuration tuples for every app installed on it, runs each app RAM's selection,
@@ -78,6 +79,9 @@ A post cut off keeps working on its own side; when it is back, every device writ
 has it. No user action.
 
 ## What is not in this build
+
+- A browser holds at most 6 connections to one host, and each open RangerTrak page holds one: a device with more
+  than about 5 RangerTrak pages open at one post waits for one to close.
 
 - The Windows and Android shells for the pages (both use the browser for now).
 - The admin app as a screen, and the automatic install of the remote nodes.

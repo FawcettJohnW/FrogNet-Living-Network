@@ -12,7 +12,7 @@
 #
 # In order, saying each step: the site key (made once, stored root-only in /opt/fdf/var/site-key-AREA, printed once at
 # the end); the RAM manager unit fdf-ram-AREA (the region's WireGuard interface made first, then rina-host on
-# 10.253.253.254:RAM_PORT, its records in /opt/fdf/var/area-AREA.perm) started; map_site AREA KEY on it; /opt/fdf/hub/hub.env (no tarball carries one: this is
+# 10.253.253.254:RAM_PORT, its records in /opt/fdf/var/area-AREA.perm) started; map_site AREA KEY on it; /opt/fdf/hub/AREA/hub.env (no tarball carries one: this is
 # the one place it is made); fdf-hub started; fdf-client-AREA (the hub's own membership, named after this machine)
 # started; what each said. Then how a member is invited (fdf-invite NAME) and joins (fdf-region-join fdfinv1.<...>).
 # The machine needs /opt/fdf (fdf-droplet.tgz, or a node bundle), python3, wireguard-tools (wg) and, where the kernel has
@@ -22,7 +22,34 @@ set -u
 # umask (a shell with umask 0000 made /opt/fdf and its bin/ world-writable, in the T4a container).
 umask 022
 [ "$(id -u)" = 0 ] || { echo "fdf-region-create: run as root" >&2; exit 1; }
-usage() { echo "usage: fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw] [--replace]" >&2; exit 2; }
+usage() { echo "usage: fdf-region-create AREA PUBLIC_IP [--ram-port 51888] [--hub-port 50889] [--ufw] [--replace]
+       fdf-region-create --migrate      (a region an earlier build made, into its own directory)" >&2; exit 2; }
+# [REGIONS_PER_MACHINE_V1] a machine holds as many regions as it is given, each in /opt/fdf/hub/AREA/ (hub.env,
+# admitted/, org-key, hub.key) with its own units: fdf-ram-AREA, fdf-hub@AREA, fdf-client-AREA, fdf-identity@AREA,
+# fdf-org@AREA. Its ports are the ones given (defaults 51888 and 50889); one another region here uses is refused.
+HUBROOT=/opt/fdf/hub
+migrate() {   # a region made before regions had directories: /opt/fdf/hub/hub.env, admitted/, fdf-hub.service ...
+  [ -f "$HUBROOT/hub.env" ] || return 0
+  local OLD; OLD=$(sed -n 's/^FDF_AREA=//p' "$HUBROOT/hub.env"); [ -n "$OLD" ] || { echo "fdf-region-create: $HUBROOT/hub.env names no FDF_AREA" >&2; exit 1; }
+  echo "== [REGIONS_PER_MACHINE_V1] region $OLD, made by an earlier build: into $HUBROOT/$OLD/ (its keys, members and records stay)"
+  systemctl disable --now fdf-hub.service fdf-identity.service fdf-org.service 2>&1 | grep -v "^Removed" | sed "s/^/   /"
+  mkdir -p "$HUBROOT/$OLD"; chmod 700 "$HUBROOT/$OLD"
+  [ -d "$HUBROOT/admitted" ] && mv "$HUBROOT/admitted" "$HUBROOT/$OLD/admitted"
+  [ -f /opt/fdf/var/org-key ] && mv /opt/fdf/var/org-key "$HUBROOT/$OLD/org-key"
+  { cat "$HUBROOT/hub.env"; grep -q '^FDF_IFACE=' "$HUBROOT/hub.env" || echo "FDF_IFACE=wg-${OLD//./-}"
+    grep -q '^FDF_KEY=' "$HUBROOT/hub.env" || echo "FDF_KEY=/etc/wireguard/fdf-hub.key"; } > "$HUBROOT/$OLD/hub.env"
+  rm -f "$HUBROOT/hub.env" /etc/systemd/system/fdf-hub.service /etc/systemd/system/fdf-identity.service /etc/systemd/system/fdf-org.service
+  systemctl daemon-reload
+  systemctl enable fdf-hub@$OLD.service fdf-identity@$OLD.service >/dev/null 2>&1
+  systemctl start fdf-hub@$OLD.service fdf-identity@$OLD.service || { echo "fdf-region-create: fdf-hub@$OLD did not start: journalctl -u fdf-hub@$OLD" >&2; exit 1; }
+  [ -f "$HUBROOT/$OLD/org-key" ] && { systemctl enable fdf-org@$OLD.service >/dev/null 2>&1; systemctl start fdf-org@$OLD.service || echo "   fdf-org@$OLD did not start: journalctl -u fdf-org@$OLD"; }
+  echo "   region $OLD: fdf-hub@$OLD, fdf-identity@$OLD$([ -f "$HUBROOT/$OLD/org-key" ] && echo ", fdf-org@$OLD") running"
+}
+if [ "${1:-}" = --migrate ]; then
+  [ "$(id -u)" = 0 ] || { echo "fdf-region-create: run as root" >&2; exit 1; }
+  [ -f "$HUBROOT/hub.env" ] || { echo "== nothing to move: the regions here are in $HUBROOT/<AREA>/ ($(ls -d $HUBROOT/*/hub.env 2>/dev/null | sed "s|$HUBROOT/||;s|/hub.env||" | tr '\n' ' '))"; exit 0; }
+  migrate; exit 0
+fi
 [ $# -ge 2 ] || usage
 AREA=$1; ADDR=$2; shift 2
 RAM_PORT=51888; HUB_PORT=50889; UFW=0; REPLACE=0
@@ -45,20 +72,26 @@ for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /op
 for b in python3 wg ip systemctl; do command -v $b >/dev/null || { echo "fdf-region-create: $b is required and missing (wg: apt-get install wireguard-tools)" >&2; exit 1; }; done
 # [WG_IMPL_RECORDED_V1 - T4b] the hub's WireGuard implementation, chosen here once, by platform, and recorded
 /opt/fdf/bin/fdf-wg-impl --record || { echo "fdf-region-create: no usable WireGuard implementation (above)" >&2; exit 1; }
-HUBENV=/opt/fdf/hub/hub.env
-# [RAM_IN_THE_TUNNEL_V1] --replace: a region made by an earlier build (its RAM manager on the Internet) is re-made the
-# new way: its units stopped, hub.env removed; the site key and the region's records are kept (the same AREA keeps them).
-# Every member then needs an invitation (fdf-invite NAME): the old join line named a RAM manager that no longer answers.
+migrate                                  # a region an earlier build made goes into its own directory first
+HUBDIR=$HUBROOT/$AREA; HUBENV=$HUBDIR/hub.env; HUBKEY=$HUBDIR/hub.key
+# --replace: region AREA made again here (its units stopped, its hub.env removed; its site key, records and members
+# stay). A member whose join line named an earlier RAM manager address needs a new invitation.
 if [ -e "$HUBENV" ] && [ "$REPLACE" = 1 ]; then
-  OLD=$(sed -n 's/^FDF_AREA=//p' "$HUBENV")
-  echo "== --replace: stopping the region $OLD made by an earlier build (fdf-hub, fdf-ram-$OLD, fdf-client-$OLD); its site key and records stay"
-  systemctl disable --now fdf-hub.service "fdf-ram-$OLD.service" "fdf-client-$OLD.service" 2>&1 | grep -v "^Removed" | sed "s/^/   /"
-  OLDIF=wg-${OLD//./-}; ip link show "$OLDIF" >/dev/null 2>&1 && ip link del "$OLDIF" && echo "   $OLDIF removed (made again below)"
+  echo "== --replace: stopping region $AREA (fdf-hub@$AREA, fdf-ram-$AREA, fdf-client-$AREA); its site key, records and members stay"
+  systemctl disable --now "fdf-hub@$AREA.service" "fdf-ram-$AREA.service" "fdf-client-$AREA.service" 2>&1 | grep -v "^Removed" | sed "s/^/   /"
+  ip link show "$IFACE" >/dev/null 2>&1 && ip link del "$IFACE" && echo "   $IFACE removed (made again below)"
   rm -f "$HUBENV"
 fi
 if [ -e "$HUBENV" ]; then
-  echo "fdf-region-create: this machine already holds a region (re-make it the new way with --replace): $HUBENV says $(grep -E '^FDF_AREA=' "$HUBENV"). A machine holds one; its site key is in /opt/fdf/var/site-key-<area>." >&2; exit 1
+  echo "fdf-region-create: this machine already holds region $AREA ($HUBENV). To make it again: --replace" >&2; exit 1
 fi
+for e in "$HUBROOT"/*/hub.env; do      # the ports are the ones given; one another region here uses is refused
+  [ -f "$e" ] || continue; O=$(sed -n 's/^FDF_AREA=//p' "$e")
+  OR=$(sed -n 's/^RINA_RAM=.*://p' "$e"); OH=$(sed -n 's/^FDF_LISTEN=//p' "$e")
+  [ "$OR" = "$RAM_PORT" ] && { echo "fdf-region-create: region $O here uses RAM manager port $RAM_PORT: give this one another (--ram-port)" >&2; exit 1; }
+  [ "$OH" = "$HUB_PORT" ] && { echo "fdf-region-create: region $O here uses hub port $HUB_PORT: give this one another (--hub-port)" >&2; exit 1; }
+done
+mkdir -p "$HUBDIR"; chmod 700 "$HUBDIR"
 V=/opt/fdf/var; mkdir -p "$V" /opt/fdf/hub; chmod 700 "$V"
 KEYF=$V/site-key-$AREA
 # [ONE_KEY_PER_REGION_V1] the key is made once. A run that stopped before hub.env was written left it: use that one.
@@ -85,7 +118,7 @@ Environment=FDF_PY=/opt/fdf/lib/python
 # [RAM_IN_THE_TUNNEL_V1] the region's interface (its key, its UDP port, the hub address) before the RAM manager, which
 # listens on that address and nowhere else. KillMode=process: a userspace WireGuard (wireguard-go) started here is not
 # taken down with a RAM manager restart.
-ExecStartPre=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area $AREA --iface $IFACE --endpoint $ADDR:$HUB_PORT --listen $HUB_PORT --iface-only
+ExecStartPre=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area $AREA --iface $IFACE --endpoint $ADDR:$HUB_PORT --listen $HUB_PORT --key $HUBKEY --iface-only
 ExecStart=/opt/fdf/bin/rina-host --listen $HUB_ADDR:$RAM_PORT --api /FawcettInnovations.RINA.ram_interface.php
 KillMode=process
 Restart=always
@@ -98,7 +131,7 @@ cat > /etc/systemd/system/$CLIU.service <<EOF
 # made by fdf-region-create $AREA $ADDR: the hub's own membership of the region, named after this machine ($NAME)
 [Unit]
 Description=FD&F member session of $NAME in the $AREA region (the hub's membership)
-After=$RAMU.service fdf-hub.service
+After=$RAMU.service fdf-hub@$AREA.service
 Wants=$RAMU.service
 
 [Service]
@@ -113,7 +146,7 @@ RestartSec=1
 [Install]
 WantedBy=multi-user.target
 EOF
-[ -f /etc/systemd/system/fdf-hub.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-hub.service missing: it ships in fdf-droplet.tgz" >&2; exit 1; }
+[ -f /etc/systemd/system/fdf-hub@.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-hub@.service missing: it ships in the region-holder bundle" >&2; exit 1; }
 systemctl daemon-reload
 # [START_FAILURE_IS_SEEN_V1 - final gates] `systemctl enable --now` exits 0 when the start job fails (systemd 255, seen
 # on the region host); `systemctl start` exits 1. So: enable, then start, and the start's status is the check.
@@ -132,7 +165,7 @@ call '{"op":"version"}' 2>/dev/null | sed 's/^/   RAM manager: /' || { echo "fdf
 R=$(call "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" 2>&1)
 case "$R" in *'"ok":true'*) echo "== map_site $AREA: $R" ;; *) echo "fdf-region-create: map_site $AREA was refused: $R" >&2; exit 1 ;; esac
 cat > "$HUBENV.tmp" <<EOF
-# /opt/fdf/hub/hub.env -- made by fdf-region-create $AREA $ADDR on $(date -u +%Y-%m-%dT%H:%MZ). fdf-hub.service reads it.
+# $HUBENV -- made by fdf-region-create $AREA $ADDR on $(date -u +%Y-%m-%dT%H:%MZ). fdf-hub@$AREA.service reads it.
 RINA_RAM=$HUB_ADDR:$RAM_PORT
 FDF_AREA=$AREA
 FDF_HUB_NAME=$NAME
@@ -140,22 +173,25 @@ FDF_ENDPOINT=$ADDR:$HUB_PORT
 FDF_LISTEN=$HUB_PORT
 FDF_FACTS=$FACTS
 FDF_BIN=/opt/fdf/bin
+FDF_IFACE=$IFACE
+FDF_KEY=$HUBKEY
 EOF
 mv "$HUBENV.tmp" "$HUBENV"; echo "== $HUBENV written"
 T0=$(date '+%Y-%m-%d %H:%M:%S')
 # A `systemctl start fdf-hub` before this run (no hub.env then) leaves the unit failed, and its restarts can use up
 # systemd's start limit: that failure is from before hub.env existed, so it is cleared before the start.
-systemctl reset-failed fdf-hub.service $CLIU.service fdf-identity.service 2>/dev/null
-systemctl enable fdf-hub.service $CLIU.service && systemctl start fdf-hub.service $CLIU.service || { echo "fdf-region-create: fdf-hub / $CLIU did not start: journalctl -u fdf-hub -u $CLIU" >&2; exit 1; }
+HUBU=fdf-hub@$AREA; IDU=fdf-identity@$AREA
+systemctl reset-failed $HUBU.service $CLIU.service $IDU.service 2>/dev/null
+systemctl enable $HUBU.service $CLIU.service && systemctl start $HUBU.service $CLIU.service || { echo "fdf-region-create: $HUBU / $CLIU did not start: journalctl -u $HUBU -u $CLIU" >&2; exit 1; }
 # [IDENTITY_FROM_ANY_MEMBER_V1] identities asked from any connected machine (fdf-identity NAME [--leaf]) are answered here
-[ -f /etc/systemd/system/fdf-identity.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-identity.service missing: it ships in fdf-droplet.tgz" >&2; exit 1; }
-systemctl enable fdf-identity.service && systemctl start fdf-identity.service || { echo "fdf-region-create: fdf-identity did not start: journalctl -u fdf-identity" >&2; exit 1; }
+[ -f /etc/systemd/system/fdf-identity@.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-identity@.service missing: it ships in the region-holder bundle" >&2; exit 1; }
+systemctl enable $IDU.service && systemctl start $IDU.service || { echo "fdf-region-create: $IDU did not start: journalctl -u $IDU" >&2; exit 1; }
 # [FDF_CHAT_SERVICE_UNIT_V1] the area's one chat service, beside its RAM manager (fdf-chat@.service ships in this bundle)
 systemctl enable fdf-chat@$RAM_PORT.service && systemctl start fdf-chat@$RAM_PORT.service || { echo "fdf-region-create: fdf-chat@$RAM_PORT did not start: journalctl -u fdf-chat@$RAM_PORT" >&2; exit 1; }
-ADOPT=0; for i in $(seq 1 30); do journalctl -u fdf-hub --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
-echo "== fdf-hub (want: 'hub $NAME on wg-$AREA', 'start (adopt)')"
-journalctl -u fdf-hub --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'
-[ "$ADOPT" = 1 ] || { echo "fdf-region-create: fdf-hub did not say 'start (adopt)' within 15 s: journalctl -u fdf-hub" >&2; exit 1; }
+ADOPT=0; for i in $(seq 1 30); do journalctl -u $HUBU --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
+echo "== $HUBU (want: 'hub $NAME on $IFACE', 'start (adopt)')"
+journalctl -u $HUBU --since "$T0" --no-pager -o cat | tail -4 | sed 's/^/   /'
+[ "$ADOPT" = 1 ] || { echo "fdf-region-create: $HUBU did not say 'start (adopt)' within 15 s: journalctl -u $HUBU" >&2; exit 1; }
 echo "== $CLIU"
 journalctl -u $CLIU --since "$T0" --no-pager -o cat | grep -v PRIMED | tail -3 | sed 's/^/   /'
 # [NOTHING_LISTENS_OUTSIDE_V1] with the firewall's default deny (a drop: no RST, no ICMP), a closed port is silent too,
@@ -176,10 +212,10 @@ echo
 echo "     $KEY"
 echo
 echo "== nothing here listens to the Internet but udp $HUB_PORT (fdf-hub's [NOTHING_LISTENS_OUTSIDE_V1] line says what else does):"
-journalctl -u fdf-hub --since "$T0" --no-pager -o cat | grep -A6 NOTHING_LISTENS_OUTSIDE | head -8 | sed 's/^/   /'
+journalctl -u $HUBU --since "$T0" --no-pager -o cat | grep -A6 NOTHING_LISTENS_OUTSIDE | head -8 | sed 's/^/   /'
 echo
 echo "== a member is invited here, once per member (it prints the one line the member joins with):"
-echo "     /opt/fdf/bin/fdf-invite NAME"
+echo "     /opt/fdf/bin/fdf-invite NAME --area $AREA"
 echo "   and joins with it, on the member:"
 echo "     sudo /opt/fdf/bin/fdf-region-join fdfinv1.<...>"
 echo "   or at install:  sudo bash usr/local/bin/installer/frognet_install.sh --from-repo ... --invite fdfinv1.<...>"

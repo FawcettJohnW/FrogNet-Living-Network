@@ -17,7 +17,9 @@ the region's records. Nothing is configured per member; nothing polls.
                 refused and logged with both guids (0.5). Owned always beats transit; a transit /24 goes to the first
                 claimant while nobody owns it (1.2). WireGuard moves an overlapping AllowedIPs prefix to the LAST peer
                 set, silently -- so this program keeps its own prefix->peer table and applies `wg set` from THAT.
-  addresses   : member 10.A.B.0/24 -> edge 10.253.A.B/32 on the region's interface; hub 10.253.253.254/16 (0.4).
+  addresses   : member 10.A.B.0/24 -> edge 10.253.A.B/32 on the region's interface; hub 10.253.253.254/32, with a host
+                route to every admitted edge on this region's interface, so several regions' tunnels can end on one
+                machine ([REGIONS_PER_MACHINE_V1]; it was a /16, one region per machine).
   events      : fdf-events (one held FNWP session) prints "p"/"m" lines; each line is one reconcile. Adopt-on-start:
                 the first reconcile reads the kernel and brings it to the records, never tears down first (1.5).
   itself      : the hub's own membership is an ordinary fdf-client with FDF_FACTS = {"role":"hub","name":...,
@@ -30,9 +32,9 @@ import argparse, ipaddress, json, os, subprocess, sys, time, urllib.error, urlli
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))   # fdf_graph: FD&F's statement of the structure
 
 API = "/FawcettInnovations.RINA.ram_interface.php"
-BUILD_TAG = "fdf-2026-11-01-r37"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
+BUILD_TAG = "fdf-2026-11-01-r38"      # [FDF_VERSION_V1] keep equal to src/fdf_version.hpp
 HUB_ADDR = "10.253.253.254"
-HUB_MASK = 16
+HUB_MASK = 32       # [REGIONS_PER_MACHINE_V1] a /32 and a host route per edge: several regions' tunnels on one machine
 
 def log(msg):
     sys.stderr.write(time.strftime("%Y-%m-%d %H:%M:%S ") + "[FDF-HUB] " + msg + "\n"); sys.stderr.flush()
@@ -99,6 +101,13 @@ class RealKernel:
             log("wg: %s interface %s (%s)" % (impl, self.iface, src))
             self.run("ip", "address", "add", HUB_ADDR + "/" + str(HUB_MASK), "dev", self.iface)
             self.run("ip", "link", "set", self.iface, "up")
+        # an interface an earlier build made has the hub address as a /16: made a /32 here, every start
+        for ln in self.run("ip", "-o", "-4", "address", "show", "dev", self.iface, out=True).splitlines():
+            f = ln.split()
+            if "inet" in f and f[f.index("inet") + 1].startswith(HUB_ADDR + "/") and f[f.index("inet") + 1] != HUB_ADDR + "/" + str(HUB_MASK):
+                self.run("ip", "address", "add", HUB_ADDR + "/" + str(HUB_MASK), "dev", self.iface, check=False)
+                self.run("ip", "address", "del", f[f.index("inet") + 1], "dev", self.iface)
+                log("hub address on %s: %s made %s/%d" % (self.iface, f[f.index("inet") + 1], HUB_ADDR, HUB_MASK))
         # EVERY start, not only at creation: hub.env's port/key must be what the interface uses, or the endpoint the
         # hub advertises points at a closed port (2026-10-09: created on 50820, hub.env changed to 50889, no handshakes).
         self.run("wg", "set", self.iface, "listen-port", str(listen), "private-key", privkey_file)
@@ -195,9 +204,8 @@ def desired(participants, mappings, hub_name, admitted, prev_owner=None):
     peers = {}
     for pub, r in admitted.items():
         edge = r["edge"]
-        leaf = r.get("kind") == "leaf"
         peers[pub] = {"edge": edge, "name": r["name"], "guid": "", "subnet": "", "allowed": {edge + "/32"},
-                      "routes": ({edge + "/32": ""} if leaf else {})}    # a leaf's /32: on-link
+                      "routes": {edge + "/32": ""}}    # every edge on-link, on this region's interface
     members = []
     for p in participants:
         f = p.get("facts") or {}
