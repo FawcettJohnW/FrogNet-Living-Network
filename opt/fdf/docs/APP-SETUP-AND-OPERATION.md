@@ -18,7 +18,8 @@ informed as that world changes.
 | Primary | The droplet install the admin designated. Its placement defines the app's scope. | Something the server knows. The server does not know it is primary and knows nothing about network state. |
 | App RAM server selection | The app's own deterministic criteria and algorithm, run over the capability tuples, that pick which droplet serves the app. | databasehost. |
 | Capability tuple | Written by every running service: what is there and where it is reached. | A record of what a machine could host. It records what is there. |
-| App tuples | The app's state and configuration, including its access definition and its service locations. | Anything only one machine knows. |
+| App configuration tuples | In the network RAM: the app's configuration, its access definition (teams, verifiers, the device records it grants) and where each of its RAMs is served. | The app's data. |
+| App data | In the app's own RAMs (its general RAM and its team RAMs): positions, logs, messages, each team's own records. | Anything in the network RAM. |
 | Owner | Each participant owns the facts it publishes, and keeps the truth it must reassert when its RAM connection changes. | Anyone who edits another's record. |
 
 ## The common operating sequence
@@ -50,7 +51,7 @@ The admin performs setup at the primary.
 3. The admin defines the app's behavior when the primary is unreachable:
    - **Fail:** stop unless the primary is visible.
    - **Relocate:** activate an installed droplet on the reachable side.
-4. The droplet writes the app's configuration and access definition into the app tuples. Passwords are stored only as
+4. The droplet writes the app's configuration and access definition as app configuration tuples. Passwords are stored only as
    verifiers.
 5. The running service publishes its capability.
 6. At the end of the primary install, the remote nodes the admin named are installed and configured automatically.
@@ -69,12 +70,10 @@ recognize itself as primary.
 6. The admin chooses which apps to join.
 7. If an app is already installed, the machine joins it. Otherwise, installing the app joins it.
 8. The app writes the truth it owns.
-9. It reads its app tuples to learn:
-   - where its services are;
-   - its current shared state;
-   - its configuration;
-   - its access definition.
-10. It connects and operates according to those tuples.
+9. It reads its app configuration tuples to learn where each of its RAMs is served, its configuration and its access
+   definition.
+10. It connects to the app's RAMs it is authorized for, writes there the app data it owns, and reads the current shared
+   state.
 11. It establishes held reads so that changes wake it.
 
 The capability query describes what is currently present. More services can appear as their owners attach and reassert
@@ -86,7 +85,7 @@ themselves.
 2. It reaches the app's serving droplet.
 3. If login is required, the user supplies the team and password once.
 4. The droplet checks them against the app's access tuples and password verifier.
-5. The device's authorized access is recorded in the app tuples.
+5. The device's authorized access is recorded in the app configuration tuples.
 6. The device publishes the app truth it owns, then reads the current world through the app.
 7. On later connections, whichever droplet is serving authenticates the device against the current access tuples. This
    happens immediately and needs no user action.
@@ -99,13 +98,13 @@ write-first, read-second rule.
 
 1. Members and devices publish changes to the truth they own.
 2. Running services maintain their capability tuples.
-3. Apps read their current app tuples to find their services and shared state.
+3. Apps read their app configuration tuples to find their RAMs, and read and write their data in those RAMs.
 4. Held reads wake components whose dependencies change.
 5. Each component that wakes reads the current values and acts.
-6. If a service location changes, the app follows the location its app tuples give.
+6. If a RAM's location changes, the app follows the location its configuration tuples give.
 7. Routing remains the fabric's responsibility.
 
-There is one current network RAM, reached through databasehost. The capability tuples and app tuples are in it. Each
+There is one current network RAM, reached through databasehost. The capability tuples and the app configuration tuples are in it; each app's data is in that app's own RAMs. Each
 app's RAM server is chosen by that app's own selection over the capability tuples. Every member runs the same
 deterministic selection over the same tuples and gets the same answer.
 
@@ -114,18 +113,17 @@ deterministic selection over the same tuples and gets the same answer.
 1. Connectivity changes.
 2. The fabric re-forms on each reachable side.
 3. Each participant locates the current RAM available through databasehost.
-4. Each participant first reasserts the truth it owns into that RAM:
-   - members publish their own facts;
-   - running services publish their capabilities;
-   - app participants publish their owned state;
-   - the owners of configuration and access records reassert those records.
+4. Each participant first reasserts the truth it owns, each into the RAM it belongs in:
+   - members publish their own facts, and running services their capabilities, into the network RAM;
+   - the owners of configuration and access records reassert those records into the network RAM;
+   - app participants reassert their owned data into the app's RAMs once those are served (step 8).
 5. Participants then query the tuples to learn what is currently present on their side.
 6. Each app applies its configured behavior:
    - a **fail** app stops on a side that cannot see its primary;
    - a **relocate** app uses the capability scan and its own selection to activate droplet code already installed on
      members on that side.
 7. An activated droplet reasserts its owned truth and publishes its running capability.
-8. Apps read their current app tuples and connect to the indicated service.
+8. Apps read their app configuration tuples, connect to the indicated RAMs, and reassert their data there.
 9. The serving droplet authenticates devices against the app access tuples. Users do not log in again.
 10. Held reads keep everyone responding as more participants reassert themselves or connectivity changes again.
 
@@ -138,11 +136,12 @@ asserted truth.
 2. The fabric re-forms.
 3. Participants locate the current RAM through databasehost.
 4. Each owner reasserts its own truth before learning the world again.
-5. Services publish their current capabilities and locations.
-6. App participants reassert their owned state, configuration and access records.
+5. Services publish their current capabilities and locations, and the owners of configuration and access records
+   reassert them, into the network RAM.
+6. App participants reassert their owned data into the app's RAMs (after step 9).
 7. The app's selection, run over the merged capability tuples, gives one serving droplet. Every member gets the same
    answer.
-8. Apps query the single current app tuple space, which tells each app where to connect.
+8. Apps read their app configuration tuples in the network RAM, which tell each app where its RAMs are.
 9. Apps connect to the indicated service and establish held reads.
 10. Later changes wake them, and they adapt.
 11. Devices authenticate through the serving droplet using the current access tuples, without another user login.
@@ -169,7 +168,7 @@ is as many RAMs as it needs, but absolutely more than 2." "Getting GPS locations
   messages between people in different teams. Team messages live in the team's RAM. A direct message in the general
   RAM is read only by its sender and addressee; that is the app's access, over who reads which portion.
 
-A device joins the general RAM and the RAMs of its own teams. The access by team in the app tuples grants each one.
+The application joins the general RAM and the RAMs authorized for its user's teams; devices run applications, they do not join RAMs. The access by team in the app configuration tuples grants each one.
 Each RAM has its own selection and its own fail or relocate.
 
 ### RangerTrak
