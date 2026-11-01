@@ -107,7 +107,7 @@ from core.codec import SemanticCodec, REQ_HASH_LEN
 from core.tokens import TokenStore
 from core.semcache_wire import (
     try_parse, wrap_req_full, wrap_req_repeat, wrap_req_raw,
-    wrap_req_diff,
+    wrap_req_diff, wrap_req_same_miss, SAME_ID_LEN,          # [SAME_MISS_FROM_CACHE_V1]
     wrap_hello,                                              # ---- ADDED ----
     OP_RESP_SAME, OP_RESP_DIFF, OP_RESP_RAW, OP_REQ_MISS, OP_ERROR,
     # [LINK_POTENTIAL_PING_V1 2026-05-25]
@@ -2475,6 +2475,14 @@ def handle_request(
 # SEMANTIC PATH (has templates)
 # ====================================================================
 
+def _same_miss_fetch(worker, same_id: bytes):
+    """[SAME_MISS_FROM_CACHE_V1] -- as the C++ client does it (ribbit_cpp/fnwp_engine.hpp, ClientEngine): the daemon already
+    ran this request and holds the answer it called SAME. Ask for that answer by its id. The request is never sent
+    again: a second send would run it a second time. Returns the parsed reply (RESP_DIFF against no reference for a
+    semantic answer, RESP_RAW for a raw one, ERROR 410 if the daemon no longer holds it), or raises on a failed RPC."""
+    return try_parse(worker.call(wrap_req_same_miss(same_id)))
+
+
 def _handle_semantic_request(
     handler,
     ctx: Dict[str, Any],
@@ -2719,30 +2727,33 @@ def _apply_semantic_reply(*, handler, ctx, store, codec, target_ip, method, path
     if msg.op == OP_RESP_SAME:
         cached_body = _serve_from_same(handler, msg.same_id, target_ip, is_raw=False)
         if cached_body is None:
-            # [SAME_MISS_AUTORETRY_V1] LRU + DB miss. Drop both
-            # references so the next RPC encodes as REQ_FULL and the
-            # daemon's response encoder will see a fresh request hash
-            # -> won't be able to RESP_SAME-compress against state we
-            # no longer have. Then fall through to the raw bootstrap
-            # path, which fetches the body via plain HTTP and primes
-            # both caches. Net effect from the client's POV: one
-            # extra round-trip on the rare cache-miss path, no 503.
-            _debug(f"SAME cache miss - auto-retrying via raw path for "
-                   f"{target_ip} same_id={msg.same_id.hex()}")
-            _clear_request_reference(target_ip, opcode, inst)
+            # [SAME_MISS_FROM_CACHE_V1] (was [SAME_MISS_AUTORETRY_V1], which ran the request again over the raw path)
+            # Ask the daemon for the answer it named; nothing runs twice. A semantic answer comes back as RESP_DIFF
+            # against no reference: the proxy's own response reference is cleared first and the decode moves it, which
+            # is the move a SAME hit makes (the daemon set its reference to this answer when it said SAME).
+            _debug(f"SAME cache miss - REQ_SAME_MISS to {target_ip} same_id={msg.same_id.hex()}")
             _clear_response_reference(target_ip, opcode, inst)
-            bump_cache(
-                peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME",
-                endpoint=path,
-                bytes_would=http_req_would,
-                bytes_actual=len(wire_req) + len(wire_reply),
-                rtt_ms=rtt_ms,
-            )
-            return _handle_raw_and_learn(
-                handler, ctx, store,
-                target_ip=target_ip, method=method, path=path,
-                headers=req_headers, body=body,
-            )
+            try:
+                m2 = _same_miss_fetch(_ignored["worker"], msg.same_id)
+            except Exception as e:
+                _clear_request_reference(target_ip, opcode, inst)
+                return send_error_reply(handler, 503, f"REQ_SAME_MISS RPC failed: {e!r}", ctx=ctx, where="sem_same_miss_rpc",
+                                        extras={"target_ip": target_ip, "same_id": msg.same_id.hex()})
+            if m2 is not None and m2.op == OP_RESP_DIFF:
+                reconstructed_size = _handle_resp_diff(handler, codec, resp_tpl, m2.same_id, m2.payload, req_hash, target_ip, opcode, inst)
+                bump_cache(peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME_MISS", endpoint=path,
+                           bytes_would=http_req_would + _estimate_http_response_wire(reconstructed_size),
+                           bytes_actual=len(wire_req) + len(wire_reply) + SAME_ID_LEN + 5 + len(m2.payload or b""), rtt_ms=rtt_ms)
+                return
+            if m2 is not None and m2.op == OP_RESP_RAW:
+                return _handle_resp_raw_and_learn(
+                    handler, ctx, store, m2.same_id, m2.status, m2.headers, m2.body,
+                    req_hash, target_ip, method, path, headers={}, req_body=b"",
+                )
+            _clear_request_reference(target_ip, opcode, inst)
+            why = (m2.payload.decode("utf-8", "replace") if (m2 is not None and m2.payload) else "no FNW1 reply")
+            return send_error_reply(handler, (m2.status if (m2 is not None and m2.status) else 502), f"Daemon: {why}", ctx=ctx,
+                                    where="sem_same_miss", extras={"target_ip": target_ip, "same_id": msg.same_id.hex()})
         # [SAME_MOVES_REFERENCE_V1] The daemon, answering RESP_SAME, sets its response
         # reference for (peer, opcode) to the fields of the answer the SAME names
         # (daemon/engine/session.py: new_ref = dyn_vals). The proxy must move its own the
@@ -2946,32 +2957,22 @@ def _handle_raw_and_learn(
     if msg.op == OP_RESP_SAME:
         cached_body = _serve_from_same(handler, msg.same_id, target_ip, is_raw=True)
         if cached_body is None:
-            # [SAME_MISS_AUTORETRY_V1] LRU + DB miss on the RAW bootstrap
-            # path. This branch sits outside the REQ_REPEAT/REQ_RAW
-            # retry loop above, so we can't cleanly `continue` here.
-            # The semantic path falls back to this function on its own
-            # cache miss - if THIS function ALSO cache-misses, both
-            # caches are inconsistent with the daemon and a third
-            # auto-retry from here would loop forever in the worst
-            # case. Clear req_seen so a fresh user request starts
-            # clean, then send the 503 that _serve_from_same no
-            # longer writes for us.
-            _debug(f"RAW SAME cache miss (bootstrap path, no inline "
-                   f"retry available) for {target_ip} "
-                   f"same_id={msg.same_id.hex()}")
+            # [SAME_MISS_FROM_CACHE_V1] the daemon holds the raw answer it called SAME: ask for it; nothing runs twice.
+            _debug(f"RAW SAME cache miss - REQ_SAME_MISS to {target_ip} same_id={msg.same_id.hex()}")
+            try:
+                m2 = _same_miss_fetch(worker, msg.same_id)
+            except Exception as e:
+                return send_error_reply(handler, 503, f"REQ_SAME_MISS RPC failed: {e!r}", ctx=ctx, where="bootstrap_same_miss_rpc",
+                                        extras={"target_ip": target_ip, "same_id": msg.same_id.hex()})
+            if m2 is not None and m2.op == OP_RESP_RAW:
+                return _handle_resp_raw_and_learn(
+                    handler, ctx, store, m2.same_id, m2.status, m2.headers, m2.body,
+                    req_hash, target_ip, method, path, headers, body,
+                )
             semcache_db.clear_req_seen(target_ip, req_hash)
-            bump_cache(
-                peer_ip=target_ip, req_type=req_type, resp_type="RESP_SAME",
-                endpoint=path,
-                bytes_would=http_req_would,
-                bytes_actual=len(wire_req) + len(wire_reply),
-                rtt_ms=rtt_ms,
-            )
-            return send_error_reply(
-                handler, 503, "SAME cache miss (proxy bootstrap)",
-                ctx=ctx, where="bootstrap_same_miss",
-                extras={"target_ip": target_ip,
-                        "same_id": msg.same_id.hex()})
+            why = (m2.payload.decode("utf-8", "replace") if (m2 is not None and m2.payload) else "no FNW1 reply")
+            return send_error_reply(handler, (m2.status if (m2 is not None and m2.status) else 502), f"Daemon: {why}", ctx=ctx,
+                                    where="bootstrap_same_miss", extras={"target_ip": target_ip, "same_id": msg.same_id.hex()})
         cached_resp_size = len(cached_body)
         http_resp_would = _estimate_http_response_wire(cached_resp_size)
         bump_cache(

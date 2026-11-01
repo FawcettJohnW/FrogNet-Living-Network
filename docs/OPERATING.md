@@ -386,8 +386,9 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
   10.253.0.0/16 and 10.254.0.0/16 are not node /24s in a region (the hub's edges and its own address are in 10.253;
   `fdf-hub` logs `no edge for ...`), and leaves (phones, PCs) get 10.252.x.y addresses from the RAM manager.
 - **Region names.** At most 12 characters (`wg-<AREA>` is an interface name).
-- **Not measured.** No member count limit is written in the code; the largest region in the gates had three members
-  (two nodes and the hub's own), the largest LAN-only pond two nodes.
+- **Address capacity, and tested scale.** The hub's edge range is the one member limit in the code: `fdf-invite` hands
+  out 10.253.X.Y (X 1-252, Y 1-254), 64,008 admitted members per region. Tested scale is far smaller: the largest region
+  in the gates had three members (two nodes and the hub's own), the largest LAN-only pond two nodes.
 - **The database password** is per node (`--db-pass`); the same value everywhere is a convenience, not a requirement.
 
 ## 7. Troubleshooting by symptom

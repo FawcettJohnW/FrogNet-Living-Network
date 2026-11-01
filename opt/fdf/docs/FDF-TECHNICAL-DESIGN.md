@@ -1853,7 +1853,7 @@ A role handler is registered in `core/role_registry.py` (`ROLE_HANDLERS`).
 
 ### R.3 The Communicator's media: SotF
 
-`ribbit/cpp/tests/reference/core/sotf_handler.py` (553 lines). This is the reference copy kept for the C++ port's tests. The live file, `core/sotf_handler.py`, was removed in the October 2026 cleanup, along with the `sotf_media` registry entry (`docs/cleanup-2026-10/T2.md:20, 44-45`). The live registry never carried edit 3, so the sniffer never routed a body to it. Today's Communicator uses tuples on the default API, and its own media bearer (FNAV) for the streams (§Q.3).
+The handler was `core/sotf_handler.py` (553 lines; its last copy, in the C++ port's frozen test reference, went with that reference on 2026-11-01 when the live engine became the oracle). The live file, `core/sotf_handler.py`, was removed in the October 2026 cleanup, along with the `sotf_media` registry entry (`docs/cleanup-2026-10/T2.md:20, 44-45`). The live registry never carried edit 3, so the sniffer never routed a body to it. Today's Communicator uses tuples on the default API, and its own media bearer (FNAV) for the streams (§Q.3).
 
 SotF is the one handler that fills all three slots plus a program factory.
 

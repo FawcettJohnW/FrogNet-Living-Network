@@ -28,7 +28,6 @@ EXCL=(':(exclude)opt/frognet_semantic/docs' ':(exclude,glob)**/*.md' ':(exclude,
 ALLOW=$(cat <<'EOF'
 opt/frognet_semantic/simulation/frognet_sim.py	.	TIER 1 model (run_all "model suite"). Its World.broker_channels is the channel list merge_cycle consumes, and ~40 regression scenarios replay broker-era incidents (stale entries, phantom channels, poll-vs-kernel drift) by name. Re-modelling it on the region is not small; it is a model, not shipped runtime.
 usr/local/bin/frognet_prune_removed.sh	.	Names the paths and keys it removes (its T3 section is the installer's upgrade step).
-opt/frognet_semantic/ribbit/cpp/tests/reference/*	.	Frozen reference copy of the 2026-08 Python engine: the oracle ribbit/cpp/qualify.sh runs the C++ port against. Editing it changes the oracle.
 opt/frognet_semantic/ribbit/examples/lispers.net/artifacts/*	.	Recorded output of past run_all runs (evidence files), not code.
 *	NO_BROKER_V1|BROKER_TEARDOWN_V1|BROKER_AUTHORITY	A tag that records the removal; each such line says what went and that it is gone (T3a/T3b).
 *	[Bb]roker[Hh]ost	A machine's name (the host once called BrokerHost / brokerhost.seattle2) in history notes and test fixtures.

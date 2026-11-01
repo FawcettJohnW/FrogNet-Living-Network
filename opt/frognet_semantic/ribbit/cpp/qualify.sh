@@ -7,7 +7,7 @@
 # results/<stamp>/. The vendors' examples qualify themselves (examples/*/tools/qualify.sh).
 #
 # Environment (all optional):
-#   FROGNET_SEMANTIC_ROOT  the FrogNet semantic engine's Python, for the S1/S2/S3 oracles (default tests/reference)
+#   FROGNET_SEMANTIC_ROOT  the FrogNet semantic engine's Python, for the S1/S2/S3 oracles (default: the live engine, ../..)
 #   STAGES            space-separated subset of: build semwire semcodec semtpl fnwp dataplane memory lockfree ramrows perf
 #   JOBS              parallel compiles (default: this machine's cores)
 set -u
@@ -16,7 +16,7 @@ ROOT=$(pwd)
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$ROOT/results/$STAMP"; mkdir -p "$OUT" bin
 STAGES=${STAGES:-"build semwire semcodec semtpl fnwp dataplane memory lockfree ramrows capabilities perf"}
-FROGNET_SEMANTIC_ROOT=${FROGNET_SEMANTIC_ROOT:-$ROOT/tests/reference}
+FROGNET_SEMANTIC_ROOT=${FROGNET_SEMANTIC_ROOT:-$(cd "$ROOT/../.." && pwd)}   # [ONE_COPY_V1] the live engine is the oracle
 PY=$(command -v python3 || command -v python)
 SUMMARY="$OUT/SUMMARY.txt"
 note(){ echo "$*" | tee -a "$SUMMARY"; }

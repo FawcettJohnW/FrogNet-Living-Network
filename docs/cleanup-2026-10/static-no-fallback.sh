@@ -17,7 +17,7 @@ cd "$ROOT" || exit 2
 SCOPE=(etc usr var opt/frognet_semantic opt/fdf)
 EXCL=(':(exclude)opt/frognet_semantic/docs' ':(exclude,glob)**/*.md' ':(exclude,glob)**/test_*'
       ':(exclude)opt/fdf/src/fdf-source/docs' ':(exclude,glob)**/*.diff' ':(exclude)opt/fdf/dist'
-      ':(exclude)opt/frognet_semantic/ribbit/cpp/tests/reference' ':(exclude)opt/frognet_semantic/ribbit/examples/lispers.net/artifacts'
+      ':(exclude)opt/frognet_semantic/ribbit/examples/lispers.net/artifacts'
       ':(exclude,glob)**/third_party/**')
 
 # PATTERNS: "id<TAB>ERE<TAB>what it was"

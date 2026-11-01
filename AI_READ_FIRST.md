@@ -142,11 +142,12 @@ to be cheap enough to repeat.
     returns nothing. That is a result, not an error.
  7  GOSSIP CARRIES TOPOLOGY, NEVER MEMORY.
  8  THE ELECTED HOST IS A STORAGE LOCATION, NOT A COMPUTE ENGINE.
- 9  OPERATIONS ARE put / get / get_all. No take, no blocking read, no
-    queue, no history. OBSERVATION DOES NOT IMPLY NOTIFICATION: how an
-    application observes change is application policy, not a fabric gap.
-    The one exception is the ROLE reassignment callback — topology is the
-    fabric's business; what a value means is not.
+ 9  OPERATIONS ARE put / get / get_all, AND A READ CAN BE HELD. No take,
+    no queue, no history. A held read waits on what it reads and the next
+    write answers it. It is a read, not a notification service: the
+    fabric keeps no subscriptions and knows no application. Whether and
+    how a program watches for change, and what a change means, are the
+    application's.
 10  21 BYTES for an unchanged exchange. Not zero.
 11  IN A REGION THE HUB TERMINATES THE TUNNELS. Inter-site traffic rides
     WireGuard to fdf-hub on the region host and is plaintext there. The hub
@@ -359,10 +360,10 @@ answer exists; nothing is ever re-asked").
 
 # A HELD READ IS A READ, NOT A NOTIFICATION SERVICE
 
-FrogNet Memory exposes state, and a read can wait for it. **A held read is the
-only way to learn of a change. Do not poll.** A loop that re-reads on a timer
-gives back the property the model provides (see "Do not write REST on top of
-it", below).
+FrogNet Memory exposes state, and a read can wait for it: **a held read**. It is
+the mechanism the memory provides for learning of a change without asking again.
+Whether a program holds reads, re-reads, or does something else is the
+application's policy, as is what it does when a read wakes.
 
 What a held read is not: it is not a subscription the fabric keeps, not a
 message delivered, and not an event the fabric decides to send. The reader names
@@ -558,10 +559,10 @@ reconciled. The procedure is in `opt/fdf/docs/APP-SETUP-AND-OPERATION.md`.
 Stated because a prospective user designed an unbuildable system from this site
 and nothing stopped them.
 
-- The operations are **`put`, `get`, `get_all`**. There is no take, no blocking
-  read, and no notification of a value changing. A program that must know when a
-  value changed reads
-  it again.
+- The operations are **`put`, `get`, `get_all`**, and a read can be **held**: it
+  waits on what it reads, and the next write answers it. How a program learns of
+  a change is its own choice. There is no take and no notification service: the
+  fabric keeps no subscriptions.
 - **There is no work queue.** A tuple is a value at a key, not an item claimed off
   a list. Nothing prevents two readers acting on the same one, and there is no
   atomic claim.
@@ -633,7 +634,7 @@ where a description slides back into the conventional model.
   either layer a coordinating authority has described a different system
   (spec 4.1a, 2b).
 - **Do not write REST on top of it.** Request/reply through memory, one key with
-  many writers, a status endpoint, any polling loop (hold a read instead),
+  many writers, a status endpoint, tight polling as a substitute for a held read,
   write-then-read-back, sessions. All compile; each gives back the property the
   model removes. The test: does the pattern require another program to exist,
   respond, or agree? (spec 10.3b)

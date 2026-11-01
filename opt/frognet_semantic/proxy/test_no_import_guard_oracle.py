@@ -59,10 +59,7 @@ EXEMPT_DIRS = ("internet_tunnels_v3",
                ".frognet-ai-backup-", ".netbench-backup-", "_fix_meta",
                # vendored third-party code, unmodified (usr/local/lib/frognet_world_manifest.sh FROGNET_THIRD_PARTY):
                # not ours to change, so not this gate's
-               "ribbit/examples/mqtt/stock", "ribbit/examples/mqtt/front", "ribbit/examples/lispers.net/third_party",
-               # the Ribbit platform's frozen copy of the semantic engine, the reference its S1/S2/S3 oracles compare
-               # against (ribbit/cpp/qualify.sh FROGNET_SEMANTIC_ROOT): kept as it was taken, not running code
-               "ribbit/cpp/tests/reference")
+               "ribbit/examples/mqtt/stock", "ribbit/examples/mqtt/front", "ribbit/examples/lispers.net/third_party")
 # John, 2026-09-25: "Leave discovery alone." Discovery's own guards, and the election / role machinery it runs on,
 # are not changed by this gate. They are REPORTED every run as PENDING so they are never out of sight.
 PENDING_DIRS = ("discovery",)
