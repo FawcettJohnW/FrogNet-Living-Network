@@ -9,21 +9,23 @@ What runs where, and the commands, for the build of 2026-11-01. The design is `P
 | --- | --- |
 | `fdf-install-x86_64-fdf-2026-11-01-r37.run` | each x86_64 FrogNet node |
 | `fdf-install-aarch64-fdf-2026-11-01-r37.run` | each Pi node |
-| `fdf-droplet-fdf-2026-11-01-r37.tgz` | the region holder |
+| `fdf-droplet-x86_64-fdf-2026-11-01-r37.tgz` | an x86_64 region holder (a droplet) |
+| `fdf-droplet-aarch64-fdf-2026-11-01-r37.tgz` | a Pi region holder (a LAN region) |
 | `fdf-addin-dc-linux-any-dc-2026-11-01-r1.tgz` | the app: the DisasterComm add-in, which carries RangerTrak's pages (`/rt/`) and the post's 309 writer |
 
 Made by `rinab/tools/make_deliverables.sh OUTDIR` and `bundles/make_addin.sh dc OUTDIR`.
 
 ## 0. The region holder first
 
-A new region, on the holder (the DigitalOcean machine, or a LAN machine for a region with no Internet):
+A new region, on the holder (the DigitalOcean machine, or a LAN machine for a region with no Internet; on a Pi,
+`fdf-droplet-aarch64-...`):
 
-    cd / && tar xvzf - < /tmp/fdf-droplet-fdf-2026-11-01-r37.tgz
+    cd / && tar xvzf - < /tmp/fdf-droplet-x86_64-fdf-2026-11-01-r37.tgz
     sudo /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP
 
 A region that already exists, on its holder: the same unpack, then its units again:
 
-    cd / && tar xvzf - < /tmp/fdf-droplet-fdf-2026-11-01-r37.tgz
+    cd / && tar xvzf - < /tmp/fdf-droplet-aarch64-fdf-2026-11-01-r37.tgz
     sudo systemctl restart 'fdf-ram-*' fdf-hub 'fdf-client-*'
 
 Then, on the holder, one invitation per node that is not in the region yet (a node already in it keeps its line):

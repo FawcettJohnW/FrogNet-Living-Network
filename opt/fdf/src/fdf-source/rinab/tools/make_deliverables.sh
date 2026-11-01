@@ -103,11 +103,15 @@ tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/head
 R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
 frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
 tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
-# ---- droplet
+# ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
 R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
-build_file fdf-droplet.tgz "region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
-tarit "$R" > "$OUT/fdf-droplet-$TAG.tgz"
+build_file fdf-droplet.tgz "x86_64 region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
+tarit "$R" > "$OUT/fdf-droplet-x86_64-$TAG.tgz"
+R=$W/droparm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
+mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
+build_file fdf-droplet-arm64.tgz "aarch64 region holder (a Pi on a LAN): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
+tarit "$R" > "$OUT/fdf-droplet-aarch64-$TAG.tgz"
 # [ADDIN_V1] the kart service, its race hosts and its players are the kart add-in, DisasterComm (/dc) the dc add-in, and
 # the Communicator's servers the comms add-in: neither is in these bundles.
 # ---- [FROGNET_TREE_TARBALL_V1] the FrogNet base for a node with no git: the tree's node file set (the manifest's
@@ -125,6 +129,6 @@ chmod +x "$OUT"/*.run
 # where frognet_install.sh --from-repo --invite takes the node installer from. Delivered files keep their tagged names.
 if [ -n "${FDF_DIST:-}" ]; then mkdir -p "$FDF_DIST"
   cp "$OUT/fdf-install-x86_64-$TAG.run" "$FDF_DIST/fdf-install-x86_64.run"; cp "$OUT/fdf-install-aarch64-$TAG.run" "$FDF_DIST/fdf-install-aarch64.run"
-  cp "$OUT/fdf-droplet-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
-for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
+  cp "$OUT/fdf-droplet-x86_64-$TAG.tgz" "$FDF_DIST/fdf-droplet.tgz"; cp "$OUT/fdf-droplet-aarch64-$TAG.tgz" "$FDF_DIST/fdf-droplet-aarch64.tgz"; echo "dist: $FDF_DIST holds $TAG under the fixed names"; fi
+for f in "$OUT"/fdf-install-x86_64-$TAG.run "$OUT"/fdf-install-aarch64-$TAG.run "$OUT"/fdf-droplet-x86_64-$TAG.tgz "$OUT"/fdf-droplet-aarch64-$TAG.tgz "$OUT"/frognet-tree-$TAG.tgz; do printf '%s  %s bytes  sha256 %s\n' "${f##*/}" "$(stat -c %s "$f")" "$(sha256sum "$f" | cut -c1-16)"; done
 echo "built $TAG at $NOW"
