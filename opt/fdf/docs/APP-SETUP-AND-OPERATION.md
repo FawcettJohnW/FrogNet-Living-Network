@@ -37,15 +37,16 @@ Every participating component follows this sequence when it attaches to the curr
 There is no requirement to wait for a complete picture. Each component works from what is present now and responds as
 further facts appear.
 
-## An app is an admin app and a set of client apps
+## An app is an admin app and a client app
 
 **John, 2026-11-01:** "We will need an Admin app and a set of client apps. The client apps are set up with a team
 focus, while the admin app is used to set up and configure things. Clients must be able to connect to the RAM before
 they can do anything."
 
 - **The admin app** sets the app up and configures it: the steps below. It writes the app configuration tuples.
-- **A client app** has a team focus. It shows its team's screens, writes app data into the general RAM and its team's
-  RAM, and reads what its team is granted.
+- **The client app** is one app. Its main focus follows the user's team (**John:** "They just change the main focus
+  for the user. Everything else is the same"): it opens on that team's screen, writes app data into the general RAM and
+  the team's RAM, and reads what the team is granted.
 - **A client connects first.** Until it has connected to its RAM (its access checked, its RAMs found from the
   configuration tuples), it does nothing. After that it keeps its own truth on the device, to write it again after a
   RAM change.
