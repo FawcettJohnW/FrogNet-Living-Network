@@ -35,7 +35,8 @@ case "$N" in
          for f in kart_service.py kart_host.py kart_server.py kartmem.py ribbit.py kartdemo.py DESIGN.md README.md; do cp "$R/kart/$f" $A/$N/; done
          cp "$L" $A/$N/libkartram.so ;;
   dc)    ARCH=any; F=$(cd "$S/../fdf-source/fdf" && pwd); mkdir -p $P/opt/fdf/www $P/etc/apache2/conf-available
-         cp -a "$F/www/dc" $P/opt/fdf/www/dc; cp -a "$F/www/rt" $P/opt/fdf/www/rt; rm -f $P/opt/fdf/www/rt/*.py $P/opt/fdf/www/rt/*.mjs; cp "$S/addins/dc/fdf-dc.conf" $P/etc/apache2/conf-available/ ;;
+         cp -a "$F/www/dc" $P/opt/fdf/www/dc; cp -a "$F/www/rt" $P/opt/fdf/www/rt; rm -f $P/opt/fdf/www/rt/*.py $P/opt/fdf/www/rt/*.mjs; cp "$S/addins/dc/fdf-dc.conf" $P/etc/apache2/conf-available/
+         mkdir -p $A/$N/bin; cp "$F/bin/rt-sim" $A/$N/bin/ ;;   # [RT_SIM_V1] the demo world; run on one node only, by hand
 esac
 { grep -v '^arch=' "$S/addins/$N/ADDIN"; echo "arch=$ARCH"; echo "built=$(date -u +%Y-%m-%dT%H:%MZ)"; } > $A/$N/ADDIN
 chmod 755 $P/install $A/$N/start; find $A -name __pycache__ -prune -exec rm -rf {} +

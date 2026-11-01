@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+################################################################
+#  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
+#  SPDX-License-Identifier: GPL-2.0-only                       #
+################################################################
+"""rt-sim -- [RT_SIM_V1] the demo's simulated world: Teams, Hospitals, Ambulances, Fire, Power, Victims and Boats in the
+Seattle metro area, Vashon included (John, 2026-11-01: "Pre-populate the RAM with some instances ... using simulated GPS
+data"; "The ambulances, teams, and victims move around the map in real time"; "Don't exclude water. Boats may be first
+responder transports").
+
+Each simulated instance is its own writer of its own truth, as a real device is (PLAN.md, the 2026-11-01 decision):
+  (rt-who, <mission>, <id>)   latest  {name, kind, team, color, host:"", station:""}   presence
+  (rt-pos, <mission>, <id>)   latest  {name, kind, team, color, lat, lng, at, status, ...}   where it is now
+in RangerTrak's general RAM, wherever FDF_VAR/app-where.json says it is served now. Moving instances write their
+position every TICK seconds; when the RAM is another one (relocated), everything is written again there, at once.
+(rt-mission, settings, <mission>) is written by this program too: the exercise is its own.
+
+Kinds and what moves:
+  team       members of four colour-coded teams, walking between nearby places of their zone
+  ambulance  dispatched to a victim who needs transport, to the scene, then to the nearest hospital of its zone
+  boat       fireboats and marine units on the Sound and the lakes, between water points
+  victim     walking slowly; status: needs transport -> transported (and a new one appears elsewhere)
+  hospital   fixed; beds available changes as ambulances arrive
+  fire       fixed incidents; severity
+  power      fixed outages; customers out
+Positions are approximate (hand-placed); this is a demo world, not a map service.
+
+  rt-sim [--mission ID] [--tick S] [--seed N]
+Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
+"""
+import argparse, json, math, os, random, sys, time
+
+BUILD_TAG = "rt-sim-2026-11-01-r1"
+LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
+sys.path.insert(0, LIB)
+import fdfram  # noqa: E402
+
+VAR = os.environ.get("FDF_VAR", "/opt/fdf/var")
+WHERE = os.path.join(VAR, "app-where.json")
+KEY = "rangertrak.general"
+BOX = (47.30, 47.80, -122.55, -122.05)          # lat min/max, lng min/max: Seattle metro and Vashon
+
+# places on land, by zone (approximate centres of neighbourhoods); a unit stays in its zone
+ZONES = {
+    "seattle": {"Downtown": (47.6062, -122.3321), "Capitol Hill": (47.6253, -122.3222), "First Hill": (47.6090, -122.3240),
+                "Central District": (47.6080, -122.3010), "Ballard": (47.6687, -122.3847), "Fremont": (47.6510, -122.3500),
+                "Wallingford": (47.6615, -122.3346), "U District": (47.6614, -122.3130), "Ravenna": (47.6750, -122.3010),
+                "Northgate": (47.7060, -122.3270), "Greenwood": (47.6900, -122.3550), "Lake City": (47.7190, -122.2950),
+                "Queen Anne": (47.6370, -122.3570), "Magnolia": (47.6500, -122.4000), "SoDo": (47.5800, -122.3350),
+                "Beacon Hill": (47.5680, -122.3080), "Columbia City": (47.5590, -122.2860),
+                "Rainier Beach": (47.5150, -122.2650), "Georgetown": (47.5470, -122.3200)},
+    "west": {"Alki": (47.5760, -122.4050), "Admiral": (47.5810, -122.3870), "Junction": (47.5610, -122.3870),
+             "Delridge": (47.5450, -122.3620), "Fauntleroy": (47.5230, -122.3880), "White Center": (47.5170, -122.3550)},
+    "south": {"Burien": (47.4700, -122.3470), "SeaTac": (47.4440, -122.2970), "Tukwila": (47.4740, -122.2600),
+              "Renton": (47.4800, -122.2170), "Kent": (47.3810, -122.2350), "Des Moines": (47.4010, -122.3240)},
+    "east": {"Bellevue": (47.6101, -122.2015), "Kirkland": (47.6769, -122.2060), "Redmond": (47.6740, -122.1215),
+             "Mercer Island": (47.5707, -122.2221), "Bothell": (47.7601, -122.2054), "Factoria": (47.5770, -122.1700)},
+    "vashon": {"Vashon": (47.4473, -122.4598), "Dockton": (47.3760, -122.4570), "Burton": (47.3920, -122.4630),
+               "Cove": (47.4220, -122.4950), "North End": (47.5050, -122.4630), "Maury Island": (47.3700, -122.4300),
+               "Paradise Valley": (47.4300, -122.4800)},
+}
+WATER = {"Elliott Bay": (47.6000, -122.3600), "Shilshole": (47.6800, -122.4200), "West Point": (47.6620, -122.4450),
+         "Colvos Passage": (47.4300, -122.5250), "East Passage": (47.4300, -122.3900), "Quartermaster Harbor": (47.3900, -122.4500),
+         "Fauntleroy Cove": (47.5230, -122.4050), "Lake Union": (47.6380, -122.3350), "Lake Washington N": (47.6900, -122.2600),
+         "Lake Washington Mid": (47.6100, -122.2550), "Lake Washington S": (47.5300, -122.2450)}
+WATER_LINKS = [("Elliott Bay", "Shilshole"), ("Shilshole", "West Point"), ("Elliott Bay", "Fauntleroy Cove"),
+               ("Fauntleroy Cove", "East Passage"), ("Fauntleroy Cove", "Colvos Passage"), ("East Passage", "Quartermaster Harbor"),
+               ("Lake Washington N", "Lake Washington Mid"), ("Lake Washington Mid", "Lake Washington S")]
+HOSPITALS = {"Harborview": ("seattle", 47.6040, -122.3238), "Swedish First Hill": ("seattle", 47.6089, -122.3215),
+             "Virginia Mason": ("seattle", 47.6102, -122.3271), "UW Medical Center": ("seattle", 47.6497, -122.3071),
+             "UW Northwest": ("seattle", 47.7189, -122.3343), "Swedish Ballard": ("seattle", 47.6676, -122.3794),
+             "Seattle Children's": ("seattle", 47.6624, -122.2817), "Highline (Burien)": ("south", 47.4708, -122.3394),
+             "Valley Medical (Renton)": ("south", 47.4440, -122.2140), "Overlake (Bellevue)": ("east", 47.6203, -122.1880),
+             "EvergreenHealth (Kirkland)": ("east", 47.7157, -122.1800),
+             "Vashon Health Center": ("vashon", 47.4470, -122.4600)}
+TEAMS = [("Alpha", "#d62728", "seattle"), ("Bravo", "#1f77b4", "west"), ("Charlie", "#2ca02c", "south"),
+         ("Delta", "#ff7f0e", "vashon")]
+WALK, DRIVE, BOAT, SHUFFLE = 1.4, 14.0, 9.0, 0.4      # m/s; the clock runs at real time
+
+
+def log(m):
+    print("[rt-sim] " + m, flush=True)
+
+
+def metres(a, b):
+    dy = (b[0] - a[0]) * 111320.0
+    dx = (b[1] - a[1]) * 111320.0 * math.cos(math.radians((a[0] + b[0]) / 2))
+    return math.hypot(dx, dy)
+
+
+def step_toward(p, goal, m):
+    d = metres(p, goal)
+    if d <= m or d == 0:
+        return goal, True
+    f = m / d
+    return (p[0] + (goal[0] - p[0]) * f, p[1] + (goal[1] - p[1]) * f), False
+
+
+def jitter(p, rng, r=300.0):
+    a, d = rng.uniform(0, 2 * math.pi), rng.uniform(0, r)
+    return (p[0] + d * math.cos(a) / 111320.0, p[1] + d * math.sin(a) / (111320.0 * math.cos(math.radians(p[0]))))
+
+
+class World:
+    def __init__(self, rng):
+        self.rng, self.u, self.n = rng, {}, 0
+        for name, (zone, lat, lng) in HOSPITALS.items():
+            self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
+        for team, color, zone in TEAMS:
+            for i in range(1, 5):
+                self.add("team", "%s-%d" % (team, i), jitter(self.place(zone), rng), zone=zone, team=team, color=color,
+                         goal=None)
+        for i, zone in enumerate(["seattle", "seattle", "seattle", "west", "south", "south", "east", "vashon"], 1):
+            self.add("ambulance", "Medic %d" % i, jitter(self.place(zone), rng), zone=zone, status="available",
+                     goal=None, victim=None)
+        for i, w in enumerate(["Elliott Bay", "Colvos Passage", "Lake Washington Mid"], 1):
+            self.add("boat", ("Fireboat %d" if i < 3 else "Marine %d") % i, WATER[w], zone="water", status="patrol",
+                     at_point=w, goal=None)
+        for i in range(18):
+            self.new_victim()
+        for i, zone in enumerate(["seattle", "south", "east", "vashon", "west"], 1):
+            self.add("fire", "Fire %d" % i, jitter(self.place(zone), rng, 600), zone=zone, severity=rng.choice(["1-alarm", "2-alarm", "3-alarm"]))
+        for i, zone in enumerate(["seattle", "seattle", "west", "south", "east", "vashon"], 1):
+            self.add("power", "Outage %d" % i, jitter(self.place(zone), rng, 800), zone=zone, customers_out=rng.randint(200, 9000))
+
+    def place(self, zone):
+        return self.rng.choice(list(ZONES[zone].values()))
+
+    def add(self, kind, name, p, **kv):
+        self.n += 1
+        uid = "sim-%s-%d" % (kind, self.n)
+        self.u[uid] = dict(kind=kind, name=name, p=p, **kv)
+        return uid
+
+    def new_victim(self):
+        zone = self.rng.choice(["seattle", "seattle", "west", "south", "east", "vashon"])
+        self.add("victim", "Victim %d" % (self.n + 1), jitter(self.place(zone), self.rng, 900), zone=zone,
+                 status=self.rng.choice(["needs transport", "needs transport", "sheltering", "minor injuries"]))
+
+    def nearest(self, kind, p, zone, pred=lambda v: True):
+        c = [(metres(p, v["p"]), k) for k, v in self.u.items() if v["kind"] == kind and v["zone"] == zone and pred(v)]
+        return min(c)[1] if c else None
+
+    def tick(self, dt):
+        """advance everyone dt seconds; returns the ids whose truth changed"""
+        rng, moved = self.rng, set()
+        for k, v in list(self.u.items()):
+            kind = v["kind"]
+            if kind == "team" or kind == "victim":
+                if kind == "victim" and v["status"] in ("in ambulance",):
+                    continue
+                if not v.get("goal") or v["p"] == v["goal"]:
+                    v["goal"] = jitter(self.place(v["zone"]), rng, 400) if kind == "team" else jitter(v["p"], rng, 150)
+                v["p"], _ = step_toward(v["p"], v["goal"], (WALK if kind == "team" else SHUFFLE) * dt)
+                moved.add(k)
+            elif kind == "ambulance":
+                self.drive(k, v, dt, moved)
+            elif kind == "boat":
+                if not v.get("goal"):
+                    nxt = [b if a == v["at_point"] else a for a, b in WATER_LINKS if v["at_point"] in (a, b)]
+                    v["next_point"] = rng.choice(nxt)
+                    v["goal"] = WATER[v["next_point"]]
+                v["p"], there = step_toward(v["p"], v["goal"], BOAT * dt)
+                if there:
+                    v["at_point"], v["goal"] = v["next_point"], None
+                moved.add(k)
+        return moved
+
+    def drive(self, k, v, dt, moved):
+        if v["status"] == "available":
+            vic = self.nearest("victim", v["p"], v["zone"], lambda x: x["status"] == "needs transport" and not x.get("taken"))
+            if not vic:
+                return
+            self.u[vic]["taken"] = k
+            v.update(status="responding", victim=vic, goal=self.u[vic]["p"])
+        if v["status"] == "responding":
+            vic = self.u.get(v["victim"])
+            if not vic:
+                v.update(status="available", victim=None, goal=None); moved.add(k); return
+            v["goal"] = vic["p"]
+            v["p"], there = step_toward(v["p"], v["goal"], DRIVE * dt)
+            if there:
+                vic["status"] = "in ambulance"; moved.add(v["victim"])
+                h = self.nearest("hospital", v["p"], v["zone"])
+                v.update(status="transporting", hospital=h, goal=self.u[h]["p"])
+            moved.add(k)
+        elif v["status"] == "transporting":
+            vic = self.u.get(v["victim"])
+            v["p"], there = step_toward(v["p"], v["goal"], DRIVE * dt)
+            if vic:
+                vic["p"] = v["p"]; moved.add(v["victim"])
+            if there:
+                hosp = self.u[v["hospital"]]
+                hosp["beds"] = max(0, hosp["beds"] - 1); moved.add(v["hospital"])
+                if vic:
+                    vic["status"] = "transported"
+                v.update(status="available", victim=None, goal=None)
+                self.new_victim()
+                moved.add(sorted(self.u, key=lambda x: int(x.rsplit("-", 1)[1]))[-1])
+            moved.add(k)
+
+    def bags(self, k):
+        v = self.u[k]
+        team = v.get("team", "")
+        who = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""), "host": "", "station": ""}
+        pos = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""),
+               "lat": round(v["p"][0], 6), "lng": round(v["p"][1], 6), "at": int(time.time()), "sim": True}
+        for f in ("status", "beds", "severity", "customers_out"):
+            if f in v:
+                pos[f] = v[f]
+        if v.get("hospital"):
+            pos["to"] = self.u[v["hospital"]]["name"]
+        return who, pos
+
+
+def where():
+    try:
+        with open(WHERE) as f:
+            return json.load(f).get(KEY, "")
+    except (OSError, ValueError):
+        return ""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--mission", default="seattle-metro")
+    ap.add_argument("--tick", type=float, default=2.0)
+    ap.add_argument("--seed", type=int, default=20261101)
+    a = ap.parse_args()
+    w = World(random.Random(a.seed))
+    kinds = {}
+    for v in w.u.values():
+        kinds[v["kind"]] = kinds.get(v["kind"], 0) + 1
+    log("build %s; mission %s; %d instances (%s); tick %.1f s" % (BUILD_TAG, a.mission, len(w.u),
+        ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), a.tick))
+    at, written = "", set()
+    last = time.monotonic()
+    while True:
+        now = where()
+        if not now:
+            log("the app's general RAM is not served yet (%s); again in 1 s" % WHERE)
+            time.sleep(1); continue
+        try:
+            rm = fdfram.Ram(now)
+            if now != at:                       # another RAM: every instance's own truth again, there
+                rm.write("rt-mission", "settings", a.mission, {"name": "Seattle metro exercise", "event": "Seattle metro exercise",
+                                                                "opPeriod": 1, "by": "rt-sim", "sim": True})
+                for k in w.u:
+                    who, pos = w.bags(k)
+                    rm.write("rt-who", a.mission, k, who); rm.write("rt-pos", a.mission, k, pos)
+                written = set(w.u)
+                log("on %s: %d instances written" % (now, len(w.u)))
+                at = now
+            time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
+            dt = time.monotonic() - last; last = time.monotonic()
+            changed = w.tick(dt)
+            for k in changed | (set(w.u) - written):
+                who, pos = w.bags(k)
+                if k not in written:
+                    rm.write("rt-who", a.mission, k, who); written.add(k)
+                rm.write("rt-pos", a.mission, k, pos)
+        except fdfram.RamError as e:
+            log("writing on %s failed (%s); where it is now is read again in 1 s" % (at or now, e))
+            at = ""
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
