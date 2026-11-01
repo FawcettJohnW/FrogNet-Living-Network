@@ -92,6 +92,16 @@ scribe or a viewer can see and do, and the proof that it is right:
 | Service worker, `ngsw-config.json`, tab lock, `RecordStore`, the 33 storage keys and their migrations | `shared/storage/`, `domain/*-migration.ts` | one tab had to hold the state and survive a reload | each device keeps only its own truth (to write it again after a RAM change or a reload); the shared state is in the app's RAMs |
 | `fieldModeSentUids`, `rt-board-publisher`, `missionJournal` copy-in-backup | prefs | counting what was sent, who holds the Board | not needed: a write that landed is sent |
 
+## The admin app and the client apps
+
+As `APP-SETUP-AND-OPERATION.md` ("An app is an admin app and a set of client apps") says. RangerTrak's **admin app**
+sets up the teams, their passwords (verifiers), access by team, the general RAM and the team RAMs, relocate, and the
+remote nodes to install, all as configuration tuples in the network RAM. Its **client apps** each have a team focus:
+Scribe (a post's radio log), Field (a phone in the field), Command (missions, op periods, assignments), and one for
+each team the admin defines (Hospitals: capacity and receiving status). A client connects to its RAM before it shows
+anything. Starting a mission and making assignments is Command's client work, app data in the general RAM, not the
+admin app's.
+
 ## The RAMs and what is in them
 
 As `APP-SETUP-AND-OPERATION.md` ("An app has as many RAMs as it needs") lays out: a general RAM that every RangerTrak
