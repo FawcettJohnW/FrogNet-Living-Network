@@ -10,13 +10,13 @@ const send = (o) => window.rtNative.send(JSON.stringify(o))
 const KINDS = {
   team:      { label: 'Teams',      shape: '',    size: 18, color: '#888', views: ['eoc', 'team'] },
   eoc:       { label: 'EOC',        shape: 'sq',  size: 20, color: '#6b4fd8', views: ['eoc', 'team'], ch: 'E' },
-  ambulance: { label: 'Ambulances', shape: 'sq',  size: 18, color: '#e23b3b', views: ['eoc', 'team'], ch: '+' },
-  boat:      { label: 'Boats',      shape: 'sq',  size: 18, color: '#1565c0', views: ['eoc', 'team'], ch: 'B' },
-  victim:    { label: 'Victims',    shape: '',    size: 12, color: '#f2c200', views: ['eoc', 'team'], ch: '' },
-  hospital:  { label: 'Hospitals',  shape: 'sq',  size: 20, color: '#ffffff', views: ['eoc', 'team', 'public'], ch: 'H', fg: '#c62828' },
-  fire:      { label: 'Fire',       shape: 'dia', size: 18, color: '#ff6d00', views: ['eoc', 'team', 'public'], ch: 'F' },
+  ambulance: { label: 'Ambulances', shape: 'sq',  size: 18, color: '#e23b3b', views: ['eoc'], ch: '+' },
+  boat:      { label: 'Boats',      shape: 'sq',  size: 18, color: '#1565c0', views: ['eoc'], ch: 'B' },
+  victim:    { label: 'Victims',    shape: '',    size: 12, color: '#f2c200', views: ['eoc'], ch: '' },
+  hospital:  { label: 'Hospitals',  shape: 'sq',  size: 20, color: '#ffffff', views: ['eoc', 'public'], ch: 'H', fg: '#c62828' },
+  fire:      { label: 'Fire',       shape: 'dia', size: 18, color: '#ff6d00', views: ['eoc', 'public'], ch: 'F' },
   power:     { label: 'Power',      shape: 'dia', size: 18, color: '#7e57c2', views: ['eoc', 'public'], ch: 'P' },
-  host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', views: [], ch: 'N' },   // off by default: an option
+  host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', views: ['eoc'], ch: 'N' },   // a layer: on for the EOC
 }
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
 const LKP_MIN = 10            // a last known position is drawn this many minutes (the app's own choice)
@@ -79,9 +79,14 @@ function connected(m) {
   for (const k in KINDS) S.on[k] = KINDS[k].views.includes(S.role)
   S.on.lkp = S.role !== 'public'
   layersPanel(); legend()
+  if (S.on.host) send({ op: 'hosts' })                 // the nodes' own GPS sensors, read once now
   $('#chatBtn').hidden = S.role === 'public'
   if (S.role === 'eoc') $('#chat').hidden = false
-  tabs(); toList(); redraw()
+  // [TEAM_VIEW_IS_THE_TEAM_V1] (John, 2026-11-01) a team member opens on the teams' positions and the team's own chat;
+  // everything else is a layer to turn on, and Everyone is a tab away
+  if (S.role === 'team' && S.team) { S.tab = 'team:' + S.team }
+  tabs(); toList(); if (S.role === 'team' && S.team) $('#to').value = 'team:' + S.team
+  redraw()
 }
 
 // ------------------------------------------------------------ the map
@@ -180,11 +185,16 @@ function toList() {
   for (const [v, n] of opts) { const o = document.createElement('option'); o.value = v; o.textContent = n; s.appendChild(o) }
   if (cur) s.value = cur
 }
-function inTab(m) { return S.tab === 'all' ? m.to === 'all' : S.tab === 'dev' ? m.to.startsWith('dev:') : m.to === S.tab }
+// [EVERYONE_TAB_HAS_ALL_V1] the Everyone tab is every message this device has: team and direct ones too, marked
+function inTab(m) { return S.tab === 'all' ? true : S.tab === 'dev' ? m.to.startsWith('dev:') : m.to === S.tab }
 function msgHtml(m) {
   const mine = m.from === S.cfg.dev, at = m.at ? new Date(m.at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
   const where = m.to === 'all' ? '' : m.to.startsWith('team:') ? ' → ' + m.to.slice(5) : mine ? ' → ' + (S.direct[m.to.slice(4)] || 'direct') : ' → you'
-  return `<div class="m${mine ? ' mine' : ''}"><div class="h">${esc(m.name)}${esc(where)} · ${at}</div>${esc(m.text)}</div>`
+  const t = m.to.startsWith('team:') ? m.to.slice(5) : '', tc = t ? (TEAM_COLOR[t.toLowerCase()] || '#888') : ''
+  const kind = t ? ' team' : m.to.startsWith('dev:') ? ' direct' : ''
+  const style = t ? ` style="border-left:5px solid ${tc}"` : ''
+  const tag = t ? `<span class="tag" style="background:${tc}">${esc(t)}</span> ` : m.to.startsWith('dev:') ? '<span class="tag dm">direct</span> ' : ''
+  return `<div class="m${mine ? ' mine' : ''}${kind}"${style}><div class="h">${tag}${esc(m.name)}${esc(where)} · ${at}</div>${esc(m.text)}</div>`
 }
 function showLog() { const l = $('#log'); l.innerHTML = S.msgs.filter(inTab).map(msgHtml).join(''); l.scrollTop = l.scrollHeight }
 function message(m) {

@@ -42,7 +42,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r2";
+    public static final String BUILD = "rt-app-2026-11-01-r3";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -237,6 +237,7 @@ public final class AppCore {
     private void hosts() {
         new Thread(new Runnable() { public void run() {
             List<Object> list = new ArrayList<Object>();
+            List<String> nofix = new ArrayList<String>();
             try {
                 Map<String, Object> o = Json.obj(Json.parse(http("GET", "http://databasehost.frognet/api.php?entity=sensors&action=list&SensorType=GPS", null)));
                 for (Object r0 : Json.arr(o.get("rows"))) {
@@ -245,14 +246,42 @@ public final class AppCore {
                     if (!nm.endsWith(".GPS.Position") || id.isEmpty()) continue;
                     Map<String, Object> d = Json.obj(Json.parse(http("GET", "http://databasehost.frognet/api.php?entity=sensor_data&action=get&SensorID=" + id, null)));
                     Object jd = Json.obj(d.get("row")).get("jsonData");
-                    Map<String, Object> tpv = jd instanceof String ? Json.obj(Json.parse((String) jd)) : Json.obj(jd);
-                    if (!tpv.containsKey("lat")) continue;                      // no fix: no position
-                    list.add(Json.o("name", nm.substring(0, nm.length() - ".GPS.Position".length()), "address", Json.str(r.get("SensorAddress")),
-                            "lat", Json.dbl(tpv.get("lat")), "lng", Json.dbl(tpv.containsKey("lon") ? tpv.get("lon") : tpv.get("lng"))));
+                    String host = nm.substring(0, nm.length() - ".GPS.Position".length());
+                    Map<String, Object> tpv = fixOf(jd);
+                    if (tpv == null) { nofix.add(host); continue; }             // no fix: no position
+                    list.add(Json.o("name", host, "address", Json.str(r.get("SensorAddress")),
+                            "lat", Json.dbl(tpv.get("lat")), "lng", Json.dbl(tpv.get("lon")), "fixAt", Json.str(tpv.get("time"))));
                 }
                 out("ev", "hosts", "list", list);
+                StringBuilder names = new StringBuilder();
+                for (Object h : list) names.append(names.length() == 0 ? "" : ", ").append(Json.str(Json.obj(h).get("name")));
+                say("Hosts: " + (list.size() + nofix.size()) + " node(s) record a GPS sensor; " + list.size() + " with a fix ("
+                        + names + ")" + (nofix.isEmpty() ? "" : "; no fix: " + String.join(", ", nofix)));
             } catch (Exception e) { out("ev", "error", "text", "the nodes' GPS sensors (databasehost.frognet): " + e.getMessage()); }
         } }, "hosts").start();
+    }
+
+    /** [RT_HOSTS_V1] the fix in a GPS sensor's jsonData, as gpsd_reporter.bash stores it: gpsd's TPV object; or, when
+     *  get_gps_data printed more than one TPV line (gpspipe -n 5), the reporter's {"error":"invalid gps json","raw":...}
+     *  with those lines in raw -- the last one with a position is the fix. null: no position (no fix). */
+    static Map<String, Object> fixOf(Object jd) {
+        try {
+            Map<String, Object> o = jd instanceof String ? Json.obj(Json.parse((String) jd)) : Json.obj(jd);
+            if (o.get("lat") instanceof Number && o.get("lon") instanceof Number) return o;
+            String raw = Json.str(o.get("raw"));
+            Map<String, Object> last = null;
+            for (int i = raw.indexOf('{'); i >= 0; i = raw.indexOf('{', i + 1)) {
+                int depth = 0, j = i;
+                for (; j < raw.length(); j++) { char c = raw.charAt(j); if (c == '{') depth++; else if (c == '}' && --depth == 0) break; }
+                if (j >= raw.length()) break;
+                try {
+                    Map<String, Object> t = Json.obj(Json.parse(raw.substring(i, j + 1)));
+                    if (t.get("lat") instanceof Number && t.get("lon") instanceof Number) last = t;
+                } catch (IllegalArgumentException ignored) { }
+                i = j;
+            }
+            return last;
+        } catch (IllegalArgumentException e) { return null; }
     }
 
     // ------------------------------------------------------------------ sessions: a lost one means look again

@@ -36,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r4"
+BUILD_TAG = "rt-sim-2026-11-01-r5"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -86,6 +86,10 @@ SIM_HOSTS = {"Sim-Downtown": (47.6050, -122.3300), "Sim-Ballard": (47.6680, -122
              "Sim-WestSeattle": (47.5620, -122.3860), "Sim-Rainier": (47.5400, -122.2800), "Sim-Burien": (47.4700, -122.3470),
              "Sim-Renton": (47.4800, -122.2170), "Sim-Bellevue": (47.6100, -122.2000), "Sim-Kirkland": (47.6770, -122.2060),
              "Sim-Vashon": (47.4470, -122.4600), "Sim-Maury": (47.3700, -122.4300), "Sim-Harbor": (47.6000, -122.3550)}
+PEOPLE = ["Maria Lopez", "James Chen", "Aisha Patel", "Tom Nguyen",            # team members, by name, as people are
+          "Grace Kim", "Luis Ortega", "Hannah Berg", "Sam Okafor",
+          "Priya Raman", "Ben Carter", "Elena Petrova", "Marcus Hill",
+          "Ruth Anderson", "Kenji Sato", "Fatima Hassan", "Dave Wilson"]
 TEAM_TALK = ["On scene, assessing", "Need more water at this location", "Clear here, moving to next block",
              "Road blocked, rerouting", "Two people need help getting to the shelter", "All accounted for here",
              "Checking in, all OK", "Gas smell reported, keeping clear"]
@@ -125,7 +129,7 @@ class World:
             self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
         for team, color, zone in TEAMS:
             for i in range(1, 5):
-                self.add("team", "%s-%d" % (team, i), jitter(self.place(zone), rng), zone=zone, team=team, color=color,
+                self.add("team", PEOPLE[(TEAMS.index((team, color, zone)) * 4 + i - 1) % len(PEOPLE)], jitter(self.place(zone), rng), zone=zone, team=team, color=color,
                          goal=None)
         for i, zone in enumerate(["seattle", "seattle", "seattle", "west", "south", "south", "east", "vashon"], 1):
             self.add("ambulance", "Medic %d" % i, jitter(self.place(zone), rng), zone=zone, status="available",

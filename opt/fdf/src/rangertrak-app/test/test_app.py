@@ -16,6 +16,7 @@
 #   7 the EOC with a wrong password is refused, and says so
 #   8 the To list has every person present (direct messages) and every team
 #   9 a message while the chat is closed: a notice on the map, a count on the Chat button
+#   10 the Team view opens on the teams only and on its own team's chat
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -95,7 +96,10 @@ with sync_playwright() as pw:
 
     tm = open_dev("alpha9", 412, 860)
     tm.click("#connect button"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
-    tm.wait_for_function("Object.keys(S.markers).length > 20", timeout=15000)
+    tm.wait_for_function("Object.keys(S.markers).length > 12", timeout=15000)
+    tk = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
+    check(set(tk) <= {"team", "eoc"} and tm.evaluate("S.tab") == "team:Alpha" and tm.evaluate("$('#to').value") == "team:Alpha",
+          "10 the Team view opens on the teams only (%s) and on its own team's chat (%s)" % (tk, tm.evaluate("S.tab")))
     tm.evaluate("send({op:'fix',lat:47.6205,lng:-122.3493,acc:8})")          # the phone's GPS: the Space Needle
     tm.click("#chatBtn"); tm.select_option("#to", "team:Alpha"); tm.fill("#text", "Alpha 9 on scene at the Center"); tm.click("#sayForm button")
     eoc.wait_for_function("S.msgs.some(m=>m.to==='team:Alpha' && m.text.includes('Alpha 9 on scene'))", timeout=10000)

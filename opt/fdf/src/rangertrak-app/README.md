@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r2
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r3
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
