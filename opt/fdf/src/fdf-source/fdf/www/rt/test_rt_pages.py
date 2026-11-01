@@ -19,6 +19,7 @@
 #   7  the handled mark: B marks A's first entry (click: ✓, again: →); A sees each mark
 #   8  a ranger added on B's Rangers page: in A's callsign list, and B's roster shows when it was last heard
 #   9  the ICS-309 at post A: every entry from every device in write order, with its number and mark
+#   10 the map at B: each callsign at its newest position; A logs W7ABC somewhere new and B's map moves it
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 from playwright.sync_api import sync_playwright
 
@@ -37,6 +38,9 @@ RAMP = free(); RAM = "127.0.0.1:%d" % RAMP
 os.makedirs(T + "/bin"); os.makedirs(T + "/www/dc"); shutil.copytree(HERE, T + "/www/rt", ignore=shutil.ignore_patterns("*.py", "__pycache__"))
 for b in ("ram", "rina-host"): shutil.copy(os.path.join(B, b), T + "/bin/")
 shutil.copy(os.path.join(DC, "ram.php"), T + "/www/dc/")
+VL = os.path.join(HERE, "..", "..", "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet")    # the node's own Leaflet
+for cand in (VL, os.path.join(HERE, "..", "..", "..", "..", "var", "www", "html", "vendor", "leaflet"), "/var/www/html/vendor/leaflet"):
+    if os.path.isdir(cand): shutil.copytree(cand, T + "/www/vendor/leaflet"); break
 json.dump({"apps": [{"id": "rangertrak", "title": "Radio log", "version": "1", "page": "../rt/log.html",
                      "services": ["rt-mission", "rt-log", "rt-handled", "rt-roster"]}]}, open(T + "/www/dc/apps.json", "w"))
 open(T + "/fdf.env", "w").write("export FDF_BIN=%s/bin RINA_RAM=%s\n" % (T, RAM))
@@ -136,6 +140,22 @@ try:
         p9 = pr.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
         check(len(p9) == 54 and [x[1] for x in p9] == nos and p9[0][2] == "→" and "(Pat Lee)" in p9[0][3] and pr.text_content("#inc") == "26-0142",
               "9 the ICS-309 at A: %d entries in write order, the first %s" % (len(p9), p9[0] if p9 else None))
+        # 10
+        mp = b.context.new_page(); mp.goto(posts["B"].replace("log.html", "map.html"))
+        def maprows(): return mp.eval_on_selector_all("#rows tr", "rs => rs.map(r => [...r.children].map(c => c.textContent))")
+        for _ in range(250):
+            m1 = maprows()
+            if len(m1) == 2: break
+            time.sleep(0.02)
+        nmk = mp.evaluate("document.querySelectorAll('.leaflet-interactive').length")
+        log(a, "W7ABC", "normal", "47.7, -122.4", "moved")
+        t0 = time.time(); m2 = []
+        while time.time() - t0 < 10:
+            m2 = [x for x in maprows() if x[0] == "W7ABC"]
+            if m2 and m2[0][1].startswith("47.70000"): break
+            time.sleep(0.02)
+        check(len(m1) == 2 and nmk == 2 and m2 and m2[0][1].startswith("47.70000") and m2[0][4] == "A028",
+              "10 B's map: %d callsigns, %d markers; W7ABC moved on B in %d ms: %s" % (len(m1), nmk, (time.time() - t0) * 1000, m2[0] if m2 else None))
         br.close()
 finally:
     for p in procs: p.kill()
