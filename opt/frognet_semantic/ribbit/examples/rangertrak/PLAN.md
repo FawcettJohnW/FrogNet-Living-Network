@@ -47,6 +47,13 @@ the radio log ("absolutely the least interesting thing there is"). This replaces
   that both use.
 - **Independent of this:** the ESP32 work, which makes a Sensors page (all in an area, all of a type, all out of
   tolerance, ...).
+- **Meshtastic (John, 2026-11-01):** "MeshTastic protocols do not need to be carried to the rest of the system."
+  "MeshTastic does what MeshTastic does. For this first demo, it is just a collector." The app is on RangerTrak's own
+  families; nothing Meshtastic is in it. A Meshtastic device becomes a host or node only later, when one has the memory
+  and capability for it. Taken from that work: only the platform's own behaviour, cells that go with their writer's
+  session (ribbit-platform 0.69), so a device that has left drops off the map.
+- **Area (John):** the Seattle metro area, Vashon included; water is not excluded ("Boats may be first responder
+  transports"). The simulated world is `rt-sim` (`[RT_SIM_V1]`, in the dc add-in from r2).
 
 ## The demo this plan is for (2026-10-31, superseded by the decision above)
 
