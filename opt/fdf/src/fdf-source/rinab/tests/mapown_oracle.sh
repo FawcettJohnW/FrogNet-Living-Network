@@ -1,7 +1,7 @@
 #!/bin/bash
 # [MAP_OWNER_IS_NOT_TRANSFERRED_V1] two live clients register the same EID with own:true: the second is REFUSED with the
 # holder named; when the first leaves, the second's periodic assertion (FDF_ASSERT_SEC) registers it within seconds.
-cd "$(dirname "$0")"; B=${B:-../build}; T=../templates/fdf.prime; D=$(mktemp -d)
+cd "$(dirname "$0")"; B=${B:-../build}; T=../../fdf/templates/fdf.prime; D=$(mktemp -d)
 PH=""; PA=""; PB=""; trap 'kill $PB $PA $PH 2>/dev/null' EXIT          # [KILL_BY_PID_V1] only what this oracle started
 KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 RINA_REGION_FILE=$D/area.perm RIBBIT_TEMPLATES=$T $B/rina-host --listen 127.0.0.1:51997 --api /FawcettInnovations.RINA.ram_interface.php >$D/host.log 2>&1 & PH=$!; sleep 1

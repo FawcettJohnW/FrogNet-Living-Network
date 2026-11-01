@@ -6,7 +6,7 @@ set -u; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; D=$(mktemp -d /tmp/
 export RINA_REGION_FILE=$D/region.perm
 # [FDF_WEB_UNDER_APACHE_V1 - T5b] the pages read the fdf.env of the install they belong to (www/fdf -> ../../fdf.env):
 # this check makes one, $D/www beside $D/fdf.env, naming its own RAM host and binaries
-cp -r $H/www $D/www; printf 'export RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/self/ns/net FDF_BIN=%s RINA_REGION_FILE=%s\n' "$B" "$D/region.perm" > $D/fdf.env
+mkdir -p $D/www; cp -a $H/../fdf/www/fdf $D/www/fdf; printf 'export RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/self/ns/net FDF_BIN=%s RINA_REGION_FILE=%s\n' "$B" "$D/region.perm" > $D/fdf.env
 cleanup() { kill ${HP:-} ${SP:-} ${WP:-} 2>/dev/null; }; trap cleanup EXIT
 $B/rina-host --listen 127.0.0.1:8876 --api /FawcettInnovations.RINA.ram_interface.php > $D/host.log 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/8876) 2>/dev/null && break; sleep 0.05; done
