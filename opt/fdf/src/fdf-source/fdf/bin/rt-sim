@@ -27,6 +27,8 @@ Kinds and what moves:
   hospital   fixed; beds available changes as ambulances arrive
   fire       fixed incidents; severity
   power      fixed outages; customers out
+  host       the nodes things connect through (simulated ones, "Sim-..."); every other instance's cells say which, "via"
+             (a real node's position is its own GPS sensor, metric_upsert GPS Position, read by the app)
 Positions are approximate (hand-placed); this is a demo world, not a map service.
 
   rt-sim [--mission ID] [--tick S] [--seed N]
@@ -34,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r2"
+BUILD_TAG = "rt-sim-2026-11-01-r3"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 import fnw1  # noqa: E402
@@ -79,6 +81,10 @@ HOSPITALS = {"Harborview": ("seattle", 47.6040, -122.3238), "Swedish First Hill"
              "Vashon Health Center": ("vashon", 47.4470, -122.4600)}
 TEAMS = [("Alpha", "#d62728", "seattle"), ("Bravo", "#1f77b4", "west"), ("Charlie", "#2ca02c", "south"),
          ("Delta", "#ff7f0e", "vashon")]
+SIM_HOSTS = {"Sim-Downtown": (47.6050, -122.3300), "Sim-Ballard": (47.6680, -122.3850), "Sim-Northgate": (47.7060, -122.3260),
+             "Sim-WestSeattle": (47.5620, -122.3860), "Sim-Rainier": (47.5400, -122.2800), "Sim-Burien": (47.4700, -122.3470),
+             "Sim-Renton": (47.4800, -122.2170), "Sim-Bellevue": (47.6100, -122.2000), "Sim-Kirkland": (47.6770, -122.2060),
+             "Sim-Vashon": (47.4470, -122.4600), "Sim-Maury": (47.3700, -122.4300), "Sim-Harbor": (47.6000, -122.3550)}
 TEAM_TALK = ["On scene, assessing", "Need more water at this location", "Clear here, moving to next block",
              "Road blocked, rerouting", "Two people need help getting to the shelter", "All accounted for here",
              "Checking in, all OK", "Gas smell reported, keeping clear"]
@@ -112,6 +118,8 @@ class World:
     def __init__(self, rng):
         self.rng, self.u, self.n = rng, {}, 0
         self.say, self.removed, self.chatter = [], set(), []       # what instances said; who left; team talk
+        for name, (lat, lng) in SIM_HOSTS.items():               # the nodes things connect through (simulated)
+            self.add("host", name, (lat, lng), zone="")
         for name, (zone, lat, lng) in HOSPITALS.items():
             self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
         for team, color, zone in TEAMS:
@@ -218,6 +226,10 @@ class World:
         who = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""), "host": "", "station": ""}
         pos = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""),
                "lat": round(v["p"][0], 6), "lng": round(v["p"][1], 6), "at": int(time.time()), "sim": True}
+        if v["kind"] != "host":                                    # which node it is connected through: the nearest
+            hs = [(metres(v["p"], h["p"]), hk) for hk, h in self.u.items() if h["kind"] == "host"]
+            if hs:
+                pos["via"] = min(hs)[1]; who["via"] = pos["via"]
         for f in ("status", "beds", "severity", "customers_out"):
             if f in v:
                 pos[f] = v[f]

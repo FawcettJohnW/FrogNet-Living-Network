@@ -18,7 +18,7 @@ public final class Follower {
     public interface Ends { boolean ended(Map<String, Map<String, Object>> view); }
 
     public static final double HOLD_S = 30.0;
-    public final String name, host, service, api;
+    public final String name, host, service, api, variable;   // variable "": the whole service
     public final int port;
     private final Log log;
     private final Ends ends;
@@ -32,7 +32,12 @@ public final class Follower {
     private final Thread follower;
 
     public Follower(String name, String host, int port, String api, String service, Log log, Ends ends, Runnable onChange) {
-        this.name = name; this.host = host; this.port = port; this.api = api; this.service = service;
+        this(name, host, port, api, service, "", log, ends, onChange);
+    }
+
+    /** [RAM_FOLLOWER_V1] one variable of a service only (a reader of its own variable: an addressee's messages) */
+    public Follower(String name, String host, int port, String api, String service, String variable, Log log, Ends ends, Runnable onChange) {
+        this.name = name; this.host = host; this.port = port; this.api = api; this.service = service; this.variable = variable == null ? "" : variable;
         this.log = log; this.ends = ends; this.onChange = onChange;
         follower = new Thread(new Runnable() { public void run() { follow(); } }, "follow-" + service + "@" + host + ":" + port);
         follower.setDaemon(true);
@@ -99,7 +104,7 @@ public final class Follower {
             long last = 0;
             try {
                 while (!stopped) {
-                    String q = api + "?op=read&service=" + RamSession.urlenc(service) + (first ? "" : "&after=" + last + "&wait_s=" + HOLD_S);
+                    String q = api + "?op=read&service=" + RamSession.urlenc(service) + (variable.isEmpty() ? "" : "&variable=" + RamSession.urlenc(variable)) + (first ? "" : "&after=" + last + "&wait_s=" + HOLD_S);
                     Map<String, Object> o = m.call("GET", q, "", 15.0 + (first ? 0 : HOLD_S));
                     List<Object> cs = cells(o);
                     if (!first && cs.isEmpty()) continue;                      // a hold that ended with nothing written: held again

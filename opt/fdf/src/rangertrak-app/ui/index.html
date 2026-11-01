@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Copyright (C) 2016-2026 Fawcett Innovations LLC. SPDX-License-Identifier: GPL-2.0-only
+     index.html -- [RT_APP_UI_V1] the RangerTrak app's screens, the same on the desktop and the phone: the splash, the
+     connect screen, and three views -- EOC (the big map, everything on it, chat beside it), Team (teams colour-coded;
+     double-click a member to talk to them or to their team) and Public (hospitals, fires, outages). The app's core
+     (AppCore.java) talks to this page by JSON lines: rtNative.send(line) out, rtDeliver(line) in. -->
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>RangerTrak</title>
+<link rel="stylesheet" href="leaflet/leaflet.css"><link rel="stylesheet" href="app.css">
+</head><body>
+<div id="splash"><div class="brand">RangerTrak</div><div class="powered">powered by the FrogNet Living Network</div></div>
+
+<form id="connect" hidden>
+  <h1>RangerTrak</h1>
+  <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
+  <label>Your name <input name="name" required></label>
+  <fieldset class="roles"><legend>View</legend>
+    <label><input type="radio" name="role" value="eoc"> EOC</label>
+    <label><input type="radio" name="role" value="team" checked> Team</label>
+    <label><input type="radio" name="role" value="public"> Public</label>
+  </fieldset>
+  <div class="for-team"><label>Team <select name="team"><option>Alpha</option><option>Bravo</option><option>Charlie</option><option>Delta</option></select></label></div>
+  <div class="for-eoc"><label>User <input name="user" autocomplete="username"></label>
+    <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
+  <button type="submit">Connect</button>
+  <div id="cstatus"></div>
+</form>
+
+<div id="main" hidden>
+  <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
+    <span id="dot" title=""></span>
+    <button id="layersBtn" type="button">Layers</button>
+    <button id="chatBtn" type="button">Chat</button></header>
+  <div id="map"></div>
+  <div id="layers" hidden></div>
+  <div id="legend"></div>
+  <aside id="chat" hidden>
+    <div class="tabs" id="tabs"></div>
+    <div id="log"></div>
+    <form id="sayForm"><select id="to"></select><input id="text" placeholder="message" autocomplete="off"><button>Send</button></form>
+  </aside>
+  <div id="pop" hidden><div class="pt"></div><div class="pl"></div>
+    <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>
+    <button type="button" class="pclose">Close</button></form>
+    <div class="pvideo"></div></div>
+  <div id="status"></div>
+</div>
+<script src="leaflet/leaflet.js"></script>
+<script src="app.js"></script>
+</body></html>
