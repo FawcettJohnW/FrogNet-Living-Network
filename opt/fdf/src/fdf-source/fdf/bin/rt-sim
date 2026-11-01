@@ -36,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r3"
+BUILD_TAG = "rt-sim-2026-11-01-r4"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -155,7 +155,7 @@ class World:
                  status=self.rng.choice(["needs transport", "needs transport", "sheltering", "minor injuries"]))
 
     def nearest(self, kind, p, zone, pred=lambda v: True):
-        c = [(metres(p, v["p"]), k) for k, v in self.u.items() if v["kind"] == kind and v["zone"] == zone and pred(v)]
+        c = [(metres(p, v["p"]), k) for k, v in self.u.items() if v["kind"] == kind and (zone is None or v["zone"] == zone) and pred(v)]
         return min(c)[1] if c else None
 
     def tick(self, dt):
@@ -201,7 +201,7 @@ class World:
             v["p"], there = step_toward(v["p"], v["goal"], DRIVE * dt)
             if there:
                 vic["status"] = "in ambulance"; moved.add(v["victim"])
-                h = self.nearest("hospital", v["p"], v["zone"])
+                h = self.nearest("hospital", v["p"], None)     # the nearest hospital anywhere (West Seattle has none)
                 v.update(status="transporting", hospital=h, goal=self.u[h]["p"])
                 self.say.append((k, "%s transporting %s to %s" % (v["name"], vic["name"], self.u[h]["name"])))
             moved.add(k)
