@@ -1,8 +1,7 @@
 # WINDOWS-BRIDGE — the bridge on Windows (fdf-kt-2026-10-11-a12, fdf-tun-2026-10-11-b8; region r19-a14)
 
-> **State (2026-10-13).** The bridge in `opt/fdf/windows/bridge` is `fdf-kt-2026-10-11-a15 + fdf-tun-2026-10-11-b11`
-> (its BUILD.txt; the strings in fdf-tun.exe and member.jar say the same). The hardware run below was a12/b8; a15/b11
-> has not been run on Windows. Since October 2026 `etc\ponds.txt` ships as an example and `fdf-bridge.cmd` refuses to
+> **State (2026-11-01).** The bridge is built, not committed: `opt/fdf/src/frognet-android/windows/make_package.sh OUTDIR`
+> makes `fdf-windows-<build>.zip` (its BUILD.txt names the build) [ONE_COPY_V1]. The hardware run below was a12/b8. Since October 2026 `etc\ponds.txt` ships as an example and `fdf-bridge.cmd` refuses to
 > start until it names your pond. How to set it up: `docs/OPERATING.md` in the FrogNet repository.
 
 John 2026-10-11: "Needs to work with windows, too."

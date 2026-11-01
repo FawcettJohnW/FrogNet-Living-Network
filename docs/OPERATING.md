@@ -277,7 +277,7 @@ A phone on a node's LAN or Wi-Fi with no app is an ordinary DHCP client of that 
 
 ### Windows PCs
 
-`fdf-windows-<build>.zip` (the same files as `opt/fdf/windows/bridge` in the checkout; `BUILD.txt` says the build):
+`fdf-windows-<build>.zip`, built by `opt/fdf/src/frognet-android/windows/make_package.sh OUTDIR` (`BUILD.txt` in it says the build):
 
 1. Unzip to `C:\fdf`.
 2. Download `wintun-0.14.1.zip` from https://www.wintun.net and copy `bin\amd64\wintun.dll` into `C:\fdf`. It is the

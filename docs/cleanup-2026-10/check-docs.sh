@@ -41,7 +41,7 @@ DOCS = [
     "opt/fdf/src/frognet-android/docs/ANDROID-HANDOFF.md",
     "opt/fdf/src/frognet-android/docs/COMMUNICATOR-ANDROID-r5.md",
     "opt/fdf/src/frognet-android/windows/README.txt",
-    "opt/fdf/windows/bridge/README.txt", "opt/fdf/windows/README-windows.txt",
+    "opt/fdf/windows/README-windows.txt",
 ] + sorted(subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "*AI_README.md"],
                           capture_output=True, text=True).stdout.split())
 DOCS = [d for d in dict.fromkeys(DOCS) if "/history/" not in d and os.path.exists(d)]
@@ -94,7 +94,7 @@ def expand(p):
     return [x for alt in m.group(1).split(",") for x in expand(p[:m.start()] + alt + p[m.end():])]
 
 KNOWN_ROOTS = ["opt/frognet_semantic", "opt/fdf", "opt/fdf/src/fdf-source", "opt/fdf/src/fdf-source/rinab",
-               "opt/fdf/src/frognet-android", "docs/cleanup-2026-10", "opt/fdf/windows/bridge",
+               "opt/fdf/src/frognet-android", "docs/cleanup-2026-10",
                "opt/frognet_semantic/ribbit/examples/communicator"]
 def exists_from(doc, ref):
     ref = ref.replace("\\", "/")
@@ -250,8 +250,7 @@ for x in sorted(_tracked):
     if not x.startswith("opt/fdf/src/fdf-source/fdf/"): continue
     t = "opt/fdf/" + x[len("opt/fdf/src/fdf-source/fdf/"):]
     if t in _tracked: bad("(d)", t, "a second copy of " + x + " (make_deliverables builds it) [ONE_COPY_V1]")
-if not same("opt/fdf/windows/bridge/README.txt", "opt/fdf/src/frognet-android/windows/README.txt", crlf=True):
-    bad("(d)", "opt/fdf/windows/bridge/README.txt", "differs from opt/fdf/src/frognet-android/windows/README.txt (CRLF aside)")
+if os.path.exists("opt/fdf/windows/bridge"): bad("(d)", "opt/fdf/windows/bridge", "the bridge is make_package.sh output, not committed [ONE_COPY_V1]")
 
 for p in problems: print(p)
 print("check-docs: %d documents; (b) %d commands in docs/OPERATING.md; (c) %d word matches, %d allowed; %d problem(s)"
