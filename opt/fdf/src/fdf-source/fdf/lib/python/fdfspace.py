@@ -22,6 +22,12 @@ Events, handled one at a time by one thread (the merge):
               including when the space is on its fallback, with the region session's reconnect behaviour (5 s)
 Each event walks the list top to bottom; if the answer is not the RAM manager the space had, it switches and says so.
 No memory is moved.
+
+[SPACES_V1] an application in several spaces holds one Space per space, each with its own list and its own moves:
+    for name in ("First Responders", "EOC Admin"):
+        fdfspace.from_login(name, fallback=[...], on_change=fn).start()
+from_login reads the device's login state (fdf-login: where each of its level's spaces is on each RAM host, in the
+line's order) and builds the space's list from it.
 """
 import queue, threading, time
 import fdfram
@@ -126,3 +132,19 @@ class Space:
                 self.events.put("returned")
                 return
             time.sleep(RECONNECT_S)
+
+
+def from_login(name, state=None, fallback=(), on_change=None, me=""):
+    """[SPACES_V1] the Space `name` from fdf-login's state (FDF_LOGIN_STATE, default /opt/fdf/var/login.json): one entry
+    per RAM host whose answer listed the space, in the join line's order, each on that RAM host's tunnel."""
+    import json, os
+    path = state or os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
+    st = json.load(open(path))
+    managers = []
+    for mname, m in sorted(st.get("managers", {}).items(), key=lambda kv: kv[1].get("order", 0)):
+        for sp in m.get("spaces") or []:
+            if isinstance(sp, dict) and sp.get("name") == name:
+                managers.append({"name": mname, "ram": sp["ram"], "iface": m.get("iface")})
+    if not managers:
+        raise ValueError("space %r: this device's level joins it at no RAM host (%s)" % (name, path))
+    return Space(name, managers, fallback, on_change=on_change, me=me or st.get("device", ""))

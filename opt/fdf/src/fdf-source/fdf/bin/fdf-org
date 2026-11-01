@@ -8,20 +8,25 @@ and each device's reach (opt/fdf/docs/ORGANIZATIONS.md). Run on the machine that
 
   fdf-org init                          make the generic credential (one WireGuard peer, edge 10.253.253.1), the door
                                         port, and the credential key (/opt/fdf/var/org-key, root-only)
+  fdf-org space NAME                    [SPACES_V1] add a RAM space: its own RAM manager on this RAM host (rina-host,
+                                        started by fdf-org serve, inside the tunnel on a random port of its own; its
+                                        Permanent records in space-NAME.perm). The system's own space is the region.
   fdf-org level NAME [--password] [--reach ram|open|list:DEST[,DEST...]] [--space SPACE ...]
                                         add or change a level: its random login and session ports are made once and
-                                        kept; DEST = a 10.x address or prefix, optionally :port
+                                        kept; DEST = a 10.x address or prefix, optionally :port; --space: the spaces its
+                                        applications join (each made with fdf-org space first); its edges reach them
   fdf-org user LEVEL USER               set USER's password at LEVEL (read from stdin, one line)
   fdf-org line LEVEL [--with LINE ...]  print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed);
                                         --with: a standby's line for the same level (fdf-org line LEVEL there), added
                                         after this RAM host, in order
-  fdf-org list                          levels, then admitted devices with level and state
+  fdf-org list [--json]                 spaces, levels, then admitted devices with level and state
   fdf-org revoke NAME                   NAME's peer and its reach go now
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
                                         each inside the tunnel on 10.253.253.254, and the reach rules
 
 Where things live (what survives a restart, ORGANIZATIONS.md section 1):
-  levels, users, the door       permanent cells (fdf-org, level|user|door, ...) in this region's RAM
+  levels, users, the door,      permanent cells (fdf-org, level|user|door|space, ...) in this region's RAM
+  the spaces
   admissions                    /opt/fdf/hub/admitted/NAME.json, as fdf-invite writes them, plus level and state
   the credential key            /opt/fdf/var/org-key; a user's verifier = HMAC-SHA256(key, scrypt(password, salt))
   reach                         nftables table inet fdf_org, rebuilt from the above after every change and at start
@@ -143,6 +148,11 @@ def verifier(key, password, salt):
     return hmac.new(key, d, hashlib.sha256).hexdigest()
 
 
+def used_ports():
+    return ({lv[k] for lv in cells("level").values() for k in ("login_port", "session_port")} |
+            {sp["port"] for sp in cells("space").values()} | {cells("door").get(h().get("FDF_AREA", ""), {}).get("port")})
+
+
 def random_port(used):
     while True:
         p = 20000 + secrets.randbelow(40000)
@@ -151,7 +161,7 @@ def random_port(used):
 
 
 # ---------------------------------------------------------------- reach: nftables, rebuilt whole
-def reach_rules(levels, adm, door):
+def reach_rules(levels, adm, door, spaces=None):
     """[REACH_PER_EDGE_V1] WireGuard's allowed-ips say which source a peer may use, not what it may contact; these rules
     do. Every edge that came in through a level is in @managed and may reach exactly what its state and level allow;
     anything else from it is dropped. Members admitted by fdf-invite are not in @managed and are untouched."""
@@ -170,6 +180,10 @@ def reach_rules(levels, adm, door):
         if r.get("state") != "admitted":
             continue                                              # restricted: its login port, nothing else
         inp.append("iifname %s ip saddr %s ip daddr %s ct original proto-dst %d accept" % (iface, e, HUB_ADDR, lv["session_port"]))
+        for sn in lv.get("spaces", []):                           # [SPACES_V1] the spaces its applications join
+            sp = (spaces or {}).get(sn)
+            if sp:
+                inp.append("iifname %s ip saddr %s ip daddr %s tcp dport %d accept" % (iface, e, HUB_ADDR, sp["port"]))
         reach = lv.get("reach", {"kind": "ram"})
         if reach["kind"] == "open":
             inp.append("iifname %s ip saddr %s accept" % (iface, e))
@@ -198,7 +212,7 @@ def apply_reach(why):
     if not door:
         log("REACH: no door yet (fdf-org init): nothing applied")
         return False
-    rules = reach_rules(levels, admitted(), door)
+    rules = reach_rules(levels, admitted(), door, cells("space"))
     p = subprocess.run([NFT, "-f", "-"], input=rules, capture_output=True, text=True)
     if p.returncode != 0:
         log("REACH: nft refused the rules (%s): %s" % (why, p.stderr.strip()))
@@ -256,10 +270,56 @@ def login(src, port, ask):
     log("LOGIN: %s at %s%s: reach %s, session port %d" % (rec["name"], level, " as " + rec["user"] if rec.get("user") else "",
                                                            lv.get("reach", {}).get("kind", "ram"), lv["session_port"]))
     out = {"ok": True, "level": level, "session_port": lv["session_port"], "ram": "%s:%d" % (HUB_ADDR, lv["session_port"]),
-           "area": h().get("FDF_AREA", ""), "spaces": lv.get("spaces", [])}
+           "area": h().get("FDF_AREA", ""), "spaces": space_list(lv)}
     if rec.get("kind") == "node":                                 # a node maps its /24 with the region's site key
         out["site_key"] = open(os.path.join(VAR, "site-key-" + h()["FDF_AREA"])).read().strip()
     return out
+
+
+def space_list(lv):
+    """[SPACES_V1] where each of the level's spaces is on THIS RAM host: [{"name", "ram": hub:port}]."""
+    sps = cells("space")
+    return [{"name": n, "ram": "%s:%d" % (HUB_ADDR, sps[n]["port"])} for n in lv.get("spaces", []) if n in sps]
+
+
+_space_proc = {}
+
+
+def spaces_up():
+    """[SPACES_V1] every space's RAM manager running: rina-host on HUB_ADDR:<its port>, a child of this process. One
+    that exits is said and started again (_space_waiter)."""
+    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "rina-host")
+    for n, sp in cells("space").items():
+        p = _space_proc.get(n)
+        if p is not None and p.poll() is None:
+            continue
+        if p is not None:
+            log("SPACE %s: its RAM manager exited (rc %s); starting it again" % (n, p.returncode))
+        e = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "space-%s.perm" % sp["file"]))
+        e.pop("RINA_MAP_AREA", None)
+        try:
+            _space_proc[n] = subprocess.Popen([exe, "--listen", "%s:%d" % (HUB_ADDR, sp["port"]), "--api", fdfram.API],
+                                              env=e, stdout=subprocess.DEVNULL,
+                                              stderr=open(os.path.join(VAR, "space-%s.log" % sp["file"]), "a"))
+            log("SPACE %s: its RAM manager on %s:%d (pid %d)" % (n, HUB_ADDR, sp["port"], _space_proc[n].pid))
+            threading.Thread(target=_space_waiter, args=(n, _space_proc[n]), daemon=True).start()
+        except OSError as x:
+            log("SPACE %s: its RAM manager did not start (%s): %s" % (n, exe, x))
+
+
+def _space_waiter(n, p):
+    """As its unit's Restart=always: an exit is said and the RAM manager started again, 2 s later."""
+    p.wait()
+    time.sleep(2)
+    if _space_proc.get(n) is p:
+        _spaces_lock.acquire()
+        try:
+            spaces_up()
+        finally:
+            _spaces_lock.release()
+
+
+_spaces_lock = threading.Lock()
 
 
 def listen(port, handle):
@@ -299,6 +359,8 @@ def serve():
     listen(door["port"], lambda s, p, a: door_ask(s, a))
     last = 0
     while True:
+        with _spaces_lock:
+            spaces_up()
         for n, lv in cells("level").items():                      # a level added later gets its login port at once
             if lv["login_port"] not in started:
                 listen(lv["login_port"], login)
@@ -330,8 +392,7 @@ def cmd_init():
     finally:
         os.umask(old)
     pub = subprocess.run(["wg", "pubkey"], input=priv, capture_output=True, text=True, check=True).stdout.strip()
-    used = {lv[k] for lv in cells("level").values() for k in ("login_port", "session_port")}
-    door = {"port": random_port(used), "generic_pub": pub, "generic_priv": priv, "generic_edge": GENERIC_EDGE}
+    door = {"port": random_port(used_ports()), "generic_pub": pub, "generic_priv": priv, "generic_edge": GENERIC_EDGE}
     put("door", area, door)
     write_admitted(GENERIC_NAME, {"name": GENERIC_NAME, "pubkey": pub, "edge": GENERIC_EDGE, "kind": "leaf",
                                   "generic": True, "invited": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
@@ -344,7 +405,7 @@ def cmd_level(a):
         die("level name '%s': letters, digits, space . _ -, at most 63" % name, 2)
     levels = cells("level")
     lv = dict(levels.get(name) or {})
-    used = {l[k] for l in levels.values() for k in ("login_port", "session_port")} | {cells("door").get(h()["FDF_AREA"], {}).get("port")}
+    used = used_ports()
     lv.setdefault("login_port", random_port(used)); used.add(lv["login_port"])
     lv.setdefault("session_port", random_port(used))
     lv["password"] = "--password" in a
@@ -363,12 +424,27 @@ def cmd_level(a):
         else:
             i += 1
     if spaces:
+        missing = [x for x in spaces if x not in cells("space")]
+        if missing:
+            die("no space %s here: fdf-org space NAME first" % ", ".join(repr(x) for x in missing), 2)
         lv["spaces"] = spaces
     put("level", name, lv)
     log("level %s: login port %d, session port %d, %s, reach %s%s" % (name, lv["login_port"], lv["session_port"],
         "password" if lv["password"] else "no password", lv["reach"]["kind"],
         "" if lv["reach"]["kind"] != "list" else " " + ",".join(lv["reach"]["dests"])))
     apply_reach("level %s" % name)
+
+
+def cmd_space(name):
+    if not name or not all(c.isalnum() or c in " ._-" for c in name) or len(name) > 63:
+        die("space name '%s': letters, digits, space . _ -, at most 63" % name, 2)
+    sp = cells("space").get(name)
+    if sp:
+        log("space %s: already here, its RAM manager on port %d" % (name, sp["port"]))
+        return
+    sp = {"port": random_port(used_ports()), "file": "".join(c if c.isalnum() or c in "._-" else "_" for c in name)}
+    put("space", name, sp)
+    log("space %s: its RAM manager on %s:%d (fdf-org serve starts it)" % (name, HUB_ADDR, sp["port"]))
 
 
 def cmd_user(level, user):
@@ -416,10 +492,18 @@ def cmd_line(level, withs=()):
         subprocess.run(["qrencode", "-t", "ANSIUTF8", tok])
 
 
-def cmd_list():
+def cmd_list(as_json=False):
+    if as_json:                                                   # for fdf-setup: names may hold spaces
+        print(json.dumps({"spaces": sorted(cells("space")),
+                          "levels": {n: {"password": bool(lv.get("password")), "reach": lv.get("reach", {}),
+                                         "spaces": lv.get("spaces", [])} for n, lv in cells("level").items()}}))
+        return
+    for n, sp in sorted(cells("space").items()):
+        print("space %-20s RAM manager %s:%d" % (n, HUB_ADDR, sp["port"]))
     for n, lv in sorted(cells("level").items()):
-        print("level %-20s login %-5d session %-5d %-11s reach %s" % (n, lv["login_port"], lv["session_port"],
-              "password" if lv.get("password") else "no password", lv.get("reach", {}).get("kind")))
+        print("level %-20s login %-5d session %-5d %-11s reach %s%s" % (n, lv["login_port"], lv["session_port"],
+              "password" if lv.get("password") else "no password", lv.get("reach", {}).get("kind"),
+              (" spaces " + ",".join(lv["spaces"])) if lv.get("spaces") else ""))
     for n, r in admitted().items():
         if r.get("level"):
             print("device %-16s %-14s %-12s %-10s %s %s" % (n, r["edge"], r["level"], r.get("state"), r.get("nick", ""), r.get("user", "")))
@@ -443,9 +527,10 @@ def main():
     c = a[0]
     if c == "init": cmd_init()
     elif c == "level" and len(a) >= 2: cmd_level(a[1:])
+    elif c == "space" and len(a) == 2: cmd_space(a[1])
     elif c == "user" and len(a) == 3: cmd_user(a[1], a[2])
     elif c == "line" and len(a) >= 2: cmd_line(a[1], [a[i + 1] for i in range(2, len(a) - 1) if a[i] == "--with"])
-    elif c == "list": cmd_list()
+    elif c == "list": cmd_list("--json" in a)
     elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
     elif c == "serve": serve()
     else: die(__doc__.split("Where things")[0].strip(), 2)

@@ -35,6 +35,16 @@ credential and one join line per level, printed and as a QR; the manager's own d
 up by running the wizard there with the same spaces, levels and users (**proposed**); `fdf-org line LEVEL --with <the
 standby's line>` puts the standby into the primary's line.
 
+`fdf-setup` (`[FDF_SETUP_V1]`) does it in that order: what the machine needs (installed with apt-get once the manager
+says yes), `fdf-region-create` when the machine holds no region, `fdf-org init` and `fdf-org.service`, the spaces, the
+levels (the examples offered are Watcher, Player, Host; Viewer, Commenter, Editor, Admin; First Responders,
+Headquarters, Hospitals, Ambulances), users and passwords, a standby's lines, then one line per level printed and kept
+root-only in `/opt/fdf/var/lines/LEVEL.line` (`fdf-setup --lines` prints them again). Run again, it shows what is there
+and keeps it. The device side of the manager's first login is the line itself (`fdf-login LINE`, or the app's install);
+the wizard says so rather than reaching a device it cannot reach. Tested by `netns-setup-test.sh`: the wizard answered
+as a manager would, names with spaces, a password level; devices join with the printed lines, a wrong password is
+refused; a second run changes nothing.
+
 What survives a restart of the droplet (**proposed**; implemented, tested by `netns-org-test.sh` check 10):
 
 | What | Kept as |
@@ -113,6 +123,24 @@ not marked John):
   at that RAM host, `SO_BINDTODEVICE`, no route, down after each question: `[SPACE_PROBE_TUNNEL_V1]`), so nothing is
   routed differently and the current hub's peer is never moved.
 
+## 4a. Spaces (step 5)
+
+Applications join RAM spaces, not devices (**John**); the admin sets the spaces up at setup (**John**). What the code
+decided (`[SPACES_V1]`, **proposed**):
+
+- `fdf-org space NAME` adds a space on a RAM host: its own RAM manager, `rina-host` inside the tunnel on a random port
+  of its own, with its own Permanent records (`space-NAME.perm`). `fdf-org serve` runs it, says when it exits, and
+  starts it again. The system's own space is the region itself.
+- `fdf-org level NAME --space S ...` names the spaces a level's applications join (each must exist). An edge of that
+  level reaches each of them (nftables, as for its session port); an edge of another level does not.
+- The login's answer says where each of the level's spaces is on that RAM host; `fdf-login` keeps it per RAM manager.
+- An application holds one `fdfspace.Space` per space (`fdfspace.from_login(name)`), each with its own list in the
+  join line's order, its own failover and failback. A level that joins no such space is told so.
+
+Measured in `netns-spaces-test.sh` (two RAM hosts, two spaces, a Responders device and an HQ device): Admin's RAM
+manager on A cut off, the HQ device's Admin on B in 7.7 s while both devices' Responders stay on A; the cut healed, back
+in 1.0 s; Admin's RAM manager on A killed, fdf-org starts it again and the device is back on A with its truth.
+
 ## 5. Run
 
 Each node writes only its own facts and holds one read; a change is an event, and the merge applies it, writing back
@@ -142,12 +170,14 @@ in 0.0 s; the primary back with everything idle, both on it in 3.1 s; both RAM h
 
 | Piece | File |
 | --- | --- |
-| Credential manager, levels, users, lines, revoke, reach rules | `fdf/bin/fdf-org` |
+| Credential manager, levels, users, lines, revoke, reach rules | `fdf/bin/fdf-org` (`fdf-org.service` in the droplet bundle) |
+| The manager's wizard | `fdf/bin/fdf-setup` |
 | Device login | `fdf/bin/fdf-login` (Linux); the member library for Windows and Android is next |
-| A space's RAM manager, failover, failback | `fdf/lib/python/fdfspace.py` |
+| A space's RAM manager, failover, failback; several spaces from the login | `fdf/lib/python/fdfspace.py` |
+| Spaces on a RAM host (their RAM managers, reach, the login's answer) | `fdf/bin/fdf-org` (`space`, `serve`) |
 | A connection bound to one tunnel | `fdf/lib/python/fdfram.py` (`Ram(hostport, device=...)`) |
 | The system space on a node: the list, the walk, the LAN fallback, following | `internet_tunnels_v3/region.py`, `poll.py` (`run_region_loop`) |
-| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes) |
+| Tests | `rinab/tools/netns-org-test.sh` (steps 1-3), `netns-space-test.sh` (step 4, devices), `netns-system-space-test.sh` (step 4, nodes), `netns-spaces-test.sh` (step 5), `netns-setup-test.sh` (step 6) |
 
-Not yet built: C behind A and B (step 4: C's own connection egressing through either), application membership in several spaces (step 5), `fdf-setup` (step 6), one-line node and client
+Not yet built: C behind A and B (step 4: C's own connection egressing through either), one-line node and client
 install (step 7), the Windows and Android member library's login.
