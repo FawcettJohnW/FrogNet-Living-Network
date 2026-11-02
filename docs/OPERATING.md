@@ -315,6 +315,14 @@ logged and the next install retries it. The upgrade that was tested is a LAN-onl
 node, run its `.run` again after the upgrade (it is re-runnable; T5b re-ran it on a member): that also brings the
 newer FD&F build.
 
+**An update over the base** is a tarball of the changed files, named for its tag (`frognet-node-<tag>.tgz` for every
+node, `frognet-eoc-<tag>.tgz` for a node that holds a door). It carries `/opt/frognet_semantic/BUILD.d/<tag>`, so the
+proxy's and the daemon's first log line say the base and the update: `fdf-2026-11-01-r38 + sem-2026-11-02-r1
+commit=...`. An update that changes how templates are learned or matched (sem-2026-11-02-r1 does) goes on every node,
+and each node's template and semantic-cache tables are emptied with it: every node keeps the first template it learned
+for a call, so stores learned under the old code disagree with stores learned under the new one. The tables are
+created again when the services start.
+
 **Leave a region:** `/opt/fdf/bin/fdf-leave` (above).
 
 **Uninstall:**
@@ -412,4 +420,5 @@ node's identity, reset with `--keep-identity` first, from the checkout's root:
 | `databasehost.frognet` still names a LAN-only node that is gone | the last `SERVICE_ELECT role=databasehost ... winner=` in `/var/log/frognet-merge-watcher.log` is from before it left | a LAN-only node does not notice a neighbour leaving; the next merge (an interface change, a neighbour's notification, or any file created in `/run/frognet/merge_requests`) elects again |
 | the Windows bridge refuses | `fdf-bridge: ... is still the example ...`, `wintun.dll is missing`, `run this from a terminal opened as Administrator` | do what the line says |
 | an old node's `.run` stops | `fdf-install: inotifywait is required and missing (apt-get install inotify-tools)` | `apt-get install inotify-tools`, run the `.run` again |
+| an app's call to a door is right on the door's node and wrong from anywhere else: an answer in another call's shape, nulls, values in the wrong fields, a refusal as HTTP 200, right passwords refused | the proxy's `[SEM-TRANSPORT] REQ_DIFF`/`SAME` lines for that path; on the door's node the daemon's `[REPLY_EXTRACTION_PROVEN_V1] ... not the template's shape` | the two nodes' template stores disagree for that call. Every node's start line must show the same update (`+ sem-2026-11-02-r1` or later); then empty the template tables on both (section 4). `simulation/door_semantic_tier.py` is this path, with two stores |
 | the dashboard is empty | the page says `getSnapshot.php failed at HH:MM:SS: <why>` | Apache or the snapshot is not answering; the next refresh draws again when it does |
