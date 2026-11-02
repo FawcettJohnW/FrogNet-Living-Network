@@ -5,3 +5,4 @@ dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "rangertrak-android"
 include(":app")
 include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team
+include(":public")     // [RT_PUBLIC_APP_V1] RangerTrak Public

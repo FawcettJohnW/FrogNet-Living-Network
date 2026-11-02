@@ -35,10 +35,13 @@ window.rtInit = function (cfg) {
   S.cfg = cfg || {}
   const f = $('#connect')
   f.door.value = S.cfg.door || ''; f.name.value = S.cfg.name || ''
-  if (S.cfg.lock === 'team') {                      // [RT_TEAM_APP_V1] the Team app: a team member, nothing else
-    S.cfg.role = 'team'; $('#roleSet').hidden = true
-    document.querySelector('#connect h1').textContent = 'RangerTrak Team'; document.title = 'RangerTrak Team'
+  // [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] an app built for one view (the Team app, the Public app) opens as that view only
+  const LOCKED = { team: 'RangerTrak Team', public: 'RangerTrak Public' }
+  if (LOCKED[S.cfg.lock]) {
+    S.cfg.role = S.cfg.lock; $('#roleSet').hidden = true
+    document.querySelector('#connect h1').textContent = LOCKED[S.cfg.lock]; document.title = LOCKED[S.cfg.lock]
   }
+  if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
   if (S.cfg.role) f.querySelector(`[name=role][value=${S.cfg.role}]`).checked = true
   if (S.cfg.team) f.team.value = S.cfg.team
   roleFields(); askRoles()
@@ -896,3 +899,24 @@ function radioLog() {
 $('#logBtn').onclick = radioLog
 const _connected5 = connected
 connected = function (m) { _connected5(m); $('#logBtn').hidden = S.role !== 'eoc' && S.role !== 'team' }
+
+
+// ------------------------------------------------------------ [PAGE_ERRORS_ARE_SAID_V1] a script error on the page is said
+// on the status line (and the connect screen), not lost in a phone's web view console
+window.addEventListener('error', (e) => { try { const t = 'page error: ' + e.message + ' (' + String(e.filename || '').split('/').pop() + ':' + e.lineno + ')'
+  status(t); if (!$('#connect').hidden) $('#cstatus').textContent = t } catch (x) { } })
+window.addEventListener('unhandledrejection', (e) => { try { status('page error: ' + (e.reason && e.reason.message || e.reason)) } catch (x) { } })
+
+// ------------------------------------------------------------ [BACK_CLOSES_FIRST_V1] the phone's Back: closes what is open
+// (a sheet, the person pop-up, the chat, Layers), then goes Home on the public view; answers false when there is
+// nothing to close, and the app goes to the background
+window.rtBack = function () {
+  const open = (sel) => { const e = $(sel); return e && !e.hidden }
+  if (document.querySelector('.ring')) { document.querySelector('.ring').remove(); return true }
+  if (open('#sheet')) { $('#sheet').hidden = true; S.sheet = ''; S.misEditing = false; return true }
+  if (open('#pop')) { $('#pop').hidden = true; return true }
+  if (open('#layers')) { $('#layers').hidden = true; return true }
+  if (open('#chat')) { $('#chat').hidden = true; return true }
+  if (S.role === 'public' && !open('#home') && !$('#main').hidden) { $('#home').hidden = false; return true }
+  return false
+}

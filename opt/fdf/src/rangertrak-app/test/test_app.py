@@ -29,6 +29,7 @@
 #   27 the chat's Call: offered when the To is a person
 #   28 a new mission started by a team member is the mission on every device
 #   29 RangerTrak's radio log (its own app's entries) on the EOC's Radio log
+#   30-31 the Team app and the Public app (one view each), Back, page errors said
 #   24 the connect screen's teams are the ones the admin defined (door op=roles)
 #   23 Call: the EOC calls the Alpha member: the Communicator's device picker (camera, mic, speakers) opens on the
 #      EOC; the member's app rings, Answer opens its Communicator to answer; the chosen devices go to the Communicator
@@ -100,10 +101,11 @@ sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 dev = {}
-for d, name, role, team in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", ""),
-                              ("hosp1", "Charge Nurse", "hospital", ""), ("med12", "Medic 12 crew", "ambulance", "")):
+for d, name, role, team, *lock in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", ""),
+                              ("hosp1", "Charge Nurse", "hospital", ""), ("med12", "Medic 12 crew", "ambulance", ""),
+                              ("teamapp", "Lee (Bravo)", "team", "Bravo", "team"), ("pubapp", "Resident", "public", "", "public")):
     p = free(); dev[d] = p
-    procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team],
+    procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team] + lock,
                                   stdout=open(T + "/dev-%s.log" % d, "w"), stderr=subprocess.STDOUT))
 time.sleep(2.5)
 
@@ -264,6 +266,25 @@ with sync_playwright() as pw:
     check(st.get("camera") == "video=Integrated Camera" and st.get("mic") == "2" and st.get("speaker") == "2" and st.get("ram", "").endswith(":8800") and "calling" in ring,
           "23 Call: the EOC's Communicator picker (camera, mic, speakers) gives %s; the member's app rang ('%s') and Answer opened its Communicator to answer" % (
               {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
+    # [RT_TEAM_APP_V1] [RT_PUBLIC_APP_V1] the Team app and the Public app on a phone's screen: one view each, no choice
+    ta = open_dev("teamapp", 412, 860)
+    t_ok = ta.is_hidden("#roleSet") and ta.inner_text("#connect h1") == "RangerTrak Team" and "rt-app-" in ta.inner_text("#cstatus")
+    ta.select_option("[name=team]", "Bravo"); ta.click("#connect button"); ta.wait_for_selector("#main:not([hidden])", timeout=8000)
+    ta.wait_for_function("S.role==='team' && S.team==='Bravo' && Object.keys(S.markers).length >= 4", timeout=15000)
+    tt2 = ta.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).team))]")
+    ta.click("#misBtn"); back1 = ta.evaluate("rtBack()"); closed = ta.is_hidden("#sheet"); back2 = ta.evaluate("rtBack()")
+    check(t_ok and tt2 == ["Bravo"] and back1 and closed and back2 is False,
+          "30 the Team app: no view to choose (titled RangerTrak Team, its build on the first screen), opens on its own team (%s); Back closes the open sheet, then has nothing to close" % tt2)
+    if SHOTS: ta.screenshot(path=os.path.join(SHOTS, "team-app-phone.png"))
+    pa = open_dev("pubapp", 412, 860)
+    p_ok = pa.is_hidden("#roleSet") and pa.inner_text("#connect h1") == "RangerTrak Public" and pa.is_hidden(".for-team") and pa.is_hidden(".for-eoc")
+    pa.click("#connect button"); pa.wait_for_selector("#home:not([hidden])", timeout=8000)
+    pa.click("[data-go=map]"); pb_back = pa.evaluate("rtBack()"); home_again = pa.is_visible("#home")
+    pa.evaluate("setTimeout(()=>{ nosuchfunction() }, 0)"); time.sleep(0.3)
+    err = pa.inner_text("#status")
+    check(p_ok and pb_back and home_again and "page error" in err,
+          "31 the Public app: no view to choose (titled RangerTrak Public), opens on its home; Back from the map goes Home; a page error is said on the status line: '%s'" % err[:80])
+    if SHOTS: pa.screenshot(path=os.path.join(SHOTS, "public-app-phone.png"))
     # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
     sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1
     gh, gp = json.load(open(T + "/var/app-where.json"))["rangertrak.general"].rsplit(":", 1); ls = fnw1.Session(gh, gp)

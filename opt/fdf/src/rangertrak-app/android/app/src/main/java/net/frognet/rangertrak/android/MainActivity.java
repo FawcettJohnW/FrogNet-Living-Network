@@ -191,7 +191,12 @@ public final class MainActivity extends Activity implements LocationListener {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true); s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        web.setWebChromeClient(new WebChromeClient());
+        // [PAGE_ERRORS_ARE_SAID_V1] the page's console in the phone's log (adb logcat -s RangerTrak) too
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage m) {
+                android.util.Log.i("RangerTrak", m.message() + " (" + m.sourceId() + ":" + m.lineNumber() + ")"); return true;
+            }
+        });
         core = new AppCore(new AppCore.Ui() {
             public void deliver(final String line) {
                 web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
@@ -232,7 +237,7 @@ public final class MainActivity extends Activity implements LocationListener {
             if (md != null) lock = String.valueOf(md.getString("net.frognet.rangertrak.ROLE", ""));
         } catch (PackageManager.NameNotFoundException ignored) { }
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
-                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock);
+                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD);
     }
 
     @SuppressWarnings("deprecation")
@@ -286,6 +291,14 @@ public final class MainActivity extends Activity implements LocationListener {
     @Override public void onStatusChanged(String p, int s, Bundle e) { }
     @Override public void onProviderEnabled(String p) { }
     @Override public void onProviderDisabled(String p) { }
+
+    /** [BACK_CLOSES_FIRST_V1] Back closes what is open on the page first; with nothing open, the app goes to the background */
+    @SuppressWarnings("deprecation")
+    @Override public void onBackPressed() {
+        web.evaluateJavascript("window.rtBack ? rtBack() : false", new android.webkit.ValueCallback<String>() {
+            public void onReceiveValue(String v) { if (!"true".equals(v)) moveTaskToBack(true); }
+        });
+    }
 
     @Override protected void onDestroy() {
         LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);

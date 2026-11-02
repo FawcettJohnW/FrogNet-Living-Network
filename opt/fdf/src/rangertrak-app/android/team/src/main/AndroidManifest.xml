@@ -13,7 +13,7 @@
     <application android:label="RangerTrak Team" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
         <meta-data android:name="net.frognet.rangertrak.ROLE" android:value="team" />
         <activity android:name="net.frognet.rangertrak.android.MainActivity" android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden">
+            android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

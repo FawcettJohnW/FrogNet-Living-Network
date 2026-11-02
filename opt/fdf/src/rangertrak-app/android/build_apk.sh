@@ -1,5 +1,5 @@
 #!/bin/bash
-# build_apk.sh OUTDIR [team] -- [RT_APK_NO_GRADLE_V1] RangerTrak-android-<build>.apk without Gradle or Google's SDK download (the
+# build_apk.sh OUTDIR [team|public] -- [RT_APK_NO_GRADLE_V1] RangerTrak-android-<build>.apk without Gradle or Google's SDK download (the
 # build machine reaches neither dl.google.com nor Google's Maven): Debian/Ubuntu's own Android tools --
 #   apt install android-sdk-build-tools android-sdk-platform-23 dalvik-exchange apksigner zipalign
 # -- aapt2 (resources, manifest, the page as assets), javac (Java 8 bytecode, against an android-all jar for the API
@@ -11,6 +11,7 @@ D=$(cd "$(dirname "$0")" && pwd); APP=$(dirname "$D"); OUT=${1:?usage: build_apk
 # [RT_TEAM_APP_V1] team: RangerTrak Team (team/: its manifest and resources; the same Java, core and page)
 MOD=app; PKG=net.frognet.rangertrak; NAME=RangerTrak
 if [ "${2:-}" = team ]; then MOD=team; PKG=net.frognet.rangertrak.team; NAME=RangerTrak-Team; fi
+if [ "${2:-}" = public ]; then MOD=public; PKG=net.frognet.rangertrak.pub; NAME=RangerTrak-Public; fi   # [RT_PUBLIC_APP_V1]
 BT=$(ls -d /usr/lib/android-sdk/build-tools/[0-9]* | sort -V | tail -1); P23=/usr/lib/android-sdk/platforms/android-23/android.jar
 AJ=${ANDROID_JAR:-/tmp/aall/aall.jar}
 for f in "$BT/aapt2" "$P23" "$AJ" /usr/bin/dalvik-exchange; do [ -e "$f" ] || { echo "build_apk: missing $f (see the header)" >&2; exit 2; }; done

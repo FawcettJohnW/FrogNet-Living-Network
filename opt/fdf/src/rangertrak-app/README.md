@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r9
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r10
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -134,6 +134,15 @@ The radio log app (`fdf-source/fdf/www/rt`, RangerTrak's own screens converted t
 same general RAM, mission, presence and positions. Radio log (EOC, Team) shows its entries,
 `(rt-log, <mission>.<opPeriod>, <dev>.<seq>)`, newest first, as the scribes type them; read only (the ICS-309 message
 numbers are the posts').
+
+## r10: the Public app, and the phone ([RT_PUBLIC_APP_V1])
+
+`android/public`: RangerTrak Public (`net.frognet.rangertrak.pub`), ROLE = public, opens on the public's home. The
+Android project now builds three apps from one copy of the code: `:app` (every view), `:team`, `:public`
+(`./gradlew :team:assembleDebug :public:assembleDebug`, or `build_apk.sh OUTDIR team|public`). On the phone:
+[APP_SAYS_ITS_BUILD_V1] the build on the first screen; [PAGE_ERRORS_ARE_SAID_V1] a script error on the status line
+(and in `adb logcat -s RangerTrak`); [BACK_CLOSES_FIRST_V1] Back closes what is open, then Home on the public view;
+the keyboard resizes the screen instead of covering the chat.
 
 ## Build and test
 

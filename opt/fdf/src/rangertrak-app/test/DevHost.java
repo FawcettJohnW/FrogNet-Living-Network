@@ -1,6 +1,6 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
-// DevHost UI_DIR PORT DEV NAME DOOR [ROLE TEAM] -- [RT_APP_TEST_V1] the app's real core (AppCore) and its real page,
+// DevHost UI_DIR PORT DEV NAME DOOR [ROLE TEAM [LOCK]] -- [RT_APP_TEST_V1] the app's real core (AppCore) and its real page,
 // for the tests only: the page is served to a browser here, and the native bridge the desktop and phone give it
 // (rtNative.send / rtDeliver) is carried over HTTP -- POST /send for a line to the core, GET /recv?after=N held until
 // the core has said something past N. Nothing else differs from the apps. -Drt.core=admin: the admin app's core
@@ -18,7 +18,8 @@ public class DevHost {
     public static void main(String[] a) throws Exception {
         Path ui = Paths.get(a[0]); int port = Integer.parseInt(a[1]);
         String init = "{\"dev\":\"" + a[2] + "\",\"name\":\"" + a[3] + "\",\"door\":\"" + a[4] + "\",\"role\":\"" + (a.length > 5 ? a[5] : "team")
-                + "\",\"team\":\"" + (a.length > 6 ? a[6] : "Alpha") + "\",\"platform\":\"devhost\"}";
+                + "\",\"team\":\"" + (a.length > 6 ? a[6] : "Alpha") + "\",\"platform\":\"devhost\""
+                + (a.length > 7 ? ",\"lock\":\"" + a[7] + "\"" : "") + ",\"build\":\"" + net.frognet.rangertrak.AppCore.BUILD + "\"}";   // LOCK: the Team / Public app
         boolean admin = "admin".equals(System.getProperty("rt.core"));
         java.util.function.Consumer<String> core;
         if (admin) { net.frognet.rangertrak.admin.AdminCore c = new net.frognet.rangertrak.admin.AdminCore(l -> { synchronized (lines) { lines.add(l); lines.notifyAll(); } }); core = c::handle; }
