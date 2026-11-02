@@ -196,6 +196,16 @@ public final class MainActivity extends Activity implements LocationListener {
                     if (!r.isDefaultRoute() && r.matches(a)) { pick = n; how = lp.getInterfaceName() + " route " + r.getDestination(); }
                 if (pick != null) break;
             }
+            // nothing holds it more closely: the network with an IPv4 default route (the Wi-Fi of the node this phone is
+            // on sends it on into the fabric) -- not the mobile data network the default may be
+            if (pick == null) for (android.net.Network n : cm.getAllNetworks()) {
+                android.net.LinkProperties lp = cm.getLinkProperties(n);
+                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                if (lp == null || nc == null || !nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) continue;
+                for (android.net.RouteInfo r : lp.getRoutes())
+                    if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) { pick = n; how = lp.getInterfaceName() + " via " + r.getGateway().getHostAddress() + " (its default route)"; break; }
+                if (pick != null) break;
+            }
             if (pick == null) {
                 cm.bindProcessToNetwork(null);
                 deliver(Json.o("ev", "status", "text", "no network on this phone holds " + host + " (its networks: " + all + ")"));
