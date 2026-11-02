@@ -144,6 +144,13 @@ Android project now builds three apps from one copy of the code: `:app` (every v
 (and in `adb logcat -s RangerTrak`); [BACK_CLOSES_FIRST_V1] Back closes what is open, then Home on the public view;
 the keyboard resizes the screen instead of covering the chat.
 
+## The Android project stays where it is opened ([RT_ANDROID_UPDATE_IN_PLACE_V1])
+
+The Android project is `android/` in this tree, opened in Android Studio where it was unpacked. A change comes as
+`RangerTrak-android-update-<build>.zip` (`android/update_zip.sh SINCE OUTDIR`): the changed files at their own paths,
+unzipped over the same tree (`unzip -o`). No new directory, no new import. (A shared-module layout and an exported
+Studio project were tried on 2026-11-02 and taken back: they made a new directory per build.)
+
 ## Build and test
 
     ./build.sh                                   # build/*.jar (JavaFX for the desktop from Maven Central)

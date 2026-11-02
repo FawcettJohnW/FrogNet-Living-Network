@@ -3,7 +3,6 @@
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "rangertrak-android"
-include(":shared")     // [RT_ANDROID_SHARED_V1] the code the three apps share
 include(":app")
 include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team
 include(":public")     // [RT_PUBLIC_APP_V1] RangerTrak Public
