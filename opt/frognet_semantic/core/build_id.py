@@ -22,10 +22,15 @@ core/build_id.py - [BASE_BUILD_V1 - T4b] the FrogNet base's release id, said by 
 FDF_BUILD_TAG the FD&F binaries carry) and, written by the installer when it installs from a git checkout,
 `commit=<sha>[+changes]` and `installed=<UTC time>`. base_build() is what the proxy, the data daemon and the tunnel
 daemon print in their first log line, so a node's log says what is deployed without anyone running a command.
+
+[BUILD_UPDATES_SAY_SO_V1] An update laid over the base (a tarball of changed files, not a new base) drops one file in
+BUILD.d/ named for its tag, holding `<tag> commit=<sha>: <what it changes>` on its first line. base_build() appends
+each, in name order, as ` + <first line>`: the start line then says the base AND every update on top of it.
 """
 from pathlib import Path
 
 BUILD_FILE = Path(__file__).resolve().parents[1] / "BUILD"
+UPDATES_DIR = BUILD_FILE.parent / "BUILD.d"
 
 
 def base_build() -> str:
@@ -37,4 +42,14 @@ def base_build() -> str:
     out = kv.get("build", f"<{BUILD_FILE} has no build= line>")
     if kv.get("commit"):
         out += " commit=" + kv["commit"]
+    try:                                                     # [BUILD_UPDATES_SAY_SO_V1]
+        ups = sorted(p for p in UPDATES_DIR.iterdir() if p.is_file() and not p.name.startswith("."))
+    except OSError:
+        ups = []
+    for u in ups:
+        try:
+            first = (u.read_text().splitlines() or [""])[0].strip()
+        except OSError as e:
+            first = f"<{u}: {e.strerror}>"
+        out += " + " + (first or u.name)
     return out
