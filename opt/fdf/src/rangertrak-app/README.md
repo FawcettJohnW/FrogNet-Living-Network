@@ -128,6 +128,8 @@ the same world alone, to run a desktop app against.
 - Video inside RangerTrak's own window: a call is the Communicator's window.
 - The desktop's answer is in the Communicator (it rings there too): comms-app has no "answer this person" option yet.
 - Windows' own location service: a desktop writes no position.
-- The Android APK is built in Android Studio: this build machine has no Android SDK and no access to Google's Maven.
+- The APK: `android/build_apk.sh OUTDIR` builds it with Debian/Ubuntu's own Android tools (no Gradle, no Google
+  download), signed with `android/debug.keystore`; Android Studio / Gradle builds the same sources. FrogNet Member (the
+  phone's Communicator, `frognet-android`) still needs Gradle: it has native parts and Google-hosted dependencies.
 - The kart app still has its own copy of the session code; it moves onto `frognet-ram-java` when next built.
 - Map tiles are OpenStreetMap's, over the Internet; without it the map is plain and everything is still on it.
