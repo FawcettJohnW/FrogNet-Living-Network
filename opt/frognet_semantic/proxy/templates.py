@@ -102,6 +102,11 @@ _STATIC_QUERY_KEYS = frozenset({
     # url_vals: req_hash still differentiates them so cache rows don't
     # collide, but request and response templates are shared.
     "CallSign",
+    # [OP_SELECTS_THE_TEMPLATE_V1] "op" names the operation (ram.php's op=rams / admin / login / roles / read / write,
+    # the RAM interface's op=read / write): each has its own reply shape. As a dynamic value it put every op of an
+    # endpoint on one template, and a reply was rebuilt in the shape of whichever op came first -- seen 2026-11-01: the
+    # admin app's /dc/ram.php?op=admin answer came back as op=rams's {"ok":true,"rams":{}}, no configurations.
+    "op",
 })
 
 
