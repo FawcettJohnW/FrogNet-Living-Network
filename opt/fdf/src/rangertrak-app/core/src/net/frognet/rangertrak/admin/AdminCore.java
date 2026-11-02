@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-02-r3";
+    public static final String BUILD = "rt-admin-2026-11-02-r4";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -85,6 +85,8 @@ public final class AdminCore {
     }
 
     // ------------------------------------------------------------------ the door
+    /** the last answer's HTTP status, for a refusal that gives no reason ([DOOR_REFUSAL_SAID_V1]) */
+    private static final ThreadLocal<Integer> lastStatus = new ThreadLocal<Integer>();
     static String http(String method, String url, String body, int readMs) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         c.setConnectTimeout(5000); c.setReadTimeout(readMs); c.setRequestMethod(method);
@@ -92,6 +94,7 @@ public final class AdminCore {
             c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
             OutputStream o = c.getOutputStream(); o.write(body.getBytes(StandardCharsets.UTF_8)); o.close();
         }
+        lastStatus.set(c.getResponseCode());
         InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
         ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] k = new byte[8192]; int n;
         while (in != null && (n = in.read(k)) > 0) b.write(k, 0, n);
@@ -107,7 +110,9 @@ public final class AdminCore {
         }
         if (!Json.bool(o.get("ok"))) {
             String why = Json.str(o.get("why")); if (why.isEmpty()) why = Json.str(o.get("error"));
-            throw new Exception(why.isEmpty() ? "the door refused" : why);
+            // [DOOR_REFUSAL_SAID_V1] no reason given: say what did answer, so the screen names the step that failed
+            throw new Exception(why.isEmpty() ? "the door at " + door + " refused " + q.replaceAll("&.*", "") + " with no reason (HTTP " + lastStatus.get() + "): "
+                    + (r.length() > 300 ? r.substring(0, 300) + "…" : r) : why);
         }
         return o;
     }

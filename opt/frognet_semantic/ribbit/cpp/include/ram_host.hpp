@@ -90,6 +90,22 @@ public:
     // the platform's [GONE_WITH_ITS_WRITER_V1], every write a session makes goes with it. A host that serves FD&F's
     // clients (the Team app's team RAM, rangertrak-app/android/teamram) says true.
     virtual bool own_flag_decides() const { return false; }
+    // [REGION_HOOKS_V1] (FD&F's RAM manager, fdf-ram, 2026-11-02: the hooks rina-host's server patches gave its region)
+    // [REGION_COALESCE_PER_SESSION_V1] Whether two identical calls of this region operation from DIFFERENT sessions may be
+    // answered by one execution. A region that keys state by the calling session (its liveness, its owned records) says
+    // false for those operations: each session's call then runs as its own. Default: true.
+    virtual bool coalesces(const std::string& op) const { (void)op; return true; }
+    // [PERMANENT_CELL_V1] A host that keeps a file says true and files each "permanent":true write in permanent() --
+    // durably, BEFORE the write is published -- and writes them back into the memory itself when it starts (listening).
+    // A host that keeps none refuses "permanent":true. Default: none.
+    virtual bool keeps_permanent() const { return false; }
+    virtual void permanent(const std::string& s, const std::string& v, const std::string& i, const std::string& bag) { (void)s; (void)v; (void)i; (void)bag; }
+    // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1] A write the network may not make (a tuple only the host itself writes): why, or
+    // "" to allow it. Asked of every write that arrives on the network API, in any form. Default: every write allowed.
+    virtual std::string refuse_write(const std::string& s, const std::string& v, const std::string& i) const { (void)s; (void)v; (void)i; return ""; }
+    // [HOST_ANNOUNCES_ITSELF_V1] The host is listening at `bound` (HOST:PORT, the port the system gave when 0 was asked),
+    // before the first session is served: a region restores what it keeps and publishes what it owns here. Default: nothing.
+    virtual void listening(const std::string& bound) { (void)bound; }
 
     // ---- the platform -------------------------------------------------------------------------------------------
     // Parses --listen HOST:PORT, --version and --help; serves until SIGTERM or SIGINT. A vendor's main() calls this.
