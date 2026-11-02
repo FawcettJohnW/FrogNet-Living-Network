@@ -112,21 +112,24 @@ public final class AppCore {
             c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
             OutputStream o = c.getOutputStream(); o.write(body.getBytes(StandardCharsets.UTF_8)); o.close();
         }
-        lastStatus = c.getResponseCode();
+        LAST_STATUS.set(c.getResponseCode());
         StringBuilder hs = new StringBuilder();                       // [DOOR_ANSWER_SAID_V1] who answered: the headers that say
         for (String h : new String[]{"Server", "X-FDF-Door", "X-FrogNet-Cache"}) { String v = c.getHeaderField(h); if (v != null) hs.append(hs.length() > 0 ? ", " : "").append(h).append(": ").append(v); }
-        lastHeaders = hs.toString();
+        LAST_HEADERS.set(hs.toString());
         InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
         ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] k = new byte[8192]; int n;
         while (in != null && (n = in.read(k)) > 0) b.write(k, 0, n);
         return new String(b.toByteArray(), StandardCharsets.UTF_8);
     }
 
-    private volatile int lastStatus = 0; private volatile String lastHeaders = "";
+    // [DOOR_ANSWER_SAID_V1] the calling thread's last answer: http() is static and runs on many threads at once
+    private static final ThreadLocal<Integer> LAST_STATUS = new ThreadLocal<Integer>();
+    private static final ThreadLocal<String> LAST_HEADERS = new ThreadLocal<String>();
     /** [DOOR_ANSWER_SAID_V1] what answered a call that was not the door's JSON: status, who, and the start of it */
     private String answered(String q, String r) {
         String t = r.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
-        return "HTTP " + lastStatus + " for ?" + q.replaceAll("&.*", "") + (lastHeaders.isEmpty() ? "" : " (" + lastHeaders + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
+        String hs = LAST_HEADERS.get() == null ? "" : LAST_HEADERS.get();
+        return "HTTP " + LAST_STATUS.get() + " for ?" + q.replaceAll("&.*", "") + (hs.isEmpty() ? "" : " (" + hs + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
     }
     private Map<String, Object> doorCall(String q, String body) throws Exception {
         String r;

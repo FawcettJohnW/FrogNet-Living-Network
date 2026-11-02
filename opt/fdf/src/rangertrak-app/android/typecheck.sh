@@ -30,7 +30,11 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     freeCompilerArgs.addAll("-Xnullability-annotations=@android.annotation:ignore", "-Xnullability-annotations=@libcore.util:ignore", "-Xnullability-annotations=@androidx.annotation:ignore") } }
 dependencies { "compileOnly"("org.robolectric:android-all:14-robolectric-10818077"); "compileOnly"(files("libs/wg-tunnel.jar", "libs/zxing-embedded.jar", "libs/zxing-core.jar")) }
 EOG
-(cd "$W" && gradle -q compileKotlin compileJava 2>&1 | grep -v '^w:\|JAVA_TOOL\|^Note:') || true
+# a pass is gradle's own success, never class files that happen to be there ([TYPECHECK_IS_THE_COMPILERS_V1]: the r19
+# AppCore static-context error passed with 124 classes from gradle's cache)
+set +e; (cd "$W" && gradle -q --rerun-tasks compileKotlin compileJava 2>&1; echo "GRADLE_RC=$?") > "$W/gradle.out"; set -e
+grep -v '^w:\|JAVA_TOOL\|^Note:\|^GRADLE_RC=' "$W/gradle.out" || true
+grep -q '^GRADLE_RC=0$' "$W/gradle.out" || { echo "typecheck: FAIL (the compiler said so, above)"; exit 1; }
 N=$(find "$W/build/classes" -name '*.class' -newer "$W/build.gradle.kts" 2>/dev/null | wc -l)
 [ -f "$W/build/classes/kotlin/main/com/fawcettinnovations/fdf/android/MemberService.class" ] \
   && [ -f "$W/build/classes/java/main/net/frognet/rangertrak/android/MainActivity.class" ] \
