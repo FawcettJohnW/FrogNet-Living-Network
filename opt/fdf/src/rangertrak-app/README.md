@@ -192,9 +192,8 @@ John 2026-11-02. A team is one more piece of the network that splits and re-form
   writes the lead's card into it (team, the node, the EOC's join line, how the lead reaches the node) and the lead's cell
   `(rt-team-host, host, <team>)` into the general RAM (own: gone with the lead's session). The EOC follows those cells:
   a hosted team's RAM is the lead's phone.
-- **Scan team** (connect screen). A member scans the lead's hotspot QR code (Android's own, on its hotspot screen; zxing),
-  Android adds the network (one tap, Android 11+), and the app reads the lead's card at the Wi-Fi's gateway: the team,
-  the node and the join line fill themselves and it connects, with its team's RAM on the lead's phone.
+- **Scan team** (connect screen), replaced in r18 by Scan to join: a member already on the lead's hotspot still reads
+  the lead's card at the Wi-Fi's gateway; the hotspot's own Wi-Fi QR path is gone.
 - **Splits** ([TEAM_SPLIT_V1]). A connected phone follows its networks (Android's network callback, not a poll): on
   another node's LAN that node is its node (`{"op":"door"}`); off any node's LAN its own membership (the tunnel) carries
   it, or it is an island. A lead says where its team is again; its members follow its card: to the lead's node, and to
@@ -202,6 +201,30 @@ John 2026-11-02. A team is one more piece of the network that splits and re-form
 
 Not yet: on an island the general RAM is out of reach, so positions and presence (in the general RAM) are not shared
 inside the team; the team's chat and its RAM are.
+
+## r18: enrollment, the frog QR, leads and their members ([ENROLL_V1], [FROG_QR_V1], [ASSIGNMENTS_SAVE_V1])
+
+John 2026-11-02: one QR, one password, and the phone is in. The workflow (WAN region, EOC, lead, members) is
+`opt/fdf/docs/APP-SETUP-AND-OPERATION.md`, "Enrollment". A device has one tunnel, to the WAN hub; everything else is
+routed.
+
+- **Admin app**: a **Leads** column (a user who leads its team's role), **QR** per user (its enrollment code, drawn by
+  `ui/frogqr.js`), and **Save / Restore** of the assignments to files (`~/FrogNet-assignments`), by hand only.
+- **The door** (`dc-door-2026-11-02-r3`): `op=enroll` (user and password → role, lead, the device's own WAN invitation
+  from `fdf-identity <app>-<user> --leaf --again --line`) and `op=identity` (a lead asks for a member's invitation,
+  `<app>-<team>-<name>`).
+- **The phone**: **Scan to join** on the first screen scans a frog QR (`fdfenroll1 URL APP USER`), asks for that user's
+  password, enrolls (`frognet-ram-java`'s `Enroll`), keeps the invitation for the member, and connects as the user in
+  its role. A lead gets **Team members**: names and passwords (kept as verifiers), each member's frog QR at the address
+  a member can reach (hotspot, Wi-Fi, or the lead's FrogNet edge), and the team's sponsor on port 21801
+  (`TeamHostService`, `Enroll.Sponsor`), which asks the door for each member's invitation as the lead.
+- **The frog QR** (`ui/frogqr.js`, also `ui-admin/`): lily-pad modules joined by the logo's lines, eyes for finder
+  patterns, the logo's frog in the middle. `test/test_frogqr.py`: zxing core 3.4.1 (the phone's) reads it wherever a
+  plain code of the same text reads, over 5 codes and 11 camera-like degradations.
+
+Gates: `fdf-source/rinab/tools/netns-enroll-test.sh` (7: the hub, fdf-identity, fdf-app, the door, a lead enrolling and
+joining, the lead's sponsor enrolling a member who joins with her own key), `test/test_admin.py` (7),
+`test/test_enroll_page.py` (5), `test/test_frogqr.py`, `frognet-ram-java/test/EnrollTest.java`, `android/typecheck.sh`.
 
 ## Build and test
 
@@ -212,6 +235,9 @@ inside the team; the team's chat and its RAM are.
     python3 test/test_team_host.py <rinab build>/rina-host android/shared/src/main/jniLibs/x86_64/libteamram.so
     android/teamram/build.sh                     # libteamram.so for every Android ABI
     android/typecheck.sh                         # the Android sources against android-all 14 (no SDK)
+    python3 test/test_admin.py                   # the admin app: leads, the QR, save and restore
+    python3 test/test_frogqr.py                  # the frog QR reads (zxing core 3.4.1)
+    python3 test/test_enroll_page.py             # the phone's enrollment page
     ./desktop/package_windows.sh OUTDIR          # the Windows zip
 
 `test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real rina-hosts and rt-sim:

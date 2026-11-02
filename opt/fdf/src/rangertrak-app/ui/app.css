@@ -115,3 +115,10 @@ header { overflow: hidden; }
 #callTo { background: #1565c0; color: #fff; border: 0; }
 table.rl { width: 100%; border-collapse: collapse; font-size: 14px; } table.rl th { text-align: left; color: #93a69a; font-weight: 600; padding: 4px 6px; border-bottom: 1px solid #2b3a31; }
 table.rl td { padding: 5px 6px; border-bottom: 1px solid #1f2a24; vertical-align: top; } table.rl tr.urg td { background: rgba(213,0,0,.18); }
+
+/* [ENROLL_V1] scan to join; the lead's Team members sheet */
+#enrollBox { display: grid; gap: 8px; } #enrollWho { color: var(--fg); font-weight: 600; }
+.mem-row { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--bd); } .mem-row b { flex: 1; }
+.mem-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin: 10px 0; } .mem-add input, .mem-at select { min-width: 0; }
+.mem-qr svg { width: min(340px, 86vw); height: auto; display: block; margin: 10px auto; border-radius: 10px; }
+.mem-qr .who { text-align: center; font-weight: 700; } .mem-at { margin: 8px 0; color: var(--mu); }

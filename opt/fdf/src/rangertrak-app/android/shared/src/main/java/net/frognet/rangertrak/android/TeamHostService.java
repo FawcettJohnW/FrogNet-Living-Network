@@ -22,9 +22,15 @@ import java.io.InputStreamReader;
  * address on PORT -- the hotspot (the team's phones), loopback (this phone's own Team app) and the network (the EOC).
  * A foreground service so it lives while the app is not in front. Its log is Logcat tag TeamRam. Gone is gone: the
  * process ending is said, and nothing starts it again behind the user's back; Host team starts it again.
+ *
+ * [ENROLL_V1] on a lead's phone (enrolled with "lead": true) it also runs the team's sponsor (Enroll.Sponsor, port
+ * SPONSOR_PORT): a member who scans the lead's QR and types its password gets its own WAN invitation, which this phone
+ * asks the app's door for as the lead. The members are the lead's (Team members page): verifiers in this app's
+ * preferences, never passwords. Logcat tag Enroll.
  */
 public final class TeamHostService extends Service {
-    public static final int PORT = 21800;
+    public static final int PORT = 21800, SPONSOR_PORT = 21801;
+    private static volatile net.frognet.ram.Enroll.Sponsor sponsor;
     public static final String STOP = "net.frognet.rangertrak.TEAM_HOST_STOP";
     private static volatile Process proc;
     private static volatile String said = "";
@@ -43,8 +49,30 @@ public final class TeamHostService extends Service {
         if (Build.VERSION.SDK_INT >= 34) startForeground(3, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE); else startForeground(3, n);
         Process p = proc;
         if (p == null || !p.isAlive()) startRam();
+        if (sponsor == null && Enrolled.of(this).lead) startSponsor();
         return START_NOT_STICKY;
     }
+
+    /** [ENROLL_V1] the lead's sponsor: its members from the preferences each time (the page changes them), the door asked as the lead */
+    private void startSponsor() {
+        final Enrolled me = Enrolled.of(this);
+        final android.content.Context ctx = getApplicationContext();
+        try {
+            sponsor = new net.frognet.ram.Enroll.Sponsor(SPONSOR_PORT, me.app, me.role, new net.frognet.ram.Enroll.Team() {
+                public java.util.Map<String, Object> member(String n) { return Enrolled.members(ctx).get(n) == null ? null : net.frognet.ram.Json.obj(Enrolled.members(ctx).get(n)); }
+                public String identity(String n) throws Exception {
+                    Enrolled e = Enrolled.of(ctx);
+                    java.util.Map<String, Object> r = net.frognet.ram.Enroll.post("http://" + e.door + "/dc/ram.php?op=identity&app=" + java.net.URLEncoder.encode(e.app, "UTF-8"),
+                            net.frognet.ram.Json.write(net.frognet.ram.Json.o("user", e.user, "password", e.password, "name", n)), 90000);
+                    return net.frognet.ram.Json.str(r.get("invite"));
+                }
+                public java.util.Map<String, Object> card() { Enrolled e = Enrolled.of(ctx); return net.frognet.ram.Json.o("door", e.door, "team", e.role, "leader", e.user); }
+                public void log(String line) { Log.i("Enroll", line); }
+            });
+        } catch (java.io.IOException e) { Log.i("Enroll", "[ENROLL_V1] the sponsor did not start on port " + SPONSOR_PORT + ": " + e); }
+    }
+    /** "" when this phone sponsors its team; else why not */
+    public static String sponsorState() { return sponsor != null ? "" : "not sponsoring"; }
 
     private void startRam() {
         File bin = new File(getApplicationInfo().nativeLibraryDir, "libteamram.so");
@@ -67,5 +95,9 @@ public final class TeamHostService extends Service {
         if (p != null) { p.destroy(); said = why; Log.i("TeamRam", "[TEAM_HOST_V1] the team RAM stopped: " + why); }
     }
 
-    @Override public void onDestroy() { stopRam("the service ended"); super.onDestroy(); }
+    @Override public void onDestroy() {
+        stopRam("the service ended");
+        net.frognet.ram.Enroll.Sponsor sp = sponsor; sponsor = null; if (sp != null) sp.close();
+        super.onDestroy();
+    }
 }

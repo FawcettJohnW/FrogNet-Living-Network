@@ -33,7 +33,10 @@
   <div class="for-invite" hidden><label>FrogNet invitation <input name="invite" placeholder="fdfinv1.… (pasted once; kept on this phone)" autocomplete="off"></label>
     <div class="meta inv-say"></div></div>
   <button type="submit">Connect</button>
-  <button type="button" id="scanTeam" hidden>Scan team</button>
+  <button type="button" id="scanTeam" hidden>Scan to join</button>
+  <div id="enrollBox" hidden><div class="meta" id="enrollWho"></div>
+    <label>Password <input id="enrollPw" type="password" autocomplete="current-password"></label>
+    <button type="button" id="enrollGo">Join</button></div>
   <div id="cstatus"></div>
 </form>
 
@@ -47,6 +50,7 @@
     <button id="reqBtn" type="button" hidden>Requests</button>
     <button id="sensBtn" type="button" hidden>Sensors</button>
     <button id="hostBtn" type="button" hidden>Host team</button>
+    <button id="membersBtn" type="button" hidden>Team members</button>
     <button id="layersBtn" type="button">Layers</button>
     <button id="chatBtn" type="button">Chat</button></header>
   <div id="map"></div>
@@ -90,5 +94,7 @@
 if (/JavaFX/.test(navigator.userAgent)) window.L_DISABLE_3D = true
 </script>
 <script src="leaflet/leaflet.js"></script>
+<script src="qrcode.js"></script>
+<script src="frogqr.js"></script>
 <script src="app.js"></script>
 </body></html>

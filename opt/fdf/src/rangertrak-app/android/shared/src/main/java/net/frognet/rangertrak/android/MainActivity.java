@@ -117,8 +117,24 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         /** [TEAM_HOST_V1] Host team: this phone's hotspot carries the team, its RAM is on this phone */
         @JavascriptInterface public void teamHost() { runOnUiThread(new Runnable() { public void run() { hostTeam("Host team"); } }); }
-        /** [TEAM_HOST_V1] Scan team: on the lead's hotspot already, its card; otherwise the hotspot's QR code first */
+        /** [TEAM_HOST_V1][ENROLL_V1] Scan to join: on the lead's hotspot already, its card; otherwise an enrollment QR */
         @JavascriptInterface public void scanTeam() { new Thread(new Runnable() { public void run() { scanTeamNow(); } }, "scan-team").start(); }
+        /** [ENROLL_V1] the scanned line and the password the user typed: enroll at the line's sponsor */
+        @JavascriptInterface public void enroll(final String json) { new Thread(new Runnable() { public void run() { enrollNow(json); } }, "enroll").start(); }
+        /** [ENROLL_V1] a lead's Team members page: its members, this phone's addresses, and the sponsor started */
+        @JavascriptInterface public void teamMembers() { runOnUiThread(new Runnable() { public void run() { members(true); } }); }
+        @JavascriptInterface public void addMember(final String name, final String password) {
+            new Thread(new Runnable() { public void run() {
+                String n = name.trim();
+                if (!n.matches("[A-Za-z0-9._-]{1,30}")) { deliver(Json.o("ev", "error", "text", "a member's name: letters, digits, . _ - (at most 30)")); return; }
+                if (password.isEmpty()) { deliver(Json.o("ev", "error", "text", "a member needs a password")); return; }
+                try { Enrolled.putMember(MainActivity.this, n, net.frognet.ram.Enroll.verifier(password)); }
+                catch (Exception e) { deliver(Json.o("ev", "error", "text", "the verifier was not made: " + e)); return; }
+                note("[ENROLL_V1] member " + n + " added (its verifier kept, not its password)");
+                runOnUiThread(new Runnable() { public void run() { members(false); } });
+            } }, "add-member").start();
+        }
+        @JavascriptInterface public void removeMember(String name) { Enrolled.removeMember(MainActivity.this, name); runOnUiThread(new Runnable() { public void run() { members(false); } }); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
             if (inFront) return;
@@ -251,7 +267,6 @@ public final class MainActivity extends Activity implements LocationListener {
     }
     @Override protected void onActivityResult(int code, int result, android.content.Intent data) {
         if (code == com.google.zxing.integration.android.IntentIntegrator.REQUEST_CODE) { scanned(com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(code, result, data)); return; }
-        if (code == WIFI_ADD) { if (result != RESULT_OK) deliver(Json.o("ev", "error", "text", "the lead's hotspot was not added (Android's question was declined)")); return; }
         if (code != VPN_CONSENT) { super.onActivityResult(code, result, data); return; }
         if (result == RESULT_OK) startMember("VPN permission given", true);
         else deliver(Json.o("ev", "error", "text", "the VPN permission was refused: no FrogNet tunnel (Connect asks again)"));
@@ -377,9 +392,14 @@ public final class MainActivity extends Activity implements LocationListener {
         } catch (PackageManager.NameNotFoundException ignored) { }
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
                 "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD,
-                "invited", invitedAs(), "lan", nodeLan());
+                "invited", invitedAs(), "lan", nodeLan(), "enrolled", enrolledCfg());
     }
 
+    /** [ENROLL_V1] who enrolling made this phone's user, for the page ({} : not enrolled) */
+    private Map<String, Object> enrolledCfg() {
+        Enrolled e = Enrolled.of(this);
+        return e.any() ? Json.o("user", e.user, "role", e.role, "lead", e.lead, "door", e.door, "app", e.app) : Json.o();
+    }
     /** [ADMITTED_BY_INVITE_V1] who this device is invited as, for the connect screen ("" : no invitation kept yet) */
     private String invitedAs() {
         try { com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(this);
@@ -402,7 +422,6 @@ public final class MainActivity extends Activity implements LocationListener {
     // team's RAM runs on this phone (TeamHostService: libteamram.so); the core writes the lead's card into it (the team,
     // the EOC's node, the EOC's join line) and tells the EOC where it is. A member's phone scans the hotspot's QR code
     // (Android's own, on its hotspot screen), joins it, and reads the card at its gateway: the lead's phone.
-    static final int WIFI_ADD = 9;
     private volatile boolean hostPending = false;
     /** the hotspot's address on this phone: an interface with an IPv4 that is none of Android's networks (Wi-Fi as a
      *  client, mobile data, the VPN) -- a tethering interface; "" when the hotspot is off */
@@ -504,13 +523,67 @@ public final class MainActivity extends Activity implements LocationListener {
 
     private void scanTeamNow() {
         String gw = gateway();
-        Map<String, Object> card = gw.isEmpty() ? null : teamCard(gw);
+        Map<String, Object> card = gw.isEmpty() || Enrolled.of(this).any() ? null : teamCard(gw);
         if (card != null) { deliver(card); return; }
         runOnUiThread(new Runnable() { public void run() {
             new com.google.zxing.integration.android.IntentIntegrator(MainActivity.this)
                     .setDesiredBarcodeFormats(com.google.zxing.integration.android.IntentIntegrator.QR_CODE)
-                    .setPrompt("Your team lead's hotspot QR code").setBeepEnabled(false).setOrientationLocked(false).initiateScan();
+                    .setPrompt("The frog QR code your admin or team lead shows you").setBeepEnabled(false).setOrientationLocked(false).initiateScan();
         } });
+    }
+
+    // ------------------------------------------------------------------ [ENROLL_V1] scan, password, joined
+    // The common way a device joins a region with an app (frognet-ram-java's Enroll): the QR is "fdfenroll1 URL APP USER";
+    // the user types the password; the sponsor at URL (the app's door, or the team lead's phone) answers with the role,
+    // whether the user leads its team, and this phone's own WAN invitation. The invitation goes to the FrogNet member
+    // (Identity), which joins with it: one tunnel, to the WAN hub; everything else is routed. Nothing else is asked.
+    private void enrollNow(String json) {
+        Map<String, Object> m;
+        try { m = Json.obj(Json.parse(json)); } catch (IllegalArgumentException e) { return; }
+        net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(Json.str(m.get("line")));
+        if (l == null) { deliver(Json.o("ev", "error", "text", "not an enrollment code")); return; }
+        String pw = Json.str(m.get("password"));
+        note("[ENROLL_V1] enrolling as " + l.user + " in " + l.app + " at " + l.url + " (" + net.frognet.ram.Enroll.BUILD + ")");
+        Map<String, Object> a;
+        try { a = net.frognet.ram.Enroll.enroll(l, pw); }
+        catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
+        try { new com.fawcettinnovations.fdf.android.Identity(this).setInvite(Json.str(a.get("invite"))); }
+        catch (IllegalArgumentException e) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave: " + e.getMessage())); return; }
+        String door = Json.str(a.get("door"));
+        if (door.isEmpty()) { try { java.net.URL u = new java.net.URL(l.url); door = u.getHost() + (u.getPort() > 0 && u.getPort() != 80 ? ":" + u.getPort() : ""); } catch (java.net.MalformedURLException ignored) { } }
+        boolean lead = Json.bool(a.get("lead"));
+        Enrolled.keep(this, l.app, l.user, pw, Json.str(a.get("role")), lead, door);
+        note("[ENROLL_V1] enrolled: " + l.user + " is " + Json.str(a.get("role")) + (lead ? ", its team's lead" : "") + "; this phone's FrogNet invitation is kept (" + invitedAs() + ")");
+        deliver(Json.o("ev", "enrolled", "user", l.user, "password", pw, "role", Json.str(a.get("role")), "lead", lead, "door", door, "invited", invitedAs()));
+    }
+
+    /** [ENROLL_V1] the lead's members page: who may enroll here, where a member can reach this phone, and the sponsor */
+    private void members(boolean start) {
+        Enrolled me = Enrolled.of(this);
+        if (!me.lead) { deliver(Json.o("ev", "error", "text", "this phone's user does not lead a team")); return; }
+        if (start && !TeamHostService.sponsorState().isEmpty()) {
+            try { startForegroundService(new android.content.Intent(this, TeamHostService.class)); }
+            catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the team's sponsor did not start: " + e)); }
+        }
+        java.util.List<Object> addrs = new java.util.ArrayList<Object>();
+        String hs = hotspotAddr(); if (!hs.isEmpty()) addrs.add(Json.o("label", "this phone's hotspot", "addr", hs));
+        String lan = nodeLan(); if (!lan.isEmpty()) addrs.add(Json.o("label", "the node's Wi-Fi", "addr", lan.substring(0, lan.indexOf(' '))));
+        else { String w = wifiAddr(); if (!w.isEmpty()) addrs.add(Json.o("label", "this Wi-Fi", "addr", w)); }
+        com.fawcettinnovations.fdf.android.MemberService ms = com.fawcettinnovations.fdf.android.MemberService.Companion.getInstance();
+        String e = ms == null ? null : ms.edge(); if (e != null && !e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
+        java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
+        deliver(Json.o("ev", "members", "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
+                "sponsoring", TeamHostService.sponsorState().isEmpty() || start));
+    }
+    /** this phone's address on the Wi-Fi it is a client of ("" : none) */
+    private String wifiAddr() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n); android.net.LinkProperties lp = cm.getLinkProperties(n);
+            if (c == null || lp == null || !c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) continue;
+            for (android.net.LinkAddress la : lp.getLinkAddresses()) if (la.getAddress() instanceof java.net.Inet4Address) return la.getAddress().getHostAddress();
+        }
+        return "";
     }
     /** the lead's card in its team RAM at gw (the hotspot's gateway: the lead's phone), as the page's teamCard; null: none */
     private Map<String, Object> teamCard(String gw) {
@@ -531,48 +604,10 @@ public final class MainActivity extends Activity implements LocationListener {
     private void scanned(com.google.zxing.integration.android.IntentResult r) {
         String q = r == null ? null : r.getContents();
         if (q == null) { deliver(Json.o("ev", "error", "text", "nothing was scanned")); return; }
-        if (!q.startsWith("WIFI:")) { deliver(Json.o("ev", "error", "text", "that is not a hotspot's QR code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
-        Map<String, String> w = wifiQr(q.substring(5));
-        String ssid = w.get("S"), pw = w.get("P"), t = w.get("T") == null ? "" : w.get("T");
-        if (ssid == null || ssid.isEmpty()) { deliver(Json.o("ev", "error", "text", "the hotspot's QR code names no network")); return; }
-        if (Build.VERSION.SDK_INT < 30) { deliver(Json.o("ev", "error", "text", "this Android cannot add a Wi-Fi network from an app: join \"" + ssid + "\" in Settings, then Scan team again")); return; }
-        android.net.wifi.WifiNetworkSuggestion.Builder sb = new android.net.wifi.WifiNetworkSuggestion.Builder().setSsid(ssid);
-        if (t.equalsIgnoreCase("SAE")) sb.setWpa3Passphrase(pw == null ? "" : pw); else if (pw != null && !pw.isEmpty()) sb.setWpa2Passphrase(pw);
-        java.util.ArrayList<android.net.wifi.WifiNetworkSuggestion> list = new java.util.ArrayList<android.net.wifi.WifiNetworkSuggestion>(); list.add(sb.build());
-        note("[TEAM_HOST_V1] joining the lead's hotspot \"" + ssid + "\"");
-        awaitTeamWifi();
-        startActivityForResult(new android.content.Intent(Settings.ACTION_WIFI_ADD_NETWORKS).putParcelableArrayListExtra(Settings.EXTRA_WIFI_NETWORK_LIST, list), WIFI_ADD);
-    }
-    /** WIFI:S:<ssid>;T:<WPA|SAE|nopass>;P:<password>;H:<hidden>;; with \ ; , : " escaped by a backslash */
-    static Map<String, String> wifiQr(String s) {
-        Map<String, String> out = new java.util.HashMap<String, String>(); StringBuilder v = new StringBuilder(); String k = null;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '\\' && i + 1 < s.length()) { v.append(s.charAt(++i)); continue; }
-            if (k == null && c == ':') { k = v.toString(); v.setLength(0); continue; }
-            if (c == ';') { if (k != null) out.put(k, v.toString()); k = null; v.setLength(0); continue; }
-            v.append(c);
-        }
-        return out;
-    }
-    /** the Wi-Fi this phone joins next: when its gateway has a team card, that is the team (the event, not a poll) */
-    private void awaitTeamWifi() {
-        final android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
-        final android.net.ConnectivityManager.NetworkCallback cb = new android.net.ConnectivityManager.NetworkCallback() {
-            @Override public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties lp) {
-                String gw = "";
-                for (android.net.RouteInfo r : lp.getRoutes()) if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) gw = r.getGateway().getHostAddress();
-                if (gw.isEmpty() || done.get()) return;
-                Map<String, Object> card = teamCard(gw);
-                if (card != null && done.compareAndSet(false, true)) { deliver(card); try { cm.unregisterNetworkCallback(this); } catch (Exception ignored) { } }
-            }
-        };
-        cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build(), cb);
-        web.postDelayed(new Runnable() { public void run() {
-            if (done.compareAndSet(false, true)) { try { cm.unregisterNetworkCallback(cb); } catch (Exception ignored) { }
-                deliver(Json.o("ev", "error", "text", "no team found on the lead's hotspot in 60 s: is Host team on, on the lead's phone?")); }
-        } }, 60000);
+        net.frognet.ram.Enroll.Line l = net.frognet.ram.Enroll.parse(q);
+        if (l == null) { deliver(Json.o("ev", "error", "text", "that is not an enrollment code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
+        note("[ENROLL_V1] scanned: " + l.user + " in " + l.app + " at " + l.url);
+        deliver(Json.o("ev", "enrollScan", "line", q.trim(), "url", l.url, "app", l.app, "user", l.user));
     }
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position

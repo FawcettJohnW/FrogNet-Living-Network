@@ -162,7 +162,8 @@ on the primary or a fallback, the admin picks the save and presses **Restore**, 
 own (John: "No, do not automate this part of it. It needs to be intentional").
 
 **4. The lead assigns its members** on the phone's Team members page: each member's name (usually a callsign) and a
-password. The phone keeps only verifiers. While the page is open, the lead's phone sponsors its team on port 21801.
+password. The phone keeps only verifiers. Opening the page starts the team's sponsor on port 21801, in the app's
+foreground service, and it keeps running while the app's service does.
 **QR** shows a member's code: `fdfenroll1 http://<the lead's address>:21801/enroll rangertrak <name>`. The lead's
 address is whichever the member can reach: the hotspot's, the Wi-Fi's, or the lead's WAN edge. The member scans it and
 types the password. The lead's phone checks it, asks the door for the member's invitation as the lead

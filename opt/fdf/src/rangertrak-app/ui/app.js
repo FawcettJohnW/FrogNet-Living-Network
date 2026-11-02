@@ -59,7 +59,8 @@ window.rtInit = function (cfg) {
 function roleFields() {
   const r = $('#connect').querySelector('[name=role]:checked').value
   // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
-  $('#scanTeam').hidden = !(S.cfg.platform === 'android' && r === 'team' && window.rtNative && window.rtNative.scanTeam)
+  // [ENROLL_V1] any view: the frog QR the admin (or the team's lead) shows, then the password
+  $('#scanTeam').hidden = !(S.cfg.platform === 'android' && window.rtNative && window.rtNative.scanTeam)
   document.querySelector('.for-team').hidden = r !== 'team'; document.querySelector('.for-eoc').hidden = r !== 'eoc'
   document.querySelector('.for-unit').hidden = r !== 'hospital' && r !== 'ambulance'
   document.querySelector('.unit-l').textContent = r === 'hospital' ? 'Hospital' : 'Unit (e.g. Medic 12)'
@@ -83,7 +84,63 @@ $('#connect').onsubmit = (e) => {
          user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim(), invite: f.invite.value.trim(),
          teamRam: role === 'team' ? (S.teamRam || '') : '' })
 }
-$('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the QR code on your team lead\'s hotspot screen'; window.rtNative.scanTeam() }
+$('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the frog QR code your admin or team lead shows you'; window.rtNative.scanTeam() }
+// [ENROLL_V1] scanned: who this code is for and where; the password, then Join
+function enrollScan(m) {
+  S.enrollLine = m.line
+  $('#enrollWho').textContent = m.user + ' · ' + m.app + ' · ' + m.url.replace(/^https?:\/\//, '').replace(/\/.*/, '')
+  $('#enrollBox').hidden = false; $('#enrollPw').value = ''; $('#enrollPw').focus()
+  $('#cstatus').textContent = 'type ' + m.user + "'s password"
+}
+$('#enrollGo').onclick = () => {
+  if (!S.enrollLine) return
+  $('#cstatus').textContent = 'joining…'; $('#enrollGo').disabled = true
+  window.rtNative.enroll(JSON.stringify({ line: S.enrollLine, password: $('#enrollPw').value }))
+}
+// [ENROLL_V1] enrolled: this phone is a member of the region now; the app connects as the user, in its role
+function enrolled(m) {
+  const f = $('#connect'); $('#enrollGo').disabled = false; $('#enrollBox').hidden = true; $('#enrollPw').value = ''
+  S.cfg.enrolled = { user: m.user, role: m.role, lead: m.lead, door: m.door }
+  if (m.door) f.door.value = m.door
+  f.name.value = m.user; f.user.value = m.user; f.password.value = m.password || ''
+  const view = ['eoc', 'hospital', 'ambulance', 'public'].includes(m.role) ? m.role : 'team'
+  const rb = f.querySelector(`[name=role][value=${view}]`); if (rb && !$('#roleSet').hidden) rb.checked = true
+  if (view === 'team') { const t = cap(m.role); if (![...f.team.options].some(o => o.value === t)) f.team.insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`); f.team.value = t }
+  roleFields()
+  $('#cstatus').textContent = m.user + (m.lead ? ', lead of ' + m.role : ' in ' + m.role) + ': joined FrogNet (' + m.invited + '); connecting'
+  f.requestSubmit()
+}
+
+// ------------------------------------------------------------ [ENROLL_V1] the lead's Team members
+// The lead names each member (a callsign) and a password; this phone keeps only verifiers and sponsors the team: a member
+// scans the member's frog QR (this phone's address, the name) and types the password, and gets its own invitation.
+function membersPanel(m) {
+  if (m) S.mem = m
+  const x = S.mem || { members: [], addrs: [] }
+  const at = S.memAt && x.addrs.some(a => a.addr === S.memAt) ? S.memAt : ((x.addrs[0] || {}).addr || '')
+  S.memAt = at
+  const rows = x.members.map(n => `<div class="mem-row"><b>${esc(n)}</b><button type="button" data-memqr="${esc(n)}">QR</button><button type="button" data-memdel="${esc(n)}">✕</button></div>`).join('') || '<div class="meta">no members yet</div>'
+  const sel = x.addrs.length ? `<div class="mem-at">Members reach this phone at <select id="memAt">${x.addrs.map(a => `<option value="${esc(a.addr)}"${a.addr === at ? ' selected' : ''}>${esc(a.label)}: ${esc(a.addr)}</option>`).join('')}</select></div>`
+    : '<div class="mem-at">⚠ this phone has no address a member can reach: turn on its hotspot, or join Wi-Fi</div>'
+  sheet('members', 'Team ' + cap(x.team || '') + ' members', `${x.sponsoring ? '' : '<div class="meta">⚠ not sponsoring yet</div>'}
+    <div class="mem-add"><input id="memName" placeholder="name or callsign" autocomplete="off"><input id="memPw" type="password" placeholder="password" autocomplete="new-password"><button type="button" id="memAdd">Add</button></div>
+    ${rows}${sel}<div class="mem-qr" id="memQr"></div>`)
+  if ($('#memAt')) $('#memAt').onchange = (e) => { S.memAt = e.target.value; if (S.memQr) memQr(S.memQr) }
+  $('#memAdd').onclick = () => { const n = $('#memName').value.trim(), p = $('#memPw').value; if (!n || !p) return; status('adding ' + n + '…'); window.rtNative.addMember(n, p) }
+  if (S.memQr && x.members.includes(S.memQr)) memQr(S.memQr)
+}
+function memQr(n) {
+  S.memQr = n; const x = S.mem || {}
+  if (!S.memAt) { $('#memQr').innerHTML = '<div class="meta">no address to put in the code</div>'; return }
+  const url = 'http://' + S.memAt + ':' + x.port + '/enroll'
+  $('#memQr').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, x.app, n), { px: 340 }) + `<div class="who">${esc(n)} · ${esc(S.memAt)}</div>`
+}
+document.addEventListener('click', (e) => {
+  const t = e.target
+  if (t.dataset && t.dataset.memqr) memQr(t.dataset.memqr)
+  else if (t.dataset && t.dataset.memdel) { if (S.memQr === t.dataset.memdel) S.memQr = ''; window.rtNative.removeMember(t.dataset.memdel) }
+})
+$('#membersBtn').onclick = () => window.rtNative.teamMembers()
 // [TEAM_HOST_V1] the lead's card, read on its hotspot: the team, the EOC's node, its join line, the team's RAM there
 function teamCard(m) {
   const f = $('#connect')
@@ -102,6 +159,10 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'teamCard') teamCard(m)
+  else if (m.ev === 'enrollScan') enrollScan(m)
+  else if (m.ev === 'enrolled') enrolled(m)
+  else if (m.ev === 'enrollFailed') { $('#enrollGo').disabled = false; $('#cstatus').textContent = '⚠ ' + m.text; status('⚠ ' + m.text) }
+  else if (m.ev === 'members') membersPanel(m)
   else if (m.ev === 'roles') teamsFrom(m.roles || {})
   else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id
     const changed = S.mission && S.mission.id !== m.id
@@ -154,6 +215,7 @@ function connected(m) {
   $('#chatBtn').hidden = S.role === 'public'
   $('#homeBtn').hidden = S.role !== 'public'; $('#reqBtn').hidden = S.role === 'public'; $('#sensBtn').hidden = S.role === 'public'
   $('#hostBtn').hidden = !(S.role === 'team' && window.rtNative && window.rtNative.teamHost)
+  $('#membersBtn').hidden = !(S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.teamMembers)
   $('#home').hidden = S.role !== 'public'          // [RT_PUBLIC_HOME_V1] the public opens on what a person can do, not the map
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away.
   // A team member starts with only their own team on the map; the others are added from Layers
