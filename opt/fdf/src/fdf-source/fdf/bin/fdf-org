@@ -57,7 +57,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-02-r18"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-02-r19"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -632,6 +632,15 @@ def main():
             if want or a[0] not in ("level", "space", "line", "list"):
                 die(why + ("" if want else "; on any machine in the region: fdf-org level | space | line | list"))
             REMOTE = True
+    # [HUB_IS_WHERE_IT_RUNS_V1] a region directory here is not the hub: the hub is here only when its interface is up
+    # here (found on Seattle7 2026-11-02: /opt/fdf/hub/frognet/hub.env left from an earlier install, its RAM 127.0.0.1:8840,
+    # no hub running; fdf-org took the file for the hub and read a RAM that was not there)
+    if not REMOTE and not hub_pub():
+        if a[0] in ("level", "space", "line", "list"):
+            sys.stderr.write("fdf-org: %s is here but its hub (%s) is not running here: the region's RAM is the one this machine is joined to\n" % (HUBENV, h()["FDF_IFACE"]))
+            REMOTE = True
+        else:
+            die("%s is here but its hub (%s) is not running here: this command runs where the hub runs" % (HUBENV, h()["FDF_IFACE"]))
     if not ORG_KEY and not REMOTE:
         ORG_KEY = os.path.join(os.path.dirname(HUBENV), "org-key")
     c = a[0]

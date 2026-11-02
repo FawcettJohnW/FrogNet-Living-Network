@@ -66,6 +66,10 @@ echo chiefpw | ORG A user HQ chief >> $T/A/org.out 2>&1            # a level's p
 for i in $(seq 100); do [ "$(grep -c 'listening on' $T/A/org.log)" -ge 3 ] && break; sleep 0.1; done
 SP=$(RMT list 2>/dev/null | awk '$1=="level" && $2=="Team" {print $6}')
 L_team=$(RMT line Team 2>>$T/rmt.err); L_hq=$(RMT line HQ 2>>$T/rmt.err)
+# a machine with a region directory left from an earlier install (its RAM 127.0.0.1:8840, no hub running): not the hub
+mkdir -p $T/stale/D; printf 'RINA_RAM=127.0.0.1:8840\nFDF_AREA=D\nFDF_IFACE=wg-stale\n' > $T/stale/D/hub.env
+L_stale=$(NS A env FDF_HUB_ROOT=$T/stale RINA_RAM=$RAM FDF_PY=$FDFPY python3 $T/bin/fdf-org line Team 2>$T/stale.err)
+check $([ "$L_stale" = "$L_team" ] && grep -q "is not running here" $T/stale.err && echo 0 || echo 1) "0 a region directory with no hub running is not the hub: the same line, from the region's RAM ($(head -1 $T/stale.err | cut -c1-140))"
 check $(grep -q "credential key made" $T/A/org.log && grep -q "hub row written" $T/A/org.log && [ -n "$SP" ] && [ "${L_team#fdfjoin1.}" != "$L_team" ] && echo 0 || echo 1) "0 admission came up with the hub by itself; the levels and lines made on a machine with no region ($(grep -o 'hub row written.*' $T/A/org.log | head -1); Team's session port $SP; $(cat $T/rmt.err | tail -1))"
 mkdir -p $T/q; printf '{"name":"q","guid":"g-q"}\n' > $T/q/facts.json
 KTQ() { ip netns exec q env FDF_TUN_BIN=$FT FDF_TUN_NAME=fdft0 FDF_KEY_FILE=$T/q/wg.key FDF_FACTS=$T/q/facts.json FDF_DEVICE_ID=dev-q FDF_LEAF_WG=fdf-q FDF_ASSERT_SEC=5 "$KT" "$@"; }

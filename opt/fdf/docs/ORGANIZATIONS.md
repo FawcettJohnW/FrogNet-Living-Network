@@ -184,7 +184,9 @@ Changes in rev 3:
   endpoint, addr}. On any machine in the region, `fdf-org level`, `space`, `line` and `list` are tuples in the
   region's RAM: a level written there gets its ports from the hub's `fdf-org` on the tuple's event, and a line is made
   from the hub's row, so it points at the hub wherever it is now. `fdf-org user` (a level's password) still runs
-  where the hub is: the verifier is under the hub's own key. Gate: `rinab/tools/netns-admit-kt-test.sh` check 0.
+  where the hub is: the verifier is under the hub's own key. The hub is "here" only when its interface is up here
+  (`[HUB_IS_WHERE_IT_RUNS_V1]`): a region directory left from an earlier install does not make a machine the hub (found
+  on Seattle7 2026-11-02). Gate: `rinab/tools/netns-admit-kt-test.sh` checks 0.
 
 - **One MRM per line.** `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
   `site.env` and `join.env`; it no longer writes `system-space.json`.
