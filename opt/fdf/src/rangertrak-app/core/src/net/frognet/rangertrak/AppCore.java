@@ -112,12 +112,22 @@ public final class AppCore {
             c.setDoOutput(true); c.setRequestProperty("Content-Type", "application/json");
             OutputStream o = c.getOutputStream(); o.write(body.getBytes(StandardCharsets.UTF_8)); o.close();
         }
+        lastStatus = c.getResponseCode();
+        StringBuilder hs = new StringBuilder();                       // [DOOR_ANSWER_SAID_V1] who answered: the headers that say
+        for (String h : new String[]{"Server", "X-FDF-Door", "X-FrogNet-Cache"}) { String v = c.getHeaderField(h); if (v != null) hs.append(hs.length() > 0 ? ", " : "").append(h).append(": ").append(v); }
+        lastHeaders = hs.toString();
         InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
         ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] k = new byte[8192]; int n;
         while (in != null && (n = in.read(k)) > 0) b.write(k, 0, n);
         return new String(b.toByteArray(), StandardCharsets.UTF_8);
     }
 
+    private volatile int lastStatus = 0; private volatile String lastHeaders = "";
+    /** [DOOR_ANSWER_SAID_V1] what answered a call that was not the door's JSON: status, who, and the start of it */
+    private String answered(String q, String r) {
+        String t = r.replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
+        return "HTTP " + lastStatus + " for ?" + q.replaceAll("&.*", "") + (lastHeaders.isEmpty() ? "" : " (" + lastHeaders + ")") + ": " + (t.length() > 200 ? t.substring(0, 200) + "…" : t);
+    }
     private Map<String, Object> doorCall(String q, String body) throws Exception {
         String r;
         try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body); }
@@ -127,12 +137,11 @@ public final class AppCore {
         Map<String, Object> o;
         try { o = Json.obj(Json.parse(r)); }
         catch (IllegalArgumentException e) {      // not the door's JSON: say what it means, not the page
-            if (r.contains("404")) throw new Exception("the node at " + door + " does not serve RangerTrak (no /dc/ram.php there): use a node that has the app, e.g. Seattle7");
-            throw new Exception("the node at " + door + " did not answer as RangerTrak's door");
+            throw new Exception("the node at " + door + " did not answer as RangerTrak's door: " + answered(q, r));
         }
         if (!Json.bool(o.get("ok"))) {            // the door says why ("why"); a stand-in may say "error"
             String why = Json.str(o.get("why")); if (why.isEmpty()) why = Json.str(o.get("error"));
-            throw new Exception(why);
+            throw new Exception(why.isEmpty() ? "the door refused with no reason: " + answered(q, r) : why);
         }
         return o;
     }
