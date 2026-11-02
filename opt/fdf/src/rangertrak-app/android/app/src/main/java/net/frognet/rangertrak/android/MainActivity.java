@@ -131,6 +131,7 @@ public final class MainActivity extends Activity implements LocationListener {
     private final java.util.List<String> early = new java.util.ArrayList<String>();   // said before the page was up
     private void deliver(Map<String, Object> ev) {
         final String line = Json.write(ev);
+        android.util.Log.i("RangerTrak", line);      // [APP_LOGS_WHAT_IT_SAYS_V1] what the screen is told, in Logcat too
         synchronized (early) { if (!pageUp) { early.add(line); return; } }
         web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
     }
@@ -182,9 +183,13 @@ public final class MainActivity extends Activity implements LocationListener {
             java.net.InetAddress a = java.net.InetAddress.getByName(host);
             android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             android.net.Network pick = null; String how = "";
+            StringBuilder all = new StringBuilder();
             for (android.net.Network n : cm.getAllNetworks()) {
                 android.net.LinkProperties lp = cm.getLinkProperties(n);
                 if (lp == null) continue;
+                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+                all.append(all.length() > 0 ? "; " : "").append(lp.getInterfaceName()).append(nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) ? " (VPN)" : "")
+                   .append(" ").append(lp.getLinkAddresses()).append(" routes ").append(lp.getRoutes());
                 for (android.net.LinkAddress la : lp.getLinkAddresses())
                     if (inPrefix(a, la.getAddress(), la.getPrefixLength())) { pick = n; how = lp.getInterfaceName() + " " + la; }
                 if (pick == null) for (android.net.RouteInfo r : lp.getRoutes())
@@ -193,11 +198,11 @@ public final class MainActivity extends Activity implements LocationListener {
             }
             if (pick == null) {
                 cm.bindProcessToNetwork(null);
-                deliver(Json.o("ev", "status", "text", "no network on this phone holds " + host + ": join the node's Wi-Fi (this phone: " + AppCore.myAddresses() + ")"));
+                deliver(Json.o("ev", "status", "text", "no network on this phone holds " + host + " (its networks: " + all + ")"));
                 return;
             }
             cm.bindProcessToNetwork(pick); boundFor = host;
-            deliver(Json.o("ev", "status", "text", "reaching the node at " + host + " over " + how));
+            deliver(Json.o("ev", "status", "text", "reaching the node at " + host + " over " + how + " (its networks: " + all + ")"));
         } catch (Exception e) {
             deliver(Json.o("ev", "status", "text", "choosing the network for " + host + ": " + e.getMessage()));
         }
@@ -228,6 +233,7 @@ public final class MainActivity extends Activity implements LocationListener {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        android.util.Log.i("RangerTrak", "RangerTrak " + AppCore.BUILD + " " + getPackageName());   // [APP_SAYS_ITS_BUILD_V1]
         prefs = getSharedPreferences("rangertrak", MODE_PRIVATE);
         web = new WebView(this);
         WebSettings s = web.getSettings();
@@ -241,6 +247,7 @@ public final class MainActivity extends Activity implements LocationListener {
         });
         core = new AppCore(new AppCore.Ui() {
             public void deliver(final String line) {
+                if (line.contains("\"ev\":\"status\"") || line.contains("\"ev\":\"error\"")) android.util.Log.i("RangerTrak", line);   // [APP_LOGS_WHAT_IT_SAYS_V1]
                 web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
             }
         });
