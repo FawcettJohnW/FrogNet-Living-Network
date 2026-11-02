@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [RT_ANDROID_SHARED_V1] the shared code; each app's own manifest declares MainActivity and its permissions -->
+<manifest />

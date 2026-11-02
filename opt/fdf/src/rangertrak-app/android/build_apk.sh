@@ -26,7 +26,7 @@ sed -e "s|<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"
 "$BT/aapt2" compile --dir $D/$MOD/src/main/res -o $T/res.zip
 "$BT/aapt2" link -o $T/base.apk -I "$P23" --manifest $T/AndroidManifest.xml -A $T/assets $T/res.zip --auto-add-overlay
 javac -nowarn --release 8 -Xlint:-options -cp "$AJ" -d $T/classes \
-    $(find $D/app/src/main/java $APP/core/src $APP/../frognet-ram-java/src -name '*.java') 2>&1 | grep -v '^Note:' || true
+    $(find $D/shared/src/main/java $APP/core/src $APP/../frognet-ram-java/src -name '*.java') 2>&1 | grep -v '^Note:' || true
 [ -f $T/classes/net/frognet/rangertrak/android/MainActivity.class ] || { echo "build_apk: javac failed" >&2; exit 1; }
 dalvik-exchange --dex --min-sdk-version=26 --output=$T/classes.dex $T/classes
 (cd $T && zip -qj base.apk classes.dex)

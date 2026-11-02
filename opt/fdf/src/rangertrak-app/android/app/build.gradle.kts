@@ -1,9 +1,6 @@
-// [RT_APP_ANDROID_V1] the same page and core as the desktop: the page is copied into the APK's assets at build time,
-// the core and the RAM library are compiled in from their own directories (one copy of each, no forks).
+// [RT_APP_ANDROID_V1] RangerTrak, every view (EOC, team, hospital, ambulance, public): the shared module (../shared: the
+// Android shell, the same core and page as the desktop, the RAM library; one copy of each, no forks) with its manifest.
 plugins { id("com.android.application") }
-val ui = file("../../ui")
-val genAssets = layout.buildDirectory.dir("generated/rt-assets")
-val copyUi = tasks.register<Copy>("copyUi") { from(ui); into(genAssets.map { it.dir("ui") }) }
 android {
     namespace = "net.frognet.rangertrak.android"
     compileSdk = 34
@@ -15,8 +12,6 @@ android {
         versionName = "rt-app-2026-11-02-r10"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_1_8; targetCompatibility = JavaVersion.VERSION_1_8 }
-    sourceSets["main"].java.srcDirs("src/main/java", "../../core/src", "../../../frognet-ram-java/src")
-    sourceSets["main"].assets.srcDir(genAssets)
     buildTypes { release { isMinifyEnabled = false } }
 }
-tasks.named("preBuild") { dependsOn(copyUi) }
+dependencies { implementation(project(":shared")) }   // [RT_ANDROID_SHARED_V1] the shell, the core, the RAM library, the page
