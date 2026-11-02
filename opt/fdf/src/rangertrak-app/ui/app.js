@@ -41,12 +41,16 @@ window.rtInit = function (cfg) {
     S.cfg.role = S.cfg.lock; $('#roleSet').hidden = true
     document.querySelector('#connect h1').textContent = LOCKED[S.cfg.lock]; document.title = LOCKED[S.cfg.lock]
   }
-  if (S.cfg.build) $('#cstatus').textContent = S.cfg.build
+  if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
   // [RT_IS_A_MEMBER_V1] the phone is the FrogNet member itself: its invitation, pasted once, then kept (and only said)
   if (S.cfg.platform === 'android') {
-    document.querySelector('.for-invite').hidden = !!S.cfg.invited
-    if (S.cfg.invited) document.querySelector('.inv-say').textContent = 'FrogNet: ' + S.cfg.invited
-  }      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
+    // [ON_THE_LAN_NO_TUNNEL_V1] on a FrogNet node's own LAN nothing is asked: the node routes the phone. Off it, the
+    // invitation once; after that only what this phone is on FrogNet is said
+    const said = S.cfg.lan || S.cfg.invited
+    document.querySelector('.for-invite').hidden = false
+    document.querySelector('.for-invite label').hidden = !!said
+    document.querySelector('.inv-say').textContent = said ? 'FrogNet: ' + said : ''
+  }
   if (S.cfg.role) f.querySelector(`[name=role][value=${S.cfg.role}]`).checked = true
   if (S.cfg.team) f.team.value = S.cfg.team
   roleFields(); askRoles()

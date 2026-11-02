@@ -142,8 +142,41 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         return false;
     }
+    /** [ON_THE_LAN_NO_TUNNEL_V1] (John, 2026-11-02: "if the phone is on my network ... it should be able to see everything on
+     *  that network without having to do anything") a phone on a FrogNet node's own LAN -- its Wi-Fi address a 10.x the
+     *  node's DHCP gave, its gateway that node's x.y.z.1 -- is routed everywhere the node routes: no membership, no
+     *  tunnel, no invitation. Off it (any other Wi-Fi, mobile data), this app is the member. The member library's own rule
+     *  (Placement: a 10.x inside a /24 a node serves; never the 10.253/10.254 overlay), decided from the address the
+     *  phone has, before anything is tried. "" : not on a node's LAN. */
+    private String nodeLan() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n); android.net.LinkProperties lp = cm.getLinkProperties(n);
+            if (c == null || lp == null || c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) continue;
+            String gw = "";
+            for (android.net.RouteInfo r : lp.getRoutes()) if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) gw = r.getGateway().getHostAddress();
+            for (android.net.LinkAddress la : lp.getLinkAddresses()) {
+                String ip = la.getAddress().getHostAddress();
+                if (!(la.getAddress() instanceof java.net.Inet4Address) || !ip.startsWith("10.") || ip.startsWith("10.253.") || ip.startsWith("10.254.") || ip.endsWith(".1")) continue;
+                String net = ip.substring(0, ip.lastIndexOf('.'));
+                if (gw.equals(net + ".1")) return ip + " on " + gw + "'s LAN (" + lp.getInterfaceName() + ")";
+            }
+        }
+        return "";
+    }
     /** consented: Android just said OK to the VPN question (not asked twice) */
     private void startMember(String why, boolean consented) {
+        final String lan = nodeLan();
+        if (!lan.isEmpty()) {                           // [ON_THE_LAN_NO_TUNNEL_V1] the node routes this phone already
+            final String line = pendingConnect; pendingConnect = null;
+            if (line == null) return;
+            note("[ON_THE_LAN_NO_TUNNEL_V1] " + lan + ": the node routes this phone; no FrogNet tunnel needed" + networks());
+            new Thread(new Runnable() { public void run() {
+                core.handle(line);
+                Location l = lastFix; if (l != null) core.handle(fixLine(l));
+            } }, "core-connect").start();
+            return;
+        }
         com.fawcettinnovations.fdf.member.Invite iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
         if (iv == null) {                               // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
             deliver(Json.o("ev", "error", "text", "no FrogNet invitation: on the region's machine run fdf-invite <name> --leaf and paste the line on this screen"));
@@ -320,7 +353,7 @@ public final class MainActivity extends Activity implements LocationListener {
         } catch (PackageManager.NameNotFoundException ignored) { }
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
                 "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD,
-                "invited", invitedAs());
+                "invited", invitedAs(), "lan", nodeLan());
     }
 
     /** [ADMITTED_BY_INVITE_V1] who this device is invited as, for the connect screen ("" : no invitation kept yet) */
