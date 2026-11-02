@@ -283,25 +283,29 @@ def canonical_semantic_key(method: str, raw_path: str, body: bytes) -> str:
     if "entity=sensor_data" not in base or "action=upsert_by_name" not in base:
         return _with_body_shape(_with_dynamic_shape(base, dynamic_keys), body)
 
+    # [SENSOR_UPSERT_KEY_HAS_ITS_BODY_SHAPE_V1] these keys never carried the body's field set, the one write path
+    # [BODY_FIELD_SET_IS_PART_OF_THE_IDENTITY_V1] missed. A sensor's jsonData changes shape (a gpsd TPV with no fix has
+    # 6 fields, one with a fix 30), so every GPS upsert shared one template with whatever shape came first: seen on
+    # Seattle5, 2026-11-01, metric_upsert sent {"class":"TPV",...,"lat":47.45,...} and the stored jsonData was the
+    # first shape's six keys holding the new body's values in the wrong slots ("class": 63.46, "leapseconds": "TPV").
     j = _parse_json_body(body)
     if not isinstance(j, dict):
-        return "/api.php?entity=sensor_data&action=upsert_by_name"
+        return _with_body_shape("/api.php?entity=sensor_data&action=upsert_by_name", body)
 
     sensor_type = j.get("SensorType")
     metric_name = _extract_metric_name(j.get("SensorName"))
 
     if not isinstance(sensor_type, str) or not sensor_type.strip():
-        return "/api.php?entity=sensor_data&action=upsert_by_name"
+        return _with_body_shape("/api.php?entity=sensor_data&action=upsert_by_name", body)
     sensor_type = sensor_type.strip()
 
     if not metric_name:
-        return f"/api.php?entity=sensor_data&action=upsert_by_name&SensorType={sensor_type}"
+        return _with_body_shape(f"/api.php?entity=sensor_data&action=upsert_by_name&SensorType={sensor_type}", body)
 
-    return (
+    return _with_body_shape(
         "/api.php?entity=sensor_data&action=upsert_by_name"
         f"&SensorType={sensor_type}"
-        f"&MetricName={metric_name}"
-    )
+        f"&MetricName={metric_name}", body)
 
 
 def fail_closed_template_missing(handler, *, corrid: str, method: str, semantic_key: str, target_ip: str, reason: str) -> None:
