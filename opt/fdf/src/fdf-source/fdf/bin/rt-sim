@@ -34,9 +34,9 @@ Positions are approximate (hand-placed); this is a demo world, not a map service
   rt-sim [--mission ID] [--tick S] [--seed N]
 Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
-import argparse, json, math, os, random, sys, time
+import argparse, re, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r7"
+BUILD_TAG = "rt-sim-2026-11-01-r8"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -124,10 +124,15 @@ class World:
         self.rng, self.u, self.n = rng, {}, 0
         self.say, self.removed, self.chatter = [], set(), []       # what instances said; who left; team talk
         self.gone = {}                                             # a delivered victim, until its request is resolved
+        self.fac, self.trs, self.arrived = set(), [], []           # [RT_FACILITY_V1] desks to publish; [RT_TRANSPORT_V1] new, arrived
         for name, (lat, lng) in SIM_HOSTS.items():               # the nodes things connect through (simulated)
             self.add("host", name, (lat, lng), zone="")
         for name, (zone, lat, lng) in HOSPITALS.items():
             self.add("hospital", name, (lat, lng), zone=zone, beds=rng.randint(4, 30))
+        for k, v in self.u.items():                                # a few hospitals under strain, as in a real event
+            if v["name"] == "Vashon Health Center": v.update(power="Generator — fuel low", needs="diesel for the generator; O2 cylinders")
+            if v["name"] == "Highline (Burien)": v.update(water="Boil notice", staff="Short")
+            if v["name"] == "Harborview": v.update(diversion="Trauma diversion", needs="blood products, O-neg")
         for team, color, zone in TEAMS:
             for i in range(1, 5):
                 self.add("team", PEOPLE[(TEAMS.index((team, color, zone)) * 4 + i - 1) % len(PEOPLE)], jitter(self.place(zone), rng), zone=zone, team=team, color=color,
@@ -208,6 +213,11 @@ class World:
                 vic["status"] = "in ambulance"; moved.add(v["victim"])
                 h = self.nearest("hospital", v["p"], None)     # the nearest hospital anywhere (West Seattle has none)
                 v.update(status="transporting", hospital=h, goal=self.u[h]["p"])
+                eta = max(2, int(metres(v["p"], self.u[h]["p"]) / DRIVE / 60 + 0.5))
+                v["tr"] = "%s.%d" % (k, int(time.time() * 1000))
+                self.trs.append((k, v["tr"], {"to": self.u[h]["name"], "unit": v["name"], "patients": 1,
+                                              "triage": self.rng.choice(["Red", "Yellow", "Yellow", "Green"]),
+                                              "complaint": self.rng.choice(COMPLAINTS), "age": self.rng.choice(AGES), "eta": eta}))
                 self.say.append((k, "%s transporting %s to %s" % (v["name"], vic["name"], self.u[h]["name"])))
             moved.add(k)
         elif v["status"] == "transporting":
@@ -218,6 +228,9 @@ class World:
             if there:
                 hosp = self.u[v["hospital"]]
                 hosp["beds"] = max(0, hosp["beds"] - 1); moved.add(v["hospital"])
+                self.fac.add(v["hospital"])
+                if v.get("tr"):
+                    self.arrived.append((v["hospital"], v.pop("tr")))
                 if vic:
                     self.say.append((k, "%s delivered %s to %s" % (v["name"], vic["name"], hosp["name"])))
                     self.gone[v["victim"]] = self.u.pop(v["victim"]); self.removed.add(v["victim"])
@@ -242,6 +255,26 @@ class World:
         if v.get("hospital"):
             pos["to"] = self.u[v["hospital"]]["name"]
         return who, pos
+
+
+COMPLAINTS = ["crush injury, left leg", "head laceration, alert", "smoke inhalation", "possible hip fracture", "chest pain",
+              "hypothermia, pulled from the water", "burns to both arms", "difficulty breathing", "abdominal pain after a fall"]
+AGES = ["20s F", "30s M", "40s F", "50s M", "60s F", "70s M", "80s F", "child, 8", "teen M"]
+BED_SPLIT = [("ed", .35), ("icu", .10), ("medsurg", .35), ("peds", .08), ("burn", .04), ("or", .08)]
+
+
+def facility_bag(v, rng):
+    """(rt-facility, <mission>, <facility>): a simulated hospital's desk, what a charge nurse would publish"""
+    n = v["beds"]
+    beds = {k: int(round(n * f)) for k, f in BED_SPLIT}
+    div = "ED diversion" if beds["ed"] == 0 else "Open"
+    return {"name": v["name"], "beds": beds, "diversion": v.get("diversion", div), "power": v.get("power", "Grid"),
+            "water": v.get("water", "Normal"), "oxygen": "Normal" if n > 3 else "Limited", "staff": v.get("staff", "Normal"),
+            "needs": v.get("needs", ""), "by": "rt-sim", "at": int(time.time()), "sim": True}
+
+
+def facility_id(name):
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
 NEED_OF = {"needs transport": ["medical", "evacuation"], "minor injuries": ["medical"], "sheltering": ["shelter", "water"]}
@@ -353,7 +386,11 @@ def main():
                            "note": "", "at": int(time.time()), "sim": True}
                     bag.update(extra)
                     ms.write("rt-field", a.mission, "sim-field-%d" % i, bag, wait=True)
-                log("on %s: %d instances, each on its own session; %d safe check-ins; %d field items" % (now, len(w.u), len(SAFE_PEOPLE), len(FIELD)))
+                for k, v in w.u.items():                              # [RT_FACILITY_V1] every hospital's desk
+                    if v["kind"] == "hospital":
+                        ms.write("rt-facility", a.mission, facility_id(v["name"]), facility_bag(v, w.rng), wait=True)
+                log("on %s: %d instances, each on its own session; %d safe check-ins; %d field items; %d hospital statuses" % (
+                    now, len(w.u), len(SAFE_PEOPLE), len(FIELD), sum(1 for v in w.u.values() if v["kind"] == "hospital")))
                 ms.close()
             time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
             dt = time.monotonic() - last; last = time.monotonic()
@@ -375,7 +412,18 @@ def main():
                     h, p = tr.rsplit(":", 1); ts = fnw1.Session(h, p)
                     ts.write("rt-team", a.mission, "%s.%d" % (k, stamp), {"from": k, "name": w.u[k]["name"], "team": team, "text": text, "at": stamp // 1000}, wait=True)
                     ts.close()
-            w.say, w.removed, w.chatter = [], set(), []
+            for k, tid, bag in w.trs:                                 # [RT_TRANSPORT_V1] the unit's record, on its own session
+                if k in wr.s:
+                    bag.update(by=k, name=w.u[k]["name"], at=stamp // 1000, sim=True)
+                    wr.s[k].write("rt-transport", a.mission, tid, bag)
+            for hk, tid in w.arrived:                                 # the hospital's desk: arrived
+                if hk in wr.s:
+                    wr.s[hk].write("rt-transport", a.mission + ".act", "%s~%s" % (tid, hk),
+                                   {"action": "arrived", "unit": w.u[hk]["name"], "note": "", "at": stamp // 1000, "sim": True})
+            for hk in w.fac:
+                if hk in wr.s:
+                    wr.s[hk].write("rt-facility", a.mission, facility_id(w.u[hk]["name"]), facility_bag(w.u[hk], w.rng))
+            w.say, w.removed, w.chatter, w.trs, w.arrived, w.fac = [], set(), [], [], [], set()
         except (fnw1.Gone, fnw1.Refused, OSError) as e:
             log("writing on %s failed (%s); where it is now is read again in 1 s" % (wr.at or now, e))
             wr.close_all()

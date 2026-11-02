@@ -36,10 +36,15 @@
             </intent-filter>
         </activity>
         <!-- [COMMS_FROM_THE_POND_V1] the Communicator, opened by MainActivity with the forward pond's comms servers -->
-        <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"
+        <!-- [COMMS_OPENED_FOR_A_CALL_V1] and by another FrogNet app (RangerTrak's Call) with net.frognet.communicator.CALL.
+             Exported: whoever opens it gets this screen, in front of the user, and the user's own camera and microphone
+             permissions; it joins only the servers it is given -->
+        <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="true"
             android:label="FrogNet Communicator" android:launchMode="singleTask" android:resizeableActivity="true"
             android:theme="@android:style/Theme.Material.NoActionBar" android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize" />
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
+            <intent-filter><action android:name="net.frognet.communicator.CALL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter>
+        </activity>
         <!-- [BRIDGE_V1] the one TUN: fdf-tun (libfdftun.so) carries the forward pond and every reached pond on it -->
         <service android:name=".BridgeVpn" android:exported="false" android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter><action android:name="android.net.VpnService" /></intent-filter>

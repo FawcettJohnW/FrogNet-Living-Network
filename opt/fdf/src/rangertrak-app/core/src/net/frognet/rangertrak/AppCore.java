@@ -42,12 +42,12 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r5";
+    public static final String BUILD = "rt-app-2026-11-01-r6";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
     private Map<String, String> rams = new HashMap<String, String>();
-    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF;
+    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF;
     private String status = "available";
     private final Map<String, Follower> teams = new HashMap<String, Follower>();
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
@@ -78,6 +78,10 @@ public final class AppCore {
             else if (op.equals("fieldAction")) fieldAction(m);
             else if (op.equals("status")) myStatus(Json.str(m.get("status")));
             else if (op.equals("compliance")) compliance();
+            else if (op.equals("facility")) facility(m);
+            else if (op.equals("transport")) transport(m);
+            else if (op.equals("transportAction")) transportAction(m);
+            else if (op.equals("call")) call(m);
             else out("ev", "error", "text", "unknown op " + op);
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
     }
@@ -125,6 +129,7 @@ public final class AppCore {
             if (!role.equals("eoc")) throw new Exception("user " + user + " has role '" + role + "', not the EOC's");
             team = "";
         } else if (want.equals("team")) { role = "team"; team = Json.str(m.get("team")); user = ""; }
+        else if (want.equals("hospital") || want.equals("ambulance")) { role = want; team = Json.str(m.get("unit")); user = ""; }
         else { role = "public"; team = ""; user = ""; }
         rams = servedRams();
         if (!rams.containsKey("general")) throw new Exception("RangerTrak's general RAM is not served on this network yet");
@@ -154,9 +159,9 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = null;
+        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -186,7 +191,7 @@ public final class AppCore {
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF}) if (x != null) x.stop();
+        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF, facF, trF, callF}) if (x != null) x.stop();
         general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
         // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
@@ -199,6 +204,15 @@ public final class AppCore {
         // [RT_FIELD_V1] what teams do in the field: (rt-field, <mission>, <dev>.<ms>) a deployed sensor platform, a
         // request for services, a hazard, a searched area -- its writer's record, not own (it stays when the phone goes);
         // (rt-field, <mission>.act, <item>~<dev>) the EOC's or a team's action on one (acknowledged, dispatched, done)
+        // [RT_FACILITY_V1] each hospital's own status (beds by type, diversion, power, water, oxygen, staff, needs):
+        // (rt-facility, <mission>, <facility>), written by whoever runs that facility's desk, not own (it stays);
+        // [RT_TRANSPORT_V1] each patient transport, (rt-transport, <mission>, <dev>.<ms>), the unit's record, and the
+        // hospital's acknowledgement (rt-transport, <mission>.act, <id>~<dev>)
+        facF = new Follower("facilities", g[0], Integer.parseInt(g[1]), API, "rt-facility", mission, lg, null, new Runnable() { public void run() { onFacilities(); } });
+        trF = new Follower("transports", g[0], Integer.parseInt(g[1]), API, "rt-transport", lg, null, new Runnable() { public void run() { onTransports(); } });
+        // [RT_CALL_V1] a call to this device: (rt-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
+        if (!role.equals("public"))
+            callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "rt-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
         fieldF = new Follower("field", g[0], Integer.parseInt(g[1]), API, "rt-field", lg, null, new Runnable() { public void run() { onField(); } });
         if (!role.equals("public")) {
             reports = new Follower("reports", g[0], Integer.parseInt(g[1]), API, "rt-report", mission, lg, null, new Runnable() { public void run() { onReports(); } });
@@ -218,7 +232,7 @@ public final class AppCore {
         new Thread(new Runnable() { public void run() {
             for (int i = 0; i < 100 && (general == null || !general.up() || positions == null || !positions.up()); i++) sleepMs(50);
             if (general == null) return;
-            general.write(mission, dev, Json.o("name", name, "kind", role.equals("eoc") ? "eoc" : "team", "team", team, "host", "", "station", dev, "via", door,
+            general.write(mission, dev, Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "host", "", "station", dev, "via", door,
                     "status", status, "app", BUILD), true);
             if (fix != null && positions != null) positions.write(mission, dev, fix, true);
         } }, "write-own").start();
@@ -227,7 +241,7 @@ public final class AppCore {
     private void position(Map<String, Object> m) {
         out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")));   // the page's "use my location"
         if (role.equals("public") || positions == null) return;          // the public's position is not published
-        fix = Json.o("name", name, "kind", role.equals("eoc") ? "eoc" : "team", "team", team, "lat", Json.dbl(m.get("lat")),
+        fix = Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "lat", Json.dbl(m.get("lat")),
                 "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status);
         positions.write(mission, dev, fix, true);
     }
@@ -274,6 +288,55 @@ public final class AppCore {
     private void onHelp() {
         if (helpF == null) return;
         out("ev", "help", "requests", new HashMap<String, Object>(helpF.family("request")), "actions", new HashMap<String, Object>(helpF.family("action")));
+    }
+
+    private String kindOf() { return role.equals("eoc") ? "eoc" : role.equals("ambulance") ? "ambulance" : role.equals("hospital") ? "staff" : "team"; }
+
+    private void onFacilities() { if (facF != null) out("ev", "facilities", "list", new HashMap<String, Object>(facF.family(mission))); }
+    private void onTransports() {
+        if (trF == null) return;
+        out("ev", "transports", "items", new HashMap<String, Object>(trF.family(mission)), "acts", new HashMap<String, Object>(trF.family(mission + ".act")));
+    }
+    private void facility(Map<String, Object> m) throws Exception {
+        if (facF == null) throw new Exception("not connected");
+        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", name); b.put("at", System.currentTimeMillis() / 1000);
+        if (!facF.write(mission, Json.str(m.get("id")), b, false)) throw new Exception("not connected");
+        say("published the status of " + Json.str(b.get("name")));
+    }
+    private void transport(Map<String, Object> m) throws Exception {
+        if (trF == null) throw new Exception("not connected");
+        long ms = System.currentTimeMillis();
+        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", dev); b.put("unit", team.isEmpty() ? name : team); b.put("name", name); b.put("at", ms / 1000);
+        if (!trF.write(mission, dev + "." + ms, b, false)) throw new Exception("not connected");
+        say("transport to " + Json.str(b.get("to")) + " sent: the hospital sees it now");
+    }
+    private void transportAction(Map<String, Object> m) throws Exception {
+        if (trF == null) throw new Exception("not connected");
+        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", team.isEmpty() ? name : team, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
+        if (!trF.write(mission + ".act", Json.str(m.get("id")) + "~" + dev, b, false)) throw new Exception("not connected");
+    }
+
+    // ------------------------------------------------------------------ [RT_CALL_V1] Call: the Communicator, both ends
+    private final Map<String, Boolean> callsSeen = new HashMap<String, Boolean>();
+    private void call(Map<String, Object> m) throws Exception {
+        String to = Json.str(m.get("to"));
+        if (callF == null) throw new Exception("not connected");
+        long ms = System.currentTimeMillis();
+        if (!callF.write(mission + "." + to, dev + "." + ms, Json.o("from", dev, "name", name, "door", door, "at", ms / 1000), false))
+            throw new Exception("not connected");
+        out("ev", "comms", "name", name, "peer", Json.str(m.get("peerName")), "door", door);
+    }
+    private void onCalls() {
+        if (callF == null) return;
+        long now = System.currentTimeMillis() / 1000;
+        for (Map.Entry<String, Map<String, Object>> e : callF.family(mission + "." + dev).entrySet()) {
+            synchronized (callsSeen) { if (callsSeen.containsKey(e.getKey())) continue; callsSeen.put(e.getKey(), Boolean.TRUE); }
+            Map<String, Object> b = e.getValue();
+            if (now - Json.num(b.get("at")) > 90) continue;           // an old ring is not a call now
+            // the callee joins the caller's Communicator servers (the caller's node), so both ends meet in one place
+            String d = Json.str(b.get("door"));
+            out("ev", "incoming", "from", Json.str(b.get("from")), "name", Json.str(b.get("name")), "door", d.isEmpty() ? door : d, "me", name);
+        }
     }
 
     private void onField() {

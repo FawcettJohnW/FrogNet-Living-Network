@@ -26,7 +26,7 @@ const KINDS = {
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
 const LKP_MIN = 10            // a last known position is drawn this many minutes (the app's own choice)
 
-const S = { teamsOn: new Set(), field: {}, fieldActs: {}, compliance: {}, help: {}, actions: {}, reports: {}, sheet: '', gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {} }
+const S = { fac: {}, tr: {}, trActs: {}, teamsOn: new Set(), field: {}, fieldActs: {}, compliance: {}, help: {}, actions: {}, reports: {}, sheet: '', gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {} }
 let map
 
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
@@ -42,6 +42,8 @@ window.rtInit = function (cfg) {
 function roleFields() {
   const r = $('#connect').querySelector('[name=role]:checked').value
   document.querySelector('.for-team').hidden = r !== 'team'; document.querySelector('.for-eoc').hidden = r !== 'eoc'
+  document.querySelector('.for-unit').hidden = r !== 'hospital' && r !== 'ambulance'
+  document.querySelector('.unit-l').textContent = r === 'hospital' ? 'Hospital' : 'Unit (e.g. Medic 12)'
 }
 document.querySelectorAll('[name=role]').forEach(e => e.onchange = roleFields)
 $('#connect').onsubmit = (e) => {
@@ -49,7 +51,7 @@ $('#connect').onsubmit = (e) => {
   const f = e.target, role = f.querySelector('[name=role]:checked').value
   $('#cstatus').textContent = 'connecting…'
   send({ op: 'connect', door: f.door.value.trim(), dev: S.cfg.dev, name: f.name.value.trim(), role, team: f.team.value,
-         user: f.user.value.trim(), password: f.password.value })
+         user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim() })
 }
 
 // ------------------------------------------------------------ the core's lines
@@ -68,6 +70,11 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'sensor') sensorShow(m)
   else if (m.ev === 'field') { S.field = m.items || {}; S.fieldActs = m.acts || {}; redraw(); refreshSheet('field') }
   else if (m.ev === 'compliance') compliance(m.hosts || {}, m.asked)
+  else if (m.ev === 'facilities') { S.fac = m.list || {}; redraw(); refreshSheet('fac'); heroSummary() }
+  else if (m.ev === 'transports') { S.tr = m.items || {}; S.trActs = m.acts || {}; refreshSheet('tr'); trNotice() }
+  else if (m.ev === 'comms') commsStart(m.peer, m.door)
+  else if (m.ev === 'incoming') ring(m)
+  else if (m.ev === 'devices') devicePicker(m)
   else if (m.ev === 'myfix') myFix = { lat: m.lat, lon: m.lng }
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
 }
@@ -76,7 +83,7 @@ function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('u
 function connected(m) {
   S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
   $('#connect').hidden = true; $('#main').hidden = false
-  $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : 'Public')
+  $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : S.role === 'hospital' ? S.team : S.role === 'ambulance' ? S.team : 'Public')
   $('#dot').classList.add('up'); status('connected to the node at ' + (S.cfg.door || '') + ' (' + (m.build || '') + ')')
   if (!map) {
     map = L.map('map', { zoomControl: true, doubleClickZoom: false }).setView([47.55, -122.33], 10)
@@ -284,7 +291,8 @@ window.openPop = function (id) {
   const p = $('#pop'), sel = p.querySelector('.pto')
   p.querySelector('.pt').textContent = b.name + (b.team ? ' · Team ' + b.team : '')
   sel.innerHTML = `<option value="dev:${esc(id)}">to ${esc(b.name)}</option>` + (b.team ? `<option value="team:${esc(b.team)}">to all of ${esc(b.team)}</option>` : '')
-  p.querySelector('.pvideo').textContent = 'Video: not in this build (it comes with the media library).'
+  p.querySelector('.pvideo').textContent = ''
+  p.querySelector('.pcall').onclick = () => send({ op: 'call', to: id, peerName: b.name })   // [RT_CALL_V1] the Communicator
   p.hidden = false; popLog(); map.closePopup()
 }
 function popLog() {
@@ -594,3 +602,174 @@ function fema() {
     <div class="card"><b>No Internet here?</b> Use "Report to the EOC": the EOC can pass a FEMA request on for you.</div>
     <div class="src">From USA.gov, "How to apply for disaster assistance" (checked 2026-11-01).</div></div>`)
 }
+
+
+// ------------------------------------------------------------ [RT_CALL_V1] Call: the Communicator, on this device, joined to the
+// person called; the called device rings and, answered, opens its Communicator joined back. Camera, microphone and
+// speakers are chosen before it opens (the desktop asks the Communicator what this machine has).
+function commsStart(peer, door, answer) {
+  if (!window.rtNative || !window.rtNative.comms) { status('this device has no Communicator to open'); return }
+  window.rtNative.comms(JSON.stringify({ peer, name: S.cfg.name, door: door || S.cfg.door, answer: !!answer }))
+}
+function ring(m) {
+  const r = document.createElement('div'); r.className = 'ring'
+  r.innerHTML = `<div><b>${esc(m.name)}</b> is calling</div><button class="yes">Answer</button><button class="no">Decline</button>`
+  r.querySelector('.yes').onclick = () => { r.remove(); commsStart(m.name, m.door, true) }
+  r.querySelector('.no').onclick = () => r.remove()
+  document.body.appendChild(r); setTimeout(() => r.remove(), 60000)
+  if (window.rtNative && window.rtNative.notice) try { window.rtNative.notice(m.name, 'is calling you') } catch (e) { }
+}
+function devicePicker(m) {
+  const opt = (list, v, sel) => list.map(x => `<option value="${esc(x[v])}"${String(x[v]) === String(sel) ? ' selected' : ''}>${esc(x.label)}</option>`).join('')
+  const sv = m.saved || {}
+  sheet('call', (m.answer ? 'Answer ' : 'Call ') + m.peer, `<form class="cf">
+    <label>Camera<select name="camera">${opt(m.cameras || [], 'value', sv.camera !== undefined && sv.camera !== null ? sv.camera : ((m.cameras || [])[0] || {}).value)}<option value=""${sv.camera === '' ? ' selected' : ''}>No video (voice only)</option></select></label>
+    <label>Microphone<select name="mic">${opt(m.mics || [], 'n', sv.mic)}</select></label>
+    <label>Speakers<select name="speaker">${opt(m.speakers || [], 'n', sv.speaker)}</select></label>
+    <details><summary>Communicator servers</summary><label>Its memory<input name="ram" value="${esc(m.ram)}"></label><label>Its media server<input name="media" value="${esc(m.media)}"></label></details>
+    <button class="go">${m.answer ? 'Answer' : 'Start the call'}</button></form><div class="meta">${esc(m.note || '')}</div>`)
+  document.querySelector('.cf').onsubmit = (e) => {
+    e.preventDefault(); const f = e.target
+    window.rtNative.startComms(JSON.stringify({ peer: m.peer, answer: !!m.answer, name: m.name, camera: f.camera.value, mic: f.mic.value, speaker: f.speaker.value, ram: f.ram.value.trim(), media: f.media.value.trim() }))
+    $('#sheet').hidden = true; S.sheet = ''
+  }
+}
+
+// ------------------------------------------------------------ [RT_FACILITY_V1] the hospital's desk; [RT_TRANSPORT_V1] the ambulance
+const BEDS = [['ed', 'Emergency'], ['icu', 'ICU'], ['medsurg', 'Med / surg'], ['peds', 'Pediatric'], ['burn', 'Burn'], ['or', 'Operating rooms']]
+const DIVERSION = ['Open', 'ED diversion', 'Trauma diversion', 'Closed to ambulances']
+const TRIAGE = [['Red', '#d32f2f', 'immediate'], ['Yellow', '#f9a825', 'delayed'], ['Green', '#2e9e5b', 'minor'], ['Black', '#333', 'expectant']]
+const UNIT_STATUS = ['Available', 'Dispatched', 'En route to scene', 'On scene', 'Transporting', 'At hospital', 'Out of service']
+function facId(n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') }
+function hospitals() {
+  const names = new Set(Object.values(S.pos).filter(b => b && b.kind === 'hospital').map(b => b.name))
+  for (const f of Object.values(S.fac)) names.add(f.name)
+  return [...names].sort()
+}
+function facOf(name) { return S.fac[facId(name)] }
+function bedsTotal(f) { return f ? BEDS.reduce((a, [k]) => a + (+((f.beds || {})[k]) || 0), 0) : null }
+function trActs(id) { return Object.entries(S.trActs).filter(([k]) => k.startsWith(id + '~')).map(([, a]) => a).sort((a, b) => (b.at || 0) - (a.at || 0)) }
+function trState(id) { const a = trActs(id)[0]; return a ? a.action : 'en route' }
+function triPill(t) { const x = TRIAGE.find(z => z[0] === t); return x ? `<span class="tri" style="background:${x[1]}"></span>${esc(t)}` : esc(t || '') }
+
+function facilityDesk() {
+  const name = S.team, f = facOf(name) || {}, b = f.beds || {}
+  sheet('fac', name + ' — status', `<form class="fac">
+    <div class="meta">${f.at ? 'last published ' + new Date(f.at * 1000).toLocaleTimeString() + ' by ' + esc(f.by) : 'not published yet'}</div>
+    <h3>Beds available now</h3><div class="beds">${BEDS.map(([k, l]) => `<label>${l}<input name="b_${k}" type="number" min="0" value="${b[k] ?? ''}"></label>`).join('')}</div>
+    <label>Ambulance traffic<select name="diversion">${DIVERSION.map(d => `<option${f.diversion === d ? ' selected' : ''}>${d}</option>`).join('')}</select></label>
+    <h3>Resources</h3><div class="beds">
+      <label>Power<select name="power">${['Grid', 'Generator', 'Generator — fuel low', 'No power'].map(x => `<option${f.power === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>Water<select name="water">${['Normal', 'Boil notice', 'Limited', 'None'].map(x => `<option${f.water === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>Oxygen<select name="oxygen">${['Normal', 'Limited', 'Critical'].map(x => `<option${f.oxygen === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label>
+      <label>Staffing<select name="staff">${['Normal', 'Short', 'Critical'].map(x => `<option${f.staff === x ? ' selected' : ''}>${x}</option>`).join('')}</select></label></div>
+    <label>Needs (what would help most)<textarea name="needs" rows="2">${esc(f.needs || '')}</textarea></label>
+    <button class="go">Publish ${esc(name)}'s status</button></form>`)
+  document.querySelector('.fac').onsubmit = (e) => {
+    e.preventDefault(); const x = e.target, beds = {}
+    for (const [k] of BEDS) if (x['b_' + k].value !== '') beds[k] = +x['b_' + k].value
+    send({ op: 'facility', id: facId(name), bag: { name, beds, diversion: x.diversion.value, power: x.power.value, water: x.water.value, oxygen: x.oxygen.value, staff: x.staff.value, needs: x.needs.value.trim() } })
+  }
+}
+function inbound() {
+  const mine = S.role === 'hospital' ? (t) => facId(t.to) === facId(S.team) : () => true
+  const ids = Object.keys(S.tr).filter(id => mine(S.tr[id]) && trState(id) !== 'arrived').sort((a, b) => (S.tr[a].at + (S.tr[a].eta || 0) * 60) - (S.tr[b].at + (S.tr[b].eta || 0) * 60))
+  const card = (id) => { const t = S.tr[id], acts = trActs(id), due = t.at + (t.eta || 0) * 60
+    return `<div class="card"><b>${esc(t.unit)}</b> → ${esc(t.to)} · ${t.patients || 1} patient(s) · ${triPill(t.triage)}
+      <div>${esc(t.complaint || '')}${t.age ? ' · ' + esc(t.age) : ''}</div>
+      <div class="meta">ETA ${new Date(due * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${esc(trState(id))}</div>
+      ${acts.map(a => `<div class="meta">↳ ${esc(a.action)} by ${esc(a.unit)}</div>`).join('')}
+      ${S.role === 'hospital' ? `<button type="button" onclick="tact('${esc(id)}','acknowledged')">Acknowledge</button> <button type="button" onclick="tact('${esc(id)}','arrived')">Arrived</button>` : ''}</div>` }
+  sheet('tr', S.role === 'hospital' ? 'Inbound to ' + S.team : 'Patient transports', ids.map(card).join('') || '<div class="meta">nothing inbound</div>')
+}
+window.tact = (id, action) => send({ op: 'transportAction', id, action })
+let trSeen = null
+function trNotice() {
+  if (S.role !== 'hospital') return
+  const ids = Object.keys(S.tr).filter(id => facId(S.tr[id].to) === facId(S.team))
+  if (trSeen) for (const id of ids) if (!trSeen.has(id)) { const t = S.tr[id]
+    notify({ id: 'tr:' + id, from: t.by, name: t.unit, to: 'all', text: `inbound: ${t.patients || 1} patient(s), ${t.triage || ''}, ETA ${t.eta || '?'} min — ${t.complaint || ''}`, at: t.at }) }
+  trSeen = new Set(ids)
+}
+function unitPanel() {
+  const hs = hospitals().map(n => { const f = facOf(n), tot = bedsTotal(f)
+    return `<option value="${esc(n)}">${esc(n)}${f ? ' — ' + (f.diversion && f.diversion !== 'Open' ? f.diversion.toUpperCase() : tot + ' beds') : ''}</option>` }).join('')
+  const jobs = Object.keys(S.field).filter(fid => { const b = S.field[fid]; return b.what === 'service' && /ambulance|medical evac/i.test(b.type) && fieldState(fid) !== 'done' })
+  const meds = Object.entries(S.help).filter(([, b]) => b.status === 'open' && (b.needs || []).includes('medical')).slice(0, 12)
+  sheet('unit', S.team + ' — unit', `
+    <h3>Status</h3><div class="row">${UNIT_STATUS.map(x => `<button type="button"${(S.myStatus || 'Available') === x ? ' class="on"' : ''} onclick="setStatus('${x}')">${x}</button>`).join(' ')}</div>
+    <div class="meta">Now: ${esc(S.myStatus || 'Available')}</div>
+    <h3>Transport a patient</h3><form class="tf">
+      <label>To<select name="to">${hs}</select></label>
+      <div class="beds"><label>Patients<input name="patients" type="number" min="1" value="1"></label>
+        <label>Triage<select name="triage">${TRIAGE.map(t => `<option>${t[0]}</option>`).join('')}</select></label>
+        <label>ETA (min)<input name="eta" type="number" min="1" value="12"></label></div>
+      <label>Chief complaint<input name="complaint" placeholder="crush injury, left leg"></label>
+      <label>Age / sex<input name="age" placeholder="50s M"></label>
+      <button class="go">Send to the hospital</button></form>
+    <h3>Assignments</h3>${jobs.map(fieldCard).join('') || '<div class="meta">no ambulance requests open</div>'}
+    ${meds.map(([rid, b]) => `<div class="card"><b>${esc(b.name)}</b> needs medical help · ${esc(where(b.location))}
+      <div><button type="button" onclick="act('${esc(rid)}','${esc(S.team)} responding')">Take it</button>
+      ${b.location && typeof b.location.lat === 'number' ? `<button type="button" onclick="showOnMap(${b.location.lat},${b.location.lon})">Map</button>` : ''}</div></div>`).join('')}`)
+  document.querySelector('.tf').onsubmit = (e) => {
+    e.preventDefault(); const x = e.target
+    send({ op: 'transport', bag: { to: x.to.value, patients: +x.patients.value || 1, triage: x.triage.value, eta: +x.eta.value || 10, complaint: x.complaint.value.trim(), age: x.age.value.trim() } })
+    window.setStatus('Transporting')
+  }
+}
+function hospitalsPanel() {
+  sheet('fac', 'Hospitals', hospitals().map(n => { const f = facOf(n)
+    if (!f) return `<div class="card"><b>${esc(n)}</b><div class="meta">no status published</div></div>`
+    return `<div class="card"><b>${esc(n)}</b> ${f.diversion && f.diversion !== 'Open' ? `<span class="divert">${esc(f.diversion)}</span>` : ''}
+      <div class="meta">${BEDS.filter(([k]) => (f.beds || {})[k] != null).map(([k, l]) => l + ' ' + f.beds[k]).join(' · ')}</div>
+      <div class="meta">power ${esc(f.power || '?')} · water ${esc(f.water || '?')} · oxygen ${esc(f.oxygen || '?')} · staff ${esc(f.staff || '?')}</div>
+      ${f.needs ? `<div>Needs: ${esc(f.needs)}</div>` : ''}</div>` }).join(''))
+}
+// the header's two role buttons say what they are for these roles
+const _connected = connected
+connected = function (m) {
+  _connected(m)
+  if (S.role === 'hospital') {
+    $('#actBtn').textContent = 'Status'; $('#actBtn').onclick = facilityDesk; $('#reqBtn').textContent = 'Inbound'; $('#reqBtn').onclick = inbound
+    S.teamsOn = new Set(); for (const k in KINDS) S.on[k] = ['hospital', 'ambulance', 'hazard'].includes(k); layersPanel(); redraw(); facilityDesk()
+  } else if (S.role === 'ambulance') {
+    $('#actBtn').textContent = 'Unit'; $('#actBtn').onclick = unitPanel; $('#reqBtn').textContent = 'Hospitals'; $('#reqBtn').onclick = hospitalsPanel
+    S.teamsOn = new Set(); for (const k in KINDS) S.on[k] = ['hospital', 'ambulance', 'help', 'hazard', 'service'].includes(k); layersPanel(); redraw()
+  } else {
+    $('#actBtn').textContent = 'Actions'; $('#actBtn').onclick = () => actionsPanel(); $('#reqBtn').textContent = 'Requests'; $('#reqBtn').onclick = () => requestsPanel()
+  }
+}
+const _refresh2 = refreshSheet
+refreshSheet = function (what) {
+  _refresh2(what)
+  if ($('#sheet').hidden) return
+  if (what === 'tr' && S.sheet === 'tr') inbound()
+  if (what === 'fac' && S.sheet === 'fac' && S.role !== 'hospital') hospitalsPanel()
+}
+// the hospital's own status in its map popup and in the public's list
+const _popupHtml = popupHtml
+popupHtml = function (id, b, lkp) {
+  let h = _popupHtml(id, b, lkp)
+  if (b.kind === 'hospital') { const f = facOf(b.name)
+    if (f) h += `<br>${f.diversion && f.diversion !== 'Open' ? `<b class="divert">${esc(f.diversion)}</b><br>` : ''}${BEDS.filter(([k]) => (f.beds || {})[k] != null).map(([k, l]) => l + ' ' + f.beds[k]).join(' · ')}` }
+  return h
+}
+
+// [RT_TRANSPORT_V1] the EOC's Requests: patient transports under way and the hospitals not open to ambulances
+const _requestsPanel2 = requestsPanel
+requestsPanel = function () {
+  _requestsPanel2()
+  if (S.role !== 'eoc') return
+  const ids = Object.keys(S.tr).filter(id => trState(id) !== 'arrived')
+  const div = hospitals().map(n => facOf(n)).filter(f => f && f.diversion && f.diversion !== 'Open')
+  const box = document.createElement('div')
+  box.innerHTML = `<h3>Patient transports under way (${ids.length})</h3>` + (ids.map(id => { const t = S.tr[id]
+      return `<div class="card"><b>${esc(t.unit)}</b> → ${esc(t.to)} · ${t.patients || 1} · ${triPill(t.triage)} · ${esc(t.complaint || '')}<div class="meta">ETA ${t.eta || '?'} min from ${new Date(t.at * 1000).toLocaleTimeString()} · ${esc(trState(id))}</div></div>` }).join('') || '<div class="meta">none</div>')
+    + (div.length ? `<h3>Hospitals not open to ambulances</h3>` + div.map(f => `<div class="card"><b>${esc(f.name)}</b> <span class="divert">${esc(f.diversion)}</span>${f.needs ? `<div>Needs: ${esc(f.needs)}</div>` : ''}</div>`).join('') : '')
+  document.querySelector('#sheet .sh-body').prepend(box)
+}
+const _refresh3 = refreshSheet
+refreshSheet = function (what) { _refresh3(what); if (!$('#sheet').hidden && S.sheet === 'reqs' && (what === 'tr' || what === 'fac')) requestsPanel() }
+// an ambulance's status buttons redraw its own panel
+const _setStatus = window.setStatus
+window.setStatus = (st) => { _setStatus(st); if (S.sheet === 'unit') unitPanel() }

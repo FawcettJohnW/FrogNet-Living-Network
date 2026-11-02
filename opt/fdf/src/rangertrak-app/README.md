@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r5
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r6
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -26,6 +26,10 @@ The cells (all in RangerTrak's RAMs, where `app-where.json` says they are served
 | `(rt-team, <mission>, <dev>.<ms>)` | anyone, to a team | distinct, in the team's own RAM (`rangertrak.<team>`) |
 | `(rt-dm, <mission>.<to>, <from>.<ms>)` | anyone, to one device | distinct, in the addressee's own variable: only the addressee reads it |
 | `(rt-mission, settings, <mission>)` | whoever started the exercise (rt-sim) | latest |
+| `(rt-facility, <mission>, <facility>)` | the hospital's desk (a Hospital client; rt-sim for the rest) | latest, not own: it stays |
+| `(rt-transport, <mission>, <dev>.<ms>)` | an ambulance: a patient on the way to a hospital | distinct |
+| `(rt-transport, <mission>.act, <id>~<dev>)` | the hospital's desk: acknowledged, arrived | latest |
+| `(rt-call, <mission>.<to>, <from>.<ms>)` | a caller, in the callee's own variable: a ring (with the caller's node) | distinct |
 
 Gone is gone: a device or instance whose session ended has no cells. What the app draws for it after that, a last known
 position (a translucent, dashed avatar, 10 minutes), is the app's own choice and is written nowhere.
@@ -65,6 +69,25 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
   OUT OF COMPLIANCE on the status line, as a notice, at the top of Sensors, and as a red host on the map.
 - At connect the app says whether it reaches the network's sensor store and how many nodes report there.
 
+## r6
+
+- **Hospital** (connect as Hospital, pick the facility): Status, the desk -- beds available by type (emergency, ICU,
+  med/surg, pediatric, burn, operating rooms), ambulance traffic (open, ED diversion, trauma diversion, closed), power,
+  water, oxygen, staffing, needs -- published as `rt-facility` ([RT_FACILITY_V1]); Inbound, the patients on the way
+  there with ETA and triage, Acknowledge and Arrived, and a notice for each new one. The map: hospitals, ambulances,
+  hazards. A hospital's popup on any map shows its beds and diversion.
+- **Ambulance** (connect as Ambulance, the unit): Unit -- status (Available ... Out of service), Transport a patient
+  (the hospitals with beds or their diversion, patients, triage, ETA, chief complaint, age/sex), Assignments (the teams'
+  ambulance / medical-evacuation requests, the public's medical requests, Take it); Hospitals, every desk's status.
+- **EOC**: Requests adds the transports under way and the hospitals not open to ambulances.
+- **Call** ([RT_CALL_V1]): a person's popup has Call beside the chat. The caller picks camera, microphone and speakers
+  (the desktop asks `comms-app --list-devices`; the phone lists its front/back camera, microphones and call outputs),
+  then the Communicator opens and calls; the callee's app rings, and Answer opens its Communicator to answer, on the
+  caller's node's Communicator servers (`<node>:8800`, `<node>:8994`). Desktop: comms-app beside RangerTrak, or chosen
+  once (kept in settings.json). Phone: FrogNet Member's Communicator (`net.frognet.communicator.CALL`; that app must be
+  the build with [COMMS_OPENED_FOR_A_CALL_V1]).
+- rt-sim r8: every hospital's desk (three under strain), and each ambulance transport and its arrival.
+
 ## Build and test
 
     ./build.sh                                   # build/*.jar (JavaFX for the desktop from Maven Central)
@@ -73,13 +96,14 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
     ./desktop/package_windows.sh OUTDIR          # the Windows zip
 
 `test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real rina-hosts and rt-sim:
-8 checks (the EOC's world moving, announcements, team and direct messages, a GPS fix on the EOC's map, the public view,
+23 checks (the EOC's world moving, announcements, team and direct messages, a GPS fix on the EOC's map, the public view,
 everything gone when rt-sim stops and drawn as last known positions, a wrong password refused). `test/world.py` starts
 the same world alone, to run a desktop app against.
 
 ## Not in this build
 
-- Video in the member chat box (it comes with the media library, abstracted from the Communicator).
+- Video inside RangerTrak's own window: a call is the Communicator's window.
+- The desktop's answer is in the Communicator (it rings there too): comms-app has no "answer this person" option yet.
 - Windows' own location service: a desktop writes no position.
 - The Android APK is built in Android Studio: this build machine has no Android SDK and no access to Google's Maven.
 - The kart app still has its own copy of the session code; it moves onto `frognet-ram-java` when next built.

@@ -45,12 +45,43 @@ public final class MainActivity extends Activity implements LocationListener {
                 Map<String, Object> m = Json.obj(Json.parse(line));
                 if ("connect".equals(Json.str(m.get("op")))) {
                     SharedPreferences.Editor e = prefs.edit();
-                    for (String k : new String[]{"door", "name", "role", "team"}) e.putString(k, Json.str(m.get(k)));
+                    for (String k : new String[]{"door", "name", "role", "team", "unit"}) e.putString(k, Json.str(m.get(k)));
                     e.apply();
                     connected = true;
                 }
             } catch (IllegalArgumentException ignored) { }
             new Thread(new Runnable() { public void run() { core.handle(line); } }, "core").start();
+        }
+        /** [RT_CALL_V1] the page's Call: what this phone can use (cameras, microphones, outputs), to the page's picker */
+        @JavascriptInterface public void comms(String json) {
+            Map<String, Object> m; try { m = Json.obj(Json.parse(json)); } catch (IllegalArgumentException e) { return; }
+            if (!communicatorInstalled()) {
+                deliver(Json.o("ev", "error", "text", "Call opens the FrogNet Communicator, in the FrogNet Member app: it is not on this phone (or is older than its CALL screen)"));
+                return;
+            }
+            Map<String, Object> ev = devices();
+            String door = Json.str(m.get("door"));
+            ev.put("ev", "devices"); ev.put("peer", Json.str(m.get("peer"))); ev.put("name", Json.str(m.get("name")));
+            ev.put("answer", Boolean.TRUE.equals(m.get("answer")));
+            ev.put("ram", door + ":8800"); ev.put("media", door + ":8994");
+            ev.put("saved", Json.o("camera", prefs.getString("c_camera", "front"), "mic", prefs.getString("c_mic", ""), "speaker", prefs.getString("c_speaker", "")));
+            deliver(ev);
+        }
+        /** [RT_CALL_V1] the Communicator (FrogNet Member's CommunicatorActivity), opened for this call with these devices */
+        @JavascriptInterface public void startComms(String json) {
+            try {
+                Map<String, Object> m = Json.obj(Json.parse(json));
+                String cam = Json.str(m.get("camera")), mic = Json.str(m.get("mic")), out = Json.str(m.get("speaker"));
+                prefs.edit().putString("c_camera", cam).putString("c_mic", mic).putString("c_speaker", out).apply();
+                android.content.Intent i = new android.content.Intent(COMMS_CALL).setPackage(COMMS_PKG)
+                        .putExtra("ram", Json.str(m.get("ram"))).putExtra("media", Json.str(m.get("media")))
+                        .putExtra("name", Json.str(m.get("name"))).putExtra("from", "RangerTrak").putExtra("pond", "")
+                        .putExtra(Boolean.TRUE.equals(m.get("answer")) ? "answer" : "call", Json.str(m.get("peer")))
+                        .putExtra("video", !cam.isEmpty()).putExtra("front", !"back".equals(cam));
+                if (!mic.isEmpty()) i.putExtra("mic", Integer.parseInt(mic));
+                if (!out.isEmpty()) i.putExtra("out", Integer.parseInt(out));
+                startActivity(i);
+            } catch (Exception e) { deliver(Json.o("ev", "error", "text", "the Communicator did not open: " + e.getMessage())); }
         }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
@@ -64,6 +95,51 @@ public final class MainActivity extends Activity implements LocationListener {
             android.app.Notification n = new android.app.Notification.Builder(MainActivity.this, "chat").setSmallIcon(android.R.drawable.stat_notify_chat)
                     .setContentTitle(from).setContentText(text).setAutoCancel(true).setContentIntent(pi).build();
             nm.notify((int) (System.currentTimeMillis() & 0x7fffffff), n);
+        }
+    }
+    static final String COMMS_PKG = "com.fawcettinnovations.fdf.android", COMMS_CALL = "net.frognet.communicator.CALL";
+    private boolean communicatorInstalled() {
+        android.content.Intent i = new android.content.Intent(COMMS_CALL).setPackage(COMMS_PKG);
+        return !getPackageManager().queryIntentActivities(i, 0).isEmpty();
+    }
+    private void deliver(Map<String, Object> ev) {
+        final String line = Json.write(ev);
+        web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
+    }
+    /** this phone's cameras (front / back), microphones, and call outputs (speaker, earpiece, headsets) */
+    private Map<String, Object> devices() {
+        java.util.List<Object> cams = new java.util.ArrayList<Object>(), mics = new java.util.ArrayList<Object>(), outs = new java.util.ArrayList<Object>();
+        try {
+            android.hardware.camera2.CameraManager cm = (android.hardware.camera2.CameraManager) getSystemService(CAMERA_SERVICE);
+            boolean f = false, bk = false;
+            for (String id : cm.getCameraIdList()) {
+                Integer face = cm.getCameraCharacteristics(id).get(android.hardware.camera2.CameraCharacteristics.LENS_FACING);
+                if (face != null && face == android.hardware.camera2.CameraCharacteristics.LENS_FACING_FRONT) f = true;
+                if (face != null && face == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK) bk = true;
+            }
+            if (f) cams.add(Json.o("value", "front", "label", "Front camera"));
+            if (bk) cams.add(Json.o("value", "back", "label", "Back camera"));
+        } catch (Exception ignored) { }
+        android.media.AudioManager am = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        mics.add(Json.o("n", "", "label", "Automatic (a headset when one is connected)"));
+        for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_INPUTS))
+            mics.add(Json.o("n", String.valueOf(d.getId()), "label", audioName(d)));
+        outs.add(Json.o("n", "", "label", "Automatic (speaker; a headset when one is connected)"));
+        if (Build.VERSION.SDK_INT >= 31)
+            for (android.media.AudioDeviceInfo d : am.getAvailableCommunicationDevices())
+                outs.add(Json.o("n", String.valueOf(d.getId()), "label", audioName(d)));
+        return Json.o("cameras", cams, "mics", mics, "speakers", outs, "note", Build.VERSION.SDK_INT >= 31 ? "" : "this Android chooses the call output itself");
+    }
+    private static String audioName(android.media.AudioDeviceInfo d) {
+        switch (d.getType()) {
+            case android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC: return "Phone microphone";
+            case android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "Speaker";
+            case android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE: return "Earpiece";
+            case android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET: return "Wired headset";
+            case android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "Wired headphones";
+            case android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO: return "Bluetooth: " + d.getProductName();
+            case android.media.AudioDeviceInfo.TYPE_USB_HEADSET: return "USB headset: " + d.getProductName();
+            default: return String.valueOf(d.getProductName()) + " (type " + d.getType() + ")";
         }
     }
     private volatile boolean inFront = false;

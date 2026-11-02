@@ -18,8 +18,15 @@
   <fieldset class="roles"><legend>View</legend>
     <label><input type="radio" name="role" value="eoc"> EOC</label>
     <label><input type="radio" name="role" value="team" checked> Team</label>
+    <label><input type="radio" name="role" value="hospital"> Hospital</label>
+    <label><input type="radio" name="role" value="ambulance"> Ambulance</label>
     <label><input type="radio" name="role" value="public"> Public</label>
   </fieldset>
+  <div class="for-unit"><label><span class="unit-l">Unit</span> <input name="unit" list="units" placeholder="Harborview, or Medic 12"></label>
+    <datalist id="units"><option>Harborview</option><option>Swedish First Hill</option><option>Virginia Mason</option><option>UW Medical Center</option>
+      <option>UW Northwest</option><option>Swedish Ballard</option><option>Seattle Children's</option><option>Highline (Burien)</option>
+      <option>Valley Medical (Renton)</option><option>Overlake (Bellevue)</option><option>EvergreenHealth (Kirkland)</option><option>Vashon Health Center</option>
+      <option>Medic 1</option><option>Medic 12</option><option>Medic 21</option><option>Aid 31</option></datalist></div>
   <div class="for-team"><label>Team <select name="team"><option>Alpha</option><option>Bravo</option><option>Charlie</option><option>Delta</option></select></label></div>
   <div class="for-eoc"><label>User <input name="user" autocomplete="username"></label>
     <label>Password <input name="password" type="password" autocomplete="current-password"></label></div>
@@ -44,7 +51,7 @@
     <div id="log"></div>
     <form id="sayForm"><select id="to"></select><input id="text" placeholder="message" autocomplete="off"><button>Send</button></form>
   </aside>
-  <div id="pop" hidden><div class="pt"></div><div class="pl"></div>
+  <div id="pop" hidden><div class="pt"></div><div class="pbtn"><button type="button" class="pcall">Call</button></div><div class="pl"></div>
     <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>
     <button type="button" class="pclose">Close</button></form>
     <div class="pvideo"></div></div>

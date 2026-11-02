@@ -21,6 +21,10 @@
 #   15 Sensors: the nodes, their sensors, a reading (a GPS position, and a reading with no fix); the Hosts line
 #   16-17 the Team view starts with its own team only; Layers in front of the chat
 #   18 team actions (a service request, a sensor platform) and the EOC's action; 19 compliance
+#   21 the hospital's desk: the simulated hospitals' statuses; a desk publishes its own, the EOC sees it
+#   22 an ambulance's patient transport is on the hospital's Inbound; the hospital's Acknowledge is on the ambulance's
+#   23 Call: the EOC calls the Alpha member: the Communicator's device picker (camera, mic, speakers) opens on the
+#      EOC; the member's app rings, Answer opens its Communicator to answer; the chosen devices go to the Communicator
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -87,7 +91,8 @@ sim = subprocess.Popen([os.path.join(FDF, "bin", "rt-sim"), "--tick", "1"], env=
                        stdout=open(T + "/sim.log", "w"), stderr=subprocess.STDOUT)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 dev = {}
-for d, name, role, team in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", "")):
+for d, name, role, team in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", ""),
+                              ("hosp1", "Charge Nurse", "hospital", ""), ("med12", "Medic 12 crew", "ambulance", "")):
     p = free(); dev[d] = p
     procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team],
                                   stdout=open(T + "/dev-%s.log" % d, "w"), stderr=subprocess.STDOUT))
@@ -205,6 +210,48 @@ with sync_playwright() as pw:
     if SHOTS:
         eoc.click("#sheet .sh-close"); eoc.screenshot(path=os.path.join(SHOTS, "eoc-map.png"))
         tm.screenshot(path=os.path.join(SHOTS, "team-actions.png"))
+    # [RT_FACILITY_V1] the hospital's desk; [RT_TRANSPORT_V1] the ambulance
+    hs = open_dev("hosp1", 1100, 800)
+    hs.check("[name=role][value=hospital]"); hs.fill("[name=unit]", "Swedish Ballard"); hs.click("#connect button")
+    hs.wait_for_selector("#main:not([hidden])", timeout=8000)
+    hs.wait_for_function("Object.keys(S.fac).length >= 12 && !$('#sheet').hidden && S.sheet==='fac'", timeout=15000)
+    hs.fill(".fac [name=b_ed]", "3"); hs.fill(".fac [name=b_icu]", "1"); hs.select_option(".fac [name=diversion]", "Trauma diversion")
+    hs.fill(".fac [name=needs]", "neuro surgeon on call"); hs.click(".fac .go")
+    eoc.wait_for_function("S.fac['swedish-ballard'] && S.fac['swedish-ballard'].by==='Charge Nurse' && S.fac['swedish-ballard'].beds.ed===3", timeout=10000)
+    check(hs.inner_text("#actBtn") == "Status" and hs.inner_text("#reqBtn") == "Inbound",
+          "21 the hospital's desk: %d hospitals' statuses (the simulated ones); Swedish Ballard's published, on the EOC: %s" % (
+              hs.evaluate("Object.keys(S.fac).length"), eoc.evaluate("JSON.stringify(S.fac['swedish-ballard'].beds)")))
+    md = open_dev("med12", 412, 860)
+    md.check("[name=role][value=ambulance]"); md.fill("[name=unit]", "Medic 12"); md.click("#connect button")
+    md.wait_for_selector("#main:not([hidden])", timeout=8000); md.wait_for_function("Object.keys(S.fac).length >= 12", timeout=10000)
+    md.click("#actBtn"); md.select_option(".tf [name=to]", "Swedish Ballard"); md.select_option(".tf [name=triage]", "Red")
+    md.fill(".tf [name=eta]", "9"); md.fill(".tf [name=complaint]", "fall from ladder, unresponsive"); md.click(".tf .go")
+    hs.click("#reqBtn"); hs.wait_for_function("/fall from ladder/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    sim_inbound = hs.evaluate("Object.values(S.tr).filter(t=>t.sim).length")
+    hs.evaluate("(()=>{const c=[...document.querySelectorAll('#sheet .card')].find(c=>/fall from ladder/.test(c.textContent));[...c.querySelectorAll('button')].find(b=>b.textContent==='Acknowledge').click()})()")
+    md.wait_for_function("Object.entries(S.trActs).some(([k,a])=>a.action==='acknowledged' && S.tr[k.split('~')[0]] && /fall from ladder/.test(S.tr[k.split('~')[0]].complaint))", timeout=10000)
+    eoc.click("#reqBtn"); eoc.wait_for_function("/Patient transports under way/.test(document.querySelector('#sheet').textContent) && /fall from ladder/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    check(md.evaluate("S.myStatus") == "Transporting",
+          "22 Medic 12's transport is on Swedish Ballard's Inbound, its Acknowledge on Medic 12's, the transport on the EOC's Requests; %d simulated transports so far" % sim_inbound)
+    if SHOTS:
+        hs.screenshot(path=os.path.join(SHOTS, "hospital-inbound.png")); md.click("#actBtn"); md.screenshot(path=os.path.join(SHOTS, "ambulance-unit.png"))
+        hs.click("#actBtn"); hs.screenshot(path=os.path.join(SHOTS, "hospital-desk.png"))
+    # [RT_CALL_V1] Call: the native side is stood in for (it opens comms-app, or the phone's Communicator)
+    stub = "window.CALLS=[];window.rtNative.comms=j=>CALLS.push(['comms',JSON.parse(j)]);window.rtNative.startComms=j=>CALLS.push(['start',JSON.parse(j)]);0"
+    eoc.evaluate(stub); tm.evaluate(stub)
+    eoc.evaluate("$('#sheet').hidden=true; openPop('alpha9')"); eoc.click("#pop .pcall")
+    eoc.wait_for_function("CALLS.some(c=>c[0]==='comms' && c[1].peer==='Pat (Alpha)' && !c[1].answer)", timeout=10000)
+    tm.wait_for_selector(".ring", timeout=10000); ring = tm.inner_text(".ring"); tm.click(".ring .yes")
+    tm.wait_for_function("CALLS.some(c=>c[0]==='comms' && c[1].peer==='EOC Desk' && c[1].answer)", timeout=5000)
+    eoc.evaluate("""rtDeliver(JSON.stringify({ev:'devices',peer:'Pat (Alpha)',name:'EOC Desk',answer:false,ram:'10.170.170.1:8800',media:'10.170.170.1:8994',saved:{},
+      cameras:[{value:'video=Integrated Camera',label:'Integrated Camera'}],mics:[{n:'0',label:'Microphone Array'},{n:'2',label:'Headset'}],speakers:[{n:'1',label:'Speakers'},{n:'2',label:'Headset'}],note:''}))""")
+    eoc.select_option(".cf [name=mic]", "2"); eoc.select_option(".cf [name=speaker]", "2"); eoc.click(".cf .go")
+    try: eoc.wait_for_function("CALLS.some(c=>c[0]==='start')", timeout=5000)
+    except Exception: print("DEBUG", eoc.evaluate("JSON.stringify({calls:CALLS, sheet:S.sheet, hidden:$('#sheet').hidden, top:(()=>{const r=document.querySelector('.cf .go').getBoundingClientRect();const e=document.elementFromPoint(r.left+5,r.top+5);return e&&(e.id||e.className)})()})"))
+    st = eoc.evaluate("(CALLS.find(c=>c[0]==='start')||[0,{}])[1]")
+    check(st.get("camera") == "video=Integrated Camera" and st.get("mic") == "2" and st.get("speaker") == "2" and st.get("ram", "").endswith(":8800") and "calling" in ring,
+          "23 Call: the EOC's Communicator picker (camera, mic, speakers) gives %s; the member's app rang ('%s') and Answer opened its Communicator to answer" % (
+              {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
     sim.terminate(); sim.wait()
     eoc.wait_for_function("Object.values(S.pos).filter(b=>b.sim).length===0", timeout=10000)
     time.sleep(0.5)
