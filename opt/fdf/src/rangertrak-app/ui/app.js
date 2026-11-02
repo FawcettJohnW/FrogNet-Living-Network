@@ -9,7 +9,7 @@ const send = (o) => window.rtNative.send(JSON.stringify(o))
 // kinds: how each is drawn, and which views show it by default
 const KINDS = {
   team:      { label: 'Teams',      shape: '',    size: 18, color: '#888', views: ['eoc', 'team'] },
-  eoc:       { label: 'EOC',        shape: 'sq',  size: 20, color: '#6b4fd8', views: ['eoc', 'team'], ch: 'E' },
+  eoc:       { label: 'EOC',        shape: 'sq',  size: 20, color: '#6b4fd8', views: ['eoc'], ch: 'E' },
   ambulance: { label: 'Ambulances', shape: 'sq',  size: 18, color: '#e23b3b', views: ['eoc'], ch: '+' },
   boat:      { label: 'Boats',      shape: 'sq',  size: 18, color: '#1565c0', views: ['eoc'], ch: 'B' },
   victim:    { label: 'Victims',    shape: '',    size: 12, color: '#f2c200', views: ['eoc'], ch: '' },
@@ -17,12 +17,16 @@ const KINDS = {
   fire:      { label: 'Fire',       shape: 'dia', size: 18, color: '#ff6d00', views: ['eoc', 'public'], ch: 'F' },
   power:     { label: 'Power',      shape: 'dia', size: 18, color: '#7e57c2', views: ['eoc', 'public'], ch: 'P' },
   help:      { label: 'Help requests', shape: '', size: 16, color: '#ff1744', views: ['eoc', 'public'], ch: '!' },
+  platform:  { label: 'Sensor platforms', shape: 'dia', size: 16, color: '#00897b', views: ['eoc'], ch: 'S' },
+  service:   { label: 'Service requests', shape: 'sq', size: 16, color: '#f9a825', views: ['eoc'], ch: 'R', fg: '#222' },
+  hazard:    { label: 'Hazards',    shape: 'dia', size: 18, color: '#d50000', views: ['eoc', 'public'], ch: '⚠' },
+  search:    { label: 'Searched areas', shape: '', size: 14, color: '#546e7a', views: ['eoc'], ch: '✓' },
   host:      { label: 'Hosts',      shape: 'sq',  size: 16, color: '#263238', views: ['eoc'], ch: 'N' },   // a layer: on for the EOC
 }
 const TEAM_COLOR = { alpha: '#d62728', bravo: '#1f77b4', charlie: '#2ca02c', delta: '#ff7f0e' }
 const LKP_MIN = 10            // a last known position is drawn this many minutes (the app's own choice)
 
-const S = { help: {}, actions: {}, reports: {}, sheet: '', gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {} }
+const S = { teamsOn: new Set(), field: {}, fieldActs: {}, compliance: {}, help: {}, actions: {}, reports: {}, sheet: '', gps: {}, cfg: {}, role: '', team: '', who: {}, pos: {}, seen: {}, lkp: {}, markers: {}, links: {}, on: {}, msgs: [], tab: 'all', direct: {} }
 let map
 
 // ------------------------------------------------------------ start: the native side calls rtInit once the page loads
@@ -54,7 +58,7 @@ window.rtDeliver = function (line) {
   if (m.ev === 'status') status(m.text)
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'connected') connected(m)
-  else if (m.ev === 'mission') $('#mission').textContent = m.name || m.id
+  else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id }
   else if (m.ev === 'world') world(m.who || {}, m.pos || {})
   else if (m.ev === 'msg') message(m)
   else if (m.ev === 'help') { S.help = m.requests || {}; S.actions = m.actions || {}; redraw(); refreshSheet('help') }
@@ -62,13 +66,15 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'sensorHosts') sensorHosts(m.hosts || {})
   else if (m.ev === 'sensors') sensorList(m.host, m.list || [])
   else if (m.ev === 'sensor') sensorShow(m)
+  else if (m.ev === 'field') { S.field = m.items || {}; S.fieldActs = m.acts || {}; redraw(); refreshSheet('field') }
+  else if (m.ev === 'compliance') compliance(m.hosts || {}, m.asked)
   else if (m.ev === 'myfix') myFix = { lat: m.lat, lon: m.lng }
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
 }
 function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)) }
 
 function connected(m) {
-  S.role = m.role; S.team = m.team || ''
+  S.role = m.role; S.team = m.team || ''; S.connectedAt = Date.now()
   $('#connect').hidden = true; $('#main').hidden = false
   $('#who').textContent = S.cfg.name + ' · ' + (S.role === 'eoc' ? 'EOC' : S.role === 'team' ? 'Team ' + S.team : 'Public')
   $('#dot').classList.add('up'); status('connected to the node at ' + (S.cfg.door || '') + ' (' + (m.build || '') + ')')
@@ -85,12 +91,17 @@ function connected(m) {
   }
   for (const k in KINDS) S.on[k] = KINDS[k].views.includes(S.role)
   S.on.lkp = S.role !== 'public'
+  S.teamsOn = new Set(S.role === 'team' ? [S.team.toLowerCase()] : Object.keys(TEAM_COLOR))
   layersPanel(); legend()
   if (S.on.host) send({ op: 'hosts' })                 // the nodes' own GPS sensors, read once now
   $('#chatBtn').hidden = S.role === 'public'
   $('#homeBtn').hidden = S.role !== 'public'; $('#reqBtn').hidden = S.role === 'public'; $('#sensBtn').hidden = S.role === 'public'
   $('#home').hidden = S.role !== 'public'          // [RT_PUBLIC_HOME_V1] the public opens on what a person can do, not the map
-  if (S.role === 'eoc') $('#chat').hidden = false
+  // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away.
+  // A team member starts with only their own team on the map; the others are added from Layers
+  S.teamsOn = new Set(S.role === 'team' ? [S.team.toLowerCase()] : Object.keys(TEAM_COLOR))
+  $('#actBtn').hidden = S.role === 'public'
+  if (S.role === 'eoc') send({ op: 'compliance' })
   // [TEAM_VIEW_IS_THE_TEAM_V1] (John, 2026-11-01) a team member opens on the teams' positions and the team's own chat;
   // everything else is a layer to turn on, and Everyone is a tab away
   if (S.role === 'team' && S.team) { S.tab = 'team:' + S.team }
@@ -99,7 +110,7 @@ function connected(m) {
 }
 
 // ------------------------------------------------------------ the map
-function colorOf(b) { return b.kind === 'team' || (b.kind === 'eoc' && false) ? (TEAM_COLOR[String(b.team || '').toLowerCase()] || b.color || '#888') : (KINDS[b.kind] || KINDS.team).color }
+function colorOf(b) { if (b.ooc) return '#d50000'; return b.kind === 'team' || (b.kind === 'eoc' && false) ? (TEAM_COLOR[String(b.team || '').toLowerCase()] || b.color || '#888') : (KINDS[b.kind] || KINDS.team).color }
 function icon(b, id, lkp) {
   const k = KINDS[b.kind] || KINDS.team, c = colorOf(b), s = k.size
   const ch = b.kind === 'team' ? String(b.team || '?')[0] : (k.ch ?? '')
@@ -111,11 +122,15 @@ function world(who, pos) {
   const now = Date.now()
   for (const id in S.pos) if (!pos[id] && S.pos[id]) S.lkp[id] = { b: S.pos[id], t: now }   // it left: its last known position
   for (const id in pos) delete S.lkp[id]
-  const before = Object.keys(S.who).join(); S.who = who; S.pos = pos
+  const before = Object.keys(S.who).join(); S.who = who; S.pos = pos; heroSummary()
   if (Object.keys(who).join() !== before && map) toList()
   redraw()
 }
-function shown(b) { return S.on[b.kind] !== undefined ? S.on[b.kind] : S.on.team }
+// [TEAM_VIEW_IS_THE_TEAM_V1] which teams are drawn: a team member starts with their own; the EOC with all
+function shown(b) {
+  if (b.kind === 'team') return !!S.on.team && S.teamsOn.has(String(b.team || '').toLowerCase())
+  return S.on[b.kind] !== undefined ? S.on[b.kind] : S.on.team
+}
 function popupHtml(id, b, lkp) {
   const bits = [b.status, b.beds !== undefined ? b.beds + ' beds available' : '', b.severity, b.customers_out ? b.customers_out + ' customers out' : '', b.to ? 'to ' + b.to : '']
   return `<b>${esc(b.name)}</b>${b.team ? ' · ' + esc(b.team) : ''}<br>${esc(bits.filter(Boolean).join(' · '))}` +
@@ -145,7 +160,18 @@ function redraw() {
     if (now - l.t > LKP_MIN * 60000) { delete S.lkp[id]; continue }
     if (shown(l.b) && visibleInView(l.b)) { want[id] = 1; place(id, l.b, l) }
   }
-  if (S.on.host) for (const id in S.gps) { want[id] = 1; place(id, S.gps[id], null) }
+  if (S.on.host) for (const id in S.gps) {
+    const h = S.gps[id], bad = S.compliance[h.name]
+    want[id] = 1; place(id, bad ? Object.assign({}, h, { kind: 'host', ooc: true, status: 'OUT OF COMPLIANCE: ' + envText(bad) }) : h, null)
+  }
+  for (const fid in S.field) {                       // [RT_FIELD_V1] what the teams did in the field
+    const b = S.field[fid], k = b.what
+    if (!KINDS[k] || !S.on[k] || typeof b.lat !== 'number' || !visibleInView({ kind: k })) continue
+    if (k === 'service' && fieldState(fid) === 'done') continue
+    const id = 'field:' + fid; want[id] = 1
+    place(id, { kind: k, name: (b.type || k) + (b.team ? ' · ' + b.team : ''), lat: b.lat, lng: b.lng,
+                status: [b.priority, fieldState(fid), b.note, 'by ' + (b.name || '')].filter(Boolean).join(' · ') }, null)
+  }
   if (S.on.help) for (const rid in S.help) {                // [RT_HELP_V1] requests needing help, where they said they are
     const b = S.help[rid], l = b.location || {}
     if (b.status !== 'open' || typeof l.lat !== 'number') continue
@@ -160,11 +186,21 @@ function redraw() {
     if (h && want[id] && typeof h.lat === 'number') S.links[id] = L.polyline([[b.lat, b.lng], [h.lat, h.lng]], { color: '#90a4ae', weight: 1, opacity: .6, dashArray: '3 4' }).addTo(map)
   }
 }
-function visibleInView(b) { return S.role !== 'public' || ['hospital', 'fire', 'power', 'help', 'shelter'].includes(b.kind) }
+function visibleInView(b) { return S.role !== 'public' || ['hospital', 'fire', 'power', 'help', 'hazard'].includes(b.kind) }
 function layersPanel() {
   const p = $('#layers'); p.innerHTML = ''
-  const kinds = Object.keys(KINDS).filter(k => S.role !== 'public' || ['hospital', 'fire', 'power', 'help'].includes(k))
-  for (const k of kinds.concat(S.role !== 'public' ? ['lkp'] : [])) {
+  const kinds = Object.keys(KINDS).filter(k => S.role !== 'public' || ['hospital', 'fire', 'power', 'help', 'hazard'].includes(k))
+  if (S.role !== 'public') {                     // the teams, one by one: a member adds others from here
+    const h = document.createElement('div'); h.className = 'lh'; h.textContent = 'Teams'; p.appendChild(h)
+    for (const t of Object.keys(TEAM_COLOR)) {
+      const l = document.createElement('label')
+      l.innerHTML = `<input type="checkbox" ${S.teamsOn.has(t) ? 'checked' : ''}> <i style="background:${TEAM_COLOR[t]}"></i> ${t[0].toUpperCase() + t.slice(1)}`
+      l.querySelector('input').onchange = (e) => { e.target.checked ? S.teamsOn.add(t) : S.teamsOn.delete(t); redraw() }
+      p.appendChild(l)
+    }
+    const h2 = document.createElement('div'); h2.className = 'lh'; h2.textContent = 'Show'; p.appendChild(h2)
+  }
+  for (const k of kinds.filter(k => k !== 'team').concat(S.role !== 'public' ? ['lkp'] : [])) {
     const l = document.createElement('label')
     l.innerHTML = `<input type="checkbox" ${S.on[k] ? 'checked' : ''}> ${k === 'lkp' ? 'Last known positions' : KINDS[k].label}`
     l.querySelector('input').onchange = (e) => { S.on[k] = e.target.checked; if (k === 'host' && S.on.host) send({ op: 'hosts' }); redraw() }
@@ -226,6 +262,7 @@ function seenNow(m) {
   return !$('#chat').hidden && inTab(m)
 }
 function notify(m) {
+  if ((m.at || 0) * 1000 < (S.connectedAt || 0) - 2000) return  // written before this device connected: history, not news
   if (m.from === S.cfg.dev || seenNow(m) || (Date.now() / 1000 - (m.at || 0)) > 120) return
   unread++; $('#chatBtn').textContent = 'Chat (' + unread + ')'; $('#chatBtn').classList.add('hot')
   const n = document.createElement('div'); n.className = 'notice'
@@ -274,13 +311,15 @@ function sheet(name, title, html) {
 }
 $('#sheet .sh-close').onclick = () => { $('#sheet').hidden = true; S.sheet = '' }
 $('#homeBtn').onclick = () => { $('#home').hidden = false; $('#sheet').hidden = true }
-document.querySelectorAll('#home .tile').forEach(t => t.onclick = () => go(t.dataset.go))
+document.querySelectorAll('#home [data-go]').forEach(t => t.onclick = () => go(t.dataset.go))
 function go(what) {
   if (what === 'map') { $('#home').hidden = true; return }
   if (what === 'needhelp' || what === 'safe') return helpForm(what === 'safe' ? 'safe' : 'open')
   if (what === 'find') return findForm()
   if (what === 'report') return reportForm()
   if (what === 'places') return placesList()
+  if (what === 'library') return library()
+  if (what === 'fema') return fema()
 }
 function whereHtml() {
   return `<label>Where (address, landmark)<input name="place"></label>
@@ -420,4 +459,138 @@ function sensorShow(m) {
   sheet('sens', m.name, `<button type="button" onclick="send({op:'sensors',host:'${esc(S.sensHost || '')}'})">◂ ${esc(S.sensHost || 'back')}</button>
     <button type="button" onclick="send({op:'sensor',id:'${esc(m.id)}',name:'${esc(m.name)}'})">Refresh</button>
     <div class="meta">${m.updated ? 'updated ' + esc(m.updated) : ''}</div>${fx}<pre class="json">${esc(JSON.stringify(m.data, null, 2))}</pre>`)
+}
+
+// ------------------------------------------------------------ [RT_FIELD_V1] team actions (John, 2026-11-01: "Deploy Sensor
+// Platform, Request Services, etc. Be creative, but realistic.")
+const STATUSES = ['Available', 'En route', 'On scene', 'Need assistance', 'Out of service']
+const PLATFORMS = ['Air quality (PM2.5 / gas)', 'Weather station', 'Water level / flood gauge', 'Gas detector (CH4 / CO / H2S)', 'Radiation monitor', 'Seismic / structural', 'Camera (fixed)', 'Mesh relay node']
+const SERVICES = ['Medical evacuation', 'Ambulance', 'Water / food resupply', 'Fuel', 'Generator / power', 'Heavy equipment', 'Shelter space', 'Comms / radio relief', 'Relief crew', 'Hazmat team', 'Search dog team', 'Utility shut-off']
+const HAZARDS = ['Gas leak', 'Downed power line', 'Flooding', 'Structural collapse', 'Fire', 'Road blocked', 'Hazardous materials', 'Unstable slope']
+$('#actBtn').onclick = () => actionsPanel()
+function fieldActs(fid) { return Object.entries(S.fieldActs).filter(([k]) => k.startsWith(fid + '~')).map(([, a]) => a).sort((a, b) => (b.at || 0) - (a.at || 0)) }
+function fieldState(fid) { const a = fieldActs(fid)[0]; return a ? a.action : '' }
+function here() { if (myFix) return { lat: myFix.lat, lng: myFix.lon }; const c = map.getCenter(); return { lat: c.lat, lng: c.lng, center: true } }
+function opts(list) { return list.map(x => `<option>${esc(x)}</option>`).join('') }
+function actionsPanel() {
+  const mineIds = Object.keys(S.field).filter(f => S.field[f].by === S.cfg.dev).sort().reverse()
+  sheet('field', 'Team actions', `
+    <h3>My status</h3><div class="row">${STATUSES.map(x => `<button type="button" onclick="setStatus('${x}')">${x}</button>`).join(' ')}</div>
+    <div class="meta">Now: ${esc(S.myStatus || 'Available')}</div>
+    <h3>Deploy a sensor platform</h3><form class="ff" data-what="platform"><label>Platform<select name="type">${opts(PLATFORMS)}</select></label>
+      <label>Note<input name="note" placeholder="mounted on the pole at the corner"></label><button class="go">Deploy here</button></form>
+    <h3>Request services</h3><form class="ff" data-what="service"><label>Service<select name="type">${opts(SERVICES)}</select></label>
+      <label>Priority<select name="priority"><option>Routine</option><option>Priority</option><option>Urgent</option></select></label>
+      <label>Details<input name="note" placeholder="how many, how much, for whom"></label><button class="go">Send to the EOC</button></form>
+    <h3>Mark a hazard</h3><form class="ff" data-what="hazard"><label>Hazard<select name="type">${opts(HAZARDS)}</select></label>
+      <label>Note<input name="note"></label><button class="go">Mark it here</button></form>
+    <h3>Area searched</h3><form class="ff" data-what="search"><label>Result<select name="type"><option>Searched, no one found</option><option>Searched, people found</option><option>Partially searched</option><option>Unsafe to enter</option></select></label>
+      <label>Radius (m)<input name="radius" type="number" value="100"></label><label>Note<input name="note"></label><button class="go">Mark searched here</button></form>
+    <div class="meta">"Here" is your location; without one, the centre of the map.</div>
+    <h3>Mine</h3>${mineIds.map(f => fieldCard(f)).join('') || '<div class="meta">none yet</div>'}`)
+  document.querySelectorAll('#sheet .ff').forEach(f => f.onsubmit = (e) => {
+    e.preventDefault(); const h = here()
+    const bag = { what: f.dataset.what, type: f.type.value, note: f.note.value.trim(), lat: h.lat, lng: h.lng }
+    if (f.priority) bag.priority = f.priority.value
+    if (f.radius) bag.radius = +f.radius.value || 100
+    if (bag.what === 'platform') bag.status = 'deployed'
+    send({ op: 'field', bag }); f.note.value = ''
+  })
+}
+window.setStatus = (st) => { S.myStatus = st; send({ op: 'status', status: st }); if (S.sheet === 'field') actionsPanel() }
+function fieldCard(fid) {
+  const b = S.field[fid], acts = fieldActs(fid)
+  return `<div class="card"><b>${esc(b.type)}</b> <span class="pill">${esc(b.what)}</span>${b.priority ? ` <span class="pill">${esc(b.priority)}</span>` : ''}
+    <div class="meta">${esc(b.name)}${b.team ? ' · ' + esc(b.team) : ''} · ${b.at ? new Date(b.at * 1000).toLocaleTimeString() : ''}</div>
+    ${b.note ? `<div>${esc(b.note)}</div>` : ''}${acts.map(a => `<div class="meta">↳ ${esc(a.action)} by ${esc(a.unit)}${a.note ? ' — ' + esc(a.note) : ''}</div>`).join('')}
+    ${S.role === 'eoc' && b.what === 'service' ? `<div><button type="button" onclick="fact('${esc(fid)}','acknowledged')">Acknowledge</button> <button type="button" onclick="fact('${esc(fid)}','dispatched')">Dispatched</button> <button type="button" onclick="fact('${esc(fid)}','done')">Done</button></div>` : ''}
+    ${typeof b.lat === 'number' ? `<button type="button" onclick="showOnMap(${b.lat},${b.lng})">Map</button>` : ''}</div>`
+}
+window.fact = (id, action) => send({ op: 'fieldAction', id, action })
+const _requestsPanel = requestsPanel
+requestsPanel = function () {
+  _requestsPanel()
+  const svc = Object.keys(S.field).filter(f => S.field[f].what === 'service' && fieldState(f) !== 'done')
+    .sort((a, b) => ({ Urgent: 0, Priority: 1, Routine: 2 }[S.field[a].priority] ?? 3) - ({ Urgent: 0, Priority: 1, Routine: 2 }[S.field[b].priority] ?? 3))
+  const box = document.createElement('div')
+  box.innerHTML = `<h3>Service requests from the teams (${svc.length})</h3>` + (svc.map(fieldCard).join('') || '<div class="meta">none open</div>')
+  document.querySelector('#sheet .sh-body').prepend(box)
+}
+const _refresh = refreshSheet
+refreshSheet = function (what) { _refresh(what); if (!$('#sheet').hidden && S.sheet === 'field' && what === 'field') actionsPanel(); if (!$('#sheet').hidden && S.sheet === 'reqs' && what === 'field') requestsPanel() }
+
+// ------------------------------------------------------------ [RT_COMPLIANCE_V1] hosts with working environmental sensors
+function envText(c) { return c.sensors.map(x => Object.entries(x.readings).map(([k, v]) => k + ' ' + v).join(', ')).join('; ') }
+function compliance(hosts, asked) {
+  S.compliance = hosts; const names = Object.keys(hosts)
+  status(names.length ? 'OUT OF COMPLIANCE: ' + names.map(n => n + ' (' + envText(hosts[n]) + ')').join(' · ') + ` — ${asked} node(s) asked`
+                      : `Compliance: ${asked} node(s) asked; none has a working environmental sensor`)
+  for (const n of names) notify({ id: 'ooc:' + n, from: n, name: n, to: 'all', text: 'Out of compliance: ' + envText(hosts[n]), at: Date.now() / 1000 })
+  if (names.length && !Object.keys(S.gps).length) send({ op: 'hosts' })
+  redraw()
+}
+const _sensorHosts = sensorHosts
+sensorHosts = function (h) {
+  _sensorHosts(h)
+  const bad = Object.keys(S.compliance)
+  if (bad.length) { const d = document.createElement('div'); d.className = 'card ooc'
+    d.innerHTML = '<b>Out of compliance</b>' + bad.map(n => `<div>${esc(n)}: ${esc(envText(S.compliance[n]))}</div>`).join(''); document.querySelector('#sheet .sh-body').prepend(d) }
+}
+
+function heroSummary() {
+  if (!$('#heroSummary')) return
+  const v = Object.values(S.pos), haz = Object.values(S.field).filter(b => b.what === 'hazard').length
+  const beds = v.filter(b => b && b.kind === 'hospital' && (b.beds || 0) > 0).length
+  const safe = Object.values(S.help).filter(b => b.status === 'safe').length
+  $('#heroSummary').innerHTML = `${beds} hospitals with beds · ${haz} hazards marked<br>${safe} people checked in safe`
+}
+
+// ------------------------------------------------------------ the survival library: in the app, so it works with no network
+const LIBRARY = [
+  ['Emergencies: call first', ['Call 911 for life-threatening emergencies if any phone works. Text 911 where it is supported.',
+    'If you cannot call, use "I need help" here: responders and the EOC see it at once, with where you are.',
+    'Three of anything (whistle blasts, shouts, flashes, rock piles) is a call for help.']],
+  ['Bleeding and first aid', ['Press firmly on the wound with a clean cloth and keep pressing. Do not lift it to look.',
+    'For bleeding from an arm or leg that pressure will not stop: a tourniquet 2-3 inches above the wound, tight until the bleeding stops; note the time.',
+    'Shock (pale, cold, clammy, confused): lay the person down, keep them warm, nothing to eat or drink, get help.',
+    'Do not move someone who may have a neck or back injury unless they are in danger where they are.']],
+  ['Drinking water', ['Plan on one gallon per person per day, for drinking and hygiene.',
+    'Boil clear water for 1 minute (3 minutes above 6,500 feet), then let it cool.',
+    'If you cannot boil: 8 drops (1/8 teaspoon) of plain unscented household bleach (6%) per gallon of clear water; stir and wait 30 minutes. Double it for cloudy water.',
+    'Water from the water heater and ice cubes is usually safe. Water from flood areas is not.']],
+  ['Carbon monoxide', ['Never run a generator, grill, camp stove or charcoal indoors, in a garage, or near a window or door.',
+    'Keep a generator at least 20 feet from the house, exhaust pointed away.',
+    'Headache, dizziness or nausea in several people at once: get everyone into fresh air now and call for help.']],
+  ['Earthquake', ['During: Drop, Cover, Hold On. Stay away from windows. Do not run outside.',
+    'After: expect aftershocks. If you smell gas, leave, and do not use flames, switches or phones inside.',
+    'Check for injuries, then hazards: gas, water, power lines, broken glass. Wear shoes.']],
+  ['Flooding', ["Turn around, don't drown: six inches of moving water can knock you down; a foot can float a car.",
+    'Stay off bridges over fast water. Do not touch electrical equipment if you are wet or in water.',
+    'Move to higher ground. Flood water carries sewage and chemicals: wash anything it touches.']],
+  ['Power outage and food', ['Keep the fridge and freezer closed: food stays cold about 4 hours in a closed fridge, 48 hours in a full freezer (24 half full).',
+    'Throw away perishable food that has been above 40 °F for 2 hours or more. When in doubt, throw it out.',
+    'Unplug appliances to protect them from the surge when power comes back.']],
+  ['Fire and smoke', ['Get out, stay out. Crawl low under smoke. Feel doors before opening; a hot door means use another way.',
+    'If your clothes catch fire: stop, drop, and roll.',
+    'For wildfire smoke, stay indoors with windows closed; an N95 mask helps outdoors.']],
+  ['Shelter and warmth', ['Stay dry: wet clothing loses most of its warmth. Layer, cover your head, insulate yourself from the ground.',
+    'Shivering, confusion, slurred speech: hypothermia. Get them warm and dry, warm drinks if they are awake, and get help.',
+    'Shelters are under Hospitals & services as the EOC opens them.']],
+]
+function library() {
+  sheet('library', 'Survival library', `<div class="lib"><div class="meta">Kept in this app: it works with no network at all.</div>` +
+    LIBRARY.map(([t, items], i) => `<details${i === 0 ? ' open' : ''}><summary>${esc(t)}</summary><ul>${items.map(x => `<li>${esc(x)}</li>`).join('')}</ul></details>`).join('') +
+    `<div class="src">From standard public guidance (Ready.gov, the American Red Cross, CDC). In an emergency, follow what responders tell you.</div></div>`)
+}
+function fema() {
+  sheet('fema', 'Contact FEMA', `<div class="lib">
+    <div class="card"><b>Apply for disaster assistance</b><ul>
+      <li>Online: <b>DisasterAssistance.gov</b></li>
+      <li>By phone: <b>1-800-621-3362</b></li>
+      <li>On a phone: the free <b>FEMA app</b>, from your app store</li>
+      <li>In person: a <b>Disaster Recovery Center</b> (DisasterAssistance.gov lists them once they open)</li></ul></div>
+    <div class="card"><b>Have ready</b><ul><li>Your address at the time of the disaster, and where you can be reached now</li>
+      <li>Insurance information</li><li>Bank account details, for direct deposit</li></ul></div>
+    <div class="card"><b>No Internet here?</b> Use "Report to the EOC": the EOC can pass a FEMA request on for you.</div>
+    <div class="src">From USA.gov, "How to apply for disaster assistance" (checked 2026-11-01).</div></div>`)
 }

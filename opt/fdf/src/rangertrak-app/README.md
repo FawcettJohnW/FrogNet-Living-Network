@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r4
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r5
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -47,6 +47,23 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
   or "no fix"), read from the network's sensor store through the node (`databasehost.frognet`).
 - Failover: a lost session makes the app ask its node where the RAMs are, until the answer changes or the old sessions
   come back ([FAILOVER_ASKS_UNTIL_ANSWERED_V1]).
+
+## r5
+
+- **Public home**: a banner (the exercise, hospitals with beds, hazards marked, people checked in safe), the 911 line,
+  I need help and I'm safe as the two big actions, then Find someone, Report to the EOC, Hospitals & services, the
+  Survival library (in the app: works with no network) and Contact FEMA (DisasterAssistance.gov, 1-800-621-3362, the
+  FEMA app, Disaster Recovery Centers, from USA.gov), and the Map.
+- **Team**: starts with only its own team on the map; Layers (in front of the chat) adds other teams and resources.
+  Actions: my status (Available, En route, On scene, Need assistance, Out of service: part of my presence), deploy a
+  sensor platform, request services (to the EOC, with priority), mark a hazard, mark an area searched -- each
+  `(rt-field, <mission>, <dev>.<ms>)`, the EOC's response `(rt-field, <mission>.act, <item>~<dev>)` ([RT_FIELD_V1]).
+- **EOC**: starts on the map with teams, resources and hosts; chat is a button away. Requests has the teams' service
+  requests (Acknowledge, Dispatched, Done) with the public's requests and reports.
+- **Compliance** ([RT_COMPLIANCE_V1]): every node is asked once at the EOC's connect; a node with a working
+  environmental sensor (a reading with temperature, humidity, pressure, air quality, gas, radiation, water...) is shown
+  OUT OF COMPLIANCE on the status line, as a notice, at the top of Sensors, and as a red host on the map.
+- At connect the app says whether it reaches the network's sensor store and how many nodes report there.
 
 ## Build and test
 

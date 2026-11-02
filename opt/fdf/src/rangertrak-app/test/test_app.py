@@ -19,6 +19,8 @@
 #   10 the Team view opens on the teams only and on its own team's chat
 #   11-14 the public's home; I'm safe and Find someone; I need help and the EOC's action on it; a report to the EOC
 #   15 Sensors: the nodes, their sensors, a reading (a GPS position, and a reading with no fix); the Hosts line
+#   16-17 the Team view starts with its own team only; Layers in front of the chat
+#   18 team actions (a service request, a sensor platform) and the EOC's action; 19 compliance
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -67,7 +69,8 @@ SENS = {"1": ("Seattle7.System.Perf", "System", {"load": [0.4, 0.3, 0.2], "mem_f
         "2": ("New-York-2.System.Perf", "System", {"load": [1.1, 0.9, 0.7]}),
         "3": ("Seattle7.GPS.Position", "GPS", {"timestamp": 1, "error": "invalid gps json",
               "raw": '{"class":"TPV","mode":1} {"class":"TPV","mode":3,"lat":47.4473,"lon":-122.4598,"time":"2026-11-01T22:00:00Z"}'}),
-        "4": ("New-York-2.GPS.Position", "GPS", {"class": None, "device": None, "mode": None, "time": None})}
+        "4": ("New-York-2.GPS.Position", "GPS", {"class": None, "device": None, "mode": None, "time": None}),
+        "5": ("Seattle7.SenseHat.Env", "SenseHat", {"temperature": 31.2, "humidity": 44.0, "pressure": 1012.3})}
 def sensors(q):
     rows = [{"SensorID": int(i), "SensorName": n, "SensorType": t, "SensorAddress": "10.170.170.1" if n.startswith("Seattle7") else "10.28.28.1"}
             for i, (n, t, d) in SENS.items()]
@@ -114,12 +117,18 @@ with sync_playwright() as pw:
 
     tm = open_dev("alpha9", 412, 860)
     tm.click("#connect button"); tm.wait_for_selector("#main:not([hidden])", timeout=8000)
-    tm.wait_for_function("Object.keys(S.markers).length > 12", timeout=15000)
+    tm.wait_for_function("Object.keys(S.markers).length >= 4", timeout=15000)
     tk = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||S.who[id]||{}).kind))]")
+    tt = tm.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).team))]")
+    check(tt == ["Alpha"], "16 the Team view starts with only its own team on the map: teams %s" % tt)
+    tm.click("#layersBtn")
+    front = tm.evaluate("(()=>{$('#chat').hidden=false;const r=$('#layers').getBoundingClientRect();const e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !!e.closest('#layers')})()")
+    tm.evaluate("$('#chat').hidden=true"); tm.click("#layersBtn")
+    check(front, "17 Layers opens in front of the chat")
     check(set(tk) <= {"team", "eoc"} and tm.evaluate("S.tab") == "team:Alpha" and tm.evaluate("$('#to').value") == "team:Alpha",
           "10 the Team view opens on the teams only (%s) and on its own team's chat (%s)" % (tk, tm.evaluate("S.tab")))
     tm.evaluate("send({op:'fix',lat:47.6205,lng:-122.3493,acc:8})")          # the phone's GPS: the Space Needle
-    tm.click("#chatBtn"); tm.select_option("#to", "team:Alpha"); tm.fill("#text", "Alpha 9 on scene at the Center"); tm.click("#sayForm button")
+    tm.click("#chatBtn"); tm.evaluate("$('#to').value='team:Alpha'"); tm.fill("#text", "Alpha 9 on scene at the Center"); tm.click("#sayForm button")
     eoc.wait_for_function("S.msgs.some(m=>m.to==='team:Alpha' && m.text.includes('Alpha 9 on scene'))", timeout=10000)
     check(True, "3 the Alpha member's team message is on the EOC's Alpha tab")
     eoc.evaluate("openPop('alpha9')"); eoc.select_option("#pop .pto", "dev:alpha9"); eoc.fill("#pop .ptext", "Pat, check the north side"); eoc.click("#pop form button")
@@ -132,7 +141,7 @@ with sync_playwright() as pw:
     check("dev:alpha9=Pat (Alpha) (Alpha)" in opts or any(o.startswith("dev:alpha9=") for o in opts),
           "8 the EOC's To list has every person present (direct) and every team: %s" % [o for o in opts if not o.startswith('dev:sim')][:8])
     tm.evaluate("$('#chat').hidden=true")
-    eoc.select_option("#to", "all"); eoc.fill("#text", "All units: staging at Seattle Center"); eoc.click("#sayForm button")
+    eoc.evaluate("$('#chat').hidden=false"); eoc.select_option("#to", "all"); eoc.fill("#text", "All units: staging at Seattle Center"); eoc.click("#sayForm button")
     tm.wait_for_function("document.querySelector('#notices .notice') && /staging/.test(document.querySelector('#notices').textContent)", timeout=10000)
     check("(" in tm.inner_text("#chatBtn"), "9 the member's chat was closed: a notice on the map and the Chat button counts: '%s'" % tm.inner_text("#chatBtn"))
     if SHOTS:
@@ -141,14 +150,14 @@ with sync_playwright() as pw:
 
     pb = open_dev("pub1", 412, 860)
     pb.check("[name=role][value=public]"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
-    home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home .tile').length") == 6
+    home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home [data-go]').length") == 8
     pb.click("[data-go=map]"); pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
-    pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>id.startsWith('help:')?'help':(S.pos[id]||{}).kind))]")
-    check(set(pk) <= {"hospital", "fire", "power", "help"} and pb.is_hidden("#chatBtn"), "4 the public's map: kinds %s (no people's positions), chat hidden" % pk)
+    pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>id.startsWith('help:')?'help':id.startsWith('field:')?(S.field[id.slice(6)]||{}).what:(S.pos[id]||{}).kind))]")
+    check(set(pk) <= {"hospital", "fire", "power", "help", "hazard"} and pb.is_hidden("#chatBtn"), "4 the public's map: kinds %s (no people's positions), chat hidden" % pk)
     if SHOTS: pb.screenshot(path=os.path.join(SHOTS, "public-phone.png"))
 
     # [RT_PUBLIC_HOME_V1] the public opens on what a person can do; [RT_HELP_V1] help, safe, find, report
-    check(home_ok, "11 the public opens on its home (6 choices), not the map")
+    check(home_ok, "11 the public opens on its home (8 choices: help, safe, find, report, services, library, FEMA, map), not the map")
     pb.click("#homeBtn")
     pb.click("[data-go=safe]"); pb.fill(".hf [name=name]", "Jane Doe"); pb.click(".hf .go")
     pb.click("#sheet .sh-close"); pb.click("[data-go=find]"); pb.fill("#sheet .q", "jane")
@@ -163,6 +172,9 @@ with sync_playwright() as pw:
     eoc.evaluate("(()=>{const c=[...document.querySelectorAll('#sheet .card')].find(c=>/Bob Smith/.test(c.textContent));c.querySelector('button').click()})()")
     pb.wait_for_function("/on the way by EOC Desk/.test(document.querySelector('#sheet').textContent)", timeout=10000)
     check(True, "13 I need help: on the EOC's Requests (%d open, the simulated victims' too); the EOC's 'On the way' is on the person's own request" % n_open)
+    pb.click("#sheet .sh-close"); pb.click("[data-go=library]"); lib = pb.evaluate("document.querySelectorAll('#sheet details').length")
+    pb.click("#sheet .sh-close"); pb.click("[data-go=fema]"); fem = "1-800-621-3362" in pb.inner_text("#sheet")
+    check(lib >= 8 and fem, "20 the survival library (%d topics, in the app) and Contact FEMA" % lib)
     pb.click("#sheet .sh-close"); pb.click("[data-go=report]"); pb.select_option(".rf [name=category]", "Power line down")
     pb.fill(".rf [name=text]", "Line across 3rd Ave"); pb.click(".rf .go")
     eoc.wait_for_function("/Line across 3rd Ave/.test(document.querySelector('#sheet').textContent)", timeout=10000)
@@ -179,6 +191,20 @@ with sync_playwright() as pw:
     if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-sensors.png"))
     eoc.evaluate("send({op:'hosts'})"); eoc.wait_for_function("/Hosts: 2 node/.test(document.querySelector('#status').textContent)", timeout=10000)
     check("no fix: New-York-2" in eoc.inner_text("#status"), "15 Sensors: the nodes, a node's sensors, a reading; the GPS position read from the stored readings, no fix said; Hosts: '%s'" % eoc.inner_text("#status"))
+    # [RT_FIELD_V1] team actions; the EOC acts on a service request; [RT_COMPLIANCE_V1]
+    tm.click("#actBtn"); tm.select_option("#sheet [data-what=service] [name=type]", "Generator / power")
+    tm.select_option("#sheet [data-what=service] [name=priority]", "Urgent"); tm.fill("#sheet [data-what=service] [name=note]", "shelter at the school")
+    tm.click("#sheet [data-what=service] .go"); tm.click("#sheet [data-what=platform] .go")
+    eoc.click("#reqBtn"); eoc.wait_for_function("/shelter at the school/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    eoc.evaluate("(()=>{const c=[...document.querySelectorAll('#sheet .card')].find(c=>/shelter at the school/.test(c.textContent));[...c.querySelectorAll('button')].find(b=>b.textContent==='Dispatched').click()})()")
+    tm.wait_for_function("/dispatched by EOC Desk/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    plat = eoc.evaluate("Object.values(S.field).filter(b=>b.what==='platform').length")
+    check(True, "18 team actions: a service request is on the EOC's Requests, its 'Dispatched' on the member's Actions; %d sensor platforms deployed (the simulated ones and this one)" % plat)
+    check("OUT OF COMPLIANCE: Seattle7" in eoc.inner_text("#status") or eoc.evaluate("!!S.compliance['Seattle7']"),
+          "19 compliance: the host with a working environmental sensor says it is out of compliance: %s" % eoc.evaluate("JSON.stringify(S.compliance)")[:160])
+    if SHOTS:
+        eoc.click("#sheet .sh-close"); eoc.screenshot(path=os.path.join(SHOTS, "eoc-map.png"))
+        tm.screenshot(path=os.path.join(SHOTS, "team-actions.png"))
     sim.terminate(); sim.wait()
     eoc.wait_for_function("Object.values(S.pos).filter(b=>b.sim).length===0", timeout=10000)
     time.sleep(0.5)

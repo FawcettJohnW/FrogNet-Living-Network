@@ -42,12 +42,13 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r4";
+    public static final String BUILD = "rt-app-2026-11-01-r5";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
     private Map<String, String> rams = new HashMap<String, String>();
-    private volatile Follower general, mis, dm, positions, msgs, helpF, reports;
+    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF;
+    private String status = "available";
     private final Map<String, Follower> teams = new HashMap<String, Follower>();
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
     private Map<String, Object> fix = null;
@@ -73,6 +74,10 @@ public final class AppCore {
             else if (op.equals("sensorHosts")) sensorHosts();
             else if (op.equals("sensors")) sensors(Json.str(m.get("host")));
             else if (op.equals("sensor")) sensor(Json.str(m.get("id")), Json.str(m.get("name")));
+            else if (op.equals("field")) field(m);
+            else if (op.equals("fieldAction")) fieldAction(m);
+            else if (op.equals("status")) myStatus(Json.str(m.get("status")));
+            else if (op.equals("compliance")) compliance();
             else out("ev", "error", "text", "unknown op " + op);
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
     }
@@ -125,6 +130,22 @@ public final class AppCore {
         if (!rams.containsKey("general")) throw new Exception("RangerTrak's general RAM is not served on this network yet");
         start();
         out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+        if (!role.equals("public")) probeSensors();
+    }
+
+    /** [RT_SENSORS_V1] said once at connect: whether this device reaches the network's sensor store, and how many nodes
+     *  report there -- so a Sensors screen that would be empty says why before anyone presses it */
+    private void probeSensors() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorType=System", null)));
+                java.util.Set<String> h = new java.util.TreeSet<String>();
+                for (Object r0 : Json.arr(o.get("rows"))) { String nm = Json.str(Json.obj(r0).get("SensorName")); int i = nm.indexOf(".System."); if (i > 0) h.add(nm.substring(0, i)); }
+                say("Sensors: " + h.size() + " node(s) reporting (" + String.join(", ", h) + ") -- the Sensors button shows them");
+            } catch (Exception e) {
+                out("ev", "error", "text", "Sensors: this device does not reach the network's sensor store (" + SENSORS + "): " + e);
+            }
+        } }, "probe-sensors").start();
     }
 
     /** a team as people say it: its RAM is "alpha", the team is "Alpha" */
@@ -133,9 +154,9 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = null;
+        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -165,7 +186,7 @@ public final class AppCore {
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports}) if (x != null) x.stop();
+        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF}) if (x != null) x.stop();
         general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
         // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
@@ -175,6 +196,10 @@ public final class AppCore {
         // record (status open / safe / resolved: "safe" is how a person says they are safe); (help, action, <rid>~<dev>)
         // a responder's or the EOC's action on it. Not own: a request stays when the phone that made it is gone.
         helpF = new Follower("help", g[0], Integer.parseInt(g[1]), API, "help", lg, null, new Runnable() { public void run() { onHelp(); } });
+        // [RT_FIELD_V1] what teams do in the field: (rt-field, <mission>, <dev>.<ms>) a deployed sensor platform, a
+        // request for services, a hazard, a searched area -- its writer's record, not own (it stays when the phone goes);
+        // (rt-field, <mission>.act, <item>~<dev>) the EOC's or a team's action on one (acknowledged, dispatched, done)
+        fieldF = new Follower("field", g[0], Integer.parseInt(g[1]), API, "rt-field", lg, null, new Runnable() { public void run() { onField(); } });
         if (!role.equals("public")) {
             reports = new Follower("reports", g[0], Integer.parseInt(g[1]), API, "rt-report", mission, lg, null, new Runnable() { public void run() { onReports(); } });
         }
@@ -194,7 +219,7 @@ public final class AppCore {
             for (int i = 0; i < 100 && (general == null || !general.up() || positions == null || !positions.up()); i++) sleepMs(50);
             if (general == null) return;
             general.write(mission, dev, Json.o("name", name, "kind", role.equals("eoc") ? "eoc" : "team", "team", team, "host", "", "station", dev, "via", door,
-                    "app", BUILD), true);
+                    "status", status, "app", BUILD), true);
             if (fix != null && positions != null) positions.write(mission, dev, fix, true);
         } }, "write-own").start();
     }
@@ -203,7 +228,7 @@ public final class AppCore {
         out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")));   // the page's "use my location"
         if (role.equals("public") || positions == null) return;          // the public's position is not published
         fix = Json.o("name", name, "kind", role.equals("eoc") ? "eoc" : "team", "team", team, "lat", Json.dbl(m.get("lat")),
-                "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door);
+                "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status);
         positions.write(mission, dev, fix, true);
     }
 
@@ -249,6 +274,33 @@ public final class AppCore {
     private void onHelp() {
         if (helpF == null) return;
         out("ev", "help", "requests", new HashMap<String, Object>(helpF.family("request")), "actions", new HashMap<String, Object>(helpF.family("action")));
+    }
+
+    private void onField() {
+        if (fieldF == null) return;
+        out("ev", "field", "items", new HashMap<String, Object>(fieldF.family(mission)), "acts", new HashMap<String, Object>(fieldF.family(mission + ".act")));
+    }
+
+    private void field(Map<String, Object> m) throws Exception {
+        if (role.equals("public") || fieldF == null) throw new Exception("field actions are the teams' and the EOC's");
+        long ms = System.currentTimeMillis();
+        Map<String, Object> b = Json.obj(m.get("bag"));
+        b.put("by", dev); b.put("name", name); b.put("team", team); b.put("at", ms / 1000);
+        if (!fieldF.write(mission, dev + "." + ms, b, false)) throw new Exception("not connected");
+        say("sent: " + Json.str(b.get("what")) + " " + Json.str(b.get("type")));
+    }
+
+    private void fieldAction(Map<String, Object> m) throws Exception {
+        if (role.equals("public") || fieldF == null) throw new Exception("not connected");
+        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", name, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
+        if (!fieldF.write(mission + ".act", Json.str(m.get("id")) + "~" + dev, b, false)) throw new Exception("not connected");
+    }
+
+    /** this member's status (available, en route, on scene, needs assistance, out of service): part of its own presence */
+    private void myStatus(String st) {
+        status = st;
+        writeOwn();
+        if (fix != null && positions != null) { fix.put("status", st); positions.write(mission, dev, fix, true); }
     }
 
     private void onReports() {
@@ -332,6 +384,51 @@ public final class AppCore {
                 out("ev", "sensor", "id", id, "name", nm, "data", jd, "updated", Json.str(row.get("updated_at")), "fix", fx);
             } catch (Exception e) { out("ev", "error", "text", "sensor " + nm + ": " + e.getMessage()); }
         } }, "sensor").start();
+    }
+
+    /** [RT_COMPLIANCE_V1] (John, 2026-11-01) "Any host with working environmental sensors should identify itself as being
+     *  out of compliance." A node's environmental sensor is one whose reading carries environmental measurements
+     *  (temperature, humidity, pressure, air quality, gas, radiation, water...: sensehat_reporter.bash and the like);
+     *  working = its reading has such a value. Every node is asked once (its System sensor names it), and each such
+     *  node is reported with its readings. The rule is here, in one place, to change when the criteria do. */
+    static final String[] ENV = {"temp", "humid", "pressure", "pm2", "pm10", "aqi", "co2", "voc", "gas", "radiation", "water", "smoke", "lux"};
+    static Map<String, Object> environmental(Object jd) {
+        Map<String, Object> o;
+        try { o = jd instanceof String ? Json.obj(Json.parse((String) jd)) : Json.obj(jd); } catch (IllegalArgumentException e) { return null; }
+        Map<String, Object> got = new java.util.TreeMap<String, Object>();
+        for (Map.Entry<String, Object> e : o.entrySet()) {
+            String k = e.getKey().toLowerCase();
+            if (!(e.getValue() instanceof Number)) continue;
+            for (String w : ENV) if (k.contains(w)) { got.put(e.getKey(), e.getValue()); break; }
+        }
+        return got.isEmpty() ? null : got;
+    }
+
+    private void compliance() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorType=System", null)));
+                Map<String, String> hosts = new java.util.TreeMap<String, String>();
+                for (Object r0 : Json.arr(o.get("rows"))) {
+                    String nm = Json.str(Json.obj(r0).get("SensorName")); int i = nm.indexOf(".System.");
+                    if (i > 0) hosts.put(nm.substring(0, i), Json.str(Json.obj(r0).get("SensorAddress")));
+                }
+                Map<String, Object> out = new HashMap<String, Object>();
+                for (Map.Entry<String, String> h : hosts.entrySet()) {
+                    Map<String, Object> l = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorName__like=" + enc(h.getKey() + ".%"), null)));
+                    List<Object> found = new ArrayList<Object>();
+                    for (Object r0 : Json.arr(l.get("rows"))) {
+                        Map<String, Object> r = Json.obj(r0); String t = Json.str(r.get("SensorType")), nm = Json.str(r.get("SensorName"));
+                        if (t.equals("System") || t.equals("GPS") || t.equals("LinkStats") || t.equals("SemanticProxy")) continue;
+                        Map<String, Object> d = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensor_data&action=get&SensorID=" + enc(Json.str(r.get("SensorID"))), null)));
+                        Map<String, Object> env = environmental(Json.obj(d.get("row")).get("jsonData"));
+                        if (env != null) found.add(Json.o("sensor", nm, "readings", env, "updated", Json.str(Json.obj(d.get("row")).get("updated_at"))));
+                    }
+                    if (!found.isEmpty()) out.put(h.getKey(), Json.o("address", h.getValue(), "sensors", found));
+                }
+                out("ev", "compliance", "hosts", out, "asked", hosts.size());
+            } catch (Exception e) { out("ev", "error", "text", "compliance (the nodes' sensors): " + e.getMessage()); }
+        } }, "compliance").start();
     }
 
     /** [RT_HOSTS_V1] the nodes, where they are: a node with a GPS records it as its own sensor (gpsd_reporter.bash:

@@ -36,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r6"
+BUILD_TAG = "rt-sim-2026-11-01-r7"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -229,7 +229,7 @@ class World:
     def bags(self, k):
         v = self.u[k]
         team = v.get("team", "")
-        who = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""), "host": "", "station": ""}
+        who = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""), "host": "", "station": "", "sim": True}
         pos = {"name": v["name"], "kind": v["kind"], "team": team, "color": v.get("color", ""),
                "lat": round(v["p"][0], 6), "lng": round(v["p"][1], 6), "at": int(time.time()), "sim": True}
         if v["kind"] != "host":                                    # which node it is connected through: the nearest
@@ -248,6 +248,19 @@ NEED_OF = {"needs transport": ["medical", "evacuation"], "minor injuries": ["med
 SAFE_PEOPLE = [("Carol Jensen", 47.6230, -122.3120), ("Dan Whitaker", 47.5600, -122.3870), ("Nora Ibrahim", 47.4480, -122.4580),
                ("Peter Novak", 47.6770, -122.3850), ("Lily Tran", 47.6110, -122.2010), ("Omar Haddad", 47.4800, -122.2170),
                ("Sofia Reyes", 47.5450, -122.3200), ("George Adams", 47.7060, -122.3270)]
+
+
+FIELD = [("platform", "Air quality (PM2.5 / gas)", "Alpha", 47.6080, -122.3380, {"status": "deployed", "note": "on the light pole, 1st and Pike"}),
+         ("platform", "Water level / flood gauge", "Bravo", 47.5700, -122.4100, {"status": "deployed", "note": "Alki seawall"}),
+         ("platform", "Mesh relay node", "Delta", 47.4300, -122.4700, {"status": "deployed"}),
+         ("service", "Water / food resupply", "Charlie", 47.4790, -122.2600, {"priority": "Priority", "note": "40 people at the Tukwila community center"}),
+         ("service", "Generator / power", "Delta", 47.4470, -122.4590, {"priority": "Urgent", "note": "Vashon clinic on battery"}),
+         ("service", "Heavy equipment", "Bravo", 47.5450, -122.3620, {"priority": "Routine", "note": "debris on Delridge Way"}),
+         ("hazard", "Gas leak", "Alpha", 47.6150, -122.3200, {"note": "smell of gas, block evacuated"}),
+         ("hazard", "Downed power line", "Charlie", 47.4600, -122.2400, {"note": "across S 180th St"}),
+         ("hazard", "Flooding", "Bravo", 47.5250, -122.3900, {"note": "Fauntleroy ferry approach"}),
+         ("search", "Searched, no one found", "Alpha", 47.6250, -122.3220, {"radius": 150}),
+         ("search", "Searched, people found", "Charlie", 47.4810, -122.2180, {"radius": 120, "note": "3 people, walked out"})]
 
 
 def help_bag(v, status):
@@ -335,7 +348,12 @@ def main():
                 for name, lat, lng in SAFE_PEOPLE:                  # people who said they are safe (Find someone)
                     ms.write("help", "request", "sim-safe-" + name.replace(" ", "-").lower(),
                              help_bag({"name": name, "p": (lat, lng)}, "safe"), wait=True)
-                log("on %s: %d instances, each on its own session; %d safe check-ins" % (now, len(w.u), len(SAFE_PEOPLE)))
+                for i, (what, typ, team, lat, lng, extra) in enumerate(FIELD):   # [RT_FIELD_V1] what the teams have done so far
+                    bag = {"what": what, "type": typ, "team": team, "name": "Team " + team, "by": "rt-sim", "lat": lat, "lng": lng,
+                           "note": "", "at": int(time.time()), "sim": True}
+                    bag.update(extra)
+                    ms.write("rt-field", a.mission, "sim-field-%d" % i, bag, wait=True)
+                log("on %s: %d instances, each on its own session; %d safe check-ins; %d field items" % (now, len(w.u), len(SAFE_PEOPLE), len(FIELD)))
                 ms.close()
             time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
             dt = time.monotonic() - last; last = time.monotonic()

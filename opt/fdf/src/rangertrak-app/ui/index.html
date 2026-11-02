@@ -31,6 +31,7 @@
   <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
     <span id="dot" title=""></span>
     <button id="homeBtn" type="button" hidden>Home</button>
+    <button id="actBtn" type="button" hidden>Actions</button>
     <button id="reqBtn" type="button" hidden>Requests</button>
     <button id="sensBtn" type="button" hidden>Sensors</button>
     <button id="layersBtn" type="button">Layers</button>
@@ -48,14 +49,22 @@
     <button type="button" class="pclose">Close</button></form>
     <div class="pvideo"></div></div>
   <section id="home" hidden>
-    <div class="hello">What do you need?</div>
-    <div class="tiles">
-      <button class="tile red" data-go="needhelp"><b>I need help</b><span>medical, trapped, water, shelter…</span></button>
-      <button class="tile green" data-go="safe"><b>I'm safe</b><span>let family and responders know</span></button>
-      <button class="tile" data-go="find"><b>Find someone</b><span>search by name</span></button>
-      <button class="tile" data-go="report"><b>Report to the EOC</b><span>damage, hazards, what you see</span></button>
-      <button class="tile" data-go="places"><b>Hospitals &amp; services</b><span>beds, fires, power outages</span></button>
-      <button class="tile big" data-go="map"><b>Map</b><span>everything near you</span></button>
+    <div class="hero">
+      <div class="hero-t"><div class="hero-k">RangerTrak</div><div class="hero-m" id="heroMission">connected</div></div>
+      <div class="hero-s" id="heroSummary"></div>
+    </div>
+    <div class="callout">In danger right now? <b>Call 911</b> if you can. If you can't, ask for help here: responders see it at once.</div>
+    <div class="primary">
+      <button class="act red" data-go="needhelp"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z"/></svg><b>I need help</b><span>medical · trapped · water · shelter</span></button>
+      <button class="act green" data-go="safe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg><b>I'm safe</b><span>tell family and responders</span></button>
+    </div>
+    <div class="cards">
+      <button class="card2" data-go="find"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg><b>Find someone</b><span>who has checked in, by name</span></button>
+      <button class="card2" data-go="report"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg><b>Report to the EOC</b><span>damage · hazards · what you see</span></button>
+      <button class="card2" data-go="places"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-2 10h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg><b>Hospitals &amp; services</b><span>beds · fires · power outages</span></button>
+      <button class="card2" data-go="library"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zM6 4h5v8l-2.5-1.5L6 12V4z"/></svg><b>Survival library</b><span>first aid · water · shelter · safety</span></button>
+      <button class="card2" data-go="fema"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4z"/></svg><b>Contact FEMA</b><span>apply for disaster assistance</span></button>
+      <button class="card2 mapcard" data-go="map"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3l-.2.1L15 5.1 9 3 3.4 4.9a.5.5 0 0 0-.4.5V20.5a.5.5 0 0 0 .5.5l.2-.1L9 18.9l6 2.1 5.6-1.9a.5.5 0 0 0 .4-.5V3.5a.5.5 0 0 0-.5-.5zM15 19l-6-2.1V5l6 2.1V19z"/></svg><b>Map</b><span>hospitals, hazards and help near you</span></button>
     </div>
   </section>
   <section id="sheet" hidden><div class="sh-head"><b class="sh-title"></b><button type="button" class="sh-close">Close</button></div><div class="sh-body"></div></section>

@@ -23,7 +23,7 @@ header .brand-s { font-weight: 800; }
 #dot.up { background: var(--ac); }
 header button { background: #24382c; color: var(--fg); border: 1px solid var(--bd); border-radius: 6px; padding: 5px 9px; }
 #map { flex: 1; }
-#layers { position: absolute; top: 50px; right: 10px; z-index: 1000; background: var(--pn); border: 1px solid var(--bd); border-radius: 8px; padding: 8px 12px; }
+#layers { position: absolute; top: 50px; right: 10px; z-index: 1400; max-height: calc(100% - 70px); overflow-y: auto; background: var(--pn); border: 1px solid var(--bd); border-radius: 8px; padding: 8px 12px; }
 #layers label { display: block; padding: 3px 0; }
 #legend { position: absolute; bottom: 14px; left: 10px; z-index: 1000; background: rgba(23,36,28,.92); border: 1px solid var(--bd); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 #legend span { display: inline-block; margin-right: 10px; }
@@ -80,3 +80,23 @@ header { overflow: hidden; }
   header { gap: 5px; padding: 0 6px; } header #mission { display: none; } header .brand-s { font-size: 13px; }
   header button { padding: 4px 6px; font-size: 13px; }
 }
+#layers .lh { color: var(--mu); font-size: 12px; margin-top: 4px; } #layers i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.card.ooc { border-color: #d50000; } .card.ooc b { color: #ff6b6b; }
+.sh-body .row { display: flex; flex-wrap: wrap; gap: 6px; } .sh-body h3 { margin: 8px 0 0; font-size: 15px; }
+@media (max-width: 480px) { header .brand-s { display: none; } header button { padding: 4px 5px; font-size: 12px; } #dot { flex: none; } }
+/* [RT_PUBLIC_HOME_V1] the public's home: a banner, the two things that matter most, then the rest as cards */
+#home { padding: 0 0 24px; background: linear-gradient(180deg, #13261b 0, var(--bg) 260px); }
+#home .hero { padding: 22px 18px 14px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 10px; }
+#home .hero-k { font-size: 30px; font-weight: 800; letter-spacing: .5px; } #home .hero-m { color: #a8d8b8; }
+#home .hero-s { color: var(--mu); font-size: 14px; text-align: right; }
+#home .callout { margin: 0 16px 14px; padding: 10px 14px; border-radius: 10px; background: #3a1414; border: 1px solid #7a2a2a; color: #ffd7d7; }
+#home .primary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 0 16px 16px; }
+#home .act { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 20px 18px; border-radius: 16px; border: 0; color: #fff; text-align: left; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+#home .act svg { width: 34px; height: 34px; fill: currentColor; } #home .act b { font-size: 22px; } #home .act span { opacity: .85; font-size: 13px; }
+#home .act.red { background: linear-gradient(135deg, #d32f2f, #8e1b1b); } #home .act.green { background: linear-gradient(135deg, #2e9e5b, #1b5e35); }
+#home .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 10px; margin: 0 16px; }
+#home .card2 { display: grid; grid-template-columns: 40px 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; text-align: left; padding: 14px; border-radius: 12px; background: var(--pn); border: 1px solid var(--bd); color: var(--fg); cursor: pointer; }
+#home .card2 svg { grid-row: span 2; width: 34px; height: 34px; fill: #6fdc96; } #home .card2 b { font-size: 16px; } #home .card2 span { color: var(--mu); font-size: 12px; }
+#home .card2:hover, #home .act:hover { filter: brightness(1.08); } #home .mapcard { grid-column: 1 / -1; background: linear-gradient(135deg, #1d3a28, #17241c); }
+@media (max-width: 420px) { #home .primary { grid-template-columns: 1fr; } #home .act b { font-size: 20px; } }
+.lib h4 { margin: 10px 0 4px; } .lib li { margin: 3px 0; } .lib .src { color: var(--mu); font-size: 12px; } .lib details { border: 1px solid var(--bd); border-radius: 8px; padding: 6px 10px; background: #0b130e; } .lib summary { cursor: pointer; font-weight: 700; }
