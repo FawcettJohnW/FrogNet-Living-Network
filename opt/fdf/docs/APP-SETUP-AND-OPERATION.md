@@ -123,6 +123,60 @@ themselves.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
+## Enrollment: the WAN region, the EOC, a team's lead and its members ([ENROLL_V1])
+
+**John, 2026-11-02:** "The initial Team Lead setup can be done through a QR code, and the lead can generate another QR
+code for each member ... The only requirement is that both sides be connected to a network that can see both sides at
+the same time." "Be sure to make the design generic ... This is the common way to join a region with an app. Once the
+user has authenticated to the WAN app once, additional apps may be installed that have hubs on the LAN/WAN, without
+additional authentication." "The 'VPN' is to the WAN hub. Thereafter it's just routing."
+
+A device has one tunnel, to the WAN hub. Everything else (the EOC's node, its app RAMs, a lead's phone) is reached by
+routing through it. Enrolling is how a device gets that tunnel's invitation and its role in an app, in one step:
+scan a QR code, type the password.
+
+**1. The WAN region** (StreamingFrog, reachable from the Internet; it routes to the EOC's LAN, 10.170.170.0/24).
+On StreamingFrog: `fdf-setup` (or `fdf-region-create frognet <public IP>`). Its hub's unit brings up `fdf-org@frognet`
+and `fdf-identity@frognet` with it. Then, on any machine in the region, `fdf-org level <Level> ...` and
+`fdf-org line <Level>` give the line a node joins with.
+
+**2. The EOC** (Seattle7, 10.170.170.1, on the EOC's network). It joins the WAN region as a node:
+`fdf-region-join fdfjoin1.<...>`. Then the app goes on it: the add-in (the door, `/dc/ram.php`) and
+`fdf-app config rangertrak general,<team>,... --role eoc --role <team>:default ... --user EOCAdmin:<pw>=eoc
+--admin <admin>:<pw>`, with `fdf-app serve` running. From then on the admin works in the admin app (RangerTrak-Admin),
+connected through Seattle7's door. The admin adds teams, hospitals, ambulances, users and roles there. The door asks
+the region Seattle7 is joined to for invitations (`fdf-identity <app>-<user> --leaf --again --line`, answered where
+the WAN hub is).
+
+**3. A team's lead is named by the admin.** In the admin app's Users list, the admin gives the user the team's role,
+a password, and ticks **Leads**, then Apply. Every member of the app adopts the change (`"lead": true` on that user).
+**QR** shows the lead's enrollment code: `fdfenroll1 http://<Seattle7's door>/dc/ram.php rangertrak <user>`, drawn
+as the frog. The lead scans it with the app and types the password. The door checks it against the verifier and
+answers with the role, the lead flag and the phone's own WAN invitation. The phone joins the WAN region with it, and
+the app opens on the team's screen. Only the lead's phone and the door need to see each other for that one exchange:
+the EOC's Wi-Fi, or the Internet.
+
+**Save the assignments.** The assignments live in the network's RAM. If the node holding them goes, they are gone
+until the admin puts them back. After a change, the admin presses **Save the current assignments**. To put them back
+on the primary or a fallback, the admin picks the save and presses **Restore**, then Apply. Nothing does this on its
+own (John: "No, do not automate this part of it. It needs to be intentional").
+
+**4. The lead assigns its members** on the phone's Team members page: each member's name (usually a callsign) and a
+password. The phone keeps only verifiers. While the page is open, the lead's phone sponsors its team on port 21801.
+**QR** shows a member's code: `fdfenroll1 http://<the lead's address>:21801/enroll rangertrak <name>`. The lead's
+address is whichever the member can reach: the hotspot's, the Wi-Fi's, or the lead's WAN edge. The member scans it and
+types the password. The lead's phone checks it, asks the door for the member's invitation as the lead
+(`op=identity`, `<app>-<team>-<name>`), and answers as the door would: the role, not a lead, the invitation, and the
+door. The member's phone joins the WAN region with its own invitation. From then on, members reach each other, the
+lead and the EOC by routing, over the hotspot or the Internet.
+
+**5. Other apps** on an enrolled phone use the same membership. An app whose hub is on the LAN or the WAN is reached
+by routing and admits the device as a member of the region, with no new login.
+
+Gates: `rinab/tools/netns-enroll-test.sh` (the door, the hub, a lead's sponsor and two phones joining, on real
+pieces); `test/test_admin.py` 5-7 (leads, the QR read by zxing, save and restore); `test/test_frogqr.py`;
+`frognet-ram-java/test/EnrollTest.java`.
+
 ## Normal running
 
 1. Members and devices publish changes to the truth they own.
