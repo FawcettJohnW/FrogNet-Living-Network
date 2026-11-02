@@ -42,12 +42,12 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r8";
+    public static final String BUILD = "rt-app-2026-11-02-r9";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
     private Map<String, String> rams = new HashMap<String, String>();
-    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF;
+    private volatile Follower general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF;
     private String status = "available";
     private final Map<String, Follower> teams = new HashMap<String, Follower>();
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
@@ -195,9 +195,9 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = null;
+        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = logF = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -228,11 +228,11 @@ public final class AppCore {
         for (String k : f.keySet())
             if (best.isEmpty() || startedAt(f.get(k)) > startedAt(f.get(best)) || (startedAt(f.get(k)) == startedAt(f.get(best)) && k.compareTo(best) > 0)) best = k;
         if (best.isEmpty()) return;
-        if (best.equals(mission)) { out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f)); return; }
+        if (best.equals(mission)) { onLog(); out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f)); return; }
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF, facF, trF, callF}) if (x != null) x.stop();
+        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports, fieldF, facF, trF, callF, logF}) if (x != null) x.stop();
         general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
         // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
@@ -254,6 +254,11 @@ public final class AppCore {
         // [RT_CALL_V1] a call to this device: (rt-call, <mission>.<dev>, <from>.<ms>), in the callee's own variable
         if (!role.equals("public"))
             callF = new Follower("calls", g[0], Integer.parseInt(g[1]), API, "rt-call", mission + "." + dev, lg, null, new Runnable() { public void run() { onCalls(); } });
+        // [RT_RADIO_LOG_IN_THE_APP_V1] the radio log's entries (RangerTrak's own app, /rt/log.html: scribes and field phones),
+        // (rt-log, <mission>.<opPeriod>, <dev>.<seq>), in the same general RAM: the EOC and the teams see them as they are
+        // typed. Read only here: an entry's message number is its post's (ICS-309), made by the radio log.
+        if (!role.equals("public"))
+            logF = new Follower("radio log", g[0], Integer.parseInt(g[1]), API, "rt-log", lg, null, new Runnable() { public void run() { onLog(); } });
         fieldF = new Follower("field", g[0], Integer.parseInt(g[1]), API, "rt-field", lg, null, new Runnable() { public void run() { onField(); } });
         if (!role.equals("public")) {
             reports = new Follower("reports", g[0], Integer.parseInt(g[1]), API, "rt-report", mission, lg, null, new Runnable() { public void run() { onReports(); } });
@@ -334,6 +339,14 @@ public final class AppCore {
 
     private String kindOf() { return role.equals("eoc") ? "eoc" : role.equals("ambulance") ? "ambulance" : role.equals("hospital") ? "staff" : "team"; }
 
+    private void onLog() {
+        Follower f = logF, mf = mis; if (f == null || mf == null) return;
+        Map<String, Object> mb = mf.family("settings").get(mission);
+        Object o = mb == null ? null : mb.get("opPeriod");      // as the radio log's page says it (String(1) is "1")
+        String op = o instanceof Number && ((Number) o).doubleValue() == ((Number) o).longValue() ? String.valueOf(((Number) o).longValue()) : Json.str(o);
+        String v = mission + "." + (op.isEmpty() ? "1" : op);
+        out("ev", "radiolog", "op", op.isEmpty() ? "1" : op, "entries", new HashMap<String, Object>(f.family(v)));
+    }
     private void onFacilities() { if (facF != null) out("ev", "facilities", "list", new HashMap<String, Object>(facF.family(mission))); }
     private void onTransports() {
         if (trF == null) return;

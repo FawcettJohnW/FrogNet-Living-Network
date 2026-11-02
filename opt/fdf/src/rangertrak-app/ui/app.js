@@ -96,6 +96,7 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'incoming') ring(m)
   else if (m.ev === 'devices') devicePicker(m)
   else if (m.ev === 'myfix') { myFix = { lat: m.lat, lon: m.lng }; followMe() }
+  else if (m.ev === 'radiolog') { S.rlog = m; if (S.sheet === 'rlog' && !$('#sheet').hidden) radioLog() }
   else if (m.ev === 'nogps') noGps(m)
   else if (m.ev === 'geocoded') geocoded(m)
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
@@ -877,3 +878,21 @@ window.missionPanel = missionPanel
 $('#misBtn').onclick = () => missionPanel()
 const _connected4 = connected
 connected = function (m) { _connected4(m); $('#misBtn').hidden = S.role === 'public'; addressFix() }
+
+
+// ------------------------------------------------------------ [RT_RADIO_LOG_IN_THE_APP_V1] RangerTrak's radio log, here
+// What the scribes and field phones log over the radio (the radio log app, /rt/log.html), for this mission and its
+// operational period, newest first, as it is typed. Read only: the entries and their ICS-309 numbers are the posts'.
+const RL_STATUS = { urgent: 'Urgent', 'need-rest-food': 'Needs rest/food', ok: 'OK', info: 'Info' }
+function radioLog() {
+  const m = S.rlog || {}, rows = Object.values(m.entries || {}).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))
+  const no = (n) => n ? [n.station, n.seq].filter(Boolean).join('-') : ''
+  const loc = (l) => !l ? '' : typeof l === 'string' ? l : l.text || (typeof l.lat === 'number' ? l.lat.toFixed(4) + ', ' + (l.lng ?? l.lon).toFixed(4) : '')
+  sheet('rlog', 'Radio log — op period ' + esc(m.op || '1'), (rows.length ? `<table class="rl"><thead><tr><th>Time</th><th>No.</th><th>Call sign</th><th>Status</th><th>Location</th><th>Notes</th><th>Post</th></tr></thead><tbody>` +
+    rows.map(r => `<tr${r.status === 'urgent' ? ' class="urg"' : ''}><td>${r.date ? new Date(r.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</td><td>${esc(no(r.msgNo))}</td><td><b>${esc(r.callsign)}</b></td>
+      <td>${esc(RL_STATUS[r.status] || r.status || '')}</td><td>${esc(loc(r.location))}</td><td>${esc(r.notes || '')}</td><td>${esc(r.by || '')}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="meta">No radio log entries in this operational period yet. Scribes log them in the Radio log app (/rt/ on the node).</div>'))
+}
+$('#logBtn').onclick = radioLog
+const _connected5 = connected
+connected = function (m) { _connected5(m); $('#logBtn').hidden = S.role !== 'eoc' && S.role !== 'team' }

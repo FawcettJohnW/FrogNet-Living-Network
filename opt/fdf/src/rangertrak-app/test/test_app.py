@@ -28,6 +28,7 @@
 #      the phone's) is its position on the EOC's map, marked as an address; the member's map is centred on it
 #   27 the chat's Call: offered when the To is a person
 #   28 a new mission started by a team member is the mission on every device
+#   29 RangerTrak's radio log (its own app's entries) on the EOC's Radio log
 #   24 the connect screen's teams are the ones the admin defined (door op=roles)
 #   23 Call: the EOC calls the Alpha member: the Communicator's device picker (camera, mic, speakers) opens on the
 #      EOC; the member's app rings, Answer opens its Communicator to answer; the chosen devices go to the Communicator
@@ -263,6 +264,17 @@ with sync_playwright() as pw:
     check(st.get("camera") == "video=Integrated Camera" and st.get("mic") == "2" and st.get("speaker") == "2" and st.get("ram", "").endswith(":8800") and "calling" in ring,
           "23 Call: the EOC's Communicator picker (camera, mic, speakers) gives %s; the member's app rang ('%s') and Answer opened its Communicator to answer" % (
               {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
+    # [RT_RADIO_LOG_IN_THE_APP_V1] a scribe's entry, as the radio log app writes it (rt.js logEntry), on the EOC's Radio log
+    sys.path.insert(0, os.path.join(FDF, "lib", "python")); import fnw1
+    gh, gp = json.load(open(T + "/var/app-where.json"))["rangertrak.general"].rsplit(":", 1); ls = fnw1.Session(gh, gp)
+    ls.write("rt-log", "seattle-metro.1", "scribe1.1", {"uid": "scribe1.1", "callsign": "KJ7ABC", "status": "urgent", "location": {"text": "Burton dock"},
+             "notes": "Two injured at the dock, need transport", "date": "2026-11-02T12:40:00.000Z", "msgNo": {"station": "vashon-post", "seq": 1},
+             "dev": "scribe1", "by": "Vashon post"}, wait=True); ls.close()
+    eoc.evaluate("$('#sheet').hidden=true"); eoc.click("#logBtn")
+    eoc.wait_for_function("/KJ7ABC/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    check("Burton dock" in eoc.inner_text("#sheet") and tm.is_visible("#logBtn"),
+          "29 a scribe's radio log entry (KJ7ABC, urgent, Burton dock) on the EOC's Radio log as it is written; the team has the Radio log too")
+    if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-radiolog.png"))
     # [RT_MISSION_V1] the mission
     eoc.evaluate("$('#sheet').hidden=true"); eoc.click("#misBtn"); eoc.wait_for_selector("#sheet .mis", timeout=5000)
     m0 = eoc.inner_text("#sheet .mis")

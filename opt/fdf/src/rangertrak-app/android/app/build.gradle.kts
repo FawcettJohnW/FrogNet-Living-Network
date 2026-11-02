@@ -11,8 +11,8 @@ android {
         applicationId = "net.frognet.rangertrak"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "rt-app-2026-11-01-r8"
+        versionCode = 9
+        versionName = "rt-app-2026-11-02-r9"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_1_8; targetCompatibility = JavaVersion.VERSION_1_8 }
     sourceSets["main"].java.srcDirs("src/main/java", "../../core/src", "../../../frognet-ram-java/src")

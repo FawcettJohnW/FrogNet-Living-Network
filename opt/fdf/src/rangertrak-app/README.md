@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r8
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r9
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -127,6 +127,13 @@ the same shell, core and page; its manifest's `net.frognet.rangertrak.ROLE = tea
   mission now is the one started last, on every device). `(rt-mission, settings, <mission>)`.
 - [DOOR_SAYS_ITS_BUILD_V1] the door says its build (`X-FDF-Door`, and `door` in its admin and roles answers); the admin
   app says which door answered.
+
+## r9: RangerTrak's own radio log in the EOC and team views ([RT_RADIO_LOG_IN_THE_APP_V1])
+
+The radio log app (`fdf-source/fdf/www/rt`, RangerTrak's own screens converted to the RAM) and these apps are on the
+same general RAM, mission, presence and positions. Radio log (EOC, Team) shows its entries,
+`(rt-log, <mission>.<opPeriod>, <dev>.<seq>)`, newest first, as the scribes type them; read only (the ICS-309 message
+numbers are the posts').
 
 ## Build and test
 
