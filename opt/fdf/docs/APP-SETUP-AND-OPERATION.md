@@ -43,7 +43,10 @@ further facts appear.
 focus, while the admin app is used to set up and configure things. Clients must be able to connect to the RAM before
 they can do anything."
 
-- **The admin app** sets the app up and configures it: the steps below. It writes the app configuration tuples.
+- **The admin app** sets the app up and configures it: the steps below. It writes the app configuration tuples. It is a
+  standalone app (RangerTrak's: `opt/fdf/src/rangertrak-app`, `RangerTrak-Admin`) that reaches the network through any
+  member's door. Its change is the whole configuration, signed with the admin key; every member that has the app checks
+  the signature with its own copy of the key, adopts it as its own configuration and says so ([ADMIN_APP_V1]).
 - **The client app** is one app. Its main focus follows the user's team (**John:** "They just change the main focus
   for the user. Everything else is the same"): it opens on that team's screen, writes app data into the general RAM and
   the team's RAM, and reads what the team is granted.

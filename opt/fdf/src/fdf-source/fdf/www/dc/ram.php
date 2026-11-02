@@ -11,6 +11,13 @@
 //   GET  ?op=rams&app=APP                                                  {"rams": {ram: host:port}} served now
 //   POST ?op=login&app=APP {"user"?,"password"?,"role"?}                    {"role"}: checked here, a read of the access tuples
 //   POST ?op=device&app=APP {"dev","role","user"}                            the device's own access record, network RAM
+//   GET  ?op=roles&app=APP                                                 {"roles","rams","login","admin"}: what a client
+//        offers (the teams the admin defined), from the app's configuration tuples; no users, no verifiers
+//   GET  ?op=admin&app=APP[&after=ID&wait=S]                              [ADMIN_APP_V1] for the admin app: every member's
+//        configuration tuple (verifiers, the admin's salt and check value, never a key), every member's answer to the
+//        admin (applied), the RAMs served now; with after/wait, held until a member answers newer than ID
+//   POST ?op=admin&app=APP {"config","seq","user","mac"}                   the admin's configuration, (fdf-app, admin, APP):
+//        relayed, not judged -- each member checks the mac with its own admin key and adopts it or says why not
 //   GET  ?op=whoami                                                       {"host": the asking device's host name, or ''}
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
@@ -152,6 +159,43 @@ if ($op === 'read') {
     $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
     $out = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $out[substr($k, strlen($app) + 1)] = $v;
     echo json_encode(['ok' => true, 'rams' => $out]);
+} elseif ($op === 'roles' || ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'GET')) {
+    $app = $_GET['app'] ?? '';
+    if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
+    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
+    $served = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $served[substr($k, strlen($app) + 1)] = $v;
+    $last = -1;
+    if ($op === 'admin' && isset($_GET['after'])) {           // held until a member answers the admin (or W s)
+        $wait = max(0, min(25, intval($_GET['wait'] ?? 20)));
+        ram($env, ['read', 'fdf-app', 'applied', '', intval($_GET['after']), $wait]);
+    }
+    $cfgs = []; $best = null;
+    foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c) {
+        $last = max($last, intval($c['id'] ?? -1));
+        if (strpos($c['instance'] ?? '', $app . '.') !== 0) continue;
+        $cfgs[] = $c['bag'];
+        if ($best === null || intval($c['bag']['seq'] ?? 0) > intval($best['seq'] ?? 0)) $best = $c['bag'];
+    }
+    if ($best === null) fail(503, "no configuration of $app in the network RAM yet: no droplet of it has written its own");
+    if ($op === 'roles') {
+        $roles = []; foreach (($best['roles'] ?? []) as $r => $x) $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true)];
+        echo json_encode(['ok' => true, 'roles' => $roles, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    $applied = [];
+    foreach ((json_decode(ram($env, ['read', 'fdf-app', 'applied']), true)['rows'] ?? []) as $c) {
+        $last = max($last, intval($c['id'] ?? -1));
+        if (strpos($c['instance'] ?? '', $app . '.') === 0) $applied[] = $c['bag'];
+    }
+    echo json_encode(['ok' => true, 'configs' => $cfgs, 'applied' => $applied, 'served' => $served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+} elseif ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    if (!is_string($in['config'] ?? null) || strlen($in['config']) > 200000 || !is_int($in['seq'] ?? null) || !preg_match('/^[0-9a-f]{64}$/', (string)($in['mac'] ?? '')))
+        fail(400, 'config (text), seq (integer) and mac (hex) needed');
+    $bag = ['config' => $in['config'], 'seq' => $in['seq'], 'user' => (string)($in['user'] ?? ''), 'mac' => $in['mac'], 'at' => time()];
+    echo ram($env, ['write', 'fdf-app', 'admin', $app, json_encode($bag, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]);
 } elseif ($op === 'whoami') {
     // [STATION_IS_HOSTNAME_V1] the asking device's host name, from its lease here; '' when it gave none (the device's
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
@@ -166,7 +210,7 @@ if ($op === 'read') {
     if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
     $cfg = null;
     foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
-        if (strpos($c['instance'] ?? '', $app . '.') === 0) { $cfg = $c['bag']; break; }
+        if (strpos($c['instance'] ?? '', $app . '.') === 0 && ($cfg === null || intval($c['bag']['seq'] ?? 0) > intval($cfg['seq'] ?? 0))) $cfg = $c['bag'];   // [ADMIN_APP_V1] the newest
     if (!is_array($cfg)) fail(503, "no configuration of $app in the network RAM yet: no droplet of it has written its own");
     $user = (string)($in['user'] ?? ''); $role = (string)($in['role'] ?? '');
     if ($user !== '') {
@@ -187,5 +231,5 @@ if ($op === 'read') {
     $bag = ['dev' => $dev, 'station' => preg_replace('/[^a-z0-9-]/', '', strtolower((string)($in['station'] ?? ''))), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
     echo ram($env, ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, whoami, login or device');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login or device');
 }

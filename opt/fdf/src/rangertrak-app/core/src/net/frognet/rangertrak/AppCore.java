@@ -42,7 +42,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r6";
+    public static final String BUILD = "rt-app-2026-11-01-r7";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -65,6 +65,7 @@ public final class AppCore {
         String op = Json.str(m.get("op"));
         try {
             if (op.equals("connect")) connect(m);
+            else if (op.equals("roles")) roles(m);
             else if (op.equals("say")) send(Json.str(m.get("to")), Json.str(m.get("text")));
             else if (op.equals("fix")) position(m);
             else if (op.equals("hosts")) hosts();
@@ -108,8 +109,19 @@ public final class AppCore {
             if (r.contains("404")) throw new Exception("the node at " + door + " does not serve RangerTrak (no /dc/ram.php there): use a node that has the app, e.g. Seattle7");
             throw new Exception("the node at " + door + " did not answer as RangerTrak's door");
         }
-        if (!Json.bool(o.get("ok"))) throw new Exception(Json.str(o.get("error")));
+        if (!Json.bool(o.get("ok"))) {            // the door says why ("why"); a stand-in may say "error"
+            String why = Json.str(o.get("why")); if (why.isEmpty()) why = Json.str(o.get("error"));
+            throw new Exception(why);
+        }
         return o;
+    }
+
+    /** [ADMIN_APP_V1] the teams and roles the admin defined, for the connect screen: (door op=roles) */
+    private void roles(Map<String, Object> m) throws Exception {
+        door = Json.str(m.get("door")).trim();
+        if (door.isEmpty()) return;
+        Map<String, Object> o = doorCall("op=roles&app=" + APP, null);
+        out("ev", "roles", "roles", o.get("roles"), "login", o.get("login"));
     }
 
     private Map<String, String> servedRams() throws Exception {

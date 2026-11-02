@@ -17,6 +17,10 @@
 #     rejoins: b maps them to c again and stops serving
 #   7 [APP_ACCESS_V1] each droplet's configuration tuple carries the access definition: login, the roles, the users
 #     each assigned a role with their password's verifier (the password itself nowhere in the network RAM)
+#   8 [ADMIN_APP_V1] the admin app's configuration, (fdf-app, admin, rangertrak) with the admin key's mac: every member
+#     adopts it (a new team role and its RAM, a new user), says so in (fdf-app, applied, ...), and serves the new RAM;
+#     the admin key is nowhere in the network RAM, its check value is
+#   9 a configuration with a mac from the wrong password: refused by every member, and nothing changes
 #   5 every member with the app has the same map of where each RAM is served (FDF_VAR/app-where.json), the one the pages use
 import json, os, shutil, socket, subprocess, sys, tempfile, time
 H = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -79,7 +83,7 @@ time.sleep(1.5)
 for n in "abc":   # the admin's install on each member it names (d is not named: it has no app)
     subprocess.run([os.path.join(F, "bin", "fdf-app"), "config", "rangertrak", "general,hospitals", "--login",
                     "--role", "hospitals", "--role", "command:default",
-                    "--user", "pat:beds-2026=hospitals"], env=member_env(n), check=True)
+                    "--user", "pat:beds-2026=hospitals", "--admin", "boss:adm-2026"], env=member_env(n), check=True)
 for n in "abcd":
     members[n]["serve"] = subprocess.Popen([os.path.join(F, "bin", "fdf-app"), "serve"], env=member_env(n),
                                            stdout=open(T + "/%s/app.log" % n, "w"), stderr=subprocess.STDOUT)
@@ -96,7 +100,7 @@ def serving(n):
 def maps_agree():
     want = {"rangertrak." + r: where(r) for r in ("general", "hospitals")}
     got = {n: (json.load(open(T + "/%s/app-where.json" % n)) if os.path.exists(T + "/%s/app-where.json" % n) else None) for n in "abc"}
-    return want if all(g == want for g in got.values()) else None
+    return want if all(g is not None and {k: g.get(k) for k in want} == want for g in got.values()) else None   # (check 8 adds a RAM)
 def map_of(n):
     try: return json.load(open(T + "/%s/app-where.json" % n))
     except (OSError, ValueError): return None
@@ -124,6 +128,38 @@ try:
           and ok_v and "beds-2026" not in txt and "cmd-2026" not in txt,
           "7 the access definition in the three droplets' configuration tuples: roles %s, pat assigned hospitals, the verifier checks "
           "the password, no password in the network RAM" % (sorted(cf[0]["bag"]["roles"]) if cf else None))
+
+    # [ADMIN_APP_V1] what the admin app sends: the configuration as text, a seq, HMAC-SHA256 under the admin key
+    import hmac
+    def admin_send(pw, cfg, seq):
+        salt = hashlib.sha256(b"fdf-app-admin:rangertrak:boss").digest()[:16]
+        k = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000)
+        text = json.dumps(cfg)
+        rm.write("fdf-app", "admin", "rangertrak", {"config": text, "seq": seq, "user": "boss", "at": int(time.time()),
+                                                     "mac": hmac.new(k, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest()})
+        return k
+    vs = os.urandom(16); kim = {"kdf": "pbkdf2-sha256", "n": 200000, "salt": vs.hex(), "hash": hashlib.pbkdf2_hmac("sha256", b"kim-2026", vs, 200000).hex()}
+    new = {"rams": ["general", "hospitals", "alpha"], "partition": "relocate", "login": True,
+           "roles": {"hospitals": {"default": False}, "command": {"default": True}, "alpha": {"default": True}},
+           "users": dict((u, {"role": b["role"], "verifier": b["verifier"]}) for u, b in cf[0]["bag"]["users"].items())}
+    new["users"]["kim"] = {"role": "alpha", "verifier": kim}
+    seq = int(time.time() * 1000) + 5000
+    k = admin_send("adm-2026", new, seq)
+    ap, dt = wait_for(lambda: (lambda a: a if len(a) == 3 and all(x["bag"]["seq"] == seq and x["bag"]["ok"] for x in a) else None)(rm.read("fdf-app", "applied")), 15)
+    hp, _ = wait_for(lambda: (lambda w: w if answers(w) else None)(where("alpha")), 15)
+    cf2, _ = wait_for(lambda: (lambda c: c if len(c) == 3 and all(x["bag"]["seq"] == seq for x in c) else None)(rm.read("fdf-app", "config")), 10)
+    cf2 = cf2 or rm.read("fdf-app", "config")
+    chk = hmac.new(k, b"fdf-admin-check", hashlib.sha256).hexdigest()
+    alltext = json.dumps([c["bag"] for c in rm.read("fdf-app", "config")] + [c["bag"] for c in rm.read("fdf-app", "admin")])
+    check(ap is not None and all(c["bag"]["seq"] == seq and "alpha" in c["bag"]["rams"] and c["bag"]["users"].get("kim", {}).get("role") == "alpha" for c in cf2)
+          and hp is not None and k.hex() not in alltext and all(c["bag"]["admin"]["check"] == chk for c in cf2),
+          "8 the admin's configuration adopted by a, b and c in %.0f ms (applied: %s); the new team RAM alpha served at %s; the admin key "
+          "nowhere in the network RAM, its check value in every configuration tuple" % (dt * 1000, [(x["bag"]["member"], x["bag"]["ok"]) for x in (ap or [])], hp))
+    admin_send("not-the-password", dict(new, roles={"hospitals": {"default": True}}, users={}), seq + 1)
+    bad, _ = wait_for(lambda: (lambda a: a if len(a) == 3 and all(x["bag"]["seq"] == seq + 1 for x in a) else None)(rm.read("fdf-app", "applied")), 15)
+    cf3 = rm.read("fdf-app", "config")
+    check(bad is not None and all(not x["bag"]["ok"] and "mac" in x["bag"]["why"] for x in bad) and all(c["bag"]["seq"] == seq and "kim" in c["bag"]["users"] for c in cf3),
+          "9 a wrong admin password's configuration refused by every member (%s); the configuration unchanged" % ([x["bag"]["why"][:40] for x in (bad or [])][:1]))
 
     client_stop("c")
     t0 = time.monotonic()

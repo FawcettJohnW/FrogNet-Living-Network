@@ -5,6 +5,7 @@
 const $ = (s) => document.querySelector(s)
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const send = (o) => window.rtNative.send(JSON.stringify(o))
+const cap = (t) => t ? t[0].toUpperCase() + t.slice(1).toLowerCase() : t   // a team as people say it: RAM alpha, team Alpha
 
 // kinds: how each is drawn, and which views show it by default
 const KINDS = {
@@ -36,7 +37,7 @@ window.rtInit = function (cfg) {
   f.door.value = S.cfg.door || ''; f.name.value = S.cfg.name || ''
   if (S.cfg.role) f.querySelector(`[name=role][value=${S.cfg.role}]`).checked = true
   if (S.cfg.team) f.team.value = S.cfg.team
-  roleFields()
+  roleFields(); askRoles()
   setTimeout(() => { $('#splash').classList.add('gone'); f.hidden = false }, 1800)
 }
 function roleFields() {
@@ -46,6 +47,16 @@ function roleFields() {
   document.querySelector('.unit-l').textContent = r === 'hospital' ? 'Hospital' : 'Unit (e.g. Medic 12)'
 }
 document.querySelectorAll('[name=role]').forEach(e => e.onchange = roleFields)
+// [ADMIN_APP_V1] the teams are the admin's: asked of the node as soon as there is one (and when it changes)
+function askRoles() { const d = $('#connect').door.value.trim(); if (d) send({ op: 'roles', door: d }) }
+$('#connect').door.addEventListener('change', askRoles)
+function teamsFrom(roles) {
+  const sel = $('#connect').team, was = sel.value
+  const teams = Object.entries(roles).filter(([r, x]) => x.ram && !['eoc', 'hospital', 'hospitals', 'ambulance', 'public', 'command'].includes(r)).map(([r]) => r)
+  if (!teams.length) return
+  sel.innerHTML = teams.map(t => `<option value="${esc(cap(t))}">${esc(cap(t))}</option>`).join('')
+  if (teams.some(t => cap(t) === was)) sel.value = was
+}
 $('#connect').onsubmit = (e) => {
   e.preventDefault()
   const f = e.target, role = f.querySelector('[name=role]:checked').value
@@ -60,6 +71,7 @@ window.rtDeliver = function (line) {
   if (m.ev === 'status') status(m.text)
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'connected') connected(m)
+  else if (m.ev === 'roles') teamsFrom(m.roles || {})
   else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id }
   else if (m.ev === 'world') world(m.who || {}, m.pos || {})
   else if (m.ev === 'msg') message(m)

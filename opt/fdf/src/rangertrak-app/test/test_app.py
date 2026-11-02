@@ -23,6 +23,7 @@
 #   18 team actions (a service request, a sensor platform) and the EOC's action; 19 compliance
 #   21 the hospital's desk: the simulated hospitals' statuses; a desk publishes its own, the EOC sees it
 #   22 an ambulance's patient transport is on the hospital's Inbound; the hospital's Acknowledge is on the ambulance's
+#   24 the connect screen's teams are the ones the admin defined (door op=roles)
 #   23 Call: the EOC calls the Alpha member: the Communicator's device picker (camera, mic, speakers) opens on the
 #      EOC; the member's app rings, Answer opens its Communicator to answer; the chosen devices go to the Communicator
 import json, os, socket, subprocess, sys, tempfile, threading, time
@@ -62,6 +63,8 @@ class Door(BaseHTTPRequestHandler):      # ram.php's op=rams and op=login, as th
             return self.answer(sensors(q))
         if q.get("op") == ["rams"]:
             self.answer({"ok": True, "rams": {k.split(".", 1)[1]: v for k, v in json.load(open(T + "/var/app-where.json")).items()}})
+        elif q.get("op") == ["roles"]:                       # [ADMIN_APP_V1] the teams the admin defined (echo: a fifth)
+            self.answer({"ok": True, "login": False, "roles": {"eoc": {"default": False, "ram": False}, **{t: {"default": True, "ram": True} for t in ("alpha", "bravo", "charlie", "delta", "echo")}}})
         else: self.answer({"ok": False, "error": "op"})
     def do_POST(self):
         q = parse_qs(urlparse(self.path).query); b = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -105,12 +108,15 @@ with sync_playwright() as pw:
         pg = br.new_context(viewport={"width": w, "height": h}).new_page()
         pg.goto("http://127.0.0.1:%d/" % dev[d]); pg.wait_for_selector("#connect:not([hidden])", timeout=8000); return pg
     eoc = open_dev("eoc1")
+    eoc.wait_for_function("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join()==='Alpha,Bravo,Charlie,Delta,Echo'", timeout=8000)
+    check(True, "24 the connect screen's teams are the admin's, asked of the node: " + eoc.evaluate("[...document.querySelectorAll('[name=team] option')].map(o=>o.value).join(', ')"))
     eoc.fill("[name=user]", "EOCAdmin"); eoc.fill("[name=password]", "wrong"); eoc.click("#connect button")
     eoc.wait_for_function("document.querySelector('#cstatus').textContent.includes('not this app')", timeout=8000)
     check(True, "7 a wrong EOC password is refused: " + eoc.inner_text("#cstatus"))
     eoc.fill("[name=password]", "EOCAdmin"); eoc.click("#connect button")
     eoc.wait_for_selector("#main:not([hidden])", timeout=8000)
-    eoc.wait_for_function("Object.keys(S.markers).length >= 60", timeout=15000)
+    try: eoc.wait_for_function("Object.keys(S.markers).length >= 60", timeout=15000)
+    except Exception: print("DEBUG", eoc.evaluate("JSON.stringify({m:Object.keys(S.markers).length,pos:Object.keys(S.pos).length,role:S.role,st:$('#status').textContent,on:S.on})")); raise
     a = eoc.evaluate("JSON.stringify(Object.values(S.pos).filter(b=>b.kind==='ambulance').map(b=>[b.lat,b.lng]))")
     time.sleep(3)
     b = eoc.evaluate("JSON.stringify(Object.values(S.pos).filter(b=>b.kind==='ambulance').map(b=>[b.lat,b.lng]))")

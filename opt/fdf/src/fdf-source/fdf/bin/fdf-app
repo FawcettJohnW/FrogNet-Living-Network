@@ -31,6 +31,12 @@
         network's admission, ORGANIZATIONS.md; they have nothing to do with which RAM a team uses.) Login is a read: the client's
         own edge, on the member the device reaches (ram.php), checks the password against the verifier in these tuples.
         No login server, no request to another node.
+        --admin USER:PASSWORD [ADMIN_APP_V1]: the app's administrator, for the admin app (a screen on a desktop or phone,
+        through any member's door). Each member keeps the admin key, derived from the password the same way on every
+        member (PBKDF2-SHA256, a salt from the app and the user), in FDF_APPS/<app>.json only; the network RAM carries
+        the salt and a check value, never the key. The admin app writes the configuration it wants as
+        (fdf-app, admin, <app>) {config, seq, mac}: every member that has the app and the key checks the mac, adopts a
+        newer seq as its own configuration (this file) and says so, (fdf-app, applied, <app>.<guid>) {seq, ok, why}.
   fdf-app where APP RAM
         print host:port of the droplet serving APP's RAM now (its where cell, resolved to the member's .1), or nothing
   fdf-app serve
@@ -49,9 +55,9 @@ Environment: RINA_RAM (the network RAM; else /opt/fdf/var/join.env), FDF_FACTS (
 (/opt/fdf/apps), FDF_VAR (/opt/fdf/var), FDF_BIN (/opt/fdf/bin), FDF_APP_LISTEN (the address the droplets listen on;
 default this member's .1).
 """
-import hashlib, json, os, queue, signal, subprocess, sys, threading, time, zlib
+import hashlib, hmac, json, os, queue, signal, subprocess, sys, threading, time, zlib
 
-BUILD_TAG = "fdf-app-2026-11-01-r3"
+BUILD_TAG = "fdf-app-2026-11-01-r4"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -96,6 +102,31 @@ def verifier(pw):
     salt = os.urandom(16)
     return {"kdf": "pbkdf2-sha256", "n": 200000, "salt": salt.hex(),
             "hash": hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000).hex()}
+
+
+def admin_salt(app, user):
+    """[ADMIN_APP_V1] the same on every member, so every member derives the same key from the same line"""
+    return hashlib.sha256(("fdf-app-admin:%s:%s" % (app, user)).encode()).digest()[:16]
+
+
+ADMIN_N = 200000
+
+
+def admin_key(app, user, pw):
+    return hashlib.pbkdf2_hmac("sha256", pw.encode(), admin_salt(app, user), ADMIN_N)
+
+
+def admin_check(key):
+    """what the admin app compares to know its password is this app's admin's: an HMAC of a fixed text"""
+    return hmac.new(key, b"fdf-admin-check", hashlib.sha256).hexdigest()
+
+
+def admin_public(c):
+    """the admin definition as the network RAM may carry it: no key"""
+    a = c.get("admin") or {}
+    if not a.get("key"):
+        return {}
+    return {"user": a.get("user", ""), "salt": a.get("salt", ""), "n": a.get("n", ADMIN_N), "check": a.get("check", "")}
 
 
 def where_key(app, r):
@@ -171,6 +202,7 @@ class Server:
         self.events = queue.Queue()
         self.rm = ram()
         self.said = set()                    # where keys this member has said
+        self.answered = {}                   # [ADMIN_APP_V1] app -> the admin seq this member has answered
 
     def installed(self):
         """{app: its configuration} for every app installed here"""
@@ -191,10 +223,62 @@ class Server:
         for a, c in self.installed().items():
             self.rm.write(SVC, "config", "%s.%s" % (a, self.me),       # [APP_ACCESS_V1] the access definition, verifiers only
                           {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me,
-                           "login": bool(c.get("login")), "roles": c.get("roles") or {}, "users": c.get("users") or {}})
+                           "login": bool(c.get("login")), "roles": c.get("roles") or {}, "users": c.get("users") or {},
+                           "admin": admin_public(c), "seq": int(c.get("seq") or 0), "member": self.f.get("name") or "", "addr": dot1(self.f)})
             self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
                           {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
             log("%s: configuration and capability tuples written (RAMs %s)" % (a, ",".join(c.get("rams") or []) or "none"))
+
+    def adopt(self):
+        """[ADMIN_APP_V1] the admin app's configuration, (fdf-app, admin, <app>): adopted when its mac is the admin key's
+        and its seq is newer than this member's; this member's answer, (fdf-app, applied, <app>.<guid>), either way"""
+        changed = False
+        for a, c in self.installed().items():
+            rows = self.rm.read(SVC, "admin", a)
+            if not rows:
+                continue
+            b = rows[-1].get("bag") or {}
+            seq = int(b.get("seq") or 0)
+            if seq <= int(c.get("seq") or 0) or seq == self.answered.get(a):
+                continue
+            self.answered[a] = seq
+            key = bytes.fromhex(((c.get("admin") or {}).get("key")) or "")
+            text = str(b.get("config") or "")
+            why = ""
+            if not key:
+                why = "no admin key on this member (fdf-app config %s ... --admin USER:PASSWORD)" % a
+            elif not hmac.compare_digest(hmac.new(key, ("%s\n%d" % (text, seq)).encode(), hashlib.sha256).hexdigest(), str(b.get("mac") or "")):
+                why = "the mac is not this app's admin key's: refused"
+            else:
+                try:
+                    n = json.loads(text)
+                    rams = [r for r in n.get("rams") or [] if isinstance(r, str) and r]
+                    roles = {k: {"default": bool((v or {}).get("default"))} for k, v in (n.get("roles") or {}).items()
+                             if isinstance(k, str) and k and k != "general" and all(ch.isalnum() or ch in "_-" for ch in k)}
+                    users = {}
+                    for u, v in (n.get("users") or {}).items():
+                        ver = (v or {}).get("verifier") or {}
+                        if (v or {}).get("role") not in roles or set(ver) < {"kdf", "n", "salt", "hash"} or ver.get("kdf") != "pbkdf2-sha256":
+                            raise ValueError("user %s: a role this configuration has and a pbkdf2-sha256 verifier" % u)
+                        users[u] = {"role": v["role"], "verifier": {k: ver[k] for k in ("kdf", "n", "salt", "hash")}}
+                    part = n.get("partition", "relocate")
+                    if "general" not in rams or part not in ("relocate", "fail"):
+                        raise ValueError("the RAMs must include general; partition relocate or fail")
+                    new = dict(c, rams=rams, partition=part, login=bool(n.get("login")), roles=roles, users=users, seq=seq)
+                    p = os.path.join(APPS, a + ".json")
+                    with open(p + ".tmp", "w") as f:
+                        json.dump(new, f)
+                    os.chmod(p + ".tmp", 0o600)
+                    os.replace(p + ".tmp", p)
+                    changed = True
+                    log("%s: the admin's configuration %d adopted (RAMs %s; roles %s; %d users)" % (a, seq, ",".join(rams), ",".join(roles), len(users)))
+                except (ValueError, TypeError, AttributeError) as e:
+                    why = "not adopted: %s" % e
+            if why:
+                log("%s: the admin's configuration %d %s" % (a, seq, why))
+            self.rm.write(SVC, "applied", "%s.%s" % (a, self.me), {"seq": seq, "ok": not why, "why": why, "guid": self.me,
+                                                                 "member": self.f.get("name") or "", "at": int(time.time())})
+        return changed
 
     def start(self, app, r):
         p = self.procs.get((app, r))
@@ -238,6 +322,8 @@ class Server:
         t0 = time.monotonic()
         try:
             if why.startswith("again"):
+                self.say_own()
+            if self.adopt():                         # [ADMIN_APP_V1] a newer configuration from the admin: this member's own now
                 self.say_own()
             parts = self.rm.participants()
             _, cans, _ = read_family(self.rm)
@@ -357,12 +443,22 @@ def main(argv):
             if not who or not pw or role not in roles:
                 print("fdf-app: --user USER:PASSWORD=ROLE, ROLE one of the --role names"); return 2
             users[who] = {"role": role, "verifier": verifier(pw)}
+        admin = old.get("admin") or {}
+        for u in opt("--admin")[-1:]:                 # [ADMIN_APP_V1] USER:PASSWORD
+            who, _, pw = u.partition(":")
+            if not who or not pw:
+                print("fdf-app: --admin USER:PASSWORD"); return 2
+            k = admin_key(argv[2], who, pw)
+            admin = {"user": who, "salt": admin_salt(argv[2], who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
+        # seq: this line is newer than any configuration the admin app wrote before it (that one is not adopted again)
         with open(p + ".tmp", "w") as f:
-            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "users": users}, f)
+            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "users": users,
+                       "admin": admin, "seq": int(time.time() * 1000)}, f)
         os.chmod(p + ".tmp", 0o600)
         os.replace(p + ".tmp", p)
-        print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s; serve writes it into the network RAM" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",
-                                                                  ", login required" if "--login" in argv else "")); return 0
+        print("fdf-app: %s installed here with RAMs %s (%s), roles %s%s%s; serve writes it into the network RAM" % (argv[2], ",".join(rams), part, ",".join(roles) or "none",
+                                                                  ", login required" if "--login" in argv else "",
+                                                                  ", admin " + admin["user"] if admin.get("user") else ", no admin (the admin app cannot change it)")); return 0
     if len(argv) == 4 and argv[1] == "where":
         print(where(argv[2], argv[3])); return 0
     if len(argv) == 2 and argv[1] == "serve":

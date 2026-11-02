@@ -106,7 +106,15 @@ Wi-Fi; the node is filled in from the Wi-Fi's gateway.
   than about 5 RangerTrak pages open at one post waits for one to close.
 
 - The Windows and Android shells for the pages (both use the browser for now).
-- The admin app as a screen, and the automatic install of the remote nodes.
+- The automatic install of the remote nodes.
+
+## The admin app (2026-11-01, [ADMIN_APP_V1])
+
+On every member with RangerTrak (once): the node update (`fdf-app` r4, the door, rt-sim r8), and the install line with
+an admin added, e.g. `... --user EOCAdmin:EOCAdmin=eoc --admin boss:<password>`, then `systemctl restart fdf-app`.
+On Windows: unzip `RangerTrak-Admin-windows-x64-<build>.zip`, run `RangerTrakAdmin.cmd`, connect to any member with the
+app as that admin. Teams, roles and users changed there are adopted by every member that has the admin key; the
+Members table says which did. Running the install line again later replaces what the admin app set on that member.
 - The hospital status screen, inbound ambulances, assignments and overdue teams (in the mock-up only).
 - Liveness bound to a device's session: a device that has left stays on the map, aging (see `PLAN.md`, the
   Meshtastic merge).

@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r6
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r7
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -87,6 +87,29 @@ is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's sim
   once (kept in settings.json). Phone: FrogNet Member's Communicator (`net.frognet.communicator.CALL`; that app must be
   the build with [COMMS_OPENED_FOR_A_CALL_V1]).
 - rt-sim r8: every hospital's desk (three under strain), and each ambulance transport and its arrival.
+
+## r7: the admin app, standalone ([ADMIN_APP_V1])
+
+`RangerTrak-Admin-windows-x64-<build>.zip` (`desktop/package_windows.sh OUTDIR admin`): its own window
+(`AdminMain`), page (`ui-admin/`) and core (`core/.../admin/AdminCore`, Java 8: a phone can carry it too). It does what
+`fdf-app config` does on a member's command line, for the whole network, through any member's door:
+
+- Teams and roles (a team is a role with its own RAM; "no login" is a default screen), users (role, new password: the
+  verifier is made on the admin's computer), login required, relocate or fail, other RAMs.
+- Members: every member with the app, whether its configuration is the current one, and its answer to the last change.
+- The admin's password is checked on the admin's computer: PBKDF2 over the salt in the configuration tuples gives the
+  admin key, and HMAC(key, "fdf-admin-check") must be the check value there. A change is the whole configuration as
+  text, a seq and HMAC(key, text + "\n" + seq), written by the door as `(fdf-app, admin, <app>)`. Every member's
+  `fdf-app serve` checks the mac with its own copy of the key (from `fdf-app config ... --admin USER:PASSWORD`, kept
+  only in `/opt/fdf/apps/<app>.json`), adopts a newer seq as its configuration and says so in
+  `(fdf-app, applied, <app>.<guid>)`; a member with no key says that. Neither the key nor any password is in the
+  network RAM.
+- The client's connect screen offers the teams the admin defined (door `op=roles`).
+
+Door (`/dc/ram.php`): `op=roles`, `op=admin` (GET: configurations, answers, RAMs served; held with after/wait; POST:
+the signed configuration, relayed). `fdf-app` r4: `--admin`, adoption, `seq` (an install line is newer than any earlier
+admin change). Tests: `rinab/tools/test_fdf_app.py` 8-9 (adopted by every member; a wrong password's mac refused),
+`test/test_admin.py` 1-4 (the admin app against real members and the real door under PHP).
 
 ## Build and test
 
