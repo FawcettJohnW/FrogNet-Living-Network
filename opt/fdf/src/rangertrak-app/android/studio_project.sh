@@ -35,7 +35,7 @@ android {
     sourceSets["main"].java.srcDirs("src/main/java", "src/core", "src/ram", "src/fdf/comms")
     sourceSets["main"].kotlin.srcDirs("src/fdf/member", "src/fdf/app")
 }
-dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531"); implementation("com.journeyapps:zxing-android-embedded:4.3.0") }
+dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531"); implementation("com.journeyapps:zxing-android-embedded:4.3.0"); implementation("androidx.core:core:1.12.0") }   // zxing 4.x calls androidx ContextCompat but its POM does not say so
 KTS
 printf '/build\n*/build\n.gradle\n.idea\nlocal.properties\n*.iml\n' > $P/.gitignore
 cat > $P/README.txt <<TXT

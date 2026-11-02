@@ -27,7 +27,7 @@ android {
     sourceSets["main"].assets.srcDir(genAssets)
 }
 // [TEAM_HOST_V1] zxing-android-embedded: Scan team reads the lead's hotspot QR code (Maven Central)
-dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531"); implementation("com.journeyapps:zxing-android-embedded:4.3.0") }
+dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531"); implementation("com.journeyapps:zxing-android-embedded:4.3.0"); implementation("androidx.core:core:1.12.0") }   // zxing 4.x calls androidx ContextCompat but its POM does not say so
 tasks.named("preBuild") { dependsOn(copyUi) }
 // the tasks that read the assets say they need the copy (Gradle 8 refuses a task that reads another's output undeclared)
 tasks.matching { it.name.endsWith("Assets") && it.name != "copyUi" }.configureEach { dependsOn(copyUi) }
