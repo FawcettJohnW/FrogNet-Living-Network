@@ -8,8 +8,8 @@ android {
         applicationId = "net.frognet.rangertrak"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "rt-app-2026-11-02-r10"
+        versionCode = 11
+        versionName = "rt-app-2026-11-02-r11"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_1_8; targetCompatibility = JavaVersion.VERSION_1_8 }
     buildTypes { release { isMinifyEnabled = false } }

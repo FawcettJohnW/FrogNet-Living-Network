@@ -42,7 +42,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-02-r10";
+    public static final String BUILD = "rt-app-2026-11-02-r11";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -103,7 +103,11 @@ public final class AppCore {
     }
 
     private Map<String, Object> doorCall(String q, String body) throws Exception {
-        String r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body);
+        String r;
+        try { r = http(body == null ? "GET" : "POST", "http://" + door + "/dc/ram.php?" + q, body); }
+        catch (java.io.IOException e) {          // [DOOR_UNREACHABLE_SAYS_WHERE_FROM_V1] which addresses this device has
+            throw new Exception("this device cannot reach the node at " + door + " (" + e.getMessage() + "); this device's addresses: " + myAddresses());
+        }
         Map<String, Object> o;
         try { o = Json.obj(Json.parse(r)); }
         catch (IllegalArgumentException e) {      // not the door's JSON: say what it means, not the page
@@ -146,6 +150,19 @@ public final class AppCore {
         if (door.isEmpty()) return;
         Map<String, Object> o = doorCall("op=roles&app=" + APP, null);
         out("ev", "roles", "roles", o.get("roles"), "login", o.get("login"));
+    }
+
+    /** this device's IPv4 addresses, each with its interface: where it is on the network, said when the node is out of reach */
+    static String myAddresses() {
+        StringBuilder b = new StringBuilder();
+        try {
+            for (java.net.NetworkInterface n : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!n.isUp() || n.isLoopback()) continue;
+                for (java.net.InetAddress a : java.util.Collections.list(n.getInetAddresses()))
+                    if (a instanceof java.net.Inet4Address) b.append(b.length() > 0 ? ", " : "").append(a.getHostAddress()).append(" (").append(n.getName()).append(")");
+            }
+        } catch (Exception e) { return "unknown (" + e.getMessage() + ")"; }
+        return b.length() == 0 ? "none (no network)" : b.toString();
     }
 
     private Map<String, String> servedRams() throws Exception {
