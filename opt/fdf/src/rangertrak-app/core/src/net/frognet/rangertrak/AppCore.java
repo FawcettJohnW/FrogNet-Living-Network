@@ -42,7 +42,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r7";
+    public static final String BUILD = "rt-app-2026-11-01-r8";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -66,6 +66,7 @@ public final class AppCore {
         try {
             if (op.equals("connect")) connect(m);
             else if (op.equals("roles")) roles(m);
+            else if (op.equals("missionSet")) missionSet(m);
             else if (op.equals("say")) send(Json.str(m.get("to")), Json.str(m.get("text")));
             else if (op.equals("fix")) position(m);
             else if (op.equals("hosts")) hosts();
@@ -114,6 +115,29 @@ public final class AppCore {
             throw new Exception(why);
         }
         return o;
+    }
+
+    /** [RT_MISSION_V1] set the mission: an update of the current one (its settings, written again whole), or a new one
+     *  (id: from its name and the time; "at": now, so it is the mission now on every device). (rt-mission, settings, <id>) */
+    private void missionSet(Map<String, Object> m) throws Exception {
+        if (mis == null) throw new Exception("not connected");
+        if (role.equals("public")) throw new Exception("the public view sees the mission; it does not set it");
+        Map<String, Object> b = Json.obj(m.get("bag"));
+        String id = Json.str(m.get("id"));
+        long now = System.currentTimeMillis() / 1000;
+        if (id.isEmpty()) {
+            String slug = Json.str(b.get("name")).toLowerCase().replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+            if (slug.isEmpty()) throw new Exception("a new mission needs a name");
+            id = slug + "-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmm").format(new java.util.Date());
+            b.put("at", now);
+        } else {
+            Map<String, Object> was = mis.family("settings").get(id);
+            if (was == null) throw new Exception("no mission " + id);
+            if (was.get("at") != null) b.put("at", was.get("at"));
+        }
+        b.put("updated", now); b.put("by", name);
+        if (!mis.write("settings", id, b, false)) throw new Exception("not connected");
+        say((Json.str(m.get("id")).isEmpty() ? "mission started: " : "mission updated: ") + Json.str(b.get("name")));
     }
 
     /** [ADMIN_APP_V1] the teams and roles the admin defined, for the connect screen: (door op=roles) */
@@ -196,10 +220,15 @@ public final class AppCore {
         }
     }
 
+    /** [RT_MISSION_V1] the mission now: the one started last ("at", its start; a mission with none is older than any
+     *  with one, then by id). Every mission and the current one's settings go to the page on every change. */
+    private static double startedAt(Map<String, Object> b) { return b == null ? -1 : Json.num(b.get("at")); }
     private void onMission() {
         String best = ""; Map<String, Map<String, Object>> f = mis.family("settings");
-        for (String k : f.keySet()) if (best.isEmpty() || k.compareTo(best) > 0) best = k;   // (one exercise at a time)
-        if (best.isEmpty() || best.equals(mission)) return;
+        for (String k : f.keySet())
+            if (best.isEmpty() || startedAt(f.get(k)) > startedAt(f.get(best)) || (startedAt(f.get(k)) == startedAt(f.get(best)) && k.compareTo(best) > 0)) best = k;
+        if (best.isEmpty()) return;
+        if (best.equals(mission)) { out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f)); return; }
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
@@ -233,7 +262,7 @@ public final class AppCore {
             msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "rt-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
             dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "rt-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
         }
-        out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")));
+        out("ev", "mission", "id", mission, "name", Json.str(f.get(mission).get("name")), "bag", f.get(mission), "all", new HashMap<String, Object>(f));
         writeOwn();
     }
 
@@ -251,10 +280,11 @@ public final class AppCore {
     }
 
     private void position(Map<String, Object> m) {
-        out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")));   // the page's "use my location"
+        out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")), "src", Json.str(m.get("src")));   // the page's "use my location"
         if (role.equals("public") || positions == null) return;          // the public's position is not published
         fix = Json.o("name", name, "kind", kindOf(), "team", role.equals("team") ? team : "", "unit", team, "lat", Json.dbl(m.get("lat")),
-                "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status);
+                "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door, "status", status,
+                "src", Json.str(m.get("src")).isEmpty() ? "gps" : Json.str(m.get("src")));   // [RT_NO_GPS_V1] "address": typed, not measured
         positions.write(mission, dev, fix, true);
     }
 

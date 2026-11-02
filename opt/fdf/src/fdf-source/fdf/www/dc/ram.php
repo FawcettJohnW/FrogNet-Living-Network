@@ -32,6 +32,9 @@
 // that address, facts.addrs kind "given", value). It is the device's station ID (PLAN.md, "Message numbers"): unique on
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
+// [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
+const DOOR_BUILD = 'dc-door-2026-11-01-r2';
+header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
 $apps = json_decode(file_get_contents(__DIR__ . '/apps.json'), true);
@@ -42,7 +45,7 @@ foreach ($apps['apps'] as $a) foreach ($a['services'] as $s) {
     if (isset($a['app'], $a['rams'][$s])) $in_ram[$s] = $a['app'] . '.' . $a['rams'][$s];
 }
 
-function fail($code, $why, $out = '') { http_response_code($code); echo json_encode(['ok' => false, 'why' => $why, 'output' => $out]); exit; }
+function fail($code, $why, $out = '') { http_response_code($code); echo json_encode(['ok' => false, 'why' => $why, 'output' => $out, 'door' => DOOR_BUILD]); exit; }
 function name_ok($x) { return is_string($x) && $x !== '' && strlen($x) <= 120 && !preg_match('/[\x00-\x1f]/', $x); }
 function ram($env, $args) {
     $cmd = $env; foreach ($args as $a) $cmd .= escapeshellarg((string)$a) . ' ';
@@ -179,7 +182,7 @@ if ($op === 'read') {
     if ($best === null) fail(503, "no configuration of $app in the network RAM yet: no droplet of it has written its own");
     if ($op === 'roles') {
         $roles = []; foreach (($best['roles'] ?? []) as $r => $x) $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true)];
-        echo json_encode(['ok' => true, 'roles' => $roles, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
+        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
         exit;
     }
     $applied = [];
@@ -187,7 +190,7 @@ if ($op === 'read') {
         $last = max($last, intval($c['id'] ?? -1));
         if (strpos($c['instance'] ?? '', $app . '.') === 0) $applied[] = $c['bag'];
     }
-    echo json_encode(['ok' => true, 'configs' => $cfgs, 'applied' => $applied, 'served' => $served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'configs' => $cfgs, 'applied' => $applied, 'served' => $served, 'last' => $last], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $in = json_decode(file_get_contents('php://input'), true);
     $app = $_GET['app'] ?? '';

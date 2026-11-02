@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r7
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r8
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -110,6 +110,23 @@ Door (`/dc/ram.php`): `op=roles`, `op=admin` (GET: configurations, answers, RAMs
 the signed configuration, relayed). `fdf-app` r4: `--admin`, adoption, `seq` (an install line is newer than any earlier
 admin change). Tests: `rinab/tools/test_fdf_app.py` 8-9 (adopted by every member; a wrong password's mac refused),
 `test/test_admin.py` 1-4 (the admin app against real members and the real door under PHP).
+
+## r8: the Team app ([RT_TEAM_APP_V1])
+
+`android/team` is a second Android app in the same Gradle project, `RangerTrak Team` (`net.frognet.rangertrak.team`):
+the same shell, core and page; its manifest's `net.frognet.rangertrak.ROLE = team` makes it a team member only.
+`./gradlew :team:assembleDebug`, or `./build_apk.sh OUTDIR team`. In every view (desktop too):
+
+- [RT_FOLLOW_ME_V1] the map is centred on you, north up, and follows you; moving the map stops that, ⦿ resumes it.
+- [RT_NO_GPS_V1] the phone's position is its GPS only. A device with no GPS (or not allowed to use it) asks for the
+  street address once (Android's Geocoder looks it up; "lat, lon" is taken as typed), keeps it, and publishes it as
+  its position with `"src":"address"`.
+- [RT_CALL_V1] the chat's Call beside Send when the To is a person: anyone calls anyone.
+- [RT_MISSION_V1] Mission: the mission's settings (name, event, operational period, start, end, commander,
+  objectives, area, notes), Update (the whole settings written again), Start a new mission (a new id; "at" = now: the
+  mission now is the one started last, on every device). `(rt-mission, settings, <mission>)`.
+- [DOOR_SAYS_ITS_BUILD_V1] the door says its build (`X-FDF-Door`, and `door` in its admin and roles answers); the admin
+  app says which door answered.
 
 ## Build and test
 

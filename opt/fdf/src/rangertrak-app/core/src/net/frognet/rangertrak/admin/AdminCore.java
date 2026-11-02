@@ -40,7 +40,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-01-r1";
+    public static final String BUILD = "rt-admin-2026-11-01-r2";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -140,13 +140,20 @@ public final class AdminCore {
     private Map<String, Object> read(boolean held) throws Exception {
         String q = "op=admin&app=" + URLEncoder.encode(app, "UTF-8") + (held ? "&after=" + last + "&wait=20" : "");
         Map<String, Object> st = door(q, null, held ? 35000 : 10000);
+        // [DOOR_SAYS_ITS_BUILD_V1] an answer without the configurations is not the admin door: say which door answered
+        if (!st.containsKey("configs")) {
+            String d = Json.str(st.get("door"));
+            throw new Exception("the door at " + door + " (" + (d.isEmpty() ? "a door with no build, from before dc-door-2026-11-01-r2" : d)
+                    + ") has no admin op: it answered " + Json.write(st).substring(0, Math.min(200, Json.write(st).length())));
+        }
+        if (!held) say("the door at " + door + " is " + Json.str(st.get("door")));
         last = (long) Json.num(st.get("last"));
         Map<String, Object> best = null;
         for (Object c0 : Json.arr(st.get("configs"))) {
             Map<String, Object> c = Json.obj(c0);
             if (best == null || Json.num(c.get("seq")) > Json.num(best.get("seq"))) best = c;
         }
-        if (best == null) throw new Exception("no member has written " + app + "'s configuration yet");
+        if (best == null) throw new Exception("the door at " + door + " (" + Json.str(st.get("door")) + ") found no member's configuration of " + app + " in the network RAM");
         current = best;
         if (!held && key != null) deliverState(st);
         return st;

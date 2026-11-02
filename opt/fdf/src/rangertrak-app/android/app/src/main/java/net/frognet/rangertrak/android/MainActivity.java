@@ -50,8 +50,30 @@ public final class MainActivity extends Activity implements LocationListener {
                     connected = true;
                 }
             } catch (IllegalArgumentException ignored) { }
-            new Thread(new Runnable() { public void run() { core.handle(line); } }, "core").start();
+            final boolean conn = line.contains("\"connect\"");
+            new Thread(new Runnable() { public void run() {
+                core.handle(line);
+                Location l = lastFix;                   // a fix that came before the connection is this device's position now
+                if (conn && l != null) core.handle(fixLine(l));
+            } }, "core").start();
         }
+        /** [RT_NO_GPS_V1] a street address, looked up by Android's Geocoder: this device's position when it has no GPS */
+        @JavascriptInterface public void geocode(final String address) {
+            new Thread(new Runnable() { public void run() {
+                if (!android.location.Geocoder.isPresent()) {
+                    deliver(Json.o("ev", "geocoded", "error", "this device cannot look up addresses: type \"latitude, longitude\"")); return; }
+                try {
+                    @SuppressWarnings("deprecation")
+                    java.util.List<android.location.Address> r = new android.location.Geocoder(MainActivity.this).getFromLocationName(address, 1);
+                    if (r == null || r.isEmpty()) { deliver(Json.o("ev", "geocoded", "error", "no such address found: try it with the city and state")); return; }
+                    android.location.Address a = r.get(0);
+                    deliver(Json.o("ev", "geocoded", "lat", a.getLatitude(), "lng", a.getLongitude(), "label", address));
+                } catch (Exception e) {
+                    deliver(Json.o("ev", "geocoded", "error", "the address lookup failed (" + e.getMessage() + "): it needs the Internet; or type \"latitude, longitude\""));
+                }
+            } }, "geocode").start();
+        }
+        @JavascriptInterface public void saveAddress(String json) { prefs.edit().putString("address", json).apply(); }
         /** [RT_CALL_V1] the page's Call: what this phone can use (cameras, microphones, outputs), to the page's picker */
         @JavascriptInterface public void comms(String json) {
             Map<String, Object> m; try { m = Json.obj(Json.parse(json)); } catch (IllegalArgumentException e) { return; }
@@ -102,8 +124,10 @@ public final class MainActivity extends Activity implements LocationListener {
         android.content.Intent i = new android.content.Intent(COMMS_CALL).setPackage(COMMS_PKG);
         return !getPackageManager().queryIntentActivities(i, 0).isEmpty();
     }
+    private final java.util.List<String> early = new java.util.ArrayList<String>();   // said before the page was up
     private void deliver(Map<String, Object> ev) {
         final String line = Json.write(ev);
+        synchronized (early) { if (!pageUp) { early.add(line); return; } }
         web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
     }
     /** this phone's cameras (front / back), microphones, and call outputs (speaker, earpiece, headsets) */
@@ -142,6 +166,19 @@ public final class MainActivity extends Activity implements LocationListener {
             default: return String.valueOf(d.getProductName()) + " (type " + d.getType() + ")";
         }
     }
+    private volatile Location lastFix;
+    private static String fixLine(Location l) {
+        return Json.write(Json.o("op", "fix", "lat", l.getLatitude(), "lng", l.getLongitude(), "acc", (double) l.getAccuracy(), "src", "gps"));
+    }
+    /** [RT_NO_GPS_V1] no GPS position on this device: no GPS receiver, or no permission to use it -- the page asks for
+     *  the street address (or uses the one saved) */
+    private void noGps(String why) {
+        Map<String, Object> saved = null;
+        try { String a = prefs.getString("address", ""); if (!a.isEmpty()) saved = Json.obj(Json.parse(a)); } catch (IllegalArgumentException ignored) { }
+        deliver(Json.o("ev", "nogps", "why", why, "saved", saved));
+    }
+    private volatile boolean pageUp = false, gpsless = false; private String gpslessWhy = "";
+    private void noGpsWhenUp(String why) { gpsless = true; gpslessWhy = why; if (pageUp) noGps(why); }
     private volatile boolean inFront = false;
     @Override protected void onResume() { super.onResume(); inFront = true; }
     @Override protected void onPause() { inFront = false; super.onPause(); }
@@ -162,7 +199,11 @@ public final class MainActivity extends Activity implements LocationListener {
         });
         web.addJavascriptInterface(new Bridge(), "rtNative");
         web.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView v, String url) { v.evaluateJavascript("rtInit(" + Json.write(settings()) + ")", null); }
+            @Override public void onPageFinished(WebView v, String url) {
+                v.evaluateJavascript("rtInit(" + Json.write(settings()) + ")", null);
+                synchronized (early) { pageUp = true; for (String l : early) v.evaluateJavascript("rtDeliver(" + Json.quote(l) + ")", null); early.clear(); }
+                if (gpsless) noGps(gpslessWhy);
+            }
         });
         setContentView(web);
         web.loadUrl("file:///android_asset/ui/index.html");
@@ -184,8 +225,14 @@ public final class MainActivity extends Activity implements LocationListener {
         String door = prefs.getString("door", "");
         String gw = gateway();
         if (!gw.isEmpty()) door = gw;                 // on a node's Wi-Fi the node is the gateway: where this phone is now
-        return Json.o("dev", dev, "name", name, "door", door, "role", prefs.getString("role", "team"),
-                "team", prefs.getString("team", "Alpha"), "platform", "android");
+        // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.rangertrak.ROLE = team) opens as it
+        String lock = "";
+        try {
+            Bundle md = getPackageManager().getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA).metaData;
+            if (md != null) lock = String.valueOf(md.getString("net.frognet.rangertrak.ROLE", ""));
+        } catch (PackageManager.NameNotFoundException ignored) { }
+        return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
+                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock);
     }
 
     @SuppressWarnings("deprecation")
@@ -198,6 +245,12 @@ public final class MainActivity extends Activity implements LocationListener {
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position
     private void askForLocation() {
+        if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS)) {
+            noGpsWhenUp("This device has no GPS.");
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 2);
+            return;
+        }
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED)
             requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS", Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
         else if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
@@ -207,20 +260,27 @@ public final class MainActivity extends Activity implements LocationListener {
 
     @Override public void onRequestPermissionsResult(int code, String[] p, int[] r) {
         for (int i = 0; i < p.length; i++)
-            if (p[i].equals(Manifest.permission.ACCESS_FINE_LOCATION) && r[i] == PackageManager.PERMISSION_GRANTED) startLocation();
+            if (p[i].equals(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                if (r[i] == PackageManager.PERMISSION_GRANTED) startLocation();
+                else noGpsWhenUp("RangerTrak was not allowed to use this device's location.");
+            }
     }
 
     @SuppressLint("MissingPermission")
     private void startLocation() {
         LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
         if (lm == null) return;
-        if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this);
-        if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000, 5f, this);
+        // the GPS only: the position is the phone's own GPS (the provider asked for even when location is switched off now:
+        // it delivers from the moment it is switched on)
+        lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 2f, this);
+        if (!lm.isProviderEnabled(LocationManager.GPS_PROVIDER))
+            deliver(Json.o("ev", "error", "text", "Location is switched off on this phone: switch it on (Settings, Location) for your position on the map"));
     }
 
     @Override public void onLocationChanged(Location l) {
+        lastFix = l;
         if (!connected) return;
-        final String line = Json.write(Json.o("op", "fix", "lat", l.getLatitude(), "lng", l.getLongitude(), "acc", (double) l.getAccuracy()));
+        final String line = fixLine(l);
         new Thread(new Runnable() { public void run() { core.handle(line); } }, "fix").start();
     }
     @Override public void onStatusChanged(String p, int s, Bundle e) { }

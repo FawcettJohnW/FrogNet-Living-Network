@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- [RT_TEAM_APP_V1] RangerTrak Team: RangerTrak's shell, opening as a team member (net.frognet.rangertrak.ROLE = team) -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- the GPS is used when the device has one; a device without one is asked for its street address -->
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app) -->
+    <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
+    <application android:label="RangerTrak Team" android:usesCleartextTraffic="true" android:theme="@style/RtTheme">
+        <meta-data android:name="net.frognet.rangertrak.ROLE" android:value="team" />
+        <activity android:name="net.frognet.rangertrak.android.MainActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

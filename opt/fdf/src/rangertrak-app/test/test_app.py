@@ -23,6 +23,11 @@
 #   18 team actions (a service request, a sensor platform) and the EOC's action; 19 compliance
 #   21 the hospital's desk: the simulated hospitals' statuses; a desk publishes its own, the EOC sees it
 #   22 an ambulance's patient transport is on the hospital's Inbound; the hospital's Acknowledge is on the ambulance's
+#   25 the mission: the EOC sees it; a team member updates it (objectives) and the EOC sees the update
+#   26 a device with no GPS: asked for its street address; the position it gives ("lat, lon" here: the address lookup is
+#      the phone's) is its position on the EOC's map, marked as an address; the member's map is centred on it
+#   27 the chat's Call: offered when the To is a person
+#   28 a new mission started by a team member is the mission on every device
 #   24 the connect screen's teams are the ones the admin defined (door op=roles)
 #   23 Call: the EOC calls the Alpha member: the Communicator's device picker (camera, mic, speakers) opens on the
 #      EOC; the member's app rings, Answer opens its Communicator to answer; the chosen devices go to the Communicator
@@ -258,12 +263,35 @@ with sync_playwright() as pw:
     check(st.get("camera") == "video=Integrated Camera" and st.get("mic") == "2" and st.get("speaker") == "2" and st.get("ram", "").endswith(":8800") and "calling" in ring,
           "23 Call: the EOC's Communicator picker (camera, mic, speakers) gives %s; the member's app rang ('%s') and Answer opened its Communicator to answer" % (
               {k: st.get(k) for k in ("camera", "mic", "speaker", "ram", "media")}, ring.replace("\n", " ")))
+    # [RT_MISSION_V1] the mission
+    eoc.evaluate("$('#sheet').hidden=true"); eoc.click("#misBtn"); eoc.wait_for_selector("#sheet .mis", timeout=5000)
+    m0 = eoc.inner_text("#sheet .mis")
+    tm.evaluate("$('#sheet').hidden=true"); tm.click("#misBtn"); tm.click("text=Update this mission")
+    tm.fill(".mf [name=objectives]", "Account for every resident of Vashon by 18:00"); tm.click(".mf .go")
+    eoc.wait_for_function("/Account for every resident/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    check("Seattle metro exercise" in m0, "25 the mission on the EOC's Mission panel ('%s'); the Alpha member's update (objectives) on it at once: %s" % (
+        m0.splitlines()[1] if len(m0.splitlines()) > 1 else m0, eoc.evaluate("JSON.stringify(S.mission.bag.objectives)")))
+    # [RT_NO_GPS_V1] [RT_FOLLOW_ME_V1]
+    tm.evaluate("$('#sheet').hidden=true; rtDeliver(JSON.stringify({ev:'nogps',why:'This device has no GPS.'}))")
+    tm.wait_for_selector(".af", timeout=5000); tm.fill(".af [name=a]", "47.6097, -122.3331"); tm.click(".af .go")
+    eoc.wait_for_function("S.pos['alpha9'] && S.pos['alpha9'].src==='address' && Math.abs(S.pos['alpha9'].lat-47.6097)<1e-4", timeout=10000)
+    time.sleep(1)                                                            # (the pan is animated)
+    c = tm.evaluate("(()=>{const c=map.getCenter();return [c.lat,c.lng,map.getZoom()]})()")
+    check(abs(c[0] - 47.6097) < 0.01 and abs(c[1] + 122.3331) < 0.01, "26 no GPS: asked for the street address; the position given is the member's on the EOC's map (src address); the member's map centred on it: %s" % c)
+    tm.evaluate("$('#chat').hidden=false"); tm.select_option("#to", "dev:eoc1"); vis = tm.is_visible("#callTo"); tm.select_option("#to", "all")
+    check(vis and tm.is_hidden("#callTo"), "27 the chat's Call is offered for a person (the EOC Desk), not for Everyone")
     sim.terminate(); sim.wait()
     eoc.wait_for_function("Object.values(S.pos).filter(b=>b.sim).length===0", timeout=10000)
     time.sleep(0.5)
     lkp = eoc.evaluate("document.querySelectorAll('.mk.lkp').length")
     check(lkp >= 60, "6 rt-sim stopped: no simulated instance in the RAM; %d drawn as last known positions" % lkp)
     if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-lkp.png"))
+    tm.evaluate("$('#chat').hidden=true"); tm.click("#misBtn"); tm.click("text=Start a new mission")
+    tm.fill(".mf [name=name]", "Vashon windstorm"); tm.fill(".mf [name=event]", "Windstorm, island power out"); tm.click(".mf .go")
+    eoc.wait_for_function("S.mission && /^vashon-windstorm-/.test(S.mission.id)", timeout=10000)
+    tm.wait_for_function("S.mission && /^vashon-windstorm-/.test(S.mission.id) && $('#mission').textContent==='Vashon windstorm'", timeout=10000)
+    check(True, "28 the new mission (%s) is the mission on the EOC and the member" % eoc.evaluate("S.mission.id"))
+    if SHOTS: tm.click("#misBtn"); tm.screenshot(path=os.path.join(SHOTS, "team-mission.png"))
     br.close()
 for p in procs: p.terminate()
 print("RESULT", "PASS" if not FAILS else "FAIL: %d" % len(FAILS)); sys.exit(1 if FAILS else 0)

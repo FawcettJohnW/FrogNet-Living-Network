@@ -15,7 +15,7 @@
   <h1>RangerTrak</h1>
   <label>Node <input name="door" placeholder="the node this device is on, e.g. 10.170.170.1" required></label>
   <label>Your name <input name="name" required></label>
-  <fieldset class="roles"><legend>View</legend>
+  <fieldset class="roles" id="roleSet"><legend>View</legend>
     <label><input type="radio" name="role" value="eoc"> EOC</label>
     <label><input type="radio" name="role" value="team" checked> Team</label>
     <label><input type="radio" name="role" value="hospital"> Hospital</label>
@@ -38,6 +38,7 @@
   <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
     <span id="dot" title=""></span>
     <button id="homeBtn" type="button" hidden>Home</button>
+    <button id="misBtn" type="button" hidden>Mission</button>
     <button id="actBtn" type="button" hidden>Actions</button>
     <button id="reqBtn" type="button" hidden>Requests</button>
     <button id="sensBtn" type="button" hidden>Sensors</button>
@@ -49,7 +50,7 @@
   <aside id="chat" hidden>
     <div class="tabs" id="tabs"></div>
     <div id="log"></div>
-    <form id="sayForm"><select id="to"></select><input id="text" placeholder="message" autocomplete="off"><button>Send</button></form>
+    <form id="sayForm"><select id="to"></select><input id="text" placeholder="message" autocomplete="off"><button>Send</button><button type="button" id="callTo" hidden>Call</button></form>
   </aside>
   <div id="pop" hidden><div class="pt"></div><div class="pbtn"><button type="button" class="pcall">Call</button></div><div class="pl"></div>
     <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>

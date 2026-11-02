@@ -4,3 +4,4 @@ pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal()
 dependencyResolutionManagement { repositories { google(); mavenCentral() } }
 rootProject.name = "rangertrak-android"
 include(":app")
+include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team

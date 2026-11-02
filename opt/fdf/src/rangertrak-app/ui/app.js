@@ -35,6 +35,10 @@ window.rtInit = function (cfg) {
   S.cfg = cfg || {}
   const f = $('#connect')
   f.door.value = S.cfg.door || ''; f.name.value = S.cfg.name || ''
+  if (S.cfg.lock === 'team') {                      // [RT_TEAM_APP_V1] the Team app: a team member, nothing else
+    S.cfg.role = 'team'; $('#roleSet').hidden = true
+    document.querySelector('#connect h1').textContent = 'RangerTrak Team'; document.title = 'RangerTrak Team'
+  }
   if (S.cfg.role) f.querySelector(`[name=role][value=${S.cfg.role}]`).checked = true
   if (S.cfg.team) f.team.value = S.cfg.team
   roleFields(); askRoles()
@@ -72,7 +76,11 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'connected') connected(m)
   else if (m.ev === 'roles') teamsFrom(m.roles || {})
-  else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id }
+  else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id
+    const changed = S.mission && S.mission.id !== m.id
+    S.mission = m; if (S.sheet === 'mis' && !$('#sheet').hidden && !S.misEditing) missionPanel()
+    if (changed) notify({ id: 'mis:' + m.id, from: '', name: 'Mission', to: 'all', text: 'the mission now is ' + (m.name || m.id), at: Date.now() / 1000 })
+    addressFix() }
   else if (m.ev === 'world') world(m.who || {}, m.pos || {})
   else if (m.ev === 'msg') message(m)
   else if (m.ev === 'help') { S.help = m.requests || {}; S.actions = m.actions || {}; redraw(); refreshSheet('help') }
@@ -87,7 +95,9 @@ window.rtDeliver = function (line) {
   else if (m.ev === 'comms') commsStart(m.peer, m.door)
   else if (m.ev === 'incoming') ring(m)
   else if (m.ev === 'devices') devicePicker(m)
-  else if (m.ev === 'myfix') myFix = { lat: m.lat, lon: m.lng }
+  else if (m.ev === 'myfix') { myFix = { lat: m.lat, lon: m.lng }; followMe() }
+  else if (m.ev === 'nogps') noGps(m)
+  else if (m.ev === 'geocoded') geocoded(m)
   else if (m.ev === 'hosts') { S.gps = {}; for (const h of m.list || []) S.gps['gps:' + h.name] = Object.assign({ kind: 'host' }, h); redraw() }
 }
 function status(t) { $('#status').textContent = t; $('#dot').classList.toggle('up', !/FAILING|cannot|⚠/.test(t)) }
@@ -293,6 +303,9 @@ function notify(m) {
 }
 function readAll() { unread = 0; $('#chatBtn').textContent = 'Chat'; $('#chatBtn').classList.remove('hot') }
 $('#chatBtn').onclick = () => { $('#chat').hidden = !$('#chat').hidden; if (!$('#chat').hidden) readAll() }
+// [RT_CALL_V1] the chat's Call: anyone can call anyone the To list has (a person)
+$('#to').addEventListener('change', () => { $('#callTo').hidden = !$('#to').value.startsWith('dev:') })
+$('#callTo').onclick = () => { const o = $('#to').selectedOptions[0]; if (o && o.value.startsWith('dev:')) send({ op: 'call', to: o.value.slice(4), peerName: o.textContent.replace(/ \(.*\)$/, '') }) }
 $('#sayForm').onsubmit = (e) => { e.preventDefault(); const t = $('#text').value.trim(); if (!t) return; send({ op: 'say', to: $('#to').value, text: t }); $('#text').value = '' }
 
 // double-click a member: talk to that one, or to all of their team
@@ -785,3 +798,82 @@ refreshSheet = function (what) { _refresh3(what); if (!$('#sheet').hidden && S.s
 // an ambulance's status buttons redraw its own panel
 const _setStatus = window.setStatus
 window.setStatus = (st) => { _setStatus(st); if (S.sheet === 'unit') unitPanel() }
+
+
+// ------------------------------------------------------------ [RT_FOLLOW_ME_V1] the map centred on you, north up
+// The map follows this device's own position (its GPS, or the address typed on a device without one); everyone else is
+// where they are around you. Moving the map yourself stops following; the ⦿ button centres on you and follows again.
+S.follow = true
+let meBtn = null
+function followMe() {
+  if (!map || !myFix) return
+  if (!meBtn) {
+    meBtn = document.createElement('button'); meBtn.id = 'meBtn'; meBtn.type = 'button'; meBtn.title = 'Centre on me'; meBtn.textContent = '⦿'
+    meBtn.onclick = () => { S.follow = true; meBtn.classList.add('on'); map.setView([myFix.lat, myFix.lon], Math.max(map.getZoom(), 14)) }
+    document.getElementById('main').appendChild(meBtn)
+    map.on('dragstart', () => { S.follow = false; meBtn.classList.remove('on') })
+    meBtn.classList.add('on')
+    map.setView([myFix.lat, myFix.lon], Math.max(map.getZoom(), 14)); return
+  }
+  if (S.follow) map.panTo([myFix.lat, myFix.lon], { animate: true })
+}
+
+// ------------------------------------------------------------ [RT_NO_GPS_V1] a device with no GPS: its street address
+// The native side says so (ev nogps); the user types the address once, the device looks it up (Android's Geocoder) and
+// that is this device's position, kept on the device and published like a fix ("src":"address"). A "lat, lon" typed is
+// taken as it is.
+function noGps(m) {
+  S.noGps = true
+  if (m.saved && typeof m.saved.lat === 'number') { S.addr = m.saved; addressFix(); return }
+  addressSheet(m.why || 'This device has no GPS.')
+}
+function addressSheet(why) {
+  sheet('addr', 'Where are you?', `<form class="af mf"><div>${esc(why)} Enter the street address where you are; it is your position on everyone's map.</div>
+    <label>Street address<input name="a" placeholder="17631 Vashon Hwy SW, Vashon, WA" value="${esc((S.addr || {}).label || '')}" required></label>
+    <button class="go">Use this address</button><div class="meta as"></div></form>`)
+  document.querySelector('.af').onsubmit = (e) => {
+    e.preventDefault(); const a = e.target.a.value.trim(), ll = a.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/)
+    if (ll) { geocoded({ lat: +ll[1], lng: +ll[2], label: a }); return }
+    document.querySelector('.af .as').textContent = 'looking it up…'
+    if (window.rtNative && window.rtNative.geocode) window.rtNative.geocode(a)
+    else document.querySelector('.af .as').textContent = 'this device cannot look up addresses: type "latitude, longitude"'
+  }
+}
+function geocoded(m) {
+  if (m.error) { const x = document.querySelector('.af .as'); if (x) x.textContent = m.error; return }
+  S.addr = { lat: m.lat, lng: m.lng, label: m.label }
+  if (window.rtNative && window.rtNative.saveAddress) try { window.rtNative.saveAddress(JSON.stringify(S.addr)) } catch (e) { }
+  $('#sheet').hidden = true; S.sheet = ''
+  addressFix()
+}
+function addressFix() { if (S.noGps && S.addr && S.role) send({ op: 'fix', lat: S.addr.lat, lng: S.addr.lng, acc: 0, src: 'address' }) }
+
+// ------------------------------------------------------------ [RT_MISSION_V1] see, update and start the mission
+const MIS_FIELDS = [['name', 'Name'], ['event', 'Event / incident'], ['opPeriod', 'Operational period'], ['start', 'Start'], ['end', 'End'],
+  ['commander', 'Incident commander'], ['objectives', 'Objectives'], ['area', 'Area'], ['notes', 'Notes']]
+function missionPanel(edit, fresh) {
+  const m = S.mission || {}, b = fresh ? {} : (m.bag || {})
+  S.misEditing = !!edit
+  if (!edit) {
+    const all = Object.entries(m.all || {}).sort((x, y) => (+(y[1].at || 0)) - (+(x[1].at || 0)))
+    sheet('mis', 'Mission', `<div class="mis"><dl>${MIS_FIELDS.filter(([k]) => b[k] !== undefined && b[k] !== '').map(([k, l]) => `<dt>${l}</dt><dd>${esc(b[k])}</dd>`).join('') || '<dt>Mission</dt><dd>' + esc(m.id || 'none yet') + '</dd>'}
+      ${b.updated ? `<dt>Updated</dt><dd>${new Date(b.updated * 1000).toLocaleString()} by ${esc(b.by || '')}</dd>` : ''}</dl>
+      ${S.role !== 'public' ? '<div class="row"><button type="button" onclick="missionPanel(true)">Update this mission</button> <button type="button" onclick="missionPanel(true,true)">Start a new mission</button></div>' : ''}
+      ${all.length > 1 ? '<h3>Earlier missions</h3>' + all.filter(([id]) => id !== m.id).map(([id, x]) => `<div class="meta">${esc(x.name || id)}${x.at ? ' · started ' + new Date(x.at * 1000).toLocaleString() : ''}</div>`).join('') : ''}</div>`)
+    return
+  }
+  sheet('mis', fresh ? 'Start a new mission' : 'Update the mission', `<form class="mf">${MIS_FIELDS.map(([k, l]) => `<label>${l}${k === 'objectives' || k === 'notes'
+      ? `<textarea name="${k}" rows="3">${esc(b[k] || '')}</textarea>` : `<input name="${k}" value="${esc(b[k] ?? '')}"${k === 'name' ? ' required' : ''}>`}</label>`).join('')}
+    ${fresh ? '<div class="meta">A new mission is the mission on every device from now on: positions, chat and requests start again in it.</div>' : ''}
+    <div class="row"><button class="go">${fresh ? 'Start it' : 'Save'}</button> <button type="button" onclick="missionPanel()">Cancel</button></div></form>`)
+  document.querySelector('.mf').onsubmit = (e) => {
+    e.preventDefault(); const bag = {}
+    for (const [k] of MIS_FIELDS) { const v = e.target[k].value.trim(); if (v !== '') bag[k] = v }
+    for (const k of ['lat', 'lng', 'sim']) if (!fresh && b[k] !== undefined) bag[k] = b[k]
+    send({ op: 'missionSet', id: fresh ? '' : (m.id || ''), bag }); S.misEditing = false; missionPanel()
+  }
+}
+window.missionPanel = missionPanel
+$('#misBtn').onclick = () => missionPanel()
+const _connected4 = connected
+connected = function (m) { _connected4(m); $('#misBtn').hidden = S.role === 'public'; addressFix() }

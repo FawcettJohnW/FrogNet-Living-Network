@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app): Android 11+ shows another app's
          screen to this one only when it is named here -->
     <queries><intent><action android:name="net.frognet.communicator.CALL" /></intent></queries>
