@@ -47,7 +47,7 @@ public final class MainActivity extends Activity implements LocationListener {
                     SharedPreferences.Editor e = prefs.edit();
                     for (String k : new String[]{"door", "name", "role", "team", "unit"}) e.putString(k, Json.str(m.get(k)));
                     e.apply();
-                    connected = true;
+                    connected = true; onTeamWifi = !Json.str(m.get("teamRam")).isEmpty();
                 }
             } catch (IllegalArgumentException ignored) { }
             final boolean conn = line.contains("\"op\":\"connect\"");
@@ -55,7 +55,14 @@ public final class MainActivity extends Activity implements LocationListener {
                 String inv = "";
                 try { inv = Json.str(Json.obj(Json.parse(line)).get("invite")).trim(); } catch (IllegalArgumentException ignored) { }
                 if (!inv.isEmpty()) {
-                    try { new com.fawcettinnovations.fdf.android.Identity(MainActivity.this).setInvite(inv); note("[ADMITTED_BY_INVITE_V1] the FrogNet invitation is kept"); }
+                    try {
+                        com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(MainActivity.this);
+                        if (inv.startsWith(com.fawcettinnovations.fdf.member.JoinLine.PREFIX)) {   // [LOGIN_IS_AN_INVITATION_V1] the EOC QR
+                            Map<String, Object> c = Json.obj(Json.parse(line));
+                            ident.keepJoin(inv, Json.str(c.get("user")), Json.str(c.get("password")));
+                            note("[LOGIN_IS_AN_INVITATION_V1] the EOC's join line is kept: this phone logs in with it");
+                        } else { ident.setInvite(inv); note("[ADMITTED_BY_INVITE_V1] the FrogNet invitation is kept"); }
+                    }
                     catch (IllegalArgumentException e) { deliver(Json.o("ev", "error", "text", "FrogNet invitation: " + e.getMessage())); return; }
                 }
                 pendingConnect = line;
@@ -108,6 +115,10 @@ public final class MainActivity extends Activity implements LocationListener {
                 startActivity(i);
             } catch (Exception e) { deliver(Json.o("ev", "error", "text", "the Communicator did not open: " + e.getMessage())); }
         }
+        /** [TEAM_HOST_V1] Host team: this phone's hotspot carries the team, its RAM is on this phone */
+        @JavascriptInterface public void teamHost() { runOnUiThread(new Runnable() { public void run() { hostTeam("Host team"); } }); }
+        /** [TEAM_HOST_V1] Scan team: on the lead's hotspot already, its card; otherwise the hotspot's QR code first */
+        @JavascriptInterface public void scanTeam() { new Thread(new Runnable() { public void run() { scanTeamNow(); } }, "scan-team").start(); }
         /** [CHAT_NOTICE_V1] a message the user cannot see: a phone notification while the app is not in front */
         @JavascriptInterface public void notice(String from, String text) {
             if (inFront) return;
@@ -166,20 +177,26 @@ public final class MainActivity extends Activity implements LocationListener {
     }
     /** consented: Android just said OK to the VPN question (not asked twice) */
     private void startMember(String why, boolean consented) {
-        final String lan = nodeLan();
+        String lan = nodeLan();
+        String tr = ""; try { if (pendingConnect != null) tr = Json.str(Json.obj(Json.parse(pendingConnect)).get("teamRam")); } catch (IllegalArgumentException ignored) { }
+        // [TEAM_SPLIT_V1] on its lead's hotspot a member goes the lead's way: the lead's card says whether that needs a
+        // membership of its own (teamVia); the connect itself is to the lead's phone and the node, as on a node's LAN
+        if (lan.isEmpty() && !tr.isEmpty()) lan = "on the team lead's hotspot (its RAM at " + tr + ")";
         if (!lan.isEmpty()) {                           // [ON_THE_LAN_NO_TUNNEL_V1] the node routes this phone already
             final String line = pendingConnect; pendingConnect = null;
             if (line == null) return;
-            note("[ON_THE_LAN_NO_TUNNEL_V1] " + lan + ": the node routes this phone; no FrogNet tunnel needed" + networks());
+            note("[ON_THE_LAN_NO_TUNNEL_V1] " + lan + ": no FrogNet tunnel needed for this" + networks());
             new Thread(new Runnable() { public void run() {
                 core.handle(line);
                 Location l = lastFix; if (l != null) core.handle(fixLine(l));
             } }, "core-connect").start();
             return;
         }
-        com.fawcettinnovations.fdf.member.Invite iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
-        if (iv == null) {                               // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
-            deliver(Json.o("ev", "error", "text", "no FrogNet invitation: on the region's machine run fdf-invite <name> --leaf and paste the line on this screen"));
+        com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(this);
+        com.fawcettinnovations.fdf.member.Invite iv = ident.getInvite();
+        com.fawcettinnovations.fdf.member.JoinLine jl = ident.getJoin();
+        if (iv == null && jl == null) {                 // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
+            deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the EOC's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
             return;
         }
         SharedPreferences id = getSharedPreferences("fdf-identity", MODE_PRIVATE);   // the member's name: the user's, set once
@@ -192,7 +209,8 @@ public final class MainActivity extends Activity implements LocationListener {
                 catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "Android gave no VPN permission screen: " + e.getMessage())); }
                 return;
             }
-            note("[RT_IS_A_MEMBER_V1] joining FrogNet as " + iv.getName() + " (edge " + iv.getEdge() + ") in " + iv.getArea() + ", hub " + iv.getHub().getEndpoint());
+            note("[RT_IS_A_MEMBER_V1] joining FrogNet " + (iv != null ? "as " + iv.getName() + " (edge " + iv.getEdge() + ") in " + iv.getArea() + ", hub " + iv.getHub().getEndpoint()
+                    : "by logging in to " + jl.getOrg() + " at level " + jl.getLevel() + " (" + jl.getManagers().get(0).getEndpoint() + ")"));
             try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
             catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); return; }
         }
@@ -232,6 +250,8 @@ public final class MainActivity extends Activity implements LocationListener {
         return all.toString();
     }
     @Override protected void onActivityResult(int code, int result, android.content.Intent data) {
+        if (code == com.google.zxing.integration.android.IntentIntegrator.REQUEST_CODE) { scanned(com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(code, result, data)); return; }
+        if (code == WIFI_ADD) { if (result != RESULT_OK) deliver(Json.o("ev", "error", "text", "the lead's hotspot was not added (Android's question was declined)")); return; }
         if (code != VPN_CONSENT) { super.onActivityResult(code, result, data); return; }
         if (result == RESULT_OK) startMember("VPN permission given", true);
         else deliver(Json.o("ev", "error", "text", "the VPN permission was refused: no FrogNet tunnel (Connect asks again)"));
@@ -293,7 +313,7 @@ public final class MainActivity extends Activity implements LocationListener {
     private volatile boolean pageUp = false, gpsless = false; private String gpslessWhy = "";
     private void noGpsWhenUp(String why) { gpsless = true; gpslessWhy = why; if (pageUp) noGps(why); }
     private volatile boolean inFront = false;
-    @Override protected void onResume() { super.onResume(); inFront = true; }
+    @Override protected void onResume() { super.onResume(); inFront = true; if (hostPending && !hotspotAddr().isEmpty()) hostTeam("the hotspot is on"); }
     @Override protected void onPause() { inFront = false; super.onPause(); }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -314,6 +334,7 @@ public final class MainActivity extends Activity implements LocationListener {
         core = new AppCore(new AppCore.Ui() {
             public void deliver(final String line) {
                 if (line.contains("\"ev\":\"status\"") || line.contains("\"ev\":\"error\"")) android.util.Log.i("RangerTrak", line);   // [APP_LOGS_WHAT_IT_SAYS_V1]
+                if (line.contains("\"ev\":\"teamVia\"")) { try { Map<String, Object> v = Json.obj(Json.parse(line)); teamVia(Json.str(v.get("via")), Json.str(v.get("join"))); } catch (IllegalArgumentException ignored) { } return; }
                 web.post(new Runnable() { public void run() { web.evaluateJavascript("rtDeliver(" + Json.quote(line) + ")", null); } });
             }
         });
@@ -328,6 +349,7 @@ public final class MainActivity extends Activity implements LocationListener {
         setContentView(web);
         web.loadUrl("file:///android_asset/ui/index.html");
         askForLocation();
+        watchNetworks();
     }
 
     private Map<String, Object> settings() {
@@ -344,7 +366,9 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         String door = prefs.getString("door", "");
         String gw = gateway();
-        if (!gw.isEmpty()) door = gw;                 // on a node's Wi-Fi the node is the gateway: where this phone is now
+        // on a node's Wi-Fi the node is the gateway: where this phone is now ([TEAM_HOST_V1] not on a team lead's hotspot,
+        // whose gateway is the lead's phone: there the node is the one the lead's card names)
+        if (!gw.isEmpty() && !nodeLan().isEmpty()) door = gw;
         // [RT_TEAM_APP_V1] an APK built for one role (the Team app: meta-data net.frognet.rangertrak.ROLE = team) opens as it
         String lock = "";
         try {
@@ -358,8 +382,9 @@ public final class MainActivity extends Activity implements LocationListener {
 
     /** [ADMITTED_BY_INVITE_V1] who this device is invited as, for the connect screen ("" : no invitation kept yet) */
     private String invitedAs() {
-        try { com.fawcettinnovations.fdf.member.Invite iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
-              return iv == null ? "" : iv.getName() + " in " + iv.getArea(); }
+        try { com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(this);
+              com.fawcettinnovations.fdf.member.Invite iv = ident.getInvite(); com.fawcettinnovations.fdf.member.JoinLine jl = ident.getJoin();
+              return iv != null ? iv.getName() + " in " + iv.getArea() : jl != null ? "the EOC " + jl.getOrg() + " (level " + jl.getLevel() + ")" : ""; }
         catch (RuntimeException e) { return ""; }
     }
 
@@ -369,6 +394,185 @@ public final class MainActivity extends Activity implements LocationListener {
         if (w == null || w.getDhcpInfo() == null || w.getDhcpInfo().gateway == 0) return "";
         int g = w.getDhcpInfo().gateway;
         return (g & 255) + "." + ((g >> 8) & 255) + "." + ((g >> 16) & 255) + "." + ((g >> 24) & 255);
+    }
+
+    // ------------------------------------------------------------------ [TEAM_HOST_V1] the team lead's phone hosts its team
+    // (John 2026-11-02: EOC > Team > Team Member.) The lead turns on the phone's hotspot (an app cannot: Android keeps that
+    // to itself, so Host team opens the settings where it is, and continues when the user comes back with it on); the
+    // team's RAM runs on this phone (TeamHostService: libteamram.so); the core writes the lead's card into it (the team,
+    // the EOC's node, the EOC's join line) and tells the EOC where it is. A member's phone scans the hotspot's QR code
+    // (Android's own, on its hotspot screen), joins it, and reads the card at its gateway: the lead's phone.
+    static final int WIFI_ADD = 9;
+    private volatile boolean hostPending = false;
+    /** the hotspot's address on this phone: an interface with an IPv4 that is none of Android's networks (Wi-Fi as a
+     *  client, mobile data, the VPN) -- a tethering interface; "" when the hotspot is off */
+    private String hotspotAddr() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        java.util.Set<String> nets = new java.util.HashSet<String>();
+        for (android.net.Network n : cm.getAllNetworks()) { android.net.LinkProperties lp = cm.getLinkProperties(n); if (lp != null && lp.getInterfaceName() != null) nets.add(lp.getInterfaceName()); }
+        try {
+            for (java.net.NetworkInterface ni : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback() || ni.getName().startsWith("tun") || nets.contains(ni.getName())) continue;
+                for (java.net.InetAddress a : java.util.Collections.list(ni.getInetAddresses()))
+                    if (a instanceof java.net.Inet4Address) return a.getHostAddress();
+            }
+        } catch (java.net.SocketException ignored) { }
+        return "";
+    }
+    /** where the EOC reaches this phone: its address on a node's LAN, else the edge its FrogNet membership has */
+    private String advertise() {
+        String lan = nodeLan();
+        if (!lan.isEmpty()) return lan.substring(0, lan.indexOf(' '));
+        com.fawcettinnovations.fdf.android.MemberService ms = com.fawcettinnovations.fdf.android.MemberService.Companion.getInstance();
+        String e = ms == null ? null : ms.edge();
+        return e == null ? "" : e;
+    }
+    private void hostTeam(String why) {
+        if (!connected) { deliver(Json.o("ev", "error", "text", "connect first: the team host is a connected Team phone")); return; }
+        String hs = hotspotAddr();
+        if (hs.isEmpty()) {
+            hostPending = true;
+            note("[TEAM_HOST_V1] turn on this phone's hotspot (Hotspot & tethering), then come back to RangerTrak");
+            try { startActivity(new android.content.Intent(Settings.ACTION_WIRELESS_SETTINGS)); }
+            catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "no settings screen to turn the hotspot on: " + e.getMessage())); }
+            return;
+        }
+        hostPending = false;
+        try { startForegroundService(new android.content.Intent(this, TeamHostService.class)); }
+        catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the team RAM did not start: " + e)); return; }
+        com.fawcettinnovations.fdf.member.JoinLine jl = new com.fawcettinnovations.fdf.android.Identity(this).getJoin();
+        hostingNow = true;
+        final String line = Json.write(Json.o("op", "teamHost", "port", TeamHostService.PORT, "addr", advertise(),
+                "card", Json.o("door", "", "join", jl == null ? "" : jl.getLine(), "via", nodeLan().isEmpty() ? "tunnel" : "lan")));
+        note("[TEAM_HOST_V1] " + why + ": hosting the team on this phone's hotspot (" + hs + "). Members: Scan team in the Team app, at this phone's hotspot QR code (Hotspot settings, QR code)");
+        new Thread(new Runnable() { public void run() { core.handle(line); } }, "team-host").start();
+    }
+
+    /** [TEAM_SPLIT_V1] a member: its lead reaches the node on a LAN (this phone is on it through the lead: no membership
+     *  of its own) or through its tunnel (this phone needs its own: the EOC's join line, from the lead's card) */
+    private void teamVia(String via, String join) {
+        if (via.equals("tunnel")) {
+            if (memberStarted) return;
+            com.fawcettinnovations.fdf.android.Identity id = new com.fawcettinnovations.fdf.android.Identity(this);
+            if (id.getInvite() == null && id.getJoin() == null && !join.isEmpty())
+                try { id.keepJoin(join, "", ""); } catch (IllegalArgumentException e) { deliver(Json.o("ev", "error", "text", "the lead's join line: " + e.getMessage())); return; }
+            if (android.net.VpnService.prepare(this) != null) { runOnUiThread(new Runnable() { public void run() { startMember("the team lead is on its tunnel", false); } }); return; }
+            note("[TEAM_SPLIT_V1] the team lead reaches the node through its tunnel: this phone joins FrogNet itself");
+            try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
+            catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); }
+        } else if (via.equals("lan") && memberStarted) {
+            note("[TEAM_SPLIT_V1] the team lead is on the node's LAN: this phone is there through it; its own membership ends");
+            try { startService(new android.content.Intent().setClassName(this, MEMBER).setAction("com.fawcettinnovations.fdf.android.STOP")); } catch (RuntimeException ignored) { }
+            memberStarted = false;
+        }
+    }
+
+    // [TEAM_SPLIT_V1] the phone's own networks: when they change (Wi-Fi gone, another node's Wi-Fi, mobile data), a
+    // connected phone that is not on a lead's hotspot goes where it is now -- on a node's LAN that node is its node; off
+    // one, its membership (the tunnel) carries it; and a lead says where its team is now. The event, not a poll.
+    private volatile boolean hostingNow = false; private volatile String lastLan = null; private volatile boolean onTeamWifi = false;
+    private void watchNetworks() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(),
+            new android.net.ConnectivityManager.NetworkCallback() {
+                @Override public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties lp) { netChanged(); }
+                @Override public void onLost(android.net.Network n) { netChanged(); }
+            });
+    }
+    private synchronized void netChanged() {
+        if (!connected || onTeamWifi) return;
+        String lan = nodeLan();
+        if (lan.equals(lastLan)) return;
+        boolean first = lastLan == null; lastLan = lan;
+        if (first) return;                              // the network the phone connected on
+        if (!lan.isEmpty()) {
+            int a = lan.indexOf(" on "), b = lan.indexOf("'s LAN");
+            final String node = a > 0 && b > a ? lan.substring(a + 4, b) : "";
+            note("[TEAM_SPLIT_V1] this phone is on " + node + "'s LAN now");
+            if (!node.isEmpty()) new Thread(new Runnable() { public void run() { core.handle(Json.write(Json.o("op", "door", "door", node))); } }, "redoor").start();
+        } else {
+            com.fawcettinnovations.fdf.android.Identity id = new com.fawcettinnovations.fdf.android.Identity(this);
+            if (id.getInvite() == null && id.getJoin() == null) note("[TEAM_SPLIT_V1] off the node's LAN with no FrogNet invitation or join line: this phone (and its team) is an island");
+            else if (!memberStarted && android.net.VpnService.prepare(this) == null) {
+                note("[TEAM_SPLIT_V1] off the node's LAN: FrogNet through this phone's own tunnel now");
+                try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
+                catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); }
+            }
+        }
+        if (hostingNow) runOnUiThread(new Runnable() { public void run() { hostTeam("the network changed"); } });
+    }
+
+    private void scanTeamNow() {
+        String gw = gateway();
+        Map<String, Object> card = gw.isEmpty() ? null : teamCard(gw);
+        if (card != null) { deliver(card); return; }
+        runOnUiThread(new Runnable() { public void run() {
+            new com.google.zxing.integration.android.IntentIntegrator(MainActivity.this)
+                    .setDesiredBarcodeFormats(com.google.zxing.integration.android.IntentIntegrator.QR_CODE)
+                    .setPrompt("Your team lead's hotspot QR code").setBeepEnabled(false).setOrientationLocked(false).initiateScan();
+        } });
+    }
+    /** the lead's card in its team RAM at gw (the hotspot's gateway: the lead's phone), as the page's teamCard; null: none */
+    private Map<String, Object> teamCard(String gw) {
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("http://" + gw + ":" + TeamHostService.PORT + AppCore.API + "?op=read&service=rt-team&variable=card").openConnection();
+            c.setConnectTimeout(3000); c.setReadTimeout(3000);
+            java.io.InputStream in = c.getInputStream(); java.io.ByteArrayOutputStream b = new java.io.ByteArrayOutputStream();
+            byte[] k = new byte[4096]; for (int n; (n = in.read(k)) > 0; ) b.write(k, 0, n);
+            for (Object o : Json.arr(Json.obj(Json.parse(b.toString("UTF-8"))).get("cells"))) {
+                Map<String, Object> bag = Json.obj(Json.obj(o).get("bag"));
+                note("[TEAM_HOST_V1] team " + Json.str(bag.get("team")) + "'s lead (" + Json.str(bag.get("lead")) + ") is this Wi-Fi's gateway " + gw);
+                return Json.o("ev", "teamCard", "team", Json.str(bag.get("team")), "door", Json.str(bag.get("door")), "join", Json.str(bag.get("join")),
+                        "lead", Json.str(bag.get("lead")), "teamRam", gw + ":" + TeamHostService.PORT);
+            }
+        } catch (Exception e) { android.util.Log.i("RangerTrak", "[TEAM_HOST_V1] no team card at " + gw + ": " + e); }
+        return null;
+    }
+    private void scanned(com.google.zxing.integration.android.IntentResult r) {
+        String q = r == null ? null : r.getContents();
+        if (q == null) { deliver(Json.o("ev", "error", "text", "nothing was scanned")); return; }
+        if (!q.startsWith("WIFI:")) { deliver(Json.o("ev", "error", "text", "that is not a hotspot's QR code (it says " + (q.length() > 40 ? q.substring(0, 40) + "…" : q) + ")")); return; }
+        Map<String, String> w = wifiQr(q.substring(5));
+        String ssid = w.get("S"), pw = w.get("P"), t = w.get("T") == null ? "" : w.get("T");
+        if (ssid == null || ssid.isEmpty()) { deliver(Json.o("ev", "error", "text", "the hotspot's QR code names no network")); return; }
+        if (Build.VERSION.SDK_INT < 30) { deliver(Json.o("ev", "error", "text", "this Android cannot add a Wi-Fi network from an app: join \"" + ssid + "\" in Settings, then Scan team again")); return; }
+        android.net.wifi.WifiNetworkSuggestion.Builder sb = new android.net.wifi.WifiNetworkSuggestion.Builder().setSsid(ssid);
+        if (t.equalsIgnoreCase("SAE")) sb.setWpa3Passphrase(pw == null ? "" : pw); else if (pw != null && !pw.isEmpty()) sb.setWpa2Passphrase(pw);
+        java.util.ArrayList<android.net.wifi.WifiNetworkSuggestion> list = new java.util.ArrayList<android.net.wifi.WifiNetworkSuggestion>(); list.add(sb.build());
+        note("[TEAM_HOST_V1] joining the lead's hotspot \"" + ssid + "\"");
+        awaitTeamWifi();
+        startActivityForResult(new android.content.Intent(Settings.ACTION_WIFI_ADD_NETWORKS).putParcelableArrayListExtra(Settings.EXTRA_WIFI_NETWORK_LIST, list), WIFI_ADD);
+    }
+    /** WIFI:S:<ssid>;T:<WPA|SAE|nopass>;P:<password>;H:<hidden>;; with \ ; , : " escaped by a backslash */
+    static Map<String, String> wifiQr(String s) {
+        Map<String, String> out = new java.util.HashMap<String, String>(); StringBuilder v = new StringBuilder(); String k = null;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 1 < s.length()) { v.append(s.charAt(++i)); continue; }
+            if (k == null && c == ':') { k = v.toString(); v.setLength(0); continue; }
+            if (c == ';') { if (k != null) out.put(k, v.toString()); k = null; v.setLength(0); continue; }
+            v.append(c);
+        }
+        return out;
+    }
+    /** the Wi-Fi this phone joins next: when its gateway has a team card, that is the team (the event, not a poll) */
+    private void awaitTeamWifi() {
+        final android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        final java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final android.net.ConnectivityManager.NetworkCallback cb = new android.net.ConnectivityManager.NetworkCallback() {
+            @Override public void onLinkPropertiesChanged(android.net.Network n, android.net.LinkProperties lp) {
+                String gw = "";
+                for (android.net.RouteInfo r : lp.getRoutes()) if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) gw = r.getGateway().getHostAddress();
+                if (gw.isEmpty() || done.get()) return;
+                Map<String, Object> card = teamCard(gw);
+                if (card != null && done.compareAndSet(false, true)) { deliver(card); try { cm.unregisterNetworkCallback(this); } catch (Exception ignored) { } }
+            }
+        };
+        cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_WIFI).build(), cb);
+        web.postDelayed(new Runnable() { public void run() {
+            if (done.compareAndSet(false, true)) { try { cm.unregisterNetworkCallback(cb); } catch (Exception ignored) { }
+                deliver(Json.o("ev", "error", "text", "no team found on the lead's hotspot in 60 s: is Host team on, on the lead's phone?")); }
+        } }, 60000);
     }
 
     // ------------------------------------------------------------------ GPS: every fix is this device's own position

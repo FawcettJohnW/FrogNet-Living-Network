@@ -39,7 +39,10 @@ import com.fawcettinnovations.fdf.member.BridgeNet
 import com.fawcettinnovations.fdf.member.Pfx
 import com.fawcettinnovations.fdf.member.BridgeForwardDriver
 import com.fawcettinnovations.fdf.member.Json
+import com.fawcettinnovations.fdf.member.Invite
 import com.fawcettinnovations.fdf.member.Leaf
+import com.fawcettinnovations.fdf.member.LoginRefused
+import com.fawcettinnovations.fdf.member.OrgLogin
 import com.fawcettinnovations.fdf.member.Reach
 import com.fawcettinnovations.fdf.member.Member
 import com.fawcettinnovations.fdf.member.MemberConfig
@@ -163,6 +166,7 @@ class MemberService : Service() {
     }
 
     private val saidNoInvite = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var admitted: Invite? = null          // [LOGIN_IS_AN_INVITATION_V1] this run's login, as an invitation
     private fun loop(pond: Pond) {
         val id = ident; val area = pond.area; val c = pond.ram.lastIndexOf(':')
         AppLog.add("member: ${id.name} guid=${id.guid} pond $area at ${pond.ram} (${if (id.forward == area) "forward" else "participant"})")
@@ -172,18 +176,32 @@ class MemberService : Service() {
             // tunnel, so the hub channel the invitation describes comes up FIRST, before every join (the rejoin too), and
             // stays up across sessions; the region is then reached through it. The leaf does not place itself or drive
             // the tunnel: the invitation, not the region, says where the hub is and what this device's address is.
+            // [LOGIN_IS_AN_INVITATION_V1] joined by a line (the EOC QR): logged in once per run of the service, at the
+            // line's first RAM host; what it gives is used exactly as an invitation from here on
             val inv = id.invite?.takeIf { it.area == area && id.forward == area }
+                ?: id.join?.takeIf { it.org == area && id.forward == area }?.let { j ->
+                    admitted ?: try {
+                        OrgLogin(bridge, id.keys.publicKey.toBase64(), id.guid, id.name, say).admit(j, id.keys.privateKey.toBase64(), id.joinUser, id.joinPassword)
+                            .also { admitted = it; say("[LOGIN_IS_AN_INVITATION_V1] logged in to ${j.org} as ${it.name} (level ${j.level}): edge ${it.edge}, the region at ${it.ram} inside the hub's tunnel") }
+                    } catch (e: LoginRefused) { say("[LOGIN_IS_AN_INVITATION_V1] the login to ${j.org} was refused: ${e.message}"); refused[area] = e.message ?: "login refused"; null }
+                      catch (e: Exception) { say("[LOGIN_IS_AN_INVITATION_V1] the login to ${j.org} failed: ${e.message}; tried again in 5 s"); null }
+                }
+            if (inv == null && id.join?.org == area && id.forward == area) {
+                if (refused.containsKey(area)) break
+                try { Thread.sleep(5000) } catch (_: InterruptedException) { break }; continue
+            }
             if (inv != null) {
                 if (tunnel.current?.pubkey != inv.hub.pubkey || tunnel.current?.endpoint != inv.hub.endpoint) {
                     try { tunnel.up(inv.hub, "${inv.edge}/32"); say("[RAM_IN_THE_TUNNEL_V1] hub channel up: ${inv.hub.name} at ${inv.hub.endpoint} (key ${inv.hub.pubkey.take(12)}...), this device ${inv.edge} (invited as ${inv.name}, ${inv.kind}); joining the region at ${pond.ram} through it") }
                     catch (e: Exception) { say("[RAM_IN_THE_TUNNEL_V1] the hub channel did not come up: ${e.message}; tried again in 5 s"); try { Thread.sleep(5000) } catch (_: InterruptedException) { break }; continue }
                 }
-            } else if (id.forward == area && id.invite == null && !saidNoInvite.getAndSet(true))
+            } else if (id.forward == area && id.invite == null && id.join == null && !saidNoInvite.getAndSet(true))
                 say("[ADMITTED_BY_INVITE_V1] no invitation: the region's RAM manager is reached only through its hub's tunnel, which answers invited keys only (fdf-invite NAME --leaf on the region's machine; paste the line in Setup). Trying ${pond.ram} directly")
             val leaf = Leaf(area, ::ipv4s, { id.keys.publicKey.toBase64() }, tunnel, say, isForward = { id.forward == area && inv == null })
             val reach = Reach(area, bridge, { id.keys.publicKey.toBase64() }, say) { why -> refused[area] = why }
             leaves[area] = leaf; reaches[area] = reach
-            val m = Member(MemberConfig(pond.ram.substring(0, c), pond.ram.substring(c + 1).toInt(), id.name, id.guid, ::ipv4s, ::capability,
+            val ramHost = inv?.ramHost ?: pond.ram.substring(0, c); val ramPort = inv?.ramPort ?: pond.ram.substring(c + 1).toInt()
+            val m = Member(MemberConfig(ramHost, ramPort, id.name, id.guid, ::ipv4s, ::capability,
                 { if (inv != null) inv.facts(id.keys.publicKey.toBase64()) else if (id.forward == area) id.facts(leaf.placement) else id.participantFacts() },
                 area, inv?.siteKey ?: "", 30, AndroidTuner, say,
                 prepare = { mm -> if (inv == null && id.forward == area) leaf.place(mm, mm.world()) },
@@ -237,6 +255,10 @@ class MemberService : Service() {
 
     /** [ADDIN_V1] the kart memory the forward pond says it has: the kart add-in's (pond, where, <ns>/kart) {"kart":{"memory":
      *  "<identity>:<port>"}}, as host:port here; null, logged why, when not joined or nobody runs it. Nothing typed. */
+    /** [TEAM_HOST_V1] this device's address in its forward pond, off the mesh: the edge its invitation or its login gave
+     *  (the hub routes it); null when it has neither */
+    fun edge(): String? = (ident.invite ?: admitted)?.edge
+
     fun kartMemory(): String? {
         val area = ident.forward; val m = members[area] ?: run { AppLog.add("kart: not joined to $area yet"); return null }
         val all = try { m.services("kart") } catch (e: Exception) { AppLog.add("kart: reading $area's where cells failed: ${e.message}"); return null }

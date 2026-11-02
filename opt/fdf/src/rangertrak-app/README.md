@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r10
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-02-r17
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -164,11 +164,54 @@ app. The member logs to Logcat tag FDF, the app to RangerTrak. minSdk 29 (the me
 no longer builds the apps; Android Studio / Gradle does. (r12-r14's network binding is gone: with the tunnel up the
 phone's routing does it.)
 
+## r16: on a node's LAN no tunnel ([ON_THE_LAN_NO_TUNNEL_V1])
+
+A phone on a FrogNet node's own LAN (a 10.x address in the /24 a node's .1 serves) connects directly: no membership, no
+tunnel, no invitation. Off it, the app is the member, as r15.
+
+## r17: teams in the field (EOC > Team > Team Member)
+
+John 2026-11-02. A team is one more piece of the network that splits and re-forms: its lead's phone is its host.
+
+- **The EOC QR is the join line** ([LOGIN_IS_AN_INVITATION_V1]). The admin's `fdf-org line LEVEL` (on the RAM host) goes in
+  the invitation field, or comes in a lead's card. The phone logs in at the line's RAM host (the door, then its own
+  tunnel, then the level's login; frognet-android `OrgLogin.admit`) and uses what the login gives exactly as an
+  invitation: the hub's tunnel with the phone's own key and the edge the door gave, the region at the level's session
+  port inside it. Nothing is kept but the line (and the level's user and password when it has one); every start logs in
+  again and is given the same edge. The app still finds its RAMs where it found them before: the node's door.
+  Gate: `fdf-source/rinab/tools/netns-admit-kt-test.sh` (the same Kotlin on the JVM: wrong password refused, admitted,
+  the tunnel and the region through it, the announcement, the same edge again).
+- **The team's RAM on the lead's phone** ([TEAM_RAM_V1]). `android/teamram/team_ram.cpp`: the Ribbit platform's RAM host
+  (`opt/frognet_semantic/ribbit/cpp`, `ribbit::RamHost`) with no region, answering the FD&F endpoint, with FD&F's write
+  contract (`[OWN_FLAG_DECIDES_V1]`: only an `own:true` write goes with its session). `android/teamram/build.sh` builds it
+  static (musl, zig 0.13) for arm64-v8a, armeabi-v7a and x86_64 into `android/shared/src/main/jniLibs/<abi>/libteamram.so`;
+  `TeamHostService` runs it from nativeLibraryDir on port 21800. Gates: `test/test_app.py <team-ram>` (32 checks, the
+  incumbent test, with it as every RAM; also the arm64 build under qemu) and `test/test_team_host.py`.
+- **Host team** ([TEAM_HOST_V1]). On a connected Team phone. Android lets no app turn the hotspot on, so Host team opens
+  the settings it is in and continues when the user comes back with it on. The team's RAM starts on the phone; the core
+  writes the lead's card into it (team, the node, the EOC's join line, how the lead reaches the node) and the lead's cell
+  `(rt-team-host, host, <team>)` into the general RAM (own: gone with the lead's session). The EOC follows those cells:
+  a hosted team's RAM is the lead's phone.
+- **Scan team** (connect screen). A member scans the lead's hotspot QR code (Android's own, on its hotspot screen; zxing),
+  Android adds the network (one tap, Android 11+), and the app reads the lead's card at the Wi-Fi's gateway: the team,
+  the node and the join line fill themselves and it connects, with its team's RAM on the lead's phone.
+- **Splits** ([TEAM_SPLIT_V1]). A connected phone follows its networks (Android's network callback, not a poll): on
+  another node's LAN that node is its node (`{"op":"door"}`); off any node's LAN its own membership (the tunnel) carries
+  it, or it is an island. A lead says where its team is again; its members follow its card: to the lead's node, and to
+  a membership of their own only when the lead is on its tunnel ("via").
+
+Not yet: on an island the general RAM is out of reach, so positions and presence (in the general RAM) are not shared
+inside the team; the team's chat and its RAM are.
+
 ## Build and test
 
     ./build.sh                                   # build/*.jar (JavaFX for the desktop from Maven Central)
     javac -cp build/frognet-ram.jar:build/core -d build/test test/DevHost.java
     python3 test/test_app.py <rinab build>/rina-host [SHOTS_DIR]
+    javac -cp build/frognet-ram.jar:build/core -d build/test test/CoreDriver.java
+    python3 test/test_team_host.py <rinab build>/rina-host android/shared/src/main/jniLibs/x86_64/libteamram.so
+    android/teamram/build.sh                     # libteamram.so for every Android ABI
+    android/typecheck.sh                         # the Android sources against android-all 14 (no SDK)
     ./desktop/package_windows.sh OUTDIR          # the Windows zip
 
 `test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real rina-hosts and rt-sim:

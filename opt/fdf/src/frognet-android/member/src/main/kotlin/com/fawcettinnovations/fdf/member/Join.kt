@@ -53,7 +53,7 @@ class SpaceAt(val space: String, val manager: String, val host: String, val port
 
 /** This device's admission at one RAM manager on the line. */
 class ManagerLogin(val manager: String, val order: Int, val edge: String, val level: String, val host: String,
-                   val sessionPort: Int, val spaces: List<SpaceAt>) {
+                   val sessionPort: Int, val spaces: List<SpaceAt>, val me: String = "") {
     val ram get() = "$host:$sessionPort"
 }
 
@@ -89,6 +89,21 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
         throw LoginRefused("$what: no answer after $tries tries (${last?.message})")
     }
 
+    /** [LOGIN_IS_AN_INVITATION_V1] (John 2026-11-02: the EOC QR is the join line; after it the app finds its RAMs
+     *  "wherever they found it before") the login at the line's first RAM host, as the invitation it amounts to: the
+     *  door admitted THIS device's key at its own edge, so the hub's tunnel with that key and edge is the region, exactly
+     *  as an fdfinv1 line gives it. The login's own island goes (one tunnel per key to a hub: the forward tunnel takes
+     *  it), and the region is joined at the level's session port inside it. Nothing is kept but the line itself: every
+     *  start logs in again with the same key and is given the same edge. */
+    fun admit(line: JoinLine, privkey: String, user: String = "", password: String = ""): Invite {
+        if (line.password && user.isEmpty()) throw LoginRefused("level ${line.level} has a password: give the user and the password")
+        log(line.toString())
+        val m = line.managers.first()
+        val ml = try { atManager(line, m, 0, user, password) } finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
+        if (ml.sessionPort <= 0) throw LoginRefused("login at ${m.endpoint}: no session port for level ${line.level}")
+        return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+    }
+
     fun atManager(line: JoinLine, m: JoinManager, order: Int, user: String, password: String): ManagerLogin {
         val hub = m.hub(line.org); val door = "door:${m.name}"; val own = island(m)
         // 1 the door, on the generic credential, for one exchange
@@ -114,7 +129,7 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
             val r = sp["ram"].str; val c = r.lastIndexOf(':')
             if (c < 0) null else SpaceAt(sp["name"].str, m.name, host, r.substring(c + 1).toInt())   // its address is the RAM host's: our alias
         }
-        val ml = ManagerLogin(m.name, order, edge, out["level"].str, host, out["session_port"].num?.toInt() ?: 0, spaces)
+        val ml = ManagerLogin(m.name, order, edge, out["level"].str, host, out["session_port"].num?.toInt() ?: 0, spaces, ans["name"].str)
         log("logged in at ${m.endpoint}: level ${ml.level}, RAM ${ml.ram} (alias of ${m.addr}), spaces " +
             spaces.joinToString { "${it.space} ${it.hostport}" }.ifEmpty { "none" })
         return ml

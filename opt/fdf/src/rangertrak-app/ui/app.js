@@ -58,6 +58,8 @@ window.rtInit = function (cfg) {
 }
 function roleFields() {
   const r = $('#connect').querySelector('[name=role]:checked').value
+  // [TEAM_HOST_V1] a team member's phone joins its lead's hotspot by scanning the hotspot's QR code
+  $('#scanTeam').hidden = !(S.cfg.platform === 'android' && r === 'team' && window.rtNative && window.rtNative.scanTeam)
   document.querySelector('.for-team').hidden = r !== 'team'; document.querySelector('.for-eoc').hidden = r !== 'eoc'
   document.querySelector('.for-unit').hidden = r !== 'hospital' && r !== 'ambulance'
   document.querySelector('.unit-l').textContent = r === 'hospital' ? 'Hospital' : 'Unit (e.g. Medic 12)'
@@ -78,7 +80,19 @@ $('#connect').onsubmit = (e) => {
   const f = e.target, role = f.querySelector('[name=role]:checked').value
   $('#cstatus').textContent = 'connecting…'
   send({ op: 'connect', door: f.door.value.trim(), dev: S.cfg.dev, name: f.name.value.trim(), role, team: f.team.value,
-         user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim(), invite: f.invite.value.trim() })
+         user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim(), invite: f.invite.value.trim(),
+         teamRam: role === 'team' ? (S.teamRam || '') : '' })
+}
+$('#scanTeam').onclick = () => { $('#cstatus').textContent = 'scan the QR code on your team lead\'s hotspot screen'; window.rtNative.scanTeam() }
+// [TEAM_HOST_V1] the lead's card, read on its hotspot: the team, the EOC's node, its join line, the team's RAM there
+function teamCard(m) {
+  const f = $('#connect')
+  S.teamRam = m.teamRam || ''
+  if (m.door) f.door.value = m.door
+  if (m.team) { if (![...f.team.options].some(o => o.value === m.team)) f.team.insertAdjacentHTML('beforeend', `<option>${esc(m.team)}</option>`); f.team.value = m.team }
+  if (m.join) f.invite.value = m.join
+  $('#cstatus').textContent = 'Team ' + (m.team || '') + (m.lead ? ', ' + m.lead + "'s hotspot" : '') + ': connecting'
+  f.requestSubmit()
 }
 
 // ------------------------------------------------------------ the core's lines
@@ -87,6 +101,7 @@ window.rtDeliver = function (line) {
   if (m.ev === 'status') status(m.text)
   else if (m.ev === 'error') { status('⚠ ' + m.text); if (!$('#connect').hidden) $('#cstatus').textContent = m.text }
   else if (m.ev === 'connected') connected(m)
+  else if (m.ev === 'teamCard') teamCard(m)
   else if (m.ev === 'roles') teamsFrom(m.roles || {})
   else if (m.ev === 'mission') { $('#mission').textContent = m.name || m.id; $('#heroMission').textContent = m.name || m.id
     const changed = S.mission && S.mission.id !== m.id
@@ -138,6 +153,7 @@ function connected(m) {
   if (S.on.host) send({ op: 'hosts' })                 // the nodes' own GPS sensors, read once now
   $('#chatBtn').hidden = S.role === 'public'
   $('#homeBtn').hidden = S.role !== 'public'; $('#reqBtn').hidden = S.role === 'public'; $('#sensBtn').hidden = S.role === 'public'
+  $('#hostBtn').hidden = !(S.role === 'team' && window.rtNative && window.rtNative.teamHost)
   $('#home').hidden = S.role !== 'public'          // [RT_PUBLIC_HOME_V1] the public opens on what a person can do, not the map
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away.
   // A team member starts with only their own team on the map; the others are added from Layers
@@ -486,6 +502,8 @@ function reportNotice() {
 }
 
 // ------------------------------------------------------------ [RT_SENSORS_V1] every node's sensors, as they file them
+// [TEAM_HOST_V1] the team lead's phone hosts the team: its hotspot and the team's RAM on this phone
+$('#hostBtn').onclick = () => { status("hosting the team: turn on this phone's hotspot if it is not on, then come back"); window.rtNative.teamHost() }
 $('#sensBtn').onclick = () => { sheet('sens', 'Sensors', '<div class="meta">asking the nodes…</div>'); send({ op: 'sensorHosts' }) }
 function sensorHosts(h) {
   const names = Object.keys(h).sort()

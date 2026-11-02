@@ -17,9 +17,9 @@ class BootReceiver : BroadcastReceiver() {
         AppLog.init(ctx)
         val id = Identity(ctx)
         when {
-            id.invite == null -> AppLog.add("boot: no invitation kept: not starting (paste one in the app)")
+            id.invite == null && id.join == null -> AppLog.add("boot: no invitation or join line kept: not starting (paste or scan one in the app)")
             VpnService.prepare(ctx) != null -> AppLog.add("boot: the VPN consent is not given: not starting (Start in the app asks for it)")
-            else -> { AppLog.add("boot: starting the membership (${id.invite.name} in ${id.invite.area})")
+            else -> { AppLog.add("boot: starting the membership (" + (id.invite?.let { "${it.name} in ${it.area}" } ?: "joining ${id.join?.org} at level ${id.join?.level}") + ")")
                       ctx.startForegroundService(Intent(ctx, MemberService::class.java)) }
         }
     }

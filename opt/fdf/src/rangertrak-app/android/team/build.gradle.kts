@@ -11,8 +11,8 @@ android {
         applicationId = "net.frognet.rangertrak.team"
         minSdk = 29
         targetSdk = 34
-        versionCode = 16
-        versionName = "rt-app-2026-11-02-r16"
+        versionCode = 17
+        versionName = "rt-app-2026-11-02-r17"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     packaging { jniLibs { useLegacyPackaging = true } }   // [RT_IS_A_MEMBER_V1] fdf-tun is RUN from nativeLibraryDir: extracted at install

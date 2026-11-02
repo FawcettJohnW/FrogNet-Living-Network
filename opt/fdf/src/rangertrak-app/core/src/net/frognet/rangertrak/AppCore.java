@@ -28,6 +28,10 @@ import java.util.Map;
  *    "user":"","password":""}
  *   {"op":"say","to":"all"|"team:Alpha"|"dev:<id>","text":"..."}
  *   {"op":"fix","lat":..,"lng":..,"acc":..}                 this device's own position (GPS), when it has one
+ *   [TEAM_HOST_V1] connect's "teamRam":"host:port" -- a member on its team host's hotspot: the team's RAM is there
+ *   {"op":"teamHost","port":21800,"addr":"<where the EOC reaches this phone>","card":{"door":..,"join":..}}
+ *                                                           this phone hosts its team's RAM (the lead)
+ *   {"op":"door","door":"10.81.81.1"}                       [TEAM_SPLIT_V1] this device is on another network now: its node
  * Out (to the page):
  *   {"ev":"status","text":"..."}        {"ev":"connected","role":..,"team":..,"user":..,"mission":..,"rams":{..}}
  *   {"ev":"world","who":{id:bag},"pos":{id:bag}}            everyone present now, and where
@@ -42,7 +46,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-02-r16";
+    public static final String BUILD = "rt-app-2026-11-02-r17";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -53,6 +57,16 @@ public final class AppCore {
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
     private Map<String, Object> fix = null;
     private volatile boolean resolving = false;
+    // [TEAM_HOST_V1] (John 2026-11-02: EOC > Team > Team Member; the team lead's phone hosts the team's RAM, the members
+    // reach it on the lead's hotspot, the EOC wherever the lead's phone is on the network). The door still says where
+    // every RAM fdf-app serves (doorRams); a team whose lead hosts says where its RAM is in (rt-team-host, host, <team>)
+    // on the general RAM, the lead's own cell (own: gone with the lead's session), and that is where its RAM is.
+    private Map<String, String> doorRams = new HashMap<String, String>();
+    private String teamRam = "";                        // given at connect: a member on the host's hotspot
+    private String hosting = "", hostAddr = "";         // the lead: its RAM here (127.0.0.1:port), where others reach it
+    private Map<String, Object> card = null;            // the lead's card for its members: team, door, join line
+    private volatile Follower hostF;
+    private volatile String leadVia = "";
 
     public AppCore(Ui ui) { this.ui = ui; }
 
@@ -84,6 +98,8 @@ public final class AppCore {
             else if (op.equals("transport")) transport(m);
             else if (op.equals("transportAction")) transportAction(m);
             else if (op.equals("call")) call(m);
+            else if (op.equals("teamHost")) teamHost(m);
+            else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
             else out("ev", "error", "text", "unknown op " + op);
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
     }
@@ -184,7 +200,8 @@ public final class AppCore {
         } else if (want.equals("team")) { role = "team"; team = Json.str(m.get("team")); user = ""; }
         else if (want.equals("hospital") || want.equals("ambulance")) { role = want; team = Json.str(m.get("unit")); user = ""; }
         else { role = "public"; team = ""; user = ""; }
-        rams = servedRams();
+        teamRam = Json.str(m.get("teamRam")).trim();
+        doorRams = servedRams(); rams = withTeamRams(doorRams);
         if (!rams.containsKey("general")) throw new Exception("RangerTrak's general RAM is not served on this network yet");
         start();
         out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
@@ -212,9 +229,9 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports, fieldF, facF, trF, callF, logF, hostF}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = logF = null;
+        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = fieldF = facF = trF = callF = logF = hostF = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -224,6 +241,15 @@ public final class AppCore {
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
         mis = new Follower("mission", g[0], Integer.parseInt(g[1]), API, "rt-mission", "settings", lg, null, new Runnable() { public void run() { onMission(); } });
         if (role.equals("public")) return;   // the public reads the world only (no chat)
+        hostF = new Follower("team hosts", g[0], Integer.parseInt(g[1]), API, "rt-team-host", lg, null, new Runnable() { public void run() { onHosts(); } });
+        startTeams();
+    }
+
+    /** the team followers: each on where its RAM is now */
+    private void startTeams() {
+        Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
+        for (Follower f : teams.values()) f.stop();
+        teams.clear();
         for (Map.Entry<String, String> e : rams.entrySet()) {
             String k = e.getKey();
             if (k.equals("general")) continue;      // the door says the app's RAMs by their names: general, and one per team
@@ -235,6 +261,69 @@ public final class AppCore {
                         new Runnable() { public void run() { onTeam(tn); } }));
             }
         }
+    }
+
+    // ------------------------------------------------------------------ [TEAM_HOST_V1] a team's RAM on its lead's phone
+    /** where each RAM is for this device: the door's answer, then each hosting lead's own cell, then this device's own
+     *  team as it was given (a member on the hotspot) or as it serves it (the lead) */
+    private Map<String, String> withTeamRams(Map<String, String> door) {
+        Map<String, String> out = new HashMap<String, String>(door);
+        Follower h = hostF;
+        if (h != null) for (Map.Entry<String, Map<String, Object>> e : h.family("host").entrySet()) {
+            String r = Json.str(e.getValue().get("ram"));
+            if (!r.isEmpty()) out.put(e.getKey().toLowerCase(), r);
+        }
+        String mine = team.toLowerCase();
+        if (!mine.isEmpty()) { if (!hosting.isEmpty()) out.put(mine, hosting); else if (!teamRam.isEmpty()) out.put(mine, teamRam); }
+        return out;
+    }
+
+    /** a lead's cell came or went: the teams follow their RAMs where they are now; a lead writes its own again when it is
+     *  not there (its session began again, or it moved) */
+    private void onHosts() {
+        Follower h = hostF; if (h == null) return;
+        String mine = team.toLowerCase();
+        if (!hosting.isEmpty()) {
+            Map<String, Object> c = h.family("host").get(mine);
+            if (c == null || !hostAddr.equals(Json.str(c.get("ram"))) || !dev.equals(Json.str(c.get("dev"))))
+                if (h.write("host", mine, Json.o("team", cap(team), "ram", hostAddr, "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true))
+                    say("[TEAM_HOST_V1] team " + cap(team) + "'s RAM is on this phone: the EOC reaches it at " + hostAddr);
+        }
+        synchronized (this) {
+            Map<String, String> now = withTeamRams(doorRams);
+            if (now.equals(rams)) return;
+            say("[TEAM_HOST_V1] the teams' RAMs now: " + now);
+            rams = now; startTeams();
+            out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+        }
+    }
+
+    /** the lead's phone serves its team's RAM now (the app started it): its members are told (the card in that RAM, read
+     *  by a member's app on the hotspot before it connects), the EOC by the lead's cell */
+    private void teamHost(Map<String, Object> m) throws Exception {
+        if (!role.equals("team") || team.isEmpty()) throw new Exception("only a team's phone hosts its team");
+        int port = (int) Json.num(m.get("port")); String addr = Json.str(m.get("addr"));
+        if (port <= 0) throw new Exception("no port for the team's RAM");
+        hosting = "127.0.0.1:" + port; hostAddr = addr.isEmpty() ? "" : addr + ":" + port;
+        Map<String, Object> c = Json.obj(m.get("card"));
+        card = Json.o("team", cap(team), "door", Json.str(c.get("door")).isEmpty() ? door : Json.str(c.get("door")), "join", Json.str(c.get("join")),
+                      "via", Json.str(c.get("via")), "lead", name, "at", System.currentTimeMillis() / 1000);
+        say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the EOC is not told where (no address on the network yet)" : "; the EOC is told " + hostAddr));
+        onHosts();
+        Follower f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
+    }
+
+    /** [TEAM_SPLIT_V1] the node this device asks is another one now (the lead's phone joined another FrogNet; a member
+     *  follows its lead's card): the RAMs are where that node says, the session starts again there. Nothing is carried
+     *  over: each owner writes its own truth again where the RAMs are now. */
+    private synchronized void redoor(String d) throws Exception {
+        if (d.isEmpty() || d.equals(door)) return;
+        say("[TEAM_SPLIT_V1] the node is " + d + " now (was " + door + ")");
+        door = d;
+        Map<String, Object> cd = card; if (cd != null) cd.put("door", d);
+        doorRams = servedRams(); rams = withTeamRams(doorRams); mission = "";
+        start();
+        out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
     }
 
     /** [RT_MISSION_V1] the mission now: the one started last ("at", its start; a mission with none is older than any
@@ -325,6 +414,23 @@ public final class AppCore {
     private void onDm() { for (Map.Entry<String, Map<String, Object>> e : dm.family(mission + "." + dev).entrySet()) emitOnce("d:" + e.getKey(), e.getValue(), "dev:" + dev); }
     private void onTeam(String t) {
         Follower f = teams.get(t); if (f == null) return;
+        // [TEAM_HOST_V1] the lead's card in its own team's RAM: what a member's app reads on the hotspot to connect
+        Map<String, Object> cd = card;
+        if (cd != null && !hosting.isEmpty() && t.equalsIgnoreCase(team)) {
+            Map<String, Object> was = f.family("card").get(t); boolean same = was != null;
+            if (same) for (String k : new String[]{"team", "door", "join", "via", "lead"}) same &= Json.str(cd.get(k)).equals(Json.str(was.get(k)));
+            if (!same) f.write("card", t, cd, false);
+        }
+        // [TEAM_SPLIT_V1] a member on the lead's hotspot asks the node its lead asks: when the lead's card names another
+        if (!teamRam.isEmpty() && hosting.isEmpty() && t.equalsIgnoreCase(team)) {
+            Map<String, Object> lc = f.family("card").get(t); final String ld = lc == null ? "" : Json.str(lc.get("door"));
+            // how the lead reaches its node ("lan": its members are on that LAN through it; "tunnel": each member needs
+            // its own way there, its own membership) -- said to the phone's own side, which starts or ends it
+            String via = lc == null ? "" : Json.str(lc.get("via"));
+            if (!via.equals(leadVia)) { leadVia = via; out("ev", "teamVia", "via", via, "join", lc == null ? "" : Json.str(lc.get("join"))); }
+            if (!ld.isEmpty() && !ld.equals(door))
+                new Thread(new Runnable() { public void run() { try { redoor(ld); } catch (Exception e) { out("ev", "error", "text", "the lead's node " + ld + ": " + e.getMessage()); } } }, "redoor").start();
+        }
         for (Map.Entry<String, Map<String, Object>> e : f.family(mission).entrySet()) emitOnce("t:" + t + ":" + e.getKey(), e.getValue(), "team:" + cap(t));
     }
 
@@ -628,9 +734,9 @@ public final class AppCore {
             try {
                 for (int i = 0; ; i++) {
                     try {
-                        Map<String, String> now = servedRams();
+                        Map<String, String> door0 = servedRams(); Map<String, String> now = withTeamRams(door0);
                         if (!now.equals(rams)) {
-                            say("the app's RAMs moved: " + now); rams = now; mission = "";
+                            say("the app's RAMs moved: " + now); doorRams = door0; rams = now; mission = "";
                             synchronized (AppCore.this) { start(); }
                             out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
                             return;

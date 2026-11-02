@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
@@ -24,6 +26,12 @@
             android:foregroundServiceType="specialUse|location">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Holds this device's membership session in a FrogNet region (FD&amp;F) and its WireGuard tunnel" />
+        </service>
+        <!-- [TEAM_HOST_V1] the team's RAM on the team lead's phone (libteamram.so), held while the team is hosted -->
+        <service android:name="net.frognet.rangertrak.android.TeamHostService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Holds the team's shared memory (RAM) on the team lead's phone for the phones on its hotspot" />
         </service>
         <!-- [RT_CALL_V1] the Communicator, in this app: Call opens it with the servers and the call -->
         <activity android:name="net.frognet.communicator.CommunicatorActivity" android:exported="false"

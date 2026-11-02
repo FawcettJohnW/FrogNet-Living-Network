@@ -168,6 +168,11 @@ Changes in rev 3:
 - A device's name comes from its key (`[NAME_FROM_KEY_V1]`).
 - Network reach is enforced by nftables on the MRM, per edge (`[REACH_PER_EDGE_V1]`, one table per region, `inet fdf_org_<area>`).
 - A node joins with one command, its level's line (`[ORG_NODE_JOIN_V1]`, `fdf-region-join`).
+- An Android phone joins with the same line (`[LOGIN_IS_AN_INVITATION_V1]`, 2026-11-02, John: "the QR is for the EOC";
+  `OrgLogin.admit` in frognet-android's member, `fdf-member-kt admit LINE` on the JVM): steps 1-3 at the line's first RAM
+  host, then the login is used exactly as an invitation would be -- the hub's tunnel with the phone's own key and the
+  edge the door gave, the region at the level's session port inside it. The phone keeps only the line (and the level's
+  user and password when it has one). Gate: `rinab/tools/netns-admit-kt-test.sh`.
 
 ### 5.2 Changed
 
@@ -350,7 +355,9 @@ own handshake retry (5 s); a link or DHCP event also retries at once. When it re
 
 A phone with no tunnel and no LAN is a partition of one. A device is never a role candidate (`[ELECT_NODES_ONLY_V1]`).
 Whether its app runs on a local RAM until it is back is for the app's selection code to say. The radio log does run on
-one, as tested.
+one, as tested. RangerTrak's says a team's RAM is on its lead's phone (`[TEAM_HOST_V1]`, 2026-11-02): the lead's phone
+runs the Ribbit platform's RAM host (`libteamram.so`) for the phones on its hotspot, and says where it is in the app's
+general RAM. That is the app's RAM on a device, not a role: the device is still never a candidate for the network's.
 
 ## 9. Islands
 

@@ -336,7 +336,8 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     }
     if (op == "write") {
         if (method != "POST") { out = bad(405, "write is POST"); return true; }
-        ramm::WritingFor wf(tl_session_id);               // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
+        const bool fdf = HOST->own_flag_decides();       // [OWN_FLAG_DECIDES_V1] then only an "own":true write goes with it
+        ramm::WritingFor wf(fdf ? 0 : tl_session_id);     // [GONE_WITH_ITS_WRITER_V1] the session's own write: gone with it
         {   // [WRITE_BODY_SKIMMED_V1] the body read in place: its three coordinates, and the bag's text as written, checked
             // to be one JSON object -- no tree built and serialised again (measured: a quarter of the memory host's CPU)
             std::string sv, vv, iv; size_t b0 = 0, b1 = 0;
@@ -350,6 +351,14 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         for (const char* k : {"service", "variable", "instance"}) if (in[k].type != Json::Str || in[k].s.empty()) { out = bad(400, std::string("missing coordinate: ") + k); return true; }
         if (in["bag"].type != Json::Obj) { out = bad(400, "bag must be a JSON object"); return true; }
         if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
+        if (fdf) {                                        // [OWN_FLAG_DECIDES_V1] rina-host's rules, word for word
+            if (in["permanent"].type == Json::Bool && in["permanent"].b) { out = bad(400, "permanent:true: this host keeps no file; a permanent tuple belongs on a RAM manager that does"); return true; }
+            if (in["own"].type == Json::Bool && in["own"].b) {
+                if (tl_session_id == 0) { out = bad(400, "own:true needs a session (FNW1); a plain-HTTP write has none"); return true; }
+                ramm::WritingFor mine(tl_session_id);
+                out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(in["service"].s, in["variable"].s, in["instance"].s, dump(in["bag"]), wall())) + "}"}; return true;
+            }
+        }
         out = Reply{200, "{\"ok\":true,\"id\":" + std::to_string(MEM.write(in["service"].s, in["variable"].s, in["instance"].s, dump(in["bag"]), wall())) + "}"}; return true;
     }
     if (op == "read") {

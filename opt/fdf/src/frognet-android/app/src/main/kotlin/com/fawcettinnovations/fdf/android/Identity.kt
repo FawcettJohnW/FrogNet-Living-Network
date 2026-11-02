@@ -19,6 +19,7 @@ package com.fawcettinnovations.fdf.android
 import android.content.Context
 import android.os.Build
 import com.fawcettinnovations.fdf.member.Invite
+import com.fawcettinnovations.fdf.member.JoinLine
 import com.fawcettinnovations.fdf.member.Json
 import com.fawcettinnovations.fdf.member.Placement
 import com.wireguard.crypto.Key
@@ -27,6 +28,9 @@ import java.util.UUID
 
 class Pond(val area: String, val ram: String)
 
+/** [LOGIN_IS_AN_INVITATION_V1] a joined organization's pond names this port until the login gives the level's own */
+const val LOGIN_PORT = 0
+
 class Identity(ctx: Context) {
     private val p = ctx.getSharedPreferences("fdf-identity", Context.MODE_PRIVATE)
     val guid: String = p.getString("guid", null) ?: ("android-" + UUID.randomUUID()).also { p.edit().putString("guid", it).apply() }
@@ -34,8 +38,19 @@ class Identity(ctx: Context) {
      *  (app-private storage). With one, this device's key, name, address, hub and region are the invitation's. */
     val invite: Invite? = p.getString("invite", null)?.let { runCatching { Invite.parse(it) }.getOrNull() }
     /** Kept only if it decodes; the service starts again to use it (its key is the tunnel's). Throws with the reason. */
-    fun setInvite(line: String) = keepInvite(line)          // the kart app's name for it (Java: setInvite)
-    fun keepInvite(line: String) { val inv = Invite.parse(line); p.edit().putString("invite", inv.line).putString("forward", inv.area).apply() }
+    fun setInvite(line: String) = if (line.trim().startsWith(JoinLine.PREFIX)) keepJoin(line, "", "") else keepInvite(line)   // the kart app's name for it (Java: setInvite)
+    fun keepInvite(line: String) { val inv = Invite.parse(line); p.edit().putString("invite", inv.line).remove("join").putString("forward", inv.area).apply() }
+    /** [LOGIN_IS_AN_INVITATION_V1] an organization's join line (the EOC QR, fdf-org line LEVEL) in place of an invitation:
+     *  kept, with the level's user and password when it has one; each start of the service logs in with it at the line's
+     *  first RAM host (OrgLogin.admit) and uses what the login gives exactly as an invitation. Throws with the reason. */
+    val join: JoinLine? = if (invite != null) null else p.getString("join", null)?.let { runCatching { JoinLine.parse(it) }.getOrNull() }
+    val joinUser: String get() = p.getString("join_user", "") ?: ""
+    val joinPassword: String get() = p.getString("join_password", "") ?: ""
+    fun keepJoin(line: String, user: String, password: String) {
+        val j = JoinLine.parse(line)
+        if (j.password && user.isEmpty()) throw IllegalArgumentException("level ${j.level} of ${j.org} has a password: give the user and the password with it")
+        p.edit().putString("join", j.line).putString("join_user", user).putString("join_password", password).remove("invite").putString("forward", j.org).apply()
+    }
     val keys: KeyPair = invite?.let { KeyPair(Key.fromBase64(it.privkey)) } ?: p.getString("wg_private", null)?.let { KeyPair(Key.fromBase64(it)) }
         ?: KeyPair().also { p.edit().putString("wg_private", it.privateKey.toBase64()).apply() }
     var name: String
@@ -45,10 +60,11 @@ class Identity(ctx: Context) {
     /** "area|host:port" per line. With an invitation its region is a pond (first); without one there is none until one
      *  is added (the region listens only inside its tunnel: a host:port typed here reaches only an older region). */
     var ponds: List<Pond>
-        get() = (listOfNotNull(invite?.let { Pond(it.area, "${it.ramHost}:${it.ramPort}") }) +
+        get() = (listOfNotNull(invite?.let { Pond(it.area, "${it.ramHost}:${it.ramPort}") },
+                               join?.let { Pond(it.org, "${it.managers.first().addr}:$LOGIN_PORT") }) +   // the port: the login's
                  (p.getString("ponds", null) ?: "").lines().filter { '|' in it }.map { Pond(it.substringBefore('|'), it.substringAfter('|')) })
                 .distinctBy { it.area }
-        set(v) = p.edit().putString("ponds", v.filter { it.area != invite?.area }.joinToString("\n") { it.area + "|" + it.ram }).apply()
+        set(v) = p.edit().putString("ponds", v.filter { it.area != invite?.area && it.area != join?.org }.joinToString("\n") { it.area + "|" + it.ram }).apply()
     // [TELEMETRY_IS_A_TUPLE_V1] what this device reports ((pond, telem, w:<guid>)); [SETTINGS_ARE_TUPLES_V1] sets them
     var telemOn: Boolean
         get() = p.getBoolean("telem_on", true)

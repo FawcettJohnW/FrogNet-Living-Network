@@ -85,6 +85,11 @@ public:
     // address it arrived from) / has ended. Default: nothing to do.
     virtual void session_up(uint64_t id, const std::string& peer) { (void)id; (void)peer; }
     virtual void session_down(uint64_t id) { (void)id; }
+    // [OWN_FLAG_DECIDES_V1] FD&F's write contract (rina-host's [OWNED_CELL_GOES_WITH_THE_SESSION_V1]): a write that says
+    // "own":true goes with its session; any other write stays until it is written again or removed. Default (false):
+    // the platform's [GONE_WITH_ITS_WRITER_V1], every write a session makes goes with it. A host that serves FD&F's
+    // clients (the Team app's team RAM, rangertrak-app/android/teamram) says true.
+    virtual bool own_flag_decides() const { return false; }
 
     // ---- the platform -------------------------------------------------------------------------------------------
     // Parses --listen HOST:PORT, --version and --help; serves until SIGTERM or SIGINT. A vendor's main() calls this.

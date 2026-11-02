@@ -22,10 +22,12 @@ android {
     kotlinOptions { jvmTarget = "17" }
     sourceSets["main"].java.srcDirs("src/main/java", "../../core/src", "../../../frognet-ram-java/src", File(fn, "app/src/main/java").path)
     sourceSets["main"].kotlin.srcDirs(File(fn, "member/src/main/kotlin").path, File(fn, "app/src/main/kotlin").path)
-    sourceSets["main"].jniLibs.srcDirs(File(fn, "app/src/main/jniLibs").path)
+    // fdf-tun (frognet-android's) and [TEAM_HOST_V1] libteamram.so, the team's RAM on the lead's phone (teamram/build.sh)
+    sourceSets["main"].jniLibs.srcDirs(File(fn, "app/src/main/jniLibs").path, "src/main/jniLibs")
     sourceSets["main"].assets.srcDir(genAssets)
 }
-dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531") }
+// [TEAM_HOST_V1] zxing-android-embedded: Scan team reads the lead's hotspot QR code (Maven Central)
+dependencies { implementation("com.wireguard.android:tunnel:1.0.20250531"); implementation("com.journeyapps:zxing-android-embedded:4.3.0") }
 tasks.named("preBuild") { dependsOn(copyUi) }
 // the tasks that read the assets say they need the copy (Gradle 8 refuses a task that reads another's output undeclared)
 tasks.matching { it.name.endsWith("Assets") && it.name != "copyUi" }.configureEach { dependsOn(copyUi) }

@@ -28,6 +28,7 @@ import com.fawcettinnovations.fdf.member.Hub
 import com.fawcettinnovations.fdf.member.Invite
 import com.fawcettinnovations.fdf.member.JoinLine
 import com.fawcettinnovations.fdf.member.OrgLogin
+import com.fawcettinnovations.fdf.member.ManagerLogin
 import com.fawcettinnovations.fdf.member.Space
 import com.fawcettinnovations.fdf.member.InviteTunnel
 import com.fawcettinnovations.fdf.member.Hubs
@@ -470,8 +471,13 @@ fun invitedLeaf(given: String?) {
     } else if (file.exists()) file.readText() else { System.err.println("fdf-member-kt leaf: no invitation in $file: run it once with the fdfinv1.<...> line fdf-invite NAME --leaf printed"); exitProcess(2) }
     val inv = Invite.parse(text)
     log(inv.toString())
+    runInvited(inv, file.absoluteFile.parentFile ?: File("."))
+}
+
+/** the tunnel the invitation (or a login, [LOGIN_IS_AN_INVITATION_V1]) describes, then the region inside it */
+fun runInvited(inv: Invite, dir: File) {
     val iface = System.getenv("FDF_LEAF_WG")?.takeIf { it.isNotEmpty() } ?: "fdf-leaf"
-    val tun = WgInviteTunnel(iface, file.absoluteFile.parentFile ?: File("."))
+    val tun = WgInviteTunnel(iface, dir)
     tun.up(inv)
     val pub = publicKey(inv.privkey)
     val m = Member(MemberConfig(inv.ramHost, inv.ramPort, inv.name, "", ::ipv4s, ::capability, { inv.facts(pub) },
@@ -489,6 +495,33 @@ fun joinMode(lineText: String, spaces: List<String>) {
     val line = JoinLine.parse(lineText)
     val (f, key) = ensureIdentity(File(System.getenv("FDF_FACTS") ?: "facts.json"), File(System.getenv("FDF_KEY_FILE") ?: "wg.key"))
     val pub = f["pubkey"].str; val name = f["name"].str
+    val bridge = cliBridge(key)
+    var user = ""; var pw = ""
+    if (line.password) { val p = (readLine() ?: "").trim().split(" ", limit = 2); user = p.getOrElse(0) { "" }; pw = p.getOrElse(1) { "" } }
+    val logins = try { OrgLogin(bridge, pub, System.getenv("FDF_DEVICE_ID") ?: name, System.getenv("FDF_NICK") ?: "", ::log).loginAll(line, user, pw) }
+                 catch (e: Exception) { log("LOGIN FAILED: ${e.message}"); bridge.close(); exitProcess(3) }
+    joined(logins, spaces, name)
+}
+
+/** [LOGIN_IS_AN_INVITATION_V1] admit LINE: what the Android app does with the EOC's join line -- log in at the line's
+ *  first RAM host on the bridge, then use what the login gives exactly as an invitation (runInvited: the hub's tunnel
+ *  with this machine's own key and the edge the door gave, the region at the level's session port inside it). A level
+ *  with a password reads "user password" from stdin. env as join. */
+fun admitMode(lineText: String) {
+    val line = JoinLine.parse(lineText)
+    val (f, key) = ensureIdentity(File(System.getenv("FDF_FACTS") ?: "facts.json"), File(System.getenv("FDF_KEY_FILE") ?: "wg.key"))
+    val pub = f["pubkey"].str; val name = f["name"].str
+    val bridge = cliBridge(key)
+    var user = ""; var pw = ""
+    if (line.password) { val p = (readLine() ?: "").trim().split(" ", limit = 2); user = p.getOrElse(0) { "" }; pw = p.getOrElse(1) { "" } }
+    val inv = try { OrgLogin(bridge, pub, System.getenv("FDF_DEVICE_ID") ?: name, System.getenv("FDF_NICK") ?: "", ::log).admit(line, key, user, pw) }
+              catch (e: Exception) { log("LOGIN FAILED: ${e.message}"); bridge.close(); exitProcess(3) }
+    log("ADMITTED as ${inv.name}: $inv")
+    runInvited(inv, File(System.getenv("FDF_KEY_FILE") ?: "wg.key").absoluteFile.parentFile ?: File("."))
+}
+
+/** the bridge the CLI's join and admit run on: one TUN, fdf-tun, each RAM manager an island */
+fun cliBridge(key: String): Bridge {
     val tun = System.getenv("FDF_TUN_NAME") ?: "fdft0"; val net = TunNet(tun)
     val host = object : BridgeHost {
         var l: ProcessBridgeLink? = null
@@ -502,11 +535,10 @@ fun joinMode(lineText: String, spaces: List<String>) {
         }
         override fun stop() { l?.close(); l = null }
     }
-    val bridge = Bridge(host, key, { log(it) })
-    var user = ""; var pw = ""
-    if (line.password) { val p = (readLine() ?: "").trim().split(" ", limit = 2); user = p.getOrElse(0) { "" }; pw = p.getOrElse(1) { "" } }
-    val logins = try { OrgLogin(bridge, pub, System.getenv("FDF_DEVICE_ID") ?: name, System.getenv("FDF_NICK") ?: "", ::log).loginAll(line, user, pw) }
-                 catch (e: Exception) { log("LOGIN FAILED: ${e.message}"); bridge.close(); exitProcess(3) }
+    return Bridge(host, key, { log(it) })
+}
+
+fun joined(logins: List<ManagerLogin>, spaces: List<String>, name: String) {
     log("joined: " + logins.joinToString("; ") { "${it.manager} edge ${it.edge} RAM ${it.ram}" })
     val fb = System.getenv("FDF_SPACE_FALLBACK")?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
     for (sn in spaces) {
@@ -520,6 +552,7 @@ fun joinMode(lineText: String, spaces: List<String>) {
 }
 
 fun main(args: Array<String>) {
+    if (args.firstOrNull() == "admit") { admitMode(args.getOrNull(1) ?: run { System.err.println("usage: fdf-member-kt admit fdfjoin1.<...>"); exitProcess(2) }); exitProcess(1) }
     if (args.firstOrNull() == "join") { joinMode(args.getOrNull(1) ?: run { System.err.println("usage: fdf-member-kt join fdfjoin1.<...> [SPACE ...]"); exitProcess(2) }, args.drop(2)); exitProcess(0) }
     if (args.firstOrNull() == "ponds") { ponds(); exitProcess(0) }
     if (args.firstOrNull() == "bridge") { bridgeMode(args.getOrNull(1)); exitProcess(0) }
