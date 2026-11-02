@@ -42,7 +42,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-02-r11";
+    public static final String BUILD = "rt-app-2026-11-02-r12";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -153,7 +153,7 @@ public final class AppCore {
     }
 
     /** this device's IPv4 addresses, each with its interface: where it is on the network, said when the node is out of reach */
-    static String myAddresses() {
+    public static String myAddresses() {
         StringBuilder b = new StringBuilder();
         try {
             for (java.net.NetworkInterface n : java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {

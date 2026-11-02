@@ -51,7 +51,11 @@ public final class MainActivity extends Activity implements LocationListener {
                 }
             } catch (IllegalArgumentException ignored) { }
             final boolean conn = line.contains("\"connect\"");
+            String door0 = "";
+            try { door0 = Json.str(Json.obj(Json.parse(line)).get("door")).trim(); } catch (IllegalArgumentException ignored) { }
+            final String door = door0;
             new Thread(new Runnable() { public void run() {
+                if (!door.isEmpty()) useNetworkFor(door);
                 core.handle(line);
                 Location l = lastFix;                   // a fix that came before the connection is this device's position now
                 if (conn && l != null) core.handle(fixLine(l));
@@ -165,6 +169,44 @@ public final class MainActivity extends Activity implements LocationListener {
             case android.media.AudioDeviceInfo.TYPE_USB_HEADSET: return "USB headset: " + d.getProductName();
             default: return String.valueOf(d.getProductName()) + " (type " + d.getType() + ")";
         }
+    }
+    /** [NODE_NETWORK_CHOSEN_V1] the network the node is on. A node's Wi-Fi has no Internet, and Android then sends an
+     *  app's connections over mobile data instead (the phone's default network): the node is never reached -- seen on a
+     *  Samsung phone, 2026-11-02, the connection to 10.170.170.1 timed out after 5 s. So the app's connections go over the
+     *  network whose addresses or routes hold the node's address (the node's own Wi-Fi), whatever the default is. */
+    private String boundFor = "";
+    private void useNetworkFor(String door) {
+        String host = door.contains(":") ? door.substring(0, door.lastIndexOf(':')) : door;
+        if (host.equals(boundFor)) return;
+        try {
+            java.net.InetAddress a = java.net.InetAddress.getByName(host);
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.Network pick = null; String how = "";
+            for (android.net.Network n : cm.getAllNetworks()) {
+                android.net.LinkProperties lp = cm.getLinkProperties(n);
+                if (lp == null) continue;
+                for (android.net.LinkAddress la : lp.getLinkAddresses())
+                    if (inPrefix(a, la.getAddress(), la.getPrefixLength())) { pick = n; how = lp.getInterfaceName() + " " + la; }
+                if (pick == null) for (android.net.RouteInfo r : lp.getRoutes())
+                    if (!r.isDefaultRoute() && r.matches(a)) { pick = n; how = lp.getInterfaceName() + " route " + r.getDestination(); }
+                if (pick != null) break;
+            }
+            if (pick == null) {
+                cm.bindProcessToNetwork(null);
+                deliver(Json.o("ev", "status", "text", "no network on this phone holds " + host + ": join the node's Wi-Fi (this phone: " + AppCore.myAddresses() + ")"));
+                return;
+            }
+            cm.bindProcessToNetwork(pick); boundFor = host;
+            deliver(Json.o("ev", "status", "text", "reaching the node at " + host + " over " + how));
+        } catch (Exception e) {
+            deliver(Json.o("ev", "status", "text", "choosing the network for " + host + ": " + e.getMessage()));
+        }
+    }
+    private static boolean inPrefix(java.net.InetAddress a, java.net.InetAddress net, int len) {
+        byte[] x = a.getAddress(), y = net.getAddress();
+        if (x.length != y.length) return false;
+        for (int i = 0; i < len; i++) if (((x[i / 8] ^ y[i / 8]) & (0x80 >> (i % 8))) != 0) return false;
+        return true;
     }
     private volatile Location lastFix;
     private static String fixLine(Location l) {

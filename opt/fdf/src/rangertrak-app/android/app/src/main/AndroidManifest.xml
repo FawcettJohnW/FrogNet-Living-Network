@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- [NODE_NETWORK_CHOSEN_V1] the node's Wi-Fi, chosen for the app's connections (it has no Internet) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <!-- [RT_CALL_V1] Call opens the FrogNet Communicator (the FrogNet Member app): Android 11+ shows another app's
