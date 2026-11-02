@@ -14,6 +14,12 @@
 #     says adopted, on the screen; the door's op=roles has echo; kim's password logs in at the door as echo; the echo
 #     RAM is served; no password and no admin key in the network RAM
 #   4 a member installed without --admin says why it did not adopt, on the screen
+#   5 [ENROLL_V1] the admin makes kim echo's lead: the members' configurations say so; at the door, op=enroll with a
+#     wrong password is refused, op=identity by a user who leads no team is refused, and kim's op=identity gets past
+#     the check to the region (none here, so the door says the region did not give the identity)
+#   6 [FROG_QR_V1] kim's QR on the admin's screen reads, by the phone scanner's zxing, as kim's enrollment line
+#   7 [ASSIGNMENTS_SAVE_V1] Save writes the assignments (verifiers, no password) to a file; kim is removed and applied;
+#     Restore loads the file as an edit, Apply sends it: kim is back as echo's lead and logs in with the old password
 import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
 from urllib.request import urlopen, Request
 from playwright.sync_api import sync_playwright
@@ -23,6 +29,9 @@ HERE = os.path.dirname(os.path.abspath(__file__)); APP = os.path.dirname(HERE); 
 F = os.path.join(SRC, "fdf-source", "fdf"); B = os.path.join(SRC, "fdf-source", "rinab", "build", "static")
 sys.path.insert(0, os.path.join(F, "lib", "python"))
 import fdfram  # noqa: E402
+sys.path.insert(0, HERE)
+import zxing_read  # noqa: E402
+zxing_read.ready()
 
 FAILS = []
 def check(ok, what):
@@ -77,7 +86,7 @@ def door(q, body=None):
 ok = wait_for(lambda: door("op=roles&app=rangertrak").get("ok") and json.load(open(T + "/a/app-where.json")) if os.path.exists(T + "/a/app-where.json") else None, 20)
 CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ram.jar"), os.path.join(APP, "build", "core"), os.path.join(APP, "build", "test")])
 HP = free()
-procs.append(subprocess.Popen(["java", "-Drt.core=admin", "-cp", CP, "DevHost", os.path.join(APP, "ui-admin"), str(HP), "x", "x", DOOR],
+procs.append(subprocess.Popen(["java", "-Drt.core=admin", "-Duser.home=" + T, "-cp", CP, "DevHost", os.path.join(APP, "ui-admin"), str(HP), "x", "x", DOOR],
                               stdout=open(T + "/devhost.log", "w"), stderr=subprocess.STDOUT))
 time.sleep(2)
 try:
@@ -112,6 +121,45 @@ try:
               "no password, no admin key in the network RAM" % (chg[:90], ro.get("roles", {}).get("echo"), lg.get("role") or lg.get("why"), echo))
         check("no admin key on this member" in mem2, "4 the member installed without --admin says why it did not adopt: " +
               [l for l in mem2.splitlines() if "refused" in l or "no admin key" in l][:2].__repr__()[:200])
+
+        # 5 kim leads echo
+        def leads_kim():   # both members with the admin key say kim leads
+            l = [c for c in rm.read("fdf-app", "config") if c["bag"].get("users", {}).get("kim", {}).get("lead")]
+            return l if len(l) == 2 else None
+        pg.check("[data-lead=kim]"); chg5 = pg.inner_text("#changes"); pg.click("#apply")
+        lead = wait_for(leads_kim, 20)
+        bad = door("op=enroll&app=rangertrak", {"user": "kim", "password": "nope"})
+        notlead = door("op=identity&app=rangertrak", {"user": "EOCAdmin", "password": "EOCAdmin", "name": "x1"})
+        kid = door("op=identity&app=rangertrak", {"user": "kim", "password": "kim-2026", "name": "x1"})
+        check(lead and len(lead) == 2 and "not this app" in bad.get("why", "") and "does not lead" in notlead.get("why", "")
+              and "did not give rangertrak-echo-x1 an identity" in kid.get("why", ""),
+              "5 '%s': %d members say kim leads; a wrong password: %s; a non-lead: %s; kim gets to the region: %s"
+              % (chg5[:60], len(lead or []), bad.get("why", "")[:50], notlead.get("why", "")[:60], kid.get("why", "")[:80]))
+        # 6 kim's QR
+        pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
+        pg.click("[data-qr=kim]"); pg.wait_for_selector("#qr:not([hidden]) #qrImg svg", timeout=5000)
+        shot = os.path.join(T, "kim-qr.png"); pg.locator("#qrImg svg").screenshot(path=shot)
+        if SHOTS: pg.screenshot(path=os.path.join(SHOTS, "admin-qr.png"))
+        got = zxing_read.read([shot]).get(shot)
+        want = "fdfenroll1 http://%s/dc/ram.php rangertrak kim" % DOOR
+        check(got == want, "6 kim's QR reads as %r" % got)
+        pg.click("#qrClose")
+        # 7 save, remove, restore
+        pg.click("#save")
+        sv = wait_for(lambda: [f for f in os.listdir(T + "/FrogNet-assignments")] if os.path.isdir(T + "/FrogNet-assignments") else None, 10)
+        saved = open(os.path.join(T, "FrogNet-assignments", sv[0])).read() if sv else ""
+        pg.wait_for_function("document.querySelector('#saves').value", timeout=5000)
+        pg.click("[data-del-user=kim]"); pg.click("#apply")
+        gone = wait_for(lambda: all("kim" not in c["bag"].get("users", {}) for c in rm.read("fdf-app", "config") if c["bag"].get("admin", {}).get("check")), 20)
+        pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
+        pg.click("#restore")
+        pg.wait_for_function("/user kim/.test(document.querySelector('#changes').textContent)", timeout=5000)
+        chg7 = pg.inner_text("#changes"); pg.click("#apply")
+        back = wait_for(leads_kim, 20)
+        lg7 = door("op=login&app=rangertrak", {"user": "kim", "password": "kim-2026"})
+        check(bool(sv) and '"kim"' in saved and "verifier" in saved and "kim-2026" not in saved and gone and back and len(back) == 2 and lg7.get("role") == "echo",
+              "7 saved %s (kim's verifier, no password); kim removed on every member: %s; restored ('%s') and applied: %d members say kim leads; kim logs in as %s"
+              % (sv, bool(gone), chg7[:70], len(back or []), lg7.get("role") or lg7.get("why")))
         br.close()
 finally:
     for p in procs: p.terminate()

@@ -38,6 +38,10 @@ td { padding: 7px 6px; border-bottom: 1px solid #1f2a24; vertical-align: middle;
 .pill.team { background: #173a28; color: #8fe0ad; }
 .opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #1f2a24; } .opt:last-child { border: 0; }
 .opt b { display: block; } .opt span { color: var(--mu); font-size: 13px; }
+#qr { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-content: center; z-index: 10; }
+#qr .card { background: var(--pn); border: 1px solid var(--bd); border-radius: 14px; padding: 18px; display: grid; gap: 10px; max-width: 92vw; }
+#qrImg svg { width: min(420px, 80vw); height: auto; display: block; border-radius: 10px; } #qrWho { font-weight: 700; font-size: 18px; }
+#qr label { display: grid; gap: 4px; font-size: 13px; }
 footer { position: fixed; left: 0; right: 0; bottom: 0; background: var(--pn); border-top: 1px solid var(--bd); padding: 12px 20px; display: flex; gap: 12px; align-items: center; z-index: 2; flex-wrap: wrap; }
 footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes.dirty { color: var(--wa); }
 #status { color: var(--mu); font-size: 13px; padding: 0 20px; }
@@ -71,8 +75,9 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
     <section>
       <h2>Users</h2>
       <p class="why">Each user is assigned a role, activated when they log in. A password is kept only as a verifier, made on this computer;
-        leave it blank to keep the one they have.</p>
-      <table><thead><tr><th>User</th><th>Role</th><th>New password</th><th></th></tr></thead><tbody id="users"></tbody></table>
+        leave it blank to keep the one they have. A user who <b>leads</b> its team signs up its own members from its phone.
+        <b>QR</b> shows the user's enrollment code: they scan it with the app and type their password, and the phone joins.</p>
+      <table><thead><tr><th>User</th><th>Role</th><th class="c">Leads</th><th>New password</th><th></th><th></th></tr></thead><tbody id="users"></tbody></table>
       <div class="add"><input type="text" id="newUser" placeholder="new user, e.g. EOCAdmin2"><button type="button" id="addUser">Add</button></div>
     </section>
     <section>
@@ -84,6 +89,14 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
         <div class="add"><input type="text" id="extraRams" placeholder="e.g. hospitals, logistics"></div></div></div>
     </section>
     <section>
+      <h2>Saved assignments</h2>
+      <p class="why">The teams, users and leads live on the network's nodes. If the node holding them goes, they are gone
+        until you put them back. Save them here after a change; Restore loads a save as an edit you review and apply,
+        to this node or (connected through it) a fallback node. Nothing saves or restores on its own.</p>
+      <div class="add"><button type="button" id="save">Save the current assignments</button><select id="saves"></select><button type="button" id="restore">Restore</button></div>
+      <p class="why" id="savesDir" style="margin-top:8px"></p>
+    </section>
+    <section>
       <h2>Members</h2>
       <p class="why">Every member with the app, its configuration, and its answer to the last change sent from here.</p>
       <table><thead><tr><th>Member</th><th class="hide-s">Address</th><th>Configuration</th><th>Answer</th></tr></thead><tbody id="members"></tbody></table>
@@ -92,5 +105,10 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
   </main>
   <footer><div id="changes">No changes.</div><button type="button" id="revert">Revert</button><button type="button" class="go" id="apply" disabled>Apply to the network</button></footer>
 </div>
+<div id="qr" hidden><div class="card"><div id="qrImg"></div><div id="qrWho"></div>
+  <label class="mu">Address the phone reaches this node's door at <input type="text" id="qrDoor"></label>
+  <div class="add"><button type="button" id="qrClose">Close</button></div></div></div>
+<script src="qrcode.js"></script>
+<script src="frogqr.js"></script>
 <script src="admin.js"></script>
 </body></html>

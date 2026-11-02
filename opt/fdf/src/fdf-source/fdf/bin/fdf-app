@@ -18,7 +18,7 @@
 ################################################################
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
-  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--role NAME[:default]]... [--user USER:PASSWORD=ROLE]...
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--role NAME[:default]]... [--user USER:PASSWORD=ROLE[+lead]]...
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
         FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
         droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
@@ -260,7 +260,8 @@ class Server:
                         ver = (v or {}).get("verifier") or {}
                         if (v or {}).get("role") not in roles or set(ver) < {"kdf", "n", "salt", "hash"} or ver.get("kdf") != "pbkdf2-sha256":
                             raise ValueError("user %s: a role this configuration has and a pbkdf2-sha256 verifier" % u)
-                        users[u] = {"role": v["role"], "verifier": {k: ver[k] for k in ("kdf", "n", "salt", "hash")}}
+                        users[u] = {"role": v["role"], "verifier": {k: ver[k] for k in ("kdf", "n", "salt", "hash")},
+                                    "lead": bool(v.get("lead"))}       # [ENROLL_V1] this user leads its role's team
                     part = n.get("partition", "relocate")
                     if "general" not in rams or part not in ("relocate", "fail"):
                         raise ValueError("the RAMs must include general; partition relocate or fail")
@@ -437,12 +438,13 @@ def main(argv):
             if not ok_name(name) or flag not in ("", "default"):
                 print("fdf-app: --role NAME[:default], NAME letters, digits, _ and - (not 'general')"); return 2
             roles[name] = {"default": flag == "default"}
-        for u in opt("--user"):                       # USER:PASSWORD=ROLE
+        for u in opt("--user"):                       # USER:PASSWORD=ROLE[+lead]
             who, _, rest = u.partition(":")
             pw, _, role = rest.rpartition("=")
+            lead = role.endswith("+lead"); role = role[:-5] if lead else role
             if not who or not pw or role not in roles:
-                print("fdf-app: --user USER:PASSWORD=ROLE, ROLE one of the --role names"); return 2
-            users[who] = {"role": role, "verifier": verifier(pw)}
+                print("fdf-app: --user USER:PASSWORD=ROLE[+lead], ROLE one of the --role names"); return 2
+            users[who] = {"role": role, "verifier": verifier(pw), "lead": lead}   # [ENROLL_V1]
         admin = old.get("admin") or {}
         for u in opt("--admin")[-1:]:                 # [ADMIN_APP_V1] USER:PASSWORD
             who, _, pw = u.partition(":")

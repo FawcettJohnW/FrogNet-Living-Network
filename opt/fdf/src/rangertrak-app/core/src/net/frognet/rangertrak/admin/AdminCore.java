@@ -9,6 +9,9 @@ import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -37,10 +40,18 @@ import java.util.Map;
  *
  * Ops: connect {door, app, user, password}; apply {config: {rams, partition, login, roles, users}, passwords: {user: pw}}.
  * Events: status, error, connected, state {configs, applied, served, current}, applied {seq, members}.
+ *
+ * [ENROLL_V1] a user may lead its role's team ("lead": true): that user's device may ask the region for invitations for
+ * its own members (the door's op=identity). The admin page draws each user's enrollment QR (frogqr.js).
+ * [ASSIGNMENTS_SAVE_V1] the assignments (teams, users, who leads) live in the region's RAM, written by its members; when
+ * the node holding them goes, they are gone until the admin puts them back. That is intentional and by hand: op save
+ * writes the current configuration (verifiers, never passwords) to a file in the saves directory; op saves lists them;
+ * op restore {file} loads one into the page as an edit, which the admin reviews and applies like any change (users it
+ * brings back keep the verifiers it carries). Nothing here saves or restores on its own.
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-01-r2";
+    public static final String BUILD = "rt-admin-2026-11-02-r3";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -48,8 +59,11 @@ public final class AdminCore {
     private volatile long last = -1, sent = 0;
     private volatile Thread watcher;
     private volatile Map<String, Object> current = Json.o();
+    private volatile Map<String, Object> restored = Json.o();   // [ASSIGNMENTS_SAVE_V1] the users of the last restore
+    private final File saves;
 
-    public AdminCore(Ui ui) { this.ui = ui; }
+    public AdminCore(Ui ui) { this(ui, new File(System.getProperty("user.home", "."), "FrogNet-assignments")); }
+    public AdminCore(Ui ui, File saves) { this.ui = ui; this.saves = saves; }
     private void out(Object... kv) { ui.deliver(Json.write(Json.o(kv))); }
     private void say(String t) { out("ev", "status", "text", t); }
 
@@ -61,6 +75,9 @@ public final class AdminCore {
             if (op.equals("connect")) connect(m);
             else if (op.equals("apply")) apply(m);
             else if (op.equals("refresh")) read(false);
+            else if (op.equals("save")) save();
+            else if (op.equals("saves")) saves();
+            else if (op.equals("restore")) restore(m);
             else throw new Exception("unknown op " + op);
         } catch (Exception e) {
             out("ev", "error", "text", op + ": " + (e.getMessage() == null ? e.toString() : e.getMessage()));
@@ -177,6 +194,46 @@ public final class AdminCore {
     private void stopWatch() { Thread t = watcher; watcher = null; if (t != null) t.interrupt(); }
     public void close() { stopWatch(); }
 
+    // ------------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand
+    private static final String[] KEPT = { "rams", "partition", "login", "roles", "users" };
+    private void save() throws Exception {
+        if (key == null) throw new Exception("not connected as the admin");
+        if (!saves.isDirectory() && !saves.mkdirs()) throw new Exception("cannot make " + saves);
+        Map<String, Object> c = Json.o();
+        for (String k : KEPT) if (current.containsKey(k)) c.put(k, current.get(k));
+        long seq = (long) Json.num(current.get("seq"));
+        String name = app.replaceAll("[^A-Za-z0-9_-]", "_") + "-" + new java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss").format(new java.util.Date()) + ".json";
+        File f = new File(saves, name);
+        OutputStream o = new FileOutputStream(f);
+        try { o.write(Json.write(Json.o("app", app, "seq", seq, "saved", System.currentTimeMillis(), "through", door, "by", AdminCore.BUILD, "config", c)).getBytes(StandardCharsets.UTF_8)); }
+        finally { o.close(); }
+        say("saved " + app + "'s assignments (configuration " + seq + ", " + Json.obj(c.get("users")).size() + " users) to " + f);
+        saves();
+    }
+    private void saves() {
+        List<Object> list = new ArrayList<Object>();
+        File[] fs = saves.listFiles();
+        if (fs != null) {
+            java.util.Arrays.sort(fs, java.util.Collections.reverseOrder());
+            for (File f : fs) if (f.getName().startsWith(app.replaceAll("[^A-Za-z0-9_-]", "_") + "-") && f.getName().endsWith(".json")) list.add(f.getName());
+        }
+        out("ev", "saves", "dir", saves.toString(), "files", list);
+    }
+    private void restore(Map<String, Object> m) throws Exception {
+        if (key == null) throw new Exception("not connected as the admin");
+        String name = Json.str(m.get("file"));
+        if (!name.matches("[A-Za-z0-9_.-]+\\.json")) throw new Exception("not a saved file: " + name);
+        File f = new File(saves, name);
+        InputStream in = new FileInputStream(f); ByteArrayOutputStream b = new ByteArrayOutputStream(); byte[] k = new byte[8192]; int n;
+        try { while ((n = in.read(k)) > 0) b.write(k, 0, n); } finally { in.close(); }
+        Map<String, Object> s = Json.obj(Json.parse(new String(b.toByteArray(), StandardCharsets.UTF_8)));
+        if (!Json.str(s.get("app")).equals(app)) throw new Exception(name + " holds " + Json.str(s.get("app")) + "'s assignments, not " + app + "'s");
+        Map<String, Object> c = Json.obj(s.get("config"));
+        restored = Json.obj(c.get("users"));
+        out("ev", "restored", "file", name, "seq", s.get("seq"), "config", c);
+        say("loaded " + name + " (configuration " + (long) Json.num(s.get("seq")) + "): review it, then Apply sends it to the members");
+    }
+
     private void apply(Map<String, Object> m) throws Exception {
         if (key == null) throw new Exception("not connected as the admin");
         Map<String, Object> want = Json.obj(m.get("config")), pws = Json.obj(m.get("passwords"));
@@ -194,15 +251,16 @@ public final class AdminCore {
             String u = e.getKey().trim(), role = Json.str(Json.obj(e.getValue()).get("role")), pw = Json.str(pws.get(u));
             if (!roles.containsKey(role)) throw new Exception("user " + u + ": role '" + role + "' is not one of the roles");
             Object v = !pw.isEmpty() ? verifier(pw) : Json.obj(was.get(u)).get("verifier");
+            if (v == null) v = Json.obj(restored.get(u)).get("verifier");     // [ASSIGNMENTS_SAVE_V1] brought back by a restore
             if (v == null) throw new Exception("user " + u + " needs a password");
-            users.put(u, Json.o("role", role, "verifier", v));
+            users.put(u, Json.o("role", role, "verifier", v, "lead", Json.bool(Json.obj(e.getValue()).get("lead"))));   // [ENROLL_V1]
         }
         String part = Json.str(want.get("partition")); if (!part.equals("fail")) part = "relocate";
         String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "users", users));
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),
              Json.write(Json.o("config", text, "seq", seq, "user", user, "mac", hmac(key, text + "\n" + seq))), 10000);
-        sent = seq;
+        sent = seq; restored = Json.o();
         say("sent to the members (configuration " + seq + "): each checks it with its own copy of the admin key and says so");
     }
 }

@@ -25,7 +25,10 @@ window.rtDeliver = function (line) {
     $('#connect').hidden = true; $('#main').hidden = false; $('#dot').classList.add('up')
     $('#who').textContent = m.app + ' · admin ' + m.user + ' · through ' + m.door
     $('#status').textContent = 'connected (' + m.build + ')'
+    A.door = m.door; A.app = m.app; send({ op: 'saves' })
   } else if (m.ev === 'state') state(m)
+  else if (m.ev === 'saves') saves(m)
+  else if (m.ev === 'restored') restored(m)
 }
 
 // ------------------------------------------------------------ the configuration being edited
@@ -34,7 +37,7 @@ function fromCurrent(c) {
   const roles = {}
   for (const [r, x] of Object.entries(c.roles || {})) roles[r] = { team: rams.has(r), def: !!(x || {}).default }
   const users = {}
-  for (const [u, x] of Object.entries(c.users || {})) users[u] = { role: (x || {}).role || '' }
+  for (const [u, x] of Object.entries(c.users || {})) users[u] = { role: (x || {}).role || '', lead: !!(x || {}).lead }
   const extra = [...rams].filter(r => r !== 'general' && !roles[r])
   return { roles, users, login: !!c.login, partition: c.partition === 'fail' ? 'fail' : 'relocate', extra: extra.join(', ') }
 }
@@ -42,7 +45,7 @@ function toConfig(e) {
   const rams = ['general', ...Object.entries(e.roles).filter(([, x]) => x.team).map(([r]) => r),
     ...e.extra.split(/[,\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean)]
   const roles = {}; for (const [r, x] of Object.entries(e.roles)) roles[r] = { default: x.def }
-  const users = {}; for (const [u, x] of Object.entries(e.users)) users[u] = { role: x.role }
+  const users = {}; for (const [u, x] of Object.entries(e.users)) users[u] = { role: x.role, lead: !!x.lead }
   return { rams: [...new Set(rams)], partition: e.partition, login: e.login, roles, users }
 }
 function state(m) {
@@ -59,8 +62,10 @@ function draw() {
   const opts = (sel) => Object.keys(e.roles).map(r => `<option${r === sel ? ' selected' : ''}>${esc(r)}</option>`).join('')
   $('#users').innerHTML = Object.entries(e.users).map(([u, x]) => `<tr><td><b>${esc(u)}</b>${A.cur.users && A.cur.users[u] ? '' : '<span class="pill">new</span>'}</td>
     <td><select data-u="${esc(u)}">${x.role && !e.roles[x.role] ? `<option selected>${esc(x.role)} (gone)</option>` : ''}${opts(x.role)}</select></td>
+    <td class="c"><input type="checkbox" data-lead="${esc(u)}" ${x.lead ? 'checked' : ''} ${e.roles[x.role] && e.roles[x.role].team ? '' : 'disabled title="only a team has a lead"'}></td>
     <td><input type="password" data-pw="${esc(u)}" value="${esc(A.pw[u] || '')}" placeholder="${A.cur.users && A.cur.users[u] ? 'keep' : 'required'}" autocomplete="new-password"></td>
-    <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove">✕</button></td></tr>`).join('') || '<tr><td colspan="4" class="mu">no users</td></tr>'
+    <td class="c"><button type="button" data-qr="${esc(u)}" ${A.cur.users && A.cur.users[u] ? '' : 'disabled title="apply first"'}>QR</button></td>
+    <td class="c"><button type="button" class="x" data-del-user="${esc(u)}" title="remove">✕</button></td></tr>`).join('') || '<tr><td colspan="6" class="mu">no users</td></tr>'
   $('#login').checked = e.login; $('#pRel').checked = e.partition === 'relocate'; $('#pFail').checked = e.partition === 'fail'
   $('#extraRams').value = e.extra
   dirtyLine()
@@ -75,13 +80,14 @@ function changes() {
   for (const r of br) if (!ar.has(r)) out.push('RAM ' + r)
   for (const r of ar) if (!br.has(r)) out.push('no RAM ' + r)
   for (const u of Object.keys(b.users)) if (!a.users[u]) out.push('user ' + u); else if (a.users[u].role !== b.users[u].role) out.push(u + ' → ' + b.users[u].role)
+  for (const u of Object.keys(b.users)) if (a.users[u] && !!a.users[u].lead !== !!b.users[u].lead) out.push(u + (b.users[u].lead ? ' leads ' : ' no longer leads ') + b.users[u].role)
   for (const u of Object.keys(a.users)) if (!b.users[u]) out.push('remove user ' + u)
   for (const u of Object.keys(A.pw)) if (A.pw[u] && a.users[u]) out.push('new password for ' + u)
   if (a.login !== b.login) out.push(b.login ? 'login required' : 'login not required')
   if (a.partition !== b.partition) out.push('partition: ' + b.partition)
   return out
 }
-function missing() { return Object.keys(A.edit.users).filter(u => !(A.cur.users || {})[u] && !A.pw[u]) }
+function missing() { return Object.keys(A.edit.users).filter(u => !(A.cur.users || {})[u] && !(A.restoredUsers || {})[u] && !A.pw[u]) }   // a restore brings its users' verifiers
 function dirtyLine() {
   const c = changes(), miss = missing()
   A.dirty = c.length > 0
@@ -93,6 +99,7 @@ document.addEventListener('change', (ev) => {
   const t = ev.target, e = A.edit; if (!e) return
   if (t.dataset.r) e.roles[t.dataset.r][t.dataset.k] = t.checked
   else if (t.dataset.u) e.users[t.dataset.u].role = t.value
+  else if (t.dataset.lead) e.users[t.dataset.lead].lead = t.checked
   else if (t.id === 'login') e.login = t.checked
   else if (t.name === 'part') e.partition = t.value
   else if (t.id === 'extraRams') e.extra = t.value
@@ -104,6 +111,7 @@ document.addEventListener('click', (ev) => {
   const t = ev.target, e = A.edit; if (!e) return
   if (t.dataset.delRole) { delete e.roles[t.dataset.delRole]; draw() }
   else if (t.dataset.delUser) { delete e.users[t.dataset.delUser]; delete A.pw[t.dataset.delUser]; draw() }
+  else if (t.dataset.qr) showQr(t.dataset.qr)
 })
 $('#addRole').onclick = () => {
   const r = $('#newRole').value.trim().toLowerCase()
@@ -121,12 +129,12 @@ $('#reload').onclick = () => send({ op: 'refresh' })
 $('#apply').onclick = () => {
   const pw = {}; for (const [u, p] of Object.entries(A.pw)) if (p) pw[u] = p
   send({ op: 'apply', config: toConfig(A.edit), passwords: pw })
-  A.dirty = false; A.pw = {}; $('#apply').disabled = true; $('#changes').textContent = 'Sent: waiting for the members…'
+  A.dirty = false; A.pw = {}; A.restoredUsers = {}; $('#apply').disabled = true; $('#changes').textContent = 'Sent: waiting for the members…'
 }
 
 // ------------------------------------------------------------ the members
 // two members' configurations are the same when what clients see is the same (each install line has its own seq)
-function sig(c) { const u = {}; for (const [k, x] of Object.entries(c.users || {})) u[k] = (x || {}).role   // (not the verifier: each install line salts its own)
+function sig(c) { const u = {}; for (const [k, x] of Object.entries(c.users || {})) u[k] = [(x || {}).role, !!(x || {}).lead]  // (not the verifier: each install line salts its own)
   return JSON.stringify([[...(c.rams || [])].sort(), c.partition, !!c.login, Object.entries(c.roles || {}).sort().map(([r, x]) => [r, !!(x || {}).default]), Object.entries(u).sort()]) }
 function members(m) {
   const ap = {}; for (const a of m.applied || []) ap[a.guid] = a
@@ -146,4 +154,29 @@ function members(m) {
     const ok = (m.applied || []).filter(a => a.seq >= sent && a.ok).length, n = (m.configs || []).length
     $('#changes').textContent = `Configuration ${sent}: adopted by ${ok} of ${n} member(s).`
   }
+}
+
+// ------------------------------------------------------------ [ENROLL_V1] a user's enrollment QR (frogqr.js)
+// The door this admin is connected through is where the phone enrolls, unless the admin says another address reaches it.
+function showQr(u) {
+  if (!$('#qrDoor').value) $('#qrDoor').value = A.door || ''
+  const draw = () => {
+    const d = $('#qrDoor').value.trim(), url = 'http://' + d + '/dc/ram.php'
+    $('#qrImg').innerHTML = FrogQR.svg(FrogQR.enrollLine(url, A.app, u), { px: 420 })
+    $('#qrWho').textContent = u + ' · ' + ((A.cur.users || {})[u] || {}).role + (((A.cur.users || {})[u] || {}).lead ? ' (lead)' : '') + ' · ' + url
+  }
+  $('#qrDoor').oninput = draw; draw(); $('#qr').hidden = false
+}
+$('#qrClose').onclick = () => { $('#qr').hidden = true }
+
+// ------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand only
+$('#save').onclick = () => send({ op: 'save' })
+$('#restore').onclick = () => { const f = $('#saves').value; if (f) send({ op: 'restore', file: f }) }
+function saves(m) {
+  $('#saves').innerHTML = (m.files || []).map(f => `<option>${esc(f)}</option>`).join('') || '<option value="">no saves yet</option>'
+  $('#savesDir').textContent = 'Saves are kept in ' + m.dir
+}
+function restored(m) {
+  A.restoredUsers = m.config.users || {}; A.edit = fromCurrent(m.config); A.pw = {}; A.dirty = true; draw()
+  $('#status').textContent = 'loaded ' + m.file + ': review the changes below, then Apply'
 }

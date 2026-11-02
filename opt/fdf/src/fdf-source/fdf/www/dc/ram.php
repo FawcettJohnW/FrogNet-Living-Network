@@ -19,6 +19,15 @@
 //   POST ?op=admin&app=APP {"config","seq","user","mac"}                   the admin's configuration, (fdf-app, admin, APP):
 //        relayed, not judged -- each member checks the mac with its own admin key and adopts it or says why not
 //   GET  ?op=whoami                                                       {"host": the asking device's host name, or ''}
+//   POST ?op=enroll&app=APP {"user","password"}                            [ENROLL_V1] the common way a device joins a region
+//        with an app: an enrollment QR (the app's admin made it: this door's URL and the login name) is scanned, the
+//        password typed; checked here as op=login checks it, and the answer is the role, whether the user leads its
+//        role's team, and the device's OWN invitation to the region this node is in (fdf-identity --leaf --again: the
+//        region's hub makes it; a second enrollment of the same user gives a new key and the old one stops working).
+//        After that the device is a member of the region: every other app's hub admits it by that, with no new login.
+//   POST ?op=identity&app=APP {"user","password","name"}                   [ENROLL_V1] a sponsor (a user who leads a team)
+//        asks the region for an invitation for one of its own members, NAME, made <app>-<team>-<NAME>: what the lead's
+//        phone hands a member who enrolled with it
 // Only the services an installed add-in declares (apps.json) are reachable. A failure is the answer, with why.
 // [RAM_IS_SAID_V1] every read and write answer carries "ram": the RAM that holds the service right now. A page that sees
 // it change reads everything again and writes its own truth there: memory is never moved, each owner writes its own again.
@@ -33,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-01-r2';
+const DOOR_BUILD = 'dc-door-2026-11-02-r3';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -82,6 +91,41 @@ function for_service($s, $team = null) {                        // [APP_DROPLET_
     if ($at === '' || !preg_match('/^[0-9.]+:[0-9]+$/', $at)) fail(503, "the app's RAM " . $key . ' is not served yet: nothing works until it is');
     $where = $at;
     $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && RINA_RAM=' . escapeshellarg($at) . ' exec "$FDF_BIN"/ram ';
+}
+// [ENROLL_V1] the app's newest configuration (each droplet writes its own; the admin's seq decides)
+function app_cfg($app) {
+    global $env;
+    $cfg = null;
+    foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
+        if (strpos($c['instance'] ?? '', $app . '.') === 0 && ($cfg === null || intval($c['bag']['seq'] ?? 0) > intval($cfg['seq'] ?? 0))) $cfg = $c['bag'];
+    if (!is_array($cfg)) fail(503, "no configuration of $app in the network RAM yet: no droplet of it has written its own");
+    return $cfg;
+}
+// [ENROLL_V1] a user and password, checked against the verifier in the app's configuration: the user's record
+function check_user($app, $in) {
+    $cfg = app_cfg($app);
+    $user = (string)($in['user'] ?? '');
+    $u = $cfg['users'][$user] ?? null; $v = is_array($u) ? ($u['verifier'] ?? null) : null;
+    if ($user === '' || !is_array($v) || !hash_equals((string)$v['hash'], hash_pbkdf2('sha256', (string)($in['password'] ?? ''), hex2bin((string)$v['salt']), intval($v['n']))))
+        fail(403, "that user and password are not this app's");
+    return $u;
+}
+// [ENROLL_V1] an identity's name in the region: the parts joined by '-', what fdf-identity takes (letters, digits, . _ -)
+function ident_name($parts) {
+    $n = strtolower(implode('-', array_map(function ($p) { return preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$p); }, $parts)));
+    return substr($n, 0, 63);
+}
+// [ENROLL_V1] the region this node is in makes NAME's identity: its hub admits a new key at an edge of its own (fdf-identity:
+// the ask and the answer through the region's RAM; this node reaching the region is the trust). The fdfinv1 line.
+function region_identity($name) {
+    $cmd = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec python3 "$FDF_BIN"/fdf-identity ' . escapeshellarg($name) . ' --leaf --again --line';
+    $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($p)) fail(502, 'could not run fdf-identity');
+    $out = trim(stream_get_contents($pipes[1])); $err = trim(stream_get_contents($pipes[2])); fclose($pipes[1]); fclose($pipes[2]);
+    $rc = proc_close($p);
+    if ($rc !== 0 || strpos($out, 'fdfinv1.') !== 0) fail(502, 'the region did not give ' . $name . ' an identity: ' . ($err !== '' ? $err : $out));
+    error_log('dc ram.php: [ENROLL_V1] ' . $err);
+    return $out;
 }
 function said($text, $where) { $j = json_decode($text, true); if (!is_array($j)) return $text; $j['ram'] = $where; return json_encode($j, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }
 
@@ -204,6 +248,21 @@ if ($op === 'read') {
     // own name is then its name: the page asks for it). Nobody sees a station ID: it is the host or device name.
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     echo json_encode(['ok' => true, 'host' => station_of($ip), 'ip' => $ip]);
+} elseif (($op === 'enroll' || $op === 'identity') && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $in = json_decode(file_get_contents('php://input'), true);
+    $app = $_GET['app'] ?? '';
+    if (!is_array($in) || !preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app and a JSON body needed');
+    $u = check_user($app, $in);
+    $role = (string)$u['role'];
+    if ($op === 'identity') {
+        if (empty($u['lead'])) fail(403, "user " . $in['user'] . " does not lead a team: only a lead asks for its members' invitations");
+        $who = (string)($in['name'] ?? '');
+        if (!preg_match('/^[A-Za-z0-9._-]{1,30}$/', $who)) fail(400, 'name: letters, digits, . _ -, at most 30');
+        echo json_encode(['ok' => true, 'name' => $who, 'team' => $role, 'invite' => region_identity(ident_name([$app, $role, $who]))], JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    echo json_encode(['ok' => true, 'user' => (string)$in['user'], 'role' => $role, 'lead' => !empty($u['lead']),
+                      'invite' => region_identity(ident_name([$app, (string)$in['user']])), 'door' => DOOR_BUILD], JSON_UNESCAPED_SLASHES);
 } elseif ($op === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     // [APP_ACCESS_V1] login is a read, here at the device's own edge: the app's access definition is in its configuration
     // tuples in the network RAM (each droplet writes it), and the password is checked against the verifier there. No
@@ -234,5 +293,5 @@ if ($op === 'read') {
     $bag = ['dev' => $dev, 'station' => preg_replace('/[^a-z0-9-]/', '', strtolower((string)($in['station'] ?? ''))), 'role' => (string)($in['role'] ?? ''), 'user' => (string)($in['user'] ?? ''), 'at' => time()];
     echo ram($env, ['write', 'fdf-app', 'device', $app . '.' . $dev, json_encode($bag, JSON_UNESCAPED_SLASHES)]);
 } else {
-    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login or device');
+    fail(400, 'op is read, write, watch, announce, rams, roles, admin, whoami, login, device, enroll or identity');
 }
