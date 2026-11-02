@@ -30,6 +30,9 @@
 <div id="main" hidden>
   <header><span class="brand-s">RangerTrak</span> <span id="mission"></span> <span id="who"></span>
     <span id="dot" title=""></span>
+    <button id="homeBtn" type="button" hidden>Home</button>
+    <button id="reqBtn" type="button" hidden>Requests</button>
+    <button id="sensBtn" type="button" hidden>Sensors</button>
     <button id="layersBtn" type="button">Layers</button>
     <button id="chatBtn" type="button">Chat</button></header>
   <div id="map"></div>
@@ -44,6 +47,18 @@
     <form><select class="pto"></select><input class="ptext" placeholder="message" autocomplete="off"><button>Send</button>
     <button type="button" class="pclose">Close</button></form>
     <div class="pvideo"></div></div>
+  <section id="home" hidden>
+    <div class="hello">What do you need?</div>
+    <div class="tiles">
+      <button class="tile red" data-go="needhelp"><b>I need help</b><span>medical, trapped, water, shelter…</span></button>
+      <button class="tile green" data-go="safe"><b>I'm safe</b><span>let family and responders know</span></button>
+      <button class="tile" data-go="find"><b>Find someone</b><span>search by name</span></button>
+      <button class="tile" data-go="report"><b>Report to the EOC</b><span>damage, hazards, what you see</span></button>
+      <button class="tile" data-go="places"><b>Hospitals &amp; services</b><span>beds, fires, power outages</span></button>
+      <button class="tile big" data-go="map"><b>Map</b><span>everything near you</span></button>
+    </div>
+  </section>
+  <section id="sheet" hidden><div class="sh-head"><b class="sh-title"></b><button type="button" class="sh-close">Close</button></div><div class="sh-body"></div></section>
   <div id="status"></div>
   <div id="notices"></div>
 </div>

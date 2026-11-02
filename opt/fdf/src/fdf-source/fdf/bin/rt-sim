@@ -36,7 +36,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fnw1 module's directory).
 """
 import argparse, json, math, os, random, sys, time
 
-BUILD_TAG = "rt-sim-2026-11-01-r5"
+BUILD_TAG = "rt-sim-2026-11-01-r6"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.environ.get("FDF_HOME", "/opt/fdf"), "lib", "python")   # (it ships in the add-in)
 sys.path.insert(0, LIB)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # the add-in ships fnw1.py beside this program
@@ -123,6 +123,7 @@ class World:
     def __init__(self, rng):
         self.rng, self.u, self.n = rng, {}, 0
         self.say, self.removed, self.chatter = [], set(), []       # what instances said; who left; team talk
+        self.gone = {}                                             # a delivered victim, until its request is resolved
         for name, (lat, lng) in SIM_HOSTS.items():               # the nodes things connect through (simulated)
             self.add("host", name, (lat, lng), zone="")
         for name, (zone, lat, lng) in HOSPITALS.items():
@@ -219,7 +220,7 @@ class World:
                 hosp["beds"] = max(0, hosp["beds"] - 1); moved.add(v["hospital"])
                 if vic:
                     self.say.append((k, "%s delivered %s to %s" % (v["name"], vic["name"], hosp["name"])))
-                    del self.u[v["victim"]]; self.removed.add(v["victim"])
+                    self.gone[v["victim"]] = self.u.pop(v["victim"]); self.removed.add(v["victim"])
                 v.update(status="available", victim=None, goal=None)
                 self.new_victim()
                 moved.add(sorted(self.u, key=lambda x: int(x.rsplit("-", 1)[1]))[-1])
@@ -241,6 +242,19 @@ class World:
         if v.get("hospital"):
             pos["to"] = self.u[v["hospital"]]["name"]
         return who, pos
+
+
+NEED_OF = {"needs transport": ["medical", "evacuation"], "minor injuries": ["medical"], "sheltering": ["shelter", "water"]}
+SAFE_PEOPLE = [("Carol Jensen", 47.6230, -122.3120), ("Dan Whitaker", 47.5600, -122.3870), ("Nora Ibrahim", 47.4480, -122.4580),
+               ("Peter Novak", 47.6770, -122.3850), ("Lily Tran", 47.6110, -122.2010), ("Omar Haddad", 47.4800, -122.2170),
+               ("Sofia Reyes", 47.5450, -122.3200), ("George Adams", 47.7060, -122.3270)]
+
+
+def help_bag(v, status):
+    """(help, request, sim-<id>): the shape DisasterComm's help page writes, for a simulated person"""
+    return {"name": v["name"], "people": 1, "needs": NEED_OF.get(v.get("status"), ["other"]) if status == "open" else [],
+            "status": status, "location": {"text": "", "lat": round(v["p"][0], 6), "lon": round(v["p"][1], 6)},
+            "contact": "", "note": v.get("status", "") if status == "open" else "", "by": "rt-sim", "at": int(time.time()), "sim": True}
 
 
 def where():
@@ -267,11 +281,20 @@ class Writers:
         s = fnw1.Session(h, p); self.s[k] = s
         who, pos = w.bags(k)
         s.write("rt-who", self.mission, k, who, own=True); s.write("rt-pos", self.mission, k, pos, own=True)
+        v = w.u[k]
+        if v["kind"] == "victim" and v["status"] != "in ambulance":   # [RT_HELP_V1] a victim asks for help, as a person would
+            s.write("help", "request", "sim-" + k, help_bag(v, "open" if v["status"] != "sheltering" else "safe"))
 
     def pos(self, w, k):
         if k not in self.s:
             h, p = self.at.rsplit(":", 1); self.add(h, p, w, k); return
         self.s[k].write("rt-pos", self.mission, k, w.bags(k)[1], own=True)
+
+    def resolved(self, w, k, v):
+        """a delivered victim's request is resolved (its own record, written once more), then it leaves"""
+        s = self.s.get(k)
+        if s:
+            s.write("help", "request", "sim-" + k, help_bag(v, "resolved"))
 
     def leave(self, k):
         s = self.s.pop(k, None)
@@ -308,12 +331,18 @@ def main():
                 wr.open(now, w)
                 h, p = now.rsplit(":", 1); ms = fnw1.Session(h, p)
                 ms.write("rt-mission", "settings", a.mission, {"name": "Seattle metro exercise", "event": "Seattle metro exercise",
-                                                               "opPeriod": 1, "by": "rt-sim", "sim": True}, wait=True); ms.close()
-                log("on %s: %d instances, each on its own session" % (now, len(w.u)))
+                                                               "opPeriod": 1, "by": "rt-sim", "sim": True}, wait=True)
+                for name, lat, lng in SAFE_PEOPLE:                  # people who said they are safe (Find someone)
+                    ms.write("help", "request", "sim-safe-" + name.replace(" ", "-").lower(),
+                             help_bag({"name": name, "p": (lat, lng)}, "safe"), wait=True)
+                log("on %s: %d instances, each on its own session; %d safe check-ins" % (now, len(w.u), len(SAFE_PEOPLE)))
+                ms.close()
             time.sleep(max(0.0, a.tick - (time.monotonic() - last)))
             dt = time.monotonic() - last; last = time.monotonic()
             changed = w.tick(dt)
             for k in w.removed:
+                if k in w.gone:
+                    wr.resolved(w, k, w.gone.pop(k))
                 wr.leave(k)
             for k in changed:
                 if k in w.u:

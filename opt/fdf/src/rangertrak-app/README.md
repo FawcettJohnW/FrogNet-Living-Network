@@ -1,4 +1,4 @@
-# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r3
+# RangerTrak app (desktop and phone) -- rt-app-2026-11-01-r4
 
 The demo John set on 2026-11-01 (`opt/frognet_semantic/ribbit/examples/rangertrak/PLAN.md`, its first decision): the EOC
 on a Windows app, a first responder on a phone, presence with GPS, chat, a pre-populated moving world, in an app and not
@@ -35,6 +35,18 @@ Hosts (the nodes things connect through): a node with a GPS records it with the 
 (`SensorType=GPS`) from `databasehost.frognet` through the node when the Hosts layer is turned on; a row with no fix
 is not drawn. Each device's `via` matches a host's `SensorAddress`. rt-sim's simulated hosts are `rt-pos` cells of kind
 `host`.
+
+## The screens (r4)
+
+- **Public** opens on a home, not the map: I need help, I'm safe, Find someone, Report to the EOC, Hospitals &
+  services, Map. Help and safe are DisasterComm's help records, `(help, request, <rid>)` in the general RAM (not own: a
+  request stays when the phone is gone); Find someone searches them by name. A report is `(rt-report, <mission>,
+  <dev>.<ms>)`. The public's own location fills its forms; it is not published.
+- **EOC and Team**: Requests (open requests, On the way / Resolved as `(help, action, <rid>~<dev>)`, and for the EOC the
+  reports) and Sensors (every node that files its System sensor; a node's sensors; a reading, a GPS reading's position
+  or "no fix"), read from the network's sensor store through the node (`databasehost.frognet`).
+- Failover: a lost session makes the app ask its node where the RAMs are, until the answer changes or the old sessions
+  come back ([FAILOVER_ASKS_UNTIL_ANSWERED_V1]).
 
 ## Build and test
 

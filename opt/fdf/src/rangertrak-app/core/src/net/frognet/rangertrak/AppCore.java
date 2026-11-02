@@ -42,12 +42,12 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-01-r3";
+    public static final String BUILD = "rt-app-2026-11-01-r4";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
     private Map<String, String> rams = new HashMap<String, String>();
-    private volatile Follower general, mis, dm, positions, msgs;
+    private volatile Follower general, mis, dm, positions, msgs, helpF, reports;
     private final Map<String, Follower> teams = new HashMap<String, Follower>();
     private final Map<String, Boolean> seen = new HashMap<String, Boolean>();   // message ids shown
     private Map<String, Object> fix = null;
@@ -67,6 +67,12 @@ public final class AppCore {
             else if (op.equals("say")) send(Json.str(m.get("to")), Json.str(m.get("text")));
             else if (op.equals("fix")) position(m);
             else if (op.equals("hosts")) hosts();
+            else if (op.equals("help")) help(m);
+            else if (op.equals("helpAction")) helpAction(m);
+            else if (op.equals("report")) report(m);
+            else if (op.equals("sensorHosts")) sensorHosts();
+            else if (op.equals("sensors")) sensors(Json.str(m.get("host")));
+            else if (op.equals("sensor")) sensor(Json.str(m.get("id")), Json.str(m.get("name")));
             else out("ev", "error", "text", "unknown op " + op);
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
     }
@@ -127,9 +133,9 @@ public final class AppCore {
     private static String[] hp(String a) { int c = a.lastIndexOf(':'); return new String[]{a.substring(0, c), a.substring(c + 1)}; }
 
     private void stopAll() {
-        for (Follower f : new Follower[]{general, mis, dm, positions, msgs}) if (f != null) f.stop();
+        for (Follower f : new Follower[]{general, mis, dm, positions, msgs, helpF, reports}) if (f != null) f.stop();
         for (Follower f : teams.values()) f.stop();
-        teams.clear(); general = mis = dm = positions = msgs = null;
+        teams.clear(); general = mis = dm = positions = msgs = helpF = reports = null;
     }
 
     /** the followers, on the RAMs where they are served now; ours go with them */
@@ -159,12 +165,19 @@ public final class AppCore {
         mission = best;
         String[] g = hp(rams.get("general"));
         Follower.Log lg = new Follower.Log() { public void say(String l) { onSessionLine(l); } };
-        for (Follower x : new Follower[]{general, positions, msgs, dm}) if (x != null) x.stop();
+        for (Follower x : new Follower[]{general, positions, msgs, dm, helpF, reports}) if (x != null) x.stop();
         general = new Follower("presence", g[0], Integer.parseInt(g[1]), API, "rt-who", lg, null, new Runnable() { public void run() { world(general, null); } });
         // rt-who and rt-pos and rt-msg: one follower each would be three sessions; the library follows one service, so
         // the world is two followers on the general RAM (presence + position) and the messages a third
         positions = new Follower("positions", g[0], Integer.parseInt(g[1]), API, "rt-pos", lg, null,
                 new Runnable() { public void run() { world(general, null); } });
+        // [RT_HELP_V1] help requests, as DisasterComm's help page keeps them: (help, request, <rid>) the registrant's own
+        // record (status open / safe / resolved: "safe" is how a person says they are safe); (help, action, <rid>~<dev>)
+        // a responder's or the EOC's action on it. Not own: a request stays when the phone that made it is gone.
+        helpF = new Follower("help", g[0], Integer.parseInt(g[1]), API, "help", lg, null, new Runnable() { public void run() { onHelp(); } });
+        if (!role.equals("public")) {
+            reports = new Follower("reports", g[0], Integer.parseInt(g[1]), API, "rt-report", mission, lg, null, new Runnable() { public void run() { onReports(); } });
+        }
         if (!role.equals("public")) {
             msgs = new Follower("messages", g[0], Integer.parseInt(g[1]), API, "rt-msg", mission, lg, null, new Runnable() { public void run() { onMsgs(); } });
             dm = new Follower("direct", g[0], Integer.parseInt(g[1]), API, "rt-dm", mission + "." + dev, lg, null, new Runnable() { public void run() { onDm(); } });
@@ -187,7 +200,8 @@ public final class AppCore {
     }
 
     private void position(Map<String, Object> m) {
-        if (role.equals("public") || positions == null) return;
+        out("ev", "myfix", "lat", Json.dbl(m.get("lat")), "lng", Json.dbl(m.get("lng")));   // the page's "use my location"
+        if (role.equals("public") || positions == null) return;          // the public's position is not published
         fix = Json.o("name", name, "kind", role.equals("eoc") ? "eoc" : "team", "team", team, "lat", Json.dbl(m.get("lat")),
                 "lng", Json.dbl(m.get("lng")), "acc", Json.dbl(m.get("acc")), "at", System.currentTimeMillis() / 1000, "via", door);
         positions.write(mission, dev, fix, true);
@@ -231,6 +245,95 @@ public final class AppCore {
         }
     }
 
+    // ------------------------------------------------------------------ help, safe, reports (the public's own records)
+    private void onHelp() {
+        if (helpF == null) return;
+        out("ev", "help", "requests", new HashMap<String, Object>(helpF.family("request")), "actions", new HashMap<String, Object>(helpF.family("action")));
+    }
+
+    private void onReports() {
+        if (reports == null) return;
+        out("ev", "reports", "list", new HashMap<String, Object>(reports.family(mission)));
+    }
+
+    private void help(Map<String, Object> m) throws Exception {
+        String rid = Json.str(m.get("rid"));
+        if (rid.isEmpty() || helpF == null) throw new Exception("not connected");
+        Map<String, Object> b = Json.obj(m.get("bag")); b.put("by", dev); b.put("at", System.currentTimeMillis() / 1000);
+        if (!helpF.write("request", rid, b, false)) throw new Exception("not connected");
+        say("published: " + Json.str(b.get("status")).replace("open", "a request for help") + " for " + Json.str(b.get("name")));
+    }
+
+    private void helpAction(Map<String, Object> m) throws Exception {
+        if (role.equals("public") || helpF == null) throw new Exception("only responders and the EOC act on requests");
+        String rid = Json.str(m.get("rid"));
+        Map<String, Object> b = Json.o("action", Json.str(m.get("action")), "unit", name, "note", Json.str(m.get("note")), "at", System.currentTimeMillis() / 1000);
+        if (!helpF.write("action", rid + "~" + dev, b, false)) throw new Exception("not connected");
+    }
+
+    private void report(Map<String, Object> m) throws Exception {
+        long ms = System.currentTimeMillis();
+        Map<String, Object> b = Json.o("from", dev, "name", name, "category", Json.str(m.get("category")), "text", Json.str(m.get("text")),
+                "at", ms / 1000);
+        if (m.get("lat") instanceof Number) { b.put("lat", Json.dbl(m.get("lat"))); b.put("lng", Json.dbl(m.get("lng"))); }
+        // the public has no reports follower (it reads none): the write goes on the help session, to rt-report
+        String[] g = hp(rams.get("general"));
+        net.frognet.ram.RamSession s = new net.frognet.ram.RamSession(g[0], Integer.parseInt(g[1]), 5000);
+        try { s.call("POST", API + "?op=write", Json.write(Json.o("service", "rt-report", "variable", mission, "instance", dev + "." + ms, "bag", b)), 10); }
+        finally { s.close(); }
+        say("your report is with the EOC");
+    }
+
+    // ------------------------------------------------------------------ sensors: every node's, as metric_upsert.sh files them
+    // the network's sensor store, through this device's node (its DNS names databasehost.frognet); rt.sensors: a test's stand-in
+    private static final String SENSORS = System.getProperty("rt.sensors", "http://databasehost.frognet/api.php");
+    private static String enc(String s) { return net.frognet.ram.RamSession.urlenc(s); }
+
+    /** [RT_SENSORS_V1] the nodes that report: every node has at least its System sensor (sysperf_reporter.bash ->
+     *  metric_upsert.sh System Perf), named <node>.System.<metric>. Read once when asked; Refresh asks again. */
+    private void sensorHosts() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorType=System", null)));
+                Map<String, Object> hosts = new HashMap<String, Object>();
+                for (Object r0 : Json.arr(o.get("rows"))) {
+                    Map<String, Object> r = Json.obj(r0); String nm = Json.str(r.get("SensorName"));
+                    int i = nm.indexOf(".System."); if (i <= 0) continue;
+                    hosts.put(nm.substring(0, i), Json.str(r.get("SensorAddress")));
+                }
+                out("ev", "sensorHosts", "hosts", hosts);
+            } catch (Exception e) { out("ev", "error", "text", "the nodes' sensors (databasehost.frognet): " + e.getMessage()); }
+        } }, "sensor-hosts").start();
+    }
+
+    private void sensors(final String host) {
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorName__like=" + enc(host + ".%"), null)));
+                List<Object> list = new ArrayList<Object>();
+                for (Object r0 : Json.arr(o.get("rows"))) {
+                    Map<String, Object> r = Json.obj(r0);
+                    list.add(Json.o("id", Json.str(r.get("SensorID")), "name", Json.str(r.get("SensorName")), "type", Json.str(r.get("SensorType")),
+                            "address", Json.str(r.get("SensorAddress"))));
+                }
+                out("ev", "sensors", "host", host, "list", list);
+            } catch (Exception e) { out("ev", "error", "text", "sensors of " + host + ": " + e.getMessage()); }
+        } }, "sensors").start();
+    }
+
+    private void sensor(final String id, final String nm) {
+        new Thread(new Runnable() { public void run() {
+            try {
+                Map<String, Object> d = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensor_data&action=get&SensorID=" + enc(id), null)));
+                Map<String, Object> row = Json.obj(d.get("row"));
+                Object jd = row.get("jsonData");
+                if (jd instanceof String) try { jd = Json.parse((String) jd); } catch (IllegalArgumentException ignored) { }
+                Map<String, Object> fx = nm.endsWith(".GPS.Position") ? fixOf(row.get("jsonData")) : null;
+                out("ev", "sensor", "id", id, "name", nm, "data", jd, "updated", Json.str(row.get("updated_at")), "fix", fx);
+            } catch (Exception e) { out("ev", "error", "text", "sensor " + nm + ": " + e.getMessage()); }
+        } }, "sensor").start();
+    }
+
     /** [RT_HOSTS_V1] the nodes, where they are: a node with a GPS records it as its own sensor (gpsd_reporter.bash:
      *  metric_upsert.sh GPS Position, the gpsd TPV), in the network's sensor_data; read here through this node's
      *  proxy, once when asked (the Hosts layer). A node without a GPS has no position: it is not drawn. */
@@ -239,12 +342,12 @@ public final class AppCore {
             List<Object> list = new ArrayList<Object>();
             List<String> nofix = new ArrayList<String>();
             try {
-                Map<String, Object> o = Json.obj(Json.parse(http("GET", "http://databasehost.frognet/api.php?entity=sensors&action=list&SensorType=GPS", null)));
+                Map<String, Object> o = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensors&action=list&SensorType=GPS", null)));
                 for (Object r0 : Json.arr(o.get("rows"))) {
                     Map<String, Object> r = Json.obj(r0);
                     String nm = Json.str(r.get("SensorName")), id = Json.str(r.get("SensorID"));
                     if (!nm.endsWith(".GPS.Position") || id.isEmpty()) continue;
-                    Map<String, Object> d = Json.obj(Json.parse(http("GET", "http://databasehost.frognet/api.php?entity=sensor_data&action=get&SensorID=" + id, null)));
+                    Map<String, Object> d = Json.obj(Json.parse(http("GET", SENSORS + "?entity=sensor_data&action=get&SensorID=" + id, null)));
                     Object jd = Json.obj(d.get("row")).get("jsonData");
                     String host = nm.substring(0, nm.length() - ".GPS.Position".length());
                     Map<String, Object> tpv = fixOf(jd);
@@ -295,11 +398,16 @@ public final class AppCore {
                     try {
                         Map<String, String> now = servedRams();
                         if (!now.equals(rams)) {
-                            say("the app's RAMs moved: " + now); rams = now; String m0 = mission; mission = "";
+                            say("the app's RAMs moved: " + now); rams = now; mission = "";
                             synchronized (AppCore.this) { start(); }
                             out("ev", "connected", "role", role, "team", team, "user", user, "rams", new HashMap<String, Object>(rams), "build", BUILD);
+                            return;
                         }
-                        return;          // the same RAMs: the followers' own reconnects carry on
+                        // [FAILOVER_ASKS_UNTIL_ANSWERED_V1] the same answer: the node may not know yet where the RAMs went.
+                        // Ask again until the answer changes or the old sessions come back (the RAM was only blipped).
+                        Follower g = general != null ? general : mis;
+                        if (g != null && g.up() && g.failing() == null) return;
+                        sleepMs(500);
                     } catch (Exception e) { say("the door at " + door + ": " + e.getMessage() + "; again in 2 s"); sleepMs(2000); }
                 }
             } finally { resolving = false; }

@@ -17,6 +17,8 @@
 #   8 the To list has every person present (direct messages) and every team
 #   9 a message while the chat is closed: a notice on the map, a count on the Chat button
 #   10 the Team view opens on the teams only and on its own team's chat
+#   11-14 the public's home; I'm safe and Find someone; I need help and the EOC's action on it; a report to the EOC
+#   15 Sensors: the nodes, their sensors, a reading (a GPS position, and a reading with no fix); the Hosts line
 import json, os, socket, subprocess, sys, tempfile, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
@@ -50,6 +52,8 @@ class Door(BaseHTTPRequestHandler):      # ram.php's op=rams and op=login, as th
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
     def do_GET(self):
         q = parse_qs(urlparse(self.path).query)
+        if urlparse(self.path).path == "/api.php":           # the network's sensor store, as api.php answers
+            return self.answer(sensors(q))
         if q.get("op") == ["rams"]:
             self.answer({"ok": True, "rams": {k.split(".", 1)[1]: v for k, v in json.load(open(T + "/var/app-where.json")).items()}})
         else: self.answer({"ok": False, "error": "op"})
@@ -59,6 +63,20 @@ class Door(BaseHTTPRequestHandler):      # ram.php's op=rams and op=login, as th
             if b.get("user") == "EOCAdmin" and b.get("password") == "EOCAdmin": self.answer({"ok": True, "role": "eoc", "user": "EOCAdmin"})
             else: self.answer({"ok": False, "error": "that user and password are not this app's"})
         else: self.answer({"ok": False, "error": "op"})
+SENS = {"1": ("Seattle7.System.Perf", "System", {"load": [0.4, 0.3, 0.2], "mem_free_kb": 512000}),
+        "2": ("New-York-2.System.Perf", "System", {"load": [1.1, 0.9, 0.7]}),
+        "3": ("Seattle7.GPS.Position", "GPS", {"timestamp": 1, "error": "invalid gps json",
+              "raw": '{"class":"TPV","mode":1} {"class":"TPV","mode":3,"lat":47.4473,"lon":-122.4598,"time":"2026-11-01T22:00:00Z"}'}),
+        "4": ("New-York-2.GPS.Position", "GPS", {"class": None, "device": None, "mode": None, "time": None})}
+def sensors(q):
+    rows = [{"SensorID": int(i), "SensorName": n, "SensorType": t, "SensorAddress": "10.170.170.1" if n.startswith("Seattle7") else "10.28.28.1"}
+            for i, (n, t, d) in SENS.items()]
+    if q.get("entity") == ["sensors"]:
+        if "SensorType" in q: rows = [r for r in rows if r["SensorType"] == q["SensorType"][0]]
+        if "SensorName__like" in q: rows = [r for r in rows if r["SensorName"].startswith(q["SensorName__like"][0].rstrip("%"))]
+        return {"ok": True, "rows": rows}
+    i = q.get("SensorID", [""])[0]
+    return {"ok": True, "row": {"SensorID": int(i), "jsonData": json.dumps(SENS[i][2]), "updated_at": "2026-11-01 18:00:00"}}
 dp = free(); door = ThreadingHTTPServer(("127.0.0.1", dp), Door); threading.Thread(target=door.serve_forever, daemon=True).start()
 DOOR = "127.0.0.1:%d" % dp
 
@@ -68,7 +86,7 @@ CP = os.pathsep.join([os.path.join(SRC, "frognet-ram-java", "build", "frognet-ra
 dev = {}
 for d, name, role, team in (("eoc1", "EOC Desk", "eoc", ""), ("alpha9", "Pat (Alpha)", "team", "Alpha"), ("pub1", "Citizen", "public", "")):
     p = free(); dev[d] = p
-    procs.append(subprocess.Popen(["java", "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team],
+    procs.append(subprocess.Popen(["java", "-Drt.sensors=http://127.0.0.1:%d/api.php" % dp, "-cp", CP, "DevHost", os.path.join(APP, "ui"), str(p), d, name, DOOR, role, team],
                                   stdout=open(T + "/dev-%s.log" % d, "w"), stderr=subprocess.STDOUT))
 time.sleep(2.5)
 
@@ -123,11 +141,44 @@ with sync_playwright() as pw:
 
     pb = open_dev("pub1", 412, 860)
     pb.check("[name=role][value=public]"); pb.click("#connect button"); pb.wait_for_selector("#main:not([hidden])", timeout=8000)
-    pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
-    pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>(S.pos[id]||{}).kind))]")
-    check(set(pk) <= {"hospital", "fire", "power"} and pb.is_hidden("#chatBtn"), "4 the public view: kinds %s, chat hidden" % pk)
+    home_ok = pb.is_visible("#home") and pb.evaluate("document.querySelectorAll('#home .tile').length") == 6
+    pb.click("[data-go=map]"); pb.wait_for_function("Object.keys(S.markers).length > 10", timeout=15000)
+    pk = pb.evaluate("[...new Set(Object.keys(S.markers).map(id=>id.startsWith('help:')?'help':(S.pos[id]||{}).kind))]")
+    check(set(pk) <= {"hospital", "fire", "power", "help"} and pb.is_hidden("#chatBtn"), "4 the public's map: kinds %s (no people's positions), chat hidden" % pk)
     if SHOTS: pb.screenshot(path=os.path.join(SHOTS, "public-phone.png"))
 
+    # [RT_PUBLIC_HOME_V1] the public opens on what a person can do; [RT_HELP_V1] help, safe, find, report
+    check(home_ok, "11 the public opens on its home (6 choices), not the map")
+    pb.click("#homeBtn")
+    pb.click("[data-go=safe]"); pb.fill(".hf [name=name]", "Jane Doe"); pb.click(".hf .go")
+    pb.click("#sheet .sh-close"); pb.click("[data-go=find]"); pb.fill("#sheet .q", "jane")
+    pb.wait_for_function("/Jane Doe/.test(document.querySelector('#sheet .found').textContent)", timeout=10000)
+    pb.fill("#sheet .q", "carol")
+    pb.wait_for_function("/Carol Jensen/.test(document.querySelector('#sheet .found').textContent)", timeout=10000)
+    check(True, "12 I'm safe, then Find someone: Jane Doe found as safe; a simulated check-in (Carol Jensen) too")
+    pb.click("#sheet .sh-close"); pb.click("[data-go=needhelp]"); pb.fill(".hf [name=name]", "Bob Smith")
+    pb.check(".needs input[value=water]"); pb.fill(".hf [name=place]", "Pike Place Market"); pb.click(".hf .go")
+    eoc.click("#reqBtn"); eoc.wait_for_function("/Bob Smith/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    n_open = eoc.evaluate("Object.values(S.help).filter(b=>b.status==='open').length")
+    eoc.evaluate("(()=>{const c=[...document.querySelectorAll('#sheet .card')].find(c=>/Bob Smith/.test(c.textContent));c.querySelector('button').click()})()")
+    pb.wait_for_function("/on the way by EOC Desk/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    check(True, "13 I need help: on the EOC's Requests (%d open, the simulated victims' too); the EOC's 'On the way' is on the person's own request" % n_open)
+    pb.click("#sheet .sh-close"); pb.click("[data-go=report]"); pb.select_option(".rf [name=category]", "Power line down")
+    pb.fill(".rf [name=text]", "Line across 3rd Ave"); pb.click(".rf .go")
+    eoc.wait_for_function("/Line across 3rd Ave/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    check(True, "14 a report to the EOC is on the EOC's Requests panel, as it is written")
+    if SHOTS:
+        eoc.screenshot(path=os.path.join(SHOTS, "eoc-requests.png"))
+        pb.click("#homeBtn"); pb.screenshot(path=os.path.join(SHOTS, "public-home.png"))
+    eoc.click("#sensBtn"); eoc.wait_for_function("/New-York-2/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    eoc.evaluate("send({op:'sensors',host:'Seattle7'})"); eoc.wait_for_function("/GPS.Position/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    eoc.evaluate("send({op:'sensor',id:'3',name:'Seattle7.GPS.Position'})")
+    eoc.wait_for_function("/Position: 47.44730/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    eoc.evaluate("send({op:'sensor',id:'4',name:'New-York-2.GPS.Position'})")
+    eoc.wait_for_function("/No fix/.test(document.querySelector('#sheet').textContent)", timeout=10000)
+    if SHOTS: eoc.screenshot(path=os.path.join(SHOTS, "eoc-sensors.png"))
+    eoc.evaluate("send({op:'hosts'})"); eoc.wait_for_function("/Hosts: 2 node/.test(document.querySelector('#status').textContent)", timeout=10000)
+    check("no fix: New-York-2" in eoc.inner_text("#status"), "15 Sensors: the nodes, a node's sensors, a reading; the GPS position read from the stored readings, no fix said; Hosts: '%s'" % eoc.inner_text("#status"))
     sim.terminate(); sim.wait()
     eoc.wait_for_function("Object.values(S.pos).filter(b=>b.sim).length===0", timeout=10000)
     time.sleep(0.5)
