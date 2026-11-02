@@ -153,6 +153,17 @@ the export the user has open), unzipped in that project's own folder (`unzip -o`
 (2026-11-02: update zips made for the repository's paths landed in a new opt/ folder inside the open project and were
 never built; updates are now made against the project as delivered.)
 
+## r15: the app is the FrogNet member ([RT_IS_A_MEMBER_V1])
+
+As the kart app ([KART_IS_A_MEMBER_V1]): `android/shared` compiles in frognet-android's member (`member/`,
+`app/src/main/kotlin`: MemberService, BridgeVpn, Identity), its fdf-tun jniLibs, the WireGuard crypto and its
+Communicator. Connect starts the membership with the invitation (`fdf-invite NAME --leaf`, pasted once on the connect
+screen and kept), waits for the tunnel (Android says when the VPN network is up), then connects; the RAMs (10.x) are
+reached through the tunnel, wherever the phone is. Android asks its VPN question once. Call opens the Communicator in the
+app. The member logs to Logcat tag FDF, the app to RangerTrak. minSdk 29 (the member's). The Java-only `build_apk.sh`
+no longer builds the apps; Android Studio / Gradle does. (r12-r14's network binding is gone: with the tunnel up the
+phone's routing does it.)
+
 ## Build and test
 
     ./build.sh                                   # build/*.jar (JavaFX for the desktop from Maven Central)

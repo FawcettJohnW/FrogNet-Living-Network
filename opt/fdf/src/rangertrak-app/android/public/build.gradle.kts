@@ -9,12 +9,13 @@ android {
     compileSdk = 34
     defaultConfig {
         applicationId = "net.frognet.rangertrak.pub"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 34
-        versionCode = 14
-        versionName = "rt-app-2026-11-02-r14"
+        versionCode = 15
+        versionName = "rt-app-2026-11-02-r15"
     }
-    compileOptions { sourceCompatibility = JavaVersion.VERSION_1_8; targetCompatibility = JavaVersion.VERSION_1_8 }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+    packaging { jniLibs { useLegacyPackaging = true } }   // [RT_IS_A_MEMBER_V1] fdf-tun is RUN from nativeLibraryDir: extracted at install
     buildTypes { release { isMinifyEnabled = false } }
 }
 dependencies { implementation(project(":shared")) }   // [RT_ANDROID_SHARED_V1] the shell, the core, the RAM library, the page

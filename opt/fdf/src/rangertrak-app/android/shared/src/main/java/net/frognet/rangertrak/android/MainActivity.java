@@ -50,16 +50,19 @@ public final class MainActivity extends Activity implements LocationListener {
                     connected = true;
                 }
             } catch (IllegalArgumentException ignored) { }
-            final boolean conn = line.contains("\"connect\"");
-            String door0 = "";
-            try { door0 = Json.str(Json.obj(Json.parse(line)).get("door")).trim(); } catch (IllegalArgumentException ignored) { }
-            final String door = door0;
-            new Thread(new Runnable() { public void run() {
-                if (!door.isEmpty()) useNetworkFor(door);
-                core.handle(line);
-                Location l = lastFix;                   // a fix that came before the connection is this device's position now
-                if (conn && l != null) core.handle(fixLine(l));
-            } }, "core").start();
+            final boolean conn = line.contains("\"op\":\"connect\"");
+            if (conn) {                                 // [RT_IS_A_MEMBER_V1] FrogNet first: the member, its tunnel, then the app
+                String inv = "";
+                try { inv = Json.str(Json.obj(Json.parse(line)).get("invite")).trim(); } catch (IllegalArgumentException ignored) { }
+                if (!inv.isEmpty()) {
+                    try { new com.fawcettinnovations.fdf.android.Identity(MainActivity.this).setInvite(inv); note("[ADMITTED_BY_INVITE_V1] the FrogNet invitation is kept"); }
+                    catch (IllegalArgumentException e) { deliver(Json.o("ev", "error", "text", "FrogNet invitation: " + e.getMessage())); return; }
+                }
+                pendingConnect = line;
+                runOnUiThread(new Runnable() { public void run() { startMember("connect", false); } });
+                return;
+            }
+            new Thread(new Runnable() { public void run() { core.handle(line); } }, "core").start();
         }
         /** [RT_NO_GPS_V1] a street address, looked up by Android's Geocoder: this device's position when it has no GPS */
         @JavascriptInterface public void geocode(final String address) {
@@ -81,10 +84,6 @@ public final class MainActivity extends Activity implements LocationListener {
         /** [RT_CALL_V1] the page's Call: what this phone can use (cameras, microphones, outputs), to the page's picker */
         @JavascriptInterface public void comms(String json) {
             Map<String, Object> m; try { m = Json.obj(Json.parse(json)); } catch (IllegalArgumentException e) { return; }
-            if (!communicatorInstalled()) {
-                deliver(Json.o("ev", "error", "text", "Call opens the FrogNet Communicator, in the FrogNet Member app: it is not on this phone (or is older than its CALL screen)"));
-                return;
-            }
             Map<String, Object> ev = devices();
             String door = Json.str(m.get("door"));
             ev.put("ev", "devices"); ev.put("peer", Json.str(m.get("peer"))); ev.put("name", Json.str(m.get("name")));
@@ -93,13 +92,13 @@ public final class MainActivity extends Activity implements LocationListener {
             ev.put("saved", Json.o("camera", prefs.getString("c_camera", "front"), "mic", prefs.getString("c_mic", ""), "speaker", prefs.getString("c_speaker", "")));
             deliver(ev);
         }
-        /** [RT_CALL_V1] the Communicator (FrogNet Member's CommunicatorActivity), opened for this call with these devices */
+        /** [RT_CALL_V1] the Communicator, compiled into this app ([RT_IS_A_MEMBER_V1]), opened for this call with these devices */
         @JavascriptInterface public void startComms(String json) {
             try {
                 Map<String, Object> m = Json.obj(Json.parse(json));
                 String cam = Json.str(m.get("camera")), mic = Json.str(m.get("mic")), out = Json.str(m.get("speaker"));
                 prefs.edit().putString("c_camera", cam).putString("c_mic", mic).putString("c_speaker", out).apply();
-                android.content.Intent i = new android.content.Intent(COMMS_CALL).setPackage(COMMS_PKG)
+                android.content.Intent i = new android.content.Intent().setClassName(MainActivity.this, COMMS)
                         .putExtra("ram", Json.str(m.get("ram"))).putExtra("media", Json.str(m.get("media")))
                         .putExtra("name", Json.str(m.get("name"))).putExtra("from", "RangerTrak").putExtra("pond", "")
                         .putExtra(Boolean.TRUE.equals(m.get("answer")) ? "answer" : "call", Json.str(m.get("peer")))
@@ -123,10 +122,86 @@ public final class MainActivity extends Activity implements LocationListener {
             nm.notify((int) (System.currentTimeMillis() & 0x7fffffff), n);
         }
     }
-    static final String COMMS_PKG = "com.fawcettinnovations.fdf.android", COMMS_CALL = "net.frognet.communicator.CALL";
-    private boolean communicatorInstalled() {
-        android.content.Intent i = new android.content.Intent(COMMS_CALL).setPackage(COMMS_PKG);
-        return !getPackageManager().queryIntentActivities(i, 0).isEmpty();
+    static final String COMMS = "net.frognet.communicator.CommunicatorActivity";
+
+    // ------------------------------------------------------------------ [RT_IS_A_MEMBER_V1] this app is the FrogNet member
+    // As the kart app ([KART_IS_A_MEMBER_V1]): frognet-android's MemberService, BridgeVpn and fdf-tun are compiled in.
+    // Connect starts the membership (the invitation, pasted once, is kept), and with it the tunnel the RAMs (10.x) are
+    // reached through; the app connects when the tunnel is up. Android asks its VPN question once, the first time;
+    // nothing else is asked. The member's own log is Logcat tag FDF; what this app did about it, tag RangerTrak.
+    static final int VPN_CONSENT = 7;
+    static final String MEMBER = "com.fawcettinnovations.fdf.android.MemberService";
+    private boolean memberStarted = false;
+    private volatile String pendingConnect = null;
+    private void note(String l) { android.util.Log.i("RangerTrak", l); deliver(Json.o("ev", "status", "text", l)); }
+    private boolean vpnUp() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.NetworkCapabilities c = cm.getNetworkCapabilities(n);
+            if (c != null && c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)) return true;
+        }
+        return false;
+    }
+    /** consented: Android just said OK to the VPN question (not asked twice) */
+    private void startMember(String why, boolean consented) {
+        com.fawcettinnovations.fdf.member.Invite iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
+        if (iv == null) {                               // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
+            deliver(Json.o("ev", "error", "text", "no FrogNet invitation: on the region's machine run fdf-invite <name> --leaf and paste the line on this screen"));
+            return;
+        }
+        SharedPreferences id = getSharedPreferences("fdf-identity", MODE_PRIVATE);   // the member's name: the user's, set once
+        if (!id.contains("name")) id.edit().putString("name", prefs.getString("name", Build.MODEL)).apply();
+        if (!memberStarted) {
+            android.content.Intent consent = consented ? null : android.net.VpnService.prepare(this);
+            if (consent != null) {
+                note("[RT_IS_A_MEMBER_V1] " + why + ": asking Android for the VPN permission (asked once)");
+                try { startActivityForResult(consent, VPN_CONSENT); }
+                catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "Android gave no VPN permission screen: " + e.getMessage())); }
+                return;
+            }
+            note("[RT_IS_A_MEMBER_V1] joining FrogNet as " + iv.getName() + " (edge " + iv.getEdge() + ") in " + iv.getArea() + ", hub " + iv.getHub().getEndpoint());
+            try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
+            catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); return; }
+        }
+        final String line = pendingConnect; pendingConnect = null;
+        if (line == null) return;
+        new Thread(new Runnable() { public void run() {
+            // the tunnel: the RAMs are reached through it; the connect waits for it (Android says when a VPN network is up)
+            if (!vpnUp()) {
+                note("[RT_IS_A_MEMBER_V1] waiting for the FrogNet tunnel");
+                final java.util.concurrent.CountDownLatch up = new java.util.concurrent.CountDownLatch(1);
+                android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                android.net.ConnectivityManager.NetworkCallback cb = new android.net.ConnectivityManager.NetworkCallback() {
+                    @Override public void onAvailable(android.net.Network n) { up.countDown(); }
+                };
+                cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
+                        .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), cb);
+                try { if (!up.await(45, java.util.concurrent.TimeUnit.SECONDS)) note("[RT_IS_A_MEMBER_V1] the FrogNet tunnel is not up after 45 s (Logcat tag FDF says why): connecting anyway"); }
+                catch (InterruptedException e) { return; }
+                finally { cm.unregisterNetworkCallback(cb); }
+            }
+            note("[RT_IS_A_MEMBER_V1] FrogNet tunnel up" + networks());
+            core.handle(line);
+            Location l = lastFix;                       // a fix that came before the connection is this device's position now
+            if (l != null) core.handle(fixLine(l));
+        } }, "core-connect").start();
+    }
+    /** the phone's networks, for the log: each interface, VPN or not, its addresses and routes */
+    private String networks() {
+        StringBuilder all = new StringBuilder();
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        for (android.net.Network n : cm.getAllNetworks()) {
+            android.net.LinkProperties lp = cm.getLinkProperties(n); if (lp == null) continue;
+            android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+            all.append("; ").append(lp.getInterfaceName()).append(nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) ? " (VPN)" : "")
+               .append(" ").append(lp.getLinkAddresses()).append(" routes ").append(lp.getRoutes());
+        }
+        return all.toString();
+    }
+    @Override protected void onActivityResult(int code, int result, android.content.Intent data) {
+        if (code != VPN_CONSENT) { super.onActivityResult(code, result, data); return; }
+        if (result == RESULT_OK) startMember("VPN permission given", true);
+        else deliver(Json.o("ev", "error", "text", "the VPN permission was refused: no FrogNet tunnel (Connect asks again)"));
     }
     private final java.util.List<String> early = new java.util.ArrayList<String>();   // said before the page was up
     private void deliver(Map<String, Object> ev) {
@@ -170,58 +245,6 @@ public final class MainActivity extends Activity implements LocationListener {
             case android.media.AudioDeviceInfo.TYPE_USB_HEADSET: return "USB headset: " + d.getProductName();
             default: return String.valueOf(d.getProductName()) + " (type " + d.getType() + ")";
         }
-    }
-    /** [NODE_NETWORK_CHOSEN_V1] the network the node is on. A node's Wi-Fi has no Internet, and Android then sends an
-     *  app's connections over mobile data instead (the phone's default network): the node is never reached -- seen on a
-     *  Samsung phone, 2026-11-02, the connection to 10.170.170.1 timed out after 5 s. So the app's connections go over the
-     *  network whose addresses or routes hold the node's address (the node's own Wi-Fi), whatever the default is. */
-    private String boundFor = "";
-    private void useNetworkFor(String door) {
-        String host = door.contains(":") ? door.substring(0, door.lastIndexOf(':')) : door;
-        if (host.equals(boundFor)) return;
-        try {
-            java.net.InetAddress a = java.net.InetAddress.getByName(host);
-            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            android.net.Network pick = null; String how = "";
-            StringBuilder all = new StringBuilder();
-            for (android.net.Network n : cm.getAllNetworks()) {
-                android.net.LinkProperties lp = cm.getLinkProperties(n);
-                if (lp == null) continue;
-                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
-                all.append(all.length() > 0 ? "; " : "").append(lp.getInterfaceName()).append(nc != null && nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) ? " (VPN)" : "")
-                   .append(" ").append(lp.getLinkAddresses()).append(" routes ").append(lp.getRoutes());
-                for (android.net.LinkAddress la : lp.getLinkAddresses())
-                    if (inPrefix(a, la.getAddress(), la.getPrefixLength())) { pick = n; how = lp.getInterfaceName() + " " + la; }
-                if (pick == null) for (android.net.RouteInfo r : lp.getRoutes())
-                    if (!r.isDefaultRoute() && r.matches(a)) { pick = n; how = lp.getInterfaceName() + " route " + r.getDestination(); }
-                if (pick != null) break;
-            }
-            // nothing holds it more closely: the network with an IPv4 default route (the Wi-Fi of the node this phone is
-            // on sends it on into the fabric) -- not the mobile data network the default may be
-            if (pick == null) for (android.net.Network n : cm.getAllNetworks()) {
-                android.net.LinkProperties lp = cm.getLinkProperties(n);
-                android.net.NetworkCapabilities nc = cm.getNetworkCapabilities(n);
-                if (lp == null || nc == null || !nc.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)) continue;
-                for (android.net.RouteInfo r : lp.getRoutes())
-                    if (r.isDefaultRoute() && r.getGateway() instanceof java.net.Inet4Address) { pick = n; how = lp.getInterfaceName() + " via " + r.getGateway().getHostAddress() + " (its default route)"; break; }
-                if (pick != null) break;
-            }
-            if (pick == null) {
-                cm.bindProcessToNetwork(null);
-                deliver(Json.o("ev", "status", "text", "no network on this phone holds " + host + " (its networks: " + all + ")"));
-                return;
-            }
-            cm.bindProcessToNetwork(pick); boundFor = host;
-            deliver(Json.o("ev", "status", "text", "reaching the node at " + host + " over " + how + " (its networks: " + all + ")"));
-        } catch (Exception e) {
-            deliver(Json.o("ev", "status", "text", "choosing the network for " + host + ": " + e.getMessage()));
-        }
-    }
-    private static boolean inPrefix(java.net.InetAddress a, java.net.InetAddress net, int len) {
-        byte[] x = a.getAddress(), y = net.getAddress();
-        if (x.length != y.length) return false;
-        for (int i = 0; i < len; i++) if (((x[i / 8] ^ y[i / 8]) & (0x80 >> (i % 8))) != 0) return false;
-        return true;
     }
     private volatile Location lastFix;
     private static String fixLine(Location l) {
@@ -296,7 +319,15 @@ public final class MainActivity extends Activity implements LocationListener {
             if (md != null) lock = String.valueOf(md.getString("net.frognet.rangertrak.ROLE", ""));
         } catch (PackageManager.NameNotFoundException ignored) { }
         return Json.o("dev", dev, "name", name, "door", door, "role", lock.isEmpty() ? prefs.getString("role", "team") : lock,
-                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD);
+                "team", prefs.getString("team", "Alpha"), "platform", "android", "lock", lock, "build", AppCore.BUILD,
+                "invited", invitedAs());
+    }
+
+    /** [ADMITTED_BY_INVITE_V1] who this device is invited as, for the connect screen ("" : no invitation kept yet) */
+    private String invitedAs() {
+        try { com.fawcettinnovations.fdf.member.Invite iv = new com.fawcettinnovations.fdf.android.Identity(this).getInvite();
+              return iv == null ? "" : iv.getName() + " in " + iv.getArea(); }
+        catch (RuntimeException e) { return ""; }
     }
 
     @SuppressWarnings("deprecation")

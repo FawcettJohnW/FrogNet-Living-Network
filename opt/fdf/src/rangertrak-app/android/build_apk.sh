@@ -7,6 +7,9 @@
 # (min SDK 26), zipalign, apksigner with debug.keystore beside this script (a debug key, kept so a new build installs
 # over the last one). The same sources as the Gradle build: this app's MainActivity, the core, the RAM library, ui/.
 set -eu
+# [RT_IS_A_MEMBER_V1] since r15 the apps carry the FrogNet member (Kotlin, frognet-android's) and fdf-tun: this script
+# compiles Java only, so it builds them no longer. Android Studio (or ./gradlew :team:assembleDebug) builds them.
+echo "build_apk.sh: since rt-app-2026-11-02-r15 the apps carry the FrogNet member (Kotlin): build with Android Studio or ./gradlew" >&2; exit 2
 D=$(cd "$(dirname "$0")" && pwd); APP=$(dirname "$D"); OUT=${1:?usage: build_apk.sh OUTDIR [team]}; mkdir -p "$OUT"
 # [RT_TEAM_APP_V1] team: RangerTrak Team (team/: its manifest and resources; the same Java, core and page)
 MOD=app; PKG=net.frognet.rangertrak; NAME=RangerTrak

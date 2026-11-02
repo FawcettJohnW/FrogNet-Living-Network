@@ -41,7 +41,12 @@ window.rtInit = function (cfg) {
     S.cfg.role = S.cfg.lock; $('#roleSet').hidden = true
     document.querySelector('#connect h1').textContent = LOCKED[S.cfg.lock]; document.title = LOCKED[S.cfg.lock]
   }
-  if (S.cfg.build) $('#cstatus').textContent = S.cfg.build      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
+  if (S.cfg.build) $('#cstatus').textContent = S.cfg.build
+  // [RT_IS_A_MEMBER_V1] the phone is the FrogNet member itself: its invitation, pasted once, then kept (and only said)
+  if (S.cfg.platform === 'android') {
+    document.querySelector('.for-invite').hidden = !!S.cfg.invited
+    if (S.cfg.invited) document.querySelector('.inv-say').textContent = 'FrogNet: ' + S.cfg.invited
+  }      // [APP_SAYS_ITS_BUILD_V1] which build this is, on the first screen
   if (S.cfg.role) f.querySelector(`[name=role][value=${S.cfg.role}]`).checked = true
   if (S.cfg.team) f.team.value = S.cfg.team
   roleFields(); askRoles()
@@ -69,7 +74,7 @@ $('#connect').onsubmit = (e) => {
   const f = e.target, role = f.querySelector('[name=role]:checked').value
   $('#cstatus').textContent = 'connecting…'
   send({ op: 'connect', door: f.door.value.trim(), dev: S.cfg.dev, name: f.name.value.trim(), role, team: f.team.value,
-         user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim() })
+         user: f.user.value.trim(), password: f.password.value, unit: f.unit.value.trim(), invite: f.invite.value.trim() })
 }
 
 // ------------------------------------------------------------ the core's lines
