@@ -415,25 +415,27 @@ class ExecutionEngine:
             # bytes for SAME detection, send RESP_RAW on the wire.
             # This is far better than poisoning with 502 which causes permanent
             # re-bootstrap storms.
+            # [ERROR_ANSWER_IS_RAW_V1] (2026-11-02: a login the door refused -- HTTP 403, {"ok":false,"why":...} --
+            # reached the client as HTTP 200 {"ok":[],"role":null,"station":null,"user":null}: an error answer the template
+            # could not hold was sent as the fields [("value", [])], which the far end put in the template's first slot.)
+            # Any answer the template cannot hold goes RESP_RAW, with its own status: never a made-up value.
             if not dyn:
-                if status == 200:
-                    frag_fields = resp_tpl.fragment.get("fields", []) if hasattr(resp_tpl, "fragment") else []
-                    frag_mode   = resp_tpl.fragment.get("mode", "?") if hasattr(resp_tpl, "fragment") else "?"
-                    trace(f"[DAEMON EXTRACT EMPTY] opcode={opcode} mode={frag_mode} fields={frag_fields} resp_text_len={len(resp_text or '')} - raw body fallback")
-                    # [RAW_SIGNAL_V1] Return raw materials in the 3rd slot
-                    # (formerly an unused length int).  Session layer wraps
-                    # via wrap_resp_raw, caches via upsert_raw.  Do NOT wrap
-                    # here - wrapping then re-wrapping in session.py was
-                    # the version-70 bug.
-                    raw_info = {
-                        "raw":           True,
-                        "status":        int(status),
-                        "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
-                        "body":          resp_body_bytes,
-                    }
-                    return b"", int(status), raw_info, opcode, None, None, inst
-                # Non-200 (error responses): fallback is acceptable
-                dyn = [("value", [])]
+                frag_fields = resp_tpl.fragment.get("fields", []) if hasattr(resp_tpl, "fragment") else []
+                frag_mode   = resp_tpl.fragment.get("mode", "?") if hasattr(resp_tpl, "fragment") else "?"
+                trace(f"[DAEMON EXTRACT EMPTY] opcode={opcode} mode={frag_mode} fields={frag_fields} resp_text_len={len(resp_text or '')} - raw body fallback")
+                # [RAW_SIGNAL_V1] Return raw materials in the 3rd slot
+                # (formerly an unused length int).  Session layer wraps
+                # via wrap_resp_raw, caches via upsert_raw.  Do NOT wrap
+                # here - wrapping then re-wrapping in session.py was
+                # the version-70 bug.
+                raw_info = {
+                    "raw":           True,
+                    "status":        int(status),
+                    "headers_bytes": _serialize_headers(resp_headers if isinstance(resp_headers, dict) else {}),
+                    "body":          resp_body_bytes,
+                }
+                return b"", int(status), raw_info, opcode, None, None, inst
+
 
             sem_reply = self.codec.encode_reply(
                 opcode=int(resp_tpl.opcode),
