@@ -176,6 +176,16 @@ Changes in rev 3:
 
 ### 5.2 Changed
 
+- **Admission comes with the hub, wherever it is** (`[ADMISSION_WITH_THE_HUB_V1]`, 2026-11-02, **John:** "I should call
+  the hub wherever it is and have it create the credentials, then point the other code at that hub and it works.
+  Having it depend on being in any one specific place is stupid"). `fdf-hub@AREA` wants `fdf-org@AREA` and
+  `fdf-identity@AREA`, and `fdf-region-create` enables both. `fdf-org serve` makes the credential key, the generic
+  credential and the door the first time, and writes where the hub is as `(fdf-org, hub, AREA)` {name, pubkey,
+  endpoint, addr}. On any machine in the region, `fdf-org level`, `space`, `line` and `list` are tuples in the
+  region's RAM: a level written there gets its ports from the hub's `fdf-org` on the tuple's event, and a line is made
+  from the hub's row, so it points at the hub wherever it is now. `fdf-org user` (a level's password) still runs
+  where the hub is: the verifier is under the hub's own key. Gate: `rinab/tools/netns-admit-kt-test.sh` check 0.
+
 - **One MRM per line.** `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
   `site.env` and `join.env`; it no longer writes `system-space.json`.
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.

@@ -54,13 +54,19 @@ NS $n curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"D\",\"key\":\"$KEY\"}"
 NS $n sysctl -q -w net.ipv4.ip_forward=1
 svc $T/$n/hub.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env RINA_RAM=$RAM FDF_BIN=$T/bin FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area D --iface wg-D --endpoint $PUB:51820 --name hub$n --key $T/$n/wg.key --listen 51820 --facts $T/$n/facts.json --admitted $T/$n/admitted"
 for i in $(seq 100); do grep -q "start (adopt)" $T/$n/hub.log && break; sleep 0.05; done
-ORG A init > $T/A/org.out 2>&1
-ORG A level Team --reach ram >> $T/A/org.out 2>&1
-ORG A level HQ --password --reach ram >> $T/A/org.out 2>&1; echo chiefpw | ORG A user HQ chief >> $T/A/org.out 2>&1
+# [ADMISSION_WITH_THE_HUB_V1] nothing run by hand where the hub is: its fdf-org (which the hub's unit wants) makes the key,
+# the generic credential and the door, and writes where the hub is
 svc $T/A/org.log ip netns exec A sh -c "mount --bind $T/A/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/A/hub.env FDF_ADMITTED=$T/A/admitted FDF_SITE_KEYS=$T/A FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
+for i in $(seq 100); do grep -q "hub row written" $T/A/org.log && break; sleep 0.1; done
+# the levels and the lines from a machine that holds no region (FDF_HUB_ROOT empty), only the region's RAM
+mkdir -p $T/elsewhere
+RMT() { NS A env FDF_HUB_ROOT=$T/elsewhere RINA_RAM=$RAM FDF_PY=$FDFPY python3 $T/bin/fdf-org "$@"; }
+RMT level Team --reach ram > $T/rmt.out 2>&1; RMT level HQ --password --reach ram >> $T/rmt.out 2>&1
+echo chiefpw | ORG A user HQ chief >> $T/A/org.out 2>&1            # a level's password: where the hub is (its key)
 for i in $(seq 100); do [ "$(grep -c 'listening on' $T/A/org.log)" -ge 3 ] && break; sleep 0.1; done
-SP=$(ORG A list 2>/dev/null | awk '$1=="level" && $2=="Team" {print $6}')
-L_team=$(ORG A line Team 2>>$T/A/line.err); L_hq=$(ORG A line HQ 2>>$T/A/line.err)
+SP=$(RMT list 2>/dev/null | awk '$1=="level" && $2=="Team" {print $6}')
+L_team=$(RMT line Team 2>>$T/rmt.err); L_hq=$(RMT line HQ 2>>$T/rmt.err)
+check $(grep -q "credential key made" $T/A/org.log && grep -q "hub row written" $T/A/org.log && [ -n "$SP" ] && [ "${L_team#fdfjoin1.}" != "$L_team" ] && echo 0 || echo 1) "0 admission came up with the hub by itself; the levels and lines made on a machine with no region ($(grep -o 'hub row written.*' $T/A/org.log | head -1); Team's session port $SP; $(cat $T/rmt.err | tail -1))"
 mkdir -p $T/q; printf '{"name":"q","guid":"g-q"}\n' > $T/q/facts.json
 KTQ() { ip netns exec q env FDF_TUN_BIN=$FT FDF_TUN_NAME=fdft0 FDF_KEY_FILE=$T/q/wg.key FDF_FACTS=$T/q/facts.json FDF_DEVICE_ID=dev-q FDF_LEAF_WG=fdf-q FDF_ASSERT_SEC=5 "$KT" "$@"; }
 # the device's WireGuard interface, made at start-up as on a Linux leaf (wireguard-go: its socket is not per namespace, so a name of its own)

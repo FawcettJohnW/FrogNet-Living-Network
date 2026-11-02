@@ -4,7 +4,9 @@
 [Unit]
 Description=FD&F hub for region %i (fdf-hub; settings: /opt/fdf/hub/%i/hub.env from fdf-region-create)
 After=network-online.target fdf-ram-%i.service
-Wants=network-online.target
+# [ADMISSION_WITH_THE_HUB_V1] wherever the hub runs, its admission runs: the door and levels (fdf-org), and identities
+# asked from any member (fdf-identity)
+Wants=network-online.target fdf-org@%i.service fdf-identity@%i.service
 
 [Service]
 Type=simple

@@ -1,5 +1,6 @@
 # fdf-org@AREA.service -- [ORG_LEVELS_V1][REGIONS_PER_MACHINE_V1] region AREA's credential manager (fdf-org serve): the
-# door, every level's login port and the reach rules (nftables table fdf_org_<area>). fdf-setup enables it.
+# door, every level's login port and the reach rules (nftables table fdf_org_<area>). [ADMISSION_WITH_THE_HUB_V1] the
+# hub's unit wants it, so it runs wherever the hub runs; it makes its own key, generic credential and door the first time.
 [Unit]
 Description=FD&F organization for region %i: levels, login and reach (fdf-org serve)
 After=network-online.target fdf-hub@%i.service

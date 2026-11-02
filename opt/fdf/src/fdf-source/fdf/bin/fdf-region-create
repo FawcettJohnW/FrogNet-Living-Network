@@ -51,8 +51,8 @@ migrate() {   # a region made before regions had directories: /opt/fdf/hub/hub.e
   systemctl daemon-reload
   systemctl enable fdf-hub@$OLD.service fdf-identity@$OLD.service >/dev/null 2>&1
   systemctl start fdf-hub@$OLD.service fdf-identity@$OLD.service || { echo "fdf-region-create: fdf-hub@$OLD did not start: journalctl -u fdf-hub@$OLD" >&2; exit 1; }
-  [ -f "$HUBROOT/$OLD/org-key" ] && { systemctl enable fdf-org@$OLD.service >/dev/null 2>&1; systemctl start fdf-org@$OLD.service || echo "   fdf-org@$OLD did not start: journalctl -u fdf-org@$OLD"; }
-  echo "   region $OLD: fdf-hub@$OLD, fdf-identity@$OLD$([ -f "$HUBROOT/$OLD/org-key" ] && echo ", fdf-org@$OLD") running"
+  systemctl enable fdf-org@$OLD.service >/dev/null 2>&1; systemctl start fdf-org@$OLD.service || echo "   fdf-org@$OLD did not start: journalctl -u fdf-org@$OLD"   # [ADMISSION_WITH_THE_HUB_V1]
+  echo "   region $OLD: fdf-hub@$OLD, fdf-identity@$OLD, fdf-org@$OLD running"
 }
 if [ "${1:-}" = --migrate ]; then
   [ "$(id -u)" = 0 ] || { echo "fdf-region-create: run as root" >&2; exit 1; }
@@ -195,6 +195,10 @@ systemctl enable $HUBU.service $CLIU.service && systemctl start $HUBU.service $C
 # [IDENTITY_FROM_ANY_MEMBER_V1] identities asked from any connected machine (fdf-identity NAME [--leaf]) are answered here
 [ -f /etc/systemd/system/fdf-identity@.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-identity@.service missing: it ships in the region-holder bundle" >&2; exit 1; }
 systemctl enable $IDU.service && systemctl start $IDU.service || { echo "fdf-region-create: $IDU did not start: journalctl -u $IDU" >&2; exit 1; }
+# [ADMISSION_WITH_THE_HUB_V1] the door and the levels come up with the hub: fdf-org serve makes its own key, generic
+# credential and door, and says where the hub is; levels and join lines are then made on any machine in the region
+[ -f /etc/systemd/system/fdf-org@.service ] || { echo "fdf-region-create: /etc/systemd/system/fdf-org@.service missing: it ships in the region-holder bundle" >&2; exit 1; }
+systemctl enable fdf-org@$AREA.service && systemctl start fdf-org@$AREA.service || { echo "fdf-region-create: fdf-org@$AREA did not start: journalctl -u fdf-org@$AREA" >&2; exit 1; }
 # [FDF_CHAT_SERVICE_UNIT_V1] the area's one chat service, beside its RAM manager (fdf-chat@.service ships in this bundle)
 systemctl enable fdf-chat@$RAM_PORT.service && systemctl start fdf-chat@$RAM_PORT.service || { echo "fdf-region-create: fdf-chat@$RAM_PORT did not start: journalctl -u fdf-chat@$RAM_PORT" >&2; exit 1; }
 ADOPT=0; for i in $(seq 1 30); do journalctl -u $HUBU --since "$T0" --no-pager -o cat 2>/dev/null | grep -q 'start (adopt)' && { ADOPT=1; break; }; sleep 0.5; done
