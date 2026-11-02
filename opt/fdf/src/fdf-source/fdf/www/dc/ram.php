@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-02-r3';
+const DOOR_BUILD = 'dc-door-2026-11-02-r4';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -106,8 +106,18 @@ function check_user($app, $in) {
     $cfg = app_cfg($app);
     $user = (string)($in['user'] ?? '');
     $u = $cfg['users'][$user] ?? null; $v = is_array($u) ? ($u['verifier'] ?? null) : null;
-    if ($user === '' || !is_array($v) || !hash_equals((string)$v['hash'], hash_pbkdf2('sha256', (string)($in['password'] ?? ''), hex2bin((string)$v['salt']), intval($v['n']))))
+    if ($user === '' || !is_array($v) || !hash_equals((string)$v['hash'], hash_pbkdf2('sha256', (string)($in['password'] ?? ''), hex2bin((string)$v['salt']), intval($v['n'])))) {
+        // [REFUSAL_SAYS_WHAT_IT_GOT_V1] what the door was given and what it checked against -- never the password, only
+        // its kind and length -- so a refusal can be told apart: the wrong password, a user the configuration does not
+        // have, or a body that arrived changed on the way (keys missing, a password that is not a string)
+        $pw = $in['password'] ?? null;
+        error_log('dc ram.php: [REFUSAL_SAYS_WHAT_IT_GOT_V1] ' . $app . ' refused user ' . json_encode($user) . ' from ' . ($_SERVER['REMOTE_ADDR'] ?? '?')
+            . ': body keys ' . json_encode(array_keys($in)) . ', password ' . gettype($pw) . (is_string($pw) ? ' of ' . strlen($pw) . ' chars' : '')
+            . ', ' . (is_array($u) ? 'the user is in configuration ' . intval($cfg['seq'] ?? 0) . ' (role ' . ($u['role'] ?? '?') . ($v ? '' : ', NO verifier') . ')'
+                                  : 'configuration ' . intval($cfg['seq'] ?? 0) . ' has no such user (it has ' . json_encode(array_keys($cfg['users'] ?? [])) . ')')
+            . '; ' . ($_SERVER['HTTP_X_FROGNET_ORIGIN'] ?? '') . ' via ' . ($_SERVER['HTTP_VIA'] ?? 'no Via header'));
         fail(403, "that user and password are not this app's");
+    }
     return $u;
 }
 // [ENROLL_V1] an identity's name in the region: the parts joined by '-', what fdf-identity takes (letters, digits, . _ -)
