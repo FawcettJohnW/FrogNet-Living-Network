@@ -549,7 +549,10 @@ public final class MainActivity extends Activity implements LocationListener {
         catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
         try { new com.fawcettinnovations.fdf.android.Identity(this).setInvite(Json.str(a.get("invite"))); }
         catch (IllegalArgumentException e) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave: " + e.getMessage())); return; }
-        String door = Json.str(a.get("door"));
+        // [ENROLL_V1] the node the app connects to: "at" in a lead's answer (its door's address); else the host the QR named.
+        // ("door" in a door's answer is the door's build, [DOOR_SAYS_ITS_BUILD_V1]: never an address -- found 2026-11-02,
+        // the phone tried to connect to "dc-door-2026-11-02-r3")
+        String door = Json.str(a.get("at"));
         if (door.isEmpty()) { try { java.net.URL u = new java.net.URL(l.url); door = u.getHost() + (u.getPort() > 0 && u.getPort() != 80 ? ":" + u.getPort() : ""); } catch (java.net.MalformedURLException ignored) { } }
         boolean lead = Json.bool(a.get("lead"));
         Enrolled.keep(this, l.app, l.user, pw, Json.str(a.get("role")), lead, door);

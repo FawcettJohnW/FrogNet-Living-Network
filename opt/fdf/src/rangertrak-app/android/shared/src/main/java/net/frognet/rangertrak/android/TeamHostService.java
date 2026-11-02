@@ -66,7 +66,7 @@ public final class TeamHostService extends Service {
                             net.frognet.ram.Json.write(net.frognet.ram.Json.o("user", e.user, "password", e.password, "name", n)), 90000);
                     return net.frognet.ram.Json.str(r.get("invite"));
                 }
-                public java.util.Map<String, Object> card() { Enrolled e = Enrolled.of(ctx); return net.frognet.ram.Json.o("door", e.door, "team", e.role, "leader", e.user); }
+                public java.util.Map<String, Object> card() { Enrolled e = Enrolled.of(ctx); return net.frognet.ram.Json.o("at", e.door, "team", e.role, "leader", e.user); }   // [ENROLL_V1] "at": the door's address
                 public void log(String line) { Log.i("Enroll", line); }
             });
         } catch (java.io.IOException e) { Log.i("Enroll", "[ENROLL_V1] the sponsor did not start on port " + SPONSOR_PORT + ": " + e); }

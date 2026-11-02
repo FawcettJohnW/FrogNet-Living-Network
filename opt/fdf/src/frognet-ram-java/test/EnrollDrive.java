@@ -30,7 +30,7 @@ public class EnrollDrive {
                             Json.write(Json.o("user", lead, "password", leadPw, "name", n)), 90000);
                     return Json.str(r.get("invite"));
                 }
-                public Map<String, Object> card() { return Json.o("door", door, "team", role, "leader", lead); }
+                public Map<String, Object> card() { return Json.o("at", door, "team", role, "leader", lead); }
                 public void log(String line) { System.out.println(line); System.out.flush(); }
             });
             Thread.sleep(Long.MAX_VALUE);

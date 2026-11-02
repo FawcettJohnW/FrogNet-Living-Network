@@ -30,14 +30,14 @@ public class EnrollTest {
                 if (n.equals("N2DH")) throw new Exception("the region's hub is not answering");
                 return "fdfinv1.member-" + n;
             }
-            public Map<String, Object> card() { return Json.o("door", "10.170.170.1", "team", "alpha", "invite", "the card cannot set this"); }
+            public Map<String, Object> card() { return Json.o("at", "10.170.170.1", "team", "alpha", "invite", "the card cannot set this"); }
             public void log(String line) { System.out.println("  sponsor: " + line); }
         });
         String url = "http://127.0.0.1:" + sp.port() + "/enroll";
 
         Map<String, Object> ok = Enroll.enroll(Enroll.line(url, "rangertrak", "KJ7ABC"), "frog-2026");
         check(Json.str(ok.get("invite")).equals("fdfinv1.member-KJ7ABC") && Json.str(ok.get("role")).equals("alpha") && !Json.bool(ok.get("lead"))
-              && Json.str(ok.get("door")).equals("10.170.170.1") && asked.equals(Arrays.asList("KJ7ABC")), "a member enrolls: " + Json.write(ok));
+              && Json.str(ok.get("at")).equals("10.170.170.1") && asked.equals(Arrays.asList("KJ7ABC")), "a member enrolls: " + Json.write(ok));
         String w1 = "", w2 = "", w3 = "", w4 = "";
         try { Enroll.enroll(Enroll.line(url, "rangertrak", "KJ7ABC"), "wrong"); } catch (Exception e) { w1 = why(e); }
         try { Enroll.enroll(Enroll.line(url, "rangertrak", "stranger"), "x"); } catch (Exception e) { w2 = why(e); }

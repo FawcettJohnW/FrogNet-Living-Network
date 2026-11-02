@@ -108,8 +108,8 @@ check $([ $BAD2 = 3 ] && grep -q "not a member of echo" $T/q2-bad.json && [ ! -f
 # 5 ann enrolls at kim's phone
 EJ q2 enroll "$L_ann" ann-2026 > $T/q2.json 2>$T/q2.err
 INV2=$(J invite < $T/q2.json 2>/dev/null)
-check $([ "$(J role < $T/q2.json)" = echo ] && [ "$(J lead < $T/q2.json)" = False ] && [ "$(J door < $T/q2.json)" = $DOOR ] && [ "${INV2#fdfinv1.}" != "$INV2" ] && [ -f $T/A/admitted/rangertrak-echo-ann.json ] && echo 0 || echo 1) \
-  "5 ann enrolls at kim's phone: role $(J role < $T/q2.json 2>/dev/null), lead $(J lead < $T/q2.json 2>/dev/null), door $(J door < $T/q2.json 2>/dev/null), invitation ${INV2:0:24}...; admitted: $(ls $T/A/admitted | tr '\n' ' ') $(cut -c1-160 $T/q2.err)"
+check $([ "$(J role < $T/q2.json)" = echo ] && [ "$(J lead < $T/q2.json)" = False ] && [ "$(J at < $T/q2.json)" = $DOOR ] && [ "${INV2#fdfinv1.}" != "$INV2" ] && [ -f $T/A/admitted/rangertrak-echo-ann.json ] && echo 0 || echo 1) \
+  "5 ann enrolls at kim's phone: role $(J role < $T/q2.json 2>/dev/null), lead $(J lead < $T/q2.json 2>/dev/null), at $(J at < $T/q2.json 2>/dev/null), invitation ${INV2:0:24}...; admitted: $(ls $T/A/admitted | tr '\n' ' ') $(cut -c1-160 $T/q2.err)"
 # 6 ann's phone joins with it
 leafwg q2; ( KTL q2 leaf "$INV2" >> $T/q2/member.log 2>&1 ) & echo $! >> $T/svc.pids
 for i in $(seq 160); do grep -q "joined the region at" $T/q2/member.log 2>/dev/null && break; sleep 0.25; done

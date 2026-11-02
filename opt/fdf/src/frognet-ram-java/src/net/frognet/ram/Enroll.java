@@ -26,7 +26,8 @@ import java.util.Map;
  * <pre>  fdfenroll1 URL APP USER</pre>
  * (a '%' or space inside a part is %25 / %20). The device scans it, its user types the password, and
  * {@link #enroll} POSTs {user, password} to URL?op=enroll&amp;app=APP. The answer is
- * {ok, user, role, lead, invite, door?, ...}: invite is the device's own fdfinv1 invitation to the region (the device keeps
+ * {ok, user, role, lead, invite, at?, ...} (at: the app door's address, when the sponsor is not the door itself;
+ * a door's own "door" field is its build, never an address): invite is the device's own fdfinv1 invitation to the region (the device keeps
  * it; its member joins with it, once, and every other app's hub then admits it by its membership), role is what the user
  * is in APP, lead says the user may sponsor its own team's members.
  *
