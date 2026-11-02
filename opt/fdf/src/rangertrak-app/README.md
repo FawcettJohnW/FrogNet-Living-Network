@@ -146,10 +146,12 @@ the keyboard resizes the screen instead of covering the chat.
 
 ## The Android project stays where it is opened ([RT_ANDROID_UPDATE_IN_PLACE_V1])
 
-The Android project is `android/` in this tree, opened in Android Studio where it was unpacked. A change comes as
-`RangerTrak-android-update-<build>.zip` (`android/update_zip.sh SINCE OUTDIR`): the changed files at their own paths,
-unzipped over the same tree (`unzip -o`). No new directory, no new import. (A shared-module layout and an exported
-Studio project were tried on 2026-11-02 and taken back: they made a new directory per build.)
+The project in Android Studio is the export `android/studio_project.sh` made (`RangerTrak-Android-Studio-<build>`, the
+`shared` module with its own copies of the core, the RAM library and the page). A change comes as
+`RangerTrak-Android-Studio-update-<build>.zip` (`android/studio_update.sh BASE_ZIP OUTDIR`: the files that differ from
+the export the user has open), unzipped in that project's own folder (`unzip -o`). No new directory, no new import.
+(2026-11-02: update zips made for the repository's paths landed in a new opt/ folder inside the open project and were
+never built; updates are now made against the project as delivered.)
 
 ## Build and test
 
