@@ -557,7 +557,7 @@ public final class MainActivity extends Activity implements LocationListener {
         boolean lead = Json.bool(a.get("lead"));
         Enrolled.keep(this, l.app, l.user, pw, Json.str(a.get("role")), lead, door);
         note("[ENROLL_V1] enrolled: " + l.user + " is " + Json.str(a.get("role")) + (lead ? ", its team's lead" : "") + "; this phone's FrogNet invitation is kept (" + invitedAs() + ")");
-        deliver(Json.o("ev", "enrolled", "user", l.user, "password", pw, "role", Json.str(a.get("role")), "lead", lead, "door", door, "invited", invitedAs()));
+        deliver(Json.o("ev", "enrolled", "user", l.user, "role", Json.str(a.get("role")), "lead", lead, "door", door, "invited", invitedAs()));
     }
 
     /** [ENROLL_V1] the lead's members page: who may enroll here, where a member can reach this phone, and the sponsor */

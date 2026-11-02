@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as tmp, sync_playwright() as pw:
     sent = pg.evaluate("__sent")
     check(shown and ["scan"] in sent and ["enroll", {"line": line, "password": "kim-2026"}] in sent,
           "2 the scanned code asks for kim's password; Join hands over the line and the password: %s" % [s for s in sent if s[0] == "enroll"])
-    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'kim', password: 'kim-2026', role: 'echo', lead: true, door: '10.170.170.1', invited: 'rangertrak-kim in frognet'}))")
+    pg.evaluate("rtDeliver(JSON.stringify({ev: 'enrolled', user: 'kim', role: 'echo', lead: true, door: '10.170.170.1', invited: 'rangertrak-kim in frognet'}))")
     conn = [s[1] for s in pg.evaluate("__sent") if s[0] == "send" and s[1].get("op") == "connect"]
     c = conn[-1] if conn else {}
     check(c.get("door") == "10.170.170.1" and c.get("name") == "kim" and c.get("role") == "team" and c.get("team") == "Echo"

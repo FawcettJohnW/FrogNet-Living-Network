@@ -95,14 +95,15 @@ function enrollScan(m) {
 $('#enrollGo').onclick = () => {
   if (!S.enrollLine) return
   $('#cstatus').textContent = 'joining…'; $('#enrollGo').disabled = true
-  window.rtNative.enroll(JSON.stringify({ line: S.enrollLine, password: $('#enrollPw').value }))
+  S.enrollPw = $('#enrollPw').value   // [PASSWORD_NOT_LOGGED_V1] kept here for the connect: the native side never says it back (its lines are in Logcat)
+  window.rtNative.enroll(JSON.stringify({ line: S.enrollLine, password: S.enrollPw }))
 }
 // [ENROLL_V1] enrolled: this phone is a member of the region now; the app connects as the user, in its role
 function enrolled(m) {
   const f = $('#connect'); $('#enrollGo').disabled = false; $('#enrollBox').hidden = true; $('#enrollPw').value = ''
   S.cfg.enrolled = { user: m.user, role: m.role, lead: m.lead, door: m.door }
   if (m.door) f.door.value = m.door
-  f.name.value = m.user; f.user.value = m.user; f.password.value = m.password || ''
+  f.name.value = m.user; f.user.value = m.user; f.password.value = S.enrollPw || ''; S.enrollPw = ''
   const view = ['eoc', 'hospital', 'ambulance', 'public'].includes(m.role) ? m.role : 'team'
   const rb = f.querySelector(`[name=role][value=${view}]`); if (rb && !$('#roleSet').hidden) rb.checked = true
   if (view === 'team') { const t = cap(m.role); if (![...f.team.options].some(o => o.value === t)) f.team.insertAdjacentHTML('beforeend', `<option>${esc(t)}</option>`); f.team.value = t }
