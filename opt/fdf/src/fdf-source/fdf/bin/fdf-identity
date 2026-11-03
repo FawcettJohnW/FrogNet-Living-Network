@@ -30,6 +30,7 @@ sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
 SVC = "fdf-identity"
+BUILD_TAG = "fdf-identity-2026-11-02-r2"           # [APP_SAYS_ITS_BUILD_V1] in its first line, asking or serving
 ADMITTED = os.environ.get("FDF_ADMITTED", "/opt/fdf/hub/admitted")
 FDF_BIN = os.environ.get("FDF_BIN", "/opt/fdf/bin")
 
@@ -48,7 +49,7 @@ def ask(name, kind, again, line_only=False, wait=60.0):
         # the answer's read is held from BEFORE the ask: an answer written between the ask and the read is not missed
         last = max([c["id"] for c in ram.read(SVC, "answer")] + [0])
         mine.append(ram.write(SVC, "ask", me, {"name": name, "kind": kind, "again": again}))
-        sys.stderr.write("fdf-identity: asked the region at %s for %s (%s)\n" % (ram.hostport, name, kind))
+        sys.stderr.write("fdf-identity: %s: asked the region at %s for %s (%s)\n" % (BUILD_TAG, ram.hostport, name, kind))
         deadline = time.time() + wait
         ans = None
         while ans is None:
@@ -80,7 +81,7 @@ def ask(name, kind, again, line_only=False, wait=60.0):
 
 def serve():
     ram = fdfram.Ram()
-    log("answering identity asks at", ram.hostport, "admitted:", ADMITTED)
+    log(BUILD_TAG + ": answering identity asks at", ram.hostport, "admitted:", ADMITTED)
     answered = {}                                         # ask id -> my answer's row id
     for c in ram.read(SVC, "answer"):                     # a previous run's answers: nobody will read them now
         ram.remove(c["id"]); log("removed an earlier run's answer", c["instance"])

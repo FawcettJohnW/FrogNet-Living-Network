@@ -32,6 +32,7 @@ import base64, json, os, socket, subprocess, sys, tempfile, time
 STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
 WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
 TRIES = 6
+BUILD_TAG = "fdf-login-2026-11-02-r2"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
 
 
 def log(*a):
@@ -252,6 +253,7 @@ def main():
             log("up: %s edge %s, RINA_RAM=%s" % (me["iface"], me["edge"], me.get("ram")))
         return 0
     line = decode(a[0])
+    log("%s: level %s of %s, %d RAM manager(s) on the line" % (BUILD_TAG, line.get("level", "?"), line.get("org", "?"), len(line.get("managers", []))))
     nick = a[a.index("--nick") + 1] if "--nick" in a else ""
     kind = "node" if "--node" in a else "leaf"
     st["kind"] = kind

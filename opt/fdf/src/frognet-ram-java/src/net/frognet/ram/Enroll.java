@@ -39,7 +39,7 @@ import java.util.Map;
  * record the door and fdf-app keep.
  */
 public final class Enroll {
-    public static final String BUILD = "frognet-enroll-2026-11-02-r1";
+    public static final String BUILD = "frognet-enroll-2026-11-02-r2";
     public static final String PREFIX = "fdfenroll1";
     private Enroll() { }
 
