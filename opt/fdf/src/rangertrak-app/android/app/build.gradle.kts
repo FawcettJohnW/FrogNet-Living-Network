@@ -12,7 +12,7 @@ android {
         versionName = "rt-app-2026-11-02-r19"
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    packaging { jniLibs { useLegacyPackaging = true } }   // [RT_IS_A_MEMBER_V1] fdf-tun is RUN from nativeLibraryDir: extracted at install
+    packaging { jniLibs { useLegacyPackaging = true } }   // [TEAM_HOST_V1] libteamram.so is RUN from nativeLibraryDir: extracted at install (fdf-tun is the base's)
     buildTypes { release { isMinifyEnabled = false } }
 }
 dependencies { implementation(project(":shared")) }   // [RT_ANDROID_SHARED_V1] the shell, the core, the RAM library, the page

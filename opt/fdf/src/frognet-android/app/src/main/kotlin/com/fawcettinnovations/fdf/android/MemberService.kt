@@ -115,7 +115,7 @@ class MemberService : Service() {
 
     private fun notification(text: String): Notification = Notification.Builder(this, "fdf")
         .setContentTitle("FrogNet member").setContentText(text).setSmallIcon(android.R.drawable.stat_sys_upload_done).setOngoing(true).build()
-    private fun status(text: String) = getSystemService(NotificationManager::class.java).notify(1, notification(text))
+    private fun status(text: String) { getSystemService(NotificationManager::class.java).notify(1, notification(text)); BaseState.changed(this) }   // [BASE_APP_V1]
     private fun status() {
         val f = ident.forward; val leaf = leaves[f]; val m = members[f]
         status("forward $f: " + when (val pl = leaf?.placement) {
@@ -242,6 +242,7 @@ class MemberService : Service() {
         running = false; AppLog.add("member: leaving every pond ($why)")
         members.values.forEach { it.leave() }; workers.values.forEach { it.interrupt() }
         runCatching { tunnel.down(why) }; bridge.close(); telemetry.detach()
+        BaseState.changed(this)                                    // [BASE_APP_V1] the apps that use this membership hear it end
     }
 
     /** the VPN was taken away: nothing of it stands; the sessions end so the next ones decide again ([GONE_IS_GONE_V1]) */
@@ -258,6 +259,8 @@ class MemberService : Service() {
     /** [TEAM_HOST_V1] this device's address in its forward pond, off the mesh: the edge its invitation or its login gave
      *  (the hub routes it); null when it has neither */
     fun edge(): String? = (ident.invite ?: admitted)?.edge
+    /** [BASE_APP_V1] the forward pond's session is up */
+    fun joined(): Boolean = joinedForward != null
 
     fun kartMemory(): String? {
         val area = ident.forward; val m = members[area] ?: run { AppLog.add("kart: not joined to $area yet"); return null }

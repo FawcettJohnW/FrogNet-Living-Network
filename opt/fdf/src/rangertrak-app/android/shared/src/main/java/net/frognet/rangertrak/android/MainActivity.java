@@ -51,20 +51,11 @@ public final class MainActivity extends Activity implements LocationListener {
                 }
             } catch (IllegalArgumentException ignored) { }
             final boolean conn = line.contains("\"op\":\"connect\"");
-            if (conn) {                                 // [RT_IS_A_MEMBER_V1] FrogNet first: the member, its tunnel, then the app
+            if (conn) {                                 // [BASE_APP_V1] FrogNet first: the base's membership, its tunnel, then the app
                 String inv = "";
                 try { inv = Json.str(Json.obj(Json.parse(line)).get("invite")).trim(); } catch (IllegalArgumentException ignored) { }
-                if (!inv.isEmpty()) {
-                    try {
-                        com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(MainActivity.this);
-                        if (inv.startsWith(com.fawcettinnovations.fdf.member.JoinLine.PREFIX)) {   // [LOGIN_IS_AN_INVITATION_V1] the EOC QR
-                            Map<String, Object> c = Json.obj(Json.parse(line));
-                            ident.keepJoin(inv, Json.str(c.get("user")), Json.str(c.get("password")));
-                            note("[LOGIN_IS_AN_INVITATION_V1] the EOC's join line is kept: this phone logs in with it");
-                        } else { ident.setInvite(inv); note("[ADMITTED_BY_INVITE_V1] the FrogNet invitation is kept"); }
-                    }
-                    catch (IllegalArgumentException e) { deliver(Json.o("ev", "error", "text", "FrogNet invitation: " + e.getMessage())); return; }
-                }
+                if (!inv.isEmpty()) { prefs.edit().putString("base-line", inv).apply(); note("[BASE_APP_V1] the FrogNet " + (inv.startsWith("fdfjoin1.") ? "join line" : "invitation") + " goes to the Disaster Area base with the join"); }
+                try { Map<String, Object> c = Json.obj(Json.parse(line)); joinUser = Json.str(c.get("user")); joinPassword = Json.str(c.get("password")); } catch (IllegalArgumentException ignored) { }
                 pendingConnect = line;
                 runOnUiThread(new Runnable() { public void run() { startMember("connect", false); } });
                 return;
@@ -99,7 +90,7 @@ public final class MainActivity extends Activity implements LocationListener {
             ev.put("saved", Json.o("camera", prefs.getString("c_camera", "front"), "mic", prefs.getString("c_mic", ""), "speaker", prefs.getString("c_speaker", "")));
             deliver(ev);
         }
-        /** [RT_CALL_V1] the Communicator, compiled into this app ([RT_IS_A_MEMBER_V1]), opened for this call with these devices */
+        /** [RT_CALL_V1] the Communicator, compiled into this app, opened for this call with these devices */
         @JavascriptInterface public void startComms(String json) {
             try {
                 Map<String, Object> m = Json.obj(Json.parse(json));
@@ -153,14 +144,15 @@ public final class MainActivity extends Activity implements LocationListener {
     }
     static final String COMMS = "net.frognet.communicator.CommunicatorActivity";
 
-    // ------------------------------------------------------------------ [RT_IS_A_MEMBER_V1] this app is the FrogNet member
-    // As the kart app ([KART_IS_A_MEMBER_V1]): frognet-android's MemberService, BridgeVpn and fdf-tun are compiled in.
-    // Connect starts the membership (the invitation, pasted once, is kept), and with it the tunnel the RAMs (10.x) are
-    // reached through; the app connects when the tunnel is up. Android asks its VPN question once, the first time;
-    // nothing else is asked. The member's own log is Logcat tag FDF; what this app did about it, tag RangerTrak.
-    static final int VPN_CONSENT = 7;
-    static final String MEMBER = "com.fawcettinnovations.fdf.android.MemberService";
-    private boolean memberStarted = false;
+    // ------------------------------------------------------------------ [BASE_APP_V1] the membership is the base's
+    // (It was [RT_IS_A_MEMBER_V1]: the member compiled into each RangerTrak app, so Team and Public on one phone were
+    // two memberships.) The device's hidden Disaster Area base holds the one membership; Connect asks it to join, with
+    // the invitation or join line and the login this app was given (the one login: the base logs in with them); the
+    // app connects when the tunnel is up. The base asks Android its VPN question once, the first time. The base's log
+    // is Logcat tag FDF; what this app did about it, tag RangerTrak.
+    static final int BASE_JOIN = 7;
+    private volatile boolean memberStarted = false;
+    private volatile String joinUser = "", joinPassword = "";   // the connect's login, for the base's (the one login)
     private volatile String pendingConnect = null;
     private void note(String l) { android.util.Log.i("RangerTrak", l); deliver(Json.o("ev", "status", "text", l)); }
     private boolean vpnUp() {
@@ -210,34 +202,21 @@ public final class MainActivity extends Activity implements LocationListener {
             } }, "core-connect").start();
             return;
         }
-        com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(this);
-        com.fawcettinnovations.fdf.member.Invite iv = ident.getInvite();
-        com.fawcettinnovations.fdf.member.JoinLine jl = ident.getJoin();
-        if (iv == null && jl == null) {                 // [ADMITTED_BY_INVITE_V1] the region answers invited keys only
-            deliver(Json.o("ev", "error", "text", "no FrogNet invitation: scan the EOC's QR code, or paste its line (or one from fdf-identity <name> --leaf) on this screen"));
-            return;
-        }
-        SharedPreferences id = getSharedPreferences("fdf-identity", MODE_PRIVATE);   // the member's name: the user's, set once
-        if (!id.contains("name")) id.edit().putString("name", prefs.getString("name", Build.MODEL)).apply();
-        if (!memberStarted) {
-            android.content.Intent consent = consented ? null : android.net.VpnService.prepare(this);
-            if (consent != null) {
-                note("[RT_IS_A_MEMBER_V1] " + why + ": asking Android for the VPN permission (asked once)");
-                try { startActivityForResult(consent, VPN_CONSENT); }
-                catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "Android gave no VPN permission screen: " + e.getMessage())); }
-                return;
-            }
-            note("[RT_IS_A_MEMBER_V1] joining FrogNet " + (iv != null ? "as " + iv.getName() + " (edge " + iv.getEdge() + ") in " + iv.getArea() + ", hub " + iv.getHub().getEndpoint()
-                    : "by logging in to " + jl.getOrg() + " at level " + jl.getLevel() + " (" + jl.getManagers().get(0).getEndpoint() + ")"));
-            try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
-            catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); return; }
+        if (!memberStarted) {                           // [BASE_APP_V1] the base joins (its VPN question, once, is its own)
+            if (!Base.installed(this)) { deliver(Json.o("ev", "error", "text", "this phone has no Disaster Area base (" + Base.PKG + "): install it; the FrogNet membership is its, shared by every app")); return; }
+            Enrolled me = Enrolled.of(this);
+            String u = !joinUser.isEmpty() ? joinUser : me.user, pw = !joinUser.isEmpty() ? joinPassword : me.password;
+            note("[BASE_APP_V1] " + why + ": asking the Disaster Area base to join" + (u.isEmpty() ? "" : " (logging in as " + u + ")"));
+            try { startActivityForResult(Base.join(prefs.getString("base-line", ""), u, pw, prefs.getString("name", Build.MODEL)), BASE_JOIN); }
+            catch (android.content.ActivityNotFoundException e) { deliver(Json.o("ev", "error", "text", "the Disaster Area base did not answer: " + e.getMessage())); }
+            return;                                     // onActivityResult goes on
         }
         final String line = pendingConnect; pendingConnect = null;
         if (line == null) return;
         new Thread(new Runnable() { public void run() {
             // the tunnel: the RAMs are reached through it; the connect waits for it (Android says when a VPN network is up)
             if (!vpnUp()) {
-                note("[RT_IS_A_MEMBER_V1] waiting for the FrogNet tunnel");
+                note("[BASE_APP_V1] waiting for the FrogNet tunnel");
                 final java.util.concurrent.CountDownLatch up = new java.util.concurrent.CountDownLatch(1);
                 android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
                 android.net.ConnectivityManager.NetworkCallback cb = new android.net.ConnectivityManager.NetworkCallback() {
@@ -245,11 +224,11 @@ public final class MainActivity extends Activity implements LocationListener {
                 };
                 cm.registerNetworkCallback(new android.net.NetworkRequest.Builder().addTransportType(android.net.NetworkCapabilities.TRANSPORT_VPN)
                         .removeCapability(android.net.NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build(), cb);
-                try { if (!up.await(45, java.util.concurrent.TimeUnit.SECONDS)) note("[RT_IS_A_MEMBER_V1] the FrogNet tunnel is not up after 45 s (Logcat tag FDF says why): connecting anyway"); }
+                try { if (!up.await(45, java.util.concurrent.TimeUnit.SECONDS)) note("[BASE_APP_V1] the FrogNet tunnel is not up after 45 s (Logcat tag FDF, the base's, says why): connecting anyway"); }
                 catch (InterruptedException e) { return; }
                 finally { cm.unregisterNetworkCallback(cb); }
             }
-            note("[RT_IS_A_MEMBER_V1] FrogNet tunnel up" + networks());
+            note("[BASE_APP_V1] FrogNet tunnel up" + networks());
             core.handle(line);
             Location l = lastFix;                       // a fix that came before the connection is this device's position now
             if (l != null) core.handle(fixLine(l));
@@ -269,9 +248,11 @@ public final class MainActivity extends Activity implements LocationListener {
     }
     @Override protected void onActivityResult(int code, int result, android.content.Intent data) {
         if (code == com.google.zxing.integration.android.IntentIntegrator.REQUEST_CODE) { scanned(com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(code, result, data)); return; }
-        if (code != VPN_CONSENT) { super.onActivityResult(code, result, data); return; }
-        if (result == RESULT_OK) startMember("VPN permission given", true);
-        else deliver(Json.o("ev", "error", "text", "the VPN permission was refused: no FrogNet tunnel (Connect asks again)"));
+        if (code != BASE_JOIN) { super.onActivityResult(code, result, data); return; }
+        Base.take(data);
+        String why = data == null ? "" : String.valueOf(data.getStringExtra("why"));
+        if (result == RESULT_OK) { memberStarted = true; note("[BASE_APP_V1] the Disaster Area base: " + why + (Base.invited.isEmpty() ? "" : " (" + Base.invited + ")")); startMember("the base joined", true); }
+        else deliver(Json.o("ev", "error", "text", "the Disaster Area base did not join: " + why + " (Connect asks again)"));
     }
     private final java.util.List<String> early = new java.util.ArrayList<String>();   // said before the page was up
     private void deliver(Map<String, Object> ev) {
@@ -336,6 +317,7 @@ public final class MainActivity extends Activity implements LocationListener {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Base.listen(this, null);                         // [BASE_APP_V1] the base's state, as it changes
         android.util.Log.i("RangerTrak", "RangerTrak " + AppCore.BUILD + " " + getPackageName());   // [APP_SAYS_ITS_BUILD_V1]
         prefs = getSharedPreferences("rangertrak", MODE_PRIVATE);
         web = new WebView(this);
@@ -404,10 +386,9 @@ public final class MainActivity extends Activity implements LocationListener {
     }
     /** [ADMITTED_BY_INVITE_V1] who this device is invited as, for the connect screen ("" : no invitation kept yet) */
     private String invitedAs() {
-        try { com.fawcettinnovations.fdf.android.Identity ident = new com.fawcettinnovations.fdf.android.Identity(this);
-              com.fawcettinnovations.fdf.member.Invite iv = ident.getInvite(); com.fawcettinnovations.fdf.member.JoinLine jl = ident.getJoin();
-              return iv != null ? iv.getName() + " in " + iv.getArea() : jl != null ? "the EOC " + jl.getOrg() + " (level " + jl.getLevel() + ")" : ""; }
-        catch (RuntimeException e) { return ""; }
+        if (!Base.invited.isEmpty()) return Base.invited;          // [BASE_APP_V1] as the base says it
+        String l = prefs.getString("base-line", "");
+        return l.isEmpty() ? "" : l.startsWith("fdfjoin1.") ? "the EOC's join line (the base logs in with it)" : "an invitation (the base joins with it)";
     }
 
     @SuppressWarnings("deprecation")
@@ -444,9 +425,7 @@ public final class MainActivity extends Activity implements LocationListener {
     private String advertise() {
         String lan = nodeLan();
         if (!lan.isEmpty()) return lan.substring(0, lan.indexOf(' '));
-        com.fawcettinnovations.fdf.android.MemberService ms = com.fawcettinnovations.fdf.android.MemberService.Companion.getInstance();
-        String e = ms == null ? null : ms.edge();
-        return e == null ? "" : e;
+        return Base.edge;                                // [BASE_APP_V1] the base's edge
     }
     private void hostTeam(String why) {
         if (!connected) { deliver(Json.o("ev", "error", "text", "connect first: the team host is a connected Team phone")); return; }
@@ -461,11 +440,11 @@ public final class MainActivity extends Activity implements LocationListener {
         hostPending = false;
         try { startForegroundService(new android.content.Intent(this, TeamHostService.class)); }
         catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the team RAM did not start: " + e)); return; }
-        com.fawcettinnovations.fdf.member.JoinLine jl = new com.fawcettinnovations.fdf.android.Identity(this).getJoin();
+        final String jl = Base.join;                     // [BASE_APP_V1] the join line the base keeps, for the lead's card
         hostingNow = true;
         Enrolled me = Enrolled.of(this);                 // [GROUP_PLACE_V1] a lead places its team here, at the door
         final String line = Json.write(Json.o("op", "teamHost", "port", TeamHostService.PORT, "addr", advertise(),
-                "card", Json.o("door", "", "join", jl == null ? "" : jl.getLine(), "via", nodeLan().isEmpty() ? "tunnel" : "lan"),
+                "card", Json.o("door", "", "join", jl, "via", nodeLan().isEmpty() ? "tunnel" : "lan"),
                 "user", me.lead ? me.user : "", "password", me.lead ? me.password : ""));
         note("[TEAM_HOST_V1] " + why + ": hosting the team on this phone's hotspot (" + hs + "). Members: Scan team in the Team app, at this phone's hotspot QR code (Hotspot settings, QR code)");
         new Thread(new Runnable() { public void run() { core.handle(line); } }, "team-host").start();
@@ -487,16 +466,12 @@ public final class MainActivity extends Activity implements LocationListener {
     private void teamVia(String via, String join) {
         if (via.equals("tunnel")) {
             if (memberStarted) return;
-            com.fawcettinnovations.fdf.android.Identity id = new com.fawcettinnovations.fdf.android.Identity(this);
-            if (id.getInvite() == null && id.getJoin() == null && !join.isEmpty())
-                try { id.keepJoin(join, "", ""); } catch (IllegalArgumentException e) { deliver(Json.o("ev", "error", "text", "the lead's join line: " + e.getMessage())); return; }
-            if (android.net.VpnService.prepare(this) != null) { runOnUiThread(new Runnable() { public void run() { startMember("the team lead is on its tunnel", false); } }); return; }
-            note("[TEAM_SPLIT_V1] the team lead reaches the node through its tunnel: this phone joins FrogNet itself");
-            try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
-            catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); }
+            if (prefs.getString("base-line", "").isEmpty() && !join.isEmpty()) prefs.edit().putString("base-line", join).apply();   // the lead's join line
+            note("[TEAM_SPLIT_V1] the team lead reaches the node through its tunnel: this phone joins FrogNet itself (the Disaster Area base)");
+            runOnUiThread(new Runnable() { public void run() { startMember("the team lead is on its tunnel", false); } });
         } else if (via.equals("lan") && memberStarted) {
-            note("[TEAM_SPLIT_V1] the team lead is on the node's LAN: this phone is there through it; its own membership ends");
-            try { startService(new android.content.Intent().setClassName(this, MEMBER).setAction("com.fawcettinnovations.fdf.android.STOP")); } catch (RuntimeException ignored) { }
+            note("[TEAM_SPLIT_V1] the team lead is on the node's LAN: this phone is there through it; the base's membership ends");
+            try { startActivity(Base.leave()); } catch (RuntimeException ignored) { }
             memberStarted = false;
         }
     }
@@ -525,12 +500,10 @@ public final class MainActivity extends Activity implements LocationListener {
             note("[TEAM_SPLIT_V1] this phone is on " + node + "'s LAN now");
             if (!node.isEmpty()) new Thread(new Runnable() { public void run() { core.handle(Json.write(Json.o("op", "door", "door", node))); } }, "redoor").start();
         } else {
-            com.fawcettinnovations.fdf.android.Identity id = new com.fawcettinnovations.fdf.android.Identity(this);
-            if (id.getInvite() == null && id.getJoin() == null) note("[TEAM_SPLIT_V1] off the node's LAN with no FrogNet invitation or join line: this phone (and its team) is an island");
-            else if (!memberStarted && android.net.VpnService.prepare(this) == null) {
-                note("[TEAM_SPLIT_V1] off the node's LAN: FrogNet through this phone's own tunnel now");
-                try { startForegroundService(new android.content.Intent().setClassName(this, MEMBER)); memberStarted = true; }
-                catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the FrogNet membership did not start: " + e)); }
+            if (prefs.getString("base-line", "").isEmpty() && Base.invited.isEmpty()) note("[TEAM_SPLIT_V1] off the node's LAN with no FrogNet invitation or join line: this phone (and its team) is an island");
+            else if (!memberStarted) {
+                note("[TEAM_SPLIT_V1] off the node's LAN: FrogNet through this phone's own tunnel now (the Disaster Area base)");
+                runOnUiThread(new Runnable() { public void run() { startMember("off the node's LAN", false); } });
             }
         }
         if (hostingNow) runOnUiThread(new Runnable() { public void run() { hostTeam("the network changed"); } });
@@ -551,7 +524,8 @@ public final class MainActivity extends Activity implements LocationListener {
     // The common way a device joins a region with an app (frognet-ram-java's Enroll): the QR is "fdfenroll1 URL APP USER";
     // the user types the password; the sponsor at URL (the app's door, or the team lead's phone) answers with the role,
     // whether the user leads its team, and this phone's own WAN invitation. The invitation goes to the FrogNet member
-    // (Identity), which joins with it: one tunnel, to the WAN hub; everything else is routed. Nothing else is asked.
+    // (the Disaster Area base), which joins with it: one tunnel, to the WAN hub; everything else is routed. Nothing else
+    // is asked.
     private void enrollNow(String json) {
         Map<String, Object> m;
         try { m = Json.obj(Json.parse(json)); } catch (IllegalArgumentException e) { return; }
@@ -562,8 +536,9 @@ public final class MainActivity extends Activity implements LocationListener {
         Map<String, Object> a;
         try { a = net.frognet.ram.Enroll.enroll(l, pw); }
         catch (Exception e) { deliver(Json.o("ev", "enrollFailed", "text", e.getMessage() == null ? e.toString() : e.getMessage())); return; }
-        try { new com.fawcettinnovations.fdf.android.Identity(this).setInvite(Json.str(a.get("invite"))); }
-        catch (IllegalArgumentException e) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave: " + e.getMessage())); return; }
+        String inv = Json.str(a.get("invite")).trim();    // [BASE_APP_V1] the base joins with it, at Connect
+        if (!inv.startsWith("fdfinv1.")) { deliver(Json.o("ev", "enrollFailed", "text", "the invitation it gave is not one: " + (inv.length() > 40 ? inv.substring(0, 40) : inv))); return; }
+        prefs.edit().putString("base-line", inv).apply();
         // [ENROLL_V1] the node the app connects to: "at" in a lead's answer (its door's address); else the host the QR named.
         // ("door" in a door's answer is the door's build, [DOOR_SAYS_ITS_BUILD_V1]: never an address -- found 2026-11-02,
         // the phone tried to connect to "dc-door-2026-11-02-r3")
@@ -587,8 +562,7 @@ public final class MainActivity extends Activity implements LocationListener {
         String hs = hotspotAddr(); if (!hs.isEmpty()) addrs.add(Json.o("label", "this phone's hotspot", "addr", hs));
         String lan = nodeLan(); if (!lan.isEmpty()) addrs.add(Json.o("label", "the node's Wi-Fi", "addr", lan.substring(0, lan.indexOf(' '))));
         else { String w = wifiAddr(); if (!w.isEmpty()) addrs.add(Json.o("label", "this Wi-Fi", "addr", w)); }
-        com.fawcettinnovations.fdf.android.MemberService ms = com.fawcettinnovations.fdf.android.MemberService.Companion.getInstance();
-        String e = ms == null ? null : ms.edge(); if (e != null && !e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));
+        String e = Base.edge; if (!e.isEmpty()) addrs.add(Json.o("label", "FrogNet (the Internet)", "addr", e));   // [BASE_APP_V1]
         java.util.List<Object> names = new java.util.ArrayList<Object>(Enrolled.members(this).keySet());
         deliver(Json.o("ev", "members", "app", me.app, "team", me.role, "members", names, "addrs", addrs, "port", TeamHostService.SPONSOR_PORT,
                 "sponsoring", TeamHostService.sponsorState().isEmpty() || start));

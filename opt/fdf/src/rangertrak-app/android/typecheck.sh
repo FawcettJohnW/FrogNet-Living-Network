@@ -1,6 +1,7 @@
 #!/bin/bash
 # typecheck.sh -- the RangerTrak Android apps' sources as Android Studio compiles them (:shared: this app's Java, the
-# core, the RAM library, and frognet-android's member, app Kotlin and Communicator Java) compiled against the Android 14
+# core, the RAM library and frognet-android's Communicator Java; [BASE_APP_V1] the FrogNet membership is the base app's,
+# frognet-android/tools/app-typecheck.sh) compiled against the Android 14
 # framework (robolectric's android-all, Maven Central) and wireguard-android's tunnel classes, on a machine with no
 # Android SDK. It proves the sources type-check; Android Studio builds the APK. usage: typecheck.sh [WORKDIR]
 set -eu
@@ -23,7 +24,7 @@ apply(plugin = "org.jetbrains.kotlin.jvm")
 repositories { mavenCentral() }
 configure<SourceSetContainer> { named("main") {
     java.srcDirs("$H/shared/src/main/java", "$APP/core/src", "$SRC/frognet-ram-java/src", "$FN/app/src/main/java")
-    (this as ExtensionAware).extensions.getByName<org.gradle.api.file.SourceDirectorySet>("kotlin").srcDirs("$FN/member/src/main/kotlin", "$FN/app/src/main/kotlin") } }
+    (this as ExtensionAware).extensions.getByName<org.gradle.api.file.SourceDirectorySet>("kotlin").setSrcDirs(listOf<Any>()) } }
 configure<JavaPluginExtension> { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach { compilerOptions {
     jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
@@ -36,6 +37,7 @@ set +e; (cd "$W" && gradle -q --rerun-tasks compileKotlin compileJava 2>&1; echo
 grep -v '^w:\|JAVA_TOOL\|^Note:\|^GRADLE_RC=' "$W/gradle.out" || true
 grep -q '^GRADLE_RC=0$' "$W/gradle.out" || { echo "typecheck: FAIL (the compiler said so, above)"; exit 1; }
 N=$(find "$W/build/classes" -name '*.class' -newer "$W/build.gradle.kts" 2>/dev/null | wc -l)
-[ -f "$W/build/classes/kotlin/main/com/fawcettinnovations/fdf/android/MemberService.class" ] \
+[ -f "$W/build/classes/java/main/net/frognet/rangertrak/android/Base.class" ] \
   && [ -f "$W/build/classes/java/main/net/frognet/rangertrak/android/MainActivity.class" ] \
+  && [ ! -e "$W/build/classes/kotlin/main/com/fawcettinnovations/fdf/android/MemberService.class" ] \
   && echo "typecheck: PASS ($N classes against android-all 14 + wireguard tunnel $WG)" || { echo "typecheck: FAIL (above)"; exit 1; }

@@ -7,3 +7,4 @@ include(":shared")     // [RT_ANDROID_SHARED_V1] the code the three apps share
 include(":app")
 include(":team")       // [RT_TEAM_APP_V1] RangerTrak Team
 include(":public")     // [RT_PUBLIC_APP_V1] RangerTrak Public
+include(":base")       // [BASE_APP_V1] Disaster Area, the device's hidden base: the FrogNet membership the apps share
