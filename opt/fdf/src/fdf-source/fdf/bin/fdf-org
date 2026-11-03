@@ -22,20 +22,15 @@ is under the hub's own key.)
                                         add or change a level: its random login and session ports are made once and
                                         kept; DEST = a 10.x address or prefix, optionally :port; --space: the spaces its
                                         applications join (each made with fdf-org space first); its edges reach them
-  fdf-org user LEVEL USER               set USER's password at LEVEL (read from stdin, one line)
+  fdf-org user LEVEL USER [--remove]    set USER's password at LEVEL (read from stdin, one line), or remove USER: kept
+                                        as a verifier that checks on every RAM host ([ORG_OWNED_V1]), which they adopt
   fdf-org line LEVEL [--with LINE ...]  print LEVEL's join line, fdfjoin1.<...> (and a QR if qrencode is installed);
                                         --with: a standby's line for the same level (fdf-org line LEVEL there), added
                                         after this RAM host, in order
   fdf-org list [--json]                 spaces, levels, then admitted devices with level and state
-  fdf-org export                        [ONE_ORG_ON_EVERY_TARGET_V1] this organization's levels, spaces, users' verifiers
-                                        and the credential key, as one secret line (fdforg1.<...>) on stdout: what
-                                        another RAM host on the list needs for the same users and passwords to log in
-                                        there. Runs where the hub is (the key is the hub's).
-  fdf-org import [--replace]            that line, on stdin, at another RAM host (where its hub is): the credential key,
-                                        the users and the levels become the export's; the levels keep this host's own
-                                        ports. A user here that the export does not hold would stop verifying under
-                                        the new key: refused, unless --replace (those users are dropped, by name).
-                                        Done by hand, on each RAM host (John 2026-11-02: "It needs to be intentional").
+  (the same organization on every RAM host: [ORG_OWNED_V1] each writes its definition -- levels, users' verifiers --
+   into the network RAM, FDF_NET_RAM or this machine's join.env, and adopts the others' newest: nothing by hand. It
+   replaces `fdf-org export` / `import`.)
   fdf-org revoke NAME                   NAME's peer and its reach go now
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
                                         each inside the tunnel on the hub's address (hub.env FDF_HUB_ADDR: 10.253.A.B
@@ -45,7 +40,10 @@ Where things live (what survives a restart, ORGANIZATIONS.md section 1):
   levels, users, the door,      permanent cells (fdf-org, level|user|door|space, ...) in this region's RAM
   the spaces
   admissions                    /opt/fdf/hub/admitted/NAME.json, as fdf-invite writes them, plus level and state
-  the credential key            /opt/fdf/var/org-key; a user's verifier = HMAC-SHA256(key, scrypt(password, salt))
+  the credential key            /opt/fdf/var/org-key (the generic credential's door; a user set before [ORG_OWNED_V1] has
+                                HMAC-SHA256(key, scrypt(password, salt)), which checks here only)
+  a user's verifier             PBKDF2-SHA256(password, salt), 200000 rounds: checks on every RAM host
+  the organization's definition (fdf-org, def, <org>.<host>) in the network RAM: each RAM host's, written again
   reach                         nftables table inet fdf_org_<area>, rebuilt from the above after every change and at start
 
 Login, in order ([LOGIN_RESTRICTED_FIRST_V1]): on the generic tunnel the device sends its own public key to the door and
@@ -67,7 +65,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-03-r22"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-03-r23"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -196,6 +194,25 @@ def org_key():
 def verifier(key, password, salt):
     d = hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=2 ** 14, r=8, p=1, dklen=32)
     return hmac.new(key, d, hashlib.sha256).hexdigest()
+
+
+# [ORG_OWNED_V1] a user's verifier that checks on every RAM host: PBKDF2-SHA256 with its own salt, no host's key in it
+# (the one under this host's credential key, above, checks only here, so it never left this host but by export/import).
+# It is what fdf-app keeps for an app's users; the password itself is never in a cell.
+PBKDF2_N = 200000
+def portable_verifier(password):
+    salt = secrets.token_hex(16)
+    return {"kdf": "pbkdf2-sha256", "n": PBKDF2_N, "salt": salt,
+            "hash": hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PBKDF2_N).hex()}
+
+
+def user_ok(u, password):
+    """the password checks against this user's verifier, whichever kind it is"""
+    if not u or u.get("removed"):
+        return False
+    if u.get("kdf") == "pbkdf2-sha256":
+        return hmac.compare_digest(u["hash"], hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(u["salt"]), int(u["n"])).hex())
+    return "v" in u and hmac.compare_digest(u["v"], verifier(org_key(), password, u["salt"]))
 
 
 def used_ports():
@@ -349,7 +366,7 @@ def login(src, port, ask):
         log("LOGIN: %s at %s, admitted before: its session, no password asked again" % (rec["name"], level))
     if lv.get("password") and not held:
         u = cells("user").get("%s/%s" % (level, ask.get("user", "")))
-        if not u or not hmac.compare_digest(u["v"], verifier(org_key(), str(ask.get("password", "")), u["salt"])):
+        if not user_ok(u, str(ask.get("password", ""))):
             log("LOGIN: %s at %s: wrong user or password" % (rec["name"], level))
             return {"ok": False, "why": "wrong user or password"}
         rec["user"] = ask.get("user")
@@ -505,6 +522,7 @@ def serve():
     except fdfram.RamError as e:
         log("this host's capability was not written to the region's RAM (%s); it is when serve next starts" % e)
     apply_reach("start")
+    threading.Thread(target=org_sync, name="org-sync", daemon=True).start()   # [ORG_OWNED_V1]
     started = set()
     listen(door["port"], lambda s, p, a: door_ask(s, a))
     last = 0
@@ -521,6 +539,13 @@ def serve():
         if changed:
             last = max(c["id"] for c in changed)
             apply_reach("cells changed")
+            if any(c.get("variable") in ("level", "user") for c in changed):   # [ORG_OWNED_V1] its definition again
+                net = net_ram()
+                if net is not None:
+                    try:
+                        publish_def(net, "a level or user changed")
+                    except fdfram.RamError as e:
+                        log("ORG: the definition was not written to the network RAM (%s); org_sync writes it when that RAM is back" % e)
 
 
 # ---------------------------------------------------------------- admin commands
@@ -587,6 +612,7 @@ def cmd_level(a):
         if missing:
             die("no space %s here: fdf-org space NAME first" % ", ".join(repr(x) for x in missing), 2)
         lv["spaces"] = spaces
+    lv["seq"] = int(time.time() * 1000)          # [ORG_OWNED_V1] the newest of a level, wherever it was set, is the org's
     put("level", name, lv)
     log("level %s: login port %s, session port %s, %s, reach %s%s" % (name, lv.get("login_port", "(the hub's)"), lv.get("session_port", "(the hub's)"),
         "password" if lv["password"] else "no password", lv["reach"]["kind"],
@@ -607,88 +633,124 @@ def cmd_space(name):
     log("space %s: its RAM manager on %s:%d (fdf-org serve starts it)" % (name, HUB_ADDR, sp["port"]))
 
 
-def cmd_user(level, user):
-    if REMOTE:
-        die("a level's password is kept as a verifier under the hub's own key: this command runs where the hub is, for now")
+def cmd_user(level, user, remove=False):
+    """[ORG_OWNED_V1] a portable verifier (or, --remove, the user's removal), newest-stamped: every RAM host of the
+    organization adopts it from the network RAM (org_sync). Run anywhere the region's RAM is reached."""
     if level not in cells("level"):
         die("no level %r" % level)
+    if remove:
+        put("user", "%s/%s" % (level, user), {"removed": True, "seq": int(time.time() * 1000)})
+        log("user %s at %s: removed (every RAM host of the organization adopts it)" % (user, level))
+        return
     pw = sys.stdin.readline().rstrip("\n")
     if not pw:
         die("no password on stdin")
-    salt = secrets.token_hex(16)
-    put("user", "%s/%s" % (level, user), {"salt": salt, "v": verifier(org_key(), pw, salt)})
-    log("user %s at %s: password set" % (user, level))
+    put("user", "%s/%s" % (level, user), dict(portable_verifier(pw), seq=int(time.time() * 1000)))
+    log("user %s at %s: password set (a verifier that checks on every RAM host of the organization)" % (user, level))
 
 
-# ---------------------------------------------------------------- [ONE_ORG_ON_EVERY_TARGET_V1] the same users everywhere
-# (John 2026-11-02) a device is given the list of RAM hosts at initialization, makes its tunnels to them as it reaches
-# them, and logs in at any one it can reach. Each RAM host has its own generic credential (the join line carries each
-# one's), but a password is a verifier under the host's own credential key: for one user and password to log in at
-# every host, every host holds the same key and the same users. export/import carry them, by hand.
-def say(*a):                                       # export's stdout is the line itself: its log goes to stderr
-    sys.stderr.write("[ORG] %s %s\n" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)))
+# ---------------------------------------------------------------- [ORG_OWNED_V1] the same users everywhere, owned
+# (John 2026-11-02) a device logs in at any RAM host on its line it can reach, with the same user and password. (John
+# 2026-11-03: "the configuration's owners write it again".) Every RAM host of the organization is an owner of its
+# definition -- its levels (not their ports: each host's own) and its users' portable verifiers and removals, each
+# stamped with when it was set -- and writes it into the network RAM, (fdf-org, def, <org>.<host>), again whenever
+# that RAM changes. Each holds a read on the family and adopts, entry by entry, the newest it sees that is newer than
+# its own: a level new to it gets its own ports. Nothing is exported or imported by hand. (This replaces `fdf-org
+# export` / `import`, [ONE_ORG_ON_EVERY_TARGET_V1], which carried the credential key itself.) A user set before
+# [ORG_OWNED_V1] (a verifier under this host's own key) checks only here and is not written out: set it again.
+def net_ram():
+    """the network RAM the organization's RAM hosts are all members of: FDF_NET_RAM, else this machine's (join.env)"""
+    w = os.environ.get("FDF_NET_RAM", "")
+    if not w:
+        try:
+            w = fdfram.where()
+        except fdfram.RamError:
+            return None
+    return fdfram.Ram(w)
 
 
-def cmd_export():
-    if REMOTE:
-        die("export runs where the hub is: the credential key is the hub's own")
-    levels, spaces, users = cells("level"), cells("space"), cells("user")
-    b = {"v": 1, "org": h()["FDF_AREA"], "from": h().get("FDF_HUB_NAME", ""), "key": org_key().hex(),
-         "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-         "levels": {n: {k: lv[k] for k in ("password", "reach", "spaces") if k in lv} for n, lv in levels.items()},
-         "spaces": sorted(spaces), "users": users}
-    print("fdforg1." + base64.urlsafe_b64encode(json.dumps(b, separators=(",", ":")).encode()).decode().rstrip("="))
-    say("export of %s from %s: %d level(s), %d space(s), %d user(s) and the credential key -- a secret: it lets anyone "
-        "who holds it set up a RAM host these users log in to" % (b["org"], b["from"] or "?", len(levels), len(spaces), len(users)))
+def own_def():
+    levels = {n: {k: lv[k] for k in ("password", "reach", "spaces", "seq") if k in lv} for n, lv in cells("level").items()}
+    users, local_only = {}, []
+    for k, u in cells("user").items():
+        if u.get("kdf") == "pbkdf2-sha256" or u.get("removed"):
+            users[k] = {x: u[x] for x in ("kdf", "n", "salt", "hash", "removed", "seq") if x in u}
+        else:
+            local_only.append(k)
+    return {"org": h()["FDF_AREA"], "host": h().get("FDF_HUB_NAME", ""), "levels": levels, "users": users, "at": int(time.time())}, local_only
 
 
-def cmd_import(replace):
-    if REMOTE:
-        die("import runs where the hub is: the credential key is the hub's own")
-    tok = sys.stdin.readline().strip()
-    if not tok.startswith("fdforg1."):
-        die("not an export (fdf-org export's line, fdforg1.<...>) on stdin")
-    try:
-        b = json.loads(base64.urlsafe_b64decode(tok[8:] + "=" * (-len(tok[8:]) % 4)))
-        key = bytes.fromhex(b["key"])
-    except (ValueError, KeyError) as e:
-        die("that export does not decode: %s" % e)
-    if b.get("v") != 1 or len(key) != 32:
-        die("that export is not version 1 with a 32-byte key")
-    have = open(ORG_KEY, "rb").read() if os.path.exists(ORG_KEY) else None
-    rows = [c for c in ram().read(SVC, "user")]
-    here = {c["instance"] for c in rows}
-    lost = sorted(u for u in here if u not in b["users"]) if have != key else []
-    if lost and not replace:
-        die("user(s) %s here were set under this host's own key and are not in that export: they would stop verifying. "
-            "Export from the host that has them, or --replace to drop them here" % ", ".join(lost))
-    old = os.umask(0o077)
-    try:
-        open(ORG_KEY + ".tmp", "wb").write(key)
-    finally:
-        os.umask(old)
-    os.replace(ORG_KEY + ".tmp", ORG_KEY)
-    for n in b.get("spaces", []):
-        if n not in cells("space"):
-            cmd_space(n)
+def adopt_def(defs):
+    """the newest of each level and user among the organization's definitions, where it is newer than this host's"""
+    mine_l, mine_u = cells("level"), cells("user")
+    best_l, best_u = {}, {}
+    for d in defs:
+        for n, lv in (d.get("levels") or {}).items():
+            if int(lv.get("seq") or 0) > int((best_l.get(n) or {}).get("seq") or 0):
+                best_l[n] = (lv, d.get("host", "?"))
+        for k, u in (d.get("users") or {}).items():
+            if int(u.get("seq") or 0) > int((best_u.get(k) or ({}, ""))[0].get("seq") or 0):
+                best_u[k] = (u, d.get("host", "?"))
+    changed = []
     used = used_ports()
-    for n, want in b.get("levels", {}).items():
-        lv = dict(cells("level").get(n) or {})
-        lv.update(want)
+    for n, (lv, by) in best_l.items():
+        have = mine_l.get(n) or {}
+        if int(lv.get("seq") or 0) <= int(have.get("seq") or 0):
+            continue
+        new = dict(have, **{k: lv[k] for k in ("password", "reach", "spaces", "seq") if k in lv})
         for k in ("login_port", "session_port"):                     # this host's own ports, kept or made here
-            if k not in lv:
-                lv[k] = random_port(used); used.add(lv[k])
-        put("level", n, lv)
-    for u, bag in b.get("users", {}).items():
-        put("user", u, bag)
-    for c in rows:                                                   # --replace: the users the export does not hold
-        if c["instance"] in lost:
-            ram().remove(c["id"])
-    apply_reach("import from %s" % (b.get("from") or "?"))
-    log("import of %s from %s (made %s): credential key %s, %d level(s) (%s), %d user(s)%s" % (
-        b.get("org", "?"), b.get("from") or "?", b.get("made", "?"), "kept (the same)" if have == key else "replaced",
-        len(b.get("levels", {})), ", ".join(sorted(b.get("levels", {}))), len(b.get("users", {})),
-        "; dropped here: " + ", ".join(lost) if lost else ""))
+            if k not in new:
+                new[k] = random_port(used); used.add(new[k])
+        if [x for x in new.get("spaces") or [] if x not in cells("space")]:
+            log("ORG: level %s from %s names a space this host has not: not adopted" % (n, by)); continue
+        put("level", n, new); changed.append("level %s (from %s)" % (n, by))
+    for k, (u, by) in best_u.items():
+        if k.split("/", 1)[0] not in cells("level"):
+            continue                                                 # its level first (adopted above, or the next event)
+        if int(u.get("seq") or 0) <= int((mine_u.get(k) or {}).get("seq") or 0):
+            continue
+        put("user", k, u); changed.append(("user %s removed" if u.get("removed") else "user %s") % k + " (from %s)" % by)
+    if changed:
+        log("ORG: [ORG_OWNED_V1] adopted from the organization's other RAM hosts: %s" % "; ".join(changed))
+        apply_reach("the organization's definition")
+    return changed
+
+
+def publish_def(net, why):
+    org, me = h()["FDF_AREA"], h().get("FDF_HUB_NAME", "") or socket.gethostname()
+    d, local_only = own_def()
+    net.write(SVC, "def", "%s.%s" % (org, me), d)
+    log("ORG: [ORG_OWNED_V1] %s: this host's definition of %s in the network RAM %s: %d level(s), %d user(s)%s" % (why, org, net.hostport,
+        len(d["levels"]), len(d["users"]), "; only here (a verifier under this host's own key: set it again to go everywhere): " + ", ".join(local_only) if local_only else ""))
+
+
+def org_sync():
+    """[ORG_OWNED_V1] this host's definition into the network RAM, and again whenever that RAM changes; the others'
+    adopted on their event (a held read on the family). serve writes it again on every local change."""
+    said_none = False
+    while True:
+        net = net_ram()
+        if net is None:
+            if not said_none:
+                log("ORG: no network RAM (FDF_NET_RAM, or this machine's join.env): the organization's definition stays on this host; asked again in 30 s")
+                said_none = True
+            time.sleep(30); continue
+        org, me = h()["FDF_AREA"], h().get("FDF_HUB_NAME", "") or socket.gethostname()
+        last = -1
+        try:
+            publish_def(net, "start" if not said_none else "the network RAM is there")
+            while True:
+                rows = net.read(SVC, "def", after=last, wait_s=fdfram.HOLD_S)
+                if not rows:
+                    continue
+                last = max(r["id"] for r in rows)
+                if not any(r["instance"].startswith(org + ".") and r["instance"] != "%s.%s" % (org, me) for r in rows):
+                    continue
+                defs = [r["bag"] for r in net.read(SVC, "def") if r["instance"].startswith(org + ".") and r["instance"] != "%s.%s" % (org, me)]
+                adopt_def(defs)                                      # (serve writes this host's definition again)
+        except (fdfram.RamError, OSError) as e:
+            log("ORG: the network RAM: %s; again in 2 s, writing this host's definition again" % e)
+            time.sleep(2)
 
 
 def decode_line(tok):
@@ -798,12 +860,10 @@ def main():
     if c == "init": cmd_init()
     elif c == "level" and len(a) >= 2: cmd_level(a[1:])
     elif c == "space" and len(a) == 2: cmd_space(a[1])
-    elif c == "user" and len(a) == 3: cmd_user(a[1], a[2])
+    elif c == "user" and len(a) in (3, 4) and a[3:] in ([], ["--remove"]): cmd_user(a[1], a[2], "--remove" in a)
     elif c == "line" and len(a) >= 2: cmd_line(a[1], [a[i + 1] for i in range(2, len(a) - 1) if a[i] == "--with"])
     elif c == "list": cmd_list("--json" in a)
     elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
-    elif c == "export" and len(a) == 1: cmd_export()
-    elif c == "import" and len(a) in (1, 2) and a[1:] in ([], ["--replace"]): cmd_import("--replace" in a)
     elif c == "serve": serve()
     else: die(__doc__.split("Where things")[0].strip(), 2)
     return 0

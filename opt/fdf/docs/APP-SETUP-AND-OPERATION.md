@@ -123,6 +123,18 @@ themselves.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
+**On Android the membership is the hidden base's** ([BASE_APP_V1], built). **John (2026-11-03):** "the base disaster
+area app is hidden from the user. They don't need to bring it up and make login a 2-step process" ... "it's shared
+between all of the various apps and ram regions a given machine needs." The base is frognet-android's app, labelled
+Disaster Area, with no launcher icon: one membership per device. A level app (RangerTrak Team, Public, the kart ...)
+asks it through `JoinActivity` (`net.frognet.action.JOIN`, with the level's line and the user and password the level
+app asked for: the one login; the base attaches again when they change, and the door upgrades an open level,
+[ONE_LEVEL_PER_HOST_V1]); `net.frognet.action.LEAVE` ends it. The base sends each app that asked its state (joined,
+edge, invited, join) when it changes (`net.frognet.action.MEMBER_STATE`). RangerTrak no longer compiles the member in
+(it did, [RT_IS_A_MEMBER_V1]: Team and Public on one phone were two memberships); `:base` is a module of its Gradle
+project and of its Studio export. Gates: the type-checks (`frognet-android/tools/app-typecheck.sh`,
+`rangertrak-app/android/typecheck.sh`); not run on a phone here.
+
 ## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)
 
 This section governs where the next one ("Enrollment"), written earlier the same day, names machines. That one says
@@ -171,8 +183,17 @@ regular api.php." "There is no 'bring up' a region. It just turns on ... Turning
   `roles`, so the admin's next configuration keeps it) and writes it again with it: owned, not held.
 - Gates: `rinab/tools/test_fdf_app.py` 13-15 (placed here, a non-lead's place ignored, the device gone and nobody
   serving it, back to the selection); `rinab/tools/netns-enroll-test.sh` 9 (the real door).
-- **Not built:** the lead's admin app screen for this; the group's service on a phone (a Pi is a member and serves it
-  with `fdf-app serve`).
+- **On the lead's phone** (built): Host team (the RangerTrak Team app, [TEAM_HOST_V1]) runs the team's RAM on the phone
+  (libteamram) and places the team `here` at the door with the lead's user and password from the phone's enrollment,
+  so no member serves it while the phone does: one RAM per team. **Team on databasehost** (the lead's button) places it
+  there, stops the phone's RAM (the lead's sponsor stays) and clears the lead's host cell; the core waits on the door's
+  held `op=rams&until=TEAM` and says where the team's RAM is now. Gate: `rangertrak-app/test/test_admin.py` 9 (the real
+  door, members and AppCore: Host team -> unserved on the members; databasehost -> served again, told 0.5 s after).
+  A Pi lead is a member and serves its group with `fdf-app serve`.
+- **The admin's view, Groups now** ([GROUPS_NOW_V1], built): every group, its category, where its lead placed it,
+  where its RAM is served at that moment, and its leads, live (the admin's held read wakes on a place, a member's
+  configuration, capability or map; `fdf-app` says its map in the network RAM, `(fdf-app, map, <guid>)`, when it
+  changes). Gate: `test_admin.py` 11.
 
 **The Pi is initialized the way the phone is.** **John:** "It must be a LAN client of the EOC, so it is trusted. It gets
 its own tunnel setup the same way a phone would." Then the lead joins the Pi's projected network as an authenticated
@@ -202,7 +223,8 @@ work like this -- EOC is just the example. For a media service, the requirements
   ranks below every member that has it; the guid breaks the last tie. Every member uses the `select` of the newest
   configuration among the alive members, so all compute the same member. No `select`: the most memory, then the most
   cores, then the highest guid. `fdf-app config ... --select RAM=KEY,-KEY --need RAM=KEY --serve RAM,RAM`, or the
-  admin's configuration. `fdf_select.py`. Gate: `rinab/tools/test_fdf_app.py` 10-12.
+  admin's configuration: the admin app's **Where each RAM is served** (a row per RAM or `*`: need, rank). `fdf_select.py`.
+  Gates: `rinab/tools/test_fdf_app.py` 10-12; `rangertrak-app/test/test_admin.py` 10 (from the admin's screen).
 - **A device's space follows capability too** ([SPACE_BY_CAPABILITY_V1], **built**). **John:** "There is no fallback
   list. Fallback is determined by capability." Each RAM host's `fdf-org` writes its capability (its probe's scalars,
   its guid) into each space's RAM there and into the region's, `(fdf-space, can, AREA)`. `fdfspace.py` and `Space.kt`
@@ -230,9 +252,17 @@ work like this -- EOC is just the example. For a media service, the requirements
   A device that holds a password level and asks for an open one (its base attaching again) keeps the level it holds,
   and the door says so; a different password level is refused. An admitted device that logs in again with no password
   is given its session (its edge already reaches it). Gate: `rinab/tools/netns-org-test.sh` 11-13.
-- **The same users and passwords at every target** ([ONE_ORG_ON_EVERY_TARGET_V1], **built**, `fdf-org` r20, by hand:
-  `fdf-org export` / `fdf-org import [--replace]`, John: "It needs to be intentional"). To be replaced by the
-  configuration's owners writing it again, as the app's verifiers are.
+- **The same users and passwords at every target, owned** ([ORG_OWNED_V1], **built**, `fdf-org` r23; it replaces
+  `fdf-org export` / `import`, [ONE_ORG_ON_EVERY_TARGET_V1], which carried the credential key by hand). Every RAM host
+  of the organization writes its definition -- its levels (not their ports) and its users' verifiers and removals, each
+  stamped with when it was set -- into the network RAM, `(fdf-org, def, <org>.<host>)` (`FDF_NET_RAM`, else the
+  machine's `join.env`), again on every local change and whenever that RAM changes; each holds a read on the family and
+  adopts, entry by entry, the newest that is newer than its own (a level new to it gets its own ports). A user's verifier
+  is PBKDF2-SHA256 with its own salt (as an app's users'), so it checks on every host and no key leaves a host; a user
+  set before r23 (a verifier under its host's own key) checks only there until it is set again. `fdf-org user LEVEL
+  USER [--remove]` runs wherever the region's RAM is reached. Gate: `rinab/tools/netns-targets-test.sh` 1-2 (chief set
+  on A only, adopted by B in 0.3 s; a level added on A, on B with B's own ports; a removal on A, on B; no password and
+  no key in the network RAM), 3-5 (login at B with the password set on A).
 - Gates: `rinab/tools/netns-targets-test.sh`, `netns-admit-kt-test.sh`.
 
 **Every hub at 10.253.253.254 collided once a device held two tunnels** (the WAN's and the current EOC target's).
@@ -252,7 +282,8 @@ says it from the next binary build.
 2. (Answered by [GROUP_PLACE_V1]: a group that must outlive its lead's device is placed on databasehost.)
 3. Help requests and log entries written on an island during a split stay there: the app has to send its own
    unacknowledged reports up on reconnect.
-4. Revoking a lost device acts on one host (`fdf-org revoke`); it has to reach every target, with export/import.
+4. Revoking a lost device acts on one host (`fdf-org revoke`); it has to reach every target (the organization's
+   definition, [ORG_OWNED_V1], could carry it as it carries a user's removal: not built).
 5. The open public level needs a per-device rate limit at admission.
 6. Scheduled actions (an actuator run) live in a role's RAM and move with its holder: hold them where they run, or make
    running twice harmless.

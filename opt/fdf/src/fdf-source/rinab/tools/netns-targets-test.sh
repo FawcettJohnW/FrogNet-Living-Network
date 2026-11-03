@@ -3,15 +3,19 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-# netns-targets-test.sh -- [ONE_ORG_ON_EVERY_TARGET_V1][LOGIN_WHERE_IT_CAN_V1] (John 2026-11-02) a device is given the
-# list of RAM hosts (EOC targets) at initialization, makes its tunnels to the ones it reaches, and logs in at any one it
-# can reach -- with the same user and password everywhere. Two RAM hosts, each a region of its own with its own keys:
-#   A 198.18.0.1   where the admin set the users (fdf-org user)
-#   B 198.18.0.3   another target: the admin carries A's organization to it by hand (fdf-org export on A, import on B)
+# netns-targets-test.sh -- [ORG_OWNED_V1][LOGIN_WHERE_IT_CAN_V1] (John 2026-11-02) a device is given the list of RAM
+# hosts (EOC targets) at initialization, makes its tunnels to the ones it reaches, and logs in at any one it can reach
+# -- with the same user and password everywhere. (John 2026-11-03: the configuration's owners write it again.) Two RAM
+# hosts, each a region of its own with its own keys, both members of one network RAM:
+#   A 198.18.0.1   where the admin sets the users (fdf-org user)
+#   B 198.18.0.3   another target: nothing is done on it by hand
 #   q 198.18.0.5   the device: one line naming A then B
+#   N 198.18.0.7   the network RAM (fdf-ram), FDF_NET_RAM for both RAM hosts' fdf-org
+# Each RAM host's fdf-org writes its organization's definition there, (fdf-org, def, D.<host>), and adopts the others'.
 # Checks, each with what it saw:
-#   1  import on B is refused while B holds a user the export does not (it would stop verifying), and names it
-#   2  import --replace: B's credential key is A's, B's stray user is gone, B's levels keep B's own ports
+#   1  chief's password set on A: B adopts it, from A's definition in the network RAM, in the time printed; no
+#      password and no credential key in the network RAM
+#   2  a level added on A (Ops): B adopts it with ports of its own; temp, set on B and removed on A: removed on B too
 #   3  A unreachable: q logs in with chief's password (set on A only) at B; A is said and left for the next run
 #   4  A back: the same line logs q in at both
 #   5  a wrong password: refused at both, and fdf-login fails saying so
@@ -21,7 +25,7 @@ B=$H/build/static; PK=${PKG_FDF:-$H/../fdf}; FDFPY=$PK/lib/python
 T=${T:-/tmp/claude-0/netns-targets}; rm -rf $T; mkdir -p $T/bin $T/q
 API=/FawcettInnovations.RINA.ram_interface.php; HA=10.253.253.254; RAM=$HA:8840
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
-NODES="A B q"
+NODES="A B q N"
 cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/svc.pids
             for n in $NODES; do ip netns pids $n 2>/dev/null | xargs -r kill 2>/dev/null; done; sleep 0.5
             for n in $NODES; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
@@ -43,6 +47,11 @@ mkdir -p /run/wireguard
 hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done; }
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
+# ---- the network RAM both RAM hosts are members of
+NET=198.18.0.7:8899; mkdir -p $T/N
+NS N env RINA_REGION_FILE=$T/N/net.perm RINA_NET_CONFIG=$T/N/none $T/bin/fdf-ram --listen $NET --api $API > $T/N/host.log 2>&1 &
+echo $! >> $T/svc.pids
+for i in $(seq 100); do NS N curl -s -m 1 -X POST -d '{"op":"version"}' "http://$NET$API?op=rina" > /dev/null && break; sleep 0.05; done
 # ---- two RAM hosts, each a region of its own (as fdf-region-create makes one), each with its own keys
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/$n/site-key-D; chmod 600 $T/$n/site-key-D
@@ -54,23 +63,26 @@ for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr
   svc $T/$n/hub.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env RINA_RAM=$RAM FDF_BIN=$T/bin FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area D --iface wg-D --endpoint $PUB:51820 --name hub$n --key $T/$n/wg.key --listen 51820 --facts $T/$n/facts.json --admitted $T/$n/admitted"
   for i in $(seq 100); do grep -q "start (adopt)" $T/$n/hub.log && break; sleep 0.05; done
   ORG $n init > $T/$n/org.out 2>&1; ORG $n level HQ --password --reach ram >> $T/$n/org.out 2>&1
-  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
+  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_NET_RAM=$NET FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
 done
 for n in A B; do for i in $(seq 100); do [ "$(grep -c 'listening on' $T/$n/org.log)" -ge 2 ] && break; sleep 0.1; done; done
-echo "chief-s3cret" | ORG A user HQ chief >> $T/A/org.out 2>&1          # the admin's users: on A
-echo "old-pw" | ORG B user HQ stray >> $T/B/org.out 2>&1               # a user B was given before, under B's own key
-PORTS() { ORG $1 list 2>/dev/null | awk '$1=="level" && $2=="HQ"'; }
-BPORTS=$(PORTS B)
-# ---- 1 import refused while B holds a user the export does not
-ORG A export > $T/export.line 2> $T/export.err
-ORG B import < $T/export.line > $T/B/import1.log 2>&1; RC=$?
-check $([ -s $T/export.line ] && [ $RC != 0 ] && grep -q "stray" $T/B/import1.log && echo 0 || echo 1) \
-      "1 import refused (exit $RC) while B holds a user the export does not: $(tail -1 $T/B/import1.log | cut -c1-200)"
-# ---- 2 import --replace
-ORG B import --replace < $T/export.line > $T/B/import2.log 2>&1; RC=$?
-ORG B list > $T/B/list.txt 2>&1
-check $([ $RC = 0 ] && cmp -s $T/A/org-key $T/B/org-key && ! grep -q stray $T/B/list.txt && [ "$(PORTS B)" = "$BPORTS" ] && echo 0 || echo 1) \
-      "2 import --replace (exit $RC): B's key is A's ($(cmp -s $T/A/org-key $T/B/org-key && echo same || echo DIFFERENT)), stray gone, B's ports kept: $(grep -o 'import of.*' $T/B/import2.log | cut -c1-200)"
+for i in $(seq 100); do grep -q "this host's definition of D in the network RAM" $T/A/org.log && grep -q "this host's definition of D in the network RAM" $T/B/org.log && break; sleep 0.1; done
+# ---- 1 a password set on A
+T0=$(date +%s.%N); echo "chief-s3cret" | ORG A user HQ chief >> $T/A/org.out 2>&1          # the admin's users: on A only
+for i in $(seq 200); do grep -q "adopted.*user HQ/chief (from hubA)" $T/B/org.log && break; sleep 0.05; done
+S1=$(python3 -c "print('%.1f' % ($(date +%s.%N) - $T0))")
+NETTXT=$(NS N curl -s "http://$NET$API?op=read&service=fdf-org&variable=def")
+check $(grep -q "adopted.*user HQ/chief (from hubA)" $T/B/org.log && ! echo "$NETTXT" | grep -q "chief-s3cret" && ! echo "$NETTXT" | grep -q "$(od -An -tx1 $T/A/org-key | tr -d ' \n')" && echo 0 || echo 1) \
+      "1 chief's password, set on A: B adopted it in $S1 s ($(grep -o 'adopted.*' $T/B/org.log | tail -1 | cut -c1-120)); no password, no credential key in the network RAM"
+# ---- 2 a level and a removal
+ORG A level Ops --reach ram >> $T/A/org.out 2>&1
+echo "tmp-pw" | ORG B user HQ temp >> $T/B/org.out 2>&1
+for i in $(seq 200); do grep -q "adopted.*user HQ/temp (from hubB)" $T/A/org.log && break; sleep 0.05; done
+ORG A user HQ temp --remove >> $T/A/org.out 2>&1
+for i in $(seq 200); do grep -q "adopted.*level Ops (from hubA)" $T/B/org.log && grep -q "adopted.*user HQ/temp removed (from hubA)" $T/B/org.log && break; sleep 0.05; done
+OPS() { ORG $1 list 2>/dev/null | awk '$1=="level" && $2=="Ops"'; }
+check $(grep -q "adopted.*level Ops (from hubA)" $T/B/org.log && [ -n "$(OPS B)" ] && [ "$(OPS A)" != "$(OPS B)" ] && grep -q "adopted.*user HQ/temp removed (from hubA)" $T/B/org.log && echo 0 || echo 1) \
+      "2 Ops, added on A: on B with its own ports (A: $(OPS A | cut -c1-80); B: $(OPS B | cut -c1-80)); temp, set on B, removed on A: $(grep -o 'user HQ/temp removed (from hubA)' $T/B/org.log | head -1)"
 # ---- the line: A then B
 LB=$(ORG B line HQ 2>$T/B/line.err); LINE=$(ORG A line HQ --with $LB 2>$T/A/line.err)
 NS q ip route add default via 198.18.0.254 dev v-q 2>/dev/null
