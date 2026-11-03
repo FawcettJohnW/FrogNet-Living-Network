@@ -49,7 +49,8 @@ hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFI
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done; }
 hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "rina-host" /proc/$p/cmdline 2>/dev/null && kill $p; done
              for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l rina-host /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
-ORG() { local n=$1; shift; NS $n env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n python3 $T/bin/fdf-org "$@"; }
+# (each RAM host's wireguard-go control sockets: fdf-org sees its hub there [HUB_IS_WHERE_IT_RUNS_V1])
+ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
   KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/$n/site-key-D; chmod 600 $T/$n/site-key-D
   printf 'RINA_RAM=%s\nFDF_AREA=D\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\n' $RAM $n $PUB > $T/$n/hub.env

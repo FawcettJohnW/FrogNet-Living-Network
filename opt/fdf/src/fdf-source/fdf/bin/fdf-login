@@ -6,7 +6,10 @@
 """fdf-login -- [ORG_LEVELS_V1] a device logs in at its level with the one join line its manager handed out
 (opt/fdf/docs/ORGANIZATIONS.md section 3). Linux; Windows and Android do the same in the member library.
 
-  fdf-login fdfjoin1.<...> [--nick NAME] [--node]     log in at every RAM manager the line names, in order; the
+  fdf-login fdfjoin1.<...> [--nick NAME] [--node]     log in at every RAM manager the line names that it can reach,
+                                                     in order ([LOGIN_WHERE_IT_CAN_V1]: one it cannot reach, or that
+                                                     refuses, is said and left for the next run; it fails only when
+                                                     none admits it); the
                                                      password (when the level has one) is read from stdin as
                                                      "user password" on one line. --node: with the tunnel
                                                      daemon's key, and the tunnels handed to it as the system
@@ -118,6 +121,10 @@ def save(st):
     os.replace(STATE + ".tmp", STATE)
 
 
+class Refused(Exception):
+    """[LOGIN_WHERE_IT_CAN_V1] this RAM manager did not admit the device: said, and the next one on the line is tried"""
+
+
 def at_manager(line, m, i, st, cred, nick, kind):
     own = "wg-own%d" % i
     me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
@@ -145,7 +152,7 @@ def at_manager(line, m, i, st, cred, nick, kind):
         finally:
             iface_down("wg-door")                                  # 2 the generic tunnel is gone after the one exchange
     if not ans or not ans.get("ok"):
-        die("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
+        raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
     log("door at %s: I am %s, edge %s (%s)" % (m["endpoint"], ans["name"], ans["edge"], ans["state"]))
     me.update(name=ans["name"], edge=ans["edge"], iface=own, peer=m["pubkey"], endpoint=m["endpoint"], addr=m["addr"],
               order=i, metric=100 + i)
@@ -160,7 +167,7 @@ def at_manager(line, m, i, st, cred, nick, kind):
             log("login at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
             time.sleep(1 + t)
     if not out or not out.get("ok"):
-        die("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer after %d tries" % TRIES)))
+        raise Refused("login at %s refused: %s" % (m["endpoint"], (out or {}).get("why", "no answer after %d tries" % TRIES)))
     me.update(level=out["level"], ram=out["ram"], session_port=out["session_port"], spaces=out.get("spaces", []),
               area=out.get("area", ""))
     if out.get("site_key"):
@@ -206,9 +213,10 @@ def node_files(line, st):
     in order: its hub, this node's edge there, its session), hub.json for the first (as fdf-region-join writes it),
     site.env, and join.env (the region switch). The daemon walks the list (opt/fdf/docs/ORGANIZATIONS.md section 4);
     this program's own interfaces come down."""
-    ms = sorted(st["managers"].values(), key=lambda m: m["order"])
+    ms = sorted((me for me in st["managers"].values() if me.get("ram")), key=lambda m: m["order"])
     ents = []
-    for me, m in zip(ms, line["managers"]):
+    for me in ms:                                  # [LOGIN_WHERE_IT_CAN_V1] each by its own place on the line
+        m = line["managers"][me["order"]]
         ents.append({"name": m.get("name") or me["endpoint"], "ram": me["ram"],
                      "hub": {"name": m.get("name") or me["endpoint"], "pubkey": m["pubkey"], "endpoint": m["endpoint"], "addr": m["addr"]},
                      "member": {"name": me["name"], "edge": me["edge"], "kind": "node"}})
@@ -254,13 +262,25 @@ def main():
         if len(parts) != 2:
             die("level %s has a password: give \"user password\" on stdin" % line["level"])
         cred = {"user": parts[0], "password": parts[1]}
-    for i, m in enumerate(line["managers"]):
-        at_manager(line, m, i, st, cred, nick, kind)
+    missed = []
+    for i, m in enumerate(line["managers"]):                     # [LOGIN_WHERE_IT_CAN_V1]
+        key = m["name"] or m["endpoint"]
+        try:
+            at_manager(line, m, i, st, cred, nick, kind)
+        except (Refused, OSError, subprocess.CalledProcessError) as e:
+            missed.append("%s: %s" % (m["endpoint"], e))
+            log("NOT logged in at %s (%s): %s -- left for the next run" % (key, m["endpoint"], e))
+            # (its own tunnel, when the door gave an edge, stays up as it was: restricted to the login port by the hub)
+            if not (st.get("managers", {}).get(key) or {}).get("ram"):
+                st.get("managers", {}).pop(key, None)            # no half-made entry: --up brings up only logins
         save(st)
+    done = sorted((me for me in st.get("managers", {}).values() if me.get("ram")), key=lambda me: me["order"])
+    if not done:
+        die("logged in at none of the %d RAM manager(s) on the line: %s" % (len(line["managers"]), "; ".join(missed)))
+    log("logged in at %d of %d RAM manager(s)%s" % (len(done), len(line["managers"]), "; not at: " + "; ".join(missed) if missed else ""))
     if kind == "node":
         node_files(line, st)
-    first = next(iter(st["managers"].values()))
-    print("RINA_RAM=%s" % first["ram"])
+    print("RINA_RAM=%s" % done[0]["ram"])
     return 0
 
 
