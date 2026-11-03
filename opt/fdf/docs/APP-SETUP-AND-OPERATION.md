@@ -139,7 +139,12 @@ one `host:port`; the door's identity ask goes to the region that one machine joi
 **Categories and groups.** **John:** the EOC admin app lets the admin define, tab by tab, the categories they use
 (Teams, Power, Water, Ambulance, Hospitals ...); within a category, groups that are "the equivalent of a Team, except
 for the thing they are servicing", each with designated leads, as Teams have now. "Power people can update the power
-state ... but they can't do water." **Not built** (the admin app today has one flat list of roles).
+state ... but they can't do water." **Built** for the configuration and the admin app ([CATEGORIES_V1]): a role (a
+group) carries its `category`, and the configuration the order of the `categories` (the tabs); a role from a
+configuration made before categories is in Teams. `fdf-app config ... --category NAME --role NAME[:default][@CATEGORY]`;
+the admin app has one tab per category with its groups and its users; the door's `op=roles` says each role's category
+and the order. Gate: `rangertrak-app/test/test_admin.py` step 8. What a category's people can do with its data is the
+apps' (next paragraph); the RangerTrak screens do not yet group by category.
 
 **A role's privileges are commentary, not data ownership.** **John:** sensor data is automatic and bears the app ID;
 it goes to databasehost like everything else (`metric_upsert`). A role's extra privileges apply to its own data and
