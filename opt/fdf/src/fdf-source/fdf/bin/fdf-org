@@ -27,6 +27,15 @@ is under the hub's own key.)
                                         --with: a standby's line for the same level (fdf-org line LEVEL there), added
                                         after this RAM host, in order
   fdf-org list [--json]                 spaces, levels, then admitted devices with level and state
+  fdf-org export                        [ONE_ORG_ON_EVERY_TARGET_V1] this organization's levels, spaces, users' verifiers
+                                        and the credential key, as one secret line (fdforg1.<...>) on stdout: what
+                                        another RAM host on the list needs for the same users and passwords to log in
+                                        there. Runs where the hub is (the key is the hub's).
+  fdf-org import [--replace]            that line, on stdin, at another RAM host (where its hub is): the credential key,
+                                        the users and the levels become the export's; the levels keep this host's own
+                                        ports. A user here that the export does not hold would stop verifying under
+                                        the new key: refused, unless --replace (those users are dropped, by name).
+                                        Done by hand, on each RAM host (John 2026-11-02: "It needs to be intentional").
   fdf-org revoke NAME                   NAME's peer and its reach go now
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
                                         each inside the tunnel on 10.253.253.254, and the reach rules
@@ -57,7 +66,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-02-r19"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-02-r20"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -542,6 +551,77 @@ def cmd_user(level, user):
     log("user %s at %s: password set" % (user, level))
 
 
+# ---------------------------------------------------------------- [ONE_ORG_ON_EVERY_TARGET_V1] the same users everywhere
+# (John 2026-11-02) a device is given the list of RAM hosts at initialization, makes its tunnels to them as it reaches
+# them, and logs in at any one it can reach. Each RAM host has its own generic credential (the join line carries each
+# one's), but a password is a verifier under the host's own credential key: for one user and password to log in at
+# every host, every host holds the same key and the same users. export/import carry them, by hand.
+def say(*a):                                       # export's stdout is the line itself: its log goes to stderr
+    sys.stderr.write("[ORG] %s %s\n" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)))
+
+
+def cmd_export():
+    if REMOTE:
+        die("export runs where the hub is: the credential key is the hub's own")
+    levels, spaces, users = cells("level"), cells("space"), cells("user")
+    b = {"v": 1, "org": h()["FDF_AREA"], "from": h().get("FDF_HUB_NAME", ""), "key": org_key().hex(),
+         "made": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+         "levels": {n: {k: lv[k] for k in ("password", "reach", "spaces") if k in lv} for n, lv in levels.items()},
+         "spaces": sorted(spaces), "users": users}
+    print("fdforg1." + base64.urlsafe_b64encode(json.dumps(b, separators=(",", ":")).encode()).decode().rstrip("="))
+    say("export of %s from %s: %d level(s), %d space(s), %d user(s) and the credential key -- a secret: it lets anyone "
+        "who holds it set up a RAM host these users log in to" % (b["org"], b["from"] or "?", len(levels), len(spaces), len(users)))
+
+
+def cmd_import(replace):
+    if REMOTE:
+        die("import runs where the hub is: the credential key is the hub's own")
+    tok = sys.stdin.readline().strip()
+    if not tok.startswith("fdforg1."):
+        die("not an export (fdf-org export's line, fdforg1.<...>) on stdin")
+    try:
+        b = json.loads(base64.urlsafe_b64decode(tok[8:] + "=" * (-len(tok[8:]) % 4)))
+        key = bytes.fromhex(b["key"])
+    except (ValueError, KeyError) as e:
+        die("that export does not decode: %s" % e)
+    if b.get("v") != 1 or len(key) != 32:
+        die("that export is not version 1 with a 32-byte key")
+    have = open(ORG_KEY, "rb").read() if os.path.exists(ORG_KEY) else None
+    rows = [c for c in ram().read(SVC, "user")]
+    here = {c["instance"] for c in rows}
+    lost = sorted(u for u in here if u not in b["users"]) if have != key else []
+    if lost and not replace:
+        die("user(s) %s here were set under this host's own key and are not in that export: they would stop verifying. "
+            "Export from the host that has them, or --replace to drop them here" % ", ".join(lost))
+    old = os.umask(0o077)
+    try:
+        open(ORG_KEY + ".tmp", "wb").write(key)
+    finally:
+        os.umask(old)
+    os.replace(ORG_KEY + ".tmp", ORG_KEY)
+    for n in b.get("spaces", []):
+        if n not in cells("space"):
+            cmd_space(n)
+    used = used_ports()
+    for n, want in b.get("levels", {}).items():
+        lv = dict(cells("level").get(n) or {})
+        lv.update(want)
+        for k in ("login_port", "session_port"):                     # this host's own ports, kept or made here
+            if k not in lv:
+                lv[k] = random_port(used); used.add(lv[k])
+        put("level", n, lv)
+    for u, bag in b.get("users", {}).items():
+        put("user", u, bag)
+    for c in rows:                                                   # --replace: the users the export does not hold
+        if c["instance"] in lost:
+            ram().remove(c["id"])
+    apply_reach("import from %s" % (b.get("from") or "?"))
+    log("import of %s from %s (made %s): credential key %s, %d level(s) (%s), %d user(s)%s" % (
+        b.get("org", "?"), b.get("from") or "?", b.get("made", "?"), "kept (the same)" if have == key else "replaced",
+        len(b.get("levels", {})), ", ".join(sorted(b.get("levels", {}))), len(b.get("users", {})),
+        "; dropped here: " + ", ".join(lost) if lost else ""))
+
+
 def decode_line(tok):
     if not tok.startswith("fdfjoin1."):
         die("not a join line: %s..." % tok[:12])
@@ -651,6 +731,8 @@ def main():
     elif c == "line" and len(a) >= 2: cmd_line(a[1], [a[i + 1] for i in range(2, len(a) - 1) if a[i] == "--with"])
     elif c == "list": cmd_list("--json" in a)
     elif c == "revoke" and len(a) == 2: cmd_revoke(a[1])
+    elif c == "export" and len(a) == 1: cmd_export()
+    elif c == "import" and len(a) in (1, 2) and a[1:] in ([], ["--replace"]): cmd_import("--replace" in a)
     elif c == "serve": serve()
     else: die(__doc__.split("Where things")[0].strip(), 2)
     return 0
