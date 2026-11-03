@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-02-r5';
+const DOOR_BUILD = 'dc-door-2026-11-03-r6';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -247,8 +247,14 @@ if ($op === 'read') {
     }
     if ($best === null) fail(503, "no configuration of $app in the network RAM yet: no droplet of it has written its own");
     if ($op === 'roles') {
-        $roles = []; foreach (($best['roles'] ?? []) as $r => $x) $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true)];
-        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
+        // [CATEGORIES_V1] each role (a group) says its category; `categories` is the admin's order of them (the tabs, the map's layers)
+        $roles = []; $cats = array_values(array_filter($best['categories'] ?? [], 'is_string'));
+        foreach (($best['roles'] ?? []) as $r => $x) {
+            $c = (is_string($x['category'] ?? null) && $x['category'] !== '') ? $x['category'] : 'Teams';
+            if (!in_array($c, $cats, true)) $cats[] = $c;
+            $roles[$r] = ['default' => !empty($x['default']), 'ram' => in_array($r, $best['rams'] ?? [], true), 'category' => $c];
+        }
+        echo json_encode(['ok' => true, 'door' => DOOR_BUILD, 'roles' => $roles, 'categories' => $cats, 'rams' => $best['rams'] ?? [], 'served' => $served, 'login' => !empty($best['login']), 'seq' => intval($best['seq'] ?? 0)], JSON_UNESCAPED_SLASHES);
         exit;
     }
     $applied = [];

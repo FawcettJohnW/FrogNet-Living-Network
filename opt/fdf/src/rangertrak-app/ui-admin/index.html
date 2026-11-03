@@ -36,6 +36,10 @@ td { padding: 7px 6px; border-bottom: 1px solid #1f2a24; vertical-align: middle;
 .add { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; } .add input[type=text] { flex: 1; }
 .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: #20302a; color: var(--mu); margin-left: 6px; }
 .pill.team { background: #173a28; color: #8fe0ad; }
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; border-bottom: 1px solid var(--bd); padding-bottom: 8px; }
+.tabs button { border-radius: 999px; padding: 6px 14px; } .tabs button.on { background: var(--ac); color: #0b2420; font-weight: 700; }
+.tabs .n { font-size: 12px; opacity: .75; margin-left: 4px; } .tabs .x { margin-left: 2px; padding: 6px 9px; }
+section h3 { margin: 12px 0 4px; font-size: 15px; }
 .opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #1f2a24; } .opt:last-child { border: 0; }
 .opt b { display: block; } .opt span { color: var(--mu); font-size: 13px; }
 #qr { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-content: center; z-index: 10; }
@@ -64,21 +68,22 @@ footer #changes { flex: 1; color: var(--mu); min-width: 200px; } footer #changes
     <button id="reload" type="button">Reload from the network</button></header>
   <div id="status"></div>
   <main>
-    <section>
-      <h2>Teams and roles</h2>
-      <p class="why">A role is what a client opens on. A <b>team</b> has its own RAM (its chat and its members' data);
-        a role that clients may take <b>with no login</b> is a default screen (Team vs EOC). Others are activated at a user's login.</p>
-      <table><thead><tr><th>Name</th><th class="c">Team (own RAM)</th><th class="c">No login</th><th></th></tr></thead><tbody id="roles"></tbody></table>
-      <div class="add"><input type="text" id="newRole" placeholder="new team or role, e.g. echo or hospitals"><label class="mu"><input type="checkbox" id="newTeam" checked> team</label>
-        <label class="mu"><input type="checkbox" id="newDef" checked> no login</label><button type="button" id="addRole">Add</button></div>
-    </section>
-    <section>
-      <h2>Users</h2>
-      <p class="why">Each user is assigned a role, activated when they log in. A password is kept only as a verifier, made on this computer;
-        leave it blank to keep the one they have. A user who <b>leads</b> its team signs up its own members from its phone.
-        <b>QR</b> shows the user's enrollment code: they scan it with the app and type their password, and the phone joins.</p>
-      <table><thead><tr><th>User</th><th>Role</th><th class="c">Leads</th><th>New password</th><th></th><th></th></tr></thead><tbody id="users"></tbody></table>
-      <div class="add"><input type="text" id="newUser" placeholder="new user, e.g. EOCAdmin2"><button type="button" id="addUser">Add</button></div>
+    <section class="wide">
+      <h2>Categories and groups</h2><!-- [CATEGORIES_V1] -->
+      <p class="why">One tab per category the event uses (Teams, Power, Water, Ambulance, Hospitals ...). In a
+        category, each <b>group</b> is the equivalent of a team, for the thing it services, with its own RAM (its chat and
+        its members' data) when ticked; a group clients may take <b>with no login</b> is a default screen. Its users are below,
+        each with a role activated when they log in; a user who <b>leads</b> its group signs up its own members from its device.</p>
+      <div class="tabs" id="tabs"></div>
+      <div class="add"><input type="text" id="newCat" placeholder="new category, e.g. Power"><button type="button" id="addCat">Add category</button></div>
+      <h3 id="tabTitle"></h3>
+      <table><thead><tr><th>Group</th><th class="c">Own RAM</th><th class="c">No login</th><th></th></tr></thead><tbody id="roles"></tbody></table>
+      <div class="add"><input type="text" id="newRole" placeholder="new group in this category, e.g. echo or crew1"><label class="mu"><input type="checkbox" id="newTeam" checked> own RAM</label>
+        <label class="mu"><input type="checkbox" id="newDef" checked> no login</label><button type="button" id="addRole">Add group</button></div>
+      <p class="why" style="margin-top:14px">A password is kept only as a verifier, made on this computer; leave it blank to keep the one they have.
+        <b>QR</b> shows the user's enrollment code: they scan it with the app and type their password, and the device joins.</p>
+      <table><thead><tr><th>User</th><th>Group</th><th class="c">Leads</th><th>New password</th><th></th><th></th></tr></thead><tbody id="users"></tbody></table>
+      <div class="add"><input type="text" id="newUser" placeholder="new user in this category, e.g. KJ7ABC"><button type="button" id="addUser">Add user</button></div>
     </section>
     <section>
       <h2>Behaviour</h2>

@@ -51,7 +51,7 @@ import java.util.Map;
  */
 public final class AdminCore {
     public interface Ui { void deliver(String json); }
-    public static final String BUILD = "rt-admin-2026-11-02-r4";
+    public static final String BUILD = "rt-admin-2026-11-03-r5";
 
     private final Ui ui;
     private volatile String door = "", app = "", user = "";
@@ -200,7 +200,7 @@ public final class AdminCore {
     public void close() { stopWatch(); }
 
     // ------------------------------------------------------------------ [ASSIGNMENTS_SAVE_V1] save and restore, by hand
-    private static final String[] KEPT = { "rams", "partition", "login", "roles", "users" };
+    private static final String[] KEPT = { "rams", "partition", "login", "roles", "categories", "users" };
     private void save() throws Exception {
         if (key == null) throw new Exception("not connected as the admin");
         if (!saves.isDirectory() && !saves.mkdirs()) throw new Exception("cannot make " + saves);
@@ -239,17 +239,25 @@ public final class AdminCore {
         say("loaded " + name + " (configuration " + (long) Json.num(s.get("seq")) + "): review it, then Apply sends it to the members");
     }
 
+    static boolean catOk(String c) { return c.length() > 0 && c.length() <= 40 && c.trim().equals(c) && c.matches("[A-Za-z0-9 _-]+"); }
+
     private void apply(Map<String, Object> m) throws Exception {
         if (key == null) throw new Exception("not connected as the admin");
         Map<String, Object> want = Json.obj(m.get("config")), pws = Json.obj(m.get("passwords"));
         List<Object> rams = new ArrayList<Object>();
         for (Object r : Json.arr(want.get("rams"))) { String s = Json.str(r).trim().toLowerCase(); if (!s.isEmpty() && !rams.contains(s)) rams.add(s); }
         if (!rams.contains("general")) rams.add(0, "general");
+        // [CATEGORIES_V1] a role is a group in a category (a tab); the categories' order is the tabs'
+        List<Object> cats = new ArrayList<Object>();
+        for (Object c : Json.arr(want.get("categories"))) { String n = Json.str(c); if (!catOk(n)) throw new Exception("category '" + n + "': letters, digits, space, _ and -, at most 40"); if (!cats.contains(n)) cats.add(n); }
         Map<String, Object> roles = new LinkedHashMap<String, Object>();
         for (Map.Entry<String, Object> e : Json.obj(want.get("roles")).entrySet()) {
             String r = e.getKey().trim();
             if (!r.matches("[A-Za-z0-9_-]{1,40}") || r.equals("general")) throw new Exception("role '" + r + "': letters, digits, _ and - (not 'general')");
-            roles.put(r, Json.o("default", Json.bool(Json.obj(e.getValue()).get("default"))));
+            String cat = Json.str(Json.obj(e.getValue()).get("category")); if (cat.isEmpty()) cat = "Teams";
+            if (!catOk(cat)) throw new Exception("role '" + r + "': category '" + cat + "': letters, digits, space, _ and -, at most 40");
+            if (!cats.contains(cat)) cats.add(cat);
+            roles.put(r, Json.o("default", Json.bool(Json.obj(e.getValue()).get("default")), "category", cat));
         }
         Map<String, Object> was = Json.obj(current.get("users")), users = new LinkedHashMap<String, Object>();
         for (Map.Entry<String, Object> e : Json.obj(want.get("users")).entrySet()) {
@@ -261,7 +269,7 @@ public final class AdminCore {
             users.put(u, Json.o("role", role, "verifier", v, "lead", Json.bool(Json.obj(e.getValue()).get("lead"))));   // [ENROLL_V1]
         }
         String part = Json.str(want.get("partition")); if (!part.equals("fail")) part = "relocate";
-        String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "users", users));
+        String text = Json.write(Json.o("rams", rams, "partition", part, "login", Json.bool(want.get("login")), "roles", roles, "categories", cats, "users", users));
         long seq = Math.max(System.currentTimeMillis(), (long) Json.num(current.get("seq")) + 1);
         door("op=admin&app=" + URLEncoder.encode(app, "UTF-8"),
              Json.write(Json.o("config", text, "seq", seq, "user", user, "mac", hmac(key, text + "\n" + seq))), 10000);

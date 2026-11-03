@@ -20,6 +20,10 @@
 #   6 [FROG_QR_V1] kim's QR on the admin's screen reads, by the phone scanner's zxing, as kim's enrollment line
 #   7 [ASSIGNMENTS_SAVE_V1] Save writes the assignments (verifiers, no password) to a file; kim is removed and applied;
 #     Restore loads the file as an edit, Apply sends it: kim is back as echo's lead and logs in with the old password
+#   8 [CATEGORIES_V1] the roles of a configuration made before categories are on the Teams tab; the admin adds the
+#     category Power, its group crew1 (own RAM) and its lead pat, and applies: the Power tab shows crew1 and pat, Teams
+#     does not; every member with the admin key adopts it; the door's op=roles says crew1 is in Power and the tabs'
+#     order (Teams, Power); pat logs in at the door as crew1
 import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
 from urllib.request import urlopen, Request
 from playwright.sync_api import sync_playwright
@@ -160,6 +164,29 @@ try:
         check(bool(sv) and '"kim"' in saved and "verifier" in saved and "kim-2026" not in saved and gone and back and len(back) == 2 and lg7.get("role") == "echo",
               "7 saved %s (kim's verifier, no password); kim removed on every member: %s; restored ('%s') and applied: %d members say kim leads; kim logs in as %s"
               % (sv, bool(gone), chg7[:70], len(back or []), lg7.get("role") or lg7.get("why")))
+        # 8 categories: Power, its group crew1 and its lead pat
+        pg.wait_for_function("document.querySelector('#changes').textContent.indexOf('adopted by 2') >= 0", timeout=20000)
+        tabs0 = pg.evaluate("[...document.querySelectorAll('#tabs button[data-tab]')].map(b=>b.dataset.tab)")
+        pg.fill("#newCat", "Power"); pg.click("#addCat")
+        pg.fill("#newRole", "crew1"); pg.click("#addRole")
+        pg.fill("#newUser", "pat"); pg.click("#addUser"); pg.fill("[data-pw=pat]", "pat-2026"); pg.check("[data-lead=pat]")
+        power_roles = pg.evaluate("[...document.querySelectorAll('#roles tr td:first-child b')].map(b=>b.textContent)")
+        power_users = pg.evaluate("[...document.querySelectorAll('#users tr td:first-child b')].map(b=>b.textContent)")
+        chg8 = pg.inner_text("#changes"); pg.click("#apply")
+        def crew1_everywhere():
+            l = [c for c in rm.read("fdf-app", "config") if (c["bag"].get("roles", {}).get("crew1") or {}).get("category") == "Power"
+                 and (c["bag"].get("users", {}).get("pat") or {}).get("lead")]
+            return l if len(l) == 2 else None
+        adopted8 = wait_for(crew1_everywhere, 20)
+        pg.click("[data-tab=Teams]")
+        teams_roles = pg.evaluate("[...document.querySelectorAll('#roles tr td:first-child b')].map(b=>b.textContent)")
+        ro8 = door("op=roles&app=rangertrak"); lg8 = door("op=login&app=rangertrak", {"user": "pat", "password": "pat-2026"})
+        if SHOTS: pg.click("[data-tab=Power]"); pg.screenshot(path=os.path.join(SHOTS, "admin-power.png"), full_page=True) if SHOTS else None
+        check(tabs0 == ["Teams"] and power_roles == ["crew1"] and power_users == ["pat"] and "crew1" not in teams_roles and bool(adopted8)
+              and (ro8.get("roles", {}).get("crew1") or {}).get("category") == "Power" and ro8.get("categories") == ["Teams", "Power"]
+              and (ro8.get("roles", {}).get("echo") or {}).get("category") == "Teams" and lg8.get("role") == "crew1",
+              "8 tabs before %s; '%s'; the Power tab: groups %s, users %s; Teams: %s; %d members adopted; op=roles crew1 %s, categories %s; pat logs in as %s"
+              % (tabs0, chg8[:90], power_roles, power_users, teams_roles, len(adopted8 or []), ro8.get("roles", {}).get("crew1"), ro8.get("categories"), lg8.get("role") or lg8.get("why")))
         br.close()
 finally:
     for p in procs: p.terminate()

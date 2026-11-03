@@ -18,7 +18,10 @@
 ################################################################
 """fdf-app -- [APP_DROPLET_V1] an app's RAMs, each served by a droplet on a member (opt/fdf/docs/APP-SETUP-AND-OPERATION.md).
 
-  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--role NAME[:default]]... [--user USER:PASSWORD=ROLE[+lead]]...
+  fdf-app config APP RAM[,RAM...] [--partition relocate|fail] [--login] [--category NAME]... [--role NAME[:default][@CATEGORY]]...
+                 [--user USER:PASSWORD=ROLE[+lead]]...
+        [CATEGORIES_V1] a role is a group in a category (the admin app's tabs: Teams, Power, Water ...); --category gives
+        the tabs' order; a role with no @CATEGORY is in Teams.
         what the admin's install writes on each member it installs the app on: the droplet's configuration,
         FDF_APPS/<app>.json, naming the app's RAMs (the general RAM and one per team) and its partition behaviour. The
         droplet owns it: serve writes it into the network RAM as this droplet's configuration tuple,
@@ -102,6 +105,37 @@ def verifier(pw):
     salt = os.urandom(16)
     return {"kdf": "pbkdf2-sha256", "n": 200000, "salt": salt.hex(),
             "hash": hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200000).hex()}
+
+
+# [CATEGORIES_V1] (John 2026-11-02) the EOC admin defines, tab by tab, the categories the event uses (Teams, Power, Water,
+# Ambulance, Hospitals ...); within a category, groups that are "the equivalent of a Team, except for the thing they are
+# servicing", with their leads. A group is a role; its category is the tab it is on. A role from a configuration made
+# before categories is in Teams. The order of `categories` is the order of the tabs.
+DEFAULT_CATEGORY = "Teams"
+def category_ok(c):
+    return isinstance(c, str) and 0 < len(c) <= 40 and all(ch.isalnum() or ch in " _-" for ch in c) and c.strip() == c
+
+
+def categorize(roles_in, cats_in):
+    """(roles {name: {default, category}}, categories [ordered]) from what was given: every role's category is one of
+    the categories (a category a role names and the list lacks is added after the listed ones, in role order)"""
+    cats = []
+    for c in cats_in or []:
+        if not category_ok(c):
+            raise ValueError("category %r: letters, digits, space, _ and -, at most 40" % (c,))
+        if c not in cats:
+            cats.append(c)
+    roles = {}
+    for k, v in (roles_in or {}).items():
+        if not (isinstance(k, str) and k and k != "general" and all(ch.isalnum() or ch in "_-" for ch in k)):
+            continue
+        cat = (v or {}).get("category") or DEFAULT_CATEGORY
+        if not category_ok(cat):
+            raise ValueError("role %s: category %r: letters, digits, space, _ and -, at most 40" % (k, cat))
+        if cat not in cats:
+            cats.append(cat)
+        roles[k] = {"default": bool((v or {}).get("default")), "category": cat}
+    return roles, cats
 
 
 def admin_salt(app, user):
@@ -223,7 +257,8 @@ class Server:
         for a, c in self.installed().items():
             self.rm.write(SVC, "config", "%s.%s" % (a, self.me),       # [APP_ACCESS_V1] the access definition, verifiers only
                           {"app": a, "rams": list(c.get("rams") or []), "partition": c.get("partition", ""), "guid": self.me,
-                           "login": bool(c.get("login")), "roles": c.get("roles") or {}, "users": c.get("users") or {},
+                           "login": bool(c.get("login")), "roles": categorize(c.get("roles"), c.get("categories"))[0],
+                           "categories": categorize(c.get("roles"), c.get("categories"))[1], "users": c.get("users") or {},
                            "admin": admin_public(c), "seq": int(c.get("seq") or 0), "member": self.f.get("name") or "", "addr": dot1(self.f)})
             self.rm.write(SVC, "can", "%s.%s" % (a, self.me),
                           {"guid": self.me, "mem_total_kb": cap.get("mem_total_kb", 0), "cores": cap.get("cores", 0)})
@@ -253,8 +288,7 @@ class Server:
                 try:
                     n = json.loads(text)
                     rams = [r for r in n.get("rams") or [] if isinstance(r, str) and r]
-                    roles = {k: {"default": bool((v or {}).get("default"))} for k, v in (n.get("roles") or {}).items()
-                             if isinstance(k, str) and k and k != "general" and all(ch.isalnum() or ch in "_-" for ch in k)}
+                    roles, cats = categorize(n.get("roles"), n.get("categories"))      # [CATEGORIES_V1]
                     users = {}
                     for u, v in (n.get("users") or {}).items():
                         ver = (v or {}).get("verifier") or {}
@@ -265,14 +299,14 @@ class Server:
                     part = n.get("partition", "relocate")
                     if "general" not in rams or part not in ("relocate", "fail"):
                         raise ValueError("the RAMs must include general; partition relocate or fail")
-                    new = dict(c, rams=rams, partition=part, login=bool(n.get("login")), roles=roles, users=users, seq=seq)
+                    new = dict(c, rams=rams, partition=part, login=bool(n.get("login")), roles=roles, categories=cats, users=users, seq=seq)
                     p = os.path.join(APPS, a + ".json")
                     with open(p + ".tmp", "w") as f:
                         json.dump(new, f)
                     os.chmod(p + ".tmp", 0o600)
                     os.replace(p + ".tmp", p)
                     changed = True
-                    log("%s: the admin's configuration %d adopted (RAMs %s; roles %s; %d users)" % (a, seq, ",".join(rams), ",".join(roles), len(users)))
+                    log("%s: the admin's configuration %d adopted (RAMs %s; categories %s; roles %s; %d users)" % (a, seq, ",".join(rams), ",".join(cats), ",".join("%s@%s" % (r, x["category"]) for r, x in roles.items()), len(users)))
                 except (ValueError, TypeError, AttributeError) as e:
                     why = "not adopted: %s" % e
             if why:
@@ -433,11 +467,16 @@ def main(argv):
             old = {}
         ok_name = lambda x: bool(x) and x != "general" and all(ch.isalnum() or ch in "_-" for ch in x)
         roles, users = {}, {}
-        for t in opt("--role"):                       # NAME[:default]
+        for t in opt("--role"):                       # NAME[:default][@CATEGORY]   [CATEGORIES_V1]
+            t, _, cat = t.partition("@")
             name, _, flag = t.partition(":")
-            if not ok_name(name) or flag not in ("", "default"):
-                print("fdf-app: --role NAME[:default], NAME letters, digits, _ and - (not 'general')"); return 2
-            roles[name] = {"default": flag == "default"}
+            if not ok_name(name) or flag not in ("", "default") or (cat and not category_ok(cat)):
+                print("fdf-app: --role NAME[:default][@CATEGORY], NAME letters, digits, _ and - (not 'general'); CATEGORY letters, digits, space, _ and -"); return 2
+            roles[name] = {"default": flag == "default", "category": cat or DEFAULT_CATEGORY}
+        try:
+            roles, cats = categorize(roles, opt("--category"))
+        except ValueError as e:
+            print("fdf-app: %s" % e); return 2
         for u in opt("--user"):                       # USER:PASSWORD=ROLE[+lead]
             who, _, rest = u.partition(":")
             pw, _, role = rest.rpartition("=")
@@ -454,7 +493,7 @@ def main(argv):
             admin = {"user": who, "salt": admin_salt(argv[2], who).hex(), "n": ADMIN_N, "key": k.hex(), "check": admin_check(k)}
         # seq: this line is newer than any configuration the admin app wrote before it (that one is not adopted again)
         with open(p + ".tmp", "w") as f:
-            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "users": users,
+            json.dump({"app": argv[2], "rams": rams, "partition": part, "login": "--login" in argv, "roles": roles, "categories": cats, "users": users,
                        "admin": admin, "seq": int(time.time() * 1000)}, f)
         os.chmod(p + ".tmp", 0o600)
         os.replace(p + ".tmp", p)
