@@ -293,8 +293,13 @@ says it from the next binary build.
 2. (Answered by [GROUP_PLACE_V1]: a group that must outlive its lead's device is placed on databasehost.)
 3. Help requests and log entries written on an island during a split stay there: the app has to send its own
    unacknowledged reports up on reconnect.
-4. Revoking a lost device acts on one host (`fdf-org revoke`); it has to reach every target (the organization's
-   definition, [ORG_OWNED_V1], could carry it as it carries a user's removal: not built).
+4. (Built, [REVOKED_EVERYWHERE_V1], 2026-11-03.) `fdf-org revoke d-<key hash>` (the name `fdf-org list` shows), run
+   anywhere the region's RAM is reached, revokes the device for the organization: a permanent `(fdf-org, revoked,
+   NAME)` cell, carried in the organization's definition in the network RAM. Every RAM host adopts it on its event,
+   removes the admission (the hub drops the peer at once) and rebuilds its reach; every door refuses that key from then
+   on, so the device needs a new key. Across a split it takes effect at the merge. There is no un-revoke.
+   netns-targets check 5: revoked on A, gone at B in 0.1 s, refused at both doors; the r23 `fdf-org` fails it (B kept
+   the peer, and the same key logged in again).
 5. The open public level needs a per-device rate limit at admission.
 6. Scheduled actions (an actuator run) live in a role's RAM and move with its holder: hold them where they run, or make
    running twice harmless.

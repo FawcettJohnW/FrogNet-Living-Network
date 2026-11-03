@@ -18,7 +18,9 @@
 #   2  a level added on A (Ops): B adopts it with ports of its own; temp, set on B and removed on A: removed on B too
 #   3  A unreachable: q logs in with chief's password (set on A only) at B; A is said and left for the next run
 #   4  A back: the same line logs q in at both
-#   5  a wrong password: refused at both, and fdf-login fails saying so
+#   5  [REVOKED_EVERYWHERE_V1] q revoked on A (where it is admitted, as at B): B adopts the revocation, drops q's
+#      admission and its WireGuard peer, and both doors refuse q's key when it logs in again
+#   6  a wrong password (a new key): refused at both, and fdf-login fails saying so
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-targets-test.sh [RINAB_DIR]
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "$1" ] && H=$1
 B=$H/build/static; PK=${PKG_FDF:-$H/../fdf}; FDFPY=$PK/lib/python
@@ -100,10 +102,23 @@ ip link set v-A-b up; sleep 1
 echo "chief chief-s3cret" | DEV q python3 -u $T/bin/fdf-login "$LINE" > $T/q/login4.log 2>&1; RC=$?
 check $([ $RC = 0 ] && grep -q "logged in at 2 of 2" $T/q/login4.log && echo 0 || echo 1) \
       "4 A back: q logged in at both (exit $RC): $(grep -E 'logged in at [0-9]' $T/q/login4.log | sed 's/^\[LOGIN\] [0-9:]* //')"
-# ---- 5 a wrong password
+# ---- 5 q revoked on A: gone at B too, and refused at both doors
+QN=$(python3 -c "import json;print(json.load(open('$T/q/login.json'))['managers'][next(iter(json.load(open('$T/q/login.json'))['managers']))]['name'])" 2>/dev/null)
+QPUB=$(python3 -c "import json;print(json.load(open('$T/q/login.json'))['pubkey'])" 2>/dev/null)
+WGP() { NS $1 sh -c "mount --bind $T/$1/run-wg /run/wireguard && exec wg show wg-D peers"; }   # wireguard-go's socket is per node
+B_BEFORE=$([ -f $T/B/admitted/$QN.json ] && WGP B | grep -qF "$QPUB" && echo yes || echo no)
+T0=$(date +%s.%N); ORG A revoke "$QN" >> $T/A/org.out 2>&1
+for i in $(seq 200); do grep -q "REVOKED.*$QN" $T/B/org.log && [ ! -f $T/B/admitted/$QN.json ] && break; sleep 0.05; done
+S5=$(python3 -c "print('%.1f' % ($(date +%s.%N) - $T0))"); sleep 0.5
+B_PEER=$(WGP B | grep -qF "$QPUB" && echo still || echo gone); A_PEER=$(WGP A | grep -qF "$QPUB" && echo still || echo gone)
+for i in 0 1; do NS q ip link del wg-own$i 2>/dev/null; done
+echo "chief chief-s3cret" | DEV q python3 -u $T/bin/fdf-login "$LINE" > $T/q/login5.log 2>&1; RC=$?
+check $([ -n "$QN" ] && [ $B_BEFORE = yes ] && [ ! -f $T/A/admitted/$QN.json ] && [ ! -f $T/B/admitted/$QN.json ] && [ $A_PEER = gone ] && [ $B_PEER = gone ] && [ $RC != 0 ] && [ "$(grep -c 'revoked' $T/q/login5.log)" -ge 2 ] && grep -q "DOOR: $QN is revoked" $T/B/org.log && echo 0 || echo 1) \
+      "5 q ($QN) revoked on A: B adopted it in $S5 s ($(grep -o "REVOKED.*" $T/B/org.log | head -1 | cut -c1-100)); peer at A $A_PEER, at B $B_PEER (before at B: $B_BEFORE); logging in again with that key: exit $RC, $(grep -c revoked $T/q/login5.log) door(s) said revoked"
+# ---- 6 a wrong password
 rm -f $T/q/login.json; for i in 0 1; do NS q ip link del wg-own$i 2>/dev/null; done
-echo "chief wrong" | DEV q python3 -u $T/bin/fdf-login "$LINE" > $T/q/login5.log 2>&1; RC=$?
-check $([ $RC != 0 ] && grep -q "logged in at none of the 2" $T/q/login5.log && [ "$(grep -c 'wrong user or password' $T/q/login5.log)" -ge 2 ] && echo 0 || echo 1) \
-      "5 a wrong password: refused at both, fdf-login fails (exit $RC): $(grep -o 'logged in at none.*' $T/q/login5.log | cut -c1-200)"
+echo "chief wrong" | DEV q python3 -u $T/bin/fdf-login "$LINE" > $T/q/login6.log 2>&1; RC=$?
+check $([ $RC != 0 ] && grep -q "logged in at none of the 2" $T/q/login6.log && [ "$(grep -c 'wrong user or password' $T/q/login6.log)" -ge 2 ] && echo 0 || echo 1) \
+      "6 a wrong password (a new key): refused at both, fdf-login fails (exit $RC): $(grep -o 'logged in at none.*' $T/q/login6.log | cut -c1-200)"
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS

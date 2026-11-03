@@ -451,6 +451,9 @@ master secret on every LAN service. The fnid is public (`frognet_reset.sh`: "/et
 **Revocation and expiry.**
 
 - A revocation is a newer signed version, and it spreads as a fact.
+- As built ([REVOKED_EVERYWHERE_V1], 2026-11-03): `fdf-org revoke NAME` writes `(fdf-org, revoked, NAME)`, which every
+  RAM host of the organization adopts from the definitions in the network RAM ([ORG_OWNED_V1]); each drops the
+  admission and peer, and its door refuses the key. See APP-SETUP-AND-OPERATION.md, open item 4.
 - Inside the partition where it was made, it takes effect at once; elsewhere, at the merge.
 - A record issued before a split stays good on the other side until it expires. The expiry length is the admin's
   trade-off.

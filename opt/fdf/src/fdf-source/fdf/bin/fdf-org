@@ -31,14 +31,18 @@ is under the hub's own key.)
   (the same organization on every RAM host: [ORG_OWNED_V1] each writes its definition -- levels, users' verifiers --
    into the network RAM, FDF_NET_RAM or this machine's join.env, and adopts the others' newest: nothing by hand. It
    replaces `fdf-org export` / `import`.)
-  fdf-org revoke NAME                   NAME's peer and its reach go now
+  fdf-org revoke NAME                   [REVOKED_EVERYWHERE_V1] NAME (a device's d-<key hash>, from fdf-org list) is
+                                        revoked for the organization: its peer and its reach go now here and at every
+                                        RAM host of the organization as it adopts the revocation; its key is refused
+                                        at every door from then on (the device needs a new key). Run anywhere the
+                                        region's RAM is reached. Gone is gone: there is no un-revoke.
   fdf-org serve                         the credential manager (fdf-org.service): the door and every level's login port,
                                         each inside the tunnel on the hub's address (hub.env FDF_HUB_ADDR: 10.253.A.B
                                         on a node serving 10.A.B.0/24, else 10.253.253.254), and the reach rules
 
 Where things live (what survives a restart, ORGANIZATIONS.md section 1):
-  levels, users, the door,      permanent cells (fdf-org, level|user|door|space, ...) in this region's RAM
-  the spaces
+  levels, users, the door,      permanent cells (fdf-org, level|user|door|space|revoked, ...) in this region's RAM
+  the spaces, revocations
   admissions                    /opt/fdf/hub/admitted/NAME.json, as fdf-invite writes them, plus level and state
   the credential key            /opt/fdf/var/org-key (the generic credential's door; a user set before [ORG_OWNED_V1] has
                                 HMAC-SHA256(key, scrypt(password, salt)), which checks here only)
@@ -65,7 +69,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-03-r23"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-03-r24"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -315,10 +319,11 @@ def door_ask(src, ask):
     except ValueError:
         return {"ok": False, "why": "pubkey is not a WireGuard public key"}
     name = "d-" + hashlib.sha256(pub.encode()).hexdigest()[:12]   # [NAME_FROM_KEY_V1] nobody can claim another's device
+    if name in cells("revoked"):                                  # [REVOKED_EVERYWHERE_V1] here or at any RAM host
+        log("DOOR: %s is revoked: refused" % name)
+        return {"ok": False, "why": "this device was revoked; it needs a new key"}
     adm = admitted()
     old = adm.get(name)
-    if old and old.get("state") == "revoked":
-        return {"ok": False, "why": "this device was revoked; it needs a new key"}
     # [ONE_LEVEL_PER_HOST_V1] (John 2026-11-03: "a single machine can only have one level to any given host") a device
     # holds one level here. From an open level (no password) to a password level is the upgrade: allowed, and the
     # device is restricted until that level's login checks the password (before this, the record took the new level
@@ -521,6 +526,7 @@ def serve():
         log("this host's capability in the region's RAM (%s)" % ", ".join("%s=%s" % (k, c[k]) for k in ("name", "guid", "mem_total_kb", "cores") if k in c))
     except fdfram.RamError as e:
         log("this host's capability was not written to the region's RAM (%s); it is when serve next starts" % e)
+    enforce_revoked("start")
     apply_reach("start")
     threading.Thread(target=org_sync, name="org-sync", daemon=True).start()   # [ORG_OWNED_V1]
     started = set()
@@ -538,12 +544,14 @@ def serve():
         changed = ram().read(SVC, after=last, wait_s=fdfram.HOLD_S)  # held: returns when a level or user is written
         if changed:
             last = max(c["id"] for c in changed)
+            if any(c.get("variable") == "revoked" for c in changed):
+                enforce_revoked("a revocation")                      # [REVOKED_EVERYWHERE_V1]
             apply_reach("cells changed")
-            if any(c.get("variable") in ("level", "user") for c in changed):   # [ORG_OWNED_V1] its definition again
+            if any(c.get("variable") in ("level", "user", "revoked") for c in changed):   # [ORG_OWNED_V1] its definition again
                 net = net_ram()
                 if net is not None:
                     try:
-                        publish_def(net, "a level or user changed")
+                        publish_def(net, "a level, user or revocation changed")
                     except fdfram.RamError as e:
                         log("ORG: the definition was not written to the network RAM (%s); org_sync writes it when that RAM is back" % e)
 
@@ -677,7 +685,9 @@ def own_def():
             users[k] = {x: u[x] for x in ("kdf", "n", "salt", "hash", "removed", "seq") if x in u}
         else:
             local_only.append(k)
-    return {"org": h()["FDF_AREA"], "host": h().get("FDF_HUB_NAME", ""), "levels": levels, "users": users, "at": int(time.time())}, local_only
+    revoked = {n: {k: r[k] for k in ("pubkey", "seq") if k in r} for n, r in cells("revoked").items()}   # [REVOKED_EVERYWHERE_V1]
+    return {"org": h()["FDF_AREA"], "host": h().get("FDF_HUB_NAME", ""), "levels": levels, "users": users, "revoked": revoked,
+            "at": int(time.time())}, local_only
 
 
 def adopt_def(defs):
@@ -710,8 +720,15 @@ def adopt_def(defs):
         if int(u.get("seq") or 0) <= int((mine_u.get(k) or {}).get("seq") or 0):
             continue
         put("user", k, u); changed.append(("user %s removed" if u.get("removed") else "user %s") % k + " (from %s)" % by)
+    mine_r = cells("revoked")                                        # [REVOKED_EVERYWHERE_V1] a revocation is never undone
+    for d in defs:
+        for n, r in (d.get("revoked") or {}).items():
+            if n not in mine_r:
+                put("revoked", n, dict(r, by=d.get("host", "?"))); mine_r[n] = r
+                changed.append("device %s REVOKED (from %s)" % (n, d.get("host", "?")))
     if changed:
         log("ORG: [ORG_OWNED_V1] adopted from the organization's other RAM hosts: %s" % "; ".join(changed))
+        enforce_revoked("the organization's definition")
         apply_reach("the organization's definition")
     return changed
 
@@ -720,8 +737,8 @@ def publish_def(net, why):
     org, me = h()["FDF_AREA"], h().get("FDF_HUB_NAME", "") or socket.gethostname()
     d, local_only = own_def()
     net.write(SVC, "def", "%s.%s" % (org, me), d)
-    log("ORG: [ORG_OWNED_V1] %s: this host's definition of %s in the network RAM %s: %d level(s), %d user(s)%s" % (why, org, net.hostport,
-        len(d["levels"]), len(d["users"]), "; only here (a verifier under this host's own key: set it again to go everywhere): " + ", ".join(local_only) if local_only else ""))
+    log("ORG: [ORG_OWNED_V1] %s: this host's definition of %s in the network RAM %s: %d level(s), %d user(s), %d revoked%s" % (why, org, net.hostport,
+        len(d["levels"]), len(d["users"]), len(d["revoked"]), "; only here (a verifier under this host's own key: set it again to go everywhere): " + ", ".join(local_only) if local_only else ""))
 
 
 def org_sync():
@@ -815,15 +832,41 @@ def cmd_list(as_json=False):
     for n, r in ({} if REMOTE else admitted()).items():
         if r.get("level"):
             print("device %-16s %-14s %-12s %-10s %s %s" % (n, r["edge"], r["level"], r.get("state"), r.get("nick", ""), r.get("user", "")))
+    for n, r in sorted(cells("revoked").items()):                # [REVOKED_EVERYWHERE_V1]
+        print("revoked %-15s by %-14s at %s %s" % (n, r.get("by", "?"), time.strftime("%Y-%m-%d %H:%M", time.localtime(int(r.get("seq") or 0) / 1000)), r.get("nick", "")))
+
+
+# ---------------------------------------------------------------- [REVOKED_EVERYWHERE_V1] a lost device, revoked once
+# (John 2026-11-03: "Do revoking access") A device's name is its key's hash ([NAME_FROM_KEY_V1]), the same at every RAM
+# host it was admitted at. Its revocation is a permanent cell (fdf-org, revoked, NAME) in this region's RAM and goes
+# into this host's definition in the network RAM ([ORG_OWNED_V1]); every RAM host of the organization adopts it on
+# its event, removes the device's admission (the hub drops its peer at once: inotify) and rebuilds its reach, and its
+# door refuses that key from then on. Across a split it takes effect at the merge. (Before this, revoke deleted the
+# admission file on one host only, and the door's "revoked" state was never written: the same key could ask the door
+# again and be admitted.)
+def enforce_revoked(why):
+    gone = []
+    for n in cells("revoked"):
+        p = os.path.join(ADMITTED, n + ".json")
+        if ADMITTED and os.path.exists(p):
+            os.remove(p); gone.append(n)                         # the hub drops its peer at once (inotify)
+    if gone:
+        log("REVOKED (%s): %s: peer and reach gone here" % (why, ", ".join(gone)))
+        apply_reach("revoked " + ", ".join(gone))
+    return gone
 
 
 def cmd_revoke(name):
-    p = os.path.join(ADMITTED, name + ".json")
-    if not os.path.exists(p):
-        die("%s is not admitted" % name)
-    os.remove(p)                                                  # the hub drops its peer at once (inotify)
-    apply_reach("revoke %s" % name)
-    log("%s revoked: its peer and its reach are gone" % name)
+    rec = ({} if REMOTE else admitted()).get(name)
+    if not rec and not (name.startswith("d-") and len(name) == 14 and all(c in "0123456789abcdef" for c in name[2:])):
+        die("%s is not admitted here and is not a device name (d-<12 hex>, from fdf-org list)" % name)
+    if name in cells("revoked"):
+        die("%s is already revoked" % name)
+    put("revoked", name, {"pubkey": (rec or {}).get("pubkey", ""), "nick": (rec or {}).get("nick", ""),
+                          "seq": int(time.time() * 1000), "by": h().get("FDF_HUB_NAME", "") or socket.gethostname()})
+    if not REMOTE:
+        enforce_revoked("revoke " + name)
+    log("%s revoked for the organization: every RAM host adopts it; its key is refused at every door" % name)
 
 
 def main():
@@ -840,14 +883,14 @@ def main():
         HUBENV, ADMITTED, why = fdf_regions.pick(want)
         if why:
             # [ADMISSION_WITH_THE_HUB_V1] the hub is somewhere else: what is a tuple is done through the region's RAM
-            if want or a[0] not in ("level", "space", "line", "list"):
-                die(why + ("" if want else "; on any machine in the region: fdf-org level | space | line | list"))
+            if want or a[0] not in ("level", "space", "line", "list", "revoke"):
+                die(why + ("" if want else "; on any machine in the region: fdf-org level | space | line | list | revoke"))
             REMOTE = True
     # [HUB_IS_WHERE_IT_RUNS_V1] a region directory here is not the hub: the hub is here only when its interface is up
     # here (found on Seattle7 2026-11-02: /opt/fdf/hub/frognet/hub.env left from an earlier install, its RAM 127.0.0.1:8840,
     # no hub running; fdf-org took the file for the hub and read a RAM that was not there)
     if not REMOTE and not hub_pub():
-        if a[0] in ("level", "space", "line", "list"):
+        if a[0] in ("level", "space", "line", "list", "revoke"):
             sys.stderr.write("fdf-org: %s is here but its hub (%s) is not running here: the region's RAM is the one this machine is joined to\n" % (HUBENV, h()["FDF_IFACE"]))
             REMOTE = True
         else:
