@@ -188,7 +188,9 @@ Changes in rev 3:
   (`[HUB_IS_WHERE_IT_RUNS_V1]`): a region directory left from an earlier install does not make a machine the hub (found
   on Seattle7 2026-11-02). Gate: `rinab/tools/netns-admit-kt-test.sh` checks 0.
 
-- **One MRM per line.** `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
+- ~~**One MRM per line.**~~ Superseded 2026-11-02 (**John**, `APP-SETUP-AND-OPERATION.md`, "Roles, the resilient
+  EOC"): the line carries the admin's ordered list of EOC targets, and `fdf-login` logs in at each it can reach
+  (`[LOGIN_WHERE_IT_CAN_V1]`). What follows in this bullet was written for one MRM: `login.json` holds one edge and one session, not a list. `fdf-login --node` writes `hub.json`,
   `site.env` and `join.env`; it no longer writes `system-space.json`.
 - **The login's answer no longer lists spaces.** It says the member's level and that level's network reach.
 - **The primary only attaches.** It is the primary because the admin designated it, by naming it in the join line, and

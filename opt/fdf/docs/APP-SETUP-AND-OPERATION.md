@@ -123,7 +123,100 @@ themselves.
 The device remains a device; it never becomes a Linux fabric member. Its app participation follows the same
 write-first, read-second rule.
 
+## Roles, the resilient EOC, and login wherever a device can ([ROLES_NOT_MACHINES_V1], John 2026-11-02)
+
+This section governs where the next one ("Enrollment"), written earlier the same day, names machines. That one says
+what is built today; this one is the design. **Built** and **Not built** say which parts exist.
+
+**Everything is a role; the machine is an abstraction.** **John:** "The EOC is a role assigned to a machine." "As it is
+for all. The machine is an abstraction we need not consider." "Of course. What else would it be? What else could it
+be?" The EOC, each team, each Power crew, ambulances, hospitals, water, general help: each is a role, held wherever
+the admin assigns it. An app asks for a role and gets its current holder; nothing is built around a particular
+machine. Wherever a role is held, its services come with it: `fdf-org@<role>`, its RAM host and, for the EOC, its
+door. (Code that still names a machine and must change: the enrollment QR carries the door's address; `join.env` holds
+one `host:port`; the door's identity ask goes to the region that one machine joined. **Not built.**)
+
+**Categories and groups.** **John:** the EOC admin app lets the admin define, tab by tab, the categories they use
+(Teams, Power, Water, Ambulance, Hospitals ...); within a category, groups that are "the equivalent of a Team, except
+for the thing they are servicing", each with designated leads, as Teams have now. "Power people can update the power
+state ... but they can't do water." **Not built** (the admin app today has one flat list of roles).
+
+**A role's privileges are commentary, not data ownership.** **John:** sensor data is automatic and bears the app ID;
+it goes to databasehost like everything else (`metric_upsert`). A role's extra privileges apply to its own data and
+are "really only commentary": individual or group chat, missions, scheduling things to happen (running an actuator),
+"more an ephemeral grouping thing than anything else". The roles are also the layers of the map screen (where all the
+ambulances are). "Data goes to databasehost, but roles define apps define visibility." Extra data and state an app
+needs go through that app's own custom server. So databasehost does not check a role on a write.
+
+**General help is a role too.** **John:** "targets don't have to run the general help. That's a role like any other
+and has dedicated machines that offer open SSID connection. Connection to the public network gives you tunnel access
+to the public RAM of the current EOC, and nothing more." No login for victims.
+
+**A group's region is on its lead's device.** Each group runs its own `fdf-org@<group>` there (**John**: "Obviously
+it's #2"). The device is a phone (the Team app projects the hotspot) or a FrogNet Host such as a Pi with a router "for
+a more powerful external antenna". **John:** "The pi is initialized the same way the phone would be. It must be a LAN
+client of the EOC, so it is trusted. It gets its own tunnel setup the same way a phone would." Then the lead joins the
+Pi's projected network as an authenticated user and runs the admin tool, which configures the Pi as the group's host.
+The lead's admin app "is really doing admin, not just setup": first it selects and connects to the upstream network
+and becomes a member. If all hosts share one SSID and password, devices float between upstreams. When the upstream
+drops, the group's device can, if configured, scan for and join the closest host with a signal. **Not built** (today
+the lead's phone runs a sponsor on port 21801, and the door makes each member's identity).
+
+**A merge is a re-evaluation of routes, never of RAM.** **John:** "Merge in the sense that it causes a re-evaluation
+of the routes. There is no merging of the RAM if databasehost for any app changes." An `@eoc` failover is a route
+change taking milliseconds, because the tunnel was already authenticated.
+
+**The resilient EOC: an ordered list of targets.** **John:** "The admin designates a list of EOCs. When the app
+starts, it connects to the first in the list, if it can. If it can't, it drops a level and tries again. This way we
+can have state, county, city, neighborhood, and street EOCs that form the greater network." Any host can be a network
+target able to hold the EOC role for its level: a neighborhood Pi, an ambulance company's machine, a hospital's. The
+target in use is the highest on the list that is reachable.
+- **The device is told the list at initialization.** "As it is connected to the networks in the list, it
+  opportunistically creates the tunnels. When there is a failure, it goes to the first one that works that has
+  tunnels." Once on a lower target it stays there until that one dies (no flapping).
+- **When no target with a tunnel works**, "but there is a network available that it can log into, it does that and
+  creates the tunnels": the generic credential's one exchange at that target's door, the device's own key, then login
+  (section 5.1 of `ORGANIZATIONS.md`). **John:** that "lets the merges work, even if there's a network interruption for
+  a minute, and it removes the requirement of prior config."
+- **It holds reads on the EOC's configuration tuples** (the list, the roles, directives) and acts on a change the
+  moment it is written.
+- **The same users and passwords at every target** ([ONE_ORG_ON_EVERY_TARGET_V1], **built**, `fdf-org` r20): a
+  password is a verifier under its RAM host's own credential key, so for one password to log in anywhere, every target
+  holds the same key and the same users. `fdf-org export` on the host where they were set prints them as one secret
+  line (`fdforg1.<...>`). `fdf-org import` on each other target takes it on stdin; that target's levels keep their
+  own ports, and its own generic credential stays (the join line carries each target's). It refuses while the target
+  holds a user the export lacks, which would stop verifying; `--replace` drops those, by name. Done by hand on each
+  target, as restoring assignments is (John: "It needs to be intentional").
+- **Login wherever it can** ([LOGIN_WHERE_IT_CAN_V1], **built**, `fdf-login`): a target on the line that cannot be
+  reached, or refuses, is logged ("NOT logged in at ... -- left for the next run") and the next is tried; login fails
+  only when none admits the device. The Android member's `OrgLogin.admit` still uses only the line's first target:
+  **Not built** there.
+- Gate: `rinab/tools/netns-targets-test.sh` (5 checks: import refused while a stray user is held; import --replace;
+  the target that set the password unreachable and login at the other with it; both reachable; a wrong password
+  refused at both).
+
+**Every hub at 10.253.253.254 collides once a device holds two tunnels** (the WAN's and the current EOC target's).
+**John:** "Why isn't the hub using the IP address of its host?" "Use RAM." A hub on a FrogNet host takes its host's own
+10.A.B.1 (unique: a region refuses a second owner of a /24) and publishes it in its hub row, `(fdf-org, hub, AREA)
+{..., addr}`; members take the hub's address from that row with a held read, not from a constant. A hub that is not a
+FrogNet node (StreamingFrog) needs one assigned private address; as the only such hub it can keep 10.253.253.254.
+**Not built**: `fdf-hub`'s inside address and `HUB_ADDR` in `fdf-org` and `fdf-login` are still the constant.
+
+**Still open in this design** (Claude, raised 2026-11-02, not yet answered):
+1. The EOC role needs standing access to every group's region, for the dashboard to chat with a mobile team.
+2. A group's region goes with its lead's device; a second holder per group (an ordered list, as for the EOC) keeps it.
+3. Help requests and log entries written on an island during a split stay there: the app has to send its own
+   unacknowledged reports up on reconnect.
+4. Revoking a lost device acts on one host (`fdf-org revoke`); it has to reach every target, with export/import.
+5. The open public level needs a per-device rate limit at admission.
+6. Scheduled actions (an actuator run) live in a role's RAM and move with its holder: hold them where they run, or make
+   running twice harmless.
+7. `netns-spaces-test` (6, 7) and `netns-c-behind-ab-test` (2 checks) fail on recovery timing after a cut, the same
+   before and after `fdf-org` r20 (found 2026-11-02).
+
 ## Enrollment: the WAN region, the EOC, a team's lead and its members ([ENROLL_V1])
+
+> As built on 2026-11-02. Where it names machines (StreamingFrog, Seattle7) it is superseded by the section above.
 
 **John, 2026-11-02:** "The initial Team Lead setup can be done through a QR code, and the lead can generate another QR
 code for each member ... The only requirement is that both sides be connected to a network that can see both sides at
