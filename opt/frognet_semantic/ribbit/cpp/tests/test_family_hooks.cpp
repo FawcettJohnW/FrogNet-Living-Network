@@ -81,11 +81,12 @@ int main() {
         check(total == rd[k].want, std::string(names[k]) + ": read " + std::to_string(total) + " of " + std::to_string(rd[k].want) + " exactly once (window lapped " + std::to_string(rd[k].laps) + " times, " + std::to_string(rd[k].recovered) + " read from the rows)");
         check(rd[k].order_ok, std::string(names[k]) + ": each writer's writes to a variable read in the order written");
     }
-    // a reader that does not read while 3 windows' worth are written: the rows answer for what the window lost
+    // a reader that does not read while 3 chunks' worth are written ([FAMILY_LOG_V1]: the log keeps them; was a window
+    // the rows answered for)
     { Memory::Cursor c = mem.cursor("lap", "v", "", -1);
       for (uint64_t n = 0; n < 3 * WINDOW; ++n) mem.write("lap", "v", std::to_string(n), "x", 0);
       std::vector<Cell> out; mem.read(c, out);
-      check(out.size() == 3 * WINDOW && c.laps == 1, "a reader lapped by the window reads all " + std::to_string(3 * WINDOW) + " (" + std::to_string(out.size()) + ", " + std::to_string(c.recovered) + " from the rows)"); }
+      check(out.size() == 3 * WINDOW, "a reader that does not read while 3 chunks are written reads all " + std::to_string(3 * WINDOW) + " (" + std::to_string(out.size()) + ", " + std::to_string(c.recovered) + " from the rows)"); }
     // a reader starting after an id: every row past it, then the window
     { Memory::Cursor c = mem.cursor("lap", "v", "", 0); std::vector<Cell> out; mem.read(c, out);
       check(out.size() == 3 * WINDOW, "a cursor after id 0 reads every row there (" + std::to_string(out.size()) + ")");

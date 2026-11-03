@@ -46,7 +46,7 @@ public:
             out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, c.gone ? Json() : Json::parse(c.text()), c.updated, c.gone});
         return out;
     }
-    void remove(uint64_t id) override { MEM().remove(id, true); }
+    void remove(const std::string& s, const std::string& v, uint64_t id) override { MEM().remove(s, v, id, true); }
 };
 std::vector<ramm::Cell> held(const std::string& s, const std::string& v, const std::string& i, int64_t after, double wait_s) {
     auto eval = [&] { return MEM().match(s, v, i, after, 0, now_s()); };

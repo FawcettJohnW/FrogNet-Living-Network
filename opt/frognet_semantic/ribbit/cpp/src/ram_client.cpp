@@ -37,7 +37,7 @@ std::vector<frogram::Cell> RamClient::read(const std::string& service, const std
     session(); return memory_->read(service, variable, instance, after, wait_s);
 }
 
-void RamClient::remove(uint64_t id) { session(); memory_->remove(id); }
+void RamClient::remove(const std::string& service, const std::string& variable, uint64_t id) { session(); memory_->remove(service, variable, id); }
 
 frogram::Json RamClient::call(const std::string& op, const std::string& body_json, double timeout_s) {
     frogram::Json r = session().call("POST", api_path() + "?op=" + op, body_json, timeout_s);

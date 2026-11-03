@@ -179,7 +179,7 @@ std::string ok_rows(const std::vector<Cell>& rows) { std::string o = "{\"ok\":tr
              ",\"instance\":" + Json::quote(c.instance) + ",\"bag\":" + (c.gone ? std::string("null,\"gone\":true") : c.text()) + ",\"updated_epoch\":" + u + "}"; }
     return o + "]}"; }
 }  // (anonymous) -- the platform's public functions are outside it
-#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.69"   // 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
+#define RIBBIT_PLATFORM_VERSION "ribbit-platform 0.70"   // 0.70: [FAMILY_LOG_V1] (no locks, no claimed ids: each family read by its own log; remove names service and variable); 0.69: [LINGER_BY_FAMILY_V1] (F_LINGER on a cell write); 0.68: [GONE_WITH_ITS_WRITER_V1] (a gone row on the wire); 0.67: [NUMBER_DELTA_V1] [ROW_REFERENCE_OF_K_V1] [ROW_RECORD_COMPACT_V1] [REPEAT_REPLAYS_VALUES_V1]; 0.66: [ROWS_ON_THE_SEMANTIC_WIRE_V1] [MOVING_WINDOW_REFERENCE_V1] [STRING_SPLICE_V1]; 0.65: [EVERY_WRITE_ON_THE_SEMANTIC_WIRE_V1] [JSON_SURROGATE_PAIRS_V1]; 0.64: [NO_WRITE_ACK_V1] [FOLLOW_STREAM_V1] -- every node at 0.69 together
 namespace ribbit {
 Reply error_reply(int status, const std::string& msg) { return Reply{status, "{\"ok\":false,\"error\":" + Json::quote(msg) + "}"}; }
 const char* platform_version() { return RIBBIT_PLATFORM_VERSION; }
@@ -227,7 +227,7 @@ public:
             out.push_back(frogram::Cell{c.id, c.service, c.variable, c.instance, c.gone ? Json() : Json::parse(c.text()), c.updated, c.gone});
         return out;
     }
-    void remove(uint64_t id) override { MEM.remove(id, true); }
+    void remove(const std::string& s, const std::string& v, uint64_t id) override { MEM.remove(s, v, id, true); }
 };
 }  // (anonymous)
 namespace ribbit {
@@ -396,7 +396,8 @@ bool api(const std::string& method, const std::string& path, const std::string& 
     if (op == "remove") {
         if (method != "DELETE") { out = bad(405, "remove is DELETE"); return true; }
         long long id = atoll(q["id"].c_str()); if (id <= 0) { out = bad(400, "missing id"); return true; }
-        out = Reply{200, "{\"ok\":true,\"removed\":" + std::to_string(MEM.remove(uint64_t(id), false)) + "}"}; return true;
+        if (q["service"].empty() || q["variable"].empty()) { out = bad(400, "remove names its cell's service and variable: an id is a place in one family [FAMILY_LOG_V1]"); return true; }
+        out = Reply{200, "{\"ok\":true,\"removed\":" + std::to_string(MEM.remove(q["service"], q["variable"], uint64_t(id), false)) + "}"}; return true;
     }
     out = bad(400, "unknown op: " + op); return true;
 }

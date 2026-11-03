@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     try {
         frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), API); frogram::Memory m(s, API);
         if (std::string(argv[1]) == "--clear") {
-            int n = 0; for (auto& cell : m.read("pond", "attention", ns)) { m.remove(cell.id); ++n; }
+            int n = 0; for (auto& cell : m.read("pond", "attention", ns)) { m.remove("pond", "attention", cell.id); ++n; }
             printf("fdf-attention: build %s; %d notice(s) of %s removed at %s\n", FDF_BUILD_TAG, n, ns.c_str(), where.c_str()); return 0;
         }
         const uint64_t id = m.write("pond", "attention", ns, "{\"why\":" + frogram::Json::quote(argv[1]) + ",\"from\":" +

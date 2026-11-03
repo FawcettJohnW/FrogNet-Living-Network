@@ -147,7 +147,7 @@ class H(BaseHTTPRequestHandler):
                 return self.reply(200, {"ok": True})
             if self.path == "/api/done":
                 st.sessions.pop(b["sid"], None)
-                n = sum(st.ram.remove(c["id"]) for c in st.ram.read("termout", b["sid"]))
+                n = sum(st.ram.remove(c) for c in st.ram.read("termout", b["sid"]))
                 log("session", b["sid"], "ended; removed", n, "output row(s)")
                 return self.reply(200, {"ok": True, "removed": n})
             return self.reply(404, {"error": "not found"})

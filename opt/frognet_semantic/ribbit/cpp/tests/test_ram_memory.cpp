@@ -15,8 +15,9 @@
  *                                                             *
  *  See COPYRIGHT and LICENSE at the root of this tree.        *
  **************************************************************/
-// test_ram_memory.cpp -- [ROW_LOCKS_V1] oracle for ribbit_cpp/ram_memory.hpp.
-//   1. lock gate: the memory's source holds no lock but a row's std::shared_mutex (and a trigger's private mutex)
+// test_ram_memory.cpp -- oracle for ribbit_cpp/ram_memory.hpp.
+//   1. lock gate ([FAMILY_LOG_V1], John 2026-11-03: "no walks, no locks, no notifications, and no waiting"; was
+//      [ROW_LOCKS_V1], one row lock and a trigger's mutex): the memory's source declares no lock of any kind
 //   2. concurrent writers on many rows of one variable, concurrent readers, and parked waiters on exact rows, on the
 //      variable pattern and on the service pattern -- then:
 //        every read returns only cells whose bag is exactly what was written with that id (nothing torn or invented)
@@ -37,7 +38,7 @@ static int fails = 0;
 static void check(bool ok, const std::string& what) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", what.c_str()); if (!ok) ++fails; }
 
 int main(int argc, char** argv) {
-    const std::string src = argc > 1 ? argv[1] : "ribbit_cpp/ram_memory.hpp";
+    const std::string src = argc > 1 ? argv[1] : "include/ram_memory.hpp";
     { std::ifstream f(src); std::stringstream ss; ss << f.rdbuf(); std::string t = ss.str();
       std::string code; std::istringstream lines(t); std::string ln;
       while (std::getline(lines, ln)) { auto c = ln.find("//"); code += (c == std::string::npos ? ln : ln.substr(0, c)) + "\n"; }
@@ -47,8 +48,9 @@ int main(int argc, char** argv) {
           std::string kind = (*it)[1], name = (*it)[2];
           if (kind == "shared_mutex" && name == "m") ++shared; else if (kind == "mutex" && name == "m") ++plain; else ++other;
       }
-      check(shared == 1 && plain == 1 && other == 0,
-            "lock gate: the memory declares exactly one row lock (shared_mutex) and one per-trigger mutex, nothing else (shared "
+      if (t.empty()) { check(false, "lock gate: could not read " + src); }
+      else check(shared == 0 && plain == 0 && other == 0 && code.find("condition_variable") == std::string::npos,
+            "lock gate: the memory declares no lock and no condition variable (shared "
             + std::to_string(shared) + ", trigger " + std::to_string(plain) + ", other " + std::to_string(other) + ")"); }
 
     Memory mem; const int W = 8, ROWS = 64, N = 400, READERS = 4;
@@ -74,7 +76,10 @@ int main(int argc, char** argv) {
         while (!done.load()) {
             auto rows = mem.match("svc", "var", "", -1, 0, 0); ++reads;
             std::lock_guard<std::mutex> g(log_m);
-            for (auto& c : rows) { auto it = written.find(c.id); if (it == written.end() || it->second.first != c.instance || it->second.second != c.bag) ++bad_reads; }
+            // [FAMILY_LOG_V1] a read of the current state gives each cell an id no later than the log's filled prefix at the
+            // read's start (a reader going on from the largest misses nothing): the value is checked, not the id's write
+            for (auto& c : rows) { bool ok = false; for (auto& kv : written) if (kv.first >= c.id && kv.second.first == c.instance && kv.second.second == c.bag) { ok = true; break; }
+                                   if (!ok) ++bad_reads; }
         }
     });
     std::vector<std::thread> writers;
@@ -106,8 +111,8 @@ int main(int argc, char** argv) {
     for (auto& c : final_rows) if (c.bag != "{\"end\":1}") { auto it = replay.find(c.instance); if (it == replay.end() || it->second.first != c.id || it->second.second != c.bag) ++diff; }
     check(final_rows.size() == ROWS && diff == 0, "final state equals the serial replay: " + std::to_string(final_rows.size()) + " rows, " + std::to_string(diff) + " differ");
     check(missed == 0 && wakes > 0, "no lost wake: " + std::to_string(wakes.load()) + " wakes, " + std::to_string(missed.load()) + " waits ran to their 5 s deadline with writes happening");
-    size_t removed = mem.remove(final_rows.front().id, false);
-    check(removed == 1 && mem.match("svc", "var", final_rows.front().instance, -1, 0, 0).empty(), "remove by id: the row is gone");
+    size_t removed = mem.remove("svc", "var", final_rows.front().id, false);
+    check(removed == 1 && mem.match("svc", "var", final_rows.front().instance, -1, 0, 0).empty(), "remove by (service, variable, id): the row is gone");
     std::printf("\n%s: %d fail\n", fails ? "RAM-MEMORY FAIL" : "RAM-MEMORY PASS", fails);
     return fails ? 1 : 0;
 }

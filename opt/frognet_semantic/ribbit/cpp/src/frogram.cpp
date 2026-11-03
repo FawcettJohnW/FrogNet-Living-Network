@@ -1010,7 +1010,8 @@ std::vector<Cell> Memory::read(const std::string& sv, const std::string& var, co
         c.instance = r["instance"].s; c.bag = r["bag"]; c.updated = r["updated_epoch"].n; c.gone = r["gone"].b; out.push_back(c); }
     return out;
 }
-void Memory::remove(uint64_t id) { s_.call("DELETE", api_ + "?op=remove&id=" + std::to_string(id)); }
+void Memory::remove(const std::string& service, const std::string& variable, uint64_t id) {
+    s_.call("DELETE", api_ + "?op=remove&service=" + urlenc(service) + "&variable=" + urlenc(variable) + "&id=" + std::to_string(id)); }
 void Memory::follow(const std::string& sv, const std::string& var, const std::string& inst, int64_t after,
                     std::function<void(std::vector<RawCell>&, const std::string&)> on) {
     std::string f; f.append(MAGIC, 4); f += char(OP_MEM_FOLLOW);

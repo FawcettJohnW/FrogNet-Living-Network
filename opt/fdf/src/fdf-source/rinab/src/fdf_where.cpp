@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
             bag += "}";
             const std::string wr = std::string(API) + "?op=write", body = "{\"service\":\"pond\",\"variable\":\"where\",\"instance\":" +
                 frogram::Json::quote(inst) + ",\"bag\":" + bag + ",\"own\":true}";
-            for (uint64_t o : old) m.remove(o);                      // a cell from before: this session's is the one now
+            for (uint64_t o : old) m.remove("pond", "where", o);                      // a cell from before: this session's is the one now
             s.call("POST", wr, body);
             const std::string me = "where:" + inst + ":" + std::to_string(getpid());
             frogram::Json r = s.call("POST", std::string(API) + "?op=rina", "{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(me) + "}");
@@ -141,10 +141,10 @@ int main(int argc, char** argv) {
             std::string bag = "{\"from\":" + frogram::Json::quote(name.empty() ? ns : name);
             for (auto& kv : svc) bag += "," + frogram::Json::quote(kv.first) + ":" + kv.second;
             const uint64_t id = m.write("pond", "where", inst, bag + "}");
-            for (uint64_t o : old) if (o != id) m.remove(o);
+            for (uint64_t o : old) if (o != id) m.remove("pond", "where", o);
             printf("fdf-where: build %s; %s at %s: %s\n", FDF_BUILD_TAG, inst.c_str(), where.c_str(), (bag + "}").c_str());
         } else {
-            for (uint64_t o : old) m.remove(o);
+            for (uint64_t o : old) m.remove("pond", "where", o);
             printf("fdf-where: build %s; %s at %s: no services (cell removed)\n", FDF_BUILD_TAG, inst.c_str(), where.c_str());
         }
         return 0;

@@ -113,7 +113,7 @@ public:
         if (!i.empty()) { if (rmem::RecSlot* r = vs->get(i, false)) take(*r); } else vs->each(take);
         return out;
     }
-    void remove(uint64_t) override { throw std::logic_error("records: remove by id is not part of this region's API (write the value empty)"); }
+    void remove(const std::string&, const std::string&, uint64_t) override { throw std::logic_error("records: remove by id is not part of this region's API (write the value empty)"); }
     // the value text of one record, as stored ({"v":...}), or false
     bool raw(const std::string& v, const std::string& i, std::string& bag) {
         rmem::VarSet* vs = rmem::records().get(v, false); if (!vs) return false;
@@ -994,9 +994,9 @@ void rina_session_down(uint64_t sid) {
             // [ATTENTION_IS_A_TUPLE_V1] the member is gone, so are its notices: (pond, attention, <its ns>) -- gone is gone
             // [SERVICE_WHERE_IS_A_TUPLE_V1] and so are the services it said it runs: (pond, where, <its ns>)
             try { frogram::MemoryApi& ram = rina_resident_memory();
-                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove(c.id);
+                  for (const char* v : {"attention", "where"}) for (auto& c : ram.read("pond", v, ns)) ram.remove("pond", v, c.id);
                   // [ADDIN_OWNS_ITS_CELL_V1] and each add-in's own cell on that machine, (pond, where, <ns>/<add-in>)
-                  for (auto& c : ram.read("pond", "where", "")) if (c.instance.compare(0, ns.size() + 1, ns + "/") == 0) ram.remove(c.id); } catch (...) {}   // the RAM, not the region's records
+                  for (auto& c : ram.read("pond", "where", "")) if (c.instance.compare(0, ns.size() + 1, ns + "/") == 0) ram.remove("pond", "where", c.id); } catch (...) {}   // the RAM, not the region's records
         } }   // only if no newer agent took over; [RMT_OVER_DIF_LINKS_V1] its links are gone
     put(m, "sess", sess_key(sid), "");
     put(m, "speer", sess_key(sid), "");                              // [SESSION_PEER_V1]
@@ -1102,7 +1102,7 @@ static void publish_net_config() {
         frogram::MemoryApi& m = rina_resident_memory();
         std::vector<uint64_t> old; for (auto& c : m.read("pond", "config", "net")) old.push_back(c.id);
         const uint64_t id = m.write("pond", "config", "net", bag);
-        for (uint64_t o : old) if (o != id) m.remove(o);
+        for (uint64_t o : old) if (o != id) m.remove("pond", "config", o);
         fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = %s\n", bag.c_str());
     } catch (const std::exception& x) { fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] could not write the network config: %s\n", x.what()); }
 }

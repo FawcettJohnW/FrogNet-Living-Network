@@ -720,20 +720,32 @@ The API path is `/ram.php` by default, or `--api PATH` (region hosts use `/Fawce
 - At the deadline it answers `ok:true` with whatever matches, possibly nothing. There is no timeout flag (`ram_memory.hpp:216`).
 - There is no polling interval: the waiter is woken by the write (`ram_server.cpp:25-27`).
 
-### D.3 Ordering and ids
+### D.3 Ordering and ids ([FAMILY_LOG_V1], 2026-11-03)
 
-1. **One write is ordered at the one copy.**
-   - A write takes its row's exclusive lock.
-   - Inside the lock it claims the variable's next window position, takes the next id, and sets id, bag, updated and live together.
-   - It releases the lock, then fires the triggers (`ram_memory.hpp:126-134`).
-   - The reply carrying the id is sent only after the write is visible (`ram_server.cpp:253`).
-2. **Ids are unique and increase in the order they are taken.** Writes to different rows run in parallel, each under its own row's lock, so ids are taken in parallel too.
-3. **A read with `after` returns a gap-free prefix in id order, on any scope** (`[PUBLISH_IN_ID_ORDER_V1]`, `rinab/tools/apply_publish_order.py`).
-   - The memory keeps a watermark: the largest id at or below which every id is visible.
-   - A finished write marks its id done in a ring of 65,536 entries. It then moves the watermark over every consecutive done id it finds, whoever wrote them. No write waits for another.
-   - A read with `after` loads the watermark before it scans and returns only ids at or below it. A newer cell is returned by the next read.
-   - So a reader that sets `after` to the largest id it received never skips a cell, whether it reads one variable, a whole service, or a variable more than 1,024 writes behind. It receives each cell at its latest value: a value overwritten before the read is not retained (one row per address, §D.4).
-   - Reading one variable within its write window (`[WRITE_WINDOW_V1]`, 1,024 slots) walks the window newest to oldest and stops at a slot still being filled (`ram_memory.hpp:161-191`).
+John 2026-11-03: "There should be no walks, no locks, no notifications, and no waiting." "The ids should not be
+claimed." The memory is `ribbit/cpp/include/ram_memory.hpp`; it replaces the row locks, the global id counter
+(`next_id_`), the write window with its row-scan bound, and the publish watermark ([PUBLISH_IN_ID_ORDER_V1], a
+rina-host build patch the platform never had: lost in the switch to fdf-ram, 70fefc1, found by memory-order-check).
+
+1. **A write is one CAS on its cell.** A cell's value is an immutable record behind an atomic pointer; its one writer
+   replaces it. No lock.
+2. **Each family has its own log.** A variable (s, v, *) and a service (s, *, *) each keep an append-only array of
+   slots. A write fills the first empty slot after the last filled one with one CAS; that CAS is the publication, and
+   the slot's number is the write's place in that family. Nothing is numbered before it is visible; there is no
+   counter shared by every writer. A log has no holes.
+3. **An id is a place in one family.** A reader of a variable is given the write's id in the variable's log; a reader
+   of the service, its id in the service's. `after` means a place in the family it is read from; passing one family's
+   id as another family's `after` is wrong (the door's `op=admin` holds one read on the service `fdf-app`).
+4. **A read past `after`** reads the family's slots from there to the first empty one: it costs what it returns and
+   never waits for a write in flight. A slot whose cell was written again since is passed over (the newer write is
+   further on). A removal (session end, `remove`) is a write of a gone cell: it reaches the family's readers in order
+   (`"gone": true`, bag null).
+5. **A read of the current state** (no `after`) reads the family's cells and gives each an id no later than the log's
+   filled prefix at the read's start: a reader that goes on from the largest id it got misses nothing.
+6. **The held read** sleeps on its family's word (a futex) until a write to that family moves it; a writer moves it only
+   when somebody sleeps there. Nothing else is woken.
+7. **`remove`** names the cell's service and variable with the id (`?op=remove&service=&variable=&id=`): an id is a
+   place in one family.
 4. **Callers that follow a whole service** by `after`: `fdf-monitor` and `fdf-browser` (`term.hosts`).
 5. **One session's requests run in arrival order, one at a time** (`[SESSION_ORDER_V1]`, `ram_server.cpp:376-389, 455-475`). There are four exceptions:
    - a request that must park (a held read, or `lisp`) moves to its own thread and the queue continues;

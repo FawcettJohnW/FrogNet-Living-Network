@@ -105,10 +105,10 @@ class Session:
         except ChildProcessError:
             pass
         try:
-            ids = [c["id"] for c in self.ram.read("term", ME) if c["instance"].rsplit(".", 1)[0] == self.sid]
-            n = sum(self.ram.remove(i) for i in ids)
+            rows = [c for c in self.ram.read("term", ME) if c["instance"].rsplit(".", 1)[0] == self.sid]
+            n = sum(self.ram.remove(c) for c in rows)
             if why == "closed by the browser":        # nobody reads this session's output any more: remove it too
-                m = sum(self.ram.remove(c["id"]) for c in self.ram.read("termout", self.sid))
+                m = sum(self.ram.remove(c) for c in self.ram.read("termout", self.sid))
                 log("session", self.sid, "removed", n, "input and", m, "output row(s)")
             else:                                     # the browser reads the end, then removes the output (/api/done)
                 log("session", self.sid, "removed", n, "input row(s); the browser removes the output once it has read it")
@@ -132,7 +132,7 @@ def serve():
             s.end("fdf-term-serve stopped")
         try:
             for c in ram.read("term.hosts", ME):
-                ram.remove(c["id"])
+                ram.remove(c)
         except fdfram.RamError as e:
             log("could not withdraw the advertisement:", e)
         log("stopped")
@@ -144,6 +144,8 @@ def serve():
         cells = ram.read("term", ME, after=last, wait_s=fdfram.HOLD_S)
         for c in sorted(cells, key=lambda c: c["id"]):
             last = max(last, c["id"])
+            if c.get("gone"):                             # [FAMILY_LOG_V1] a removed row, in order: nothing to run
+                continue
             sid, bag = c["instance"].rsplit(".", 1)[0], c["bag"]
             s = SESSIONS.get(sid)
             if s is None:

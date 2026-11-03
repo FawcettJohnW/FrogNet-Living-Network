@@ -20,7 +20,7 @@ Environment: FDF_VAR (/opt/fdf/var), FDF_PY (the fdfram module's directory).
 """
 import calendar, csv, json, os, sys, time
 
-BUILD_TAG = "rt-post309-2026-11-01-r1"
+BUILD_TAG = "rt-post309-2026-11-03-r2"
 LIB = os.environ.get("FDF_PY") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib", "python")
 sys.path.insert(0, LIB)
 import fdfram  # noqa: E402
@@ -104,7 +104,7 @@ class Files:
         n = 0
         for c in sorted(cells, key=lambda c: int(c.get("id", 0))):
             v, i, b = c.get("variable", ""), c.get("instance", ""), c.get("bag") or {}
-            if not v or not i or "/" in v or v.startswith(".") or i in self.ids(v):
+            if c.get("gone") or not v or not i or "/" in v or v.startswith(".") or i in self.ids(v):
                 continue
             p = os.path.join(OUT, v + ".csv")
             new = not os.path.exists(p)

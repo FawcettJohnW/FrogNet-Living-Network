@@ -119,8 +119,12 @@ class Ram:
             q["wait_s"] = min(wait_s, HOLD_S)
         return self._do("GET", q, timeout=10.0 + (wait_s or 0))["cells"]
 
-    def remove(self, row_id):
-        return self._do("DELETE", {"op": "remove", "id": row_id})["removed"]
+    def remove(self, row, variable=None, row_id=None):
+        """[FAMILY_LOG_V1] remove a cell: a row as read (its service, variable and id), or (service, variable, id). An id
+        is a place in one family (its variable), so the variable is named with it."""
+        if isinstance(row, dict):
+            row, variable, row_id = row["service"], row["variable"], row["id"]
+        return self._do("DELETE", {"op": "remove", "service": row, "variable": variable, "id": row_id})["removed"]
 
     def participants(self):
         return self._do("POST", {"op": "rina"}, {"op": "participants"})["participants"]
