@@ -32,7 +32,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-hub $PK/bin/fdf-org $PK/bin/fdf-login $PK/bin/fdf-setup $PK/bin/fdf-invite $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH FDF_PY=$FDFPY
 ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists from an earlier run"; exit 1; }
@@ -51,7 +51,7 @@ region() {   # AREA RAMPORT HUBPORT
   local KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n'); printf '%s\n' "$KEY" > $T/A/var/site-key-$A; chmod 600 $T/A/var/site-key-$A
   printf 'RINA_RAM=%s:%s\nFDF_AREA=%s\nFDF_HUB_NAME=hub%s\nFDF_ENDPOINT=198.18.0.1:%s\nFDF_LISTEN=%s\nFDF_IFACE=wg-%s\nFDF_KEY=%s/hub.key\n' $HA $RP $A $A $HP $HP $A $D > $D/hub.env
   IN$A env FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area $A --iface wg-$A --endpoint 198.18.0.1:$HP --listen $HP --key $D/hub.key --iface-only > $T/A/iface-$A.log 2>&1
-  NS A env RINA_REGION_FILE=$T/A/area-$A.perm RINA_NET_CONFIG=$T/A/none $T/bin/rina-host --listen $HA:$RP --api $API >> $T/A/host-$A.log 2>&1 &
+  NS A env RINA_REGION_FILE=$T/A/area-$A.perm RINA_NET_CONFIG=$T/A/none $T/bin/fdf-ram --listen $HA:$RP --api $API >> $T/A/host-$A.log 2>&1 &
   for i in $(seq 100); do NS A curl -s -m 1 -X POST -d '{"op":"version"}' "http://$HA:$RP$API?op=rina" > /dev/null && break; sleep 0.05; done
   NS A curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$A\",\"key\":\"$KEY\"}" "http://$HA:$RP$API?op=rina" > /dev/null
   svc $T/A/hub-$A.log IN$A env RINA_RAM=$HA:$RP FDF_WG_IMPL=wireguard-go python3 $T/bin/fdf-hub --area $A --iface wg-$A --endpoint 198.18.0.1:$HP --name hub$A --key $D/hub.key --listen $HP --facts $T/A/facts-$A.json --admitted $D/admitted

@@ -5,10 +5,10 @@
 set -u; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; API=/FawcettInnovations.RINA.ram_interface.php
 D=$(mktemp -d /tmp/mapwait-check.XXXX); echo "diag dir: $D"; K=fdf-area-password; A=rina-area.test
 cleanup() { kill ${MP:-} ${HP:-} ${WP:-} 2>/dev/null; }; trap cleanup EXIT
-RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm $B/rina-host --listen 127.0.0.1:4342 --api $API > $D/mapping.log 2>&1 & MP=$!
+RINA_HOST_ROLE=mapping RINA_REGION_FILE=$D/map.perm $B/fdf-ram --listen 127.0.0.1:4342 --api $API > $D/mapping.log 2>&1 & MP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/4342) 2>/dev/null && break; sleep 0.05; done
 $B/rina-lisp map-site $A $K 127.0.0.1 > /dev/null || { echo "no site"; exit 1; }
-up() { RINA_MAP_AREA=$A RINA_MAP_RESOLVER=127.0.0.1 RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm $B/rina-host --listen $1:8874 --api $API > $D/area-$1.log 2>&1 & HP=$!
+up() { RINA_MAP_AREA=$A RINA_MAP_RESOLVER=127.0.0.1 RINA_AREA_PASSWORD=$K RINA_REGION_FILE=$D/area.perm $B/fdf-ram --listen $1:8874 --api $API > $D/area-$1.log 2>&1 & HP=$!
        for i in $(seq 100); do grep -q "RAM_MANAGER_REGISTERS_ITSELF_V1" $D/area-$1.log && break; sleep 0.05; done; }
 up 127.0.0.2; echo "the mapping now: $($B/rina-lisp map-resolve $A 127.0.0.1 2>&1)"
 RINA_RAM_NETNS=/proc/self/ns/net $B/rina-lisp map-wait $A 127.0.0.1 > $D/watcher.out 2>&1 & WP=$!; sleep 0.5

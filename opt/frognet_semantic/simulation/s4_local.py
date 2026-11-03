@@ -79,7 +79,7 @@ def main():
     ap.add_argument("--timeout", type=float, default=300)
     ap.add_argument("--out", default=".")
     ap.add_argument("--frr-bin", default=None)
-    ap.add_argument("--ram-bin", default=None, help="rina-host, fdf-client, fdf-events, wireguard-go")
+    ap.add_argument("--ram-bin", default=None, help="fdf-ram, fdf-client, fdf-events, wireguard-go")
     ap.add_argument("--fdf", default=None, help="the FD&F tree: bin/fdf-hub, bin/fdf-facts, lib/python")
     ap.add_argument("--cut", default="silent", choices=["silent", "carrier"],
                     help="silent: the link stays up and carries nothing (a WAN failure); carrier: the link goes down")

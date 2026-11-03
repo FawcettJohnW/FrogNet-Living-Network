@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# test_owned_cells.py RINA_HOST [PORT] -- [OWNED_CELL_GOES_WITH_THE_SESSION_V1] against a rina-host it starts itself:
+# test_owned_cells.py RINA_HOST [PORT] -- [OWNED_CELL_GOES_WITH_THE_SESSION_V1] against a fdf-ram it starts itself:
 #   1 a held read on the family fires with {} when the session that wrote a tuple with own=True closes, at once
 #   2 a tuple written without own stays when its session closes
 #   3 the last session to write a tuple with own owns it: the first one closing leaves it alone

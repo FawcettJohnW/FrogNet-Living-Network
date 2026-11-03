@@ -17,7 +17,7 @@ for i in 1 2 3; do ip netns add dm$i; ip netns exec dm$i ip link set lo up
     ip netns exec dm$i ip addr add 10.60.0.1$i/24 dev v$i; ip netns exec dm$i ip link set v$i up; done
 # [FDF_NO_MEMBER_TO_MEMBER_V1] capture the shared network for the whole run: no packet may pass between two machines
 tcpdump -i dmbr -nn -U -w $D/wire.pcap > /dev/null 2>&1 & TD=$!; sleep 0.5
-rina-host --listen 10.60.0.1:$PORT --api $API > $D/host.log 2>&1 & HP=$!
+fdf-ram --listen 10.60.0.1:$PORT --api $API > $D/host.log 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/10.60.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
 for i in 1 2 3; do ip netns exec dm$i unshare --uts bash -c "hostname machine-$i; exec rlite-uipcps -d" || echo "machine-$i: agent failed"; done
 for i in $(seq 100); do [ "$(grep -h 'FDF_DISCOVERY_V1\] announced' $D/agent.*.log 2>/dev/null | wc -l)" -ge 3 ] && break; sleep 0.05; done

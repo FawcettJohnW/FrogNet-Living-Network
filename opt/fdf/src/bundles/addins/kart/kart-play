@@ -9,4 +9,4 @@ K=$(python3 "$D/kart-find") || exit 1
 echo "kart-play: the kart memory is at $K (control RAM $FDF_CONTROL_RAM)"
 [ -n "${KART_PLAY_DRY:-}" ] && exit 0                  # tests: where the race is, without the game
 case " $* " in *" --name "*) N="" ;; *) N="--name ${FDF_NAME:-$(hostname)}" ;; esac
-exec python3 "$D/kartdemo.py" --kart "$K" --rina-host "$H/bin/rina-host" $N "$@"
+exec python3 "$D/kartdemo.py" --kart "$K" --fdf-ram "$H/bin/fdf-ram" $N "$@"

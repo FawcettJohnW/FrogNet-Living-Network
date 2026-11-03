@@ -46,7 +46,7 @@ Then one invitation per node (on the holder):
 
 The join installs `fdf-client`, `fdf-facts` and `fdf-app` (`fdf-app.service`: `fdf-app serve`). `fdf-app serve`
 writes the node's capability and configuration tuples for every app installed on it, runs each app RAM's selection,
-starts `rina-host` for the RAMs this node is chosen for, and writes `/opt/fdf/var/app-where.json`. Nothing else is
+starts `fdf-ram` for the RAMs this node is chosen for, and writes `/opt/fdf/var/app-where.json`. Nothing else is
 started by hand.
 
 ## 2. The app on each node: install, then configure

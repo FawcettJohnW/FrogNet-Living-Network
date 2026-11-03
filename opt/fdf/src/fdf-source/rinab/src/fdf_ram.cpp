@@ -87,7 +87,10 @@ public:
     std::string api_path() const override { return API; }
     std::string default_listen() const override { return "0.0.0.0:8788"; }
     bool handles(const std::string& op) const override { return op == "rina" || op == "rina_block" || op == "daf"; }
-    bool inline_operation(const std::string& op) const override { return op == "rina" || op == "daf"; }   // never wait
+    // never wait on a thread: rina and daf answer at once; rina_block answers at once or takes its request's continuation
+    // (ribbit::defer_answer), which exists only on the request's own thread -- on the pool, after a non-inline first try,
+    // there is none, and fdf-events' held wait failed "no continuation to park" (found 2026-11-03, test_fdf_app.py)
+    bool inline_operation(const std::string& op) const override { return op == "rina" || op == "daf" || op == "rina_block"; }
     bool coalesces(const std::string& op) const override { return !handles(op); }   // [REGION_COALESCE_PER_SESSION_V1]
     bool own_flag_decides() const override { return true; }                          // [OWN_FLAG_DECIDES_V1]
     bool keeps_permanent() const override { return true; }                           // [PERMANENT_CELL_V1]

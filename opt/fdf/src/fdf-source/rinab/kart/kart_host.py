@@ -7,7 +7,7 @@
 # "failed" with why, and the service names another machine.
 #
 #   kart_host.py --memory H:P [--api /ram.php] --kind dedicated|player [--machine NAME] [--advertise ADDR | --fdf H:P]
-#                [--rina-host PATH]
+#                [--fdf-ram PATH]
 # A player's game runs one for its own machine (--kind player); fdf-kart-host.sh runs a dedicated one.
 import argparse, json, os, signal, socket, subprocess, sys, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -21,7 +21,7 @@ ap.add_argument("--kind", choices=["dedicated", "player"], required=True)
 ap.add_argument("--machine", default=None, help="default: with a region, this machine's member name there; else the hostname")
 ap.add_argument("--advertise", default=None, help="the address racers reach this machine at")
 ap.add_argument("--fdf", default=None, help="FD&F RAM server: the address is the one this machine announced to FD&F")
-ap.add_argument("--rina-host", default=None, help="default: beside this file, else /opt/fdf/bin/rina-host")
+ap.add_argument("--fdf-ram", default=None, help="default: beside this file, else /opt/fdf/bin/fdf-ram")
 ap.add_argument("--player", default="", help="(a player's machine) whose game this agent belongs to")
 a = ap.parse_args()
 ME = a.machine or os.environ.get("COMPUTERNAME") or socket.gethostname()
@@ -45,8 +45,8 @@ if a.fdf: say(f"kart_host[{ME}]", f"its member name in the region: {MEMBER}")
 def log(m): say(f"kart_host[{ME}]", m)
 if os.name != "nt" and a.kind == "player":                     # a player's agent goes with its game, however the game ends
     import ctypes; ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)
-RH = a.rina_host if a.rina_host else next((c for c in (os.path.join(HERE, "rina-host"), "/opt/fdf/bin/rina-host") if os.path.exists(c)), None)
-if not RH or not os.path.exists(RH): sys.exit(f"kart_host[{ME}]: no rina-host ({a.rina_host or 'beside kart_host.py or in /opt/fdf/bin'}): this machine cannot serve a game")
+RH = a.fdf_ram if a.fdf_ram else next((c for c in (os.path.join(HERE, "fdf-ram"), "/opt/fdf/bin/fdf-ram") if os.path.exists(c)), None)
+if not RH or not os.path.exists(RH): sys.exit(f"kart_host[{ME}]: no fdf-ram ({a.fdf_ram or 'beside kart_host.py or in /opt/fdf/bin'}): this machine cannot serve a game")
 from ribbit import elf_arch, this_arch
 if os.name != "nt" and elf_arch(RH) not in (None, this_arch()):        # [KART_SAYS_THE_ARCH_V1]
     sys.exit(f"kart_host[{ME}]: {RH} is built for {elf_arch(RH)}; this machine is {this_arch()}: this machine cannot serve a game with it")
@@ -95,7 +95,7 @@ def on_change():
     with lock:
         addr = FDF["addr"] if a.fdf else ADDR
         if (written["g"], written.get("a")) != (mem.gen, addr):  # a new session, or a new address: say what this machine is
-            mem.write("gamehost", ME, {"machine": ME, "kind": a.kind, "addr": addr, "player": a.player, "rina_host": RH} if addr else {},
+            mem.write("gamehost", ME, {"machine": ME, "kind": a.kind, "addr": addr, "player": a.player, "fdf_ram": RH} if addr else {},
                       own=True)
             written["g"] = mem.gen; written["a"] = addr
         if not addr: return
@@ -108,7 +108,7 @@ def start(race, lb):
     mem.write("hosting", race, {"machine": ME, "state": "starting", "at": time.time()})
     cmd = [sys.executable, os.path.join(HERE, "kart_server.py"), "--main", f"{H}:{P}", "--main-api", a.api,
            "--intent", json.dumps({"race": race, "host": a.player or ME, "roster": lb["roster"], "laps": lb["laps"]}),
-           "--advertise", FDF["addr"] if a.fdf else ADDR, "--rina-host", RH]
+           "--advertise", FDF["addr"] if a.fdf else ADDR, "--fdf-ram", RH]
     try: p = subprocess.Popen(cmd, start_new_session=True)
     except OSError as e:
         mem.write("hosting", race, {"machine": ME, "state": "failed", "why": f"cannot start kart_server.py: {e}"}); log(f"race {race}: FAILED to start: {e}"); return

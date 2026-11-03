@@ -37,7 +37,11 @@ the same way, so the leak is chased in the platform host, with the session's hol
 ([SESSION_HOLDERS_SAID_V1]) and a test that ends sessions in each state. The RAM manager units also get
 `LimitNOFILE=65536`.
 
-## Callers switched
+## Callers switched (2026-11-03)
 
-`fdf-region-create` (fdf-ram-AREA), `fdf-app` (its RAMs), `fdf-org`, `fdf-ram-server.sh`, `fdf-ram-manager.sh`,
-`fdf-mapping.sh`, `fdf-invisible-check`, the kart scripts and unit, the tests in `rinab/tools`, `rangertrak-app/test`.
+On 2026-11-02 this section said the callers were switched; they were not (found 2026-11-03, John: "Why is rina_region
+still here?"): `fdf-app`, `fdf-org`'s spaces, `fdf-region-create`'s unit, the kart and mapping scripts and every test
+still started `rina-host`, and nothing built `fdf-ram`. Now: `tools/build.sh`, `build_static_host.sh` and
+`build_arm64.sh` build `fdf-ram` and remove rina-host; every caller in `fdf/bin`, the bundles, the kart, the simulator
+tiers and the tests runs `fdf-ram` (the kart's `--rina-host PATH` is `--fdf-ram PATH`); the update tarball removes
+`/opt/fdf/bin/rina-host` and points each existing `fdf-ram-AREA.service` at `fdf-ram`.

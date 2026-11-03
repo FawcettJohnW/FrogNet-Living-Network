@@ -3,7 +3,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-# test_fdf_app.py -- [APP_DROPLET_V1] fdf-app against a real network RAM (rina-host) and three real members, each with
+# test_fdf_app.py -- [APP_DROPLET_V1] fdf-app against a real network RAM (fdf-ram) and three real members, each with
 # its own session (fdf-client) and its own fdf-app serve, its droplets listening on its own loopback .1 (127.0.N.1).
 # One app, rangertrak, with two RAMs (general, hospitals); member c has the most memory, b the next, a the least.
 #   usage: tools/test_fdf_app.py [BUILD_STATIC_DIR]   (default: rinab/build/static)
@@ -50,16 +50,16 @@ def free():
 
 T = tempfile.mkdtemp(prefix="fdf-app-")
 os.makedirs(T + "/bin")
-for b in ("rina-host", "fdf-client", "fdf-where", "fdf-events"): shutil.copy(os.path.join(B, b), T + "/bin/")
+for b in ("fdf-ram", "fdf-client", "fdf-where", "fdf-events"): shutil.copy(os.path.join(B, b), T + "/bin/")
 procs = []
 NET = "127.0.0.1:%d" % free()
-procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", NET, "--api", fdfram.API],
+procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET, "--api", fdfram.API],
                               env=dict(os.environ, RINA_REGION_FILE=T + "/net.perm", RINA_NET_CONFIG=T + "/none"),
                               stdout=subprocess.DEVNULL, stderr=open(T + "/net.log", "w")))
 time.sleep(0.5)
 rm = fdfram.Ram(NET)
 NET_B = "127.0.0.1:%d" % free()   # b's side of a split: another network RAM
-procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", NET_B, "--api", fdfram.API],
+procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET_B, "--api", fdfram.API],
                               env=dict(os.environ, RINA_REGION_FILE=T + "/net-b.perm", RINA_NET_CONFIG=T + "/none"),
                               stdout=subprocess.DEVNULL, stderr=open(T + "/net-b.log", "w")))
 via = {n: Via(NET) for n in "abcd"}   # each member's one address for the network RAM

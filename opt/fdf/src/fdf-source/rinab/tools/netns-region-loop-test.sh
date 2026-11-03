@@ -5,7 +5,7 @@
 #   REGION: event p timed: world=.. bringup=.. apply=.. publish=.. total=..
 # is read here, without hardware. Topology as netns-latency-test.sh, with the "Internet" on 198.18.0.0/24 (not 10.x,
 # so the daemon's own-subnet rule sees only the served /24):
-#   hub 198.18.0.1 (fdf-hub wg-hub :51820, rina-host on its tunnel address 10.253.253.254:8840, fdf-client)
+#   hub 198.18.0.1 (fdf-hub wg-hub :51820, fdf-ram on its tunnel address 10.253.253.254:8840, fdf-client)
 # [REGION_LOOP_BY_INVITE_V1] the region as fdf-region-create makes it since r31: the RAM manager listens only inside the
 # hub's tunnel ([RAM_IN_THE_TUNNEL_V1]) and the hub peers only invited members ([ADMITTED_BY_INVITE_V1]). z and a join
 # with fdf-invite's line (fdf-region-join --files-only: key, hub.json, site.env, join.env); y reaches the RAM through
@@ -71,7 +71,7 @@ NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RIN
 printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
 NS hub env FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # every long-lived process restarts as its unit does (Restart=always, RestartSec=2)

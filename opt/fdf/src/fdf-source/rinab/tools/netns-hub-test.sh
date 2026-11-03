@@ -8,7 +8,7 @@
 #   usage: tools/netns-hub-test.sh [RINAB_DIR]   (run after tools/build.sh + tools/build_rlite.sh; FROGNET_DIR = the
 #          repo's opt/frognet_semantic, for region.py)
 # [REGION_LOOP_BY_INVITE_V1] the region as fdf-region-create makes it since r31: the RAM manager listens only on the hub's
-# tunnel address 10.253.253.254:8840 ([RAM_IN_THE_TUNNEL_V1]: fdf-hub --iface-only first, then rina-host, map_site, then
+# tunnel address 10.253.253.254:8840 ([RAM_IN_THE_TUNNEL_V1]: fdf-hub --iface-only first, then fdf-ram, map_site, then
 # fdf-hub --admitted), and the hub peers only invited members ([ADMITTED_BY_INVITE_V1]). n1, n2 and the leaf each get an
 # fdf-invite line: their WireGuard key and edge come from it (edges are handed out in invitation order, 10.253.1.1, .2,
 # .3, not 10.253.A.B from the /24), my_channels() builds the hub channel from its hub.json (FDF_HUB_JSON), and the tunnel
@@ -39,7 +39,7 @@ NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM "$@"; }
 printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
 NS hub env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 U="http://$RAM$API?op=rina"; for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # ---- the hub: its fdf-client (facts written by fdf-hub) and fdf-hub itself

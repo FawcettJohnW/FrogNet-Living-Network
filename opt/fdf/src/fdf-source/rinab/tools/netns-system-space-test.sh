@@ -6,7 +6,7 @@
 # netns-system-space-test.sh -- [SYSTEM_SPACE_V1] step 4, nodes (opt/fdf/docs/ORGANIZATIONS.md sections 4 and 6): the
 # REAL tunnel daemon walking the system space's list -- two WAN RAM managers, then the LAN's from the highest IP down to
 # its own -- with failover and failback, in network namespaces.
-#   A 198.18.0.1   hubA: fdf-hub, rina-host on 10.253.253.254:8840 (the primary)
+#   A 198.18.0.1   hubA: fdf-hub, fdf-ram on 10.253.253.254:8840 (the primary)
 #   B 198.18.0.2   hubB: the same, the standby; the same area and site key (one system space)
 #   z 198.18.0.3   node, serves 10.3.3.0/24 on v-zw; daemon, fdf-facts, fdf-client
 #   w              node behind z: lease 10.3.3.20 on z's LAN, serves 10.4.4.0/24; its OWN tunnels (egress through z)
@@ -35,7 +35,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/fdf-where $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-where $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-facts $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-region-join $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH
 cat > $T/bin/capability-probe <<'EOF'
@@ -56,11 +56,11 @@ i=1; for n in A B z; do ip netns add $n; ip netns exec $n ip link set lo up
 NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 # ---- two RAM hosts of ONE system space (same area, same site key), as fdf-region-create makes each
-hostup() { local n=$1; NS $n env -u RINA_MAP_AREA RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/rina-host --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
+hostup() { local n=$1; NS $n env -u RINA_MAP_AREA RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done
            NS $n curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "http://$RAM$API?op=rina" > /dev/null; }
-hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "rina-host" /proc/$p/cmdline 2>/dev/null && kill $p; done
-             for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l rina-host /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
+hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "fdf-ram" /proc/$p/cmdline 2>/dev/null && kill $p; done
+             for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l fdf-ram /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
 parts() { NS $1 curl -s -m 3 -X POST -d '{"op":"participants"}' "http://$2$API?op=rina" | python3 -c 'import sys,json; print(" ".join(sorted(p["name"] for p in json.load(sys.stdin).get("participants",[]) if p.get("alive") and not p["name"].startswith("hub"))))' 2>/dev/null; }
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)

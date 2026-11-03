@@ -2,8 +2,8 @@
 # netns-ponds-daemon-test.sh -- [PONDS_V1] PLAN-PONDS §4 with the REAL tunnel daemon (r19's region loop): one node in two
 # ponds, the forward one switched in place. Harness: tools/netns-region-loop-test.sh's (private /etc, /run/wireguard,
 # /opt/fdf/var per node; the real daemon, fdf-facts, fdf-client).
-#   ha 198.18.0.1  pond A: rina-host, fdf-hub (hubA, wg-ha :51820), its fdf-client
-#   hb 198.18.0.2  pond B: rina-host, fdf-hub (hubB, wg-hb :51821), its fdf-client
+#   ha 198.18.0.1  pond A: fdf-ram, fdf-hub (hubA, wg-ha :51820), its fdf-client
+#   hb 198.18.0.2  pond B: fdf-ram, fdf-hub (hubB, wg-hb :51821), its fdf-client
 #   a  198.18.0.5  an r19 node in pond A only, serves 10.7.7.0/24
 #   b  198.18.0.6  an r19 node in pond B only, serves 10.8.8.0/24; posts the notice (fdf-attention)
 #   n  198.18.0.3  the node in BOTH: serves 10.3.3.0/24; daemon + fdf-facts + fdf-client@pondA + fdf-client@pondB
@@ -46,7 +46,7 @@ for x in "ha 1" "hb 2" "n 3" "a 5" "b 6"; do set -- $x; ip netns add $1; ip netn
   ip netns exec $1 ip addr add 198.18.0.$2/24 dev v-$1; ip netns exec $1 ip link set v-$1 up; done
 # ---- two ponds
 pond() { local h=$1 ram=$2 area=$3 key=$4 port=$5
-  ip netns exec $h env -u RINA_MAP_AREA RINA_REGION_FILE=$T/$h/area.perm $B/rina-host --listen $ram --api $API > $T/$h/host.log 2>&1 &
+  ip netns exec $h env -u RINA_MAP_AREA RINA_REGION_FILE=$T/$h/area.perm $B/fdf-ram --listen $ram --api $API > $T/$h/host.log 2>&1 &
   sleep 1; ip netns exec $h curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$area\",\"key\":\"$key\"}" "http://$ram$API?op=rina" > /dev/null
   ip netns exec $h env RINA_RAM=$ram FDF_FACTS=$T/$h/facts.json $B/fdf-client > $T/$h/client.log 2>&1 &
   sleep 0.5

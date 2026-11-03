@@ -25,7 +25,7 @@ ROOT=$(cd "$ROOT" 2>/dev/null && pwd) || die "no directory $1"
 [ -d "$ROOT/kernel" ] && [ -x "$ROOT/configure" ] || die "$ROOT is not the rlite source tree"
 for t in g++ gcc cmake protoc make ip; do command -v $t >/dev/null || die "missing command: $t"; done
 [ "$ONLY_REGION" = 1 ] || [ -d "/lib/modules/$(uname -r)/build" ] || die "no kernel headers for $(uname -r): apt install linux-headers-$(uname -r)"
-for p in rina-host rlite-uipcps rinaperf; do pgrep -x "$p" >/dev/null && die "a $p is already running -- stop it first"; done
+for p in fdf-ram rlite-uipcps rinaperf; do pgrep -x "$p" >/dev/null && die "a $p is already running -- stop it first"; done
 grep -q "^rlite" /proc/modules && die "rlite modules are already loaded (rmmod rlite-normal rlite-shim-eth rlite-shim-loopback rlite)"
 [ -z "$(ip netns list)" ] || die "network namespaces already exist: $(ip netns list | awk '{print $1}' | tr '\n' ' ')"
 
@@ -75,7 +75,7 @@ measure() {
 
 # ---- arm 1: rlite ----------------------------------------------------------------------------------------------------
 unload() { for m in rlite-normal rlite-shim-eth rlite-shim-loopback rlite; do rmmod $m 2>/dev/null; done; }
-trap 'pkill -x rinaperf; pkill -x rlite-uipcps; pkill -x rina-host; topo_down; unload' EXIT
+trap 'pkill -x rinaperf; pkill -x rlite-uipcps; pkill -x fdf-ram; topo_down; unload' EXIT
 if [ "$ONLY_REGION" != 1 ]; then
 say "rlite: loading its modules"
 for m in rlite rlite-shim-loopback rlite-shim-eth rlite-normal; do insmod "$RL/kernel/$m.ko" || die "insmod $m.ko failed"; done
@@ -89,12 +89,12 @@ fi
 [ "${PRIME:-1}" = 1 ] && [ -f "$(cd "$(dirname "$0")" && pwd)/templates/rina.prime" ] && export RIBBIT_TEMPLATES=$(cd "$(dirname "$0")" && pwd)/templates/rina.prime
 [ "${PRIME:-1}" = 1 ] && [ -f "$(cd "$(dirname "$0")/.." && pwd)/templates/rina.prime" ] && export RIBBIT_TEMPLATES=$(cd "$(dirname "$0")/.." && pwd)/templates/rina.prime
 export PATH=$H/build/bin:$PATH RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
-"$H/build/bin/rina-host" --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > "$R/host.log" 2>&1 &
+"$H/build/bin/fdf-ram" --listen 127.0.0.1:$PORT --api /FawcettInnovations.RINA.ram_interface.php > "$R/host.log" 2>&1 &
 for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.05; done
-pgrep -x rina-host >/dev/null || die "the region host did not start"
+pgrep -x fdf-ram >/dev/null || die "the region host did not start"
 topo_up
 ( setup region; measure region )
-topo_down; pkill -x rina-host
+topo_down; pkill -x fdf-ram
 
 # ---- results -------------------------------------------------------------------------------------------------------
 python3 - "$OUT" > "$R/RESULTS.md" <<'PY'

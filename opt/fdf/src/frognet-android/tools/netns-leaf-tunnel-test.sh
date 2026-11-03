@@ -1,7 +1,7 @@
 #!/bin/bash
 # netns-leaf-tunnel-test.sh -- [LEAF_BY_INVITE_V1] a leaf (the Kotlin member, as the Linux leaf, the Windows bridge and
 # the phone all run it) joins a region by its invitation alone, in namespaces, with the real programs:
-#   hub  198.18.0.1   fdf-hub --iface-only, rina-host on 10.253.253.254:8840 (inside the tunnel only), map_site,
+#   hub  198.18.0.1   fdf-hub --iface-only, fdf-ram on 10.253.253.254:8840 (inside the tunnel only), map_site,
 #                     fdf-hub --admitted, its fdf-client; fdf-invite NAME --leaf for each leaf
 #   l1, l2            wireguard-go fdf-leaf; `fdf-member-kt leaf fdfinv1.<...>`: the tunnel from the invitation, then
 #                     the region inside it
@@ -13,7 +13,7 @@
 # own RAMs, their own tuples, and what each does on a network event.
 # CORE_TGZ=<fdf-core-linux-<arch>-<build>.tgz>: also the core bundle, installed and started as a machine would: a leaf by
 # its invitation (l5) and stand-alone (l6).
-# usage: netns-leaf-tunnel-test.sh <dir with rina-host, fdf-client> <fdf-member-kt launcher> <fdf package dir (bin/, lib/python/, templates/)>
+# usage: netns-leaf-tunnel-test.sh <dir with fdf-ram, fdf-client> <fdf-member-kt launcher> <fdf package dir (bin/, lib/python/, templates/)>
 set -u
 B=$1; K=$2; PK=$3; T=${T:-/tmp/claude-0/netns-leaf-invite}; rm -rf $T; mkdir -p $T/hub/admitted $T/l1 $T/l2 $T/l3 $T/l4 $T/l5 $T/l6 $T/bin
 API=/FawcettInnovations.RINA.ram_interface.php; AREA=D; KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -25,7 +25,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
             for n in hub l1 l2 l3 l4 l5 l6; do for k in $(seq 50); do p=$(ip netns pids $n 2>/dev/null); [ -z "$p" ] && break; echo $p | xargs -r kill -9 2>/dev/null; sleep 0.1; done
               ip netns del $n 2>/dev/null; ip link del v-$n-b 2>/dev/null; done; ip link del br-leaf 2>/dev/null; }
 [ -n "${KEEP:-}" ] || trap cleanup EXIT; cleanup
-cp $B/fdf-client $B/fdf-events $B/fdf-where $B/rina-host $T/bin/; cp $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-identity $T/bin/; cp "$(command -v wireguard-go)" $T/bin/
+cp $B/fdf-client $B/fdf-events $B/fdf-where $B/fdf-ram $T/bin/; cp $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-identity $T/bin/; cp "$(command -v wireguard-go)" $T/bin/
 export PATH=$T/bin:$PATH
 ip link add br-leaf type bridge && ip link set br-leaf up
 i=1; for n in hub l1 l2 l3 l4 l5 l6; do ip netns add $n; ip netns exec $n ip link set lo up
@@ -37,7 +37,7 @@ svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date
 printf '%s\n' "$KEY" > $T/hub/site-key-$AREA; chmod 600 $T/hub/site-key-$AREA
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-D\nFDF_FACTS=%s\n' $RAM $AREA $PUB $T/hub/facts.json > $T/hub/hub.env
 NS hub python3 $T/bin/fdf-hub --area $AREA --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
-NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 R=$(NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" "$U"); case "$R" in *'"ok":true'*) ;; *) echo "FAIL  map_site: $R"; exit 1 ;; esac
 NS hub sysctl -q -w net.ipv4.ip_forward=1
@@ -153,7 +153,7 @@ c=[x for x in json.load(sys.stdin).get('cells',[]) if x['instance']==i and x.get
   inst_addin() { local n=$1 a=$2 home=$3; shift 3; mkdir -p $T/$n/$a; tar -C $T/$n/$a -xzf "$(ADD $a)"
     NS $n env FDF_HOME=$home FDF_NO_SYSTEMD=1 "$@" sh $T/$n/$a/fdf-addin-*/install > $T/$n/$a/install.out 2>&1; }
   # the region holder: a core in the hub's sense (hub.env), the programs add-ins use from it
-  mkdir -p $T/hub/fdf/bin; for b in fdf-where fdf-events rina-host; do ln -sf $T/bin/$b $T/hub/fdf/bin/$b; done
+  mkdir -p $T/hub/fdf/bin; for b in fdf-where fdf-events fdf-ram; do ln -sf $T/bin/$b $T/hub/fdf/bin/$b; done
   mkdir -p $T/hub/fdf/lib; ln -sfn $PK/lib/python $T/hub/fdf/lib/python
   inst_addin hub kart $T/hub/fdf FDF_HUB_ENV=$T/hub/hub.env
   for a in kart comms dc; do inst_addin l5 $a $T/l5/fdf; done

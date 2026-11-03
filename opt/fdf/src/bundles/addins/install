@@ -3,7 +3,7 @@
 # core. It looks first and refuses, saying why, when:
 #   there is no core here ($FDF_HOME/var/control.env from the fdf-core bundle, the region holder's hub.env, or a
 #   FrogNet node's join.env)
-#   the core lacks what add-ins use (fdf-where, fdf-events, rina-host in $FDF_HOME/bin)
+#   the core lacks what add-ins use (fdf-where, fdf-events, fdf-ram in $FDF_HOME/bin)
 #   the add-in is built for another processor
 # Then $FDF_HOME/addins/<name> (replaced whole; its own state is in $FDF_HOME/var) and fdf-addin-<name>.service, tied to
 # the core's unit (it starts after it and with it), enabled and started. Without systemd it says how to start it.
@@ -21,7 +21,7 @@ if [ -s "$H/var/control.env" ] || [ "$(sed -n 's/^package=//p' "$H/BUILD" 2>/dev
 elif [ -s "${FDF_HUB_ENV:-/opt/fdf/hub/hub.env}" ]; then CORE=fdf-hub.service
 elif [ -s "$H/var/join.env" ]; then CORE=fdf-client.service
 else no "no FD&F core on this machine: install fdf-core-linux-$(uname -m)-*.tgz first (a FrogNet node: fdf-install-$(uname -m).run, then join)"; fi
-for b in fdf-where fdf-events rina-host; do [ -x "$H/bin/$b" ] || no "the core here has no $H/bin/$b: update the core first"; done
+for b in fdf-where fdf-events fdf-ram; do [ -x "$H/bin/$b" ] || no "the core here has no $H/bin/$b: update the core first"; done
 mkdir -p "$H/addins" "$H/var"
 rm -rf "$H/addins/$N.new"; cp -a "$D/opt/fdf/addins/$N" "$H/addins/$N.new"; rm -rf "$H/addins/$N"; mv "$H/addins/$N.new" "$H/addins/$N"
 rm -rf "$H/addins/lib"; cp -a "$D/opt/fdf/addins/lib" "$H/addins/lib"

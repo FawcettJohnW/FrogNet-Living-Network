@@ -55,7 +55,7 @@ The add-ins today:
 | add-in | its RAM and servers | tuple | on-loss |
 |---|---|---|---|
 | `comms` | `comms-ram` 8800, `comms-media` 8994 | `{"comms":{"ram":"self:8800","media":"self:8994"}}` | rediscover |
-| `kart` | the core's `rina-host --api /ram.php` on 8799 | `{"kart":{"race":"self:8799"}}` | stay |
+| `kart` | the core's `fdf-ram --api /ram.php` on 8799 | `{"kart":{"race":"self:8799"}}` | stay |
 
 Players start the kart game with `/opt/fdf/addins/kart/kart-play`. It finds the race in the control RAM and resolves
 it by identity, so nothing is typed but the name.

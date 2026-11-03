@@ -9,7 +9,7 @@
 #   DZ / DA  one-way delay, ms, on z's / a's leg to the hub (default 10 / 35: a Seattle site and a New York site with the
 #            hub on the west coast)        SCN  E2 scenarios (default 20)
 # [REGION_LOOP_BY_INVITE_V1] the region as fdf-region-create makes it since r31: the RAM manager listens only on the hub's
-# tunnel address 10.253.253.254:8840 ([RAM_IN_THE_TUNNEL_V1]: fdf-hub --iface-only first, then rina-host, map_site, then
+# tunnel address 10.253.253.254:8840 ([RAM_IN_THE_TUNNEL_V1]: fdf-hub --iface-only first, then fdf-ram, map_site, then
 # fdf-hub --admitted), and the hub peers only invited members ([ADMITTED_BY_INVITE_V1]). z and a each get an fdf-invite
 # line: their WireGuard key and edge come from it, region.py's my_channels() builds the hub channel from its hub.json
 # (FDF_HUB_JSON; fdf-facts reads its hub row's edge there too), and the tunnel is up BEFORE the member's fdf-client. y has
@@ -60,7 +60,7 @@ NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RIN
 printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
 NS hub env FDF_BIN=$B python3 $H/../fdf/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 NS hub env FDF_FACTS=$T/hub/facts.json $B/fdf-client > $T/hub/client.log 2>&1 &

@@ -12,7 +12,7 @@
 #             are printed for the operator, and nothing is changed. ufw is not enabled and ssh is not touched here.
 #
 # In order, saying each step: the site key (made once, stored root-only in /opt/fdf/var/site-key-AREA, printed once at
-# the end); the RAM manager unit fdf-ram-AREA (the region's WireGuard interface made first, then rina-host on
+# the end); the RAM manager unit fdf-ram-AREA (the region's WireGuard interface made first, then fdf-ram on
 # 10.253.253.254:RAM_PORT, its records in /opt/fdf/var/area-AREA.perm) started; map_site AREA KEY on it; /opt/fdf/hub/AREA/hub.env (no tarball carries one: this is
 # the one place it is made); fdf-hub started; fdf-client-AREA (the hub's own membership, named after this machine)
 # started; what each said. Then how a member is invited (fdf-invite NAME) and joins (fdf-region-join fdfinv1.<...>).
@@ -81,7 +81,7 @@ HUB_ADDR_WHY=$(FDF_PY=/opt/fdf/lib/python python3 -c 'import sys; sys.path.inser
 HUB_ADDR=${HUB_ADDR_WHY%% *}; IFACE=wg-${AREA//./-}
 echo "== the hub's address: $HUB_ADDR (${HUB_ADDR_WHY#* })"
 echo "== fdf-region-create $AREA at $ADDR (hub udp $HUB_PORT; RAM manager tcp $RAM_PORT on $HUB_ADDR, inside the tunnel only); $(tr '\n' ' ' 2>/dev/null < /opt/fdf/BUILD)"
-for f in /opt/fdf/bin/rina-host /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl /opt/fdf/bin/fdf-invite; do
+for f in /opt/fdf/bin/fdf-ram /opt/fdf/bin/fdf-client /opt/fdf/bin/fdf-hub /opt/fdf/bin/fdf-events /opt/fdf/bin/fdf-wg-impl /opt/fdf/bin/fdf-invite; do
   [ -x "$f" ] || { echo "fdf-region-create: $f missing: install /opt/fdf first (cd / && tar xvzf - < /tmp/fdf-droplet.tgz)" >&2; exit 1; }; done
 for b in python3 wg ip systemctl; do command -v $b >/dev/null || { echo "fdf-region-create: $b is required and missing (wg: apt-get install wireguard-tools)" >&2; exit 1; }; done
 # [WG_IMPL_RECORDED_V1 - T4b] the hub's WireGuard implementation, chosen here once, by platform, and recorded
@@ -121,7 +121,7 @@ RAMU=fdf-ram-$AREA; CLIU=fdf-client-$AREA; FACTS=$V/facts-$AREA.json
 cat > /etc/systemd/system/$RAMU.service <<EOF
 # made by fdf-region-create $AREA $ADDR: the region's RAM manager
 [Unit]
-Description=FD&F RAM manager (rina-host) for the $AREA region, TCP $RAM_PORT on $HUB_ADDR (inside the tunnel only)
+Description=FD&F RAM manager (fdf-ram) for the $AREA region, TCP $RAM_PORT on $HUB_ADDR (inside the tunnel only)
 After=network-online.target
 Wants=network-online.target
 
@@ -134,7 +134,7 @@ Environment=FDF_PY=/opt/fdf/lib/python
 # listens on that address and nowhere else. KillMode=process: a userspace WireGuard (wireguard-go) started here is not
 # taken down with a RAM manager restart.
 ExecStartPre=/usr/bin/python3 /opt/fdf/bin/fdf-hub --area $AREA --iface $IFACE --endpoint $ADDR:$HUB_PORT --listen $HUB_PORT --key $HUBKEY --iface-only
-ExecStart=/opt/fdf/bin/rina-host --listen $HUB_ADDR:$RAM_PORT --api /FawcettInnovations.RINA.ram_interface.php
+ExecStart=/opt/fdf/bin/fdf-ram --listen $HUB_ADDR:$RAM_PORT --api /FawcettInnovations.RINA.ram_interface.php
 KillMode=process
 Restart=always
 RestartSec=1

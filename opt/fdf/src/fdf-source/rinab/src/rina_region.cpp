@@ -48,7 +48,7 @@ class RegionFile {
 public:
     RegionFile() {
         const char* f = getenv("RINA_REGION_FILE");
-        if (!f || !*f) { fprintf(stderr, "rina-host: RINA_REGION_FILE is not set: the region's Permanent records need a file\n"); _exit(2); }
+        if (!f || !*f) { fprintf(stderr, "fdf-ram: RINA_REGION_FILE is not set: the region's Permanent records need a file\n"); _exit(2); }
         path_ = f;
     }
     // replay into `put`, rewrite compacted, then open for appending
@@ -58,27 +58,27 @@ public:
             char* line = nullptr; size_t cap = 0; ssize_t n; size_t lineno = 0;
             while ((n = getline(&line, &cap, in)) > 0) { ++lineno;
                 Json j; try { j = Json::parse(std::string(line, size_t(n))); } catch (const std::exception& e) {
-                    fprintf(stderr, "rina-host: %s line %zu is not a record (%s): the file is damaged\n", path_.c_str(), lineno, e.what()); _exit(2); }
+                    fprintf(stderr, "fdf-ram: %s line %zu is not a record (%s): the file is damaged\n", path_.c_str(), lineno, e.what()); _exit(2); }
                 last[{j[0].s, j[1].s}] = j[2].s; }
             free(line); fclose(in);
-        } else if (errno != ENOENT) { fprintf(stderr, "rina-host: reading %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+        } else if (errno != ENOENT) { fprintf(stderr, "fdf-ram: reading %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         const std::string tmp = path_ + ".new"; FILE* out = fopen(tmp.c_str(), "w");
-        if (!out) { fprintf(stderr, "rina-host: writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
+        if (!out) { fprintf(stderr, "fdf-ram: writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
         size_t kept = 0;
         for (auto& [k, bag] : last) { const std::string v = Json::parse(bag)["v"].s; if (v.empty() || (k.first == "map" && v.find(";own=1") != std::string::npos)) continue;   // a deletion: gone for good; [OWNED_MAPPING_IS_NOT_RESTORED_V1] a session-bound mapping went with its session
             put(k.first, k.second, bag); fputs(line_of(k.first, k.second, bag).c_str(), out); ++kept; }
         if (fflush(out) != 0 || fdatasync(fileno(out)) != 0 || fclose(out) != 0 || rename(tmp.c_str(), path_.c_str()) != 0) {
-            fprintf(stderr, "rina-host: compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+            fprintf(stderr, "fdf-ram: compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         fd_ = ::open(path_.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC);
-        if (fd_ < 0) { fprintf(stderr, "rina-host: opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
-        fprintf(stderr, "rina-host: [REGION_FILE_V1] %zu Permanent record(s) restored from %s\n", kept, path_.c_str());
+        if (fd_ < 0) { fprintf(stderr, "fdf-ram: opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+        fprintf(stderr, "fdf-ram: [REGION_FILE_V1] %zu Permanent record(s) restored from %s\n", kept, path_.c_str());
         return kept;
     }
     // one write() per record (O_APPEND: whole lines, never interleaved), then fdatasync; a failure is said and fatal
     void append(const std::string& v, const std::string& i, const std::string& bag) {
         const std::string l = line_of(v, i, bag);
         if (::write(fd_, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd_) != 0) {
-            fprintf(stderr, "rina-host: [REGION_FILE_V1] could not make a Permanent record durable in %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+            fprintf(stderr, "fdf-ram: [REGION_FILE_V1] could not make a Permanent record durable in %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
     }
 private:
     static std::string line_of(const std::string& v, const std::string& i, const std::string& bag) {
@@ -1039,7 +1039,7 @@ static void restore_permanent_cells() {
     for (auto& r : scan(region_memory(), "pcell", "")) {
         const size_t a = r.rest.find('\x1f'), b = r.rest.find('\x1f', a + 1);
         rina_resident_memory().write(r.rest.substr(0, a), r.rest.substr(a + 1, b - a - 1), r.rest.substr(b + 1), r.value); ++n; }
-    fprintf(stderr, "rina-host: [PERMANENT_CELL_V1] %zu permanent tuple(s) written back into the memory\n", n);
+    fprintf(stderr, "fdf-ram: [PERMANENT_CELL_V1] %zu permanent tuple(s) written back into the memory\n", n);
 }
 void rina_own_cell(const std::string& s, const std::string& v, const std::string& i) {
     frogram::MemoryApi& m = region_memory(); const std::string sid = sess_key(rina_session_id()), key = owned_key(s, v, i);
@@ -1056,15 +1056,15 @@ static void register_self(const std::string& listen_on) {
     const char* area = getenv("RINA_MAP_AREA"); const char* key = getenv("RINA_AREA_PASSWORD");
     if (!area || !*area) return;      // [QUIET_DIRECT_V1] no area configured (direct mode): no registration intended, nothing to say
     const char* why = (!key || !*key) ? "RINA_AREA_PASSWORD is not set" : nullptr;
-    if (why) { fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", why); return; }
+    if (why) { fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", why); return; }
     const std::string ip = listen_on.substr(0, listen_on.rfind(':'));
     std::vector<std::string> mrs;                              // [MR_FROM_THE_AREA_NAME_V1] explicit, or the area's SRV record
     try { mrs = rina_region::map_resolvers(area); } catch (const std::exception& e) {
-        fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", e.what()); return; }
+        fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", e.what()); return; }
     for (const std::string& mr : mrs) {                        // every map-resolver of the area holds the registration
         try { rina_region::map_register(area, ip, mr, key, 86400);
-              fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] registered '%s' -> %s in the mapping region at %s\n", area, ip.c_str(), mr.c_str()); }
-        catch (const std::exception& e) { fprintf(stderr, "rina-host: [RAM_MANAGER_REGISTERS_ITSELF_V1] at %s: %s\n", mr.c_str(), e.what()); } }
+              fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] registered '%s' -> %s in the mapping region at %s\n", area, ip.c_str(), mr.c_str()); }
+        catch (const std::exception& e) { fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] at %s: %s\n", mr.c_str(), e.what()); } }
 }
 // [NET_CONFIG_IS_A_TUPLE_V1] (John 2026-10-10: "a well-known configuration tuple per network") what this network allows
 // an outside member: (pond, config, net), written here at start from net.json (RINA_NET_CONFIG, default
@@ -1089,8 +1089,8 @@ static void publish_net_config() {
             if (reach != "none" && reach != "listed" && reach != "all") why = "reach is \"" + reach + "\" (none, listed or all)";
             else if (map != "allowed" && map != "refused") why = "map is \"" + map + "\" (allowed or refused)";
         }
-        if (!why.empty()) { fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] %s %s: NO network config published (outsiders' reaches fail)\n", path.c_str(), why.c_str()); return; }
-    } else fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] no %s: reach none, map refused\n", path.c_str());
+        if (!why.empty()) { fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] %s %s: NO network config published (outsiders' reaches fail)\n", path.c_str(), why.c_str()); return; }
+    } else fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] no %s: reach none, map refused\n", path.c_str());
     const char* area = getenv("RINA_MAP_AREA");
     // [HUB_ADDRESS_FROM_ITS_HOST_V1] this region's hub: FDF_HUB_ADDR (the RAM manager's unit sets it), else 10.253.253.254
     const char* hubaddr = getenv("FDF_HUB_ADDR");
@@ -1103,14 +1103,14 @@ static void publish_net_config() {
         std::vector<uint64_t> old; for (auto& c : m.read("pond", "config", "net")) old.push_back(c.id);
         const uint64_t id = m.write("pond", "config", "net", bag);
         for (uint64_t o : old) if (o != id) m.remove(o);
-        fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = %s\n", bag.c_str());
-    } catch (const std::exception& x) { fprintf(stderr, "rina-host: [NET_CONFIG_IS_A_TUPLE_V1] could not write the network config: %s\n", x.what()); }
+        fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] (pond, config, net) = %s\n", bag.c_str());
+    } catch (const std::exception& x) { fprintf(stderr, "fdf-ram: [NET_CONFIG_IS_A_TUPLE_V1] could not write the network config: %s\n", x.what()); }
 }
 // [HOST_ANNOUNCES_ITSELF_V1] superseded (John, 2026-10-07: no direct propagation between machines). Called by the host
 // once it is listening; all it does now is register its own LISP mapping ([RAM_MANAGER_REGISTERS_ITSELF_V1]). Members
 // that lost it learn it is back by waiting on the mapping ([MAP_WATCH_V1]).
 void rina_host_listening(const std::string& listen_on) {
-    fprintf(stderr, "rina-host: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
+    fprintf(stderr, "fdf-ram: [FDF_VERSION_V1] build %s listening on %s\n", FDF_BUILD_TAG, listen_on.c_str());
     daf_start();                                                   // [DAF_FILE_V1] its Permanent cells, before any member
     restore_permanent_cells();                                         // [PERMANENT_CELL_V1]
     if (!getenv("RINA_HOST_ROLE") || std::string(getenv("RINA_HOST_ROLE")) != "mapping") {   // the mapping host is not an area's

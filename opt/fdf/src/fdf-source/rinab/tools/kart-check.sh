@@ -2,7 +2,7 @@
 # kart-check.sh -- [KART_SERVICE_V1] [KART_HOST_AGENT_V1] [KART_RACE_SERVER_V1] [PERMANENT_CELL_V1] [OWNED_CELL_GOES_WITH_THE_SESSION_V1]
 # Shared memory creating and managing games, across machines. Each machine is its own network namespace with its own
 # hostname on one shared network (kb<pid>: per-run names, 10.61.0.0/24). On the "droplet", 10.61.0.1: the kart memory
-# (rina-host :8799, its file $D/kart.perm) and the kart service beside it (--min-players 3). Machines:
+# (fdf-ram :8799, its file $D/kart.perm) and the kart service beside it (--min-players 3). Machines:
 #   m1 kbox1 10.61.0.11  red: 3 robots, wants 2 laps, can host (its game runs a player host agent)
 #   m2 kbox2 10.61.0.12  blue: 1 robot, wants 2 laps, cannot host
 #   m3 kbox3 10.61.0.13  nyc: 4 robots, wants 4 laps, can host
@@ -26,10 +26,10 @@
 #     nyc are, and race on a machine the service chose
 #  11 the region's owned- and permanent-cell checks (kart/test_owned_cells.py)
 # Needs root, ip, tcpdump, curl, python3 with pygame, build/ (tools/build.sh, build_rlite.sh) and kart/libkartram.so.
-# KART_CHECK_BIN=<dir with rina-host, fdf-client>, KART_CHECK_GAME=<dir with the kart programs> and
-# KART_CHECK_HOST_RINA=<the rina-host a hosting machine runs> run it on shipped files.
+# KART_CHECK_BIN=<dir with fdf-ram, fdf-client>, KART_CHECK_GAME=<dir with the kart programs> and
+# KART_CHECK_HOST_RINA=<the fdf-ram a hosting machine runs> run it on shipped files.
 set -u; H=$(cd "$(dirname "$0")/.." && pwd); B=${KART_CHECK_BIN:-$H/build/bin}; K=${KART_CHECK_GAME:-$H/kart}; D=$(mktemp -d /tmp/kart-check.XXXX); echo "diag dir: $D"
-KM=10.61.0.1:8799; HB=${KART_CHECK_HOST_RINA:-$B/rina-host}; FAILS=0; R=$(( $$ % 100000 )); BR=kb$R
+KM=10.61.0.1:8799; HB=${KART_CHECK_HOST_RINA:-$B/fdf-ram}; FAILS=0; R=$(( $$ % 100000 )); BR=kb$R
 check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 cleanup() { kill ${HP:-} ${SV:-} ${TD:-} ${FP:-} ${LM:-} 2>/dev/null; for i in 1 2 3 4; do for p in $(ip netns pids km${R}_$i 2>/dev/null); do kill -9 $p; done; ip netns delete km${R}_$i 2>/dev/null; done; ip link delete $BR 2>/dev/null; }
 trap cleanup EXIT
@@ -40,7 +40,7 @@ for i in 1 2 3 4; do ip netns add km${R}_$i; ip netns exec km${R}_$i ip link set
     ip link add kv$R$i type veth peer name kp$R$i; ip link set kp$R$i master $BR; ip link set kp$R$i up; ip link set kv$R$i netns km${R}_$i
     ip netns exec km${R}_$i ip addr add 10.61.0.1$i/24 dev kv$R$i; ip netns exec km${R}_$i ip link set kv$R$i up; done
 tcpdump -i $BR -nn -U -w $D/wire.pcap > /dev/null 2>&1 & TD=$!; sleep 0.5
-start_kart() { env -u RINA_MAP_AREA RINA_REGION_FILE=$D/kart.perm $B/rina-host --listen $KM --api /ram.php >> $D/kartmem.log 2>&1 & HP=$!
+start_kart() { env -u RINA_MAP_AREA RINA_REGION_FILE=$D/kart.perm $B/fdf-ram --listen $KM --api /ram.php >> $D/kartmem.log 2>&1 & HP=$!
                for i in $(seq 100); do (exec 3<>/dev/tcp/10.61.0.1/8799) 2>/dev/null && break; sleep 0.05; done; }
 rd() { curl -s "http://$KM/ram.php?op=read&service=kart&variable=$1"; }
 live() { python3 -c "import json,sys; print(json.dumps({c['instance']:c['bag'] for c in json.load(sys.stdin)['cells'] if c['bag']}))"; }
@@ -48,9 +48,9 @@ start_kart
 python3 $K/kart_service.py --memory $KM --min-players 3 >> $D/service.log 2>&1 & SV=$!
 inns() { local m=$1; shift; ip netns exec km${R}_$m unshare --uts bash -c "hostname kbox$m; exec $*"; }
 game() { local m=$1 log=$2; shift 2; inns $m "env KART_TEST_FPS=1 KART_TEST_READY_AFTER=3 ${KT:-} python3 $K/kartdemo.py --headless $*" >> $D/$log.log 2>&1 & echo $!; }
-G1=$(game 1 g1 --name red --kart $KM --bots 3 --autodrive --laps 2 --rina-host $HB)
-G2=$(KT="KART_TEST_CHAT='hi from blue'" game 2 g2 --name blue --kart $KM --bots 1 --autodrive --laps 2 --rina-host /nonexistent)
-G3=$(game 3 g3 --name nyc --kart $KM --bots 4 --autodrive --laps 4 --rina-host $HB)
+G1=$(game 1 g1 --name red --kart $KM --bots 3 --autodrive --laps 2 --fdf-ram $HB)
+G2=$(KT="KART_TEST_CHAT='hi from blue'" game 2 g2 --name blue --kart $KM --bots 1 --autodrive --laps 2 --fdf-ram /nonexistent)
+G3=$(game 3 g3 --name nyc --kart $KM --bots 4 --autodrive --laps 4 --fdf-ram $HB)
 # 1-2 the lobby, chat, and the agreed parameters: waited for (up to 8 s), not read at a fixed moment
 for i in $(seq 80); do
   LOB=$(rd lobby | live); CH=$(rd chat | live); AG=$(rd agreed | live)
@@ -67,7 +67,7 @@ ON1=$(ip netns pids km${R}_1 | xargs -r ps -o args= -p | grep -c kart_server.py)
 echo "  race $RACE1 on $HOST1 at $A1:$P1, $L1 laps; kart_server.py processes on m1: $ON1"; grep -h "chat: launching" $D/service.log | head -1 | sed 's/^/  /'
 [ "$A1" = 10.61.0.11 ] && [ "$ON1" = 1 ] && [ "$L1" = 2 ] && grep -q "on kbox1 (player)" $D/service.log; check $? "3 no dedicated machine: race one on a player machine, kbox1"
 # the dedicated machine joins now, for race two
-inns 4 "python3 $K/kart_host.py --memory $KM --kind dedicated --rina-host $HB" >> $D/dedi.log 2>&1 & DH=$!
+inns 4 "python3 $K/kart_host.py --memory $KM --kind dedicated --fdf-ram $HB" >> $D/dedi.log 2>&1 & DH=$!
 sleep 9
 python3 - "$D" > $D/games.txt <<'PY'
 import re, sys
@@ -94,7 +94,7 @@ echo "  race $RACE2 on $HOST2 at $A2"; grep -h "chat: launching race $RACE2" $D/
 [ "$A2" = 10.61.0.14 ] && grep -q "chat: launching race $RACE2.* on kbox4 (dedicated)" $D/service.log; check $? "6 a dedicated machine is up: race two runs on it"
 # 7 the dedicated machine is replaced by one whose race server cannot start: race three goes there, fails, then kbox1
 kill $DH 2>/dev/null; ip netns pids km${R}_4 | xargs -r ps -o pid=,args= -p | grep kart_host | awk '{print $1}' | xargs -r kill
-inns 4 "python3 $K/kart_host.py --memory $KM --kind dedicated --rina-host /bin/false" >> $D/dedi2.log 2>&1 & DH=$!
+inns 4 "python3 $K/kart_host.py --memory $KM --kind dedicated --fdf-ram /bin/false" >> $D/dedi2.log 2>&1 & DH=$!
 for i in $(seq 900); do grep -q "race $RACE2 is over" $D/g2.log && break; sleep 0.1; done
 for i in $(seq 300); do grep -q "is up on" <(grep -h "chat: race .* is up on" $D/service.log | tail -1 | grep -v "$RACE2\|$RACE1") && break; sleep 0.1; done
 RACE3=$(grep -h "chat: launching race" $D/service.log | tail -1 | awk '{print $5}' | tr -d ':')
@@ -115,7 +115,7 @@ PY
 read M2M M2MBAD < <(head -1 $D/m2m.txt); echo "  machine-to-machine IP packets: $M2M; not to or from a race port ($PORTS): $M2MBAD"; tail -n +2 $D/m2m.txt
 [ "$M2M" -gt 0 ] && [ "$M2MBAD" = 0 ]; check $? "8 players talk only to the kart memory and the race hosts' race ports"
 # 9 the kart memory dies and comes back; everyone reconnects by itself
-G1=$(game 1 g1b --name red --kart $KM --bots 1 --laps 2 --rina-host $HB); G2=$(game 2 g2b --name blue --kart $KM --laps 2 --rina-host /nonexistent)
+G1=$(game 1 g1b --name red --kart $KM --bots 1 --laps 2 --fdf-ram $HB); G2=$(game 2 g2b --name blue --kart $KM --laps 2 --fdf-ram /nonexistent)
 sleep 3; kill -9 $HP; wait $HP 2>/dev/null; sleep 2; start_kart; sleep 5
 REC9=$(rd record | live | python3 -c "import json,sys; print(sorted(json.load(sys.stdin)))"); RES9=$(rd result | live | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 LOB9=$(rd lobby | live | python3 -c "import json,sys; print(sorted(json.load(sys.stdin)))"); AG9=$(rd agreed | live | python3 -c "import json,sys; print('lobby' in json.load(sys.stdin))")
@@ -125,25 +125,25 @@ grep -h "working again" $D/service.log | tail -1 | sed 's/^/  /'
 for m in 1 2; do ip netns pids km${R}_$m | xargs -r ps -o pid=,args= -p | grep "kartdemo\|kart_host" | awk '{print $1}' | xargs -r kill; done; sleep 1
 # 10 through FD&F: fdf.where says where the kart memory is; only members are in the lobby
 FAPI=/FawcettInnovations.RINA.ram_interface.php
-env -u RINA_MAP_AREA RINA_REGION_FILE=$D/fdf.perm $B/rina-host --listen 10.61.0.1:8840 --api $FAPI > $D/fdf-host.log 2>&1 & FP=$!
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/fdf.perm $B/fdf-ram --listen 10.61.0.1:8840 --api $FAPI > $D/fdf-host.log 2>&1 & FP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/10.61.0.1/8840) 2>/dev/null && break; sleep 0.05; done
 curl -s -X POST "http://10.61.0.1:8840$FAPI?op=write" -d '{"service":"fdf","variable":"where","instance":"race","bag":{"host":"10.61.0.1","port":8799}}' > /dev/null
-game 1 f1 --name red --fdf 10.61.0.1:8840 --fdf-client /nonexistent --bots 1 --laps 1 --rina-host $HB > /dev/null
-game 3 f3 --name nyc --fdf 10.61.0.1:8840 --fdf-client $B/fdf-client --bots 1 --autodrive --laps 1 --rina-host $HB > /dev/null
-KT="KART_TEST_START_AFTER=8" game 2 f2 --name blue --fdf 10.61.0.1:8840 --fdf-client $B/fdf-client --bots 1 --autodrive --laps 1 --rina-host /nonexistent > /dev/null
+game 1 f1 --name red --fdf 10.61.0.1:8840 --fdf-client /nonexistent --bots 1 --laps 1 --fdf-ram $HB > /dev/null
+game 3 f3 --name nyc --fdf 10.61.0.1:8840 --fdf-client $B/fdf-client --bots 1 --autodrive --laps 1 --fdf-ram $HB > /dev/null
+KT="KART_TEST_START_AFTER=8" game 2 f2 --name blue --fdf 10.61.0.1:8840 --fdf-client $B/fdf-client --bots 1 --autodrive --laps 1 --fdf-ram /nonexistent > /dev/null
 sleep 6; LOB10=$(rd lobby | live | python3 -c "import json,sys; print(sorted(json.load(sys.stdin)))")
 for i in $(seq 600); do grep -q "is over" $D/f2.log && grep -q "is over" $D/f3.log && break; sleep 0.1; done
 grep -h "is up on\|is over" $D/f2.log | sed 's/^/  /' | cut -c1-150; echo "  lobby through FD&F: $LOB10"
 grep -q "is up on nyc at 10.61.0.13" $D/f2.log && [ "$LOB10" = "['blue', 'nyc']" ] && ! grep -q "is up on" $D/f1.log; check $? "10 through FD&F: only members are in the lobby, and they race"
 for m in 1 2 3; do ip netns pids km${R}_$m | xargs -r ps -o pid=,args= -p | grep -v fdf-client | awk '{print $1}' | xargs -r kill 2>/dev/null; done; kill $FP 2>/dev/null; wait $FP 2>/dev/null
-python3 $H/kart/test_owned_cells.py $B/rina-host 18899 | sed 's/^/  /'; check ${PIPESTATUS[0]} "11 owned and permanent cells"
+python3 $H/kart/test_owned_cells.py $B/fdf-ram 18899 | sed 's/^/  /'; check ${PIPESTATUS[0]} "11 owned and permanent cells"
 # 12 [KART_HOST_REGION_ADDRESS_V1] [KART_HOST_MEMBER_NAME_V1] a FrogNet node: its hostname is FrogNetHost.<x>, its member name
 # (facts.json) is <x>; with a join.env its host agent offers the address fdf-client announced to the region
 mkdir -p $D/n12; echo '{"name":"Seattle3B"}' > $D/n12/facts.json; echo 'export RINA_RAM=127.0.0.1:18843' > $D/n12/join.env
-env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/r.perm $B/rina-host --listen 127.0.0.1:18843 --api $FAPI > $D/n12/region.log 2>&1 & P12A=$!
-env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/k.perm $B/rina-host --listen 127.0.0.1:18797 --api /ram.php > $D/n12/kart.log 2>&1 & P12B=$!; sleep 1
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/r.perm $B/fdf-ram --listen 127.0.0.1:18843 --api $FAPI > $D/n12/region.log 2>&1 & P12A=$!
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/n12/k.perm $B/fdf-ram --listen 127.0.0.1:18797 --api /ram.php > $D/n12/kart.log 2>&1 & P12B=$!; sleep 1
 FDF_FACTS=$D/n12/facts.json $B/fdf-client 127.0.0.1:18843 > $D/n12/client.log 2>&1 & P12C=$!; sleep 2
-FDF_FACTS=$D/n12/facts.json FDF_JOIN_ENV=$D/n12/join.env python3 $K/kart_host.py --memory 127.0.0.1:18797 --kind player --machine FrogNetHost.Seattle3B --player NY1 --rina-host $HB > $D/n12/agent.log 2>&1 & P12D=$!
+FDF_FACTS=$D/n12/facts.json FDF_JOIN_ENV=$D/n12/join.env python3 $K/kart_host.py --memory 127.0.0.1:18797 --kind player --machine FrogNetHost.Seattle3B --player NY1 --fdf-ram $HB > $D/n12/agent.log 2>&1 & P12D=$!
 ANN=$(grep -o 'announced \["[0-9.]*' $D/n12/client.log | cut -d'"' -f2)
 for i in $(seq 50); do GH=$(curl -s "http://127.0.0.1:18797/ram.php?op=read&service=kart&variable=gamehost" | live | python3 -c "import json,sys; print(json.load(sys.stdin).get('FrogNetHost.Seattle3B',{}).get('addr'))"); [ "$GH" = "$ANN" ] && break; sleep 0.1; done
 kill $P12D $P12C $P12A $P12B 2>/dev/null; grep -h "member name\|lists" $D/n12/agent.log | sed 's/^/  /'; echo "  announced to the region: $ANN; offered in the kart memory: $GH"

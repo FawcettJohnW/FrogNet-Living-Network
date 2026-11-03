@@ -13,14 +13,14 @@ export RINA_RAM=${RINA_RAM:-127.0.0.1:8840} RINA_RAM_NETNS=/proc/$$/ns/net
 API=/FawcettInnovations.RINA.ram_interface.php
 [ -x "$B/bin/rlite-uipcps" ] || { echo "run-suite: $B/bin has no rlite-uipcps: run tools/build_rlite.sh RLITE_ROOT first" >&2; exit 2; }
 # (pgrep matches at most 15 characters of a name: one pattern per program)
-if pgrep -x rina-host >/dev/null || pgrep -x rlite-uipcps >/dev/null; then echo "run-suite: a rina-host or rlite-uipcps is already running" >&2; exit 2; fi
+if pgrep -x fdf-ram >/dev/null || pgrep -x rlite-uipcps >/dev/null; then echo "run-suite: a fdf-ram or rlite-uipcps is already running" >&2; exit 2; fi
 mkdir -p /var/run/netns
 if [ "${ISOLATED:-0}" = 1 ]; then
-  unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/rina-host --listen $RINA_RAM --api $API" > /tmp/rinab-host.log 2>&1 &
+  unshare --pid --fork --mount --mount-proc bash -c "mount -t tmpfs none /var/run/netns && mount -t tmpfs none /sys/class/net && exec $B/bin/fdf-ram --listen $RINA_RAM --api $API" > /tmp/rinab-host.log 2>&1 &
 else
-  $B/bin/rina-host --listen $RINA_RAM --api $API > /tmp/rinab-host.log 2>&1 &
+  $B/bin/fdf-ram --listen $RINA_RAM --api $API > /tmp/rinab-host.log 2>&1 &
 fi
-UP=$!; trap "pkill -x rina-host; wait $UP 2>/dev/null" EXIT
+UP=$!; trap "pkill -x fdf-ram; wait $UP 2>/dev/null" EXIT
 for i in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/${RINA_RAM##*:}) 2>/dev/null && break; sleep 0.1; done
 cd "$ROOT" || exit 2
 # a run from test 1 starts its own table; a later range (FIRST > 1) adds to it

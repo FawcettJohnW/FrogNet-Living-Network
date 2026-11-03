@@ -20,4 +20,4 @@ run() {
 }
 OLD=${OLD:?OLD=<Mode B as handed off>/ribbit/examples/rina/rlite}; NEW=$(cd "$(dirname "$0")/../build" && pwd)
 run "Mode B as handed off" $OLD/bin "$OLD/bin/rina-ram --listen 127.0.0.1:8843"
-run "RINA region (Redis model)" $NEW/bin "$NEW/bin/rina-host --listen 127.0.0.1:8843 --api /FawcettInnovations.RINA.ram_interface.php"
+run "RINA region (Redis model)" $NEW/bin "$NEW/bin/fdf-ram --listen 127.0.0.1:8843 --api /FawcettInnovations.RINA.ram_interface.php"

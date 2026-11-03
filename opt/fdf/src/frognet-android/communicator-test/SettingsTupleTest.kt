@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //
 // SettingsTupleTest.kt -- [SETTINGS_ARE_TUPLES_V1] what the settings pages and their followers rely on, against a real
-// RAM manager (rina-host), with the member code the phone runs:
+// RAM manager (fdf-ram), with the member code the phone runs:
 //   1 the member joins; (pond, cap, <ns>) read by instance: none (a fresh device writes its own then)
 //   2 the device writes (pond, cap, <ns>) and (pond, cap, <ns>:kart) permanent; reading instance <ns> gives <ns>'s cell
 //   3 the device holds a read on (pond, cap, <ns>); another session (a monitor, a settings page) writes it: the read

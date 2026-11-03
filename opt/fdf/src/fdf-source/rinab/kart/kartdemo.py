@@ -34,7 +34,7 @@ ap.add_argument("--bots", type=int, default=0, help="robot karts this game owns 
 ap.add_argument("--autodrive", action="store_true", help="your own kart starts on the autopilot (P toggles it)")
 ap.add_argument("--headless", action="store_true", help="no window, no sound")
 ap.add_argument("--window", default=None, help="the window's size, WxH (e.g. 590x360): the game is drawn at 1180x720 and scaled into it; an X display over the network sends far fewer pixels a frame")
-ap.add_argument("--rina-host", default=None, help="what a race server on this machine runs (default: beside this file, or /opt/fdf/bin)")
+ap.add_argument("--fdf-ram", default=None, help="what a race server on this machine runs (default: beside this file, or /opt/fdf/bin)")
 ap.add_argument("--comms-ram", default=None); ap.add_argument("--comms-media", default=None)      # [KART_CALLS_V1]
 ap.add_argument("--comms-app", default="comms-app.exe" if os.name == "nt" else "comms-app")
 ap.add_argument("--comms-args", default="")
@@ -62,8 +62,8 @@ def tool(base):
     for c in [os.path.join(HERE, exe), os.path.join("/opt/fdf/bin", exe)]:
         if os.path.exists(c): return c
     return None
-# --rina-host, when given, is the one: if it is not there this machine does not host (said), nothing else is looked for
-RINA_HOST = (a.rina_host if os.path.exists(a.rina_host) else None) if a.rina_host else tool("rina-host")
+# --fdf-ram, when given, is the one: if it is not there this machine does not host (said), nothing else is looked for
+RINA_HOST = (a.fdf_ram if os.path.exists(a.fdf_ram) else None) if a.fdf_ram else tool("fdf-ram")
 if RINA_HOST and os.name != "nt" and _rb.elf_arch(RINA_HOST) not in (None, _rb.this_arch()):   # [KART_SAYS_THE_ARCH_V1]
     print(f"kartdemo: {RINA_HOST} is built for {_rb.elf_arch(RINA_HOST)}; this machine is {_rb.this_arch()}: this machine does not serve games", flush=True)
     RINA_HOST = None
@@ -83,7 +83,7 @@ if a.fdf:
     KART_H, KART_P = WHERE["race"]["host"], int(WHERE["race"]["port"])
 elif a.kart: KART_H, KART_P = hp(a.kart)
 else:                                                    # --solo: the kart memory and the kart service, here
-    if not RINA_HOST: sys.exit("kartdemo: --solo needs rina-host beside kartdemo.py or in /opt/fdf/bin")
+    if not RINA_HOST: sys.exit("kartdemo: --solo needs fdf-ram beside kartdemo.py or in /opt/fdf/bin")
     keep = os.path.join(os.path.expanduser("~"), ".frognet-kart"); os.makedirs(keep, exist_ok=True)
     env = dict(os.environ, RINA_REGION_FILE=os.path.join(keep, "main.perm")); env.pop("RINA_MAP_AREA", None)
     import ctypes; _libc = ctypes.CDLL("libc.so.6")
@@ -105,7 +105,7 @@ KART_API = "/ram.php"
 COMMS_RAM = a.comms_ram or (WHERE.get("comms", {}).get("ram")) or f"{KART_H}:8800"     # [KART_CALLS_V1]
 COMMS_MEDIA = a.comms_media or (WHERE.get("comms", {}).get("media")) or f"{KART_H}:8994"
 say(f"{KART_BUILD}: {NAME} on {MACHINE}: kart memory {KART_H}:{KART_P}; {a.bots} robot(s); "
-    f"{'this machine can serve games (' + RINA_HOST + ')' if CAN_HOST else ('this machine does not serve games: ' + (a.rina_host + ' is not there' if a.rina_host else 'no rina-host here'))}")
+    f"{'this machine can serve games (' + RINA_HOST + ')' if CAN_HOST else ('this machine does not serve games: ' + (a.fdf_ram + ' is not there' if a.fdf_ram else 'no fdf-ram here'))}")
 
 running = True
 main = Region("kart memory", KART_H, KART_P, KART_API, "kart", say)     # lobby, chat, the service's truths, servers, records
@@ -113,7 +113,7 @@ comm = Region("comm", KART_H, KART_P, KART_API, "comm", say)            # call t
 race = None                                                            # the race memory, while racing
 if CAN_HOST:                                                           # [KART_HOST_AGENT_V1] this machine, for the service to choose
     cmd = [sys.executable, os.path.join(HERE, "kart_host.py"), "--memory", f"{KART_H}:{KART_P}", "--kind", "player",
-           "--machine", MACHINE, "--player", NAME, "--rina-host", RINA_HOST]
+           "--machine", MACHINE, "--player", NAME, "--fdf-ram", RINA_HOST]
     cmd += ["--advertise", "127.0.0.1"] if a.solo else (["--fdf", f"{FDF_H}:{FDF_P}"] if a.fdf else [])
     children.append(subprocess.Popen(cmd))
 # ----------------------------------------------------------------------------- look

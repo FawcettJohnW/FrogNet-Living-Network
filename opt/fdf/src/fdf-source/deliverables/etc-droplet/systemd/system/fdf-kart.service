@@ -1,4 +1,4 @@
-# fdf-kart.service -- [KART_SERVICE_UNIT_V1] the kart memory (rina-host :8799, /opt/fdf/var/kart.perm) and the kart
+# fdf-kart.service -- [KART_SERVICE_UNIT_V1] the kart memory (fdf-ram :8799, /opt/fdf/var/kart.perm) and the kart
 # service beside it (kart_service.py), as fdf-kart-ram.sh runs them. Ships in fdf-droplet.tgz; fdf-services.sh starts,
 # stops and reports it. Its output is in the journal (journalctl -u fdf-kart -f), not in whatever terminal started it:
 # run from an ssh session, the service died when that session closed (2026-10-20). If either process ends, the unit

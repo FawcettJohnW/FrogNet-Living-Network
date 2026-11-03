@@ -57,7 +57,7 @@ LAN that is a LAN route. On another LAN it goes through the MRM. The MRM carries
 
 | Word | Meaning | Source |
 | --- | --- | --- |
-| MRM | The multinetwork route manager: the droplet's `rina-host` region, its hub (`fdf-hub`, 10.253.253.254), its mappings, `fdf-org` (admission and login). One per network. | John |
+| MRM | The multinetwork route manager: the droplet's `fdf-ram` region, its hub (`fdf-hub`, 10.253.253.254), its mappings, `fdf-org` (admission and login). One per network. | John |
 | Network (area, pond) | One FD&F region: one MRM, its members, their /24s. A machine has one forward pond and may be in participant ponds. Reach between ponds is by each pond's `(pond, config, net)`, and colliding addresses are aliased 1:1 into 100.64.0.0/10. That is the "multinetwork" in MRM. | Tree (`VERIFY-2026-10-11.md` "Ponds") |
 | Member | An admitted node or device. It is named by identity, `w:<guid>` (a node) or `d-<hash of key>` (a device), never by address. | Tree |
 | Egress | A member's one path to the MRM: its own uplink, or the exit host the plan chose for it. | John ("single egress") |
@@ -318,7 +318,7 @@ hold different incumbents, and each side keeps its own. The network then has two
 
 The role host is the member that the election names for island `I`. **Proposed:**
 
-1. It starts the island's RAM manager: `rina-host`, with the island's Permanent file `island-I.perm` if the app asks for
+1. It starts the island's RAM manager: `fdf-ram`, with the island's Permanent file `island-I.perm` if the app asks for
    persistence (section 9). It listens on a port of its own.
 2. It writes its where cell, `{"I": "w:<guid>:<port>"}`. The cell lives with its session.
 3. It answers connections only after the challenge (section 9.3).
@@ -343,7 +343,7 @@ of its own.
 
 **Proposed:**
 
-- The partition's facts live on its `databasehost_control`: the highest live `.1` on the LAN, running `rina-host` on
+- The partition's facts live on its `databasehost_control`: the highest live `.1` on the LAN, running `fdf-ram` on
   port 8841 (`[LAN_RAM_ALWAYS_V1]`). This is the LAN's own route state, not an MRM: it reaches no WAN and covers only
   its LAN.
 - Members write their facts there and plan from there (LAN routes only; no hub channel, no WireGuard).
@@ -611,7 +611,7 @@ Its public half is in the device's login record, and a node's is also in its rec
 | `region.py` | Keeps `own_dot1`, `ensure_lan_ram` (the control host's), `follow`. `lan_fallback` → `control_host()` (the highest live `.1`) |
 | `discovery/elect.py`, `discovery/hosts.py`, `core/frognet_service_hosts.py`, `core/database_handler.py` | `[ROLE_INCUMBENT_FROM_WHERE_V1]`: `evaluate(candidates, incumbents)` |
 | `core/role_registry.py` | Loads the installed apps' island handlers beside `databasehost` |
-| The role host | Starts and stops an island's `rina-host`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon, as `ensure_lan_ram` is) |
+| The role host | Starts and stops an island's `fdf-ram`, and writes its where cell (new: `fdf-island`, a child of the tunnel daemon, as `ensure_lan_ram` is) |
 | `fdf-org serve` | Reach to island ports from where cells and level grants |
 | `fdfspace.py`, `Space.kt` | → `Island` |
 | `ram.php` | Island host from the where cell |
@@ -657,7 +657,7 @@ The incumbent tests decide: `simulation/run_all.py` tiers, `discovery/sim/servic
 ## 15. Open questions for John
 
 1. **The split's facts.** Does a partition hold its facts on the LAN's `databasehost_control` (the highest live `.1`,
-   `rina-host` 8841), as section 8.1 proposes? Or should region mode on a split drop to LAN-only FrogNet discovery
+   `fdf-ram` 8841), as section 8.1 proposes? Or should region mode on a split drop to LAN-only FrogNet discovery
    (runMerge and the store at control)? Today the tree has both, in two modes.
 2. **The egress route.** The applier owns only the /32 to the MRM via the exit, and FrogNet's default fixer is told when
    it moves (section 6.2). Is that the right split of ownership?

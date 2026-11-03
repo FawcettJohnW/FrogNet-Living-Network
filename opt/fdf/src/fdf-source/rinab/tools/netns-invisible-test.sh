@@ -3,7 +3,7 @@
 # now built, on one box, with the REAL tunnel daemon on the members: the RAM manager listens only on the hub's tunnel
 # address, a member is admitted by invitation before it ever speaks, and from the "Internet" the hub shows one UDP port
 # that answers nothing. Topology (the "Internet" is 198.18.0.0/24, a bridge):
-#   hub 198.18.0.1   fdf-hub --iface-only, rina-host on 10.253.253.254:8840, map_site, fdf-hub, its fdf-client
+#   hub 198.18.0.1   fdf-hub --iface-only, fdf-ram on 10.253.253.254:8840, map_site, fdf-hub, its fdf-client
 #   z   198.18.0.3   invited; serves 10.3.3.0/24;  fdf-region-join --files-only, daemon, fdf-facts --watch, fdf-client
 #   a   198.18.0.5   invited; serves 10.7.7.0/24;  the same
 #   x   198.18.0.7   never invited: the Internet's view (a scanner, and a WireGuard peer with a key of its own)
@@ -36,7 +36,7 @@ conv() { ip netns exec z ip -4 route | grep -q '^10.7.7.0/24 dev wg' && ip netns
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/fdf-where $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-where $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-facts $PK/bin/fdf-hub $PK/bin/fdf-invite $PK/bin/fdf-region-join $PK/bin/fdf-invisible-check $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH
 cat > $T/bin/capability-probe <<'EOF'
@@ -63,7 +63,7 @@ FDF_IFACE=wg-D
 EOF
 NS hub python3 $T/bin/fdf-hub --area $AREA --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
 check $? "hub: the region's interface first (fdf-hub --iface-only): $(tail -1 $T/hub/iface.log)"
-NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 R=$(NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" "$U"); case "$R" in *'"ok":true'*) ;; *) echo "FAIL  map_site: $R"; exit 1 ;; esac
 NS hub sysctl -q -w net.ipv4.ip_forward=1
@@ -191,11 +191,11 @@ APUB=$(wg pubkey < $T/a/fs/var-lib-frognet-tunnel/node_private.key)
 ok=1; for i in $(seq 100); do NS hub wg show wg-D peers | grep -q "$APUB" || { ok=0; break; }; sleep 0.05; done
 check $ok "7 revoke a: its peer is gone from the hub ($(cat $T/a/revoke.out))"
 # 8 the region restarts: z withdraws, brings its hub channel back FIRST, rejoins through it
-HP=$(ip netns pids hub | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = rina-host ] && echo $p; done)
+HP=$(ip netns pids hub | while read p; do [ "$(cat /proc/$p/comm 2>/dev/null)" = fdf-ram ] && echo $p; done)
 L0=$(wc -l < $T/z/daemon.log); kill $HP
 ok=1; for i in $(seq 80); do tail -n +$L0 $T/z/daemon.log | grep -q "REGION: lost" && { ok=0; break; }; sleep 0.25; done
 check $ok "8 region gone: z says so ($(tail -n +$L0 $T/z/daemon.log | grep -m1 -o 'REGION: lost.*' | cut -c1-120))"
-NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/rina-host --listen $RAM --api $API >> $T/hub/host.log 2>&1 &
+NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/hub/host.log 2>&1 &
 ok=1; for i in $(seq 120); do ip netns exec z ping -c 1 -W 1 -I 10.3.3.1 $HA > /dev/null 2>&1 && tail -n +$L0 $T/z/daemon.log | grep -q "REGION: loop\|event .* timed\|GRAPH build" && { ok=0; break; }; sleep 0.5; done
 check $ok "8 region back: z's hub channel came up again and z rejoined through it ($(tail -n +$L0 $T/z/daemon.log | grep -c 'my-channels') channel builds after the loss)"
 [ $ok = 0 ] || { echo "[DIAG-8] z wg: $(NSF z wg show all latest-handshakes 2>&1 | tr '\n' ' ')"; echo "[DIAG-8] z routes: $(ip netns exec z ip -4 route | tr '\n' ';')"

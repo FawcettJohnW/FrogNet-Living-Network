@@ -5,7 +5,7 @@
 ################################################################
 # netns-org-test.sh -- [ORG_LEVELS_V1][LOGIN_RESTRICTED_FIRST_V1][REACH_PER_EDGE_V1][PORTS_BOUND_TO_ADMISSION_V1]
 # ORGANIZATIONS.md plan steps 1-3 on one box: levels, the generic exchange, login, reach per edge, revocation, restart.
-# Topology (the "Internet" is 198.18.0.0/24, a bridge): hub 198.18.0.1 holds the region (fdf-hub, rina-host on
+# Topology (the "Internet" is 198.18.0.0/24, a bridge): hub 198.18.0.1 holds the region (fdf-hub, fdf-ram on
 # 10.253.253.254:8840, fdf-org serve) and "a server at a post" on 10.253.253.254:7777; devices r, q, s, w, v are clients.
 # Levels: Responders (no password, reach RAM only), HQ (password, reach list: the server), Ops (no password, open).
 # Checks, each with what it saw:
@@ -24,7 +24,7 @@
 #  12  q (HQ, admitted) logs in with Responders' line (its base attaching again): it keeps HQ, the door says so, its
 #      session is HQ's, the server still answers it
 #  13  a second password level, Medics: q, which holds HQ, is refused there (one level per host)
-#  10  the RAM host restarts (rina-host from its region file, fdf-org serve): every level and user is back; q's session
+#  10  the RAM host restarts (fdf-ram from its region file, fdf-org serve): every level and user is back; q's session
 #      returns with no login; r stays revoked
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-org-test.sh [RINAB_DIR]
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "$1" ] && H=$1
@@ -44,7 +44,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-hub $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH
 ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists from an earlier run"; exit 1; }
@@ -69,7 +69,7 @@ EOF
 NS hub python3 $T/bin/fdf-hub --area $AREA --iface wg-D --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
 check $? "hub: the region's interface (fdf-hub --iface-only)"
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
-host() { NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/rina-host --listen $RAM --api $API >> $T/hub/host.log 2>&1 & echo $! > $T/hub/host.pid
+host() { NS hub env RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/hub/host.log 2>&1 & echo $! > $T/hub/host.pid
          for i in $(seq 100); do NS hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done; }
 host
 R=$(NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$AREA\",\"key\":\"$KEY\"}" "$U"); case "$R" in *'"ok":true'*) ;; *) echo "FAIL  map_site: $R"; exit 1 ;; esac
@@ -195,7 +195,7 @@ ORG revoke $RN > $T/hub/revoke.log 2>&1
 sleep 1
 check $([ "$(ramver r $SR)" = no ] && ! NS hub wg show wg-D allowed-ips | grep -q "$RE/32" && echo 0 || echo 1) "9 revoke $RN: its peer is gone and its session port does not answer"
 # ---- 10 the RAM host restarts
-pkill -f "rina-host --listen $RAM"; for i in $(seq 50); do pgrep -f "rina-host --listen $RAM" > /dev/null || break; sleep 0.1; done
+pkill -f "fdf-ram --listen $RAM"; for i in $(seq 50); do pgrep -f "fdf-ram --listen $RAM" > /dev/null || break; sleep 0.1; done
 NS hub nft delete table inet fdf_org 2>/dev/null   # the rules go with the machine; fdf-org serve rebuilds them from what survived
 host; sleep 3
 NS q ip link del wg-own0 2>/dev/null; DEV q python3 $T/bin/fdf-login --up > $T/q/up.log 2>&1

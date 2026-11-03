@@ -17,7 +17,7 @@ import java.util.Random;
  * The game writes its own truths in the kart memory -- (kart, lobby, NAME) {name, machine, bots, ready, start, laps} and its
  * chat lines -- and reads the service's: (kart, agreed, lobby), (kart, server, *), records, results. When a server tuple
  * names this player, it maps that race memory, takes its grid slots, races its karts there (written on change), and is
- * back in the lobby when the server tuple is gone. It never hosts a race (a phone has no rina-host).
+ * back in the lobby when the server tuple is gone. It never hosts a race (a phone has no fdf-ram).
  * tick() is called from one thread (the game loop); the getters are safe from the drawing thread.
  */
 public final class Game {

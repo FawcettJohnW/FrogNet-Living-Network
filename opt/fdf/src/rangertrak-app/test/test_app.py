@@ -4,7 +4,7 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 # test_app.py RINA_HOST [SHOTS_DIR] -- [RT_APP_TEST_V1] the RangerTrak app (its real core and its real page, through
-# DevHost) against real RAMs: rina-host for the general RAM and one per team, rt-sim writing the world, and a stand-in
+# DevHost) against real RAMs: fdf-ram for the general RAM and one per team, rt-sim writing the world, and a stand-in
 # for the node's door (ram.php's op=rams from app-where.json, and op=login for the EOC's user). Three devices: the
 # EOC, a member of team Alpha, the public.
 #   1 the EOC's map shows the whole simulated world, moving

@@ -32,7 +32,7 @@ NODES="A B q"
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-hub $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH FDF_PY=$FDFPY
 ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists from an earlier run"; exit 1; }
@@ -42,7 +42,7 @@ i=1; for n in $NODES; do ip netns add $n; ip netns exec $n ip link set lo up
 NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 mkdir -p /run/wireguard
-hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/rina-host --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
+hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done; }
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_BIN=$T/bin python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
@@ -80,11 +80,13 @@ check $(grep -q "door at 198.18.0.1:51820: I am d-" $T/q/app.log && grep -q "doo
 on() { grep "CHANGE $1 " $T/q/app.log 2>/dev/null | tail -1 | awk '{print $NF}'; }
 waiton() { local want=$1 sp=$2 t0=$(date +%s.%N); for i in $(seq 160); do [ "$(on $sp)" = "$want" ] && break; sleep 0.25; done
   echo "$([ "$(on $sp)" = "$want" ] && echo 1 || echo 0) $(python3 -c "print('%.1f' % ($(date +%s.%N) - $t0))")"; }
-cellin() { NS $1 curl -s -m 3 "http://$HA:$2$API?op=read&service=app&variable=pos&instance=q" | grep -q "\"space\":\"$3\"" && echo yes || echo no; }
+# a read's answer has a cell whose bag has KEY = VALUE (parsed: a bag's text is kept as its writer wrote it)
+baghas() { python3 -c 'import json,sys; c=json.load(sys.stdin).get("cells") or []; sys.exit(0 if any((x.get("bag") or {}).get(sys.argv[1])==sys.argv[2] for x in c) else 1)' "$1" "$2" 2>/dev/null; }
+cellin() { NS $1 curl -s -m 3 "http://$HA:$2$API?op=read&service=app&variable=pos&instance=q" | baghas space "$3" && echo yes || echo no; }
 read O1 S1 <<< "$(waiton hubA Responders)"; read O2 S2 <<< "$(waiton hubA Admin)"
 check $([ $O1 = 1 ] && [ $O2 = 1 ] && [ "$(cellin A $PA_RESP Responders)" = yes ] && [ "$(cellin A $PA_ADMIN Admin)" = yes ] && echo 0 || echo 1) "3 q's application in Responders and Admin on A, its truth in each ($S1 s, $S2 s)"
 # 4 Admin's RAM manager on A killed (its socket closes); fdf-org starts it again 2 s later
-T0=$(date +%s%3N); for p in $(ip netns pids A); do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q "rina-host --listen $HA:$PA_ADMIN" && kill $p; done
+T0=$(date +%s%3N); for p in $(ip netns pids A); do tr '\0' ' ' < /proc/$p/cmdline 2>/dev/null | grep -q "fdf-ram --listen $HA:$PA_ADMIN" && kill $p; done
 read OK S <<< "$(waiton hubB Admin)"
 MS=$(grep "CHANGE Admin hubA -> hubB" $T/q/app.log | tail -1 | awk '{print $1" "$2}'); MS=$(python3 -c "import sys,datetime as d; t=d.datetime.strptime(sys.argv[1], '%Y-%m-%d %H:%M:%S.%f').timestamp()*1000; print(int(t-int(sys.argv[2])))" "$MS" $T0 2>/dev/null)
 check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin's RAM manager on A killed: q's Admin on B ${MS} ms after the kill, its truth there; Responders still on $(on Responders)"

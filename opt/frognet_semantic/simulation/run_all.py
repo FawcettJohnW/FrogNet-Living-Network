@@ -435,19 +435,19 @@ def main():
     results.append(_run_tier("regression (learned baselines + scenario replay)", _regress))
 
     # [S_SCALE_TIER_V1] TIER 3: a complex topology belongs here, not in TIER 4 (TIER 4 validates TIER 3's inputs against
-    # the kernel). FD&F discovery from memory -- a real rina-host, a real fdf-client per node, fdf_graph's plans -- and
+    # the kernel). FD&F discovery from memory -- a real fdf-ram, a real fdf-client per node, fdf_graph's plans -- and
     # the complete verification plan as the output. The gate runs it small; `day-claims scale` runs S=200 x E=1..100.
-    # Needs rina-host, fdf-client, fdf-events: FDF_SIM_BIN, else the day-claims package's, else rinab's build/static.
+    # Needs fdf-ram, fdf-client, fdf-events: FDF_SIM_BIN, else the day-claims package's, else rinab's build/static.
     # Without them it FAILS (it does not skip).
     print("\nTIER 3 - complex topologies, FD&F discovery from memory (S=20, E=1 2 5)")
     _arch = os.uname().machine
     _sbin = next((d for d in (os.environ.get("FDF_SIM_BIN", ""),
                                f"/opt/fdf/experiments/day-claims/scale/bin/{_arch}",
                                os.path.join(_PARENT, "../fdf/src/fdf-source/rinab/build/static"))
-                  if d and all(os.path.isfile(os.path.join(d, b)) for b in ("rina-host", "fdf-client", "fdf-events"))), "")
+                  if d and all(os.path.isfile(os.path.join(d, b)) for b in ("fdf-ram", "fdf-client", "fdf-events"))), "")
     _sout = _tmpf.mkdtemp(prefix="frogsim_s3_")
     results.append(_run_proc("S scale: memory discovery + complete verification plan",
-                             ["simulation/s_scale_tier.py", "--bin", _sbin or "(rina-host/fdf-client/fdf-events not found)",
+                             ["simulation/s_scale_tier.py", "--bin", _sbin or "(fdf-ram/fdf-client/fdf-events not found)",
                               "--S", "20", "--E", "1", "2", "5", "--out", _sout, "--work", _sout], retry=False))
 
     print("\nTIER 4 - real kernel in netns (M2)")
@@ -571,9 +571,9 @@ def main():
     results.append(_run_tier("discovery oracle suite (incl. Seattle6 identity-down)", _discovery_gate))
     print("        (real LAN/gateway route engine; runMerge ip r as hardware truth)")
 
-    # [DAF_DISCOVERY_SIM_V1] discovery's "who exists" answered by John Day's DAF model (op=daf on a real rina-host,
+    # [DAF_DISCOVERY_SIM_V1] discovery's "who exists" answered by John Day's DAF model (op=daf on a real fdf-ram,
     # every node its own session) instead of peer gossip; the real planner and committer; hardware baselines as the
-    # oracle. Needs rinab built (tools/build.sh: build/rina-host, build/bin/daf-agent): without them it FAILS, it does
+    # oracle. Needs rinab built (tools/build.sh: build/fdf-ram, build/bin/daf-agent): without them it FAILS, it does
     # not skip -- a tier that passes when it cannot run is a hole with a green tick on it.
     print("\nTIER DAF - discovery by the DAF model (20 topologies + failure scenarios)")
     results.append(_run_proc("DAF discovery (op=daf, hardware baselines)", ["simulation/daf_discovery_tier.py"], retry=False))

@@ -4,7 +4,7 @@
 cd "$(dirname "$0")"; B=${B:-../build}; T=../../fdf/templates/fdf.prime; D=$(mktemp -d)
 PH=""; PA=""; PB=""; trap 'kill $PB $PA $PH 2>/dev/null' EXIT          # [KILL_BY_PID_V1] only what this oracle started
 KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-RINA_REGION_FILE=$D/area.perm RIBBIT_TEMPLATES=$T $B/rina-host --listen 127.0.0.1:51997 --api /FawcettInnovations.RINA.ram_interface.php >$D/host.log 2>&1 & PH=$!; sleep 1
+RINA_REGION_FILE=$D/area.perm RIBBIT_TEMPLATES=$T $B/fdf-ram --listen 127.0.0.1:51997 --api /FawcettInnovations.RINA.ram_interface.php >$D/host.log 2>&1 & PH=$!; sleep 1
 API="http://127.0.0.1:51997/FawcettInnovations.RINA.ram_interface.php?op=rina"
 curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"t\",\"key\":\"$KEY\"}" "$API" >/dev/null
 mk() { echo "{\"role\":\"node\",\"name\":\"$1\",\"guid\":\"g-$1\",\"subnet\":\"$2\",\"pubkey\":\"P$1\",\"maps\":[{\"eid\":\"10.9.9.0/24\",\"rlocs\":\"hubA:1:50\"}]}" > $D/$1.json; }

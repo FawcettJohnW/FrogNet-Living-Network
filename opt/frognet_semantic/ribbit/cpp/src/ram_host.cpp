@@ -358,7 +358,7 @@ bool api(const std::string& method, const std::string& path, const std::string& 
         if (in["bag"].type != Json::Obj) { out = bad(400, "bag must be a JSON object"); return true; }
         if (private_service(in["service"].s)) { out = bad(403, "service " + in["service"].s + " is not served"); return true; }
         { const std::string no = HOST->refuse_write(in["service"].s, in["variable"].s, in["instance"].s); if (!no.empty()) { out = bad(403, no); return true; } }   // [NET_CONFIG_IS_THE_RAM_MANAGERS_V1]
-        if (fdf) {                                        // [OWN_FLAG_DECIDES_V1] rina-host's rules, word for word
+        if (fdf) {                                        // [OWN_FLAG_DECIDES_V1] fdf-ram's rules, word for word
             const bool own = in["own"].type == Json::Bool && in["own"].b, perm = in["permanent"].type == Json::Bool && in["permanent"].b;
             if (perm && own) { out = bad(400, "a tuple is permanent or goes with its session, not both"); return true; }
             if (perm) {                                   // [PERMANENT_CELL_V1] filed durably before it is published

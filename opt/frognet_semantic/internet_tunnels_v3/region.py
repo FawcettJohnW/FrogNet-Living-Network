@@ -291,7 +291,7 @@ def _ipkey(ip: str):
 
 def lan_fallback() -> list:
     """The LAN's machines from the highest IP (databasehost-control) down to this node's own, each its LAN RAM manager
-    (rina-host on its .1, port FDF_LAN_RAM_PORT). Known from lan-rams.json (save_lan) plus this node itself; nothing
+    (fdf-ram on its .1, port FDF_LAN_RAM_PORT). Known from lan-rams.json (save_lan) plus this node itself; nothing
     is discovered."""
     try:
         with open(LAN_RAMS) as f:
@@ -486,7 +486,7 @@ _lan_ram = {"proc": None, "addr": ""}
 
 
 def ensure_lan_ram() -> str:
-    """[LAN_RAM_ALWAYS_V1] this node's own LAN RAM manager: rina-host on its .1, port FDF_LAN_RAM_PORT, a child of the
+    """[LAN_RAM_ALWAYS_V1] this node's own LAN RAM manager: fdf-ram on its .1, port FDF_LAN_RAM_PORT, a child of the
     daemon, so the last entry of every node's system space always answers. Its Permanent records are lan-ram.perm; the
     members on it announce again after its restart. Returns its address, or "" (said) when it could not start."""
     me = own_dot1()
@@ -500,8 +500,8 @@ def ensure_lan_ram() -> str:
         p.kill()
     env = dict(os.environ)
     env.pop("RINA_MAP_AREA", None)
-    env["RINA_REGION_FILE"] = os.path.join(FDF_VAR, "lan-ram.perm")      # its own Permanent records (rina-host needs a file)
-    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "rina-host")
+    env["RINA_REGION_FILE"] = os.path.join(FDF_VAR, "lan-ram.perm")      # its own Permanent records (fdf-ram needs a file)
+    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-ram")
     try:
         _lan_ram["proc"] = subprocess.Popen([exe, "--listen", addr, "--api", API], env=env, stdout=subprocess.DEVNULL,
                                             stderr=open(os.path.join(FDF_VAR, "lan-ram.log"), "a"))

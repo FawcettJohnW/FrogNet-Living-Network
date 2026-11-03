@@ -230,9 +230,9 @@ joining, the lead's sponsor enrolling a member who joins with her own key), `tes
 
     ./build.sh                                   # build/*.jar (JavaFX for the desktop from Maven Central)
     javac -cp build/frognet-ram.jar:build/core -d build/test test/DevHost.java
-    python3 test/test_app.py <rinab build>/rina-host [SHOTS_DIR]
+    python3 test/test_app.py <rinab build>/fdf-ram [SHOTS_DIR]
     javac -cp build/frognet-ram.jar:build/core -d build/test test/CoreDriver.java
-    python3 test/test_team_host.py <rinab build>/rina-host android/shared/src/main/jniLibs/x86_64/libteamram.so
+    python3 test/test_team_host.py <rinab build>/fdf-ram android/shared/src/main/jniLibs/x86_64/libteamram.so
     android/teamram/build.sh                     # libteamram.so for every Android ABI
     android/typecheck.sh                         # the Android sources against android-all 14 (no SDK)
     python3 test/test_admin.py                   # the admin app: leads, the QR, save and restore
@@ -240,7 +240,7 @@ joining, the lead's sponsor enrolling a member who joins with her own key), `tes
     python3 test/test_enroll_page.py             # the phone's enrollment page
     ./desktop/package_windows.sh OUTDIR          # the Windows zip
 
-`test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real rina-hosts and rt-sim:
+`test/test_app.py` drives the real core and page (through `test/DevHost.java`) against real fdf-ram RAMs and rt-sim:
 23 checks (the EOC's world moving, announcements, team and direct messages, a GPS fix on the EOC's map, the public view,
 everything gone when rt-sim stops and drawn as last known positions, a wrong password refused). `test/world.py` starts
 the same world alone, to run a desktop app against.

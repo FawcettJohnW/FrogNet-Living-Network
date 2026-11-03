@@ -1,32 +1,32 @@
 #!/bin/bash
-# phone-test.sh [SHOTS_DIR] -- the Android game, tested with no phone: a kart memory (rina-host), the kart service, a
+# phone-test.sh [SHOTS_DIR] -- the Android game, tested with no phone: a kart memory (fdf-ram), the kart service, a
 # dedicated game-serving machine (kart_host.py) and Python players (red, 1 robot; blue) on this machine, then [KART_ANDROID_V1]
 #   1. core: test/Headless.java -- the game core (core/*.java) on a JVM, racing red, 40 s
-#   3. tuples: the member's (pond, telem) and (pond, cap) semantics, Telem/SettingsTupleTest.kt, against rina-host
+#   3. tuples: the member's (pond, telem) and (pond, cap) semantics, Telem/SettingsTupleTest.kt, against fdf-ram
 #   2. phone: test/robo (Robolectric, the Android 14 framework) -- MainActivity and GameView, tapped the way a person does
 #      (setup screen, Join, Chat + Send, laps, Ready, Autopilot, the race, Log, Leave), with screenshots in SHOTS_DIR, and
 #      [KART_CALLS_IN_THE_GAME_V1] the Communicator in the game: comms-ram and comms-media here, the far end the
 #      Communicator's reference core (frognet-android communicator-test/Probe, its own program): the phone calls Home from
 #      the lobby; Julie calls the phone while it races, the phone answers, the race ends, the call goes on in the lobby.
 # COMMS_BIN=<dir with comms-ram, comms-media> (default rinab/build/comms-x86_64). ffmpeg makes the far end's VP8 and Opus.
-# Needs: a JDK 17+, Maven, git (androidx.test's source, see robo/androidx-test.sh), python3 with pygame, rinab/build/bin/rina-host. Prints PASS or FAIL per part; exits 1 on a FAIL.
+# Needs: a JDK 17+, Maven, git (androidx.test's source, see robo/androidx-test.sh), python3 with pygame, rinab/build/bin/fdf-ram. Prints PASS or FAIL per part; exits 1 on a FAIL.
 set -uo pipefail
 cd "$(dirname "$0")/.."; A=$PWD; K=$A/..; B=${KART_TEST_BIN:-$K/../build/bin}; CB=${COMMS_BIN:-$K/../build/comms-x86_64}
 CT=$(cd "$A/../../../../frognet-android" && pwd)/communicator-test
 SHOTS=${1:-$A/build/shots}; D=$(mktemp -d); PORT=$(( 18700 + $$ % 200 )); KM=127.0.0.1:$PORT; FAILS=0; PIDS=()
 cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null; done; wait 2>/dev/null; }
 trap cleanup EXIT
-[ -x "$B/rina-host" ] || { echo "phone-test: no $B/rina-host (KART_TEST_BIN=<dir>)" >&2; exit 1; }
+[ -x "$B/fdf-ram" ] || { echo "phone-test: no $B/fdf-ram (KART_TEST_BIN=<dir>)" >&2; exit 1; }
 for p in comms-ram comms-media; do [ -x "$CB/$p" ] || { echo "phone-test: no $CB/$p (COMMS_BIN=<dir>)" >&2; exit 1; }; done
 CRAM=$((PORT + 300)); CMED=$((PORT + 301))
 echo "== the stack on $KM (logs in $D)"
-env -u RINA_MAP_AREA RINA_REGION_FILE=$D/k.perm "$B/rina-host" --listen $KM --api /ram.php > $D/k.log 2>&1 & PIDS+=($!)
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/k.perm "$B/fdf-ram" --listen $KM --api /ram.php > $D/k.log 2>&1 & PIDS+=($!)
 sleep 1
 python3 $K/kart_service.py --memory $KM > $D/svc.log 2>&1 & PIDS+=($!)
-python3 $K/kart_host.py --memory $KM --kind dedicated --machine vm --advertise 127.0.0.1 --rina-host "$B/rina-host" > $D/host.log 2>&1 & PIDS+=($!)
-env KART_TEST_FPS=1 KART_TEST_READY_AFTER=3 SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name red --kart $KM --bots 1 --autodrive --laps 2 --rina-host /nonexistent > $D/red.log 2>&1 & PIDS+=($!)
+python3 $K/kart_host.py --memory $KM --kind dedicated --machine vm --advertise 127.0.0.1 --fdf-ram "$B/fdf-ram" > $D/host.log 2>&1 & PIDS+=($!)
+env KART_TEST_FPS=1 KART_TEST_READY_AFTER=3 SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name red --kart $KM --bots 1 --autodrive --laps 2 --fdf-ram /nonexistent > $D/red.log 2>&1 & PIDS+=($!)
 # blue: in the lobby, never ready by itself; it says yes to an invitation (KART_TEST_ANSWER), as a person would by clicking
-env KART_TEST_ANSWER=yes SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name blue --kart $KM --autodrive --laps 2 --rina-host /nonexistent > $D/blue.log 2>&1 & PIDS+=($!)
+env KART_TEST_ANSWER=yes SDL_VIDEODRIVER=dummy python3 $K/kartdemo.py --headless --name blue --kart $KM --autodrive --laps 2 --fdf-ram /nonexistent > $D/blue.log 2>&1 & PIDS+=($!)
 echo "== the Communicator on 127.0.0.1:$CRAM (memory) and :$CMED (media)"
 "$CB/comms-ram" --listen 127.0.0.1:$CRAM > $D/comms-ram.log 2>&1 & PIDS+=($!)
 sleep 1
@@ -84,7 +84,7 @@ if [ $R = 0 ] && grep -q "Tests run: 1, Failures: 0, Errors: 0" $D/robo.log; the
 echo "== 3. the member's own tuples: telemetry and settings (the phone's member code on a JVM, a region's RAM interface)"
 # [TELEMETRY_IS_A_TUPLE_V1] [SETTINGS_ARE_TUPLES_V1] frognet-android communicator-test/{Telem,Settings}TupleTest.kt
 FA=$K/../../../frognet-android; T=$A/.tools; RP=$(( PORT + 400 ))
-env -u RINA_MAP_AREA RINA_REGION_FILE=$D/m.perm "$B/rina-host" --listen 127.0.0.1:$RP --api /FawcettInnovations.RINA.ram_interface.php > $D/m.log 2>&1 & PIDS+=($!)
+env -u RINA_MAP_AREA RINA_REGION_FILE=$D/m.perm "$B/fdf-ram" --listen 127.0.0.1:$RP --api /FawcettInnovations.RINA.ram_interface.php > $D/m.log 2>&1 & PIDS+=($!)
 java -cp "$T/kotlinc.jar:$T/kotlin-stdlib.jar:$T/kotlin-script-runtime.jar:$T/kotlin-daemon.jar:$T/kotlin-reflect.jar:$T/trove4j.jar:$T/annotations.jar:$T/coroutines.jar" \
     org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -classpath $T/kotlin-stdlib.jar -jvm-target 1.8 -d $D/tuples \
     $FA/member/src/main/kotlin/com/fawcettinnovations/fdf/member/*.kt $FA/communicator-test/TelemTupleTest.kt $FA/communicator-test/SettingsTupleTest.kt > $D/tuples-build.log 2>&1

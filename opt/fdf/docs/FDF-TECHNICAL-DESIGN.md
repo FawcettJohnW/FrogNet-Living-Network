@@ -54,7 +54,7 @@ This document is the technical design of FD&F as built: what it is for, how it i
 
 ### 1.2 Scope
 
-- **In scope:** the FD&F code under `opt/fdf`. That is the RAM manager (`rina-host`), the FD&F client, region mode (FrogNet on FD&F), and the Windows and Android members.
+- **In scope:** the FD&F code under `opt/fdf`. That is the RAM manager (`fdf-ram`), the FD&F client, region mode (FrogNet on FD&F), and the Windows and Android members.
 - **Out of scope:** FrogNet's own LAN discovery and routing (`opt/frognet_semantic`), and the Ribbit examples as products in their own right. Appendices P–R draw on those examples only to show what the platform under FD&F can do beyond what FD&F uses. One handler they describe (R.3) survives only as a reference copy.
 
 ### 1.3 How to read it
@@ -67,7 +67,7 @@ This document is the technical design of FD&F as built: what it is for, how it i
 
 | Term | Meaning |
 |---|---|
-| RAM manager | `rina-host`: the process that holds the shared memory |
+| RAM manager | `fdf-ram`: the process that holds the shared memory |
 | Cell | One addressed item in the shared memory: `(service, variable, instance)` holding a JSON object |
 | Session | One program's connection to the RAM manager (three TCP sockets) |
 | Held read | A read that waits until something newer is written |
@@ -88,7 +88,7 @@ This document is the technical design of FD&F as built: what it is for, how it i
 ## 2. System overview
 
 FD&F makes one network out of individual machines by giving them one shared memory.
-- **Connections go up only.** Each machine opens one outbound connection to a RAM manager (`rina-host`).
+- **Connections go up only.** Each machine opens one outbound connection to a RAM manager (`fdf-ram`).
 - **No direct traffic.** Machines find each other by reading that memory and talk by writing to it.
   - **Stand-alone FD&F:** nothing goes machine to machine and nothing is routed. The network exists in the RAM.
   - **Region mode (§6):** control still goes only through the RAM. FrogNet's data between sites is routed: over WireGuard through the region host, on routes each node plans from the region's facts.
@@ -99,7 +99,7 @@ FD&F makes one network out of individual machines by giving them one shared memo
 
 It is not much code:
 - the stand-alone FD&F source is about 3,600 lines;
-- the LISP engine compiled into `rina-host` adds about 3,100;
+- the LISP engine compiled into `fdf-ram` adds about 3,100;
 - the C++ platform library and RAM server it runs on add about 4,700 more.
 
 (Code lines only; Appendix B.3.)
@@ -108,7 +108,7 @@ It is not much code:
 
 | Program | What it does |
 |---|---|
-| `rina-host` | The RAM manager: the shared memory, the RINA region and the mapping, in one process |
+| `fdf-ram` | The RAM manager: the shared memory, the RINA region and the mapping, in one process |
 | `fdf-client` | A machine's membership: one session to the RAM manager. Linux and Windows. |
 | `fdf-hub` | Region mode only: the region's WireGuard hub |
 | `fdf-facts` | Region mode only: publishes a node's addresses, leases and uplinks |
@@ -223,7 +223,7 @@ Region mode joins FrogNet networks to each other through one region host.
 
 ### 6.1 Components
 
-- **The region host** runs three services: `rina-host` (TCP 51888), `fdf-hub` (one WireGuard interface, UDP 50889), and its own `fdf-client`. One machine holds one region, and it is not itself a FrogNet node.
+- **The region host** runs three services: `fdf-ram` (TCP 51888), `fdf-hub` (one WireGuard interface, UDP 50889), and its own `fdf-client`. One machine holds one region, and it is not itself a FrogNet node.
 - **A node** adds `fdf-client` and `fdf-facts`. Its LAN database-host election is turned off while it is in the region.
 - **Membership is the session.** When a node's session ends, everything bound to it goes, and the hub drops its peer on the next event.
 
@@ -422,7 +422,7 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 | Mapping authenticity | HMAC-SHA-256 over `name\|rloc\|ttl\|ts`. Strictly newer `ts` (anti-replay). EPERM on a bad key. The key never leaves the node. | `rina_region.cpp:457-473` |
 | Ownership | One live owner per /24 (EEXIST). A live owner's mapping is not transferred. The hub installs only verified mappings naming it. "An ownership invariant, not a security property." | `rina_region.cpp:474-483, 593-608`; `fdf-hub:13-19`; `PLAN-FROGNET-ON-FDF.md:334-335` |
 | Leaf addresses | Given by the region; never self-chosen. | `rina_region.cpp:622-623` |
-| Region mode | RAM only by default. Restricted and open are chosen by the operator in `net.json`. The config is written only by `rina-host` at start and is read-only to the network. | `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`; §I.7 |
+| Region mode | RAM only by default. Restricted and open are chosen by the operator in `net.json`. The config is written only by `fdf-ram` at start and is read-only to the network. | `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`; §I.7 |
 | `map_site` | **No credential.** Anyone who reaches the RAM port can set an area's key; "the firewall is what keeps others out". | OPERATING:165; `rina_region.cpp:448` |
 | Encryption in transit | Inter-site data rides WireGuard. **The FNWP sessions and HTTP front are plain TCP:** the bootstrap and all tuple traffic travel unencrypted. OpenSSL is used for SHA-256 and HMAC only. | `rina_region_client.hpp:16-17, 97, 147`; R-D9 |
 | Resource exhaustion | Rows, variables and wait patterns are never freed, and a `remove` walks every row ever created. With no access control on the RAM port, anything that reaches it can grow the host's memory without bound. | §D.1 (Growth); `ram_memory.hpp:87-105, 137-148` |
@@ -501,12 +501,14 @@ Appendix N has the full list. The main open items:
 - `docs/...` = the repository root's `docs/` (`OPERATING.md`, `cleanup-2026-10/`).
 - `opt/frognet_semantic/...` = FrogNet's own tree, outside FD&F.
 
-**Which source is the binary.** The shipped RAM host `rina-host` is built by `rinab/tools/build.sh`, which:
-1. copies the vendored `rinab/platform/ribbit-v0.63`;
-2. applies about 37 patch scripts (`rinab/tools/apply_*.py`);
-3. splices in the region with `rinab/tools/make_host.sh`.
-
-The checked-in `rinab/platform/ramsrv/` and `rinab/platform/ribbit_cpp/` are that patched result, with one difference. They lack `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`, which the build adds: a write to `(pond, config, *)` is refused 403, and network removes skip those rows. This was verified by replaying the patch steps on a copy and diffing the result. Line numbers below are of the `platform/` files.
+**Which source is the binary.** The shipped RAM manager `fdf-ram` ([FDF_RAM_ON_PLATFORM_V1], since 2026-11-03; it
+replaced `rina-host`, John 2026-11-02: "We should not be running rina_host." "Move fully to the RAM manager model.") is
+built by `rinab/tools/build.sh` (and `build_static_host.sh`, `build_arm64.sh`) from the Ribbit platform's host,
+`opt/frognet_semantic/ribbit/cpp` (`ribbit::RamHost`), with `rinab/src/fdf_ram.cpp` as the vendor and the region
+(`rina_region.cpp`, `daf_region.cpp`, `ctl_host.cpp`) as its operations. `rinab/RAM-MANAGER-ON-PLATFORM.md` maps what
+rina-host's patched server gave the region to what the platform gives. The patched v0.63 copy (`rinab/platform/`,
+about 37 `apply_*.py`) now builds only the client side (`frogram.cpp`); line numbers below that cite
+`platform/ramsrv/ram_server.cpp` are of the retired rina-host server.
 
 **Status labels used throughout.**
 
@@ -547,7 +549,7 @@ The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/
 
 | Program | Role | Source |
 |---|---|---|
-| `rina-host` | The RAM manager: generic memory, RINA region and mapping region in one process | `rinab/platform/ramsrv/ram_server.cpp`, `rinab/src/rina_region.cpp`, `rinab/tools/make_host.sh` |
+| `fdf-ram` | The RAM manager: generic memory, RINA region and mapping region in one process | `opt/frognet_semantic/ribbit/cpp/src/ram_host.cpp`, `rinab/src/fdf_ram.cpp`, `rinab/src/rina_region.cpp` |
 | `rlite-uipcps` | The machine agent: states the machine's devices, survives region loss, re-asserts what the machine owns | `rinab/src/rina_node.cpp` |
 | `librina` | rlite's `rina/api.h` implemented on the region: one session per program, one held read | `rinab/src/librina_region.cpp` |
 | `rlite-ctl` | rlite's control tool; its command logic runs inside the RAM host (`[CTL_AT_THE_MEMORY_V1]`) | `rinab/src/rlite_ctl.cpp`, `rinab/src/rlite_ctl_client.cpp`, `rinab/src/ctl_host.cpp` |
@@ -657,7 +659,7 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 
 | ID | Requirement | Source | Implemented | Verified / status |
 |---|---|---|---|---|
-| R-S1 | The RAM manager does no authorization. It is an ordinary Linux process and inherits the machine's protection (file ownership, firewall, accounts); finer policy belongs to the region owner's API. | `PLAN-FROGNET-ON-FDF.md:257-259`; John 2026-10-08 *(ruling, not in repo)* | No authorization code in `rina-host` (§9) | — |
+| R-S1 | The RAM manager does no authorization. It is an ordinary Linux process and inherits the machine's protection (file ownership, firewall, accounts); finer policy belongs to the region owner's API. | `PLAN-FROGNET-ON-FDF.md:257-259`; John 2026-10-08 *(ruling, not in repo)* | No authorization code in `fdf-ram` (§9) | — |
 | R-S2 | Mapping registrations are authenticated (HMAC-SHA-256 with the site key) and replay-protected (strictly newer timestamp). | `PLAN-FROGNET-ON-FDF.md:255-287` | `rinab/src/rina_region.cpp:457-473` | Wrong key EPERM (`docs/cleanup-2026-10/FINAL-GATES.md:124-127`). **r20** |
 | R-S3 | Restricted DIFs: a membership-gated area with its own RAM manager and password; mappings signed under the DIF's site key. | John 2026-10-09; `PLAN-FROGNET-ON-FDF.md:255-285` | Each pond is its own RAM manager with its own key (de facto). No "restricted" code exists. | **DESIGN** |
 | R-S4 | Forwarding is limited to what was exposed ("Test it."). | `PLAN-FROGNET-ON-FDF.md` contract 5 | — | No test exists. **NOT RUN** |
@@ -985,7 +987,7 @@ The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`
 ### F.2 The three modes
 
 **a) Direct** (`[FDF_DIRECT_V1]`)
-- `fdf-ram-server.sh` runs `rina-host --listen 0.0.0.0:8840` with no area and no password (`fdf-source/fdf/bin/fdf-ram-server.sh:2-8`).
+- `fdf-ram-server.sh` runs `fdf-ram --listen 0.0.0.0:8840` with no area and no password (`fdf-source/fdf/bin/fdf-ram-server.sh:2-8`).
 - Members set `RINA_RAM` (`fdf-member.sh:9-12`). The host registers nothing (`[QUIET_DIRECT_V1]`, `rina_region.cpp:1004`).
 - Members in direct mode do not follow a RAM server restart (`rinab/experiments/RESULTS.md:1553`).
 
@@ -993,7 +995,7 @@ The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`
 - **Mapping machine.** `fdf-mapping.sh`:
   - derives the Map-Resolver address from `RINA_AREA` and binds it on `lo` (anycast);
   - runs `map_site AREA PASSWORD`;
-  - runs `rina-host` as `RINA_HOST_ROLE=mapping` on `MR:4342` with its own region file (`fdf-source/fdf/bin/fdf-mapping.sh:3-14`).
+  - runs `fdf-ram` as `RINA_HOST_ROLE=mapping` on `MR:4342` with its own region file (`fdf-source/fdf/bin/fdf-mapping.sh:3-14`).
 - **RAM manager.** `fdf-ram-manager.sh`:
   - listens on `IP:8840`, where `IP` is the source address the host uses to reach the Map-Resolver;
   - registers itself in the mapping on every listen (`[RAM_MANAGER_REGISTERS_ITSELF_V1]`, `rina_region.cpp:998-1015, 1056-1060`).
@@ -1036,7 +1038,7 @@ LISP's mapping semantics run in a region over the session ("no control messages 
 **What is not used.**
 - No LISP data-plane encapsulation is used anywhere (`rinab/lisp-mapping/lisp.config`: itr, etr and rtr are all `no`).
 - lispers.net's UDP wire (Map-Register, Map-Request in ECM, Map-Reply) is implemented in `rinab/src/lisp_area.hpp` "for edge interop and the oracle only" (`rina_lisp.cpp:7-10`).
-- The platform LISP engine is compiled into `rina-host` (`ram_server.cpp:34`) but FD&F's mapping path does not call it (`rinab/lisp-mapping/README.md:12-24`).
+- The platform LISP engine is compiled into `fdf-ram` (`ram_server.cpp:34`) but FD&F's mapping path does not call it (`rinab/lisp-mapping/README.md:12-24`).
 
 ### F.5 Discovery `[FDF_DISCOVERY_V1]`
 
@@ -1241,7 +1243,7 @@ Source: `rinab/platform/ribbit_cpp/dataplane.hpp:9-99`; `ram_server.cpp:430-432,
 ### I.1 Shape
 
 - **A region host runs three units** (`docs/OPERATING.md:40-42`):
-  - `fdf-ram-<AREA>`: `rina-host` on TCP 51888, region file `/opt/fdf/var/area-<AREA>.perm` (`fdf-region-create:68`);
+  - `fdf-ram-<AREA>`: `fdf-ram` on TCP 51888, region file `/opt/fdf/var/area-<AREA>.perm` (`fdf-region-create:68`);
   - `fdf-hub`: one WireGuard interface `wg-<AREA>` on UDP 50889;
   - `fdf-client-<AREA>`: the hub's own membership.
 - **A node in a region adds** `fdf-client` and `fdf-facts`, and its database-host election timer is turned off.
@@ -1351,7 +1353,7 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
   | **Open** | `all` | Every /24 the pond serves and every /32 it has given. |
 
   - **Collisions.** A second setting, `map` (`allowed` or `refused`), decides whether colliding addresses may be aliased when reaching.
-  - **Who sets it.** The tuple is written only by `rina-host` at start, from `RINA_NET_CONFIG` (default `/opt/fdf/etc/net.json`); the network API cannot change it (`[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`).
+  - **Who sets it.** The tuple is written only by `fdf-ram` at start, from `RINA_NET_CONFIG` (default `/opt/fdf/etc/net.json`); the network API cannot change it (`[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`).
   - **Default.** With no file, the region is RAM only: `reach none, map refused`.
 - **Reach** (`[REACH_V1]`, `fdf-source/fdf/bin/fdf-reach`) is the mechanism behind the restricted and open modes. It connects a participant into the pond as far as the mode allows.
 - **Address collisions when reaching:**
@@ -1591,7 +1593,7 @@ Hardware evidence that does exist:
 
 ### L.5 Memory, session and mapping tests
 
-`rinab/tools/memory-order-check.sh [WRITERS] [WRITES]` builds the tests below, starts a fresh `build/rina-host`, runs them, and prints `RESULT PASS` or `RESULT FAIL`. Last run 2026-10-15 on a 2-core x86-64 sandbox, loopback.
+`rinab/tools/memory-order-check.sh [WRITERS] [WRITES]` builds the tests below, starts a fresh `build/fdf-ram`, runs them, and prints `RESULT PASS` or `RESULT FAIL`. Last run 2026-10-15 on a 2-core x86-64 sandbox, loopback.
 
 | Test | Exercises | Pass criterion | Result |
 |---|---|---|---|
@@ -1691,7 +1693,7 @@ These are in tension with R-F1 and R-F2. They are recorded here, not ruled on.
 | `RINA_MAP_RESOLVER` | Overrides the derived Map-Resolver address | `:56-62` |
 | `RINA_AREA_PASSWORD` | Area password, on the mapping machine and RAM-manager candidates only | `fdf-mapping.sh:7-8` |
 | `RINA_MAP_AREA` | Area the RAM manager registers itself under | `rina_region.cpp:998-1015` |
-| `RINA_HOST_ROLE=mapping` | Run `rina-host` as the mapping region | `rina_region.cpp:1056-1060` |
+| `RINA_HOST_ROLE=mapping` | Run `fdf-ram` as the mapping region | `rina_region.cpp:1056-1060` |
 | `RINA_REGION_FILE` | Permanent-record file; required | `rina_region.cpp:42-52` |
 | `RINA_NET_CONFIG` | Pond config file (default `/opt/fdf/etc/net.json`) | `rina_region.cpp:1016-1050` |
 | `RINA_SITE_KEY` | Site key for signing mappings (region) | `fdf_client.cpp:207-260` |

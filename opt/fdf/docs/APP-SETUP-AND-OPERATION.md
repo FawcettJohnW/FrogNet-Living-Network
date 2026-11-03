@@ -420,7 +420,7 @@ was said on the radio, and stays in the log.
   `(fdf-app, can, <app>.<guid>)` into the network RAM. When its held read on the `fdf-app` family ends (the network RAM
   may be another one now), it writes both again and reads the family from the start.
 - On every event (that held read, and `fdf-events` for who is alive) it runs each RAM's selection over the alive members
-  that can serve the app (default: most memory, then cores, then guid). It starts `rina-host` for each RAM it is chosen
+  that can serve the app (default: most memory, then cores, then guid). It starts `fdf-ram` for each RAM it is chosen
   for, on its own `.1` at a port derived from `<app>.<ram>`, and stops the others. It writes its where cell
   `(pond, where, w:<guid>)`.
 - It writes `/opt/fdf/var/app-where.json`, `{"<app>.<ram>": "host:port"}`, the same answer every member computes.

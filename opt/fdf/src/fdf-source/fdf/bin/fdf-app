@@ -49,7 +49,7 @@
         on a member: for every app installed here (FDF_APPS/<app>.json), write its configuration tuple and say so as a
         capability tuple, and write both again after the network RAM changes (a held read ends); on every event
         (a held read on the fdf-app family, and fdf-events for who is alive) run each app RAM's selection over the alive
-        members that have the app; serve the RAMs this member is chosen for (rina-host, a child of this process) and say
+        members that have the app; serve the RAMs this member is chosen for (fdf-ram, a child of this process) and say
         so in this member's where cell; stop serving the ones it is not.
 
 The selection is the app's, deterministic, over the capability tuples: every member computes the same answer from the
@@ -388,7 +388,7 @@ class Server:
         env = dict(os.environ, RINA_REGION_FILE=os.path.join(VAR, "app-%s-%s.perm" % (app, r)))
         env.pop("RINA_MAP_AREA", None)
         self.procs[(app, r)] = subprocess.Popen(
-            [os.path.join(BIN, "rina-host"), "--listen", "%s:%d" % (self.listen, port), "--api", fdfram.API],
+            [os.path.join(BIN, "fdf-ram"), "--listen", "%s:%d" % (self.listen, port), "--api", fdfram.API],
             env=env, stdout=subprocess.DEVNULL, stderr=open(os.path.join(VAR, "app-%s-%s.log" % (app, r)), "a"))
         log("serving %s's RAM %s on %s:%d (pid %d)" % (app, r, self.listen, port, self.procs[(app, r)].pid))
 

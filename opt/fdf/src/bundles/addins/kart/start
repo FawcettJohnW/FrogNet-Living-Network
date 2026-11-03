@@ -1,6 +1,6 @@
 #!/bin/bash
 # start -- [ADDIN_V1] FrogNet Kart as an add-in. What runs is decided by what this machine is (KART_ROLE overrides):
-#   the region's holder, or a stand-alone machine   the kart memory (its own RAM: rina-host, /ram.php, 8799, on the
+#   the region's holder, or a stand-alone machine   the kart memory (its own RAM: fdf-ram, /ram.php, 8799, on the
 #        control RAM's address) and the kart
 #        service beside it (the lobby: kart_service.py); its tuple (pond, where, <ns>/kart) {"kart":{"memory":"self:8799"}}
 #   a FrogNet node   a dedicated game-serving host (kart_host.py): it finds the kart memory from that tuple (kart-find),
@@ -19,7 +19,7 @@ case "$ROLE" in
     # holder's is the hub's tunnel address (members reach it through the tunnel; nothing new listens to the Internet,
     # [NOTHING_LISTENS_OUTSIDE_V1]); a stand-alone machine's is loopback
     KH=${FDF_CONTROL_RAM%:*}
-    env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/rina-host" --listen "$KH:$PORT" --api /ram.php &
+    env -u RINA_MAP_AREA RINA_REGION_FILE="$H/var/kart.perm" RINA_NET_CONFIG="$H/var/none" "$H/bin/fdf-ram" --listen "$KH:$PORT" --api /ram.php &
     addin_child $!
     for i in $(seq 100); do (exec 3<>/dev/tcp/$KH/$PORT) 2>/dev/null && break; sleep 0.05; done
     python3 "$AD/kart_service.py" --memory "$KH:$PORT" --min-players "${KART_MIN_PLAYERS:-2}" & addin_child $!
@@ -30,7 +30,7 @@ case "$ROLE" in
     while :; do
       K=$(FDF_HOME=$H python3 "$AD/kart-find") || { asay "the control RAM went before a kart memory was found"; exit 75; }
       asay "the kart memory is at $K: serving games for it"
-      python3 "$AD/kart_host.py" --memory "$K" --kind dedicated --machine "$FDF_NAME" --rina-host "$H/bin/rina-host" || true
+      python3 "$AD/kart_host.py" --memory "$K" --kind dedicated --machine "$FDF_NAME" --fdf-ram "$H/bin/fdf-ram" || true
       asay "the game host ended (its kart memory or its session went): finding the kart memory again"
     done ;;
   player)

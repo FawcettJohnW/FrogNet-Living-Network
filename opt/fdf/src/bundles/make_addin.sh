@@ -6,7 +6,7 @@
 # The add-ins:
 #   comms   the Communicator's servers: bin/comms-ram, bin/comms-media (rinab tools/build_comms_static.sh <arch>), per arch
 #   kart    FrogNet Kart: the kart service, game hosts and the game (kart/*.py) and libkartram.so (kart/build_kartram.sh
-#           [--arm64]), per arch; its RAMs are the core's rina-host
+#           [--arm64]), per arch; its RAMs are the core's fdf-ram
 #   dc      DisasterComm: its pages (opt/fdf/www/dc, and the radio log app opt/fdf/www/rt) and their Apache config -- any arch
 # usage: make_addin.sh comms|kart|dc OUTDIR [x86_64|aarch64]   |   make_addin.sh kart OUTDIR windows
 set -eu

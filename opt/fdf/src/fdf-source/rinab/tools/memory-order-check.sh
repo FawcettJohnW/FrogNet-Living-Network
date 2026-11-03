@@ -1,5 +1,5 @@
 #!/bin/bash
-# memory-order-check.sh [WRITERS] [WRITES] -- three properties of the RAM host, against a fresh build/rina-host:
+# memory-order-check.sh [WRITERS] [WRITES] -- three properties of the RAM host, against a fresh build/fdf-ram:
 #   [PUBLISH_IN_ID_ORDER_V1]          a reader following `after` never skips a cell, on one variable and on a whole
 #                                     service (tests/order_race.cpp; WRITERS sessions x WRITES new cells each)
 #   [REGION_COALESCE_PER_SESSION_V1]  a region request is answered for the session that asked it: two processes from
@@ -10,10 +10,10 @@
 set -e -o pipefail
 W=${1:-8}; N=${2:-2000}; PORT=${PORT:-51990}; API=/FawcettInnovations.RINA.ram_interface.php
 cd "$(dirname "$0")/.."; R=$(pwd); D=$(mktemp -d /tmp/memory-order-check.XXXXXX)
-F="-std=c++20 -O2 -pthread -D_GNU_SOURCE -Ibuild/platform/ribbit_cpp -Isrc"; L="build/obj/frogram.o -llz4 -lcrypto -lresolv"
+F="-std=c++20 -O2 -pthread -D_GNU_SOURCE -I../../../../frognet_semantic/ribbit/cpp/include -Isrc"; L="build/obj/frogram.o build/obj/lf_ebr.o -llz4 -lcrypto -lresolv"
 for t in order_race seen_race write_rate identical_writes; do g++ $F tests/$t.cpp $L -o $D/$t; done
 gcc -shared -fPIC -O2 tests/srcbind.c -o $D/srcbind.so -ldl
-RINA_DIAG=1 RINA_REGION_FILE=$D/region.perm build/rina-host --listen 0.0.0.0:$PORT --api $API > $D/host.log 2>&1 & H=$!
+RINA_DIAG=1 RINA_REGION_FILE=$D/region.perm build/fdf-ram --listen 0.0.0.0:$PORT --api $API > $D/host.log 2>&1 & H=$!
 trap 'kill $H 2>/dev/null' EXIT
 for i in $(seq 50); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && break; sleep 0.1; done
 bad=0

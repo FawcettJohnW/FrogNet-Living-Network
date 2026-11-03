@@ -3,7 +3,7 @@
 # Each file carries the build tag in its name (fdf-install-x86_64-<tag>.run ...): a re-sent file never lands as "name (1)".
 #   fdf-install-aarch64.run   Pi nodes      /opt/fdf (aarch64 binaries) + the FrogNet region patch, behind header.sh
 #   fdf-install-x86_64.run    x86 nodes     /opt/fdf (x86 static binaries) + the FrogNet region patch, behind header.sh
-#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, rina-host static) + fdf-hub.service; the
+#   fdf-droplet.tgz           the droplet   /opt/fdf (x86 static binaries, fdf-ram static) + fdf-hub.service; the
 #                                           machine's region (site key, hub.env, its RAM manager and member units) is
 #                                           then made by /opt/fdf/bin/fdf-region-create AREA PUBLIC_IP, once, there
 # Each carries /opt/fdf/BUILD (package=, build=, built=, for=). Tarred from / (paths are absolute-from-root).
@@ -80,12 +80,12 @@ TAG=$(sed -n 's/^#define FDF_BUILD_TAG "\(.*\)"/\1/p' "$H/src/fdf_version.hpp");
 for f in "$TOP/fdf/bin/fdf-facts" "$TOP/fdf/bin/fdf-hub" "$TOP/fdf/lib/python/fdf_graph.py" \
          "$REPO/opt/frognet_semantic/internet_tunnels_v3/region.py"; do
   grep -q "BUILD_TAG = \"$TAG\"" "$f" || { echo "make_deliverables: $f does not say BUILD_TAG = \"$TAG\"" >&2; exit 1; }; done
-for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram} "$H/build/bin/rina-host-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram,rina-host}; do
+for b in "$H/build/static/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram} "$H/build/bin/fdf-ram-static" "$H/build/arm64/"{fdf-client,fdf-events,fdf-participants,fdf-attention,fdf-where,ram,fdf-ram}; do
   [ -x "$b" ] || { echo "make_deliverables: $b missing (build first)" >&2; exit 1; }
   [ "${b##*/}" = ram ] || strings "$b" | grep -q "$TAG" || { echo "make_deliverables: $b is not $TAG" >&2; exit 1; }; done
 # [ADDIN_V1] the Communicator's servers are an add-in now (src/bundles/make_addin.sh comms), not in the node bundles
 W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
-fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: rina-host-static -> rina-host)
+fdf_tree() {   # $1 = root, $2 = binary dir, $3.. = binary names (as installed: fdf-ram-static -> fdf-ram)
   local R=$1 BD=$2; shift 2; mkdir -p "$R/opt"
   cp -a "$TOP/fdf" "$R/opt/fdf"; rm -rf "$R/opt/fdf/var" "$R/opt/fdf/hub/hub.env" "$R/opt/fdf/www/dc" "$R/opt/fdf/www/rt"; find "$R" -name __pycache__ -prune -exec rm -rf {} +
   for b in "$@"; do cp "$BD/${b%%:*}" "$R/opt/fdf/bin/${b##*:}"; done
@@ -96,19 +96,19 @@ build_file() { printf 'package=%s\nbuild=%s\nbuilt=%s\nfor=%s\n' "$1" "$TAG" "$N
 # /var/www/html or any other existing directory (a missing one is created).
 tarit() { (cd "$1" && find . \( -type f -o -type l \) | sed 's|^\./||' | sort | tar --owner=0 --group=0 --no-recursion -czf - -T -); }
 # ---- x86 node
-R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
+R=$W/node; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 frognet_patch "$R"; build_file fdf-node.tgz "x86_64 FrogNet node or leaf" "$R"
 tarit "$R" > "$W/fdf-node.tgz"; sed 's/__ARCH__/x86_64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node.tgz" > "$OUT/fdf-install-x86_64-$TAG.run"
 # ---- arm64 node
-R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
+R=$W/arm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
 frognet_patch "$R"; build_file fdf-node-arm64.tgz "aarch64 FrogNet node (Pi)" "$R"
 tarit "$R" > "$W/fdf-node-arm64.tgz"; sed 's/__ARCH__/aarch64/' "$TOP/deliverables/header.sh" | cat - "$W/fdf-node-arm64.tgz" > "$OUT/fdf-install-aarch64-$TAG.run"
 # ---- region holder, one per processor ([HOLDER_PER_ARCH_V1]: a Pi holds a LAN region as well as a droplet holds one)
-R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/rina-host-static" "$R/opt/fdf/bin/rina-host"
+R=$W/drop; fdf_tree "$R" "$H/build/static" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram; cp "$H/build/bin/fdf-ram-static" "$R/opt/fdf/bin/fdf-ram"
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
 build_file fdf-droplet.tgz "x86_64 region holder (droplet or LAN machine): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
 tarit "$R" > "$OUT/fdf-droplet-x86_64-$TAG.tgz"
-R=$W/droparm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram rina-host
+R=$W/droparm; fdf_tree "$R" "$H/build/arm64" fdf-client fdf-events fdf-participants fdf-attention fdf-where ram fdf-ram
 mkdir -p "$R/etc"; cp -a "$TOP/deliverables/etc-droplet/systemd" "$R/etc/"
 build_file fdf-droplet-arm64.tgz "aarch64 region holder (a Pi on a LAN): RAM manager + hub, made by fdf-region-create AREA PUBLIC_IP" "$R"
 tarit "$R" > "$OUT/fdf-droplet-aarch64-$TAG.tgz"

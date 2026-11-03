@@ -5,7 +5,7 @@
 # test_team_host.py -- [TEAM_HOST_V1] a team's RAM on its lead's phone: the lead's phone runs the team RAM (team-ram,
 # the binary the app ships as libteamram.so, built here for this machine) and says so; the EOC finds it there, a member
 # on the hotspot reads the lead's card in it and connects to it; chat flows; the lead going takes the team's RAM with it.
-# Three AppCores (CoreDriver) against real RAMs: rina-host for the general RAM and team Alpha's fdf-app RAM (which the
+# Three AppCores (CoreDriver) against real RAMs: fdf-ram for the general RAM and team Alpha's fdf-app RAM (which the
 # lead's RAM replaces for its team), team-ram for the lead's, and a stand-in for the node's door (op=rams).
 #   usage: test_team_host.py RINA_HOST TEAM_RAM
 import json, os, queue, socket, subprocess, sys, tempfile, threading, time, urllib.request

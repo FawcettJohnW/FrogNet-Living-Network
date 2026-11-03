@@ -41,7 +41,7 @@ PY
     if [ -n "$LINE" ]; then member "$LINE"; else member; fi
 fi
 # standalone: the control RAM is this machine's own, on loopback only
-[ -x "$H/bin/rina-host" ] || { say "no $H/bin/rina-host: this core bundle is incomplete"; exit 1; }
+[ -x "$H/bin/fdf-ram" ] || { say "no $H/bin/fdf-ram: this core bundle is incomplete"; exit 1; }
 control standalone "$STANDALONE_RAM" "$(hostname)"
 exec env RINA_REGION_FILE="$V/standalone.perm" RINA_NET_CONFIG="$V/none" RIBBIT_TEMPLATES="$H/templates/fdf.prime" \
-     "$H/bin/rina-host" --listen "$STANDALONE_RAM" --api "$API"
+     "$H/bin/fdf-ram" --listen "$STANDALONE_RAM" --api "$API"

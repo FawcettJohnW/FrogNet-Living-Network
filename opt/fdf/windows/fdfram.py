@@ -2,7 +2,7 @@
 #   write  POST ?op=write  {service,variable,instance,bag} -> {"ok":true,"id":N}   (same coordinates: replaced, new id)
 #   read   GET  ?op=read&service=&variable=&instance=&after=&wait_s=   -> {"ok":true,"cells":[{id,instance,bag,...}]}
 #          with after=N and wait_s>0 it is HELD until a row with id > N is written (the server caps wait_s at 30)
-#   remove DELETE ?op=remove&id=N -> {"ok":true,"removed":0|1}   (needs the rina-host with "DELE" in the HTTP front)
+#   remove DELETE ?op=remove&id=N -> {"ok":true,"removed":0|1}   (needs the fdf-ram with "DELE" in the HTTP front)
 #   rina   POST ?op=rina {"op":"participants"} -> {"ok":true,"participants":[...]}
 # Errors are raised, never swallowed: the caller says what failed.
 import json, os, urllib.parse, urllib.request

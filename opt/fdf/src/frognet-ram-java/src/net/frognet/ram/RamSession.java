@@ -14,7 +14,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * One FNW1 session to a Ribbit RAM host (here: the kart memory and a race memory, rina-host /ram.php), the plain contract the host answers for a client that opens no
+ * One FNW1 session to a Ribbit RAM host (here: the kart memory and a race memory, fdf-ram /ram.php), the plain contract the host answers for a client that opens no
  * data socket (ram_host.cpp handle_frame): two outbound TCP connections --
  *   request socket: HELLO token, then REQ_RAW frames, sequence = their order on this socket, from 0
  *   return socket:  HELLO RETURN:token, answered by the host's HELLO; replies arrive tagged with that sequence

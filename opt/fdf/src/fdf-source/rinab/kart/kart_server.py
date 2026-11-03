@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # kart_server.py -- a race server: the race's own memory and the code that runs the race. [KART_RACE_SERVER_V1]
 # A game in the lobby starts it on its own machine when the winning start intent names it host (DESIGN.md). It:
-#   1 starts a rina-host on a port the system picks (the race memory), on this machine
+#   1 starts a fdf-ram on a port the system picks (the race memory), on this machine
 #   2 reads the racers' records from the main memory and writes the race into its memory: meta, grid, records
 #   3 only then writes (kart, server, <race>) into the main memory -- its own tuple, gone with its session
 #   4 follows the karts' truths in its memory and keeps each kart's lap times
@@ -9,7 +9,7 @@
 #     racer's updated record into the main memory as PERMANENT tuples, writes its server tuple {}, stops its memory,
 #     and exits. Killed outright (-9), its server tuple goes with its session and nothing is written: gone is gone.
 #
-#   kart_server.py --main H:P --main-api API --intent JSON --advertise ADDR --rina-host PATH [--max-s S]
+#   kart_server.py --main H:P --main-api API --intent JSON --advertise ADDR --fdf-ram PATH [--max-s S]
 # Everything it does is said on stdout, one line each, "kart_server: ...".
 import argparse, json, math, os, signal, subprocess, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,7 +19,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--main", required=True); ap.add_argument("--main-api", default="/ram.php")
 ap.add_argument("--intent", required=True, help="the winning start intent: {race, host, roster:[{name,bots}], laps}")
 ap.add_argument("--advertise", required=True, help="the address the racers reach this machine at")
-ap.add_argument("--rina-host", required=True); ap.add_argument("--max-s", type=float, default=600.0)
+ap.add_argument("--fdf-ram", required=True); ap.add_argument("--max-s", type=float, default=600.0)
 a = ap.parse_args()
 I = json.loads(a.intent); RACE = I["race"]; LAPS = int(I["laps"])
 PLAYERS = [p["name"] for p in I["roster"]]
@@ -35,14 +35,14 @@ d = tempfile.mkdtemp(prefix="kart-race-")
 def die_with_me():                             # Linux: the race memory gets SIGTERM if this program goes, however
     import ctypes; ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)
 env = dict(os.environ, RINA_REGION_FILE=os.path.join(d, "race.perm")); env.pop("RINA_MAP_AREA", None)
-host = subprocess.Popen([a.rina_host, "--listen", "0.0.0.0:0", "--api", "/ram.php"], env=env, stdout=subprocess.DEVNULL,
+host = subprocess.Popen([a.fdf_ram, "--listen", "0.0.0.0:0", "--api", "/ram.php"], env=env, stdout=subprocess.DEVNULL,
                         stderr=subprocess.PIPE, text=True, preexec_fn=die_with_me)
 port = None
 for line in host.stderr:                       # [BOUND_PORT_SAID_V1] "... listening on 0.0.0.0:<port>"
     if "[FDF_VERSION_V1]" in line and "listening on" in line: port = int(line.rsplit(":", 1)[1]); break
-if not port: sys.exit(f"kart_server: [{RACE}] the race memory did not start ({a.rina_host})")
+if not port: sys.exit(f"kart_server: [{RACE}] the race memory did not start ({a.fdf_ram})")
 threading.Thread(target=lambda: [None for _ in host.stderr], daemon=True).start()   # keep its stderr drained
-say(f"race memory on port {port} ({a.rina_host})")
+say(f"race memory on port {port} ({a.fdf_ram})")
 
 # 2 fill it from the main memory
 mh, mp = hp(a.main)

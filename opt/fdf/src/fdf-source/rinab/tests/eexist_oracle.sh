@@ -2,12 +2,12 @@
 # eexist_oracle.sh -- [JOIN_REFUSED_WAITS_V1] two members announce the same served /24: the second is REFUSED (EEXIST,
 # the holder named), says so once and WAITS on the region (alive, no retry loop, no exit); when the first leaves, the
 # second joins on that event. PASS only if all of that is seen. Its own RAM manager on loopback; every process it
-# starts is stopped by its PID.  usage: tests/eexist_oracle.sh   (B=<dir with rina-host, fdf-client>: default build/static)
+# starts is stopped by its PID.  usage: tests/eexist_oracle.sh   (B=<dir with fdf-ram, fdf-client>: default build/static)
 cd "$(dirname "$0")/.."; B=${B:-$PWD/build/static}; T=$PWD/../fdf/templates/fdf.prime; D=$(mktemp -d); PORT=${PORT:-51998}
 API=/FawcettInnovations.RINA.ram_interface.php; U="http://127.0.0.1:$PORT$API?op=rina"
 FAILS=0; check() { if [ "$1" = 0 ]; then echo "PASS  $2"; else echo "FAIL  $2"; FAILS=$((FAILS+1)); fi; }
 PH=""; PA=""; PB=""; cleanup() { kill $PB $PA $PH 2>/dev/null; }; trap cleanup EXIT
-RINA_REGION_FILE=$D/area.perm RIBBIT_TEMPLATES=$T $B/rina-host --listen 127.0.0.1:$PORT --api $API > $D/host.log 2>&1 & PH=$!
+RINA_REGION_FILE=$D/area.perm RIBBIT_TEMPLATES=$T $B/fdf-ram --listen 127.0.0.1:$PORT --api $API > $D/host.log 2>&1 & PH=$!
 for i in $(seq 100); do curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 for m in a b; do printf '{"role":"node","name":"node-%s","guid":"g-%s","subnet":"10.44.4.0/24","pubkey":"","transit":[],"maps":[]}\n' $m $m > $D/f$m.json; done
 FDF_FACTS=$D/fa.json RIBBIT_TEMPLATES=$T $B/fdf-client 127.0.0.1:$PORT > $D/a.log 2>&1 & PA=$!

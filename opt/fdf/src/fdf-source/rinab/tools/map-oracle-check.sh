@@ -8,7 +8,7 @@ IP=$(ip -4 -o addr show eth0 | awk '{print $4}' | cut -d/ -f1); API=/FawcettInno
 K=$(sed -n "s/^ *authentication-key = *//p" $H/lisp-mapping/lisp.config)   # the site key lispers.net is given (lisp-up.sh copies this config)
 F=$(mktemp -u /tmp/map-oracle.XXXX.perm)
 ss -ulnH | grep -q ":4342 " || { echo "lispers.net is not running (lisp-mapping/lisp-up.sh $L)"; exit 2; }
-RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/rina-host" --listen $IP:4342 --api $API > /tmp/map-oracle.host.log 2>&1 & HP=$!
+RINA_HOST_ROLE=mapping RINA_REGION_FILE=$F "$B/fdf-ram" --listen $IP:4342 --api $API > /tmp/map-oracle.host.log 2>&1 & HP=$!
 for i in $(seq 100); do (exec 3<>/dev/tcp/$IP/4342) 2>/dev/null && break; sleep 0.05; done
 "$B/rina-lisp" map-site rina-area.test $K $IP > /dev/null || { echo "no mapping region"; kill $HP; exit 2; }
 # the answer each gives, reduced to the same words: an RLOC, "negative", or "refused"

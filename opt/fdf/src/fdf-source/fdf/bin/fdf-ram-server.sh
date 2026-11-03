@@ -5,4 +5,4 @@
 # (It says once that the area's name is not registered: there is no mapping system in this setup.)
 set -eu; . /opt/fdf/fdf.env; mkdir -p /opt/fdf/var
 echo "RAM server on port 8840 (members: RINA_RAM=<this machine's address>:8840)"
-exec env -u RINA_MAP_AREA RINA_REGION_FILE=/opt/fdf/var/area.perm rina-host --listen 0.0.0.0:8840 --api /FawcettInnovations.RINA.ram_interface.php
+exec env -u RINA_MAP_AREA RINA_REGION_FILE=/opt/fdf/var/area.perm fdf-ram --listen 0.0.0.0:8840 --api /FawcettInnovations.RINA.ram_interface.php

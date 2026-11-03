@@ -4,7 +4,7 @@
 H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build/bin; PORT=8851; F=$(mktemp -u /tmp/region-file-check.XXXX.perm)
 export RINA_REGION_FILE=$F RINA_RAM=127.0.0.1:$PORT RINA_RAM_NETNS=/proc/$$/ns/net
 API=/FawcettInnovations.RINA.ram_interface.php
-start() { "$B/rina-host" --listen 127.0.0.1:$PORT --api $API > /tmp/region-file-check.host$1.log 2>&1 & HP=$!
+start() { "$B/fdf-ram" --listen 127.0.0.1:$PORT --api $API > /tmp/region-file-check.host$1.log 2>&1 & HP=$!
           for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null && return 0; sleep 0.05; done; echo "host did not start"; cat /tmp/region-file-check.host$1.log; exit 1; }
 start 1
 "$B/rlite-ctl" ipcp-create n1 normal d1 || exit 1

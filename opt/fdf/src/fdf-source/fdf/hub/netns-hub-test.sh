@@ -23,7 +23,7 @@ i=1; for n in hub n1 n2; do ip netns add $n; ip netns exec $n ip link set lo up
   ip netns exec $n ip addr add 10.77.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+1)); done
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=10.77.0.1:8840 "$@"; }
 # ---- the region, in hub
-NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/rina-host --listen 10.77.0.1:8840 --api $API > $T/hub/host.log 2>&1 &
+NS hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm $B/fdf-ram --listen 10.77.0.1:8840 --api $API > $T/hub/host.log 2>&1 &
 sleep 1; U="http://10.77.0.1:8840$API?op=rina"
 NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # ---- the hub: its fdf-client (facts written by fdf-hub) and fdf-hub itself

@@ -6,9 +6,9 @@ export RINA_REGION_FILE=${RINA_REGION_FILE:-/tmp/rinab-region-$$.perm}
 # 64 with its call stack), runs rinaperf rr N, prints the total per transaction and the top call sites.
 N=${1:-2000}; H=$(cd "$(dirname "$0")/.." && pwd); B=$H/build; O=/tmp/malloc-sites; mkdir -p $O
 gcc -O2 -shared -fPIC $H/tools/mcount.c -o $O/mcount.so -ldl || exit 2
-g++ -O2 -pthread -rdynamic -o $O/rina-host $B/obj/ram_server_rina.o $B/obj/rina_region.o $B/obj/ctl_host.o $B/obj/frogram.o -llz4 -lcrypto || exit 2
+g++ -O2 -pthread -rdynamic -o $O/fdf-ram $B/obj/ram_server_rina.o $B/obj/rina_region.o $B/obj/ctl_host.o $B/obj/frogram.o -llz4 -lcrypto || exit 2
 export PATH=$B/bin:$PATH RINA_RAM=127.0.0.1:8876 RINA_RAM_NETNS=/proc/$$/ns/net RIBBIT_TEMPLATES=$H/templates/rina.prime
-MCOUNT_OUT=$O/host.txt LD_PRELOAD=$O/mcount.so $O/rina-host --listen 127.0.0.1:8876 --api /FawcettInnovations.RINA.ram_interface.php > $O/host.log 2>&1 & HP=$!
+MCOUNT_OUT=$O/host.txt LD_PRELOAD=$O/mcount.so $O/fdf-ram --listen 127.0.0.1:8876 --api /FawcettInnovations.RINA.ram_interface.php > $O/host.log 2>&1 & HP=$!
 sleep 0.5; rlite-uipcps -d 2>/dev/null; rlite-ctl ipcp-create x normal dd >/dev/null; rlite-ctl ipcp-enroller-enable x
 rinaperf -lw -z srv 2>/dev/null; sleep 0.3
 rinaperf -z srv -t rr -c $N 2>&1 | grep Sender

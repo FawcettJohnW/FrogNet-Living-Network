@@ -92,7 +92,7 @@ The base API is unchanged.
 
 ## FD&F's write contract, for a vendor that serves FD&F's clients (2026-11-02) [OWN_FLAG_DECIDES_V1]
 `RamHost::own_flag_decides()` (default false: `[GONE_WITH_ITS_WRITER_V1]`, everything a session writes goes with it).
-A vendor that says true answers writes as rina-host does (`[OWNED_CELL_GOES_WITH_THE_SESSION_V1]`): a write with
+A vendor that says true answers writes as FD&F's RAM manager does (`fdf-ram`, and fdf-ram before it) (`[OWNED_CELL_GOES_WITH_THE_SESSION_V1]`): a write with
 `"own":true` goes with its session (refused without one: plain HTTP has none), any other stays until written again or
 removed, and `"permanent":true` is refused (this host keeps no file). First used by the Team app's team RAM on a lead's
 phone (`opt/fdf/src/rangertrak-app/android/teamram`), which passes RangerTrak's own app test as every RAM.

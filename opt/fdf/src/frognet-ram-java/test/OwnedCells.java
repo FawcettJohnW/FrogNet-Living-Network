@@ -1,6 +1,6 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
-// OwnedCells HOST PORT API -- [RAM_LIBRARY_JAVA_V1] against a running rina-host: a Follower sees a tuple a session wrote
+// OwnedCells HOST PORT API -- [RAM_LIBRARY_JAVA_V1] against a running fdf-ram: a Follower sees a tuple a session wrote
 // with own=true, and sees it gone ({}) when that session ends; one written without own stays.
 import net.frognet.ram.*;
 import java.util.*;

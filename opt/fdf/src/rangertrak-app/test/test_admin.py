@@ -4,7 +4,7 @@
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
 # test_admin.py [SHOTS_DIR] -- [ADMIN_APP_V1] the RangerTrak admin app (its real core, AdminCore, and its real page,
-# through DevHost) against a real network RAM (rina-host), three real members (fdf-client, fdf-app serve) and the real
+# through DevHost) against a real network RAM (fdf-ram), three real members (fdf-client, fdf-app serve) and the real
 # door (/dc/ram.php under PHP, its `ram` CLI the real one). The members were installed with
 #   fdf-app config rangertrak general,alpha,bravo --role eoc --role alpha:default --role bravo:default
 #       --user EOCAdmin:EOCAdmin=eoc --admin boss:adm-2026
@@ -52,10 +52,10 @@ def wait_for(pred, limit=15.0):
     return None
 
 T = tempfile.mkdtemp(prefix="rt-admin-"); os.makedirs(T + "/bin")
-for b in ("rina-host", "fdf-client", "fdf-where", "fdf-events", "ram"): shutil.copy(os.path.join(B, b), T + "/bin/")
+for b in ("fdf-ram", "fdf-client", "fdf-where", "fdf-events", "ram"): shutil.copy(os.path.join(B, b), T + "/bin/")
 procs = []
 NET = "127.0.0.1:%d" % free()
-procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", NET, "--api", fdfram.API],
+procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", NET, "--api", fdfram.API],
                               env=dict(os.environ, RINA_REGION_FILE=T + "/net.perm", RINA_NET_CONFIG=T + "/none"),
                               stdout=subprocess.DEVNULL, stderr=open(T + "/net.log", "w")))
 time.sleep(0.5); rm = fdfram.Ram(NET)

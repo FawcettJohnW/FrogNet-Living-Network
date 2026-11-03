@@ -15,7 +15,7 @@ is under the hub's own key.)
 
   fdf-org init                          (serve does it) make the generic credential (one WireGuard peer, edge 10.253.253.1), the door
                                         port, and the credential key (/opt/fdf/var/org-key, root-only)
-  fdf-org space NAME                    [SPACES_V1] add a RAM space: its own RAM manager on this RAM host (rina-host,
+  fdf-org space NAME                    [SPACES_V1] add a RAM space: its own RAM manager on this RAM host (fdf-ram,
                                         started by fdf-org serve, inside the tunnel on a random port of its own; its
                                         Permanent records in space-NAME.perm). The system's own space is the region.
   fdf-org level NAME [--password] [--reach ram|open|list:DEST[,DEST...]] [--login-port P] [--session-port P] [--space SPACE ...]
@@ -376,9 +376,9 @@ _space_proc = {}
 
 
 def spaces_up():
-    """[SPACES_V1] every space's RAM manager running: rina-host on HUB_ADDR:<its port>, a child of this process. One
+    """[SPACES_V1] every space's RAM manager running: fdf-ram on HUB_ADDR:<its port>, a child of this process. One
     that exits is said and started again (_space_waiter)."""
-    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "rina-host")
+    exe = os.path.join(os.environ.get("FDF_BIN", "/opt/fdf/bin"), "fdf-ram")
     for n, sp in cells("space").items():
         p = _space_proc.get(n)
         if p is not None and p.poll() is None:

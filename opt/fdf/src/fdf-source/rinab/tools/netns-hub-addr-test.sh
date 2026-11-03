@@ -30,7 +30,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-hub $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH FDF_PY=$FDFPY
 ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists from an earlier run"; exit 1; }
@@ -40,7 +40,7 @@ i=1; for n in $NODES; do ip netns add $n; ip netns exec $n ip link set lo up
 NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 mkdir -p /run/wireguard
-hostup() { local n=$1 ram=$2; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/rina-host --listen $ram --api $API >> $T/$n/host.log 2>&1 &
+hostup() { local n=$1 ram=$2; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $ram --api $API >> $T/$n/host.log 2>&1 &
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$ram$API?op=rina" > /dev/null && break; sleep 0.05; done; }
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 # ---- A serves a FrogNet LAN (10.170.170.1 on lan0, a dummy); B serves none

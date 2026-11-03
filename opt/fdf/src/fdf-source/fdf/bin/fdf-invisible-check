@@ -147,8 +147,8 @@ def hub():
         "; ".join(name(r) for r in exposed) if exposed else "nothing"))
     if filtered:
         note("listening outside loopback/the tunnel but filtered by the firewall (silent from the Internet): %s" % "; ".join(name(r) for r in filtered))
-    ram = [r for r in rows if r[0] == "tcp" and "rina-host" in r[2]]
-    check(bool(ram) and all(r[1].startswith(HUB_ADDR + ":") for r in ram), "rina-host listens only on %s: %s" % (HUB_ADDR, [r[1] for r in ram]))
+    ram = [r for r in rows if r[0] == "tcp" and "fdf-ram" in r[2]]
+    check(bool(ram) and all(r[1].startswith(HUB_ADDR + ":") for r in ram), "fdf-ram listens only on %s: %s" % (HUB_ADDR, [r[1] for r in ram]))
     note("firewall: %s" % fw["what"])
     if fw["allowed"]:
         note("allowed in from the Internet: %s" % ", ".join(fw["allowed"]))

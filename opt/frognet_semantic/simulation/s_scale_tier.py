@@ -22,7 +22,7 @@ points, discovered the FD&F way: from memory. No probe, no trace, no route is se
 
   facts    each node's facts.addrs rows, exactly as fdf-facts writes them (own .1, held lease with its mac, the lease
            its egress gave, uplink, the egress's hub edge 10.253.A.B), announced by a REAL fdf-client session per node
-           into a REAL RAM host (rinab rina-host). The hub announces itself (role hub) the same way.
+           into a REAL RAM host (rinab fdf-ram). The hub announces itself (role hub) the same way.
   plans    each node's plan from the participants read, by FD&F's own graph (fdf_graph.Graph(participants).plan(me))
            -- the code FrogNet's graph_apply turns into the kernel. Each egress then publishes the plan's maps
            (facts.maps, as region.publish_plan_maps) and they come back through the same memory.
@@ -42,7 +42,7 @@ participants read each member makes (bytes), the event's time to the memory and 
 
 usage (from opt/frognet_semantic):
   python3 simulation/s_scale_tier.py --bin DIR [--fdfpy DIR] [--S 200] [--E 1 2 5 ...] [--out DIR] [--port N]
-  DIR holds rina-host, fdf-client, fdf-events (rinab build/static or the day-claims package's own).
+  DIR holds fdf-ram, fdf-client, fdf-events (rinab build/static or the day-claims package's own).
 """
 import argparse
 import json
@@ -118,7 +118,7 @@ class Region:
         self.url = f"http://{self.where}{API}?op=rina"
         self.clients = {}
         log = open(os.path.join(work, "host.log"), "w")
-        self.host = subprocess.Popen([os.path.join(bindir, "rina-host"), "--listen", self.where, "--api", API],
+        self.host = subprocess.Popen([os.path.join(bindir, "fdf-ram"), "--listen", self.where, "--api", API],
                                      env=dict(os.environ, RINA_REGION_FILE=os.path.join(work, "region.perm")),
                                      stdout=log, stderr=log)
         for _ in range(200):
@@ -127,10 +127,10 @@ class Region:
                 break
             except OSError:
                 if self.host.poll() is not None:
-                    raise RuntimeError(f"rina-host ended at start: see {work}/host.log")
+                    raise RuntimeError(f"fdf-ram ended at start: see {work}/host.log")
                 time.sleep(0.05)
         else:
-            raise RuntimeError("rina-host did not listen")
+            raise RuntimeError("fdf-ram did not listen")
         # [S_HELD_READ_V1] one held session that says when the participants change: the harness waits on its lines
         self.events = subprocess.Popen([os.path.join(bindir, "fdf-events")], env=dict(os.environ, RINA_RAM=self.where),
                                        stdout=subprocess.PIPE, stderr=open(os.path.join(work, "events.log"), "w"), text=True, bufsize=1)
@@ -383,7 +383,7 @@ def main():
     if not a.fdfpy or not os.path.isfile(os.path.join(a.fdfpy, "fdf_graph.py")):
         print(f"S SCALE: FAIL - no fdf_graph.py (FDF_PY, the repo's FD&F source, /opt/fdf/lib/python): {a.fdfpy!r}")
         return 1
-    for b in ("rina-host", "fdf-client", "fdf-events"):
+    for b in ("fdf-ram", "fdf-client", "fdf-events"):
         if not os.access(os.path.join(a.bin, b), os.X_OK):
             print(f"S SCALE: FAIL - {b} not in --bin {a.bin}")
             return 1
@@ -391,7 +391,7 @@ def main():
     import fdf_graph
     print(f"fdf_graph from {os.path.abspath(a.fdfpy)}; binaries from {a.bin}")
     os.makedirs(a.out, exist_ok=True)
-    print(f"TIER 3 S SCALE - S={a.S} subnets across E egress points; FD&F discovery from memory (real rina-host, "
+    print(f"TIER 3 S SCALE - S={a.S} subnets across E egress points; FD&F discovery from memory (real fdf-ram, "
           f"real fdf-client per node, fdf_graph {fdf_graph.BUILD_TAG}); routes followed only in the verification plan")
     allres, nbad = [], 0
     for E in a.E:

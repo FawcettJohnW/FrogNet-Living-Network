@@ -7,7 +7,7 @@ and the results kept across runs.
 There are three kinds of participant and two memories:
 
 - **The kart service** (`kart_service.py`) is where the lobby's intelligence is. It runs beside the **kart memory**
-  (the kart region, a rina-host: on the droplet `fdf-kart-ram.sh` starts both), which is where everyone connects
+  (the kart region, a fdf-ram: on the droplet `fdf-kart-ram.sh` starts both), which is where everyone connects
   first. It reads the players' truths and writes its decisions: the agreed parameters, the lobby's state, and which
   machine serves each game.
 - **Game-serving machines** (`kart_host.py`) say they can serve a game's memory, and start a race server when the
@@ -25,7 +25,7 @@ and acts by writing.
 |---|---|---|---|---|
 | I am here: name, machine, robots, ready, the laps I want | that player's game | (`kart`, `lobby`, *player*) | with its session | the service; every game |
 | a chat line: text, when | its writer (a player, or the service) | (`kart`, `chat`, *writer*`#`*n mod 40*) | until overwritten | every game |
-| this machine can serve a game's memory: kind (`dedicated` or `player`), address, rina-host | that machine's host agent | (`kart`, `gamehost`, *machine*) | with its session | the service |
+| this machine can serve a game's memory: kind (`dedicated` or `player`), address, fdf-ram | that machine's host agent | (`kart`, `gamehost`, *machine*) | with its session | the service |
 | the agreed parameters and the lobby's state (waiting, launching, why) | the service | (`kart`, `agreed`, `lobby`) | with its session | every game |
 | launch this race here: race, roster, parameters, the machine chosen | the service | (`kart`, `launch`, *race*) | with its session; `{}` when done | the named machine's host agent; every game |
 | what became of a launch: starting, or failed and why | the host agent the launch named | (`kart`, `hosting`, *race*) | with its session | the service |
@@ -33,7 +33,7 @@ and acts by writing.
 | a player's record; a race's result | the race's server, before it exits | (`kart`, `record`, *player*), (`kart`, `result`, *race*) | **permanent** | every game; the next race servers |
 | a player's call tile | that player's game | (`comm`, `tile`, *player*) | with its session | every game |
 
-## The game's memory (a rina-host the race server starts on the chosen machine, on a port its system picks)
+## The game's memory (a fdf-ram the race server starts on the chosen machine, on a port its system picks)
 
 As before: (`race`, `meta`, `info`), (`race`, `grid`, *kart*), (`race`, `record`, *player*) written by the race server
 before it is announced; (`race`, `kart`, *kart*) by the game that drives each kart.

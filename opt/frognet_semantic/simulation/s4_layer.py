@@ -12,7 +12,7 @@ s4_layer.py - [S4_LAYERED_V1] TIER 4, one machine: shared RAM ABOVE a working ro
 
   routes   real IS-IS (s4_isis: FRR isisd + zebra per node) builds and repairs every route; the hub's ram0
            (198.51.100.1/32, the RAM manager's address) is a passive circuit, so it is routed like any /24
-  region   rina-host on the hub at 198.51.100.1:8840, reached over the IS-IS routes; nothing else is configured
+  region   fdf-ram on the hub at 198.51.100.1:8840, reached over the IS-IS routes; nothing else is configured
   members  every node: fdf-facts --watch (its rows from its own kernel), fdf-client (announce, re-announce on change,
            ends its session when the far end stops answering: its 5 s keepalive / user timeout), s4_reader.py (the
            application: one held read and nothing else -- fdf-events pulls each snapshot over that same session, no
@@ -65,7 +65,7 @@ class Region:
 
     def __init__(self, bed, work, bins, fdf):
         self.bed, self.work, self.bins, self.fdf = bed, work, bins, fdf
-        for b in ("rina-host", "fdf-client", "fdf-events"):
+        for b in ("fdf-ram", "fdf-client", "fdf-events"):
             if not os.access(os.path.join(bins, b), os.X_OK):
                 raise RuntimeError(f"{bins}/{b} is missing: the layered run needs it")
         for f in ("bin/fdf-facts",):
@@ -151,14 +151,14 @@ class Region:
     def start_host(self):
         h = os.path.join(self.work, "hub")
         os.makedirs(h, exist_ok=True)
-        self.spawn("hub", "rina-host", [f"{self.bins}/rina-host", "--listen", f"{RAM_IP}:{RAM_PORT}", "--api", API],
+        self.spawn("hub", "fdf-ram", [f"{self.bins}/fdf-ram", "--listen", f"{RAM_IP}:{RAM_PORT}", "--api", API],
                    RINA_REGION_FILE=f"{h}/region.perm", RINA_NET_CONFIG=f"{h}/net.json")
         for _ in range(250):
             if B.sh("bash", "-c", f"exec 3<>/dev/tcp/{RAM_IP}/{RAM_PORT}", ns="hub", check=False).returncode == 0:
                 break
             time.sleep(0.02)
         else:
-            raise RuntimeError(f"rina-host did not listen in 5 s: see {h}/rina-host.log")
+            raise RuntimeError(f"fdf-ram did not listen in 5 s: see {h}/fdf-ram.log")
 
     def start_members(self):
         for n in self.bed.mine:
@@ -213,7 +213,7 @@ class Region:
     def usage(self):
         """[S4_RAM_USAGE_V1] {node: {unit: (cpu_ms, rss_kb)}} for the RAM-layer units and their children (the reader's
         fdf-events, fdf-facts' ip monitor): the compute and memory the coordination layer costs, the counterpart to
-        s4_isis.usage() for the underlay. node 'hub' carries rina-host (the shared store itself)."""
+        s4_isis.usage() for the underlay. node 'hub' carries fdf-ram (the shared store itself)."""
         tick = os.sysconf("SC_CLK_TCK")
         kids = {}
         for pid in os.listdir("/proc"):

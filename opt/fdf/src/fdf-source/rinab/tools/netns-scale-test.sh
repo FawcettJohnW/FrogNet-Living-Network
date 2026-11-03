@@ -1,7 +1,7 @@
 #!/bin/bash
 # netns-scale-test.sh -- [SCALE_NETNS_V1] experiment S (experiments/day-claims/EXPERIMENTS.md): S subnets crossing E
 # egress points, memory arm (the FD&F region), on the REAL tunnel daemon. Built from netns-region-loop-test.sh's
-# pieces: the hub (fdf-hub wg-hub :51820, rina-host on its tunnel address, fdf-client) on 198.18.0.1; every EGRESS node is
+# pieces: the hub (fdf-hub wg-hub :51820, fdf-ram on its tunnel address, fdf-client) on 198.18.0.1; every EGRESS node is
 # a daemon node like z (its own netns and mount namespace, `python3 -m internet_tunnels_v3`, fdf-client, fdf-facts
 # --watch, an uplink on the "Internet" bridge, a hub tunnel); every other subnet is a CHILD like y (fdf-client and
 # fdf-facts --watch, a lease on its egress node's LAN, its own /24 on lan0, a default route to its egress node).
@@ -87,7 +87,7 @@ NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=$RAM RINA_AREA=$SITE RIN
 printf '%s\n' "$KEY" > $T/hub/site-key-$SITE; chmod 600 $T/hub/site-key-$SITE
 printf 'RINA_RAM=%s\nFDF_AREA=%s\nFDF_HUB_NAME=hubA\nFDF_ENDPOINT=%s:51820\nFDF_LISTEN=51820\nFDF_IFACE=wg-hub\n' $RAM $SITE $PUB > $T/hub/hub.env
 NS s-hub env FDF_BIN=$B python3 $T/bin/fdf-hub --area $SITE --iface wg-hub --endpoint $PUB:51820 --listen 51820 --key $T/hub/wg.key --iface-only > $T/hub/iface.log 2>&1
-NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/rina-host --listen $RAM --api $API > $T/hub/host.log 2>&1 &
+NS s-hub env -u RINA_MAP_AREA RINA_REGION_FILE=$T/hub/area.perm RINA_NET_CONFIG=$T/hub/none $B/fdf-ram --listen $RAM --api $API > $T/hub/host.log 2>&1 &
 for i in $(seq 100); do NS s-hub curl -s -m 1 -X POST -d '{"op":"version"}' "$U" > /dev/null && break; sleep 0.05; done
 NS s-hub curl -s -m 10 -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"$KEY\"}" "$U" > /dev/null
 # the hub's processes and every child's client start again as their units do (a child's before its egress is up)
@@ -198,7 +198,7 @@ hub_answers() { HUB_HTTP=ok; HUB_FNW1=ok
   ip netns exec s-hub curl -s -m 10 -X POST -d '{"op":"map_list"}' "$U" > /dev/null || HUB_HTTP=FAILED
   ip netns exec s-hub env RINA_RAM=$RAM timeout 10 $B/ram read bed probe > /dev/null 2>&1 || HUB_FNW1=FAILED
   [ $HUB_HTTP = ok ] && [ $HUB_FNW1 = ok ]; }
-hub_diag() { local p; p=$(for q in $(ip netns pids s-hub); do tr '\0' ' ' < /proc/$q/cmdline 2>/dev/null | grep -q "rina-host --listen $RAM" && echo $q; done | head -1)
+hub_diag() { local p; p=$(for q in $(ip netns pids s-hub); do tr '\0' ' ' < /proc/$q/cmdline 2>/dev/null | grep -q "fdf-ram --listen $RAM" && echo $q; done | head -1)
   echo "[DIAG-HUB] $(date -u +%FT%T.%3NZ) region host at $RAM does not answer (http $HUB_HTTP, fnw1 $HUB_FNW1); pid ${p:-none}"
   [ -n "$p" ] || return 0
   echo "[DIAG-HUB] state $(awk '{print $3}' /proc/$p/stat) cpu_ms $(awk -v t=$(getconf CLK_TCK) '{print int(($14+$15)*1000/t)}' /proc/$p/stat) rss_kb $(awk '/VmRSS/{print $2}' /proc/$p/status) threads $(ls /proc/$p/task | wc -l) fds $(ls /proc/$p/fd | wc -l) limit '$(grep 'open files' /proc/$p/limits | awk '{print $4"/"$5}')'"

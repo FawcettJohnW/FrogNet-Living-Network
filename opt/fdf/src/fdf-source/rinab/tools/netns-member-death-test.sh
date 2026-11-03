@@ -5,7 +5,7 @@
 #   (2) silent death: the member's link goes down (no FIN)                 -> first event on the watcher (keepalive)
 #   (3) silent region: packets from the region dropped at the member        -> the MEMBER says its session ended
 #       (proves the member's own keepalive 5+3x5 s: without it the OS default is 2 h)
-# usage: bash netns-member-death-test.sh <dir with rina-host, fdf-client, fdf-events> <fdf-member-kt launcher>
+# usage: bash netns-member-death-test.sh <dir with fdf-ram, fdf-client, fdf-events> <fdf-member-kt launcher>
 set -u
 B=$1; K=$2; T=$(mktemp -d); API=/FawcettInnovations.RINA.ram_interface.php
 ms() { date +%s%3N; }
@@ -15,7 +15,7 @@ ip link add br-m type bridge && ip link set br-m up
 i=1; for n in hub cpp kt w; do ip netns add $n; ip netns exec $n ip link set lo up
   ip link add v-$n type veth peer name v-$n-b; ip link set v-$n netns $n; ip link set v-$n-b master br-m up
   ip netns exec $n ip addr add 10.77.0.$i/24 dev v-$n; ip netns exec $n ip link set v-$n up; i=$((i+2)); done
-ip netns exec hub env RINA_REGION_FILE=$T/area.perm $B/rina-host --listen 10.77.0.1:8840 --api $API > $T/host.log 2>&1 &
+ip netns exec hub env RINA_REGION_FILE=$T/area.perm $B/fdf-ram --listen 10.77.0.1:8840 --api $API > $T/host.log 2>&1 &
 sleep 1
 echo '{"role":"leaf","name":"cpp-leaf","guid":"cpp-leaf-1","pubkey":"PUBcpp"}' > $T/cpp.json
 echo '{"role":"leaf","name":"kt-leaf","guid":"kt-leaf-1","pubkey":"PUBkt"}' > $T/kt.json

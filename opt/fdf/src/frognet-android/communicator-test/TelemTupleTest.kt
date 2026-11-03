@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //
 // TelemTupleTest.kt -- [TELEMETRY_IS_A_TUPLE_V1] [MEMBER_WRITES_TUPLES_V1] the member's own tuples against a real
-// RAM manager (rina-host, the region's RAM interface), on a JVM, with the member code the phone runs:
+// RAM manager (fdf-ram, the region's RAM interface), on a JVM, with the member code the phone runs:
 //   1 the member joins; it writes (pond, telem, <ns>) own:true on its session
 //   2 a second session (any monitor) reads the family (pond, telem) and finds it, joined by ns
 //   3 a held read on the family is waiting when the member leaves: it fires with {} -- gone with the member

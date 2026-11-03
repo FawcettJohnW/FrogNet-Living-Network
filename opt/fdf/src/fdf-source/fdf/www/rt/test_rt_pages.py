@@ -11,7 +11,7 @@
 # general RAM is served by a droplet the app's selection picks (A, the stronger); the pages reach it through ram.php,
 # which follows the post's app-where.json.
 #
-#   python3 test_rt_pages.py RINAB_BUILD_STATIC    (rina-host, ram, fdf-client, fdf-where, fdf-events from it; ram.php
+#   python3 test_rt_pages.py RINAB_BUILD_STATIC    (fdf-ram, ram, fdf-client, fdf-where, fdf-events from it; ram.php
 #                                                   from ../dc, fdf-app from ../../bin, beside this directory)
 #
 # Checks, each with what it saw:
@@ -57,11 +57,11 @@ def free():
 
 T = tempfile.mkdtemp(prefix="rt-pages-")
 os.makedirs(T + "/bin")
-for b in ("ram", "rina-host", "fdf-client", "fdf-where", "fdf-events"): shutil.copy(os.path.join(B, b), T + "/bin/")
+for b in ("ram", "fdf-ram", "fdf-client", "fdf-where", "fdf-events"): shutil.copy(os.path.join(B, b), T + "/bin/")
 procs = []
 def ram_host(name):
     port = free(); addr = "127.0.0.1:%d" % port
-    procs.append(subprocess.Popen([T + "/bin/rina-host", "--listen", addr, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
+    procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", addr, "--api", "/FawcettInnovations.RINA.ram_interface.php"],
                                   env=dict(os.environ, RINA_REGION_FILE=T + "/%s.perm" % name, RINA_NET_CONFIG=T + "/none"),
                                   stdout=subprocess.DEVNULL, stderr=open(T + "/host-%s.log" % name, "w")))
     return addr

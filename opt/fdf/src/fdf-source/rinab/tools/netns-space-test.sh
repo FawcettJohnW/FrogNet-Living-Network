@@ -7,7 +7,7 @@
 # step 4 for devices: one space on two RAM hosts; the space is on the best alive one by capability (John 2026-11-03:
 # "There is no fallback list. Fallback is determined by capability"; "failover/failup are automatic"), and a partition.
 # Topology (the "Internet" is 198.18.0.0/24, a bridge):
-#   A 198.18.0.1   a RAM host: its own region, fdf-hub, rina-host on 10.253.253.254:8840, fdf-org serve; 8 GB
+#   A 198.18.0.1   a RAM host: its own region, fdf-hub, fdf-ram on 10.253.253.254:8840, fdf-org serve; 8 GB
 #   B 198.18.0.3   the same, its own keys; 4 GB
 #   r 198.18.0.5, q 198.18.0.7   devices: logged in at A and B with one line; each runs an application on the space
 # Each host's fdf-org writes its capability into its RAM, (fdf-space, can, D). The application (fdfspace.Space) writes
@@ -35,7 +35,7 @@ cleanup() { [ -f $T/svc.pids ] && kill $(cat $T/svc.pids) 2>/dev/null; rm -f $T/
 trap cleanup EXIT; cleanup
 WGGO=$(command -v wireguard-go || ls $H/build/wg/wireguard-go-$(uname -m) 2>/dev/null)
 [ -x "$WGGO" ] || { echo "FAIL  setup: wireguard-go not found"; exit 1; }
-cp $B/fdf-events $B/fdf-client $B/rina-host $T/bin/ 2>/dev/null; [ -x $T/bin/rina-host ] || cp $H/build/bin/rina-host-static $T/bin/rina-host
+cp $B/fdf-events $B/fdf-client $B/fdf-ram $T/bin/ 2>/dev/null; [ -x $T/bin/fdf-ram ] || cp $H/build/bin/fdf-ram-static $T/bin/fdf-ram
 cp $PK/bin/fdf-hub $PK/bin/fdf-org $PK/bin/fdf-login $T/bin/; cp "$WGGO" $T/bin/wireguard-go
 export PATH=$T/bin:$PATH FDF_PY=$FDFPY
 ip link add br-inet type bridge && ip link set br-inet up || { echo "FAIL  setup: br-inet exists from an earlier run"; exit 1; }
@@ -46,10 +46,10 @@ NS() { local n=$1; shift; ip netns exec $n "$@"; }
 svc() { local log=$1; shift; ( while :; do "$@" >> $log 2>&1; echo "[svc] $(date +%T) ended rc=$?; restart in 2 s" >> $log; sleep 2; done ) & echo $! >> $T/svc.pids; }
 mkdir -p /run/wireguard
 # ---- two RAM hosts, each a region of its own (as fdf-region-create makes one)
-hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/rina-host --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
+hostup() { local n=$1; NS $n env RINA_REGION_FILE=$T/$n/area.perm RINA_NET_CONFIG=$T/$n/none $T/bin/fdf-ram --listen $RAM --api $API >> $T/$n/host.log 2>&1 &
            for i in $(seq 100); do NS $n curl -s -m 1 -X POST -d '{"op":"version"}' "http://$RAM$API?op=rina" > /dev/null && break; sleep 0.05; done; }
-hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "rina-host" /proc/$p/cmdline 2>/dev/null && kill $p; done
-             for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l rina-host /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
+hostdown() { local n=$1; for p in $(ip netns pids $n); do grep -q "fdf-ram" /proc/$p/cmdline 2>/dev/null && kill $p; done
+             for i in $(seq 50); do ip netns pids $n | xargs -r -I{} grep -l fdf-ram /proc/{}/cmdline 2>/dev/null | grep -q . || break; sleep 0.1; done; }
 # (each RAM host's wireguard-go control sockets: fdf-org sees its hub there [HUB_IS_WHERE_IT_RUNS_V1])
 ORG() { local n=$1; shift; NS $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n python3 $T/bin/fdf-org \"\$@\"" sh "$@"; }
 for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr show dev v-$n | awk '{print $4}' | cut -d/ -f1)
@@ -102,7 +102,9 @@ waitsince() { local want=$1 t0=$2 s0=$(date +%s.%N); shift 2
 waiton() { local want=$1 t0=$(date +%s.%N); shift
   for i in $(seq 120); do ok=1; for n in "$@"; do [ "$(on $n)" = "$want" ] || ok=0; done; [ $ok = 1 ] && break; sleep 0.25; done
   echo "$ok $(python3 -c "print('%.1f' % ($(date +%s.%N) - $t0))")"; }
-cellat() { NS $1 curl -s -m 3 "http://$RAM$API?op=read&service=app&variable=pos&instance=$2" | grep -q "\"me\":\"$2\"" && echo yes || echo no; }
+# a read's answer has a cell whose bag has KEY = VALUE (parsed: a bag's text is kept as its writer wrote it)
+baghas() { python3 -c 'import json,sys; c=json.load(sys.stdin).get("cells") or []; sys.exit(0 if any((x.get("bag") or {}).get(sys.argv[1])==sys.argv[2] for x in c) else 1)' "$1" "$2" 2>/dev/null; }
+cellat() { NS $1 curl -s -m 3 "http://$RAM$API?op=read&service=app&variable=pos&instance=$2" | baghas me "$2" && echo yes || echo no; }
 # 2 on A
 read OK S <<< "$(waiton hubA r q)"
 check $([ $OK = 1 ] && [ "$(cellat A r)" = yes ] && [ "$(cellat A q)" = yes ] && echo 0 || echo 1) "2 both applications on A, their truth at A ($S s)"

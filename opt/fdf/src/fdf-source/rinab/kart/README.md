@@ -12,13 +12,13 @@ the others' truths. `DESIGN.md` has the truth table and the service's rules.
 ## Who is in it
 
 - **The kart memory and the kart service.** This is where everyone connects first. On the droplet,
-  `fdf-kart-ram.sh` runs both: the kart memory (a rina-host on 8799, kept in `/opt/fdf/var/kart.perm`) and
+  `fdf-kart-ram.sh` runs both: the kart memory (a fdf-ram on 8799, kept in `/opt/fdf/var/kart.perm`) and
   `kart_service.py` beside it. The service is the lobby's intelligence. It reads the lobby and agrees the
   parameters (the laps most players want). It decides when a game launches: when all free players are ready, and at
   least `KART_MIN_PLAYERS` of them; or when a ready player presses Start. It also decides where each game runs.
 - **Game-serving machines** (`kart_host.py`). Each one writes that it can serve a game's memory and where racers reach
   it. A **dedicated** one is set up with `fdf-kart-host.sh`. A **player's** game also runs a host agent for its own
-  machine when that machine can host (Linux, with a rina-host). The service picks a dedicated machine if one is up,
+  machine when that machine can host (Linux, with a fdf-ram). The service picks a dedicated machine if one is up,
   else a player's machine: the one serving the fewest races, then by name. If the chosen machine cannot start the
   race server, its agent says why, and the service names the next machine and says so in the chat.
 - **Players' games** (`kartdemo.py`). Each one writes its player into the lobby (machine, robots, the laps wanted,
@@ -30,7 +30,7 @@ the others' truths. `DESIGN.md` has the truth table and the service's rules.
    the service's state, the game-serving machines and the records.
 2. The service launches a game. It writes `(kart, launch, <race>)` naming a machine, and says so in the chat.
 3. The named machine's agent starts `kart_server.py`. The race server:
-   - starts the game's memory (a rina-host on a port the system picks);
+   - starts the game's memory (a fdf-ram on a port the system picks);
    - fills it from the kart memory with the grid (fastest record in front), the racers' records and the start time;
    - only then writes `(kart, server, <race>)` with its address.
 4. Every racer's game sees the server tuple, maps the game's memory, takes its grid slots and races.
@@ -76,13 +76,13 @@ Controls:
 | `--bots N` | 0 | robot karts this game owns and drives |
 | `--autodrive` | off | your own kart starts on the autopilot (P toggles it) |
 | `--headless` | off | no window, no sound |
-| `--rina-host PATH` | beside the script, else `/opt/fdf/bin` | the rina-host this machine serves games with. If it is given and missing, this machine does not host. |
+| `--fdf-ram PATH` | beside the script, else `/opt/fdf/bin` | the fdf-ram this machine serves games with. If it is given and missing, this machine does not host. |
 | `--comms-ram`, `--comms-media`, `--comms-app`, `--comms-args` | from FD&F, else the kart memory's host:8800 / :8994 | the Communicator, for the Call buttons (`[KART_CALLS_V1]`) |
 
 ## Ports
 
 On the droplet, the kart memory uses 8799, which the kart region already had. The service opens no port. A game's
-memory listens on a port picked by the serving machine's system. That machine's rina-host logs the port
+memory listens on a port picked by the serving machine's system. That machine's fdf-ram logs the port
 (`[BOUND_PORT_SAID_V1]`) and its race server writes it into the kart memory. Racers must be able to reach the
 serving machine on that port. A dedicated host behind a firewall needs its ports open to the players.
 
@@ -114,7 +114,7 @@ serving machine on that port. A dedicated host behind a firewall needs its ports
 ## Proven
 
 Run on 2026-10-19 with `tools/kart-check.sh`, against the shipped fdf-2026-10-19-r23 files: the droplet tarball's
-rina-host and fdf-client, and the player tarball's game.
+fdf-ram and fdf-client, and the player tarball's game.
 
 Setup:
 - Each machine is its own network namespace on one shared network.

@@ -1,6 +1,6 @@
 #!/bin/bash
 # netns-placement-test.sh -- [ADDRESS_IS_THE_ONE_IT_HAS_V1] the member uses the address it already has.
-#   hub ns:  rina-host + fdf-hub (wireguard-go) + the hub's fdf-client
+#   hub ns:  fdf-ram + fdf-hub (wireguard-go) + the hub's fdf-client
 #   bb ns:   a node, fdf-client, facts {role node, subnet 10.101.10.0/24, own 10.101.10.1}; LAN bridge br-lan
 #   ph ns:   the Kotlin member, holding 10.101.10.170 on bb's LAN (a lease, as a phone on BlackBox's wifi)
 # (A) on the LAN: placement OnMesh, no tunnel, no hub peer, facts carry lan{ip,subnet,served_by} and no addr/pubkey;
@@ -21,7 +21,7 @@ i=1; for n in hub bb ph; do ip netns add $n; ip netns exec $n ip link set lo up
 for n in bb ph; do ip link add l-$n type veth peer name l-$n-b; ip link set l-$n netns $n; ip link set l-$n-b master br-lan up; ip netns exec $n ip link set l-$n up; done
 ip netns exec bb ip addr add 10.101.10.1/24 dev l-bb; ip netns exec ph ip addr add 10.101.10.170/24 dev l-ph
 NS() { local n=$1; shift; ip netns exec $n env RINA_RAM=192.168.79.1:8840 RINA_AREA=$SITE "$@"; }
-NS hub env RINA_REGION_FILE=$T/area.perm $B/rina-host --listen 192.168.79.1:8840 --api $API > $T/host.log 2>&1 &
+NS hub env RINA_REGION_FILE=$T/area.perm $B/fdf-ram --listen 192.168.79.1:8840 --api $API > $T/host.log 2>&1 &
 sleep 1; NS hub curl -s -X POST -d "{\"op\":\"map_site\",\"name\":\"$SITE\",\"key\":\"s3cret\"}" "$U" > /dev/null
 NS hub env FDF_WG_IMPL=wireguard-go FDF_BIN=$B FDF_PY=$PY python3 $HUBP --area $SITE --iface wg-frognet --endpoint 192.168.79.1:50889 \
    --listen 50889 --key $T/hub.key --facts $T/hub-facts.json --name hubA > $T/hub.log 2>&1 &

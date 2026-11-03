@@ -88,29 +88,29 @@ public:
     void open_and_replay() {
         const char* f = getenv("RINA_DAF_FILE"); const char* r = getenv("RINA_REGION_FILE");
         path_ = (f && *f) ? f : (r && *r) ? std::string(r) + ".daf" : "";
-        if (path_.empty()) { fprintf(stderr, "rina-host: [DAF_FILE_V1] no RINA_DAF_FILE or RINA_REGION_FILE: the DAF region does not start\n"); _exit(2); }
+        if (path_.empty()) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] no RINA_DAF_FILE or RINA_REGION_FILE: the DAF region does not start\n"); _exit(2); }
         struct L { std::string bag; uint64_t id; };
         std::map<std::pair<std::string, std::string>, L> last;
         if (FILE* in = fopen(path_.c_str(), "r")) {
             char* line = nullptr; size_t cap = 0; ssize_t n; size_t no = 0;
             while ((n = getline(&line, &cap, in)) > 0) { ++no; Json j;
-                try { j = Json::parse(std::string(line, size_t(n))); } catch (...) { fprintf(stderr, "rina-host: [DAF_FILE_V1] %s line %zu is damaged\n", path_.c_str(), no); _exit(2); }
-                if (j.type != Json::Arr || j.a.size() < 4) { fprintf(stderr, "rina-host: [DAF_FILE_V1] %s line %zu is not a record with an id\n", path_.c_str(), no); _exit(2); }
+                try { j = Json::parse(std::string(line, size_t(n))); } catch (...) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] %s line %zu is damaged\n", path_.c_str(), no); _exit(2); }
+                if (j.type != Json::Arr || j.a.size() < 4) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] %s line %zu is not a record with an id\n", path_.c_str(), no); _exit(2); }
                 const L l{j[2].s, uint64_t(j[3].n)}; auto it = last.find({j[0].s, j[1].s});
                 if (it == last.end() || it->second.id < l.id) last[{j[0].s, j[1].s}] = l; }
             free(line); fclose(in);
-        } else if (errno != ENOENT) { fprintf(stderr, "rina-host: [DAF_FILE_V1] reading %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+        } else if (errno != ENOENT) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] reading %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         const std::string tmp = path_ + ".new"; FILE* out = fopen(tmp.c_str(), "w");
-        if (!out) { fprintf(stderr, "rina-host: [DAF_FILE_V1] writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
+        if (!out) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] writing %s: %s\n", tmp.c_str(), strerror(errno)); _exit(2); }
         size_t kept = 0;
         for (auto& [k, l] : last) { if (l.bag.empty()) continue;                 // a deletion: gone for good
             dmem::restore(k.first, k.second, l.bag, l.id); fputs(line_of(k.first, k.second, l.bag, l.id).c_str(), out); ++kept; }
         dmem::restored();                                                     // everything restored is published
         if (fflush(out) != 0 || fdatasync(fileno(out)) != 0 || fclose(out) != 0 || rename(tmp.c_str(), path_.c_str()) != 0) {
-            fprintf(stderr, "rina-host: [DAF_FILE_V1] compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+            fprintf(stderr, "fdf-ram: [DAF_FILE_V1] compacting %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
         fd_ = ::open(path_.c_str(), O_WRONLY | O_APPEND | O_CLOEXEC | O_CREAT, 0600);
-        if (fd_ < 0) { fprintf(stderr, "rina-host: [DAF_FILE_V1] opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
-        fprintf(stderr, "rina-host: [DAF_FILE_V1] %zu Permanent DAF record(s) restored from %s ([DAF_MODEL_V1] [DAF_FROG_V1] op=daf, build %s)\n", kept, path_.c_str(), FDF_BUILD_TAG);
+        if (fd_ < 0) { fprintf(stderr, "fdf-ram: [DAF_FILE_V1] opening %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+        fprintf(stderr, "fdf-ram: [DAF_FILE_V1] %zu Permanent DAF record(s) restored from %s ([DAF_MODEL_V1] [DAF_FROG_V1] op=daf, build %s)\n", kept, path_.c_str(), FDF_BUILD_TAG);
         disk_check();
     }
     // [DISK_SPEED_SAID_V1] once at start: how long this disk takes to make a line durable (write + fdatasync, as append
@@ -120,26 +120,26 @@ public:
     void disk_check() {
         const std::string p = path_ + ".speed";
         const int fd = ::open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
-        if (fd < 0) { fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] could not measure %s: %s\n", p.c_str(), strerror(errno)); return; }
+        if (fd < 0) { fprintf(stderr, "fdf-ram: [DISK_SPEED_SAID_V1] could not measure %s: %s\n", p.c_str(), strerror(errno)); return; }
         std::vector<double> ms; const std::string l(96, 'x');
         for (int k = 0; k < 8; ++k) { const auto t0 = std::chrono::steady_clock::now();
-            if (::write(fd, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd) != 0) { fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] write to %s failed: %s\n", p.c_str(), strerror(errno)); break; }
+            if (::write(fd, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd) != 0) { fprintf(stderr, "fdf-ram: [DISK_SPEED_SAID_V1] write to %s failed: %s\n", p.c_str(), strerror(errno)); break; }
             ms.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count()); }
         ::close(fd); ::unlink(p.c_str());
         if (ms.empty()) return;
         std::vector<double> s = ms; std::sort(s.begin(), s.end());
         const double med = s[s.size() / 2], mx = s.back();
-        fprintf(stderr, "rina-host: [DISK_SPEED_SAID_V1] a Permanent record takes %.1f ms to be durable here (median of %zu, max %.1f ms): %s\n", med, s.size(), mx, path_.c_str());
+        fprintf(stderr, "fdf-ram: [DISK_SPEED_SAID_V1] a Permanent record takes %.1f ms to be durable here (median of %zu, max %.1f ms): %s\n", med, s.size(), mx, path_.c_str());
         if (med > 5.0 || mx > 50.0) {
             fprintf(stderr,
-                "rina-host: ******************************************************************************************\n"
-                "rina-host: [DISK_SPEED_SAID_V1] WARNING: SLOW DISK under %s\n"
-                "rina-host:   making one Permanent record durable took %.1f ms (median), %.1f ms at worst, in 8 tries at start.\n"
-                "rina-host:   Every Permanent write (create_daf, enroll, define_name, policies, persistent entries) holds the\n"
-                "rina-host:   region's published order until its fdatasync returns: EVERY claim in the region waits that long\n"
-                "rina-host:   behind it, and a disk that stalls for seconds stalls the region for seconds.\n"
-                "rina-host:   Where the file lives is your choice: RINA_DAF_FILE (or RINA_REGION_FILE + .daf).\n"
-                "rina-host: ******************************************************************************************\n",
+                "fdf-ram: ******************************************************************************************\n"
+                "fdf-ram: [DISK_SPEED_SAID_V1] WARNING: SLOW DISK under %s\n"
+                "fdf-ram:   making one Permanent record durable took %.1f ms (median), %.1f ms at worst, in 8 tries at start.\n"
+                "fdf-ram:   Every Permanent write (create_daf, enroll, define_name, policies, persistent entries) holds the\n"
+                "fdf-ram:   region's published order until its fdatasync returns: EVERY claim in the region waits that long\n"
+                "fdf-ram:   behind it, and a disk that stalls for seconds stalls the region for seconds.\n"
+                "fdf-ram:   Where the file lives is your choice: RINA_DAF_FILE (or RINA_REGION_FILE + .daf).\n"
+                "fdf-ram: ******************************************************************************************\n",
                 path_.c_str(), med, mx);
         }
     }
@@ -147,7 +147,7 @@ public:
     void append(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) {
         const std::string l = line_of(v, i, bag, id);
         if (::write(fd_, l.data(), l.size()) != ssize_t(l.size()) || fdatasync(fd_) != 0) {
-            fprintf(stderr, "rina-host: [DAF_FILE_V1] could not make a Permanent record durable in %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
+            fprintf(stderr, "fdf-ram: [DAF_FILE_V1] could not make a Permanent record durable in %s: %s\n", path_.c_str(), strerror(errno)); _exit(2); }
     }
 private:
     static std::string line_of(const std::string& v, const std::string& i, const std::string& bag, uint64_t id) {

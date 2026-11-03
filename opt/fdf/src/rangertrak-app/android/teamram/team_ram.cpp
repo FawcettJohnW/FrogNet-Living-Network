@@ -4,7 +4,7 @@
 // team_ram.cpp -- [TEAM_RAM_V1] the team's RAM on the team lead's phone: the Ribbit platform's RAM host
 // (opt/frognet_semantic/ribbit/cpp, ribbit::RamHost), with no region, answering the endpoint every FD&F client and the
 // Team app already use. Nothing else: cells written, read, held and removed; a write that says "own":true goes with
-// its session, any other stays ([OWN_FLAG_DECIDES_V1], rina-host's contract). Built static (musl) for each Android ABI by build.sh and shipped in the app's jniLibs as
+// its session, any other stays ([OWN_FLAG_DECIDES_V1], fdf-ram's contract). Built static (musl) for each Android ABI by build.sh and shipped in the app's jniLibs as
 // libteamram.so; the app runs it from nativeLibraryDir, as it runs libfdftun.so.
 //
 //     libteamram.so [--listen HOST:PORT]        default 0.0.0.0:21800: the hotspot, loopback and the tunnel alike
@@ -26,7 +26,7 @@ public:
     bool own_flag_decides() const override { return true; }   // [OWN_FLAG_DECIDES_V1] the contract the Team app was written to
 };
 
-// --api PATH is taken as rina-host takes it (the incumbent tests start every host that way), and must name this
+// --api PATH is taken as fdf-ram takes it (the incumbent tests start every host that way), and must name this
 // host's endpoint: any other is refused, never served under a different name.
 int main(int argc, char** argv) {
     TeamRam host; std::vector<char*> a;

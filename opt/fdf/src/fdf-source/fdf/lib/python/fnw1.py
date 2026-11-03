@@ -2,7 +2,7 @@
 #  Copyright (C) 2016-2026 Fawcett Innovations LLC             #
 #  SPDX-License-Identifier: GPL-2.0-only                       #
 ################################################################
-"""fnw1 -- [RAM_LIBRARY_PY_V1] one FNW1 session to a RAM host (rina-host), in pure Python: the Python twin of the Java
+"""fnw1 -- [RAM_LIBRARY_PY_V1] one FNW1 session to a RAM host (fdf-ram), in pure Python: the Python twin of the Java
 library's RamSession (opt/fdf/src/frognet-ram-java), for programs that need what plain HTTP cannot give -- a tuple that
 goes with its writer: written with own=True on a session, it is written {} by the host when the session ends
 ([OWNED_CELL_GOES_WITH_THE_SESSION_V1]; the host refuses own on plain HTTP).
