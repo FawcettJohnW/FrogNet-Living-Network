@@ -69,7 +69,16 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
     fun loginAll(line: JoinLine, user: String = "", password: String = ""): List<ManagerLogin> {
         if (line.password && user.isEmpty()) throw LoginRefused("level ${line.level} has a password: give the user and the password")
         log(line.toString())
-        return line.managers.mapIndexed { i, m -> atManager(line, m, i, user, password) }
+        // [LOGIN_WHERE_IT_CAN_V1] a RAM manager that cannot be reached, or refuses, is said and left for the next run
+        val missed = mutableListOf<String>()
+        val done = line.managers.mapIndexedNotNull { i, m ->
+            try { atManager(line, m, i, user, password) }
+            catch (e: Exception) { if (e is InterruptedException) throw e
+                missed.add("${m.endpoint}: ${e.message}"); log("NOT logged in at ${m.name} (${m.endpoint}): ${e.message} -- left for the next run"); null }
+        }
+        if (done.isEmpty()) throw LoginRefused("logged in at none of the ${line.managers.size} RAM manager(s) on the line: " + missed.joinToString("; "))
+        log("logged in at ${done.size} of ${line.managers.size} RAM manager(s)" + (if (missed.isEmpty()) "" else "; not at: " + missed.joinToString("; ")))
+        return done
     }
 
     private fun alias(area: String, m: JoinManager, scope: Map<String, String>, old: Map<String, String>, taken: Set<String>) =
@@ -90,7 +99,7 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
     }
 
     /** [LOGIN_IS_AN_INVITATION_V1] (John 2026-11-02: the EOC QR is the join line; after it the app finds its RAMs
-     *  "wherever they found it before") the login at the line's first RAM host, as the invitation it amounts to: the
+     *  "wherever they found it before") the login at the first RAM host on the line that admits it, as the invitation it amounts to: the
      *  door admitted THIS device's key at its own edge, so the hub's tunnel with that key and edge is the region, exactly
      *  as an fdfinv1 line gives it. The login's own island goes (one tunnel per key to a hub: the forward tunnel takes
      *  it), and the region is joined at the level's session port inside it. Nothing is kept but the line itself: every
@@ -98,10 +107,20 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
     fun admit(line: JoinLine, privkey: String, user: String = "", password: String = ""): Invite {
         if (line.password && user.isEmpty()) throw LoginRefused("level ${line.level} has a password: give the user and the password")
         log(line.toString())
-        val m = line.managers.first()
-        val ml = try { atManager(line, m, 0, user, password) } finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
-        if (ml.sessionPort <= 0) throw LoginRefused("login at ${m.endpoint}: no session port for level ${line.level}")
-        return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+        // [LOGIN_WHERE_IT_CAN_V1] (John 2026-11-02) the line is the admin's ordered list of RAM hosts: the first one on it
+        // that admits this device is the invitation; one that cannot be reached, or refuses, is said and the next tried
+        val missed = mutableListOf<String>()
+        for ((i, m) in line.managers.withIndex()) {
+            val ml = try { atManager(line, m, i, user, password) }
+                     catch (e: Exception) { if (e is InterruptedException) throw e
+                         missed.add("${m.endpoint}: ${e.message}"); log("NOT admitted at ${m.name} (${m.endpoint}): ${e.message} -- trying the next"); null }
+                     finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
+            if (ml == null) continue
+            if (ml.sessionPort <= 0) { missed.add("${m.endpoint}: no session port for level ${line.level}"); continue }
+            if (missed.isNotEmpty()) log("admitted at ${m.name}, number ${i + 1} on the line; not at: " + missed.joinToString("; "))
+            return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+        }
+        throw LoginRefused("admitted at none of the ${line.managers.size} RAM host(s) on the line: " + missed.joinToString("; "))
     }
 
     fun atManager(line: JoinLine, m: JoinManager, order: Int, user: String, password: String): ManagerLogin {

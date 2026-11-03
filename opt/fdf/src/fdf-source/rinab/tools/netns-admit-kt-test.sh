@@ -16,6 +16,7 @@
 #   3  q's own tunnel to the hub (its key, its edge) is up and the member joined the region through it
 #   4  the region holds q's announcement: role leaf, its key, its edge
 #   5  a second run with the same key: the same edge (nothing kept but the line)
+#   6  [LOGIN_WHERE_IT_CAN_V1] a line whose first RAM host cannot be reached: it is said, and q is admitted at A
 # Needs root, ip, wg, wireguard-go, python3, curl, nft, java, the built fdf-member-kt and fdf-tun.
 #   usage: tools/netns-admit-kt-test.sh [RINAB_DIR]   KT_MEMBER=<fdf-member-kt launcher> FDF_TUN=<fdf-tun-x86_64>
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "$1" ] && H=$1
@@ -95,6 +96,19 @@ kill $(cat $T/svc.pids | tail -1) 2>/dev/null; for p in $(ip netns pids q); do k
 for i in $(seq 160); do grep -q "joined the region at" $T/q/app2.log && break; grep -q "LOGIN FAILED" $T/q/app2.log && break; sleep 0.25; done
 E2=$(grep -o 'ADMITTED as [^:]*: invitation: .*' $T/q/app2.log | head -1 | grep -o 'edge [0-9.]*' | head -1 | awk '{print $2}')
 check $([ -n "$E2" ] && [ "$E2" = "$EDGE" ] && grep -q "joined the region at" $T/q/app2.log && echo 0 || echo 1) "5 a second run with the same key: edge $E2 (was $EDGE), joined again"
-echo "--- q"; grep -E "ADMITTED|door at|logged in|joined the region|tunnel:|LOGIN|refused|REFUSED" $T/q/app.log $T/q/app2.log | cut -c1-220 | sed 's/^/    /' | tail -14
+# 6 the first RAM host on the line cannot be reached (198.18.0.99: nothing there); A is second
+L_ghost=$(python3 - "$L_team" <<'PY'
+import base64, json, sys
+b = sys.argv[1][9:]; j = json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)))
+g = dict(j["managers"][0], name="ghost", endpoint="198.18.0.99:51820"); j["managers"].insert(0, g)
+print("fdfjoin1." + base64.urlsafe_b64encode(json.dumps(j, separators=(",", ":")).encode()).decode().rstrip("="))
+PY
+)
+kill $(cat $T/svc.pids | tail -1) 2>/dev/null; for p in $(ip netns pids q); do kill $p 2>/dev/null; done; sleep 1; NS q ip link del fdf-q 2>/dev/null; leafwg
+( KTQ admit "$L_ghost" >> $T/q/app3.log 2>&1 ) & echo $! >> $T/svc.pids
+for i in $(seq 600); do grep -q "joined the region at" $T/q/app3.log && break; grep -q "LOGIN FAILED" $T/q/app3.log && break; sleep 0.25; done
+check $(grep -q "NOT admitted at ghost (198.18.0.99:51820)" $T/q/app3.log && grep -q "admitted at hub.*number 2 on the line" $T/q/app3.log && grep -q "joined the region at $HA:$SP" $T/q/app3.log && echo 0 || echo 1) \
+      "6 the first RAM host unreachable: $(grep -o 'NOT admitted at ghost[^-]*' $T/q/app3.log | head -1 | cut -c1-120); $(grep -o 'admitted at [^;]*number 2 on the line' $T/q/app3.log | head -1); $(grep -o 'joined the region at [^,]*' $T/q/app3.log | head -1)"
+echo "--- q"; grep -E "ADMITTED|door at|logged in|joined the region|tunnel:|LOGIN|refused|REFUSED" $T/q/app.log $T/q/app2.log $T/q/app3.log | cut -c1-220 | sed 's/^/    /' | tail -14
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS
