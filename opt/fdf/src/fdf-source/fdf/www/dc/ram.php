@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-02-r4';
+const DOOR_BUILD = 'dc-door-2026-11-02-r5';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -127,14 +127,26 @@ function ident_name($parts) {
 }
 // [ENROLL_V1] the region this node is in makes NAME's identity: its hub admits a new key at an edge of its own (fdf-identity:
 // the ask and the answer through the region's RAM; this node reaching the region is the trust). The fdfinv1 line.
+// [IDENTITY_ASK_IS_SAID_V1] (found 2026-11-02 on Seattle7: an enrollment sat 60 s and nothing in any log said where the
+// identity was asked or why it failed) the ask is logged when it starts and when it ends, with fdf-identity's own words
+// (where it asked; the answer or why not) and how long it took. [IDENTITY_WAIT_IS_SAID_V1] it waits IDENTITY_WAIT_S,
+// less than its callers wait (the phone 60 s, the node's proxy 60 s on Apache), so the reason reaches the phone.
+const IDENTITY_WAIT_S = 40;
 function region_identity($name) {
-    $cmd = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec python3 "$FDF_BIN"/fdf-identity ' . escapeshellarg($name) . ' --leaf --again --line';
+    $cmd = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec python3 "$FDF_BIN"/fdf-identity ' . escapeshellarg($name) . ' --leaf --again --line --wait=' . IDENTITY_WAIT_S;
+    $t0 = microtime(true);
+    error_log('dc ram.php: [IDENTITY_ASK_IS_SAID_V1] ' . DOOR_BUILD . ': asking the region for ' . $name . ' (waiting at most ' . IDENTITY_WAIT_S . ' s)');
     $p = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-    if (!is_resource($p)) fail(502, 'could not run fdf-identity');
+    if (!is_resource($p)) { error_log('dc ram.php: [IDENTITY_ASK_IS_SAID_V1] could not run fdf-identity'); fail(502, 'could not run fdf-identity'); }
     $out = trim(stream_get_contents($pipes[1])); $err = trim(stream_get_contents($pipes[2])); fclose($pipes[1]); fclose($pipes[2]);
     $rc = proc_close($p);
-    if ($rc !== 0 || strpos($out, 'fdfinv1.') !== 0) fail(502, 'the region did not give ' . $name . ' an identity: ' . ($err !== '' ? $err : $out));
-    error_log('dc ram.php: [ENROLL_V1] ' . $err);
+    $took = sprintf('%.1f s', microtime(true) - $t0);
+    $said = str_replace("\n", ' | ', $err);
+    if ($rc !== 0 || strpos($out, 'fdfinv1.') !== 0) {
+        error_log('dc ram.php: [IDENTITY_ASK_IS_SAID_V1] ' . $name . ': NO identity after ' . $took . ' (exit ' . $rc . '): ' . ($said !== '' ? $said : $out));
+        fail(502, 'the region did not give ' . $name . ' an identity in ' . $took . ': ' . ($err !== '' ? $err : $out));
+    }
+    error_log('dc ram.php: [IDENTITY_ASK_IS_SAID_V1] ' . $name . ': identity in ' . $took . ': ' . $said);
     return $out;
 }
 function said($text, $where) { $j = json_decode($text, true); if (!is_array($j)) return $text; $j['ram'] = $where; return json_encode($j, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); }

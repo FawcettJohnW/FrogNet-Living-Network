@@ -77,7 +77,10 @@ public final class Enroll {
         c.setConnectTimeout(8000); c.setReadTimeout(readMs); c.setRequestMethod("POST"); c.setDoOutput(true);
         c.setRequestProperty("Content-Type", "application/json");
         OutputStream o = c.getOutputStream(); o.write(body.getBytes(StandardCharsets.UTF_8)); o.close();
-        InputStream in = c.getResponseCode() >= 400 ? c.getErrorStream() : c.getInputStream();
+        int code;   // [NO_ANSWER_IS_SAID_V1] (2026-11-02: the phone said only "timeout") who was waited on, and how long
+        try { code = c.getResponseCode(); }
+        catch (java.net.SocketTimeoutException e) { throw new Exception("no answer from " + url.replaceAll("\\?.*", "") + " in " + readMs / 1000 + " s"); }
+        InputStream in = code >= 400 ? c.getErrorStream() : c.getInputStream();
         String r = new String(all(in), StandardCharsets.UTF_8);
         Map<String, Object> m;
         try { m = Json.obj(Json.parse(r)); }

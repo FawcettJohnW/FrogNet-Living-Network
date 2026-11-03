@@ -7,12 +7,14 @@
 fdfinv1 invitation) from a terminal on ANY machine connected to the region, not only the one that holds it. Nothing is
 presented: reaching the region at all means this machine was invited, which is the trust.
 
-  fdf-identity NAME [--leaf] [--again] [--line]
+  fdf-identity NAME [--leaf] [--again] [--line] [--wait=S]
                                           ask the region for NAME's identity and print it (--line: only the
                                           fdfinv1 line on stdout, for a program: [ENROLL_V1] the door's enrollment) (the invitation is a secret:
                                           it holds NAME's private key and the region's site key). --again replaces an
                                           identity NAME already has (its old key stops working); without it, an
-                                          existing NAME is refused.
+                                          existing NAME is refused. --wait=S: how long to wait for
+                                          the region's answer (default 60; [IDENTITY_WAIT_IS_SAID_V1] the door
+                                          passes less than its callers wait, so its reason reaches them).
   fdf-identity --serve                    the region's side (fdf-identity.service, on the machine that holds the
                                           region): answers each ask by running fdf-invite.
 
@@ -36,7 +38,7 @@ def log(*a):
     print("[FDF_IDENTITY] %s %s" % (time.strftime("%H:%M:%S"), " ".join(str(x) for x in a)), flush=True)
 
 
-def ask(name, kind, again, line_only=False):
+def ask(name, kind, again, line_only=False, wait=60.0):
     if not name or not all(c.isalnum() or c in "._-" for c in name) or len(name) > 63:
         sys.exit("fdf-identity: NAME '%s': letters, digits, . _ -, at most 63" % name)
     ram = fdfram.Ram()
@@ -47,13 +49,14 @@ def ask(name, kind, again, line_only=False):
         last = max([c["id"] for c in ram.read(SVC, "answer")] + [0])
         mine.append(ram.write(SVC, "ask", me, {"name": name, "kind": kind, "again": again}))
         sys.stderr.write("fdf-identity: asked the region at %s for %s (%s)\n" % (ram.hostport, name, kind))
-        deadline = time.time() + 60
+        deadline = time.time() + wait
         ans = None
         while ans is None:
-            if time.time() > deadline:
-                sys.exit("fdf-identity: the region did not answer in 60 s: is fdf-identity.service running on the machine "
-                         "that holds the region? (systemctl status fdf-identity there)")
-            for c in ram.read(SVC, "answer", after=last, wait_s=fdfram.HOLD_S):
+            left = deadline - time.time()
+            if left <= 0:
+                sys.exit("fdf-identity: the region at %s did not answer in %g s: is fdf-identity running where the "
+                         "region's hub runs? (systemctl status 'fdf-identity@*' there)" % (ram.hostport, wait))
+            for c in ram.read(SVC, "answer", after=last, wait_s=min(fdfram.HOLD_S, max(1.0, left))):  # never past the deadline
                 last = max(last, c["id"])
                 if c["instance"] == me: ans = c["bag"]
         mine.append(ram.write(SVC, "got", me, {}))
@@ -117,9 +120,11 @@ def main():
     a = sys.argv[1:]
     if a == ["--serve"]: return serve()
     names = [x for x in a if not x.startswith("--")]
-    if len(names) != 1 or any(x not in ("--leaf", "--again", "--line") for x in a if x.startswith("--")):
+    waits = [x[7:] for x in a if x.startswith("--wait=")]
+    if len(names) != 1 or any(x not in ("--leaf", "--again", "--line") and not x.startswith("--wait=") for x in a if x.startswith("--")) \
+            or any(not w.replace(".", "", 1).isdigit() or float(w) <= 0 for w in waits):
         sys.exit(__doc__.split("Tuples")[0].rstrip())
-    ask(names[0], "leaf" if "--leaf" in a else "node", "--again" in a, "--line" in a)
+    ask(names[0], "leaf" if "--leaf" in a else "node", "--again" in a, "--line" in a, float(waits[-1]) if waits else 60.0)
 
 
 if __name__ == "__main__":

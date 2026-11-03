@@ -19,6 +19,7 @@
 #   5  ann enrolls at kim's phone: role echo, not a lead, the door in the card; the region admitted rangertrak-echo-ann
 #   6  ann's phone joins the region with it: a second member, its own key and edge, no login of its own
 #   7  EOCAdmin (no team to lead) cannot ask the door for invitations
+#   8  the region does not answer: the door says so (where it asked, how long) before the phone gives up
 # Needs root, ip, wg, wireguard-go, python3, php, curl, java, the built fdf-member-kt, fdf-tun and frognet-ram-java.
 #   usage: tools/netns-enroll-test.sh [RINAB_DIR]
 set -u
@@ -120,6 +121,14 @@ check $(grep -q "joined the region at" $T/q2/member.log && NS q2 wg show fdf-q2 
 # 7 a user who leads no team
 R7=$(NS q1 curl -s -m 30 -X POST -d '{"user":"EOCAdmin","password":"eoc-pw","name":"x"}' "http://$DOOR/dc/ram.php?op=identity&app=rangertrak")
 check $(echo "$R7" | grep -q "does not lead a team" && [ ! -f $T/A/admitted/rangertrak-eoc-x.json ] && echo 0 || echo 1) "7 EOCAdmin cannot ask for invitations: $R7"
+# 8 [IDENTITY_ASK_IS_SAID_V1][IDENTITY_WAIT_IS_SAID_V1] the region does not answer (its fdf-identity stopped; seen on
+#   Seattle7 2026-11-02: the phone sat 60 s and said "timeout"): the door says so, in less time than the phone waits
+for p in $(pgrep -f "fdf-identity --serve"); do kill $(ps -o ppid= -p $p) $p 2>/dev/null; done; sleep 0.5
+T8=$(date +%s.%N); R8=$(NS q1 curl -s -m 60 -X POST -d '{"user":"kim","password":"kim-2026"}' "http://$DOOR/dc/ram.php?op=enroll&app=rangertrak")
+S8=$(python3 -c "print('%.1f' % ($(date +%s.%N) - $T8))")
+check $(echo "$R8" | grep -q "did not answer in 40 s" && python3 -c "import sys; sys.exit(0 if $S8 < 55 else 1)" \
+        && grep -q "IDENTITY_ASK_IS_SAID_V1.*asking the region for rangertrak-kim" $T/door.log && grep -q "rangertrak-kim: NO identity after" $T/door.log && echo 0 || echo 1) \
+  "8 the region does not answer: the door says so in $S8 s (the phone waits 60): $(echo "$R8" | cut -c1-200); door log: $(grep -o 'rangertrak-kim: NO identity.*' $T/door.log | tail -1 | cut -c1-160)"
 echo "--- logs"; grep -h "ENROLL_V1\|identity for\|refused" $T/A/identity.log $T/q1/sponsor.log $T/door.log 2>/dev/null | cut -c1-200 | sed 's/^/    /' | tail -12
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS
