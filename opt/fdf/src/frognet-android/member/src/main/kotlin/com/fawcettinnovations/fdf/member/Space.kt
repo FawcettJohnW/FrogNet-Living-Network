@@ -1,17 +1,19 @@
 // Copyright (C) 2016-2026 Fawcett Innovations LLC
 // SPDX-License-Identifier: GPL-2.0-only
 //
-// Space.kt -- [SPACE_FAILOVER_V1][SPACES_V1] one RAM space for one application, on Windows and Android: which RAM manager
-// it is on, and moving it when that changes (opt/fdf/docs/ORGANIZATIONS.md sections 4, 4a and 6). fdfspace.py's rules,
-// line for line; the application only receives the change, re-arms its held reads and writes its own truth again.
+// Space.kt -- [SPACE_FAILOVER_V1][SPACES_V1][SPACE_BY_CAPABILITY_V1] one RAM space for one application, on Windows and
+// Android: which RAM host it is on, and moving it when that changes. fdfspace.py's rules, line for line; the
+// application only receives the change, re-arms its held reads and writes its own truth again.
 //
-//   val sp = Space("First Responders", OrgLogin results' spaces, fallback = listOf("127.0.0.1:8841"), onChange = { old, new -> })
-//   sp.start(); sp.ram.write(...); sp.ram.read(...)
+//   val sp = Space.fromLogins("First Responders", OrgLogin results' logins); sp.onChange = { old, new -> }
+//   sp.start(); sp.ram?.write(...); sp.ram?.read(...)
 //
-// [NO_FLAP_V1] (John, 2026-11-01): a standing session (a held read) to EVERY candidate, all the time. When the current
-// one's closes, the space moves AT ONCE to the first candidate, in list order, whose own standing session is alive --
-// nothing is asked then. A candidate coming back changes nothing while the current one lives; it counts at the next
-// loss (a space on nothing, or on its fallback, takes a configured one that comes). No memory is moved.
+// [SPACE_BY_CAPABILITY_V1] (John 2026-11-03: "There is no fallback list. Fallback is determined by capability";
+// "Designation and failover/failup are automatic"; "A torn network is worse than a disconnected one"). It replaces
+// [NO_FLAP_V1] (2026-11-01: list order, "never back up while it lives", a fallback RAM). A standing session to every
+// RAM host the space is on: a held read on its capability tuple, (fdf-space, can, AREA), which its fdf-org writes. On
+// every event the space is on the best alive host by capability (Select, the guid last); a better host coming back
+// takes it again; none alive: on nothing (ram null). No memory is moved.
 package com.fawcettinnovations.fdf.member
 
 import java.net.HttpURLConnection
@@ -45,25 +47,25 @@ class Ram(val hostport: String) {
     }
 }
 
-class Space(val name: String, private val managers: List<SpaceAt>, private val fallback: List<String> = emptyList(),
-            var onChange: ((String?, String) -> Unit)? = null, private val me: String = "", private val log: (String) -> Unit = {}) {
+class Space(val name: String, private val managers: List<SpaceAt>, var onChange: ((String?, String) -> Unit)? = null,
+            private val me: String = "", private val log: (String) -> Unit = {}, private val spec: SelectSpec = SelectSpec.DEFAULT) {
     companion object {
         const val RECONNECT_MS = 2000L
-        /** [SPACES_V1] the space `name` from this device's logins, in the join line's order */
-        fun fromLogins(name: String, logins: List<ManagerLogin>, fallback: List<String> = emptyList(), me: String = "",
-                       log: (String) -> Unit = {}): Space {
+        /** [SPACES_V1] the space `name` from this device's logins */
+        fun fromLogins(name: String, logins: List<ManagerLogin>, me: String = "", log: (String) -> Unit = {},
+                       spec: SelectSpec = SelectSpec.DEFAULT): Space {
             val ms = logins.sortedBy { it.order }.flatMap { l -> l.spaces.filter { it.space == name } }
             require(ms.isNotEmpty()) { "space '$name': this device's level joins it at no RAM host" }
-            return Space(name, ms, fallback, null, me, log)
+            return Space(name, ms, null, me, log, spec)
         }
     }
-    private val cands: List<Pair<String, Ram>> = managers.map { it.manager to Ram(it.hostport) } + fallback.map { "fallback $it" to Ram(it) }
+    private val cands: List<Pair<String, Ram>> = managers.map { it.manager to Ram(it.hostport) }
     private val alive = BooleanArray(cands.size)
     private val tried = BooleanArray(cands.size)
+    private val cap = Array(cands.size) { Json.parse("{}") }
     @Volatile var current: Int? = null; private set
     @Volatile var ram: Ram? = null; private set
     private val events = LinkedBlockingQueue<Pair<String, Int>>()
-    @Volatile private var firstDone = false
 
     private fun say(m: String) = log("[SPACE] $name: $m")
 
@@ -74,18 +76,26 @@ class Space(val name: String, private val managers: List<SpaceAt>, private val f
         while (System.currentTimeMillis() - t0 < 3000 && !tried.all { it }) Thread.sleep(20)
         events.put("start" to -1)
         for (i in 0 until 200) { if (ram != null) return this; Thread.sleep(50) }
-        say("no RAM manager answered yet; the space takes the first that does")
+        say("no RAM host answered yet; the space is on nothing until one does")
         return this
     }
 
-    /** this candidate's standing session: a held read on it, for as long as it answers; asked again every RECONNECT_MS */
+    /** this host's standing session: a held read on its capability tuple, for as long as it answers */
     private fun standing(i: Int) {
         val (n, r) = cands[i]
         while (true) {
-            var last = 0L
             try {
-                r.version(); alive[i] = true; tried[i] = true; events.put("up" to i)
-                while (true) { r.read("fdf-space", "alive", me.ifEmpty { "-" }, last, 30.0).mapNotNull { it["id"].num?.toLong() }.maxOrNull()?.let { last = it } }
+                var rows = r.read("fdf-space", "can")
+                cap[i] = rows.lastOrNull()?.get("bag") ?: Json.parse("{}")
+                var last = rows.mapNotNull { it["id"].num?.toLong() }.maxOrNull() ?: -1L
+                alive[i] = true; tried[i] = true; events.put("up" to i)
+                while (true) {
+                    rows = r.read("fdf-space", "can", "", last, 30.0)
+                    if (rows.isNotEmpty()) {
+                        last = rows.mapNotNull { it["id"].num?.toLong() }.maxOrNull() ?: last
+                        cap[i] = rows.last()["bag"]; events.put("capability" to i)
+                    }
+                }
             } catch (e: Exception) {
                 val was = alive[i]; alive[i] = false; tried[i] = true
                 if (was) { say("$n closed: ${e.message}"); events.put("down" to i) }
@@ -94,25 +104,27 @@ class Space(val name: String, private val managers: List<SpaceAt>, private val f
         }
     }
 
+    private fun aliveCands() = cands.indices.filter { alive[it] }.map { j -> Triple(cap[j]["guid"].str.ifEmpty { cands[j].first }, cap[j], j) }
+
     private fun mergeLoop() {
+        var started = false
         while (true) {
-            val (ev, i) = events.take()
-            if (ev == "down" && i != current) continue                       // a standby went: it counts at the next loss
-            val onFallback = current != null && current!! >= managers.size
-            if (ev == "up" && current != null && !(onFallback && i < managers.size)) continue   // never back up while it lives
-            if (ev == "up" && current == null && !firstDone) continue        // before the first choice
-            if (ev == "start") firstDone = true
-            val pick = cands.indices.firstOrNull { alive[it] && !(ev == "down" && it == i) }
+            val (ev, _) = events.take()
+            if (ev == "start") started = true
+            if (!started) continue
+            val ac = aliveCands()
+            val g = Select.select(spec, name, ac.map { it.first to it.second })
+            val pick = ac.firstOrNull { it.first == g }?.third
             if (pick == null) {
-                if (current != null) { say("lost ${cands[current!!].first} and nothing else is alive; the first that comes back is taken"); current = null; ram = null }
-                else say("nothing on the list answers, nor the fallback; the first that does is taken")
+                if (current != null) { say("lost ${cands[current!!].first} and no other RAM host is alive: on nothing"); current = null; ram = null }
+                else if (ev == "start") say("no RAM host answers: on nothing")
                 continue
             }
             if (pick == current) continue
             val old = current?.let { cands[it].first }
             val (n, r) = cands[pick]
             current = pick; ram = r
-            say("$ev: on $n (${r.hostport})" + (old?.let { ", was $it" } ?: ""))
+            say("$ev: on $n (${r.hostport}), the best alive by capability (${Select.explain(spec, name, ac.map { it.first to it.second })})" + (old?.let { ", was $it" } ?: ""))
             try { onChange?.invoke(old, n) } catch (e: Exception) { say("the application's change handler failed: ${e.message}") }
         }
     }

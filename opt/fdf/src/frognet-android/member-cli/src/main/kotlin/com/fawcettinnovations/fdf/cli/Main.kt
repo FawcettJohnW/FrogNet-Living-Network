@@ -540,9 +540,8 @@ fun cliBridge(key: String): Bridge {
 
 fun joined(logins: List<ManagerLogin>, spaces: List<String>, name: String) {
     log("joined: " + logins.joinToString("; ") { "${it.manager} edge ${it.edge} RAM ${it.ram}" })
-    val fb = System.getenv("FDF_SPACE_FALLBACK")?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
     for (sn in spaces) {
-        val sp = try { Space.fromLogins(sn, logins, fb, "$name/$sn", ::log) } catch (e: IllegalArgumentException) { log("NOT IN $sn: ${e.message}"); continue }
+        val sp = try { Space.fromLogins(sn, logins, "$name/$sn", ::log) } catch (e: IllegalArgumentException) { log("NOT IN $sn: ${e.message}"); continue }
         sp.onChange = { old, new ->
             sp.ram?.write("app", "pos", name, "{\"me\":" + Json.quote(name) + ",\"space\":" + Json.quote(sn) + ",\"on\":" + Json.quote(new) + "}")
             log("CHANGE $sn $old -> $new") }

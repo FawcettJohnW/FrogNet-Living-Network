@@ -57,7 +57,8 @@ for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr
   ORG $n init > $T/$n/org.out 2>&1; ORG $n space Responders >> $T/$n/org.out 2>&1; ORG $n space Admin >> $T/$n/org.out 2>&1
   ORG $n level Responders --reach ram --space Responders >> $T/$n/org.out 2>&1
   ORG $n level HQ --reach ram --space Responders --space Admin >> $T/$n/org.out 2>&1
-  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
+  printf '{"name":"host%s","guid":"guid-%s","capability":{"mem_total_kb":%d,"cores":4}}\n' $n $n $([ $n = A ] && echo 8000000 || echo 4000000) > $T/$n/node-facts.json   # [SPACE_BY_CAPABILITY_V1] A is the better
+  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_FACTS=$T/$n/node-facts.json FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
 done
 for n in A B; do for i in $(seq 100); do [ "$(grep -c 'listening on' $T/$n/org.log)" -ge 3 ] && grep -q "SPACE Admin: its RAM manager on" $T/$n/org.log && grep -q "SPACE Responders: its RAM manager on" $T/$n/org.log && break; sleep 0.1; done; done
 sport() { ORG $1 list 2>/dev/null | awk -v s="$2" '$1=="space" && $2==s {n=split($NF,a,":"); print a[n]}'; }
@@ -77,7 +78,7 @@ def mk(name):
         box["sp"].ram.write("app", "pos", me, {"me": me, "space": name, "on": new, "at": time.time()})
         print("CHANGE %.3f %s %s -> %s" % (time.time(), name, old, new), flush=True)
     try:
-        box["sp"] = fdfspace.from_login(name, state, ["127.0.0.1:8841"], on_change=changed, me=me + "/" + name)
+        box["sp"] = fdfspace.from_login(name, state, on_change=changed, me=me + "/" + name)
     except ValueError as e:
         print("NOT IN %s: %s" % (name, e), flush=True)
         return
@@ -101,7 +102,6 @@ for n in r q; do mkdir -p $T/$n/run-wg; NS $n ip route add default via 198.18.0.
   DEV $n python3 -u $T/bin/fdf-login "$L" < /dev/null > $T/$n/login.log 2>&1
   check $? "1 $n logged in: $(grep -E 'logged in' $T/$n/login.log | sed 's/^\[LOGIN\] [0-9:]* //' | tr '\n' ';' | cut -c1-200)"
   check $(python3 $T/bin/spaces.py $T/$n/login.json $n && echo 0 || echo 1) "1 $n: where each of its spaces is, per RAM host: $(python3 $T/bin/spaces.py $T/$n/login.json 2>&1 | cut -c1-240)"
-  NS $n env RINA_REGION_FILE=$T/$n/own.perm RINA_NET_CONFIG=$T/$n/none $T/bin/rina-host --listen 127.0.0.1:8841 --api $API > $T/$n/own.log 2>&1 &
   svc $T/$n/app.log ip netns exec $n env PYTHONPATH=$FDFPY python3 -u $T/bin/app.py $n $FDFPY $T/$n/login.json Responders Admin
 done
 on() { grep "^CHANGE .* $2 " $T/$1/app.log 2>/dev/null | tail -1 | awk '{print $NF}'; }

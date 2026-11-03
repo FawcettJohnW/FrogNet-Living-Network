@@ -67,7 +67,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-03-r21"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-03-r22"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -393,8 +393,43 @@ def spaces_up():
                                               stderr=open(os.path.join(VAR, "space-%s.log" % sp["file"]), "a"))
             log("SPACE %s: its RAM manager on %s:%d (pid %d)" % (n, HUB_ADDR, sp["port"], _space_proc[n].pid))
             threading.Thread(target=_space_waiter, args=(n, _space_proc[n]), daemon=True).start()
+            threading.Thread(target=_say_can, args=(n, sp, _space_proc[n]), daemon=True).start()
         except OSError as x:
             log("SPACE %s: its RAM manager did not start (%s): %s" % (n, exe, x))
+
+
+def own_can():
+    """[SPACE_BY_CAPABILITY_V1] this RAM host's capability, as a device ranks it: every scalar this machine's probe
+    measured (facts.json, FDF_FACTS), its guid and name. A machine with no facts says only its name, and ranks below
+    every RAM host that has them (nothing is defaulted)."""
+    try:
+        f = json.load(open(os.environ.get("FDF_FACTS", "/opt/fdf/var/facts.json")))
+    except (OSError, ValueError):
+        f = {}
+    can = {k: v for k, v in (f.get("capability") or {}).items() if isinstance(v, (int, float, str, bool))}
+    can.update(guid=f.get("guid", ""), name=f.get("name") or socket.gethostname(), area=h().get("FDF_AREA", ""), hub=HUB_ADDR)
+    return can
+
+
+def _say_can(n, sp, p):
+    """[SPACE_BY_CAPABILITY_V1] (John 2026-11-03: "There is no fallback list. Fallback is determined by capability") the
+    space's RAM on this host carries this host's capability, (fdf-space, can, AREA), written each time it starts: a
+    device holds a read on it at every RAM host its space is on, and is on the best of those it can reach."""
+    r = fdfram.Ram("%s:%d" % (HUB_ADDR, sp["port"]))
+    for _ in range(100):                                          # it was just started: until it listens (10 s)
+        if p.poll() is not None:
+            return
+        try:
+            r.version(timeout=1)
+            break
+        except (fdfram.RamError, OSError):
+            time.sleep(0.1)
+    try:
+        c = own_can()
+        r.write("fdf-space", "can", h().get("FDF_AREA", ""), c)
+        log("SPACE %s: this host's capability in its RAM (%s)" % (n, ", ".join("%s=%s" % (k, c[k]) for k in ("name", "guid", "mem_total_kb", "cores") if k in c)))
+    except (fdfram.RamError, OSError) as e:
+        log("SPACE %s: its capability was not written (%s); it is written when it next starts" % (n, e))
 
 
 def _space_waiter(n, p):
@@ -463,6 +498,12 @@ def serve():
     if not door:
         die("no door after init: the region's RAM did not keep it")
     said = publish_hub(None)
+    try:                                                          # [SPACE_BY_CAPABILITY_V1] the region's RAM is a space too
+        c = own_can()
+        ram().write("fdf-space", "can", h().get("FDF_AREA", ""), c, permanent=True)
+        log("this host's capability in the region's RAM (%s)" % ", ".join("%s=%s" % (k, c[k]) for k in ("name", "guid", "mem_total_kb", "cores") if k in c))
+    except fdfram.RamError as e:
+        log("this host's capability was not written to the region's RAM (%s); it is when serve next starts" % e)
     apply_reach("start")
     started = set()
     listen(door["port"], lambda s, p, a: door_ask(s, a))

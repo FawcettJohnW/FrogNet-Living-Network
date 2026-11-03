@@ -13,7 +13,7 @@
 #   2  q logs in at A and B through the bridge: its edge at each, RAM managers reached through their aliases
 #   3  q's application in Responders and Admin, on A; its truth in each space on A
 #   4  Admin's RAM manager on A killed: q's Admin on B within milliseconds, its Responders still on A; fdf-org starts it
-#      again on A: q's Admin stays on B [NO_FLAP_V1]
+#      again on A: q's Admin back on A, the better host by capability [SPACE_BY_CAPABILITY_V1]
 # Needs root, ip, wg, wireguard-go, python3, curl, nft, java, the built fdf-member-kt and fdf-tun.
 #   usage: tools/netns-join-kt-test.sh [RINAB_DIR]   KT_MEMBER=<fdf-member-kt launcher> FDF_TUN=<fdf-tun-x86_64>
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-spaces-test.sh [RINAB_DIR]
@@ -57,7 +57,8 @@ for n in A B; do mkdir -p $T/$n/admitted $T/$n/run-wg; PUB=$(NS $n ip -4 -o addr
   ORG $n init > $T/$n/org.out 2>&1; ORG $n space Responders >> $T/$n/org.out 2>&1; ORG $n space Admin >> $T/$n/org.out 2>&1
 
   ORG $n level HQ --password --reach ram --space Responders --space Admin >> $T/$n/org.out 2>&1; echo chiefpw | ORG $n user HQ chief >> $T/$n/org.out 2>&1
-  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
+  printf '{"name":"host%s","guid":"guid-%s","capability":{"mem_total_kb":%d,"cores":4}}\n' $n $n $([ $n = A ] && echo 8000000 || echo 4000000) > $T/$n/node-facts.json   # [SPACE_BY_CAPABILITY_V1] A is the better
+  svc $T/$n/org.log ip netns exec $n sh -c "mount --bind $T/$n/run-wg /run/wireguard && exec env FDF_FACTS=$T/$n/node-facts.json FDF_HUB_ENV=$T/$n/hub.env FDF_ADMITTED=$T/$n/admitted FDF_SITE_KEYS=$T/$n FDF_PY=$FDFPY FDF_BIN=$T/bin python3 -u $T/bin/fdf-org serve"
 done
 for n in A B; do for i in $(seq 100); do [ "$(grep -c 'listening on' $T/$n/org.log)" -ge 3 ] && grep -q "SPACE Admin: its RAM manager on" $T/$n/org.log && grep -q "SPACE Responders: its RAM manager on" $T/$n/org.log && break; sleep 0.1; done; done
 sport() { ORG $1 list 2>/dev/null | awk -v s="$2" '$1=="space" && $2==s {n=split($NF,a,":"); print a[n]}'; }
@@ -66,8 +67,7 @@ check $([ -n "$PA_ADMIN" ] && [ -n "$PA_RESP" ] && [ -n "$PB_ADMIN" ] && echo 0 
 LINE() { local lb; lb=$(ORG B line $1 2>>$T/B/line.err); ORG A line $1 --with $lb 2>>$T/A/line.err; }
 L_q=$(LINE HQ)
 mkdir -p $T/q; NS q ip route add default via 198.18.0.254 dev v-q 2>/dev/null
-NS q env RINA_REGION_FILE=$T/q/own.perm RINA_NET_CONFIG=$T/q/none $T/bin/rina-host --listen 127.0.0.1:8841 --api $API > $T/q/own.log 2>&1 &
-KTQ() { ip netns exec q env FDF_TUN_BIN=$FT FDF_TUN_NAME=fdft0 FDF_KEY_FILE=$T/q/wg.key FDF_FACTS=$T/q/facts.json FDF_DEVICE_ID=dev-q FDF_SPACE_FALLBACK=127.0.0.1:8841 "$KT" "$@"; }
+KTQ() { ip netns exec q env FDF_TUN_BIN=$FT FDF_TUN_NAME=fdft0 FDF_KEY_FILE=$T/q/wg.key FDF_FACTS=$T/q/facts.json FDF_DEVICE_ID=dev-q "$KT" "$@"; }
 printf '{"name":"q","guid":"g-q"}\n' > $T/q/facts.json
 # 1 a wrong password
 echo "chief wrong" | KTQ join "$L_q" Responders Admin > $T/q/bad.log 2>&1; BAD=$?
@@ -88,8 +88,9 @@ T0=$(date +%s%3N); for p in $(ip netns pids A); do tr '\0' ' ' < /proc/$p/cmdlin
 read OK S <<< "$(waiton hubB Admin)"
 MS=$(grep "CHANGE Admin hubA -> hubB" $T/q/app.log | tail -1 | awk '{print $1" "$2}'); MS=$(python3 -c "import sys,datetime as d; t=d.datetime.strptime(sys.argv[1], '%Y-%m-%d %H:%M:%S.%f').timestamp()*1000; print(int(t-int(sys.argv[2])))" "$MS" $T0 2>/dev/null)
 check $([ $OK = 1 ] && [ "$(on Responders)" = hubA ] && [ "$(cellin B $PB_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 Admin's RAM manager on A killed: q's Admin on B ${MS} ms after the kill, its truth there; Responders still on $(on Responders)"
-for i in $(seq 80); do [ "$(grep -c "SPACE Admin: its RAM manager on" $T/A/org.log)" -ge 2 ] && break; sleep 0.25; done; sleep 10
-check $([ "$(on Admin)" = hubB ] && echo 0 || echo 1) "4 fdf-org started Admin's RAM manager again on A: 10 s later q's Admin still on B (no flapping)"
+for i in $(seq 80); do [ "$(grep -c "SPACE Admin: its RAM manager on" $T/A/org.log)" -ge 2 ] && break; sleep 0.25; done
+read OK S <<< "$(waiton hubA Admin)"
+check $([ $OK = 1 ] && [ "$(cellin A $PA_ADMIN Admin)" = yes ] && echo 0 || echo 1) "4 fdf-org started Admin's RAM manager again on A: q's Admin back on A ($S s), its truth there"
 echo "--- q"; grep -E "CHANGE|SPACE|bridge:|logged in|door at" $T/q/app.log | cut -c1-200 | sed 's/^/    /' | tail -20
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS
