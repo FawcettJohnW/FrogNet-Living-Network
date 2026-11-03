@@ -15,8 +15,8 @@ for t in fdf_client:fdf-client fdf_participants:fdf-participants ram_tool:ram fd
   $CXX -std=c++20 -I$PL/include -Isrc src/${t%%:*}.cpp build/arm64/frogram.o build/arm64/lf_ebr.o $L -o build/arm64/${t##*:}; done
 # [FDF_RAM_ON_PLATFORM_V1] fdf-ram, the RAM manager, against the platform's headers (it replaces rina-host)
 F=build/arm64/fdfram; mkdir -p $F
-for x in rina_region ctl_host daf_region fdf_ram; do $CXX -std=c++20 -Isrc -Isrc/door -I$PL/include -c src/$x.cpp -o $F/$x.o; done
+for x in fdf_region ctl_host daf_region fdf_ram; do $CXX -std=c++20 -Isrc -Isrc/door -I$PL/include -c src/$x.cpp -o $F/$x.o; done
 $CXX -std=c++20 -I$PL/include -c $PL/src/ram_host.cpp -o $F/p_ram_host.o; cp build/arm64/frogram.o $F/p_frogram.o; cp build/arm64/lf_ebr.o $F/p_lf_ebr.o
-$CXX -static -o build/arm64/fdf-ram $F/fdf_ram.o $F/rina_region.o $F/daf_region.o $F/ctl_host.o $F/p_ram_host.o $F/p_lf_ebr.o $F/p_frogram.o $L -lpthread -ldl
+$CXX -static -o build/arm64/fdf-ram $F/fdf_ram.o $F/fdf_region.o $F/daf_region.o $F/ctl_host.o $F/p_ram_host.o $F/p_lf_ebr.o $F/p_frogram.o $L -lpthread -ldl
 rm -f build/arm64/rina-host build/arm64/ram_server_rina.o   # [FDF_RAM_ON_PLATFORM_V1] rina-host is gone
 file build/arm64/fdf-client build/arm64/fdf-ram | grep -q "ARM aarch64" && echo "BUILD OK: build/arm64/{fdf-client,fdf-participants,ram,fdf-events,fdf-attention,fdf-where,fdf-ram} (static aarch64)"

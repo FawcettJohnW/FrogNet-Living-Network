@@ -3,7 +3,7 @@
 **John, 2026-11-02:** "We should not be running rina_host." "YES! Move fully to the RAM manager model."
 
 rina-host is FD&F's own copy of the v0.63 RAM server, patched at build time (`tools/build.sh`, 30-odd `apply_*.py`)
-and carrying the region (`src/rina_region.cpp`, `src/daf_region.cpp`, `src/ctl_host.cpp`). The platform
+and carrying the region (`src/fdf_region.cpp`, `src/daf_region.cpp`, `src/ctl_host.cpp`). The platform
 (`opt/frognet_semantic/ribbit/cpp`, `ribbit::RamHost`) took FD&F's host work on 2026-10-17 ([PLATFORM_FROM_FDF_V1]) but
 not the region hooks. The RAM manager becomes a platform vendor, `fdf-ram`: the platform's host, with FD&F's endpoint,
 FD&F's write contract and the region as its operations. Every RAM FD&F runs (a region's, an app's, the kart's) is
@@ -45,3 +45,10 @@ still started `rina-host`, and nothing built `fdf-ram`. Now: `tools/build.sh`, `
 `build_arm64.sh` build `fdf-ram` and remove rina-host; every caller in `fdf/bin`, the bundles, the kart, the simulator
 tiers and the tests runs `fdf-ram` (the kart's `--rina-host PATH` is `--fdf-ram PATH`); the update tarball removes
 `/opt/fdf/bin/rina-host` and points each existing `fdf-ram-AREA.service` at `fdf-ram`.
+
+The region's sources were renamed the same day (John: "Yes on the rename if the file is actually used"; it is: `fdf-ram`
+links it and answers `op=rina` and `op=rina_block` with `fdf_region_call` / `fdf_region_block`): `src/fdf_region.cpp`,
+`src/door/fdf_region.h`, `src/fdf_region_client.hpp` (namespace `fdf_region`, used by `fdf-client`, `fdf-events`,
+`fdf-participants`, `rina-node`, `rina-lisp`, the DAF client). The wire's op names (`rina`, `rina_block`) are unchanged:
+every door, Python library and Kotlin member speaks them. `src/librina_region.cpp` keeps its name: it is rlite's
+`librina-api` (rina/api.h) on the region, rlite's name.

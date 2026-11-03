@@ -5,7 +5,7 @@
 // reader that reconnects after a cut gets the authoritative set in the same round trip (no out-of-band poll to race).
 // [SNAPSHOT_OVER_HELD_SESSION_V1] Exits (status 1) when the session ends, which is the reader's signal that the region
 // is gone. Reaches the RAM manager like every client (RINA_RAM or RINA_AREA).
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include "fdf_version.hpp"
 #include "fdf_crash.hpp"
 #include <chrono>
@@ -15,7 +15,7 @@
 int main() {
     fdf_crash::install("fdf-events");                                             // [FDF_CRASH_HANDLER_V1] self-report a fatal signal
     try {
-        rina_region::Client c; const std::string me = "ev:" + std::to_string(getpid());
+        fdf_region::Client c; const std::string me = "ev:" + std::to_string(getpid());
         frogram::Json r = c.call("{\"op\":\"watch_participants\",\"proc\":" + frogram::Json::quote(me) + "}");
         if (!r["ok"].b) { fprintf(stderr, "fdf-events: watch_participants refused: %s\n", r["error"].s.c_str()); return 1; }
         r = c.call("{\"op\":\"map_watch\",\"name\":\"*\",\"proc\":" + frogram::Json::quote(me) + "}");

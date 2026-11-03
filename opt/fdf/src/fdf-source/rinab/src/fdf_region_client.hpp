@@ -1,4 +1,4 @@
-// rina_region_client.hpp -- a participant's ONE permanent connection to the RINA region (v0.63 frogram::Session over
+// fdf_region_client.hpp -- a participant's ONE permanent connection to the RINA region (v0.63 frogram::Session over
 // FNW1, the Redis front's client). Every conversation is one call: op=rina (inline) or op=rina_block (a held read on
 // the memory itself, answered when its answer exists). The session is the participant's liveness.
 #pragma once
@@ -21,7 +21,7 @@
 #include <vector>
 #include "frogram.hpp"
 #include "lisp_area.hpp"
-namespace rina_region {
+namespace fdf_region {
 inline const std::string& api() { static const std::string a = "/FawcettInnovations.RINA.ram_interface.php"; return a; }
 // [AREA_MAPPING_IN_THE_REGION_V1] LISP's mapping in a region, over the session (TCP; liveness is the session): the
 // map-resolver machine's mapping region listens on its RLOC at MAP_PORT (LISP's control port number, over TCP).
@@ -194,4 +194,4 @@ inline std::string map_wait(const std::string& name, const std::string& mr) {
     (void)c.held_text("{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(me) + ",\"after\":0}", 3.0e8);
     return map_lookup(name, mr);
 }
-}  // namespace rina_region
+}  // namespace fdf_region

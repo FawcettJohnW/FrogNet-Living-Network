@@ -396,7 +396,7 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 | # | Contract | Status in r20 |
 |---|---|---|
 | 1 | **Enrollment bounds visibility.** A *restricted* DIF is its own RAM manager with its own area password. You see its records only if enrolled. This bounds what can be **seen**, not what can be reached. | Partial. Each pond is already a separate RAM manager with its own key. There is no "restricted" designation, and reading is not gated by enrollment. |
-| 2 | **Authenticated Map-Register, verified Map-Notify.** HMAC-SHA-256 with the DIF's site key. A `map\|` row exists only if it came through the verifying `map_register` op. This proves "an enrolled member registered this", not ownership. | Implemented (`rina_region.cpp:457-473`; `lisp_area.hpp:84-100`) |
+| 2 | **Authenticated Map-Register, verified Map-Notify.** HMAC-SHA-256 with the DIF's site key. A `map\|` row exists only if it came through the verifying `map_register` op. This proves "an enrolled member registered this", not ownership. | Implemented (`fdf_region.cpp:457-473`; `lisp_area.hpp:84-100`) |
 | 3 | **Prefix ownership is the authorization.** One live owner per /24. The hub installs AllowedIPs only from verified mappings, in DIFs it is enrolled in. | Implemented (`fdf-hub:13-19, 206-233`; hub_oracle) |
 | 4 | **Selective publication upward.** A restricted DIF registers into a higher DIF only what it chooses: its hub, and the prefixes it accepts traffic for. Nothing else is mirrored. | Not implemented |
 | 5 | **Forwarding limited to what was exposed.** The hub that advertises a restricted prefix upward forwards *only* the prefixes it exposed; a sibling region cannot reach more than was published. "Test it." | Not implemented; no test |
@@ -419,12 +419,12 @@ Appendix E.3 has every kind, and Appendix E.7 what exists at startup.
 | Authorization | **None in the RAM manager, by ruling** (R-S1). It inherits the host's protection. Finer policy belongs in the region owner's API. | `PLAN-FROGNET-ON-FDF.md:257-259` |
 | Site key | 64 hex characters from `/dev/urandom`, made once per region. Root-only file, `/opt/fdf/var` mode 700, printed once. | `fdf-region-create:48-57, 144-146` |
 | Key on nodes | `site.env` mode 600. Pond env files umask 077. The key-free `ponds/<area>.ram` (0644) exists so pages can list ponds. | `fdf-region-join:23-24`; `fdf-pond-add:19-21`; `fdf_client.cpp:274-280` |
-| Mapping authenticity | HMAC-SHA-256 over `name\|rloc\|ttl\|ts`. Strictly newer `ts` (anti-replay). EPERM on a bad key. The key never leaves the node. | `rina_region.cpp:457-473` |
-| Ownership | One live owner per /24 (EEXIST). A live owner's mapping is not transferred. The hub installs only verified mappings naming it. "An ownership invariant, not a security property." | `rina_region.cpp:474-483, 593-608`; `fdf-hub:13-19`; `PLAN-FROGNET-ON-FDF.md:334-335` |
-| Leaf addresses | Given by the region; never self-chosen. | `rina_region.cpp:622-623` |
+| Mapping authenticity | HMAC-SHA-256 over `name\|rloc\|ttl\|ts`. Strictly newer `ts` (anti-replay). EPERM on a bad key. The key never leaves the node. | `fdf_region.cpp:457-473` |
+| Ownership | One live owner per /24 (EEXIST). A live owner's mapping is not transferred. The hub installs only verified mappings naming it. "An ownership invariant, not a security property." | `fdf_region.cpp:474-483, 593-608`; `fdf-hub:13-19`; `PLAN-FROGNET-ON-FDF.md:334-335` |
+| Leaf addresses | Given by the region; never self-chosen. | `fdf_region.cpp:622-623` |
 | Region mode | RAM only by default. Restricted and open are chosen by the operator in `net.json`. The config is written only by `fdf-ram` at start and is read-only to the network. | `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`; §I.7 |
-| `map_site` | **No credential.** Anyone who reaches the RAM port can set an area's key; "the firewall is what keeps others out". | OPERATING:165; `rina_region.cpp:448` |
-| Encryption in transit | Inter-site data rides WireGuard. **The FNWP sessions and HTTP front are plain TCP:** the bootstrap and all tuple traffic travel unencrypted. OpenSSL is used for SHA-256 and HMAC only. | `rina_region_client.hpp:16-17, 97, 147`; R-D9 |
+| `map_site` | **No credential.** Anyone who reaches the RAM port can set an area's key; "the firewall is what keeps others out". | OPERATING:165; `fdf_region.cpp:448` |
+| Encryption in transit | Inter-site data rides WireGuard. **The FNWP sessions and HTTP front are plain TCP:** the bootstrap and all tuple traffic travel unencrypted. OpenSSL is used for SHA-256 and HMAC only. | `fdf_region_client.hpp:16-17, 97, 147`; R-D9 |
 | Resource exhaustion | Rows, variables and wait patterns are never freed, and a `remove` walks every row ever created. With no access control on the RAM port, anything that reaches it can grow the host's memory without bound. | §D.1 (Growth); `ram_memory.hpp:87-105, 137-148` |
 | Session binding | The three sockets are bound by a client-chosen token. The server does not authenticate it, and logs it in the clear. | `ram_server.cpp:631-669` |
 | Browser terminal | Through the RAM manager, as `/bin/login` on a PTY. `fdf-browser` on a non-loopback address has no authentication, and keystrokes cross unencrypted. | `fdf-source/fdf/bin/fdf-term-serve:2-37`; `opt/fdf/src/fdf-source/fdf/README.md:183-185` |
@@ -505,7 +505,7 @@ Appendix N has the full list. The main open items:
 replaced `rina-host`, John 2026-11-02: "We should not be running rina_host." "Move fully to the RAM manager model.") is
 built by `rinab/tools/build.sh` (and `build_static_host.sh`, `build_arm64.sh`) from the Ribbit platform's host,
 `opt/frognet_semantic/ribbit/cpp` (`ribbit::RamHost`), with `rinab/src/fdf_ram.cpp` as the vendor and the region
-(`rina_region.cpp`, `daf_region.cpp`, `ctl_host.cpp`) as its operations. `rinab/RAM-MANAGER-ON-PLATFORM.md` maps what
+(`fdf_region.cpp`, `daf_region.cpp`, `ctl_host.cpp`) as its operations. `rinab/RAM-MANAGER-ON-PLATFORM.md` maps what
 rina-host's patched server gave the region to what the platform gives. The patched v0.63 copy (`rinab/platform/`,
 about 37 `apply_*.py`) now builds only the client side (`frogram.cpp`); line numbers below that cite
 `platform/ramsrv/ram_server.cpp` are of the retired rina-host server.
@@ -549,7 +549,7 @@ The transport interface is definitions only (`[TRANSPORT_INTERFACE_V1]`, `rinab/
 
 | Program | Role | Source |
 |---|---|---|
-| `fdf-ram` | The RAM manager: generic memory, RINA region and mapping region in one process | `opt/frognet_semantic/ribbit/cpp/src/ram_host.cpp`, `rinab/src/fdf_ram.cpp`, `rinab/src/rina_region.cpp` |
+| `fdf-ram` | The RAM manager: generic memory, RINA region and mapping region in one process | `opt/frognet_semantic/ribbit/cpp/src/ram_host.cpp`, `rinab/src/fdf_ram.cpp`, `rinab/src/fdf_region.cpp` |
 | `rlite-uipcps` | The machine agent: states the machine's devices, survives region loss, re-asserts what the machine owns | `rinab/src/rina_node.cpp` |
 | `librina` | rlite's `rina/api.h` implemented on the region: one session per program, one held read | `rinab/src/librina_region.cpp` |
 | `rlite-ctl` | rlite's control tool; its command logic runs inside the RAM host (`[CTL_AT_THE_MEMORY_V1]`) | `rinab/src/rlite_ctl.cpp`, `rinab/src/rlite_ctl_client.cpp`, `rinab/src/ctl_host.cpp` |
@@ -602,7 +602,7 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 | R-A7 | FD&F is the authority for membership and topology; FrogNet is the local configuration and forwarding-policy engine. No second discovery system: the crawl does not run in region mode. | `fdf-source/docs/history/PLAN-RAM-DISCOVERY.md:74-88` | `[STORE_UNITS_OFF_IN_REGION_V1]` (`fdf-source/fdf/bin/fdf-region-join:28-41`) | Gate 2a. **r20** |
 | R-A8 | Two supported node modes, LAN-only and region. The region switch is one file (`/opt/fdf/var/join.env`). | `docs/cleanup-2026-10/T3a-BRIEF.md:5-6`; `[REGION_SWITCH_ONE_FILE_V1]` | `fdf-source/fdf/bin/fdf-region-join:7, 25-27`; `fdf-leave` | Gates 2a, 2c, G3, G5. **r20** |
 | R-A9 | Nesting and multiple membership of DIFs are both allowed; nothing may assume a tree. | `fdf-source/docs/history/PLAN-FROGNET-ON-FDF.md:289-302` | Ponds: one forward pond, any number of participant ponds (§I.6) | Gate 2d (ponds), 2e (reach). **r20** (netns only) |
-| R-A10 | One owner per /24 per region, decided by the lowest announce id. The hub never lets WireGuard's last write decide AllowedIPs. Owned beats transit. | `PLAN-FROGNET-ON-FDF.md:74-77, 97-103` | `fdf-source/fdf/bin/fdf-hub:16-19, 206-233`; `[PREFIX_OVERLAP_REFUSED_V1]` (`rinab/src/rina_region.cpp:593-608`) | `hub_oracle.py` cases 1, 2, 4. **r20** (27/27) |
+| R-A10 | One owner per /24 per region, decided by the lowest announce id. The hub never lets WireGuard's last write decide AllowedIPs. Owned beats transit. | `PLAN-FROGNET-ON-FDF.md:74-77, 97-103` | `fdf-source/fdf/bin/fdf-hub:16-19, 206-233`; `[PREFIX_OVERLAP_REFUSED_V1]` (`rinab/src/fdf_region.cpp:593-608`) | `hub_oracle.py` cases 1, 2, 4. **r20** (27/27) |
 | R-A11 | Deterministic addresses with no allocator: 10.A.B.0/24 maps to edge 10.253.A.B; the hub is 10.253.253.254/16. | `PLAN-FROGNET-ON-FDF.md:69-73` | `fdf-source/fdf/bin/fdf-hub:20, 150-155` | hub_oracle. **r20** |
 | R-A12 | A region must work without the Internet; the RAM manager and hub can be a LAN machine. | `docs/cleanup-2026-10/T4a-BRIEF.md:52-53` | `fdf-region-create AREA <LAN-IP>` (`fdf-source/fdf/bin/fdf-region-create:6-8`) | "LAN region" rehearsal on x86 containers, one member. **r20**. Hardware: **NOT RUN** (T7 step 10). |
 | R-A13 | Machine identity is a GUID, separate from its locator. | `rinab/STEP2-MACHINE-IDENTITY.md:5-35`; `[MACHINE_IDENTITY_V1]` | `rinab/src/machine_id.hpp:4-40` | rlite 30/30 after step 2. **HIST** |
@@ -611,11 +611,11 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 
 | ID | Requirement | Source | Implemented | Verified / status |
 |---|---|---|---|---|
-| R-D1 | Hands off and completely automatic. The one thing a machine is given is the area's name. | John 2026-10-07; `rinab/experiments/RESULTS.md:1457-1467` | `[ONE_NAME_BOOTSTRAP_V1]` (`rinab/src/rina_region_client.hpp:101-141`) | `rule-check.sh`: joined=3, dns=0. **HIST** 2026-10-07. |
-| R-D2 | The Map-Resolver address is derived from the name by a deterministic rule, with no DNS ("option B"). | John 2026-10-07; `rinab/experiments/RESULTS.md:1489-1500`; `rinab/experiments/DESIGN-MR-RULE.md` | `[MR_ADDRESS_FROM_NAME_V1]` (`rinab/src/rina_region_client.hpp:42-62`) | rule-check; C++ and Python agree on 5/5 names (`RESULTS.md:1497-1498`). **HIST** |
-| R-D3 | The RAM manager registers its own mapping on every listen; nothing else registers it. | `rinab/experiments/RESULTS.md:1186-1193` | `[RAM_MANAGER_REGISTERS_ITSELF_V1]` (`rinab/src/rina_region.cpp:998-1015, 1056-1060`) | `selfreg-check.sh`. **HIST** |
+| R-D1 | Hands off and completely automatic. The one thing a machine is given is the area's name. | John 2026-10-07; `rinab/experiments/RESULTS.md:1457-1467` | `[ONE_NAME_BOOTSTRAP_V1]` (`rinab/src/fdf_region_client.hpp:101-141`) | `rule-check.sh`: joined=3, dns=0. **HIST** 2026-10-07. |
+| R-D2 | The Map-Resolver address is derived from the name by a deterministic rule, with no DNS ("option B"). | John 2026-10-07; `rinab/experiments/RESULTS.md:1489-1500`; `rinab/experiments/DESIGN-MR-RULE.md` | `[MR_ADDRESS_FROM_NAME_V1]` (`rinab/src/fdf_region_client.hpp:42-62`) | rule-check; C++ and Python agree on 5/5 names (`RESULTS.md:1497-1498`). **HIST** |
+| R-D3 | The RAM manager registers its own mapping on every listen; nothing else registers it. | `rinab/experiments/RESULTS.md:1186-1193` | `[RAM_MANAGER_REGISTERS_ITSELF_V1]` (`rinab/src/fdf_region.cpp:998-1015, 1056-1060`) | `selfreg-check.sh`. **HIST** |
 | R-D4 | Members follow a moved RAM manager by waiting on the mapping, not by timer or neighbour propagation. | `rinab/experiments/RESULTS.md:1200-1237` | `[MAP_WATCH_V1]` (`rinab/src/rina_node.cpp:224-251`) | `mapwait-check.sh`, `move-check.sh`: re-attach 73–182 ms. **HIST** |
-| R-D5 | No control messages over UDP. The LISP mapping lives in a region and is read and written over the session. UDP 4342 is used only at the interop edge and as the test oracle. | John 2026-10-06; `rinab/HANDOFF.md:27`; `rinab/src/rina_lisp.cpp:3-10` | `[AREA_MAPPING_IN_THE_REGION_V1]` (`rinab/src/rina_region.cpp:438-514`) | `map-region-check.sh` (0 UDP 4342), `map-oracle-check.sh` (7/7 agree with lispers.net). **HIST** |
+| R-D5 | No control messages over UDP. The LISP mapping lives in a region and is read and written over the session. UDP 4342 is used only at the interop edge and as the test oracle. | John 2026-10-06; `rinab/HANDOFF.md:27`; `rinab/src/rina_lisp.cpp:3-10` | `[AREA_MAPPING_IN_THE_REGION_V1]` (`rinab/src/fdf_region.cpp:438-514`) | `map-region-check.sh` (0 UDP 4342), `map-oracle-check.sh` (7/7 agree with lispers.net). **HIST** |
 | R-D6 | The area password (`RINA_AREA_PASSWORD`, 64 hex characters) is set only on the mapping machine and the RAM-manager candidates; members never read it. | John 2026-10-07; `RESULTS.md:1514-1529` | `fdf-source/fdf/bin/fdf-mapping.sh:7-8`, `fdf-ram-manager.sh:12-19` | Wrong password refused EPERM. **HIST** |
 | R-D7 | Region joins: the RAM address and area are required arguments; there is no built-in region. | `docs/cleanup-2026-10/T4a-BRIEF.md:39-41` | `fdf-source/deliverables/header.sh:2-6, 16` | G3. **r20** |
 | R-D8 | Discovery is rebuilt from the shared table on every participant (p) or mapping (m) event, never on a timer. A duplicate .1 is refused, naming the holder. A refused join waits for an event. | `PLAN-RAM-DISCOVERY.md:52-69, 95` | `[JOIN_REFUSED_WAITS_V1]` (`rinab/src/fdf_client.cpp:300-325`); `[PREFIX_OVERLAP_REFUSED_V1]` | Gate 2a. **r20**. See §N for the timers that remain. |
@@ -626,18 +626,18 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 
 | ID | Requirement | Source | Implemented | Verified / status |
 |---|---|---|---|---|
-| R-M1 | Tuple lifetime: a record may carry a Permanent flag (stored offline, restored at once on restart). All other records survive by re-assertion. | `rinab/HANDOFF.md:46-47`; `[PERMANENT_ENVELOPE_V1]` `[REGION_FILE_V1]` | `rinab/src/rina_region.cpp:42-91`; `rinab/src/ctl_host.hpp:24-27` | `region-file-check.sh`: policy survived kill -9, the IPCP did not. **HIST** |
-| R-M2 | Every host needs `RINA_REGION_FILE`. With the variable unset the host does not start (a named file that does not yet exist is created). A damaged line or a non-durable write is fatal; fdatasync happens before publish. | `rinab/HANDOFF.md:31`; `RESULTS.md:411-416` | `rinab/src/rina_region.cpp:49-81` | region-file-check. **HIST** |
+| R-M1 | Tuple lifetime: a record may carry a Permanent flag (stored offline, restored at once on restart). All other records survive by re-assertion. | `rinab/HANDOFF.md:46-47`; `[PERMANENT_ENVELOPE_V1]` `[REGION_FILE_V1]` | `rinab/src/fdf_region.cpp:42-91`; `rinab/src/ctl_host.hpp:24-27` | `region-file-check.sh`: policy survived kill -9, the IPCP did not. **HIST** |
+| R-M2 | Every host needs `RINA_REGION_FILE`. With the variable unset the host does not start (a named file that does not yet exist is created). A damaged line or a non-durable write is fatal; fdatasync happens before publish. | `rinab/HANDOFF.md:31`; `RESULTS.md:411-416` | `rinab/src/fdf_region.cpp:49-81` | region-file-check. **HIST** |
 | R-M3 | Liveness is the session. Credit is state, not messages. | `rinab/HANDOFF.md:43`; `rinab/STEP1-DATA-PLANE.md:125-144` | `[SESSION_IS_LIVENESS_V1]`, `[CREDIT_IS_STATE_V1]` | rlite 30/30. **HIST** |
-| R-M4 | One row per writer. Mapping rows are written only through `map_register`, HMAC-verified; a raw write is not a mapping. | `PLAN-FROGNET-ON-FDF.md:27, 270-274` | `rinab/src/rina_region.cpp:457-490` | `rinab/tests/map_prefix.cpp` (no dated result). |
-| R-M5 | Ownership is checked on every reassert, all records before any write; EPERM names the offender. | `RESULTS.md:464-465, 587` | `rinab/src/rina_region.cpp:398-408, 413-436` | exp5b set. **HIST** (retired experiments) |
-| R-M6 | A registration lives by its own TTL, checked when read. No timer, no reaper. Unknown or expired gives a negative answer, never a fallback. | `RESULTS.md:691-695` | `rinab/src/rina_region.cpp:491-493` | `map-expiry-compare.sh`: negative at 5.1 s, against 31.5–58.8 s for lispers.net. **HIST** |
+| R-M4 | One row per writer. Mapping rows are written only through `map_register`, HMAC-verified; a raw write is not a mapping. | `PLAN-FROGNET-ON-FDF.md:27, 270-274` | `rinab/src/fdf_region.cpp:457-490` | `rinab/tests/map_prefix.cpp` (no dated result). |
+| R-M5 | Ownership is checked on every reassert, all records before any write; EPERM names the offender. | `RESULTS.md:464-465, 587` | `rinab/src/fdf_region.cpp:398-408, 413-436` | exp5b set. **HIST** (retired experiments) |
+| R-M6 | A registration lives by its own TTL, checked when read. No timer, no reaper. Unknown or expired gives a negative answer, never a fallback. | `RESULTS.md:691-695` | `rinab/src/fdf_region.cpp:491-493` | `map-expiry-compare.sh`: negative at 5.1 s, against 31.5–58.8 s for lispers.net. **HIST** |
 | R-M7 | Notification is a write; waiting is a held read. No new mechanism anywhere. | `PLAN-FROGNET-ON-FDF.md:67-68, 248-249` | §D.5, §E.6 | — |
 | R-M8 | The application is notified when its view changes. "The app never elects and never watches a clock." | `PLAN-FROGNET-ON-FDF.md:159-163` | `[LIBRARY_REASSERTS_V1]` type-4 notification (§G) | exp5b-late-program 6/6 after fix. **HIST** |
-| R-M9 | A mapping's owner is not transferred while the holder lives. | `[MAP_OWNER_IS_NOT_TRANSFERRED_V1]` | `rinab/src/rina_region.cpp:474-483` | `rinab/tests/mapown_oracle.sh` (no dated result). |
+| R-M9 | A mapping's owner is not transferred while the holder lives. | `[MAP_OWNER_IS_NOT_TRANSFERRED_V1]` | `rinab/src/fdf_region.cpp:474-483` | `rinab/tests/mapown_oracle.sh` (no dated result). |
 | R-M10 | A reader that follows `after` never skips a cell: it receives every cell written since, at its latest value, in id order, on one variable or a whole service. Values overwritten before it reads are not retained. | §D.3 | `[PUBLISH_IN_ID_ORDER_V1]` `rinab/tools/apply_publish_order.py` | `memory-order-check.sh`: 0 missed (§L.5). **2026-10-15** |
 | R-M11 | A region request is answered for the session that asked it. | §D.6 | `[REGION_COALESCE_PER_SESSION_V1]` `rinab/tools/apply_region_session_key.py` | `memory-order-check.sh`: 0 wrong (§L.5). **2026-10-15** |
-| R-M12 | A removed mapping stays removed across a RAM host restart, and a session-bound mapping is never restored from the region file. | §E.2 | `[MAP_REMOVAL_IS_PERMANENT_V1]` `[OWNED_MAPPING_IS_NOT_RESTORED_V1]` (`rinab/src/rina_region.cpp:67, 164, 485, 498, 992`) | `map-removal-check.sh` (§L.5). **2026-10-15** |
+| R-M12 | A removed mapping stays removed across a RAM host restart, and a session-bound mapping is never restored from the region file. | §E.2 | `[MAP_REMOVAL_IS_PERMANENT_V1]` `[OWNED_MAPPING_IS_NOT_RESTORED_V1]` (`rinab/src/fdf_region.cpp:67, 164, 485, 498, 992`) | `map-removal-check.sh` (§L.5). **2026-10-15** |
 | R-M13 | Identical requests in flight together give every caller the result of executing each. | §D.6 | `[HOST_COALESCE_V1]` (idempotent memory operations; unique ids on region operations that create) | `identical_writes.cpp` (§L.5). **2026-10-15** |
 
 ### C.4 Failure handling
@@ -660,7 +660,7 @@ Rulings John stated that are not written in the repository are marked *(ruling, 
 | ID | Requirement | Source | Implemented | Verified / status |
 |---|---|---|---|---|
 | R-S1 | The RAM manager does no authorization. It is an ordinary Linux process and inherits the machine's protection (file ownership, firewall, accounts); finer policy belongs to the region owner's API. | `PLAN-FROGNET-ON-FDF.md:257-259`; John 2026-10-08 *(ruling, not in repo)* | No authorization code in `fdf-ram` (§9) | — |
-| R-S2 | Mapping registrations are authenticated (HMAC-SHA-256 with the site key) and replay-protected (strictly newer timestamp). | `PLAN-FROGNET-ON-FDF.md:255-287` | `rinab/src/rina_region.cpp:457-473` | Wrong key EPERM (`docs/cleanup-2026-10/FINAL-GATES.md:124-127`). **r20** |
+| R-S2 | Mapping registrations are authenticated (HMAC-SHA-256 with the site key) and replay-protected (strictly newer timestamp). | `PLAN-FROGNET-ON-FDF.md:255-287` | `rinab/src/fdf_region.cpp:457-473` | Wrong key EPERM (`docs/cleanup-2026-10/FINAL-GATES.md:124-127`). **r20** |
 | R-S3 | Restricted DIFs: a membership-gated area with its own RAM manager and password; mappings signed under the DIF's site key. | John 2026-10-09; `PLAN-FROGNET-ON-FDF.md:255-285` | Each pond is its own RAM manager with its own key (de facto). No "restricted" code exists. | **DESIGN** |
 | R-S4 | Forwarding is limited to what was exposed ("Test it."). | `PLAN-FROGNET-ON-FDF.md` contract 5 | — | No test exists. **NOT RUN** |
 
@@ -806,30 +806,30 @@ All from `ram_server.cpp:239-278`.
 
 ## Appendix E. The RINA region
 
-The region is resident in the RAM host: the platform's C++ RAM server (v0.63) with FD&F's build patches and the region compiled in (`rinab/tools/build.sh`; `rinab/src/rina_region.cpp:1-3`).
+The region is resident in the RAM host: the platform's C++ RAM server (v0.63) with FD&F's build patches and the region compiled in (`rinab/tools/build.sh`; `rinab/src/fdf_region.cpp:1-3`).
 - Every conversation a program, `rlite-ctl` or an agent has with it is **one call**.
 - A call that waits is a held read, answered when its answer exists; "nothing is ever re-asked".
-- A participant is alive while its session is up (`[SESSION_IS_LIVENESS_V1]`, `rina_region.cpp:4`).
+- A participant is alive while its session is up (`[SESSION_IS_LIVENESS_V1]`, `fdf_region.cpp:4`).
 
 ### E.1 Storage
 
-- **Separate store.** Control records live in the region's own memory (`rinab/src/rina_memory.hpp`), not the generic memory (`[RINA_RECORDS_V1]`, `rina_region.cpp:38-40`). That store has no locks:
+- **Separate store.** Control records live in the region's own memory (`rinab/src/rina_memory.hpp`), not the generic memory (`[RINA_RECORDS_V1]`, `fdf_region.cpp:38-40`). That store has no locks:
   - values are immutable and published by exchange;
   - held reads sleep on futex wait words;
   - memory is reclaimed by epoch (`rina_memory.hpp:1-52`).
-- **Record values** are `{"v":"k=v;k=v;…"}`. An empty value means the record is gone (`rina_region.cpp:29-37, 130-138, 162-164`).
+- **Record values** are `{"v":"k=v;k=v;…"}`. An empty value means the record is gone (`fdf_region.cpp:29-37, 130-138, 162-164`).
 - **Input spaces.** Each program has one: events numbered from 1, many producers, one consumer, read as a gap-free prefix (`rina_memory.hpp:59-135`).
-- **Flow directions.** Each holds a ring of 4,096 SDU slots with a receiver-published credit (`rina_memory.hpp:137-175`; `rina_region.cpp:231, 333-348`).
+- **Flow directions.** Each holds a ring of 4,096 SDU slots with a receiver-published credit (`rina_memory.hpp:137-175`; `fdf_region.cpp:231, 333-348`).
 
 ### E.2 Permanence `[REGION_FILE_V1]`
 
 - **What is Permanent.** Records whose envelope ends `,"p":1}`.
-- **How they are written.** Each is appended to the region file (`RINA_REGION_FILE`) and fdatasync'd **before** it is published (`rina_region.cpp:42-52, 76-81, 91`).
-- **At start.** The file is replayed (last value wins, empty value deletes) and compacted. A damaged line is fatal (exit 2). A host with `RINA_REGION_FILE` unset exits 2; a named file that does not exist yet is created (`rina_region.cpp:49-75`).
-- **Removals are Permanent too** (`[MAP_REMOVAL_IS_PERMANENT_V1]`). Removing a mapping, by `map_remove` or by its owning session ending, writes an empty value with the Permanent flag. That empty value is appended to the file, so the replay at start deletes the mapping (`rina_region.cpp:164, 498, 992`). Tested by `rinab/tools/map-removal-check.sh` (§L.5).
-- **Session-bound mappings are not restored** (`[OWNED_MAPPING_IS_NOT_RESTORED_V1]`). A mapping registered with `own:true` is filed with an `own=1` mark, so it supersedes any older mapping of that name in the file. The replay at start drops it: the session it belonged to did not survive the restart, and its owner registers it again on reconnect. This holds even when the host stops without ending its sessions (`rina_region.cpp:67, 485`; same test, which kills the host with SIGKILL while a session-bound mapping is held).
-- **Which kinds.** Only `pol|` and `par|` (a DIF's policy and parameters: "no member re-asserts them", `rinab/src/ctl_host.hpp:24-27`), `site|` and `map|` (`rina_region.cpp:448, 485`).
-- **Everything else.** "Every other record lives only in memory and returns by re-assertion" (`rina_region.cpp:42-52`).
+- **How they are written.** Each is appended to the region file (`RINA_REGION_FILE`) and fdatasync'd **before** it is published (`fdf_region.cpp:42-52, 76-81, 91`).
+- **At start.** The file is replayed (last value wins, empty value deletes) and compacted. A damaged line is fatal (exit 2). A host with `RINA_REGION_FILE` unset exits 2; a named file that does not exist yet is created (`fdf_region.cpp:49-75`).
+- **Removals are Permanent too** (`[MAP_REMOVAL_IS_PERMANENT_V1]`). Removing a mapping, by `map_remove` or by its owning session ending, writes an empty value with the Permanent flag. That empty value is appended to the file, so the replay at start deletes the mapping (`fdf_region.cpp:164, 498, 992`). Tested by `rinab/tools/map-removal-check.sh` (§L.5).
+- **Session-bound mappings are not restored** (`[OWNED_MAPPING_IS_NOT_RESTORED_V1]`). A mapping registered with `own:true` is filed with an `own=1` mark, so it supersedes any older mapping of that name in the file. The replay at start drops it: the session it belonged to did not survive the restart, and its owner registers it again on reconnect. This holds even when the host stops without ending its sessions (`fdf_region.cpp:67, 485`; same test, which kills the host with SIGKILL while a session-bound mapping is held).
+- **Which kinds.** Only `pol|` and `par|` (a DIF's policy and parameters: "no member re-asserts them", `rinab/src/ctl_host.hpp:24-27`), `site|` and `map|` (`fdf_region.cpp:448, 485`).
+- **Everything else.** "Every other record lives only in memory and returns by re-assertion" (`fdf_region.cpp:42-52`).
 
 ### E.3 Record schema
 
@@ -843,51 +843,51 @@ The region is resident in the RAM host: the platform's C++ RAM server (v0.63) wi
 | `pol\|<dif>\|<component>` | policy | `dif-policy-mod` | **Permanent** | `ctl_host.hpp:24-27` |
 | `par\|<dif>\|<component>\|<param>` | value | `dif-policy-param-mod` | **Permanent** | same |
 | `aclaim:<dif>\|<ipcp>` | {v, ns, ep} | address derivation (§E.6) | memory; counts while the machine's epoch is current | `rlite_ctl.cpp:78-130` |
-| `node\|<ns>` | epoch=<session>; devices | `node` op | memory; cleared when that session ends, if the epoch still matches | `rina_region.cpp:706-712, 974-975` |
-| `sess\|<sid>` | proc:/pdata:/node: | `hello`, `node` | cleared at session end | `rina_region.cpp:288-292` |
-| `speer\|<sid>` | address the session arrives from | server | cleared at session end | `rina_region.cpp:1064-1065` |
-| `proc\|<id>` | `1;ns=…;` or `fork` | `hello`, `fork` | cleared at session end | `rina_region.cpp:570, 577, 959` |
-| `ibh\|<inbox>\|<proc>`, `held:<proc>\|<inbox>` | 1 | per holder | memory; the newest holder receives | `rina_region.cpp:263-287` |
-| `app\|<dif>\|<appl>` | inbox, ipcp, ns, type, ip, pid | `register` | memory; re-asserted by the library; erased lazily when unheld | `rina_region.cpp:726-727, 283-287` |
-| `flow\|<dif>\|<fid>`, `fl\|<fid>`, `pfl:<proc>\|<fid>` | flow ends | `accept` | memory; re-asserted by the library | `rina_region.cpp:771-774` |
-| `dropped\|<fid>\|<proc>` | reason | `send` | memory ("recorded, never silent") | `rina_region.cpp:318, 796` |
-| `ann\|<ns>` | {ns, name, ips, cap, facts} | `announce` | cleared when the node's session ends | `rina_region.cpp:642-643, 980` |
-| `laddr\|<10.252.x.y>` | session | `announce` (leaf) | freed at session end | `rina_region.cpp:625-635, 990` |
-| `pwatch\|<proc>`, `mwatch\|<name>\|<proc>` | session | watch ops | dropped at session end | `rina_region.cpp:650, 455, 988-989` |
-| `site\|<area>` | site key | `map_site` | **Permanent** | `rina_region.cpp:448` |
-| `map\|<name or prefix>` | rloc=; exp=; ts=; site= | `map_register` | **Permanent** until its own expiry (checked on read); removed with its owning session if `own:true` | `rina_region.cpp:485, 491-492, 991-992` |
-| `mown\|<name>` | owning session | `map_register` | memory | `rina_region.cpp:486` |
+| `node\|<ns>` | epoch=<session>; devices | `node` op | memory; cleared when that session ends, if the epoch still matches | `fdf_region.cpp:706-712, 974-975` |
+| `sess\|<sid>` | proc:/pdata:/node: | `hello`, `node` | cleared at session end | `fdf_region.cpp:288-292` |
+| `speer\|<sid>` | address the session arrives from | server | cleared at session end | `fdf_region.cpp:1064-1065` |
+| `proc\|<id>` | `1;ns=…;` or `fork` | `hello`, `fork` | cleared at session end | `fdf_region.cpp:570, 577, 959` |
+| `ibh\|<inbox>\|<proc>`, `held:<proc>\|<inbox>` | 1 | per holder | memory; the newest holder receives | `fdf_region.cpp:263-287` |
+| `app\|<dif>\|<appl>` | inbox, ipcp, ns, type, ip, pid | `register` | memory; re-asserted by the library; erased lazily when unheld | `fdf_region.cpp:726-727, 283-287` |
+| `flow\|<dif>\|<fid>`, `fl\|<fid>`, `pfl:<proc>\|<fid>` | flow ends | `accept` | memory; re-asserted by the library | `fdf_region.cpp:771-774` |
+| `dropped\|<fid>\|<proc>` | reason | `send` | memory ("recorded, never silent") | `fdf_region.cpp:318, 796` |
+| `ann\|<ns>` | {ns, name, ips, cap, facts} | `announce` | cleared when the node's session ends | `fdf_region.cpp:642-643, 980` |
+| `laddr\|<10.252.x.y>` | session | `announce` (leaf) | freed at session end | `fdf_region.cpp:625-635, 990` |
+| `pwatch\|<proc>`, `mwatch\|<name>\|<proc>` | session | watch ops | dropped at session end | `fdf_region.cpp:650, 455, 988-989` |
+| `site\|<area>` | site key | `map_site` | **Permanent** | `fdf_region.cpp:448` |
+| `map\|<name or prefix>` | rloc=; exp=; ts=; site= | `map_register` | **Permanent** until its own expiry (checked on read); removed with its owning session if `own:true` | `fdf_region.cpp:485, 491-492, 991-992` |
+| `mown\|<name>` | owning session | `map_register` | memory | `fdf_region.cpp:486` |
 
 Generic-memory tuples the region manages:
-- `(pond, attention, ns)` and `(pond, where, ns)` are removed when the node's session ends (`rina_region.cpp:981-984`).
+- `(pond, attention, ns)` and `(pond, where, ns)` are removed when the node's session ends (`fdf_region.cpp:981-984`).
 - `(pond, config, net)` is written once at start (§I.7).
 
 **Ownership for re-assertion.**
 - A machine owns `ipcp|<ns>|*`, `nreg|*|<its ipcp>`, and `adj` rows where it is `ans` or `bns`.
 - A program owns the `app` rows whose inbox it holds, `fl` and `flow` rows where it is an end, and `pfl:<proc>`.
-- Every record is checked before any is written (`rina_region.cpp:385-389, 401-405, 419-423, 433-435`).
+- Every record is checked before any is written (`fdf_region.cpp:385-389, 401-405, 419-423, 433-435`).
 
 ### E.4 Region operations
 
-Requests are POSTed as `{"op":"…",…}` to `?op=rina` (answered at once) or `?op=rina_block` (may be held) (`rinab/src/rina_region_client.hpp:1-3, 166-171`). An `ok:false` answer is data, not an exception (`[REGION_ANSWER_IS_DATA_V1]`, `rina_region_client.hpp:163-180`).
+Requests are POSTed as `{"op":"…",…}` to `?op=rina` (answered at once) or `?op=rina_block` (may be held) (`rinab/src/fdf_region_client.hpp:1-3, 166-171`). An `ok:false` answer is data, not an exception (`[REGION_ANSWER_IS_DATA_V1]`, `fdf_region_client.hpp:163-180`).
 
 | op | Purpose | Errors | Source |
 |---|---|---|---|
-| `node` | The agent's statement of its machine; sets `node\|<ns>`. A new epoch runs `ctl node-rejoin`. Notifies agents and participant watchers. | — | `rina_region.cpp:706-719` |
-| `announce` | Discovery: name, IPs, capability, facts. Gives a leaf its /32. | EINVAL, EEXIST (overlapping /24), ENOSPC | `rina_region.cpp:581-647` |
-| `participants`, `world`, `resolve`, `version`, `seen` | Read the participant set (alive = node record non-empty); participants and mappings in one read; identity to address in this pond; build tag; the address a session arrives from | ENOENT, ENOADDR (resolve) | `rina_region.cpp:652-705, 515-520` |
-| `watch_participants` | Register for `p` events | EINVAL | `rina_region.cpp:648-651` |
-| `mine` / `reassert` | The agent's owned records, and writing them back | EINVAL, EPERM | `rina_region.cpp:378-408` |
-| `pmine` / `preassert` | The program's owned records, and writing them back | EINVAL, EPERM | `rina_region.cpp:409-436` |
-| `hello`, `fork` | Program liveness and inboxes; a forked child keeps the registrations | — | `rina_region.cpp:566-580` |
-| `register`, `unregister` | Application registration in a DIF | ENXIO, ENOENT, NEEDIP, EADDRNOTAVAIL | `rina_region.cpp:720-729, 810-814` |
-| `alloc`, `accept` | Flow allocation and verdict | NEEDIP, ENOENT, EHOSTUNREACH | `rina_region.cpp:730-779` |
-| `send` | SDUs to the peer's input space (bytes or by reference) | peer gone: dropped and recorded | `rina_region.cpp:780-809` |
-| `taken`, `taken_now`, `credit` (held) | Receiver's consumed count; sender's credit wait | `gone` | `rina_region.cpp:521-533, 926-942` |
-| `wait` (held) | **The** held read: events after N, as text lines `seq\tevent` | — | `rina_region.cpp:307-309, 353-362, 815` |
-| `ctl` | Runs an `rlite-ctl` command at the memory | rc, out, err | `rina_region.cpp:757-762` |
-| `map_site`, `map_register`, `map_request`, `map_remove`, `map_list`, `map_watch` | LISP mapping in a region (§F.4) | ENOENT, EPERM, EALREADY, EEXIST | `rina_region.cpp:438-514` |
-| `rmt_view`, `rmem`, `peek` | Debugging aids | — | `rina_region.cpp:534-565` |
+| `node` | The agent's statement of its machine; sets `node\|<ns>`. A new epoch runs `ctl node-rejoin`. Notifies agents and participant watchers. | — | `fdf_region.cpp:706-719` |
+| `announce` | Discovery: name, IPs, capability, facts. Gives a leaf its /32. | EINVAL, EEXIST (overlapping /24), ENOSPC | `fdf_region.cpp:581-647` |
+| `participants`, `world`, `resolve`, `version`, `seen` | Read the participant set (alive = node record non-empty); participants and mappings in one read; identity to address in this pond; build tag; the address a session arrives from | ENOENT, ENOADDR (resolve) | `fdf_region.cpp:652-705, 515-520` |
+| `watch_participants` | Register for `p` events | EINVAL | `fdf_region.cpp:648-651` |
+| `mine` / `reassert` | The agent's owned records, and writing them back | EINVAL, EPERM | `fdf_region.cpp:378-408` |
+| `pmine` / `preassert` | The program's owned records, and writing them back | EINVAL, EPERM | `fdf_region.cpp:409-436` |
+| `hello`, `fork` | Program liveness and inboxes; a forked child keeps the registrations | — | `fdf_region.cpp:566-580` |
+| `register`, `unregister` | Application registration in a DIF | ENXIO, ENOENT, NEEDIP, EADDRNOTAVAIL | `fdf_region.cpp:720-729, 810-814` |
+| `alloc`, `accept` | Flow allocation and verdict | NEEDIP, ENOENT, EHOSTUNREACH | `fdf_region.cpp:730-779` |
+| `send` | SDUs to the peer's input space (bytes or by reference) | peer gone: dropped and recorded | `fdf_region.cpp:780-809` |
+| `taken`, `taken_now`, `credit` (held) | Receiver's consumed count; sender's credit wait | `gone` | `fdf_region.cpp:521-533, 926-942` |
+| `wait` (held) | **The** held read: events after N, as text lines `seq\tevent` | — | `fdf_region.cpp:307-309, 353-362, 815` |
+| `ctl` | Runs an `rlite-ctl` command at the memory | rc, out, err | `fdf_region.cpp:757-762` |
+| `map_site`, `map_register`, `map_request`, `map_remove`, `map_list`, `map_watch` | LISP mapping in a region (§F.4) | ENOENT, EPERM, EALREADY, EEXIST | `fdf_region.cpp:438-514` |
+| `rmt_view`, `rmem`, `peek` | Debugging aids | — | `fdf_region.cpp:534-565` |
 
 **Events pushed into input spaces:**
 - `t`: topology, to agents;
@@ -898,11 +898,11 @@ Requests are POSTed as `{"op":"…",…}` to `?op=rina` (answered at once) or `?
 - `s`: an SDU;
 - `x`: gone.
 
-(`rina_region.cpp:238, 243, 487, 751, 776, 806, 968`.) Parked waits are continuations answered by the next push; "no thread waits" (`[DEFERRED_ANSWER_V1]`, `rina_region.cpp:350-366`).
+(`fdf_region.cpp:238, 243, 487, 751, 776, 806, 968`.) Parked waits are continuations answered by the next push; "no thread waits" (`[DEFERRED_ANSWER_V1]`, `fdf_region.cpp:350-366`).
 
 ### E.5 Session end
 
-`rina_session_down(sid)` runs once when a session's socket closes: "whoever it was is gone, at once" (`rina_region.cpp:951-996`).
+`rina_session_down(sid)` runs once when a session's socket closes: "whoever it was is gone, at once" (`fdf_region.cpp:951-996`).
 - **A program's session:**
   - its proc record is cleared and its inbox holds released;
   - `x` is pushed and its input space ended, so every held read ends with the session (`[HELD_READS_END_WITH_THE_SESSION_V1]`);
@@ -922,7 +922,7 @@ Requests are POSTed as `{"op":"…",…}` to `?op=rina` (answered at once) or `?
 - **Credit** (`[CREDIT_IS_STATE_V1]`):
   - The sender never has more than one ring (4,096 SDUs) unconsumed.
   - When it reaches that, it makes one held `credit` call; `gone` ends the flow.
-  - The receiver publishes the contiguous count it has taken (`rina_region.cpp:333-348, 781-783`; `librina_region.cpp:171-182, 470-477`).
+  - The receiver publishes the contiguous count it has taken (`fdf_region.cpp:333-348, 781-783`; `librina_region.cpp:171-182, 470-477`).
 - **Delivery.** SDUs are handed to the program in sequence order, each exactly once (`[FLOW_ORDER_V1]`, `librina_region.cpp:406-440`).
 - **Reliable flows** keep each SDU until the receiver states it took it, and re-send after a host change (§G.4). Unreliable flows make no guarantee across a host change.
 - **Address derivation** (`[FDF_E2_DERIVED_ADDRESS_V1]`, `rlite_ctl.cpp:78-130`):
@@ -934,12 +934,12 @@ Requests are POSTed as `{"op":"…",…}` to `?op=rina` (answered at once) or `?
 
 A RAM host does not have to start empty. Below is everything FD&F's host holds before the first participant connects, in the order it appears; a region can also be preloaded with its owner's own data (§P). Everything else arrives by re-assertion once members connect (§G.4).
 
-1. **The region store and its Permanent records**, before `main()` runs (`rina_region.cpp:126-128`, static initialisation).
+1. **The region store and its Permanent records**, before `main()` runs (`fdf_region.cpp:126-128`, static initialisation).
    - The host reads `RINA_REGION_FILE`. If it is unset, the host exits 2.
-   - It replays the file (the last value of each record wins; an empty value deletes it), rewrites it compacted, and opens it for appending (`rina_region.cpp:53-75`). A damaged line is fatal.
+   - It replays the file (the last value of each record wins; an empty value deletes it), rewrites it compacted, and opens it for appending (`fdf_region.cpp:53-75`). A damaged line is fatal.
    - Restored: `pol|` and `par|` (each DIF's policy and parameters), `site|` (the area's site key) and `map|` (mappings, each until its own expiry, checked on read).
    - Logged: `[REGION_FILE_V1] N Permanent record(s) restored from <file>`.
-2. **The generic memory: one cell.** It is not persisted, so it starts empty apart from the network's configuration. Once the host is listening, it writes `(pond, config, net)` (`[NET_CONFIG_IS_A_TUPLE_V1]`, `rina_region.cpp:1016-1052`):
+2. **The generic memory: one cell.** It is not persisted, so it starts empty apart from the network's configuration. Once the host is listening, it writes `(pond, config, net)` (`[NET_CONFIG_IS_A_TUPLE_V1]`, `fdf_region.cpp:1016-1052`):
    - **Source.** It is read from `RINA_NET_CONFIG` (default `/opt/fdf/etc/net.json`).
    - **Fields:**
      - `area`;
@@ -951,11 +951,11 @@ A RAM host does not have to start empty. Below is everything FD&F's host holds b
    - **No file:** `reach none`, `map refused`, and the log says so. This is the RAM-only default (§I.7).
    - **A file that does not parse, or a value outside those lists:** nothing is published, the log says why, and outsiders' reaches fail.
    - **Protection.** Only the host itself writes this cell. The network API can neither write nor remove it (403, `[NET_CONFIG_IS_THE_RAM_MANAGERS_V1]`).
-3. **Its own mapping** (`[RAM_MANAGER_REGISTERS_ITSELF_V1]`, `rina_region.cpp:997-1015`), registered as soon as the host is listening, on its own thread.
+3. **Its own mapping** (`[RAM_MANAGER_REGISTERS_ITSELF_V1]`, `fdf_region.cpp:997-1015`), registered as soon as the host is listening, on its own thread.
    - **When.** If `RINA_MAP_AREA` and `RINA_AREA_PASSWORD` are set, the host registers the area's name, mapped to the address it listens on, with every map-resolver of the area. The TTL is 86,400 s.
    - **No area set** (direct mode): nothing is registered, and nothing is logged.
    - **A password or map-resolver missing:** the log says what, and nothing is registered.
-4. **The version line**: `[FDF_VERSION_V1] build <tag> listening on <address>` (`rina_region.cpp:1056-1058`).
+4. **The version line**: `[FDF_VERSION_V1] build <tag> listening on <address>` (`fdf_region.cpp:1056-1058`).
 
 **The mapping host** (`fdf-mapping.sh`) differs:
 - It runs with `RINA_HOST_ROLE=mapping` and its own region file, `/opt/fdf/var/map.perm`.
@@ -971,24 +971,24 @@ A RAM host does not have to start empty. Below is everything FD&F's host holds b
 
 ### F.1 Locating the RAM manager
 
-The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`, `rinab/src/rina_region_client.hpp:101-141`):
+The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`, `rinab/src/fdf_region_client.hpp:101-141`):
 
 1. `RINA_RAM=host:port`, used as given.
 2. Otherwise `RINA_AREA`, plus `:RINA_AREA_PORT` (default **8840**).
 3. Otherwise this machine's agent is asked, on the abstract unix socket `\0rina-area`.
 4. Otherwise: error, "is rlite-uipcps running?".
 
-**Resolution by name.** When the host part is a name, the Map-Resolver is chosen in this order: an `@mr` suffix, then `RINA_MAP_RESOLVER`, then an address derived from the name. The name is then resolved by `map_request` to `mr:4342` over a TCP session. "LISP is the ONLY way the name is resolved — no hosts file, no DNS" (`rina_region_client.hpp:121-141`).
+**Resolution by name.** When the host part is a name, the Map-Resolver is chosen in this order: an `@mr` suffix, then `RINA_MAP_RESOLVER`, then an address derived from the name. The name is then resolved by `map_request` to `mr:4342` over a TCP session. "LISP is the ONLY way the name is resolved — no hosts file, no DNS" (`fdf_region_client.hpp:121-141`).
 
 **Caching and namespace.**
-- One lookup per process, forgotten on connect failure and before any re-attach (`[LOCATE_CACHED_V1]`, `rina_region_client.hpp:84-95`).
-- The connection is made from `RINA_RAM_NETNS`, else from pid 1's network namespace (`rina_region_client.hpp:152-161`).
+- One lookup per process, forgotten on connect failure and before any re-attach (`[LOCATE_CACHED_V1]`, `fdf_region_client.hpp:84-95`).
+- The connection is made from `RINA_RAM_NETNS`, else from pid 1's network namespace (`fdf_region_client.hpp:152-161`).
 
 ### F.2 The three modes
 
 **a) Direct** (`[FDF_DIRECT_V1]`)
 - `fdf-ram-server.sh` runs `fdf-ram --listen 0.0.0.0:8840` with no area and no password (`fdf-source/fdf/bin/fdf-ram-server.sh:2-8`).
-- Members set `RINA_RAM` (`fdf-member.sh:9-12`). The host registers nothing (`[QUIET_DIRECT_V1]`, `rina_region.cpp:1004`).
+- Members set `RINA_RAM` (`fdf-member.sh:9-12`). The host registers nothing (`[QUIET_DIRECT_V1]`, `fdf_region.cpp:1004`).
 - Members in direct mode do not follow a RAM server restart (`rinab/experiments/RESULTS.md:1553`).
 
 **b) Mapping, by name.**
@@ -998,7 +998,7 @@ The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`
   - runs `fdf-ram` as `RINA_HOST_ROLE=mapping` on `MR:4342` with its own region file (`fdf-source/fdf/bin/fdf-mapping.sh:3-14`).
 - **RAM manager.** `fdf-ram-manager.sh`:
   - listens on `IP:8840`, where `IP` is the source address the host uses to reach the Map-Resolver;
-  - registers itself in the mapping on every listen (`[RAM_MANAGER_REGISTERS_ITSELF_V1]`, `rina_region.cpp:998-1015, 1056-1060`).
+  - registers itself in the mapping on every listen (`[RAM_MANAGER_REGISTERS_ITSELF_V1]`, `fdf_region.cpp:998-1015, 1056-1060`).
   - Moving the manager means stopping it and starting it elsewhere; "members follow by themselves" (`fdf-ram-manager.sh:5`).
 - **Members.** `fdf-member.sh ROUTER` adds a route to 198.18.0.0/15 and runs the agent with only `RINA_AREA` (`fdf-member.sh:2-17`).
 
@@ -1008,7 +1008,7 @@ The client's locate order (`[ONE_NAME_BOOTSTRAP_V1]`, `[TRANSPORT_INTERFACE_V1]`
 
 ### F.3 The Map-Resolver address rule `[MR_ADDRESS_FROM_NAME_V1]`
 
-Ruled by John on 2026-10-07 ("option B"): a deterministic rule, no DNS. Source: `rina_region_client.hpp:42-62`; `rinab/experiments/DESIGN-MR-RULE.md`.
+Ruled by John on 2026-10-07 ("option B"): a deterministic rule, no DNS. Source: `fdf_region_client.hpp:42-62`; `rinab/experiments/DESIGN-MR-RULE.md`.
 
 - `h = SHA-256(area name)`.
 - **IPv4:** 198.18.0.0/15 plus the first 17 bits of `h`. A last octet of .0 becomes .1; .255 becomes .254.
@@ -1019,7 +1019,7 @@ Ruled by John on 2026-10-07 ("option B"): a deterministic rule, no DNS. Source: 
 
 ### F.4 Mapping semantics `[AREA_MAPPING_IN_THE_REGION_V1]`
 
-LISP's mapping semantics run in a region over the session ("no control messages over UDP"), on port 4342 reused as TCP. Source: `rina_region.cpp:438-514`.
+LISP's mapping semantics run in a region over the session ("no control messages over UDP"), on port 4342 reused as TCP. Source: `fdf_region.cpp:438-514`.
 
 - **`map_site name key`.** Stores the site key, Permanent. **It takes no credential** (§9).
 - **`map_register {name, site, rloc, ttl, ts, auth, own}`.**
@@ -1045,8 +1045,8 @@ LISP's mapping semantics run in a region over the session ("no control messages 
 - **What the agent announces.** `announce {ns, name, ips, cap}`, where `ips` are the non-loopback IPv4 addresses and `cap` is FrogNet's capability probe output, verbatim (`rinab/src/rina_node.cpp:156-186`).
 - **When.** On every attach, and on every netlink link or address change (`rina_node.cpp:312-326`).
 - **Capability caching.** The probe runs once per agent process and its output is cached, so the time-varying fields it carries (load, temperatures, ts) stay as first measured. If the probe fails, the machine is attached but not announced (`rina_node.cpp:159-171`).
-- **Liveness.** "Alive" means the machine's node record is non-empty, which means its session is up (`rina_region.cpp:200, 974-975`).
-- **Participant changes** push `p` to every `pwatch` watcher (`rina_region.cpp:240-244`).
+- **Liveness.** "Alive" means the machine's node record is non-empty, which means its session is up (`fdf_region.cpp:200, 974-975`).
+- **Participant changes** push `p` to every `pwatch` watcher (`fdf_region.cpp:240-244`).
 - **Probe fields.** cores, CPU MHz, architecture, model, CPU bench, memory, MySQL state, disk size, class, write rate and fsync, `lan_ip`, load averages, temperatures, ts. The probe refuses to publish if any measurement fails (`fdf-source/fdf/bin/frognet_capability_probe.sh:132-340`).
 
 ### F.6 Identity `[MACHINE_IDENTITY_V1]` `[MEMBER_IDENTITY_V1]`
@@ -1067,7 +1067,7 @@ LISP's mapping semantics run in a region over the session ("no control messages 
 
 ### G.1 Principles
 
-- Liveness is the session; there is no heartbeat and no pid check (R-M3, `rina_region.cpp:4`).
+- Liveness is the session; there is no heartbeat and no pid check (R-M3, `fdf_region.cpp:4`).
 - A split or merge is an **event the application is told about**, never hidden.
 - Each member is the authority for its own records and writes them back after a host change.
 - The node agent has no timers; every action follows an event (`rina_node.cpp:1-4`). The exceptions elsewhere are listed in §N.3.
@@ -1122,7 +1122,7 @@ Source: `rinab/src/rina_node.cpp:224-267`.
 
 **Reliable flows** (`[RESEND_ON_HOST_CHANGE_V1]`, `librina_region.cpp:494-519`). After the host changes, the program reads the receiver's `taken_now` count and re-sends kept SDUs from there; the receiver drops duplicates.
 
-**What is lost on a host change** (`librina_region.cpp:494-496`; `rina_region.cpp:974-995`):
+**What is lost on a host change** (`librina_region.cpp:494-496`; `fdf_region.cpp:974-995`):
 - route events pushed while the program had no session;
 - the old host's record of what each receiver took;
 - every session-bound row: node record, announcement, where and attention tuples, leaf /32, owned mappings, watches.
@@ -1145,7 +1145,7 @@ FrogNet's daemon, outside FD&F, cited for completeness (`opt/frognet_semantic/in
 
 ### G.7 NAT
 
-Every member holds one outbound TCP session to the RAM manager, and all data goes through it, so no relay is needed (`RESULTS.md:1057-1058`). The relay-router design (`rinab/experiments/DESIGN-NAT.md`) was removed. `seen` still reports the address a session arrives from (`rina_region.cpp:515-520`).
+Every member holds one outbound TCP session to the RAM manager, and all data goes through it, so no relay is needed (`RESULTS.md:1057-1058`). The relay-router design (`rinab/experiments/DESIGN-NAT.md`) was removed. `seen` still reports the address a session arrives from (`fdf_region.cpp:515-520`).
 
 ---
 
@@ -1323,10 +1323,10 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
 
 - **Nodes choose their own 10.X.Y.1 at install.** The RAM manager does not assign /24s (OPERATING:70-71, 325).
 - **A /24 has one owner per region, enforced three times:**
-  1. the RAM manager refuses an announcement that overlaps a live member (`[PREFIX_OVERLAP_REFUSED_V1]`, `rina_region.cpp:593-608`);
+  1. the RAM manager refuses an announcement that overlaps a live member (`[PREFIX_OVERLAP_REFUSED_V1]`, `fdf_region.cpp:593-608`);
   2. the hub keeps the lowest id;
   3. the graph routes a duplicated .1 by nobody.
-- **Leaves get their address from the region,** following John's 2026-10-10 ruling "Nobody types shit. That's what the ram manager is for" (`[LEAF_ADDR_FROM_THE_REGION_V1]`, `rina_region.cpp:609-646`):
+- **Leaves get their address from the region,** following John's 2026-10-10 ruling "Nobody types shit. That's what the ram manager is for" (`[LEAF_ADDR_FROM_THE_REGION_V1]`, `fdf_region.cpp:609-646`):
   - the lowest free 10.252.X.Y, bound to the session;
   - the same address on re-announce;
   - freed at session end.
@@ -1343,8 +1343,8 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
   - `fdf-forward AREA` switches the forward pond in place, without a restart (`[FORWARD_SWITCH_IN_PLACE_V1]`).
 
   Each `fdf-client@<area>` re-announces as a node or as a participant when the forward pond changes (`[FORWARD_IS_A_FACT_V1]`, `fdf_client.cpp:95-115`).
-- **Attention** is a tuple, `(pond, attention, <writer>)`, written with `fdf-attention`. Participants hold a read on it and log `ATTENTION`. The region removes the notice when its writer's session ends (`[ATTENTION_IS_A_TUPLE_V1]`; `rina_region.cpp:981-984`).
-- **A region runs in one of three modes,** set by its `(pond, config, net)` tuple (`[NET_CONFIG_IS_A_TUPLE_V1]`, `rina_region.cpp:1016-1050`). The mode decides how far a machine that participates in the pond, without it being its forward pond, can reach into it:
+- **Attention** is a tuple, `(pond, attention, <writer>)`, written with `fdf-attention`. Participants hold a read on it and log `ATTENTION`. The region removes the notice when its writer's session ends (`[ATTENTION_IS_A_TUPLE_V1]`; `fdf_region.cpp:981-984`).
+- **A region runs in one of three modes,** set by its `(pond, config, net)` tuple (`[NET_CONFIG_IS_A_TUPLE_V1]`, `fdf_region.cpp:1016-1050`). The mode decides how far a machine that participates in the pond, without it being its forward pond, can reach into it:
 
   | Mode | `reach` | What a participant gets |
   |---|---|---|
@@ -1360,7 +1360,7 @@ Source: `fdf-source/fdf/bin/fdf-hub`.
   - A colliding destination is aliased 1:1 from 100.64.0.0/10, but only if `map` is `allowed`. Otherwise it is REFUSED, naming the prefix.
   - Released aliases are quarantined for 600 s (`[ALIAS_QUARANTINE_V1]`).
   - Reach creates only its own interfaces, tables and chains (`rch-*`, `FDFR*`) and never writes the main routing table (`fdf-reach:17-36, 65-70, 133-164`).
-- **Resolving identities.** Tuples name machines by identity (`w:<guid>`), never by address; `resolve` gives the address in *this* pond (`[IDENTITY_IN_TUPLES_V1]`, `rina_region.cpp:672-696`). If two ponds answer, the lookup is refused (`[RESOLVE_AMBIGUOUS_REFUSED_V1]`).
+- **Resolving identities.** Tuples name machines by identity (`w:<guid>`), never by address; `resolve` gives the address in *this* pond (`[IDENTITY_IN_TUPLES_V1]`, `fdf_region.cpp:672-696`). If two ponds answer, the lookup is refused (`[RESOLVE_AMBIGUOUS_REFUSED_V1]`).
 - **Refusal is final.** `fdf-client` takes the reach down and exits with code 4, which systemd does not restart ("No fallbacks", `fdf_client.cpp:116-191`).
 
 ### I.8 Leaving
@@ -1429,7 +1429,7 @@ Sources: `rinab/tools/make_deliverables.sh:3-114`; sizes `docs/cleanup-2026-10/F
   - `fdf-reach`;
   - the `.run`, `fdf-region-create`, `fdf-region-join` and `fdf-leave` banners.
 
-  (`rina_region.cpp:652-698, 1042-1057`; `fdf-hub:286, 314`; `fdf_client.cpp:326-327`; OPERATING:295-310.)
+  (`fdf_region.cpp:652-698, 1042-1057`; `fdf-hub:286, 314`; `fdf_client.cpp:326-327`; OPERATING:295-310.)
 - **Generic memory version:** `v0.63-bounded` (`version.hpp:5`).
 
 ### J.5 Logging and diagnostics
@@ -1447,7 +1447,7 @@ Sources: `rinab/tools/make_deliverables.sh:3-114`; sizes `docs/cleanup-2026-10/F
   | `RINA_RMT_STATS` | RMT counters at exit (now always zero, §N) |
   | `RINA_AGENT_LOG` | Agent log location |
 
-  (`ram_server.cpp:428-429, 520-523`; `rina_region.cpp:924`; `librina_region.cpp:262, 294, 486-488`; `rina_node.cpp:93-97, 282-287`.)
+  (`ram_server.cpp:428-429, 520-523`; `fdf_region.cpp:924`; `librina_region.cpp:262, 294, 486-488`; `rina_node.cpp:93-97, 282-287`.)
 - **Not logged:** individual reads and writes, refused requests, connections dropped before a session forms, and send failures (`ram_server.cpp:239-278, 630-664, 413`).
 
 ---
@@ -1631,10 +1631,10 @@ Found by reading the code against its comments and documents. Each was checked a
 1. **Numeric query arguments are coerced, not refused.** Non-numeric values become 0, contradicting "NO FALLBACKS" (`ram_server.cpp:31, 259-261`).
 2. **`op=remove` is unreachable through the plain HTTP front,** which recognises only `GET` and `POST` (`ram_server.cpp:629`).
 3. **Legacy-path ERROR frames omit the message-length field** that semwire defines (`ram_server.cpp:581-588` against `semwire.hpp:12`).
-4. **Choosing a region mode is undocumented.** A fresh region is RAM only, by design (§I.7). But `fdf-region-create` has no option to choose restricted or open, nothing ships `/opt/fdf/etc/net.json`, and `OPERATING.md` does not mention the file. The final gates also found that the default path does not work, and only a `RINA_NET_CONFIG` drop-in does (`rina_region.cpp:1016-1050`; FINAL-GATES: "the default path does not work").
-5. **The RAM manager's mapping TTL is 86,400 s with no re-registration.** The TTL is checked on every read, so a manager up for more than a day drops out of the mapping in mode b (`rina_region.cpp:1012`).
-6. **Records outside the reassert sets:** `reg|` and `route|` are in neither the agent's nor the library's set. It is not established how they return after a host change (`rina_region.cpp:384-392`).
-7. **The SDU-by-reference form is accepted by the region but never emitted by librina,** which always sends bytes (`rina_region.cpp:798-803` against `librina_region.cpp:485`). The `"k":"c"` credit event librina handles is never sent.
+4. **Choosing a region mode is undocumented.** A fresh region is RAM only, by design (§I.7). But `fdf-region-create` has no option to choose restricted or open, nothing ships `/opt/fdf/etc/net.json`, and `OPERATING.md` does not mention the file. The final gates also found that the default path does not work, and only a `RINA_NET_CONFIG` drop-in does (`fdf_region.cpp:1016-1050`; FINAL-GATES: "the default path does not work").
+5. **The RAM manager's mapping TTL is 86,400 s with no re-registration.** The TTL is checked on every read, so a manager up for more than a day drops out of the mapping in mode b (`fdf_region.cpp:1012`).
+6. **Records outside the reassert sets:** `reg|` and `route|` are in neither the agent's nor the library's set. It is not established how they return after a host change (`fdf_region.cpp:384-392`).
+7. **The SDU-by-reference form is accepted by the region but never emitted by librina,** which always sends bytes (`fdf_region.cpp:798-803` against `librina_region.cpp:485`). The `"k":"c"` credit event librina handles is never sent.
 8. **Two identity schemes:** `fdf-client` uses `w:<guid>`; librina and `rlite-ctl` use `m:<guid>/<netns inode>`. And `machine_id.hpp:7` says the inode is "always" appended, but it is not when `RINA_MACHINE_ID` is set (`:30`).
 9. **The capability probe runs once per agent,** so its load and temperature fields stay as first measured (`rina_node.cpp:159-171`).
 10. **`fdf_graph.py`'s docstring says the exit is the "nearest" host;** the code ranks by speed, then the lower .1, which matches the 2026-10-09 ruling (`:17` against `:192-194`).
@@ -1644,7 +1644,7 @@ Found by reading the code against its comments and documents. Each was checked a
 ### N.2 Stale comments and dead code
 
 - These still describe retired member-to-member flows and neighbour propagation: `rina_node.cpp:142, 308-310`; `librina_region.cpp:396` ("flows keep moving member to member"); `rmt.hpp:1-21` (hop-by-hop Ethernet relay).
-- `rina_region.cpp:1008` still mentions an SRV record. `rlite_ctl.cpp:387` shows a `pol|<netns>|…` key that the code does not use.
+- `fdf_region.cpp:1008` still mentions an SRV record. `rlite_ctl.cpp:387` shows a `pol|<netns>|…` key that the code does not use.
 - Dead code: `rina_elect.hpp` is included but unused; `g_answer`, `loopback_locator`, `RMT_TCP_PORT`, `LISTEN_HOST` and `LISTEN_PORT` are set but never read; the RMT counters are never incremented.
 - `fdf-hub`'s argparse default port is 50820, against 50889 everywhere else (the unit passes `--listen` from `hub.env`, which `fdf-region-create` writes as 50889 unless `--hub-port` is given). The kart README names a `kart-ram` binary that does not ship.
 
@@ -1657,7 +1657,7 @@ These are in tension with R-F1 and R-F2. They are recorded here, not ruled on.
 | `fdf_client.cpp:384-389` | `[MAPS_ASSERTED_V1]`: mappings re-asserted every `FDF_ASSERT_SEC` (default 30 s). `mapown_oracle` depends on it. |
 | `rlite_ctl.cpp:98-104` | The address claim spins with `yield` until its own claim is visible. The comment says "no wait". |
 | FrogNet daemon | Region rejoin every 5 s; capability re-probed every 600 s; graph hold-down of 60 s before removing a vanished row (`opt/frognet_semantic/internet_tunnels_v3/poll.py:1652, 1355`; `graph_apply.py:42`). |
-| `rina_region.cpp:235-239` | `notify_agents()` pushes a topology event to every agent on every node change. The 2026-10-08 fix `[NO_TOPOLOGY_BROADCAST_V1]` was lost with that workspace. |
+| `fdf_region.cpp:235-239` | `notify_agents()` pushes a topology event to every agent on every node change. The 2026-10-08 fix `[NO_TOPOLOGY_BROADCAST_V1]` was lost with that workspace. |
 | `fdf-ram-manager.sh:13-15` | When the mapping is local, the manager's address is the default route's source, else the first global address: two steps. |
 | `fdfram.where()`, `fdf-reach ram_of` | `fdfram.where()`: the environment, else `join.env`. `fdf-reach ram_of`: the pond's `ponds/<area>.env`, else the environment when `RINA_AREA` is that pond. Both allowed in `static-no-fallback.sh:101`, with a stated reason. |
 
@@ -1688,17 +1688,17 @@ These are in tension with R-F1 and R-F2. They are recorded here, not ruled on.
 
 | Variable | Meaning | Source |
 |---|---|---|
-| `RINA_RAM` | `host:port` of the RAM manager (direct, region) | `rina_region_client.hpp:105` |
+| `RINA_RAM` | `host:port` of the RAM manager (direct, region) | `fdf_region_client.hpp:105` |
 | `RINA_AREA`, `RINA_AREA_PORT` | Area name; RAM port (default 8840) | `:106-107` |
 | `RINA_MAP_RESOLVER` | Overrides the derived Map-Resolver address | `:56-62` |
 | `RINA_AREA_PASSWORD` | Area password, on the mapping machine and RAM-manager candidates only | `fdf-mapping.sh:7-8` |
-| `RINA_MAP_AREA` | Area the RAM manager registers itself under | `rina_region.cpp:998-1015` |
-| `RINA_HOST_ROLE=mapping` | Run `fdf-ram` as the mapping region | `rina_region.cpp:1056-1060` |
-| `RINA_REGION_FILE` | Permanent-record file; required | `rina_region.cpp:42-52` |
-| `RINA_NET_CONFIG` | Pond config file (default `/opt/fdf/etc/net.json`) | `rina_region.cpp:1016-1050` |
+| `RINA_MAP_AREA` | Area the RAM manager registers itself under | `fdf_region.cpp:998-1015` |
+| `RINA_HOST_ROLE=mapping` | Run `fdf-ram` as the mapping region | `fdf_region.cpp:1056-1060` |
+| `RINA_REGION_FILE` | Permanent-record file; required | `fdf_region.cpp:42-52` |
+| `RINA_NET_CONFIG` | Pond config file (default `/opt/fdf/etc/net.json`) | `fdf_region.cpp:1016-1050` |
 | `RINA_SITE_KEY` | Site key for signing mappings (region) | `fdf_client.cpp:207-260` |
 | `RINA_MACHINE_ID` | Overrides machine identity | `machine_id.hpp:28-33` |
-| `RINA_RAM_NETNS` | Network namespace the connection is made from | `rina_region_client.hpp:152-161` |
+| `RINA_RAM_NETNS` | Network namespace the connection is made from | `fdf_region_client.hpp:152-161` |
 | `RINA_CAPABILITY_PROBE` | Capability probe script | `fdf.env:20` |
 | `RIBBIT_TEMPLATES` | Primed BLDC-1 dictionary | `fnwp_engine.hpp:101-137` |
 | `FDF_FACTS`, `FDF_NAME`, `FDF_FORWARD_FILE`, `FDF_REACH`, `FDF_ASSERT_SEC` | `fdf-client` facts file, name, forward pond, reach, assert interval | `fdf_client.cpp` |
@@ -1777,7 +1777,7 @@ The examples follow the same rules:
 
 ### Q.5 FD&F's RINA region: two operations and its own store
 
-`rinab/tools/make_host.sh`; `rinab/src/rina_region.cpp`.
+`rinab/tools/make_host.sh`; `rinab/src/fdf_region.cpp`.
 - **Operations.** `op=rina` answers at once. `op=rina_block` answers now or later through a continuation and never holds a thread. Both are recognized by the exact tail of the path before the query string is parsed (`[REGION_FAST_PATH_V1]`). §E.4 lists the operations carried in the body.
 - **Its own store.** The region keeps its records in its own lock-free store, not in the generic memory. Permanent records go to the region file (§E.1–§E.2).
 - **The caller's session.** Several operations answer from the caller's session: `seen`, registration, mapping ownership and `send` (§D.6).
@@ -1920,7 +1920,7 @@ A working prototype of the distributed-application model in the RINA Reference M
 | What | File |
 |---|---|
 | The region: every operation, the check point, the DAF file | `src/daf_region.cpp` (`[DAF_MODEL_V1]`) |
-| Its entry points in the host | `src/door/rina_region.h`; dispatch in `tools/make_host.sh` (`op=daf`); session end and start in `src/rina_region.cpp` |
+| Its entry points in the host | `src/door/fdf_region.h`; dispatch in `tools/make_host.sh` (`op=daf`); session end and start in `src/fdf_region.cpp` |
 | The client library: a session, watching, working sets, find-and-join | `src/daf_client.hpp` |
 | Tests, one program per milestone | `tests/daf_names.cpp`, `tests/daf_membership.cpp`, `tests/daf_information.cpp`, `tests/daf_reach.cpp`; run by `tools/daf-check.sh` |
 | The hospital capacity manager: the scripted incident and the board | `examples/hcm/hcm_incident.cpp`, `examples/hcm/hcm_board.cpp`; run by `tools/hospital-demo.sh` |

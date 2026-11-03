@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """apply_owned_cells.py RAM_SERVER_CPP -- [OWNED_CELL_GOES_WITH_THE_SESSION_V1] a plain write may say "own":true: its
-tuple is then this session's, and the region writes it {} when the session ends (rina_own_cell, rina_region.cpp). A
+tuple is then this session's, and the region writes it {} when the session ends (rina_own_cell, fdf_region.cpp). A
 participant is there while its session is up, so nothing re-writes itself to stay fresh and no reader filters by age.
 A plain-HTTP write has no session: own:true there is refused, said. Needs apply_session_hook.py first."""
 import sys

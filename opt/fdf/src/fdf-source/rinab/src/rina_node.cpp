@@ -17,7 +17,7 @@
 #include <string>
 #include <thread>
 #include <functional>
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include "rina_elect.hpp"
 #include "rmt.hpp"
 #include "machine_id.hpp"
@@ -141,14 +141,14 @@ static void start_rmt(const std::function<void(const std::string&)>& fail) {
 
 // ---- [AGENT_SURVIVES_THE_REGION_V1] / [AGENT_REASSERTS_V1] / [HOST_CHANGE_BY_NEIGHBOUR_PROPAGATION_V1] ----------------
 static std::string g_ns;
-static std::atomic<rina_region::Client*> g_ram{nullptr};   // the session to the area's region; null while there is none
+static std::atomic<fdf_region::Client*> g_ram{nullptr};   // the session to the area's region; null while there is none
 static std::mutex g_mine_mu; static std::string g_mine;    // this machine's own records, as last held (a JSON array)
-static double state(rina_region::Client& ram) {
+static double state(fdf_region::Client& ram) {
     frogram::Json r = ram.call("{\"op\":\"node\",\"ns\":" + frogram::Json::quote(g_ns) + ",\"devs\":" + frogram::Json::quote(devices()) + "}");
     if (r["rc"].n != 0) throw std::runtime_error("rejoin: " + r["err"].s);
     return r["after"].n;
 }
-static void refresh_mine(rina_region::Client& ram) {       // [AGENT_REASSERTS_V1] on every topology signal: the copy stays current
+static void refresh_mine(fdf_region::Client& ram) {       // [AGENT_REASSERTS_V1] on every topology signal: the copy stays current
     frogram::Json r = ram.call("{\"op\":\"mine\",\"ns\":" + frogram::Json::quote(g_ns) + "}");
     if (r["ok"].type == frogram::Json::Bool && !r["ok"].b) throw std::runtime_error("mine: " + r["error"].s);
     std::lock_guard<std::mutex> l(g_mine_mu); g_mine = r["recs_text"].s;
@@ -169,7 +169,7 @@ static std::string capability() {
     if (out.empty() || out[0] != '{') { fprintf(stderr, "rlite-uipcps: [FDF_DISCOVERY_V1] the capability probe %s gave no capability: this machine is NOT announced\n", p); return ""; }
     return g_cap = out;
 }
-static void announce(rina_region::Client& c) {
+static void announce(fdf_region::Client& c) {
     const std::string cap = capability(); if (cap.empty()) return;
     char host[256] = "?"; gethostname(host, sizeof host - 1);
     std::string ips = "[";
@@ -184,11 +184,11 @@ static void announce(rina_region::Client& c) {
     if (!r["ok"].b) fprintf(stderr, "rlite-uipcps: [FDF_DISCOVERY_V1] the announcement was refused: %s %s\n", r["error"].s.c_str(), r["why"].s.c_str());
     else fprintf(stderr, "rlite-uipcps: [FDF_DISCOVERY_V1] announced %s at %s\n", host, ips.c_str());
 }
-static void waiter(rina_region::Client* c, uint64_t at);
+static void waiter(fdf_region::Client* c, uint64_t at);
 static void wake_subscribers();   // [LIBRARY_REASSERTS_V1] below
 // connect, re-assert what this machine owns (if it held anything), state its node, derive routes, hold the wait
 static void attach() {
-    rina_region::Client* c = new rina_region::Client;          // throws if the region cannot be reached: said by the caller
+    fdf_region::Client* c = new fdf_region::Client;          // throws if the region cannot be reached: said by the caller
     std::string mine; { std::lock_guard<std::mutex> l(g_mine_mu); mine = g_mine; }
     if (!mine.empty() && mine != "[]") {
         frogram::Json r = c->call("{\"op\":\"reassert\",\"ns\":" + frogram::Json::quote(g_ns) + ",\"recs\":" + mine + "}");
@@ -216,7 +216,7 @@ static void wake(uint32_t pid) {
 }
 static void wake_subscribers() { std::set<uint32_t> s; { std::lock_guard<std::mutex> l(g_sub_mu); s.swap(g_subs); } for (uint32_t p : s) wake(p); }
 static void on_subscribe(uint32_t pid) {
-    if (rina_region::Client* c = g_ram.load(std::memory_order_acquire)) {
+    if (fdf_region::Client* c = g_ram.load(std::memory_order_acquire)) {
         try { state(*c); wake(pid); return; } catch (const std::exception&) {} }   // no live session: wait for the next attach
     std::lock_guard<std::mutex> l(g_sub_mu); g_subs.insert(pid);
     fprintf(stderr, "rlite-uipcps: [LIBRARY_REASSERTS_V1] program %u waits for the host\n", pid);
@@ -229,17 +229,17 @@ static void rejoin_on_mapping() {
     if (!area || !*area) { fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] cannot wait on the mapping: RINA_AREA is not set; this machine stays detached\n"); return; }
     const std::string name = std::string(area).substr(0, std::string(area).find(':'));
     std::string mrs;                                           // [MR_FROM_THE_AREA_NAME_V1] the first map-resolver that takes the watch
-    try { mrs = rina_region::map_resolvers(name).front(); }
+    try { mrs = fdf_region::map_resolvers(name).front(); }
     catch (const std::exception& e) { fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] %s; this machine stays detached\n", e.what()); return; }
     const char* mr = mrs.c_str();
     const std::string me = "mw:" + std::to_string(getpid());
     for (uint64_t after = 0;;) {
         try {
-            rina_region::Client w(std::string(mr) + ":" + std::to_string(rina_region::MAP_PORT));
+            fdf_region::Client w(std::string(mr) + ":" + std::to_string(fdf_region::MAP_PORT));
             frogram::Json r = w.call("{\"op\":\"map_watch\",\"name\":" + frogram::Json::quote(name) + ",\"proc\":" + frogram::Json::quote(me) + "}");
             if (!r["ok"].b) { fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] the mapping region refused the watch: %s\n", r["error"].s.c_str()); return; }
             for (;;) {
-                rina_region::Client::forget_location();               // [LOCATE_CACHED_V1] it may have moved: resolve afresh
+                fdf_region::Client::forget_location();               // [LOCATE_CACHED_V1] it may have moved: resolve afresh
                 try { attach(); fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] re-attached to the area by name after the RAM manager registered\n"); return; }
                 catch (const std::exception& e) { fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] not attached yet (%s); waiting for the RAM manager to register\n", e.what()); }
                 const std::string text = w.held_text("{\"op\":\"wait\",\"proc\":" + frogram::Json::quote(me) + ",\"after\":" + std::to_string((unsigned long long)after) + "}", 3.0e8);
@@ -250,12 +250,12 @@ static void rejoin_on_mapping() {
             fprintf(stderr, "rlite-uipcps: [MAP_WATCH_V1] the mapping region is unreachable (%s); this machine stays detached\n", e.what()); return; }
     }
 }
-static void waiter(rina_region::Client* c, uint64_t at) {     // the one held read: terminate ends it; "t" re-derives the routes
+static void waiter(fdf_region::Client* c, uint64_t at) {     // the one held read: terminate ends it; "t" re-derives the routes
     for (;;) {
         std::string text;
         try { text = c->held_text("{\"op\":\"wait\",\"proc\":" + frogram::Json::quote("agent:" + g_ns) + ",\"after\":" + std::to_string((unsigned long long)at) + "}", 3.0e8); }
         catch (const std::exception& e) {                       // [NO_FALLBACKS] losing the region is not a terminate -- and not an end
-            rina_region::Client* expect = c; g_ram.compare_exchange_strong(expect, nullptr);
+            fdf_region::Client* expect = c; g_ram.compare_exchange_strong(expect, nullptr);
             fprintf(stderr, "rlite-uipcps: [AGENT_SURVIVES_THE_REGION_V1] the region is gone (%s); waiting on the mapping for the RAM manager\n", e.what());
             rmt_stats(g_ns); std::thread(rejoin_on_mapping).detach(); return; }                         // the old session object stays allocated: its threads may still hold it
         bool topo = false, end = false;
@@ -321,7 +321,7 @@ int main(int argc, char** argv) {
     for (;;) {                                                     // the kernel tells us; we tell the region (when there is one)
         if (::recv(nl, buf, sizeof buf, 0) <= 0) fail("netlink closed");
         while (::recv(nl, buf, sizeof buf, MSG_DONTWAIT) > 0) {}
-        if (rina_region::Client* c = g_ram.load(std::memory_order_acquire)) {
+        if (fdf_region::Client* c = g_ram.load(std::memory_order_acquire)) {
             try { state(*c); announce(*c); } catch (const std::exception& e) { fprintf(stderr, "rlite-uipcps: stating a device change: %s\n", e.what()); } }   // [FDF_DISCOVERY_V1] new IPs
     }
 }

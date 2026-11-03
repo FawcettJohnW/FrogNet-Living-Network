@@ -5,7 +5,7 @@
 # Run after tools/build.sh. Needs libjemalloc-dev, liblz4-dev, libssl-dev (their .a files).
 # Output: build/bin/fdf-ram-static, and build/static/fdf-ram (what the netns tests and the deliverables take)
 set -eu; cd "$(dirname "$0")/.."; L=/usr/lib/x86_64-linux-gnu; F=build/fdfram
-g++ -static -o build/bin/fdf-ram-static $F/fdf_ram.o $F/rina_region.o $F/daf_region.o $F/ctl_host.o $F/p_ram_host.o $F/p_lf_ebr.o $F/p_frogram.o \
+g++ -static -o build/bin/fdf-ram-static $F/fdf_ram.o $F/fdf_region.o $F/daf_region.o $F/ctl_host.o $F/p_ram_host.o $F/p_lf_ebr.o $F/p_frogram.o \
     $L/libjemalloc.a $L/liblz4.a $L/libcrypto.a -lresolv -lpthread -ldl 2>&1 | grep -v "statically linked applications requires at runtime\|in function" || true
 mkdir -p build/static && cp build/bin/fdf-ram-static build/static/fdf-ram
 file build/bin/fdf-ram-static | grep -q "statically linked" && echo "BUILD OK: build/bin/fdf-ram-static (static), and build/static/fdf-ram"

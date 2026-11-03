@@ -4,14 +4,14 @@
 //   ram read  SERVICE VARIABLE [INSTANCE] [AFTER] [WAIT_S] -> {"ok":true,"rows":[...]}; with AFTER, only newer cells,
 //                                                              held up to WAIT_S seconds until one exists
 // Application addressing <App>.<QueueName>.<submitter> is (service, variable, instance).
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include <cstdio>
 static std::string enc(const std::string& s) { std::string o; char b[4]; for (unsigned char c : s) { if (isalnum(c) || strchr("-_.~", c)) o += char(c); else { snprintf(b, sizeof b, "%%%02X", c); o += b; } } return o; }
 int main(int argc, char** argv) {
     try {
-        const std::string where = rina_region::Client::locate(); const size_t c = where.rfind(':');
-        frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), rina_region::api());
-        const std::string cmd = argc > 1 ? argv[1] : "", api = rina_region::api();
+        const std::string where = fdf_region::Client::locate(); const size_t c = where.rfind(':');
+        frogram::Session s(where.substr(0, c), atoi(where.c_str() + c + 1), fdf_region::api());
+        const std::string cmd = argc > 1 ? argv[1] : "", api = fdf_region::api();
         if (cmd == "write" && argc == 6) {
             const std::string body = "{\"service\":" + frogram::Json::quote(argv[2]) + ",\"variable\":" + frogram::Json::quote(argv[3]) +
                                      ",\"instance\":" + frogram::Json::quote(argv[4]) + ",\"bag\":" + argv[5] + "}";

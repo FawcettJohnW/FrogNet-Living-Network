@@ -53,7 +53,7 @@ contains the locked proof plan: obligations, D1–D5, experiments 1–9, build s
 ## Layout
 
 - **src/**
-  - rina_region.cpp: the region (ops: alloc, accept, wait, send, credit, taken, taken_now, routed, rmt_view, node,
+  - fdf_region.cpp: the region (ops: alloc, accept, wait, send, credit, taken, taken_now, routed, rmt_view, node,
     ctl, ...)
   - rina_memory.hpp: the region's own lock-free memory (InputSpace, FlowDir, records)
   - librina_region.cpp: rlite's API over the region and the data plane

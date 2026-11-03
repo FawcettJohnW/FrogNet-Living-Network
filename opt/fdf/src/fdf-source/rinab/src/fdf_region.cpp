@@ -1,10 +1,10 @@
-// rina_region.cpp -- the RINA region, resident in the RAM host: the Redis server model. Every conversation a RINA
+// fdf_region.cpp -- the RINA region, resident in the RAM host: the Redis server model. Every conversation a RINA
 // program, rlite-ctl or a machine's agent has with the region is ONE call (ONE-CALL-PER-CONVERSATION.md). A call that
 // waits is a held read on the memory itself, answered when its answer exists; nothing is ever re-asked.
 // [SESSION_IS_LIVENESS_V1] A participant is alive while its session is up; the server reports a session's end.
-#include "rina_region.h"
+#include "fdf_region.h"
 #include "rina_memory.hpp"
-#include "rina_region_client.hpp"
+#include "fdf_region_client.hpp"
 #include "fdf_version.hpp"
 #include <thread>
 #include <fcntl.h>
@@ -927,7 +927,7 @@ std::string fast_send(std::string_view b) {
     g_fast_send.fetch_add(1, std::memory_order_relaxed);
     return "{\"ok\":true}";
 }
-std::string rina_region_call(const std::string& body) {
+std::string fdf_region_call(const std::string& body) {
     if (body.find("\"op\":\"send\"") != std::string::npos) { std::string r = fast_send(body); if (!r.empty()) return r; }   // [KNOWN_SHAPE_V1] (any field order)
     g_parsed.fetch_add(1, std::memory_order_relaxed);
     Json in = Json::parse(body); return resident(in["op"].s, in);
@@ -951,7 +951,7 @@ static std::string credit(const Json& in) {
     if (fd->credit() > have || fd->gone()) answer_parked_credit(fd);   // it moved meanwhile
     return "";
 }
-std::string rina_region_block(const std::string& body) {
+std::string fdf_region_block(const std::string& body) {
     if (body.find("\"op\":\"wait\"") != std::string::npos) { std::string_view p; uint64_t a = 0;   // [KNOWN_SHAPE_V1] (any field order)
         if (ks::str_at(body, "\"proc\":", p) && ks::num_at(body, "\"after\":", a)) { g_fast_wait.fetch_add(1, std::memory_order_relaxed); return wait_op(std::string(p), a); } }
     Json in = Json::parse(body);
@@ -1059,10 +1059,10 @@ static void register_self(const std::string& listen_on) {
     if (why) { fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", why); return; }
     const std::string ip = listen_on.substr(0, listen_on.rfind(':'));
     std::vector<std::string> mrs;                              // [MR_FROM_THE_AREA_NAME_V1] explicit, or the area's SRV record
-    try { mrs = rina_region::map_resolvers(area); } catch (const std::exception& e) {
+    try { mrs = fdf_region::map_resolvers(area); } catch (const std::exception& e) {
         fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] the area's name is NOT registered: %s\n", e.what()); return; }
     for (const std::string& mr : mrs) {                        // every map-resolver of the area holds the registration
-        try { rina_region::map_register(area, ip, mr, key, 86400);
+        try { fdf_region::map_register(area, ip, mr, key, 86400);
               fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] registered '%s' -> %s in the mapping region at %s\n", area, ip.c_str(), mr.c_str()); }
         catch (const std::exception& e) { fprintf(stderr, "fdf-ram: [RAM_MANAGER_REGISTERS_ITSELF_V1] at %s: %s\n", mr.c_str(), e.what()); } }
 }

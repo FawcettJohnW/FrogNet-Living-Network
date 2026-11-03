@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """apply_permanent_cells.py RAM_SERVER_CPP -- [PERMANENT_CELL_V1] a plain write may say "permanent":true: the tuple is
-filed in the region's file (rina_permanent_cell, rina_region.cpp) before it is published, and the host writes it back
+filed in the region's file (rina_permanent_cell, fdf_region.cpp) before it is published, and the host writes it back
 into the memory when it starts again. A tuple is either Permanent or goes with its session, never both (refused, said).
 Needs apply_owned_cells.py first."""
 import sys

@@ -2,8 +2,8 @@
 #pragma once
 #include <cstdint>
 #include <string>
-std::string rina_region_call(const std::string& body);    // inline: never waits
-std::string rina_region_block(const std::string& body);   // may wait, on its own request thread
+std::string fdf_region_call(const std::string& body);    // inline: never waits
+std::string fdf_region_block(const std::string& body);   // may wait, on its own request thread
 uint64_t rina_session_id();                               // [SESSION_IS_LIVENESS_V1] (from the patched server)
 void rina_session_down(uint64_t id);                      // called once when a session's socket closes
 // [OWNED_CELL_GOES_WITH_THE_SESSION_V1] this request's session owns s/v/i: written {} when the session ends

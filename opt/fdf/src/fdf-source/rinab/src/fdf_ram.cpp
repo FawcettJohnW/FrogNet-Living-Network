@@ -6,7 +6,7 @@
 //
 // The platform's host, with FD&F's endpoint (/FawcettInnovations.RINA.ram_interface.php), FD&F's write contract
 // ([OWN_FLAG_DECIDES_V1]: only an "own":true write goes with its session; "permanent":true is filed in the region's
-// file), and the region -- rina_region.cpp, daf_region.cpp, ctl_host.cpp, unchanged -- as its operations: op=rina and
+// file), and the region -- fdf_region.cpp, daf_region.cpp, ctl_host.cpp, unchanged -- as its operations: op=rina and
 // op=daf (inline, never wait), op=rina_block (answered now or later, through a continuation). Every RAM FD&F runs is
 // this: a region's RAM manager, an app's RAM, the kart's; one that holds no region simply never gets a region call.
 // Settings as rina-host's: RINA_REGION_FILE (required), RINA_NET_CONFIG, RINA_MAP_AREA, RINA_HOST_ROLE, RIBBIT_TEMPLATES.
@@ -14,7 +14,7 @@
 #include "ram_host.hpp"
 #include "ram_memory.hpp"
 #include "frogram.hpp"
-#include "rina_region.h"
+#include "fdf_region.h"
 #include "fdf_version.hpp"
 #include <chrono>
 #include <cstdio>
@@ -28,7 +28,7 @@ static const std::string API = "/FawcettInnovations.RINA.ram_interface.php";
 static double now_s() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 static ramm::Memory& MEM() { return ribbit::RamHost::memory(); }
 
-// ---------------------------------------------------------------- what the region calls (rina_region.h), on the platform
+// ---------------------------------------------------------------- what the region calls (fdf_region.h), on the platform
 uint64_t rina_session_id() { return ribbit::current_session(); }                       // [SESSION_IS_LIVENESS_V1]
 void* rina_defer() { return ribbit::defer_answer(); }                                   // [DEFERRED_ANSWER_V1]
 void rina_answer(void* h, const std::string& body) { ribbit::answer_later(h, body); }
@@ -75,7 +75,7 @@ bool rina_resident_get_raw_id(const std::string& s, const std::string& v, const 
 }
 bool rina_resident_get_raw(const std::string& s, const std::string& v, const std::string& i, std::string& bag) { uint64_t id; return rina_resident_get_raw_id(s, v, i, bag, id); }   // [RAW_GET_V1]
 
-// the region's own (rina_region.cpp) entry points the host calls
+// the region's own (fdf_region.cpp) entry points the host calls
 void rina_host_listening(const std::string& listen_on);
 void rina_session_peer(uint64_t sid, const std::string& peer);
 
@@ -103,9 +103,9 @@ public:
     void session_down(uint64_t id) override { rina_session_down(id); }                 // [SESSION_IS_LIVENESS_V1]
     ribbit::Reply operation(const std::string& op, const std::string& body) override {
         try {
-            if (op == "rina") return ribbit::Reply{200, rina_region_call(body)};
+            if (op == "rina") return ribbit::Reply{200, fdf_region_call(body)};
             if (op == "daf") return ribbit::Reply{200, daf_region_call(body)};
-            return ribbit::Reply{200, rina_region_block(body)};   // "" when it took the continuation: answered later
+            return ribbit::Reply{200, fdf_region_block(body)};   // "" when it took the continuation: answered later
         } catch (const std::exception& x) { return ribbit::error_reply(400, op + ": " + x.what()); }
     }
 };
