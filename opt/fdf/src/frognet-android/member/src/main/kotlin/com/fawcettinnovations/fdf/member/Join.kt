@@ -113,24 +113,32 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
         log(line.toString())
         // [LOGIN_WHERE_IT_CAN_V1] (John 2026-11-02) the line is the admin's ordered list of RAM hosts: the first one on it
         // that admits this device is the invitation; one that cannot be reached, or refuses, is said and the next tried
-        // [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03) every RAM host on the line at once; the first to admit this device is
-        // the invitation, and it stays (no flapping). The others are admitted as they answer: ready for a failover.
+        // [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03) every RAM host on the line at once.
+        // [LOGIN_IN_LINE_ORDER_V1] (John 2026-11-03: "A torn network is worse than a disconnected one") the invitation
+        // is the HIGHEST on the line that admits this device, never the first to answer: every device with the same line
+        // gets the same answer. A host lower on the line that answers first waits until each one above it has refused or
+        // failed; the first that admits is taken as soon as nothing above it is still being asked.
         val missed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val pool = java.util.concurrent.Executors.newFixedThreadPool(maxOf(1, line.managers.size)) { r -> Thread(r, "admit").apply { isDaemon = true } }
-        val cs = java.util.concurrent.ExecutorCompletionService<Pair<Int, ManagerLogin>?>(pool)
+        val cs = java.util.concurrent.ExecutorCompletionService<Pair<Int, ManagerLogin?>>(pool)
         for ((i, m) in line.managers.withIndex()) cs.submit {
             try {
                 val ml = atManager(line, m, i, user, password)
-                if (ml.sessionPort <= 0) { missed.add("${m.endpoint}: no session port for level ${line.level}"); null } else Pair(i, ml)
-            } catch (e: Exception) { missed.add("${m.endpoint}: ${e.message}"); log("NOT admitted at ${m.name} (${m.endpoint}): ${e.message}"); null }
+                if (ml.sessionPort <= 0) { missed.add("${m.endpoint}: no session port for level ${line.level}"); Pair(i, null) } else Pair(i, ml)
+            } catch (e: Exception) { missed.add("${m.endpoint}: ${e.message}"); log("NOT admitted at ${m.name} (${m.endpoint}): ${e.message}"); Pair(i, null) }
             finally { bridge.removeIsland(island(m), "the login is over: the forward tunnel carries this key now") }
         }
+        val done = BooleanArray(line.managers.size); val got = arrayOfNulls<ManagerLogin>(line.managers.size)
         try {
             repeat(line.managers.size) {
-                val r = cs.take().get() ?: return@repeat
-                val (i, ml) = r; val m = line.managers[i]
-                log("admitted at ${m.name}, number ${i + 1} of ${line.managers.size} on the line, first to answer" + (if (missed.isEmpty()) "" else "; not at: " + missed.joinToString("; ")))
-                return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+                val (j, r) = cs.take().get(); done[j] = true; got[j] = r
+                for (i in line.managers.indices) {
+                    if (!done[i]) break                                     // one above is still being asked: wait for it
+                    val ml = got[i] ?: continue
+                    val m = line.managers[i]
+                    log("admitted at ${m.name}, number ${i + 1} of ${line.managers.size} on the line, the highest that admits" + (if (missed.isEmpty()) "" else "; not at: " + missed.joinToString("; ")))
+                    return Invite(line.line, line.org, "", m.addr, ml.sessionPort, m.hub(line.org), ml.me.ifEmpty { device }, ml.edge, kind, privkey)
+                }
             }
         } finally { pool.shutdown() }
         throw LoginRefused("admitted at none of the ${line.managers.size} RAM host(s) on the line: " + missed.joinToString("; "))
@@ -148,14 +156,16 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
         } finally { bridge.removeIsland(door, "the door's one exchange is over") }
         if (!ans["ok"].bool) throw LoginRefused("the door at ${m.endpoint} refused: ${ans["why"].str}")
         val edge = ans["edge"].str
-        log("door at ${m.endpoint}: I am ${ans["name"].str}, edge $edge (${ans["state"].str})")
+        log("door at ${m.endpoint}: I am ${ans["name"].str}, edge $edge (${ans["state"].str})" +
+            (if (ans["held"].str.isNotEmpty()) ", holding level ${ans["held"].str} here (one level per host)" else ""))   // [ONE_LEVEL_PER_HOST_V1]
+        val loginPort = ans["login_port"].num?.toInt()?.takeIf { it > 0 } ?: m.loginPort
         // 2 this device's own island at that RAM host
         val (op, _) = bridge.decide(own) { sc, old, tk -> val a = alias(own, m, sc, old, tk)
             ReachPlan(own, edge, hub, listOf("${m.addr}/32"), mapOf(a to "${m.addr}/32"), "ram", "allowed") }
         val host = op.alias.keys.first().substringBefore('/')
         // 3 login on its own tunnel
         val cred = if (line.password) "{\"user\":" + Json.quote(user) + ",\"password\":" + Json.quote(password) + "}" else "{}"
-        val out = tried("login at ${m.endpoint}") { exchange(host, m.loginPort, cred) }
+        val out = tried("login at ${m.endpoint}") { exchange(host, loginPort, cred) }
         if (!out["ok"].bool) throw LoginRefused("login at ${m.endpoint} refused: ${out["why"].str}")
         val spaces = out["spaces"].a.mapNotNull { sp ->
             val r = sp["ram"].str; val c = r.lastIndexOf(':')

@@ -67,7 +67,7 @@ NFT = os.environ.get("FDF_NFT", "nft")
 HUB_ADDR = "10.253.253.254"           # [HUB_ADDRESS_FROM_ITS_HOST_V1] set in main from hub.env (FDF_HUB_ADDR)
 GENERIC_NAME = "_generic"
 SVC = "fdf-org"
-BUILD_TAG = "fdf-org-2026-11-02-r20"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
+BUILD_TAG = "fdf-org-2026-11-03-r21"                # [APP_SAYS_ITS_BUILD_V1] said when serve starts
 sys.path.insert(0, os.environ.get("FDF_PY", "/opt/fdf/lib/python"))
 import fdfram
 
@@ -302,15 +302,36 @@ def door_ask(src, ask):
     old = adm.get(name)
     if old and old.get("state") == "revoked":
         return {"ok": False, "why": "this device was revoked; it needs a new key"}
+    # [ONE_LEVEL_PER_HOST_V1] (John 2026-11-03: "a single machine can only have one level to any given host") a device
+    # holds one level here. From an open level (no password) to a password level is the upgrade: allowed, and the
+    # device is restricted until that level's login checks the password (before this, the record took the new level
+    # and kept "admitted", so the new level's reach was given before any password was asked). A device that holds a
+    # password level and asks for an open one (its base attaching again after a restart) keeps the level it holds:
+    # the answer says so, and the open level's login gives it its held level's session. A different password level: refused.
+    held = (old or {}).get("level")
+    keep = False
+    if old and held and held != level and held in levels:
+        if levels[held].get("password") and levels[level].get("password"):
+            log("DOOR: %s asked for level %s but holds %s here: refused (one level per host)" % (name, level, held))
+            return {"ok": False, "why": "this device holds level %s at this host; one level per host" % held}
+        keep = bool(levels[held].get("password")) and old.get("state") == "admitted"
     edge = old["edge"] if old else fdf_regions.free_edge({r.get("edge") for r in adm.values()})   # one pool per machine
     rec = dict(old or {}, name=name, pubkey=pub, edge=edge, kind="node" if ask.get("kind") == "node" else "leaf",
-               level=level, device=str(ask.get("device", ""))[:64], nick=str(ask.get("nick", ""))[:64])
+               level=held if keep else level, device=str(ask.get("device", ""))[:64], nick=str(ask.get("nick", ""))[:64])
+    if old and held != rec["level"]:
+        rec["state"] = "restricted"                                # the upgrade: nothing of the new level until its login
+        log("DOOR: %s upgrades from level %s to %s: restricted until its login" % (name, held, level))
+    elif keep:
+        log("DOOR: %s asked for the open level %s and keeps level %s, which it holds here" % (name, level, held))
     rec.setdefault("state", "restricted")
     rec.setdefault("invited", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     write_admitted(name, rec)
     apply_reach("door: %s at %s" % (name, level))
     log("DOOR: %s (%s, nick %r) at level %s: edge %s, %s" % (name, rec["device"], rec["nick"], level, edge, rec["state"]))
-    return {"ok": True, "name": name, "edge": edge, "state": rec["state"], "login_port": levels[level]["login_port"]}
+    out = {"ok": True, "name": name, "edge": edge, "state": rec["state"], "login_port": levels[rec["level"]]["login_port"]}
+    if keep:
+        out["held"] = held
+    return out
 
 
 def login(src, port, ask):
@@ -320,7 +341,13 @@ def login(src, port, ask):
     if not rec or rec.get("level") != level:
         return {"ok": False, "why": "this edge was not admitted at this level"}  # [PORTS_BOUND_TO_ADMISSION_V1]
     lv = levels[level]
-    if lv.get("password"):
+    # [ONE_LEVEL_PER_HOST_V1] an admitted device that logs in again with no password (its base after a restart, or the
+    # door said it holds this level) is given its session: its password was checked when it was admitted, and its edge
+    # already reaches that session port. A password that is given is checked.
+    held = rec.get("state") == "admitted" and not ask.get("password")
+    if held and lv.get("password"):
+        log("LOGIN: %s at %s, admitted before: its session, no password asked again" % (rec["name"], level))
+    if lv.get("password") and not held:
         u = cells("user").get("%s/%s" % (level, ask.get("user", "")))
         if not u or not hmac.compare_digest(u["v"], verifier(org_key(), str(ask.get("password", "")), u["salt"])):
             log("LOGIN: %s at %s: wrong user or password" % (rec["name"], level))

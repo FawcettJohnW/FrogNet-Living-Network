@@ -32,7 +32,7 @@ import base64, json, os, socket, subprocess, sys, tempfile, threading, time
 STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
 WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
 TRIES = 6
-BUILD_TAG = "fdf-login-2026-11-02-r2"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
+BUILD_TAG = "fdf-login-2026-11-03-r3"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
 
 
 def log(*a):
@@ -147,7 +147,11 @@ def at_manager(line, m, i, st, cred, nick, kind):
             iface_down(door)                                       # 2 the generic tunnel is gone after the one exchange
     if not ans or not ans.get("ok"):
         raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
-    log("door at %s: I am %s, edge %s (%s)" % (m["endpoint"], ans["name"], ans["edge"], ans["state"]))
+    log("door at %s: I am %s, edge %s (%s)%s" % (m["endpoint"], ans["name"], ans["edge"], ans["state"],
+        ", holding level %s here (one level per host)" % ans["held"] if ans.get("held") else ""))   # [ONE_LEVEL_PER_HOST_V1]
+    if ans.get("state") != "admitted":                              # [ONE_LEVEL_PER_HOST_V1] restricted now: no session here
+        for k in ("ram", "session_port", "level", "spaces", "area", "site_key"):   # until this login (an upgrade the
+            me.pop(k, None)                                        # password then refuses leaves none, not the old one)
     me.update(name=ans["name"], edge=ans["edge"], iface=own, peer=m["pubkey"], endpoint=m["endpoint"], addr=m["addr"],
               order=i, metric=100 + i)
     iface_up(own, st["privkey"], ans["edge"], m["pubkey"], m["endpoint"], m["addr"], 100 + i)
@@ -155,7 +159,7 @@ def at_manager(line, m, i, st, cred, nick, kind):
     out = None
     for t in range(1, TRIES + 1):
         try:
-            out = exchange(m["addr"], m["login_port"], cred, own)
+            out = exchange(m["addr"], int(ans.get("login_port") or m["login_port"]), cred, own)   # the level it holds
             break
         except (OSError, ValueError) as e:                         # the hub adds the peer on its admitted-file event
             log("login at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
@@ -271,11 +275,12 @@ def main():
     # [LOGIN_WHERE_IT_CAN_V1] a target that cannot be reached, or refuses, is said and left for the next run.
     # [LOGIN_AT_ALL_AT_ONCE_V1] (John 2026-11-03: "Why are you trying to reach targets sequentially?") every target at
     # once, each on its own interfaces: a dead one costs its own timeout, not every one's after it.
-    missed = []
+    missed, now = [], set()
     def one(i, m):
         key = m["name"] or m["endpoint"]
         try:
             at_manager(line, m, i, st, cred, nick, kind)
+            now.add(key)
         except (Refused, OSError, subprocess.CalledProcessError) as e:
             missed.append("%s: %s" % (m["endpoint"], e))
             log("NOT logged in at %s (%s): %s -- left for the next run" % (key, m["endpoint"], e))
@@ -288,7 +293,9 @@ def main():
         if not (st["managers"].get(key) or {}).get("ram"):
             st["managers"].pop(key, None)                          # no half-made entry: --up brings up only logins
     save(st)
-    done = sorted((me for me in st.get("managers", {}).values() if me.get("ram")), key=lambda me: me["order"])
+    # this run's logins decide (an entry an earlier run made, which a refusing door left as it was, stays in the state
+    # for --up, but it is not this login)
+    done = sorted((me for k, me in st.get("managers", {}).items() if me.get("ram") and k in now), key=lambda me: me["order"])
     if not done:
         die("logged in at none of the %d RAM manager(s) on the line: %s" % (len(line["managers"]), "; ".join(missed)))
     log("logged in at %d of %d RAM manager(s)%s" % (len(done), len(line["managers"]), "; not at: " + "; ".join(missed) if missed else ""))

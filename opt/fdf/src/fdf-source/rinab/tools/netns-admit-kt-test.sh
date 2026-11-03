@@ -16,8 +16,9 @@
 #   3  q's own tunnel to the hub (its key, its edge) is up and the member joined the region through it
 #   4  the region holds q's announcement: role leaf, its key, its edge
 #   5  a second run with the same key: the same edge (nothing kept but the line)
-#   6  [LOGIN_WHERE_IT_CAN_V1][LOGIN_AT_ALL_AT_ONCE_V1] a line whose first RAM host cannot be reached: q is admitted at
-#      A, the first to answer, in seconds -- not after the unreachable one's 75 s
+#   6  [LOGIN_WHERE_IT_CAN_V1][LOGIN_AT_ALL_AT_ONCE_V1][LOGIN_IN_LINE_ORDER_V1] a line whose first RAM host cannot be
+#      reached: q is admitted at A, the highest on the line that admits -- after the unreachable one has failed (a lower
+#      one that answers first does not win while one above it is still being asked); the time is said
 # Needs root, ip, wg, wireguard-go, python3, curl, nft, java, the built fdf-member-kt and fdf-tun.
 #   usage: tools/netns-admit-kt-test.sh [RINAB_DIR]   KT_MEMBER=<fdf-member-kt launcher> FDF_TUN=<fdf-tun-x86_64>
 H=$(cd "$(dirname "$0")/.." && pwd); [ -n "$1" ] && H=$1
@@ -109,10 +110,11 @@ kill $(cat $T/svc.pids | tail -1) 2>/dev/null; for p in $(ip netns pids q); do k
 G0=$(date +%s.%N); ( KTQ admit "$L_ghost" >> $T/q/app3.log 2>&1 ) & echo $! >> $T/svc.pids
 for i in $(seq 600); do grep -q "joined the region at" $T/q/app3.log && break; grep -q "LOGIN FAILED" $T/q/app3.log && break; sleep 0.25; done
 G1=$(python3 -c "print('%.1f' % ($(date +%s.%N) - $G0))")
-# [LOGIN_AT_ALL_AT_ONCE_V1] both at once: admitted at A while the unreachable one is still being tried (it takes 75 s)
-check $(grep -q "admitted at hubA, number 2 of 2 on the line, first to answer" $T/q/app3.log && grep -q "joined the region at $HA:$SP" $T/q/app3.log \
-        && python3 -c "import sys; sys.exit(0 if $G1 < 20 else 1)" && echo 0 || echo 1) \
-      "6 the first RAM host unreachable: joined in $G1 s (one after the other it was 75 s): $(grep -o 'admitted at [^;]*first to answer' $T/q/app3.log | head -1); $(grep -o 'joined the region at [^,]*' $T/q/app3.log | head -1)"
+# [LOGIN_IN_LINE_ORDER_V1] both at once; A is taken only when the one above it has failed
+GHOST=$(grep -n "NOT admitted at ghost" $T/q/app3.log | head -1 | cut -d: -f1); ADM=$(grep -n "admitted at hubA, number 2 of 2" $T/q/app3.log | head -1 | cut -d: -f1)
+check $(grep -q "admitted at hubA, number 2 of 2 on the line, the highest that admits" $T/q/app3.log && grep -q "joined the region at $HA:$SP" $T/q/app3.log \
+        && [ -n "$GHOST" ] && [ -n "$ADM" ] && [ "$GHOST" -lt "$ADM" ] && echo 0 || echo 1) \
+      "6 the first RAM host unreachable: joined in $G1 s, after the unreachable one failed: $(grep -o 'admitted at [^;]*admits' $T/q/app3.log | head -1); $(grep -o 'joined the region at [^,]*' $T/q/app3.log | head -1)"
 echo "--- q"; grep -E "ADMITTED|door at|logged in|joined the region|tunnel:|LOGIN|refused|REFUSED" $T/q/app.log $T/q/app2.log $T/q/app3.log | cut -c1-220 | sed 's/^/    /' | tail -14
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
 exit $FAILS

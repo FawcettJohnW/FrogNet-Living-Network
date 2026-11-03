@@ -19,6 +19,11 @@
 #   7  w and v on the generic credential at the same instant: both end on their own tunnels and own edges
 #   8  the generic credential reaches the door and nothing else
 #   9  revoke r: its peer goes from the hub and its session port stops answering
+#  11  [ONE_LEVEL_PER_HOST_V1] w (Responders, open, admitted) asks for HQ with a wrong password: refused, and restricted
+#      until HQ's login (not the server, HQ's reach; not Responders' session port either); the right password: HQ
+#  12  q (HQ, admitted) logs in with Responders' line (its base attaching again): it keeps HQ, the door says so, its
+#      session is HQ's, the server still answers it
+#  13  a second password level, Medics: q, which holds HQ, is refused there (one level per host)
 #  10  the RAM host restarts (rina-host from its region file, fdf-org serve): every level and user is back; q's session
 #      returns with no login; r stays revoked
 # Needs root, ip, wg, wireguard-go, python3, curl, nft.  usage: tools/netns-org-test.sh [RINAB_DIR]
@@ -165,6 +170,25 @@ G_DOOR=$(probe r $HA $DOORP); G_SR=$(probe r $HA $SR); G_LR=$(probe r $HA $LR); 
 check $([ "$G_DOOR" = open ] && [ "$G_SR" != open ] && [ "$G_LR" != open ] && [ "$G_RAM" != open ] && echo 0 || echo 1) \
       "8 the generic credential: the door $G_DOOR; a session port $G_SR, a login port $G_LR, the RAM port $G_RAM"
 NS r ip link del wg-g; DEV r python3 $T/bin/fdf-login --up > /dev/null 2>&1
+# ---- 11 the upgrade from an open level
+echo "chief wrong" | login w HQ > $T/w/up-bad.log 2>&1; RC=$?
+W7=$(probe w $HA 7777); WSR=$(probe w $HA $SR)
+check $([ $RC != 0 ] && [ "$W7" != open ] && [ "$WSR" != open ] && grep -q "upgrades from level Responders to HQ" $T/hub/org.log && echo 0 || echo 1) \
+      "11 w asks for HQ with a wrong password: refused ($(grep -o 'refused.*' $T/w/up-bad.log | head -1)); the server $W7, Responders' session port $WSR"
+echo "chief s3cret-HQ" | login w HQ > $T/w/up.log 2>&1; RC=$?
+check $([ $RC = 0 ] && [ "$(probe w $HA 7777)" = open ] && [ "$(ramver w $SH)" = ok ] && echo 0 || echo 1) \
+      "11 w with the right password: HQ ($(grep 'logged in' $T/w/up.log | sed 's/^\[LOGIN\] [0-9:]* //' | head -1))"
+# ---- 12 a device that holds a password level, asking for an open one
+login q Responders < /dev/null > $T/q/held.log 2>&1; RC=$?
+check $([ $RC = 0 ] && grep -q "holding level HQ" $T/q/held.log && grep -q "level HQ, RINA_RAM=$HA:$SH" $T/q/held.log && [ "$(probe q $HA 7777)" = open ] && echo 0 || echo 1) \
+      "12 q with Responders' line keeps HQ: $(grep -E 'door at|logged in at 1' $T/q/held.log | sed 's/^\[LOGIN\] [0-9:]* //' | tr '\n' ';')"
+# ---- 13 a second password level
+ORG level Medics --password --reach ram > $T/hub/org-medics.log 2>&1 && echo "m3dic" | ORG user Medics doc >> $T/hub/org-medics.log 2>&1
+for i in $(seq 100); do [ "$(grep -c 'listening on' $T/hub/org.log)" -ge 5 ] && break; sleep 0.1; done
+ORG line Medics > $T/line-Medics 2> $T/line-Medics.err
+echo "doc m3dic" | login q Medics > $T/q/medics.log 2>&1; RC=$?
+check $([ $RC != 0 ] && grep -q "holds level HQ at this host; one level per host" $T/q/medics.log && [ "$(probe q $HA 7777)" = open ] && echo 0 || echo 1) \
+      "13 q at Medics while it holds HQ: refused ($(grep -o 'refused.*' $T/q/medics.log | head -1)); HQ still reaches the server"
 # ---- 9 revoke r
 RN=$(python3 -c "import json;print(list(json.load(open('$T/r/login.json'))['managers'].values())[0]['name'])")
 ORG revoke $RN > $T/hub/revoke.log 2>&1
@@ -177,7 +201,7 @@ host; sleep 3
 NS q ip link del wg-own0 2>/dev/null; DEV q python3 $T/bin/fdf-login --up > $T/q/up.log 2>&1
 for i in $(seq 40); do [ "$(ramver q $SH)" = ok ] && break; sleep 0.5; done
 LV=$(ORG list | grep -c '^level')
-check $([ "$LV" = 3 ] && [ "$(ramver q $SH)" = ok ] && [ "$(ramver r $SR)" = no ] && echo 0 || echo 1) \
+check $([ "$LV" = 4 ] && [ "$(ramver q $SH)" = ok ] && [ "$(ramver r $SR)" = no ] && echo 0 || echo 1) \
       "10 after the RAM host restarts: $LV levels back, q's session returns with no login, r stays revoked"
 echo "--- fdf-org"; sed 's/^/    /' $T/hub/org.log | tail -25
 [ $FAILS = 0 ] && echo "RESULT PASS" || echo "RESULT FAIL: $FAILS"
