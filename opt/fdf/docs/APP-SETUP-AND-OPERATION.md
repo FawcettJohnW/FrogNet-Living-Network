@@ -157,48 +157,78 @@ needs go through that app's own custom server. So databasehost does not check a 
 and has dedicated machines that offer open SSID connection. Connection to the public network gives you tunnel access
 to the public RAM of the current EOC, and nothing more." No login for victims.
 
-**A group's region is on its lead's device.** Each group runs its own `fdf-org@<group>` there (**John**: "Obviously
-it's #2"). The device is a phone (the Team app projects the hotspot) or a FrogNet Host such as a Pi with a router "for
-a more powerful external antenna". **John:** "The pi is initialized the same way the phone would be. It must be a LAN
-client of the EOC, so it is trusted. It gets its own tunnel setup the same way a phone would." Then the lead joins the
-Pi's projected network as an authenticated user and runs the admin tool, which configures the Pi as the group's host.
-The lead's admin app "is really doing admin, not just setup": first it selects and connects to the upstream network
-and becomes a member. If all hosts share one SSID and password, devices float between upstreams. When the upstream
-drops, the group's device can, if configured, scan for and join the closest host with a signal. **Not built** (today
-the lead's phone runs a sponsor on port 21801, and the door makes each member's identity).
+**Where a group lives is its lead's choice** ([GROUP_PLACE_V1], **built**). **John:** "The Lead should be able to say
+that the region lives on databasehost.frognet ... every host in the system must have the PHP for the app alongside the
+regular api.php." "There is no 'bring up' a region. It just turns on ... Turning on means someone is calling the API."
+- **On the lead's device** (`at: here`, naming the device's guid): a phone, or a FrogNet Host such as a Pi with a router
+  "for a more powerful external antenna" (**John:** "Obviously it's #2"). The group goes where the lead goes; it is
+  served by that device alone, the app's selection is not asked, and nobody serves it while that device is gone, so
+  members who cannot reach it fail.
+- **On databasehost** (`at: databasehost`): wherever the app's selection puts it; it stays when the lead leaves.
+- The lead says it at the door: `POST ram.php?op=place&app=APP {user, password, at, guid}` (dc-door r7), checked
+  against the verifier and refused for a user who leads no group. The door writes `(fdf-app, place, <app>.<group>)`;
+  `fdf-app serve` on every member adopts the newest from that group's lead into its own configuration (`places`, beside
+  `roles`, so the admin's next configuration keeps it) and writes it again with it: owned, not held.
+- Gates: `rinab/tools/test_fdf_app.py` 13-15 (placed here, a non-lead's place ignored, the device gone and nobody
+  serving it, back to the selection); `rinab/tools/netns-enroll-test.sh` 9 (the real door).
+- **Not built:** the lead's admin app screen for this; the group's service on a phone (a Pi is a member and serves it
+  with `fdf-app serve`).
+
+**The Pi is initialized the way the phone is.** **John:** "It must be a LAN client of the EOC, so it is trusted. It gets
+its own tunnel setup the same way a phone would." Then the lead joins the Pi's projected network as an authenticated
+user and runs the admin tool, which configures the Pi as the group's host. The lead's admin app "is really doing admin,
+not just setup": first it selects and connects to the upstream network and becomes a member. If all hosts share one
+SSID and password, devices float between upstreams. When the upstream drops, the group's device can, if configured,
+scan for and join the closest host with a signal. **Not built.**
 
 **A merge is a re-evaluation of routes, never of RAM.** **John:** "Merge in the sense that it causes a re-evaluation
-of the routes. There is no merging of the RAM if databasehost for any app changes." An `@eoc` failover is a route
-change taking milliseconds, because the tunnel was already authenticated.
+of the routes. There is no merging of the RAM if databasehost for any app changes."
 
-**The resilient EOC: an ordered list of targets.** **John:** "The admin designates a list of EOCs. When the app
-starts, it connects to the first in the list, if it can. If it can't, it drops a level and tries again. This way we
-can have state, county, city, neighborhood, and street EOCs that form the greater network." Any host can be a network
-target able to hold the EOC role for its level: a neighborhood Pi, an ambulance company's machine, a hospital's. The
-target in use is the highest on the list that is reachable.
-- **The device is told the list at initialization.** "As it is connected to the networks in the list, it
-  opportunistically creates the tunnels. When there is a failure, it goes to the first one that works that has
-  tunnels." Once on a lower target it stays there until that one dies (no flapping).
-- **When no target with a tunnel works**, "but there is a network available that it can log into, it does that and
-  creates the tunnels": the generic credential's one exchange at that target's door, the device's own key, then login
-  (section 5.1 of `ORGANIZATIONS.md`). **John:** that "lets the merges work, even if there's a network interruption for
-  a minute, and it removes the requirement of prior config."
-- **It holds reads on the EOC's configuration tuples** (the list, the roles, directives) and acts on a change the
-  moment it is written.
-- **The same users and passwords at every target** ([ONE_ORG_ON_EVERY_TARGET_V1], **built**, `fdf-org` r20): a
-  password is a verifier under its RAM host's own credential key, so for one password to log in anywhere, every target
-  holds the same key and the same users. `fdf-org export` on the host where they were set prints them as one secret
-  line (`fdforg1.<...>`). `fdf-org import` on each other target takes it on stdin; that target's levels keep their
-  own ports, and its own generic credential stays (the join line carries each target's). It refuses while the target
-  holds a user the export lacks, which would stop verifying; `--replace` drops those, by name. Done by hand on each
-  target, as restoring assignments is (John: "It needs to be intentional").
-- **Login wherever it can** ([LOGIN_WHERE_IT_CAN_V1], **built**, `fdf-login`): a target on the line that cannot be
-  reached, or refuses, is logged ("NOT logged in at ... -- left for the next run") and the next is tried; login fails
-  only when none admits the device. The Android member's `OrgLogin.admit` still uses only the line's first target:
-  **Not built** there.
-- Gate: `rinab/tools/netns-targets-test.sh` (5 checks: import refused while a stray user is held; import --replace;
-  the target that set the password unreachable and login at the other with it; both reachable; a wrong password
-  refused at both).
+**The EOC elects itself: a capability and the app's own selection** (John, 2026-11-03; this replaces the admin's
+ordered list of EOCs he described on 2026-11-02). **John:** "a role handler is a capability and the capability tuple is
+used to find the primary and the backups, but only one is actually active." "The admin installs the app service on a
+machine ... If that connection fails, the app fails. It does not try a backup. A torn network is worse than a
+disconnected one." "The selection process is run whenever there is a network event ... This is a held read on the
+capability tuple family for the app." "the admin doesn't have to designate backup RAM servers even for the EOC. It is a
+role and the machines capable have it installed. Designation and failover/failup are automatic." "The EOC that meets
+the criteria best is the same one for everything visible, so it's the EOC." "That's up to the algorithm. All services
+work like this -- EOC is just the example. For a media service, the requirements are different than for the EOC."
+- **Built** ([APP_DROPLET_V1], [APP_SELECTION_V1]): every member with the app writes its capability tuple
+  `(fdf-app, can, <app>.<guid>)` (every scalar its probe measured, never a defaulted one, and the RAMs the install
+  offers, `--serve`) and writes it again after any RAM change; `fdf-app serve` holds a read on the family and reruns the
+  selection on every event; the door refuses a RAM that is not served ("nothing works until it is"): connect or fail.
+- **The app's own selection** is its configuration's `select`, per RAM (`*` for the rest): `need` (capability keys that
+  must be true) and `rank` (keys compared in order, higher first; `-key` lower first); a member whose tuple lacks a key
+  ranks below every member that has it; the guid breaks the last tie. Every member uses the `select` of the newest
+  configuration among the alive members, so all compute the same member. No `select`: the most memory, then the most
+  cores, then the highest guid. `fdf-app config ... --select RAM=KEY,-KEY --need RAM=KEY --serve RAM,RAM`, or the
+  admin's configuration. `fdf_select.py`. Gate: `rinab/tools/test_fdf_app.py` 10-12.
+- **Open, John to rule:** `Space.kt` / `fdfspace.py` ([NO_FLAP_V1], John 2026-11-01: "never back up while it lives",
+  with a fallback list) disagree with "failover/failup are automatic" and "It does not try a backup". Unchanged until
+  he says which stands.
+
+**Logging in at the targets on a join line** (the bootstrap, before a device sees any capability tuple):
+- **The device is told the line at initialization**, and "as it is connected to the networks in the list, it
+  opportunistically creates the tunnels"; with no tunnel, "but there is a network available that it can log into, it
+  does that and creates the tunnels": the generic credential's one exchange at that target's door, the device's own key,
+  then login (section 5.1 of `ORGANIZATIONS.md`). **John:** that "lets the merges work, even if there's a network
+  interruption for a minute, and it removes the requirement of prior config."
+- **At every target at once** ([LOGIN_AT_ALL_AT_ONCE_V1], **built**): a dead one costs its own timeout, not everyone's.
+- **The highest on the line that admits** ([LOGIN_IN_LINE_ORDER_V1], **built**, `fdf-login` and the Android member's
+  `OrgLogin.admit`): never the first to answer, so every device with the same line gets the same answer. A lower target
+  that answers first waits until each above it has refused or failed. The cost: with the first target unreachable, the
+  join takes that target's own give-up time (76 s in `netns-admit-kt-test.sh` 6; it was 0.8 s first-to-answer).
+- **One level per host** ([ONE_LEVEL_PER_HOST_V1], **built**, `fdf-org` r21). **John:** "a single machine can only have
+  one level to any given host." From an open level to a password level is the upgrade, and the device is restricted
+  until that level's login checks the password. (Before r21 the record took the new level and kept "admitted", so a
+  device admitted at an open level got a password level's reach with no password; `netns-org-test.sh` 11 fails on r20.)
+  A device that holds a password level and asks for an open one (its base attaching again) keeps the level it holds,
+  and the door says so; a different password level is refused. An admitted device that logs in again with no password
+  is given its session (its edge already reaches it). Gate: `rinab/tools/netns-org-test.sh` 11-13.
+- **The same users and passwords at every target** ([ONE_ORG_ON_EVERY_TARGET_V1], **built**, `fdf-org` r20, by hand:
+  `fdf-org export` / `fdf-org import [--replace]`, John: "It needs to be intentional"). To be replaced by the
+  configuration's owners writing it again, as the app's verifiers are.
+- Gates: `rinab/tools/netns-targets-test.sh`, `netns-admit-kt-test.sh`.
 
 **Every hub at 10.253.253.254 collided once a device held two tunnels** (the WAN's and the current EOC target's).
 **John:** "Why isn't the hub using the IP address of its host?" "Use RAM." The host's own 10.A.B.1 would loop on a
@@ -214,7 +244,7 @@ says it from the next binary build.
 
 **Still open in this design** (Claude, raised 2026-11-02, not yet answered):
 1. The EOC role needs standing access to every group's region, for the dashboard to chat with a mobile team.
-2. A group's region goes with its lead's device; a second holder per group (an ordered list, as for the EOC) keeps it.
+2. (Answered by [GROUP_PLACE_V1]: a group that must outlive its lead's device is placed on databasehost.)
 3. Help requests and log entries written on an island during a split stay there: the app has to send its own
    unacknowledged reports up on reconnect.
 4. Revoking a lost device acts on one host (`fdf-org revoke`); it has to reach every target, with export/import.
