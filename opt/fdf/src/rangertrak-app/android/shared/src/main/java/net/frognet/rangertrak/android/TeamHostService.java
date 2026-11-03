@@ -32,6 +32,8 @@ public final class TeamHostService extends Service {
     public static final int PORT = 21800, SPONSOR_PORT = 21801;
     private static volatile net.frognet.ram.Enroll.Sponsor sponsor;
     public static final String STOP = "net.frognet.rangertrak.TEAM_HOST_STOP";
+    /** [GROUP_PLACE_V1] the team lives on databasehost now: the RAM stops here, the lead's sponsor stays */
+    public static final String STOP_RAM = "net.frognet.rangertrak.TEAM_HOST_STOP_RAM";
     private static volatile Process proc;
     private static volatile String said = "";
 
@@ -42,6 +44,11 @@ public final class TeamHostService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && STOP.equals(intent.getAction())) { stopRam("stopped by the user"); stopSelf(); return START_NOT_STICKY; }
+        if (intent != null && STOP_RAM.equals(intent.getAction())) {
+            stopRam("the team lives on databasehost now");
+            if (sponsor == null) stopSelf();
+            return START_NOT_STICKY;
+        }
         NotificationManager nm = getSystemService(NotificationManager.class);
         nm.createNotificationChannel(new NotificationChannel("teamhost", "RangerTrak team host", NotificationManager.IMPORTANCE_LOW));
         Notification n = new Notification.Builder(this, "teamhost").setContentTitle("RangerTrak: hosting the team")

@@ -24,6 +24,10 @@
 #     category Power, its group crew1 (own RAM) and its lead pat, and applies: the Power tab shows crew1 and pat, Teams
 #     does not; every member with the admin key adopts it; the door's op=roles says crew1 is in Power and the tabs'
 #     order (Teams, Power); pat logs in at the door as crew1
+#   9 [GROUP_PLACE_V1] kim, echo's lead, through the real AppCore (CoreDriver, as the lead's phone runs it): Host team
+#     places echo here, on kim's phone, at the door -- the members adopt it, none serves echo, op=rams has no echo and its
+#     places say here; Team on databasehost places it there -- a member serves echo again, and the core hears it from
+#     the door's held op=rams (until=echo) in the time printed
 import hashlib, hmac, json, os, shutil, socket, subprocess, sys, tempfile, threading, time
 from urllib.request import urlopen, Request
 from playwright.sync_api import sync_playwright
@@ -188,6 +192,47 @@ try:
               "8 tabs before %s; '%s'; the Power tab: groups %s, users %s; Teams: %s; %d members adopted; op=roles crew1 %s, categories %s; pat logs in as %s"
               % (tabs0, chg8[:90], power_roles, power_users, teams_roles, len(adopted8 or []), ro8.get("roles", {}).get("crew1"), ro8.get("categories"), lg8.get("role") or lg8.get("why")))
         br.close()
+    # 9 the lead says where its team lives
+    import queue
+    class Dev:
+        def __init__(self):
+            self.q = queue.Queue(); self.lines = []
+            self.p = subprocess.Popen(["java", "-cp", CP, "CoreDriver"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            procs.append(self.p); threading.Thread(target=self.read, daemon=True).start()
+        def read(self):
+            for l in self.p.stdout:
+                try: o = json.loads(l)
+                except ValueError: continue
+                self.lines.append(o); self.q.put(o)
+        def send(self, **o): self.p.stdin.write(json.dumps(o) + "\n"); self.p.stdin.flush()
+        def wait(self, pred, t=30):
+            end = time.time() + t
+            for o in list(self.lines):
+                if pred(o): return o
+            while time.time() < end:
+                try: o = self.q.get(timeout=max(0.05, end - time.time()))
+                except queue.Empty: break
+                if pred(o): return o
+            return None
+    LP = free(); procs.append(subprocess.Popen([T + "/bin/fdf-ram", "--listen", "127.0.0.1:%d" % LP, "--api", fdfram.API],   # the lead phone's RAM (as libteamram)
+        env=dict(os.environ, RINA_REGION_FILE=T + "/lead.perm", RINA_NET_CONFIG=T + "/none"), stdout=subprocess.DEVNULL, stderr=open(T + "/lead-ram.log", "w")))
+    kim = Dev(); kim.send(op="connect", door=DOOR, dev="kimphone", name="Kim", role="team", team="Echo")
+    con = kim.wait(lambda o: o.get("ev") == "connected")
+    kim.send(op="teamHost", port=LP, addr="127.0.0.1", card={}, user="kim", password="kim-2026")
+    said = kim.wait(lambda o: "lives on this phone" in str(o.get("text", "")))
+    def unserved():
+        r = door("op=rams&app=rangertrak")
+        return r if "echo" not in r.get("rams", {}) and (r.get("places", {}).get("echo") or {}).get("at") == "here" else None
+    here = wait_for(unserved, 20)
+    t0 = time.time(); kim.send(op="teamPlace", at="databasehost", user="kim", password="kim-2026")
+    served = kim.wait(lambda o: "served on databasehost now" in str(o.get("text", "")) or "not served yet" in str(o.get("text", "")), 40)
+    dt = time.time() - t0
+    after = door("op=rams&app=rangertrak")
+    check(con is not None and said is not None and bool(here) and served is not None and "served on databasehost now" in served.get("text", "")
+          and "echo" in after.get("rams", {}) and (after.get("places", {}).get("echo") or {}).get("at") == "databasehost",
+          "9 Host team: '%s'; op=rams then: echo %s, places %s; Team on databasehost: '%s' %.1f s after; op=rams: echo at %s, places %s"
+          % ((said or {}).get("text", "")[:90], "unserved" if here else "still served", (here or {}).get("places"), (served or {}).get("text", "")[:110], dt,
+             after.get("rams", {}).get("echo"), after.get("places")))
 finally:
     for p in procs: p.terminate()
     print("logs in", T)

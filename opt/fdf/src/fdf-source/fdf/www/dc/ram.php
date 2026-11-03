@@ -42,7 +42,7 @@
 // the network, typed by nobody. A device this node gave no lease has none here, and is told so.
 header('Content-Type: application/json');
 // [DOOR_SAYS_ITS_BUILD_V1] every answer says which door answered: the header, and "door" in the admin and roles answers
-const DOOR_BUILD = 'dc-door-2026-11-03-r7';
+const DOOR_BUILD = 'dc-door-2026-11-03-r8';
 header('X-FDF-Door: ' . DOOR_BUILD);
 set_time_limit(0);
 $env = '. ' . escapeshellarg(dirname(__DIR__, 2) . '/fdf.env') . ' && exec "$FDF_BIN"/ram ';
@@ -223,11 +223,31 @@ if ($op === 'read') {
     foreach ($kids as $k => $c) { if (!isset($done[$k])) proc_terminate($c['p']); fclose($c['out']); fclose($c['err']); proc_close($c['p']); }
     echo json_encode(['ok' => true, 'got' => $got], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 } elseif ($op === 'rams') {                                    // [TEAM_RAM_V1] the app's RAMs served now, and where
+    // [GROUP_PLACE_V1] &until=RAM&wait_s=S: held until RAM is served (a member's where cell is the event), at most S s
+    // (25): a lead that moved its group to databasehost hears the moment a member serves it. "places": where each
+    // group's lead placed it (the newest configuration's), for the dashboard and the apps.
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');
-    $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
-    $out = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $out[substr($k, strlen($app) + 1)] = $v;
-    echo json_encode(['ok' => true, 'rams' => $out]);
+    $read = function () use ($fdf_var, $app) {
+        $map = json_decode((string)@file_get_contents($fdf_var . '/app-where.json'), true);
+        $o = []; foreach ((is_array($map) ? $map : []) as $k => $v) if (strpos($k, $app . '.') === 0) $o[substr($k, strlen($app) + 1)] = $v;
+        return $o;
+    };
+    $out = $read();
+    $until = (string)($_GET['until'] ?? ''); $wait = max(0, min(25, intval($_GET['wait_s'] ?? 0)));
+    if ($until !== '' && $wait > 0 && !isset($out[$until])) {
+        if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $until)) fail(400, 'until: a RAM name');
+        $end = microtime(true) + $wait; $last = 0;
+        foreach ((json_decode(ram($env, ['read', 'pond', 'where']), true)['rows'] ?? []) as $c) $last = max($last, intval($c['id'] ?? 0));
+        while (!isset($out[$until]) && ($left = $end - microtime(true)) > 0.2) {
+            foreach ((json_decode(ram($env, ['read', 'pond', 'where', '', $last, sprintf('%.1f', $left)]), true)['rows'] ?? []) as $c) $last = max($last, intval($c['id'] ?? 0));
+            $out = $read();
+        }
+    }
+    $places = []; $seq = -1;                                   // the newest configuration's (no configuration: none)
+    foreach ((json_decode(ram($env, ['read', 'fdf-app', 'config']), true)['rows'] ?? []) as $c)
+        if (strpos($c['instance'] ?? '', $app . '.') === 0 && intval($c['bag']['seq'] ?? 0) > $seq) { $seq = intval($c['bag']['seq'] ?? 0); $places = $c['bag']['places'] ?? []; }
+    echo json_encode(['ok' => true, 'rams' => $out, 'places' => (object)$places, 'door' => DOOR_BUILD]);
 } elseif ($op === 'roles' || ($op === 'admin' && $_SERVER['REQUEST_METHOD'] === 'GET')) {
     $app = $_GET['app'] ?? '';
     if (!preg_match('/^[A-Za-z0-9_-]{1,40}$/', $app)) fail(400, 'app needed');

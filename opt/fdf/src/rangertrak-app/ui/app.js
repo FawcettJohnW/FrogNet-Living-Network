@@ -216,6 +216,8 @@ function connected(m) {
   $('#chatBtn').hidden = S.role === 'public'
   $('#homeBtn').hidden = S.role !== 'public'; $('#reqBtn').hidden = S.role === 'public'; $('#sensBtn').hidden = S.role === 'public'
   $('#hostBtn').hidden = !(S.role === 'team' && window.rtNative && window.rtNative.teamHost)
+  // [GROUP_PLACE_V1] the lead's choice of where its team lives: Host team (this phone) or databasehost
+  $('#placeBtn').hidden = !(S.role === 'team' && S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.teamPlace)
   $('#membersBtn').hidden = !(S.cfg.enrolled && S.cfg.enrolled.lead && window.rtNative && window.rtNative.teamMembers)
   $('#home').hidden = S.role !== 'public'          // [RT_PUBLIC_HOME_V1] the public opens on what a person can do, not the map
   // (John, 2026-11-01) the EOC starts with the map, teams and resources on it; the chat is a button away.
@@ -567,6 +569,7 @@ function reportNotice() {
 // ------------------------------------------------------------ [RT_SENSORS_V1] every node's sensors, as they file them
 // [TEAM_HOST_V1] the team lead's phone hosts the team: its hotspot and the team's RAM on this phone
 $('#hostBtn').onclick = () => { status("hosting the team: turn on this phone's hotspot if it is not on, then come back"); window.rtNative.teamHost() }
+$('#placeBtn').onclick = () => { status("the team's RAM moves to databasehost: it stays there when you leave"); window.rtNative.teamPlace('databasehost') }
 $('#sensBtn').onclick = () => { sheet('sens', 'Sensors', '<div class="meta">asking the nodes…</div>'); send({ op: 'sensorHosts' }) }
 function sensorHosts(h) {
   const names = Object.keys(h).sort()

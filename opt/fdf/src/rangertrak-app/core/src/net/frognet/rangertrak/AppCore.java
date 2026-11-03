@@ -32,6 +32,9 @@ import java.util.Map;
  *   {"op":"teamHost","port":21800,"addr":"<where the EOC reaches this phone>","card":{"door":..,"join":..}}
  *                                                           this phone hosts its team's RAM (the lead)
  *   {"op":"door","door":"10.81.81.1"}                       [TEAM_SPLIT_V1] this device is on another network now: its node
+ *   {"op":"teamPlace","at":"databasehost","user":..,"password":..}   [GROUP_PLACE_V1] the lead: the team's RAM lives on
+ *                                                           databasehost (wherever the app's selection puts it), not here
+ *   (teamHost with "user" and "password": the lead places the team "here", on this phone, at the door)
  * Out (to the page):
  *   {"ev":"status","text":"..."}        {"ev":"connected","role":..,"team":..,"user":..,"mission":..,"rams":{..}}
  *   {"ev":"world","who":{id:bag},"pos":{id:bag}}            everyone present now, and where
@@ -46,7 +49,7 @@ public final class AppCore {
 
     public static final String APP = "rangertrak";
     public static final String API = "/FawcettInnovations.RINA.ram_interface.php";
-    public static final String BUILD = "rt-app-2026-11-02-r19";
+    public static final String BUILD = "rt-app-2026-11-03-r20";
 
     private final Ui ui;
     private String door = "", dev = "", name = "", role = "", team = "", user = "", mission = "";
@@ -99,6 +102,7 @@ public final class AppCore {
             else if (op.equals("transportAction")) transportAction(m);
             else if (op.equals("call")) call(m);
             else if (op.equals("teamHost")) teamHost(m);
+            else if (op.equals("teamPlace")) teamPlace(m);
             else if (op.equals("door")) redoor(Json.str(m.get("door")).trim());
             else out("ev", "error", "text", "unknown op " + op);
         } catch (Exception e) { out("ev", "error", "text", op + ": " + e.getMessage()); }
@@ -193,8 +197,10 @@ public final class AppCore {
         return b.length() == 0 ? "none (no network)" : b.toString();
     }
 
-    private Map<String, String> servedRams() throws Exception {
-        Map<String, Object> o = doorCall("op=rams&app=" + APP, null);
+    private Map<String, String> servedRams() throws Exception { return servedRams("", 0); }
+    /** [GROUP_PLACE_V1] with until: held at the door until that RAM is served (a member's where cell), at most waitS */
+    private Map<String, String> servedRams(String until, int waitS) throws Exception {
+        Map<String, Object> o = doorCall("op=rams&app=" + APP + (until.isEmpty() ? "" : "&until=" + until + "&wait_s=" + waitS), null);
         Map<String, String> out = new HashMap<String, String>();
         for (Map.Entry<String, Object> e : Json.obj(o.get("rams")).entrySet()) out.put(e.getKey(), Json.str(e.getValue()));
         return out;
@@ -321,8 +327,38 @@ public final class AppCore {
         card = Json.o("team", cap(team), "door", Json.str(c.get("door")).isEmpty() ? door : Json.str(c.get("door")), "join", Json.str(c.get("join")),
                       "via", Json.str(c.get("via")), "lead", name, "at", System.currentTimeMillis() / 1000);
         say("[TEAM_HOST_V1] hosting team " + cap(team) + "'s RAM on this phone (" + hosting + ")" + (hostAddr.isEmpty() ? "; the EOC is not told where (no address on the network yet)" : "; the EOC is told " + hostAddr));
+        place(m, "here");
         onHosts();
         Follower f = teams.get(team.toLowerCase()); if (f != null) onTeam(team.toLowerCase());
+    }
+
+    /** [GROUP_PLACE_V1] (John 2026-11-03: the lead says where its group lives) the lead's choice, at the door: "here" (this
+     *  phone: no member serves the team's RAM while it is placed here, so the team has one RAM, the lead's) or
+     *  "databasehost" (wherever the app's selection puts it; it stays when the lead leaves). The door checks the lead's
+     *  user and password; every member adopts the place. A phone that is not its team's lead says so and places nothing. */
+    private void place(Map<String, Object> m, String at) throws Exception {
+        String u = Json.str(m.get("user")), pw = Json.str(m.get("password"));
+        if (u.isEmpty()) { say("[GROUP_PLACE_V1] team " + cap(team) + ": no lead's user on this phone: where the team lives is not said at the door"); return; }
+        Map<String, Object> o = doorCall("op=place&app=" + APP, Json.write(Json.o("user", u, "password", pw, "at", at, "guid", "phone-" + dev)));
+        Map<String, Object> pl = Json.obj(o.get("place"));
+        say("[GROUP_PLACE_V1] team " + cap(Json.str(pl.get("role"))) + " lives " + (at.equals("here") ? "on this phone (" + Json.str(pl.get("guid")) + ")" : "on databasehost") + ": the door says so (" + Json.str(o.get("door")) + ")");
+    }
+
+    /** [GROUP_PLACE_V1] the lead moves its team's RAM to databasehost: placed there at the door, this phone's own host
+     *  cell says no RAM (every device follows the door's answer again), and this phone stops serving it (the app stops
+     *  its RAM). Nothing is carried over: each owner writes its own truth again in the team's RAM where it is now. */
+    private void teamPlace(Map<String, Object> m) throws Exception {
+        String at = Json.str(m.get("at"));
+        if (!at.equals("databasehost")) throw new Exception("teamPlace: at databasehost (hosting here is Host team)");
+        if (!role.equals("team") || team.isEmpty()) throw new Exception("only a team's lead places its team");
+        place(m, at);
+        Follower h = hostF;
+        if (h != null && !hosting.isEmpty()) h.write("host", team.toLowerCase(), Json.o("team", cap(team), "ram", "", "dev", dev, "name", name, "at", System.currentTimeMillis() / 1000), true);
+        hosting = ""; hostAddr = ""; card = null;
+        doorRams = servedRams(team.toLowerCase(), 20);
+        say("[GROUP_PLACE_V1] team " + cap(team) + "'s RAM " + (doorRams.containsKey(team.toLowerCase()) ? "is served on databasehost now, at " + doorRams.get(team.toLowerCase())
+            : "is not served yet 20 s after (no member has it running): the team page waits for it"));
+        onHosts();
     }
 
     /** [TEAM_SPLIT_V1] the node this device asks is another one now (the lead's phone joined another FrogNet; a member

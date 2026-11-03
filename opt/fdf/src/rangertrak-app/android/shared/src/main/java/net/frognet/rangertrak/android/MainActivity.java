@@ -117,6 +117,8 @@ public final class MainActivity extends Activity implements LocationListener {
         }
         /** [TEAM_HOST_V1] Host team: this phone's hotspot carries the team, its RAM is on this phone */
         @JavascriptInterface public void teamHost() { runOnUiThread(new Runnable() { public void run() { hostTeam("Host team"); } }); }
+        /** [GROUP_PLACE_V1] the lead: the team's RAM on databasehost, not this phone */
+        @JavascriptInterface public void teamPlace(final String at) { runOnUiThread(new Runnable() { public void run() { placeTeam(at); } }); }
         /** [TEAM_HOST_V1][ENROLL_V1] Scan to join: on the lead's hotspot already, its card; otherwise an enrollment QR */
         @JavascriptInterface public void scanTeam() { new Thread(new Runnable() { public void run() { scanTeamNow(); } }, "scan-team").start(); }
         /** [ENROLL_V1] the scanned line and the password the user typed: enroll at the line's sponsor */
@@ -461,10 +463,23 @@ public final class MainActivity extends Activity implements LocationListener {
         catch (RuntimeException e) { deliver(Json.o("ev", "error", "text", "the team RAM did not start: " + e)); return; }
         com.fawcettinnovations.fdf.member.JoinLine jl = new com.fawcettinnovations.fdf.android.Identity(this).getJoin();
         hostingNow = true;
+        Enrolled me = Enrolled.of(this);                 // [GROUP_PLACE_V1] a lead places its team here, at the door
         final String line = Json.write(Json.o("op", "teamHost", "port", TeamHostService.PORT, "addr", advertise(),
-                "card", Json.o("door", "", "join", jl == null ? "" : jl.getLine(), "via", nodeLan().isEmpty() ? "tunnel" : "lan")));
+                "card", Json.o("door", "", "join", jl == null ? "" : jl.getLine(), "via", nodeLan().isEmpty() ? "tunnel" : "lan"),
+                "user", me.lead ? me.user : "", "password", me.lead ? me.password : ""));
         note("[TEAM_HOST_V1] " + why + ": hosting the team on this phone's hotspot (" + hs + "). Members: Scan team in the Team app, at this phone's hotspot QR code (Hotspot settings, QR code)");
         new Thread(new Runnable() { public void run() { core.handle(line); } }, "team-host").start();
+    }
+
+    /** [GROUP_PLACE_V1] the lead moves its team's RAM to databasehost: placed there at the door (the core), and this
+     *  phone stops serving it (the team RAM's service is stopped; Host team brings it back here) */
+    private void placeTeam(String at) {
+        Enrolled me = Enrolled.of(this);
+        if (!me.lead) { deliver(Json.o("ev", "error", "text", "only the team's lead says where the team lives")); return; }
+        hostingNow = false;
+        try { startService(new android.content.Intent(this, TeamHostService.class).setAction(TeamHostService.STOP_RAM)); } catch (RuntimeException ignored) { }
+        final String line = Json.write(Json.o("op", "teamPlace", "at", at, "user", me.user, "password", me.password));
+        new Thread(new Runnable() { public void run() { core.handle(line); } }, "team-place").start();
     }
 
     /** [TEAM_SPLIT_V1] a member: its lead reaches the node on a LAN (this phone is on it through the lead: no membership
