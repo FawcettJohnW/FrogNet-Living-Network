@@ -88,8 +88,8 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
     private fun alias(area: String, m: JoinManager, scope: Map<String, String>, old: Map<String, String>, taken: Set<String>) =
         bridge.ledger.pick(area, "${m.addr}/32", old, taken, scope)
 
-    private fun exchange(host: String, port: Int, ask: String): Json =
-        connect(host, port, 8000).use { s ->
+    private fun exchange(host: String, port: Int, ask: String, timeoutMs: Int = 8000): Json =
+        connect(host, port, timeoutMs).use { s ->
             s.getOutputStream().write((ask + "\n").toByteArray()); s.getOutputStream().flush()
             Json.parse(s.getInputStream().bufferedReader().readLine() ?: "{}")
         }
@@ -101,6 +101,24 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
         }
         throw LoginRefused("$what: no answer after $tries tries (${last?.message})")
     }
+
+    /** [UNREACHABLE_IN_10S_V1] (John 2026-11-03: "Change the 76s to 10") the door's one exchange: a target that does not
+     *  answer it within UNREACHABLE_MS is given up, each try bounded by what is left (it was 6 tries of 8 s and their
+     *  waits, 76 s, while a lower target that admitted waited for it). A target that answered the door is reachable:
+     *  its login keeps the tries. */
+    private fun <T> withinDeadline(what: String, f: (Int) -> T): T {
+        val end = System.currentTimeMillis() + UNREACHABLE_MS; var last: Exception? = null; var t = 0
+        while (true) {
+            val left = (end - System.currentTimeMillis()).toInt()
+            if (left < 200) throw LoginRefused("$what: no answer in ${UNREACHABLE_MS / 1000} s after $t tries (${last?.message})")
+            t++
+            try { return f(left) } catch (e: java.io.IOException) {
+                last = e; log("$what, try $t: ${e.message}; asking again")
+                Thread.sleep(minOf(1000L, maxOf(0L, end - System.currentTimeMillis())))
+            }
+        }
+    }
+    companion object { const val UNREACHABLE_MS = 10_000L }
 
     /** [LOGIN_IS_AN_INVITATION_V1] (John 2026-11-02: the EOC QR is the join line; after it the app finds its RAMs
      *  "wherever they found it before") the login at the first RAM host on the line that admits it, as the invitation it amounts to: the
@@ -151,8 +169,8 @@ class OrgLogin(private val bridge: Bridge, private val devicePub: String, privat
             ReachPlan(door, m.genericEdge, hub, listOf("${m.addr}/32"), mapOf(a to "${m.addr}/32"), "ram", "allowed", key = m.genericKey) }
         val doorHost = dp.alias.keys.first().substringBefore('/')
         val ans = try {
-            tried("door at ${m.endpoint}") { exchange(doorHost, m.doorPort, "{\"pubkey\":" + Json.quote(devicePub) + ",\"level\":" + Json.quote(line.level) +
-                ",\"device\":" + Json.quote(device) + ",\"nick\":" + Json.quote(nick) + ",\"kind\":" + Json.quote(kind) + "}") }
+            withinDeadline("door at ${m.endpoint}") { left -> exchange(doorHost, m.doorPort, "{\"pubkey\":" + Json.quote(devicePub) + ",\"level\":" + Json.quote(line.level) +
+                ",\"device\":" + Json.quote(device) + ",\"nick\":" + Json.quote(nick) + ",\"kind\":" + Json.quote(kind) + "}", minOf(left, 8000)) }
         } finally { bridge.removeIsland(door, "the door's one exchange is over") }
         if (!ans["ok"].bool) throw LoginRefused("the door at ${m.endpoint} refused: ${ans["why"].str}")
         val edge = ans["edge"].str

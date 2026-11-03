@@ -32,7 +32,8 @@ import base64, json, os, socket, subprocess, sys, tempfile, threading, time
 STATE = os.environ.get("FDF_LOGIN_STATE", "/opt/fdf/var/login.json")
 WG_IMPL = os.environ.get("FDF_WG_IMPL", "")                      # "wireguard-go" where the kernel has no WireGuard
 TRIES = 6
-BUILD_TAG = "fdf-login-2026-11-03-r3"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
+UNREACHABLE_S = 10.0   # [UNREACHABLE_IN_10S_V1] (John 2026-11-03: "Change the 76s to 10") a door that does not answer in this is given up
+BUILD_TAG = "fdf-login-2026-11-03-r4"              # [APP_SAYS_ITS_BUILD_V1] said when a login starts
 
 
 def log(*a):
@@ -132,21 +133,23 @@ def at_manager(line, m, i, st, cred, nick, kind):
     me = st.setdefault("managers", {}).setdefault(m["name"] or m["endpoint"], {})
     door = "wg-door%d" % i                                         # [LOGIN_AT_ALL_AT_ONCE_V1] each target its own
     # 1 the door, on the generic credential, for one exchange
-    ans = None
-    for t in range(1, TRIES + 1):
+    # [UNREACHABLE_IN_10S_V1] the door's one exchange within UNREACHABLE_S, each try bounded by what is left (it was 6
+    # tries of 8 s and their waits, 76 s, while a lower target that admitted waited for it in line order)
+    ans, t, end = None, 0, time.monotonic() + UNREACHABLE_S
+    while ans is None and end - time.monotonic() > 0.2:
+        t += 1
         iface_up(door, m.get("generic", line["generic"])["privkey"], m.get("generic", line["generic"])["edge"],
                  m["pubkey"], m["endpoint"], m["addr"], 99)
         try:
             ans = exchange(m["addr"], m["door_port"], {"pubkey": st["pubkey"], "level": line["level"], "device": st["device"],
-                                                       "nick": nick, "kind": kind}, door)
-            break
+                                                       "nick": nick, "kind": kind}, door, timeout=min(8.0, max(0.2, end - time.monotonic())))
         except (OSError, ValueError) as e:                         # another device on the generic credential, or slow
             log("door at %s, try %d: %s; asking again" % (m["endpoint"], t, e))
-            time.sleep(1 + t)
+            time.sleep(min(1.0, max(0.0, end - time.monotonic())))
         finally:
             iface_down(door)                                       # 2 the generic tunnel is gone after the one exchange
     if not ans or not ans.get("ok"):
-        raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer after %d tries" % TRIES)))
+        raise Refused("the door at %s refused: %s" % (m["endpoint"], (ans or {}).get("why", "no answer in %.0f s after %d tries" % (UNREACHABLE_S, t))))
     log("door at %s: I am %s, edge %s (%s)%s" % (m["endpoint"], ans["name"], ans["edge"], ans["state"],
         ", holding level %s here (one level per host)" % ans["held"] if ans.get("held") else ""))   # [ONE_LEVEL_PER_HOST_V1]
     if ans.get("state") != "admitted":                              # [ONE_LEVEL_PER_HOST_V1] restricted now: no session here
